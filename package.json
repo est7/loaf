@@ -1,0 +1,40 @@
+{
+  "name": "loaf-cli",
+  "version": "0.1.0",
+  "description": "A TypeScript CLI scaffold built with Ink, Commander, Zod, Vitest, tsdown, and JSONL persistence.",
+  "type": "module",
+  "bin": {
+    "loaf": "./dist/cli.mjs"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22",
+    "bun": ">=1.0.0"
+  },
+  "scripts": {
+    "dev": "bun run src/cli.tsx",
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "check": "bun run typecheck && bun run test && bun run build",
+    "prepublishOnly": "bun run check"
+  },
+  "packageManager": "bun@1.3.13",
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^14.0.3",
+    "ink": "^7.0.2",
+    "react": "^19.2.6",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^25.7.0",
+    "@types/react": "^19.2.14",
+    "tsdown": "^0.22.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.6"
+  }
+}

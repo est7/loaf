@@ -1,0 +1,195 @@
+{
+  "_meta": {
+    "schema_version": 1,
+    "lang": "en",
+    "note": "All keys mirror schemas.ts stable IDs. Diagnostic templates use mustache-style {var} placeholders matched to gate-diagnostic.failures[].vars."
+  },
+
+  "evidence_kind": {
+    "task-summary":   "Task summary",
+    "verify-review":  "Code review",
+    "spec-review":    "Spec review",
+    "acceptance":     "Acceptance check",
+    "visual-review":  "Visual review",
+    "gate-decision":  "Gate decision",
+    "local-check":    "Local check",
+    "manual":         "Manual verification",
+    "waiver":         "Risk waiver",
+    "spike-finding":  "Spike finding"
+  },
+
+  "phase": {
+    "TRIAGE":  "Triage",
+    "SPEC":    "Spec",
+    "EXECUTE": "Execute",
+    "VERIFY":  "Verify",
+    "SETTLE":  "Settle",
+    "DONE":    "Done"
+  },
+
+  "sub_state": {
+    "TRIAGE.score":     "Triage / score",
+    "TRIAGE.confirm":   "Triage / confirm profile",
+    "SPEC.proposal":    "Spec / proposal",
+    "SPEC.spec":        "Spec / author EARS+Gherkin",
+    "SPEC.plan":        "Spec / plan",
+    "SPEC.design":      "Spec / design + tasks",
+    "EXECUTE.plan":     "Execute / plan policies",
+    "EXECUTE.task":     "Execute / running task",
+    "EXECUTE.done":     "Execute / all tasks final",
+    "VERIFY.plan":      "Verify / applicable checks",
+    "VERIFY.check":     "Verify / running check",
+    "VERIFY.accept":    "Verify / accept gate",
+    "SETTLE.reconcile": "Settle / reconcile",
+    "SETTLE.lessons":   "Settle / lessons",
+    "DONE.delivered":   "Done · delivered",
+    "DONE.archived":    "Done · archived",
+    "DONE.abandoned":   "Done · abandoned"
+  },
+
+  "task_kind": {
+    "behavioral": "Behavioral",
+    "structural": "Structural",
+    "visual-ui":  "Visual UI",
+    "docs":       "Docs",
+    "spike":      "Spike",
+    "chore":      "Chore"
+  },
+
+  "step": {
+    "red":                "Red (failing test)",
+    "implement":          "Implement",
+    "refactor":           "Refactor",
+    "mockup":             "Mockup",
+    "screenshot-compare": "Screenshot compare",
+    "draft":              "Draft",
+    "review":             "Review",
+    "explore":            "Explore",
+    "prototype":          "Prototype",
+    "record":             "Record",
+    "execute":            "Execute"
+  },
+
+  "verify_check_kind": {
+    "run":        "Run (test + lint + typecheck)",
+    "review":     "Review",
+    "acceptance": "Acceptance (E2E)",
+    "visual":     "Visual"
+  },
+
+  "applicability": {
+    "must":     "Must",
+    "optional": "Optional",
+    "na":       "Not applicable"
+  },
+
+  "step_status": {
+    "na":      "N/A",
+    "pending": "Pending",
+    "running": "Running",
+    "passed":  "Passed",
+    "failed":  "Failed",
+    "waived":  "Waived"
+  },
+
+  "finding_category": {
+    "spec-gap":         "Spec gap",
+    "spec-defect":      "Spec defect",
+    "impl-defect":      "Implementation defect",
+    "test-defect":      "Test defect",
+    "new-scope":        "New scope",
+    "risk-escalation":  "Risk escalation"
+  },
+
+  "finding_action": {
+    "amend-spec":  "Amend spec",
+    "amend-tasks": "Amend tasks",
+    "fix-impl":    "Fix implementation",
+    "fix-test":    "Fix test",
+    "defer":       "Defer (this run)",
+    "backlog":     "Backlog (next feature)"
+  },
+
+  "gate": {
+    "spec-lock":     "Spec lock",
+    "verify-accept": "Verify accept"
+  },
+
+  "profile": {
+    "quick":    "Quick",
+    "standard": "Standard",
+    "deep":     "Deep"
+  },
+
+  "pending_kind": {
+    "ask_user_question":   "User input requested",
+    "gate_decision":       "Gate awaiting human decision",
+    "spec_clarification":  "Spec clarification needed",
+    "finding_decision":    "Finding awaiting action",
+    "profile_escalation":  "Profile escalation pending confirm"
+  },
+
+  "diagnostic": {
+    "MISSING_VERIFIABILITY":      "REQ {req_id} must declare measurable, verified_by_scenarios[], or acceptance_na+reason",
+    "DRIVES_NOT_BOUND":           "REQ {req_id} is not referenced by any task.drives[]",
+    "E2E_ACCEPTANCE_UNRESOLVED":  "Scenario {scen_id} (tag=e2e) lacks acceptance binding or acceptance_na+reason",
+    "VISUAL_CONTRACT_UNRESOLVED": "Visual contract {vis_id} lacks visual-ui task binding or visual_na+reason",
+    "TASK_KIND_SCHEMA_INVALID":   "Task {task_id} does not match its kind={kind} schema: {reason}",
+    "NO_OPEN_CLARIFICATIONS":     "spec.md still has open clarifications: {ids}",
+    "TASKS_VERSION_MISMATCH":     "tasks.based_on.spec ({tasks_ver}) ≠ spec.spec_version ({spec_ver})",
+    "EVIDENCE_INCOMPATIBLE":      "Evidence {evidence_id} (kind={kind}) cannot satisfy {covered_id}",
+    "WAIVER_MISSING_REASON":      "Waiver evidence {evidence_id} requires reason ≥10 characters",
+    "WAIVER_NOT_HUMAN":           "Waiver evidence {evidence_id} actor must start with 'human:'; got {actor}",
+    "VISUAL_REVIEW_MISSING_ATTACHMENT": "visual-review evidence {evidence_id} requires at least one attachment with sha256",
+    "PATH_OUTSIDE_WRITE_GUARD":   "Write to {path} not allowed in sub_state={sub_state} step={step}",
+    "PENDING_BLOCKS_ADVANCE":     "pending head {pending_id} (kind={kind}) blocks `loaf advance` until resolved",
+    "GATE_NOT_PENDING":           "`loaf gate decide {gate}` requires pending head kind=gate_decision; current head: {actual_head}",
+    "ESCALATION_NOT_PENDING":     "`loaf profile escalate --confirm` requires pending head kind=profile_escalation; current head: {actual_head}",
+    "AMEND_REJECTED_POST_LOCK":   "spec_locked=true; use `loaf finding raise` instead of `loaf amend`",
+    "DELIVER_FORBIDDEN_FOR_SPIKE": "spike tasks cannot be delivered; use `loaf archive`, `loaf spike convert`, or `loaf abandon`",
+    "DONE_TERMINAL_INVARIANT":    "DONE.* requires state.pending.length === 0 and no task with status=\"in_progress\" in tasks.json",
+    "ABANDON_REQUIRES_REASON":    "loaf abandon requires --reason argument",
+    "TASKS_EXECUTION_DRIFT":      "Task {task_id} step={step} status={status} disagrees with evidence.jsonl",
+    "COVERAGE_NOT_SATISFIED":     "{covered_id} has no evidence that satisfies it (canSatisfy failed for all candidates)"
+  },
+
+  "help": {
+    "start":          "Begin a new feature session in .loaf/<feature>/",
+    "status":         "Print current state.json + artifact health summary",
+    "advance":        "Run next transition + diff guard (git status + write_paths AND-merge)",
+    "resume":         "Resume session; --fresh prints minimal context pack for next iteration",
+    "handoff":        "Write resume-pack.json for context overflow handoff",
+    "spec_submit":    "Validate spec.md against SpecFrontmatter schema and record (strict).",
+    "spec_init":      "Scaffold a spec.md template ready for $EDITOR",
+    "spec_schema":    "Dump SpecFrontmatter JSON Schema",
+    "tasks_submit":   "Validate tasks.json against discriminated-union TaskKind schema",
+    "tasks_register_red": "Register failing test for a behavioral-bug task (required before implement)",
+    "evidence_add":   "Append a new evidence entry; auto-assign EV-id",
+    "evidence_schema": "Dump EvidenceEntry JSON Schema",
+    "waive":          "Record a waiver evidence; actor must start with human: and reason must be >=10 chars",
+    "finding_raise":  "Raise a finding (VERIFY.* always, EXECUTE.* only post-spec-lock)",
+    "verify_status":  "Compute current verify check applicability + status (real-time, never reads reconcile.json)",
+    "gate_decide":    "Record human gate decision; writes evidence kind=gate-decision",
+    "settle":         "Generate reconcile.json (standard+ profile)",
+    "amend":          "Edit spec or tasks pre-lock (rejected post-lock; use findings instead)",
+    "profile_escalate": "Confirm pending profile escalation",
+    "deliver":        "Close session as DONE.delivered (advisory only; no git/gh side effects)",
+    "archive":        "Close session as DONE.archived",
+    "abandon":        "Close session as DONE.abandoned (reason required)",
+    "tui":            "Launch session manager TUI (reads ~/.loaf/registry/)",
+    "sessions_list":  "List all sessions (non-TUI form)",
+    "check":          "Schema-only check for a given artifact or path (CI usage)",
+    "check_tasks":    "Reconcile tasks.execution.status (cache) with evidence.jsonl (proof)",
+    "hook":           "Claude Code hook entrypoint",
+    "doctor":         "Self-diagnose loaf-cli installation, repo layout, config"
+  },
+
+  "status_indicator": {
+    "ask":  "⏸ ask",
+    "gate": "⏸ gate",
+    "run":  "▶ run",
+    "done": "✓ done",
+    "fail": "✗ fail",
+    "wait": "⏳ wait"
+  }
+}

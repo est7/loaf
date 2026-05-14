@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+
+  "_comment": "Example loaf.config.json for an Android/Kotlin project. Place at .loaf/.config/loaf.config.json. All sections are optional; loaf-cli ships defaults. This file replaces v2's protected-files.json + stable-core-manifest.json + mother's constitution.json.",
+
+  "protected_files": [
+    "**/credentials/**",
+    "**/secrets/**",
+    ".env*",
+    "**/*.keystore",
+    "**/google-services.json",
+    "**/AuthService.private.kt"
+  ],
+
+  "stable_core": [
+    "core-api/**",
+    "**/protocol/**",
+    "domain/contract/**"
+  ],
+
+  "paths": {
+    "source": [
+      "app/src/main/**",
+      "core/*/src/main/**",
+      "feature/*/src/main/**"
+    ],
+    "tests": [
+      "**/src/test/**",
+      "**/src/androidTest/**"
+    ],
+    "docs": [
+      "docs/**",
+      "**/*.md",
+      "README*"
+    ],
+    "ui": [
+      "**/res/layout/**",
+      "**/res/values/**",
+      "**/ui/**",
+      "**/*Screen.kt",
+      "**/*Composable.kt"
+    ],
+    "public_api": [
+      "core-api/**",
+      "**/api/**",
+      "**/contract/**"
+    ],
+    "schema": [
+      "**/*.graphql",
+      "**/*.proto",
+      "**/schemas/**",
+      "**/migrations/**"
+    ],
+    "security": [
+      "**/auth/**",
+      "**/crypto/**",
+      "**/token/**",
+      "**/keystore/**"
+    ]
+  },
+
+  "commands": {
+    "run":        ["./gradlew testDebugUnitTest"],
+    "lint":       ["./gradlew lintDebug"],
+    "typecheck":  ["./gradlew compileDebugKotlin"],
+    "visual":     ["./gradlew verifyPaparazziDebug"],
+    "acceptance": ["./gradlew connectedDebugAndroidTest"],
+    "build":      ["./gradlew assembleDebug"]
+  },
+
+  "constitution": {
+    "tdd_strictness": "preferred",
+    "default_ceremony_label": "standard",
+    "require_red_for_behavioral": true,
+    "allow_manual_for_requirement": true,
+    "require_attachment_for_visual": true
+  },
+
+  "locale": {
+    "default_lang": "zh"
+  }
+}

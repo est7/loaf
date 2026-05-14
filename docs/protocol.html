@@ -1,0 +1,1850 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>loaf-cli Protocol v1 (rev 4.3) · Visualization</title>
+  <style>
+    :root {
+      --bg: #f7f8fb;
+      --panel: #ffffff;
+      --panel-2: #f3f4f6;
+      --ink: #18202a;
+      --muted: #4b5563;
+      --line: #d9dee7;
+      --strong: #0b1220;
+      --accent: #2f6fed;
+      --accent-soft: #eef4ff;
+      --gate: #b45309;
+      --gate-soft: #fffbeb;
+      --rec: #047857;
+      --rec-soft: #ecfdf5;
+      --danger: #b91c1c;
+      --danger-soft: #fef2f2;
+      --code-bg: #f3f4f6;
+      --code: #0f172a;
+
+      --c-triage:  #e0e7ff;  --c-triage-stroke:  #4f46e5;
+      --c-spec:    #dbeafe;  --c-spec-stroke:    #2563eb;
+      --c-execute: #d1fae5;  --c-execute-stroke: #059669;
+      --c-verify:  #fed7aa;  --c-verify-stroke:  #c2410c;
+      --c-settle:  #ede9fe;  --c-settle-stroke:  #6d28d9;
+      --c-done:    #e5e7eb;  --c-done-stroke:    #4b5563;
+
+      --back-amend-spec:  #dc2626;
+      --back-amend-tasks: #d97706;
+      --back-fix-impl:    #2563eb;
+      --back-fix-test:    #0891b2;
+    }
+    * { box-sizing: border-box; }
+    html, body { background: var(--bg); color: var(--ink); }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      margin: 0; padding: 28px 22px; line-height: 1.6;
+    }
+    .container { max-width: 1180px; margin: 0 auto; }
+    header { border-bottom: 1px solid var(--line); padding-bottom: 18px; margin-bottom: 28px; }
+    h1 { font-size: 24px; margin: 0 0 6px; color: var(--strong); }
+    .sub { color: var(--muted); font-size: 14px; }
+    .pill {
+      display: inline-block; padding: 2px 10px; border-radius: 999px;
+      font-size: 12px; font-weight: 600; margin-left: 6px;
+    }
+    .pill-rev { background: var(--accent-soft); color: var(--accent); }
+    .pill-rec { background: var(--rec-soft); color: var(--rec); }
+    .pill-warn { background: var(--gate-soft); color: var(--gate); }
+    .pill-danger { background: var(--danger-soft); color: var(--danger); }
+
+    h2 {
+      font-size: 18px; margin: 36px 0 14px;
+      padding-bottom: 6px; border-bottom: 1px dashed var(--line);
+      color: var(--strong);
+    }
+    h3 { font-size: 15px; margin: 18px 0 8px; color: var(--strong); }
+
+    .card {
+      background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+      padding: 16px 18px; margin-bottom: 14px;
+    }
+    .grid { display: grid; gap: 12px; }
+    .grid-2 { grid-template-columns: 1fr 1fr; }
+    .grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+    @media (max-width: 900px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+
+    .artifact-name {
+      font-family: ui-monospace, "SF Mono", Menlo, monospace;
+      font-size: 13px;
+      color: var(--accent);
+    }
+    .artifact-name .new {
+      background: var(--rec-soft); color: var(--rec); font-size: 11px;
+      padding: 1px 6px; border-radius: 3px; margin-left: 6px;
+    }
+    .artifact-name .changed {
+      background: var(--gate-soft); color: var(--gate); font-size: 11px;
+      padding: 1px 6px; border-radius: 3px; margin-left: 6px;
+    }
+    .artifact-tag {
+      display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 3px;
+      background: var(--panel-2); color: var(--muted);
+      margin-right: 4px;
+    }
+
+    table {
+      width: 100%; border-collapse: collapse; margin: 6px 0 12px;
+      font-size: 13px;
+    }
+    th, td {
+      padding: 7px 10px; text-align: left;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+    }
+    th { color: var(--muted); font-weight: 600; }
+    td code { background: var(--code-bg); padding: 1px 5px; border-radius: 3px; color: var(--code); font-family: ui-monospace, monospace; font-size: 12px; }
+
+    pre, .code {
+      background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px;
+      padding: 10px 12px; overflow-x: auto;
+      font-family: ui-monospace, "SF Mono", Menlo, monospace;
+      font-size: 12px; color: var(--code); line-height: 1.5;
+    }
+
+    .legend-row { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 6px; }
+    .legend-row span { display: inline-flex; align-items: center; gap: 5px; }
+    .swatch { width: 11px; height: 11px; border-radius: 2px; display: inline-block; }
+
+    .sm-svg { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 8px; }
+    .sm-svg text { font-family: ui-monospace, monospace; fill: var(--strong); font-size: 11px; }
+    .sm-svg .label { fill: var(--muted); font-size: 10px; }
+    .sm-svg .state-node { cursor: pointer; transition: all 0.18s ease; }
+    .sm-svg .state-node:hover { filter: brightness(0.96); }
+    .sm-svg .state-node.active { stroke-width: 3.5; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.18)); }
+
+    /* Click-to-inspect detail panel */
+    #state-detail { display: none; margin-top: 14px; }
+    #state-detail.active { display: block; }
+    #state-detail .detail-head {
+      display: flex; align-items: baseline; gap: 12px;
+      padding-bottom: 10px; margin-bottom: 12px;
+      border-bottom: 1px solid var(--line);
+    }
+    #state-detail .detail-phase {
+      display: inline-block; padding: 2px 10px; border-radius: 4px;
+      font-size: 11px; font-weight: 700; font-family: ui-monospace, monospace;
+    }
+    #state-detail .detail-title { font-size: 17px; font-weight: 600; color: var(--strong); margin: 0; }
+    #state-detail .detail-desc { color: var(--muted); font-size: 13px; margin: 2px 0 0; }
+    #state-detail .detail-grid { display: grid; grid-template-columns: 1.1fr 1fr; gap: 16px; }
+    @media (max-width: 900px) { #state-detail .detail-grid { grid-template-columns: 1fr; } }
+    #state-detail h4 {
+      font-size: 12px; font-weight: 700; text-transform: uppercase;
+      color: var(--muted); letter-spacing: 0.06em; margin: 0 0 6px;
+    }
+    #state-detail .field-list { font-size: 12px; color: var(--ink); padding-left: 0; list-style: none; margin: 0; }
+    #state-detail .field-list li { padding: 3px 0; border-bottom: 1px dashed var(--line); font-family: ui-monospace, monospace; }
+    #state-detail .field-list li:last-child { border-bottom: 0; }
+    #state-detail .field-list .k { color: var(--accent); }
+    #state-detail .next-line { font-size: 12px; color: var(--muted); margin-top: 6px; font-family: ui-monospace, monospace; }
+    #state-detail .next-line .arrow { color: var(--rec); margin: 0 6px; }
+    #state-detail .next-line .trigger { color: var(--gate); }
+    #state-detail .empty { color: var(--muted); font-size: 12px; font-style: italic; }
+    .nav-hint { color: var(--muted); font-size: 12px; margin-top: 10px; text-align: center; }
+    .nav-hint kbd {
+      background: var(--panel-2); border: 1px solid var(--line); border-radius: 3px;
+      padding: 1px 6px; font-family: ui-monospace, monospace; font-size: 11px; color: var(--ink);
+    }
+
+    .matrix-must { background: var(--rec-soft); color: var(--rec); font-weight: 600; }
+    .matrix-opt  { background: var(--gate-soft); color: var(--gate); }
+    .matrix-na   { background: var(--panel-2); color: var(--muted); }
+
+    footer {
+      margin-top: 36px; padding-top: 18px; border-top: 1px solid var(--line);
+      color: var(--muted); font-size: 13px;
+    }
+    .changelog ul { margin: 4px 0; padding-left: 18px; }
+    .changelog li { margin: 3px 0; font-size: 13px; color: var(--muted); }
+    .changelog li strong { color: var(--ink); }
+  </style>
+</head>
+<body>
+<div class="container">
+
+<header>
+  <h1>loaf-cli Protocol v1 · 可视化伴侣
+    <span class="pill pill-rev">rev 4.3</span>
+  </h1>
+  <p class="sub">机器契约见 <code>schemas.ts</code>,prose source 见 <code>protocol.md</code>。本页是这两者的视觉对照。</p>
+  <div class="legend-row">
+    <span><span class="swatch" style="background: var(--c-triage-stroke)"></span> TRIAGE</span>
+    <span><span class="swatch" style="background: var(--c-spec-stroke)"></span> SPEC</span>
+    <span><span class="swatch" style="background: var(--c-execute-stroke)"></span> EXECUTE</span>
+    <span><span class="swatch" style="background: var(--c-verify-stroke)"></span> VERIFY</span>
+    <span><span class="swatch" style="background: var(--c-settle-stroke)"></span> SETTLE</span>
+    <span><span class="swatch" style="background: var(--c-done-stroke)"></span> DONE</span>
+    <span style="margin-left: 18px"><span class="swatch" style="background: var(--back-amend-spec)"></span> amend-spec(back-edge)</span>
+    <span><span class="swatch" style="background: var(--back-amend-tasks)"></span> amend-tasks</span>
+    <span><span class="swatch" style="background: var(--back-fix-impl)"></span> fix-impl</span>
+    <span><span class="swatch" style="background: var(--back-fix-test)"></span> fix-test</span>
+  </div>
+</header>
+
+<!-- ============ rev 3.1 + 3.2 + 4.0 + 4.1 + 4.2 + 4.3 changelog ============ -->
+<section class="card changelog">
+  <h3 style="margin-top: 0">rev 3.1 + 3.2 + 4.0 + 4.1 + 4.2 + 4.3 变更概览</h3>
+  <ul>
+    <li><strong>rev 4.3 — moni LLM-friendliness 审计共识落地</strong>(driven by <code>adr/0004-moni-audit-resolution.md</code>):11 项接受 / 3 项拒绝,纯 additive surface,无 <code>schema_version</code> bump / 无新 phase / 无新 sub_state / 无新 hook。
+      <ul>
+        <li><strong>5 个 Tier 1 mutator</strong>:<code>loaf spec add-req</code> / <code>loaf spec add-scenario</code> / <code>loaf spec add-visual</code>(新)+ <code>loaf tasks add --input</code>(positional 砍)+ <code>loaf evidence add --input</code>(<code>attachments</code> 简化为 <code>[{path}]</code>,CLI 算 sha256+mime+canonical)。全部走 <code>--input &lt;-|inline|path&gt;</code> 统一 modality(A3 / A11);batch 支持(<code>z.union([T, z.array(T).nonempty()])</code>)+ 三纪律(all-or-nothing / spec_version +1 per invocation / atomic id alloc;A10)</li>
+        <li><strong>ID 分配纪律</strong>(A5):REQ/SCEN/VIS input 携 <code>id_namespace</code>(stem,不含序号),CLI 在 lock 内拼完整 id;两 regex 独立(input <code>^REQ-[A-Z][A-Z0-9]*$</code> vs output <code>^REQ-[A-Z][A-Z0-9]*-\d{3,}$</code>)。T/EV/FND/PEND CLI 全自动</li>
+        <li><strong>4 个新 const 表 + 1 helper type</strong>(<code>schemas.ts</code> §37-§40,ADR 原计划 §35-§38 与 rev 4.2 既有 §35 <code>FLAG_EXCLUSIONS</code> / §36 <code>HookEvent</code> 挤占顺延):<code>FINDING_ACTION_GRID</code> 6×6 3-tier(typical/unusual/incoherent,A7)+ <code>CONTEXT_PACK_TEMPLATES</code> 20 sub_state × projection(A8)+ <code>ERROR_CATALOG</code> 四段错误模板(A9)+ <code>INPUT_SCHEMAS</code> + <code>InputSourceResolver</code>(A2)</li>
+        <li><strong>Tier 1.5 <code>loaf context pack [--phase auto|&lt;sub_state&gt;]</code></strong>(A8):取代 <code>loaf resume --fresh</code>(已砍);phase-aware context 切片,read-only。<code>loaf resume</code> 只剩 handoff 恢复</li>
+        <li><strong>错误契约升级</strong>(A9):exit 2 codes 统一四行格式(<code>error / context / fix / see</code>)+ <code>ERROR_CATALOG</code> 单一真理源 + i18n bundle 按 code 翻译;新增 9 codes(<code>INPUT_FILE_NOT_FOUND</code> / <code>MISSING_INPUT</code> / <code>SCHEMA_VALIDATION_FAILED</code> / <code>SPEC_LOCKED_NO_DIRECT_EDIT</code> / <code>SPEC_NOT_INITIALIZED</code> / <code>ATTACHMENT_NOT_FOUND</code> / <code>ATTACHMENT_NOT_FILE</code> / <code>FINDING_ACTION_UNUSUAL_REASON_REQUIRED</code> / <code>FINDING_ACTION_INCOHERENT</code>);refactor C drift sweep 再补 12 codes(spec-lock / lock contention / session dispatch / pending invariant)+ <code>MISSING_MEASURABLE</code> 重命名为 <code>MISSING_VERIFIABILITY</code> 对齐 i18n bundle key</li>
+        <li><strong>§15 freeze rewording</strong>(rewording of ADR-0003,not full supersede):v1.0 GA 之后 surface 永久冻结;GA 之前允许 ADR-trail 下 additive 扩展 CLI 命令 / const 表 / error codes(schema_version / phase / sub_state / hook 不允许动)</li>
+        <li><strong>三层架构边界明示</strong>(A2):<code>protocol.md</code> §19.1 加一句 "shape enforcement = CLI 责任,workflow content = skill 责任"(ADR-0001 corollary;若放 skill,每个 3rd-party workflow skill 都要重写 schemas.ts 子集 + 引入 race window)</li>
+        <li><strong>3-tier finding grid</strong>(A7):6×6 cell 分 <code>typical</code>(reason 可选)/ <code>unusual</code>(require <code>--reason ≥ 20 字符</code>)/ <code>incoherent</code>(直接 block,4 个结构性死格:<code>spec-gap×{fix-impl,fix-test}</code> + <code>new-scope×{fix-impl,fix-test}</code> — 没有 target task 可 apply transition)。<code>reconcile.unusual_findings_count</code> 配套审计字段</li>
+        <li><strong>refactor 3 commit(ADR 「未处理项」清理)</strong>:CONCURRENCY_INVARIANTS 加 rev 4.3 batch transaction 段 + 5 新 atomic_multi_artifact_commands 行;新建 §41 event-name canonical registry(防 plan.md / design.html drift);DiagnosticCode + ERROR_CATALOG 全量迁移(GateDiagnostic.failures[].code 从 <code>z.string().min(3)</code> 紧到 <code>z.lazy(() =&gt; DiagnosticCode)</code>);ContextPackProjection lockstep contract note(§38)</li>
+        <li><strong>新增 reference 文档</strong>:<code>references/finding-matrix-rationale.md</code>(6×6 每格判定理由)+ <code>references/incremental-construction.md</code>(12 节系统化设计原则)</li>
+        <li><strong>拒绝</strong>:<code>loaf config init --preset android</code>(content not shape) / <code>loaf snapshot diff</code>(query 复合,非协议层) / 全 warn 无 block 的 finding matrix(target-determinacy 不可解)— 详 ADR-0004 §R1-R3</li>
+      </ul>
+    </li>
+    <li><strong>rev 4.2 — Profile enum 砍,改 Ceremony hybrid B+label</strong>(ADR-0003 Addendum 6):<code>Profile</code> enum 整个砍。替代:<code>Ceremony</code> 6 字段 schema(<code>spec_phase</code>/<code>verify_phase</code>/<code>settle_phase</code>/<code>strict_spec_review</code>/<code>lessons_required</code>/<code>strict_drift_check</code>)+ <code>ceremony_label</code> cosmetic 字符串(skill 填,CLI 透传)。<code>PROFILE_POLICIES</code> 表移到 skill PRESETS(loaf-skill 维护 quick/light/standard/deep 4 个默认 preset;3rd-party skill 自由起 preset 名)。<code>ESCALATION_RULES</code> 改 <code>ESCALATION_DETECTIONS</code>(CLI 检测 trigger 后 raise pending,skill 决定新 ceremony)。Rationale:§1 原则 14 — Profile 是 content/policy,归 skill;CLI 严谨性 0 损失(同 ceremony.* 6 flag 强制 phase 跑哪些);cosmetic label 保住品牌名 readability;3rd-party client 协议中立</li>
+    <li><strong>rev 4.1 cleanup</strong>(driven by <code>adr/0003-codex-rev4-audit-resolution.md</code>):codex 二轮审计共识落地 — 接受 11、拒绝 6,无 schema_version bump、无新 phase/sub-state/hook/CLI。
+      <ul>
+        <li><strong>Correctness 缺口闭合</strong>:schemas.ts §34 <code>CONCURRENCY_INVARIANTS</code> 单写者纪律 + per-session <code>.lock</code> + atomic mutation transaction;<code>EvidenceAddInput</code> 砍 <code>--id</code> CLI flag(EV-id CLI 独占分配);<code>loaf tasks step done</code> 单 transaction(execution.status 改 + evidence add 同 lock);<code>loaf tasks check</code> 报 <code>TASK_STATUS_WITHOUT_PROOF</code>,evidence 是真理源</li>
+        <li><strong>协议缺口闭合</strong>:protocol.md §8.6 + <code>SubStateContract.mutation_rights</code> 加 mutation rights matrix(SPEC.plan / SPEC.design / EXECUTE.plan / EXECUTE.work 四档);state.json <code>pending</code> 反向定义(不是 todo list)</li>
+        <li><strong>纪律 + 防腐</strong>:§1 Principle #15(promotion / projection / mutation 三纪律);§7.0 Sub-state promotion rule(verification concern 必须改变 ≥2 项机器行为才能 promote 成 first-class sub_state)+ 当前 4 VERIFY lane 反向 audit;§6.2 finding action 表加 <code>target payload</code> 列(rev 4 砍 <code>current_step</code> 后表达污染必修);<code>EXECUTE.task</code> → <code>EXECUTE.work</code> rename(fan-out 多元);§4.12 RegistryFile 声明 best-effort projection;§13.1 artifact 三层 → 四层(Canonical truth / Derived projection / Debug-trace / Advisory)</li>
+        <li><strong>CLI design audit follow-up</strong>(clig.dev 二轮):§10.7 <code>--dry-run</code> / <code>-n</code> global flag(v1.0,fan-out worker pre-check)+ §10.11 build-time URL stamping(<code>LOAF_DOCS_URL</code> / <code>LOAF_ISSUE_URL</code>;§15 done-when 第 5 条强制)+ 新 §10.15 <code>loaf doctor</code> 诊断清单(9 个 check)+ <code>FORCE_COLOR</code> / <code>DEBUG</code> env vars respect + 命名清理(<code>loaf settle</code> 进 chaos list、<code>loaf tasks &lt;op&gt;</code> 展开 6 行、§10.0 microcopy 修剪)</li>
+        <li><strong>多 pending 队列升级 v1.0</strong>(原 §16 deferred):<code>StateJson.pending: PendingPrompt | null</code> → <code>PendingPromptEntry[]</code>(default <code>[]</code>);FIFO 严格(protocol 层只在 head kind ∈ {<code>gate_decision</code>, <code>profile_escalation</code>} 时拒 <code>loaf advance</code>,其余命令放行,fan-out 调度归 skill;resolve 永远 pop head);新 <code>PendingId</code> + <code>PendingPromptEntry</code>(extends <code>PendingPrompt</code> 加 <code>pending_id</code> + <code>at</code> + <code>raised_by_task_id</code>);RegistryFile 加 <code>pending_queue_depth</code> 派生字段;新加 <code>loaf pending list / status</code> 命令;§14.4 TUI <code>⏸ ask [×N]</code> 队列徽章。动机:rev 4.0 fan-out 多 worker 各自 raise pending,single-valued 强制 serialize 失败</li>
+        <li><strong>v1.1 措辞统一清理</strong>:协议正文不再用 "v1.1 推迟" 模糊承诺。§10.14 "自动 commit/PR/CI" 改 "永久 non-goal"(rev 3.1 锁);§12.2 "lessons promote/list" 改 "v1 显式不做"(scope discipline)。唯一 "v1.1" 残留是 ADR-0003 Open Question 段(历史 reasoning,正确)</li>
+        <li><strong>quick 跳过 SETTLE 直跳 DONE</strong>(ADR-0003 Addendum 3):reconcile.json 是 standard+ / lessons.md quick skip,SETTLE 对 quick 本来就是纯 pass-through。quick non-spike 路径从 4 phase → 3 phase(<code>TRIAGE / EXECUTE / DONE</code>);<code>loaf deliver</code> 从 <code>EXECUTE.done</code> 直接转 <code>DONE.delivered</code>(verify-min 在此入口跑)。<code>PROFILE_POLICIES.quick.phases_run</code> 砍 SETTLE;<code>SUB_STATE_CONTRACTS.EXECUTE.done.next</code> 加 <code>"DONE.delivered"</code>;<code>SETTLE.*</code> entry 条件标 "standard / deep only"。spike 仍走 §8.3 三出口(用户显式)。典型 use case:"button → 16.dp" 单文件改动省 2 个 advance 调用</li>
+        <li><strong>State machine 图拆 3 profile views</strong>(rev 4.1):quick / standard / deep 各自一图,deep 用 overlay 表达(state machine shape 跟 standard 100% 等同,只是 4 个 enforcement extra 严)。Quick SVG 3-phase 极简(8 sub-state,无 gate / 无 back-edge,verify-min 标在 deliver 边线);standard SVG 全 20 sub-state + 2 gate + 4 back-edge;deep overlay 4 个 badge(spec-reviewer required / actor ≠ implementer enforced / lessons.md MUST / strict drift-check)。protocol.md §2 ASCII 保持 unified(prose cheap)</li>
+        <li><strong>Session dispatch + AI client bridge</strong>(ADR-0003 Addendum 4):支持单 cwd 多 active feature 并行(unrelated module 同 repo)。CLI dispatch 5 级 fallback:<code>--session &lt;UUID&gt;</code> / <code>--feature &lt;name&gt;</code> flag &gt; <code>$LOAF_SESSION</code> / <code>$LOAF_FEATURE</code> env &gt; auto-pick(1 个 non-DONE feature)。<strong>无 <code>.loaf/.active</code></strong>(per-process ENV 避免 race)。<code>loaf start</code> stdout 最后一行 = UUID;<code>loaf sessions list --in-cwd</code> 拾回。AI assistant client(Claude Code 等)的 Bash tool one-shot + compaction 风险 → client 自己 bridge 到 <code>~/.loaf/&lt;vendor&gt;-bridge/&lt;conv-id&gt;.json</code>(skill 级实现,不是 loaf-cli artifact);多 Claude 同 cwd 各自 conversation_id = 各自 bridge file = 零冲突。详见 protocol.md §10.3 + §19.5</li>
+        <li><strong>拒绝</strong>:VERIFY flatten / SPEC flatten / pending 改名 / finding action 合并 redo-work / registry version anchors / CLI canonical-alias(理由见 ADR-0003 Rejected)</li>
+      </ul>
+    </li>
+    <li><strong>rev 4.0 fresh-design refactor</strong>(driven by <code>adr/0002-fresh-design-rev4-candidates.md</code>):
+      <ul>
+        <li><strong>Spine</strong>:Phase 按工作性质分两类 —— <strong>Worker phase</strong>(EXECUTE,允许 sub-agent fan-out 并发)vs <strong>Control phase</strong>(TRIAGE / SPEC / VERIFY / SETTLE,主 skill serial)</li>
+        <li><strong>C4</strong>:<code>StateJson</code> 砍 3 字段 <code>current_task / current_step / current_check</code>;<code>RegistryFile</code> 同砍 + 加 <code>active_tasks: TaskId[]</code>(derived);DONE.* 终态 active-set invariant 转 <code>transitions.ts</code> cross-file 强制</li>
+        <li><strong>C8</strong>:<code>SubState</code> 砍 <code>VERIFY.check</code>,加 4 个 check-specific(<code>VERIFY.run / .review / .acceptance / .visual</code>);intent 走 sub_state,17 → 20</li>
+        <li><strong>C9'</strong>:<code>RegistryFile</code> 加 <code>feature: string</code>(derived projection of <code>.loaf/&lt;feature&gt;/</code> dir basename)。<strong>StateJson 不加同字段</strong> — 不对称设计:RegistryFile path 不含 feature 上下文(TUI 启动单文件读需要),StateJson path 已含可 derive(一行 <code>path.basename</code>)</li>
+        <li><strong>CLI hardening</strong>(protocol.md §10 整段重写,经 <a href="https://clig.dev">clig.dev</a> two-pass audit):stdout/stderr 分工 / help+<code>-h</code>+did-you-mean / TTY+color+pager / env vars(<code>LOAF_*</code> + respect <code>NO_COLOR</code>/<code>EDITOR</code>/<code>PAGER</code>)/ <strong>config precedence</strong>(flag>env>project>user>defaults)/ SIGINT cleanup(130 + 3s 超时,second-Ctrl-C 非破坏)/ <strong>state-change output convention</strong>(每个 mutating 命令 stderr 一行 action→state + next hint,<code>--quiet</code> 抑制)/ <strong>long-op progress</strong>(>1s 命令 stderr spinner/milestone)/ error rewriting(bug-report URL 带 prefilled context)/ subcommand 命名 noun-verb 默认 + session-lifecycle 单 verb chaos deviation / global flags(<code>--no-input</code>/<code>-v</code>/<code>--quiet</code>/<code>--plain</code> alias)/ exit codes 三档(0/1/2/130)/ <code>--format json</code> 声明 stable contract / <strong>man pages</strong> per subcommand group / no-telemetry + crash log 永不自动上传 / 命名修正:<code>loaf check tasks</code> → <code>loaf tasks check</code>;<code>loaf tasks status</code> → <code>loaf tasks list</code></li>
+        <li><strong>C6</strong>:<code>resume-pack.json</code> 加 <code>tasks_active_summary</code> 补齐 active 信息</li>
+        <li><strong>C1 α</strong>:Phase 不合并(6 phase 不变;worker / control 性质不同)</li>
+        <li><strong>Wang batch parallel</strong> = skill subagent fan-out(EXECUTE 内);<strong>rule-candidate auto-promote</strong> = skill 编排(evidence + finding lifecycle 现有 surface 足够)</li>
+      </ul>
+    </li>
+    <li><strong>rev 3.2 cleanup</strong>(driven by <code>adr/0001-task-graph-is-dag-not-tree.md</code>):砍 <code>constitution.decomposition_preference</code> + <code>constitution.max_tasks_warning_threshold</code>;hierarchical workflow 不进协议,task graph 永远是 DAG;flatten + coarse-default 下沉到 loaf-skill</li>
+    <li><strong>架构定位</strong>:loaf-cli = 协议内核(opinionated SDD,schemas 即契约);loaf-skill = 工作流编排;3rd-party = schema 适配器(详见 §架构)</li>
+    <li><strong>Applicability</strong> 三档 <code>must / optional / na</code>(砍 <code>should</code>);MUST 只能 <code>passed</code> 或 <code>waived</code>(砍 <code>skipped</code>)</li>
+    <li><strong>Step</strong> 按 task kind 拆分(6 套小 enum);<code>bug-fix</code> 折叠回 behavioral + labels[];新增 <code>chore</code> kind;<code>local-check</code> 变 evidence kind;<code>record-findings</code> 变正交动作</li>
+    <li><strong>Evidence</strong> 加 stable id <code>EV-000123</code>;<code>manual</code> + <code>waiver</code> 拆开;attachments 改对象 + sha256;canSatisfy 兼容性检查</li>
+    <li><strong>Finding</strong> category 6 类(新增 <code>risk-escalation</code>)</li>
+    <li><strong>EARS</strong> 砍 vague-word blacklist;改"每 REQ 三选一可验证"(measurable / verified_by_scenarios / acceptance_na+reason)</li>
+    <li><strong>新 artifact</strong>:<code>gate-diagnostic.json</code> + <code>resume-pack.json</code> + <code>loaf.config.json</code>(合并 protected-files + stable-core + constitution)</li>
+    <li><strong>Registry</strong> 从单 jsonl 改成<strong>一 session 一文件</strong> <code>~/.loaf/registry/&lt;id&gt;.json</code>,atomic rename + 0600</li>
+    <li><strong>Deliver</strong> 全 advisory,不碰 git/gh;<strong>i18n</strong> bundle (en/zh);<strong>spec.md</strong> frontmatter 加 <code>adr_refs[]</code></li>
+  </ul>
+</section>
+
+<!-- ============ State Machine — 3 profile views (rev 4.1) ============ -->
+<h2>State Machine — 3 ceremony preset 视图 <span class="pill pill-rec" style="font-size:10px;vertical-align:middle">rev 4.3</span></h2>
+
+<p class="sub">
+<strong>rev 4.2 注</strong>:Profile enum 砍掉,改 Ceremony 6 flag schema + skill PRESETS 表。本节展示的 quick / standard / deep 是 <strong>loaf-skill v1 提供的 3 个默认 preset</strong>(skill 维护映射 preset 名 → Ceremony object),不是协议层 enum。3rd-party skill 可起任意 preset 名。各 preset 的 ceremony flag 配置见 protocol.md §3 表 / schemas.ts::Ceremony schema。
+<br><br>
+3 个 preset 状态机骨架(由 ceremony flag 决定哪些 phase 跑):<strong>quick</strong> = ceremony 6 flag 全 false → 3 phase(TRIAGE/EXECUTE/DONE);<strong>standard</strong> = ceremony.{spec/verify/settle}_phase 全 true → 全 6 phase + 2 human gate;<strong>deep</strong> = standard + ceremony.strict_* 全 true(4 enforcement extras)。
+</p>
+
+<!-- ============ Quick profile SVG (rev 4.1, 3-phase) ============ -->
+<h3 style="margin-top: 24px;">① Quick profile(<code>TRIAGE → EXECUTE → DONE</code>,跳 SPEC / VERIFY / SETTLE)</h3>
+
+<div class="card sm-svg">
+  <svg viewBox="0 0 900 280" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="arrow-q" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#4b5563"/>
+      </marker>
+    </defs>
+
+    <!-- TRIAGE -->
+    <rect x="20" y="40" width="140" height="200" rx="8" fill="#e0e7ff" stroke="#4f46e5" stroke-width="1.5"/>
+    <text x="90" y="62" text-anchor="middle" font-weight="700" pointer-events="none">TRIAGE</text>
+    <rect x="32" y="80" width="116" height="34" rx="4" fill="#ffffff" stroke="#4f46e5"/>
+    <text x="90" y="100" text-anchor="middle" pointer-events="none">.score</text>
+    <rect x="32" y="125" width="116" height="34" rx="4" fill="#ffffff" stroke="#4f46e5"/>
+    <text x="90" y="145" text-anchor="middle" pointer-events="none">.confirm</text>
+
+    <!-- EXECUTE (worker phase, fan-out allowed) -->
+    <rect x="200" y="40" width="160" height="200" rx="8" fill="#d1fae5" stroke="#059669" stroke-width="1.5"/>
+    <text x="280" y="62" text-anchor="middle" font-weight="700" pointer-events="none">EXECUTE</text>
+    <rect x="212" y="80" width="136" height="34" rx="4" fill="#ffffff" stroke="#059669"/>
+    <text x="280" y="100" text-anchor="middle" pointer-events="none">.plan</text>
+    <rect x="212" y="125" width="136" height="34" rx="4" fill="#ffffff" stroke="#059669" stroke-dasharray="3,2"/>
+    <text x="277" y="143" text-anchor="middle" pointer-events="none" font-weight="600">.work</text>
+    <text x="277" y="154" text-anchor="middle" pointer-events="none" font-size="9" fill="#059669">⚡ fan-out · workers ≥ 1</text>
+    <rect x="212" y="170" width="136" height="34" rx="4" fill="#ffffff" stroke="#059669"/>
+    <text x="280" y="190" text-anchor="middle" pointer-events="none">.done</text>
+
+    <!-- DONE (rev 4.1: quick 直接到这里) -->
+    <rect x="430" y="40" width="240" height="200" rx="8" fill="#f3f4f6" stroke="#4b5563" stroke-width="1.5"/>
+    <text x="550" y="62" text-anchor="middle" font-weight="700" pointer-events="none">DONE</text>
+    <rect x="450" y="80" width="200" height="34" rx="4" fill="#ffffff" stroke="#4b5563"/>
+    <text x="550" y="100" text-anchor="middle" pointer-events="none">.delivered</text>
+    <rect x="450" y="125" width="200" height="34" rx="4" fill="#ffffff" stroke="#4b5563"/>
+    <text x="550" y="145" text-anchor="middle" pointer-events="none">.archived</text>
+    <rect x="450" y="170" width="200" height="34" rx="4" fill="#ffffff" stroke="#4b5563"/>
+    <text x="550" y="190" text-anchor="middle" pointer-events="none">.abandoned</text>
+
+    <!-- Forward edges -->
+    <g stroke="#4b5563" stroke-width="1.4" fill="none" marker-end="url(#arrow-q)">
+      <path d="M 90,159 L 90,200 L 200,200 L 212,142"/>
+      <path d="M 280,114 L 280,123"/>
+      <path d="M 280,159 L 280,168"/>
+      <!-- EXECUTE.done → DONE.delivered (loaf deliver + verify-min) -->
+      <path d="M 348,187 L 450,97"/>
+      <!-- EXECUTE.done → DONE.archived (loaf archive / spike convert) -->
+      <path d="M 348,187 L 450,142"/>
+      <!-- EXECUTE.done → DONE.abandoned (loaf abandon) -->
+      <path d="M 348,190 L 450,187"/>
+    </g>
+
+    <!-- Labels on edges -->
+    <text x="395" y="120" class="label" fill="#059669" font-size="10" font-weight="600">loaf deliver</text>
+    <text x="395" y="130" class="label" fill="#059669" font-size="9">+ verify-min</text>
+    <text x="395" y="165" class="label" fill="#4b5563" font-size="9">archive / spike convert</text>
+    <text x="395" y="207" class="label" fill="#4b5563" font-size="9">abandon</text>
+
+    <!-- Side-channel hint -->
+    <text x="450" y="265" class="label" fill="#c2410c" font-size="10" font-style="italic">⏸ pending FIFO queue:任何 phase 可 raise;head 仅 block `advance`(kind ∈ {gate_decision, profile_escalation};见 §10.7 / §14.3)</text>
+  </svg>
+</div>
+
+<p class="sub" style="margin-top: 6px;">
+  <strong>quick 特征</strong>:无 human gate,无 back-edge(quick 不允许 finding),无 SPEC.* / VERIFY.* / SETTLE.* sub-state。verify-min 在 <code>EXECUTE.done → DONE.delivered</code> 边线上跑(`loaf deliver` 入口);spike + quick → deliver hard block,用户显式 archive / spike convert / abandon。fan-out 在 EXECUTE.work 仍生效(worker 并发);pending FIFO 队列任何 phase 可 raise。
+</p>
+
+<!-- ============ Standard profile SVG (full 6 phase) ============ -->
+<h3 style="margin-top: 28px;">② Standard profile(<code>全 6 phase + 2 human gate</code>)</h3>
+
+<div class="card sm-svg">
+  <svg viewBox="0 0 1120 420" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#4b5563"/>
+      </marker>
+      <marker id="arrow-quick" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#059669"/>
+      </marker>
+      <marker id="arrow-as" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#dc2626"/>
+      </marker>
+      <marker id="arrow-at" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#d97706"/>
+      </marker>
+      <marker id="arrow-fi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#2563eb"/>
+      </marker>
+    </defs>
+
+    <!-- TRIAGE -->
+    <rect x="10" y="20" width="140" height="170" rx="8" fill="#e0e7ff" stroke="#4f46e5" stroke-width="1.5"/>
+    <text x="80" y="40" text-anchor="middle" font-weight="700" pointer-events="none">TRIAGE</text>
+    <rect class="state-node" data-state="TRIAGE.score"   x="22" y="60"  width="116" height="34" rx="4" fill="#ffffff" stroke="#7c66f5"/>
+    <text x="80" y="80"  text-anchor="middle" pointer-events="none">TRIAGE.score</text>
+    <rect class="state-node" data-state="TRIAGE.confirm" x="22" y="105" width="116" height="34" rx="4" fill="#ffffff" stroke="#7c66f5"/>
+    <text x="80" y="125" text-anchor="middle" pointer-events="none">TRIAGE.confirm</text>
+
+    <!-- SPEC -->
+    <rect x="170" y="20" width="160" height="240" rx="8" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5"/>
+    <text x="250" y="40" text-anchor="middle" font-weight="700" pointer-events="none">SPEC</text>
+    <rect class="state-node" data-state="SPEC.proposal" x="182" y="60"  width="136" height="34" rx="4" fill="#ffffff" stroke="#2563eb"/>
+    <text x="250" y="80"  text-anchor="middle" pointer-events="none">SPEC.proposal</text>
+    <rect class="state-node" data-state="SPEC.spec"     x="182" y="105" width="136" height="34" rx="4" fill="#ffffff" stroke="#2563eb"/>
+    <text x="250" y="125" text-anchor="middle" pointer-events="none">SPEC.spec</text>
+    <rect class="state-node" data-state="SPEC.plan"     x="182" y="150" width="136" height="34" rx="4" fill="#ffffff" stroke="#2563eb"/>
+    <text x="250" y="170" text-anchor="middle" pointer-events="none">SPEC.plan</text>
+    <rect class="state-node" data-state="SPEC.design"   x="182" y="195" width="136" height="34" rx="4" fill="#ffffff" stroke="#2563eb"/>
+    <text x="250" y="215" text-anchor="middle" pointer-events="none">SPEC.design</text>
+
+    <!-- spec-lock gate -->
+    <rect class="state-node" data-state="GATE.spec-lock" x="350" y="115" width="68" height="50" rx="4" fill="#fffbeb" stroke="#c2410c" stroke-width="1.5"/>
+    <text x="384" y="135" text-anchor="middle" font-weight="700" fill="#c2410c" pointer-events="none">GATE</text>
+    <text x="384" y="152" text-anchor="middle" class="label" fill="#c2410c" pointer-events="none">spec-lock</text>
+
+    <!-- EXECUTE -->
+    <rect x="438" y="20" width="160" height="200" rx="8" fill="#d1fae5" stroke="#059669" stroke-width="1.5"/>
+    <text x="518" y="40" text-anchor="middle" font-weight="700" pointer-events="none">EXECUTE</text>
+    <rect class="state-node" data-state="EXECUTE.plan" x="450" y="60"  width="136" height="34" rx="4" fill="#ffffff" stroke="#059669"/>
+    <text x="518" y="80"  text-anchor="middle" pointer-events="none">EXECUTE.plan</text>
+    <rect class="state-node" data-state="EXECUTE.work" x="450" y="105" width="136" height="34" rx="4" fill="#ffffff" stroke="#059669" stroke-dasharray="3,2"/>
+    <text x="514" y="123" text-anchor="middle" pointer-events="none" font-weight="600">EXECUTE.work</text>
+    <text x="514" y="134" text-anchor="middle" pointer-events="none" font-size="9" fill="#059669">⚡ fan-out · workers ≥ 1</text>
+    <rect class="state-node" data-state="EXECUTE.done" x="450" y="150" width="136" height="34" rx="4" fill="#ffffff" stroke="#059669"/>
+    <text x="518" y="170" text-anchor="middle" pointer-events="none">EXECUTE.done</text>
+
+    <!-- VERIFY (rev 4.0: VERIFY.check split into 4 check-specific sub_states) -->
+    <rect x="618" y="20" width="160" height="305" rx="8" fill="#fed7aa" stroke="#c2410c" stroke-width="1.5"/>
+    <text x="698" y="40" text-anchor="middle" font-weight="700" pointer-events="none">VERIFY</text>
+    <rect class="state-node" data-state="VERIFY.plan"       x="630" y="60"  width="136" height="30" rx="4" fill="#ffffff" stroke="#f5b85e"/>
+    <text x="698" y="79"  text-anchor="middle" pointer-events="none">VERIFY.plan</text>
+    <rect class="state-node" data-state="VERIFY.run"        x="630" y="98"  width="136" height="30" rx="4" fill="#ffffff" stroke="#f5b85e"/>
+    <text x="698" y="117" text-anchor="middle" pointer-events="none">VERIFY.run</text>
+    <rect class="state-node" data-state="VERIFY.review"     x="630" y="136" width="136" height="30" rx="4" fill="#ffffff" stroke="#f5b85e"/>
+    <text x="698" y="155" text-anchor="middle" pointer-events="none">VERIFY.review</text>
+    <rect class="state-node" data-state="VERIFY.acceptance" x="630" y="174" width="136" height="30" rx="4" fill="#ffffff" stroke="#f5b85e"/>
+    <text x="698" y="193" text-anchor="middle" pointer-events="none">VERIFY.acceptance</text>
+    <rect class="state-node" data-state="VERIFY.visual"     x="630" y="212" width="136" height="30" rx="4" fill="#ffffff" stroke="#f5b85e"/>
+    <text x="698" y="231" text-anchor="middle" pointer-events="none">VERIFY.visual</text>
+    <rect class="state-node" data-state="VERIFY.accept"     x="630" y="255" width="136" height="30" rx="4" fill="#ffffff" stroke="#f5b85e"/>
+    <text x="698" y="274" text-anchor="middle" pointer-events="none">VERIFY.accept</text>
+
+    <!-- verify-accept gate (align center with VERIFY.accept) -->
+    <rect class="state-node" data-state="GATE.verify-accept" x="798" y="245" width="78" height="50" rx="4" fill="#fffbeb" stroke="#c2410c" stroke-width="1.5"/>
+    <text x="837" y="265" text-anchor="middle" font-weight="700" fill="#c2410c" pointer-events="none">GATE</text>
+    <text x="837" y="282" text-anchor="middle" class="label" fill="#c2410c" pointer-events="none">verify-accept</text>
+
+    <!-- SETTLE -->
+    <rect x="896" y="20" width="120" height="160" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
+    <text x="956" y="40" text-anchor="middle" font-weight="700" pointer-events="none">SETTLE</text>
+    <rect class="state-node" data-state="SETTLE.reconcile" x="908" y="60"  width="96" height="34" rx="4" fill="#ffffff" stroke="#b284f5"/>
+    <text x="956" y="80"  text-anchor="middle" pointer-events="none">.reconcile</text>
+    <rect class="state-node" data-state="SETTLE.lessons"   x="908" y="105" width="96" height="34" rx="4" fill="#ffffff" stroke="#b284f5"/>
+    <text x="956" y="125" text-anchor="middle" pointer-events="none">.lessons</text>
+
+    <!-- DONE phase container (rev 4.1: 跟其它 5 phase 一样画外框 + header) -->
+    <rect x="26" y="335" width="424" height="68" rx="8" fill="#f3f4f6" stroke="#4b5563" stroke-width="1.5"/>
+    <text x="238" y="353" text-anchor="middle" font-weight="700" pointer-events="none">DONE</text>
+    <rect class="state-node" data-state="DONE.delivered" x="38"  y="362" width="120" height="34" rx="4" fill="#ffffff" stroke="#4b5563"/>
+    <text x="98"  y="382" text-anchor="middle" pointer-events="none">DONE.delivered</text>
+    <rect class="state-node" data-state="DONE.archived"  x="178" y="362" width="120" height="34" rx="4" fill="#ffffff" stroke="#4b5563"/>
+    <text x="238" y="382" text-anchor="middle" pointer-events="none">DONE.archived</text>
+    <rect class="state-node" data-state="DONE.abandoned" x="318" y="362" width="120" height="34" rx="4" fill="#ffffff" stroke="#4b5563"/>
+    <text x="378" y="382" text-anchor="middle" pointer-events="none">DONE.abandoned</text>
+
+    <!-- Forward edges (rev 4.0 paths re-routed for VERIFY 6-node layout) -->
+    <g stroke="#4b5563" stroke-width="1.4" fill="none" marker-end="url(#arrow)">
+      <path d="M 150,122 L 178,122"/>
+      <path d="M 330,122 L 348,140"/>
+      <path d="M 420,140 L 446,122"/>
+      <path d="M 598,122 L 626,75"/>
+      <path d="M 766,270 L 798,270"/>
+      <path d="M 876,270 L 908,77"/>
+      <path d="M 956,140 L 956,320 L 98,320 L 98,360"/>
+    </g>
+
+    <!-- standard SVG: quick bypass 已移到独立 quick SVG;此处不画(避免视觉混淆) -->
+    <!-- spike 三出口(archive / spike convert / abandon)是用户显式动作,跨 sub-state 调用,不是 state-machine forward edge;不画。详见 protocol.md §3.2 + §8.3。 -->
+
+    <!-- Back-edges (rev 4.0 paths re-routed) -->
+    <path d="M 518,180 C 350,360 230,330 250,193" fill="none" stroke="#dc2626" stroke-width="1.4" marker-end="url(#arrow-as)"/>
+    <path d="M 698,295 C 580,340 540,180 518,170" fill="none" stroke="#d97706" stroke-width="1.4" stroke-dasharray="6,3" marker-end="url(#arrow-at)"/>
+    <path d="M 698,140 C 620,90 540,90 518,122" fill="none" stroke="#2563eb" stroke-width="1.4" stroke-dasharray="2,3" marker-end="url(#arrow-fi)"/>
+  </svg>
+</div>
+
+<p class="sub" style="margin-top: 6px;">
+  Q9 backfill 路径(rev 3.1):quick→standard 升级时,从 EXECUTE 回跳到 <code>SPEC.proposal</code>,带 <code>spec-draft-context.md</code> 让 loaf-skill 反向归纳 spec。复用 SPEC.proposal,不新增 sub-state。
+</p>
+<p class="sub" style="margin-top: 6px; color: #6b7280; font-style: italic;">
+  spike 在 state machine 上<strong>不直跳 DONE</strong>。verify-min 仅 hard-block <code>loaf deliver</code>;用户必须显式跑 <code>loaf archive --reason "..."</code> / <code>loaf spike convert --to-feature F-N</code> / <code>loaf abandon --reason "..."</code> 三选一(§8.3)。这三个命令是 session 终结命令,可在任意 sub-state 调用 → DONE.archived 或 DONE.abandoned,但是<strong>用户显式触发</strong>,不是 state-machine forward edge,故 SVG 不画。
+</p>
+
+<!-- ============ Orthogonal side-effects (rev 4.0 fan-out + rev 4.1 pending queue) ============ -->
+<div class="card" style="margin-top: 14px; background: #f5f9ff; border-color: #2563eb;">
+  <h4 style="margin-top: 0; color: #2563eb;">两条正交于 state machine 主轴的 v1.0 语义</h4>
+
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
+    <div style="border-left: 3px solid #059669; padding-left: 10px;">
+      <div style="font-weight: 600; color: #059669;">⚡ Worker fan-out(rev 4.0)</div>
+      <p style="font-size: 12px; line-height: 1.5; margin: 6px 0;">
+        <code>EXECUTE.work</code> sub_state 是<strong>唯一 worker phase</strong>,允许 sub-agent fan-out 并发。Active set = <code>tasks.json.tasks.status="in_progress"</code> filter(多元集合);其它 sub_state 全是 control phase,主 skill serial 跑。
+      </p>
+      <p style="font-size: 12px; line-height: 1.5; margin: 6px 0; color: #555;">
+        Fan-out 不影响 state machine 主轴 — <code>state.json</code> 仍是单 cursor;active set detail 走 <code>tasks.json</code>(SSOT)。详见 <code>references/loaf-skill-helpers.md</code> §4。
+      </p>
+    </div>
+
+    <div style="border-left: 3px solid #c2410c; padding-left: 10px;">
+      <div style="font-weight: 600; color: #c2410c;">⏸ Pending FIFO queue(rev 4.1)</div>
+      <p style="font-size: 12px; line-height: 1.5; margin: 6px 0;">
+        <code>state.pending: PendingPromptEntry[]</code>(default <code>[]</code>)。任何 phase 都可能 raise pending(<code>gate_decision</code> / <code>finding_decision</code> / <code>profile_escalation</code> / <code>spec_clarification</code> / <code>ask_user_question</code>),append 到队列尾。
+      </p>
+      <p style="font-size: 12px; line-height: 1.5; margin: 6px 0; color: #555;">
+        <strong>Head 阻塞 user-facing 命令,不阻塞 worker</strong> — worker 继续跑自己的 task 直到自己撞 pending;只有 user 答完 head 后队列下一个 promote 为新 head。FIFO 严格,resolve 永远 pop head(v1.0 无 <code>--id</code> 跳序)。
+      </p>
+    </div>
+  </div>
+
+  <p style="font-size: 11px; color: #888; margin-top: 10px; margin-bottom: 0;">
+    两条语义都属于"side channel" — 不修改 phase / sub_state cursor;主 state machine 图仍清晰 readable。
+  </p>
+</div>
+
+<!-- ============ Deep profile overlay(rev 4.1)============ -->
+<h3 style="margin-top: 28px;">③ Deep profile = Standard + 4 enforcement extras(overlay,无新 sub-state)</h3>
+
+<div class="card" style="background: #fef3c7; border-color: #c2410c;">
+<p class="sub" style="margin: 0 0 10px 0;">
+  Deep state machine shape <strong>100% 等同 standard</strong>(无新 phase / sub-state / gate)。差别全在 <strong>policy 严</strong>。机器表达见 <code>schemas.ts::PROFILE_POLICIES.deep</code>。
+</p>
+
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px;">
+
+  <div style="border: 2px solid #c2410c; border-radius: 6px; padding: 10px; background: #fffbeb;">
+    <div style="font-weight: 700; color: #c2410c; font-size: 13px;">🔒 spec-reviewer required</div>
+    <div style="font-size: 12px; line-height: 1.5; margin-top: 6px;">
+      <strong>@ spec-lock gate</strong><br>
+      额外校验:存在 <code>kind=spec-review</code> evidence 且 <code>actor ≠ implementer</code>;否则 gate 阻断
+    </div>
+    <div style="font-size: 11px; color: #888; margin-top: 4px;">schema: <code>spec_reviewer_required: true</code></div>
+  </div>
+
+  <div style="border: 2px solid #c2410c; border-radius: 6px; padding: 10px; background: #fffbeb;">
+    <div style="font-weight: 700; color: #c2410c; font-size: 13px;">👀 actor ≠ implementer enforced</div>
+    <div style="font-size: 12px; line-height: 1.5; margin-top: 6px;">
+      <strong>@ VERIFY.review</strong><br>
+      <code>verify-review</code> evidence 的 <code>actor</code> 字段必须跟该 task 的 implement step 的 actor 不同;deep gate-time enforce
+    </div>
+    <div style="font-size: 11px; color: #888; margin-top: 4px;">见 §5.2 verify-accept 第 5 条</div>
+  </div>
+
+  <div style="border: 2px solid #c2410c; border-radius: 6px; padding: 10px; background: #fffbeb;">
+    <div style="font-weight: 700; color: #c2410c; font-size: 13px;">📖 lessons.md MUST</div>
+    <div style="font-size: 12px; line-height: 1.5; margin-top: 6px;">
+      <strong>@ SETTLE.lessons</strong><br>
+      lessons.md 必须 append ≥1 段(`## F-XXX feature-name · date (iterations=N)` 起头);standard 是 MAY,quick skip
+    </div>
+    <div style="font-size: 11px; color: #888; margin-top: 4px;">schema: <code>artifacts_required ⊇ ["lessons.md"]</code></div>
+  </div>
+
+  <div style="border: 2px solid #c2410c; border-radius: 6px; padding: 10px; background: #fffbeb;">
+    <div style="font-weight: 700; color: #c2410c; font-size: 13px;">🔬 strict drift-check</div>
+    <div style="font-size: 12px; line-height: 1.5; margin-top: 6px;">
+      <strong>@ SETTLE.reconcile</strong><br>
+      reconcile.json 中所有 drift item 必须 <code>resolution ∈ {resolved, planned_for_next_iteration}</code>;不允许 <code>carried_forward</code> 模糊态;否则 verify-accept 二次校验阻断
+    </div>
+    <div style="font-size: 11px; color: #888; margin-top: 4px;">见 §4.6 reconcile.json 字段</div>
+  </div>
+
+</div>
+
+<p class="sub" style="margin-top: 10px; margin-bottom: 0;">
+  Deep 实际跑跟 standard 看起来一模一样的 state machine — sub-state 序列 / gate 数量 / back-edge 结构全相同;只是 <strong>4 个 enforcement 检查在 gate 时间更严</strong>。这就是 ADR-0002 「protocol manages shape, profile manages policy」原则的延续。
+</p>
+</div>
+
+<p class="nav-hint">
+  点击任意 sub-state 节点 / gate(standard 图),查看该状态下 <code>state.json</code> 快照 + 写入路径 + evidence kind + 下一步。<kbd>Esc</kbd> 关闭。
+</p>
+
+<!-- Click-to-inspect detail panel -->
+<div id="state-detail" class="card">
+  <div class="detail-head">
+    <span id="d-phase" class="detail-phase"></span>
+    <div>
+      <h3 id="d-title" class="detail-title"></h3>
+      <p id="d-desc" class="detail-desc"></p>
+    </div>
+  </div>
+  <div class="detail-grid">
+    <div>
+      <h4>state.json 此时形态</h4>
+      <pre id="d-state"></pre>
+    </div>
+    <div>
+      <h4>写入路径(write_paths)</h4>
+      <ul id="d-writes" class="field-list"></ul>
+      <h4 style="margin-top: 14px">本阶段 evidence kind(典型)</h4>
+      <ul id="d-evidence" class="field-list"></ul>
+      <h4 style="margin-top: 14px">下一步 / 触发</h4>
+      <div id="d-next" class="next-line"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ Layering ============ -->
+<h2>三层架构(rev 3.1 新)</h2>
+
+<div class="card">
+<pre>┌──────────────────────────────────────────────────────────────────┐
+│ 3rd-party skills(superpowers/brainstorming · openspec · gsd ...)│
+│ ↓ 自由 markdown / 头脑风暴产出                                      │
+├──────────────────────────────────────────────────────────────────┤
+│ loaf-skill(1st-cc-plugin)                                        │
+│ ↓ structure / normalize / EARS 化 / 软建议(warn 不 block)          │
+│ ↓ strict spec.md / tasks.json / evidence record                  │
+├──────────────────────────────────────────────────────────────────┤
+│ loaf-cli(npx 分发的协议内核 — 本文档定义的所有契约)                  │
+│ ↓ schema strict at submit                                        │
+│ ↓ state machine + gate + diff guard + 文件 IO                     │
+│ ↓ .loaf/&lt;feature&gt;/ + ~/.loaf/registry/&lt;id&gt;.json                  │
+└──────────────────────────────────────────────────────────────────┘</pre>
+
+<table>
+  <tr><th style="width: 28%">职责</th><th>归属</th></tr>
+  <tr><td>领域对话(把模糊想法挖出来)</td><td>3rd-party skill</td></tr>
+  <tr><td>LLM 多轮对话,把 free markdown 变成 strict schema</td><td>loaf-skill</td></tr>
+  <tr><td>软建议(风格、最佳实践、推荐 review)</td><td>loaf-skill 的 prompt(不进协议)</td></tr>
+  <tr><td>schema shape validation</td><td>loaf-cli(strict at submit)</td></tr>
+  <tr><td>state machine + gate + diff-guard</td><td>loaf-cli</td></tr>
+  <tr><td>TUI / session 列表</td><td>loaf-cli(<code>loaf tui</code>)</td></tr>
+  <tr><td>git / gh 操作 (commit / PR / CI)</td><td><strong>不归 loaf-cli</strong>;loaf-skill 或用户自管</td></tr>
+  <tr><td>多 feature 并行(worktree)</td><td>用户自管</td></tr>
+</table>
+</div>
+
+<!-- ============ Per-feature Artifact Cards ============ -->
+<h2>Per-feature Artifact(9 个 · <code>.loaf/&lt;feature&gt;/</code>)</h2>
+
+<div class="grid grid-2">
+
+<!-- state.json -->
+<div class="card">
+  <div class="artifact-name">state.json <span class="changed">session-level only (rev 4.0)</span></div>
+  <p class="sub">协议真理源;loaf-cli 唯一写者;hook/skill/TUI read-only。rev 4.0 砍 3 字段(current_task/step/check),active-set 走 tasks.json filter。</p>
+  <pre>{
+  "session_id": "uuid",
+  "session_label": "...",
+  "cwd": "...",
+  "workspace": "default",        ← display only
+  "phase": "EXECUTE",
+  "sub_state": "EXECUTE.work",   ← 主 skill 编排 fan-out,具体跑哪些 task 看 tasks.json
+  "iteration": 2,
+  "spec_locked": true,
+  "pending": [],                 ← FIFO 队列(rev 4.1);head 元素 = active blocker
+  "based_on": {"spec":3,"tasks":5},
+  "heartbeat_at": "...",
+  ...
+}</pre>
+  <p class="sub" style="margin-top: 6px;">
+    DONE.* invariant:<code>pending.length === 0</code>(Zod refine)+ <code>tasks.no(in_progress)</code>(cross-file invariant,由 transitions.ts 强制 — §1 原则 3 让一档)。
+  </p>
+</div>
+
+<!-- spec.md -->
+<div class="card">
+  <div class="artifact-name">spec.md <span class="changed">三选一可验证</span></div>
+  <p class="sub">EARS + Gherkin + Visual + adr_refs[]。每条 REQ 必须有三选一可验证路径。</p>
+  <pre>requirements:
+  - id: REQ-A-001
+    type: event-driven
+    trigger: "..."
+    response: "..."
+    # ① 可测度量
+    measurable:
+      metric: t_to_visible
+      threshold: 500
+      unit: ms
+  - id: REQ-A-002
+    response: "..."
+    # ② scenario 验证
+    verified_by_scenarios:
+      - SCEN-A-001
+  - id: REQ-A-003
+    response: "shall feel intuitive"
+    # ③ 显式不可测
+    acceptance_na: true
+    acceptance_na_reason: "..."
+
+adr_refs:
+  - docs/adr/0023-...md</pre>
+</div>
+
+<!-- tasks.json -->
+<div class="card">
+  <div class="artifact-name">tasks.json <span class="changed">per-kind step + labels[]</span></div>
+  <p class="sub">6 kind,每 kind 自己的 execution 形状;bug-fix 折叠回 behavioral + labels[]。</p>
+  <pre>{
+  "id": "T-001",
+  "kind": "behavioral",
+  "labels": ["bug"],          ← rev 3.1
+  "drives": ["REQ-A-002"],
+  "red_test_registered": true,
+  "execution": {              ← 只 red/implement/refactor
+    "red":       {"applicability":"must","status":"passed",
+                  "evidence_refs":["EV-000123"]},
+    "implement": {"applicability":"must","status":"passed"},
+    "refactor":  {"applicability":"optional","status":"passed"}
+  }
+}</pre>
+  <p class="sub">execution.status 是 cache,evidence.jsonl 是 proof;<code>loaf tasks check</code> 校验一致性。</p>
+</div>
+
+<!-- evidence.jsonl -->
+<div class="card">
+  <div class="artifact-name">evidence.jsonl <span class="changed">EV-id + waiver + sha256</span></div>
+  <p class="sub">每条带稳定 ID;manual 和 waiver 拆开;attachments 强制 hash。</p>
+  <pre>{
+  "evidence_id": "EV-000126",
+  "kind": "visual-review",
+  "actor": "human:est9",      ← human:* / skill:*/* / cli:loaf
+  "result": "approved",
+  "covers": ["VIS-AUTH-001"],
+  "attachments": [{
+    "path": ".loaf/auth-refresh/attachments/EV-000126/login.png",
+    "sha256": "a1b2c3...",
+    "mime": "image/png"
+  }]
+}
+{
+  "evidence_id": "EV-000127",
+  "kind": "waiver",           ← rev 3.1 新 kind
+  "actor": "human:est9",
+  "result": "waived",
+  "reason": "REQ-AUTH-005 acceptance_na ...",
+  "covers": ["REQ-AUTH-005"]
+}</pre>
+</div>
+
+<!-- findings.jsonl -->
+<div class="card">
+  <div class="artifact-name">findings.jsonl <span class="changed">6 categories</span></div>
+  <p class="sub">VERIFY.* 或 post-lock EXECUTE.* 才能 raise;quick 不允许。</p>
+  <pre>{
+  "id": "FND-002",
+  "event": "opened",
+  "raised_in": "VERIFY.review",
+  "category": "risk-escalation",  ← rev 3.1 新
+  "action": "amend-tasks",
+  "summary": "实现中发现需要改 PublicAuthAPI",
+  "refs": ["T-005"],
+  "evidence_refs": ["EV-000130"]
+}</pre>
+</div>
+
+<!-- reconcile.json -->
+<div class="card">
+  <div class="artifact-name">reconcile.json</div>
+  <p class="sub">SETTLE 时间的 snapshot;<strong>不是 gate 源</strong>。verify-accept 实时算。</p>
+  <pre>{
+  "planned_scope": [...],
+  "actual_scope":  [...],
+  "drift": [...],
+  "ac_coverage": [
+    {"ac_id":"REQ-A-001","status":"passed",
+     "evidence_refs":["EV-000123","EV-000125"]}
+  ],
+  "iteration_stats": {
+    "findings_by_category": {
+      "spec-gap": 1, "risk-escalation": 1, ...
+    }
+  }
+}</pre>
+</div>
+
+<!-- gate-diagnostic.json -->
+<div class="card">
+  <div class="artifact-name">gate-diagnostic.json <span class="new">NEW</span></div>
+  <p class="sub">gate / submit / transition / diff-guard 失败时<strong>覆写</strong>;loaf-skill 读它喂 LLM 修。</p>
+  <pre>{
+  "at": "...",
+  "gate": "spec-lock",
+  "failures": [
+    {
+      "code": "MISSING_VERIFIABILITY",
+      "severity": "block",
+      "ref": "REQ-AUTH-006",
+      "vars": {"req_id": "REQ-AUTH-006"},
+      "suggestion": "..."
+    }
+  ]
+}</pre>
+  <p class="sub">code 走 i18n bundle 渲染人类语言;diagnostic 文件可跨语言团队共享。</p>
+</div>
+
+<!-- resume-pack.json -->
+<div class="card">
+  <div class="artifact-name">resume-pack.json <span class="new">NEW</span></div>
+  <p class="sub">显式 <code>loaf handoff</code> 才写。context overflow 接力包,新 session 冷启动可读。</p>
+  <pre>{
+  "session_id": "...",
+  "reason": "main context approaching limit",
+  "state_snapshot": { /* StateJson */ },
+  "recent_evidence": ["EV-000125", ...],
+  "recent_findings": ["FND-001","FND-002"],
+  "open_pending": null,
+  "notes": "..."
+}</pre>
+</div>
+
+<!-- lessons.md / trace.jsonl -->
+<div class="card">
+  <div class="artifact-name">lessons.md <span class="artifact-tag">deep MUST · std MAY</span></div>
+  <pre>## F-001 OAuth refresh · 2026-05-12 (iterations=2)
+- single-flight refresh 协调器需要全局锁
+- spec.spec 阶段 UI 元素必须问 hover/disabled/loading 三态
+- TDD 红测试 进 regression</pre>
+
+  <div class="artifact-name" style="margin-top: 14px">trace.jsonl <span class="artifact-tag">--debug only</span></div>
+  <p class="sub">每次 CLI 调用 + 每次外部命令一行;默认 .gitignore 排除。</p>
+</div>
+
+</div>
+
+<!-- ============ Artifact authority 4-tier (rev 4.1) ============ -->
+<h2>Artifact authority 四层 <span class="pill pill-rec" style="font-size:10px;vertical-align:middle">rev 4.1</span></h2>
+
+<div class="card">
+<p class="sub" style="margin-bottom: 14px;">
+按 <strong>gate / blocking decision 是否可读</strong> 分四层。底线规则:<strong>任何 gate / blocking decision 永远只读 Canonical truth</strong>。Derived projection / Debug-trace / Advisory 三层失败、损坏、stale 都不影响协议正确性。
+</p>
+
+<!-- 横向引导线 -->
+<div style="display: flex; align-items: center; margin-bottom: 12px; font-size: 12px; color: #444;">
+  <span style="background: #0a8a3a; color: white; padding: 2px 10px; border-radius: 3px; font-weight: 600;">gate 只读 →</span>
+  <span style="flex: 1; height: 2px; background: linear-gradient(to right, #0a8a3a 0%, #0a8a3a 25%, #ccc 25%, #ccc 100%);"></span>
+  <span style="color: #888; padding-left: 8px;">advisory tier</span>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px;">
+
+  <div style="border: 2px solid #0a8a3a; border-radius: 6px; padding: 12px; background: #f0fff5;">
+    <div style="font-weight: 700; color: #0a8a3a; margin-bottom: 4px;">① Canonical truth</div>
+    <div style="font-size: 11px; color: #555; margin-bottom: 8px;">gate 唯一可读来源 · single-writer 保护</div>
+    <div style="font-size: 12px; line-height: 1.7;">
+      <code>state.json</code><br>
+      <code>spec.md</code><br>
+      <code>tasks.json</code><br>
+      <code>evidence.jsonl</code><br>
+      <code>findings.jsonl</code><br>
+      <code>loaf.config.json</code>
+    </div>
+    <div style="font-size: 11px; color: #0a8a3a; margin-top: 8px; font-weight: 600;">✅ gate 可读</div>
+  </div>
+
+  <div style="border: 1px solid #aaa; border-radius: 6px; padding: 12px; background: #f7f9fc;">
+    <div style="font-weight: 700; color: #555; margin-bottom: 4px;">② Derived projection</div>
+    <div style="font-size: 11px; color: #555; margin-bottom: 8px;">允许 stale · 可重建</div>
+    <div style="font-size: 12px; line-height: 1.7;">
+      <code>reconcile.json</code><br>
+      <code>~/.loaf/registry/&lt;id&gt;.json</code><br>
+      <code>gate-diagnostic.json</code><br>
+      <code>resume-pack.json</code><br>
+      <code>spec-draft-context.md</code>
+    </div>
+    <div style="font-size: 11px; color: #c00; margin-top: 8px; font-weight: 600;">❌ gate 不读</div>
+  </div>
+
+  <div style="border: 1px solid #aaa; border-radius: 6px; padding: 12px; background: #f7f9fc;">
+    <div style="font-weight: 700; color: #555; margin-bottom: 4px;">③ Debug-trace</div>
+    <div style="font-size: 11px; color: #555; margin-bottom: 8px;"><code>--debug</code> 写 · 永不自动上传</div>
+    <div style="font-size: 12px; line-height: 1.7;">
+      <code>.loaf/&lt;feature&gt;/trace.jsonl</code><br>
+      <code>~/.loaf/crashes/&lt;ts&gt;.log</code><br>
+      <code>attachments/&lt;EV-id&gt;/...</code><br>
+      <span style="color: #888; font-size: 11px">(canonical 引用 sha256)</span>
+    </div>
+    <div style="font-size: 11px; color: #c00; margin-top: 8px; font-weight: 600;">❌ gate 不读</div>
+  </div>
+
+  <div style="border: 1px solid #aaa; border-radius: 6px; padding: 12px; background: #f7f9fc;">
+    <div style="font-weight: 700; color: #555; margin-bottom: 4px;">④ Advisory</div>
+    <div style="font-size: 11px; color: #555; margin-bottom: 8px;">人类可读 · 格式不强校验</div>
+    <div style="font-size: 12px; line-height: 1.7;">
+      <code>lessons.md</code><br>
+      <code>loaf deliver</code> 输出<br>
+      <code>loaf status</code> 人类输出
+    </div>
+    <div style="font-size: 11px; color: #c00; margin-top: 8px; font-weight: 600;">❌ gate 不读</div>
+  </div>
+
+</div>
+
+<p class="sub" style="margin-top: 14px;">
+<strong>损坏恢复</strong>:① Canonical 损坏 → 协议正确性破坏(rare,by single-writer);② Derived 损坏 / stale → <code>loaf doctor --rebuild-registry</code> / <code>loaf settle</code> 重跑;③ Debug-trace 丢失 → 无影响(只是诊断信息少);④ Advisory 丢失 → 无影响。
+</p>
+</div>
+
+<!-- ============ Project-level + user-level ============ -->
+<h2>项目级 + 用户级 artifact</h2>
+
+<div class="grid grid-2">
+<div class="card">
+  <div class="artifact-name">.loaf/.config/loaf.config.json <span class="new">NEW</span></div>
+  <p class="sub">合并 legacy Python 原型的 protected-files + stable-core-manifest + mother 的 constitution。</p>
+  <pre>{
+  "protected_files": ["**/credentials/**", ".env*"],
+  "stable_core": ["src/api/**"],
+  "paths": {
+    "source": ["app/src/main/**"],
+    "tests":  ["**/test/**"],
+    "ui":     ["**/res/layout/**"],
+    "public_api": ["core-api/**"],
+    "schema": ["**/*.proto"],
+    "security": ["**/auth/**"]
+  },
+  "commands": {
+    "run":  ["./gradlew testDebugUnitTest"],
+    "lint": ["./gradlew lintDebug"],
+    "visual": ["./gradlew verifyPaparazziDebug"],
+    ...
+  },
+  "constitution": {
+    "tdd_strictness": "preferred",
+    "default_ceremony_label": "standard"
+  },
+  "locale": { "default_lang": "zh" }
+}</pre>
+</div>
+
+<div class="card">
+  <div class="artifact-name">~/.loaf/registry/&lt;session_id&gt;.json <span class="changed">per-session file</span></div>
+  <p class="sub">rev 3.1 翻牌:从单 jsonl 改成一 session 一文件。零并发,POSIX rename 原子。</p>
+  <pre>~/.loaf/registry/
+├── 7f3a-...-440000.json
+├── 9b2c-...-551111.json
+└── ...
+
+// 每个文件整体覆写,不 append:
+{
+  "session_id": "...",
+  "session_label": "popposhell · 添加登录方式",  ← human display
+  "feature": "add-login-methods",   ← rev 4.0 C9':machine ID(derived from .loaf/&lt;feature&gt;/ dir)
+  "cwd": "...",
+  "phase": "VERIFY",
+  "sub_state": "VERIFY.visual",
+  "iteration": 2,
+  "active_tasks": [],            ← rev 4.0:derived projection from tasks.json
+  "pending": null,               ← rev 4.1:head of state.pending FIFO(OR null)
+  "pending_queue_depth": 0,      ← rev 4.1:state.pending.length(TUI 队列徽章用)
+  "at": "2026-05-12T10:30:45Z"
+}
+
+// 写法:atomic write-rename
+fs.writeFile(tmp, snapshot, {mode: 0o600});
+fs.rename(tmp, target);
+
+// 0600 = owner only;mtime > 30d = GC 候选</pre>
+</div>
+</div>
+
+<!-- ============ Matrices ============ -->
+<h2>核心 Matrix(对照机器契约)</h2>
+
+<h3>Task kind × Step(rev 3.1 — 每 kind 自己的 enum)</h3>
+
+<div class="card">
+<table>
+  <tr><th>kind</th><th>step</th><th>说明</th></tr>
+  <tr><td><code>behavioral</code></td><td><code>red → implement → refactor</code></td><td>TDD 三段。<code>labels:["bug"]</code> 时 <code>red_test_registered=true</code> 必填</td></tr>
+  <tr><td><code>structural</code></td><td><code>implement → refactor</code></td><td>行为不变;无 red</td></tr>
+  <tr><td><code>visual-ui</code></td><td><code>mockup → implement → screenshot-compare</code></td><td>mockup 抽视觉合约,compare 校验</td></tr>
+  <tr><td><code>docs</code></td><td><code>draft → review</code></td><td>写 + peer review</td></tr>
+  <tr><td><code>spike</code></td><td><code>explore → prototype → record</code></td><td><strong>forbidden to deliver</strong></td></tr>
+  <tr><td><code>chore</code></td><td><code>execute</code></td><td>单步操作(版本号 / 配置 edit)</td></tr>
+</table>
+<p class="sub">移除的伪 step:<code>local-check</code> 变成 evidence kind;<code>record-findings</code> 变成 <code>loaf finding raise</code> 正交动作。</p>
+</div>
+
+<h3>Profile × Phase / Gate / 必要 artifact</h3>
+
+<div class="card">
+<table>
+  <tr><th>profile</th><th>跑哪些 phase</th><th>human gate</th><th>必要 artifact</th><th>findings 允许</th></tr>
+  <tr><td><code>quick</code></td><td>TRIAGE → EXECUTE → SETTLE → DONE</td><td>—</td><td>state.json + evidence.jsonl</td><td>否</td></tr>
+  <tr><td><code>standard</code></td><td>全 6 phase</td><td>spec-lock + verify-accept</td><td>+ spec.md / tasks.json / reconcile.json</td><td>是</td></tr>
+  <tr><td><code>deep</code></td><td>全 6 phase + spec-reviewer</td><td>spec-lock + verify-accept</td><td>standard + lessons.md(MUST)</td><td>是</td></tr>
+</table>
+</div>
+
+<h3>Applicability(rev 3.1 三档,砍 should)</h3>
+
+<div class="card">
+<table>
+  <tr><th>值</th><th>含义</th><th>对 gate 影响</th></tr>
+  <tr><td class="matrix-must">must</td><td>必须;由 policy 派生</td><td>未 passed/waived 时阻塞 verify-accept</td></tr>
+  <tr><td class="matrix-opt">optional</td><td>用户可选</td><td>永不阻塞</td></tr>
+  <tr><td class="matrix-na">na</td><td>不适用(计算结果)</td><td>不计入 gate</td></tr>
+</table>
+<p class="sub">软建议("应该跑 review 但不强制")由 <strong>loaf-skill 的 prompt</strong> 表达,协议层不养灰区。<code>skipped</code> 砍掉;改为显式 <code>waiver</code>(<code>actor=human:*</code> + <code>reason ≥10 chars</code>)。</p>
+</div>
+
+<h3>Finding category(rev 3.1 — 6 类)× Action(6)</h3>
+
+<div class="card">
+<table>
+  <tr><th>category</th><th>含义</th></tr>
+  <tr><td><code>spec-gap</code></td><td>spec 沉默,需要补</td></tr>
+  <tr><td><code>spec-defect</code></td><td>spec 写错</td></tr>
+  <tr><td><code>impl-defect</code></td><td>实现没满足 spec</td></tr>
+  <tr><td><code>test-defect</code></td><td>测试本身错(env 细节进 <code>cause</code> 字段)</td></tr>
+  <tr><td><code>new-scope</code></td><td>范围外新想法</td></tr>
+  <tr><td><code>risk-escalation</code> <span class="pill pill-rec">NEW</span></td><td>task 复杂度超出当前 profile,触发 profile 升级</td></tr>
+</table>
+
+<table style="margin-top: 14px">
+  <tr><th>action</th><th>state 跳转</th><th>target payload <span class="pill pill-rec" style="font-size:9px">rev 4.1</span></th><th>iter</th><th>spec.ver</th><th>tasks.ver</th><th>重过 spec-lock</th></tr>
+  <tr><td><code>amend-spec</code></td><td>→ SPEC.spec</td><td>—</td><td>+1</td><td>+1</td><td>+1</td><td><strong>是(清 spec_locked)</strong></td></tr>
+  <tr><td><code>amend-tasks</code></td><td>→ EXECUTE.work</td><td><code>{ task_id?: T-N }</code></td><td>+1</td><td>0</td><td>+1</td><td>否(自动 re-lock check)</td></tr>
+  <tr><td><code>fix-impl</code></td><td>→ EXECUTE.work</td><td><code>{ task_id: T-N, step: implement }</code></td><td>+1</td><td>0</td><td>0</td><td>否</td></tr>
+  <tr><td><code>fix-test</code></td><td>→ EXECUTE.work</td><td><code>{ task_id: T-N, step: red }</code></td><td>+1</td><td>0</td><td>0</td><td>否</td></tr>
+  <tr><td><code>defer</code></td><td>留 VERIFY</td><td>—</td><td>0</td><td>0</td><td>0</td><td>否</td></tr>
+  <tr><td><code>backlog</code></td><td>留 VERIFY</td><td>—</td><td>0</td><td>0</td><td>0</td><td>否</td></tr>
+</table>
+<p class="sub" style="margin-top:10px">
+<strong>rev 4.1 表头重画</strong>:<code>target payload</code> 列把 <code>step</code> 从 sub_state 括号里抠出来。step 是 <strong>finding resolution payload</strong>,不是 session cursor——它写入 <code>tasks.&lt;T-N&gt;.execution.&lt;step&gt;.status = "pending"</code> 让该 step 重跑;session state 只有 <code>phase=EXECUTE, sub_state=EXECUTE.work</code>。rev 4 砍 <code>current_step</code> 后,旧表 <code>EXECUTE.work(step=X)</code> 写法把已砍字段视觉上塞回去,本轮修。机器表达见 <code>schemas.ts::FindingActionEffect.requires_target_payload</code> + <code>FindingResolutionPayload</code>。
+</p>
+
+<!-- ============ Finding action cards (rev 4.1) ============ -->
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 16px;">
+
+  <div style="border: 1px solid var(--c-spec-stroke); border-radius: 6px; padding: 10px; background: #fafbff;">
+    <div style="font-weight: 600; color: var(--c-spec-stroke); margin-bottom: 6px;">amend-spec</div>
+    <div style="font-size: 12px; line-height: 1.5;">
+      <div>→ <strong>SPEC.spec</strong></div>
+      <div style="color: #666">payload: —</div>
+      <div>iter +1 · spec +1 · tasks +1</div>
+      <div style="color: #c00; margin-top: 4px;">⚠ 清 spec_locked</div>
+    </div>
+  </div>
+
+  <div style="border: 1px solid var(--c-execute-stroke); border-radius: 6px; padding: 10px; background: #fafffa;">
+    <div style="font-weight: 600; color: var(--c-execute-stroke); margin-bottom: 6px;">amend-tasks</div>
+    <div style="font-size: 12px; line-height: 1.5;">
+      <div>→ <strong>EXECUTE.work</strong></div>
+      <div style="color: #666">payload: <code>{ task_id? }</code></div>
+      <div>iter +1 · tasks +1</div>
+      <div style="color: #888; margin-top: 4px;">auto re-lock check</div>
+    </div>
+  </div>
+
+  <div style="border: 1px solid var(--c-execute-stroke); border-radius: 6px; padding: 10px; background: #fafffa;">
+    <div style="font-weight: 600; color: var(--c-execute-stroke); margin-bottom: 6px;">fix-impl</div>
+    <div style="font-size: 12px; line-height: 1.5;">
+      <div>→ <strong>EXECUTE.work</strong></div>
+      <div style="color: #666">payload: <code>{ task_id, step: implement }</code></div>
+      <div>iter +1</div>
+      <div style="color: #888; margin-top: 4px;">→ task.execution.implement.status = pending</div>
+    </div>
+  </div>
+
+  <div style="border: 1px solid var(--c-execute-stroke); border-radius: 6px; padding: 10px; background: #fafffa;">
+    <div style="font-weight: 600; color: var(--c-execute-stroke); margin-bottom: 6px;">fix-test</div>
+    <div style="font-size: 12px; line-height: 1.5;">
+      <div>→ <strong>EXECUTE.work</strong></div>
+      <div style="color: #666">payload: <code>{ task_id, step: red }</code></div>
+      <div>iter +1</div>
+      <div style="color: #888; margin-top: 4px;">→ task.execution.red.status = pending</div>
+    </div>
+  </div>
+
+  <div style="border: 1px solid var(--c-verify-stroke); border-radius: 6px; padding: 10px; background: #fffafb;">
+    <div style="font-weight: 600; color: var(--c-verify-stroke); margin-bottom: 6px;">defer</div>
+    <div style="font-size: 12px; line-height: 1.5;">
+      <div>(stay) <strong>VERIFY</strong></div>
+      <div style="color: #666">payload: —</div>
+      <div>iter 0</div>
+      <div style="color: #888; margin-top: 4px;">本轮不处理,记录风险</div>
+    </div>
+  </div>
+
+  <div style="border: 1px solid var(--c-verify-stroke); border-radius: 6px; padding: 10px; background: #fffafb;">
+    <div style="font-weight: 600; color: var(--c-verify-stroke); margin-bottom: 6px;">backlog</div>
+    <div style="font-size: 12px; line-height: 1.5;">
+      <div>(stay) <strong>VERIFY</strong></div>
+      <div style="color: #666">payload: —</div>
+      <div>iter 0</div>
+      <div style="color: #888; margin-top: 4px;">转出当前 session</div>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<h3>Evidence kind 兼容性(canSatisfy)</h3>
+
+<div class="card">
+<table>
+  <tr><th>coveredId</th><th>合法 evidence kind</th><th>附加约束</th></tr>
+  <tr><td><code>REQ-*</code></td><td>task-summary · verify-review · spec-review · manual · waiver</td><td>manual/waiver 需 actor=human:* + reason</td></tr>
+  <tr><td><code>SCEN-*</code>(tag=e2e)</td><td>acceptance · manual · waiver</td><td>preferred 自动化;manual 需 reason</td></tr>
+  <tr><td><code>VIS-*</code></td><td>visual-review · manual · waiver</td><td>visual-review 必须带 attachment(sha256+mime)</td></tr>
+  <tr><td><code>T-*</code></td><td>task-summary · local-check · manual · waiver</td><td>—</td></tr>
+  <tr><td><code>GATE</code></td><td>gate-decision only</td><td>不接受其他 kind</td></tr>
+</table>
+</div>
+
+<!-- ============ i18n ============ -->
+<h2>i18n bundle(rev 3.1 新)</h2>
+
+<div class="card">
+<p class="sub">
+协议层 ID 永远是英文(<code>schemas.ts</code> 里的 enum / ID 字段)。人类可读 label / diagnostic 模板走 <code>i18n/&lt;lang&gt;.json</code>,根据 <code>LOAF_LANG</code> 渲染。JSON 输出(<code>--json</code>)绕过 i18n。
+</p>
+
+<pre>// loaf-cli/i18n/en.json + zh.json 同 key 结构
+{
+  "evidence_kind": {
+    "test-run": "测试运行",    "task-summary": "任务总结",
+    "verify-review": "代码评审", "visual-review": "视觉评审",
+    "manual": "人工验证",       "waiver": "风险豁免",
+    "gate-decision": "Gate 决策","local-check": "本地检查",
+    "spec-review": "规格评审",   "spike-finding": "Spike 发现"
+  },
+  "phase": {"TRIAGE":"分诊","SPEC":"规格","EXECUTE":"执行",
+            "VERIFY":"验证","SETTLE":"结算","DONE":"完成"},
+  "task_kind": {"behavioral":"行为","structural":"结构",
+                "visual-ui":"视觉","docs":"文档",
+                "spike":"探索","chore":"杂务"},
+  "step": {"red":"红测","implement":"实现","refactor":"重构",
+           "mockup":"模拟","screenshot-compare":"截图对比",
+           "draft":"草稿","review":"评审",
+           "explore":"探索","prototype":"原型","record":"记录",
+           "execute":"执行"},
+  "applicability": {"must":"必须","optional":"可选","na":"不适用"},
+  "finding_category": {
+    "spec-gap":"规格缺漏","spec-defect":"规格错误",
+    "impl-defect":"实现缺陷","test-defect":"测试缺陷",
+    "new-scope":"范围外新议","risk-escalation":"风险升级"
+  },
+  "diagnostic": {
+    "MISSING_VERIFIABILITY":
+      "需求 {req_id} 缺少 measurable、verified_by_scenarios 或 acceptance_na+reason",
+    "DRIVES_NOT_BOUND":
+      "需求 {req_id} 未被任何任务的 drives[] 引用"
+  },
+  "help": {
+    "spec_submit": "提交 spec.md,严格按 SpecFrontmatter schema 校验",
+    "waive": "对某个 obligation 显式豁免;actor 必须 human:*,reason ≥10 字符"
+  }
+}</pre>
+
+<table style="margin-top: 12px">
+  <tr><th>Lookup 优先级</th><th>路径</th></tr>
+  <tr><td>1</td><td><code>~/.loaf/i18n/&lt;lang&gt;.local.json</code>(用户覆盖)</td></tr>
+  <tr><td>2</td><td><code>loaf-cli/i18n/&lt;lang&gt;.json</code>(内置)</td></tr>
+  <tr><td>3</td><td><code>loaf-cli/i18n/en.json</code>(fallback)</td></tr>
+</table>
+<p class="sub">Lang 解析:<code>LOAF_LANG</code> &gt; <code>loaf.config.json locale.default_lang</code> &gt; <code>$LANG</code> &gt; <code>"en"</code>。</p>
+</div>
+
+<!-- ============ TUI mockup ============ -->
+<h2>TUI(<code>loaf tui</code>)</h2>
+
+<div class="card">
+<pre>┌── loaf sessions ─────────────────────────────────────────────────────┐
+│ LABEL                       PHASE.SUB           ITER  STATUS        │
+│ popposhell · auth refresh   VERIFY.visual       2     ⏸ ask [×3]    │
+│ work/auth-feature           EXECUTE.work [×3]   1     ▶ run [×3]    │
+│ work/refactor               SETTLE.reconcile    3     ⏸ gate        │
+│ sandbox/spike               DONE.archived       1     ✓ done        │
+└──────────────────────────────────────────────────────────────────────┘
+ [Enter] open · [q] quit · [r] refresh · [d] details · [p] pending · [a] archive</pre>
+
+<p class="sub" style="margin-top: 8px;">
+<strong>rev 4.1 徽章语义</strong>:<code>STATUS</code> 列 <code>[×N]</code>(如 <code>⏸ ask [×3]</code>)= pending 队列深度,N ≥ 2 时显示;<code>PHASE.SUB</code> 列 <code>[×3]</code>(如 <code>EXECUTE.work [×3]</code>)= worker active set 数量(<code>registry.active_tasks.length</code>);<code>[p] pending</code> 快捷键展开 head + queued detail。<code>⚠ stale</code> 标(rev 4.1)— registry <code>at</code> 早于对应 state.json <code>heartbeat_at</code> 超过 threshold 时显示。
+</p>
+
+<p class="sub">
+实现:<strong>Ink</strong>(React-based,bun 兼容)。读 <code>~/.loaf/registry/*.json</code> 渲染,按 mtime 排序,<code>pending</code>(head)+ <code>pending_queue_depth</code> 决定 status 角标。
+</p>
+</div>
+
+<!-- ============ CLI surface (full table, rev 4.1) ============ -->
+<h2>CLI Surface 全表 <span class="pill pill-rec" style="font-size: 10px; vertical-align: middle">rev 4.3</span></h2>
+
+<p class="sub">配套 <code>protocol.md</code> §10。本表 prose source 在 §10.8;此处只镜像 — 任何冲突以 <code>protocol.md</code> 为准。</p>
+
+<h3>Global flags(每命令都接受)</h3>
+
+<div class="card">
+<table>
+  <tr><th>Flag</th><th>Short</th><th>Type</th><th>Default</th><th>说明</th></tr>
+  <tr><td><code>--help</code></td><td><code>-h</code></td><td>bool</td><td>—</td><td>top-level + 每 subcommand;<code>loaf help &lt;cmd&gt;</code> git-style 等价</td></tr>
+  <tr><td><code>--version</code></td><td>—</td><td>bool</td><td>—</td><td>semver + commit + schema_version</td></tr>
+  <tr><td><code>--format</code></td><td>—</td><td><code>json|text</code></td><td>TTY → text</td><td>JSON 输出是 stable contract</td></tr>
+  <tr><td><code>--json</code></td><td>—</td><td>bool</td><td>false</td><td>等价 <code>--format json</code></td></tr>
+  <tr><td><code>--plain</code></td><td>—</td><td>bool</td><td>false</td><td>等价 <code>--format text</code>(line-oriented)</td></tr>
+  <tr><td><code>--no-color</code></td><td>—</td><td>bool</td><td>TTY/env 派生</td><td>respect <code>NO_COLOR</code> / <code>LOAF_NO_COLOR</code> / <code>TERM=dumb</code></td></tr>
+  <tr><td><code>--no-input</code></td><td>—</td><td>bool</td><td>false</td><td><strong>关键</strong>:skill / hook / CI 用,禁所有 prompt,缺必要输入 exit 2</td></tr>
+  <tr><td><code>--quiet</code></td><td><code>-q</code></td><td>bool</td><td>false</td><td>抑制非错误输出</td></tr>
+  <tr><td><code>--verbose</code></td><td><code>-v</code></td><td>counter</td><td>0</td><td><code>-v</code> / <code>-vv</code> 递增 stderr 密度</td></tr>
+  <tr><td><code>--debug</code></td><td>—</td><td>bool</td><td>false</td><td>写 <code>trace.jsonl</code>;<code>LOAF_DEBUG=1</code> / <code>DEBUG=1</code> 等价</td></tr>
+  <tr><td><code>--dry-run</code> <span class="pill pill-rec" style="font-size: 9px">rev 4.1</span></td><td><code>-n</code></td><td>bool</td><td>false</td><td>mutating 命令只校验不落盘(read-only 命令 reject 退 2);fan-out worker pre-check 必备</td></tr>
+  <tr><td><code>--lang</code></td><td>—</td><td><code>en|zh</code></td><td>env <code>LOAF_LANG</code> / <code>en</code></td><td>i18n bundle 选择</td></tr>
+  <tr><td><code>--input</code> <span class="pill pill-rec" style="font-size: 9px">rev 4.3</span></td><td>—</td><td><code>-|&lt;json&gt;|&lt;path&gt;</code></td><td>—</td><td>Tier 1 mutator 统一 JSON 输入(ADR-0004 A3/A11):<code>-</code> ⇒ stdin / <code>{</code> 或 <code>[</code> 开头 ⇒ inline JSON / 其它 ⇒ 文件路径。支持单条或非空数组(batch,A10)</td></tr>
+  <tr><td><code>--schema</code> <span class="pill pill-rec" style="font-size: 9px">rev 4.3</span></td><td>—</td><td>bool</td><td>false</td><td>与 <code>--json</code> 联用(<code>loaf &lt;cmd&gt; --schema --json</code>)dump input Zod 派生的 JSON Schema(查 <code>schemas.ts</code> §40 <code>INPUT_SCHEMAS</code>)</td></tr>
+</table>
+</div>
+
+<h3>Subcommands(42 cmd · 全表)</h3>
+
+<div class="card">
+<table>
+  <tr><th>分组</th><th>命令</th><th>用途</th><th>exit</th></tr>
+
+  <tr><td rowspan="10"><strong>Session<br>lifecycle</strong><br><span style="font-size:11px;color:#888">(chaos<br>deviation:<br>单 verb;<br>+ context<br>pack rev 4.3)</span></td>
+      <td><code>loaf start &lt;desc&gt; [--feature &lt;name&gt;]</code></td><td>进 TRIAGE,起新 session</td><td>0 / 2</td></tr>
+  <tr><td><code>loaf status</code></td><td>读 state + artifact 健康度</td><td>0</td></tr>
+  <tr><td><code>loaf advance</code></td><td>跑下一 transition + diff guard</td><td>0 / 1 / 2</td></tr>
+  <tr><td><code>loaf resume</code></td><td>恢复 session(从 <code>resume-pack.json</code> 接力);<strong>rev 4.3</strong>(ADR-0004 A8):<code>--fresh</code> 砍,routine context 切片走 <code>loaf context pack</code></td><td>0</td></tr>
+  <tr><td><code>loaf context pack [--phase auto|&lt;sub_state&gt;]</code> <span class="pill pill-rec" style="font-size: 9px">rev 4.3</span></td><td>phase-aware context pack(<code>CONTEXT_PACK_TEMPLATES</code> 见 <code>schemas.ts</code> §38)— 20 sub_state × 最小上下文 slice;read-only</td><td>0</td></tr>
+  <tr><td><code>loaf handoff</code></td><td>写 <code>resume-pack.json</code>(显式 context overflow 接力)</td><td>0</td></tr>
+  <tr><td><code>loaf settle</code></td><td>生成 reconcile.json(standard+)</td><td>0 / 2</td></tr>
+  <tr><td><code>loaf deliver</code></td><td><strong>advisory only</strong>(不碰 git/gh);mark DONE.delivered;spike hard block</td><td>0 / 2</td></tr>
+  <tr><td><code>loaf archive --reason "..."</code></td><td>不交付关闭</td><td>0 / 2</td></tr>
+  <tr><td><code>loaf abandon --reason "..."</code></td><td>中途放弃(reason required)</td><td>0 / 2</td></tr>
+
+  <tr><td rowspan="7"><strong>spec</strong></td>
+      <td><code>loaf spec submit &lt;file&gt;</code></td><td>提交 spec.md,严格 schema 校验</td><td>0 / 2</td></tr>
+  <tr><td><code>loaf spec submit --json -</code></td><td>从 stdin 接收 JSON(机器流水线)</td><td>0 / 2</td></tr>
+  <tr><td><code>loaf spec init</code></td><td>生成 spec.md 模板</td><td>0</td></tr>
+  <tr><td><code>loaf spec edit</code></td><td>编辑当前 spec.md + 再次 schema check</td><td>0 / 2</td></tr>
+  <tr><td><code>loaf spec add-req --input &lt;src&gt;</code> <span class="pill pill-rec" style="font-size: 9px">rev 4.3</span></td><td>增量加 EARS REQ;input 携 <code>id_namespace</code>(stem),CLI 拼完整 id 落盘;<code>spec_version += 1</code>;post-lock 拒走 <code>amend-spec</code> finding;支持 single 或 batch</td><td>0 / 2</td></tr>
+  <tr><td><code>loaf spec add-scenario --input &lt;src&gt;</code> <span class="pill pill-rec" style="font-size: 9px">rev 4.3</span></td><td>增量加 Gherkin scenario;id_namespace 模式同上;其余规约同 <code>add-req</code></td><td>0 / 2</td></tr>
+  <tr><td><code>loaf spec add-visual --input &lt;src&gt;</code> <span class="pill pill-rec" style="font-size: 9px">rev 4.3</span></td><td>增量加 visual contract;id_namespace 模式同上;其余规约同 <code>add-req</code></td><td>0 / 2</td></tr>
+
+  <tr><td rowspan="8"><strong>tasks</strong></td>
+      <td><code>loaf tasks submit &lt;file&gt;</code></td><td>提交 tasks.json(整体替换;SPEC.design)</td><td>0 / 2</td></tr>
+  <tr><td><code>loaf tasks add --input &lt;src&gt;</code> <span class="pill pill-rec" style="font-size: 9px">rev 4.3</span></td><td>单条或 batch task 加入 <code>tasks.json</code>;原 <code>&lt;T-N&gt;</code> positional + <code>--kind</code> / <code>--drives</code> per-field flag <strong>已砍</strong>(ADR-0004 A5);T-id 由 CLI 单调分配并 stdout 回打;SPEC.design 阶段合法,EXECUTE 阶段拒 → <code>amend-tasks</code> finding</td><td>0 / 2</td></tr>
+  <tr><td><code>loaf tasks claim &lt;T-N&gt;</code></td><td>把 task 从 ready 拉到 in_progress(fan-out worker 拿活)</td><td>0 / 2</td></tr>
+  <tr><td><code>loaf tasks complete &lt;T-N&gt;</code></td><td>整体推到 done(单 transaction;<strong>rev 4.2</strong>:rename from <code>tasks done</code>,消 <code>tasks step done</code> 同名异级歧义)</td><td>0 / 2</td></tr>
+  <tr><td><code>loaf tasks register-red &lt;T-N&gt;</code></td><td>behavioral+labels=bug 注册 RED 测试</td><td>0 / 2</td></tr>
+  <tr><td><code>loaf tasks amend &lt;T-N&gt; --policy &lt;...&gt;</code></td><td>spec-lock 后窄修 <code>execution[].applicability</code></td><td>0 / 2</td></tr>
+  <tr><td><code>loaf tasks list</code></td><td>列所有 task 当前 step</td><td>0</td></tr>
+  <tr><td><code>loaf tasks next</code></td><td>CLI 算下一个 ready task</td><td>0</td></tr>
+  <tr><td><code>loaf tasks check</code></td><td>execution.status ↔ evidence.jsonl 一致性校验</td><td>0 / 2</td></tr>
+  <tr><td><code>loaf tasks step start --task T-N --step &lt;s&gt;</code></td><td>开始 step</td><td>0 / 2</td></tr>
+  <tr><td><code>loaf tasks step done --task T-N --step &lt;s&gt;</code></td><td>完成 step(<strong>rev 4.1</strong>:单 transaction;无 evidence proof 报 <code>TASK_STATUS_WITHOUT_PROOF</code>)</td><td>0 / 2</td></tr>
+
+  <tr><td rowspan="3"><strong>evidence</strong></td>
+      <td><code>loaf evidence add --input &lt;src&gt;</code></td><td>追加 evidence.jsonl;<strong>rev 4.1</strong>:不接受 <code>--id</code>,CLI 单调分配 EV-id。<strong>rev 4.3</strong>(ADR-0004 A3/A6):走 <code>--input</code> JSON;<code>attachments[].path</code> 简化输入,CLI 自动 sha256 + mime infer + canonical path + stat bytes;支持单条或 batch</td><td>0 / 2</td></tr>
+  <tr><td><code>loaf evidence schema --json</code></td><td>dump evidence JSON Schema</td><td>0</td></tr>
+  <tr><td><code>loaf waive &lt;obligation-id&gt; --reason "..."</code></td><td>写 kind=waiver evidence;actor 必须 human:*;reason ≥10 字符</td><td>0 / 2</td></tr>
+
+  <tr><td rowspan="3"><strong>finding</strong></td>
+      <td><code>loaf finding raise --category X --action Y --summary "..."</code></td><td>VERIFY 或 post-lock EXECUTE 记录发现</td><td>0 / 2</td></tr>
+  <tr><td><code>loaf finding list [--status open|closed]</code></td><td>列 findings</td><td>0</td></tr>
+  <tr><td><code>loaf finding close &lt;FND-id&gt;</code></td><td>关闭 finding(action 触发 back-edge)</td><td>0 / 2</td></tr>
+
+  <tr><td rowspan="2"><strong>verify /<br>gate</strong></td>
+      <td><code>loaf verify status</code></td><td>实时算各 check 状态</td><td>0</td></tr>
+  <tr><td><code>loaf gate decide &lt;G&gt;</code></td><td>gate 决策 → evidence.jsonl kind=gate-decision</td><td>0 / 2</td></tr>
+
+  <tr><td rowspan="3"><strong>pending<br>queue</strong><br><span style="font-size:11px;color:#c2410c">(rev 4.1<br>FIFO)</span></td>
+      <td><code>loaf pending list</code></td><td>列 FIFO 队列全部 entry(head 标 *)</td><td>0</td></tr>
+  <tr><td><code>loaf pending status [--id PEND-N]</code></td><td>查 single entry 详情(default = head)</td><td>0 / 2</td></tr>
+  <tr><td><code>loaf pending resolve [--answer &lt;a&gt;]</code></td><td>回答 head(FIFO 严格,不接 <code>--id</code>;v1.0 无跳序);<code>--no-input</code> 时必须 <code>--answer</code></td><td>0 / 2</td></tr>
+
+  <tr><td rowspan="4"><strong>misc<br>mutator</strong></td>
+      <td><code>loaf amend --target spec|tasks</code></td><td>spec-lock 前编辑回退;post-lock 拒(走 finding)</td><td>0 / 2</td></tr>
+  <tr><td><code>loaf profile escalate --confirm</code></td><td>接受 auto-escalation prompt</td><td>0 / 2</td></tr>
+  <tr><td><code>loaf spike convert --to-feature F-N</code></td><td>spike → 新 feature scaffold</td><td>0 / 2</td></tr>
+  <tr><td><code>loaf lessons add</code></td><td>追加 lessons.md(v1 唯一 lessons 命令)</td><td>0 / 2</td></tr>
+
+  <tr><td rowspan="6"><strong>TUI /<br>诊断 /<br>schema</strong></td>
+      <td><code>loaf tui</code></td><td>启动 session manager TUI</td><td>0</td></tr>
+  <tr><td><code>loaf sessions list</code></td><td>列所有 session(non-TUI 形式)</td><td>0</td></tr>
+  <tr><td><code>loaf doctor [--fix] [--rebuild-registry] [--json]</code> <span class="pill pill-rec" style="font-size: 9px">rev 4.1</span></td><td>自检 + 修复(9 个 check 见 §10.15)</td><td>0 / 1</td></tr>
+  <tr><td><code>loaf hook &lt;event&gt;</code></td><td>Claude Code hook 入口</td><td>0 / 2</td></tr>
+  <tr><td><code>loaf check &lt;path&gt;</code></td><td>纯 schema check(CI 用,任意 artifact 文件)</td><td>0 / 2</td></tr>
+  <tr><td><code>loaf &lt;artifact&gt; schema --json</code></td><td>自描述 dump JSON Schema(spec/tasks/evidence/finding/state)</td><td>0</td></tr>
+</table>
+
+<p class="sub" style="margin-top: 10px;">
+  <strong>命名规约</strong>:noun-verb 默认(<code>loaf spec submit</code>);session lifecycle 单 verb chaos deviation(<code>loaf start / status / advance / resume / handoff / settle / deliver / archive / abandon / doctor / tui</code>)。<strong>无 catch-all</strong> / <strong>无 prefix abbreviation</strong>;unknown subcommand 走 did-you-mean 不自动执行。
+</p>
+
+<p class="sub">
+  <strong>Build-time URL stamping</strong>(rev 4.1):<code>LOAF_DOCS_URL</code> + <code>LOAF_ISSUE_URL</code> 在 <code>bun build --compile</code> 时通过 env 注入;CI release pipeline grep placeholder 阻断 v1.0.0 tag。详见 protocol.md §10.11。
+</p>
+
+<p class="sub">
+  <strong>Exit codes</strong>:<code>0</code> success · <code>1</code> unexpected(crash log + bug report URL)· <code>2</code> expected(schema fail / illegal transition / 缺 flag / pending head blocks)· <code>130</code> SIGINT。详见 protocol.md §10.9。
+</p>
+</div>
+
+<footer>
+  <p>v1 draft rev 4.3 · 2026-05-14 · 配套 <code>protocol.md</code> + <code>schemas.ts</code>。codex 2-round + clig.dev + pending queue + quick direct-DONE + session dispatch + AI bridge + Profile→Ceremony hybrid(ADR-0003 Addenda 1-6)+ moni LLM-friendliness audit + rev 4.3 fix sweep 全部 resolved。下一步:实现 loaf-cli。</p>
+</footer>
+
+</div>
+
+<script>
+// ────────────────────────────────────────────────────────────
+// Click-to-inspect data: schema flow at each sub-state / gate
+// ────────────────────────────────────────────────────────────
+
+const PHASE_COLOR = {
+  TRIAGE:  '#4f46e5',
+  SPEC:    '#2563eb',
+  EXECUTE: '#059669',
+  VERIFY:  '#c2410c',
+  SETTLE:  '#6d28d9',
+  DONE:    '#4b5563',
+  GATE:    '#c2410c',
+};
+
+const PHASE_BG_MAP = {
+  TRIAGE:  '#e0e7ff',
+  SPEC:    '#dbeafe',
+  EXECUTE: '#d1fae5',
+  VERIFY:  '#fed7aa',
+  SETTLE:  '#ede9fe',
+  DONE:    '#e5e7eb',
+  GATE:    '#fffbeb',
+};
+const PHASE_BG = (phaseName) => PHASE_BG_MAP[phaseName] || '#f3f4f6';
+
+const STATE_DATA = {
+  // ─── TRIAGE ───
+  'TRIAGE.score': {
+    phase: 'TRIAGE',
+    title: 'Triage / 复杂度打分',
+    desc: 'loaf 在 6 维各 0-20 计算 complexity_score (0-100),推荐 profile。',
+    state: {
+      phase: 'TRIAGE',
+      sub_state: 'TRIAGE.score',
+      iteration: 1,
+      profile: null,
+      complexity_score: 38,
+      spec_locked: false,
+      pending: null,
+      based_on: { spec: 0, tasks: 0 }
+    },
+    writes: ['.loaf/<feature>/state.json'],
+    evidence: [],
+    next: [{ state: 'TRIAGE.confirm', trigger: 'score 计算完成' }]
+  },
+  'TRIAGE.confirm': {
+    phase: 'TRIAGE',
+    title: 'Triage / 确认 Profile',
+    desc: '用户接受或 override 推荐 profile。quick 跳过 SPEC 直进 EXECUTE。',
+    state: {
+      phase: 'TRIAGE',
+      sub_state: 'TRIAGE.confirm',
+      iteration: 1,
+      ceremony_label: 'standard',
+      complexity_score: 38,
+      spec_locked: false,
+      pending: null,
+      based_on: { spec: 0, tasks: 0 }
+    },
+    writes: ['.loaf/<feature>/state.json'],
+    evidence: [],
+    next: [
+      { state: 'SPEC.proposal', trigger: 'ceremony.spec_phase=true' },
+      { state: 'EXECUTE.plan', trigger: 'ceremony.spec_phase=false(跳 SPEC)' }
+    ]
+  },
+
+  // ─── SPEC ───
+  'SPEC.proposal': {
+    phase: 'SPEC',
+    title: 'Spec / Proposal',
+    desc: '写 Why / Scope / Anti-Scope。如来自 Q9 escalation backfill,读 spec-draft-context.md。',
+    state: {
+      phase: 'SPEC',
+      sub_state: 'SPEC.proposal',
+      iteration: 1,
+      ceremony_label: 'standard',
+      spec_locked: false,
+      pending: null,
+      based_on: { spec: 1, tasks: 0 }
+    },
+    writes: [
+      '.loaf/<feature>/spec.md (Proposal section)',
+      '.loaf/<feature>/spec-draft-context.md (只在 escalation 时存在)'
+    ],
+    evidence: [],
+    next: [{ state: 'SPEC.spec', trigger: 'Proposal 段写完' }]
+  },
+  'SPEC.spec': {
+    phase: 'SPEC',
+    title: 'Spec / 编写 EARS + Gherkin + Visual',
+    desc: '每个 REQ 必须有三选一可验证(measurable / verified_by_scenarios / acceptance_na+reason)。',
+    state: {
+      phase: 'SPEC',
+      sub_state: 'SPEC.spec',
+      iteration: 1,
+      ceremony_label: 'standard',
+      spec_locked: false,
+      pending: null,
+      based_on: { spec: 1, tasks: 0 }
+    },
+    writes: ['.loaf/<feature>/spec.md (frontmatter: requirements, scenarios, visual_contracts, adr_refs)'],
+    evidence: [],
+    next: [{ state: 'SPEC.plan', trigger: 'frontmatter schema valid + needs_clarification 空' }]
+  },
+  'SPEC.plan': {
+    phase: 'SPEC',
+    title: 'Spec / Plan',
+    desc: '风险、依赖、里程碑。',
+    state: {
+      phase: 'SPEC',
+      sub_state: 'SPEC.plan',
+      iteration: 1,
+      ceremony_label: 'standard',
+      spec_locked: false,
+      pending: null,
+      based_on: { spec: 1, tasks: 0 }
+    },
+    writes: ['.loaf/<feature>/spec.md (Plan section)'],
+    evidence: [],
+    next: [{ state: 'SPEC.design', trigger: 'Plan 段写完' }]
+  },
+  'SPEC.design': {
+    phase: 'SPEC',
+    title: 'Spec / Design + 任务分解',
+    desc: '设计章节 + tasks.json 生成。每个 REQ/SCEN/VIS 必须被 ≥1 task.drives[] 引用。',
+    state: {
+      phase: 'SPEC',
+      sub_state: 'SPEC.design',
+      iteration: 1,
+      ceremony_label: 'standard',
+      spec_locked: false,
+      pending: null,
+      based_on: { spec: 1, tasks: 1 }
+    },
+    writes: [
+      '.loaf/<feature>/spec.md (Design section)',
+      '.loaf/<feature>/tasks.json (per-kind execution shape)'
+    ],
+    evidence: [],
+    next: [{ state: 'GATE.spec-lock', trigger: '所有 REQ 绑定 task' }]
+  },
+
+  // ─── spec-lock gate ───
+  'GATE.spec-lock': {
+    phase: 'GATE',
+    title: 'Gate / spec-lock',
+    desc: '8 条 machine 校验 + human 决策。通过后 spec_locked=true,后续 spec/tasks 变更必须经 finding。',
+    state: {
+      phase: 'SPEC',
+      sub_state: 'SPEC.design',
+      iteration: 1,
+      ceremony_label: 'standard',
+      spec_locked: false,
+      pending: { kind: 'gate_decision', question: 'approve spec-lock?' },
+      based_on: { spec: 1, tasks: 1 }
+    },
+    writes: ['.loaf/<feature>/evidence.jsonl (kind=gate-decision)'],
+    evidence: [
+      { kind: 'gate-decision', when: 'human approve/reject;actor=human:*' }
+    ],
+    next: [
+      { state: 'EXECUTE.plan', trigger: '通过 → spec_locked=true' },
+      { state: 'SPEC.spec', trigger: '失败 → 修 spec 后重过' }
+    ]
+  },
+
+  // ─── EXECUTE (rev 4.0: worker phase, active set from tasks.json filter) ───
+  'EXECUTE.plan': {
+    phase: 'EXECUTE',
+    title: 'Execute / 推导任务策略',
+    desc: '应用 kind × profile,把每个 task 的 step.applicability 填好。',
+    state: {
+      phase: 'EXECUTE',
+      sub_state: 'EXECUTE.plan',
+      iteration: 1,
+      ceremony_label: 'standard',
+      spec_locked: true,
+      pending: null,
+      based_on: { spec: 1, tasks: 1 }
+    },
+    writes: ['.loaf/<feature>/tasks.json (execution.*.applicability 字段填充)'],
+    evidence: [],
+    next: [{ state: 'EXECUTE.work', trigger: 'execution policy 派生完成' }]
+  },
+  'EXECUTE.work': {
+    phase: 'EXECUTE',
+    title: 'Execute / 任务进行中(rev 4.0:支持 fan-out)',
+    desc: 'Worker phase。Active set 由 tasks.json filter status="in_progress" 表达。主 skill 在 EXECUTE 阶段可 fan-out N 个 subagent 并发跑互不依赖的 task。每个 task 的 current step 由 task.execution.<step>.status="running" derive。',
+    state: {
+      phase: 'EXECUTE',
+      sub_state: 'EXECUTE.work',
+      iteration: 1,
+      ceremony_label: 'standard',
+      spec_locked: true,
+      pending: null,
+      based_on: { spec: 1, tasks: 1 }
+    },
+    writes: [
+      '.loaf/<feature>/tasks.json (execution.<step>.status / evidence_refs)',
+      '.loaf/<feature>/evidence.jsonl',
+      '.loaf/<feature>/findings.jsonl (post-lock 漂移)',
+      'STEP_WRITE_PATHS_BY_KIND[kind][step] 并集 (fan-out 时多 task)'
+    ],
+    evidence: [
+      { kind: 'task-summary', when: 'task 完成时' },
+      { kind: 'local-check',  when: '跑测试 / lint / typecheck 时' },
+      { kind: 'spike-finding',when: 'spike kind 的 record step' }
+    ],
+    next: [
+      { state: 'EXECUTE.work', trigger: '某 task 完成,主 skill 选下一批 ready leaf' },
+      { state: 'EXECUTE.done', trigger: '所有 task 终态' }
+    ]
+  },
+  'EXECUTE.done': {
+    phase: 'EXECUTE',
+    title: 'Execute / 全部任务终态',
+    desc: '所有 task.status ∈ {done, abandoned}。standard+ 进 VERIFY;quick 跑 verify-min 进 SETTLE。',
+    state: {
+      phase: 'EXECUTE',
+      sub_state: 'EXECUTE.done',
+      iteration: 1,
+      ceremony_label: 'standard',
+      spec_locked: true,
+      pending: null,
+      based_on: { spec: 1, tasks: 1 }
+    },
+    writes: ['.loaf/<feature>/state.json'],
+    evidence: [],
+    next: [
+      { state: 'VERIFY.plan', trigger: 'standard / deep' },
+      { state: 'SETTLE.reconcile', trigger: 'quick(verify-min 通过)' }
+    ]
+  },
+
+  // ─── VERIFY (rev 4.0: control phase, sub_state 拆 4 表达 intent) ───
+  'VERIFY.plan': {
+    phase: 'VERIFY',
+    title: 'Verify / 派生适用 check',
+    desc: '4 个 check kind 各派生 applicability(must / optional / na)。reason 必填。下一步进入哪个 VERIFY.<check> 由 applicability 驱动。',
+    state: {
+      phase: 'VERIFY',
+      sub_state: 'VERIFY.plan',
+      iteration: 1,
+      ceremony_label: 'standard',
+      spec_locked: true,
+      pending: null,
+      based_on: { spec: 1, tasks: 1 }
+    },
+    writes: ['.loaf/<feature>/state.json (verify_checks 适用性)'],
+    evidence: [],
+    next: [
+      { state: 'VERIFY.run',        trigger: 'run applicability ∈ {must, optional-elected}' },
+      { state: 'VERIFY.review',     trigger: 'review applicability ∈ {must, optional-elected}' },
+      { state: 'VERIFY.acceptance', trigger: 'acceptance applicability ∈ {must, optional-elected}' },
+      { state: 'VERIFY.visual',     trigger: 'visual applicability ∈ {must, optional-elected}' },
+      { state: 'VERIFY.accept',     trigger: '全部 na 时直跳 gate' }
+    ]
+  },
+  'VERIFY.run': {
+    phase: 'VERIFY',
+    title: 'Verify / 跑 run check(rev 4.0)',
+    desc: 'test + lint + typecheck 三件套。sub_state 本身即 intent,无需 current_check 字段。失败可 raise finding。',
+    state: {
+      phase: 'VERIFY',
+      sub_state: 'VERIFY.run',
+      iteration: 2,
+      ceremony_label: 'standard',
+      spec_locked: true,
+      pending: null,
+      based_on: { spec: 1, tasks: 1 }
+    },
+    writes: [
+      '.loaf/<feature>/evidence.jsonl',
+      '.loaf/<feature>/findings.jsonl'
+    ],
+    evidence: [
+      { kind: 'local-check',  when: '测试 / lint / typecheck 跑完' },
+      { kind: 'task-summary', when: '统一收口该 check' },
+      { kind: 'manual',       when: '人工验证(actor=human:*)' },
+      { kind: 'waiver',       when: '风险豁免(actor=human:* + reason)' }
+    ],
+    next: [
+      { state: 'VERIFY.review',     trigger: 'run passed/waived,review applicability ∈ must/elected' },
+      { state: 'VERIFY.acceptance', trigger: 'run passed/waived,acceptance applicability ∈ must/elected' },
+      { state: 'VERIFY.visual',     trigger: 'run passed/waived,visual applicability ∈ must/elected' },
+      { state: 'VERIFY.accept',     trigger: '后续 check 全 na' }
+    ]
+  },
+  'VERIFY.review': {
+    phase: 'VERIFY',
+    title: 'Verify / 跑 review check(rev 4.0)',
+    desc: 'quality reviewer(spec_fit + quality_fit)。actor ≠ implementer。失败可 raise finding。',
+    state: {
+      phase: 'VERIFY',
+      sub_state: 'VERIFY.review',
+      iteration: 2,
+      ceremony_label: 'standard',
+      spec_locked: true,
+      pending: null,
+      based_on: { spec: 1, tasks: 1 }
+    },
+    writes: [
+      '.loaf/<feature>/evidence.jsonl',
+      '.loaf/<feature>/findings.jsonl'
+    ],
+    evidence: [
+      { kind: 'verify-review', when: 'review check 完成' },
+      { kind: 'spec-review',   when: 'deep profile 独立 spec 评审' },
+      { kind: 'manual',        when: '人工验证(actor=human:*)' },
+      { kind: 'waiver',        when: '风险豁免(actor=human:* + reason)' }
+    ],
+    next: [
+      { state: 'VERIFY.acceptance', trigger: 'review passed/waived,acceptance ∈ must/elected' },
+      { state: 'VERIFY.visual',     trigger: 'review passed/waived,visual ∈ must/elected' },
+      { state: 'VERIFY.accept',     trigger: '后续 check 全 na' }
+    ]
+  },
+  'VERIFY.acceptance': {
+    phase: 'VERIFY',
+    title: 'Verify / 跑 acceptance check(rev 4.0)',
+    desc: '选定的 Gherkin E2E scenarios。feature-level scope,跑整个 feature 的 user scenarios。',
+    state: {
+      phase: 'VERIFY',
+      sub_state: 'VERIFY.acceptance',
+      iteration: 2,
+      ceremony_label: 'standard',
+      spec_locked: true,
+      pending: null,
+      based_on: { spec: 1, tasks: 1 }
+    },
+    writes: [
+      '.loaf/<feature>/evidence.jsonl',
+      '.loaf/<feature>/findings.jsonl'
+    ],
+    evidence: [
+      { kind: 'acceptance', when: 'E2E scenario passed' },
+      { kind: 'manual',     when: '人工验证(actor=human:*)' },
+      { kind: 'waiver',     when: '风险豁免(actor=human:* + reason)' }
+    ],
+    next: [
+      { state: 'VERIFY.visual', trigger: 'acceptance passed/waived,visual ∈ must/elected' },
+      { state: 'VERIFY.accept', trigger: '后续 check 全 na' }
+    ]
+  },
+  'VERIFY.visual': {
+    phase: 'VERIFY',
+    title: 'Verify / 跑 visual check(rev 4.0)',
+    desc: 'visual contract 截图比对。feature-level scope。evidence 必带 sha256 attachment。',
+    state: {
+      phase: 'VERIFY',
+      sub_state: 'VERIFY.visual',
+      iteration: 2,
+      ceremony_label: 'standard',
+      spec_locked: true,
+      pending: null,
+      based_on: { spec: 1, tasks: 1 }
+    },
+    writes: [
+      '.loaf/<feature>/evidence.jsonl',
+      '.loaf/<feature>/findings.jsonl',
+      '.loaf/<feature>/attachments/<EV-id>/<file> (visual-review 截图)'
+    ],
+    evidence: [
+      { kind: 'visual-review', when: 'visual check;必带 sha256 attachment' },
+      { kind: 'manual',        when: '人工验证(actor=human:*)' },
+      { kind: 'waiver',        when: '风险豁免(actor=human:* + reason)' }
+    ],
+    next: [
+      { state: 'VERIFY.accept', trigger: '所有 must check 都 passed/waived + 无 open finding' }
+    ]
+  },
+  'VERIFY.accept': {
+    phase: 'VERIFY',
+    title: 'Verify / Accept Gate',
+    desc: '5 条 machine 校验(实时算,不读 reconcile)+ human 决策。',
+    state: {
+      phase: 'VERIFY',
+      sub_state: 'VERIFY.accept',
+      iteration: 2,
+      ceremony_label: 'standard',
+      spec_locked: true,
+      pending: { kind: 'gate_decision', question: 'approve verify-accept?' },
+      based_on: { spec: 1, tasks: 1 }
+    },
+    writes: ['.loaf/<feature>/evidence.jsonl (kind=gate-decision)'],
+    evidence: [{ kind: 'gate-decision', when: 'human approve;actor=human:*' }],
+    next: [
+      { state: 'SETTLE.reconcile', trigger: '通过' },
+      { state: 'VERIFY.run',        trigger: '失败 → 回 run 修(取决于 finding action)' },
+      { state: 'VERIFY.review',     trigger: '失败 → 回 review 修' },
+      { state: 'VERIFY.acceptance', trigger: '失败 → 回 acceptance 修' },
+      { state: 'VERIFY.visual',     trigger: '失败 → 回 visual 修' }
+    ]
+  },
+
+  // ─── verify-accept gate (alias) ───
+  'GATE.verify-accept': {
+    phase: 'GATE',
+    title: 'Gate / verify-accept',
+    desc: '5 条机器校验:applicable check 全 passed/waived,无 open finding,coverage 满足,every done task 有 evidence,deep 还要 spec-review independence。',
+    state: {
+      phase: 'VERIFY',
+      sub_state: 'VERIFY.accept',
+      iteration: 2,
+      ceremony_label: 'standard',
+      pending: { kind: 'gate_decision', question: 'approve verify-accept?' },
+      spec_locked: true,
+      based_on: { spec: 1, tasks: 1 }
+    },
+    writes: ['.loaf/<feature>/evidence.jsonl (kind=gate-decision)'],
+    evidence: [{ kind: 'gate-decision', when: '人工 approve' }],
+    next: [{ state: 'SETTLE.reconcile', trigger: '通过' }]
+  },
+
+  // ─── SETTLE ───
+  'SETTLE.reconcile': {
+    phase: 'SETTLE',
+    title: 'Settle / 对账',
+    desc: 'planned vs actual scope diff。每条 drift 必须有 resolution。verify_checks_status 是 SNAPSHOT,不是 gate 源。',
+    state: {
+      phase: 'SETTLE',
+      sub_state: 'SETTLE.reconcile',
+      iteration: 2,
+      ceremony_label: 'standard',
+      spec_locked: true,
+      pending: null,
+      based_on: { spec: 1, tasks: 1 }
+    },
+    writes: ['.loaf/<feature>/reconcile.json'],
+    evidence: [],
+    next: [{ state: 'SETTLE.lessons', trigger: 'reconcile valid' }]
+  },
+  'SETTLE.lessons': {
+    phase: 'SETTLE',
+    title: 'Settle / 经验沉淀',
+    desc: 'lessons.md 追加。deep 必须,standard 可选,quick 跳过。',
+    state: {
+      phase: 'SETTLE',
+      sub_state: 'SETTLE.lessons',
+      iteration: 2,
+      ceremony_label: 'standard',
+      spec_locked: true,
+      pending: null,
+      based_on: { spec: 1, tasks: 1 }
+    },
+    writes: ['.loaf/<feature>/lessons.md'],
+    evidence: [],
+    next: [
+      { state: 'DONE.delivered', trigger: 'loaf deliver(spike 禁止)' },
+      { state: 'DONE.archived', trigger: 'loaf archive' },
+      { state: 'DONE.abandoned', trigger: 'loaf abandon --reason' }
+    ]
+  },
+
+  // ─── DONE ───
+  'DONE.delivered': {
+    phase: 'DONE',
+    title: 'Done · 已交付',
+    desc: 'loaf deliver(rev 3.1 advisory-only,不碰 git/gh)成功后的终态。spike 禁止进入此态。',
+    state: {
+      phase: 'DONE',
+      sub_state: 'DONE.delivered',
+      iteration: 2,
+      ceremony_label: 'standard',
+      spec_locked: true,
+      pending: null,
+      based_on: { spec: 1, tasks: 1 }
+    },
+    writes: [],
+    evidence: [],
+    next: []
+  },
+  'DONE.archived': {
+    phase: 'DONE',
+    title: 'Done · 已归档',
+    desc: 'loaf archive --reason。spike 任务的合法出口之一。',
+    state: {
+      phase: 'DONE',
+      sub_state: 'DONE.archived',
+      iteration: 2,
+      ceremony_label: 'standard',
+      spec_locked: true,
+      pending: null,
+      based_on: { spec: 1, tasks: 1 }
+    },
+    writes: [],
+    evidence: [],
+    next: []
+  },
+  'DONE.abandoned': {
+    phase: 'DONE',
+    title: 'Done · 已弃置',
+    desc: 'loaf abandon --reason "..."。reason 必填。',
+    state: {
+      phase: 'DONE',
+      sub_state: 'DONE.abandoned',
+      iteration: 2,
+      ceremony_label: 'standard',
+      spec_locked: true,
+      pending: null,
+      based_on: { spec: 1, tasks: 1 }
+    },
+    writes: [],
+    evidence: [],
+    next: []
+  },
+};
+
+// ────────────────────────────────────────────────────────────
+// Render + interaction
+// ────────────────────────────────────────────────────────────
+
+const panel    = document.getElementById('state-detail');
+const dPhase   = document.getElementById('d-phase');
+const dTitle   = document.getElementById('d-title');
+const dDesc    = document.getElementById('d-desc');
+const dState   = document.getElementById('d-state');
+const dWrites  = document.getElementById('d-writes');
+const dEvi     = document.getElementById('d-evidence');
+const dNext    = document.getElementById('d-next');
+
+function render(stateKey) {
+  const data = STATE_DATA[stateKey];
+  if (!data) return;
+  const color = PHASE_COLOR[data.phase] || '#8a93a6';
+
+  dPhase.textContent = data.phase;
+  dPhase.style.background = PHASE_BG(data.phase);
+  dPhase.style.color = color;
+  dTitle.textContent = data.title;
+  dDesc.textContent = data.desc;
+
+  dState.textContent = JSON.stringify(data.state, null, 2);
+
+  dWrites.innerHTML = data.writes.length
+    ? data.writes.map(p => `<li><span class="k">→</span> ${escapeHtml(p)}</li>`).join('')
+    : '<li class="empty">no protocol-tracked writes</li>';
+
+  dEvi.innerHTML = data.evidence.length
+    ? data.evidence.map(e => `<li><span class="k">${escapeHtml(e.kind)}</span> · ${escapeHtml(e.when)}</li>`).join('')
+    : '<li class="empty">本阶段不产 evidence</li>';
+
+  dNext.innerHTML = data.next.length
+    ? data.next.map(n => `<div>→ <code>${escapeHtml(n.state)}</code><span class="arrow">|</span><span class="trigger">${escapeHtml(n.trigger)}</span></div>`).join('')
+    : '<div class="empty">terminal state</div>';
+
+  panel.classList.add('active');
+
+  // mark active node
+  document.querySelectorAll('.state-node').forEach(el => el.classList.remove('active'));
+  const target = document.querySelector(`.state-node[data-state="${cssEscape(stateKey)}"]`);
+  if (target) target.classList.add('active');
+
+  // smooth scroll panel into view
+  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function close_() {
+  panel.classList.remove('active');
+  document.querySelectorAll('.state-node').forEach(el => el.classList.remove('active'));
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+function cssEscape(s) {
+  // for use inside attribute selector
+  return s.replace(/["\\]/g, '\\$&');
+}
+
+document.querySelectorAll('.state-node').forEach(el => {
+  el.addEventListener('click', () => render(el.getAttribute('data-state')));
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') close_();
+});
+</script>
+
+</body>
+</html>

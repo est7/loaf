@@ -1,0 +1,195 @@
+{
+  "_meta": {
+    "schema_version": 1,
+    "lang": "zh",
+    "note": "所有 key 对应 schemas.ts 稳定英文 ID。diagnostic 模板用 mustache 风格 {var} 占位,从 gate-diagnostic.failures[].vars 取值。"
+  },
+
+  "evidence_kind": {
+    "task-summary":   "任务总结",
+    "verify-review":  "代码评审",
+    "spec-review":    "规格评审",
+    "acceptance":     "验收检查",
+    "visual-review":  "视觉评审",
+    "gate-decision":  "Gate 决策",
+    "local-check":    "本地检查",
+    "manual":         "人工验证",
+    "waiver":         "风险豁免",
+    "spike-finding":  "Spike 发现"
+  },
+
+  "phase": {
+    "TRIAGE":  "分诊",
+    "SPEC":    "规格",
+    "EXECUTE": "执行",
+    "VERIFY":  "验证",
+    "SETTLE":  "结算",
+    "DONE":    "完成"
+  },
+
+  "sub_state": {
+    "TRIAGE.score":     "分诊 / 打分",
+    "TRIAGE.confirm":   "分诊 / 确认 profile",
+    "SPEC.proposal":    "规格 / 提案",
+    "SPEC.spec":        "规格 / 编写 EARS+Gherkin",
+    "SPEC.plan":        "规格 / 计划",
+    "SPEC.design":      "规格 / 设计 + tasks",
+    "EXECUTE.plan":     "执行 / 推导策略",
+    "EXECUTE.task":     "执行 / 任务进行中",
+    "EXECUTE.done":     "执行 / 所有任务终态",
+    "VERIFY.plan":      "验证 / 计算适用检查",
+    "VERIFY.check":     "验证 / 检查进行中",
+    "VERIFY.accept":    "验证 / 接收 gate",
+    "SETTLE.reconcile": "结算 / 对账",
+    "SETTLE.lessons":   "结算 / 经验沉淀",
+    "DONE.delivered":   "完成 · 已交付",
+    "DONE.archived":    "完成 · 已归档",
+    "DONE.abandoned":   "完成 · 已弃置"
+  },
+
+  "task_kind": {
+    "behavioral": "行为",
+    "structural": "结构",
+    "visual-ui":  "视觉 UI",
+    "docs":       "文档",
+    "spike":      "探索",
+    "chore":      "杂务"
+  },
+
+  "step": {
+    "red":                "红测(失败用例)",
+    "implement":          "实现",
+    "refactor":           "重构",
+    "mockup":             "模拟图",
+    "screenshot-compare": "截图对比",
+    "draft":              "草稿",
+    "review":             "评审",
+    "explore":            "探索",
+    "prototype":          "原型",
+    "record":             "记录",
+    "execute":            "执行"
+  },
+
+  "verify_check_kind": {
+    "run":        "运行(测试 + lint + 类型检查)",
+    "review":     "评审",
+    "acceptance": "验收(E2E)",
+    "visual":     "视觉"
+  },
+
+  "applicability": {
+    "must":     "必须",
+    "optional": "可选",
+    "na":       "不适用"
+  },
+
+  "step_status": {
+    "na":      "不适用",
+    "pending": "待处理",
+    "running": "进行中",
+    "passed":  "通过",
+    "failed":  "失败",
+    "waived":  "已豁免"
+  },
+
+  "finding_category": {
+    "spec-gap":         "规格缺漏",
+    "spec-defect":      "规格错误",
+    "impl-defect":      "实现缺陷",
+    "test-defect":      "测试缺陷",
+    "new-scope":        "范围外新议",
+    "risk-escalation":  "风险升级"
+  },
+
+  "finding_action": {
+    "amend-spec":  "修订规格",
+    "amend-tasks": "修订任务",
+    "fix-impl":    "修实现",
+    "fix-test":    "修测试",
+    "defer":       "本轮延迟",
+    "backlog":     "进 backlog(下个 feature)"
+  },
+
+  "gate": {
+    "spec-lock":     "规格锁定",
+    "verify-accept": "验证接收"
+  },
+
+  "profile": {
+    "quick":    "Quick(快速)",
+    "standard": "Standard(标准)",
+    "deep":     "Deep(深度)"
+  },
+
+  "pending_kind": {
+    "ask_user_question":   "等待用户输入",
+    "gate_decision":       "Gate 等待人工决策",
+    "spec_clarification":  "规格待澄清",
+    "finding_decision":    "Finding 等待 action",
+    "profile_escalation":  "Profile 升级待确认"
+  },
+
+  "diagnostic": {
+    "MISSING_VERIFIABILITY":      "需求 {req_id} 必须声明 measurable、verified_by_scenarios[] 或 acceptance_na+reason 三选一",
+    "DRIVES_NOT_BOUND":           "需求 {req_id} 没有被任何 task.drives[] 引用",
+    "E2E_ACCEPTANCE_UNRESOLVED":  "场景 {scen_id}(tag=e2e)既没有 task 验收绑定,也没有 acceptance_na+reason",
+    "VISUAL_CONTRACT_UNRESOLVED": "视觉合约 {vis_id} 既没有 visual-ui task 引用,也没有 visual_na+reason",
+    "TASK_KIND_SCHEMA_INVALID":   "任务 {task_id} 不符合 kind={kind} 的 schema:{reason}",
+    "NO_OPEN_CLARIFICATIONS":     "spec.md 仍有未解决的 clarifications: {ids}",
+    "TASKS_VERSION_MISMATCH":     "tasks.based_on.spec({tasks_ver})≠ spec.spec_version({spec_ver})",
+    "EVIDENCE_INCOMPATIBLE":      "证据 {evidence_id}(kind={kind})不能满足 {covered_id} 的覆盖要求",
+    "WAIVER_MISSING_REASON":      "豁免证据 {evidence_id} 必须有 reason(≥10 字符)",
+    "WAIVER_NOT_HUMAN":           "豁免证据 {evidence_id} 的 actor 必须以 'human:' 开头,当前 {actor}",
+    "VISUAL_REVIEW_MISSING_ATTACHMENT": "visual-review 证据 {evidence_id} 必须带至少一个含 sha256 的 attachment",
+    "PATH_OUTSIDE_WRITE_GUARD":   "在 sub_state={sub_state} step={step} 下,禁止写入 {path}",
+    "PENDING_BLOCKS_ADVANCE":     "pending head {pending_id}(kind={kind})阻塞 `loaf advance`,需先 resolve",
+    "GATE_NOT_PENDING":           "`loaf gate decide {gate}` 要求 pending head kind=gate_decision;当前 head:{actual_head}",
+    "ESCALATION_NOT_PENDING":     "`loaf profile escalate --confirm` 要求 pending head kind=profile_escalation;当前 head:{actual_head}",
+    "AMEND_REJECTED_POST_LOCK":   "spec_locked=true;使用 `loaf finding raise` 替代 `loaf amend`",
+    "DELIVER_FORBIDDEN_FOR_SPIKE": "spike 任务不允许 deliver;使用 `loaf archive` / `loaf spike convert` / `loaf abandon`",
+    "DONE_TERMINAL_INVARIANT":    "DONE.* 状态要求 state.pending.length === 0 且 tasks.json 中无 status=\"in_progress\" 的 task",
+    "ABANDON_REQUIRES_REASON":    "loaf abandon 必须带 --reason 参数",
+    "TASKS_EXECUTION_DRIFT":      "任务 {task_id} step={step} status={status} 与 evidence.jsonl 不一致",
+    "COVERAGE_NOT_SATISFIED":     "{covered_id} 没有任何证据满足覆盖(canSatisfy 对所有候选 evidence 都失败)"
+  },
+
+  "help": {
+    "start":          "在 .loaf/<feature>/ 开启新 feature session",
+    "status":         "打印当前 state.json + artifact 健康摘要",
+    "advance":        "执行下一 transition + diff-guard(git status 全口径 ∩ write_paths)",
+    "resume":         "恢复 session;--fresh 输出本轮最小 context pack",
+    "handoff":        "写 resume-pack.json,context overflow 接力",
+    "spec_submit":    "严格按 SpecFrontmatter schema 校验并落 spec.md",
+    "spec_init":      "生成 spec.md 模板(适合 $EDITOR 跟进)",
+    "spec_schema":    "dump SpecFrontmatter JSON Schema",
+    "tasks_submit":   "严格按 TaskKind discriminated union 校验 tasks.json",
+    "tasks_register_red": "为 behavioral+bug 任务登记失败测试(implement 之前必做)",
+    "evidence_add":   "追加一条 evidence;自动分配 EV-id",
+    "evidence_schema": "dump EvidenceEntry JSON Schema",
+    "waive":          "记录一条 waiver 证据;actor 必须 human:* 起始,reason ≥10 字符",
+    "finding_raise":  "raise 一条 finding(VERIFY.* 始终允许,EXECUTE.* 仅 post-spec-lock 允许)",
+    "verify_status":  "实时计算各 verify check 的 applicability + status(永不读 reconcile.json)",
+    "gate_decide":    "记录人工 gate 决策;写 evidence kind=gate-decision",
+    "settle":         "生成 reconcile.json(standard+ profile)",
+    "amend":          "spec-lock 前编辑 spec / tasks(post-lock 拒绝,改走 finding)",
+    "profile_escalate": "确认 pending profile 升级",
+    "deliver":        "标记 session 为 DONE.delivered(advisory only,不碰 git/gh)",
+    "archive":        "关闭 session 为 DONE.archived",
+    "abandon":        "关闭 session 为 DONE.abandoned(必须带 --reason)",
+    "tui":            "启动 session manager TUI(读取 ~/.loaf/registry/)",
+    "sessions_list":  "列出所有 session(非 TUI 形式)",
+    "check":          "纯 schema 校验(CI 用)",
+    "check_tasks":    "校验 tasks.execution.status(cache)与 evidence.jsonl(证据)一致性",
+    "hook":           "Claude Code hook 入口",
+    "doctor":         "自检 loaf-cli 安装、仓库结构、配置"
+  },
+
+  "status_indicator": {
+    "ask":  "⏸ 询问",
+    "gate": "⏸ Gate",
+    "run":  "▶ 运行",
+    "done": "✓ 完成",
+    "fail": "✗ 失败",
+    "wait": "⏳ 等待"
+  }
+}

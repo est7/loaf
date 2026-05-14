@@ -1,0 +1,647 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Wang Agentic Governance SDD Workflow</title>
+    <style>
+      :root {
+        --bg: #f4f6f8;
+        --panel: #ffffff;
+        --panel-soft: #f8fafc;
+        --ink: #0f172a;
+        --muted: #64748b;
+        --border: #d8dee9;
+        --blue: #2563eb;
+        --green: #059669;
+        --rose: #e11d48;
+        --amber: #d97706;
+        --shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background:
+          linear-gradient(rgba(15, 23, 42, 0.035) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(15, 23, 42, 0.035) 1px, transparent 1px),
+          var(--bg);
+        background-size: 28px 28px;
+        color: var(--ink);
+        font-family:
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+      }
+
+      main {
+        width: min(1500px, calc(100vw - 32px));
+        margin: 28px auto 56px;
+      }
+
+      header {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 360px;
+        gap: 18px;
+        align-items: end;
+        margin-bottom: 18px;
+      }
+
+      h1 {
+        margin: 0 0 10px;
+        font-size: clamp(30px, 4vw, 48px);
+        line-height: 1.05;
+        letter-spacing: 0;
+      }
+
+      .subtitle {
+        margin: 0;
+        max-width: 980px;
+        color: var(--muted);
+        font-size: 15px;
+        line-height: 1.55;
+      }
+
+      .hero-card,
+      .panel,
+      .summary-card {
+        background: rgba(255, 255, 255, 0.94);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        box-shadow: var(--shadow);
+      }
+
+      .hero-card {
+        padding: 16px;
+        border-left: 4px solid var(--blue);
+      }
+
+      .hero-card h2,
+      .summary-card h3,
+      .panel h2 {
+        margin: 0;
+        letter-spacing: 0;
+      }
+
+      .hero-card h2 {
+        font-size: 16px;
+        margin-bottom: 8px;
+      }
+
+      .hero-card p {
+        margin: 0;
+        color: #334155;
+        font-size: 13px;
+        line-height: 1.55;
+      }
+
+      .summary-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+        margin-bottom: 14px;
+      }
+
+      .summary-card {
+        padding: 14px;
+        min-height: 112px;
+      }
+
+      .summary-card h3 {
+        font-size: 14px;
+        margin-bottom: 8px;
+      }
+
+      .summary-card p {
+        margin: 0;
+        color: #334155;
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      .note-strip {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+        margin-bottom: 14px;
+      }
+
+      .note-block {
+        padding: 15px 18px;
+      }
+
+      .note-block h2 {
+        margin: 0 0 9px;
+        font-size: 16px;
+        letter-spacing: 0;
+      }
+
+      .note-block p {
+        margin: 0 0 8px;
+        color: #334155;
+        font-size: 13px;
+        line-height: 1.55;
+      }
+
+      .note-block p:last-child {
+        margin-bottom: 0;
+      }
+
+      .blue {
+        border-top: 3px solid var(--blue);
+      }
+      .green {
+        border-top: 3px solid var(--green);
+      }
+      .rose {
+        border-top: 3px solid var(--rose);
+      }
+      .amber {
+        border-top: 3px solid var(--amber);
+      }
+
+      .panel {
+        overflow: hidden;
+        margin-bottom: 14px;
+      }
+
+      .panel-header {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        align-items: baseline;
+        padding: 15px 18px 12px;
+        border-bottom: 1px solid var(--border);
+        background: rgba(248, 250, 252, 0.86);
+      }
+
+      .panel h2 {
+        font-size: 18px;
+      }
+
+      .panel-header p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.45;
+        max-width: 720px;
+      }
+
+      .diagram {
+        overflow: auto;
+        padding: 18px;
+        background: var(--panel);
+      }
+
+      .mermaid {
+        min-width: 860px;
+        display: flex;
+        justify-content: center;
+      }
+
+      .mermaid.medium {
+        min-width: 1080px;
+      }
+
+      .mermaid.wide {
+        min-width: 1240px;
+      }
+
+      .bottom-grid {
+        display: grid;
+        grid-template-columns: 1.15fr 0.85fr;
+        gap: 14px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+
+      th,
+      td {
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--border);
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        color: #334155;
+        background: var(--panel-soft);
+        font-weight: 700;
+      }
+
+      td {
+        color: #475569;
+        line-height: 1.45;
+      }
+
+      .list {
+        margin: 0;
+        padding-left: 18px;
+        color: #475569;
+        font-size: 13px;
+        line-height: 1.6;
+      }
+
+      .resolved-body {
+        padding: 14px 18px 18px;
+      }
+
+      code {
+        color: #1d4ed8;
+        font-family:
+          ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 0.94em;
+      }
+
+      @media (max-width: 980px) {
+        main {
+          width: min(100vw - 20px, 1500px);
+          margin-top: 18px;
+        }
+
+        header,
+        .summary-grid,
+        .note-strip,
+        .bottom-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <section>
+          <h1>Wang Agentic Governance SDD Workflow</h1>
+          <p class="subtitle">
+            A mechanism-first extraction from Wang snapshots. The page is split
+            into the control loop and the four governance modules so the
+            workflow is easier to inspect and correct than a single oversized
+            flowchart.
+          </p>
+        </section>
+        <aside class="hero-card">
+          <h2>核心判断</h2>
+          <p>
+            <code>Sprint 未结束?</code> 是 Sprint runtime 的循环头。
+            <code>继续 Sprint 编排</code> 必须回到该节点，再进入下一轮
+            scheduler。
+          </p>
+        </aside>
+      </header>
+
+      <section class="summary-grid">
+        <article class="summary-card blue">
+          <h3>1. Pre-Sprint</h3>
+          <p>
+            把需求和上下文压成可调度资产：<code
+              >RFC / PLAN / CURSOR / TASKS / REVIEWS / TK</code
+            >。
+          </p>
+        </article>
+        <article class="summary-card green">
+          <h3>2. Scheduler</h3>
+          <p>
+            在 batch 和 serial 之间选择：能安全并发就 2-4 个一批，否则一次只取 1
+            个 leaf TK。
+          </p>
+        </article>
+        <article class="summary-card rose">
+          <h3>3. Review Loop</h3>
+          <p>每个 leaf TK 独立 CR；高影响 finding 会升级成当前轮自动化防线。</p>
+        </article>
+        <article class="summary-card amber">
+          <h3>4. State Sync</h3>
+          <p>
+            交付后同步
+            <code>TASKS / REVIEWS / checklist / CURSOR</code
+            >，再决定下一批或退出。
+          </p>
+        </article>
+      </section>
+
+      <section class="note-strip">
+        <article class="panel note-block">
+          <h2>Source Fidelity</h2>
+          <p>
+            主体结构忠实于源图：<code>/sdd-*</code> 是 Pre-Sprint 资产生成链路，
+            <code>Sprint 未结束?</code> 才是 runtime loop 的入口。
+          </p>
+          <p>
+            图中明示了 ready 条件、每个 leaf TK 创建 CR、rule-candidate
+            当前轮落地、 以及 delivery 后同步
+            <code>TASKS / REVIEWS / checklist / CURSOR</code>。
+          </p>
+        </article>
+        <article class="panel note-block">
+          <h2>Interpretation Notes</h2>
+          <p>
+            <code>CURSOR = resume point</code> 是从“读取 CURSOR / 恢复当前
+            phase”和同步节点推导出来的解释； 源图便签里的状态同步铁律只显式列出
+            <code>TASKS</code>、<code>REVIEWS</code>、<code>checklist</code>。
+          </p>
+          <p>
+            split 不是立刻退出 Sprint。它先回写
+            <code>TASKS / CURSOR / 父 TK</code>， 再让生成的 child TK 走同一条
+            scheduler/execution 路径。
+          </p>
+        </article>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Control Loop</h2>
+          <p>先看这张。Wang 的主线是 Sprint 内控制环，不是单次线性执行。</p>
+        </div>
+        <div class="diagram">
+          <pre class="mermaid">
+flowchart LR
+  context["用户需求&lt;br/&gt;或延续上下文"] --> pre["Pre-Sprint&lt;br/&gt;资产生成"]
+  pre --> assets["RFC / PLAN / CURSOR&lt;br/&gt;Sprint / TASKS / REVIEWS / TK"]
+  assets --> active{"Sprint 未结束?"}
+  active -- 是 --> scheduler["Scheduler"]
+  scheduler --> execution["Execution&lt;br/&gt;执行批次"]
+  execution --> review["Review Loop"]
+  review --> delivery["Delivery + State Sync"]
+  delivery --> next{"下一批 ready leaf TK?"}
+  next -- 是 --> continueNode["继续 Sprint 编排"]
+  continueNode --> active
+  next -- 否 --> exit["Sprint Exit&lt;br/&gt;经验与规则候选"]
+  active -- 已结束 --> archive["归档 / 下一 Sprint"]
+  exit --> archive
+
+  classDef asset fill:#eef6ff,stroke:#2563eb,color:#0f172a;
+  classDef work fill:#ecfdf5,stroke:#059669,color:#0f172a;
+  classDef reviewClass fill:#fff1f2,stroke:#e11d48,color:#0f172a;
+  classDef control fill:#fffbeb,stroke:#d97706,color:#0f172a;
+  class context,pre,assets asset;
+  class scheduler,execution,delivery work;
+  class review reviewClass;
+  class active,next,continueNode,exit,archive control;
+        </pre
+          >
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Pre-Sprint Asset Builder</h2>
+          <p>这段的价值是产出 scheduler 能读的资产，不是直接开写代码。</p>
+        </div>
+        <div class="diagram">
+          <pre class="mermaid medium">
+flowchart TD
+  input["输入需求 / 延续上下文"] --> specify{"需要 /sdd-specify?"}
+  specify -- 是 --> requirement["输出 requirement&lt;br/&gt;等待用户审阅"]
+  specify -- 否 --> draft
+  requirement --> draft["/sdd-draft&lt;br/&gt;创建 draft"]
+  draft --> userReview["用户审阅 draft"]
+  userReview --> needReview{"需要 /sdd-review?"}
+  needReview -- 是 --> fork{{并行 review}}
+  fork --> arch["架构评审"]
+  fork --> security["安全评审"]
+  arch --> join{{汇合}}
+  security --> join
+  join --> merge["汇总并回写&lt;br/&gt;draft + .review.md"]
+  needReview -- 否 --> rfc
+  merge --> rfc["/sdd-rfc"]
+  rfc --> outputs["生成 RFC / PLAN / CURSOR&lt;br/&gt;Sprint / TASKS / REVIEWS / TK"]
+  outputs -. "目标: 明确项目与 Sprint 边界&lt;br/&gt;生成叶子 TK&lt;br/&gt;标出并行车道" .-> note["Pre-Sprint&lt;br/&gt;输出契约"]
+        </pre
+          >
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Scheduler + Execution</h2>
+          <p>
+            Scheduler 是治理点：batch 表示 2-4 个 leaf TK 并行；serial 表示只选
+            1 个 ready leaf TK 进入执行。
+          </p>
+        </div>
+        <div class="diagram">
+          <pre class="mermaid">
+flowchart TD
+  cursor["读取 CURSOR&lt;br/&gt;恢复当前 phase"] --> tasks["读取 TASKS / 当前 TK&lt;br/&gt;必要时读取最近 CR"]
+  tasks --> ready{"存在 ready 批次?"}
+  ready -- 是 --> batch["选择 batch-001~NNN"]
+  ready -- 否 --> large{"当前 planned TK 过大?"}
+  large -- 是 --> split["拆分父 TK&lt;br/&gt;TK-A / TK-B / TK-C"]
+  split --> rewrite["回写 TASKS&lt;br/&gt;CURSOR / 父 TK"]
+  large -- serial --> single["选择单个 ready leaf TK"]
+
+  batch --> fork{{并行}}
+  rewrite --> fork
+  single --> fork
+  fork --> leafA["执行 leaf TK A&lt;br/&gt;只改分配写入范围"]
+  fork --> leafB["执行 leaf TK B&lt;br/&gt;只改分配写入范围"]
+  leafA --> verifyA["开发验证"]
+  leafB --> verifyB["开发验证"]
+  verifyA --> join{{汇合}}
+  verifyB --> join
+  join --> precheck["主 Agent 前置检查&lt;br/&gt;单测 / 验证 / 变更范围"]
+
+  readyRules["ready 要求:&lt;br/&gt;依赖已满足&lt;br/&gt;写入范围不冲突&lt;br/&gt;不在互斥列表中&lt;br/&gt;并行数约 2-4"] -.-> ready
+        </pre
+          >
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Review Loop</h2>
+          <p>
+            Review 输出先分诊。高影响 accepted finding
+            不只是修掉，还要在当前轮规则化成脚本、单测和 check-fast。
+          </p>
+        </div>
+        <div class="diagram">
+          <pre class="mermaid medium">
+flowchart TD
+  precheck["主 Agent 前置检查通过"] --> create["为每个 leaf TK 创建 CR"]
+  create --> initial["初始 review"]
+  initial --> findings{"是否有 findings?"}
+  findings -- clean --> resolved["CR resolved"]
+  findings -- 是 --> triage["主 Agent 分诊&lt;br/&gt;accepted / rejected"]
+  triage --> accepted{"存在 accepted findings?"}
+  accepted -- 全部 rejected --> clean["直接进入 clean"]
+  accepted -- 是 --> fix["修复 accepted findings"]
+  fix --> rule{"高影响&lt;br/&gt;rule-candidate?"}
+  rule -- 是 --> land["当前轮落地脚本 / 单测&lt;br/&gt;check-fast 集成"]
+  rule -- 否 --> recheck
+  land --> recheck["重新 review"]
+  recheck --> rounds{"轮次 &gt; 5?"}
+  rounds -- 否 --> initial
+  rounds -- 是 --> human["熔断并升级&lt;br/&gt;人工 review"]
+  resolved --> done((review 完成))
+  clean --> done
+  human --> done
+        </pre
+          >
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Delivery + State Sync</h2>
+          <p>Delivery 是记账闭环。实现完成、CR 完成，都不等于状态已经一致。</p>
+        </div>
+        <div class="diagram">
+          <pre class="mermaid medium">
+flowchart TD
+  reviewDone["Review 完成"] --> delivery["交付验证"]
+  delivery --> sync["同步 TASKS / REVIEWS&lt;br/&gt;checklist / CURSOR"]
+  sync --> split{"父 TK 是 split?"}
+  split -- 是 --> closeParent["仅在以下条件关闭父 TK:&lt;br/&gt;全部子 TK done&lt;br/&gt;父级交付验证通过"]
+  split -- 否 --> join(( ))
+  closeParent --> join
+  join --> next{"是否还有下一批 ready leaf TK?"}
+  next -- 是 --> continueNode["继续 Sprint 编排&lt;br/&gt;回到 Sprint 未结束?"]
+  next -- 否 --> exit["进入 Sprint 退出检查"]
+  exit --> lessons["提炼 experiences&lt;br/&gt;团队经验候选&lt;br/&gt;规则升级候选"]
+  lessons --> ask["询问用户:&lt;br/&gt;退出 Sprint 或初始化下一 Sprint?"]
+
+  law["状态同步铁律:&lt;br/&gt;TASKS = TK 卡片状态&lt;br/&gt;REVIEWS = CR + review 报告状态&lt;br/&gt;checklist = done 状态&lt;br/&gt;CURSOR 同步为恢复点"] -.-> sync
+        </pre
+          >
+        </div>
+      </section>
+
+      <section class="bottom-grid">
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Mechanisms</h2>
+            <p>我目前读到的 Wang 框架机制。</p>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Mechanism</th>
+                <th scope="col">Controls</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Pre-Sprint</td>
+                <td>Turns loose context into schedulable governance assets.</td>
+              </tr>
+              <tr>
+                <td><code>CURSOR</code></td>
+                <td>Makes continuation explicit and resumable.</td>
+              </tr>
+              <tr>
+                <td>Scheduler</td>
+                <td>
+                  Enforces dependencies, write scopes, exclusion list, and
+                  parallelism cap.
+                </td>
+              </tr>
+              <tr>
+                <td>Split Re-scheduling</td>
+                <td>
+                  Splitting is only valid after TASKS, CURSOR, and the parent TK
+                  are rewritten.
+                </td>
+              </tr>
+              <tr>
+                <td>Pre-check Gate</td>
+                <td>A mandatory automated guardrail before creating CRs.</td>
+              </tr>
+              <tr>
+                <td>Leaf <code>TK</code></td>
+                <td>
+                  Smallest executable, reviewable, state-synced task card.
+                </td>
+              </tr>
+              <tr>
+                <td>CR per leaf <code>TK</code></td>
+                <td>Keeps review state isolated across parallel work.</td>
+              </tr>
+              <tr>
+                <td>Rule candidate</td>
+                <td>
+                  Turns high-impact review findings into current-round automated
+                  guardrails.
+                </td>
+              </tr>
+              <tr>
+                <td>State sync law</td>
+                <td>
+                  Ensures TASKS, REVIEWS, checklist, and the resumable cursor
+                  are consistent.
+                </td>
+              </tr>
+              <tr>
+                <td>Evolution</td>
+                <td>Extracts cross-project experiences during Sprint exit.</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Resolved Decisions</h2>
+            <p>根据你的校正，当前版本按这些语义理解。</p>
+          </div>
+          <div class="resolved-body">
+            <ul class="list">
+              <li>
+                <code>serial</code> 是串行调度：一次只选 1 个 ready leaf TK。
+              </li>
+              <li>
+                <code>rule-candidate</code> 是把高影响 finding
+                立即规则化成防线。
+              </li>
+              <li><code>轮次 &gt; 5</code> 固定熔断，升级人工 review。</li>
+              <li>Sprint exit 包含经验、团队候选和规则升级候选的提炼。</li>
+            </ul>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script type="module">
+      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+
+      mermaid.initialize({
+        startOnLoad: true,
+        securityLevel: "loose",
+        theme: "base",
+        themeVariables: {
+          fontFamily:
+            "ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif",
+          primaryColor: "#eef6ff",
+          primaryBorderColor: "#2563eb",
+          primaryTextColor: "#0f172a",
+          secondaryColor: "#ecfdf5",
+          tertiaryColor: "#fff7ed",
+          lineColor: "#475569",
+          clusterBkg: "#ffffff",
+          clusterBorder: "#cbd5e1",
+          edgeLabelBackground: "#ffffff",
+          nodeBorder: "#94a3b8",
+          mainBkg: "#ffffff",
+        },
+        flowchart: {
+          curve: "basis",
+          htmlLabels: true,
+          nodeSpacing: 44,
+          rankSpacing: 58,
+          padding: 10,
+        },
+      });
+    </script>
+  </body>
+</html>
