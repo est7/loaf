@@ -1,8 +1,15 @@
-# loaf-cli Protocol — v1 Draft (rev 5.0)
+# loaf-cli Protocol — v1 Draft (rev 5.x)
 
-> 2026-05-14 · prose source of truth。机器契约见 `schemas.ts`,可视化伴侣见 `protocol.html`。
+> 2026-05-15 · prose source of truth。机器契约见 `schemas.ts`,可视化伴侣见 `protocol.html`。
 >
 > loaf-cli v1 是 legacy Python 原型(early-draft 内部称 "v2")的 successor,from scratch。把 legacy 当老师,不当父亲。v1 GA 之后 legacy 原型进 archive。
+>
+> **rev 5.x — 4-profile 单调递增 + standard 砍 SETTLE + TDD 边界声明**(2026-05-15,driven by 4-profile design grilling w/ codex):
+> - **PRESETS 4 档对齐**:`quick`(EXECUTE 直跳 DONE)→ `light`(+SPEC,跳 VERIFY/SETTLE,verify-min @ deliver 兜底)→ `standard`(+VERIFY,跳 SETTLE)→ `deep`(+SETTLE + strict 三件套)。每档加一件事,清晰度优先于 standard 的隐式 audit 仪式。`light` 之前协议已"承诺"过(rev 4.2 PRESETS 注释 + §3 escalation 表),本 rev 显式落到 §3 表格 + 流程图 + verify-min 段。
+> - **standard 砍 SETTLE**:`PRESETS.standard.settle_phase: true → false`。reconcile snapshot + lessons.md 留给 deep 作差异化卖点。理由:standard 默认 `strict_drift_check=false` + `lessons_required=skip`,reconcile.json 在 standard 仅 audit view,不被 enforce;rev 5.0 起 reducer auto-derive,需要 audit 可走 `loaf doctor --rebuild` on-demand 触发。改动:§3 PRESETS 表 + §4.6 Authority + §5.2 transition target + §10.8 `loaf deliver` 行 + 流程图。
+> - **light spec 语义提示**:light(`spec_phase=true && verify_phase=false`)走完 verify-min 后,`loaf deliver` **按 `--format` 分流**:`--format text`(TTY 默认)写 stdout advisory note 段;`--format json` 在 stdout JSON 主体 `warnings[]` 数组追加 `{ code: "REQ_COVERAGE_NOT_CLOSED_LIGHT", message, remediation }`;stderr 不写(避免 `2>/dev/null` 时丢)。明确 light 的 spec 是 intent anchor,不是 contract closed;要正式 close 升 standard。改动:§3 verify-min 段(stream-aware 三栏)。
+> - **TDD CLI 强制边界显式声明**:CLI 只硬 enforce `behavioral + labels=["bug"]` → register-red(已现状);non-bug behavioral 的 RED-first 是 skill policy,不是协议保证。`constitution.tdd_strictness` / `require_red_for_behavioral` 仍是 skill 软配置,**CLI 不读、不 enforce**。Ceremony schema **不加** `tdd_strict` 字段(避免把 policy choice 混进 protocol shape)。理由:TDD 严格度是工程方法偏好,legacy migration / generated code / SDK integration / UI glue 这类 standard ceremony 场景天然不适合 red-first,绑死会卡。改动:§9.3 加边界声明表。
+> - **不破 §15 freeze**:本 rev 改动均落在 schema enum / refine / sub_state contract `next[]` 调整 + 文档同步,**零新 phase / 零新 sub_state / 零新 top-level CLI 子命令 / 零新 hook surface**;`SCHEMA_VERSION` 不动。
 >
 > **rev 5.0 — Truth model: single typed journal (γ)** (2026-05-14, driven by [`adr/0005-truth-model-single-typed-journal.md`](adr/0005-truth-model-single-typed-journal.md)):
 > - **Canonical truth shifted**: `.loaf/<feature>/journal.jsonl` + `attachments/` 是协议唯一 SSoT;`state.json` / `tasks.json` / `evidence.jsonl` / `findings.jsonl` / `pending.json` / `reconcile.json` / `spec.md` / `lessons.md` 全部降为 **派生投影**(`snapshots/*.json` 或 reducer-derived markdown),允许 stale,gate 永远不读。详 §3.1(ADR-0005)+ §13.1(rewritten)+ §4.1-4.12(per-section authority annotations)。
@@ -160,29 +167,36 @@
 - **Worker phase**(EXECUTE)— 承载实际副作用(写代码 / 跑测试 / 改文件),支持 sub-agent fan-out 并发。Active 集合 = `tasks.json.task.status="in_progress"` filter(rev 4.0 砍掉 `state.current_task` 字段,改 derive)
 - **Control phase**(TRIAGE / SPEC / VERIFY / SETTLE)— 承载 planning / checking / settling,主 skill serial 跑。Intent 由 sub_state 精确表达(VERIFY phase 4 个 check 各自一个 sub_state)
 
-**standard/deep**:SPEC → EXECUTE → VERIFY 是循环,verify-accept 是出口。
+**deep**:SPEC → EXECUTE → VERIFY → SETTLE 是完整链,strict 三件套全开。
+**standard**(rev 5.x):SPEC → EXECUTE → VERIFY → DONE,跳过 SETTLE(reconcile/lessons 留给 deep)。
+**light**(rev 5.x):SPEC → EXECUTE → DONE,跳过 VERIFY + SETTLE(verify-min @ deliver 兜底)。
 **quick**(rev 4.1):TRIAGE → EXECUTE → DONE 直跳,跳过 SPEC / VERIFY / SETTLE 三 phase。
 
 ```
-                          ┌─[amend-spec]──────────────────┐  (standard/deep only)
+                          ┌─[amend-spec]──────────────────┐  (spec_phase=true)
                           │                               │
                           │   ┌─[amend-tasks]─────────┐   │
                           │   │                       │   │
                           │   │  ┌─[fix-impl / fix-test]─┤  │
                           │   │  │                       │  │
                           ↓   ↓  ↓                       │  │
-TRIAGE → SPEC.* → EXECUTE.work ─→ VERIFY.* ──[verify-accept]→ SETTLE.* → DONE.*
-   │        │       ┌──fan-out──┐      │                                  ↑
-   │        │       │ worker A  │      │                                  │
-   │        │       │ worker B  │      │   iteration++(每次回退)         │
-   │        │       │ worker C  │      │                                  │
-   │        │       └───────────┘      │                                  │
-   │        ↓                          ↓                                  │
-   │        └─[pending queue]──────────┘     ← 任何 phase 都可能 raise pending
-   │              (FIFO,head blocks)        ← head resolved 才放后续命令通行
-   │
-   └─[quick bypass,rev 4.1]──────────────────────────────[verify-min ok]→ DONE.delivered
-      TRIAGE.confirm → EXECUTE.plan → EXECUTE.work → EXECUTE.done →─┘
+TRIAGE → SPEC.* → EXECUTE.work ─→ VERIFY.* ──[verify-accept]──┬─→ SETTLE.* → DONE.*    (deep)
+   │        │       ┌──fan-out──┐      │                      │                  ↑
+   │        │       │ worker A  │      │                      └─→ DONE.delivered │     (standard, rev 5.x)
+   │        │       │ worker B  │      │                                         │
+   │        │       │ worker C  │      │   iteration++(每次回退)                │
+   │        │       └───────────┘      │                                         │
+   │        ↓                          ↓                                         │
+   │        └─[pending queue]──────────┘     ← 任何 phase 都可能 raise pending  │
+   │              (FIFO,head blocks)        ← head resolved 才放后续命令通行    │
+   │                                                                              │
+   ├─[light bypass,rev 5.x]──────────────[verify-min ok]→ DONE.delivered         │
+   │      TRIAGE → SPEC.* → spec-lock → EXECUTE.* ───────────────┘                │
+   │      (skip VERIFY + SETTLE;verify-min @ deliver;                            │
+   │       deliver 打 "REQ coverage not closed" 提示)                            │
+   │                                                                              │
+   └─[quick bypass,rev 4.1]──────────────[verify-min ok]→ DONE.delivered ────────┘
+      TRIAGE.confirm → EXECUTE.plan → EXECUTE.work → EXECUTE.done
       (skip SPEC + VERIFY + SETTLE;verify-min 在 deliver 边界跑;
        spike 仍走 §8.3 三出口,non-spike 直跳 DONE.delivered)
 ```
@@ -276,8 +290,10 @@ CLI 不内置 preset 名。**Skill 维护 PRESETS 表**;loaf-skill v1 默认 4 �
 |---|---|---|---|---|---|---|---|
 | `quick` | ❌ | ❌ | ❌ | ❌ | skip | ❌ | 单文件 / 文案 / spike(score < 20)|
 | `light` | ✓ | ❌ | ❌ | ❌ | skip | ❌ | 有 spec 但跳 verify(score 20-40)|
-| `standard` | ✓ | ✓ | ✓ | ❌ | may | ❌ | 典型 feature(score 40-70)|
+| `standard` | ✓ | ✓ | ❌ | ❌ | skip | ❌ | 典型 feature(score 40-70)|
 | `deep` | ✓ | ✓ | ✓ | ✓ | must | ✓ | 跨模块 / public API / schema(score ≥ 70)|
+
+**rev 5.x 决策**:standard 不再跑 SETTLE(reconcile snapshot + lessons 留给 deep 作差异化)。reconcile 数据全在 journal 里 reducer 可重算,standard 用户需要 audit 走 `loaf doctor --rebuild` on-demand 触发。4 档单调递增 ceremony 由此对齐:**quick(EXECUTE 直跳 DONE)→ light(+SPEC)→ standard(+VERIFY)→ deep(+SETTLE + strict 三件套)**。每档加一件事,清晰度优先于 standard 的隐式 audit 收口仪式。
 
 skill `loaf start` 流程:算 complexity_score → 推 preset label → user 接受或 override → `loaf start --ceremony-json '<PRESETS[label]>' --ceremony-label '<label>'` → CLI 写 `state.ceremony` + `state.ceremony_label`。
 
@@ -295,6 +311,25 @@ skill `loaf start` 流程:算 complexity_score → 推 preset label → user 接
 - 若都没有 → 阻塞,要求显式 `loaf evidence add --kind manual --reason "..."`
 
 **verify-min 通过 → `loaf deliver` 一步转移到 `DONE.delivered`**(stdout 仍打印 advisory commit/PR 建议,见 §10.14);失败 → exit 2 + stderr 列出缺什么 evidence。
+
+**rev 5.x:light profile spec 语义提示**。`ceremony.spec_phase=true && ceremony.verify_phase=false`(light)时,verify-min 通过后 `loaf deliver` **按输出格式分流**该提示(遵守 §10.0 stdout/stderr 分工与 §10.3 `--format` 契约):
+
+| 输出 format | 位置 | 形态 |
+|---|---|---|
+| `--format text`(TTY 默认)| stdout 主输出末尾 | 单段 advisory note,与 deliver suggested-commands 同段(人类可读) |
+| `--format json`(pipe / `-format=json`)| stdout JSON 主体 | `warnings[]` 数组追加一条 `{ code: "REQ_COVERAGE_NOT_CLOSED_LIGHT", message: "...", remediation: "..." }`(机器可消费) |
+| 纯 log channel | stderr | **不**写;stderr 保持「错误 / progress / 引用文件路径」用途,不放 advisory(避免 `loaf deliver --format=json 2>/dev/null` 时丢提示)|
+
+提示原文(text 格式 / json `message` 字段共用):
+
+```
+note: spec_phase=true but verify_phase=false — REQ coverage not closed at deliver
+      (spec.md acts as intent anchor only; canSatisfy() not enforced for REQ/SCEN/VIS).
+      To close REQ coverage formally, escalate ceremony to standard via
+      `loaf profile escalate` + `loaf finding raise --action amend-spec`.
+```
+
+理由:light 写了 spec 但不跑 verify-accept gate #3(canSatisfy()),用户容易误以为"既然写了 spec,REQ 就应该自动 close"。这条提示明确边界:**light 的 spec 是 intent anchor,不是 contract closed**;要正式 close 升 standard。Quick(spec_phase=false)无此提示。**机器可消费版本**(json `warnings[]`)让 CI / wrapper 工具能在 `--format=json` 下检测并 surface 给上游 review tool,不依赖人 parse stdout 文本。
 
 ### Ceremony auto-escalation(rev 4.2,原 Q9 backfill 路径)
 
@@ -363,7 +398,7 @@ EXECUTE 之前的 evidence 不浪费;`based_on.spec` 跳号让审计能识别"�
   │   │   └─ _meta.json                                   last_applied_seq + last_entry_offset
   │   │                                                   + last_entry_line_hash + rolling_checksum
   │   ├─ spec.md             派生投影                     reducer 从 event:spec_* entries 重建
-  │   ├─ lessons.md          派生投影 / Advisory          SETTLE 最终态(deep:MUST,std:MAY)
+  │   ├─ lessons.md          派生投影 / Advisory          SETTLE 最终态(deep:MUST;quick/light/standard:skip,rev 5.x)
   │   ├─ spec-draft-context.md  escalation only          Q9 backfill 输入(per-skill,非 journal)
   │   ├─ trace.jsonl         --debug only                 per-cmd verbose log(NOT a journal entry)
   │   └─ .lock                                            per-feature flock(§11.2)
@@ -412,9 +447,9 @@ rev 4.0 后字段分三组(active-set detail 不再 store 在 state):
   "ceremony": {
     "spec_phase": true,
     "verify_phase": true,
-    "settle_phase": true,
+    "settle_phase": false,
     "strict_spec_review": false,
-    "lessons_required": "may",
+    "lessons_required": "skip",
     "strict_drift_check": false
   },
   "ceremony_label": "standard",
@@ -751,6 +786,8 @@ reconcile.json 配套字段 `unusual_findings_count`(§4.6)聚合本轮 unusual 
 ### 4.6 reconcile.json(snapshot,不是 gate 源)
 
 > **Authority**: 派生投影(SETTLE.reconcile 阶段从 journal + projection 重新计算,落 `snapshots/reconcile.json`)。永远不是 gate 源(§13.1)。
+>
+> **rev 5.x scope 收窄**:**只在 deep profile 产**(`ceremony.settle_phase=true`)。quick / light / standard 不产 reconcile.json。需要 audit 时走 `loaf doctor --rebuild` on-demand 触发 reducer 从 journal full-replay 重算(数据无丢失,只是不落显式 snapshot 文件)。
 
 ```jsonc
 {
@@ -983,7 +1020,7 @@ async function updateRegistry(sessionId: string, snapshot: RegistryFile) {
 
 **通过后**:`state.spec_locked = true`。后续任何 spec/tasks 变化必须经 finding 机制(详见 §6)。
 
-### 5.2 verify-accept(VERIFY → SETTLE)
+### 5.2 verify-accept(VERIFY → SETTLE / DONE)
 
 **Machine 校验**(5 条,**实时计算,不读 reconcile.json**):
 
@@ -992,9 +1029,15 @@ async function updateRegistry(sessionId: string, snapshot: RegistryFile) {
 2. `findings.jsonl` 无 status === open
 3. **每个 REQ/SCEN/VIS(非 `*_na`)有 ≥1 evidence 通过 `canSatisfy()` 检查**(详见 §5.4),且 result ∈ {passed, approved, waived}
 4. 每个 status=done 的 task 有 ≥1 evidence(kind ∈ {task-summary, local-check, manual, waiver})
-5. deep profile:存在 `kind=spec-review` 且 `actor ≠ implementer` 的 evidence
+5. deep profile:存在 `kind=spec-review` 且 `actor ≠ implementer` 的 evidence(`ceremony.strict_spec_review=true`)
 
 **Human**:`loaf gate decide verify-accept --approve --reason "..."`。
+
+**Transition target**(rev 5.x,跟 ceremony.settle_phase 分支):
+- `settle_phase=true`(deep)→ `SETTLE.reconcile`(走 reconcile + lessons MUST)
+- `settle_phase=false`(standard)→ `DONE.delivered` 经 `loaf deliver`(无 verify-min 二次跑,VERIFY 已覆盖)
+
+详 `schemas.ts` `SUB_STATE_CONTRACTS.VERIFY.accept.next = ["SETTLE.reconcile", "DONE.delivered"]`,validateTransition 按 ceremony.settle_phase 选边。
 
 ### 5.3 反向 transition
 
@@ -1170,7 +1213,7 @@ VERIFY.accept       machine + human gate
 | Check | 触发 must |
 |---|---|
 | `run` | 任何 task 触代码 / 测试 / build 配置 |
-| `review` | standard / deep MUST;quick = NA |
+| `review` | `verify_phase=true` MUST(standard / deep);`verify_phase=false`(quick / light)= NA |
 | `acceptance` | 任意 scenario `tag=e2e` 且未 `acceptance_na` |
 | `visual` | 任意 task `requires_visual=true` 或 spec 有 `visual_contracts[]` 未 `visual_na` |
 
@@ -1377,6 +1420,18 @@ Visual  drives visual check (VIS-* → task.visual_contract_refs[] → visual ch
 
 含 `labels: ["bug"]` 的 behavioral task 必须 `loaf tasks register-red --task-id T-XXX` 先 RED。CLI mutator 层 enforce:非 RED 已 register 的 bug task 试图把 `task.execution.implement.status` 改成 `running` 时阻断。
 
+**CLI 强制边界声明(rev 5.x,显式)**:
+
+| 触发条件 | 谁强制 | 失败 effect |
+|---|---|---|
+| `task.kind=behavioral + labels.includes("bug")` → 必须 `register-red` 才能 implement | **CLI mutator 层硬 enforce** | exit 2 `BUG_TASK_REQUIRES_RED` |
+| 其他所有 behavioral task 的 RED-first | **skill policy / team review**,**不**在协议层 enforce | 无 — skill prompt 提示,review 自查 |
+| `constitution.tdd_strictness` / `constitution.require_red_for_behavioral` | **skill 读**(决定 prompt 严苛度),**CLI 不 enforce** | 无 |
+
+理由(rev 5.x 决策):TDD 严格度是工程方法偏好,不是协议完成态的必要不变量。把所有 behavioral task 的 RED-first 都升成 schema/ceremony 字段会把 policy choice 混进 protocol shape,增加长期 schema 成本。bug RED 是 bugfix 防回归的客观底线,值得 CLI 硬卡;non-bug behavioral 的 RED-first 由 skill prompt + team review checklist + `constitution.tdd_strictness=strict` 软配置三层协同,**不上协议 enforcement**。详见 ADR-0003 / ADR-0004(`require_red_for_behavioral` 软配置历史)。
+
+未来若出现「跨 skill 必须机器可验证一致的 TDD enforce 需求」,走独立 command/check 路径(类似 `loaf tasks register-red`),不塞进 ceremony 字段——保护 Ceremony schema 的 6 flag 维持「phase 跑不跑」的语义内聚性。
+
 ---
 
 ## 10. CLI Surface
@@ -1537,6 +1592,8 @@ error: <one-line human description>
 | `ATTACHMENT_NOT_FILE` | `attachments[].path` 是目录 / socket / FIFO / 符号链接到非文件 | A6 |
 | `FINDING_ACTION_UNUSUAL_REASON_REQUIRED` | `finding raise` cell 是 `unusual`(`FINDING_ACTION_GRID`)但 `--reason` 缺或 < 20 字符 | A7 |
 | `FINDING_ACTION_INCOHERENT` | `finding raise` cell 是 `incoherent`(4 个结构性死格)| A7 |
+| `SETTLE_PHASE_DISABLED` | `VERIFY.accept → SETTLE.reconcile` 但 `ceremony.settle_phase=false`(quick / light / standard);`loaf settle` 在非 deep profile 调用同理 exit 2 | rev 5.x |
+| `SETTLE_PHASE_BYPASS` | `VERIFY.accept → DONE.delivered` 但 `ceremony.settle_phase=true`(deep);deep 必须经 SETTLE.reconcile + SETTLE.lessons | rev 5.x |
 
 完整出错示例(`SCHEMA_VALIDATION_FAILED`):
 
@@ -1725,13 +1782,13 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 | `loaf finding close <FND-id>` | **rev 5.0**:emit `finding:closed`;reducer 派生到 `snapshots/findings.json` | 0 / 2 |
 | `loaf verify status` | 实时算各 check 状态 | 0 |
 | `loaf gate decide <G>` | gate 决策 → **rev 5.0**:走 §11.2 transaction,**同一 batch 内 emit** `gate:decided` + `pending:resolved`(消 head pending kind=gate_decision)+ `event:phase_advanced`(target 由 §3.5 复用的 LEGAL_TRANSITIONS 给出)。reducer 派生 evidence projection 中 `kind=gate-decision` 视图。head 不匹配 → step 3 preflight 报 `GATE_NOT_PENDING` exit 2 | 0 / 2 |
-| `loaf settle` | **rev 5.0**:走 §11.2 transaction 进入 SETTLE.reconcile,emit `event:phase_advanced`;reducer 计算 drift + 派生到 `snapshots/reconcile.json`(standard+;quick 不产)。session lifecycle chaos deviation 保留单 verb | 0 / 2 |
+| `loaf settle` | **rev 5.0 + 5.x**:走 §11.2 transaction 进入 SETTLE.reconcile,emit `event:phase_advanced`;reducer 计算 drift + 派生到 `snapshots/reconcile.json`(**rev 5.x:deep only**;quick / light / standard 不产 reconcile snapshot)。session lifecycle chaos deviation 保留单 verb | 0 / 2 |
 | `loaf check <path>` | 纯 schema check(CI 用,任意 artifact 文件) | 0 / 2 |
 | `loaf <artifact> schema --json` | 自描述命令,dump JSON Schema(spec/tasks/evidence/finding/state,**限定 5 个 enum**,非 catch-all) | 0 |
 | `loaf amend --target spec\|tasks` | spec-lock 前编辑回退;**post-lock 拒绝执行,提示走 finding** | 0 / 2 |
 | `loaf profile escalate --confirm` | 接受 auto-escalation prompt。**rev 4.1 Q3**:本身就是答 `pending(kind=profile_escalation)` head 的方式,head 不匹配 → `ESCALATION_NOT_PENDING` exit 2 | 0 / 2 |
 | `loaf spike convert --to-feature F-N` | spike → 新 feature scaffold | 0 / 2 |
-| `loaf deliver` | **rev 3.1:advisory only,不碰 git/gh**;mark DONE.delivered + 打印 suggested next commands;spike hard block。**rev 4.1**:有效 source sub-state 取决于 profile —— `quick` 从 `EXECUTE.done` 直接调用(触发 verify-min,通过则 DONE.delivered);`standard / deep` 从 `SETTLE.lessons` 调用(VERIFY 已经走完,reconcile.json 已产)| 0 / 2 |
+| `loaf deliver` | **rev 3.1:advisory only,不碰 git/gh**;mark DONE.delivered + 打印 suggested next commands;spike hard block。**rev 4.1 + 5.x**:有效 source sub-state 取决于 ceremony —— `verify_phase=false`(`quick` / `light`)从 `EXECUTE.done` 调用(触发 verify-min,通过则 DONE.delivered;light 额外打印 "REQ coverage not closed" 提示,见 §3 verify-min);`verify_phase=true && settle_phase=false`(`standard`)从 `VERIFY.accept` 调用(VERIFY 已走完,无 verify-min 二次跑);`settle_phase=true`(`deep`)从 `SETTLE.lessons` 调用(reconcile.json + lessons.md 已产)| 0 / 2 |
 | `loaf archive --reason "..."` | 不交付关闭 | 0 / 2 |
 | `loaf abandon --reason "..."` | 中途放弃(reason required) | 0 / 2 |
 | `loaf lessons add` | **rev 5.0**:emit `evidence:added`(payload.kind=`manual`,内容是 lesson 文本;LongTextField > 8KB 走 sidecar);reducer 拼接派生 `lessons.md`(Advisory,内容形态不在 schema 闭环内,见 §13.1)| 0 / 2 |
@@ -2081,7 +2138,7 @@ Batch path 与单条 path **共用同一套** §11.2 上方 10-step transaction;
 
 格式不强校验,只校验「按 feature 分段存在」。**rev 4.2**:`ceremony.lessons_required` 控制:`"must"` 强制 append(原 deep)/ `"may"` 可选(原 standard)/ `"skip"` 跳过(原 quick)。
 
-**rev 4.1 quick + lessons 说明**:quick 跳过 SETTLE.lessons sub_state,但 `loaf lessons add` 命令本身**任意 phase 可调**(append-only,不动 state machine)。user 在 quick session 想记教训 → 调 `loaf lessons add` 即可,文件存在 → loaf-skill 可以 stderr **soft suggestion** "已记 lessons.md;考虑下个相似 feature 用 standard profile 进 SETTLE.lessons 强化复利",但**不强制** protocol 升 profile。
+**rev 4.1 + 5.x:quick / light / standard + lessons 说明**:quick / light / standard 三档均跳过 SETTLE.lessons sub_state(rev 5.x:standard 也砍 SETTLE),但 `loaf lessons add` 命令本身**任意 phase 可调**(append-only,不动 state machine)。user 在 non-deep session 想记教训 → 调 `loaf lessons add` 即可,文件存在 → loaf-skill 可以 stderr **soft suggestion** "已记 lessons.md;考虑下个相似 feature 用 deep profile 进 SETTLE.lessons 强化复利",但**不强制** protocol 升 profile。
 
 ### 12.2 v1 不做 promote
 

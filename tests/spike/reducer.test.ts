@@ -6,13 +6,24 @@ import { apply, project, ReducerError } from "../../src/spike/reducer.js";
 import { createInitialSnapshot } from "../../src/spike/snapshot.js";
 import { Event as EventSchema, EVENT_VERSION, type Ceremony, type Event } from "../../src/spike/events.js";
 
+// rev 5.x: standard 不再走 SETTLE (settle_phase=false). 旧 STANDARD_CEREMONY
+// 含 settle_phase=true 的等价物现在叫 DEEP_CEREMONY (因为只有 deep 走 SETTLE).
 const STANDARD_CEREMONY: Ceremony = {
   spec_phase: true,
   verify_phase: true,
-  settle_phase: true,
+  settle_phase: false,    // rev 5.x: SETTLE 砍
   strict_spec_review: false,
-  lessons_required: "may",
+  lessons_required: "skip",
   strict_drift_check: false,
+};
+
+const DEEP_CEREMONY: Ceremony = {
+  spec_phase: true,
+  verify_phase: true,
+  settle_phase: true,
+  strict_spec_review: true,
+  lessons_required: "must",
+  strict_drift_check: true,
 };
 
 const QUICK_CEREMONY: Ceremony = {
@@ -400,6 +411,118 @@ describe("Gate 2: reducer invariants", () => {
     };
     const s2 = apply(s, archive);
     expect(s2.state!.sub_state).toBe("DONE.archived");
+  });
+
+  // rev 5.x: VERIFY.accept has two forward targets, picked by ceremony.settle_phase.
+  test("VERIFY.accept → DONE.delivered allowed when ceremony.settle_phase=false (standard)", () => {
+    const events: Event[] = [
+      sessionStart(STANDARD_CEREMONY),
+      { version: EVENT_VERSION, kind: "advanced", at: ts(1), from: "TRIAGE.score",      to: "TRIAGE.confirm",   iteration: 1 },
+      { version: EVENT_VERSION, kind: "advanced", at: ts(2), from: "TRIAGE.confirm",    to: "SPEC.proposal",    iteration: 1 },
+      { version: EVENT_VERSION, kind: "advanced", at: ts(3), from: "SPEC.proposal",     to: "SPEC.spec",        iteration: 1 },
+      { version: EVENT_VERSION, kind: "advanced", at: ts(4), from: "SPEC.spec",         to: "SPEC.plan",        iteration: 1 },
+      { version: EVENT_VERSION, kind: "advanced", at: ts(5), from: "SPEC.plan",         to: "SPEC.design",      iteration: 1 },
+      { version: EVENT_VERSION, kind: "advanced", at: ts(6), from: "SPEC.design",       to: "EXECUTE.plan",     iteration: 1 },
+      { version: EVENT_VERSION, kind: "advanced", at: ts(7), from: "EXECUTE.plan",      to: "EXECUTE.work",     iteration: 1 },
+      { version: EVENT_VERSION, kind: "advanced", at: ts(8), from: "EXECUTE.work",      to: "EXECUTE.done",     iteration: 1 },
+      { version: EVENT_VERSION, kind: "advanced", at: ts(9), from: "EXECUTE.done",      to: "VERIFY.plan",      iteration: 1 },
+      { version: EVENT_VERSION, kind: "advanced", at: ts(10), from: "VERIFY.plan",      to: "VERIFY.run",       iteration: 1 },
+      { version: EVENT_VERSION, kind: "advanced", at: ts(11), from: "VERIFY.run",       to: "VERIFY.accept",    iteration: 1 },
+    ];
+    const s = project(events);
+    const deliver: Event = {
+      version: EVENT_VERSION,
+      kind: "advanced",
+      at: ts(12),
+      from: "VERIFY.accept",
+      to: "DONE.delivered",  // standard skips SETTLE under rev 5.x
+      iteration: 1,
+    };
+    const s2 = apply(s, deliver);
+    expect(s2.state!.sub_state).toBe("DONE.delivered");
+  });
+
+  test("VERIFY.accept → SETTLE.reconcile allowed when ceremony.settle_phase=true (deep)", () => {
+    const events: Event[] = [
+      sessionStart(DEEP_CEREMONY),
+      { version: EVENT_VERSION, kind: "advanced", at: ts(1), from: "TRIAGE.score",      to: "TRIAGE.confirm",   iteration: 1 },
+      { version: EVENT_VERSION, kind: "advanced", at: ts(2), from: "TRIAGE.confirm",    to: "SPEC.proposal",    iteration: 1 },
+      { version: EVENT_VERSION, kind: "advanced", at: ts(3), from: "SPEC.proposal",     to: "SPEC.spec",        iteration: 1 },
+      { version: EVENT_VERSION, kind: "advanced", at: ts(4), from: "SPEC.spec",         to: "SPEC.plan",        iteration: 1 },
+      { version: EVENT_VERSION, kind: "advanced", at: ts(5), from: "SPEC.plan",         to: "SPEC.design",      iteration: 1 },
+      { version: EVENT_VERSION, kind: "advanced", at: ts(6), from: "SPEC.design",       to: "EXECUTE.plan",     iteration: 1 },
+      { version: EVENT_VERSION, kind: "advanced", at: ts(7), from: "EXECUTE.plan",      to: "EXECUTE.work",     iteration: 1 },
+      { version: EVENT_VERSION, kind: "advanced", at: ts(8), from: "EXECUTE.work",      to: "EXECUTE.done",     iteration: 1 },
+      { version: EVENT_VERSION, kind: "advanced", at: ts(9), from: "EXECUTE.done",      to: "VERIFY.plan",      iteration: 1 },
+      { version: EVENT_VERSION, kind: "advanced", at: ts(10), from: "VERIFY.plan",      to: "VERIFY.run",       iteration: 1 },
+      { version: EVENT_VERSION, kind: "advanced", at: ts(11), from: "VERIFY.run",       to: "VERIFY.accept",    iteration: 1 },
+    ];
+    const s = project(events);
+    const reconcile: Event = {
+      version: EVENT_VERSION,
+      kind: "advanced",
+      at: ts(12),
+      from: "VERIFY.accept",
+      to: "SETTLE.reconcile",  // deep still goes through SETTLE
+      iteration: 1,
+    };
+    const s2 = apply(s, reconcile);
+    expect(s2.state!.sub_state).toBe("SETTLE.reconcile");
+  });
+
+  // rev 5.x: VERIFY.accept fork must respect ceremony.settle_phase.
+  test("VERIFY.accept → SETTLE.reconcile rejected when settle_phase=false (standard)", () => {
+    const events: Event[] = [
+      sessionStart(STANDARD_CEREMONY),
+      { version: EVENT_VERSION, kind: "advanced", at: ts(1), from: "TRIAGE.score",   to: "TRIAGE.confirm",  iteration: 1 },
+      { version: EVENT_VERSION, kind: "advanced", at: ts(2), from: "TRIAGE.confirm", to: "SPEC.proposal",   iteration: 1 },
+      { version: EVENT_VERSION, kind: "advanced", at: ts(3), from: "SPEC.proposal",  to: "SPEC.spec",       iteration: 1 },
+      { version: EVENT_VERSION, kind: "advanced", at: ts(4), from: "SPEC.spec",      to: "SPEC.plan",       iteration: 1 },
+      { version: EVENT_VERSION, kind: "advanced", at: ts(5), from: "SPEC.plan",      to: "SPEC.design",     iteration: 1 },
+      { version: EVENT_VERSION, kind: "advanced", at: ts(6), from: "SPEC.design",    to: "EXECUTE.plan",    iteration: 1 },
+      { version: EVENT_VERSION, kind: "advanced", at: ts(7), from: "EXECUTE.plan",   to: "EXECUTE.work",    iteration: 1 },
+      { version: EVENT_VERSION, kind: "advanced", at: ts(8), from: "EXECUTE.work",   to: "EXECUTE.done",    iteration: 1 },
+      { version: EVENT_VERSION, kind: "advanced", at: ts(9), from: "EXECUTE.done",   to: "VERIFY.plan",     iteration: 1 },
+      { version: EVENT_VERSION, kind: "advanced", at: ts(10), from: "VERIFY.plan",   to: "VERIFY.run",      iteration: 1 },
+      { version: EVENT_VERSION, kind: "advanced", at: ts(11), from: "VERIFY.run",    to: "VERIFY.accept",   iteration: 1 },
+    ];
+    const s = project(events);
+    const bad: Event = {
+      version: EVENT_VERSION,
+      kind: "advanced",
+      at: ts(12),
+      from: "VERIFY.accept",
+      to: "SETTLE.reconcile",  // standard must NOT enter SETTLE
+      iteration: 1,
+    };
+    expect(() => apply(s, bad)).toThrow(/SETTLE_PHASE_DISABLED/);
+  });
+
+  test("VERIFY.accept → DONE.delivered rejected when settle_phase=true (deep)", () => {
+    const events: Event[] = [
+      sessionStart(DEEP_CEREMONY),
+      { version: EVENT_VERSION, kind: "advanced", at: ts(1), from: "TRIAGE.score",   to: "TRIAGE.confirm",  iteration: 1 },
+      { version: EVENT_VERSION, kind: "advanced", at: ts(2), from: "TRIAGE.confirm", to: "SPEC.proposal",   iteration: 1 },
+      { version: EVENT_VERSION, kind: "advanced", at: ts(3), from: "SPEC.proposal",  to: "SPEC.spec",       iteration: 1 },
+      { version: EVENT_VERSION, kind: "advanced", at: ts(4), from: "SPEC.spec",      to: "SPEC.plan",       iteration: 1 },
+      { version: EVENT_VERSION, kind: "advanced", at: ts(5), from: "SPEC.plan",      to: "SPEC.design",     iteration: 1 },
+      { version: EVENT_VERSION, kind: "advanced", at: ts(6), from: "SPEC.design",    to: "EXECUTE.plan",    iteration: 1 },
+      { version: EVENT_VERSION, kind: "advanced", at: ts(7), from: "EXECUTE.plan",   to: "EXECUTE.work",    iteration: 1 },
+      { version: EVENT_VERSION, kind: "advanced", at: ts(8), from: "EXECUTE.work",   to: "EXECUTE.done",    iteration: 1 },
+      { version: EVENT_VERSION, kind: "advanced", at: ts(9), from: "EXECUTE.done",   to: "VERIFY.plan",     iteration: 1 },
+      { version: EVENT_VERSION, kind: "advanced", at: ts(10), from: "VERIFY.plan",   to: "VERIFY.run",      iteration: 1 },
+      { version: EVENT_VERSION, kind: "advanced", at: ts(11), from: "VERIFY.run",    to: "VERIFY.accept",   iteration: 1 },
+    ];
+    const s = project(events);
+    const bad: Event = {
+      version: EVENT_VERSION,
+      kind: "advanced",
+      at: ts(12),
+      from: "VERIFY.accept",
+      to: "DONE.delivered",  // deep must NOT skip SETTLE
+      iteration: 1,
+    };
+    expect(() => apply(s, bad)).toThrow(/SETTLE_PHASE_BYPASS/);
   });
 
   test("ReducerError carries diagnostic code + detail", () => {

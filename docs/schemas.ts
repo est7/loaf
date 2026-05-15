@@ -837,9 +837,10 @@ export const Ceremony = z.object({
   // `actor ≠ implementer`?(rev 4.1 deep 行为)。要求 spec_phase=true
   strict_spec_review: z.boolean().default(false),
 
-  // SETTLE.lessons 强制 append?(rev 4.1 deep MUST = "must";
-  // standard MAY = "may";quick / light skip = "skip")。
-  // 要求 settle_phase=true 当值非 "skip"
+  // SETTLE.lessons 强制 append?(rev 5.x: deep MUST = "must";
+  // quick / light / standard skip = "skip" — standard 不再走 SETTLE,
+  // 故 "may" 在内置 PRESETS 里不再被使用,但 enum 保留以便 3rd-party
+  // skill 自定义 preset 选择)。要求 settle_phase=true 当值非 "skip"
   lessons_required: z.enum(["must", "may", "skip"]).default("skip"),
 
   // SETTLE.reconcile 严格 drift?(rev 4.1 deep 行为)。
@@ -1846,7 +1847,10 @@ export type FindingsEvent = z.infer<typeof FindingsEvent>;
 // 18. reconcile.json — planned vs actual + verify snapshot
 // ─────────────────────────────────────────────────────────────────
 //
-// SETTLE.reconcile produces this. Standard+ only; quick skips.
+// SETTLE.reconcile produces this. settle_phase=true (deep) only after
+// rev 5.x; quick / light / standard skip SETTLE and do not produce
+// reconcile.json. Reducer can rebuild on-demand via `loaf doctor
+// --rebuild` from journal entries.
 // verify_checks_status here is SNAPSHOT — NOT the gate source.
 
 export const VerifyCheckSnapshot = z.object({
@@ -2093,10 +2097,17 @@ export type TraceEvent = z.infer<typeof TraceEvent>;
 //   const PRESETS: Record<string, Ceremony> = {
 //     quick:    { spec_phase: false, verify_phase: false, settle_phase: false, ... },
 //     light:    { spec_phase: true,  verify_phase: false, settle_phase: false, ... },
-//     standard: { spec_phase: true,  verify_phase: true,  settle_phase: true,  ... },
-//     deep:     { ...standard, strict_spec_review: true, lessons_required: "must", strict_drift_check: true },
+//     standard: { spec_phase: true,  verify_phase: true,  settle_phase: false, ... },
+//     deep:     { spec_phase: true,  verify_phase: true,  settle_phase: true,
+//                 strict_spec_review: true, lessons_required: "must", strict_drift_check: true },
 //     // skill 想加 rapid-fix / release-candidate / company-specific 都行
 //   };
+//
+// rev 5.x 决策:standard 不再跑 SETTLE(reconcile snapshot + lessons 都
+// 留给 deep 作差异化)。reconcile 数据在 journal 里 reducer 可重算,
+// standard 用户需要 audit 走 `loaf doctor --rebuild`。这样 4 档单调
+// 递增 ceremony:quick(EXECUTE 直跳 DONE) → light(+SPEC) → standard
+// (+VERIFY) → deep(+SETTLE + strict 三件套)。
 //
 // skill 在 `loaf start` 时:
 //   1. 看 complexity_score 推荐 preset 名(skill 自己决定 score → label 映射)
@@ -2367,7 +2378,7 @@ export const SUB_STATE_CONTRACTS: Array<z.infer<typeof SubStateContract>> = [
     write_paths: [".loaf/<feature>/state.json"],
     next: ["SPEC.proposal", "EXECUTE.plan"],
     prompt_inject:
-      "Confirm proposed profile (quick/standard/deep) or override.",
+      "Confirm proposed profile (quick/light/standard/deep — see skill PRESETS) or override.",
   },
 
   // ─── SPEC ───
@@ -2510,13 +2521,13 @@ export const SUB_STATE_CONTRACTS: Array<z.infer<typeof SubStateContract>> = [
     sub_state: "EXECUTE.done",
     entry: "all tasks status ∈ {done, abandoned}",
     exit:
-      "advance to VERIFY.plan (standard / deep);" +
-      " OR DONE.delivered (quick non-spike via `loaf deliver`: verify-min runs at this boundary, on pass transition direct to DONE.delivered, on fail exit 2 — see protocol.md §3.2 + ADR-0003 Addendum 3)",
+      "advance to VERIFY.plan (verify_phase=true);" +
+      " OR DONE.delivered (verify_phase=false: quick / light non-spike via `loaf deliver`: verify-min runs at this boundary, on pass transition direct to DONE.delivered, on fail exit 2 — see protocol.md §3.2 + §10.14)",
     write_paths: [],
-    // rev 4.1: quick profile skips SETTLE entirely. `loaf deliver` from
-    // EXECUTE.done in a quick session triggers verify-min and (on pass)
-    // transitions directly to DONE.delivered. Standard / deep still
-    // advance to VERIFY.plan as before.
+    // rev 4.1 + 5.x: profiles with verify_phase=false skip VERIFY entirely.
+    // `loaf deliver` from EXECUTE.done triggers verify-min and (on pass)
+    // transitions directly to DONE.delivered. verify_phase=true (standard
+    // / deep) still advances to VERIFY.plan as before.
     //
     // Spike: regardless of profile, `loaf deliver` is hard-blocked
     // (§10.8). The user must invoke one of the §8.3 outcomes
@@ -2525,8 +2536,8 @@ export const SUB_STATE_CONTRACTS: Array<z.infer<typeof SubStateContract>> = [
     // state-machine forward edges, so they are NOT in `next` here.
     next: ["VERIFY.plan", "DONE.delivered"],
     prompt_inject:
-      "All tasks complete. standard/deep → advance to VERIFY.plan." +
-      " quick non-spike → run `loaf deliver` (verify-min then DONE.delivered)." +
+      "All tasks complete. verify_phase=true → advance to VERIFY.plan." +
+      " verify_phase=false non-spike → run `loaf deliver` (verify-min then DONE.delivered)." +
       " spike (any profile) → deliver blocked; pick archive / spike convert / abandon per §8.3.",
   },
 
@@ -2585,20 +2596,28 @@ export const SUB_STATE_CONTRACTS: Array<z.infer<typeof SubStateContract>> = [
   {
     sub_state: "VERIFY.accept",
     entry: "all applicable checks passed/waived + no open findings",
-    exit: "verify-accept gate approved",
+    exit:
+      "verify-accept gate approved." +
+      " settle_phase=true (deep) → SETTLE.reconcile;" +
+      " settle_phase=false (standard) → DONE.delivered via `loaf deliver`",
     write_paths: [".loaf/<feature>/evidence.jsonl"],
-    next: ["SETTLE.reconcile"],
+    next: ["SETTLE.reconcile", "DONE.delivered"],
     prompt_inject:
-      "Verify-accept gate. Review check status + open findings. Approve or reject.",
+      "Verify-accept gate. Review check status + open findings. Approve or reject." +
+      " On approve: settle_phase=true → SETTLE.reconcile; settle_phase=false → run `loaf deliver` to enter DONE.delivered.",
   },
 
   // ─── SETTLE ───
-  // rev 4.1: quick profile skips SETTLE entirely (`loaf deliver` from
-  // EXECUTE.done goes direct to DONE.delivered). SETTLE.* is now
-  // standard / deep only.
+  // rev 4.1 + 5.x: profiles with settle_phase=false skip SETTLE entirely.
+  // - quick: `loaf deliver` from EXECUTE.done → DONE.delivered (verify-min)
+  // - light: `loaf deliver` from EXECUTE.done → DONE.delivered (verify-min)
+  // - standard: `loaf deliver` from VERIFY.accept → DONE.delivered (no verify-min, VERIFY already covers)
+  // - deep: VERIFY.accept → SETTLE.reconcile → SETTLE.lessons → DONE.*
+  // SETTLE.* is deep-only after rev 5.x. reconcile/lessons data still
+  // available via reducer rebuild (`loaf doctor --rebuild`) for non-deep.
   {
     sub_state: "SETTLE.reconcile",
-    entry: "verify-accept passed (standard / deep only — quick skips SETTLE)",
+    entry: "verify-accept passed && ceremony.settle_phase=true (deep only after rev 5.x; quick/light/standard skip SETTLE)",
     exit: "reconcile.json valid",
     write_paths: [".loaf/<feature>/reconcile.json"],
     next: ["SETTLE.lessons"],
@@ -2607,8 +2626,8 @@ export const SUB_STATE_CONTRACTS: Array<z.infer<typeof SubStateContract>> = [
   },
   {
     sub_state: "SETTLE.lessons",
-    entry: "reconcile valid (standard / deep only — quick skips SETTLE)",
-    exit: "lessons.md appended (deep: required, std: optional)",
+    entry: "reconcile valid (deep only after rev 5.x; quick/light/standard skip SETTLE)",
+    exit: "lessons.md appended (deep: lessons_required=must)",
     write_paths: [".loaf/<feature>/lessons.md"],
     next: ["DONE.delivered", "DONE.archived", "DONE.abandoned"],
     prompt_inject:
@@ -3645,6 +3664,9 @@ export const DiagnosticCode = z.enum([
   "PENDING_BLOCKS_ADVANCE",                // §10.7 pending head ∈ {gate_decision, profile_escalation}
   "GATE_NOT_PENDING",                      // §10.7 `loaf gate decide <G>` but head isn't gate_decision(<G>)
   "ESCALATION_NOT_PENDING",                // §10.7 `loaf profile escalate --confirm` but head isn't profile_escalation
+  // ── rev 5.x — VERIFY.accept fork ceremony guard ──
+  "SETTLE_PHASE_DISABLED",                 // §5.2 VERIFY.accept → SETTLE.reconcile requires ceremony.settle_phase=true (deep only)
+  "SETTLE_PHASE_BYPASS",                   // §5.2 VERIFY.accept → DONE.delivered requires ceremony.settle_phase=false (deep must go through SETTLE)
 ]);
 export type DiagnosticCode = z.infer<typeof DiagnosticCode>;
 
@@ -3895,6 +3917,27 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
       "resolve the current head first via the kind-appropriate command, " +
       "or wait for the profile_escalation pending to appear",
     doc_anchor: "protocol.md#§10.7",
+  },
+  SETTLE_PHASE_DISABLED: {
+    exit_code: 2,
+    message_template:
+      "VERIFY.accept → SETTLE.reconcile requires ceremony.settle_phase=true " +
+      "(deep profile only after rev 5.x); current settle_phase={settle_phase}",
+    fix_template:
+      "for non-deep profiles (quick / light / standard), advance from VERIFY.accept " +
+      "to DONE.delivered via `loaf deliver`; to enter SETTLE, escalate ceremony to deep",
+    doc_anchor: "protocol.md#§5.2",
+  },
+  SETTLE_PHASE_BYPASS: {
+    exit_code: 2,
+    message_template:
+      "VERIFY.accept → DONE.delivered requires ceremony.settle_phase=false " +
+      "(quick / light / standard); deep profile must enter SETTLE.reconcile first; " +
+      "current settle_phase={settle_phase}",
+    fix_template:
+      "for deep profile, advance from VERIFY.accept to SETTLE.reconcile via `loaf settle`; " +
+      "if SETTLE is not desired, start/continue a standard ceremony flow instead",
+    doc_anchor: "protocol.md#§5.2",
   },
   TASK_STATUS_WITHOUT_PROOF: {
     exit_code: 2,

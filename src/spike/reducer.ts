@@ -28,7 +28,10 @@ const LEGAL_TRANSITIONS: Record<SubState, readonly SubState[]> = {
   "VERIFY.review": ["VERIFY.acceptance", "VERIFY.visual", "VERIFY.accept"],
   "VERIFY.acceptance": ["VERIFY.visual", "VERIFY.accept"],
   "VERIFY.visual": ["VERIFY.accept"],
-  "VERIFY.accept": ["SETTLE.reconcile"],
+  // rev 5.x: settle_phase=true (deep) → SETTLE.reconcile;
+  // settle_phase=false (standard) → DONE.delivered via `loaf deliver`.
+  // validateTransition picks per ceremony.settle_phase.
+  "VERIFY.accept": ["SETTLE.reconcile", "DONE.delivered"],
   "SETTLE.reconcile": ["SETTLE.lessons"],
   "SETTLE.lessons": ["DONE.delivered"],
   "DONE.delivered": [],
@@ -227,6 +230,29 @@ export function apply(prev: Snapshot, event: Event): Snapshot {
           allowed_forward: [...allowed],
           always_legal: [...ALWAYS_LEGAL_TARGETS],
         });
+      }
+      // rev 5.x — ceremony guard on VERIFY.accept fork:
+      //   settle_phase=true  (deep)     => MUST go SETTLE.reconcile
+      //   settle_phase=false (standard) => MUST go DONE.delivered
+      // LEGAL_TRANSITIONS lists both edges so the static graph is honest, but
+      // ceremony.settle_phase picks the active branch at runtime. Always-legal
+      // user-eject targets (DONE.archived/abandoned) bypass this guard.
+      if (event.from === "VERIFY.accept" && !isAlwaysLegal) {
+        const settlePhase = next.state!.ceremony.settle_phase;
+        if (event.to === "SETTLE.reconcile" && !settlePhase) {
+          r("SETTLE_PHASE_DISABLED", "VERIFY.accept → SETTLE.reconcile requires ceremony.settle_phase=true (deep only)", {
+            from: event.from,
+            to: event.to,
+            settle_phase: settlePhase,
+          });
+        }
+        if (event.to === "DONE.delivered" && settlePhase) {
+          r("SETTLE_PHASE_BYPASS", "VERIFY.accept → DONE.delivered requires ceremony.settle_phase=false (deep must go through SETTLE)", {
+            from: event.from,
+            to: event.to,
+            settle_phase: settlePhase,
+          });
+        }
       }
       // Pending head invariant (Q3 minimal): advance blocked if head is
       // gate_decision or profile_escalation. Audit log shouldn't contain such

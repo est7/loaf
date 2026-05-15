@@ -190,6 +190,105 @@ loaf-cli 在 rev 4.0 model 下**协议支持 worker active set 多元素**(tasks
 `~/.claude/projects/-Users-est9-MyPluginRepo-1st-cc-plugin/memory/project_loaf_cli_phase_typology.md`
 跨 session 持「worker vs control phase」原则。
 
+## 5. PRESETS 4 档 — rev 5.x 设计决策
+
+> **Status**: rev 5.x 决策记录(2026-05-15,driven by 4-profile design
+> grilling w/ codex)。loaf-skill 实际 PRESETS 表实现时按此落点。
+
+### 4 档单调递增 ceremony
+
+```ts
+const PRESETS: Record<string, Ceremony> = {
+  quick: {
+    spec_phase: false, verify_phase: false, settle_phase: false,
+    strict_spec_review: false, lessons_required: "skip", strict_drift_check: false,
+  },
+  light: {
+    spec_phase: true,  verify_phase: false, settle_phase: false,
+    strict_spec_review: false, lessons_required: "skip", strict_drift_check: false,
+  },
+  standard: {
+    spec_phase: true,  verify_phase: true,  settle_phase: false,  // rev 5.x: SETTLE 砍
+    strict_spec_review: false, lessons_required: "skip", strict_drift_check: false,
+  },
+  deep: {
+    spec_phase: true,  verify_phase: true,  settle_phase: true,
+    strict_spec_review: true, lessons_required: "must", strict_drift_check: true,
+  },
+};
+```
+
+### 设计原则
+
+**每档加一件事**:
+- `quick`(EXECUTE 直跳 DONE,verify-min @ deliver 兜底)
+- → `light`(+SPEC,跳 VERIFY/SETTLE)
+- → `standard`(+VERIFY,跳 SETTLE)
+- → `deep`(+SETTLE + strict 三件套)
+
+### 关键决策(为什么 standard 砍 SETTLE)
+
+之前 standard 默认 `settle_phase=true + lessons_required="may"`,但 strict
+三件套(`strict_spec_review` / `strict_drift_check` / `lessons_required=must`)
+都默认 false / "may"。这意味着 standard 跑 SETTLE.reconcile + SETTLE.lessons
+**只产数据不 enforce**,sub_state 走过场——`reconcile.json` 在 standard
+仅 audit view,verify-accept gate 已经实时计算(不读 reconcile),lessons.md
+默认可空。
+
+rev 5.0 起 reconcile.json 是 reducer-derived(数据全在 journal),需要 audit
+时走 `loaf doctor --rebuild` 即可重算落盘。所以让 standard 多跑一个
+`loaf settle` 命令 + 多一个 phase 心智负担,换不被 enforce 的 audit view,
+ROI 不划算。SETTLE 移到 deep 独占,作为 deep 的差异化卖点(audit + lessons
++ strict drift 三件套整体打包)。
+
+### 关键决策(为什么不加 ceremony.tdd_strict)
+
+discussion 期间提过把 TDD 严格度从 `constitution.tdd_strictness` 软配置
+上移到 `ceremony.tdd_strict` 硬 flag,与 standard/deep label 绑定。**否决**。
+
+理由:
+1. **TDD 是工程方法偏好,不是协议完成态的必要不变量**。把 policy choice 混
+   进 protocol shape 增加长期 schema 成本(Hyrum's Law:`tdd_strict` 一旦
+   作为 ceremony 字段暴露,任何 3rd-party skill 或 tooling 都会读它,后续
+   想砍/调整都成 breaking)。
+2. **反例:legacy migration / generated code / SDK integration / UI glue**
+   经常需要 `standard` VERIFY 但不适合 red-first(snapshot test 先于
+   refactor 才是该场景的正确 discipline)。`tdd_strict=true` 跟 standard
+   绑死会卡这些用户。
+3. **协议层已经有客观硬约束**:`behavioral + labels=["bug"]` → register-red
+   是 bugfix 防回归的底线。这条 CLI mutator 已 enforce。non-bug behavioral
+   的 RED-first 由 skill prompt + team review + `constitution.tdd_strictness`
+   软配置三层协同,**不需要协议层介入**。
+
+未来若出现「跨 skill 必须机器可验证一致的 TDD enforce 需求」,走独立
+command/check 路径(类似 `loaf tasks register-red`),不塞进 Ceremony
+schema——保护 ceremony 6 flag 维持「phase 跑不跑」的语义内聚性。
+
+### loaf-skill PRESETS API 草案
+
+```ts
+// loaf-skill 期望提供:
+function resolvePreset(score: number): { label: string; ceremony: Ceremony } {
+  if (score < 20)  return { label: "quick",    ceremony: PRESETS.quick };
+  if (score < 40)  return { label: "light",    ceremony: PRESETS.light };
+  if (score < 70)  return { label: "standard", ceremony: PRESETS.standard };
+  return            { label: "deep",     ceremony: PRESETS.deep };
+}
+
+// `loaf start` 调用:
+const { label, ceremony } = resolvePreset(score);
+await loaf.start({
+  ceremonyJson: JSON.stringify(ceremony),
+  ceremonyLabel: label,  // cosmetic only, CLI does not parse
+});
+```
+
+3rd-party skill(cursor-loaf / windsurf-loaf / 自定义)可起任意 preset 名
+(`prototype / feature / release` / `fast-fix / full-feature / regulatory` /
+等等),只要每档落到合法的 `Ceremony` object 即可。CLI 完全不解析 label。
+
+---
+
 ## What does NOT live in loaf-skill
 
 These were considered during the same grilling pass and ruled out of
