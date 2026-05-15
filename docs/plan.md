@@ -28,24 +28,27 @@ Both ship inside Stage 5–6. Neither is post-implementation cleanup.
 
 ## 1. Stage overview
 
-| Stage | Body of work                                                | Day  | Gate landed | Lead test files                                                  |
-|-------|-------------------------------------------------------------|------|-------------|------------------------------------------------------------------|
-| 0     | Plan.md + protocol.md §5.1 diff applied + schemas.ts bump   | 1.0  | —           | (doc only)                                                       |
-| 1     | journal-entry schema + journal-append + step 5 final validate | 4.5  | #2          | `final-validation.test.ts`, `journal-atomicity.test.ts`          |
-| 2     | reducer preflight + `validateTransition` helper + per-kind matrix | 3.0  | #1          | `per-kind-substate.test.ts`, `preflight-validation.test.ts`      |
-| 3     | projection rebuild + doctor + batch-aware tail recovery     | 1.5  | #4          | `tail-corruption.test.ts`, `batch-atomicity.test.ts`, `replay.test.ts` |
-| 4     | sidecar transaction + orphan GC + final validation harness  | 3.0  | #2 verified | `sidecar-crash.test.ts`, `final-validation.test.ts` (extended)   |
-| 5     | migration sidecar import + crash table + Gate #3 enforcement | 5.0  | #3          | `v0.0.x-migration.test.ts`                                       |
-| 6     | perf + rolling-checksum + reader staleness + read repair    | 1.0  | #5          | `perf.test.ts`, `reader-staleness.test.ts`                       |
-| —     | Cascade sub-items (B1/B3/H2/M1/M3) interleaved              | 4.0  | —           | `actor-authority.test.ts`, `tasks-amended.test.ts`, `pending-resolved-log.test.ts`, `tasks-planned-claim.test.ts`, `strict-drift.test.ts` |
-| —     | Per-kind fixture builder (rev 4 explicit)                   | 1.0  | —           | `per-kind-fixture-builder.ts`                                    |
-| —     | Doc cleanup (H1) + N14 limitation doc                       | 0.5  | —           | (doc only)                                                       |
-|       | **Subtotal (base)**                                         | **23.5** | —      |                                                                  |
-|       | **Buffer (≈12%)**                                           | **1.5–3.5** | —   |                                                                  |
-|       | **Total**                                                   | **25–27** | —    |                                                                  |
+Per-stage budgets below absorb both Journal-SSoT-refactor items and Cascade-decision items
+into the stage they land in (no separate "cascade interleave" row). Mapping back to ADR-0005
+§6 categorical totals (15.5d Journal SSoT + 5.0d Cascade = 20.5d base) is preserved by
+§3.2 below.
 
-Sub-item day budgets reconcile to ADR-0005 §6 (20.5d base; the additional 3d here are the
-cascade rows + fixture builder that §6 listed but didn't fold into the per-stage 1–6 line).
+| Stage | Body of work                                                                                  | Day  | Gate landed | Lead test files                                                  |
+|-------|-----------------------------------------------------------------------------------------------|------|-------------|------------------------------------------------------------------|
+| 0     | plan.md + protocol.md §5.1 diff + schemas.ts rev 5.0 (+ audit follow-up + H1 doc cleanup)     | —    | —           | (doc only; complete)                                             |
+| 1     | journal envelope + journal-append + step 5 final validate + N16 entry_schema_version          | 3.0  | #2          | `final-validation.test.ts`, `journal-atomicity.test.ts`, `per-entry-upcast.test.ts` |
+| 2     | reducer preflight + `validateTransition` helper + per-kind matrix + fixture builder + B1 actor authority + B3 tasks_amended + M1 tasks_planned + M3 strict_drift | 6.5  | #1          | `per-kind-substate.test.ts`, `preflight-validation.test.ts`, `actor-authority.test.ts`, `tasks-amended.test.ts`, `tasks-planned-claim.test.ts`, `strict-drift.test.ts` |
+| 3     | projection rebuild + doctor + batch-aware tail recovery + H2 resolved_pending_log             | 2.0  | #4          | `tail-corruption.test.ts`, `batch-atomicity.test.ts`, `replay.test.ts`, `pending-resolved-log.test.ts` |
+| 4     | sidecar transaction + orphan GC + final-validation harness                                    | 3.0  | #2 verified | `sidecar-crash.test.ts`, `final-validation.test.ts` (extended)   |
+| 5     | migration sidecar import + crash table + Gate #3 enforcement                                  | 5.0  | #3          | `v0.0.x-migration.test.ts`                                       |
+| 6     | reader staleness + read repair + §4.15 perf benchmark + rolling-checksum levels               | 1.0  | #5          | `perf.test.ts`, `reader-staleness.test.ts`                       |
+|       | **Subtotal (base)** — Journal SSoT 15.5d + Cascade 5.0d, per ADR-0005 §6                      | **20.5** | —       |                                                                  |
+|       | **Buffer (25–30% per ADR §6)**                                                                | **+4.5–6.5** | —   |                                                                  |
+|       | **Total**                                                                                     | **25–27** | —      |                                                                  |
+
+Stage 0 paperwork already landed across commits `aa24198` (plan + protocol.md), `48067ef`
+(schemas.ts), and the `docs: ADR-0005 audit follow-up` commit (this batch); no day budget
+remains.
 
 ---
 
@@ -88,16 +91,40 @@ diff lists; no item left unticked.
 
 **New / enriched**
 
-- `journal-entry.ts`: envelope with `seq`, `entry_id` (`JE-NNNNNN`), `at`, `actor`,
-  `entry_schema_version`, `kind`, `payload`, batch markers (`batch_id`, `batch_index`,
-  `batch_count`), `prev_hash`, `rolling_checksum`. Hard 64KB byte limit per entry; long fields
-  via `LongTextField` (inline ≤ threshold) or `AttachmentRef` sidecar.
-- `journal-append.ts`: full 10-step transaction (ADR §3.5):
-  1. acquire lock; 2. read tail + verify checksum; 3. preflight validate (schema + reducer
-  prereq); 4. write sidecars (tmp + rename + fsync file + parent); 5. **final validate**
-  candidate entry against fully-resolved sidecar refs; 6. append final entry to journal
-  (tmp + rename + fsync); 7. update snapshot meta; 8. release lock; 9. cleanup orphans;
-  10. ack.
+- `journal-entry.ts`: envelope per ADR §3.2 — `seq`, `entry_id` (`JE-NNNNNN`), `at`, `actor`,
+  `entry_schema_version`, `kind`, `payload`, optional batch markers (`batch_id`, `batch_index`,
+  `batch_count`), optional `signature` (reserve). **No `prev_hash` / `rolling_checksum` on the
+  envelope** — those live in `SnapshotMeta` (rolling_checksum chain) per ADR §3.1. Hard 64KB
+  byte limit per entry; long fields via `LongTextField` (inline ≤ 8KB threshold) or
+  `AttachmentRef` sidecar promoted at step 4.
+- `journal-append.ts`: full 10-step transaction (ADR §3.5; mirror schemas.ts §34
+  `transaction_order` exactly):
+  1. acquire `.lock` (≤30s timeout → `LOCK_TIMEOUT`);
+  2. read `journal.jsonl` tail + `snapshots/_meta.json`; fast-check
+     `last_applied_seq` + `last_entry_offset` + `last_entry_line_hash`; mismatch → release
+     lock + exit 2 `SNAPSHOT_STALE_REBUILD_REQUIRED`;
+  3. **preflight validate** (CLI inject actor; Zod parse; cross-kind / sub_state /
+     mutation_rights / actor refine; dry-run reducer apply on in-memory copy;
+     assign `batch_id` / `batch_index` / `batch_count` if batch); abort on any failure (no
+     step 4+ I/O);
+  4. **prepare sidecar files** for any `LongTextField` over `sidecar_threshold_kb` or
+     migration manifest refs (write `.tmp-<random>` → fsync file + parent → atomic rename
+     → compute sha256 → embed final `AttachmentRef.{path,sha256,size}` into payload);
+  5. **final validate** (Gate #2): re-Zod-parse with embedded final `AttachmentRef`;
+     byte-size check (per entry ≤ 64KB; batch total ≤ 64KB); final dry-run reducer apply;
+     reducer-visible result must equal step 3d output (sidecar refs embed deterministically);
+     diff → abort + log `SIDECAR_VALIDATION_DRIFT` + clean sidecar tmp;
+  6. **append journal entry/batch** — Gate #2 invariant: only the step-5-validated final-form
+     entry may be appended; no re-serialization, no recompute of `AttachmentRef`, no edit to
+     validated fields; single `write()` newline-separated; fsync `journal.jsonl`;
+  7. **post-apply assert** (corruption check, not a rollback point): reducer apply final
+     entries to in-memory state; on throw → log + flag `sidecar-validation-drift` in
+     `loaf doctor`; journal is the fact, no rollback;
+  8. **rebuild affected snapshots** (per-file tmp + atomic rename); update
+     `snapshots/_meta.json` (`last_applied_seq`, `last_entry_offset`, `last_entry_line_hash`,
+     `rolling_checksum` chain extend);
+  9. **refresh registry projection** (`~/.loaf/registry/<id>.json`, tmp + rename);
+  10. **release `.lock`** (unlink + close).
 - **Gate #2 enforcement**: step 6 may only write the step-5-validated entry object. No
   re-serialization, no recompute of `AttachmentRef`, no edit to validated fields.
 
@@ -269,19 +296,25 @@ Stage 1).
 
 ### 3.2 Cascade decision sub-items (ADR-0005 §4 → stage)
 
+ADR-0005 §6 lists the Cascade bucket as 5.0d (B1 1.0 + B3 1.0 + H1 0.5 + H2 0.5 + M1 0.5 +
+M3 1.0 + §4.15 perf 0.5 = 5.0d; B2 / H3 / N11 / N13 / N14 folded inside Journal SSoT
+already). Below is the stage placement.
+
 | ID  | Item                                            | Stage | Day | Test                                |
 |-----|-------------------------------------------------|-------|-----|-------------------------------------|
 | B1  | actor authority + migration namespace           | 2     | 1.0 | `actor-authority.test.ts`           |
 | B3  | `tasks_amended` complete invariant              | 2     | 1.0 | `tasks-amended.test.ts`             |
-| H1  | protocol permissive + doc cleanup               | 0     | 0.5 | doc review                          |
+| H1  | protocol permissive + doc cleanup               | 0 (complete) | 0.5 | doc review (landed in audit follow-up commit) |
 | H2  | `resolved_pending_log` snapshot projection      | 3     | 0.5 | `pending-resolved-log.test.ts`      |
 | M1  | `ready` + `tasks_planned`                       | 2     | 0.5 | `tasks-planned-claim.test.ts`       |
 | M3  | `strict_drift_check` enforcement                | 2     | 1.0 | `strict-drift.test.ts`              |
+| §4.15 | perf benchmark + rolling-checksum two-tier    | 6     | 0.5 | `perf.test.ts`                      |
 | N16 | per-entry `entry_schema_version` + upcaster     | 1     | 0.5 | `per-entry-upcast.test.ts`          |
 | N18 | reader staleness contract + CLI footer + exit 2 | 6     | 0.5 | `reader-staleness.test.ts`          |
 
 B2 (ceremony guard) and H3 (per-field sidecar) are folded into reducer / sidecar stages —
-no separate day budget.
+no separate day budget. N16 / N18 are Journal-SSoT line items (ADR §6), not Cascade — they
+appear here for completeness of the cross-stage allocation view.
 
 ### 3.3 spike → core promote (ADR-0005 §5.3)
 

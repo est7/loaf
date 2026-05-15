@@ -652,13 +652,13 @@ CLI 分配流程(每次 add-\* / batch invocation):
 
 ### 4.4 evidence.jsonl(稳定 EV-id + waiver kind + hashed attachments)
 
-> **Authority**: 派生投影(reducer 从 `evidence:added` entries 重建,落 `snapshots/evidence.json`);attachments 内容是 sidecar canonical (`.loaf/<feature>/attachments/<EV-id>/`,sha256 在 entry payload 内 anchor)。Legacy `gate-decision` evidence(v0.0.x)迁移后仅以 `migration:snapshot_imported` payload 形态存在,reducer 派生到 evidence + derived gate view,但**不**伪造新 `gate:decided` entry(ADR-0005 §5.2)。
+> **Authority**: 派生投影(reducer 从 `evidence:added` entries 重建,落 `snapshots/evidence.json`);attachments 内容是 sidecar canonical (`.loaf/<feature>/attachments/<entry_id>/`,**rev 5.0:目录按 journal `entry_id`(JE-NNNNNN)分桶,非 evidence_id**;sha256 在 journal entry payload 内的 `AttachmentRef` anchor;orphan GC 也按 entry_id 比对)。Legacy `gate-decision` evidence(v0.0.x)迁移后仅以 `migration:snapshot_imported` payload 形态存在,reducer 派生到 evidence + derived gate view,但**不**伪造新 `gate:decided` entry(ADR-0005 §5.2)。
 
 ```jsonl
 {"schema_version":1,"evidence_id":"EV-000123","at":"2026-05-12T09:00Z","kind":"task-summary","iteration":1,"actor":"skill:loaf-cli/sdd-execute","result":"passed","summary":"4 unit tests passed","task_id":"T-001","covers":["REQ-AUTH-002","T-001"],"cmd":"bun test auth","exit":0}
 {"schema_version":1,"evidence_id":"EV-000124","at":"2026-05-12T09:15Z","kind":"local-check","iteration":1,"actor":"cli:loaf","result":"passed","summary":"lint + typecheck clean","task_id":"T-001","covers":["T-001"]}
 {"schema_version":1,"evidence_id":"EV-000125","at":"2026-05-12T09:30Z","kind":"verify-review","iteration":1,"actor":"skill:loaf-cli/sdd-verify","result":"approved","summary":"spec_fit passes; no anti-pattern","check":"review","covers":["REQ-AUTH-001","REQ-AUTH-002"]}
-{"schema_version":1,"evidence_id":"EV-000126","at":"2026-05-12T09:50Z","kind":"visual-review","iteration":1,"actor":"human:est9","result":"approved","summary":"button shows spinner; disabled state correct","check":"visual","covers":["VIS-AUTH-001"],"attachments":[{"path":".loaf/auth-refresh/attachments/EV-000126/login-primary-button.png","sha256":"a1b2c3d4e5f6...64hex","mime":"image/png","bytes":48213}]}
+{"schema_version":2,"evidence_id":"EV-000126","at":"2026-05-12T09:50Z","kind":"visual-review","iteration":1,"actor":"human:est9","result":"approved","summary":"button shows spinner; disabled state correct","check":"visual","covers":["VIS-AUTH-001"],"attachments":[{"path":".loaf/auth-refresh/attachments/JE-000456/login-primary-button.png","sha256":"a1b2c3d4e5f6...64hex","mime":"image/png","bytes":48213}]}
 {"schema_version":1,"evidence_id":"EV-000127","at":"2026-05-12T09:55Z","kind":"waiver","iteration":1,"actor":"human:est9","result":"waived","reason":"REQ-AUTH-005 acceptance_na=true; intuitive feel validated via separate user-testing protocol","covers":["REQ-AUTH-005"],"waiver_obligation_id":"REQ-AUTH-005"}
 {"schema_version":1,"evidence_id":"EV-000128","at":"2026-05-12T10:00Z","kind":"gate-decision","iteration":1,"actor":"human:est9","decided_by":"human:est9","result":"approved","gate":"verify-accept","reason":"all checks passed; waivers documented","covers":[],"based_on":{"spec":2,"tasks":4}}
 ```
@@ -671,7 +671,7 @@ CLI 分配流程(每次 add-\* / batch invocation):
   - `manual`:人工验证(`result` 通常是 `passed/failed`)
   - `waiver`:人工豁免(`result=waived`,`actor` 必须 `human:*`,`reason` 必填 ≥10 字符)
 - `*-review` kind 的 `actor` 必须 ≠ implementer(`ceremony.strict_spec_review=true` 时 gate-time enforce;rev 4.2)
-- visual evidence 的 `attachments[]` 是对象数组,**强制 sha256 + mime**;路径规范化到 `.loaf/<feature>/attachments/<EV-id>/<file>`
+- visual evidence 的 `attachments[]` 是对象数组,**强制 sha256 + mime**;rev 5.0 路径规范化到 `.loaf/<feature>/attachments/<entry_id>/<file>`(按发出该 evidence 的 journal entry_id JE-NNNNNN 分桶,**非** EV-id);`evidence_id` 仍保留在 payload 中作为 evidence projection 的稳定 ID
 - gate-decision 通过 `loaf gate decide` 写入,不直接编辑
 
 #### Attachment 自动处理(rev 4.3,ADR-0004 A6)
@@ -1700,7 +1700,7 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 | `loaf tasks check` | tasks.execution.status 与 evidence.jsonl 一致性校验(rev 4.0:rename from `loaf check tasks`) | 0 / 2 |
 | `loaf tasks step start --task T-N --step <s>` | 开始一个 step(运行时校验 step ∈ kind 合法集) | 0 / 2 |
 | `loaf tasks step done --task T-N --step <s>` | 完成一个 step。**rev 4.1**:必须**单 transaction**(同一 `.loaf/<feature>/.lock` 内,先校验 evidence proof 存在 → 写 `execution.<step>.status` → append evidence(如有 `--evidence-*` flag)→ refresh registry → release),不能分两次调用;无对应 evidence proof 时报 `TASK_STATUS_WITHOUT_PROOF` exit 2 | 0 / 2 |
-| `loaf evidence add --input <src>` | 追加 `evidence.jsonl`(含 covers[] / check / actor / result)。**rev 4.1**:不接受 `--id` flag,EV-id 由 CLI 单调分配并 stdout 回打;支持 `external_ref` 字段留调用方 correlation。**rev 4.3**(ADR-0004 A3 / A6 / A10):走 `--input` JSON 形态,`attachments` 接受简化 `[{ path }]` — CLI 自动 sha256 + mime infer + canonical path 拷到 `.loaf/<feature>/attachments/<EV-id>/` + stat bytes(见 §4.4);path 不存在 → `ATTACHMENT_NOT_FOUND` exit 2,非常规文件 → `ATTACHMENT_NOT_FILE`。支持单条或 batch | 0 / 2 |
+| `loaf evidence add --input <src>` | 追加 `evidence.jsonl`(含 covers[] / check / actor / result)。**rev 4.1**:不接受 `--id` flag,EV-id 由 CLI 单调分配并 stdout 回打;支持 `external_ref` 字段留调用方 correlation。**rev 4.3**(ADR-0004 A3 / A6 / A10):走 `--input` JSON 形态,`attachments` 接受简化 `[{ path }]` — CLI 自动 sha256 + mime infer + canonical path 拷到 `.loaf/<feature>/attachments/<entry_id>/`(**rev 5.0**:按 journal entry_id 分桶,非 EV-id)+ stat bytes(见 §4.4);path 不存在 → `ATTACHMENT_NOT_FOUND` exit 2,非常规文件 → `ATTACHMENT_NOT_FILE`。支持单条或 batch | 0 / 2 |
 | `loaf evidence schema --json` | dump evidence JSON Schema | 0 |
 | `loaf waive <obligation-id> --reason "..."` | 写 `kind=waiver` evidence;actor 必须 human:*;reason ≥10 字符 | 0 / 2 |
 | `loaf finding raise --category X --action Y --summary "..."` | VERIFY 或 post-lock EXECUTE 记录发现 | 0 / 2 |
@@ -1886,7 +1886,7 @@ git / gh side effect 是 loaf-skill 或用户自己负责,**不进 loaf-cli**。
 | **registry-orphan** | `~/.loaf/registry/<id>.json` | 对应 cwd 已无 `.loaf/<feature>/state.json`(repo 被删 / session id 不匹配)| `unlink` registry 文件 |
 | **registry-gc** | `~/.loaf/registry/*.json` | mtime > 30 天 | `unlink`(§4.12 GC 策略)|
 | **crash-log-prune** | `~/.loaf/crashes/*.log` | mtime > 30 天 | `unlink`(避免堆积)|
-| **schema-drift** | `.loaf/<feature>/{state,spec,tasks,evidence,findings}.json/jsonl` | 文件 schema_version ≠ 当前 binary `SCHEMA_VERSION` | 不自动 fix;打印 migration hint(v1 内 schema_version=1,理论无 drift) |
+| **schema-drift** | `.loaf/<feature>/{journal.jsonl,snapshots/_meta.json}` + legacy `.loaf/<feature>/{state,spec,tasks,evidence,findings}.json/jsonl`(仅 v0.0.x backup 或迁移源)| 当前 binary 期望 `SCHEMA_VERSION=2`(rev 5.0);journal `entry_schema_version` 或 `snapshots/_meta.json.feature_schema_version` ≠ 2 → drift;legacy `schema_version=1` artifact 出现在 active feature 而非 backup → 触发 migration-v0.0.x 路径 | 不自动 fix;打印 `SCHEMA_VERSION_MISMATCH` + migration hint(`loaf doctor --migrate-v2`);v1 GA 后 `SCHEMA_VERSION` freeze 在 2,理论无 drift |
 | **artifact-corruption** | 上同 | Zod parse 失败 / 非法 JSON | 不自动 fix;打印 path + Zod 错误,提示手动恢复或从 git 历史 checkout |
 | **url-placeholder**(只在 startup 内嵌跑)| binary build 元数据 | `LOAF_DOCS_URL` 或 `LOAF_ISSUE_URL` 是默认 placeholder(见 §10.11)| 不 fix(rebuild 才能修);警告即可 |
 | **stale-claim**(rev 4.1)| `.loaf/<feature>/tasks.json` 中 `status="in_progress"` 的 task | `task.execution.<step>.started_at` > 30 分钟 + 无对应 evidence id 新增(`evidence.jsonl` 该 task_id 自 started_at 后无 append)| `--fix`:回写 `task.execution.<step>.status = "ready"` + `task.status = "ready"` + 写 audit evidence(`kind=local-check actor=cli:doctor result=passed summary="auto-reclaimed stale claim"`);worker 已死或卡住时让其它 worker 重 claim |
@@ -2031,19 +2031,13 @@ Tier 1 mutator 命令(`spec add-req` / `add-scenario` / `add-visual` / `tasks ad
 | **1b `spec_version` += 1 per invocation** | batch = **一次 atomic invocation = 一个 spec_version bump**,不是 +N | `tasks.based_on.spec` 不因 batch 内部条数跳号失序;LLM 一次 add 15 条仍是「一次 spec 变更」 |
 | **1c Atomic ID allocation** | lock 内**一次性**从 allocator 拿 N 个连续 id;全过才 commit allocator state | fan-out 多 worker 并发 batch 时,allocator state 不被半提交污染;失败回退时 id 不漏号 |
 
-Transaction 顺序(扩 §11.2 主流程):
+**Transaction 顺序**(rev 5.0:**不再独立**,直接走主 10-step transaction)
 
-```
-1. acquire .lock
-2. read canonical artifact
-3. Zod validate 整批(input schema 的 z.union([T, z.array(T)]) 路径)
-4. 跨条 invariant 校验(每个 `id_namespace` 内 serial 不重复 → **完整 id 唯一**;同 `id_namespace` 多条 **允许**,step 5 给该 namespace 分配一段连续 serial;`drives` / `depends_on` 指向合法 id 或 batch 内部新建 id;等)
-5. 分配 id 范围(单调 + 连续;失败 → abort)
-6. write tmp file(整批一次 append)
-7. fsync + atomic rename
-8. refresh registry projection
-9. release .lock
-```
+Batch path 与单条 path **共用同一套** §11.2 上方 10-step transaction;batch = N ≥ 2 时 envelope 出现 `batch_id` / `batch_index` / `batch_count` 三元组(ADR-0005 §3.2)。三纪律 1a/1b/1c 在 10-step 主流程内的落点:
+
+- **1a all-or-nothing**:**step 3 preflight** (entire batch Zod-validate without final sidecar refs) AND **step 5 final validate** (with embedded final AttachmentRef) 双道闸;任一道 fail → 整批 abort,0 journal append,sidecar tmp 清扫
+- **1b one append = one bump**:step 6 一次 `write()` 把 N 个 entry 拼接 newline-separated append,total size ≤ `entry_byte_limit_kb`;`spec_version`(for spec_*_added)只 +1
+- **1c atomic id range allocation**:**step 3f** 在 preflight 已确认 N 条全合法之后,一次性从 allocator 拿 N 个连续 serial(REQ/SCEN/VIS/T/EV/PEND),allocator state 只在 step 6 journal append 成功后 commit;step 6 失败时 allocator rollback
 
 任一步失败 → 不写盘 + 不动 allocator state + release lock + stderr 给精确路径(`/<index>/<field>` Zod path)。LLM 收到 stderr 后改正即可重发整批。
 

@@ -3153,10 +3153,11 @@ export const CONCURRENCY_INVARIANTS = {
   //     + §14.3 + ADR-0003 Addendum 5.
   advance_blocks_when_pending_head_kind: ["gate_decision", "profile_escalation"],
 
-  // 9. Registry as cache
-  //    Registry rewrite (step 7 of transaction) is best-effort.
-  //    If process dies between step 6 and step 7, registry lags;
-  //    `loaf doctor --rebuild-registry` rebuilds from canonical.
+  // 9. Registry as cache (rev 5.0 step numbers updated for 10-step path)
+  //    Registry rewrite (step 9 of transaction) is best-effort.
+  //    If process dies between step 8 (snapshot rebuild) and step 9,
+  //    registry lags; `loaf doctor --rebuild-registry` rebuilds from
+  //    canonical (journal.jsonl + snapshots/*.json).
   //    TUI MUST tolerate registry stale; never block on registry.
   registry_authority: "best-effort projection; never gate authority",
 } as const;

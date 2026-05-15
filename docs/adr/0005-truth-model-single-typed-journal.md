@@ -25,6 +25,7 @@
 - **rev 3**（codex audit r2）：抓出 rev 2 引入的 3 新 blocker（batch atomicity / reducer preflight order / migration overpromise）+ 4 high + 4 medium + plan 重估 22-25d；全口径吸纳
 - **rev 4**（codex audit r3）：抓出 rev 3 剩余 2 blocker（N19 migration entry 超 64KB / N20 sidecar 后缺 final validation）+ 4 high + 4 medium + plan 重估 25-27d；全口径吸纳。codex 表态：N19/N20 修后可从 Proposed 升 Accepted-with-implementation-gates
 - **rev 4 final**（codex audit r4 verdict）：**Accepted with implementation gates**。剩余 2 medium（step 数 doc drift / validateTransition helper 应列为显式 gate）+ 3 nit（checksum 双字段 OK / migration sidecar 命名 OK / step 5d 比较范围限定）全部 cleanup 后 lock；§11 新增 Implementation Gates 章节
+- **rev 4.4 erratum**（2026-05-15，codex audit r5 / 写代码前最后一审）：纯 doc erratum,**决策不变**。两处 stale "11 步"(§5.1 §11.2 row + §5.2 §34 row)改为 "10 步" 与 §3.5 / §10 / 落地 protocol+schemas 对齐。三处实现盲点(plan.md 步序错乱 / plan.md 不存在的 envelope 字段 / protocol.md 残留 9-step batch 路径)+ 两处 wording drift(§4.4 `<EV-id>` → `<entry_id>` / §10.15 schema_version=1 → 2)+ 一处 schemas.ts 旧 step ref 在 sibling `docs/{plan,protocol,schemas}.md|.ts` 修复,**ADR §3 / §4 / §6 / §10 实质内容不动**。详 audit msg `2026-05-15T05-45-17.906Z_pid9885_f70cfc00`(`.agent-mail/audit/`)。
 
 ## 1. Context
 
@@ -600,7 +601,7 @@ type MigrationSnapshotImportedPayload = {
 | §4.2-4.12 | 各 artifact 标注 authority layer |
 | §10.8 Command table | 加 `kind emitted` 列；`--actor` 砍；新增 doctor 5 sub-flag |
 | §10.15 Doctor checklist | 加 `orphan-attachment` / `tail-corruption` / `stale-tmp` / `snapshot-seq-mismatch` / `migration-v0.0.x` / `rolling-checksum-mismatch` / `sidecar-validation-drift` |
-| §11.2 | 全面重写为 §3.5 11 步 crash contract |
+| §11.2 | 全面重写为 §3.5 10 步 crash contract |
 | §13.1 Authority layer | 4-tier 收紧：Canonical = journal.jsonl + attachments/；其余 derived |
 | §15 v1 done-when | 翻 schema_version freeze 条款；加"必须通过 §5.2 upcaster 迁移 v0.0.x" |
 | §16 | 翻 `state.json event sourcing` |
@@ -723,7 +724,7 @@ gate decision 才走 `gate:decided` kind。
 | 段落 | 改动 |
 |---|---|
 | §0a | 改为 `EntryKind` registry |
-| §34 CONCURRENCY_INVARIANTS | 全面重写：11 步 transaction + entry_byte_limit + sidecar threshold + monotonic + tail recovery batch-aware + orphan GC + checksum 两级 + step 5 final validate |
+| §34 CONCURRENCY_INVARIANTS | 全面重写：10 步 transaction + entry_byte_limit + sidecar threshold + monotonic + tail recovery batch-aware + orphan GC + checksum 两级 + step 5 final validate |
 | 新增 | `JournalEntry` + envelope schema |
 | 新增 | `EntryKind` enum + payload union per kind |
 | 新增 | `LongTextField` / `AttachmentRef` |
