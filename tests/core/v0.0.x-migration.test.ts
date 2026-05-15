@@ -96,14 +96,29 @@ describe("migrateV2 — Stage 5 §5.2", () => {
       code: "ENOENT",
     });
 
-    // Replay journal: reducer apply currently passes through migration
-    // entries (no projection rehydration in Stage 5 MVP); but the journal
-    // line itself round-trips cleanly through the envelope validator.
-    const replay = await replayJournal(path.join(featureDir, "journal.jsonl"));
+    // Replay journal with feature_dir → migration rehydrates projection
+    // from sidecars (audit r1 Blocker #6 fix).
+    const replay = await replayJournal(
+      path.join(featureDir, "journal.jsonl"),
+      { feature_dir: featureDir },
+    );
     expect(replay.ok).toBe(true);
     if (replay.ok) {
       expect(replay.entries_applied).toBe(1);
       expect(replay.meta.last_applied_seq).toBe(0);
+      // Verify projection rehydrated from sidecars:
+      // - tasks.json had 2 tasks
+      expect(replay.snapshot.tasks).toHaveLength(2);
+      expect(replay.snapshot.tasks[0]!.id).toBe("T-001");
+      expect(replay.snapshot.tasks[0]!.status).toBe("in_progress");
+      // - evidence.jsonl had 1 entry
+      expect(replay.snapshot.evidence).toHaveLength(1);
+      expect(replay.snapshot.evidence[0]!.id).toBe("EV-000001");
+      // - findings.jsonl had 1 entry
+      expect(replay.snapshot.findings).toHaveLength(1);
+      expect(replay.snapshot.findings[0]!.id).toBe("FND-001");
+      // - state.json sub_state="EXECUTE.work" rehydrated
+      expect(replay.snapshot.state?.sub_state).toBe("EXECUTE.work");
     }
   });
 

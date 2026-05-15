@@ -25,7 +25,15 @@ import { createHash, randomBytes } from "node:crypto";
 import path from "node:path";
 
 import { appendEntry } from "./journal-append.js";
-import type { AttachmentRef, JournalEntry } from "./journal-entry.js";
+import type { AttachmentRef, Ceremony, JournalEntry, SubState } from "./journal-entry.js";
+import type {
+  EvidenceState,
+  FindingState,
+  PendingState,
+  SessionState,
+  Snapshot,
+  TaskState,
+} from "./reducer.js";
 
 const MIGRATION_ENTRY_ID = "JE-000000";
 const MIGRATION_DIR_REL = `attachments/${MIGRATION_ENTRY_ID}/migration`;
@@ -189,6 +197,180 @@ export async function migrateV2(
     attachments: attachments as Record<ArtifactKey, AttachmentRef>,
     backup_dir: backupDir,
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// rehydrateMigration — audit r1 Blocker #6
+//
+// Reads sidecar artifacts and projects v0.0.x N-file state into a Snapshot.
+// The reducer apply path remains synchronous; rehydration must therefore
+// happen ahead of replayJournal's per-entry apply loop. replayJournal
+// (and any other replayer) invokes this when it sees a
+// migration:snapshot_imported entry, then resumes normal apply for
+// subsequent entries with the rehydrated snapshot as the cursor.
+// ─────────────────────────────────────────────────────────────────────
+
+const DEFAULT_REHYDRATED_CEREMONY: Ceremony = {
+  spec_phase: true,
+  verify_phase: true,
+  settle_phase: false,
+  strict_spec_review: false,
+  lessons_required: "skip",
+  strict_drift_check: false,
+};
+
+interface LegacyStateJson {
+  phase?: string;
+  sub_state?: string;
+  iteration?: number;
+  spec_locked?: boolean;
+  profile?: string;
+  ceremony?: Ceremony;
+  session_id?: string;
+  feature?: string;
+}
+
+interface LegacyTasksJson {
+  tasks?: Array<{
+    id?: string;
+    kind?: string;
+    status?: "pending" | "in_progress" | "done" | "abandoned";
+    steps?: Record<string, { status?: string }>;
+  }>;
+}
+
+interface LegacyPendingJson {
+  pending?: Array<{ id?: string; kind?: string; resolved?: boolean }>;
+}
+
+function isLegalSubState(value: string): value is SubState {
+  return [
+    "TRIAGE.score", "TRIAGE.confirm",
+    "SPEC.proposal", "SPEC.spec", "SPEC.plan", "SPEC.design",
+    "EXECUTE.plan", "EXECUTE.work", "EXECUTE.done",
+    "VERIFY.plan", "VERIFY.run", "VERIFY.review", "VERIFY.acceptance",
+    "VERIFY.visual", "VERIFY.accept",
+    "SETTLE.reconcile", "SETTLE.lessons",
+    "DONE.delivered", "DONE.archived", "DONE.abandoned",
+  ].includes(value);
+}
+
+function isLegalPhase(value: string): value is SessionState["phase"] {
+  return ["TRIAGE", "SPEC", "EXECUTE", "VERIFY", "SETTLE", "DONE"].includes(value);
+}
+
+export async function rehydrateMigration(
+  featureDir: string,
+  entry: JournalEntry,
+): Promise<Snapshot> {
+  if (entry.kind !== "migration:snapshot_imported") {
+    throw new MigrationError(
+      "MIGRATION_INCOMPLETE",
+      "rehydrateMigration called with non-migration entry",
+      { kind: entry.kind },
+    );
+  }
+  await verifyMigrationSidecars(featureDir, entry);
+
+  const payload = entry.payload as { artifacts: Record<string, AttachmentRef> };
+  const read = async (key: string): Promise<string> =>
+    fsp.readFile(path.join(featureDir, payload.artifacts[key]!.path), "utf8");
+
+  const [stateBody, tasksBody, evidenceBody, findingsBody, pendingBody] = await Promise.all([
+    read("state"),
+    read("tasks"),
+    read("evidence"),
+    read("findings"),
+    read("pending"),
+  ]);
+
+  // ── state.json → SessionState (best-effort; missing fields fall to defaults) ──
+  let legacyState: LegacyStateJson = {};
+  try { legacyState = JSON.parse(stateBody) as LegacyStateJson; } catch { /* tolerate */ }
+  const subState: SubState =
+    legacyState.sub_state && isLegalSubState(legacyState.sub_state)
+      ? legacyState.sub_state
+      : "TRIAGE.score";
+  const phase: SessionState["phase"] =
+    legacyState.phase && isLegalPhase(legacyState.phase)
+      ? legacyState.phase
+      : (subState.split(".")[0] as SessionState["phase"]);
+  const ceremony: Ceremony = legacyState.ceremony ?? DEFAULT_REHYDRATED_CEREMONY;
+  const state: SessionState = {
+    session_id: legacyState.session_id ?? "00000000-0000-0000-0000-000000000000",
+    feature: legacyState.feature ?? "migrated",
+    phase,
+    sub_state: subState,
+    iteration: legacyState.iteration ?? 1,
+    spec_locked: legacyState.spec_locked ?? false,
+    ceremony,
+  };
+
+  // ── tasks.json → TaskState[] ──
+  let legacyTasks: LegacyTasksJson = {};
+  try { legacyTasks = JSON.parse(tasksBody) as LegacyTasksJson; } catch { /* tolerate */ }
+  const tasks: TaskState[] = (legacyTasks.tasks ?? []).flatMap((t) => {
+    if (!t.id) return [];
+    const base: TaskState = {
+      id: t.id,
+      status: t.status ?? "pending",
+      steps: {},
+    };
+    if (t.kind !== undefined) base.kind = t.kind;
+    if (t.steps) {
+      for (const [k, v] of Object.entries(t.steps)) {
+        const stepStatus = (v?.status as TaskState["steps"][string]["status"]) ?? "pending";
+        base.steps[k] = { status: stepStatus };
+      }
+    }
+    return [base];
+  });
+
+  // ── evidence.jsonl → EvidenceState[] ──
+  const evidence: EvidenceState[] = [];
+  for (const line of evidenceBody.split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      const e = JSON.parse(line) as Partial<EvidenceState>;
+      if (e.id && e.kind) {
+        const ev: EvidenceState = {
+          id: e.id,
+          kind: e.kind,
+          covers: e.covers ?? [],
+          actor: e.actor ?? "migration:v0.0.x→v2",
+        };
+        if (e.result !== undefined) ev.result = e.result;
+        evidence.push(ev);
+      }
+    } catch { /* tolerate malformed lines */ }
+  }
+
+  // ── findings.jsonl → FindingState[] ──
+  const findings: FindingState[] = [];
+  for (const line of findingsBody.split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      const f = JSON.parse(line) as Partial<FindingState>;
+      if (f.id && f.category && f.action) {
+        findings.push({
+          id: f.id,
+          category: f.category,
+          action: f.action,
+          status: f.status ?? "open",
+        });
+      }
+    } catch { /* tolerate */ }
+  }
+
+  // ── pending.json → PendingState[] ──
+  let legacyPending: LegacyPendingJson = {};
+  try { legacyPending = JSON.parse(pendingBody) as LegacyPendingJson; } catch { /* tolerate */ }
+  const pending: PendingState[] = (legacyPending.pending ?? []).flatMap((p) => {
+    if (!p.id || !p.kind) return [];
+    return [{ id: p.id, kind: p.kind, resolved: p.resolved ?? false }];
+  });
+
+  return { state, tasks, evidence, findings, pending };
 }
 
 /**

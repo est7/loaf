@@ -18,6 +18,7 @@ import { promises as fsp } from "node:fs";
 
 import { JournalEntry, type JournalEntry as JE } from "./journal-entry.js";
 import { apply, initialSnapshot, type ApplyResult, type Snapshot } from "./reducer.js";
+import { rehydrateMigration } from "./migration.js";
 import {
   computeLineHash,
   extendRollingChecksum,
@@ -41,7 +42,18 @@ export interface ReplayError {
   detail?: Record<string, unknown>;
 }
 
-export async function replayJournal(filePath: string): Promise<ReplayResult | ReplayError> {
+export interface ReplayOptions {
+  /** Feature directory; required for migration:snapshot_imported rehydration
+   *  (reading sidecar artifacts from attachments/JE-000000/migration/).
+   *  If omitted, migration entries fall through to reducer.apply's default
+   *  bootstrap (cursor at TRIAGE.score, no projection rehydrated). */
+  feature_dir?: string;
+}
+
+export async function replayJournal(
+  filePath: string,
+  opts: ReplayOptions = {},
+): Promise<ReplayResult | ReplayError> {
   let contents: string;
   try {
     contents = await fsp.readFile(filePath, "utf8");
@@ -108,18 +120,34 @@ export async function replayJournal(filePath: string): Promise<ReplayResult | Re
       };
     }
 
-    const result: ApplyResult = apply(snapshot, entry);
-    if (!result.ok) {
-      return {
-        ok: false,
-        code: "REDUCER_REJECTED",
-        message: result.message,
-        at_seq: entry.seq,
-        detail: result.detail ?? {},
-      };
+    // Migration entries bypass apply()'s default bootstrap and rehydrate
+    // the full projection from sidecar artifacts (audit r1 Blocker #6).
+    // Requires opts.feature_dir; without it the reducer's default applies
+    // (bootstrap with cursor=TRIAGE.score, no projection rehydration).
+    if (entry.kind === "migration:snapshot_imported" && opts.feature_dir) {
+      try {
+        snapshot = await rehydrateMigration(opts.feature_dir, entry);
+      } catch (err) {
+        return {
+          ok: false,
+          code: "REDUCER_REJECTED",
+          message: `migration rehydration failed: ${String(err)}`,
+          at_seq: entry.seq,
+        };
+      }
+    } else {
+      const result: ApplyResult = apply(snapshot, entry);
+      if (!result.ok) {
+        return {
+          ok: false,
+          code: "REDUCER_REJECTED",
+          message: result.message,
+          at_seq: entry.seq,
+          detail: result.detail ?? {},
+        };
+      }
+      snapshot = result.snapshot;
     }
-
-    snapshot = result.snapshot;
     lastSeq = entry.seq;
     lastEntryOffset = offset;
     lastLineHash = computeLineHash(line);
