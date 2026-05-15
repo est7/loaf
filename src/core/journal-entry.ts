@@ -55,6 +55,28 @@ export const LongTextField = z.discriminatedUnion("mode", [
 ]);
 export type LongTextField = z.infer<typeof LongTextField>;
 
+// migration:snapshot_imported payload (Stage 5, ADR-0005 §5.2).
+// Gate #3 — schema is .strict() with ONLY AttachmentRef manifest fields.
+// Inline artifact bodies are rejected at Zod parse, preventing a v0.0.x
+// migration entry from ballooning past 64KB.
+export const MigrationSnapshotImportedPayload = z
+  .object({
+    source_schema_version: z.number().int().positive(),
+    migrated_at: z.string().datetime(),
+    artifacts: z
+      .object({
+        state: AttachmentRef,
+        tasks: AttachmentRef,
+        spec_md: AttachmentRef,
+        evidence: AttachmentRef,
+        findings: AttachmentRef,
+        pending: AttachmentRef,
+      })
+      .strict(),
+  })
+  .strict();
+export type MigrationSnapshotImportedPayload = z.infer<typeof MigrationSnapshotImportedPayload>;
+
 // SubState — closed set per protocol.md §2.1 (20 sub-states across 6 phases).
 // State machine cursor; reducer projects this from `event:phase_advanced` /
 // `gate:decided` entries via the shared validateTransition helper (Gate #1).

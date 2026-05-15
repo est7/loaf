@@ -45,7 +45,47 @@ function extractPhase(sub: SubState): SessionState["phase"] {
   return sub.slice(0, idx) as SessionState["phase"];
 }
 
+// Default ceremony used by migration bootstrap when v0.0.x state.json's
+// concrete ceremony is not yet rehydrated into the projection (Stage 5 MVP).
+const MIGRATION_BOOTSTRAP_CEREMONY: Ceremony = {
+  spec_phase: true,
+  verify_phase: true,
+  settle_phase: false,
+  strict_spec_review: false,
+  lessons_required: "skip",
+  strict_drift_check: false,
+};
+
 export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
+  // migration:snapshot_imported is also a bootstrap kind — it initializes
+  // state from a v0.0.x legacy projection. Stage 5 MVP records the entry but
+  // defers full projection rehydration (state stays at TRIAGE.score with a
+  // default ceremony; the real state lives in attachments/JE-000000/migration/
+  // and projection writers in later stages will rehydrate).
+  if (entry.kind === "migration:snapshot_imported") {
+    if (prev.state !== null) {
+      return {
+        ok: false,
+        code: "ALREADY_STARTED",
+        message: "migration:snapshot_imported after state already initialized",
+      };
+    }
+    return {
+      ok: true,
+      snapshot: {
+        state: {
+          session_id: "00000000-0000-0000-0000-000000000000",
+          feature: "migrated",
+          phase: "TRIAGE",
+          sub_state: "TRIAGE.score",
+          iteration: 1,
+          spec_locked: false,
+          ceremony: MIGRATION_BOOTSTRAP_CEREMONY,
+        },
+      },
+    };
+  }
+
   // session:started is the bootstrap kind: it initializes state from null.
   if (entry.kind === "session:started") {
     if (prev.state !== null) {
