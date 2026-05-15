@@ -117,7 +117,9 @@ codex round 2 抓出元决策 N10：
 │   ├── evidence.json          # evidence ledger view + 派生 gate-decision view
 │   ├── findings.json          # findings list view
 │   ├── pending.json           # pending queue view (含 resolved_log slice)
-│   ├── reconcile.json         # drift snapshot
+│   ├── reconcile.json         # drift snapshot (SETTLE 阶段产)
+│   ├── gate-diagnostic.json   # gate 失败时的结构化诊断快照 (按需重建)
+│   ├── resume-pack.json       # `loaf handoff` 输出的接力快照
 │   └── _meta.json             # 一致性元数据,见 §3.6 reader contract
 ├── spec.md                    # 派生投影(reducer 从 event:spec_* 重建)
 ├── lessons.md                 # 派生投影(SETTLE 最终态)

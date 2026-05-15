@@ -1294,16 +1294,26 @@ export const PendingPromptEntry = PendingPrompt.extend({
 export type PendingPromptEntry = z.infer<typeof PendingPromptEntry>;
 
 // ─────────────────────────────────────────────────────────────────
-// 12. state.json — single source of session truth
+// 12. state.json — derived projection (rev 5.0; reducer-rebuilt from journal)
 // ─────────────────────────────────────────────────────────────────
 //
-// loaf CLI is the only writer. Hooks/skills/TUI read-only.
+// rev 5.0 (ADR-0005 §3.1): state.json is no longer the canonical truth source —
+// it is a derived projection at `.loaf/<feature>/snapshots/state.json`, rebuilt
+// by the reducer from `event:phase_advanced` / `event:ceremony_set` /
+// `pending:added|resolved` / `gate:decided` / `session:*` journal entries.
+// Mutation is never direct; every change goes through `loaf <subcommand>` →
+// journal append (§11.2) → reducer apply → snapshot rebuild. Readers MUST run
+// the §10.15 / Gate #5 fast-check against `snapshots/_meta.json` before parsing
+// this projection; mismatch → exit 2 SNAPSHOT_STALE_REBUILD_REQUIRED, no silent
+// cached-snapshot fallback. The StateJson Zod schema below remains the read
+// contract for CLI / TUI / CI consumers of the projection.
+//
 // rev 4.0: StateJson carries session-level state ONLY (state machine
 // position + identity + control + liveness). Active-set detail is NOT
-// stored here — it lives in tasks.json (worker active set via
-// task.status="in_progress") and is expressed via sub_state for control
-// phase intent (e.g. VERIFY.review when running the review check).
-// See ADR-0002 for the worker/control phase typology.
+// stored here — it lives in `snapshots/tasks.json` (rev 5.0 reader path;
+// worker active set via task.status="in_progress") and is expressed via
+// sub_state for control phase intent (e.g. VERIFY.review when running the
+// review check). See ADR-0002 for the worker/control phase typology.
 //
 // workspace is reserved for multi-worktree/team display. v1 does NOT
 // wire any gate or path logic to it; pure display field.
@@ -1434,11 +1444,13 @@ export type StateJson = z.infer<typeof StateJson>;
 // have a crash window where the registry may lag the canonical
 // artifacts. TUI MUST tolerate stale data and mark sessions as
 // `⚠ stale` when registry `at` is older than the corresponding
-// state.json heartbeat_at by more than threshold. Gate / blocking
-// decisions NEVER read registry — they recompute from canonical
-// truth (§5 lead paragraph). Use `loaf doctor --rebuild-registry`
-// to fully rebuild registry from canonical artifacts (e.g. after
-// crash, or after manual edit of .loaf/<feature>/). See protocol.md
+// snapshots/state.json heartbeat_at by more than threshold. Gate /
+// blocking decisions NEVER read registry — they recompute from
+// canonical truth (rev 5.0: journal.jsonl + attachments/<entry_id>/;
+// see §5 lead paragraph + ADR-0005 §3.1 / §3.6). Use `loaf doctor
+// --rebuild-registry` to fully rebuild registry from canonical truth
+// (full journal replay → snapshot rebuild → registry refresh; see
+// CONCURRENCY_INVARIANTS.transaction_order steps 8-9). See protocol.md
 // §4.12 + §13.1 (Derived projection tier).
 //
 // See ADR-0002 (C4 + C6 + C9') and ADR-0003 (rev 4.1 best-effort

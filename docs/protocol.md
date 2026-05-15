@@ -397,7 +397,7 @@ rev 4.0 后字段分三组(active-set detail 不再 store 在 state):
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "loaf_version_required": "^1.0",
   "session_id": "550e8400-e29b-41d4-a716-446655440000",
   "session_label": "popposhell · auth refresh",
@@ -473,7 +473,7 @@ rev 4.0 后字段分三组(active-set detail 不再 store 在 state):
 
 ```markdown
 ---
-schema_version: 1
+schema_version: 2
 spec_version: 2
 feature: { id: F-001, name: "OAuth access token refresh" }
 intent: |
@@ -587,7 +587,7 @@ CLI 分配流程(每次 add-\* / batch invocation):
 
 ```jsonc
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "version": 5,
   "based_on": { "spec": 3 },
   "tasks": [
@@ -714,9 +714,9 @@ CLI 分配流程(每次 add-\* / batch invocation):
 **只能在 VERIFY.\*** sub-state raise(标准情况),**或** spec_locked=true 的 EXECUTE.* sub-state raise(post-lock 漂移)。Quick profile 完全不允许。
 
 ```jsonl
-{"schema_version":1,"id":"FND-001","event":"opened","at":"2026-05-12T09:32Z","raised_in":"VERIFY.visual","raised_by":"skill:loaf-cli/sdd-verify","iteration":1,"category":"spec-gap","action":"amend-spec","summary":"按钮 hover 状态 spec 沉默","refs":["REQ-AUTH-007"],"evidence_refs":["EV-000125"]}
-{"schema_version":1,"id":"FND-001","event":"closed","at":"2026-05-12T09:55Z","iteration":2,"resolution":"REQ-AUTH-008 added in spec v3 + AuthButton hover state implemented","evidence_refs":["EV-000132"]}
-{"schema_version":1,"id":"FND-002","event":"opened","at":"2026-05-12T10:01Z","raised_in":"VERIFY.review","raised_by":"skill:loaf-cli/sdd-verify","iteration":2,"category":"risk-escalation","action":"amend-tasks","summary":"实现中发现需要改 PublicAuthAPI;触发 standard→deep 升级","refs":["T-005"],"evidence_refs":["EV-000130"]}
+{"schema_version":2,"id":"FND-001","event":"opened","at":"2026-05-12T09:32Z","raised_in":"VERIFY.visual","raised_by":"skill:loaf-cli/sdd-verify","iteration":1,"category":"spec-gap","action":"amend-spec","summary":"按钮 hover 状态 spec 沉默","refs":["REQ-AUTH-007"],"evidence_refs":["EV-000125"]}
+{"schema_version":2,"id":"FND-001","event":"closed","at":"2026-05-12T09:55Z","iteration":2,"resolution":"REQ-AUTH-008 added in spec v3 + AuthButton hover state implemented","evidence_refs":["EV-000132"]}
+{"schema_version":2,"id":"FND-002","event":"opened","at":"2026-05-12T10:01Z","raised_in":"VERIFY.review","raised_by":"skill:loaf-cli/sdd-verify","iteration":2,"category":"risk-escalation","action":"amend-tasks","summary":"实现中发现需要改 PublicAuthAPI;触发 standard→deep 升级","refs":["T-005"],"evidence_refs":["EV-000130"]}
 ```
 
 #### 3-tier ActionRisk + `FINDING_ACTION_GRID`(rev 4.3,ADR-0004 A7)
@@ -754,7 +754,7 @@ reconcile.json 配套字段 `unusual_findings_count`(§4.6)聚合本轮 unusual 
 
 ```jsonc
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "based_on": { "spec": 3, "tasks": 5 },
   "planned_scope": ["src/auth/**", "tests/auth/**"],
   "actual_scope":  ["src/auth/**", "tests/auth/**", "src/network/retry.ts"],
@@ -811,11 +811,11 @@ reconcile.json 配套字段 `unusual_findings_count`(§4.6)聚合本轮 unusual 
 
 > **Authority**: 派生投影(诊断快照,允许 stale;gate 失败时 reducer 重新计算落 `snapshots/gate-diagnostic.json`)。
 
-gate / submit / transition / diff-guard 失败时**覆写**到 `.loaf/<feature>/gate-diagnostic.json`。loaf-skill 读它喂 LLM 做下一轮 fix。
+gate / submit / transition / diff-guard 失败时**覆写**到 `.loaf/<feature>/snapshots/gate-diagnostic.json`(rev 5.0:路径迁移到 `snapshots/`;读者必须先过 §10.15 Gate #5 fast check)。loaf-skill 读它喂 LLM 做下一轮 fix。
 
 ```jsonc
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "at": "2026-05-12T08:32Z",
   "gate": "spec-lock",
   "failures": [
@@ -846,7 +846,7 @@ gate / submit / transition / diff-guard 失败时**覆写**到 `.loaf/<feature>/
 
 ```jsonc
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "at": "2026-05-12T11:00Z",
   "session_id": "550e8400-...",
   "reason": "main context approaching token limit; handoff to fresh session",
@@ -863,7 +863,7 @@ gate / submit / transition / diff-guard 失败时**覆写**到 `.loaf/<feature>/
 > **Authority**: Debug-trace(仅 `--debug` 写;git 永不污染;crash log 永不自动 upload,§10.11)。不是 journal entry,不进 reducer。
 
 ```jsonl
-{"schema_version":1,"at":"...","session_id":"...","iteration":1,"sub_state":"EXECUTE.work","cmd":"bun test","argv":["auth.test.ts"],"exit":0,"wall_ms":3450,"stdout_summary":"4 passed"}
+{"schema_version":2,"at":"...","session_id":"...","iteration":1,"sub_state":"EXECUTE.work","cmd":"bun test","argv":["auth.test.ts"],"exit":0,"wall_ms":3450,"stdout_summary":"4 passed"}
 ```
 
 git 默认 `.gitignore` 排除。
@@ -874,7 +874,7 @@ git 默认 `.gitignore` 排除。
 
 ```jsonc
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "protected_files": [
     "**/credentials/**",
     ".env*",
@@ -1712,9 +1712,9 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 | `loaf tasks amend <T-N> --policy <...>` | spec-lock 后窄修 `execution[].applicability`(EXECUTE.plan 阶段;不能改 drives / depends_on / kind,见 §8.6) | 0 / 2 |
 | `loaf tasks list` | 列所有 task 当前 step(rev 4.0:rename from `loaf tasks status`,避免跟 `loaf status` session-level 命名歧义) | 0 |
 | `loaf tasks next` | CLI 算下一个 ready task | 0 |
-| `loaf tasks check` | tasks.execution.status 与 evidence.jsonl 一致性校验(rev 4.0:rename from `loaf check tasks`) | 0 / 2 |
+| `loaf tasks check` | `snapshots/tasks.json` 的 `execution.<step>.status` 与 `snapshots/evidence.json` 一致性校验(rev 5.0:两个 derived projection 是 reducer 同一次重建产物,理论无 drift;mismatch → 触发 §10.15 snapshot-seq-mismatch / 提示 `loaf doctor --rebuild`);rename from `loaf check tasks` (rev 4.0) | 0 / 2 |
 | `loaf tasks step start --task T-N --step <s>` | 开始一个 step(运行时校验 step ∈ kind 合法集) | 0 / 2 |
-| `loaf tasks step done --task T-N --step <s>` | 完成一个 step。**rev 4.1**:必须**单 transaction**(同一 `.loaf/<feature>/.lock` 内,先校验 evidence proof 存在 → 写 `execution.<step>.status` → append evidence(如有 `--evidence-*` flag)→ refresh registry → release),不能分两次调用;无对应 evidence proof 时报 `TASK_STATUS_WITHOUT_PROOF` exit 2 | 0 / 2 |
+| `loaf tasks step done --task T-N --step <s>` | 完成一个 step。**rev 5.0** 行为(等价于原 rev 4.1 contract):走 §11.2 10-step journal transaction,**同一 batch 内 emit** `event:task_step_done` + 可选 `evidence:added`(若 `--evidence-*` flag);step 5 final-validate 通过后整批 append,reducer 派生到 `snapshots/tasks.json`(`execution.<step>.status`)与 `snapshots/evidence.json`,绝不分两次 `loaf <cmd>` 调用。无对应 evidence proof 时 step 3 preflight 报 `TASK_STATUS_WITHOUT_PROOF` exit 2 | 0 / 2 |
 | `loaf evidence add --input <src>` | 追加 `evidence.jsonl`(含 covers[] / check / actor / result)。**rev 4.1**:不接受 `--id` flag,EV-id 由 CLI 单调分配并 stdout 回打;支持 `external_ref` 字段留调用方 correlation。**rev 4.3**(ADR-0004 A3 / A6 / A10):走 `--input` JSON 形态,`attachments` 接受简化 `[{ path }]` — CLI 自动 sha256 + mime infer + canonical path 拷到 `.loaf/<feature>/attachments/<entry_id>/`(**rev 5.0**:按 journal entry_id 分桶,非 EV-id)+ stat bytes(见 §4.4);path 不存在 → `ATTACHMENT_NOT_FOUND` exit 2,非常规文件 → `ATTACHMENT_NOT_FILE`。支持单条或 batch | 0 / 2 |
 | `loaf evidence schema --json` | dump evidence JSON Schema | 0 |
 | `loaf waive <obligation-id> --reason "..."` | 写 `kind=waiver` evidence;actor 必须 human:*;reason ≥10 字符 | 0 / 2 |
@@ -1722,7 +1722,7 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 | `loaf finding list [--status open\|closed]` | 列 findings | 0 |
 | `loaf finding close <FND-id>` | 关闭 finding | 0 |
 | `loaf verify status` | 实时算各 check 状态 | 0 |
-| `loaf gate decide <G>` | gate 决策 → evidence.jsonl `kind=gate-decision`。**rev 4.1 Q3**:本身就是答 `pending(kind=gate_decision, gate=<G>)` head 的方式,CLI 内部检查 head 匹配 → 同时 pop pending + 写 evidence + 推 state;head 不匹配 → `GATE_NOT_PENDING` exit 2 | 0 / 2 |
+| `loaf gate decide <G>` | gate 决策 → **rev 5.0**:走 §11.2 transaction,**同一 batch 内 emit** `gate:decided` + `pending:resolved`(消 head pending kind=gate_decision)+ `event:phase_advanced`(target 由 §3.5 复用的 LEGAL_TRANSITIONS 给出)。reducer 派生 evidence projection 中 `kind=gate-decision` 视图。head 不匹配 → step 3 preflight 报 `GATE_NOT_PENDING` exit 2 | 0 / 2 |
 | `loaf settle` | 生成 reconcile.json(standard+)— session lifecycle chaos deviation 保留单 verb | 0 / 2 |
 | `loaf check <path>` | 纯 schema check(CI 用,任意 artifact 文件) | 0 / 2 |
 | `loaf <artifact> schema --json` | 自描述命令,dump JSON Schema(spec/tasks/evidence/finding/state,**限定 5 个 enum**,非 catch-all) | 0 |
@@ -2159,7 +2159,7 @@ fs.rename(tmp, target);
 ```ts
 // ~/.loaf/registry/<session_id>.json 一份的内容(整体覆写,不 append):
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "at": "2026-05-12T10:30:45Z",
   "session_id": "...",
   "session_label": "popposhell · 添加登录方式",     // human display
