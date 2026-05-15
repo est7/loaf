@@ -18,9 +18,10 @@
 //
 // `appendEntry` / `appendMany` do NOT run preflight (cursor / ceremony /
 // authority), do NOT promote sidecars, do NOT call reducer.apply. Use
-// `mutate()` from `src/core/journal-mutate.ts` today; a future batch
-// mutator (Cycle 3) will wrap `appendMany` after preflight + sidecar +
-// reducer dry-run, mirroring `mutate()` → `appendEntry`.
+// `mutate()` or `mutateBatch()` from `src/core/journal-mutate.ts` — those
+// compose preflight + sidecar + reducer dry-run (Pass 1) + sidecar
+// promotion (Pass 2) + final dry-run on promoted entries (Pass 3) + this
+// primitive (Pass 4 = single fsync'd append).
 
 import { promises as fsp } from "node:fs";
 import { O_APPEND, O_CREAT, O_WRONLY } from "node:constants";
@@ -73,9 +74,10 @@ export class AppendError extends Error {
  *
  * `appendMany` is §11.2 step 5+6 for batches: pre-validate every entry, then
  * one newline-joined `write()`. It does NOT run preflight, NOT promote
- * sidecars, NOT call reducer.apply. Use `mutate()` from
- * `src/core/journal-mutate.ts` for the sanctioned mutation path today; a
- * future batch mutator (Cycle 3) will wrap this primitive.
+ * sidecars, NOT call reducer.apply. Use `mutate()` or `mutateBatch()` from
+ * `src/core/journal-mutate.ts` for the sanctioned mutation path —
+ * `mutateBatch` wraps this primitive after preflight + sidecar promotion +
+ * Pass-3 final dry-run on promoted entries.
  *
  * Atomicity boundary:
  *   - Failures DURING prevalidation (INVALID_ENVELOPE / INVALID_PAYLOAD /

@@ -1,35 +1,47 @@
-// journal-mutate — the single transactional mutator API (Blocker #3).
+// journal-mutate — the single transactional mutator API.
 //
-// `mutate(partial, ctx)` is the only sanctioned entry point for journal
-// mutation. It collapses the §11.2 transaction steps into one call:
+// `mutateBatch(partials[], ctx)` is the protocol-level multi-entry mutator
+// (§11.2 step 2-7 collapsed). `mutate(partial, ctx)` is the single-entry
+// shorthand for `mutateBatch([partial], ctx)`.
 //
-//   step 1 (lock acquire)     — deferred to a follow-up (single-writer scope)
+// Step mapping inside one batch:
+//   step 1 (lock acquire)     — deferred (single-writer scope)
 //   step 2 (read tail/_meta)  — caller supplies ctx.tail_seq + ctx.snapshot
-//   step 3 (preflight)        — via reducer/preflight
-//   step 4 (sidecar finalize) — via sidecar.promoteSidecars
-//   step 5 (final validate)   — via appendEntry's inline re-parse (envelope + per-kind payload)
-//   step 6 (journal append)   — via appendEntry single-write
-//   step 7 (post-apply)       — via reducer.apply
-//   step 8 (snapshot rebuild) — deferred (returns the new in-memory snapshot;
-//                                caller persists via snapshot writers in later stages)
-//   step 9 (registry refresh) — deferred (registry is per-session projection)
+//   step 3 (preflight)        — per-entry; runs against the snapshot
+//                               INCREMENTALLY mutated by prior entries in
+//                               the batch (so chained kinds see each other)
+//   step 3a (reducer-impl gate)— per-entry; rejects payload-valid but
+//                               reducer-unknown kinds before any write
+//   step 4 (sidecar finalize) — per-entry
+//   step 5 (final validate)   — inside appendMany (envelope + per-kind payload
+//                               + per-entry byte cap + batch-total byte cap)
+//   step 6 (journal append)   — appendMany single fsync'd write for whole batch
+//   step 7 (post-apply)       — reducer.apply already ran during dry-run on
+//                               the cloned snapshot accumulator; that IS the
+//                               new state (apply mutates in place)
+//   step 8 (snapshot rebuild) — deferred (returns in-memory snapshot;
+//                               persistence lands in later stage)
+//   step 9 (registry refresh) — deferred
 //   step 10 (lock release)    — deferred with step 1
 //
-// Direct calls to `appendEntry` are still possible (it remains the step 6
-// primitive) but `mutate` is the audit-approved end-to-end path: bypassing
-// it skips preflight, payload narrowing, and reducer apply.
+// Atomicity (preserves audit r1-r5 invariants):
+//   - r1 strict per-kind payload (preflight + appendMany final validate)
+//   - r2 atomic on prevalidation fail (structuredClone snapshot accumulator;
+//                                       journal untouched if any step fails)
+//   - r2 REDUCER_IMPLEMENTED_KINDS gate before append
+//   - r3 reducer dry-run before append (each entry's apply runs on the
+//                                        clone; failure aborts before write)
+//   - r4 migration preflight-validate before append (in PER_KIND_PAYLOAD)
+//   - r5 wider rollback envelope (sidecar orphans handled by doctor)
 //
-// Caller contract:
-//   - Supply ctx.snapshot (current projection) + ctx.tail_seq (journal tail)
-//   - Supply partial entry (envelope + kind + payload) sans seq / entry_id;
-//     mutate fills those from tail_seq + 1
-//   - On ok: receive new snapshot + the persisted JournalEntry
-//   - On error: typed code + message; journal is unchanged (preflight aborts
-//     before any I/O), or sidecar/append errors surface accordingly
+// Direct `appendEntry` / `appendMany` calls are still possible primitives
+// but skip preflight, payload narrowing, REDUCER_IMPLEMENTED gate, sidecar
+// promotion, and reducer dry-run. Use `mutate()` / `mutateBatch()` for the
+// audit-sanctioned end-to-end path.
 
 import path from "node:path";
 
-import { appendEntry, AppendError } from "./journal-append.js";
+import { AppendError, appendMany } from "./journal-append.js";
 import { REDUCER_IMPLEMENTED_KINDS, type JournalEntry } from "./journal-entry.js";
 import { apply, type Snapshot } from "./reducer.js";
 import { preflight, type PreflightFailureCode } from "./reducer/preflight.js";
@@ -50,7 +62,8 @@ export type MutateFailureCode =
   | PreflightFailureCode
   | "APPEND_ERROR"
   | "SIDECAR_ERROR"
-  | "REDUCER_ERROR";
+  | "REDUCER_ERROR"
+  | "INVALID_BATCH";
 
 export type MutateResult =
   | { ok: true; snapshot: Snapshot; entry: JournalEntry }
@@ -61,6 +74,30 @@ export type MutateResult =
       detail?: Record<string, unknown>;
     };
 
+export type MutateBatchResult =
+  | { ok: true; snapshot: Snapshot; entries: JournalEntry[] }
+  | {
+      ok: false;
+      code: MutateFailureCode;
+      message: string;
+      /** 0-based index of the entry that failed, when applicable */
+      failed_index?: number;
+      detail?: Record<string, unknown>;
+    };
+
+/**
+ * Caller-supplied entry shape. `seq`, `entry_id`, and the batch envelope
+ * triple (`batch_id` / `batch_index` / `batch_count`) are owned by
+ * `mutateBatch` — callers must not pre-fill them. Stricter than the previous
+ * shape (which allowed seq/entry_id overrides) per codex r12 finding: a
+ * mutator API that mixes external IDs and internal allocation creates
+ * inconsistent journals.
+ */
+type PartialEntry = Omit<
+  JournalEntry,
+  "seq" | "entry_id" | "batch_id" | "batch_index" | "batch_count"
+>;
+
 const DEFAULT_BOOTSTRAP_CEREMONY = {
   spec_phase: true,
   verify_phase: true,
@@ -70,91 +107,175 @@ const DEFAULT_BOOTSTRAP_CEREMONY = {
   strict_drift_check: false,
 };
 
-export async function mutate(
-  partial: Omit<JournalEntry, "seq" | "entry_id"> & {
-    seq?: number;
-    entry_id?: string;
-  },
+export async function mutateBatch(
+  partials: PartialEntry[],
   ctx: MutateContext,
-): Promise<MutateResult> {
-  // (1) Fill seq + entry_id from journal tail. Caller MAY override, but
-  // preflight's monotonic seq check will reject mismatches.
-  const seq = partial.seq ?? ctx.tail_seq + 1;
-  const entry_id = partial.entry_id ?? `JE-${String(seq + 1).padStart(6, "0")}`;
-  const candidate: JournalEntry = { ...partial, seq, entry_id } as JournalEntry;
-
-  // (2) Preflight context — sub_state + ceremony from current snapshot.
-  // Bootstrap kinds (session:started, migration:snapshot_imported) run with
-  // state==null; preflight's PER_KIND_SUB_STATE accepts ANY_SUB_STATE for
-  // those kinds, so the default cursor is consistent with the apply contract.
-  const subState = ctx.snapshot.state?.sub_state ?? "TRIAGE.score";
-  const ceremony = ctx.snapshot.state?.ceremony ?? DEFAULT_BOOTSTRAP_CEREMONY;
-  const pre = preflight(candidate, {
-    sub_state: subState,
-    tail_seq: ctx.tail_seq,
-    ceremony,
-  });
-  if (!pre.ok) {
+): Promise<MutateBatchResult> {
+  if (partials.length === 0) {
     return {
       ok: false,
-      code: pre.code,
-      message: pre.message,
-      detail: pre.detail ?? {},
+      code: "INVALID_BATCH",
+      message: "mutateBatch called with empty partials array; pass at least one entry",
+      detail: { partials_length: 0 },
     };
   }
 
-  // (2b) Audit r2 fix — reducer-not-implemented MUST surface before append,
-  // not after. Without this gate, mutate() returns REDUCER_ERROR while the
-  // journal has already grown by one line (codex r2 caught this: implementing
-  // event:spec_req_added would otherwise pollute the journal).
-  if (!REDUCER_IMPLEMENTED_KINDS.has(candidate.kind)) {
-    return {
-      ok: false,
-      code: "REDUCER_ERROR",
-      message: `reducer has no handler for kind=${candidate.kind}; refusing to append (would orphan a journal entry)`,
-      detail: { kind: candidate.kind },
-    };
+  // Per protocol §11.2 + codex r12/r13: validate the ENTIRE batch first
+  // (no disk I/O), promote sidecars, then re-validate the promoted form
+  // before appending. Three passes:
+  //   Pass 1 — preflight + REDUCER_IMPLEMENTED gate + reducer dry-run on
+  //            UNPROMOTED candidates (snapshot accumulator threads through
+  //            so chained kinds see each other's projection).
+  //   Pass 2 — sidecar promotion (only reached if Pass 1 succeeded).
+  //   Pass 3 — replay promoted[] on a FRESH clone of ctx.snapshot and assert
+  //            the reducer-visible result matches Pass 1. Today's reducers
+  //            do not read LongTextField bodies so Pass 3 is a no-op
+  //            success; the gate exists as a forward-compatibility guard
+  //            (a future reducer that DOES read sidecar refs must not be
+  //            able to silently drift the in-memory snapshot away from the
+  //            replayed-from-journal snapshot).
+
+  // Runtime reject forbidden caller-supplied fields. The PartialEntry type
+  // omits these, but TS can be bypassed via `as any` / external JSON, and
+  // mutateBatch must own seq/entry_id/batch envelope unconditionally.
+  const FORBIDDEN = ["seq", "entry_id", "batch_id", "batch_index", "batch_count"] as const;
+  for (let i = 0; i < partials.length; i++) {
+    const partial = partials[i] as Record<string, unknown>;
+    for (const f of FORBIDDEN) {
+      if (f in partial) {
+        return {
+          ok: false,
+          code: "INVALID_BATCH",
+          message: `partial at index ${i} contains forbidden field '${f}'; mutateBatch owns seq/entry_id/batch envelope`,
+          failed_index: i,
+          detail: { forbidden_field: f, index: i },
+        };
+      }
+    }
   }
 
-  // (3) Sidecar finalize (step 4). Promotes any LongTextField inline > 8KB
-  // into per-entry attachment files; replaces the inline form with a
-  // sidecar AttachmentRef. No-op for entries without LongTextField shapes.
-  let promoted: JournalEntry;
-  try {
-    promoted = await promoteSidecars(candidate, ctx.feature_dir, {
-      fsync: ctx.fsync ?? true,
+  const isBatch = partials.length >= 2;
+  const batchId = isBatch ? crypto.randomUUID() : undefined;
+
+  // Pass 1: pure validation, no I/O. Build candidate entries with seq + id +
+  // batch envelope; accumulate snapshot.
+  let snapshotAcc: Snapshot = structuredClone(ctx.snapshot);
+  const candidates: JournalEntry[] = [];
+
+  for (let i = 0; i < partials.length; i++) {
+    const partial = partials[i]!;
+    const seq = ctx.tail_seq + 1 + i;
+    const entry_id = `JE-${String(seq + 1).padStart(6, "0")}`;
+    const candidate: JournalEntry = isBatch
+      ? ({
+          ...partial,
+          seq,
+          entry_id,
+          batch_id: batchId!,
+          batch_index: i,
+          batch_count: partials.length,
+        } as JournalEntry)
+      : ({ ...partial, seq, entry_id } as JournalEntry);
+
+    const subState = snapshotAcc.state?.sub_state ?? "TRIAGE.score";
+    const ceremony = snapshotAcc.state?.ceremony ?? DEFAULT_BOOTSTRAP_CEREMONY;
+    const pre = preflight(candidate, {
+      sub_state: subState,
+      tail_seq: ctx.tail_seq + i,
+      ceremony,
     });
-  } catch (err) {
-    return {
-      ok: false,
-      code: "SIDECAR_ERROR",
-      message: `sidecar finalize failed: ${String(err)}`,
-      detail: { err: String(err) },
-    };
+    if (!pre.ok) {
+      return {
+        ok: false,
+        code: pre.code,
+        message: pre.message,
+        failed_index: i,
+        detail: pre.detail ?? {},
+      };
+    }
+
+    if (!REDUCER_IMPLEMENTED_KINDS.has(candidate.kind)) {
+      return {
+        ok: false,
+        code: "REDUCER_ERROR",
+        message: `reducer has no handler for kind=${candidate.kind}; refusing to append (would orphan a journal entry)`,
+        failed_index: i,
+        detail: { kind: candidate.kind },
+      };
+    }
+
+    const dryRun = apply(snapshotAcc, candidate);
+    if (!dryRun.ok) {
+      return {
+        ok: false,
+        code: "REDUCER_ERROR",
+        message: dryRun.message,
+        failed_index: i,
+        detail: { code: dryRun.code, ...(dryRun.detail ?? {}) },
+      };
+    }
+    snapshotAcc = dryRun.snapshot;
+    candidates.push(candidate);
   }
 
-  // (4) Audit r3 fix — reducer dry-run BEFORE append. `apply()` mutates the
-  // snapshot in-place on success (perf optimization for replay), so we
-  // structuredClone first. State-invariant errors (PENDING_NOT_FOUND,
-  // FINDING_NOT_FOUND, ALREADY_STARTED, INVALID_PAYLOAD reducer-side, etc.)
-  // surface here and abort the transaction WITHOUT growing the journal.
-  // codex r3 repro: `pending:resolved {id:"PEND-404"}` previously appended
-  // before reducer caught the FIFO head mismatch — fixed here.
-  const snapshotCopy = structuredClone(ctx.snapshot);
-  const dryRun = apply(snapshotCopy, promoted);
-  if (!dryRun.ok) {
+  // Pass 2: sidecar promotion. All entries validated; from here we accept
+  // that any failure may leave on-disk residue (sidecar attachments) that
+  // `loaf doctor --orphan-attachment` will GC. Planned validation failures
+  // (the kind users hit constantly while iterating) DO NOT reach this pass.
+  const promoted: JournalEntry[] = [];
+  for (let i = 0; i < candidates.length; i++) {
+    try {
+      const p = await promoteSidecars(candidates[i]!, ctx.feature_dir, {
+        fsync: ctx.fsync ?? true,
+      });
+      promoted.push(p);
+    } catch (err) {
+      return {
+        ok: false,
+        code: "SIDECAR_ERROR",
+        message: `sidecar finalize failed: ${String(err)}`,
+        failed_index: i,
+        detail: { err: String(err) },
+      };
+    }
+  }
+
+  // Pass 3 (protocol §11.2 step 5c, codex r13): final reducer dry-run on
+  // PROMOTED entries against a fresh clone of ctx.snapshot. Asserts that
+  // the promoted form produces the same projection as Pass 1's accumulator.
+  // Today's reducers do not read LongTextField bodies, so this is a no-op
+  // success; but the gate is a forward-compatibility guard against a
+  // future reducer that DOES dereference sidecar refs (which would silently
+  // drift in-memory snapshot from replay-from-journal snapshot).
+  let finalSnapshot: Snapshot = structuredClone(ctx.snapshot);
+  for (let i = 0; i < promoted.length; i++) {
+    const dryRun = apply(finalSnapshot, promoted[i]!);
+    if (!dryRun.ok) {
+      return {
+        ok: false,
+        code: "REDUCER_ERROR",
+        message: `final dry-run on promoted entries failed at index ${i}: ${dryRun.message}`,
+        failed_index: i,
+        detail: { code: dryRun.code, phase: "post-sidecar", ...(dryRun.detail ?? {}) },
+      };
+    }
+    finalSnapshot = dryRun.snapshot;
+  }
+  if (JSON.stringify(finalSnapshot) !== JSON.stringify(snapshotAcc)) {
     return {
       ok: false,
       code: "REDUCER_ERROR",
-      message: dryRun.message,
-      detail: { code: dryRun.code, ...(dryRun.detail ?? {}) },
+      message:
+        "snapshot drift between unpromoted and promoted dry-runs — a reducer is reading LongTextField content; the batch is unsafe to append",
+      detail: { phase: "drift-check" },
     };
   }
 
-  // (5) Step 5+6 — final validate + journal append (single-write).
+  // Single fsync'd batch append (appendMany handles envelope + per-kind
+  // payload + per-entry + batch-total byte caps internally).
   const journalPath = path.join(ctx.feature_dir, "journal.jsonl");
   try {
-    await appendEntry(journalPath, promoted, { fsync: ctx.fsync ?? true });
+    await appendMany(journalPath, promoted, { fsync: ctx.fsync ?? true });
   } catch (err) {
     if (err instanceof AppendError) {
       return {
@@ -172,9 +293,23 @@ export async function mutate(
     };
   }
 
-  // (6) Steps 8-10 — snapshot rebuild + registry refresh + lock release.
-  // The dry-run snapshotCopy IS the new state (apply mutated it in place);
-  // we hand it back rather than apply() again on ctx.snapshot, which would
-  // double-mutate.
-  return { ok: true, snapshot: dryRun.snapshot, entry: promoted };
+  return { ok: true, snapshot: finalSnapshot, entries: promoted };
+}
+
+/**
+ * Single-entry shorthand for `mutateBatch([partial], ctx)`. Returns the
+ * single produced entry under the `entry` key for API compatibility with
+ * callers that always emit one entry.
+ */
+export async function mutate(
+  partial: PartialEntry,
+  ctx: MutateContext,
+): Promise<MutateResult> {
+  const batch = await mutateBatch([partial], ctx);
+  if (!batch.ok) {
+    return batch.detail !== undefined
+      ? { ok: false, code: batch.code, message: batch.message, detail: batch.detail }
+      : { ok: false, code: batch.code, message: batch.message };
+  }
+  return { ok: true, snapshot: batch.snapshot, entry: batch.entries[0]! };
 }

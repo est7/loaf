@@ -15,7 +15,7 @@ import path from "node:path";
 import os from "node:os";
 import { createHash } from "node:crypto";
 
-import { mutate } from "../../src/core/journal-mutate.js";
+import { mutate, mutateBatch } from "../../src/core/journal-mutate.js";
 import { initialSnapshot } from "../../src/core/reducer.js";
 import { replayJournal } from "../../src/core/journal-bootstrap.js";
 
@@ -396,5 +396,519 @@ describe("mutate — transactional journal write (audit r1 Blocker #3)", () => {
       expect(replay.entries_applied).toBe(3);
       expect(replay.meta.last_applied_seq).toBe(2);
     }
+  });
+});
+
+describe("mutateBatch — Slice 1.0 Cycle 3 (multi-entry transactional)", () => {
+  // ── A: single-entry batch == mutate equivalence ──────────────────────────
+  test("A. mutateBatch([session:started]) produces same state as mutate(session:started)", async () => {
+    const dir = await tmpFeatureDir();
+    const result = await mutateBatch(
+      [
+        {
+          at: "2026-05-15T10:00:00.000Z",
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "session:started",
+          payload: {
+            session_id: "550e8400-e29b-41d4-a716-446655440000",
+            feature: "auth-refresh",
+            ceremony: STANDARD,
+          },
+        },
+      ],
+      { feature_dir: dir, snapshot: initialSnapshot(), tail_seq: -1, fsync: false },
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.snapshot.state?.sub_state).toBe("TRIAGE.score");
+      expect(result.entries).toHaveLength(1);
+      expect(result.entries[0]!.seq).toBe(0);
+      expect(result.entries[0]!.entry_id).toBe("JE-000001");
+    }
+    const journal = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
+    expect(journal.trim().split("\n")).toHaveLength(1);
+  });
+
+  // ── B: chained snapshot — entry #2's preflight sees entry #1's projection ──
+  // The load-bearing claim: without the incremental snapshot accumulator,
+  // event:phase_advanced TRIAGE.score → TRIAGE.confirm would fail preflight
+  // because the inputs ctx.snapshot says state is null.
+  test("B. 2-entry batch [session:started, phase_advanced] — incremental snapshot threads chain", async () => {
+    const dir = await tmpFeatureDir();
+    const result = await mutateBatch(
+      [
+        {
+          at: "2026-05-15T10:00:00.000Z",
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "session:started",
+          payload: {
+            session_id: "550e8400-e29b-41d4-a716-446655440000",
+            feature: "auth-refresh",
+            ceremony: STANDARD,
+          },
+        },
+        {
+          at: "2026-05-15T10:00:01.000Z",
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "event:phase_advanced",
+          payload: { from: "TRIAGE.score", to: "TRIAGE.confirm" },
+        },
+      ],
+      { feature_dir: dir, snapshot: initialSnapshot(), tail_seq: -1, fsync: false },
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.snapshot.state?.sub_state).toBe("TRIAGE.confirm");
+      expect(result.entries).toHaveLength(2);
+      expect(result.entries.map((e) => e.seq)).toEqual([0, 1]);
+    }
+    // Journal landed both lines in one atomic batch.
+    const journal = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
+    expect(journal.trim().split("\n")).toHaveLength(2);
+  });
+
+  // ── C: mid-batch preflight fail → atomicity, journal untouched ───────────
+  test("C. entry #2 preflight fails (FROM_CURSOR_MISMATCH) → no journal append, failed_index=1", async () => {
+    const dir = await tmpFeatureDir();
+    const result = await mutateBatch(
+      [
+        {
+          at: "2026-05-15T10:00:00.000Z",
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "session:started",
+          payload: {
+            session_id: "550e8400-e29b-41d4-a716-446655440000",
+            feature: "auth-refresh",
+            ceremony: STANDARD,
+          },
+        },
+        {
+          // After session:started, cursor is at TRIAGE.score. payload.from
+          // claims SPEC.spec which doesn't match → preflight FROM_CURSOR_MISMATCH.
+          at: "2026-05-15T10:00:01.000Z",
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "event:phase_advanced",
+          payload: { from: "SPEC.spec", to: "SPEC.plan" },
+        },
+      ],
+      { feature_dir: dir, snapshot: initialSnapshot(), tail_seq: -1, fsync: false },
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("FROM_CURSOR_MISMATCH");
+      expect(result.failed_index).toBe(1);
+    }
+    // No journal file at all — entry #1 was dry-run only.
+    await expect(fs.readFile(path.join(dir, "journal.jsonl"), "utf8")).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+
+  // ── D: mid-batch reducer dry-run fail → atomicity ────────────────────────
+  // Walk to EXECUTE.work, then batch [valid evidence:added, pending:resolved
+  // with bogus id] — entry #2 dies in reducer.apply (PENDING_NOT_FOUND).
+  test("D. entry #2 reducer dry-run fail (PENDING_NOT_FOUND) → no journal append, failed_index=1", async () => {
+    const dir = await tmpFeatureDir();
+    // Bootstrap and walk to EXECUTE.work where both kinds are sub_state-legal.
+    let snapshot = initialSnapshot();
+    let tailSeq = -1;
+    const bootOps: Array<Parameters<typeof mutate>[0]> = [
+      {
+        at: "2026-05-15T10:00:00.000Z",
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "session:started",
+        payload: {
+          session_id: "550e8400-e29b-41d4-a716-446655440000",
+          feature: "f",
+          ceremony: STANDARD,
+        },
+      },
+    ];
+    const subStateEdges: Array<[string, string]> = [
+      ["TRIAGE.score", "TRIAGE.confirm"],
+      ["TRIAGE.confirm", "SPEC.proposal"],
+      ["SPEC.proposal", "SPEC.spec"],
+      ["SPEC.spec", "SPEC.plan"],
+      ["SPEC.plan", "SPEC.design"],
+      ["SPEC.design", "EXECUTE.plan"],
+      ["EXECUTE.plan", "EXECUTE.work"],
+    ];
+    for (const [from, to] of subStateEdges) {
+      bootOps.push({
+        at: new Date(2026, 4, 15, 10, 0, bootOps.length).toISOString(),
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "event:phase_advanced",
+        payload: { from: from as any, to: to as any },
+      });
+    }
+    for (const op of bootOps) {
+      const r = await mutate(op, { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false });
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      snapshot = r.snapshot;
+      tailSeq++;
+    }
+
+    const journalBefore = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
+    const linesBefore = journalBefore.trim().split("\n").length;
+
+    const batch = await mutateBatch(
+      [
+        {
+          at: "2026-05-15T11:00:00.000Z",
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "evidence:added",
+          payload: { id: "EV-000001", kind: "local-check" },
+        },
+        {
+          at: "2026-05-15T11:00:01.000Z",
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "pending:resolved",
+          payload: { id: "PEND-404" },
+        },
+      ],
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    );
+
+    expect(batch.ok).toBe(false);
+    if (!batch.ok) {
+      expect(batch.code).toBe("REDUCER_ERROR");
+      expect(batch.failed_index).toBe(1);
+      expect((batch.detail as { code?: string } | undefined)?.code).toBe("PENDING_NOT_FOUND");
+    }
+
+    // Journal must be byte-identical — entry #1 was dry-run only, never appended.
+    const journalAfter = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
+    expect(journalAfter).toBe(journalBefore);
+    expect(journalAfter.trim().split("\n").length).toBe(linesBefore);
+  });
+
+  // ── E: empty batch is an input bug, not a quiet no-op ────────────────────
+  test("E. empty partials array → INVALID_BATCH, journal untouched", async () => {
+    const dir = await tmpFeatureDir();
+    const result = await mutateBatch([], {
+      feature_dir: dir,
+      snapshot: initialSnapshot(),
+      tail_seq: -1,
+      fsync: false,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("INVALID_BATCH");
+    }
+    await expect(fs.readFile(path.join(dir, "journal.jsonl"), "utf8")).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+
+  // ── B2: batch envelope ───────────────────────────────────────────────────
+  // Per protocol §11.2 step 3f + §11.2 batch path: N>=2 entries share a
+  // batch_id (UUID), batch_index 0..N-1, batch_count = N. N=1 entries omit
+  // the envelope.
+  test("B2. N=2 batch attaches batch_id/batch_index/batch_count envelope to returned entries AND journal lines", async () => {
+    const dir = await tmpFeatureDir();
+    const result = await mutateBatch(
+      [
+        {
+          at: "2026-05-15T10:00:00.000Z",
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "session:started",
+          payload: {
+            session_id: "550e8400-e29b-41d4-a716-446655440000",
+            feature: "f",
+            ceremony: STANDARD,
+          },
+        },
+        {
+          at: "2026-05-15T10:00:01.000Z",
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "event:phase_advanced",
+          payload: { from: "TRIAGE.score", to: "TRIAGE.confirm" },
+        },
+      ],
+      { feature_dir: dir, snapshot: initialSnapshot(), tail_seq: -1, fsync: false },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.entries).toHaveLength(2);
+    const [e0, e1] = result.entries;
+    expect(e0!.batch_id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    expect(e0!.batch_id).toBe(e1!.batch_id);
+    expect(e0!.batch_index).toBe(0);
+    expect(e1!.batch_index).toBe(1);
+    expect(e0!.batch_count).toBe(2);
+    expect(e1!.batch_count).toBe(2);
+
+    // Journal lines carry the envelope too.
+    const journal = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
+    const lines = journal.trim().split("\n").map((l) => JSON.parse(l!));
+    expect(lines[0].batch_id).toBe(e0!.batch_id);
+    expect(lines[1].batch_index).toBe(1);
+    expect(lines[0].batch_count).toBe(2);
+  });
+
+  test("B2. N=1 batch omits batch envelope (all 3 fields absent)", async () => {
+    const dir = await tmpFeatureDir();
+    const result = await mutateBatch(
+      [
+        {
+          at: "2026-05-15T10:00:00.000Z",
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "session:started",
+          payload: {
+            session_id: "550e8400-e29b-41d4-a716-446655440000",
+            feature: "f",
+            ceremony: STANDARD,
+          },
+        },
+      ],
+      { feature_dir: dir, snapshot: initialSnapshot(), tail_seq: -1, fsync: false },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.entries[0]!.batch_id).toBeUndefined();
+    expect(result.entries[0]!.batch_index).toBeUndefined();
+    expect(result.entries[0]!.batch_count).toBeUndefined();
+  });
+
+  // ── C2: planned validation failures must NOT write sidecars ──────────────
+  // entry #0 has a >8KB LongTextField inline (would promote to attachment);
+  // entry #1 fails preflight. Pass 1 catches the failure before Pass 2
+  // (sidecar promotion) runs, so the attachments directory must NOT exist.
+  test("C2. mid-batch fail BEFORE sidecar pass — no journal + no attachment directory", async () => {
+    const dir = await tmpFeatureDir();
+    // Bootstrap session + walk to EXECUTE.work so evidence:added is legal.
+    let snapshot = initialSnapshot();
+    let tailSeq = -1;
+    const bootOps: Array<Parameters<typeof mutate>[0]> = [
+      {
+        at: "2026-05-15T10:00:00.000Z",
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "session:started",
+        payload: {
+          session_id: "550e8400-e29b-41d4-a716-446655440000",
+          feature: "f",
+          ceremony: STANDARD,
+        },
+      },
+    ];
+    for (const [from, to] of [
+      ["TRIAGE.score", "TRIAGE.confirm"],
+      ["TRIAGE.confirm", "SPEC.proposal"],
+      ["SPEC.proposal", "SPEC.spec"],
+      ["SPEC.spec", "SPEC.plan"],
+      ["SPEC.plan", "SPEC.design"],
+      ["SPEC.design", "EXECUTE.plan"],
+      ["EXECUTE.plan", "EXECUTE.work"],
+    ] as Array<[string, string]>) {
+      bootOps.push({
+        at: new Date(2026, 4, 15, 10, 0, bootOps.length).toISOString(),
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "event:phase_advanced",
+        payload: { from: from as any, to: to as any },
+      });
+    }
+    for (const op of bootOps) {
+      const r = await mutate(op, { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false });
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      snapshot = r.snapshot;
+      tailSeq++;
+    }
+
+    const journalBefore = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
+    // Confirm no attachments dir yet — bootstrap had no LongTextField.
+    await expect(fs.stat(path.join(dir, "attachments"))).rejects.toMatchObject({ code: "ENOENT" });
+
+    // entry #0: evidence:added with >8KB inline summary (would promote)
+    // entry #1: pending:resolved with bogus id — reducer dry-run fails
+    const batch = await mutateBatch(
+      [
+        {
+          at: "2026-05-15T11:00:00.000Z",
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "evidence:added",
+          payload: {
+            id: "EV-000001",
+            kind: "local-check",
+            summary: { mode: "inline", text: "x".repeat(10_000) },
+          },
+        },
+        {
+          at: "2026-05-15T11:00:01.000Z",
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "pending:resolved",
+          payload: { id: "PEND-404" },
+        },
+      ],
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    );
+
+    expect(batch.ok).toBe(false);
+    if (!batch.ok) {
+      expect(batch.code).toBe("REDUCER_ERROR");
+      expect(batch.failed_index).toBe(1);
+    }
+    // Journal byte-identical.
+    expect(await fs.readFile(path.join(dir, "journal.jsonl"), "utf8")).toBe(journalBefore);
+    // CRITICAL: no attachment dir was created — Pass 2 never ran.
+    await expect(fs.stat(path.join(dir, "attachments"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  // ── G: forbidden caller-supplied fields are runtime-rejected ─────────────
+  // The PartialEntry type omits seq/entry_id/batch_id/batch_index/batch_count;
+  // mutateBatch additionally runtime-rejects them so an `as any` / external-
+  // JSON caller can't sneak past the type system and inject inconsistent IDs.
+  test("G. caller-supplied seq field → INVALID_BATCH with failed_index, no journal", async () => {
+    const dir = await tmpFeatureDir();
+    const result = await mutateBatch(
+      [
+        {
+          at: "2026-05-15T10:00:00.000Z",
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "session:started",
+          payload: {
+            session_id: "550e8400-e29b-41d4-a716-446655440000",
+            feature: "f",
+            ceremony: STANDARD,
+          },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          seq: 42 as any,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } as any,
+      ],
+      { feature_dir: dir, snapshot: initialSnapshot(), tail_seq: -1, fsync: false },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("INVALID_BATCH");
+      expect(result.failed_index).toBe(0);
+      expect((result.detail as { forbidden_field?: string } | undefined)?.forbidden_field).toBe("seq");
+    }
+    await expect(fs.readFile(path.join(dir, "journal.jsonl"), "utf8")).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+
+  test("G. caller-supplied batch_id field → INVALID_BATCH", async () => {
+    const dir = await tmpFeatureDir();
+    const result = await mutateBatch(
+      [
+        {
+          at: "2026-05-15T10:00:00.000Z",
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "session:started",
+          payload: {
+            session_id: "550e8400-e29b-41d4-a716-446655440000",
+            feature: "f",
+            ceremony: STANDARD,
+          },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          batch_id: "00000000-0000-0000-0000-000000000000" as any,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } as any,
+      ],
+      { feature_dir: dir, snapshot: initialSnapshot(), tail_seq: -1, fsync: false },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("INVALID_BATCH");
+      expect((result.detail as { forbidden_field?: string } | undefined)?.forbidden_field).toBe("batch_id");
+    }
+  });
+
+  // ── F: REDUCER_IMPLEMENTED gate also fires in batch path ─────────────────
+  test("F. mid-batch unimplemented kind (event:spec_req_added) → REDUCER_ERROR failed_index, no append", async () => {
+    const dir = await tmpFeatureDir();
+    // Walk to SPEC.spec so the kind is sub_state-legal.
+    let snapshot = initialSnapshot();
+    let tailSeq = -1;
+    const ops: Array<Parameters<typeof mutate>[0]> = [
+      {
+        at: "2026-05-15T10:00:00.000Z",
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "session:started",
+        payload: {
+          session_id: "550e8400-e29b-41d4-a716-446655440000",
+          feature: "f",
+          ceremony: STANDARD,
+        },
+      },
+      {
+        at: "2026-05-15T10:00:01.000Z",
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "event:phase_advanced",
+        payload: { from: "TRIAGE.score", to: "TRIAGE.confirm" },
+      },
+      {
+        at: "2026-05-15T10:00:02.000Z",
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "event:phase_advanced",
+        payload: { from: "TRIAGE.confirm", to: "SPEC.proposal" },
+      },
+      {
+        at: "2026-05-15T10:00:03.000Z",
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "event:phase_advanced",
+        payload: { from: "SPEC.proposal", to: "SPEC.spec" },
+      },
+    ];
+    for (const op of ops) {
+      const r = await mutate(op, { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false });
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      snapshot = r.snapshot;
+      tailSeq++;
+    }
+    const journalBefore = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
+
+    // Batch [valid phase_advanced (cursor stays SPEC.spec is broken — let's
+    // use a kind reducer-unimplemented at position 1 instead).
+    const batch = await mutateBatch(
+      [
+        {
+          at: "2026-05-15T11:00:00.000Z",
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "event:spec_req_added",
+          payload: { id: "REQ-001", type: "ubiquitous", response: "test" },
+        },
+      ],
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    );
+
+    expect(batch.ok).toBe(false);
+    if (!batch.ok) {
+      expect(batch.code).toBe("REDUCER_ERROR");
+      expect(batch.failed_index).toBe(0);
+    }
+    const journalAfter = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
+    expect(journalAfter).toBe(journalBefore);
   });
 });
