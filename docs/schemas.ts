@@ -1,4 +1,4 @@
-// loaf-cli Protocol Schemas — v1 (rev 4.3)
+// loaf-cli Protocol Schemas — v1 (rev 5.0)
 //
 // Single source of truth for all artifact contracts.
 // JSON Schema is derived via `zod-to-json-schema`; never hand-written.
@@ -70,7 +70,8 @@
 //                        - documentation fix: protocol.md §17 and header used
 //                          "v3 / v2" naming for current protocol vs legacy
 //                          Python implementation; this contradicted the
-//                          SCHEMA_VERSION=1 + §15-16 v1 done-when criteria.
+//                          (rev 5.0 promoted SCHEMA_VERSION to 2; v1 done-when
+//                          §15 criterion 3 now anchors at SCHEMA_VERSION=2.)
 //                          Renamed: current protocol = "loaf-cli v1", legacy
 //                          Python implementation = "legacy Python prototype"
 //                          (no version number simpler, avoids future v2 name
@@ -369,6 +370,43 @@
 //                          clig.dev §2)。
 //                        - `loaf hook <event>` enum 限定 4 值,bare
 //                          调用 exit 2 列 enum + did-you-mean (§10.8)。
+//   rev 5.0 (2026-05-14) Truth model = single typed journal (γ),driven by
+//                        ADR-0005。Breaking storage shape;v1 unfrozen,
+//                        Hyrum's Law exposure = 0(impl 未到 GA)。
+//                        SCHEMA_VERSION 1 → 2(envelope shape 级常量)。
+//                        - 新 §0a JournalEntry envelope + EntryKind +
+//                          AttachmentRef + LongTextField + SignatureEnvelope
+//                          + SnapshotMeta。canonical truth 移至
+//                          `.loaf/<feature>/journal.jsonl` + `attachments/`,
+//                          ADR-0005 §3.1 / §3.2 / §3.6。
+//                        - 新 §0b ENTRY_SCHEMA_VERSIONS(per-kind version
+//                          table,rev 5.0 全部 = 1)+ UPCASTER_REGISTRY
+//                          (keyed by (kind, entry_schema_version);rev 5.0
+//                          shape-only,registrar 待 per-kind upcaster 落地)。
+//                        - 新 §0c MIGRATION_V1_TO_V2_BOUNDARY(v0.0.x N-file
+//                          → v0.1.0 lossy snapshot sidecar import 映射表;
+//                          ADR-0005 §5.2)。
+//                        - §34 CONCURRENCY_INVARIANTS 大幅重写:
+//                          • transaction_order 8 → 10 步(加 step 3
+//                            preflight、step 5 final validate、step 6
+//                            final-entry-only append)
+//                          • batch_transaction_order 9 → 10 步同步对齐
+//                          • dry_run_transaction_order 同步扩
+//                          • 加 entry_byte_limit_kb / sidecar_threshold_kb /
+//                            monotonic_invariants / batch_aware_tail_recovery
+//                            / orphan_attachment_gc / checksum_levels /
+//                            step_5_final_validate / 5 个 doctor sub-flags
+//                          • atomic_multi_artifact_commands 改写为 journal
+//                            kind emission(写多 artifact 改为 emit 多 kind
+//                            in 同一 lock window 同一 batch)
+//                        - §15 done-when 条款延伸(protocol.md §15 第 6 / 第
+//                          7 项):v0.0.x → v0.1.0 upcaster e2e + 10K/100K
+//                          rebuild perf benchmark。
+//                        - §16 退场 state.json event sourcing 非目标。
+//                        Non-changes:Phase / SubState / Hook surface / 5
+//                        Tier 1 mutator command surface 全部保留;rev 5.0
+//                        是「持久化形态 + envelope shape」级 breaking,
+//                        非「state machine」级 breaking。详 ADR-0005 §2.1。
 
 import { z } from "zod";
 
@@ -376,8 +414,342 @@ import { z } from "zod";
 // 0. Schema version
 // ─────────────────────────────────────────────────────────────────
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 export const SchemaVersion = z.literal(SCHEMA_VERSION);
+
+// ─────────────────────────────────────────────────────────────────
+// §0a. Journal envelope + EntryKind + sidecar shapes (rev 5.0, ADR-0005 §3.2)
+// ─────────────────────────────────────────────────────────────────
+//
+// Canonical truth in rev 5.0 is `.loaf/<feature>/journal.jsonl` (append-only,
+// typed envelope) + `.loaf/<feature>/attachments/<entry_id>/**` (per-entry
+// sidecar). All artifacts described in §1-§33 of this file are reducer-
+// derived projections that land under `.loaf/<feature>/snapshots/` or as
+// markdown (spec.md / lessons.md). Their schemas remain authoritative for
+// reader / TUI / CI consumption, but mutation goes through journal entries.
+//
+// Per-kind payload schemas (the discriminated union body) are NOT defined in
+// this file in rev 5.0. They land alongside the reducer in
+// `src/core/reducer.ts` (Stage 1-5 per docs/plan.md) so that payload shape
+// and reducer apply path land together. JournalEntry.payload is typed as
+// z.unknown() here; src/core/journal-entry.ts narrows with a (kind, payload)
+// discriminated union plus refine. See ADR-0005 §3.3 for the kind namespace
+// and §3.6 for the per-kind reducer invariants.
+//
+// Byte limit per entry: 64KB (entry_byte_limit_kb, §34). LongTextField over
+// `sidecar_threshold_kb` (8KB) MUST be externalized to attachments/<entry_id>/
+// and replaced in payload by an AttachmentRef.
+
+export const EntryId = z
+  .string()
+  .regex(/^JE-\d{6,}$/, {
+    message: "entry_id must match /^JE-\\d{6,}$/ (e.g. JE-000123)",
+  });
+export type EntryId = z.infer<typeof EntryId>;
+
+export const BatchId = z.string().uuid();
+export type BatchId = z.infer<typeof BatchId>;
+
+// Actor namespace (ADR-0005 §3.4). CLI auto-injects; never accepted as
+// `--actor` flag. The trailing free-form segment after the colon identifies
+// the actor instance (e.g. `human:est9`, `skill:loaf-cli/sdd-execute`,
+// `cli:loaf`, `ci:github-actions`, `migration:v0.0.x→v2`).
+export const ActorString = z
+  .string()
+  .regex(/^(human|skill|ci|cli|migration):[^\s].*$/, {
+    message:
+      "actor must be of form '<prefix>:<id>' where prefix ∈ {human, skill, ci, cli, migration}",
+  });
+export type ActorString = z.infer<typeof ActorString>;
+
+// AttachmentRef — per-entry sidecar pointer. The `path` is relative to
+// `.loaf/<feature>/` (e.g. "attachments/JE-000123/summary.txt"). The reducer
+// verifies `sha256` matches the on-disk file when applying the entry.
+export const AttachmentRef = z
+  .object({
+    path: z.string().min(1),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/, {
+      message: "sha256 must be 64 lowercase hex chars",
+    }),
+    size: z.number().int().nonnegative(),
+  })
+  .strict();
+export type AttachmentRef = z.infer<typeof AttachmentRef>;
+
+// LongTextField — discriminated by `mode`. Inline values must stay below the
+// sidecar threshold; oversized values MUST be promoted to sidecar form
+// during §11.2 step 4 (sidecar finalize) and emitted as
+// `{ mode: "sidecar", ref: AttachmentRef }`.
+export const LongTextField = z.discriminatedUnion("mode", [
+  z.object({ mode: z.literal("inline"), text: z.string() }).strict(),
+  z.object({ mode: z.literal("sidecar"), ref: AttachmentRef }).strict(),
+]);
+export type LongTextField = z.infer<typeof LongTextField>;
+
+// SignatureEnvelope — v0.1.0 reserve slot. No enforcement in rev 5.0; the
+// field is structurally typed so future ADR-0006 (signature scheme) can land
+// without an envelope shape bump. Today the only contract is "if present,
+// MUST conform to this shape"; the reducer ignores it.
+export const SignatureEnvelope = z
+  .object({
+    alg: z.string().min(1),
+    key_id: z.string().min(1),
+    sig: z.string().min(1),
+    signed_at: z.string().datetime(),
+  })
+  .strict();
+export type SignatureEnvelope = z.infer<typeof SignatureEnvelope>;
+
+// EntryKind namespace — closed set per ADR-0005 §3.3. Per-kind reducer
+// invariants live in `src/core/reducer.ts` (per-kind apply table). New kinds
+// require an ADR + §15 freeze review (rev 5.0 GA tag freezes this enum).
+export const EntryKind = z.enum([
+  // ── State machine transitions ──
+  "event:phase_advanced",
+  "event:ceremony_set",
+  "event:tasks_planned",
+  "event:tasks_amended",
+  "event:task_claimed",
+  "event:task_step_started",
+  "event:task_step_done",
+  "event:task_abandoned",
+  "event:spec_req_added",
+  "event:spec_scenario_added",
+  "event:spec_visual_added",
+  "event:spec_submitted",
+
+  // ── Domain ledger entries ──
+  "evidence:added",
+  "finding:raised",
+  "finding:closed",
+  "pending:added",
+  "pending:resolved",
+
+  // ── Human gates (REQUIRE human: actor; implicit state transition) ──
+  // gate:decided's transition validator is SHARED with event:phase_advanced
+  // via `src/core/reducer/transition.ts` — Gate #1, ADR-0005 §10.
+  "gate:decided",
+
+  // ── Session lifecycle ──
+  "session:started",
+  "session:resumed",
+  "session:delivered",
+  "session:archived",
+  "session:abandoned",
+
+  // ── Spike branch closure ──
+  "spike:converted",
+
+  // ── Migration (v0.0.x → v0.1.0 lossy snapshot import; §0c) ──
+  "migration:snapshot_imported",
+]);
+export type EntryKind = z.infer<typeof EntryKind>;
+
+// JournalEntry — the SSoT envelope. Every line in `journal.jsonl` is one
+// JournalEntry. Batch markers appear only when a single mutator emits ≥2
+// entries inside one §11.2 transaction (ADR-0005 §3.2 / §4.16).
+//
+// payload is typed as z.unknown() here; per-kind payload Zod schemas land
+// progressively in src/core (Stage 1-5). At runtime the reducer narrows on
+// `kind` and validates `payload` against the per-kind schema; preflight
+// (§11.2 step 3) and final validate (§11.2 step 5) both apply this narrowing.
+export const JournalEntry = z
+  .object({
+    // Identity & ordering
+    seq: z.number().int().nonnegative(),
+    entry_id: EntryId,
+    at: z.string().datetime(),
+    actor: ActorString,
+    entry_schema_version: z.number().int().positive(),
+
+    // Domain
+    kind: EntryKind,
+    payload: z.unknown(),
+
+    // Batch markers (only present in multi-entry batches; ADR-0005 §3.2)
+    batch_id: BatchId.optional(),
+    batch_index: z.number().int().nonnegative().optional(),
+    batch_count: z.number().int().positive().optional(),
+
+    // Optional crypto (v0.1.0 reserve)
+    signature: SignatureEnvelope.optional(),
+  })
+  .strict()
+  .refine(
+    (e) => {
+      // Batch markers travel as a triple or none at all.
+      const present = [e.batch_id, e.batch_index, e.batch_count].filter(
+        (v) => v !== undefined,
+      ).length;
+      return present === 0 || present === 3;
+    },
+    {
+      message:
+        "batch_id, batch_index, batch_count must be all-present or all-absent",
+    },
+  )
+  .refine(
+    (e) =>
+      e.batch_index === undefined ||
+      e.batch_count === undefined ||
+      e.batch_index < e.batch_count,
+    { message: "batch_index must be < batch_count" },
+  );
+export type JournalEntry = z.infer<typeof JournalEntry>;
+
+// SnapshotMeta — sits at `.loaf/<feature>/snapshots/_meta.json`. Readers
+// (CLI commands that consume snapshots/*.json) MUST check `last_entry_offset`
+// + `last_entry_line_hash` (Gate #5 fast check, ADR-0005 §3.6); mismatch
+// exits 2 SNAPSHOT_STALE_REBUILD_REQUIRED with no silent fallback. The
+// rolling_checksum chain enables `loaf doctor --verify-checksum` full audit
+// (O(N), §34 checksum_levels).
+export const SnapshotMeta = z
+  .object({
+    last_applied_seq: z.number().int().nonnegative(),
+    last_entry_offset: z.number().int().nonnegative(),
+    last_entry_line_hash: z.string().regex(/^[a-f0-9]{64}$/, {
+      message: "last_entry_line_hash must be 64 lowercase hex chars",
+    }),
+    rolling_checksum: z.string().regex(/^[a-f0-9]{64}$/, {
+      message: "rolling_checksum must be 64 lowercase hex chars",
+    }),
+    feature_schema_version: z.number().int().positive(),
+    written_at: z.string().datetime(),
+  })
+  .strict();
+export type SnapshotMeta = z.infer<typeof SnapshotMeta>;
+
+// ─────────────────────────────────────────────────────────────────
+// §0b. Per-entry schema versioning + upcaster registry (rev 5.0, ADR-0005 §4.17)
+// ─────────────────────────────────────────────────────────────────
+//
+// `JournalEntry.entry_schema_version` is per-kind. When a kind's payload
+// shape evolves (post-GA), the kind's version increments and an upcaster is
+// registered in UPCASTER_REGISTRY at (kind, prev_version). Reducer apply
+// reads `entry_schema_version` and runs the chain of upcasters up to the
+// current kind version before validating against the current payload schema.
+//
+// In rev 5.0 every kind is at version 1; UPCASTER_REGISTRY is structurally
+// declared but empty. Per-kind upcasters land alongside the per-kind payload
+// schemas in src/core/reducer when the corresponding kind's shape evolves.
+
+export const ENTRY_SCHEMA_VERSIONS = {
+  "event:phase_advanced": 1,
+  "event:ceremony_set": 1,
+  "event:tasks_planned": 1,
+  "event:tasks_amended": 1,
+  "event:task_claimed": 1,
+  "event:task_step_started": 1,
+  "event:task_step_done": 1,
+  "event:task_abandoned": 1,
+  "event:spec_req_added": 1,
+  "event:spec_scenario_added": 1,
+  "event:spec_visual_added": 1,
+  "event:spec_submitted": 1,
+  "evidence:added": 1,
+  "finding:raised": 1,
+  "finding:closed": 1,
+  "pending:added": 1,
+  "pending:resolved": 1,
+  "gate:decided": 1,
+  "session:started": 1,
+  "session:resumed": 1,
+  "session:delivered": 1,
+  "session:archived": 1,
+  "session:abandoned": 1,
+  "spike:converted": 1,
+  "migration:snapshot_imported": 1,
+} as const satisfies Record<z.infer<typeof EntryKind>, number>;
+
+// Upcaster registry shape. Each entry maps (kind, prev_version) to a pure
+// function that produces the next-version payload. The function signature
+// stays generic in schemas.ts; src/core/reducer narrows it per kind.
+export type Upcaster = (prevPayload: unknown) => unknown;
+export const UPCASTER_REGISTRY: Record<
+  `${z.infer<typeof EntryKind>}@${number}`,
+  Upcaster
+> = {};
+
+// ─────────────────────────────────────────────────────────────────
+// §0c. Migration boundary (v0.0.x → v0.1.0; rev 5.0, ADR-0005 §5.2)
+// ─────────────────────────────────────────────────────────────────
+//
+// MIGRATION_V1_TO_V2_BOUNDARY documents the lossy snapshot import that
+// `loaf doctor --migrate-v2` performs. The legacy N-file artifacts are NOT
+// re-synthesized as fresh journal entries; instead they land as sidecars
+// under `attachments/JE-000000/migration/` and are referenced from a single
+// `migration:snapshot_imported` journal entry at seq=0. The reducer projects
+// the sidecar contents into snapshots/*.json. Legacy gate-decision evidence
+// entries DO project into the derived gate view but DO NOT fabricate
+// `gate:decided` history entries (ADR-0005 §5.2 rev 3 H fix). The migration
+// payload itself is constrained to the manifest shape (Gate #3,
+// `.strict()` enforced in src/core/reducer when the per-kind payload schema
+// for `migration:snapshot_imported` lands).
+//
+// Crash table during migration: see ADR-0005 §5.2 (7 rows). Each error code
+// (SCHEMA_VERSION_MISMATCH / MIGRATION_INCOMPLETE / MIGRATION_BACKUP_MISSING
+// / MIGRATION_REPLAY_ATTEMPT / MIGRATION_SIDECAR_MISSING) is defined in §39
+// ERROR_CATALOG when the diagnostic code addition lands (Stage 5).
+
+export const MIGRATION_V1_TO_V2_BOUNDARY = {
+  source_schema_version: 1,
+  target_schema_version: 2,
+
+  // v0.0.x file → migration sidecar path (relative to `.loaf/<feature>/`).
+  // The doctor copies each file to its sidecar path with tmp+rename, fsyncs
+  // file + parent dir, then computes sha256.
+  sidecar_layout: {
+    "state.json": "attachments/JE-000000/migration/state.json",
+    "tasks.json": "attachments/JE-000000/migration/tasks.json",
+    "spec.md": "attachments/JE-000000/migration/spec.md",
+    "evidence.jsonl": "attachments/JE-000000/migration/evidence.jsonl",
+    "findings.jsonl": "attachments/JE-000000/migration/findings.jsonl",
+    "pending.json": "attachments/JE-000000/migration/pending.json",
+  },
+
+  // Backup location for the original v0.0.x files. The doctor refuses to
+  // run unless this directory can be created adjacent to `.loaf/<feature>/`
+  // (MIGRATION_BACKUP_MISSING exit 2 if it cannot be made).
+  backup_path: "../<feature>.backup-v1/",
+
+  // The lone journal entry emitted at migration completion. Payload manifest
+  // shape is enforced by `.strict()` Zod in src/core/reducer (Gate #3).
+  journal_entry: {
+    seq: 0,
+    entry_id: "JE-000000",
+    actor_prefix: "migration:",
+    kind: "migration:snapshot_imported" as const,
+    payload_manifest_keys: [
+      "state",
+      "tasks",
+      "spec_md",
+      "evidence",
+      "findings",
+      "pending",
+    ],
+  },
+
+  // Legacy enum mapping: where each v0.0.x enum value lands after migration.
+  // The reducer DOES project legacy gate-decision evidence into a derived
+  // gate view, but DOES NOT fabricate new `gate:decided` history entries —
+  // this avoids the rev 2 "dual truth source" problem (ADR-0005 §5.2).
+  legacy_enum_routing: {
+    "evidence.jsonl.kind=gate-decision":
+      "migration sidecar → projected to evidence view + derived gate view (no new gate:decided)",
+    "evidence.jsonl.kind=test|review|visual|manual|waiver":
+      "migration sidecar → projected to evidence view",
+    "findings.jsonl.event=raised|closed":
+      "migration sidecar → projected to findings view",
+    "pending.json.kind=ask_user_question|gate_decision|spec_clarification|finding_decision|profile_escalation":
+      "migration sidecar → projected to pending view",
+    "state.json.*":
+      "migration sidecar → copied verbatim to in-memory state, then projected",
+    "tasks.json.tasks[]":
+      "migration sidecar → copied to tasks projection",
+    "spec.md":
+      "migration sidecar → copied to spec.md projection (post-submit shape)",
+  },
+} as const;
 
 // ─────────────────────────────────────────────────────────────────
 // 1. Phase / SubState
@@ -2400,38 +2772,50 @@ export const V1_DONE_CRITERIA = {
 } as const;
 
 // ─────────────────────────────────────────────────────────────────
-// 34. Concurrency invariants (rev 4.1 base; rev 4.3 batch additions)
+// 34. Concurrency invariants (rev 4.1 base; rev 4.3 batch; rev 5.0 journal SSoT)
 // ─────────────────────────────────────────────────────────────────
 //
-// Closes the fan-out concurrency gap left by rev 4.0. Without these
-// invariants, sub-agent fan-out in EXECUTE.work would corrupt
-// evidence.jsonl (half-line append), collide EV-ids, and produce
-// execution.status / evidence proof disagreement. See ADR-0003 P0
-// section + protocol.md §11.2.
+// Closes the fan-out concurrency gap left by rev 4.0 and the storage-shape
+// gap left by rev 4.3. Without these invariants, sub-agent fan-out in
+// EXECUTE.work would corrupt `journal.jsonl` (half-line append), produce
+// orphan sidecar files, or break snapshot/journal consistency. See ADR-0005
+// §3.5 (10-step mutation transaction) + protocol.md §11.2 + §10.15 doctor
+// recovery checks.
 //
-// rev 4.3 (ADR-0004 A10) adds the batch transaction order (single or
-// array input under one lock window) and registers the 5 Tier 1
-// mutator entries in atomic_multi_artifact_commands. No invariant is
-// weakened; the batch path is a refinement of the existing 8-step
-// transaction with an explicit id-range allocation step.
+// rev 5.0 (ADR-0005) restructures the transaction:
+//   - 8-step → 10-step path (adds step 3 preflight, step 5 final validate,
+//     step 6 final-entry-only append, step 7 corruption-only post-apply
+//     assert, step 8 snapshot rebuild).
+//   - `atomic_multi_artifact_commands` reframed: multi-artifact writes are
+//     now multi-entry journal batches inside one lock window; the rebuilt
+//     `snapshots/*.json` are derived projections (protocol.md §13.1).
+//   - Adds entry_byte_limit_kb, sidecar_threshold_kb, monotonic_invariants,
+//     batch_aware_tail_recovery, orphan_attachment_gc, checksum_levels,
+//     step_5_final_validate, final_entry_only_append, migration_sidecar_only,
+//     snapshot_read_fail_fast, validate_transition_helper, and the 5 doctor
+//     sub-flags (Gates #1-#5 + ADR-0005 §10.15).
+//
+// rev 4.3 (ADR-0004 A10) introduced the batch transaction order (single or
+// array input under one lock window). rev 5.0 keeps this; the 10-step path
+// IS the batch path (single entry = batch of 1 = `batch_*` markers absent).
 
 export const CONCURRENCY_INVARIANTS = {
-  // 1. Single writer rule
+  // 1. Single writer rule (rev 5.0 reanchored)
   //    Every artifact under .loaf/<feature>/ AND under
   //    ~/.loaf/registry/<id>.json is written ONLY by loaf-cli.
   //    skill / sub-agent / $EDITOR / external script MUST NOT
   //    directly write either canonical-truth or derived-projection
-  //    files. The four authority layers (protocol.md §13.1):
-  //      Canonical truth     state.json / spec.md / tasks.json /
-  //                          evidence.jsonl / findings.jsonl /
-  //                          loaf.config.json
-  //      Derived projection  reconcile.json / registry/<id>.json /
-  //                          gate-diagnostic.json /
-  //                          resume-pack.json /
-  //                          spec-draft-context.md
-  //      Debug-trace         trace.jsonl / ~/.loaf/crashes/*.log /
-  //                          attachments/<EV-id>/*
-  //      Advisory            lessons.md / `loaf deliver` stdout
+  //    files. The four authority layers (protocol.md §13.1, rev 5.0):
+  //      Canonical truth     journal.jsonl + attachments/<entry_id>/** +
+  //                          loaf.config.json (project-level config;
+  //                          non-journal but same single-writer rule)
+  //      Derived projection  snapshots/*.json (state / tasks / evidence /
+  //                          findings / pending / reconcile /
+  //                          gate-diagnostic / resume-pack / _meta) +
+  //                          spec.md (post-submit) + lessons.md +
+  //                          ~/.loaf/registry/<id>.json + spec-draft-context.md
+  //      Debug-trace         trace.jsonl / ~/.loaf/crashes/*.log
+  //      Advisory            `loaf deliver` stdout / `loaf status` stdout
   //    single_writer applies to all four layers; gate authority
   //    distinction is §13.1's concern, not this rule's.
   //    Exception: spec.md MAY be edited by $EDITOR or human between
@@ -2439,7 +2823,7 @@ export const CONCURRENCY_INVARIANTS = {
   //    only); diff-guard catches out-of-window writes. Note that
   //    rev 4.3 `spec add-*` commands replace this $EDITOR loop for
   //    incremental writes — they go through loaf-cli under lock and
-  //    do not need the editor exception.
+  //    emit `event:spec_*_added` journal entries.
   single_writer: true,
 
   // 2. Lock file path
@@ -2447,42 +2831,45 @@ export const CONCURRENCY_INVARIANTS = {
   //    a time. Implements POSIX flock (or equivalent).
   lock_path: ".loaf/<feature>/.lock",
 
-  // 3. Mutation transaction order
-  //    Every loaf-cli mutator command runs these steps in order
+  // 3. Journal mutation transaction order (rev 5.0, 10-step;
+  //    mirror ADR-0005 §3.5 + protocol.md §11.2)
+  //    Every loaf-cli mutator command runs these 10 steps in order
   //    under the lock. Failure at any step releases the lock and
   //    exits non-zero; no partial state is observable to readers
   //    because step 6 is the only externally-visible write.
   transaction_order: [
-    "1. acquire .lock (blocking, ≤30s; on timeout exit 2 with LOCK_TIMEOUT)",
-    "2. read canonical artifact(s) at latest mtime",
-    "3. validate mutation against latest state (Zod + cross-file transitions.ts)",
-    "4. write <artifact>.tmp-<random>",
-    "5. fsync (if platform supports)",
-    "6. rename <tmp> → <final> (POSIX atomic)",
-    "7. refresh registry projection (same tmp+rename pattern at ~/.loaf/registry/<id>.json)",
-    "8. release .lock",
+    "1. acquire .lock (blocking, ≤30s; on timeout exit 2 LOCK_TIMEOUT)",
+    "2. read journal.jsonl tail + snapshots/_meta.json; verify _meta fast-check (last_applied_seq + last_entry_offset + last_entry_line_hash); on mismatch release lock + exit 2 SNAPSHOT_STALE_REBUILD_REQUIRED",
+    "3. preflight validate (candidate entries WITHOUT final sidecar refs): CLI inject actor; Zod parse; cross-kind / sub_state / mutation_rights / actor refine; dry-run reducer apply on in-memory state copy; assign batch_id + batch_index / batch_count if batch; abort with exit 2 + error code on any candidate failure (no step 4+ I/O)",
+    "4. prepare sidecar files (if LongTextField > sidecar_threshold_kb, or migration:* manifest refs): write attachments/<entry_id>/<field>.<ext>.tmp-<random>; fsync file + parent dir; atomic rename → final path; compute sha256; write entry payload AttachmentRef.{path,sha256,size}",
+    "5. final validate (Gate #2; append guard): re-Zod-parse entries with embedded final AttachmentRef; byte-size check (each entry ≤ entry_byte_limit_kb; batch total ≤ entry_byte_limit_kb); final dry-run reducer apply; compare reducer-visible state transition result + emitted projections vs step 3d outcome (NOT byte-for-byte payload); diff → abort + log SIDECAR_VALIDATION_DRIFT + clean sidecar tmp; batch failure aborts whole batch with zero journal change",
+    "6. append journal entry/batch (Gate #2 invariant: ONLY the step-5 validated final-form entry may be appended; no re-serialization, no recompute of AttachmentRef, no edit to validated fields): single write() with all entries newline-separated, total size ≤ entry_byte_limit_kb; fsync journal.jsonl",
+    "7. post-apply assert (corruption check, NOT a rollback point): reducer apply final entries to in-memory state; on apply throw → log + flag corruption in `loaf doctor` (sidecar-validation-drift); journal is the fact, no rollback",
+    "8. rebuild affected snapshots (tmp+atomic rename per file): write snapshots/<file>.json.tmp-<random>; fsync + atomic rename; update snapshots/_meta.json (last_applied_seq, last_entry_offset, last_entry_line_hash, rolling_checksum extend)",
+    "9. refresh registry projection (~/.loaf/registry/<id>.json, tmp+rename)",
+    "10. release .lock (unlink + close)",
   ],
 
-  // 3a. Dry-run transaction order (rev 4.1, --dry-run / -n flag)
+  // 3a. Dry-run transaction order (rev 5.0; 10-step mirror with append + projection skipped)
   //     Runs steps 1-5 to fully validate the mutation, then aborts:
-  //     unlink the .tmp-* file (step 4 byproduct) and release the
-  //     lock. No artifact is renamed into place; no registry
-  //     projection is touched; EV-id monotonic counter is NOT
-  //     incremented. stdout prints a "would do" summary (JSON or
-  //     text per --format), including would-be EV-id range and the
-  //     set of validation diagnostics that would have applied. exit
-  //     0 = mutation would succeed; exit 2 = would fail (with the
-  //     same diagnostic file as the real run, written to a tmp
-  //     diagnostic path that is NOT promoted to gate-diagnostic.json).
+  //     unlink any .tmp-* sidecar (step 4 byproduct) and release the
+  //     lock. No journal entry is appended; no snapshot is touched;
+  //     EV-id / PEND-id monotonic counters are NOT incremented. stdout
+  //     prints a "would do" summary (JSON or text per --format),
+  //     including would-be EV-id / PEND-id ranges and the set of
+  //     validation diagnostics that would have applied. exit 0 =
+  //     mutation would succeed; exit 2 = would fail.
   dry_run_transaction_order: [
     "1. acquire .lock (same as live run)",
-    "2. read canonical artifact(s) at latest mtime",
-    "3. validate mutation against latest state",
-    "4. write <artifact>.tmp-<random> (in-memory or short-lived tmp; allowed for diff snapshot)",
-    "5. fsync (skipped — tmp not persisted)",
-    "6. SKIPPED — no rename",
-    "7. SKIPPED — no registry refresh",
-    "8. unlink .tmp-* if created + release .lock",
+    "2. read journal tail + _meta fast-check (same as live run)",
+    "3. preflight validate (same as live run)",
+    "4. prepare sidecar files into short-lived .tmp-* (NOT renamed; cleaned on step 10)",
+    "5. final validate against embedded refs (same as live run)",
+    "6. SKIPPED — no journal append",
+    "7. SKIPPED — no post-apply assert",
+    "8. SKIPPED — no snapshot rebuild",
+    "9. SKIPPED — no registry refresh",
+    "10. unlink sidecar .tmp-* (if any) + release .lock",
   ],
 
   // 3b. Dry-run applicability
@@ -2492,40 +2879,30 @@ export const CONCURRENCY_INVARIANTS = {
   //     "--dry-run 契约" table for the complete partition.
   dry_run_rejects_read_only: true,
 
-  // 3c. Batch transaction order (rev 4.3, ADR-0004 A10)
-  //     When a Tier 1 mutator (spec add-req / spec add-scenario /
-  //     spec add-visual / tasks add / evidence add) receives an
-  //     array input under --input, validation and append are
-  //     refined into a 9-step path that preserves the single-writer
-  //     and append-only invariants:
-  batch_transaction_order: [
-    "1. acquire .lock (blocking, ≤30s; on timeout exit 2 LOCK_TIMEOUT)",
-    "2. read canonical artifact(s) at latest mtime",
-    "3. Zod validate the entire batch (z.union([T, z.array(T).nonempty()]) form)",
-    "4. cross-item invariant check (within each id_namespace, allocated serials are unique — i.e. full ids are unique; multiple items sharing the same id_namespace ARE allowed and get a contiguous serial range in step 5; drives/depends_on point to existing or batch-internal ids; etc)",
-    "5. atomic id range allocation (reserve N contiguous ids in one allocator step; rollback on later failure leaves allocator untouched)",
-    "6. write <artifact>.tmp-<random> with batch append in one go",
-    "7. fsync + atomic rename → final path",
-    "8. refresh registry projection (single tmp+rename)",
-    "9. release .lock",
-  ],
+  // 3c. Batch transaction order (rev 5.0; alias of transaction_order)
+  //     In rev 5.0 the 10-step path IS the batch path. A single mutator
+  //     emits 1..N entries inside one lock window; the batch markers
+  //     (batch_id / batch_index / batch_count) appear when N ≥ 2 and are
+  //     absent when N = 1. There is no separate single-entry path.
+  batch_transaction_order: "see transaction_order; rev 5.0 unifies single-entry and batch paths under the 10-step transaction (batch markers present when ≥2 entries)",
 
-  // 3d. Batch disciplines (rev 4.3, ADR-0004 A10)
+  // 3d. Batch disciplines (rev 4.3 + rev 5.0 entry semantics)
   //     Three rules the batch path MUST honor:
-  //       1a. all-or-nothing — validate every item in memory before
-  //           any append; first failure aborts the whole batch with
-  //           zero writes (preserves append-only / crash-only).
-  //       1b. spec_version += 1 per invocation — a batch is ONE
-  //           atomic change = ONE spec_version bump, not +N.
-  //       1c. atomic id allocation — id range reserved in one step
-  //           inside the lock; allocator commits only if the whole
-  //           batch validates.
-  //     See protocol.md §11.2 "Batch transaction 三纪律" + Tier 1
-  //     mutator family discussion in §10.8.
+  //       1a. all-or-nothing — Zod-validate every entry in memory at step 3
+  //           (preflight) AND step 5 (final validate); first failure aborts
+  //           the whole batch with zero journal append.
+  //       1b. one journal append = one transaction = one spec_version bump
+  //           (for spec_*_added kinds) — readers never see a spec_version
+  //           pointing at half-allocated ids.
+  //       1c. atomic id allocation — id range (EV / PEND / T / REQ / SCEN /
+  //           VIS serial) reserved at step 3e inside the lock; allocator
+  //           commits only after step 6 journal append succeeds.
+  //     See protocol.md §11.2 "Batch transaction 三纪律" + Tier 1 mutator
+  //     family discussion in §10.8.
   batch_disciplines: {
-    "1a_all_or_nothing": "validate-all in memory; first failure rejects the whole batch with 0 writes",
-    "1b_spec_version_per_invocation": "spec_version += 1 per call regardless of batch size",
-    "1c_atomic_id_allocation": "reserve N contiguous ids in one allocator step inside the lock",
+    "1a_all_or_nothing": "preflight (step 3) AND final validate (step 5) both run on full batch; first failure aborts with 0 journal change",
+    "1b_one_append_one_bump": "one transaction = one journal append = one spec_version bump (for spec_*_added kinds)",
+    "1c_atomic_id_allocation": "EV / PEND / T / REQ / SCEN / VIS serial ranges reserved in one allocator step (step 3e) inside the lock",
   },
 
   // 4. Lock acquisition timeout (seconds)
@@ -2539,76 +2916,187 @@ export const CONCURRENCY_INVARIANTS = {
   // 6. SIGINT (Ctrl-C) policy
   //    First Ctrl-C: cleanup hook runs, releases lock, exits 130.
   //    Second Ctrl-C: skip cleanup, exit 130 immediately. Stale
-  //    .tmp-* and possibly .lock left behind; cleaned at next
-  //    `loaf doctor` invocation.
+  //    .tmp-* sidecar and possibly .lock left behind; cleaned at
+  //    next `loaf doctor` invocation (stale-lock / stale-tmp / orphan-attachment).
   sigint_policy: "first-ctrl-c=cleanup; second-ctrl-c=skip; recovery=loaf doctor",
 
-  // 7. Atomic multi-artifact mutations
-  //    Some commands MUST mutate multiple artifacts in one
-  //    transaction. Each appears as a single lock window.
-  atomic_multi_artifact_commands: [
-    // (cmd, artifacts written, why atomic)
+  // 7. Atomic multi-entry batches (rev 5.0; reframed from
+  //    atomic_multi_artifact_commands)
+  //    Some commands MUST emit multiple journal entries in one
+  //    transaction. The 10-step path makes this a multi-entry batch
+  //    in one lock window, NOT a multi-file write. Snapshot rebuild
+  //    (step 8) produces the consistent derived-projection set.
+  atomic_multi_entry_batches: [
+    // (cmd, journal entry kinds emitted, why atomic)
     {
       cmd: "loaf tasks step done",
-      writes: ["tasks.json:execution.status", "evidence.jsonl:append"],
-      why: "rev 4.1: status change without evidence proof produces TASK_STATUS_WITHOUT_PROOF (§10);" +
-           " they MUST land in the same lock window so readers never see status=passed without proof",
+      emits: ["event:task_step_done", "evidence:added (if --evidence-* flag)"],
+      why: "status change without evidence proof produces TASK_STATUS_WITHOUT_PROOF (§10);" +
+           " both entries land in the same batch so readers never see status=passed without proof",
     },
     {
       cmd: "loaf finding raise --action <X>",
-      writes: ["findings.jsonl:append", "tasks.json:execution.<step>.status (if requires_target_payload)", "state.json:sub_state + iteration"],
-      why: "back-edge transition + payload application must be atomic (otherwise iteration count and execution state diverge)",
+      emits: ["finding:raised", "event:tasks_amended (if action requires_target_payload)", "event:phase_advanced (if back-edge transition + iteration bump)"],
+      why: "back-edge transition + payload application must land atomically (otherwise iteration count and execution state diverge across the batch boundary)",
     },
     {
       cmd: "loaf gate decide <G>",
-      writes: ["evidence.jsonl:append kind=gate-decision", "state.json:phase+sub_state"],
-      why: "gate approval and phase advance are conceptually one step",
+      emits: ["gate:decided", "pending:resolved (head)"],
+      why: "gate approval pops the pending head + records the gate decision; both entries land in one batch so readers never see a half-resolved gate",
     },
     {
       cmd: "loaf spec submit",
-      writes: ["spec.md (atomic replace)", "state.json:based_on.spec + heartbeat"],
-      why: "spec version + state pointer must agree at all times",
+      emits: ["event:spec_submitted"],
+      why: "single-entry mutator; listed for completeness — the reducer derives the spec.md projection + based_on.spec pointer from this entry",
     },
     {
-      cmd: "loaf pending raise (internal — hook/sub-agent path)",
-      writes: ["state.json:pending append", "registry projection:pending + pending_queue_depth"],
-      why: "rev 4.1: queue append + TUI projection must be visible together; otherwise reader sees blocker existing in state but not reflected in TUI",
+      cmd: "loaf pending raise (skill / hook / sub-agent path)",
+      emits: ["pending:added"],
+      why: "single-entry mutator; registry projection refresh runs in step 9 of the same transaction so TUI reflects the new head atomically",
     },
     {
       cmd: "loaf pending resolve",
-      writes: ["state.json:pending shift (pop head)", "registry projection:pending + pending_queue_depth", "evidence.jsonl (if resolution carries proof; e.g. gate_decision resolution writes kind=gate-decision evidence in same lock)"],
-      why: "FIFO pop + projection refresh in same transaction so the new head (or empty queue) is immediately observable; gate_decision resolution co-writes the gate-decision evidence atomically (no half-resolved state)",
+      emits: ["pending:resolved", "evidence:added (if resolution carries proof; e.g. gate_decision via `loaf gate decide` co-emits gate:decided in same batch)"],
+      why: "FIFO pop is one entry; gate-resolution co-emits its evidence inside the same batch — no half-resolved state observable",
     },
     {
-      cmd: "loaf spec add-req --input (single or batch) — rev 4.3",
-      writes: ["spec.md (atomic rewrite with composed full REQ ids)", "state.json:spec_version + heartbeat"],
-      why: "ADR-0004 A5+A10: id_namespace → full id composition + spec.md replace + spec_version bump must land together so readers never see a spec_version pointing at unallocated ids",
+      cmd: "loaf spec add-req --input (single or batch)",
+      emits: ["event:spec_req_added (one per input item; batch markers when ≥2)"],
+      why: "ADR-0004 A5+A10 + ADR-0005 §3.2 batch markers: id_namespace → full REQ id composition + per-entry final validate land together so readers never see a spec_version pointing at unallocated ids",
     },
     {
-      cmd: "loaf spec add-scenario --input (single or batch) — rev 4.3",
-      writes: ["spec.md (atomic rewrite with composed full SCEN ids)", "state.json:spec_version + heartbeat"],
-      why: "Same family as spec add-req; SCEN namespace allocator + spec.md edit + state pointer agree atomically",
+      cmd: "loaf spec add-scenario --input (single or batch)",
+      emits: ["event:spec_scenario_added (one per input item; batch markers when ≥2)"],
+      why: "same family as spec add-req; SCEN namespace allocator + per-entry validate atomically",
     },
     {
-      cmd: "loaf spec add-visual --input (single or batch) — rev 4.3",
-      writes: ["spec.md (atomic rewrite with composed full VIS ids)", "state.json:spec_version + heartbeat"],
-      why: "Same family as spec add-req; VIS namespace allocator + spec.md edit + state pointer agree atomically",
+      cmd: "loaf spec add-visual --input (single or batch)",
+      emits: ["event:spec_visual_added (one per input item; batch markers when ≥2)"],
+      why: "same family as spec add-req; VIS namespace allocator + per-entry validate atomically",
     },
     {
-      cmd: "loaf tasks add --input (single or batch) — rev 4.3",
-      writes: ["tasks.json:append batch with allocated T-ids and CLI-initialized execution blocks", "state.json:based_on.tasks (if pointer changes) + heartbeat"],
-      why: "ADR-0004 A5+A10: T-id range allocation + tasks.json append + state pointer must agree; partial batch would leave T-ids gapped or execution blocks orphan",
+      cmd: "loaf tasks add --input (single or batch)",
+      emits: ["event:tasks_amended (EXECUTE phase) OR event:tasks_planned envelope-internal entries (SPEC.design)"],
+      why: "ADR-0004 A5+A10: T-id range allocation + tasks projection rebuild + state pointer agreement must land together in one batch",
     },
     {
-      cmd: "loaf evidence add --input (single or batch) — rev 4.3",
-      writes: [
-        "evidence.jsonl:append batch with EV-id range",
-        "attachments/<EV-id>/* (path → sha256 + mime + canonical copy)",
-        "state.json:heartbeat",
-      ],
-      why: "ADR-0004 A6+A10: attachment shape transformation (path → hashed object) + jsonl append + EV-id range allocation must all land or none; partial batch could persist attachments without an evidence row referencing them (orphan files)",
+      cmd: "loaf evidence add --input (single or batch)",
+      emits: ["evidence:added (one per input item; batch markers when ≥2; each entry carries AttachmentRef for attachments)"],
+      why: "ADR-0004 A6 + ADR-0005 §3.5 step 4-5: attachment sidecar finalize + final validate ensure no entry references an attachment that did not land on disk (no orphan attachments)",
+    },
+    {
+      cmd: "loaf doctor --migrate-v2",
+      emits: ["migration:snapshot_imported (single entry at seq=0; payload is .strict() manifest with AttachmentRef ONLY — Gate #3)"],
+      why: "ADR-0005 §5.2 + Gate #3: legacy v0.0.x N-file artifacts are externalized as sidecars under attachments/JE-000000/migration/; the journal entry payload itself rejects inline artifact content via .strict() Zod refine",
     },
   ],
+
+  // 7a. Entry byte limit
+  //     Hard ceiling per journal entry. LongTextField over
+  //     sidecar_threshold_kb MUST be promoted to sidecar form at step 4.
+  //     Batch total also bounded — the wire-format constraint is on the
+  //     single newline-separated write() call.
+  entry_byte_limit_kb: 64,
+
+  // 7b. Sidecar threshold
+  //     LongTextField with serialized text length over this threshold
+  //     MUST be externalized to `attachments/<entry_id>/<field>.<ext>`
+  //     during step 4 of the transaction. Below this, the field stays
+  //     inline (`{ mode: "inline", text: ... }`).
+  sidecar_threshold_kb: 8,
+
+  // 7c. Monotonic invariants (rev 5.0, ADR-0005 §4.11)
+  //     `seq` increments strictly by 1 per entry. `at` is wall-clock
+  //     ISO 8601 and monotonic non-decreasing (`at[n] >= at[n-1]`); a
+  //     clock-skew event that would write at[n] < at[n-1] is clamped
+  //     to at[n-1] (NOT rewritten — reducer accepts equal timestamps).
+  //     `batch_index` runs 0..batch_count-1 contiguously per batch_id.
+  monotonic_invariants: {
+    seq: "strictly +1 per entry; no gaps",
+    at: "monotonic non-decreasing; clock-skew clamped to prev `at`, not rewritten",
+    batch_index: "0..batch_count-1 contiguous per batch_id",
+  },
+
+  // 7d. Batch-aware tail recovery (Gate #4, ADR-0005 §4.13)
+  //     Doctor startup tail recovery MUST operate on batch boundaries.
+  //     A single-entry partial truncates that one line. A batch with
+  //     `batch_index < batch_count - 1` at the tail (or last batch entry
+  //     partial) truncates the ENTIRE batch back to the pre-batch offset.
+  //     Never partial-commit a batch.
+  batch_aware_tail_recovery: {
+    single_partial: "truncate the partial line to the last good newline; reapply step 8 snapshot rebuild from last_applied_seq",
+    batch_incomplete: "truncate the entire batch to its pre-batch byte offset; reapply step 8 snapshot rebuild from last_applied_seq",
+    rule: "scan last batch_id backward; if last batch_index < batch_count - 1 OR last entry parse-fails → batch_incomplete branch",
+  },
+
+  // 7e. Orphan-attachment GC (rev 5.0, ADR-0005 §3.5 step 4d/5 crash window)
+  //     `loaf doctor --fix` scans `attachments/<entry_id>/**` and deletes
+  //     any directory with no matching journal entry_id, OR any file whose
+  //     path is not referenced by an AttachmentRef in the matching entry's
+  //     payload. Writes a `local-check` evidence row (audit trail).
+  orphan_attachment_gc: "scan attachments/ vs journal AttachmentRef set; delete orphans; log via local-check evidence",
+
+  // 7f. Checksum levels (rev 5.0, ADR-0005 §3.1 / §4.15)
+  //     Two-tier integrity. Fast check is reader contract (Gate #5);
+  //     full chain is explicit `loaf doctor --verify-checksum` operation.
+  checksum_levels: {
+    fast: "O(1); reader verifies last_entry_offset + last_entry_line_hash on every snapshot read; mismatch → exit 2 SNAPSHOT_STALE_REBUILD_REQUIRED (no silent fallback)",
+    full: "O(N); `loaf doctor --verify-checksum` recomputes rolling_checksum chain from seq=0 and compares against snapshots/_meta.json — detects mid-stream corruption that fast check cannot catch",
+  },
+
+  // 7g. Step 5 final-validate contract (Gate #2 reinforced, ADR-0005 §4.21)
+  //     Step 5 is the LAST chance to abort before the journal becomes a
+  //     permanent fact. It re-runs Zod parse + reducer dry-run with the
+  //     embedded final AttachmentRef. Step 3 preflight ran with placeholder
+  //     refs, so step 5 is not redundant — it catches sidecar-pipeline
+  //     bugs that would otherwise leak past preflight.
+  step_5_final_validate: {
+    compare_scope: "reducer-visible state transition result + emitted projections (NOT byte-for-byte payload — sidecar ref injection produces a legitimate payload diff)",
+    failure_label: "SIDECAR_VALIDATION_DRIFT (implementation bug indicator; abort transaction, clean sidecar tmp, no journal change)",
+    batch_behavior: "any one entry failing aborts the WHOLE batch",
+  },
+
+  // 7h. Final-entry-only append (Gate #2 primary, ADR-0005 §10)
+  //     Step 6 must write the SAME entry object that step 5 validated.
+  //     No re-serialization, no recompute of AttachmentRef, no edit to
+  //     validated fields. The append layer is intentionally dumb — all
+  //     intelligence lives in steps 3-5.
+  final_entry_only_append: "step 6 must write the step-5-validated entry object verbatim",
+
+  // 7i. Migration sidecar manifest-only (Gate #3, ADR-0005 §10)
+  //     The `migration:snapshot_imported` payload Zod schema MUST be
+  //     `.strict()` and accept ONLY AttachmentRef manifest fields. Any
+  //     inline artifact content (e.g. inline state.json body) is rejected
+  //     at schema layer, not at reducer.
+  migration_sidecar_only: "migration:snapshot_imported payload is .strict() Zod with AttachmentRef-only fields; inline artifact content rejected at Zod parse",
+
+  // 7j. Snapshot read fail-fast (Gate #5, ADR-0005 §3.6)
+  //     Every CLI read command (loaf state / tasks list / evidence list /
+  //     finding list / verify status / pending list / sessions list / etc.)
+  //     MUST verify snapshots/_meta.json fast-check before parsing the
+  //     snapshot. Mismatch → exit 2 SNAPSHOT_STALE_REBUILD_REQUIRED, stderr
+  //     names `loaf doctor --rebuild`. No silent fallback to cached snapshot.
+  snapshot_read_fail_fast: "all read commands verify _meta fast-check; mismatch → exit 2 + stderr hint; no silent cached-snapshot output",
+
+  // 7k. validateTransition shared helper (Gate #1, ADR-0005 §10)
+  //     `event:phase_advanced` and `gate:decided` MUST call the same
+  //     transition validator in src/core/reducer/transition.ts. No per-kind
+  //     if/else fork outside this helper. The helper signature is:
+  //       validateTransition(prevSubState, targetSubState,
+  //                          { ceremony, gate_kind?, actor }) → Result<void, TransitionError>
+  validate_transition_helper: "event:phase_advanced and gate:decided share src/core/reducer/transition.ts; no per-kind transition fork",
+
+  // 7l. Doctor sub-flags (rev 5.0, ADR-0005 §5.4 / protocol.md §10.15)
+  //     The 5 surface flags that gate the rev 5.0 recovery operations.
+  //     CLI parser MUST accept these on `loaf doctor` only; combining
+  //     with --fix is allowed where applicable.
+  doctor_sub_flags: {
+    "--rebuild": "full replay from seq=0; rewrites snapshots/* and snapshots/_meta.json",
+    "--check-tail": "run batch-aware tail recovery only; no snapshot rebuild unless tail truncated past last_applied_seq",
+    "--migrate-v2": "v0.0.x N-file → v0.1.0 sidecar import per MIGRATION_V1_TO_V2_BOUNDARY (§0c)",
+    "--scope cwd": "iterate all .loaf/<feature>/ under cwd; enforces mixed-version-cwd refusal (refuse if any feature is at schema_version != current)",
+    "--verify-checksum": "full chain rolling_checksum recompute (O(N)); reports mid-stream corruption",
+  },
 
   // 8. EV-id allocation
   //    CLI assigns evidence_id (monotonic per feature) inside the
