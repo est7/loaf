@@ -15,7 +15,7 @@
 // preflight's job; they sit in the reducer apply path. Preflight is purely
 // authority + structural gates.
 
-import { JournalEntry } from "../journal-entry.js";
+import { JournalEntry, PER_KIND_PAYLOAD } from "../journal-entry.js";
 import type {
   Ceremony,
   EntryKind,
@@ -36,6 +36,7 @@ export interface PreflightContext {
 
 export type PreflightFailureCode =
   | "INVALID_ENVELOPE"
+  | "INVALID_PAYLOAD"
   | "SEQ_NOT_MONOTONIC"
   | "SUB_STATE_AUTHORITY_VIOLATION"
   | "ACTOR_AUTHORITY_VIOLATION"
@@ -103,6 +104,22 @@ export function preflight(
       code: "ACTOR_AUTHORITY_VIOLATION",
       message: `actor=${entry.actor} not allowed for kind=${entry.kind}`,
       detail: { kind: entry.kind, actor: entry.actor },
+    };
+  }
+
+  // (4b) Per-kind payload schema (audit r1 fix #4 — Gate #2 / Gate #3 wiring).
+  // PER_KIND_PAYLOAD lookup is total — every EntryKind has at least
+  // RecordPayload (object-shape) as fallback. A literal string / array /
+  // scalar fails here, preventing 'inline artifact body in migration' and
+  // similar bypasses of the envelope.
+  const payloadSchema = PER_KIND_PAYLOAD[entry.kind];
+  const payloadParsed = payloadSchema.safeParse(entry.payload);
+  if (!payloadParsed.success) {
+    return {
+      ok: false,
+      code: "INVALID_PAYLOAD",
+      message: `payload schema validation failed for kind=${entry.kind}`,
+      detail: { kind: entry.kind, issues: payloadParsed.error.issues },
     };
   }
 

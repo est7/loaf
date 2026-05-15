@@ -119,11 +119,25 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
   });
 
   test("migration:snapshot_imported requires migration: actor", () => {
+    const refStub = { path: "x", sha256: "0".repeat(64), size: 0 };
+    const validMigrationPayload = {
+      source_schema_version: 1,
+      migrated_at: "2026-05-15T10:00:00.000Z",
+      artifacts: {
+        state: refStub,
+        tasks: refStub,
+        spec_md: refStub,
+        evidence: refStub,
+        findings: refStub,
+        pending: refStub,
+      },
+    };
+
     const human = preflight(
       baseEntry({
         kind: "migration:snapshot_imported",
         actor: "human:est9",
-        payload: { manifest: [] },
+        payload: validMigrationPayload,
       }),
       { sub_state: "TRIAGE.score", tail_seq: -1, ceremony: STANDARD_CEREMONY },
     );
@@ -134,7 +148,7 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
       baseEntry({
         kind: "migration:snapshot_imported",
         actor: "migration:v0.0.x→v2",
-        payload: { manifest: [] },
+        payload: validMigrationPayload,
       }),
       { sub_state: "TRIAGE.score", tail_seq: -1, ceremony: STANDARD_CEREMONY },
     );

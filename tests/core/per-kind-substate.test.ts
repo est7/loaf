@@ -27,8 +27,11 @@ const DEEP_CEREMONY: Ceremony = {
 };
 
 function payloadFor(kind: string): Record<string, unknown> {
-  // Minimal payloads chosen to pass preflight authority gates; per-kind
-  // payload schema enforcement lands in later stages.
+  // Schema-valid payloads per PER_KIND_PAYLOAD (audit r1 fix #4). Each kind's
+  // payload must satisfy its declared narrowed schema; the test asserts
+  // sub_state authority + actor authority — payload shape is not the column
+  // under test here, but it must parse to reach those checks.
+  const refStub = { path: "x", sha256: "0".repeat(64), size: 0 };
   switch (kind) {
     case "session:started":
       return {
@@ -38,6 +41,8 @@ function payloadFor(kind: string): Record<string, unknown> {
       };
     case "event:phase_advanced":
       return { from: "EXECUTE.work", to: "EXECUTE.done" };
+    case "event:ceremony_set":
+      return DEEP_CEREMONY;
     case "gate:decided":
       return { gate_kind: "spec-lock", decision: "approved", reason: "ok" };
     case "session:archived":
@@ -46,7 +51,18 @@ function payloadFor(kind: string): Record<string, unknown> {
     case "spike:converted":
       return { convert_target: "F-002" };
     case "migration:snapshot_imported":
-      return { manifest: [] };
+      return {
+        source_schema_version: 1,
+        migrated_at: "2026-05-15T10:00:00.000Z",
+        artifacts: {
+          state: refStub,
+          tasks: refStub,
+          spec_md: refStub,
+          evidence: refStub,
+          findings: refStub,
+          pending: refStub,
+        },
+      };
     default:
       return { stub: true };
   }

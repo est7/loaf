@@ -190,3 +190,91 @@ export const JournalEntry = z
     { message: "batch_index must be < batch_count" },
   );
 export type JournalEntry = z.infer<typeof JournalEntry>;
+
+// ── Per-kind payload schemas (audit r1 fix #4) ──────────────────────────
+// Authoritative payload shapes for each EntryKind. Wired into preflight
+// (§11.2 step 3) + appendEntry (step 5 final validate) so Gate #2 / Gate #3
+// are real schema gates rather than envelope-only checks.
+
+// Generic record fallback for kinds whose payload shape is not yet pinned —
+// rejects literal strings / arrays / scalars (which is what Gate #3 needs)
+// but accepts any nested object structure.
+const RecordPayload = z.record(z.string(), z.unknown());
+
+const CeremonyPayload = z
+  .object({
+    spec_phase: z.boolean(),
+    verify_phase: z.boolean(),
+    settle_phase: z.boolean(),
+    strict_spec_review: z.boolean(),
+    lessons_required: z.enum(["must", "may", "skip"]),
+    strict_drift_check: z.boolean(),
+  })
+  .passthrough();
+
+export const SessionStartedPayload = z
+  .object({
+    session_id: z.string().min(1),
+    feature: z.string().min(1),
+    ceremony: CeremonyPayload,
+  })
+  .passthrough();
+export type SessionStartedPayload = z.infer<typeof SessionStartedPayload>;
+
+export const PhaseAdvancedPayload = z
+  .object({
+    from: SubState,
+    to: SubState,
+  })
+  .passthrough();
+export type PhaseAdvancedPayload = z.infer<typeof PhaseAdvancedPayload>;
+
+export const GateDecidedPayload = z
+  .object({
+    gate_kind: GateName,
+    decision: z.enum(["approved", "rejected"]),
+    reason: z.string().min(1),
+  })
+  .passthrough();
+export type GateDecidedPayload = z.infer<typeof GateDecidedPayload>;
+
+// PER_KIND_PAYLOAD — preflight + final validate parse the payload against
+// the schema mapped here. Kinds without a known shape fall to RecordPayload
+// (must be a JSON object). Adding a kind's strict schema later is purely
+// tightening (additive); the entry envelope still validates first.
+export const PER_KIND_PAYLOAD: Record<EntryKind, z.ZodTypeAny> = {
+  // State machine transitions
+  "event:phase_advanced": PhaseAdvancedPayload,
+  "event:ceremony_set": CeremonyPayload,
+  "event:tasks_planned": RecordPayload,
+  "event:tasks_amended": RecordPayload,
+  "event:task_claimed": RecordPayload,
+  "event:task_step_started": RecordPayload,
+  "event:task_step_done": RecordPayload,
+  "event:task_abandoned": RecordPayload,
+  "event:spec_req_added": RecordPayload,
+  "event:spec_scenario_added": RecordPayload,
+  "event:spec_visual_added": RecordPayload,
+  "event:spec_submitted": RecordPayload,
+
+  // Domain ledger entries
+  "evidence:added": RecordPayload,
+  "finding:raised": RecordPayload,
+  "finding:closed": RecordPayload,
+  "pending:added": RecordPayload,
+  "pending:resolved": RecordPayload,
+
+  // Gates
+  "gate:decided": GateDecidedPayload,
+
+  // Session lifecycle
+  "session:started": SessionStartedPayload,
+  "session:resumed": RecordPayload,
+  "session:delivered": RecordPayload,
+  "session:archived": RecordPayload,
+  "session:abandoned": RecordPayload,
+
+  // Spike + migration
+  "spike:converted": RecordPayload,
+  "migration:snapshot_imported": MigrationSnapshotImportedPayload,
+};

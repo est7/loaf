@@ -8,7 +8,7 @@
 import { promises as fsp } from "node:fs";
 import { O_APPEND, O_CREAT, O_WRONLY } from "node:constants";
 
-import { ENTRY_BYTE_LIMIT, JournalEntry } from "./journal-entry.js";
+import { ENTRY_BYTE_LIMIT, JournalEntry, PER_KIND_PAYLOAD } from "./journal-entry.js";
 
 // readTailSeq — return the seq of the last entry in the journal file, or -1
 // if the file does not exist or is empty. Stage 1 minimal: full-file read is
@@ -58,16 +58,27 @@ export async function appendEntry(
   opts: AppendOptions = {},
 ): Promise<void> {
   // §11.2 step 5 (final validate, Gate #2) — re-Zod-parse the entry in its
-  // final form before opening the journal file. Stage 1 fuses preflight and
-  // final-validate into a single check; full 10-step transaction (preflight
-  // reducer dry-run, sidecar promotion, _meta fast-check) lands in later
-  // stages per docs/plan.md.
+  // final form before opening the journal file.
   const parsed = JournalEntry.safeParse(entry);
   if (!parsed.success) {
     throw new AppendError(
       "INVALID_ENVELOPE",
       "JournalEntry failed envelope schema validation",
       { issues: parsed.error.issues },
+    );
+  }
+
+  // Step 5 also enforces per-kind payload narrowing (audit r1 fix #4).
+  // Without this gate a caller can hand appendEntry an envelope-valid entry
+  // whose payload is a literal string / scalar / arbitrary shape — Gate #2
+  // is then envelope-only, not contract-level.
+  const payloadSchema = PER_KIND_PAYLOAD[parsed.data.kind];
+  const payloadParsed = payloadSchema.safeParse(parsed.data.payload);
+  if (!payloadParsed.success) {
+    throw new AppendError(
+      "INVALID_PAYLOAD",
+      `payload schema validation failed for kind=${parsed.data.kind}`,
+      { kind: parsed.data.kind, issues: payloadParsed.error.issues },
     );
   }
 
