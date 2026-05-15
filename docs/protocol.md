@@ -1,8 +1,20 @@
-# loaf-cli Protocol — v1 Draft (rev 4.3)
+# loaf-cli Protocol — v1 Draft (rev 5.0)
 
-> 2026-05-12 · prose source of truth。机器契约见 `schemas.ts`,可视化伴侣见 `protocol.html`。
+> 2026-05-14 · prose source of truth。机器契约见 `schemas.ts`,可视化伴侣见 `protocol.html`。
 >
 > loaf-cli v1 是 legacy Python 原型(early-draft 内部称 "v2")的 successor,from scratch。把 legacy 当老师,不当父亲。v1 GA 之后 legacy 原型进 archive。
+>
+> **rev 5.0 — Truth model: single typed journal (γ)** (2026-05-14, driven by [`adr/0005-truth-model-single-typed-journal.md`](adr/0005-truth-model-single-typed-journal.md)):
+> - **Canonical truth shifted**: `.loaf/<feature>/journal.jsonl` + `attachments/` 是协议唯一 SSoT;`state.json` / `tasks.json` / `evidence.jsonl` / `findings.jsonl` / `pending.json` / `reconcile.json` / `spec.md` / `lessons.md` 全部降为 **派生投影**(`snapshots/*.json` 或 reducer-derived markdown),允许 stale,gate 永远不读。详 §3.1(ADR-0005)+ §13.1(rewritten)+ §4.1-4.12(per-section authority annotations)。
+> - **`SCHEMA_VERSION` 1 → 2**:envelope shape 级常量 bump;配合 per-entry `entry_schema_version`(envelope 字段)+ `UPCASTER_REGISTRY`(keyed by (kind, entry_schema_version))做 per-kind upcast。机器表达见 `schemas.ts` rev 5.0。
+> - **§11.2 重写为 10-step crash contract**:原 8-step transaction 扩为 10 步(含 step 3 preflight、step 5 final validate、step 6 final-entry-only append、batch-aware tail recovery)。Crash window analysis 见 ADR-0005 §3.5 表。
+> - **新增 doctor 5 sub-flags**:`loaf doctor --rebuild` / `--check-tail` / `--migrate-v2` / `--scope cwd` / `--verify-checksum`(§10.15);doctor checklist 加 7 项 check(orphan-attachment / tail-corruption / stale-tmp / snapshot-seq-mismatch / migration-v0.0.x / rolling-checksum-mismatch / sidecar-validation-drift)。
+> - **§10.8 加 `kind emitted` 映射**:每个 Tier 1 mutator 显式映射到 ADR-0005 §3.3 kind namespace 中的 entry kind;`--actor` 永久 non-flag(actor 由 CLI 注入,见 ADR-0005 §3.4)。
+> - **§1 新增 Principle 15a**:`Truth model = single typed journal + reducer-derived projection`。Principle 15 ③(per-session lock)语义未变,只是落点从「artifact mutation」改为「journal append」。
+> - **§15 done-when**:加 schema_version 1→2 transition 完成 + §5.2 v0.0.x upcaster end-to-end 通过 两项 release blocker。
+> - **§16 非目标退场**:`state.json event sourcing` 从「v1 显式非目标」退场(rev 5.0 落地);`work.json compile step` 保留为非目标。
+> - **§17 legacy 对照**:加 `Truth model` 演化栏(legacy = N-file mutable;v1 rev ≤4.3 = N-file mutable + per-session lock;v1 rev 5.0 = single typed journal + sidecar)。
+> - **Stage / gate milestone** 见 `docs/plan.md` + ADR-0005 §10;**不破 §15 freeze**(GA 未达,ADR-trail additive 路径,SCHEMA_VERSION bump 在 v1 unfrozen 期间合法,Hyrum's Law=0)。
 >
 > **rev 4.2 — clig.dev 三轮 review polish**(2026-05-12,Profile/Ceremony refactor 之上叠加):
 > - `loaf tasks done` → **`loaf tasks complete`** rename(消 `tasks step done` 同名异级歧义,clig.dev §8)。改动:§10.8 命令表 + §10.12 state-change line + protocol.html 命令表
@@ -138,6 +150,7 @@
 | 13 | post-lock 必须经 finding | spec_locked=true 后,任何 spec/tasks/scope 变化必须 raise finding |
 | 14 | 协议管 shape,skill 管 content | vague-word 这种语言风格 lint 是 loaf-skill 的事;协议层只校验结构(可验证性、ID 引用、写权限) |
 | 15 | **Protocol state promotion / projection / mutation 三纪律**(rev 4.1)| ① Protocol state 只有在改变机器行为(allowed mutation / write_paths / evidence shape / interaction mode / recovery / TUI semantics / diagnostic class 至少 2 项)时才能 promote 成 first-class sub_state — 仅"prompt 文案更精确"不构成依据;② Derived projection(reconcile / registry / gate-diagnostic / resume-pack)允许 stale,**永远不是 gate authority**;③ 所有 artifact mutation 必须经 loaf-cli 在 per-session lock 下 atomic 完成,skill / sub-agent / 外部进程不得直写 `.loaf/<feature>/`。三纪律落地:§7.0 / §4.12 / §11.2 |
+| 15a | **Truth model = single typed journal + reducer-derived projection**(rev 5.0)| Canonical truth 是 `.loaf/<feature>/journal.jsonl`(append-only,typed envelope 见 ADR-0005 §3.2) + `attachments/`(per-entry sidecar)。`state.json` / `tasks.json` / `evidence.jsonl` / `findings.jsonl` / `pending.json` / `reconcile.json` / `spec.md` / `lessons.md` 全是 **派生投影**(reducer 从 journal entries 重建,落 `snapshots/*.json` 与 markdown)。Mutation = `loaf <subcommand>` → preflight validate → sidecar finalize → final validate → journal append → reducer apply → snapshot rebuild,全在 §11.2 10-step transaction 内完成。Principle 15 ③(per-session lock)同时保留;15a 是其 truth model 落点。详 ADR-0005 §3 + §13.1 |
 
 ---
 
@@ -329,6 +342,10 @@ EXECUTE 之前的 evidence 不浪费;`based_on.spec` 跳号让审计能识别"�
 
 ## 4. Artifact 契约(9 per-feature + 1 config + 1 user-level)
 
+> **rev 5.0 authority bridge**(ADR-0005 §3.1 落点):
+>
+> 自 rev 5.0,**canonical truth** 是 `.loaf/<feature>/journal.jsonl`(append-only,typed envelope)+ `attachments/<entry_id>/` 目录(per-entry sidecar)。本节描述的所有 9 个 per-feature artifact (`state.json` / `spec.md` / `tasks.json` / `evidence.jsonl` / `findings.jsonl` / `reconcile.json` / `lessons.md` / `gate-diagnostic.json` / `resume-pack.json`)均为 reducer 从 journal entries 重建的 **派生投影**(落 `snapshots/*.json` 或 markdown)。本节 schema 文档保留用于 reader / TUI / CI 消费;**mutation 永远经 `loaf <subcommand>` → journal entry,从不直写 artifact**(§11.2 + Principle 15a)。每节标题下的 `> **Authority**:` 注释明示该 artifact 的 layer(详 §13.1)。
+
 ```
 .loaf/                              repo-level,git-tracked
   ├─ <feature>/                                   一 feature 一目录
@@ -352,7 +369,11 @@ EXECUTE 之前的 evidence 不浪费;`based_on.spec` 跳号让审计能识别"�
 
 完整 Zod schema 在 `schemas.ts`。下面只示例 + 关键约束。
 
-### 4.1 state.json(单源真理 — session level only)
+### 4.1 state.json(派生投影 — reducer-derived,session level only)
+
+> **Authority**: 派生投影(`snapshots/state.json`),reducer 从 `event:phase_advanced` / `event:ceremony_set` / `pending:added|resolved` / `gate:decided` / `session:*` entries 重建。允许 ≤1 mutator 周期 stale。Gate 永远不读;读时走 §10.15 fast check + 失败 exit 2 `SNAPSHOT_STALE_REBUILD_REQUIRED`(ADR-0005 §3.6 reader contract)。
+
+> **rev 5.0 note**: 本节字段语义未变;变的是 layer——`state.json` 不再是 mutation 入口,任何 phase / sub_state / ceremony / pending / iteration 推进都通过 journal entry 由 reducer derive。原"单源真理"标题在 rev 5.0 退场,canonical truth 移至 `journal.jsonl`(§4 intro + §13.1)。
 
 rev 4.0 后字段分三组(active-set detail 不再 store 在 state):
 - **identity**:`session_id` / `session_label` / `cwd` / `workspace`
@@ -432,6 +453,8 @@ rev 4.0 后字段分三组(active-set detail 不再 store 在 state):
 - `workspace` 字段 v1 仅 display 用,不接入任何 gate / 路径逻辑
 
 ### 4.2 spec.md(EARS 三选一可验证 + Gherkin + Visual Contracts + adr_refs)
+
+> **Authority**: 派生投影(reducer 从 `event:spec_req_added` / `event:spec_scenario_added` / `event:spec_visual_added` / `event:spec_submitted` entries 重建)。`SPEC.*` pre-lock 阶段允许 `$EDITOR` 编辑工作副本,但提交必须经 `loaf spec submit` → journal entry(§11.2);post-lock 直写由 diff-guard 拦截(§11.1)。
 
 ```markdown
 ---
@@ -545,6 +568,8 @@ CLI 分配流程(每次 add-\* / batch invocation):
 
 ### 4.3 tasks.json(kind-driven + labels[] + 每 kind 自己的 step)
 
+> **Authority**: 派生投影(reducer 从 `event:tasks_planned` / `event:tasks_amended` / `event:task_claimed` / `event:task_step_started` / `event:task_step_done` / `event:task_abandoned` entries 重建)。Mutation 全经 `loaf tasks <op>` → journal entry → reducer apply → `snapshots/tasks.json` rebuild。
+
 ```jsonc
 {
   "schema_version": 1,
@@ -627,6 +652,8 @@ CLI 分配流程(每次 add-\* / batch invocation):
 
 ### 4.4 evidence.jsonl(稳定 EV-id + waiver kind + hashed attachments)
 
+> **Authority**: 派生投影(reducer 从 `evidence:added` entries 重建,落 `snapshots/evidence.json`);attachments 内容是 sidecar canonical (`.loaf/<feature>/attachments/<EV-id>/`,sha256 在 entry payload 内 anchor)。Legacy `gate-decision` evidence(v0.0.x)迁移后仅以 `migration:snapshot_imported` payload 形态存在,reducer 派生到 evidence + derived gate view,但**不**伪造新 `gate:decided` entry(ADR-0005 §5.2)。
+
 ```jsonl
 {"schema_version":1,"evidence_id":"EV-000123","at":"2026-05-12T09:00Z","kind":"task-summary","iteration":1,"actor":"skill:loaf-cli/sdd-execute","result":"passed","summary":"4 unit tests passed","task_id":"T-001","covers":["REQ-AUTH-002","T-001"],"cmd":"bun test auth","exit":0}
 {"schema_version":1,"evidence_id":"EV-000124","at":"2026-05-12T09:15Z","kind":"local-check","iteration":1,"actor":"cli:loaf","result":"passed","summary":"lint + typecheck clean","task_id":"T-001","covers":["T-001"]}
@@ -667,6 +694,8 @@ CLI 分配流程(每次 add-\* / batch invocation):
 
 ### 4.5 findings.jsonl(6 category × 6 action + EV-id refs)
 
+> **Authority**: 派生投影(reducer 从 `finding:raised` / `finding:closed` entries 重建,落 `snapshots/findings.json`)。
+
 **只能在 VERIFY.\*** sub-state raise(标准情况),**或** spec_locked=true 的 EXECUTE.* sub-state raise(post-lock 漂移)。Quick profile 完全不允许。
 
 ```jsonl
@@ -705,6 +734,8 @@ reconcile.json 配套字段 `unusual_findings_count`(§4.6)聚合本轮 unusual 
 详见 §6。
 
 ### 4.6 reconcile.json(snapshot,不是 gate 源)
+
+> **Authority**: 派生投影(SETTLE.reconcile 阶段从 journal + projection 重新计算,落 `snapshots/reconcile.json`)。永远不是 gate 源(§13.1)。
 
 ```jsonc
 {
@@ -749,6 +780,8 @@ reconcile.json 配套字段 `unusual_findings_count`(§4.6)聚合本轮 unusual 
 
 ### 4.7 lessons.md(free-form)
 
+> **Authority**: Advisory(自由 markdown,不强校验;`loaf lessons add` 走 journal entry 走 reducer 拼接落 `lessons.md`,但内容形态不在 schema 闭环内)。
+
 ```markdown
 ## F-001 OAuth refresh · 2026-05-12 (iterations=2)
 
@@ -760,6 +793,8 @@ reconcile.json 配套字段 `unusual_findings_count`(§4.6)聚合本轮 unusual 
 按 `feature.id + 日期(+ iterations 数)` 分段。格式不强校验。详见 §12。
 
 ### 4.8 gate-diagnostic.json(rev 3.1 新)
+
+> **Authority**: 派生投影(诊断快照,允许 stale;gate 失败时 reducer 重新计算落 `snapshots/gate-diagnostic.json`)。
 
 gate / submit / transition / diff-guard 失败时**覆写**到 `.loaf/<feature>/gate-diagnostic.json`。loaf-skill 读它喂 LLM 做下一轮 fix。
 
@@ -790,6 +825,8 @@ gate / submit / transition / diff-guard 失败时**覆写**到 `.loaf/<feature>/
 
 ### 4.9 resume-pack.json(rev 3.1 新)
 
+> **Authority**: 派生投影(handoff 快照,允许 stale;`loaf handoff` / `loaf context pack` 触发 reducer 重计算)。
+
 **仅** `loaf handoff` 显式触发(context overflow 检测是 loaf-skill 的事,loaf-cli 只持久化):
 
 ```jsonc
@@ -808,6 +845,8 @@ gate / submit / transition / diff-guard 失败时**覆写**到 `.loaf/<feature>/
 
 ### 4.10 trace.jsonl(`--debug` only)
 
+> **Authority**: Debug-trace(仅 `--debug` 写;git 永不污染;crash log 永不自动 upload,§10.11)。不是 journal entry,不进 reducer。
+
 ```jsonl
 {"schema_version":1,"at":"...","session_id":"...","iteration":1,"sub_state":"EXECUTE.work","cmd":"bun test","argv":["auth.test.ts"],"exit":0,"wall_ms":3450,"stdout_summary":"4 passed"}
 ```
@@ -815,6 +854,8 @@ gate / submit / transition / diff-guard 失败时**覆写**到 `.loaf/<feature>/
 git 默认 `.gitignore` 排除。
 
 ### 4.11 loaf.config.json(rev 3.1 合并配置,project-level)
+
+> **Authority**: Config(project-level,非 per-feature journal 一部分;mutation 经手动编辑或 `loaf config set` ——后者亦走 §11.2 transaction,但不在 `.loaf/<feature>/journal.jsonl` 体系内)。
 
 ```jsonc
 {
@@ -863,6 +904,8 @@ git 默认 `.gitignore` 排除。
 2. 给 diff-guard / verify-applicability / auto-escalation 提供项目级 paths 知识,避免硬编码 glob
 
 ### 4.12 registry per-session file(rev 3.1 Q15 翻牌)
+
+> **Authority**: 派生投影(per-session,允许 stale,GC by `loaf doctor --rebuild-registry`;TUI 消费)。位于 `~/.loaf/registry/<id>.json`,**不**进 `.loaf/<feature>/journal.jsonl` 体系。
 
 ```
 ~/.loaf/registry/
@@ -1617,6 +1660,10 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 - `loaf settle` → 保留(session lifecycle chaos deviation,见 §10.6)
 - 其余命令名不变
 
+**rev 5.0 actor / kind 契约**(ADR-0005 §3.3 / §3.4):
+- **`--actor` 永久 non-flag**:actor 由 CLI 在 §11.2 step 3 自动注入(`human:` ← isatty + `$USER`;`skill:` ← SessionStart hook payload;`ci:` ← CI env;`cli:` ← fallback;`migration:` ← `loaf doctor --migrate-v2`)。任何命令 surface `--actor` 必被 ADR-trail 拒。
+- **每个 mutator 命令显式 emit 一个 journal entry kind**(ADR-0005 §3.3 namespace);完整 command → kind 映射见本节末尾「Journal entry kind emitted」表。Reducer 在 §11.2 step 3 + step 5 对 (kind, payload, actor, sub_state) 做闭环 refine。
+
 > **rev 4.1 did-you-mean 兜底**:用户敲 `loaf check tasks`(把 "tasks" 当 enum keyword 误用)时,`loaf check <path>` 在 path 解析阶段发现 "tasks" 不是有效文件路径,走 §10.1 did-you-mean 规则,stderr 提示「did you mean `loaf tasks check`?」并 exit 2。**`loaf tasks check` 与 `loaf check <path>` 不是 canonical/alias 关系**:前者跑 `tasks.execution.status ↔ evidence.jsonl` 一致性专项校验,后者是单文件 schema 校验入口(CI 用),做的不是同一件事。
 
 **Tier 1 mutator 通用契约**(rev 4.3,ADR-0004 A2 / A3 / A5 / A10):
@@ -1678,7 +1725,44 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 | `loaf pending list` | 列 state.pending FIFO 队列全部 entry(**rev 4.1**:含 head + 排队的;head 标 `*`)| 0 |
 | `loaf pending status [--id PEND-N]` | 查 single entry 详情(**rev 4.1**:default 看 head;`--id` 看队列其它位置 — 只读不动队列)| 0 / 2 |
 | `loaf pending resolve [--answer <a>]` | 回答 pending head(**rev 4.1**:FIFO 严格 — 永远 pop `pending[0]`,**不接受 `--id`**;v1.0 不支持跳序);`--no-input` 时必须 `--answer` flag。resolve 成功后队列若仍非空,新 head 自动 promote 为 blocker | 0 / 2 |
-| `loaf doctor` | 版本 / 装机 / 仓库结构自检 + 修复建议 | 0 / 1 |
+| `loaf doctor` | 版本 / 装机 / 仓库结构自检 + 修复建议。**rev 5.0** 加 5 sub-flag:`--rebuild`(full replay 重建 snapshots/)/ `--check-tail`(只跑 batch-aware tail recovery)/ `--migrate-v2`(v0.0.x → v0.1.0 sidecar import,§5.2)/ `--scope cwd`(对 cwd 下所有 `.loaf/<feature>/` 跑 mixed-version check)/ `--verify-checksum`(full chain rolling_checksum recompute,O(N))。详 §10.15 + ADR-0005 §5.4 | 0 / 1 / 2 |
+
+**Journal entry kind emitted by each Tier 1 mutator**(rev 5.0,ADR-0005 §3.3):
+
+| Command | Emitted kind(s) |
+|---|---|
+| `loaf advance` | `event:phase_advanced` |
+| `loaf ceremony set` | `event:ceremony_set` |
+| `loaf spec add-req` | `event:spec_req_added`(batch:N entries 共享 batch_id) |
+| `loaf spec add-scenario` | `event:spec_scenario_added`(batch) |
+| `loaf spec add-visual` | `event:spec_visual_added`(batch) |
+| `loaf spec submit` | `event:spec_submitted` |
+| `loaf tasks submit` / `tasks plan` | `event:tasks_planned` |
+| `loaf tasks add` | `event:tasks_amended`(EXECUTE 阶段)/ batch entry under `event:tasks_planned`(SPEC.design) |
+| `loaf tasks claim` | `event:task_claimed` |
+| `loaf tasks step start` | `event:task_step_started` |
+| `loaf tasks step done` / `tasks complete` | `event:task_step_done`(+ 同一 batch 内 `evidence:added` 若 `--evidence-*`) |
+| `loaf tasks amend` | `event:tasks_amended` |
+| `loaf evidence add` | `evidence:added`(batch) |
+| `loaf waive` | `evidence:added`(payload.kind=`waiver`) |
+| `loaf finding raise` | `finding:raised` |
+| `loaf finding close` | `finding:closed` |
+| `loaf pending raise` | `pending:added` |
+| `loaf pending resolve` | `pending:resolved` |
+| `loaf gate decide` | `gate:decided`(+ atomic `pending:resolved` 消 head;actor `human:` only) |
+| `loaf start` | `session:started`(journal seq=0) |
+| `loaf resume` | `session:resumed` |
+| `loaf deliver` | `session:delivered`(actor `human:`) |
+| `loaf settle` | `event:phase_advanced`(SETTLE 入口);reconcile 计算落 `snapshots/reconcile.json`,不发 entry |
+| `loaf archive` | `session:archived`(actor `human:`;reason 必填) |
+| `loaf abandon` | `session:abandoned`(actor `human:`;reason 必填) |
+| `loaf spike convert` | `spike:converted`(actor `human:`) |
+| `loaf doctor --migrate-v2` | `migration:snapshot_imported`(actor `migration:*`;journal seq=0/1 only) |
+| `loaf tasks register-red` | reducer-side `event:task_step_done`(payload `red_test_registered=true`) |
+| `loaf profile escalate` | `pending:resolved`(answers `profile_escalation` head)+ `event:ceremony_set` (新 ceremony) |
+| `loaf lessons add` | (reducer 拼接 `lessons.md` 派生投影;journal kind 待 v0.1.x 定 — v0.1.0 直接 emit `evidence:added` payload.kind=`manual`,`lessons.md` 由 reducer 派生) |
+
+Read-only 命令(`loaf status` / `tasks list` / `tasks check` / `tasks next` / `verify status` / `finding list` / `pending list` / `pending status` / `sessions list` / `<artifact> schema` / `check <path>` / `tui` / `handoff` / `context pack` / `hook *` 中的非-mutating event)**不**写 journal,只读 `snapshots/*.json` 并执行 §10.15 fast check(Gate #5)。
 
 ### 10.9 Exit codes
 
@@ -1806,6 +1890,13 @@ git / gh side effect 是 loaf-skill 或用户自己负责,**不进 loaf-cli**。
 | **artifact-corruption** | 上同 | Zod parse 失败 / 非法 JSON | 不自动 fix;打印 path + Zod 错误,提示手动恢复或从 git 历史 checkout |
 | **url-placeholder**(只在 startup 内嵌跑)| binary build 元数据 | `LOAF_DOCS_URL` 或 `LOAF_ISSUE_URL` 是默认 placeholder(见 §10.11)| 不 fix(rebuild 才能修);警告即可 |
 | **stale-claim**(rev 4.1)| `.loaf/<feature>/tasks.json` 中 `status="in_progress"` 的 task | `task.execution.<step>.started_at` > 30 分钟 + 无对应 evidence id 新增(`evidence.jsonl` 该 task_id 自 started_at 后无 append)| `--fix`:回写 `task.execution.<step>.status = "ready"` + `task.status = "ready"` + 写 audit evidence(`kind=local-check actor=cli:doctor result=passed summary="auto-reclaimed stale claim"`);worker 已死或卡住时让其它 worker 重 claim |
+| **orphan-attachment**(rev 5.0,ADR-0005 §3.5 step 4d/5 crash window)| `.loaf/<feature>/attachments/<entry_id>/**` | 文件存在但 journal.jsonl 中无 matching `entry_id` 的 entry,或 entry 中无指向该 file 的 `AttachmentRef` | `--fix`:删 orphan 目录 + 写 `evidence:added kind=local-check actor=cli:doctor result=passed summary="purged orphan attachment <entry_id>/<path>"`(audit trail)|
+| **tail-corruption**(rev 5.0,ADR-0005 §4.13 + Gate #4)| `.loaf/<feature>/journal.jsonl` 末尾 | 末行 partial JSON / 末 batch `batch_index < batch_count - 1` 或 batch 末 entry partial / sha256(last entry) ≠ `_meta.last_entry_line_hash` | `--fix`:单 entry partial → truncate 末行;batch incomplete → truncate 整批至 batch 第一 entry 之前;rewrite `snapshots/_meta.json`;若 truncate 跨过 `last_applied_seq` → 同时跑 `--rebuild` |
+| **stale-tmp**(rev 5.0)| `.loaf/<feature>/{journal.jsonl,snapshots/*,attachments/**}.tmp-*` | 任意 `.tmp-*` 残留 + mtime > 60s + 无 active lock | `--fix`:`unlink` 全部 |
+| **snapshot-seq-mismatch**(rev 5.0,Gate #5)| `.loaf/<feature>/snapshots/_meta.json` | `last_applied_seq` < 实际 journal 末 entry seq,或 `last_entry_line_hash` mismatch | 不自动 fix;打印 `SNAPSHOT_STALE_REBUILD_REQUIRED` 提示跑 `loaf doctor --rebuild`(reader contract 永不静默 fallback,ADR-0005 §3.6) |
+| **migration-v0.0.x**(rev 5.0,ADR-0005 §5.2)| `.loaf/<feature>/` | 存在 v0.0.x N-file 形态(`state.json` / `tasks.json` / `evidence.jsonl` 等)且无 `journal.jsonl` | 不自动 fix;打印 `SCHEMA_VERSION_MISMATCH` 提示跑 `loaf doctor --migrate-v2`(Step 1-7 sidecar import) |
+| **rolling-checksum-mismatch**(rev 5.0,ADR-0005 §3.1 full verify path)| `.loaf/<feature>/journal.jsonl` | `loaf doctor --verify-checksum` 重算整链(O(N))与 `_meta.rolling_checksum` 不匹配 | 不自动 fix;打印 journal 中段 corruption 位置;手动 recovery(git 历史 / backup) |
+| **sidecar-validation-drift**(rev 5.0,ADR-0005 §3.5 step 5d)| internal invariant | step 5d final-validate reducer-visible diff vs step 3c preflight 结果(应当永远相同) | 不自动 fix;指示实现 bug;dump entry payload + reducer trace 进 `~/.loaf/crashes/<ts>.log` 报 |
 
 **调用契约**:
 
@@ -1846,32 +1937,89 @@ git ls-files --others --exclude-standard
 
 Bash 绕开 Write hook 的修改在 advance 时一定会被发现。
 
-### 11.2 Single-writer + per-session lock(rev 4.1)
+### 11.2 Single-writer + per-session lock + 10-step journal transaction(rev 5.0)
 
-**协议级 invariant**(Principle #15 ③ 落地):**所有** `.loaf/<feature>/` 下的 artifact mutation **必须经 `loaf <subcommand>`**。skill / sub-agent / 编辑器 / 外部脚本 **不得直接** 写 `state.json` / `tasks.json` / `evidence.jsonl` / `findings.jsonl` / `reconcile.json` / `gate-diagnostic.json` / `resume-pack.json` / `~/.loaf/registry/<id>.json`。
+**协议级 invariant**(Principle #15 ③ + 15a 落地):**所有** `.loaf/<feature>/` 下的 artifact mutation **必须经 `loaf <subcommand>` 落成 journal entry**。skill / sub-agent / 编辑器 / 外部脚本 **不得直接** 写 `journal.jsonl` / `attachments/**` / `snapshots/*.json` / `spec.md` / `lessons.md` / `~/.loaf/registry/<id>.json`。
 
-唯一例外:`spec.md` 本身在 `SPEC.*` sub_state 由 `$EDITOR` 或人工编辑 — 但提交必须经 `loaf spec submit` 走 schema 校验 + lock + version bump,**不能在 EXECUTE / VERIFY 阶段被外部直写**(diff-guard 兜底)。
+唯一例外:`spec.md` 工作副本在 `SPEC.*` pre-lock sub_state 由 `$EDITOR` 或人工编辑 — 但提交必须经 `loaf spec submit` → `event:spec_submitted` journal entry → reducer 重写 `spec.md` 派生投影,**不能在 EXECUTE / VERIFY 阶段被外部直写**(diff-guard 兜底)。
 
-**为什么是协议层**:rev 4 引入 sub-agent fan-out(EXECUTE.work),多 worker 并发调 `loaf evidence add` / `loaf tasks step done` 不加锁会撞 EV-id 冲突 / JSONL 半行 append / `execution.status` 与 evidence 不一致 / registry 投影覆盖新状态。fan-out 上线第一天就会翻车。
+**为什么是协议层**:rev 4 引入 sub-agent fan-out(EXECUTE.work),多 worker 并发不加锁会撞 seq 冲突 / JSONL 半行 append / batch 半提交 / sidecar 半 rename / snapshot 与 journal 失同步。fan-out 上线第一天就会翻车。Rev 5.0 truth model = single typed journal(ADR-0005)进一步把"mutation 落地"从「多 artifact rename ladder」收口为「journal append + reducer rebuild snapshot」单一通道,所有 atomicity 集中在 §11.2 transaction。
 
-**实现 contract**(loaf-cli 内部,impl 阶段固化):
+**实现 contract**(loaf-cli 内部,impl 阶段固化;mirror ADR-0005 §3.5):
 
 ```
 锁文件:    .loaf/<feature>/.lock(flock + PID + acquired_at)
 锁粒度:    per-feature(不是 per-artifact;一 feature 一时刻一写者)
-mutation transaction 顺序:
-  1. acquire .lock(blocking,最多 30s,超时 exit 2 报 LOCK_TIMEOUT)
-  2. read canonical artifact(state.json / tasks.json / evidence.jsonl 等)
-  3. validate mutation against latest state(Zod schema + transitions.ts 跨文件 invariant)
-  4. write tmp file(<artifact>.tmp-<random>)
-  5. fsync(if available)
-  6. atomic rename → final path
-  7. refresh registry projection(~/.loaf/registry/<id>.json,同 tmp+rename)
-  8. release .lock(unlink + close)
-SIGINT 期间:     cleanup hook 释放 .lock(§10.4);second-Ctrl-C 留 .lock,`loaf doctor` 启动时 stale 检测(PID 不存在 → unlink)
+N14 限制:  fan-out 下多 worker 并行只是执行并发,不是 mutation 并发。
+           所有 mutator 通过 per-feature lock 串行化;throughput 受 lock 窗口 +
+           reducer + snapshot rebuild + sidecar I/O 总成本约束。
+
+10-step journal mutation transaction:
+  1. acquire .lock(blocking,≤30s;超时 LOCK_TIMEOUT exit 2)
+
+  2. read journal.jsonl tail + snapshots/_meta.json
+     2a. 校验 _meta.last_applied_seq + last_entry_offset + last_entry_line_hash
+         vs journal tail(O(1) fast check,Gate #5 reader contract 同一套)
+     2b. mismatch → 释放 lock,prompt loaf doctor --rebuild,
+         exit 2 SNAPSHOT_STALE_REBUILD_REQUIRED
+
+  3. preflight validate(candidate entries WITHOUT 最终 sidecar refs):
+     3a. CLI 注入 actor(human:/skill:/ci:/cli:/migration: — 见 ADR-0005 §3.4)
+     3b. Zod parse candidate entries(占位 AttachmentRef.sha256/path/size)
+     3c. cross-kind / sub_state / mutation_rights / actor refine
+         (per-kind 表见 ADR-0005 §3.6;`gate:decided` 与 `event:phase_advanced`
+         **复用同一套** validateTransition helper — Gate #1)
+     3d. dry-run reducer apply on in-memory state 副本
+     3e. 若任一 candidate fail → abort,不做 step 4 起任何 I/O,
+         CLI exit 2 + 具体 error code
+     3f. 若 batch:assign batch_id = uuid(),batch_index / batch_count
+
+  4. prepare sidecar files(if LongTextField > 8KB,or migration:* manifest refs):
+     4a. write attachments/<entry_id>/<field>.<ext>.tmp-<random>
+     4b. fsync attachment file + parent dir
+     4c. atomic rename → final path
+     4d. compute sha256,write entry payload AttachmentRef.{path,sha256,size}
+
+  5. final validate(Gate #2,append 前最后校验):
+     5a. re-Zod-parse entries with **embedded final** AttachmentRef
+     5b. byte-size check(每条 entry serialized ≤ 64KB;batch 总 ≤ 64KB)
+     5c. final dry-run reducer apply with final entries
+     5d. 应与 step 3d 结果一致(sidecar embed 是 deterministic);**比较范围**
+         限定为 reducer-visible state transition result + emitted projections,
+         不做 byte-for-byte payload 比对(sidecar ref 填充会让 payload 必然 diff);
+         若 reducer-visible 结果 diff → abort + log SIDECAR_VALIDATION_DRIFT
+         (`loaf doctor` 标记;实现 bug 指示)
+     5e. 若 batch 中任一 entry 校验 fail → abort 整批,sidecar tmp 清扫,
+         journal 未变
+
+  6. append journal entry(Gate #2:**只允许 append step 5 验证过的 final-form
+                          entry**;禁止重新序列化 / 重新计算 AttachmentRef /
+                          修改任何已 final-validated 字段):
+     6a. single write():all-entries 拼接(\n 分隔),总 size ≤ 64KB
+     6b. fsync journal.jsonl
+
+  7. post-apply assert(纯 corruption assert,不再 abort):
+     7a. reducer apply final entries to in-memory state
+     7b. 若 apply 抛错 → 这是 bug(step 5 应已抓到);log + doctor 标记
+         corruption,但**不**回滚 journal(journal 已是事实)
+
+  8. rebuild affected snapshots(tmp+atomic rename per file):
+     8a. write snapshots/<file>.json.tmp-<random>
+     8b. fsync + atomic rename
+     8c. update snapshots/_meta.json(last_applied_seq, last_entry_offset,
+         last_entry_line_hash, rolling_checksum chain extend)
+
+  9. refresh registry projection(~/.loaf/registry/<id>.json,tmp+rename)
+
+  10. release .lock(unlink + close)
+
+SIGINT 期间: cleanup hook 释放 .lock(§10.4);second-Ctrl-C 留 .lock,
+             `loaf doctor` 启动时 stale 检测(PID 不存在 → unlink)
 ```
 
-`tasks step done`(§10.8)等需要 atomic mutate **多个** artifact 的命令在**同一 lock window 内**完成全部步骤,不能分多次 `loaf <cmd>` 调用。
+**Crash window 恢复**(ADR-0005 §3.5):每步 crash 由 `loaf doctor` 启动期 + 显式 sub-flag 处理 —— stale-lock / orphan-attachment / tail-corruption (batch-aware,Gate #4) / sidecar-validation-drift / snapshot-seq-mismatch / rolling-checksum-mismatch 七类 check 详 §10.15。
+
+`tasks step done`(§10.8)等需要 atomic emit **多条** journal entry 的命令(例如 `event:task_step_done` + 同一批内 `evidence:added`)在**同一 batch + 同一 lock window 内**通过 §11.2 transaction 完成,不能分多次 `loaf <cmd>` 调用。Batch atomicity invariants 详 ADR-0005 §4.16 + 下方 §11.2 batch 三纪律。
 
 #### Batch transaction 三纪律(rev 4.3,ADR-0004 A10)
 
@@ -1937,18 +2085,21 @@ v1 的核心目标是 protocol 可靠,不是知识复利自动化。手工 grep 
 
 ## 13. Observability & `--debug`
 
-### 13.1 Artifact authority levels(rev 4.1 四层)
+### 13.1 Artifact authority levels(rev 5.0 四层,canonical 收口至 journal)
 
-按 **gate / blocking decision 是否可读** 分四层。gate 只从 Canonical truth 实时计算(§5 引言);其它三层任何时候都允许 stale。
+按 **gate / blocking decision 是否可读** 分四层。gate 只从 Canonical truth 实时计算(§5 引言);其它三层任何时候都允许 stale。Rev 5.0 重要变化:**Canonical truth 收口至 `journal.jsonl` + `attachments/`**;原 rev 4.1 列在 Canonical 的 `state.json` / `spec.md` / `tasks.json` / `evidence.jsonl` / `findings.jsonl` 全部降为 Derived projection(reducer 从 journal entries 重建,落 `snapshots/*.json` 或 markdown,§4 + Principle 15a)。
 
 | 层 | artifact | 性质 | gate 可读? |
 |---|---|---|---|
-| **Canonical truth** | `state.json` / `spec.md` / `tasks.json` / `evidence.jsonl` / `findings.jsonl` / `loaf.config.json` | 协议真理源,**append-only** 或 atomic-rewrite,由 loaf-cli 单写者纪律保护(§11.2) | ✅ |
-| **Derived projection** | `reconcile.json` / `~/.loaf/registry/<id>.json` / `gate-diagnostic.json` / `resume-pack.json` / `spec-draft-context.md` | 派生投影,**允许 stale**(crash window 内或 advance 滞后);TUI / handoff / diagnostic 消费 | ❌ |
-| **Debug-trace** | `.loaf/<feature>/trace.jsonl` / `~/.loaf/crashes/<ts>.log` / `attachments/<EV-id>/...` | 仅 `--debug` 写 trace;crash log 永不自动 upload(§10.11);attachment 是 evidence 的 payload(canonical 引用 sha256) | ❌ |
-| **Advisory** | `lessons.md` / `loaf deliver` 输出 / `loaf status` 人类输出 | 自由 markdown / 人类可读建议;格式不强校验 | ❌ |
+| **Canonical truth** | `.loaf/<feature>/journal.jsonl` + `.loaf/<feature>/attachments/<entry_id>/**` + `loaf.config.json`(project-level config,非 journal 一部分但同属真理源) | 协议真理源。`journal.jsonl` **append-only**,typed envelope per ADR-0005 §3.2,batch markers + per-entry `entry_schema_version`;`attachments/` per-entry sidecar(sha256 在 entry payload 内 anchor)。由 loaf-cli 单写者纪律 + §11.2 10-step transaction 保护 | ✅ |
+| **Derived projection** | `snapshots/state.json` / `snapshots/tasks.json` / `snapshots/evidence.json` / `snapshots/findings.json` / `snapshots/pending.json` / `snapshots/reconcile.json` / `snapshots/gate-diagnostic.json` / `snapshots/resume-pack.json` / `snapshots/_meta.json` / `spec.md`(post-submit) / `lessons.md` / `~/.loaf/registry/<id>.json` / `spec-draft-context.md` | 派生投影,reducer 从 journal entries 重建;**允许 ≤1 mutator 周期 stale**(写者在 lock 内增量更新)。TUI / handoff / diagnostic / read-side CLI 命令消费。Reader 必须走 §10.15 fast check;mismatch → exit 2 `SNAPSHOT_STALE_REBUILD_REQUIRED`(Gate #5,**不静默 fallback**) | ❌ |
+| **Debug-trace** | `.loaf/<feature>/trace.jsonl` / `~/.loaf/crashes/<ts>.log` | 仅 `--debug` 写 trace;crash log 永不自动 upload(§10.11)。不是 journal entry,不进 reducer | ❌ |
+| **Advisory** | `loaf deliver` 输出 / `loaf status` 人类输出 / `lessons.md` 内容形态 | 自由 markdown / 人类可读建议;格式不强校验(`lessons.md` 文件本身是 Derived projection,但其内容形态 advisory) | ❌ |
 
-**底线规则**(Principle #15 ② 落地):**任何 gate / blocking decision 永远只读 Canonical truth**。Derived projection / Debug-trace / Advisory 三层失败 / 损坏 / stale 都不影响协议正确性 — `loaf doctor --rebuild-registry` / `loaf settle` 重跑 reconcile / 重写 gate-diagnostic 都可以恢复。
+**底线规则**(Principle #15 ② + 15a 落地):
+- **Gate / blocking decision 永远只读 Canonical truth**(journal.jsonl + attachments/)。Derived projection / Debug-trace / Advisory 三层失败 / 损坏 / stale 都不影响协议正确性 — `loaf doctor --rebuild` 从 seq=0 full replay 重建 `snapshots/*`,`loaf doctor --rebuild-registry` 重写 registry,`loaf settle` 重跑 reconcile。
+- **Reader 永不静默 fallback**:`snapshots/_meta.json` fast check fail → CLI exit 2 + 提示 `loaf doctor --rebuild`(ADR-0005 §3.6 + Gate #5)。
+- **Sidecar ↔ journal entry 双向一致**:每个 `AttachmentRef` 在 journal 中必有 entry sidecar 在 disk 上存在;每个 sidecar 文件必有 journal entry 指向(orphan-attachment doctor check,§10.15)。
 
 ### 13.2 `--debug` 触发
 
@@ -2143,7 +2294,8 @@ v1.0 严格 FIFO:resolve 永远 pop `pending[0]`,不接 `--id` flag。理由:5 �
 1. 跑通 3 个 standard profile feature 全生命周期(TRIAGE → DONE.delivered)
 2. 跑通 1 个 deep profile feature 全生命周期
 3. 4 次运行期间,不允许:
-   - schema_version 升级
+   - schema_version 升级(rev 5.0 落地后,GA tag 时 SCHEMA_VERSION 必须 = 2;
+     此后任何 envelope shape 改动须走 ADR + bump)
    - 新增 phase / sub-state
    - 新增 top-level artifact 类型
    - 新增 hook surface
@@ -2152,6 +2304,14 @@ v1.0 严格 FIFO:resolve 永远 pop `pending[0]`,不接 `--id` flag。理由:5 �
 5. Build-time URLs(rev 4.1):`LOAF_DOCS_URL` / `LOAF_ISSUE_URL` 均已注入非
    placeholder 值;CI release pipeline grep `*.invalid` 与默认 GitHub 路径
    命中即阻断 release(见 §10.11)
+6. **v0.0.x → v0.1.0 upcaster end-to-end**(rev 5.0,ADR-0005 §5.2):`loaf doctor
+   --migrate-v2` 对 v0.0.x fixture(N-file 形态)完成 Step 1-7 sidecar import,
+   journal seq=0 写入 `migration:snapshot_imported` entry,resulting snapshots/
+   replay 与 fixture 状态一致;`tests/core/v0.0.x-migration.test.ts` 覆盖 §5.2
+   crash table 全部 7 行
+7. **Snapshot rebuild perf benchmark**(rev 5.0,ADR-0005 §4.15):10K-entry full
+   rebuild + 100K-entry full rebuild 在 release SLA 内完成(具体 SLA 在
+   `tests/core/perf.test.ts` Stage 6 实现期 pin,pin 后即 release blocker)
 ```
 
 **违反任一条 → 版本号回退到 v0.x**。不允许「再 RC 一次」。v1.x 增量在 v1 GA tag 之后开始。
@@ -2183,7 +2343,7 @@ v1.0 严格 FIFO:resolve 永远 pop `pending[0]`,不接 `--id` flag。理由:5 �
 | 自动 profile 升级无 user confirm | 升级永远要 user `loaf profile escalate --confirm` |
 | 自动 profile 降级 | 永远不允许 |
 | **vague-word blacklist** | rev 3.1 砍掉;语言风格由 loaf-skill 在 prompt 中处理 |
-| **state.json event sourcing** | codex rev 4 提议;v1 state.json 仍是直接写入的真理源 |
+| ~~**state.json event sourcing**~~ | ~~codex rev 4 提议;v1 state.json 仍是直接写入的真理源~~ — **rev 5.0 退场**:ADR-0005 落地后 state.json 是派生投影,canonical 是 journal.jsonl(γ truth model)。本条非目标终止 |
 | **work.json compile step** | codex rev 4 提议;tasks.json 是 spec.md 之外手编,不是编译产物 |
 | `loaf pending resolve --id PEND-N` 跳序 | rev 4.1 队列严格 FIFO;5 种 PendingPromptKind 全部 yes/no 或 enum 选择,跳序在 v1 无真实 use case;留 v1.x 补 |
 
@@ -2195,6 +2355,7 @@ loaf-cli v1 是 **legacy Python 原型** 的 successor,from scratch —— 实�
 
 | 维度 | legacy Python 原型(79+ tests) | loaf-cli v1(Bun + TS,Zod 单源) |
 |---|---|---|
+| **Truth model**(rev 5.0)| N-file mutable artifacts(state/tasks/evidence/findings/pending/spec 各自直写) | **Single typed journal**:`journal.jsonl`(append-only,typed envelope,batch markers)+ `attachments/<entry_id>/` sidecar;`state.json` / `tasks.json` / etc. 全部降为 reducer-derived snapshots(§4 + §13.1 + ADR-0005) |
 | Phase | 6(含 DISCOVER + 模糊 DONE) | 6(含 DONE 一等) |
 | Sub-state first-class | 否(隐于 prompt) | 是(17,phase 字段双校验) |
 | Profile | 5 | 3(+ auto-escalation) |
