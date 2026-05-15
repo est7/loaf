@@ -133,7 +133,25 @@ export async function mutate(
     };
   }
 
-  // (4) Step 5+6 — final validate + journal append (single-write).
+  // (4) Audit r3 fix — reducer dry-run BEFORE append. `apply()` mutates the
+  // snapshot in-place on success (perf optimization for replay), so we
+  // structuredClone first. State-invariant errors (PENDING_NOT_FOUND,
+  // FINDING_NOT_FOUND, ALREADY_STARTED, INVALID_PAYLOAD reducer-side, etc.)
+  // surface here and abort the transaction WITHOUT growing the journal.
+  // codex r3 repro: `pending:resolved {id:"PEND-404"}` previously appended
+  // before reducer caught the FIFO head mismatch — fixed here.
+  const snapshotCopy = structuredClone(ctx.snapshot);
+  const dryRun = apply(snapshotCopy, promoted);
+  if (!dryRun.ok) {
+    return {
+      ok: false,
+      code: "REDUCER_ERROR",
+      message: dryRun.message,
+      detail: { code: dryRun.code, ...(dryRun.detail ?? {}) },
+    };
+  }
+
+  // (5) Step 5+6 — final validate + journal append (single-write).
   const journalPath = path.join(ctx.feature_dir, "journal.jsonl");
   try {
     await appendEntry(journalPath, promoted, { fsync: ctx.fsync ?? true });
@@ -154,24 +172,9 @@ export async function mutate(
     };
   }
 
-  // (5) Step 7 — reducer apply. Per ADR §3.6 this is a post-apply assert
-  // (the journal is the truth; reducer mutates the in-memory projection).
-  // On reducer reject, the journal entry is still on disk — this would be
-  // a "step 5 should have caught it" corruption marker. Real impl will
-  // surface to doctor; for now we return the typed error so callers know.
-  const applied = apply(ctx.snapshot, promoted);
-  if (!applied.ok) {
-    return {
-      ok: false,
-      code: "REDUCER_ERROR",
-      message: applied.message,
-      detail: { code: applied.code, ...(applied.detail ?? {}) },
-    };
-  }
-
   // (6) Steps 8-10 — snapshot rebuild + registry refresh + lock release.
-  // Snapshot persistence is the caller's responsibility for now; the
-  // in-memory snapshot is returned so the next mutate call sees the new state.
-
-  return { ok: true, snapshot: applied.snapshot, entry: promoted };
+  // The dry-run snapshotCopy IS the new state (apply mutated it in place);
+  // we hand it back rather than apply() again on ctx.snapshot, which would
+  // double-mutate.
+  return { ok: true, snapshot: dryRun.snapshot, entry: promoted };
 }

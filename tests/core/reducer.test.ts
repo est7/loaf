@@ -230,6 +230,68 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
     if (!result.ok) expect(result.code).toBe("REDUCER_NOT_IMPLEMENTED");
   });
 
+  // Audit r3 Medium — REDUCER_IMPLEMENTED_KINDS in journal-entry.ts is
+  // manually synced with reducer.ts switch cases. Lock the invariant with
+  // a test: every kind in REDUCER_IMPLEMENTED_KINDS must NOT return
+  // REDUCER_NOT_IMPLEMENTED when fed a minimal envelope-valid entry.
+  test("REDUCER_IMPLEMENTED_KINDS is consistent with reducer.ts switch coverage", async () => {
+    const { REDUCER_IMPLEMENTED_KINDS } = await import("../../src/core/journal-entry.js");
+    const refStub = { path: "x", sha256: "0".repeat(64), size: 0 };
+    const payloadFor: Record<string, unknown> = {
+      "session:started": {
+        session_id: "550e8400-e29b-41d4-a716-446655440000",
+        feature: "stub",
+        ceremony: STANDARD_CEREMONY,
+      },
+      "migration:snapshot_imported": {
+        source_schema_version: 1,
+        migrated_at: "2026-05-15T10:00:00.000Z",
+        artifacts: {
+          state: refStub, tasks: refStub, spec_md: refStub,
+          evidence: refStub, findings: refStub, pending: refStub,
+        },
+      },
+      "event:phase_advanced": { from: "TRIAGE.score", to: "TRIAGE.confirm" },
+      "event:ceremony_set": STANDARD_CEREMONY,
+      "event:tasks_planned": { tasks: [{ id: "T-001" }] },
+      "event:task_claimed": { task_id: "T-001" },
+      "event:task_step_started": { task_id: "T-001", step: "implement" },
+      "event:task_step_done": { task_id: "T-001", step: "implement", result: "passed" },
+      "event:task_abandoned": { task_id: "T-001" },
+      "evidence:added": { id: "EV-1", kind: "local-check" },
+      "finding:raised": { id: "FND-1", category: "spec-gap", action: "amend-spec" },
+      "finding:closed": { id: "FND-1" },
+      "pending:added": { id: "PEND-1", kind: "ask_user_question" },
+      "pending:resolved": { id: "PEND-1" },
+      "gate:decided": { gate_kind: "spec-lock", decision: "approved", reason: "ok" },
+      "session:delivered": { reason: "test" },
+      "session:archived": { reason: "test" },
+      "session:abandoned": { reason: "test" },
+    };
+
+    for (const kind of REDUCER_IMPLEMENTED_KINDS) {
+      const result = apply(initialSnapshot(), {
+        seq: 0,
+        entry_id: "JE-000001",
+        at: "2026-05-15T10:00:00.000Z",
+        actor: kind === "migration:snapshot_imported" ? "migration:test" : "cli:loaf",
+        entry_schema_version: 1,
+        kind,
+        payload: payloadFor[kind] ?? { stub: true },
+      });
+      // The kind may legitimately fail for other reasons (NO_SESSION when
+      // state is null, sub_state authority, etc.), but it MUST NOT come
+      // back as REDUCER_NOT_IMPLEMENTED — that would mean
+      // REDUCER_IMPLEMENTED_KINDS claims coverage the switch lacks.
+      if (!result.ok) {
+        expect(
+          result.code,
+          `${kind} declared in REDUCER_IMPLEMENTED_KINDS but reducer.ts switch lacks handler`,
+        ).not.toBe("REDUCER_NOT_IMPLEMENTED");
+      }
+    }
+  });
+
   test("pending FIFO: pending:added then pending:resolved mutates projection", () => {
     let snap = initialSnapshot();
     snap = mustOk(

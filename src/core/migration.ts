@@ -285,9 +285,9 @@ export async function rehydrateMigration(
   ]);
 
   // ── state.json → SessionState ──
-  // Audit r2 fix: strict parse. v0.0.x → v0.1.0 upcaster must NOT silently
-  // drop legacy state on malformed JSON — that produces a successful
-  // migration that loses data, defeating §15 done-when item 6.
+  // Audit r2/r3 fix: strict parse + strict field validation. Invalid enum
+  // values must NOT silently fall back to TRIAGE.score — that produces a
+  // "successful migration" with the wrong cursor.
   let legacyState: LegacyStateJson;
   try {
     legacyState = JSON.parse(stateBody) as LegacyStateJson;
@@ -298,14 +298,26 @@ export async function rehydrateMigration(
       { sidecar: "state.json", err: String(err) },
     );
   }
-  const subState: SubState =
-    legacyState.sub_state && isLegalSubState(legacyState.sub_state)
-      ? legacyState.sub_state
-      : "TRIAGE.score";
+  if (!legacyState.sub_state || !isLegalSubState(legacyState.sub_state)) {
+    throw new MigrationError(
+      "MIGRATION_INCOMPLETE",
+      `legacy state.json sub_state is missing or not a legal SubState: ${String(legacyState.sub_state)}`,
+      { sidecar: "state.json", got: legacyState.sub_state },
+    );
+  }
+  const subState: SubState = legacyState.sub_state;
   const phase: SessionState["phase"] =
     legacyState.phase && isLegalPhase(legacyState.phase)
       ? legacyState.phase
       : (subState.split(".")[0] as SessionState["phase"]);
+  // phase MUST match subState's prefix; if explicit and inconsistent, fail.
+  if (legacyState.phase && legacyState.phase !== subState.split(".")[0]) {
+    throw new MigrationError(
+      "MIGRATION_INCOMPLETE",
+      `legacy state.json phase=${legacyState.phase} inconsistent with sub_state=${subState}`,
+      { sidecar: "state.json", phase: legacyState.phase, sub_state: subState },
+    );
+  }
   const ceremony: Ceremony = legacyState.ceremony ?? DEFAULT_REHYDRATED_CEREMONY;
   const state: SessionState = {
     session_id: legacyState.session_id ?? "00000000-0000-0000-0000-000000000000",
@@ -317,7 +329,8 @@ export async function rehydrateMigration(
     ceremony,
   };
 
-  // ── tasks.json → TaskState[] (strict parse, audit r2 fix) ──
+  // ── tasks.json → TaskState[] (strict parse + strict per-task validation,
+  // audit r3 fix) ──
   let legacyTasks: LegacyTasksJson;
   try {
     legacyTasks = JSON.parse(tasksBody) as LegacyTasksJson;
@@ -328,8 +341,14 @@ export async function rehydrateMigration(
       { sidecar: "tasks.json", err: String(err) },
     );
   }
-  const tasks: TaskState[] = (legacyTasks.tasks ?? []).flatMap((t) => {
-    if (!t.id) return [];
+  const tasks: TaskState[] = (legacyTasks.tasks ?? []).map((t, idx) => {
+    if (!t.id) {
+      throw new MigrationError(
+        "MIGRATION_INCOMPLETE",
+        `legacy tasks.json[${idx}] missing required id`,
+        { sidecar: "tasks.json", index: idx },
+      );
+    }
     const base: TaskState = {
       id: t.id,
       status: t.status ?? "pending",
@@ -342,7 +361,7 @@ export async function rehydrateMigration(
         base.steps[k] = { status: stepStatus };
       }
     }
-    return [base];
+    return base;
   });
 
   // ── evidence.jsonl → EvidenceState[] (strict per-line parse, audit r2 fix) ──
@@ -416,9 +435,15 @@ export async function rehydrateMigration(
       { sidecar: "pending.json", err: String(err) },
     );
   }
-  const pending: PendingState[] = (legacyPending.pending ?? []).flatMap((p) => {
-    if (!p.id || !p.kind) return [];
-    return [{ id: p.id, kind: p.kind, resolved: p.resolved ?? false }];
+  const pending: PendingState[] = (legacyPending.pending ?? []).map((p, idx) => {
+    if (!p.id || !p.kind) {
+      throw new MigrationError(
+        "MIGRATION_INCOMPLETE",
+        `legacy pending.json[${idx}] missing required id or kind`,
+        { sidecar: "pending.json", index: idx, got: p },
+      );
+    }
+    return { id: p.id, kind: p.kind, resolved: p.resolved ?? false };
   });
 
   return { state, tasks, evidence, findings, pending };

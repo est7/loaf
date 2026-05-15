@@ -217,6 +217,61 @@ describe("mutate — transactional journal write (audit r1 Blocker #3)", () => {
     expect(summary.ref.size).toBe(Buffer.byteLength(big, "utf8"));
   });
 
+  // Audit r3 Blocker — mutate must NOT pollute the journal when the reducer
+  // hits a STATE invariant (not just unimplemented kind). codex r3 repro:
+  // pending:resolved with id not matching FIFO head — preflight ok,
+  // REDUCER_IMPLEMENTED ok, but reducer fails PENDING_NOT_FOUND. Before
+  // the dry-run-before-append fix, journal grew 1→2.
+  test("mutate refuses to append when reducer state invariant fails (pending:resolved with bad id)", async () => {
+    const dir = await tmpFeatureDir();
+    // Bootstrap + walk to EXECUTE.work where pending:resolved is sub_state-legal.
+    const boot = await mutate(
+      {
+        at: "2026-05-15T10:00:00.000Z",
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "session:started",
+        payload: {
+          session_id: "550e8400-e29b-41d4-a716-446655440000",
+          feature: "auth-refresh",
+          ceremony: STANDARD,
+        },
+      },
+      { feature_dir: dir, snapshot: initialSnapshot(), tail_seq: -1, fsync: false },
+    );
+    expect(boot.ok).toBe(true);
+    if (!boot.ok) return;
+
+    let snapshot = boot.snapshot;
+    let tailSeq = 0;
+    // No need to advance; pending:resolved is ANY_SUB_STATE per PER_KIND_SUB_STATE.
+
+    // Pre-condition: journal has exactly 1 entry (boot only).
+    const journalBefore = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
+    expect(journalBefore.trim().split("\n")).toHaveLength(1);
+
+    // pending:resolved with no matching pending head → reducer apply fails.
+    const bad = await mutate(
+      {
+        at: "2026-05-15T10:00:01.000Z",
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "pending:resolved",
+        payload: { id: "PEND-404" },
+      },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    );
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) {
+      expect(bad.code).toBe("REDUCER_ERROR");
+      expect((bad.detail as { code?: string } | undefined)?.code).toBe("PENDING_NOT_FOUND");
+    }
+
+    // Journal MUST still be byte-identical — no append on reducer dry-run fail.
+    const journalAfter = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
+    expect(journalAfter).toBe(journalBefore);
+  });
+
   // Audit r2 Blocker — mutate must NOT pollute the journal when reducer
   // can't apply the kind. Before this fix, mutate appended first then ran
   // reducer apply; an unimplemented kind would return ok=false WHILE the

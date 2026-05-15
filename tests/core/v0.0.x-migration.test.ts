@@ -206,6 +206,81 @@ describe("migrateV2 — Stage 5 §5.2", () => {
     expect(caught!.code).toBe("MIGRATION_INCOMPLETE");
   });
 
+  // Audit r3 — migration strict validation, not just strict JSON parse.
+  // Invalid sub_state in legacy state.json must NOT silently fall back to
+  // TRIAGE.score (which was the r2 behavior — silent data loss). codex
+  // r3 repro: malformed enum slipped through with replay reporting empty
+  // tasks/pending.
+  test("migration rejects invalid sub_state in legacy state.json", async () => {
+    const featureDir = await buildFixture();
+    // Overwrite state.json with an invalid sub_state value.
+    await fs.writeFile(
+      path.join(featureDir, "state.json"),
+      JSON.stringify({ sub_state: "NOT_A_REAL_PHASE", iteration: 1 }),
+    );
+    const { entry } = await migrateV2(featureDir, { fsync: false });
+
+    let caught: MigrationError | null = null;
+    try {
+      // rehydrate is called by replayJournal — but it'll throw directly.
+      await import("../../src/core/migration.js").then((m) =>
+        m.rehydrateMigration(featureDir, entry),
+      );
+    } catch (err) {
+      caught = err as MigrationError;
+    }
+    expect(caught).not.toBeNull();
+    expect(caught!.code).toBe("MIGRATION_INCOMPLETE");
+    expect(caught!.message).toMatch(/sub_state/);
+  });
+
+  test("migration rejects tasks missing id field", async () => {
+    const featureDir = await buildFixture();
+    await fs.writeFile(
+      path.join(featureDir, "tasks.json"),
+      JSON.stringify({
+        tasks: [
+          { id: "T-001", status: "in_progress" },
+          { kind: "structural", status: "pending" }, // no id
+        ],
+      }),
+    );
+    const { entry } = await migrateV2(featureDir, { fsync: false });
+
+    let caught: MigrationError | null = null;
+    try {
+      await import("../../src/core/migration.js").then((m) =>
+        m.rehydrateMigration(featureDir, entry),
+      );
+    } catch (err) {
+      caught = err as MigrationError;
+    }
+    expect(caught).not.toBeNull();
+    expect(caught!.code).toBe("MIGRATION_INCOMPLETE");
+    expect(caught!.message).toMatch(/tasks/);
+  });
+
+  test("migration rejects pending entries missing id or kind", async () => {
+    const featureDir = await buildFixture();
+    await fs.writeFile(
+      path.join(featureDir, "pending.json"),
+      JSON.stringify({ pending: [{ kind: "ask_user_question" /* no id */ }] }),
+    );
+    const { entry } = await migrateV2(featureDir, { fsync: false });
+
+    let caught: MigrationError | null = null;
+    try {
+      await import("../../src/core/migration.js").then((m) =>
+        m.rehydrateMigration(featureDir, entry),
+      );
+    } catch (err) {
+      caught = err as MigrationError;
+    }
+    expect(caught).not.toBeNull();
+    expect(caught!.code).toBe("MIGRATION_INCOMPLETE");
+    expect(caught!.message).toMatch(/pending/);
+  });
+
   test("AttachmentRef.sha256 matches on-disk file content", async () => {
     const featureDir = await buildFixture();
     const { attachments } = await migrateV2(featureDir, { fsync: false });
