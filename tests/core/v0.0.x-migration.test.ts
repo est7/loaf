@@ -360,6 +360,50 @@ describe("migrateV2 — Stage 5 §5.2", () => {
     expect(caught!.message).toMatch(/resolved/);
   });
 
+  // Audit r5 High — evidence/findings JSONL runtime validation (Phase J
+  // missed these two artifact types when adding Zod). Phase K adds
+  // LegacyEvidenceSchema + LegacyFindingSchema and validates per-line.
+  test("migration rejects evidence.jsonl line with invalid covers type (not array)", async () => {
+    const featureDir = await buildFixture();
+    await fs.writeFile(
+      path.join(featureDir, "evidence.jsonl"),
+      JSON.stringify({ id: "EV-1", kind: "test", covers: "not-an-array" }) + "\n",
+    );
+
+    let caught: MigrationError | null = null;
+    try {
+      await migrateV2(featureDir, { fsync: false });
+    } catch (err) {
+      caught = err as MigrationError;
+    }
+    expect(caught).not.toBeNull();
+    expect(caught!.code).toBe("MIGRATION_INCOMPLETE");
+    expect(caught!.message).toMatch(/evidence/);
+  });
+
+  test("migration rejects findings.jsonl line with invalid status enum", async () => {
+    const featureDir = await buildFixture();
+    await fs.writeFile(
+      path.join(featureDir, "findings.jsonl"),
+      JSON.stringify({
+        id: "FND-1",
+        category: "spec-gap",
+        action: "amend-spec",
+        status: "nonsense_status",
+      }) + "\n",
+    );
+
+    let caught: MigrationError | null = null;
+    try {
+      await migrateV2(featureDir, { fsync: false });
+    } catch (err) {
+      caught = err as MigrationError;
+    }
+    expect(caught).not.toBeNull();
+    expect(caught!.code).toBe("MIGRATION_INCOMPLETE");
+    expect(caught!.message).toMatch(/findings/);
+  });
+
   test("AttachmentRef.sha256 matches on-disk file content", async () => {
     const featureDir = await buildFixture();
     const { attachments } = await migrateV2(featureDir, { fsync: false });

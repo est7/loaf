@@ -104,6 +104,29 @@ const LegacyPendingSchema = z
   })
   .passthrough();
 
+// Audit r5 High fix — evidence/findings runtime schemas. Phase J added
+// state/tasks/pending Zod but missed these two JSONL artifacts. Without
+// runtime checks, `covers:"not-array"` / `status:"nonsense"` enter the
+// typed Snapshot. JSONL is parsed per-line so the schema applies per-record.
+const LegacyEvidenceSchema = z
+  .object({
+    id: z.string().min(1),
+    kind: z.string().min(1),
+    result: z.string().optional(),
+    covers: z.array(z.string()).optional(),
+    actor: z.string().optional(),
+  })
+  .passthrough();
+
+const LegacyFindingSchema = z
+  .object({
+    id: z.string().min(1),
+    category: z.string().min(1),
+    action: z.string().min(1),
+    status: z.enum(["open", "closed"]).optional(),
+  })
+  .passthrough();
+
 const MIGRATION_ENTRY_ID = "JE-000000";
 const MIGRATION_DIR_REL = `attachments/${MIGRATION_ENTRY_ID}/migration`;
 
@@ -194,39 +217,58 @@ export async function migrateV2(
   }
 
   // Step 1+2: copy artifacts to sidecars.
+  // Audit r5 Low fix — wider rollback. Any failure during sidecar copy
+  // phase tears down attachments/JE-000000/ (the staging root) so the
+  // featureDir is bit-for-bit recoverable for a clean re-run.
   const sidecarDir = path.join(featureDir, MIGRATION_DIR_REL);
+  const stagingRoot = path.join(featureDir, "attachments", MIGRATION_ENTRY_ID);
   await fsp.mkdir(sidecarDir, { recursive: true });
 
   const attachments: Partial<Record<ArtifactKey, AttachmentRef>> = {};
-  for (const [key, filename] of ARTIFACT_FILES) {
-    const src = path.join(featureDir, filename);
-    let body: Buffer;
-    try {
-      body = await fsp.readFile(src);
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-        throw new MigrationError(
-          "MIGRATION_SIDECAR_MISSING",
-          `v0.0.x artifact missing: ${filename}`,
-          { artifact: filename, src },
-        );
+  try {
+    for (const [key, filename] of ARTIFACT_FILES) {
+      const src = path.join(featureDir, filename);
+      let body: Buffer;
+      try {
+        body = await fsp.readFile(src);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+          throw new MigrationError(
+            "MIGRATION_SIDECAR_MISSING",
+            `v0.0.x artifact missing: ${filename}`,
+            { artifact: filename, src },
+          );
+        }
+        throw err;
       }
-      throw err;
-    }
-    const dstAbs = path.join(sidecarDir, filename);
-    const tmpAbs = `${dstAbs}.tmp-${randomBytes(6).toString("hex")}`;
-    await fsp.writeFile(tmpAbs, body);
-    if (fsync) {
-      const fh = await fsp.open(tmpAbs, "r+");
-      try { await fh.sync(); } finally { await fh.close(); }
-    }
-    await fsp.rename(tmpAbs, dstAbs);
+      const dstAbs = path.join(sidecarDir, filename);
+      const tmpAbs = `${dstAbs}.tmp-${randomBytes(6).toString("hex")}`;
+      await fsp.writeFile(tmpAbs, body);
+      if (fsync) {
+        const fh = await fsp.open(tmpAbs, "r+");
+        try { await fh.sync(); } finally { await fh.close(); }
+      }
+      await fsp.rename(tmpAbs, dstAbs);
 
-    attachments[key] = {
-      path: `${MIGRATION_DIR_REL}/${filename}`,
-      sha256: createHash("sha256").update(body).digest("hex"),
-      size: body.length,
-    };
+      attachments[key] = {
+        path: `${MIGRATION_DIR_REL}/${filename}`,
+        sha256: createHash("sha256").update(body).digest("hex"),
+        size: body.length,
+      };
+    }
+  } catch (err) {
+    // Roll back the entire staging root including the empty attachments/
+    // parent if we created it.
+    await fsp.rm(stagingRoot, { recursive: true, force: true }).catch(() => {});
+    // If attachments/ is empty after JE-000000 removed, drop it too.
+    const attachmentsParent = path.join(featureDir, "attachments");
+    try {
+      const remaining = await fsp.readdir(attachmentsParent);
+      if (remaining.length === 0) {
+        await fsp.rm(attachmentsParent, { recursive: true, force: true }).catch(() => {});
+      }
+    } catch { /* ENOENT ok */ }
+    throw err;
   }
 
   // Step 4: build candidate migration entry (NOT yet appended).
@@ -263,10 +305,14 @@ export async function migrateV2(
     await rehydrateMigration(featureDir, entry);
   } catch (err) {
     // Roll back staged sidecars so the feature dir is recoverable.
-    await fsp.rm(path.join(featureDir, "attachments", MIGRATION_ENTRY_ID), {
-      recursive: true,
-      force: true,
-    }).catch(() => {});
+    await fsp.rm(stagingRoot, { recursive: true, force: true }).catch(() => {});
+    const attachmentsParent = path.join(featureDir, "attachments");
+    try {
+      const remaining = await fsp.readdir(attachmentsParent);
+      if (remaining.length === 0) {
+        await fsp.rm(attachmentsParent, { recursive: true, force: true }).catch(() => {});
+      }
+    } catch { /* ENOENT ok */ }
     throw err;
   }
 
@@ -472,13 +518,13 @@ export async function rehydrateMigration(
     return base;
   });
 
-  // ── evidence.jsonl → EvidenceState[] (strict per-line parse, audit r2 fix) ──
+  // ── evidence.jsonl → EvidenceState[] (Zod per-line, audit r5 fix) ──
   const evidence: EvidenceState[] = [];
   for (const [idx, line] of evidenceBody.split("\n").entries()) {
     if (!line.trim()) continue;
-    let e: Partial<EvidenceState>;
+    let raw: unknown;
     try {
-      e = JSON.parse(line) as Partial<EvidenceState>;
+      raw = JSON.parse(line);
     } catch (err) {
       throw new MigrationError(
         "MIGRATION_INCOMPLETE",
@@ -486,13 +532,15 @@ export async function rehydrateMigration(
         { sidecar: "evidence.jsonl", line: idx + 1 },
       );
     }
-    if (!e.id || !e.kind) {
+    const parsed = LegacyEvidenceSchema.safeParse(raw);
+    if (!parsed.success) {
       throw new MigrationError(
         "MIGRATION_INCOMPLETE",
-        `legacy evidence.jsonl line ${idx + 1} missing id or kind`,
-        { sidecar: "evidence.jsonl", line: idx + 1 },
+        `legacy evidence.jsonl line ${idx + 1} failed Zod validation: ${parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`,
+        { sidecar: "evidence.jsonl", line: idx + 1, issues: parsed.error.issues },
       );
     }
+    const e = parsed.data;
     const ev: EvidenceState = {
       id: e.id,
       kind: e.kind,
@@ -503,13 +551,13 @@ export async function rehydrateMigration(
     evidence.push(ev);
   }
 
-  // ── findings.jsonl → FindingState[] (strict, audit r2 fix) ──
+  // ── findings.jsonl → FindingState[] (Zod per-line, audit r5 fix) ──
   const findings: FindingState[] = [];
   for (const [idx, line] of findingsBody.split("\n").entries()) {
     if (!line.trim()) continue;
-    let f: Partial<FindingState>;
+    let raw: unknown;
     try {
-      f = JSON.parse(line) as Partial<FindingState>;
+      raw = JSON.parse(line);
     } catch (err) {
       throw new MigrationError(
         "MIGRATION_INCOMPLETE",
@@ -517,13 +565,15 @@ export async function rehydrateMigration(
         { sidecar: "findings.jsonl", line: idx + 1 },
       );
     }
-    if (!f.id || !f.category || !f.action) {
+    const parsed = LegacyFindingSchema.safeParse(raw);
+    if (!parsed.success) {
       throw new MigrationError(
         "MIGRATION_INCOMPLETE",
-        `legacy findings.jsonl line ${idx + 1} missing required fields`,
-        { sidecar: "findings.jsonl", line: idx + 1 },
+        `legacy findings.jsonl line ${idx + 1} failed Zod validation: ${parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`,
+        { sidecar: "findings.jsonl", line: idx + 1, issues: parsed.error.issues },
       );
     }
+    const f = parsed.data;
     findings.push({
       id: f.id,
       category: f.category,
