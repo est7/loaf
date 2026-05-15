@@ -348,24 +348,39 @@ EXECUTE 之前的 evidence 不浪费;`based_on.spec` 跳号让审计能识别"�
 
 ```
 .loaf/                              repo-level,git-tracked
-  ├─ <feature>/                                   一 feature 一目录
-  │   ├─ state.json          always               协议真理源
-  │   ├─ spec.md             standard+            EARS + Gherkin + VisualContract
-  │   ├─ tasks.json          standard+            kind-driven + labels[]
-  │   ├─ evidence.jsonl      standard+            稳定 EV-id,append-only
-  │   ├─ findings.jsonl      standard+/post-lock  6 category × 6 action
-  │   ├─ reconcile.json      standard+            drift + verify snapshot
-  │   ├─ lessons.md          deep:MUST std:MAY    free markdown
-  │   ├─ gate-diagnostic.json on gate fail        结构化诊断(覆写)
-  │   ├─ resume-pack.json    on `loaf handoff`    context overflow 接力包
-  │   ├─ attachments/<EV-id>/...                  visual evidence 文件
-  │   ├─ spec-draft-context.md  escalation only   Q9 backfill 输入
-  │   └─ trace.jsonl         --debug only         per-cmd verbose log
-  └─ .config/loaf.config.json   optional          项目级合并配置
+  ├─ <feature>/                                            一 feature 一目录
+  │   ├─ journal.jsonl       canonical truth              append-only,typed envelope(ADR §3.2)
+  │   ├─ attachments/<entry_id>/...                       per-entry sidecar(LongTextField / migration)
+  │   ├─ snapshots/          派生投影(reducer-derived,reader-only;§13.1)
+  │   │   ├─ state.json                                   phase + sub_state + ceremony + iteration
+  │   │   ├─ tasks.json                                   task graph snapshot
+  │   │   ├─ evidence.json                                evidence ledger view + 派生 gate-decision view
+  │   │   ├─ findings.json                                findings list view
+  │   │   ├─ pending.json                                 pending queue + resolved_log slice
+  │   │   ├─ reconcile.json                               drift snapshot(SETTLE 阶段产)
+  │   │   ├─ gate-diagnostic.json                         on gate fail(结构化诊断快照)
+  │   │   ├─ resume-pack.json                             on `loaf handoff`
+  │   │   └─ _meta.json                                   last_applied_seq + last_entry_offset
+  │   │                                                   + last_entry_line_hash + rolling_checksum
+  │   ├─ spec.md             派生投影                     reducer 从 event:spec_* entries 重建
+  │   ├─ lessons.md          派生投影 / Advisory          SETTLE 最终态(deep:MUST,std:MAY)
+  │   ├─ spec-draft-context.md  escalation only          Q9 backfill 输入(per-skill,非 journal)
+  │   ├─ trace.jsonl         --debug only                 per-cmd verbose log(NOT a journal entry)
+  │   └─ .lock                                            per-feature flock(§11.2)
+  └─ .config/loaf.config.json   optional                  项目级合并配置(canonical,non-journal)
+
+../<feature>.backup-v1/      v0.0.x → v0.1.0 migration only(旧 N-file artifacts 备份,ADR §5.2)
 
 ~/.loaf/                            user-level,NOT in repo
-  └─ registry/<session_id>.json     一 session 一文件,atomic rename + 0600
+  └─ registry/<session_id>.json     一 session 一文件(派生投影,atomic rename + 0600)
 ```
+
+**rev 5.0 layout 关键变化**(ADR-0005 §3.1):
+- `state.json` / `tasks.json` / `evidence.jsonl` / `findings.jsonl` / `reconcile.json` / `gate-diagnostic.json` / `resume-pack.json` 全部下移到 `snapshots/`,前缀 `*.json`(jsonl → json),从 "always written by mutator" 变为 "reducer-rebuilt from journal"
+- `journal.jsonl` 是新 canonical truth
+- `attachments/` 目录键从 `<EV-id>` 改为 `<entry_id>`(JE-NNNNNN),per-entry-sidecar 模型
+- `snapshots/_meta.json` 是 reader fast-check 入口(Gate #5)
+- `spec.md` / `lessons.md` 形态保留,但 mutation 永远经 journal entry 由 reducer 重写
 
 完整 Zod schema 在 `schemas.ts`。下面只示例 + 关键约束。
 
@@ -655,12 +670,12 @@ CLI 分配流程(每次 add-\* / batch invocation):
 > **Authority**: 派生投影(reducer 从 `evidence:added` entries 重建,落 `snapshots/evidence.json`);attachments 内容是 sidecar canonical (`.loaf/<feature>/attachments/<entry_id>/`,**rev 5.0:目录按 journal `entry_id`(JE-NNNNNN)分桶,非 evidence_id**;sha256 在 journal entry payload 内的 `AttachmentRef` anchor;orphan GC 也按 entry_id 比对)。Legacy `gate-decision` evidence(v0.0.x)迁移后仅以 `migration:snapshot_imported` payload 形态存在,reducer 派生到 evidence + derived gate view,但**不**伪造新 `gate:decided` entry(ADR-0005 §5.2)。
 
 ```jsonl
-{"schema_version":1,"evidence_id":"EV-000123","at":"2026-05-12T09:00Z","kind":"task-summary","iteration":1,"actor":"skill:loaf-cli/sdd-execute","result":"passed","summary":"4 unit tests passed","task_id":"T-001","covers":["REQ-AUTH-002","T-001"],"cmd":"bun test auth","exit":0}
-{"schema_version":1,"evidence_id":"EV-000124","at":"2026-05-12T09:15Z","kind":"local-check","iteration":1,"actor":"cli:loaf","result":"passed","summary":"lint + typecheck clean","task_id":"T-001","covers":["T-001"]}
-{"schema_version":1,"evidence_id":"EV-000125","at":"2026-05-12T09:30Z","kind":"verify-review","iteration":1,"actor":"skill:loaf-cli/sdd-verify","result":"approved","summary":"spec_fit passes; no anti-pattern","check":"review","covers":["REQ-AUTH-001","REQ-AUTH-002"]}
+{"schema_version":2,"evidence_id":"EV-000123","at":"2026-05-12T09:00Z","kind":"task-summary","iteration":1,"actor":"skill:loaf-cli/sdd-execute","result":"passed","summary":"4 unit tests passed","task_id":"T-001","covers":["REQ-AUTH-002","T-001"],"cmd":"bun test auth","exit":0}
+{"schema_version":2,"evidence_id":"EV-000124","at":"2026-05-12T09:15Z","kind":"local-check","iteration":1,"actor":"cli:loaf","result":"passed","summary":"lint + typecheck clean","task_id":"T-001","covers":["T-001"]}
+{"schema_version":2,"evidence_id":"EV-000125","at":"2026-05-12T09:30Z","kind":"verify-review","iteration":1,"actor":"skill:loaf-cli/sdd-verify","result":"approved","summary":"spec_fit passes; no anti-pattern","check":"review","covers":["REQ-AUTH-001","REQ-AUTH-002"]}
 {"schema_version":2,"evidence_id":"EV-000126","at":"2026-05-12T09:50Z","kind":"visual-review","iteration":1,"actor":"human:est9","result":"approved","summary":"button shows spinner; disabled state correct","check":"visual","covers":["VIS-AUTH-001"],"attachments":[{"path":".loaf/auth-refresh/attachments/JE-000456/login-primary-button.png","sha256":"a1b2c3d4e5f6...64hex","mime":"image/png","bytes":48213}]}
-{"schema_version":1,"evidence_id":"EV-000127","at":"2026-05-12T09:55Z","kind":"waiver","iteration":1,"actor":"human:est9","result":"waived","reason":"REQ-AUTH-005 acceptance_na=true; intuitive feel validated via separate user-testing protocol","covers":["REQ-AUTH-005"],"waiver_obligation_id":"REQ-AUTH-005"}
-{"schema_version":1,"evidence_id":"EV-000128","at":"2026-05-12T10:00Z","kind":"gate-decision","iteration":1,"actor":"human:est9","decided_by":"human:est9","result":"approved","gate":"verify-accept","reason":"all checks passed; waivers documented","covers":[],"based_on":{"spec":2,"tasks":4}}
+{"schema_version":2,"evidence_id":"EV-000127","at":"2026-05-12T09:55Z","kind":"waiver","iteration":1,"actor":"human:est9","result":"waived","reason":"REQ-AUTH-005 acceptance_na=true; intuitive feel validated via separate user-testing protocol","covers":["REQ-AUTH-005"],"waiver_obligation_id":"REQ-AUTH-005"}
+{"schema_version":2,"evidence_id":"EV-000128","at":"2026-05-12T10:00Z","kind":"gate-decision","iteration":1,"actor":"human:est9","decided_by":"human:est9","result":"approved","gate":"verify-accept","reason":"all checks passed; waivers documented","covers":[],"based_on":{"spec":2,"tasks":4}}
 ```
 
 **核心约束**:
@@ -681,7 +696,7 @@ CLI 分配流程(每次 add-\* / batch invocation):
 ```
 1. 验证 path 存在(否则 ATTACHMENT_NOT_FOUND exit 2)
 2. 验证 path 是 regular file(目录 / socket / FIFO / 符号链接到非文件 → ATTACHMENT_NOT_FILE exit 2)
-3. 拷贝到 `.loaf/<feature>/attachments/<EV-id>/<basename>`(basename 冲突时 suffix `-2` / `-3` ...)
+3. 拷贝到 `.loaf/<feature>/attachments/<entry_id>/<basename>`(**rev 5.0**:目录按发出该 evidence 的 journal entry_id (JE-NNNNNN) 分桶,非 EV-id;basename 冲突时 suffix `-2` / `-3` ...)
 4. 计算 sha256(hex,64 字符)
 5. 从扩展名 + magic bytes 推断 mime
 6. stat() bytes
@@ -1633,7 +1648,7 @@ CLI **唯一** enforce 的 pending 阻塞规则(state-machine integrity):
 
 | 命令类别 | `--dry-run` 行为 |
 |---|---|
-| **Mutating 命令**(`advance` / `spec submit` / `tasks submit` / `tasks step start/done` / `tasks amend` / `evidence add` / `finding raise/close` / `gate decide` / `waive` / `settle` / `amend` / `archive` / `abandon` / `spike convert` / `pending resolve` / `profile escalate` / `lessons add` / `start`) | 走 §11.2 transaction 顺序前 6 步(acquire lock → read → validate → write tmp → fsync → **跳过 step 6 rename + step 7 refresh registry + step 8 release**;改为:**unlink tmp + release lock**)。stdout 打"would do"摘要(JSON / text 按 `--format`)。**不分配 EV-id**(避免单调计数器空跳);若校验过则 stdout 列将分配的 next-id 范围。**不写 registry**。exit 0 = 校验通过,exit 2 = 会失败(schema / transition / diff-guard / lock 抢占等)|
+| **Mutating 命令**(`advance` / `spec submit` / `tasks submit` / `tasks step start/done` / `tasks amend` / `evidence add` / `finding raise/close` / `gate decide` / `waive` / `settle` / `amend` / `archive` / `abandon` / `spike convert` / `pending resolve` / `profile escalate` / `lessons add` / `start`) | **rev 5.0**:走 §11.2 10-step transaction 步 1-5(acquire .lock → read tail + `_meta` fast-check → preflight validate → prepare sidecar files into short-lived `.tmp-*`(不 rename)→ final validate against embedded refs),然后 **跳过 step 6 journal append + step 7 post-apply assert + step 8 snapshot rebuild + step 9 registry refresh**,改为:**unlink sidecar `.tmp-*` + release .lock**(即 step 10 cleanup-only 分支)。stdout 打"would do"摘要(JSON / text 按 `--format`)。**不分配 EV/PEND/T/REQ/SCEN/VIS id**(避免单调计数器空跳);若校验过则 stdout 列将分配的 next-id 范围。**不写 journal entry、不 rebuild snapshots、不 refresh registry**。exit 0 = 校验通过,exit 2 = 会失败(schema / transition / actor authority / lock 抢占等)。机器表达见 schemas.ts §34 `dry_run_transaction_order` |
 | **Read-only 命令**(`status` / `tasks list` / `tasks next` / `tasks check` / `finding list` / `verify status` / `check <path>` / `<artifact> schema --json` / `evidence schema` / `resume` / `sessions list` / `tui` / `doctor`(no `--fix`)/ `--version` / `--help`)| **reject** `--dry-run`:exit 2 + stderr `error: --dry-run not applicable to read-only command` |
 | **Wrapping 命令**(`spec edit` / `tui`)| reject `--dry-run`(无 mutation 意图直接落到 wrap 程序)|
 | **Hook 入口**(`hook <event>`)| 透传给被 hook 的 mutator;`PreToolUse` hook 接 `--dry-run` 时只跑 write-guard 校验不写 reconcile 缓存 |

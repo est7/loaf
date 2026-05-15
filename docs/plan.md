@@ -54,7 +54,7 @@ remains.
 
 ## 2. Stage-by-stage detail
 
-### Stage 0 — Foundation paperwork (1.0d)
+### Stage 0 — Foundation paperwork (complete)
 
 **Deliverables**
 
@@ -84,7 +84,7 @@ diff lists; no item left unticked.
 
 ---
 
-### Stage 1 — Journal core: schema + append + step 5 final validate (4.5d)
+### Stage 1 — Journal core: schema + append + step 5 final validate + entry_schema_version (3.0d)
 
 **Promote**: `src/spike/events.ts` → `src/core/journal-entry.ts`;
 `src/spike/append.ts` → `src/core/journal-append.ts`.
@@ -145,7 +145,7 @@ diff lists; no item left unticked.
 
 ---
 
-### Stage 2 — Reducer preflight + transition helper + per-kind matrix (3.0d)
+### Stage 2 — Reducer preflight + transition helper + per-kind matrix + fixture builder + cascade B1/B3/M1/M3 (6.5d)
 
 **Promote**: `src/spike/reducer.ts` → `src/core/reducer.ts`.
 
@@ -178,7 +178,7 @@ diff lists; no item left unticked.
 
 ---
 
-### Stage 3 — Projection rebuild + doctor + batch-aware tail recovery (1.5d)
+### Stage 3 — Projection rebuild + doctor + batch-aware tail recovery + H2 resolved_pending_log (2.0d)
 
 **Promote**
 
