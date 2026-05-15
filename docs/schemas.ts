@@ -2287,6 +2287,40 @@ export const FINDING_ACTION_EFFECTS: Array<
 // share the same files (e.g. both EXECUTE.plan and EXECUTE.work can
 // write tasks.json, but EXECUTE.plan must NOT change task.drives /
 // task.depends_on / task.kind). See protocol.md §8.6.
+//
+// ───────────────── rev 5.0 semantic shift (ADR-0005) ─────────────────
+//
+// Mutation authority moved from "file write paths" to "journal entry kind
+// emission + per-kind reducer invariants" (ADR-0005 §3.3 / §3.6). The
+// `write_paths` and `mutation_rights` arrays below are PRESERVED as a
+// **legacy hook-side artifact** for two narrow purposes:
+//
+//   1. PreToolUse hook glob enforcement of $EDITOR-driven `spec.md` work-
+//      draft writes in SPEC.* sub_states (the only user-touchable .loaf/
+//      file post-rev-5.0). Source-code writes in EXECUTE.work continue to
+//      be globbed via STEP_WRITE_PATHS_BY_KIND.
+//   2. diff-guard at `loaf advance` (§11.1): defensive baseline that
+//      flags any out-of-allowlist mutation observed in `git status` —
+//      since all `.loaf/<feature>/{journal,snapshots,attachments}/*` paths
+//      are CLI-only, the legacy `.loaf/<feature>/{state,evidence,findings,
+//      reconcile,lessons,tasks}.{json,jsonl,md}` entries below act as a
+//      defense-in-depth allowlist for the rev-4 N-file → rev-5 journal
+//      transition window. A diff-guard implementation reading these arrays
+//      at face value still rejects unauthorized writes; it just needs to
+//      also know that rev 5.0 reducer-derived projections live under
+//      `snapshots/*.json` (see schema-drift / migration-v0.0.x checks in
+//      protocol.md §10.15).
+//
+// **Authoritative mutation control** in rev 5.0 is the per-kind reducer
+// invariants table (ADR-0005 §3.6 + EntryKind enum). Each mutator command
+// emits one or more journal entries; preflight (§11.2 step 3) refines
+// (kind, payload, actor, sub_state, mutation_rights) and aborts before any
+// I/O on violation. The fields below are NOT consulted by reducer apply.
+//
+// Future work (post-Stage-6, possibly ADR-0007): replace `write_paths`
+// arrays with `emitted_kinds: EntryKind[]` (logical mutation surface) and
+// migrate `mutation_rights.writable_fields` from `<file>:<path>` syntax to
+// `<EntryKind>.payload.<path>` syntax. Out of v0.1.0 scope.
 
 // MutationRights — per-file allowlist/denylist on top-level frontmatter
 // or JSON keys. Each key is "<artifact-file>:<jsonpath-or-dot-path>".

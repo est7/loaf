@@ -1849,7 +1849,7 @@ next: <suggested next command>            # 可选,仅在有强自然下一步�
 | `loaf finding raise` | `finding raise: FND-002 (category=spec-gap, action=amend-spec) — back-edge to SPEC.spec` | — |
 | `loaf finding close` | `finding close: FND-002 → resolved (drift_index=0)` | — |
 | `loaf gate decide` | `gate decide: spec-lock approved by human:est9` | `next: loaf advance` |
-| `loaf settle` | `settle: reconcile.json written (drift=0, iter_stats=...)` | `next: loaf deliver` |
+| `loaf settle` | `settle: snapshots/reconcile.json rebuilt (drift=0, iter_stats=...)` | `next: loaf deliver` |
 | `loaf deliver` | `deliver: DONE.delivered (advisory only)` + 见 §10.12 advisory 段 | — |
 | `loaf archive` / `loaf abandon` | `archive: DONE.archived` / `abandon: DONE.abandoned (reason='...')` | — |
 | `loaf amend` | `amend: tasks_version=N (pre-lock edit)` | `next: loaf advance` |
