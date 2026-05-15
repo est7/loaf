@@ -30,7 +30,7 @@
 import path from "node:path";
 
 import { appendEntry, AppendError } from "./journal-append.js";
-import type { JournalEntry } from "./journal-entry.js";
+import { REDUCER_IMPLEMENTED_KINDS, type JournalEntry } from "./journal-entry.js";
 import { apply, type Snapshot } from "./reducer.js";
 import { preflight, type PreflightFailureCode } from "./reducer/preflight.js";
 import { promoteSidecars } from "./sidecar.js";
@@ -100,6 +100,19 @@ export async function mutate(
       code: pre.code,
       message: pre.message,
       detail: pre.detail ?? {},
+    };
+  }
+
+  // (2b) Audit r2 fix — reducer-not-implemented MUST surface before append,
+  // not after. Without this gate, mutate() returns REDUCER_ERROR while the
+  // journal has already grown by one line (codex r2 caught this: implementing
+  // event:spec_req_added would otherwise pollute the journal).
+  if (!REDUCER_IMPLEMENTED_KINDS.has(candidate.kind)) {
+    return {
+      ok: false,
+      code: "REDUCER_ERROR",
+      message: `reducer has no handler for kind=${candidate.kind}; refusing to append (would orphan a journal entry)`,
+      detail: { kind: candidate.kind },
     };
   }
 

@@ -284,9 +284,20 @@ export async function rehydrateMigration(
     read("pending"),
   ]);
 
-  // ── state.json → SessionState (best-effort; missing fields fall to defaults) ──
-  let legacyState: LegacyStateJson = {};
-  try { legacyState = JSON.parse(stateBody) as LegacyStateJson; } catch { /* tolerate */ }
+  // ── state.json → SessionState ──
+  // Audit r2 fix: strict parse. v0.0.x → v0.1.0 upcaster must NOT silently
+  // drop legacy state on malformed JSON — that produces a successful
+  // migration that loses data, defeating §15 done-when item 6.
+  let legacyState: LegacyStateJson;
+  try {
+    legacyState = JSON.parse(stateBody) as LegacyStateJson;
+  } catch (err) {
+    throw new MigrationError(
+      "MIGRATION_INCOMPLETE",
+      `legacy state.json failed JSON parse: ${String(err)}`,
+      { sidecar: "state.json", err: String(err) },
+    );
+  }
   const subState: SubState =
     legacyState.sub_state && isLegalSubState(legacyState.sub_state)
       ? legacyState.sub_state
@@ -306,9 +317,17 @@ export async function rehydrateMigration(
     ceremony,
   };
 
-  // ── tasks.json → TaskState[] ──
-  let legacyTasks: LegacyTasksJson = {};
-  try { legacyTasks = JSON.parse(tasksBody) as LegacyTasksJson; } catch { /* tolerate */ }
+  // ── tasks.json → TaskState[] (strict parse, audit r2 fix) ──
+  let legacyTasks: LegacyTasksJson;
+  try {
+    legacyTasks = JSON.parse(tasksBody) as LegacyTasksJson;
+  } catch (err) {
+    throw new MigrationError(
+      "MIGRATION_INCOMPLETE",
+      `legacy tasks.json failed JSON parse: ${String(err)}`,
+      { sidecar: "tasks.json", err: String(err) },
+    );
+  }
   const tasks: TaskState[] = (legacyTasks.tasks ?? []).flatMap((t) => {
     if (!t.id) return [];
     const base: TaskState = {
@@ -326,45 +345,77 @@ export async function rehydrateMigration(
     return [base];
   });
 
-  // ── evidence.jsonl → EvidenceState[] ──
+  // ── evidence.jsonl → EvidenceState[] (strict per-line parse, audit r2 fix) ──
   const evidence: EvidenceState[] = [];
-  for (const line of evidenceBody.split("\n")) {
+  for (const [idx, line] of evidenceBody.split("\n").entries()) {
     if (!line.trim()) continue;
+    let e: Partial<EvidenceState>;
     try {
-      const e = JSON.parse(line) as Partial<EvidenceState>;
-      if (e.id && e.kind) {
-        const ev: EvidenceState = {
-          id: e.id,
-          kind: e.kind,
-          covers: e.covers ?? [],
-          actor: e.actor ?? "migration:v0.0.x→v2",
-        };
-        if (e.result !== undefined) ev.result = e.result;
-        evidence.push(ev);
-      }
-    } catch { /* tolerate malformed lines */ }
+      e = JSON.parse(line) as Partial<EvidenceState>;
+    } catch (err) {
+      throw new MigrationError(
+        "MIGRATION_INCOMPLETE",
+        `legacy evidence.jsonl line ${idx + 1} failed JSON parse: ${String(err)}`,
+        { sidecar: "evidence.jsonl", line: idx + 1 },
+      );
+    }
+    if (!e.id || !e.kind) {
+      throw new MigrationError(
+        "MIGRATION_INCOMPLETE",
+        `legacy evidence.jsonl line ${idx + 1} missing id or kind`,
+        { sidecar: "evidence.jsonl", line: idx + 1 },
+      );
+    }
+    const ev: EvidenceState = {
+      id: e.id,
+      kind: e.kind,
+      covers: e.covers ?? [],
+      actor: e.actor ?? "migration:v0.0.x→v2",
+    };
+    if (e.result !== undefined) ev.result = e.result;
+    evidence.push(ev);
   }
 
-  // ── findings.jsonl → FindingState[] ──
+  // ── findings.jsonl → FindingState[] (strict, audit r2 fix) ──
   const findings: FindingState[] = [];
-  for (const line of findingsBody.split("\n")) {
+  for (const [idx, line] of findingsBody.split("\n").entries()) {
     if (!line.trim()) continue;
+    let f: Partial<FindingState>;
     try {
-      const f = JSON.parse(line) as Partial<FindingState>;
-      if (f.id && f.category && f.action) {
-        findings.push({
-          id: f.id,
-          category: f.category,
-          action: f.action,
-          status: f.status ?? "open",
-        });
-      }
-    } catch { /* tolerate */ }
+      f = JSON.parse(line) as Partial<FindingState>;
+    } catch (err) {
+      throw new MigrationError(
+        "MIGRATION_INCOMPLETE",
+        `legacy findings.jsonl line ${idx + 1} failed JSON parse: ${String(err)}`,
+        { sidecar: "findings.jsonl", line: idx + 1 },
+      );
+    }
+    if (!f.id || !f.category || !f.action) {
+      throw new MigrationError(
+        "MIGRATION_INCOMPLETE",
+        `legacy findings.jsonl line ${idx + 1} missing required fields`,
+        { sidecar: "findings.jsonl", line: idx + 1 },
+      );
+    }
+    findings.push({
+      id: f.id,
+      category: f.category,
+      action: f.action,
+      status: f.status ?? "open",
+    });
   }
 
-  // ── pending.json → PendingState[] ──
-  let legacyPending: LegacyPendingJson = {};
-  try { legacyPending = JSON.parse(pendingBody) as LegacyPendingJson; } catch { /* tolerate */ }
+  // ── pending.json → PendingState[] (strict, audit r2 fix) ──
+  let legacyPending: LegacyPendingJson;
+  try {
+    legacyPending = JSON.parse(pendingBody) as LegacyPendingJson;
+  } catch (err) {
+    throw new MigrationError(
+      "MIGRATION_INCOMPLETE",
+      `legacy pending.json failed JSON parse: ${String(err)}`,
+      { sidecar: "pending.json", err: String(err) },
+    );
+  }
   const pending: PendingState[] = (legacyPending.pending ?? []).flatMap((p) => {
     if (!p.id || !p.kind) return [];
     return [{ id: p.id, kind: p.kind, resolved: p.resolved ?? false }];

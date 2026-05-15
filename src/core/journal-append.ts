@@ -52,6 +52,23 @@ export class AppendError extends Error {
   }
 }
 
+/**
+ * **Internal primitive — do not call from CLI or skill code.**
+ *
+ * `appendEntry` is §11.2 step 5+6 (final validate + atomic single-write) only.
+ * It does NOT run preflight (cursor / ceremony / authority checks), does NOT
+ * promote sidecars, does NOT call reducer.apply. Calling it directly skips
+ * the rest of the §11.2 transaction and can leave a journal entry without
+ * a matching projection mutation (a corruption marker).
+ *
+ * **Use `mutate()` from `src/core/journal-mutate.ts` instead.** That is the
+ * single sanctioned public mutator path; it composes preflight + sidecar +
+ * appendEntry + reducer apply atomically per the audit r2 ordering fix.
+ *
+ * Internal callers (migration bootstrap, sidecar/atomicity tests) may still
+ * use `appendEntry` directly when they need raw append semantics, but every
+ * such call MUST be paired with a comment explaining why mutate() is bypassed.
+ */
 export async function appendEntry(
   filePath: string,
   entry: JournalEntry,

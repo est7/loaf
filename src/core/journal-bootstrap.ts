@@ -122,9 +122,19 @@ export async function replayJournal(
 
     // Migration entries bypass apply()'s default bootstrap and rehydrate
     // the full projection from sidecar artifacts (audit r1 Blocker #6).
-    // Requires opts.feature_dir; without it the reducer's default applies
-    // (bootstrap with cursor=TRIAGE.score, no projection rehydration).
-    if (entry.kind === "migration:snapshot_imported" && opts.feature_dir) {
+    // Audit r2 Medium fix: replayJournal MUST fail-fast if a migration
+    // entry is present but feature_dir was not supplied — silent downgrade
+    // to apply()'s bootstrap loses the entire legacy projection.
+    if (entry.kind === "migration:snapshot_imported") {
+      if (!opts.feature_dir) {
+        return {
+          ok: false,
+          code: "REDUCER_REJECTED",
+          message:
+            "migration:snapshot_imported requires opts.feature_dir for sidecar rehydration; refusing to silently bootstrap default state",
+          at_seq: entry.seq,
+        };
+      }
       try {
         snapshot = await rehydrateMigration(opts.feature_dir, entry);
       } catch (err) {

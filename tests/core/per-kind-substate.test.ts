@@ -27,10 +27,9 @@ const DEEP_CEREMONY: Ceremony = {
 };
 
 function payloadFor(kind: string): Record<string, unknown> {
-  // Schema-valid payloads per PER_KIND_PAYLOAD (audit r1 fix #4). Each kind's
-  // payload must satisfy its declared narrowed schema; the test asserts
-  // sub_state authority + actor authority — payload shape is not the column
-  // under test here, but it must parse to reach those checks.
+  // Schema-valid payloads per PER_KIND_PAYLOAD (audit r1/r2 strict schemas).
+  // Each implemented kind's payload must satisfy the per-kind narrowed schema
+  // so preflight reaches the sub_state / actor authority gates.
   const refStub = { path: "x", sha256: "0".repeat(64), size: 0 };
   switch (kind) {
     case "session:started":
@@ -43,10 +42,30 @@ function payloadFor(kind: string): Record<string, unknown> {
       return { from: "EXECUTE.work", to: "EXECUTE.done" };
     case "event:ceremony_set":
       return DEEP_CEREMONY;
+    case "event:tasks_planned":
+      return { tasks: [{ id: "T-001", kind: "behavioral" }] };
+    case "event:task_claimed":
+    case "event:task_abandoned":
+      return { task_id: "T-001" };
+    case "event:task_step_started":
+      return { task_id: "T-001", step: "implement" };
+    case "event:task_step_done":
+      return { task_id: "T-001", step: "implement", result: "passed" };
     case "gate:decided":
       return { gate_kind: "spec-lock", decision: "approved", reason: "ok" };
+    case "evidence:added":
+      return { id: "EV-000001", kind: "local-check" };
+    case "finding:raised":
+      return { id: "FND-001", category: "spec-gap", action: "amend-spec" };
+    case "finding:closed":
+      return { id: "FND-001" };
+    case "pending:added":
+      return { id: "PEND-001", kind: "ask_user_question" };
+    case "pending:resolved":
+      return { id: "PEND-001" };
     case "session:archived":
     case "session:abandoned":
+    case "session:delivered":
       return { reason: "covered for stub" };
     case "spike:converted":
       return { convert_target: "F-002" };

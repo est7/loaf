@@ -25,10 +25,9 @@ describe("appendEntry — Stage 1", () => {
       at: "2026-05-15T10:00:00.000Z",
       actor: "cli:loaf",
       entry_schema_version: 1,
-      // pending:added uses RecordPayload (any object), keeps the test
-      // focused on the envelope path rather than session bootstrap shape.
+      // pending:added with strict PendingAddedPayload — requires id + kind.
       kind: "pending:added",
-      payload: { id: "PEND-001", note: "auth-refresh" },
+      payload: { id: "PEND-001", kind: "ask_user_question" },
       ...overrides,
     };
   }
@@ -178,9 +177,10 @@ describe("appendEntry — Stage 1", () => {
   // ── F: 64KB hard byte limit (rev 5.0, protocol.md §11.2 step 5b) ────────
   test("F. entry serialized > 64KB → ENTRY_OVERSIZE, file untouched", async () => {
     const filePath = await tmpJournal();
-    // Overshoot the 64KB ceiling — LongTextField sidecar promotion (Stage 4)
-    // is the proper escape; Stage 1 simply rejects oversize outright.
-    const bigPayload = { feature: "auth-refresh", note: "x".repeat(70_000) };
+    // Overshoot the 64KB ceiling. Use a valid pending:added payload
+    // (PendingAddedPayload .passthrough() allows extras) so we hit byte
+    // ceiling, not payload schema.
+    const bigPayload = { id: "PEND-001", kind: "ask_user_question", note: "x".repeat(70_000) };
     const oversize = validEntry({ payload: bigPayload });
 
     await expect(appendEntry(filePath, oversize, { fsync: false })).rejects.toMatchObject({
@@ -191,9 +191,7 @@ describe("appendEntry — Stage 1", () => {
 
   test("F. entry serialized just below 64KB → accepted", async () => {
     const filePath = await tmpJournal();
-    // Sizing: validEntry envelope serializes to ~150 bytes; pad payload to land
-    // a comfortable margin under 64_000.
-    const payload = { feature: "auth-refresh", note: "y".repeat(60_000) };
+    const payload = { id: "PEND-001", kind: "ask_user_question", note: "y".repeat(60_000) };
     const ok = validEntry({ payload });
     await appendEntry(filePath, ok, { fsync: false });
     const contents = await fs.readFile(filePath, "utf8");

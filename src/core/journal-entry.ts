@@ -238,31 +238,116 @@ export const GateDecidedPayload = z
   .passthrough();
 export type GateDecidedPayload = z.infer<typeof GateDecidedPayload>;
 
+// ── Per-kind strict payload schemas (audit r2 Blocker — pre-append validation) ──
+// Each reducer-implemented kind has a strict schema that validates ALL the
+// fields the reducer dereferences. PER_KIND_PAYLOAD is parsed at preflight
+// (§11.2 step 3) AND at append (step 5 final validate), so any payload that
+// would later cause reducer.apply to error is rejected BEFORE journal.append.
+// Kinds that the reducer has not yet implemented fall to RecordPayload + a
+// runtime "reducer-implemented" gate in journal-mutate.ts.
+
+const TaskRefPayload = z
+  .object({ task_id: z.string().min(1) })
+  .passthrough();
+
+const TaskStepRefPayload = z
+  .object({
+    task_id: z.string().min(1),
+    step: z.string().min(1),
+  })
+  .passthrough();
+
+const TaskStepDonePayload = z
+  .object({
+    task_id: z.string().min(1),
+    step: z.string().min(1),
+    result: z.enum(["passed", "failed", "waived", "na"]).optional(),
+  })
+  .passthrough();
+
+const TasksPlannedPayload = z
+  .object({
+    tasks: z
+      .array(
+        z
+          .object({
+            id: z.string().min(1),
+            kind: z.string().min(1).optional(),
+          })
+          .passthrough(),
+      ),
+  })
+  .passthrough();
+
+const EvidenceAddedPayload = z
+  .object({
+    id: z.string().min(1),
+    kind: z.string().min(1),
+    result: z.string().optional(),
+    covers: z.array(z.string()).optional(),
+    actor: z.string().optional(),
+  })
+  .passthrough();
+
+const FindingRaisedPayload = z
+  .object({
+    id: z.string().min(1),
+    category: z.string().min(1),
+    action: z.string().min(1),
+  })
+  .passthrough();
+
+const FindingClosedPayload = z
+  .object({
+    id: z.string().min(1),
+  })
+  .passthrough();
+
+const PendingAddedPayload = z
+  .object({
+    id: z.string().min(1),
+    kind: z.string().min(1),
+  })
+  .passthrough();
+
+const PendingResolvedPayload = z
+  .object({
+    id: z.string().min(1),
+  })
+  .passthrough();
+
+const SessionReasonPayload = z
+  .object({
+    reason: z.string().min(1).optional(),
+  })
+  .passthrough();
+
 // PER_KIND_PAYLOAD — preflight + final validate parse the payload against
-// the schema mapped here. Kinds without a known shape fall to RecordPayload
-// (must be a JSON object). Adding a kind's strict schema later is purely
-// tightening (additive); the entry envelope still validates first.
+// the schema mapped here. Kinds with strict schemas (12 reducer-implemented
+// + 1 gate + 1 migration) are validated to the field level. Kinds without
+// a reducer handler fall to RecordPayload (just-an-object) and are caught
+// by the REDUCER_IMPLEMENTED_KINDS gate in journal-mutate.ts before append.
 export const PER_KIND_PAYLOAD: Record<EntryKind, z.ZodTypeAny> = {
   // State machine transitions
   "event:phase_advanced": PhaseAdvancedPayload,
   "event:ceremony_set": CeremonyPayload,
-  "event:tasks_planned": RecordPayload,
+  "event:tasks_planned": TasksPlannedPayload,
   "event:tasks_amended": RecordPayload,
-  "event:task_claimed": RecordPayload,
-  "event:task_step_started": RecordPayload,
-  "event:task_step_done": RecordPayload,
-  "event:task_abandoned": RecordPayload,
+  "event:task_claimed": TaskRefPayload,
+  "event:task_step_started": TaskStepRefPayload,
+  "event:task_step_done": TaskStepDonePayload,
+  "event:task_abandoned": TaskRefPayload,
   "event:spec_req_added": RecordPayload,
   "event:spec_scenario_added": RecordPayload,
   "event:spec_visual_added": RecordPayload,
   "event:spec_submitted": RecordPayload,
 
   // Domain ledger entries
-  "evidence:added": RecordPayload,
-  "finding:raised": RecordPayload,
-  "finding:closed": RecordPayload,
-  "pending:added": RecordPayload,
-  "pending:resolved": RecordPayload,
+  "evidence:added": EvidenceAddedPayload,
+  "finding:raised": FindingRaisedPayload,
+  "finding:closed": FindingClosedPayload,
+  "pending:added": PendingAddedPayload,
+  "pending:resolved": PendingResolvedPayload,
 
   // Gates
   "gate:decided": GateDecidedPayload,
@@ -270,11 +355,37 @@ export const PER_KIND_PAYLOAD: Record<EntryKind, z.ZodTypeAny> = {
   // Session lifecycle
   "session:started": SessionStartedPayload,
   "session:resumed": RecordPayload,
-  "session:delivered": RecordPayload,
-  "session:archived": RecordPayload,
-  "session:abandoned": RecordPayload,
+  "session:delivered": SessionReasonPayload,
+  "session:archived": SessionReasonPayload,
+  "session:abandoned": SessionReasonPayload,
 
   // Spike + migration
   "spike:converted": RecordPayload,
   "migration:snapshot_imported": MigrationSnapshotImportedPayload,
 };
+
+// REDUCER_IMPLEMENTED_KINDS — audit r2 fix. journal-mutate gates on this
+// BEFORE append; preflight + payload schema may pass but if the reducer
+// can't apply the kind, the journal would otherwise grow + then reducer
+// fail (`mutate()` returns error). Keep this set in sync with reducer.ts
+// switch cases.
+export const REDUCER_IMPLEMENTED_KINDS: ReadonlySet<EntryKind> = new Set([
+  "session:started",
+  "migration:snapshot_imported",
+  "event:phase_advanced",
+  "event:ceremony_set",
+  "event:tasks_planned",
+  "event:task_claimed",
+  "event:task_step_started",
+  "event:task_step_done",
+  "event:task_abandoned",
+  "evidence:added",
+  "finding:raised",
+  "finding:closed",
+  "pending:added",
+  "pending:resolved",
+  "gate:decided",
+  "session:delivered",
+  "session:archived",
+  "session:abandoned",
+]);

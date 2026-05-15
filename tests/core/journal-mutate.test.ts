@@ -217,6 +217,81 @@ describe("mutate — transactional journal write (audit r1 Blocker #3)", () => {
     expect(summary.ref.size).toBe(Buffer.byteLength(big, "utf8"));
   });
 
+  // Audit r2 Blocker — mutate must NOT pollute the journal when reducer
+  // can't apply the kind. Before this fix, mutate appended first then ran
+  // reducer apply; an unimplemented kind would return ok=false WHILE the
+  // journal had already grown by one line.
+  test("mutate refuses to append unimplemented kinds (atomic fail)", async () => {
+    const dir = await tmpFeatureDir();
+    // Bootstrap session first.
+    const boot = await mutate(
+      {
+        at: "2026-05-15T10:00:00.000Z",
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "session:started",
+        payload: {
+          session_id: "550e8400-e29b-41d4-a716-446655440000",
+          feature: "auth-refresh",
+          ceremony: STANDARD,
+        },
+      },
+      { feature_dir: dir, snapshot: initialSnapshot(), tail_seq: -1, fsync: false },
+    );
+    expect(boot.ok).toBe(true);
+    if (!boot.ok) return;
+
+    // Walk to SPEC.spec where event:spec_req_added is sub_state-legal.
+    let snapshot = boot.snapshot;
+    let tailSeq = 0;
+    const transitions = [
+      ["TRIAGE.score", "TRIAGE.confirm"],
+      ["TRIAGE.confirm", "SPEC.proposal"],
+      ["SPEC.proposal", "SPEC.spec"],
+    ] as const;
+    for (const [from, to] of transitions) {
+      const r = await mutate(
+        {
+          at: new Date(2026, 4, 15, 10, 0, tailSeq + 1).toISOString(),
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "event:phase_advanced",
+          payload: { from, to },
+        },
+        { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+      );
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      snapshot = r.snapshot;
+      tailSeq++;
+    }
+
+    // Pre-condition: journal has 4 entries (boot + 3 transitions).
+    const journalBefore = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
+    expect(journalBefore.trim().split("\n")).toHaveLength(4);
+
+    // event:spec_req_added is preflight-legal in SPEC.spec but reducer hasn't
+    // implemented it — must refuse without appending.
+    const bad = await mutate(
+      {
+        at: "2026-05-15T11:00:00.000Z",
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "event:spec_req_added",
+        payload: { id: "REQ-001", type: "ubiquitous", response: "test" },
+      },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    );
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) expect(bad.code).toBe("REDUCER_ERROR");
+
+    // Journal MUST still have exactly 4 entries — the unimplemented kind
+    // was not appended.
+    const journalAfter = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
+    expect(journalAfter.trim().split("\n")).toHaveLength(4);
+    expect(journalAfter).toBe(journalBefore);
+  });
+
   test("multi-mutate round-trips through replay", async () => {
     const dir = await tmpFeatureDir();
     let snapshot = initialSnapshot();
