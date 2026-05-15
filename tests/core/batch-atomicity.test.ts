@@ -52,7 +52,7 @@ function pendingEntry(seq: number, batchId: string, batchIndex: number, batchCou
     actor: "cli:loaf",
     entry_schema_version: 1,
     kind: "pending:added",
-    payload: { id: `PEND-${seq}` },
+    payload: { id: `PEND-${seq}`, kind: "ask_user_question" },
     batch_id: batchId,
     batch_index: batchIndex,
     batch_count: batchCount,
@@ -131,7 +131,7 @@ describe("batch atomicity — ADR-0005 §4.16", () => {
       startEntry(),
       pendingEntry(1, batchId, 0, 2),
       pendingEntry(2, batchId, 1, 2),
-      // Solo (non-batch) entry after the batch
+      // Solo (non-batch) entry after the batch — resolves the FIFO head.
       {
         seq: 3,
         entry_id: "JE-000004",
@@ -139,6 +139,7 @@ describe("batch atomicity — ADR-0005 §4.16", () => {
         actor: "cli:loaf",
         entry_schema_version: 1,
         kind: "pending:resolved" as const,
+        // pending FIFO: the head is PEND-1 (the first one we added at seq=1).
         payload: { id: "PEND-1" },
       } as JournalEntry,
     ];

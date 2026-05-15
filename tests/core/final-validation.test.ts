@@ -56,6 +56,8 @@ const oversizeEvidence = (): JournalEntry => ({
   entry_schema_version: 1,
   kind: "evidence:added",
   payload: {
+    id: "EV-000001",
+    kind: "local-check",
     summary: { mode: "inline", text: "x".repeat(20_000) },
   },
 });

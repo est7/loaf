@@ -173,6 +173,108 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
     expect(snap.state!.sub_state).toBe("EXECUTE.plan");
     expect(snap.state!.spec_locked).toBe(true);
   });
+
+  // Audit r1 Blocker #5: kinds without an apply handler must fail-fast,
+  // not no-op silently. event:spec_req_added is one of the still-unimplemented
+  // kinds in Phase D MVP — exercise the new contract.
+  test("unimplemented EntryKind returns REDUCER_NOT_IMPLEMENTED (fail-fast default)", () => {
+    let snap = initialSnapshot();
+    snap = mustOk(
+      apply(snap, {
+        seq: 0,
+        entry_id: "JE-000001",
+        at: "2026-05-15T10:00:00.000Z",
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "session:started",
+        payload: {
+          session_id: "550e8400-e29b-41d4-a716-446655440000",
+          feature: "auth-refresh",
+          ceremony: STANDARD_CEREMONY,
+        },
+      }),
+    );
+
+    // Advance into SPEC.spec so spec_req_added is sub_state-legal.
+    const path = [
+      ["TRIAGE.score", "TRIAGE.confirm"],
+      ["TRIAGE.confirm", "SPEC.proposal"],
+      ["SPEC.proposal", "SPEC.spec"],
+    ] as const;
+    let seq = 1;
+    for (const [from, to] of path) {
+      snap = mustOk(
+        apply(snap, {
+          seq,
+          entry_id: `JE-${String(seq + 1).padStart(6, "0")}`,
+          at: new Date(2026, 4, 15, 10, 0, seq).toISOString(),
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "event:phase_advanced",
+          payload: { from, to },
+        }),
+      );
+      seq++;
+    }
+
+    const result = apply(snap, {
+      seq,
+      entry_id: `JE-${String(seq + 1).padStart(6, "0")}`,
+      at: "2026-05-15T10:00:10.000Z",
+      actor: "cli:loaf",
+      entry_schema_version: 1,
+      kind: "event:spec_req_added",
+      payload: { id: "REQ-001", type: "ubiquitous", response: "test" },
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("REDUCER_NOT_IMPLEMENTED");
+  });
+
+  test("pending FIFO: pending:added then pending:resolved mutates projection", () => {
+    let snap = initialSnapshot();
+    snap = mustOk(
+      apply(snap, {
+        seq: 0,
+        entry_id: "JE-000001",
+        at: "2026-05-15T10:00:00.000Z",
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "session:started",
+        payload: {
+          session_id: "550e8400-e29b-41d4-a716-446655440000",
+          feature: "auth-refresh",
+          ceremony: STANDARD_CEREMONY,
+        },
+      }),
+    );
+
+    snap = mustOk(
+      apply(snap, {
+        seq: 1,
+        entry_id: "JE-000002",
+        at: "2026-05-15T10:00:01.000Z",
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "pending:added",
+        payload: { id: "PEND-1", kind: "ask_user_question" },
+      }),
+    );
+    expect(snap.pending).toHaveLength(1);
+    expect(snap.pending[0]!.resolved).toBe(false);
+
+    snap = mustOk(
+      apply(snap, {
+        seq: 2,
+        entry_id: "JE-000003",
+        at: "2026-05-15T10:00:02.000Z",
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "pending:resolved",
+        payload: { id: "PEND-1" },
+      }),
+    );
+    expect(snap.pending[0]!.resolved).toBe(true);
+  });
 });
 
 function mustOk<T extends { ok: boolean }>(r: T): Extract<T, { ok: true; snapshot: unknown }>["snapshot"] {

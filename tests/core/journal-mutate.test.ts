@@ -197,7 +197,11 @@ describe("mutate — transactional journal write (audit r1 Blocker #3)", () => {
         actor: "cli:loaf",
         entry_schema_version: 1,
         kind: "evidence:added",
-        payload: { summary: { mode: "inline", text: big } },
+        payload: {
+          id: "EV-000001",
+          kind: "local-check",
+          summary: { mode: "inline", text: big },
+        },
       },
       { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
     );

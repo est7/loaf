@@ -59,7 +59,7 @@ function pendingLine(seq: number): string {
     actor: "cli:loaf",
     entry_schema_version: 1,
     kind: "pending:added",
-    payload: { id: `PEND-${seq}` },
+    payload: { id: `PEND-${seq}`, kind: "ask_user_question" },
   } as JournalEntry);
 }
 
