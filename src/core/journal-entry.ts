@@ -32,6 +32,50 @@ export const ActorString = z
   });
 export type ActorString = z.infer<typeof ActorString>;
 
+// SubState — closed set per protocol.md §2.1 (20 sub-states across 6 phases).
+// State machine cursor; reducer projects this from `event:phase_advanced` /
+// `gate:decided` entries via the shared validateTransition helper (Gate #1).
+export const SubState = z.enum([
+  "TRIAGE.score", "TRIAGE.confirm",
+  "SPEC.proposal", "SPEC.spec", "SPEC.plan", "SPEC.design",
+  "EXECUTE.plan", "EXECUTE.work", "EXECUTE.done",
+  "VERIFY.plan", "VERIFY.run", "VERIFY.review", "VERIFY.acceptance",
+  "VERIFY.visual", "VERIFY.accept",
+  "SETTLE.reconcile", "SETTLE.lessons",
+  "DONE.delivered", "DONE.archived", "DONE.abandoned",
+]);
+export type SubState = z.infer<typeof SubState>;
+
+// Ceremony — six-flag schema from protocol.md §3 (rev 5.x PRESETS quick /
+// light / standard / deep). Drives phase activation + strict-mode gates +
+// VERIFY.accept fork (settle_phase decides SETTLE.reconcile vs DONE.delivered).
+export const Ceremony = z
+  .object({
+    spec_phase: z.boolean(),
+    verify_phase: z.boolean(),
+    settle_phase: z.boolean(),
+    strict_spec_review: z.boolean(),
+    lessons_required: z.enum(["must", "may", "skip"]),
+    strict_drift_check: z.boolean(),
+  })
+  .refine((c) => !c.settle_phase || c.verify_phase, {
+    message: "settle_phase=true requires verify_phase=true",
+  })
+  .refine((c) => !c.strict_spec_review || c.spec_phase, {
+    message: "strict_spec_review=true requires spec_phase=true",
+  })
+  .refine((c) => c.lessons_required === "skip" || c.settle_phase, {
+    message: "lessons_required!=skip requires settle_phase=true",
+  })
+  .refine((c) => !c.strict_drift_check || c.settle_phase, {
+    message: "strict_drift_check=true requires settle_phase=true",
+  });
+export type Ceremony = z.infer<typeof Ceremony>;
+
+// GateName — closed set per protocol.md §5 (two human gates).
+export const GateName = z.enum(["spec-lock", "verify-accept"]);
+export type GateName = z.infer<typeof GateName>;
+
 export const EntryKind = z.enum([
   // ── State machine transitions ──
   "event:phase_advanced",
