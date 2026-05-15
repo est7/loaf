@@ -1721,7 +1721,10 @@ export type EvidenceEntry = z.infer<typeof EvidenceEntry>;
 //
 // rev 4.3 (ADR-0004 A6): `attachments` collapses to the input shape
 // `Array<{ path }>`. CLI computes sha256, infers mime, stat()s bytes,
-// canonicalizes the path under `.loaf/<feature>/attachments/<EV-id>/`,
+// canonicalizes the path under `.loaf/<feature>/attachments/<entry_id>/`
+// (rev 5.0, ADR-0005 §3.1: directory key is the journal entry_id
+// JE-NNNNNN of the emitted `evidence:added` entry, NOT the EV-id; EV-id
+// remains in the evidence payload as the projection's stable identifier),
 // and materializes the full Attachment object before append. LLM never
 // hashes or guesses mime — that is shape transformation owned by CLI.
 export const EvidenceAddInput = EvidenceEntry.omit({

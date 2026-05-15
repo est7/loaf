@@ -958,7 +958,7 @@ async function updateRegistry(sessionId: string, snapshot: RegistryFile) {
 
 ## 5. Gate(2 个 human gate)
 
-> **Gate 的 truth source 纪律**(rev 4.1,Principle #15 落地):任何 gate 都从 **canonical truth**(`state.json` / `spec.md` / `tasks.json` / `evidence.jsonl` / `findings.jsonl` / `loaf.config.json`)**实时计算**。derived 文件(`reconcile.json` / `registry/<id>.json` / `gate-diagnostic.json` / `resume-pack.json`)**永远不是** blocking decision 的依据 — 它们是诊断 / 投影 / handoff 产物,允许 stale 或落后。详见 §13.1 四层 artifact authority。
+> **Gate 的 truth source 纪律**(rev 4.1 + rev 5.0 重锚,Principle #15 / 15a 落地):任何 gate 都从 **canonical truth**(`journal.jsonl` + `attachments/<entry_id>/` + `loaf.config.json`,详 §13.1 + ADR-0005 §3.1)**实时计算** — gate evaluator 直接 fold journal entries 走 reducer,或从 `snapshots/*.json` 读派生投影但必须先过 §10.15 fast check(Gate #5,mismatch → exit 2 `SNAPSHOT_STALE_REBUILD_REQUIRED`,**绝不静默 fallback**;ADR-0005 §3.6 reader contract)。Derived 文件(`snapshots/state.json` / `snapshots/tasks.json` / `snapshots/evidence.json` / `snapshots/findings.json` / `snapshots/reconcile.json` / `snapshots/gate-diagnostic.json` / `snapshots/resume-pack.json` / `spec.md` post-submit projection / `lessons.md` / `~/.loaf/registry/<id>.json`)**永远不是 blocking decision 的真理源** — 它们是诊断 / 投影 / handoff 产物,允许 stale;读时必须走 fast check 或退化到从 journal full-replay 重建(`loaf doctor --rebuild`)。详见 §13.1 四层 artifact authority。
 
 ### 5.1 spec-lock(SPEC → EXECUTE)
 
