@@ -1500,7 +1500,7 @@ bridge 路径 `~/.loaf/claude-bridge/` 是 **client 协议约定**,不是 loaf-c
 
 | 错误类型 | 行为 |
 |---|---|
-| **Expected**(schema fail / illegal transition / 缺必要 flag) | stderr 一行 human readable + 指向 `.loaf/<feature>/gate-diagnostic.json`(若适用) / `loaf doctor` 给修复建议;exit 2 |
+| **Expected**(schema fail / illegal transition / 缺必要 flag) | stderr 一行 human readable + 指向 `.loaf/<feature>/snapshots/gate-diagnostic.json`(rev 5.0;若适用;读者先走 §10.15 Gate #5 fast check) / `loaf doctor` 给修复建议;exit 2 |
 | **Unexpected**(panic / unknown 异常) | stderr 一行「unexpected error — debug log at `~/.loaf/crashes/<ts>.log`;report at `$LOAF_ISSUE_URL?<prefilled-context>`」+ 写完整 stack 到 crash log;exit 1。`$LOAF_ISSUE_URL` 由 build 时注入(见 §10.11),query string **预填**:`loaf_version` / `schema_version` / `phase` / `sub_state` / `last_command`(argv,sanitized — 不含文件内容)/ `crash_log_path`(本地路径,提示用户手动 review 后贴) |
 | **Diff guard violation**(`loaf advance`) | exit 2 + stderr 列出违反 path + 引用 `STEP_WRITE_PATHS_BY_KIND` rule 来源 |
 | **Session dispatch**(rev 4.1)| 4 个 diagnostic code:`FEATURE_NOT_FOUND`(cwd 0 个 feature)/ `FEATURE_AMBIGUOUS`(cwd 2+ feature 且无 dispatch 上下文)/ `SESSION_CWD_MISMATCH`(`--session <UUID>` 指定的 UUID 注册 cwd ≠ 当前 cwd)/ `SESSION_SHORT_AMBIGUOUS`(短 UUID prefix 在 registry 多匹配)。全部 exit 2,stderr 列候选 + did-you-mean。详见 §10.3 dispatch precedence 段 |
@@ -1658,7 +1658,7 @@ CLI **唯一** enforce 的 pending 阻塞规则(state-machine integrity):
 ```bash
 # Skill fan-out 前 pre-check:每个 worker 想 claim 一个 task
 loaf --dry-run tasks step start --task T-001 --step implement
-# exit 0 → safe to proceed; exit 2 → 看 stderr / gate-diagnostic.json
+# exit 0 → safe to proceed; exit 2 → 看 stderr / snapshots/gate-diagnostic.json
 
 # CI pre-merge:检查 spec 改动会不会过 spec-lock
 loaf --dry-run spec submit ./spec.md

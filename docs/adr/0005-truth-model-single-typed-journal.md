@@ -123,12 +123,21 @@ codex round 2 抓出元决策 N10：
 │   └── _meta.json             # 一致性元数据,见 §3.6 reader contract
 ├── spec.md                    # 派生投影(reducer 从 event:spec_* 重建)
 ├── lessons.md                 # 派生投影(SETTLE 最终态)
+├── spec-draft-context.md      # SPEC.proposal escalation 才存在(per-skill,非 journal)
+├── trace.jsonl                # debug-trace,仅 --debug 写;不是 journal entry,git 永不污染
 ├── .lock                      # per-feature flock
 └── ../<feature>.backup-v1/    # v0.0.x → v0.1.0 迁移时 backup
+
+.loaf/.config/loaf.config.json # project-level config(canonical truth,non-journal,protocol.md §4.11)
+
+~/.loaf/                        # user-level,NOT in repo
+└── registry/<session_id>.json  # 一 session 一文件,派生投影(atomic rename + 0600)
 ```
 
-`snapshots/` 与 `spec.md` / `lessons.md` 是**派生投影**；SSoT 永远是
-`journal.jsonl` + `attachments/`。
+`snapshots/` 与 `spec.md` / `lessons.md` / `~/.loaf/registry/*` / `spec-draft-context.md` /
+`trace.jsonl` 是**派生 / debug-trace / advisory 层**(详 protocol.md §13.1);本 ADR 关注
+的 SSoT 永远是 `journal.jsonl` + `attachments/` + `loaf.config.json`(配置层 canonical
+但 non-journal)。
 
 `_meta.json` schema（**rev 4 N21 加入 read-repair**）：
 
