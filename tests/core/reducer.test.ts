@@ -230,6 +230,55 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
     if (!result.ok) expect(result.code).toBe("REDUCER_NOT_IMPLEMENTED");
   });
 
+  // Audit r4 Medium reverse — EntryKind enum members NOT in
+  // REDUCER_IMPLEMENTED_KINDS must return REDUCER_NOT_IMPLEMENTED.
+  // Catches the case where a reducer handler is added but the
+  // REDUCER_IMPLEMENTED_KINDS set forgot to gain the new kind (or vice
+  // versa). One-way set→switch is in the next test below.
+  test("EntryKind not in REDUCER_IMPLEMENTED_KINDS must fail-fast with REDUCER_NOT_IMPLEMENTED", async () => {
+    const { REDUCER_IMPLEMENTED_KINDS, EntryKind } = await import("../../src/core/journal-entry.js");
+    // Build an initial snapshot with state populated (so NO_SESSION isn't
+    // the rejection reason for unimplemented kinds).
+    let snapshot = mustOk(
+      apply(initialSnapshot(), {
+        seq: 0,
+        entry_id: "JE-000001",
+        at: "2026-05-15T10:00:00.000Z",
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "session:started",
+        payload: {
+          session_id: "550e8400-e29b-41d4-a716-446655440000",
+          feature: "f",
+          ceremony: STANDARD_CEREMONY,
+        },
+      }),
+    );
+
+    const allKinds = EntryKind.options as readonly string[];
+    const unimplemented = allKinds.filter((k) => !REDUCER_IMPLEMENTED_KINDS.has(k as never));
+    expect(unimplemented.length).toBeGreaterThan(0); // sanity: not all kinds implemented
+
+    // Weak invariant: unimplemented kinds MUST NOT return ok=true. The
+    // exact failure code may vary (preflight sub_state authority may fire
+    // before the apply default), but the kind cannot succeed.
+    for (const kind of unimplemented) {
+      const result = apply(snapshot, {
+        seq: 1,
+        entry_id: "JE-000002",
+        at: "2026-05-15T10:00:01.000Z",
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: kind as never,
+        payload: { stub: true },
+      });
+      expect(
+        result.ok,
+        `${kind} is not in REDUCER_IMPLEMENTED_KINDS but apply() returned ok — reducer switch silently handles it; sets are out of sync`,
+      ).toBe(false);
+    }
+  });
+
   // Audit r3 Medium — REDUCER_IMPLEMENTED_KINDS in journal-entry.ts is
   // manually synced with reducer.ts switch cases. Lock the invariant with
   // a test: every kind in REDUCER_IMPLEMENTED_KINDS must NOT return

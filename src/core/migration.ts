@@ -23,6 +23,7 @@
 import { promises as fsp } from "node:fs";
 import { createHash, randomBytes } from "node:crypto";
 import path from "node:path";
+import { z } from "zod";
 
 import { appendEntry } from "./journal-append.js";
 import type { AttachmentRef, Ceremony, JournalEntry, SubState } from "./journal-entry.js";
@@ -34,6 +35,74 @@ import type {
   Snapshot,
   TaskState,
 } from "./reducer.js";
+
+// ── Legacy v0.0.x runtime validators (audit r4 fix) ─────────────────────
+// Legacy artifacts are free-form JSON / JSONL — TypeScript type assertions
+// in rehydrate were not actually validating runtime shape. codex r4 caught:
+// `iteration: "one"` (string) / task `status: "nonsense"` / pending
+// `resolved: "yes"` all entered the typed Snapshot. Zod schemas below run
+// at the rehydrate boundary; any present field that violates the schema
+// throws MIGRATION_INCOMPLETE.
+
+const LegacyCeremonySchema = z
+  .object({
+    spec_phase: z.boolean(),
+    verify_phase: z.boolean(),
+    settle_phase: z.boolean(),
+    strict_spec_review: z.boolean(),
+    lessons_required: z.enum(["must", "may", "skip"]),
+    strict_drift_check: z.boolean(),
+  })
+  .strict();
+
+const LegacyTaskSchema = z
+  .object({
+    id: z.string().min(1),
+    kind: z.string().min(1).optional(),
+    status: z.enum(["pending", "in_progress", "done", "abandoned"]).optional(),
+    steps: z
+      .record(
+        z.string(),
+        z.object({
+          status: z.enum(["pending", "running", "passed", "failed", "waived", "na"]).optional(),
+        }).passthrough(),
+      )
+      .optional(),
+  })
+  .passthrough();
+
+const LegacyStateSchema = z
+  .object({
+    phase: z.string().optional(),
+    sub_state: z.string(),
+    iteration: z.number().int().positive().optional(),
+    spec_locked: z.boolean().optional(),
+    profile: z.string().optional(),
+    ceremony: LegacyCeremonySchema.optional(),
+    session_id: z.string().optional(),
+    feature: z.string().optional(),
+  })
+  .passthrough();
+
+const LegacyTasksSchema = z
+  .object({
+    tasks: z.array(LegacyTaskSchema).optional(),
+  })
+  .passthrough();
+
+const LegacyPendingItemSchema = z
+  .object({
+    id: z.string().min(1),
+    kind: z.string().min(1),
+    resolved: z.boolean().optional(),
+  })
+  .passthrough();
+
+const LegacyPendingSchema = z
+  .object({
+    pending: z.array(LegacyPendingItemSchema).optional(),
+  })
+  .passthrough();
 
 const MIGRATION_ENTRY_ID = "JE-000000";
 const MIGRATION_DIR_REL = `attachments/${MIGRATION_ENTRY_ID}/migration`;
@@ -160,7 +229,7 @@ export async function migrateV2(
     };
   }
 
-  // Step 4: write migration entry to journal at seq=0.
+  // Step 4: build candidate migration entry (NOT yet appended).
   const entry: JournalEntry = {
     seq: 0,
     entry_id: MIGRATION_ENTRY_ID,
@@ -181,10 +250,30 @@ export async function migrateV2(
       },
     },
   };
+
+  // Step 4b — Audit r4 fix: preflight-validate the staged sidecars BEFORE
+  // appending the migration entry + before moving originals. codex r4
+  // caught: migrateV2 committed the journal entry, then later replay would
+  // fail REDUCER_REJECTED — successful migration that cannot load. Now we
+  // dry-run rehydrateMigration against the staged sidecars; any field-level
+  // validation failure aborts migration without committing journal or
+  // moving the originals. Sidecar tmp/finalized files are torn down so
+  // the next migrateV2 invocation starts clean.
+  try {
+    await rehydrateMigration(featureDir, entry);
+  } catch (err) {
+    // Roll back staged sidecars so the feature dir is recoverable.
+    await fsp.rm(path.join(featureDir, "attachments", MIGRATION_ENTRY_ID), {
+      recursive: true,
+      force: true,
+    }).catch(() => {});
+    throw err;
+  }
+
+  // Step 5: validation passed — commit the migration entry to the journal.
   await appendEntry(journalPath, entry, { fsync });
 
-  // Step 7: move the original v0.0.x files to backup. Steps 5-6 (reducer
-  // apply + snapshot rebuild) happen on the next replayJournal() pass.
+  // Step 6 + 7: move the original v0.0.x files to backup.
   await fsp.mkdir(backupDir, { recursive: true });
   for (const [, filename] of ARTIFACT_FILES) {
     const src = path.join(featureDir, filename);
@@ -285,12 +374,13 @@ export async function rehydrateMigration(
   ]);
 
   // ── state.json → SessionState ──
-  // Audit r2/r3 fix: strict parse + strict field validation. Invalid enum
-  // values must NOT silently fall back to TRIAGE.score — that produces a
-  // "successful migration" with the wrong cursor.
-  let legacyState: LegacyStateJson;
+  // Audit r2/r3/r4 fix: strict parse + Zod runtime field validation. TS
+  // type assertions don't validate at runtime; codex r4 caught
+  // `iteration:"one"` and similar invalid types passing through into the
+  // typed Snapshot. Zod runs at the boundary.
+  let legacyStateRaw: unknown;
   try {
-    legacyState = JSON.parse(stateBody) as LegacyStateJson;
+    legacyStateRaw = JSON.parse(stateBody);
   } catch (err) {
     throw new MigrationError(
       "MIGRATION_INCOMPLETE",
@@ -298,6 +388,15 @@ export async function rehydrateMigration(
       { sidecar: "state.json", err: String(err) },
     );
   }
+  const stateParse = LegacyStateSchema.safeParse(legacyStateRaw);
+  if (!stateParse.success) {
+    throw new MigrationError(
+      "MIGRATION_INCOMPLETE",
+      `legacy state.json failed Zod validation: ${stateParse.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`,
+      { sidecar: "state.json", issues: stateParse.error.issues },
+    );
+  }
+  const legacyState: LegacyStateJson = stateParse.data as LegacyStateJson;
   if (!legacyState.sub_state || !isLegalSubState(legacyState.sub_state)) {
     throw new MigrationError(
       "MIGRATION_INCOMPLETE",
@@ -329,11 +428,11 @@ export async function rehydrateMigration(
     ceremony,
   };
 
-  // ── tasks.json → TaskState[] (strict parse + strict per-task validation,
-  // audit r3 fix) ──
-  let legacyTasks: LegacyTasksJson;
+  // ── tasks.json → TaskState[] (strict parse + Zod validation,
+  // audit r3/r4 fix) ──
+  let legacyTasksRaw: unknown;
   try {
-    legacyTasks = JSON.parse(tasksBody) as LegacyTasksJson;
+    legacyTasksRaw = JSON.parse(tasksBody);
   } catch (err) {
     throw new MigrationError(
       "MIGRATION_INCOMPLETE",
@@ -341,6 +440,15 @@ export async function rehydrateMigration(
       { sidecar: "tasks.json", err: String(err) },
     );
   }
+  const tasksParse = LegacyTasksSchema.safeParse(legacyTasksRaw);
+  if (!tasksParse.success) {
+    throw new MigrationError(
+      "MIGRATION_INCOMPLETE",
+      `legacy tasks.json failed Zod validation: ${tasksParse.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`,
+      { sidecar: "tasks.json", issues: tasksParse.error.issues },
+    );
+  }
+  const legacyTasks: LegacyTasksJson = tasksParse.data as LegacyTasksJson;
   const tasks: TaskState[] = (legacyTasks.tasks ?? []).map((t, idx) => {
     if (!t.id) {
       throw new MigrationError(
@@ -424,10 +532,10 @@ export async function rehydrateMigration(
     });
   }
 
-  // ── pending.json → PendingState[] (strict, audit r2 fix) ──
-  let legacyPending: LegacyPendingJson;
+  // ── pending.json → PendingState[] (strict + Zod, audit r2/r4 fix) ──
+  let legacyPendingRaw: unknown;
   try {
-    legacyPending = JSON.parse(pendingBody) as LegacyPendingJson;
+    legacyPendingRaw = JSON.parse(pendingBody);
   } catch (err) {
     throw new MigrationError(
       "MIGRATION_INCOMPLETE",
@@ -435,6 +543,15 @@ export async function rehydrateMigration(
       { sidecar: "pending.json", err: String(err) },
     );
   }
+  const pendingParse = LegacyPendingSchema.safeParse(legacyPendingRaw);
+  if (!pendingParse.success) {
+    throw new MigrationError(
+      "MIGRATION_INCOMPLETE",
+      `legacy pending.json failed Zod validation: ${pendingParse.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`,
+      { sidecar: "pending.json", issues: pendingParse.error.issues },
+    );
+  }
+  const legacyPending: LegacyPendingJson = pendingParse.data as LegacyPendingJson;
   const pending: PendingState[] = (legacyPending.pending ?? []).map((p, idx) => {
     if (!p.id || !p.kind) {
       throw new MigrationError(

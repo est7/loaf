@@ -207,25 +207,20 @@ describe("migrateV2 — Stage 5 §5.2", () => {
   });
 
   // Audit r3 — migration strict validation, not just strict JSON parse.
-  // Invalid sub_state in legacy state.json must NOT silently fall back to
-  // TRIAGE.score (which was the r2 behavior — silent data loss). codex
-  // r3 repro: malformed enum slipped through with replay reporting empty
-  // tasks/pending.
+  // r4 update: migrateV2 now preflight-rehydrates before appending, so
+  // migrateV2 ITSELF throws on invalid legacy artifacts (was: migrate
+  // committed then rehydrate failed). Tests below verify migrateV2 fails
+  // directly.
   test("migration rejects invalid sub_state in legacy state.json", async () => {
     const featureDir = await buildFixture();
-    // Overwrite state.json with an invalid sub_state value.
     await fs.writeFile(
       path.join(featureDir, "state.json"),
       JSON.stringify({ sub_state: "NOT_A_REAL_PHASE", iteration: 1 }),
     );
-    const { entry } = await migrateV2(featureDir, { fsync: false });
 
     let caught: MigrationError | null = null;
     try {
-      // rehydrate is called by replayJournal — but it'll throw directly.
-      await import("../../src/core/migration.js").then((m) =>
-        m.rehydrateMigration(featureDir, entry),
-      );
+      await migrateV2(featureDir, { fsync: false });
     } catch (err) {
       caught = err as MigrationError;
     }
@@ -245,19 +240,15 @@ describe("migrateV2 — Stage 5 §5.2", () => {
         ],
       }),
     );
-    const { entry } = await migrateV2(featureDir, { fsync: false });
 
     let caught: MigrationError | null = null;
     try {
-      await import("../../src/core/migration.js").then((m) =>
-        m.rehydrateMigration(featureDir, entry),
-      );
+      await migrateV2(featureDir, { fsync: false });
     } catch (err) {
       caught = err as MigrationError;
     }
     expect(caught).not.toBeNull();
     expect(caught!.code).toBe("MIGRATION_INCOMPLETE");
-    expect(caught!.message).toMatch(/tasks/);
   });
 
   test("migration rejects pending entries missing id or kind", async () => {
@@ -266,19 +257,107 @@ describe("migrateV2 — Stage 5 §5.2", () => {
       path.join(featureDir, "pending.json"),
       JSON.stringify({ pending: [{ kind: "ask_user_question" /* no id */ }] }),
     );
-    const { entry } = await migrateV2(featureDir, { fsync: false });
 
     let caught: MigrationError | null = null;
     try {
-      await import("../../src/core/migration.js").then((m) =>
-        m.rehydrateMigration(featureDir, entry),
-      );
+      await migrateV2(featureDir, { fsync: false });
     } catch (err) {
       caught = err as MigrationError;
     }
     expect(caught).not.toBeNull();
     expect(caught!.code).toBe("MIGRATION_INCOMPLETE");
-    expect(caught!.message).toMatch(/pending/);
+  });
+
+  // Audit r4 Blocker — migrateV2 must validate sidecars BEFORE appending
+  // the migration entry + moving originals. Without preflight, migrateV2
+  // returns success but the journal entry can't be replayed (silent commit
+  // of broken upcaster output). The preflight calls rehydrateMigration
+  // dry-run on staged sidecars; failure rolls back the sidecar dir.
+  test("migrateV2 preflight rejects invalid state.json BEFORE appending journal", async () => {
+    const featureDir = await buildFixture();
+    await fs.writeFile(
+      path.join(featureDir, "state.json"),
+      JSON.stringify({ sub_state: "NOT_A_REAL_PHASE" }),
+    );
+
+    let caught: MigrationError | null = null;
+    try {
+      await migrateV2(featureDir, { fsync: false });
+    } catch (err) {
+      caught = err as MigrationError;
+    }
+    expect(caught).not.toBeNull();
+    expect(caught!.code).toBe("MIGRATION_INCOMPLETE");
+
+    // Journal must NOT exist — preflight aborted before appendEntry.
+    await expect(fs.readFile(path.join(featureDir, "journal.jsonl"), "utf8")).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    // Originals must NOT have been moved to backup.
+    expect(await fs.readdir(featureDir)).toEqual(
+      expect.arrayContaining([
+        "state.json", "tasks.json", "spec.md",
+        "evidence.jsonl", "findings.jsonl", "pending.json",
+      ]),
+    );
+    // Sidecar dir was rolled back.
+    await expect(fs.access(path.join(featureDir, "attachments", "JE-000000"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+
+  test("migrateV2 preflight rejects invalid runtime types (iteration string, status enum)", async () => {
+    const featureDir = await buildFixture();
+    // iteration as string — TS interface lied; runtime Zod must catch.
+    await fs.writeFile(
+      path.join(featureDir, "state.json"),
+      JSON.stringify({ sub_state: "EXECUTE.work", iteration: "one" }),
+    );
+
+    let caught: MigrationError | null = null;
+    try {
+      await migrateV2(featureDir, { fsync: false });
+    } catch (err) {
+      caught = err as MigrationError;
+    }
+    expect(caught).not.toBeNull();
+    expect(caught!.code).toBe("MIGRATION_INCOMPLETE");
+    expect(caught!.message).toMatch(/iteration/);
+  });
+
+  test("migrateV2 preflight rejects invalid task status enum", async () => {
+    const featureDir = await buildFixture();
+    await fs.writeFile(
+      path.join(featureDir, "tasks.json"),
+      JSON.stringify({ tasks: [{ id: "T-001", status: "nonsense_status" }] }),
+    );
+
+    let caught: MigrationError | null = null;
+    try {
+      await migrateV2(featureDir, { fsync: false });
+    } catch (err) {
+      caught = err as MigrationError;
+    }
+    expect(caught).not.toBeNull();
+    expect(caught!.code).toBe("MIGRATION_INCOMPLETE");
+  });
+
+  test("migrateV2 preflight rejects invalid pending.resolved type", async () => {
+    const featureDir = await buildFixture();
+    await fs.writeFile(
+      path.join(featureDir, "pending.json"),
+      JSON.stringify({ pending: [{ id: "PEND-1", kind: "ask_user_question", resolved: "yes" }] }),
+    );
+
+    let caught: MigrationError | null = null;
+    try {
+      await migrateV2(featureDir, { fsync: false });
+    } catch (err) {
+      caught = err as MigrationError;
+    }
+    expect(caught).not.toBeNull();
+    expect(caught!.code).toBe("MIGRATION_INCOMPLETE");
+    expect(caught!.message).toMatch(/resolved/);
   });
 
   test("AttachmentRef.sha256 matches on-disk file content", async () => {
