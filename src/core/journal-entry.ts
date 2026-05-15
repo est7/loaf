@@ -32,6 +32,29 @@ export const ActorString = z
   });
 export type ActorString = z.infer<typeof ActorString>;
 
+// AttachmentRef — per-entry sidecar pointer (ADR-0005 §3.2 / Stage 4).
+// `path` is relative to `.loaf/<feature>/` (e.g. "attachments/JE-000123/summary.txt").
+// The reducer verifies `sha256` matches the on-disk file when applying.
+export const AttachmentRef = z
+  .object({
+    path: z.string().min(1),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/),
+    size: z.number().int().nonnegative(),
+  })
+  .strict();
+export type AttachmentRef = z.infer<typeof AttachmentRef>;
+
+// LongTextField — text fields that may exceed the 8KB sidecar threshold. The
+// inline form survives until step 4 (sidecar finalize). The sidecar form is
+// what lands in journal-appended payloads after promotion.
+export const SIDECAR_THRESHOLD_BYTES = 8 * 1024;
+
+export const LongTextField = z.discriminatedUnion("mode", [
+  z.object({ mode: z.literal("inline"), text: z.string() }).strict(),
+  z.object({ mode: z.literal("sidecar"), ref: AttachmentRef }).strict(),
+]);
+export type LongTextField = z.infer<typeof LongTextField>;
+
 // SubState — closed set per protocol.md §2.1 (20 sub-states across 6 phases).
 // State machine cursor; reducer projects this from `event:phase_advanced` /
 // `gate:decided` entries via the shared validateTransition helper (Gate #1).
