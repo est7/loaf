@@ -1595,6 +1595,34 @@ error: <one-line human description>
 | `SETTLE_PHASE_DISABLED` | `VERIFY.accept → SETTLE.reconcile` 但 `ceremony.settle_phase=false`(quick / light / standard);`loaf settle` 在非 deep profile 调用同理 exit 2 | rev 5.x |
 | `SETTLE_PHASE_BYPASS` | `VERIFY.accept → DONE.delivered` 但 `ceremony.settle_phase=true`(deep);deep 必须经 SETTLE.reconcile + SETTLE.lessons | rev 5.x |
 
+**rev 5.x r5 catch-up runtime codes**(all are exit 2 family; source of truth for templates is `schemas.ts` §39):
+
+| Code | Severity | When emitted | Fix hint |
+|---|---:|---|---|
+| `ACTOR_AUTHORITY_VIOLATION` | exit 2 | Preflight sees a journal kind emitted by an actor prefix not allowed for that kind | Use the correct command path; human-only kinds require resolved `human:*` actor |
+| `FROM_CURSOR_MISMATCH` | exit 2 | `event:phase_advanced.payload.from` does not match the current reducer cursor | Refresh state and emit from the actual current `sub_state` |
+| `INVALID_ENVELOPE` | exit 2 | JournalEntry envelope fails Zod validation in preflight or final append validation | Rebuild the entry through the CLI mutator; do not hand-write journal lines |
+| `INVALID_PAYLOAD` | exit 2 | Payload fails the runtime `PER_KIND_PAYLOAD[kind]` schema, or reducer catches missing required fields | Fix payload shape for the emitted kind |
+| `SEQ_NOT_MONOTONIC` | exit 2 | Candidate entry does not extend journal tail by exactly +1 | Refresh tail under lock; if tail is corrupt run doctor tail check |
+| `SPEC_PHASE_FORK_VIOLATION` | exit 2 | Ceremony `spec_phase` disagrees with the TRIAGE.confirm fork target | Follow the selected ceremony path: SPEC.* when enabled, EXECUTE.plan when disabled |
+| `SUB_STATE_AUTHORITY_VIOLATION` | exit 2 | Journal kind is not legal in the current `sub_state` | Advance/back-edge to a state that permits this kind, or use a valid command |
+| `TRANSITION_ILLEGAL` | exit 2 | Transition edge is not in `LEGAL_TRANSITIONS` and not an always-legal terminal target | Choose an allowed transition for the current cursor |
+| `VERIFY_PHASE_FORK_VIOLATION` | exit 2 | Ceremony `verify_phase` disagrees with the EXECUTE.done fork target | Enter VERIFY when verify is enabled; deliver directly only when disabled |
+| `ALREADY_STARTED` | exit 2 | `session:started` or `migration:snapshot_imported` is applied after state already exists | Resume existing session or migrate/start in a fresh feature dir |
+| `FINDING_NOT_FOUND` | exit 2 | `finding:closed` references an unknown finding id | List findings and close an existing id |
+| `NO_SESSION` | exit 2 | Non-bootstrap kind is applied before session state exists | Run `loaf start` or `loaf doctor --migrate-v2` first |
+| `PENDING_NOT_FOUND` | exit 2 | `pending:resolved` has no unresolved head, or id does not match the FIFO head | Resolve the current pending head id only |
+| `REDUCER_NOT_IMPLEMENTED` | exit 2 | A payload-valid kind has no reducer handler | Do not append until reducer support and `REDUCER_IMPLEMENTED_KINDS` include the kind |
+| `ENTRY_OVERSIZE` | exit 2 | Serialized final entry exceeds `ENTRY_BYTE_LIMIT` | Promote long text to sidecar form instead of inline payload |
+| `SHORT_WRITE` | exit 2 | Filesystem write wrote fewer bytes than requested | Stop appending and run doctor tail verification before retry |
+| `TAIL_CORRUPTION` | exit 2 | Tail line cannot provide an integer `seq` | Run `loaf doctor --check-tail`; do not append over a corrupt tail |
+| `MIGRATION_BACKUP_MISSING` | exit 2 | Migration backup target already exists / cannot be safely created | Move/remove backup target and rerun migration |
+| `MIGRATION_INCOMPLETE` | exit 2 | Legacy artifact parse/schema/consistency/sidecar hash validation fails | Fix or restore legacy artifacts, then rerun migration |
+| `MIGRATION_REPLAY_ATTEMPT` | exit 2 | `doctor --migrate-v2` runs against a journal that already has entries | Do not rerun migration over initialized journal; inspect current journal or restore backup |
+| `MIGRATION_SIDECAR_MISSING` | exit 2 | Required migration source artifact or sidecar is missing | Restore missing artifact/sidecar and rerun migration or doctor verification |
+| `INVALID_ACTOR_FORMAT` | exit 2 | Explicit `LOAF_USER` / git human identifier cannot form a valid `human:<id>` ActorString | Set raw identifier without namespace prefix; unset bad env to allow fallback |
+| `NO_HUMAN_ACTOR` | exit 2 | Human-only command cannot resolve a human actor in the current context | Run interactively with git user.email or set `LOAF_USER` explicitly |
+
 完整出错示例(`SCHEMA_VALIDATION_FAILED`):
 
 ```
@@ -2092,6 +2120,8 @@ SIGINT 期间: cleanup hook 释放 .lock(§10.4);second-Ctrl-C 留 .lock,
 ```
 
 **Crash window 恢复**(ADR-0005 §3.5):每步 crash 由 `loaf doctor` 启动期 + 显式 sub-flag 处理 —— stale-lock / orphan-attachment / tail-corruption (batch-aware,Gate #4) / sidecar-validation-drift / snapshot-seq-mismatch / rolling-checksum-mismatch 七类 check 详 §10.15。
+
+> **Current implementation status (rev 5.x MVP / Stages 1-6):** runtime `mutate()` currently collapses the §11.2 transaction into one async function (`src/core/journal-mutate.ts:73`). The caller supplies `tail_seq` + current in-memory `snapshot`; step 1 lock acquire, step 8 snapshot persistence, step 9 registry refresh, and step 10 lock release are deferred follow-up stages. Steps 2-7 are live in MVP form: seq/entry_id fill, preflight, sidecar promotion, final append validation, journal append, and reducer apply. Audit r2-r5 fixes are also live: r2 rejects reducer-unimplemented kinds before append and preserves mutate atomicity, r3 runs reducer dry-run before append on a `structuredClone` snapshot, r4 validates migration sidecars before appending `migration:snapshot_imported`, and r5 widens migration rollback around staged sidecars. Direct `appendEntry()` calls remain possible as an internal primitive, but bypass preflight / actor+sub_state authority / reducer dry-run; `mutate()` is the audit-sanctioned mutation path for CLI and skill-facing writes.
 
 `tasks step done`(§10.8)等需要 atomic emit **多条** journal entry 的命令(例如 `event:task_step_done` + 同一批内 `evidence:added`)在**同一 batch + 同一 lock window 内**通过 §11.2 transaction 完成,不能分多次 `loaf <cmd>` 调用。Batch atomicity invariants 详 ADR-0005 §4.16 + 下方 §11.2 batch 三纪律。
 

@@ -428,13 +428,17 @@ export const SchemaVersion = z.literal(SCHEMA_VERSION);
 // markdown (spec.md / lessons.md). Their schemas remain authoritative for
 // reader / TUI / CI consumption, but mutation goes through journal entries.
 //
-// Per-kind payload schemas (the discriminated union body) are NOT defined in
-// this file in rev 5.0. They land alongside the reducer in
-// `src/core/reducer.ts` (Stage 1-5 per docs/plan.md) so that payload shape
-// and reducer apply path land together. JournalEntry.payload is typed as
-// z.unknown() here; src/core/journal-entry.ts narrows with a (kind, payload)
-// discriminated union plus refine. See ADR-0005 §3.3 for the kind namespace
-// and §3.6 for the per-kind reducer invariants.
+// Runtime registry cross-reference (audit r1-r5 catch-up): per-kind payload
+// schemas are executable runtime policy, not duplicated here. The canonical
+// tables live in `src/core/journal-entry.ts`:
+//   - PER_KIND_PAYLOAD (`src/core/journal-entry.ts:330`) maps every EntryKind to
+//     the strict Zod payload schema used by preflight and final append validate.
+//   - REDUCER_IMPLEMENTED_KINDS (`src/core/journal-entry.ts:372`) is the allowlist
+//     journal-mutate checks before append so payload-valid but reducer-unknown
+//     kinds cannot orphan journal entries.
+// JournalEntry.payload stays z.unknown() here; runtime narrows by (kind, payload)
+// in `src/core/journal-entry.ts` and applies/refines in `src/core/reducer.ts`.
+// See ADR-0005 §3.3 for the kind namespace and §3.6 for per-kind invariants.
 //
 // Byte limit per entry: 64KB (entry_byte_limit_kb, §34). LongTextField over
 // `sidecar_threshold_kb` (8KB) MUST be externalized to attachments/<entry_id>/
@@ -630,8 +634,10 @@ export type SnapshotMeta = z.infer<typeof SnapshotMeta>;
 // current kind version before validating against the current payload schema.
 //
 // In rev 5.0 every kind is at version 1; UPCASTER_REGISTRY is structurally
-// declared but empty. Per-kind upcasters land alongside the per-kind payload
-// schemas in src/core/reducer when the corresponding kind's shape evolves.
+// declared but empty. Upcasters must be kept in sync with the runtime
+// PER_KIND_PAYLOAD registry in `src/core/journal-entry.ts:330`; when a kind's
+// payload shape evolves, add the upcaster and payload schema in the same runtime
+// change, then update this docs registry in the same docs-sync commit.
 
 export const ENTRY_SCHEMA_VERSIONS = {
   "event:phase_advanced": 1,
@@ -3664,9 +3670,36 @@ export const DiagnosticCode = z.enum([
   "PENDING_BLOCKS_ADVANCE",                // §10.7 pending head ∈ {gate_decision, profile_escalation}
   "GATE_NOT_PENDING",                      // §10.7 `loaf gate decide <G>` but head isn't gate_decision(<G>)
   "ESCALATION_NOT_PENDING",                // §10.7 `loaf profile escalate --confirm` but head isn't profile_escalation
-  // ── rev 5.x — VERIFY.accept fork ceremony guard ──
-  "SETTLE_PHASE_DISABLED",                 // §5.2 VERIFY.accept → SETTLE.reconcile requires ceremony.settle_phase=true (deep only)
-  "SETTLE_PHASE_BYPASS",                   // §5.2 VERIFY.accept → DONE.delivered requires ceremony.settle_phase=false (deep must go through SETTLE)
+  // ── audit r1-r5 — runtime preflight / transition ──
+  "ACTOR_AUTHORITY_VIOLATION",             // src/core/reducer/preflight.ts:101-107
+  "FROM_CURSOR_MISMATCH",                  // src/core/reducer/preflight.ts:131-140
+  "INVALID_ENVELOPE",                      // src/core/reducer/preflight.ts:64-71; src/core/journal-append.ts:79-85
+  "INVALID_PAYLOAD",                       // src/core/reducer/preflight.ts:115-123; src/core/journal-append.ts:92-99; src/core/reducer.ts:148-153
+  "SEQ_NOT_MONOTONIC",                     // src/core/reducer/preflight.ts:75-87; src/core/journal-append.ts:102-111
+  "SETTLE_PHASE_BYPASS",                   // src/core/reducer/transition.ts:159-166
+  "SETTLE_PHASE_DISABLED",                 // src/core/reducer/transition.ts:150-156
+  "SPEC_PHASE_FORK_VIOLATION",             // src/core/reducer/transition.ts:100-119
+  "SUB_STATE_AUTHORITY_VIOLATION",         // src/core/reducer/preflight.ts:90-97
+  "TRANSITION_ILLEGAL",                    // src/core/reducer/transition.ts:82-94
+  "VERIFY_PHASE_FORK_VIOLATION",           // src/core/reducer/transition.ts:125-144
+  // ── audit r1-r5 — reducer.apply ──
+  "ALREADY_STARTED",                       // src/core/reducer.ts:109-115; src/core/reducer.ts:134-141
+  "FINDING_NOT_FOUND",                     // src/core/reducer.ts:333-342
+  "NO_SESSION",                            // src/core/reducer.ts:172-178
+  "PENDING_NOT_FOUND",                     // src/core/reducer.ts:359-377
+  "REDUCER_NOT_IMPLEMENTED",               // src/core/reducer.ts:413-424
+  // ── audit r1-r5 — journal append primitive ──
+  "ENTRY_OVERSIZE",                        // src/core/journal-append.ts:121-126
+  "SHORT_WRITE",                           // src/core/journal-append.ts:131-137
+  "TAIL_CORRUPTION",                       // src/core/journal-append.ts:29-35
+  // ── audit r1-r5 — migration v0.0.x → v0.1.0 ──
+  "MIGRATION_BACKUP_MISSING",              // src/core/migration.ts:204-211
+  "MIGRATION_INCOMPLETE",                  // src/core/migration.ts:397-407; src/core/migration.ts:427-465; src/core/migration.ts:477-616; src/core/migration.ts:630-654
+  "MIGRATION_REPLAY_ATTEMPT",              // src/core/migration.ts:187-195
+  "MIGRATION_SIDECAR_MISSING",             // src/core/migration.ts:232-240; src/core/migration.ts:636-645
+  // ── audit r1-r5 — actor resolver ──
+  "INVALID_ACTOR_FORMAT",                  // src/core/actor-resolver.ts:35-72
+  "NO_HUMAN_ACTOR",                        // src/core/actor-resolver.ts:81-101
 ]);
 export type DiagnosticCode = z.infer<typeof DiagnosticCode>;
 
@@ -3948,6 +3981,170 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
       "emit `loaf evidence add` covering task_id={task_id} before " +
       "advancing status, or roll back the status with `loaf tasks set`",
     doc_anchor: "protocol.md#§4.4",
+  },
+  // ── audit r1-r5 catch-up entries ──
+  ACTOR_AUTHORITY_VIOLATION: {
+    exit_code: 2,
+    message_template: "actor {actor} is not allowed for journal kind {kind}",
+    fix_template:
+      "use the command surface that owns this kind; human-only kinds require an interactive human actor resolved by LOAF_USER or git user.email",
+    doc_anchor: "protocol.md#§10.8",
+  },
+  FROM_CURSOR_MISMATCH: {
+    exit_code: 2,
+    message_template:
+      "entry payload.from={payload_from} does not match current sub_state={current_sub_state}",
+    fix_template:
+      "refresh the current session state and emit the transition from the actual cursor; do not replay a stale transition candidate",
+    doc_anchor: "protocol.md#§11.2",
+  },
+  INVALID_ENVELOPE: {
+    exit_code: 2,
+    message_template: "journal entry failed envelope validation: {reason}",
+    fix_template:
+      "rebuild the entry through the CLI mutator so seq, entry_id, actor, kind, payload, and batch markers satisfy JournalEntry",
+    doc_anchor: "protocol.md#§11.2",
+  },
+  INVALID_PAYLOAD: {
+    exit_code: 2,
+    message_template: "payload for kind {kind} failed validation: {reason}",
+    fix_template:
+      "fix the payload to match the PER_KIND_PAYLOAD schema for this kind and retry the mutator",
+    doc_anchor: "protocol.md#§11.2",
+  },
+  SEQ_NOT_MONOTONIC: {
+    exit_code: 2,
+    message_template:
+      "entry seq {got} does not extend journal tail {tail_seq}; expected {expected}",
+    fix_template:
+      "refresh tail_seq under the session lock and retry; if the tail is corrupt run `loaf doctor --check-tail`",
+    doc_anchor: "protocol.md#§11.2",
+  },
+  SPEC_PHASE_FORK_VIOLATION: {
+    exit_code: 2,
+    message_template: "transition {from} → {to} violates ceremony.spec_phase={spec_phase}",
+    fix_template:
+      "follow the ceremony fork: spec_phase=true traverses SPEC.*, spec_phase=false goes directly to EXECUTE.plan",
+    doc_anchor: "protocol.md#§5.2",
+  },
+  SUB_STATE_AUTHORITY_VIOLATION: {
+    exit_code: 2,
+    message_template: "kind {kind} is not allowed in sub_state {sub_state}",
+    fix_template:
+      "advance/back-edge to a sub_state that permits this journal kind, or use the command valid for the current state",
+    doc_anchor: "protocol.md#§10.8",
+  },
+  TRANSITION_ILLEGAL: {
+    exit_code: 2,
+    message_template: "cannot transition {from} → {to}",
+    fix_template:
+      "choose one of the allowed forward transitions for the current sub_state, or use an explicit terminal/archive path when supported",
+    doc_anchor: "protocol.md#§5.2",
+  },
+  VERIFY_PHASE_FORK_VIOLATION: {
+    exit_code: 2,
+    message_template: "transition {from} → {to} violates ceremony.verify_phase={verify_phase}",
+    fix_template:
+      "follow the ceremony fork: verify_phase=true enters VERIFY.plan, verify_phase=false can deliver after minimal verification",
+    doc_anchor: "protocol.md#§5.2",
+  },
+  ALREADY_STARTED: {
+    exit_code: 2,
+    message_template: "session bootstrap kind {kind} cannot run after state already exists",
+    fix_template:
+      "resume the existing session or create a new feature directory instead of starting/migrating over initialized state",
+    doc_anchor: "protocol.md#§11.2",
+  },
+  FINDING_NOT_FOUND: {
+    exit_code: 2,
+    message_template: "finding close references unknown finding id {id}",
+    fix_template:
+      "list open findings and close an existing id, or raise the finding before closing it",
+    doc_anchor: "protocol.md#§10.8",
+  },
+  NO_SESSION: {
+    exit_code: 2,
+    message_template: "journal kind {kind} requires a started session",
+    fix_template:
+      "run `loaf start` or `loaf doctor --migrate-v2` before emitting non-bootstrap journal entries",
+    doc_anchor: "protocol.md#§10.8",
+  },
+  PENDING_NOT_FOUND: {
+    exit_code: 2,
+    message_template: "pending resolve failed: {reason}",
+    fix_template:
+      "resolve the current pending head only; list pending items and retry with the head id",
+    doc_anchor: "protocol.md#§10.7",
+  },
+  REDUCER_NOT_IMPLEMENTED: {
+    exit_code: 2,
+    message_template: "reducer has no handler for journal kind {kind}",
+    fix_template:
+      "do not append this kind until REDUCER_IMPLEMENTED_KINDS and reducer.apply both support it",
+    doc_anchor: "protocol.md#§11.2",
+  },
+  ENTRY_OVERSIZE: {
+    exit_code: 2,
+    message_template: "journal entry serialized to {bytes} bytes; limit is {limit}",
+    fix_template:
+      "move long text into sidecar form via LongTextField instead of embedding it inline",
+    doc_anchor: "protocol.md#§11.2",
+  },
+  SHORT_WRITE: {
+    exit_code: 2,
+    message_template: "journal append wrote {wrote} of {want} bytes",
+    fix_template:
+      "stop writing, preserve the journal, and run `loaf doctor --check-tail` before retrying",
+    doc_anchor: "protocol.md#§11.2",
+  },
+  TAIL_CORRUPTION: {
+    exit_code: 2,
+    message_template: "journal tail is corrupt: {reason}",
+    fix_template:
+      "run `loaf doctor --check-tail`; do not append until the tail has been repaired or quarantined",
+    doc_anchor: "protocol.md#§10.15",
+  },
+  MIGRATION_BACKUP_MISSING: {
+    exit_code: 2,
+    message_template: "migration backup target is unavailable: {backup_dir}",
+    fix_template:
+      "move or remove the existing backup target, then rerun `loaf doctor --migrate-v2`",
+    doc_anchor: "protocol.md#§10.15",
+  },
+  MIGRATION_INCOMPLETE: {
+    exit_code: 2,
+    message_template: "migration cannot complete: {reason}",
+    fix_template:
+      "fix the legacy v0.0.x artifact or restore from backup; rerun migration only after validation passes",
+    doc_anchor: "protocol.md#§10.15",
+  },
+  MIGRATION_REPLAY_ATTEMPT: {
+    exit_code: 2,
+    message_template: "journal.jsonl already has entries; migration must run on a fresh journal",
+    fix_template:
+      "do not rerun migration over an initialized journal; inspect the existing journal or start from the original v0.0.x backup",
+    doc_anchor: "protocol.md#§10.15",
+  },
+  MIGRATION_SIDECAR_MISSING: {
+    exit_code: 2,
+    message_template: "migration sidecar is missing: {artifact}",
+    fix_template:
+      "restore the missing legacy artifact or sidecar, then rerun migration/doctor verification",
+    doc_anchor: "protocol.md#§10.15",
+  },
+  INVALID_ACTOR_FORMAT: {
+    exit_code: 2,
+    message_template: "human actor value is invalid: {reason}",
+    fix_template:
+      "set LOAF_USER to the raw human identifier without a namespace prefix, or unset it to allow interactive git user.email fallback",
+    doc_anchor: "protocol.md#§10.8",
+  },
+  NO_HUMAN_ACTOR: {
+    exit_code: 2,
+    message_template: "no human actor could be resolved for a human-only command",
+    fix_template:
+      "run interactively with git user.email configured, or set LOAF_USER explicitly",
+    doc_anchor: "protocol.md#§10.8",
   },
 } as const;
 
