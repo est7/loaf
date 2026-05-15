@@ -184,8 +184,41 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
     if (!result.ok) expect(result.code).toBe("FROM_CURSOR_MISMATCH");
   });
 
-  test("gate:decided uses validateTransition (rev 5.x ceremony fork)", () => {
-    // verify-accept gate in deep ceremony → SETTLE.reconcile (OK)
+  // Slice 1.A: gate:decided no longer drives transitions; it is pinned to
+  // gate_kind-specific source sub_state (spec-lock → SPEC.design only;
+  // verify-accept → VERIFY.accept only). The per-kind sub_state authority
+  // table allows the KIND at both states; this preflight refine enforces
+  // the gate_kind ↔ source pairing.
+  test("gate:decided spec-lock @ SPEC.design → OK", () => {
+    const r = preflight(
+      baseEntry({
+        kind: "gate:decided",
+        actor: "human:est9",
+        payload: { gate_kind: "spec-lock", decision: "approved", reason: "ok" },
+      }),
+      { sub_state: "SPEC.design", tail_seq: -1, ceremony: STANDARD_CEREMONY },
+    );
+    expect(r.ok).toBe(true);
+  });
+
+  test("gate:decided spec-lock @ VERIFY.accept (wrong source) → SUB_STATE_AUTHORITY_VIOLATION", () => {
+    const r = preflight(
+      baseEntry({
+        kind: "gate:decided",
+        actor: "human:est9",
+        payload: { gate_kind: "spec-lock", decision: "approved", reason: "ok" },
+      }),
+      { sub_state: "VERIFY.accept", tail_seq: -1, ceremony: STANDARD_CEREMONY },
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe("SUB_STATE_AUTHORITY_VIOLATION");
+  });
+
+  test("gate:decided verify-accept @ VERIFY.accept → OK (both deep and standard ceremony)", () => {
+    // Slice 1.A removed the validateTransition step that used to fork by
+    // ceremony.settle_phase; the actual cursor move comes from a separate
+    // event:phase_advanced (or `loaf deliver`) in Slice 1.C. So at preflight,
+    // both ceremonies are simply OK at VERIFY.accept.
     const deep = preflight(
       baseEntry({
         kind: "gate:decided",
@@ -196,8 +229,6 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
     );
     expect(deep.ok).toBe(true);
 
-    // verify-accept gate in standard ceremony → DONE.delivered (validateTransition
-    // picks the legal branch; both should be accepted by the shared helper).
     const standard = preflight(
       baseEntry({
         kind: "gate:decided",
@@ -207,5 +238,18 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
       { sub_state: "VERIFY.accept", tail_seq: -1, ceremony: STANDARD_CEREMONY },
     );
     expect(standard.ok).toBe(true);
+  });
+
+  test("gate:decided verify-accept @ SPEC.design (wrong source) → SUB_STATE_AUTHORITY_VIOLATION", () => {
+    const r = preflight(
+      baseEntry({
+        kind: "gate:decided",
+        actor: "human:est9",
+        payload: { gate_kind: "verify-accept", decision: "approved", reason: "ok" },
+      }),
+      { sub_state: "SPEC.design", tail_seq: -1, ceremony: STANDARD_CEREMONY },
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe("SUB_STATE_AUTHORITY_VIOLATION");
   });
 });

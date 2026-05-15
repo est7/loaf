@@ -8,20 +8,20 @@
 //   4. Per-kind actor authority   (PER_KIND_ACTOR table).
 //
 // Step 3 (the transition itself) is delegated to validateTransition for
-// kinds whose payload encodes a state-machine edge — `event:phase_advanced`
-// and `gate:decided` (Gate #1).
+// `event:phase_advanced` (the only kind whose payload encodes a state-
+// machine edge after Slice 1.A normalization). `gate:decided` no longer
+// drives transitions — it only records an approval flag; cursor movement
+// rides on a separate `event:phase_advanced` in the same batch. Its
+// gate_kind ↔ source sub_state pairing (spec-lock @ SPEC.design only,
+// verify-accept @ VERIFY.accept only) is enforced as preflight step 5a
+// before transition check, after payload schema parse.
 //
 // Per-kind extra refines (`tasks_planned.based_on.spec` parity etc.) are NOT
 // preflight's job; they sit in the reducer apply path. Preflight is purely
 // authority + structural gates.
 
 import { JournalEntry, PER_KIND_PAYLOAD } from "../journal-entry.js";
-import type {
-  Ceremony,
-  EntryKind,
-  GateName,
-  SubState,
-} from "../journal-entry.js";
+import type { Ceremony, EntryKind, SubState } from "../journal-entry.js";
 import { validateTransition, type TransitionResult } from "./transition.js";
 import { isActorAllowed, isSubStateAllowed } from "./per-kind.js";
 
@@ -123,7 +123,33 @@ export function preflight(
     };
   }
 
-  // (5a) Audit r1 fix: for event:phase_advanced, payload.from MUST match
+  // (5a) Slice 1.A fix: payload-aware sub_state authority for gate:decided.
+  // PER_KIND_SUB_STATE allows the KIND at both SPEC.design and VERIFY.accept,
+  // but each gate_kind pins to one source: spec-lock requires SPEC.design,
+  // verify-accept requires VERIFY.accept. Without this refine, a `gate:decided
+  // gate_kind=spec-lock` at VERIFY.accept (or vice versa) would silently pass
+  // preflight even though the protocol requires source-specific filing.
+  if (entry.kind === "gate:decided") {
+    const gateKind = (payloadParsed.data as { gate_kind?: string }).gate_kind;
+    if (gateKind === "spec-lock" && ctx.sub_state !== "SPEC.design") {
+      return {
+        ok: false,
+        code: "SUB_STATE_AUTHORITY_VIOLATION",
+        message: `gate:decided gate_kind=spec-lock requires sub_state=SPEC.design (got ${ctx.sub_state})`,
+        detail: { gate_kind: gateKind, sub_state: ctx.sub_state, expected: "SPEC.design" },
+      };
+    }
+    if (gateKind === "verify-accept" && ctx.sub_state !== "VERIFY.accept") {
+      return {
+        ok: false,
+        code: "SUB_STATE_AUTHORITY_VIOLATION",
+        message: `gate:decided gate_kind=verify-accept requires sub_state=VERIFY.accept (got ${ctx.sub_state})`,
+        detail: { gate_kind: gateKind, sub_state: ctx.sub_state, expected: "VERIFY.accept" },
+      };
+    }
+  }
+
+  // (5b) Audit r1 fix: for event:phase_advanced, payload.from MUST match
   // the current cursor. validateTransition only checks edge legality; cursor
   // coherence is preflight's job. Without this gate a caller can pass any
   // valid LEGAL_TRANSITIONS edge (e.g. EXECUTE.work → EXECUTE.done) even
@@ -175,34 +201,11 @@ function checkTransition(
     return validateTransition(from, to, { ceremony: ctx.ceremony, actor });
   }
 
-  if (kind === "gate:decided") {
-    // gate:decided's transition source/target is implied by gate_kind per
-    // ADR-0005 §3.3: spec-lock → (SPEC.design → EXECUTE.plan);
-    // verify-accept → (VERIFY.accept → SETTLE.reconcile or DONE.delivered
-    // depending on settle_phase, gated by validateTransition).
-    const gateKind = payload["gate_kind"] as GateName | undefined;
-    if (gateKind === "spec-lock") {
-      return validateTransition("SPEC.design", "EXECUTE.plan", {
-        ceremony: ctx.ceremony,
-        actor,
-        gate_kind: gateKind,
-      });
-    }
-    if (gateKind === "verify-accept") {
-      // Fork target follows ceremony.settle_phase; validateTransition
-      // selects the legal edge. We probe the active branch and fall back
-      // to the other if the active is rejected.
-      const target = ctx.ceremony.settle_phase
-        ? "SETTLE.reconcile"
-        : "DONE.delivered";
-      return validateTransition("VERIFY.accept", target, {
-        ceremony: ctx.ceremony,
-        actor,
-        gate_kind: gateKind,
-      });
-    }
-    return null;
-  }
+  // Slice 1.A normalization: gate:decided no longer drives transitions —
+  // its gate_kind ↔ source sub_state pairing is enforced at step 5a in the
+  // main preflight() before transition check, not here. This branch stays
+  // as a null return so `checkTransition` short-circuits cleanly.
+  if (kind === "gate:decided") return null;
 
   return null;
 }

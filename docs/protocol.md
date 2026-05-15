@@ -427,8 +427,10 @@ EXECUTE 之前的 evidence 不浪费;`based_on.spec` 跳号让审计能识别"�
 
 rev 4.0 后字段分三组(active-set detail 不再 store 在 state):
 - **identity**:`session_id` / `session_label` / `cwd` / `workspace`
-- **control**:`pending` / `spec_locked` / `phase` / `sub_state`
+- **control**:`pending` / `spec_locked` / `verify_accepted` / `phase` / `sub_state`
 - **liveness**:`heartbeat_at`
+
+> **Slice 1.A note**:`spec_locked` 和 `verify_accepted` 是 gate 批准 flag,**gate 不再移 cursor**(以前 `gate:decided spec-lock` 同时翻 flag + 移 cursor 到 EXECUTE.plan,现在只翻 flag)。Cursor 推进由同一 batch 内的 `event:phase_advanced`(spec-lock 配 SPEC.design→EXECUTE.plan)或 `loaf deliver`/`loaf settle`(verify-accept 后)负责。
 
 ```json
 {
@@ -442,6 +444,7 @@ rev 4.0 后字段分三组(active-set detail 不再 store 在 state):
   "sub_state": "VERIFY.visual",
   "iteration": 2,
   "spec_locked": true,
+  "verify_accepted": false,
   "pending": [],
   "debug": false,
   "ceremony": {

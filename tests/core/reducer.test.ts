@@ -115,7 +115,7 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
     if (!bad.ok) expect(bad.code).toBe("TRANSITION_ILLEGAL");
   });
 
-  test("gate:decided (spec-lock) flips spec_locked=true", () => {
+  test("gate:decided (spec-lock approved) flips spec_locked=true but does NOT move cursor (Slice 1.A normalization)", () => {
     let snap = initialSnapshot();
     snap = mustOk(
       apply(snap, {
@@ -170,8 +170,145 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
       }),
     );
 
+    // Slice 1.A: gate records approval flag, cursor stays where it was.
+    // A separate event:phase_advanced is required to leave SPEC.design.
+    expect(snap.state!.sub_state).toBe("SPEC.design");
+    expect(snap.state!.spec_locked).toBe(true);
+
+    // The cursor moves only via event:phase_advanced (now legal because the
+    // batch peer would have run in mutateBatch; here we apply it directly
+    // for the unit test).
+    snap = mustOk(
+      apply(snap, {
+        seq: seq + 1,
+        entry_id: `JE-${String(seq + 2).padStart(6, "0")}`,
+        at: "2026-05-15T11:00:01.000Z",
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "event:phase_advanced",
+        payload: { from: "SPEC.design", to: "EXECUTE.plan" },
+      }),
+    );
     expect(snap.state!.sub_state).toBe("EXECUTE.plan");
     expect(snap.state!.spec_locked).toBe(true);
+  });
+
+  test("gate:decided (spec-lock rejected) does NOT flip spec_locked", () => {
+    let snap = initialSnapshot();
+    snap = mustOk(
+      apply(snap, {
+        seq: 0,
+        entry_id: "JE-000001",
+        at: "2026-05-15T10:00:00.000Z",
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "session:started",
+        payload: {
+          session_id: "550e8400-e29b-41d4-a716-446655440000",
+          feature: "auth-refresh",
+          ceremony: STANDARD_CEREMONY,
+        },
+      }),
+    );
+    // Walk to SPEC.design where spec-lock is sub_state-legal.
+    let seq = 1;
+    for (const [from, to] of [
+      ["TRIAGE.score", "TRIAGE.confirm"],
+      ["TRIAGE.confirm", "SPEC.proposal"],
+      ["SPEC.proposal", "SPEC.spec"],
+      ["SPEC.spec", "SPEC.plan"],
+      ["SPEC.plan", "SPEC.design"],
+    ] as const) {
+      snap = mustOk(
+        apply(snap, {
+          seq,
+          entry_id: `JE-${String(seq + 1).padStart(6, "0")}`,
+          at: new Date(2026, 4, 15, 10, 0, seq).toISOString(),
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "event:phase_advanced",
+          payload: { from, to },
+        }),
+      );
+      seq++;
+    }
+    snap = mustOk(
+      apply(snap, {
+        seq,
+        entry_id: `JE-${String(seq + 1).padStart(6, "0")}`,
+        at: "2026-05-15T11:00:00.000Z",
+        actor: "human:est9",
+        entry_schema_version: 1,
+        kind: "gate:decided",
+        payload: { gate_kind: "spec-lock", decision: "rejected", reason: "needs more detail" },
+      }),
+    );
+    expect(snap.state!.sub_state).toBe("SPEC.design");
+    expect(snap.state!.spec_locked).toBe(false);
+  });
+
+  test("gate:decided (verify-accept approved) flips verify_accepted=true, no cursor move", () => {
+    let snap = initialSnapshot();
+    snap = mustOk(
+      apply(snap, {
+        seq: 0,
+        entry_id: "JE-000001",
+        at: "2026-05-15T10:00:00.000Z",
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "session:started",
+        payload: {
+          session_id: "550e8400-e29b-41d4-a716-446655440000",
+          feature: "auth-refresh",
+          ceremony: STANDARD_CEREMONY,
+        },
+      }),
+    );
+    // Verify the new verify_accepted flag exists and starts false.
+    expect(snap.state!.verify_accepted).toBe(false);
+
+    // Walk to VERIFY.accept the long way. Use the direct apply() path; details
+    // mirror the spec-lock test.
+    let seq = 1;
+    for (const [from, to] of [
+      ["TRIAGE.score", "TRIAGE.confirm"],
+      ["TRIAGE.confirm", "SPEC.proposal"],
+      ["SPEC.proposal", "SPEC.spec"],
+      ["SPEC.spec", "SPEC.plan"],
+      ["SPEC.plan", "SPEC.design"],
+      ["SPEC.design", "EXECUTE.plan"],
+      ["EXECUTE.plan", "EXECUTE.work"],
+      ["EXECUTE.work", "EXECUTE.done"],
+      ["EXECUTE.done", "VERIFY.plan"],
+      ["VERIFY.plan", "VERIFY.run"],
+      ["VERIFY.run", "VERIFY.accept"],
+    ] as const) {
+      snap = mustOk(
+        apply(snap, {
+          seq,
+          entry_id: `JE-${String(seq + 1).padStart(6, "0")}`,
+          at: new Date(2026, 4, 15, 10, 0, seq).toISOString(),
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "event:phase_advanced",
+          payload: { from, to },
+        }),
+      );
+      seq++;
+    }
+    snap = mustOk(
+      apply(snap, {
+        seq,
+        entry_id: `JE-${String(seq + 1).padStart(6, "0")}`,
+        at: "2026-05-15T12:00:00.000Z",
+        actor: "human:est9",
+        entry_schema_version: 1,
+        kind: "gate:decided",
+        payload: { gate_kind: "verify-accept", decision: "approved", reason: "ship it" },
+      }),
+    );
+    expect(snap.state!.sub_state).toBe("VERIFY.accept");
+    expect(snap.state!.verify_accepted).toBe(true);
   });
 
   // Audit r1 Blocker #5: kinds without an apply handler must fail-fast,

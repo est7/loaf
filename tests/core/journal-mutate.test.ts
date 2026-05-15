@@ -811,6 +811,89 @@ describe("mutateBatch — Slice 1.0 Cycle 3 (multi-entry transactional)", () => 
     });
   });
 
+  // ── H: Slice 1.A — gate semantics normalization regression ──────────────
+  // gate:decided MUST NOT move the cursor; event:phase_advanced owns cursor
+  // movement. A 2-entry batch [gate:decided spec-lock, phase_advanced
+  // SPEC.design → EXECUTE.plan] should land both flag and cursor in one
+  // atomic transaction. Before the gate-normalize fix (Slice 1.A), gate
+  // self-moved the cursor and phase_advanced then failed FROM_CURSOR_MISMATCH.
+  test("H. gate:decided + phase_advanced batch lands spec_locked + cursor moves once (not double-jumped)", async () => {
+    const dir = await tmpFeatureDir();
+    // Walk to SPEC.design — the only sub_state where gate spec-lock is legal.
+    let snapshot = initialSnapshot();
+    let tailSeq = -1;
+    const bootOps: Array<Parameters<typeof mutate>[0]> = [
+      {
+        at: "2026-05-15T10:00:00.000Z",
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "session:started",
+        payload: {
+          session_id: "550e8400-e29b-41d4-a716-446655440000",
+          feature: "f",
+          ceremony: STANDARD,
+        },
+      },
+    ];
+    for (const [from, to] of [
+      ["TRIAGE.score", "TRIAGE.confirm"],
+      ["TRIAGE.confirm", "SPEC.proposal"],
+      ["SPEC.proposal", "SPEC.spec"],
+      ["SPEC.spec", "SPEC.plan"],
+      ["SPEC.plan", "SPEC.design"],
+    ] as Array<[string, string]>) {
+      bootOps.push({
+        at: new Date(2026, 4, 15, 10, 0, bootOps.length).toISOString(),
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "event:phase_advanced",
+        payload: { from: from as any, to: to as any },
+      });
+    }
+    for (const op of bootOps) {
+      const r = await mutate(op, { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false });
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      snapshot = r.snapshot;
+      tailSeq++;
+    }
+    expect(snapshot.state?.sub_state).toBe("SPEC.design");
+    expect(snapshot.state?.spec_locked).toBe(false);
+
+    // The protocol-correct gate batch: gate:decided FIRST (records approval),
+    // then event:phase_advanced (moves cursor). After Slice 1.A, gate must
+    // NOT self-move the cursor — phase_advanced sees SPEC.design and moves
+    // to EXECUTE.plan.
+    const batch = await mutateBatch(
+      [
+        {
+          at: "2026-05-15T11:00:00.000Z",
+          actor: "human:est9",
+          entry_schema_version: 1,
+          kind: "gate:decided",
+          payload: { gate_kind: "spec-lock", decision: "approved", reason: "ready" },
+        },
+        {
+          at: "2026-05-15T11:00:01.000Z",
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "event:phase_advanced",
+          payload: { from: "SPEC.design", to: "EXECUTE.plan" },
+        },
+      ],
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    );
+
+    expect(batch.ok).toBe(true);
+    if (!batch.ok) return;
+    expect(batch.snapshot.state?.sub_state).toBe("EXECUTE.plan");
+    expect(batch.snapshot.state?.spec_locked).toBe(true);
+    // Batch envelope present on both entries (N=2).
+    expect(batch.entries[0]!.batch_id).toBe(batch.entries[1]!.batch_id);
+    expect(batch.entries[0]!.batch_index).toBe(0);
+    expect(batch.entries[1]!.batch_index).toBe(1);
+  });
+
   test("G. caller-supplied batch_id field → INVALID_BATCH", async () => {
     const dir = await tmpFeatureDir();
     const result = await mutateBatch(

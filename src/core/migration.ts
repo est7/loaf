@@ -471,6 +471,7 @@ export async function rehydrateMigration(
     sub_state: subState,
     iteration: legacyState.iteration ?? 1,
     spec_locked: legacyState.spec_locked ?? false,
+    verify_accepted: false,
     ceremony,
   };
 

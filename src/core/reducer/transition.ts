@@ -1,8 +1,9 @@
 // validateTransition — Gate #1 (ADR-0005 §10).
 //
-// Shared sub-state transition validator. `event:phase_advanced` and
-// `gate:decided` reducer apply paths BOTH call this helper; no per-kind
-// if/else fork. The helper enforces:
+// Sub-state transition validator for `event:phase_advanced` only. After
+// Slice 1.A, `gate:decided` no longer drives transitions — it records an
+// approval flag and a peer `event:phase_advanced` in the same batch
+// advances the cursor. The helper enforces:
 //
 //   1. Forward edge legality (LEGAL_TRANSITIONS graph)
 //   2. Always-legal user-explicit eject targets (DONE.archived / DONE.abandoned
@@ -10,11 +11,8 @@
 //   3. rev 5.x VERIFY.accept ceremony fork:
 //        - settle_phase=true  (deep)     => MUST go SETTLE.reconcile
 //        - settle_phase=false (standard) => MUST go DONE.delivered
-//   4. (Stage 2+) gate:decided requires human:* actor
 //
-// Spec source: protocol.md §2.1 / §5.2, ADR-0005 §10, src/spike/reducer.ts
-// (rev 5.x 4-cell fork matrix already validated; this is the production
-// promotion path).
+// Spec source: protocol.md §2.1 / §5.2, ADR-0005 §10.
 
 import type { Ceremony, GateName, SubState } from "../journal-entry.js";
 

@@ -529,9 +529,12 @@ export const EntryKind = z.enum([
   "pending:added",
   "pending:resolved",
 
-  // ── Human gates (REQUIRE human: actor; implicit state transition) ──
-  // gate:decided's transition validator is SHARED with event:phase_advanced
-  // via `src/core/reducer/transition.ts` — Gate #1, ADR-0005 §10.
+  // ── Human gates (REQUIRE human: actor) ──
+  // gate:decided records an approval flag (spec_locked / verify_accepted)
+  // ONLY — it does NOT drive a state transition (Slice 1.A normalization).
+  // Cursor movement rides on a separate `event:phase_advanced` in the same
+  // batch. Source-state pairing is enforced at preflight step 5a:
+  // gate_kind=spec-lock @ SPEC.design only; verify-accept @ VERIFY.accept only.
   "gate:decided",
 
   // ── Session lifecycle ──
@@ -1358,8 +1361,16 @@ export const StateJson = z
     // ── Iteration ──
     iteration: z.number().int().positive(),
 
-    // ── Lock state ──
+    // ── Gate approval flags ──
+    // spec_locked: flipped by `gate:decided gate_kind=spec-lock decision=approved`.
+    //   The gate itself does NOT move the cursor (Slice 1.A normalization);
+    //   `event:phase_advanced` SPEC.design → EXECUTE.plan is emitted in the
+    //   same batch to advance.
+    // verify_accepted: parallel flag for `gate:decided verify-accept approved`.
+    //   Cursor moves to DONE.delivered (standard) / SETTLE.reconcile (deep)
+    //   via subsequent `loaf deliver` / `loaf settle` command, NOT the gate.
     spec_locked: z.boolean(),
+    verify_accepted: z.boolean(),
 
     // ── Pending user interactions (FIFO queue, rev 4.1) ──
     // pending[0] is the active blocker; queued entries auto-promote

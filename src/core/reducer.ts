@@ -19,7 +19,10 @@ export interface SessionState {
   phase: "TRIAGE" | "SPEC" | "EXECUTE" | "VERIFY" | "SETTLE" | "DONE";
   sub_state: SubState;
   iteration: number;
+  /** Set true by `gate:decided spec-lock approved`. gate does NOT move cursor; `event:phase_advanced` owns cursor movement. */
   spec_locked: boolean;
+  /** Set true by `gate:decided verify-accept approved`. Parallel to spec_locked: flag only, no cursor move. */
+  verify_accepted: boolean;
   ceremony: Ceremony;
 }
 
@@ -125,6 +128,7 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
           sub_state: "TRIAGE.score",
           iteration: 1,
           spec_locked: false,
+          verify_accepted: false,
           ceremony: MIGRATION_BOOTSTRAP_CEREMONY,
         },
       },
@@ -163,6 +167,7 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
           sub_state: "TRIAGE.score",
           iteration: 1,
           spec_locked: false,
+          verify_accepted: false,
           ceremony: payload.ceremony,
         },
       },
@@ -209,36 +214,34 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
     }
 
     case "gate:decided": {
-      const payload = entry.payload as { gate_kind: "spec-lock" | "verify-accept"; decision: string };
+      // Slice 1.A normalization: gate:decided records approval flags only.
+      // It does NOT move the cursor — `event:phase_advanced` owns cursor
+      // movement so the protocol-batch [gate:decided, phase_advanced] reads
+      // a consistent sub_state at each step. Rejected gate decisions are
+      // recorded in the journal but produce no projection flag change
+      // (caller can read the journal for audit; future iteration may add a
+      // rejected counter).
+      const payload = entry.payload as {
+        gate_kind: "spec-lock" | "verify-accept";
+        decision: "approved" | "rejected";
+      };
       if (payload.gate_kind === "spec-lock") {
-        return {
-          ok: true,
-          snapshot: {
-            ...prev,
-            state: {
-              ...prev.state,
-              sub_state: "EXECUTE.plan",
-              phase: "EXECUTE",
-              spec_locked: true,
-            },
-          },
-        };
+        if (payload.decision === "approved") {
+          return {
+            ok: true,
+            snapshot: { ...prev, state: { ...prev.state, spec_locked: true } },
+          };
+        }
+        return { ok: true, snapshot: prev };
       }
       if (payload.gate_kind === "verify-accept") {
-        const target: SubState = prev.state.ceremony.settle_phase
-          ? "SETTLE.reconcile"
-          : "DONE.delivered";
-        return {
-          ok: true,
-          snapshot: {
-            ...prev,
-            state: {
-              ...prev.state,
-              sub_state: target,
-              phase: extractPhase(target),
-            },
-          },
-        };
+        if (payload.decision === "approved") {
+          return {
+            ok: true,
+            snapshot: { ...prev, state: { ...prev.state, verify_accepted: true } },
+          };
+        }
+        return { ok: true, snapshot: prev };
       }
       return {
         ok: false,
