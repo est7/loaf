@@ -9,7 +9,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
-import { AppendError, appendEntry } from "../../src/core/journal-append.js";
+import { AppendError, appendEntry, appendMany } from "../../src/core/journal-append.js";
 import type { JournalEntry } from "../../src/core/journal-entry.js";
 
 async function tmpJournal(): Promise<string> {
@@ -233,5 +233,163 @@ describe("appendEntry — Stage 1", () => {
     const lines = contents.trim().split("\n");
     expect(lines).toHaveLength(2);
     expect(JSON.parse(lines[1]!).seq).toBe(1);
+  });
+});
+
+describe("appendMany — Slice 1.0 Cycle 2", () => {
+  function pendingAdded(seq: number, id: string): JournalEntry {
+    return {
+      seq,
+      entry_id: `JE-${String(seq + 1).padStart(6, "0")}`,
+      at: `2026-05-15T10:00:0${seq}.000Z`,
+      actor: "cli:loaf",
+      entry_schema_version: 1,
+      kind: "pending:added",
+      payload: { id, kind: "ask_user_question" },
+    };
+  }
+
+  // ── A: tracer bullet — happy path multi-entry write ───────────────────────
+  test("A. appends 2 valid entries to an empty journal in one single newline-joined write", async () => {
+    const filePath = await tmpJournal();
+    const entries = [pendingAdded(0, "PEND-001"), pendingAdded(1, "PEND-002")];
+
+    await appendMany(filePath, entries, { fsync: false });
+
+    const contents = await fs.readFile(filePath, "utf8");
+    const lines = contents.trim().split("\n");
+    expect(lines).toHaveLength(2);
+    expect(JSON.parse(lines[0]!).seq).toBe(0);
+    expect(JSON.parse(lines[1]!).seq).toBe(1);
+    expect(contents).toBe(
+      JSON.stringify(entries[0]) + "\n" + JSON.stringify(entries[1]) + "\n",
+    );
+  });
+
+  // ── B: atomicity — entry #2 invalid → journal untouched ──────────────────
+  // Spec: prevalidate ALL entries before opening the file. A late-batch fail
+  // must leave the journal in its prior state (no partial write).
+  test("B. entry #2 has wrong seq → SEQ_NOT_MONOTONIC, file never created (ENOENT)", async () => {
+    const filePath = await tmpJournal();
+    const good = pendingAdded(0, "PEND-001");
+    const badSeq = { ...pendingAdded(1, "PEND-002"), seq: 5 } as JournalEntry;
+
+    await expect(appendMany(filePath, [good, badSeq], { fsync: false })).rejects.toBeInstanceOf(
+      AppendError,
+    );
+    await expect(appendMany(filePath, [good, badSeq], { fsync: false })).rejects.toMatchObject({
+      code: "SEQ_NOT_MONOTONIC",
+    });
+    await expect(fs.readFile(filePath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  test("B. entry #2 has invalid envelope → INVALID_ENVELOPE, no partial write", async () => {
+    const filePath = await tmpJournal();
+    const good = pendingAdded(0, "PEND-001");
+    const badEnvelope = { ...pendingAdded(1, "PEND-002"), actor: "alice" } as JournalEntry;
+
+    await expect(
+      appendMany(filePath, [good, badEnvelope], { fsync: false }),
+    ).rejects.toMatchObject({ code: "INVALID_ENVELOPE" });
+    await expect(fs.readFile(filePath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  // Atomicity over an EXISTING journal: late-batch fail must leave the tail
+  // exactly where it was, not append the prevalidated leading entries.
+  test("B. mid-batch fail over non-empty journal → tail unchanged", async () => {
+    const filePath = await tmpJournal();
+    // Seed with one entry so journal exists at seq=0.
+    await appendMany(filePath, [pendingAdded(0, "PEND-SEED")], { fsync: false });
+    const before = await fs.readFile(filePath, "utf8");
+
+    const good = pendingAdded(1, "PEND-001");
+    const bad = { ...pendingAdded(2, "PEND-002"), entry_id: "EV-000003" } as JournalEntry;
+
+    await expect(
+      appendMany(filePath, [good, bad], { fsync: false }),
+    ).rejects.toMatchObject({ code: "INVALID_ENVELOPE" });
+
+    const after = await fs.readFile(filePath, "utf8");
+    expect(after).toBe(before);
+  });
+
+  // ── C: empty array rejected explicitly ───────────────────────────────────
+  test("C. empty entries array → INVALID_ENVELOPE", async () => {
+    const filePath = await tmpJournal();
+    await expect(appendMany(filePath, [], { fsync: false })).rejects.toMatchObject({
+      code: "INVALID_ENVELOPE",
+    });
+    await expect(fs.readFile(filePath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  // ── D: seq contiguity within the batch ───────────────────────────────────
+  // entry[0].seq must match tail+1; entry[i].seq must match entry[i-1].seq+1.
+  test("D. seq jumps inside batch (0 then 2) → SEQ_NOT_MONOTONIC", async () => {
+    const filePath = await tmpJournal();
+    const entries = [pendingAdded(0, "PEND-A"), pendingAdded(2, "PEND-B")];
+    await expect(appendMany(filePath, entries, { fsync: false })).rejects.toMatchObject({
+      code: "SEQ_NOT_MONOTONIC",
+    });
+    await expect(fs.readFile(filePath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  test("D. batch starts at wrong seq (tail=0, batch starts at 5) → SEQ_NOT_MONOTONIC", async () => {
+    const filePath = await tmpJournal();
+    await appendMany(filePath, [pendingAdded(0, "PEND-SEED")], { fsync: false });
+
+    const entries = [pendingAdded(5, "PEND-A"), pendingAdded(6, "PEND-B")];
+    await expect(appendMany(filePath, entries, { fsync: false })).rejects.toMatchObject({
+      code: "SEQ_NOT_MONOTONIC",
+    });
+  });
+
+  // ── E: batch extends existing journal contiguously ───────────────────────
+  test("E. batch appended to non-empty journal extends seq contiguously", async () => {
+    const filePath = await tmpJournal();
+    await appendMany(filePath, [pendingAdded(0, "PEND-SEED")], { fsync: false });
+
+    const entries = [pendingAdded(1, "PEND-A"), pendingAdded(2, "PEND-B")];
+    await appendMany(filePath, entries, { fsync: false });
+
+    const lines = (await fs.readFile(filePath, "utf8")).trim().split("\n");
+    expect(lines).toHaveLength(3);
+    expect(lines.map((l) => JSON.parse(l!).seq)).toEqual([0, 1, 2]);
+  });
+
+  // ── F: per-write byte ceiling — batch total ≤ ENTRY_BYTE_LIMIT ───────────
+  // Protocol §11.2 step 5b: one write() ≤ 64KB whether one entry or N.
+  // Each individual entry can be under-limit but the concatenated batch must
+  // also be under-limit.
+  test("F. each entry under cap but batch total > 64KB → ENTRY_OVERSIZE (scope=batch)", async () => {
+    const filePath = await tmpJournal();
+    const big = (seq: number, id: string): JournalEntry => ({
+      ...pendingAdded(seq, id),
+      payload: { id, kind: "ask_user_question", note: "x".repeat(35_000) },
+    });
+    const entries = [big(0, "PEND-A"), big(1, "PEND-B")];
+
+    await expect(appendMany(filePath, entries, { fsync: false })).rejects.toMatchObject({
+      code: "ENTRY_OVERSIZE",
+      detail: { scope: "batch" },
+    });
+    await expect(fs.readFile(filePath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  // ── G: mid-batch payload schema failure — same atomicity guarantee ───────
+  // Covers the PER_KIND_PAYLOAD branch in appendMany. Inherited appendEntry
+  // payload tests prove single-entry behavior; this proves it in batch path.
+  test("G. entry #2 payload missing required field → INVALID_PAYLOAD, no partial write", async () => {
+    const filePath = await tmpJournal();
+    const good = pendingAdded(0, "PEND-A");
+    // PendingAddedPayload requires `id` and `kind`; strip `kind` to trip schema.
+    const bad = {
+      ...pendingAdded(1, "PEND-B"),
+      payload: { id: "PEND-B" },
+    } as JournalEntry;
+
+    await expect(appendMany(filePath, [good, bad], { fsync: false })).rejects.toMatchObject({
+      code: "INVALID_PAYLOAD",
+    });
+    await expect(fs.readFile(filePath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
   });
 });
