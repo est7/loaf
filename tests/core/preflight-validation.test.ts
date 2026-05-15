@@ -154,6 +154,22 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
     if (!result.ok) expect(result.code).toBe("TRANSITION_ILLEGAL");
   });
 
+  // Audit r1 — Blocker #1: event:phase_advanced payload.from MUST match
+  // the current cursor; validateTransition only checks edge legality.
+  test("event:phase_advanced payload.from mismatches cursor → FROM_CURSOR_MISMATCH", () => {
+    const result = preflight(
+      baseEntry({
+        kind: "event:phase_advanced",
+        // payload edge is legal (EXECUTE.work → EXECUTE.done) but cursor
+        // sits at TRIAGE.score — preflight must reject.
+        payload: { from: "EXECUTE.work", to: "EXECUTE.done" },
+      }),
+      { sub_state: "TRIAGE.score", tail_seq: -1, ceremony: STANDARD_CEREMONY },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("FROM_CURSOR_MISMATCH");
+  });
+
   test("gate:decided uses validateTransition (rev 5.x ceremony fork)", () => {
     // verify-accept gate in deep ceremony → SETTLE.reconcile (OK)
     const deep = preflight(

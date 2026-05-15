@@ -22,6 +22,7 @@ import {
   computeLineHash,
   extendRollingChecksum,
   emptyMeta,
+  FEATURE_SCHEMA_VERSION,
   type SnapshotMeta,
 } from "./snapshot.js";
 
@@ -135,6 +136,8 @@ export async function replayJournal(filePath: string): Promise<ReplayResult | Re
       last_entry_offset: lastEntryOffset,
       last_entry_line_hash: lastLineHash,
       rolling_checksum: rolling,
+      feature_schema_version: FEATURE_SCHEMA_VERSION,
+      written_at: new Date().toISOString(),
     },
     entries_applied: applied,
   };

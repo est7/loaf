@@ -1,15 +1,16 @@
-// Per-kind Cartesian fixture builder (Stage 2 §3.6 invariants matrix).
+// Per-kind representative-anchor fixture builder (Stage 2 §3.6 invariants matrix).
 //
-// Generates representative (kind × sub_state) cases for table-driven preflight
-// tests. For each EntryKind we emit:
+// **Naming clarification (audit r1 fix #10)**: this builder is NOT a full
+// Cartesian generator despite the original plan.md wording. It emits one
+// positive + one negative anchor per EntryKind — enough to assert the
+// PER_KIND_SUB_STATE / PER_KIND_ACTOR tables are wired into preflight, but
+// NOT a guarantee that every (kind × sub_state × actor) combination is
+// observed. The 25×20 sub_state matrix + 25×5 actor matrix is left as a
+// follow-up — to be added if a regression surfaces a coverage hole.
+//
+// For each EntryKind we emit:
 //   - one "legal" case: kind paired with a sub_state where it is allowed
 //   - one "illegal" case: kind paired with a sub_state where it is rejected
-//
-// The builder is intentionally not exhaustive (25 kinds × 20 sub_states = 500
-// combinations); it picks one positive + one negative anchor per kind, which
-// is enough to assert the table data shape is wired into preflight without
-// drowning the suite. Full Cartesian coverage can be added later if a
-// regression surfaces a hole.
 
 import type { EntryKind, SubState } from "../../src/core/journal-entry.js";
 import {

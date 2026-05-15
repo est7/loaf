@@ -13,8 +13,23 @@ import os from "node:os";
 
 import { appendEntry } from "../../src/core/journal-append.js";
 import { checkSnapshotFresh } from "../../src/core/snapshot-reader.js";
-import { computeLineHash, emptyMeta } from "../../src/core/snapshot.js";
+import {
+  computeLineHash,
+  emptyMeta,
+  FEATURE_SCHEMA_VERSION,
+  type SnapshotMeta,
+} from "../../src/core/snapshot.js";
 import type { Ceremony, JournalEntry } from "../../src/core/journal-entry.js";
+
+function mkMeta(
+  partial: Pick<SnapshotMeta, "last_applied_seq" | "last_entry_offset" | "last_entry_line_hash" | "rolling_checksum">,
+): SnapshotMeta {
+  return {
+    ...partial,
+    feature_schema_version: FEATURE_SCHEMA_VERSION,
+    written_at: "2026-05-15T00:00:00.000Z",
+  };
+}
 
 const STANDARD: Ceremony = {
   spec_phase: true,
@@ -63,13 +78,13 @@ describe("checkSnapshotFresh — Gate #5", () => {
     await appendEntry(filePath, entry, { fsync: false });
 
     const line = JSON.stringify(entry);
-    const meta = {
+    const m = mkMeta({
       last_applied_seq: 0,
       last_entry_offset: 0,
       last_entry_line_hash: computeLineHash(line),
       rolling_checksum: "0".repeat(64),
-    };
-    const result = await checkSnapshotFresh(meta, filePath);
+    });
+    const result = await checkSnapshotFresh(m, filePath);
     expect(result.fresh).toBe(true);
     if (result.fresh) expect(result.last_applied_seq).toBe(0);
   });
@@ -93,13 +108,13 @@ describe("checkSnapshotFresh — Gate #5", () => {
 
     // Stale meta pinned at seq=0 (the first entry's offset/hash).
     const firstLine = JSON.stringify(startEntry());
-    const meta = {
+    const m = mkMeta({
       last_applied_seq: 0,
       last_entry_offset: 0,
       last_entry_line_hash: computeLineHash(firstLine),
       rolling_checksum: "0".repeat(64),
-    };
-    const result = await checkSnapshotFresh(meta, filePath);
+    });
+    const result = await checkSnapshotFresh(m, filePath);
     expect(result.fresh).toBe(false);
     if (!result.fresh) {
       expect(result.code).toBe("SNAPSHOT_STALE_REBUILD_REQUIRED");
@@ -112,15 +127,15 @@ describe("checkSnapshotFresh — Gate #5", () => {
     await appendEntry(filePath, startEntry(), { fsync: false });
 
     const line = JSON.stringify(startEntry());
-    const meta = {
+    const m = mkMeta({
       last_applied_seq: 0,
       last_entry_offset: 0,
       last_entry_line_hash: "deadbeef".repeat(8), // garbage 64-hex
       rolling_checksum: "0".repeat(64),
-    };
-    expect(meta.last_entry_line_hash.length).toBe(64);
+    });
+    expect(m.last_entry_line_hash.length).toBe(64);
 
-    const result = await checkSnapshotFresh(meta, filePath);
+    const result = await checkSnapshotFresh(m, filePath);
     expect(result.fresh).toBe(false);
     if (!result.fresh) {
       expect(result.code).toBe("SNAPSHOT_STALE_REBUILD_REQUIRED");
@@ -136,13 +151,13 @@ describe("checkSnapshotFresh — Gate #5", () => {
     const stat = await fs.stat(filePath);
     await fs.truncate(filePath, stat.size - 1);
 
-    const meta = {
+    const m = mkMeta({
       last_applied_seq: 0,
       last_entry_offset: 0,
       last_entry_line_hash: computeLineHash(JSON.stringify(startEntry())),
       rolling_checksum: "0".repeat(64),
-    };
-    const result = await checkSnapshotFresh(meta, filePath);
+    });
+    const result = await checkSnapshotFresh(m, filePath);
     expect(result.fresh).toBe(false);
     if (!result.fresh) expect(result.reason).toBe("trailing_partial_line");
   });
@@ -152,13 +167,13 @@ describe("checkSnapshotFresh — Gate #5", () => {
     const filePath = path.join(dir, "journal.jsonl");
     await fs.writeFile(filePath, "");
 
-    const meta = {
+    const m = mkMeta({
       last_applied_seq: 5,
       last_entry_offset: 100,
       last_entry_line_hash: "deadbeef".repeat(8),
       rolling_checksum: "0".repeat(64),
-    };
-    const result = await checkSnapshotFresh(meta, filePath);
+    });
+    const result = await checkSnapshotFresh(m, filePath);
     expect(result.fresh).toBe(false);
     if (!result.fresh) expect(result.reason).toBe("journal_empty");
   });

@@ -125,4 +125,74 @@ describe("validateTransition — Gate #1", () => {
     });
     expect(result.ok).toBe(true);
   });
+
+  // ── 2A.4: Audit r1 Blocker #2 — TRIAGE.confirm spec_phase fork ──────────
+  test("2A.4. TRIAGE.confirm → SPEC.proposal rejected when spec_phase=false (quick)", () => {
+    const result = validateTransition("TRIAGE.confirm", "SPEC.proposal", {
+      ceremony: QUICK_CEREMONY,
+      actor: ACTOR,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("SPEC_PHASE_FORK_VIOLATION");
+  });
+
+  test("2A.4. TRIAGE.confirm → EXECUTE.plan rejected when spec_phase=true (standard)", () => {
+    const result = validateTransition("TRIAGE.confirm", "EXECUTE.plan", {
+      ceremony: STANDARD_CEREMONY,
+      actor: ACTOR,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("SPEC_PHASE_FORK_VIOLATION");
+  });
+
+  test("2A.4. TRIAGE.confirm → SPEC.proposal allowed when spec_phase=true (standard)", () => {
+    const result = validateTransition("TRIAGE.confirm", "SPEC.proposal", {
+      ceremony: STANDARD_CEREMONY,
+      actor: ACTOR,
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  test("2A.4. TRIAGE.confirm → EXECUTE.plan allowed when spec_phase=false (quick)", () => {
+    const result = validateTransition("TRIAGE.confirm", "EXECUTE.plan", {
+      ceremony: QUICK_CEREMONY,
+      actor: ACTOR,
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  // ── 2A.5: Audit r1 Blocker #2 — EXECUTE.done verify_phase fork ──────────
+  test("2A.5. EXECUTE.done → VERIFY.plan rejected when verify_phase=false (quick/light)", () => {
+    const result = validateTransition("EXECUTE.done", "VERIFY.plan", {
+      ceremony: QUICK_CEREMONY,
+      actor: ACTOR,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("VERIFY_PHASE_FORK_VIOLATION");
+  });
+
+  test("2A.5. EXECUTE.done → DONE.delivered rejected when verify_phase=true (standard/deep)", () => {
+    const result = validateTransition("EXECUTE.done", "DONE.delivered", {
+      ceremony: STANDARD_CEREMONY,
+      actor: ACTOR,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("VERIFY_PHASE_FORK_VIOLATION");
+  });
+
+  test("2A.5. EXECUTE.done → VERIFY.plan allowed when verify_phase=true (standard)", () => {
+    const result = validateTransition("EXECUTE.done", "VERIFY.plan", {
+      ceremony: STANDARD_CEREMONY,
+      actor: ACTOR,
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  test("2A.5. EXECUTE.done → DONE.delivered allowed when verify_phase=false (quick)", () => {
+    const result = validateTransition("EXECUTE.done", "DONE.delivered", {
+      ceremony: QUICK_CEREMONY,
+      actor: ACTOR,
+    });
+    expect(result.ok).toBe(true);
+  });
 });

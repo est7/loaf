@@ -13,6 +13,7 @@
 
 import { promises as fsp } from "node:fs";
 
+import { ENTRY_BYTE_LIMIT } from "./journal-entry.js";
 import { computeLineHash, type SnapshotMeta } from "./snapshot.js";
 
 export type SnapshotReaderResult =
@@ -65,8 +66,10 @@ export async function checkSnapshotFresh(
     };
   }
 
-  // Read the last KB of the journal to locate the tail line.
-  const tailRead = Math.min(stat.size, 8 * 1024);
+  // Read the last ENTRY_BYTE_LIMIT bytes (audit r1 fix #8). Entries can be
+  // up to 64KB; the prior 8KB window would falsely reject any meta whose
+  // tail line lands beyond 8KB from EOF.
+  const tailRead = Math.min(stat.size, ENTRY_BYTE_LIMIT);
   const fh = await fsp.open(journalPath, "r");
   try {
     const buf = Buffer.alloc(tailRead);

@@ -39,9 +39,12 @@ export type PreflightFailureCode =
   | "SEQ_NOT_MONOTONIC"
   | "SUB_STATE_AUTHORITY_VIOLATION"
   | "ACTOR_AUTHORITY_VIOLATION"
+  | "FROM_CURSOR_MISMATCH"
   | "TRANSITION_ILLEGAL"
   | "SETTLE_PHASE_DISABLED"
-  | "SETTLE_PHASE_BYPASS";
+  | "SETTLE_PHASE_BYPASS"
+  | "SPEC_PHASE_FORK_VIOLATION"
+  | "VERIFY_PHASE_FORK_VIOLATION";
 
 export type PreflightResult =
   | { ok: true }
@@ -103,7 +106,25 @@ export function preflight(
     };
   }
 
-  // (5) Transition (only for kinds carrying a state-machine edge).
+  // (5a) Audit r1 fix: for event:phase_advanced, payload.from MUST match
+  // the current cursor. validateTransition only checks edge legality; cursor
+  // coherence is preflight's job. Without this gate a caller can pass any
+  // valid LEGAL_TRANSITIONS edge (e.g. EXECUTE.work → EXECUTE.done) even
+  // though the cursor sits at TRIAGE, and preflight returns ok.
+  if (entry.kind === "event:phase_advanced") {
+    const payload = (rawEntry as { payload?: Record<string, unknown> }).payload ?? {};
+    const from = payload["from"] as SubState | undefined;
+    if (from !== undefined && from !== ctx.sub_state) {
+      return {
+        ok: false,
+        code: "FROM_CURSOR_MISMATCH",
+        message: `event:phase_advanced payload.from=${from} but current sub_state=${ctx.sub_state}`,
+        detail: { payload_from: from, current_sub_state: ctx.sub_state },
+      };
+    }
+  }
+
+  // (5b) Transition (for kinds carrying a state-machine edge).
   const transitionResult = checkTransition(entry.kind, rawEntry as Record<string, unknown>, ctx);
   if (transitionResult && !transitionResult.ok) {
     return {

@@ -62,7 +62,9 @@ export type TransitionResult =
       code:
         | "TRANSITION_ILLEGAL"
         | "SETTLE_PHASE_DISABLED"
-        | "SETTLE_PHASE_BYPASS";
+        | "SETTLE_PHASE_BYPASS"
+        | "SPEC_PHASE_FORK_VIOLATION"
+        | "VERIFY_PHASE_FORK_VIOLATION";
       message: string;
       detail?: Record<string, unknown>;
     };
@@ -90,6 +92,56 @@ export function validateTransition(
         always_legal: [...ALWAYS_LEGAL_TARGETS],
       },
     };
+  }
+
+  // rev 5.x — TRIAGE.confirm fork ceremony guard (audit r1 follow-up).
+  //   spec_phase=true  (light / standard / deep) → SPEC.proposal
+  //   spec_phase=false (quick)                   → EXECUTE.plan
+  if (prev === "TRIAGE.confirm") {
+    const specPhase = ctx.ceremony.spec_phase;
+    if (target === "SPEC.proposal" && !specPhase) {
+      return {
+        ok: false,
+        code: "SPEC_PHASE_FORK_VIOLATION",
+        message:
+          "TRIAGE.confirm → SPEC.proposal requires ceremony.spec_phase=true",
+        detail: { from: prev, to: target, spec_phase: specPhase },
+      };
+    }
+    if (target === "EXECUTE.plan" && specPhase) {
+      return {
+        ok: false,
+        code: "SPEC_PHASE_FORK_VIOLATION",
+        message:
+          "TRIAGE.confirm → EXECUTE.plan requires ceremony.spec_phase=false (quick); profiles with spec_phase=true must traverse SPEC.*",
+        detail: { from: prev, to: target, spec_phase: specPhase },
+      };
+    }
+  }
+
+  // rev 5.x — EXECUTE.done fork ceremony guard (audit r1 follow-up).
+  //   verify_phase=true  (standard / deep) → VERIFY.plan
+  //   verify_phase=false (quick / light)   → DONE.delivered  (via `loaf deliver` + verify-min)
+  if (prev === "EXECUTE.done") {
+    const verifyPhase = ctx.ceremony.verify_phase;
+    if (target === "VERIFY.plan" && !verifyPhase) {
+      return {
+        ok: false,
+        code: "VERIFY_PHASE_FORK_VIOLATION",
+        message:
+          "EXECUTE.done → VERIFY.plan requires ceremony.verify_phase=true (standard / deep)",
+        detail: { from: prev, to: target, verify_phase: verifyPhase },
+      };
+    }
+    if (target === "DONE.delivered" && verifyPhase) {
+      return {
+        ok: false,
+        code: "VERIFY_PHASE_FORK_VIOLATION",
+        message:
+          "EXECUTE.done → DONE.delivered requires ceremony.verify_phase=false (quick / light); verify_phase=true must enter VERIFY.plan first",
+        detail: { from: prev, to: target, verify_phase: verifyPhase },
+      };
+    }
   }
 
   // rev 5.x — VERIFY.accept fork ceremony guard.
