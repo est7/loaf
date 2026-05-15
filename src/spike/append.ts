@@ -1,5 +1,13 @@
 // appendEvent — the B4-eliminating primitive.
 //
+// **Stage 1 status (rev 5.0)**: superseded by `src/core/journal-append.ts`
+// (`appendEntry()` with §11.2 step-5 final validate + 64KB byte ceiling +
+// seq monotonic invariant). This spike module remains live because
+// `tests/spike/atomicity-worker.ts` + `tests/spike/replay.test.ts` still
+// import `appendEvent`; they migrate alongside their spike fixtures in
+// Stages 2-3 per docs/plan.md. Do NOT add new behavior here; extend
+// `src/core/journal-append.ts` instead.
+//
 // Contract (codex B1 refinement — PIPE_BUF is not the right citation;
 // regular files need explicit discipline):
 //   1. Open with O_APPEND. Each write() syscall starts at current EOF;

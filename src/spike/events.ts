@@ -1,5 +1,13 @@
 // loaf-cli spike — Event union
 //
+// **Stage 1 status (rev 5.0)**: superseded by `src/core/journal-entry.ts`
+// (JournalEntry envelope per ADR-0005 §3.2 + EntryKind enum per §3.3). This
+// spike module remains live because its consumers — `src/spike/reducer.ts`,
+// `src/spike/snapshot.ts`, `src/spike/project.ts`, `src/spike/jsonl-store.ts`,
+// and the six `tests/spike/*.test.ts` suites — migrate to the core path in
+// Stages 2-3 per docs/plan.md. Removal happens once all callers move.
+// Do NOT add new fields here; extend `src/core/journal-entry.ts` instead.
+//
 // 10 event kinds chosen to exercise the architecture, not full protocol coverage:
 //   session_started / spec_submitted / spec_locked /
 //   tasks_submitted / task_claimed /
