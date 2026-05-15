@@ -1295,19 +1295,21 @@ spike task 完工有 3 个合法出口,**永远不允许 deliver**:
 
 光看 sub_state 名字无法区分 `SPEC.plan`(risks/milestones 阶段)与 `EXECUTE.plan`(per-task execution policy 阶段)两个"plan"的写权限差异。本表是协议层显式声明,机器表达见 schemas.ts `SubStateContract.mutation_rights`。
 
-| Sub-state | 可写 artifact / 字段 | 不可写 | 典型 mutation |
+本表描述**逻辑 mutation rights**(可改哪些 spec / task / evidence / finding 字段),不是物理写权限。**rev 5.0**:所有改动都通过 `loaf <cmd>` emit journal entries,reducer 派生到 `snapshots/*.json`;skill / sub-agent / 外部脚本永远不直写任何 artifact(§11.2 + Principle 15a)。"可写字段"列出的是 reducer-visible state 中允许被本 sub_state 修改的逻辑字段;落地通过 §10.8 kind-emission table 中对应命令 emit 的 journal kind 实现。
+
+| Sub-state | 可写字段(reducer-visible)| 不可写 | 典型命令 / emitted kind |
 |---|---|---|---|
-| `SPEC.plan` | `spec.md` body (risks / dependencies / milestones 段) | `tasks.json`, source code, `spec.md` 的 frontmatter `requirements/scenarios/visual_contracts` | spec body 编辑(`loaf spec edit`) |
-| `SPEC.design` | `spec.md` body (design 段) + `tasks.json` **整体新建** | source code | `loaf spec edit` + `loaf tasks submit` |
-| `EXECUTE.plan` | `tasks.json.tasks[].execution[].applicability`(per-task policy derive)+ `task.status` `pending` → `ready` | `spec.md`, REQ/SCEN/VIS frontmatter, `task.drives`, `task.depends_on`, `task.kind`, source code | `loaf tasks amend --policy ...` |
-| `EXECUTE.work` | `tasks.json.tasks[].execution[].status` + `evidence.jsonl`(append)+ `findings.jsonl`(post-lock 时)+ source code(diff-guard 内) | `spec.md`, `task.drives`, `task.kind`, `task.depends_on` | `loaf tasks step start/done` + `loaf evidence add` + Write/Edit 工具 |
+| `SPEC.plan` | spec body risks / dependencies / milestones 段 | tasks graph, source code, spec frontmatter REQ/SCEN/VIS | `loaf spec edit` → `event:spec_submitted`(reducer 派生 `spec.md` projection) |
+| `SPEC.design` | spec body design 段 + 整体 task graph(初次创建)| source code | `loaf spec edit` → `event:spec_submitted`;`loaf tasks submit` → `event:tasks_planned` |
+| `EXECUTE.plan` | per-task `execution[].applicability`(per-task policy derive)+ `task.status` 从 pending → ready | spec body, REQ/SCEN/VIS frontmatter, `task.drives`, `task.depends_on`, `task.kind`, source code | `loaf tasks amend --policy ...` → `event:tasks_amended` |
+| `EXECUTE.work` | per-task `execution[].status`(任意 step 推进)+ evidence ledger(新增)+ finding ledger(post-lock 时新增 / 关闭)+ source code(diff-guard 内)| spec body, `task.drives`, `task.kind`, `task.depends_on` | `loaf tasks step start/done` → `event:task_step_*`;`loaf evidence add` → `evidence:added`;`loaf finding raise/close` → `finding:raised|closed`;Write/Edit 工具(source code) |
 
 **强制方式**:
-- `spec.md` / `tasks.json` 顶层字段维度由 `loaf <cmd>` 内部 mutator 层 enforce(对应 schemas.ts `SUB_STATE_CONTRACTS.mutation_rights`)
-- source code 维度由 PreToolUse(Write,Edit) hook 用 `STEP_WRITE_PATHS_BY_KIND[kind][step]` glob 校验
-- 违反 → exit 2 + `gate-diagnostic.json` 写 code `MUTATION_OUT_OF_RIGHTS`(写入字段 / 路径 / 当前 sub_state)
+- 字段维度:`loaf <cmd>` 在 §11.2 step 3 preflight 内做 sub_state × kind × mutation_rights refine(对应 schemas.ts `SUB_STATE_CONTRACTS.mutation_rights` + ADR-0005 §3.6 per-kind invariants);违反在 preflight 抛错,不进 journal
+- source code 维度:PreToolUse(Write,Edit) hook 用 `STEP_WRITE_PATHS_BY_KIND[kind][step]` glob 校验
+- 违反 → exit 2 + `snapshots/gate-diagnostic.json` 写 code `MUTATION_OUT_OF_RIGHTS`(写入字段 / 路径 / 当前 sub_state)
 
-`tasks.json` 改契约(加 task / 改 drives / 改 kind / 改 depends_on)只能走 SPEC.design 或 finding action `amend-tasks` 回退,**不能在 EXECUTE.work 直接改**。
+task graph 契约改(加 task / 改 drives / 改 kind / 改 depends_on)只能在 SPEC.design(`event:tasks_planned` 初创)或经 finding action `amend-tasks` 回退路径(emit `event:tasks_amended`),**不能在 EXECUTE.work 直接改 task graph**。
 
 ---
 
@@ -1904,7 +1906,7 @@ git / gh side effect 是 loaf-skill 或用户自己负责,**不进 loaf-cli**。
 | **schema-drift** | `.loaf/<feature>/{journal.jsonl,snapshots/_meta.json}` + legacy `.loaf/<feature>/{state,spec,tasks,evidence,findings}.json/jsonl`(仅 v0.0.x backup 或迁移源)| 当前 binary 期望 `SCHEMA_VERSION=2`(rev 5.0);journal `entry_schema_version` 或 `snapshots/_meta.json.feature_schema_version` ≠ 2 → drift;legacy `schema_version=1` artifact 出现在 active feature 而非 backup → 触发 migration-v0.0.x 路径 | 不自动 fix;打印 `SCHEMA_VERSION_MISMATCH` + migration hint(`loaf doctor --migrate-v2`);v1 GA 后 `SCHEMA_VERSION` freeze 在 2,理论无 drift |
 | **artifact-corruption** | 上同 | Zod parse 失败 / 非法 JSON | 不自动 fix;打印 path + Zod 错误,提示手动恢复或从 git 历史 checkout |
 | **url-placeholder**(只在 startup 内嵌跑)| binary build 元数据 | `LOAF_DOCS_URL` 或 `LOAF_ISSUE_URL` 是默认 placeholder(见 §10.11)| 不 fix(rebuild 才能修);警告即可 |
-| **stale-claim**(rev 4.1)| `.loaf/<feature>/tasks.json` 中 `status="in_progress"` 的 task | `task.execution.<step>.started_at` > 30 分钟 + 无对应 evidence id 新增(`evidence.jsonl` 该 task_id 自 started_at 后无 append)| `--fix`:回写 `task.execution.<step>.status = "ready"` + `task.status = "ready"` + 写 audit evidence(`kind=local-check actor=cli:doctor result=passed summary="auto-reclaimed stale claim"`);worker 已死或卡住时让其它 worker 重 claim |
+| **stale-claim**(rev 4.1 + rev 5.0 reframed)| `snapshots/tasks.json` 中 `status="in_progress"` 的 task | `task.execution.<step>.started_at` > 30 分钟 + 自 started_at 后该 task_id 在 `snapshots/evidence.json`(`evidence:added` view)无新 entry | **v0.1.0 状态:non-trivial**——单写者纪律下,doctor 修复也得 emit journal entry 才能改 reducer-visible state。两种实现方案(待 ADR-0006-doctor-repair 决定):(a)emit 新 kind `event:claim_reclaimed`(actor `cli:doctor`,reducer 派生回 status=ready + 写 audit evidence:added),走 §11.2 transaction 落地;(b)纯诊断 — 只 stderr 警告 + 标 finding,不动 state,人工介入。**v0.1.0 默认 (b) advisory-only,不带 `--fix`**;`--fix` route 暂留为 v0.1.x 工程项(走 (a))。`loaf doctor` 现 stage 只识别 + 报,不改 state |
 | **orphan-attachment**(rev 5.0,ADR-0005 §3.5 step 4d/5 crash window)| `.loaf/<feature>/attachments/<entry_id>/**` | 文件存在但 journal.jsonl 中无 matching `entry_id` 的 entry,或 entry 中无指向该 file 的 `AttachmentRef` | `--fix`:删 orphan 目录 + 写 `evidence:added kind=local-check actor=cli:doctor result=passed summary="purged orphan attachment <entry_id>/<path>"`(audit trail)|
 | **tail-corruption**(rev 5.0,ADR-0005 §4.13 + Gate #4)| `.loaf/<feature>/journal.jsonl` 末尾 | 末行 partial JSON / 末 batch `batch_index < batch_count - 1` 或 batch 末 entry partial / sha256(last entry) ≠ `_meta.last_entry_line_hash` | `--fix`:单 entry partial → truncate 末行;batch incomplete → truncate 整批至 batch 第一 entry 之前;rewrite `snapshots/_meta.json`;若 truncate 跨过 `last_applied_seq` → 同时跑 `--rebuild` |
 | **stale-tmp**(rev 5.0)| `.loaf/<feature>/{journal.jsonl,snapshots/*,attachments/**}.tmp-*` | 任意 `.tmp-*` 残留 + mtime > 60s + 无 active lock | `--fix`:`unlink` 全部 |
