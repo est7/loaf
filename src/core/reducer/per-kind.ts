@@ -40,7 +40,12 @@ export const PER_KIND_SUB_STATE: Record<EntryKind, SubStateGuard> = {
   // State machine transitions
   "event:phase_advanced": ANY_SUB_STATE, // validateTransition gates the edge itself
   "event:ceremony_set": new Set(["TRIAGE.score", "TRIAGE.confirm"]),
-  "event:tasks_planned": new Set(["EXECUTE.plan"]),
+  // Protocol §1800+1848: `loaf tasks submit` (initial whole-plan) emits
+  // event:tasks_planned at SPEC.design (so spec-lock check 3 can verify
+  // tasks_based_on.spec === spec.spec_version before the gate moves the
+  // session to EXECUTE.plan). EXECUTE.plan stays as an additional allowed
+  // sub_state for re-planning after a finding-triggered rollback to SPEC.
+  "event:tasks_planned": new Set(["SPEC.design", "EXECUTE.plan"]),
   "event:tasks_amended": new Set(VERIFY_OR_POST_LOCK_EXECUTE),
   "event:task_claimed": new Set(["EXECUTE.work"]),
   "event:task_step_started": new Set(["EXECUTE.work"]),

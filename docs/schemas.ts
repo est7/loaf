@@ -1396,6 +1396,15 @@ export const StateJson = z
       tasks: z.number().int().nonnegative(),
     }),
 
+    // Slice 1.B sub-cycle 3c (codex r19 watch point #1): public mapping
+    // of the runtime `SessionState.spec_version` live counter. Mirrors
+    // the spec.md projection live counter, distinct from `based_on.spec`
+    // (which is the frozen tasks-graph anchor). `default(0)` is
+    // backward-compat only — the future state-snapshot writer MUST
+    // serialize `spec_version` explicitly; relying on the default would
+    // hide a projection-writer bug.
+    spec_version: z.number().int().nonnegative().default(0),
+
     // ── Heartbeat ──
     heartbeat_at: z.string().datetime(),
 
@@ -3736,6 +3745,12 @@ export const DiagnosticCode = z.enum([
   "E2E_SCENARIO_UNBOUND",                  // src/core/gates/spec-lock-check.ts check 6 — e2e scenario lacks a task with requires_acceptance=true AND drives.includes(scenario.id)
   "VISUAL_CONTRACT_UNBOUND",               // src/core/gates/spec-lock-check.ts check 7 — visual_contract lacks a visual-ui task with visual_contract_refs.includes(visual.id)
   "TASK_KIND_SCHEMA_VIOLATION",            // src/core/gates/spec-lock-check.ts check 8 — projected kind-specific obligations missing (defense-in-depth for migration:snapshot_imported)
+  // ── Slice 1.B sub-cycle 3c — mutateBatch spec-lock wire (codex r28) ──
+  // NOTE these are MUTATE-LAYER failures (the gate evaluator decided NOT
+  // to admit the batch); they are NOT spec-lock machine-check codes
+  // themselves. Spec-lock checks above (2/3/4/5/6/7/8) live in detail.checks.
+  "GATE_PRECONDITION_VIOLATION",           // src/core/journal-mutate.ts Pass 1.5 — evaluateSpecLock returned !ok; detail.checks: FailedCheck[]
+  "MULTIPLE_GATE_DECISIONS",               // src/core/journal-mutate.ts Pass 1.5 — batch carries ≥2 approved gate:decided entries (any gate_kind); protocol §10.8 requires one gate decision per atomic operation
 ]);
 export type DiagnosticCode = z.infer<typeof DiagnosticCode>;
 
@@ -4309,6 +4324,22 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
     fix_template:
       "amend the task to satisfy its kind contract: behavioral with labels=['bug'] requires red_test_registered=true; structural/docs/spike/chore require no_test_rationale (string ≥10 chars); visual-ui requires visual_contract_refs[] with ≥1 entry. Most commonly surfaces after migration:snapshot_imported when legacy v0.0.x projections lack the required fields",
     doc_anchor: "protocol.md#§5.1",
+  },
+  GATE_PRECONDITION_VIOLATION: {
+    exit_code: 2,
+    message_template:
+      "gate:decided approval rejected at the mutate layer: {failure_count} spec-lock check(s) failed",
+    fix_template:
+      "this is a mutate-layer envelope around the underlying spec-lock checks (see detail.checks for the list with codes like MISSING_VERIFIABILITY / REQ_NOT_DRIVEN / TASKS_BASED_ON_STALE / etc). Fix each listed check then retry the gate decision. Pass 1.5 runs after preflight + reducer dry-run + before sidecar promotion, so a rejected gate batch leaves no on-disk residue",
+    doc_anchor: "protocol.md#§5.1",
+  },
+  MULTIPLE_GATE_DECISIONS: {
+    exit_code: 2,
+    message_template:
+      "batch contains {count} approved gate:decided entries (gate_kinds={gate_kinds}); protocol §10.8 requires one gate decision per atomic operation",
+    fix_template:
+      "split the batch — emit each gate decision as its own mutation. A batch carrying ≥2 gate approvals (even with different gate_kinds, e.g. spec-lock + verify-accept) is not a valid atomic operation. Rejected gate decisions are not counted; only approvals trigger this rule",
+    doc_anchor: "protocol.md#§10.8",
   },
 } as const;
 

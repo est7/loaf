@@ -17,6 +17,7 @@ import { createHash } from "node:crypto";
 
 import { mutate, mutateBatch } from "../../src/core/journal-mutate.js";
 import { initialSnapshot } from "../../src/core/reducer.js";
+import type { Snapshot } from "../../src/core/reducer.js";
 import { replayJournal } from "../../src/core/journal-bootstrap.js";
 
 async function tmpFeatureDir(): Promise<string> {
@@ -797,64 +798,210 @@ describe("mutateBatch — Slice 1.0 Cycle 3 (multi-entry transactional)", () => 
   // SPEC.design → EXECUTE.plan] should land both flag and cursor in one
   // atomic transaction. Before the gate-normalize fix (Slice 1.A), gate
   // self-moved the cursor and phase_advanced then failed FROM_CURSOR_MISMATCH.
-  test("H. gate:decided + phase_advanced batch lands spec_locked + cursor moves once (not double-jumped)", async () => {
+  test("H. gate:decided + phase_advanced batch lands spec_locked + cursor moves once (with spec-lock wire)", async () => {
+    // Slice 1.B sub-cycle 3c (codex r28 watchpoint #1): seed the snapshot
+    // through real reducer/mutate entries — write spec.md to disk, emit
+    // spec_submitted + companion REQ entries, plan tasks at SPEC.design,
+    // then run the gate batch. mutateBatch Pass 1.5 will invoke
+    // evaluateSpecLock which reads spec.md and runs all 8 checks against
+    // the now-populated snapshot.
     const dir = await tmpFeatureDir();
-    // Walk to SPEC.design — the only sub_state where gate spec-lock is legal.
     let snapshot = initialSnapshot();
     let tailSeq = -1;
-    const bootOps: Array<Parameters<typeof mutate>[0]> = [
-      {
-        at: "2026-05-15T10:00:00.000Z",
-        actor: "cli:loaf",
-        entry_schema_version: 1,
-        kind: "session:started",
-        payload: {
-          session_id: "550e8400-e29b-41d4-a716-446655440000",
-          feature: "f",
-          ceremony: STANDARD,
+
+    // Boot session.
+    {
+      const r = await mutate(
+        {
+          at: "2026-05-15T10:00:00.000Z",
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "session:started",
+          payload: {
+            session_id: "550e8400-e29b-41d4-a716-446655440000",
+            feature: "f",
+            ceremony: STANDARD,
+          },
         },
-      },
-    ];
-    for (const [from, to] of [
-      ["TRIAGE.score", "TRIAGE.confirm"],
-      ["TRIAGE.confirm", "SPEC.proposal"],
-      ["SPEC.proposal", "SPEC.spec"],
-      ["SPEC.spec", "SPEC.plan"],
-      ["SPEC.plan", "SPEC.design"],
-    ] as Array<[string, string]>) {
-      bootOps.push({
-        at: new Date(2026, 4, 15, 10, 0, bootOps.length).toISOString(),
-        actor: "cli:loaf",
-        entry_schema_version: 1,
-        kind: "event:phase_advanced",
-        payload: { from: from as any, to: to as any },
-      });
-    }
-    for (const op of bootOps) {
-      const r = await mutate(op, { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false });
+        { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+      );
       expect(r.ok).toBe(true);
       if (!r.ok) return;
       snapshot = r.snapshot;
       tailSeq++;
     }
+
+    // Walk to SPEC.proposal.
+    for (const [from, to] of [
+      ["TRIAGE.score", "TRIAGE.confirm"],
+      ["TRIAGE.confirm", "SPEC.proposal"],
+    ] as Array<[string, string]>) {
+      const r = await mutate(
+        {
+          at: new Date(2026, 4, 15, 10, 0, tailSeq + 1).toISOString(),
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "event:phase_advanced",
+          payload: { from: from as any, to: to as any },
+        },
+        { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+      );
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      snapshot = r.snapshot;
+      tailSeq++;
+    }
+
+    // Write spec.md to disk so evaluateSpecLock can read it at gate time.
+    // Frontmatter matches the projection that spec_submitted + companion
+    // REQ will populate, so check 3 (tasks_based_on.spec === spec.spec_version)
+    // and check 4 (REQ-AUTH-001 driven by some task) pass.
+    await fs.writeFile(
+      path.join(dir, "spec.md"),
+      `---
+schema_version: 2
+spec_version: 1
+feature:
+  id: F-001
+  name: OAuth token refresh
+intent: users should not perceive auth recovery flows in flight
+adr_refs: []
+requirements:
+  - id: REQ-AUTH-001
+    type: ubiquitous
+    response: the system shall do something measurable here
+    acceptance_na: true
+    acceptance_na_reason: subjective UX validated via manual testing scope
+scenarios: []
+needs_clarification: []
+---
+
+## Why
+prose body here
+`,
+    );
+
+    // Emit spec_submitted + companion REQ as an atomic batch.
+    {
+      const batch = await mutateBatch(
+        [
+          {
+            at: new Date(2026, 4, 15, 10, 0, tailSeq + 1).toISOString(),
+            actor: "human:est9",
+            entry_schema_version: 1,
+            kind: "event:spec_submitted",
+            payload: {
+              spec_version: 1,
+              feature: { id: "F-001", name: "OAuth token refresh" },
+              intent: "users should not perceive auth recovery flows in flight",
+              adr_refs: [],
+              needs_clarification: [],
+            },
+          },
+          {
+            at: new Date(2026, 4, 15, 10, 0, tailSeq + 2).toISOString(),
+            actor: "human:est9",
+            entry_schema_version: 1,
+            kind: "event:spec_req_added",
+            payload: {
+              spec_version: 1,
+              req: {
+                id: "REQ-AUTH-001",
+                type: "ubiquitous",
+                response: "the system shall do something measurable here",
+                acceptance_na: true,
+                acceptance_na_reason: "subjective UX validated via manual testing scope",
+              },
+            },
+          },
+        ],
+        { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+      );
+      expect(batch.ok).toBe(true);
+      if (!batch.ok) return;
+      snapshot = batch.snapshot;
+      tailSeq += 2;
+    }
+
+    // Walk to SPEC.design.
+    for (const [from, to] of [
+      ["SPEC.proposal", "SPEC.spec"],
+      ["SPEC.spec", "SPEC.plan"],
+      ["SPEC.plan", "SPEC.design"],
+    ] as Array<[string, string]>) {
+      const r = await mutate(
+        {
+          at: new Date(2026, 4, 15, 10, 0, tailSeq + 1).toISOString(),
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "event:phase_advanced",
+          payload: { from: from as any, to: to as any },
+        },
+        { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+      );
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      snapshot = r.snapshot;
+      tailSeq++;
+    }
+
+    // Plan tasks at SPEC.design (per protocol §1800; per-kind extended in
+    // sub-cycle 3c to allow tasks_planned at SPEC.design + EXECUTE.plan).
+    {
+      const r = await mutate(
+        {
+          at: new Date(2026, 4, 15, 10, 0, tailSeq + 1).toISOString(),
+          actor: "human:est9",
+          entry_schema_version: 1,
+          kind: "event:tasks_planned",
+          payload: {
+            based_on: { spec: 1 },
+            tasks: [
+              {
+                id: "T-001",
+                kind: "behavioral",
+                drives: ["REQ-AUTH-001"],
+                tests: ["TokenCoord.refreshOnce"],
+                status: "pending",
+                depends_on: [],
+                labels: [],
+                execution: {
+                  red: { applicability: "must", status: "pending", evidence_refs: [] },
+                  implement: { applicability: "must", status: "pending", evidence_refs: [] },
+                  refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+                },
+              },
+            ],
+          },
+        },
+        { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+      );
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      snapshot = r.snapshot;
+      tailSeq++;
+    }
+
     expect(snapshot.state?.sub_state).toBe("SPEC.design");
     expect(snapshot.state?.spec_locked).toBe(false);
+    expect(snapshot.tasks_based_on).toEqual({ spec: 1 });
 
-    // The protocol-correct gate batch: gate:decided FIRST (records approval),
-    // then event:phase_advanced (moves cursor). After Slice 1.A, gate must
-    // NOT self-move the cursor — phase_advanced sees SPEC.design and moves
-    // to EXECUTE.plan.
+    // The protocol-correct gate batch: gate:decided FIRST (records approval
+    // — now also clears spec-lock check 1-8 via Pass 1.5), then
+    // event:phase_advanced (moves cursor). After Slice 1.A, gate must NOT
+    // self-move the cursor — phase_advanced sees SPEC.design and moves to
+    // EXECUTE.plan.
     const batch = await mutateBatch(
       [
         {
-          at: "2026-05-15T11:00:00.000Z",
+          at: new Date(2026, 4, 15, 11, 0, 0).toISOString(),
           actor: "human:est9",
           entry_schema_version: 1,
           kind: "gate:decided",
           payload: { gate_kind: "spec-lock", decision: "approved", reason: "ready" },
         },
         {
-          at: "2026-05-15T11:00:01.000Z",
+          at: new Date(2026, 4, 15, 11, 0, 1).toISOString(),
           actor: "cli:loaf",
           entry_schema_version: 1,
           kind: "event:phase_advanced",
@@ -948,5 +1095,239 @@ describe("mutateBatch — Slice 1.0 Cycle 3 (multi-entry transactional)", () => 
     }
     const journalAfter = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
     expect(journalAfter).toBe(journalBefore);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────
+// Slice 1.B sub-cycle 3c — mutateBatch Pass 1.5 spec-lock wire (codex r28)
+// ────────────────────────────────────────────────────────────────────────
+
+describe("mutateBatch Pass 1.5 — spec-lock gate wire (Slice 1.B sub-cycle 3c)", () => {
+  async function seedAtSpecDesign(): Promise<{ dir: string; snapshot: Snapshot; tailSeq: number }> {
+    const dir = await tmpFeatureDir();
+    let snapshot = initialSnapshot();
+    let tailSeq = -1;
+    const boot = await mutate(
+      {
+        at: "2026-05-15T10:00:00.000Z",
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "session:started",
+        payload: {
+          session_id: "550e8400-e29b-41d4-a716-446655440000",
+          feature: "f",
+          ceremony: STANDARD,
+        },
+      },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    );
+    if (!boot.ok) throw new Error(`boot failed: ${boot.message}`);
+    snapshot = boot.snapshot;
+    tailSeq++;
+    for (const [from, to] of [
+      ["TRIAGE.score", "TRIAGE.confirm"],
+      ["TRIAGE.confirm", "SPEC.proposal"],
+      ["SPEC.proposal", "SPEC.spec"],
+      ["SPEC.spec", "SPEC.plan"],
+      ["SPEC.plan", "SPEC.design"],
+    ] as Array<[string, string]>) {
+      const r = await mutate(
+        {
+          at: new Date(2026, 4, 15, 10, 0, tailSeq + 1).toISOString(),
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "event:phase_advanced",
+          payload: { from: from as any, to: to as any },
+        },
+        { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+      );
+      if (!r.ok) throw new Error(`walk failed: ${r.message}`);
+      snapshot = r.snapshot;
+      tailSeq++;
+    }
+    return { dir, snapshot, tailSeq };
+  }
+
+  test("missing spec.md → GATE_PRECONDITION_VIOLATION with check 1 subcode=SPEC_NOT_FOUND", async () => {
+    const { dir, snapshot, tailSeq } = await seedAtSpecDesign();
+    const journalBefore = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
+
+    const result = await mutateBatch(
+      [
+        {
+          at: "2026-05-15T11:00:00.000Z",
+          actor: "human:est9",
+          entry_schema_version: 1,
+          kind: "gate:decided",
+          payload: { gate_kind: "spec-lock", decision: "approved", reason: "go" },
+        },
+      ],
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("GATE_PRECONDITION_VIOLATION");
+      const detail = result.detail as
+        | { gate?: string; failure_count?: number; checks?: Array<{ check: number; code: string; detail?: Record<string, unknown> }> }
+        | undefined;
+      expect(detail?.gate).toBe("spec-lock");
+      expect(detail?.failure_count).toBe(1);
+      expect(detail?.checks?.[0]?.check).toBe(1);
+      expect(detail?.checks?.[0]?.code).toBe("SPEC_FRONTMATTER_INVALID");
+      expect(detail?.checks?.[0]?.detail?.subcode).toBe("SPEC_NOT_FOUND");
+    }
+    // Journal must be untouched — gate fails before Pass 2 (sidecar/append).
+    const journalAfter = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
+    expect(journalAfter).toBe(journalBefore);
+  });
+
+  test("stale tasks_based_on → GATE_PRECONDITION_VIOLATION with check 3 TASKS_BASED_ON_STALE", async () => {
+    const { dir, snapshot, tailSeq } = await seedAtSpecDesign();
+    // spec.md says spec_version: 2, but we'll plan tasks with based_on.spec: 1
+    // by emitting tasks_planned then submitting a higher spec_version via
+    // raw fixture (mock state to skip the spec_submitted bump path here).
+    await fs.writeFile(
+      path.join(dir, "spec.md"),
+      `---
+schema_version: 2
+spec_version: 2
+feature:
+  id: F-001
+  name: feat
+intent: twenty char minimum intent body required by zod min
+adr_refs: []
+requirements:
+  - id: REQ-AUTH-001
+    type: ubiquitous
+    response: the system shall do something measurable here
+    acceptance_na: true
+    acceptance_na_reason: subjective UX validated via manual testing scope
+scenarios: []
+needs_clarification: []
+---
+`,
+    );
+    // Stale snapshot: tasks_based_on.spec=1 (set by manual reducer write)
+    const staleSnapshot: Snapshot = {
+      ...snapshot,
+      tasks_based_on: { spec: 1 },
+      tasks: [
+        {
+          id: "T-001",
+          kind: "behavioral",
+          status: "pending",
+          steps: {
+            red: { applicability: "must", status: "pending" },
+            implement: { applicability: "must", status: "pending" },
+            refactor: { applicability: "optional", status: "pending" },
+          },
+          drives: ["REQ-AUTH-001"],
+          depends_on: [],
+          labels: [],
+        },
+      ],
+    };
+
+    const result = await mutateBatch(
+      [
+        {
+          at: "2026-05-15T11:00:00.000Z",
+          actor: "human:est9",
+          entry_schema_version: 1,
+          kind: "gate:decided",
+          payload: { gate_kind: "spec-lock", decision: "approved", reason: "go" },
+        },
+      ],
+      { feature_dir: dir, snapshot: staleSnapshot, tail_seq: tailSeq, fsync: false },
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("GATE_PRECONDITION_VIOLATION");
+      const checks = (result.detail as { checks?: Array<{ check: number; code: string }> } | undefined)?.checks;
+      expect(checks?.some((c) => c.check === 3 && c.code === "TASKS_BASED_ON_STALE")).toBe(true);
+    }
+  });
+
+  test("multiple approved gate:decided in batch → MULTIPLE_GATE_DECISIONS", async () => {
+    const { dir, snapshot, tailSeq } = await seedAtSpecDesign();
+    const journalBefore = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
+
+    const result = await mutateBatch(
+      [
+        {
+          at: "2026-05-15T11:00:00.000Z",
+          actor: "human:est9",
+          entry_schema_version: 1,
+          kind: "gate:decided",
+          payload: { gate_kind: "spec-lock", decision: "approved", reason: "a" },
+        },
+        {
+          at: "2026-05-15T11:00:01.000Z",
+          actor: "human:est9",
+          entry_schema_version: 1,
+          kind: "gate:decided",
+          payload: { gate_kind: "spec-lock", decision: "approved", reason: "b" },
+        },
+      ],
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("MULTIPLE_GATE_DECISIONS");
+      expect((result.detail as { count?: number } | undefined)?.count).toBe(2);
+    }
+    const journalAfter = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
+    expect(journalAfter).toBe(journalBefore);
+  });
+
+  test("rejected spec-lock pass-through — evaluateSpecLock NOT called (no spec.md needed)", async () => {
+    const { dir, snapshot, tailSeq } = await seedAtSpecDesign();
+    // Deliberately do NOT write spec.md — proves gate evaluator was skipped.
+
+    const result = await mutateBatch(
+      [
+        {
+          at: "2026-05-15T11:00:00.000Z",
+          actor: "human:est9",
+          entry_schema_version: 1,
+          kind: "gate:decided",
+          payload: { gate_kind: "spec-lock", decision: "rejected", reason: "needs more work" },
+        },
+      ],
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      // spec_locked stays false (rejected gate doesn't flip the flag);
+      // entry is appended to the journal.
+      expect(result.snapshot.state?.spec_locked).toBe(false);
+      expect(result.entries).toHaveLength(1);
+    }
+  });
+
+  test("mutate() single-entry wrapper inherits gate rejection", async () => {
+    const { dir, snapshot, tailSeq } = await seedAtSpecDesign();
+    // mutate() wraps mutateBatch — gate Pass 1.5 fires on the single-entry
+    // path too. spec.md missing → GATE_PRECONDITION_VIOLATION.
+
+    const result = await mutate(
+      {
+        at: "2026-05-15T11:00:00.000Z",
+        actor: "human:est9",
+        entry_schema_version: 1,
+        kind: "gate:decided",
+        payload: { gate_kind: "spec-lock", decision: "approved", reason: "go" },
+      },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("GATE_PRECONDITION_VIOLATION");
+    }
   });
 });

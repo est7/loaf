@@ -42,6 +42,7 @@
 import path from "node:path";
 
 import { AppendError, appendMany } from "./journal-append.js";
+import { evaluateSpecLock } from "./gates/spec-lock-eval.js";
 import { REDUCER_IMPLEMENTED_KINDS, type JournalEntry } from "./journal-entry.js";
 import { apply, type Snapshot } from "./reducer.js";
 import { preflight, type PreflightFailureCode } from "./reducer/preflight.js";
@@ -63,7 +64,9 @@ export type MutateFailureCode =
   | "APPEND_ERROR"
   | "SIDECAR_ERROR"
   | "REDUCER_ERROR"
-  | "INVALID_BATCH";
+  | "INVALID_BATCH"
+  | "GATE_PRECONDITION_VIOLATION"
+  | "MULTIPLE_GATE_DECISIONS";
 
 export type MutateResult =
   | { ok: true; snapshot: Snapshot; entry: JournalEntry }
@@ -216,6 +219,60 @@ export async function mutateBatch(
     }
     snapshotAcc = dryRun.snapshot;
     candidates.push(candidate);
+  }
+
+  // Pass 1.5 (Slice 1.B sub-cycle 3c, codex r28 GO v2): gate precondition
+  // checks. Runs AFTER Pass 1 preflight + reducer dry-run so stable-core
+  // error priority (invalid payload / sub_state / actor) is preserved, and
+  // BEFORE Pass 2 sidecar promotion so a failing gate leaves no on-disk
+  // residue. Uses ctx.snapshot (pre-batch), not snapshotAcc — a batch must
+  // not satisfy its own gate preconditions with earlier entries.
+  //
+  // Detection rule: count ALL `gate:decided` entries whose decision is
+  // "approved" across the batch (any gate_kind). Protocol §10.8 makes
+  // each gate decision a single atomic operation, so a batch carrying
+  // ≥2 gate approvals — even with different gate_kinds — is invalid.
+  // Rejected gate decisions pass through (rejection requires no gate
+  // satisfaction; preflight + reducer dry-run still validates them).
+  const gateApprovals = candidates.filter(
+    (c) =>
+      c.kind === "gate:decided" &&
+      (c.payload as { decision?: string }).decision === "approved",
+  );
+  if (gateApprovals.length > 1) {
+    return {
+      ok: false,
+      code: "MULTIPLE_GATE_DECISIONS",
+      message: `batch contains ${gateApprovals.length} approved gate:decided entries; protocol §10.8 requires one gate decision per atomic operation`,
+      detail: {
+        count: gateApprovals.length,
+        gate_kinds: gateApprovals.map(
+          (c) => (c.payload as { gate_kind?: string }).gate_kind,
+        ),
+      },
+    };
+  }
+  if (gateApprovals.length === 1) {
+    const approval = gateApprovals[0]!;
+    const gateKind = (approval.payload as { gate_kind?: string }).gate_kind;
+    if (gateKind === "spec-lock") {
+      const gateResult = await evaluateSpecLock(ctx.snapshot, ctx.feature_dir);
+      if (!gateResult.ok) {
+        return {
+          ok: false,
+          code: "GATE_PRECONDITION_VIOLATION",
+          message: `gate:decided spec-lock approval failed ${gateResult.checks.length} spec-lock check(s); see detail.checks`,
+          detail: {
+            gate: "spec-lock",
+            failure_count: gateResult.checks.length,
+            checks: gateResult.checks,
+          },
+        };
+      }
+    }
+    // gateKind === "verify-accept" falls through here: its wire lands in
+    // a later sub-cycle. Until then, verify-accept approval is gated only
+    // by preflight (PER_KIND_SUB_STATE / payload schema / actor authority).
   }
 
   // Pass 2: sidecar promotion. All entries validated; from here we accept
