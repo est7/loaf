@@ -3761,6 +3761,12 @@ export const DiagnosticCode = z.enum([
   "SPEC_REVIEW_MISSING",                   // src/core/gates/verify-accept-check.ts check 5 — ceremony.strict_spec_review=true but no spec-review evidence with result ∈ {passed, approved}
   "SPEC_REVIEW_IMPLEMENTER_CONFLICT",      // src/core/gates/verify-accept-check.ts check 5 — every passing spec-review actor is in implementer set; no independent reviewer signed off
   "SPEC_REVIEW_IMPLEMENTER_UNKNOWN",       // src/core/gates/verify-accept-check.ts check 5 — implementer set empty (done-task evidence all from cli:* actors); fail-closed
+  // ── Slice 1.D sub-cycle 1 — loaf deliver / loaf settle preflight refines (codex r49/r50/r51) ──
+  "DELIVER_NOT_ACCEPTED",                  // src/core/reducer/preflight.ts step 5c — `session:delivered` at VERIFY.accept or SETTLE.lessons but snapshot.state.verify_accepted=false
+  "DELIVER_SETTLE_PHASE_BYPASS",           // src/core/reducer/preflight.ts step 5c — `session:delivered` at VERIFY.accept but ceremony.settle_phase=true (deep must run `loaf settle` first)
+  "DELIVER_VERIFY_MIN_UNAVAILABLE",        // src/core/reducer/preflight.ts step 5c — `session:delivered` at EXECUTE.done; quick/light path requires verify-min (§3) which is not yet implemented in v0.1.0
+  "DELIVER_SPIKE_TASKS",                   // src/core/reducer/preflight.ts step 5c — snapshot.tasks contains a non-abandoned spike task (protocol §703 + §1298 hard block)
+  "SETTLE_NOT_ACCEPTED",                   // src/core/reducer/transition.ts — `event:phase_advanced` VERIFY.accept→SETTLE.reconcile but snapshot.state.verify_accepted=false (gate must approve before settle)
 ]);
 export type DiagnosticCode = z.infer<typeof DiagnosticCode>;
 
@@ -4429,6 +4435,49 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
       "verify-accept check 5: cannot establish implementer set (all done-task evidence actors are cli:* automation); strict_spec_review fails closed",
     fix_template:
       "ensure at least one done-task evidence (task-summary or local-check) carries a non-cli:* actor (e.g. human:dev@example.com); the strict_spec_review comparison requires a real implementer identity to compare against. Without it, the gate cannot prove the spec reviewer is independent.",
+    doc_anchor: "protocol.md#§5.2",
+  },
+  // ── Slice 1.D sub-cycle 1 — `loaf deliver` / `loaf settle` preflight ──
+  // Wording polish + cross-reference tightening lands in Slice 1.D sub-cycle 4
+  // doc sync; entries here keep the typecheck contract honest (codex r50 BLOCK).
+  DELIVER_NOT_ACCEPTED: {
+    exit_code: 2,
+    message_template:
+      "deliver requires verify_accepted=true at sub_state={sub_state}; gate approval missing",
+    fix_template:
+      "run `loaf gate decide verify-accept --approve --reason \"...\"` first; the gate flips snapshot.state.verify_accepted before `loaf deliver` will accept the session:delivered entry",
+    doc_anchor: "protocol.md#§5.2",
+  },
+  DELIVER_SETTLE_PHASE_BYPASS: {
+    exit_code: 2,
+    message_template:
+      "deliver from VERIFY.accept requires ceremony.settle_phase=false (standard); deep ceremony must run `loaf settle` first",
+    fix_template:
+      "for ceremony.settle_phase=true (deep), run `loaf settle` to enter SETTLE.reconcile, complete reconcile + lessons, then `loaf deliver` from SETTLE.lessons; only standard ceremony delivers directly from VERIFY.accept",
+    doc_anchor: "protocol.md#§5.2",
+  },
+  DELIVER_VERIFY_MIN_UNAVAILABLE: {
+    exit_code: 2,
+    message_template:
+      "quick / light deliver from EXECUTE.done requires verify-min, which is not yet implemented in this build (ceremony_label={ceremony_label})",
+    fix_template:
+      "use ceremony=standard or deep to traverse VERIFY.* before delivery; quick / light direct-delivery via verify-min is a follow-up slice (verify-min check infrastructure pending)",
+    doc_anchor: "protocol.md#§3",
+  },
+  DELIVER_SPIKE_TASKS: {
+    exit_code: 2,
+    message_template:
+      "cannot deliver: task {task_id} is kind=spike (status={status}); spike tasks block delivery for the entire session",
+    fix_template:
+      "abandon the spike task (`loaf tasks step done --task {task_id} --step ... --result abandoned`) or convert it to a feature (`loaf spike convert --to-feature F-N`); spike tasks must not remain in non-abandoned status when the session delivers",
+    doc_anchor: "protocol.md#§703",
+  },
+  SETTLE_NOT_ACCEPTED: {
+    exit_code: 2,
+    message_template:
+      "VERIFY.accept → SETTLE.reconcile requires verify_accepted=true; gate approval missing",
+    fix_template:
+      "run `loaf gate decide verify-accept --approve --reason \"...\"` before `loaf settle`; the gate flips snapshot.state.verify_accepted before the transition validator will admit the SETTLE entry",
     doc_anchor: "protocol.md#§5.2",
   },
 } as const;

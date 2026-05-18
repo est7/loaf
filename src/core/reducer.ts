@@ -279,11 +279,12 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
     };
   }
 
-  // Preflight (authority + transition) before mutation.
+  // Preflight (authority + transition) before mutation. Slice 1.D refactor:
+  // PreflightContext now carries the full snapshot single-source; sub_state /
+  // ceremony / verify_accepted / tasks all derive inside preflight().
   const pre = preflight(entry, {
-    sub_state: prev.state.sub_state,
+    snapshot: prev,
     tail_seq: entry.seq - 1, // sequence already validated by journal-append
-    ceremony: prev.state.ceremony,
   });
   if (!pre.ok) {
     return { ok: false, code: pre.code, message: pre.message, detail: pre.detail ?? {} };

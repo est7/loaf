@@ -16,22 +16,52 @@
 // verify-accept @ VERIFY.accept only) is enforced as preflight step 5a
 // before transition check, after payload schema parse.
 //
+// Slice 1.D — step 5c: `session:delivered` carries cursor authority of its
+// own (its reducer directly flips to DONE.delivered without going through
+// `event:phase_advanced`). So preflight gates the ceremony + verify_accepted
+// + spike-tasks preconditions of `loaf deliver` HERE — `loaf deliver` does
+// not get a transition validator pass.
+//
 // Per-kind extra refines (`tasks_planned.based_on.spec` parity etc.) are NOT
 // preflight's job; they sit in the reducer apply path. Preflight is purely
 // authority + structural gates.
+//
+// Slice 1.D — context refactor: PreflightContext now carries the full
+// snapshot (single source per codex r50/r51). sub_state, ceremony, and
+// verify_accepted derive from `snapshot.state` with TRIAGE.score / default
+// ceremony / verify_accepted=false fallbacks when state is null (pre-
+// session entries). `tasks` flows for the spike-block check at step 5c.
 
 import { JournalEntry, PER_KIND_PAYLOAD } from "../journal-entry.js";
 import type { Ceremony, EntryKind, SubState } from "../journal-entry.js";
+import type { Snapshot } from "../reducer.js";
 import { validateTransition, type TransitionResult } from "./transition.js";
 import { isActorAllowed, isSubStateAllowed } from "./per-kind.js";
 
+// Defaults applied when snapshot.state is null (no session:started yet).
+// Mirrors the bootstrap behavior that journal-mutate.ts previously injected
+// into PreflightContext explicitly.
+const DEFAULT_SUB_STATE: SubState = "TRIAGE.score";
+const DEFAULT_CEREMONY: Ceremony = {
+  spec_phase: true,
+  verify_phase: true,
+  settle_phase: false,
+  strict_spec_review: false,
+  lessons_required: "skip",
+  strict_drift_check: false,
+};
+
 export interface PreflightContext {
-  /** Current sub_state (the projection cursor before applying this entry). */
-  sub_state: SubState;
+  /**
+   * Snapshot at the point this entry is being validated — for batches this
+   * is the accumulator after preceding entries have applied (single source
+   * per codex r50 non-blocking #1 + r51). state may be null for bootstrap
+   * kinds (`session:started`, `migration:snapshot_imported`); in that case
+   * sub_state defaults to TRIAGE.score and ceremony to the standard preset.
+   */
+  snapshot: Snapshot;
   /** Last seq in the journal; -1 if the journal is empty/absent. */
   tail_seq: number;
-  /** Active ceremony — drives validateTransition's VERIFY.accept fork. */
-  ceremony: Ceremony;
 }
 
 export type PreflightFailureCode =
@@ -43,9 +73,14 @@ export type PreflightFailureCode =
   | "FROM_CURSOR_MISMATCH"
   | "TRANSITION_ILLEGAL"
   | "SETTLE_PHASE_DISABLED"
-  | "SETTLE_PHASE_BYPASS"
+  | "SETTLE_NOT_ACCEPTED"
   | "SPEC_PHASE_FORK_VIOLATION"
-  | "VERIFY_PHASE_FORK_VIOLATION";
+  | "VERIFY_PHASE_FORK_VIOLATION"
+  // Slice 1.D — `loaf deliver` preflight refines (step 5c).
+  | "DELIVER_NOT_ACCEPTED"
+  | "DELIVER_SETTLE_PHASE_BYPASS"
+  | "DELIVER_VERIFY_MIN_UNAVAILABLE"
+  | "DELIVER_SPIKE_TASKS";
 
 export type PreflightResult =
   | { ok: true }
@@ -60,6 +95,13 @@ export function preflight(
   rawEntry: unknown,
   ctx: PreflightContext,
 ): PreflightResult {
+  // Derive validation scalars from the snapshot single-source (codex r51).
+  // Bootstrap kinds (session:started / migration:snapshot_imported) arrive
+  // before state has been initialized; defaults preserve historical behavior.
+  const sub_state: SubState = ctx.snapshot.state?.sub_state ?? DEFAULT_SUB_STATE;
+  const ceremony: Ceremony = ctx.snapshot.state?.ceremony ?? DEFAULT_CEREMONY;
+  const verify_accepted: boolean = ctx.snapshot.state?.verify_accepted ?? false;
+
   // (1) Envelope schema parse.
   const parsed = JournalEntry.safeParse(rawEntry);
   if (!parsed.success) {
@@ -88,12 +130,12 @@ export function preflight(
   }
 
   // (3) Per-kind sub_state authority.
-  if (!isSubStateAllowed(entry.kind, ctx.sub_state)) {
+  if (!isSubStateAllowed(entry.kind, sub_state)) {
     return {
       ok: false,
       code: "SUB_STATE_AUTHORITY_VIOLATION",
-      message: `kind=${entry.kind} not allowed in sub_state=${ctx.sub_state}`,
-      detail: { kind: entry.kind, sub_state: ctx.sub_state },
+      message: `kind=${entry.kind} not allowed in sub_state=${sub_state}`,
+      detail: { kind: entry.kind, sub_state },
     };
   }
 
@@ -131,20 +173,20 @@ export function preflight(
   // preflight even though the protocol requires source-specific filing.
   if (entry.kind === "gate:decided") {
     const gateKind = (payloadParsed.data as { gate_kind?: string }).gate_kind;
-    if (gateKind === "spec-lock" && ctx.sub_state !== "SPEC.design") {
+    if (gateKind === "spec-lock" && sub_state !== "SPEC.design") {
       return {
         ok: false,
         code: "SUB_STATE_AUTHORITY_VIOLATION",
-        message: `gate:decided gate_kind=spec-lock requires sub_state=SPEC.design (got ${ctx.sub_state})`,
-        detail: { gate_kind: gateKind, sub_state: ctx.sub_state, expected: "SPEC.design" },
+        message: `gate:decided gate_kind=spec-lock requires sub_state=SPEC.design (got ${sub_state})`,
+        detail: { gate_kind: gateKind, sub_state, expected: "SPEC.design" },
       };
     }
-    if (gateKind === "verify-accept" && ctx.sub_state !== "VERIFY.accept") {
+    if (gateKind === "verify-accept" && sub_state !== "VERIFY.accept") {
       return {
         ok: false,
         code: "SUB_STATE_AUTHORITY_VIOLATION",
-        message: `gate:decided gate_kind=verify-accept requires sub_state=VERIFY.accept (got ${ctx.sub_state})`,
-        detail: { gate_kind: gateKind, sub_state: ctx.sub_state, expected: "VERIFY.accept" },
+        message: `gate:decided gate_kind=verify-accept requires sub_state=VERIFY.accept (got ${sub_state})`,
+        detail: { gate_kind: gateKind, sub_state, expected: "VERIFY.accept" },
       };
     }
   }
@@ -157,18 +199,98 @@ export function preflight(
   if (entry.kind === "event:phase_advanced") {
     const payload = (rawEntry as { payload?: Record<string, unknown> }).payload ?? {};
     const from = payload["from"] as SubState | undefined;
-    if (from !== undefined && from !== ctx.sub_state) {
+    if (from !== undefined && from !== sub_state) {
       return {
         ok: false,
         code: "FROM_CURSOR_MISMATCH",
-        message: `event:phase_advanced payload.from=${from} but current sub_state=${ctx.sub_state}`,
-        detail: { payload_from: from, current_sub_state: ctx.sub_state },
+        message: `event:phase_advanced payload.from=${from} but current sub_state=${sub_state}`,
+        detail: { payload_from: from, current_sub_state: sub_state },
       };
     }
   }
 
-  // (5b) Transition (for kinds carrying a state-machine edge).
-  const transitionResult = checkTransition(entry.kind, rawEntry as Record<string, unknown>, ctx);
+  // (5c) Slice 1.D — `loaf deliver` preflight refines.
+  //
+  // `session:delivered` is the only kind that flips the cursor to
+  // DONE.delivered (reducer.ts:706-712 applies it directly, not via
+  // `event:phase_advanced`). So validateTransition does NOT gate this kind
+  // — instead, preflight enforces the ceremony / verify_accepted / spike-
+  // tasks preconditions of `loaf deliver` here.
+  //
+  // Spike-tasks block (protocol §703 / §1298): any non-abandoned spike task
+  // blocks delivery for the entire session, regardless of source sub_state.
+  // Done spikes still block per literal protocol wording ("spike 永远不允许
+  // loaf deliver"); abandoned spikes are ignored only because abandoned
+  // tasks have no remaining lifecycle obligation.
+  if (entry.kind === "session:delivered") {
+    const activeSpike = ctx.snapshot.tasks.find(
+      (t) => t.kind === "spike" && t.status !== "abandoned",
+    );
+    if (activeSpike) {
+      return {
+        ok: false,
+        code: "DELIVER_SPIKE_TASKS",
+        message: `cannot deliver: task ${activeSpike.id} is kind=spike (status=${activeSpike.status}); spike tasks must be abandoned or converted before delivery (protocol §703 / §1298)`,
+        detail: { task_id: activeSpike.id, status: activeSpike.status },
+      };
+    }
+    if (sub_state === "EXECUTE.done") {
+      // Quick / light deliver path requires verify-min (protocol §3) —
+      // evidence checks not yet implemented in v0.1.0. Fail-closed per
+      // codex r49 BLOCK 2 (do not ship cursor movement without evidence
+      // proof). Code is "UNAVAILABLE" not "NOT_IMPLEMENTED" per codex r50
+      // residual A — describes the current surface without baking
+      // implementation status into the protocol.
+      return {
+        ok: false,
+        code: "DELIVER_VERIFY_MIN_UNAVAILABLE",
+        message:
+          "quick / light deliver from EXECUTE.done requires verify-min, which is not yet implemented in this build",
+        detail: { sub_state, ceremony_label: deriveCeremonyLabel(ceremony) },
+      };
+    }
+    if (sub_state === "VERIFY.accept") {
+      if (ceremony.settle_phase) {
+        return {
+          ok: false,
+          code: "DELIVER_SETTLE_PHASE_BYPASS",
+          message:
+            "deliver from VERIFY.accept requires ceremony.settle_phase=false (standard); deep ceremony must run `loaf settle` first",
+          detail: { sub_state, settle_phase: ceremony.settle_phase },
+        };
+      }
+      if (!verify_accepted) {
+        return {
+          ok: false,
+          code: "DELIVER_NOT_ACCEPTED",
+          message:
+            "deliver requires verify_accepted=true; run `loaf gate decide verify-accept --approve` first",
+          detail: { sub_state, verify_accepted },
+        };
+      }
+    }
+    if (sub_state === "SETTLE.lessons") {
+      if (!verify_accepted) {
+        // Should be unreachable via legal transitions (gate must have
+        // approved to traverse VERIFY.accept → SETTLE.*) but defensive
+        // here in case a journal was rebuilt or `loaf advance` was misused.
+        return {
+          ok: false,
+          code: "DELIVER_NOT_ACCEPTED",
+          message:
+            "deliver from SETTLE.lessons requires verify_accepted=true (gate approval missing — journal may be inconsistent)",
+          detail: { sub_state, verify_accepted },
+        };
+      }
+    }
+  }
+
+  // (5d) Transition (for kinds carrying a state-machine edge).
+  const transitionResult = checkTransition(
+    entry.kind,
+    rawEntry as Record<string, unknown>,
+    { sub_state, ceremony, verify_accepted, actor: entry.actor },
+  );
   if (transitionResult && !transitionResult.ok) {
     return {
       ok: false,
@@ -181,6 +303,25 @@ export function preflight(
   return { ok: true };
 }
 
+// Cosmetic ceremony label for error detail. Not authoritative — full label
+// derivation lives in cli.tsx PRESETS map. Used only for diagnostic hint
+// rendering when the relevant fields disagree with the expected profile.
+function deriveCeremonyLabel(c: Ceremony): string {
+  if (!c.spec_phase && !c.verify_phase) return "quick";
+  if (c.spec_phase && !c.verify_phase) return "light";
+  if (c.spec_phase && c.verify_phase && !c.settle_phase) return "standard";
+  if (c.spec_phase && c.verify_phase && c.settle_phase) return "deep";
+  return "custom";
+}
+
+/** Derived scalars passed into the transition probe — not a public type. */
+interface TransitionProbeContext {
+  sub_state: SubState;
+  ceremony: Ceremony;
+  verify_accepted: boolean;
+  actor: string;
+}
+
 /**
  * For state-machine-edge kinds, extract (from, to) from payload and run
  * validateTransition. Returns null for kinds that don't carry an edge.
@@ -188,17 +329,20 @@ export function preflight(
 function checkTransition(
   kind: EntryKind,
   raw: Record<string, unknown>,
-  ctx: PreflightContext,
+  ctx: TransitionProbeContext,
 ): TransitionResult | null {
   const payload = (raw["payload"] as Record<string, unknown> | undefined) ?? {};
-  const actor = raw["actor"] as string;
 
   if (kind === "event:phase_advanced") {
     // payload: { from: SubState, to: SubState }
     const from = payload["from"] as SubState | undefined;
     const to = payload["to"] as SubState | undefined;
     if (from === undefined || to === undefined) return null; // schema already rejected upstream
-    return validateTransition(from, to, { ceremony: ctx.ceremony, actor });
+    return validateTransition(from, to, {
+      ceremony: ctx.ceremony,
+      actor: ctx.actor,
+      verify_accepted: ctx.verify_accepted,
+    });
   }
 
   // Slice 1.A normalization: gate:decided no longer drives transitions —

@@ -102,14 +102,10 @@ type PartialEntry = Omit<
   "seq" | "entry_id" | "batch_id" | "batch_index" | "batch_count"
 >;
 
-const DEFAULT_BOOTSTRAP_CEREMONY = {
-  spec_phase: true,
-  verify_phase: true,
-  settle_phase: false,
-  strict_spec_review: false,
-  lessons_required: "skip" as const,
-  strict_drift_check: false,
-};
+// Slice 1.D: DEFAULT_BOOTSTRAP_CEREMONY moved into preflight() — single-source
+// derivation now lives alongside its consumer instead of being injected by
+// every caller. The snapshot accumulator carries state.ceremony directly when
+// state is initialized.
 
 export async function mutateBatch(
   partials: PartialEntry[],
@@ -181,12 +177,12 @@ export async function mutateBatch(
         } as JournalEntry)
       : ({ ...partial, seq, entry_id } as JournalEntry);
 
-    const subState = snapshotAcc.state?.sub_state ?? "TRIAGE.score";
-    const ceremony = snapshotAcc.state?.ceremony ?? DEFAULT_BOOTSTRAP_CEREMONY;
+    // Slice 1.D — PreflightContext refactor: single-source snapshot accumulator.
+    // sub_state / ceremony / verify_accepted / tasks all derive inside preflight()
+    // from snapshotAcc.state with TRIAGE.score / standard ceremony defaults.
     const pre = preflight(candidate, {
-      sub_state: subState,
+      snapshot: snapshotAcc,
       tail_seq: ctx.tail_seq + i,
-      ceremony,
     });
     if (!pre.ok) {
       return {

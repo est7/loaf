@@ -11,7 +11,8 @@
 import { describe, expect, test } from "vitest";
 
 import { preflight } from "../../src/core/reducer/preflight.js";
-import type { Ceremony } from "../../src/core/journal-entry.js";
+import { initialSnapshot, type Snapshot } from "../../src/core/reducer.js";
+import type { Ceremony, SubState } from "../../src/core/journal-entry.js";
 import {
   kindActorFixtures,
   kindSubStateFixtures,
@@ -25,6 +26,28 @@ const DEEP_CEREMONY: Ceremony = {
   lessons_required: "must",
   strict_drift_check: true,
 };
+
+// Slice 1.D: PreflightContext refactored to snapshot single-source. Helper
+// builds a minimal snapshot that exposes sub_state + ceremony for preflight()
+// without forcing every test to construct a full SessionState by hand.
+function mkSnapshot(sub_state: SubState, ceremony: Ceremony): Snapshot {
+  const phase = sub_state.split(".")[0] as
+    | "TRIAGE" | "SPEC" | "EXECUTE" | "VERIFY" | "SETTLE" | "DONE";
+  return {
+    ...initialSnapshot(),
+    state: {
+      session_id: "test-session",
+      feature: "test",
+      phase,
+      sub_state,
+      iteration: 0,
+      spec_locked: false,
+      verify_accepted: false,
+      spec_version: 0,
+      ceremony,
+    },
+  };
+}
 
 function stubExecutionStep(): Record<string, unknown> {
   return { applicability: "must", status: "pending", evidence_refs: [] };
@@ -188,11 +211,21 @@ describe("per-kind sub_state authority (Cartesian matrix)", () => {
           kind: fx.kind,
           payload: payloadFor(fx.kind),
         },
-        { sub_state: fx.sub_state, tail_seq: -1, ceremony: DEEP_CEREMONY },
+        { snapshot: mkSnapshot(fx.sub_state, DEEP_CEREMONY), tail_seq: -1 },
       );
 
       if (fx.expected === "legal") {
-        expect(result.ok, `expected ${fx.kind}@${fx.sub_state} to pass — got ${JSON.stringify(result)}`).toBe(true);
+        // Slice 1.D: session:delivered now has additional preflight refines
+        // (DELIVER_*) beyond sub_state authority. This fixture only proves the
+        // KIND × SUB_STATE table is wired — assert the failure is NOT
+        // SUB_STATE_AUTHORITY_VIOLATION rather than full pass. The refines'
+        // own tests live in preflight-validation.test.ts (Slice 1.D step 5c).
+        if (!result.ok) {
+          expect(
+            result.code,
+            `${fx.kind}@${fx.sub_state} expected legal authority but got SUB_STATE_AUTHORITY_VIOLATION (full result=${JSON.stringify(result)})`,
+          ).not.toBe("SUB_STATE_AUTHORITY_VIOLATION");
+        }
       } else {
         expect(result.ok).toBe(false);
         if (!result.ok) {
@@ -219,7 +252,7 @@ describe("per-kind actor authority (Cartesian matrix)", () => {
           kind: fx.kind,
           payload: payloadFor(fx.kind),
         },
-        { sub_state: "TRIAGE.score", tail_seq: -1, ceremony: DEEP_CEREMONY },
+        { snapshot: mkSnapshot("TRIAGE.score", DEEP_CEREMONY), tail_seq: -1 },
       );
 
       if (fx.expected === "legal") {

@@ -13,7 +13,8 @@
 import { describe, expect, test } from "vitest";
 
 import { preflight } from "../../src/core/reducer/preflight.js";
-import type { Ceremony } from "../../src/core/journal-entry.js";
+import { initialSnapshot, type Snapshot, type TaskState } from "../../src/core/reducer.js";
+import type { Ceremony, SubState } from "../../src/core/journal-entry.js";
 
 const STANDARD_CEREMONY: Ceremony = {
   spec_phase: true,
@@ -33,6 +34,33 @@ const DEEP_CEREMONY: Ceremony = {
   strict_drift_check: true,
 };
 
+// Slice 1.D: PreflightContext refactored to snapshot single-source. Helper
+// constructs a minimal snapshot exposing sub_state / ceremony / verify_accepted
+// / tasks without forcing every test to spell out a full SessionState.
+function mkSnapshot(
+  sub_state: SubState,
+  ceremony: Ceremony,
+  overrides: { verify_accepted?: boolean; tasks?: TaskState[] } = {},
+): Snapshot {
+  const phase = sub_state.split(".")[0] as
+    | "TRIAGE" | "SPEC" | "EXECUTE" | "VERIFY" | "SETTLE" | "DONE";
+  return {
+    ...initialSnapshot(),
+    state: {
+      session_id: "test-session",
+      feature: "test",
+      phase,
+      sub_state,
+      iteration: 0,
+      spec_locked: false,
+      verify_accepted: overrides.verify_accepted ?? false,
+      spec_version: 0,
+      ceremony,
+    },
+    tasks: overrides.tasks ?? [],
+  };
+}
+
 function baseEntry(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     seq: 0,
@@ -51,7 +79,7 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
   test("invalid envelope (missing kind) → INVALID_ENVELOPE", () => {
     const result = preflight(
       { ...baseEntry(), kind: undefined },
-      { sub_state: "TRIAGE.score", tail_seq: -1, ceremony: STANDARD_CEREMONY },
+      { snapshot: mkSnapshot("TRIAGE.score", STANDARD_CEREMONY), tail_seq: -1 },
     );
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.code).toBe("INVALID_ENVELOPE");
@@ -60,9 +88,8 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
   // ── 2. Monotonic seq ──────────────────────────────────────────────────
   test("seq != tail+1 → SEQ_NOT_MONOTONIC", () => {
     const result = preflight(baseEntry({ seq: 5 }), {
-      sub_state: "TRIAGE.score",
+      snapshot: mkSnapshot("TRIAGE.score", STANDARD_CEREMONY),
       tail_seq: -1,
-      ceremony: STANDARD_CEREMONY,
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.code).toBe("SEQ_NOT_MONOTONIC");
@@ -75,7 +102,7 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
         kind: "event:task_step_done",
         payload: { task_id: "T-001", step: "implement" },
       }),
-      { sub_state: "TRIAGE.score", tail_seq: -1, ceremony: STANDARD_CEREMONY },
+      { snapshot: mkSnapshot("TRIAGE.score", STANDARD_CEREMONY), tail_seq: -1 },
     );
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.code).toBe("SUB_STATE_AUTHORITY_VIOLATION");
@@ -87,7 +114,7 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
         kind: "event:task_step_done",
         payload: { task_id: "T-001", step: "implement" },
       }),
-      { sub_state: "EXECUTE.work", tail_seq: -1, ceremony: STANDARD_CEREMONY },
+      { snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY), tail_seq: -1 },
     );
     expect(result.ok).toBe(true);
   });
@@ -100,7 +127,7 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
         actor: "cli:loaf",
         payload: { gate_kind: "spec-lock", decision: "approved", reason: "ok" },
       }),
-      { sub_state: "SPEC.design", tail_seq: -1, ceremony: STANDARD_CEREMONY },
+      { snapshot: mkSnapshot("SPEC.design", STANDARD_CEREMONY), tail_seq: -1 },
     );
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.code).toBe("ACTOR_AUTHORITY_VIOLATION");
@@ -113,7 +140,7 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
         actor: "human:est9",
         payload: { gate_kind: "spec-lock", decision: "approved", reason: "ok" },
       }),
-      { sub_state: "SPEC.design", tail_seq: -1, ceremony: STANDARD_CEREMONY },
+      { snapshot: mkSnapshot("SPEC.design", STANDARD_CEREMONY), tail_seq: -1 },
     );
     expect(result.ok).toBe(true);
   });
@@ -139,7 +166,7 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
         actor: "human:est9",
         payload: validMigrationPayload,
       }),
-      { sub_state: "TRIAGE.score", tail_seq: -1, ceremony: STANDARD_CEREMONY },
+      { snapshot: mkSnapshot("TRIAGE.score", STANDARD_CEREMONY), tail_seq: -1 },
     );
     expect(human.ok).toBe(false);
     if (!human.ok) expect(human.code).toBe("ACTOR_AUTHORITY_VIOLATION");
@@ -150,7 +177,7 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
         actor: "migration:v0.0.x→v2",
         payload: validMigrationPayload,
       }),
-      { sub_state: "TRIAGE.score", tail_seq: -1, ceremony: STANDARD_CEREMONY },
+      { snapshot: mkSnapshot("TRIAGE.score", STANDARD_CEREMONY), tail_seq: -1 },
     );
     expect(migration.ok).toBe(true);
   });
@@ -162,7 +189,7 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
         kind: "event:phase_advanced",
         payload: { from: "TRIAGE.score", to: "DONE.delivered" },
       }),
-      { sub_state: "TRIAGE.score", tail_seq: -1, ceremony: STANDARD_CEREMONY },
+      { snapshot: mkSnapshot("TRIAGE.score", STANDARD_CEREMONY), tail_seq: -1 },
     );
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.code).toBe("TRANSITION_ILLEGAL");
@@ -178,7 +205,7 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
         // sits at TRIAGE.score — preflight must reject.
         payload: { from: "EXECUTE.work", to: "EXECUTE.done" },
       }),
-      { sub_state: "TRIAGE.score", tail_seq: -1, ceremony: STANDARD_CEREMONY },
+      { snapshot: mkSnapshot("TRIAGE.score", STANDARD_CEREMONY), tail_seq: -1 },
     );
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.code).toBe("FROM_CURSOR_MISMATCH");
@@ -196,7 +223,7 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
         actor: "human:est9",
         payload: { gate_kind: "spec-lock", decision: "approved", reason: "ok" },
       }),
-      { sub_state: "SPEC.design", tail_seq: -1, ceremony: STANDARD_CEREMONY },
+      { snapshot: mkSnapshot("SPEC.design", STANDARD_CEREMONY), tail_seq: -1 },
     );
     expect(r.ok).toBe(true);
   });
@@ -208,7 +235,7 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
         actor: "human:est9",
         payload: { gate_kind: "spec-lock", decision: "approved", reason: "ok" },
       }),
-      { sub_state: "VERIFY.accept", tail_seq: -1, ceremony: STANDARD_CEREMONY },
+      { snapshot: mkSnapshot("VERIFY.accept", STANDARD_CEREMONY), tail_seq: -1 },
     );
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.code).toBe("SUB_STATE_AUTHORITY_VIOLATION");
@@ -225,7 +252,7 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
         actor: "human:est9",
         payload: { gate_kind: "verify-accept", decision: "approved", reason: "ok" },
       }),
-      { sub_state: "VERIFY.accept", tail_seq: -1, ceremony: DEEP_CEREMONY },
+      { snapshot: mkSnapshot("VERIFY.accept", DEEP_CEREMONY), tail_seq: -1 },
     );
     expect(deep.ok).toBe(true);
 
@@ -235,7 +262,7 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
         actor: "human:est9",
         payload: { gate_kind: "verify-accept", decision: "approved", reason: "ok" },
       }),
-      { sub_state: "VERIFY.accept", tail_seq: -1, ceremony: STANDARD_CEREMONY },
+      { snapshot: mkSnapshot("VERIFY.accept", STANDARD_CEREMONY), tail_seq: -1 },
     );
     expect(standard.ok).toBe(true);
   });
@@ -247,9 +274,189 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
         actor: "human:est9",
         payload: { gate_kind: "verify-accept", decision: "approved", reason: "ok" },
       }),
-      { sub_state: "SPEC.design", tail_seq: -1, ceremony: STANDARD_CEREMONY },
+      { snapshot: mkSnapshot("SPEC.design", STANDARD_CEREMONY), tail_seq: -1 },
     );
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.code).toBe("SUB_STATE_AUTHORITY_VIOLATION");
+  });
+
+  // ── Slice 1.D — step 5c: `session:delivered` preflight refines ──────
+  //
+  // `session:delivered` is the only kind that flips the cursor to DONE.delivered
+  // (reducer direct cursor flip; no event:phase_advanced). Preflight gates the
+  // ceremony / verify_accepted / spike-tasks preconditions of `loaf deliver`.
+
+  const deliverEntry = (overrides: Record<string, unknown> = {}) =>
+    baseEntry({
+      kind: "session:delivered",
+      actor: "human:est9",
+      payload: {},
+      ...overrides,
+    });
+
+  test("session:delivered @ VERIFY.accept + verify_accepted=true + settle_phase=false (standard) → OK", () => {
+    const r = preflight(deliverEntry(), {
+      snapshot: mkSnapshot("VERIFY.accept", STANDARD_CEREMONY, { verify_accepted: true }),
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(true);
+  });
+
+  test("session:delivered @ VERIFY.accept + verify_accepted=false → DELIVER_NOT_ACCEPTED", () => {
+    const r = preflight(deliverEntry(), {
+      snapshot: mkSnapshot("VERIFY.accept", STANDARD_CEREMONY, { verify_accepted: false }),
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe("DELIVER_NOT_ACCEPTED");
+  });
+
+  test("session:delivered @ VERIFY.accept + settle_phase=true (deep) → DELIVER_SETTLE_PHASE_BYPASS", () => {
+    // deep ceremony must `loaf settle` first; direct deliver from VERIFY.accept rejected.
+    const r = preflight(deliverEntry(), {
+      snapshot: mkSnapshot("VERIFY.accept", DEEP_CEREMONY, { verify_accepted: true }),
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe("DELIVER_SETTLE_PHASE_BYPASS");
+  });
+
+  test("session:delivered @ VERIFY.accept settle_phase check fires BEFORE verify_accepted check", () => {
+    // both fail; ceremony bypass surfaces first to match codex r50 ordering
+    // (ceremony is a per-profile invariant; the flag is a session-level state).
+    const r = preflight(deliverEntry(), {
+      snapshot: mkSnapshot("VERIFY.accept", DEEP_CEREMONY, { verify_accepted: false }),
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe("DELIVER_SETTLE_PHASE_BYPASS");
+  });
+
+  test("session:delivered @ SETTLE.lessons + verify_accepted=true (deep) → OK", () => {
+    const r = preflight(deliverEntry(), {
+      snapshot: mkSnapshot("SETTLE.lessons", DEEP_CEREMONY, { verify_accepted: true }),
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(true);
+  });
+
+  test("session:delivered @ SETTLE.lessons + verify_accepted=false → DELIVER_NOT_ACCEPTED", () => {
+    // Defensive: legal transitions should not reach SETTLE.lessons without
+    // verify-accept approval, but preflight catches a journal-inconsistent state.
+    const r = preflight(deliverEntry(), {
+      snapshot: mkSnapshot("SETTLE.lessons", DEEP_CEREMONY, { verify_accepted: false }),
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe("DELIVER_NOT_ACCEPTED");
+  });
+
+  test("session:delivered @ EXECUTE.done (quick) → DELIVER_VERIFY_MIN_UNAVAILABLE", () => {
+    const QUICK_CEREMONY: Ceremony = {
+      spec_phase: false,
+      verify_phase: false,
+      settle_phase: false,
+      strict_spec_review: false,
+      lessons_required: "skip",
+      strict_drift_check: false,
+    };
+    const r = preflight(deliverEntry(), {
+      snapshot: mkSnapshot("EXECUTE.done", QUICK_CEREMONY),
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe("DELIVER_VERIFY_MIN_UNAVAILABLE");
+  });
+
+  test("session:delivered @ VERIFY.accept with non-abandoned spike task → DELIVER_SPIKE_TASKS", () => {
+    const spikeTask = {
+      id: "T-002",
+      kind: "spike" as const,
+      status: "in_progress" as const,
+      steps: {},
+      drives: [],
+      depends_on: [],
+      labels: [],
+    };
+    const r = preflight(deliverEntry(), {
+      snapshot: mkSnapshot("VERIFY.accept", STANDARD_CEREMONY, {
+        verify_accepted: true,
+        tasks: [spikeTask],
+      }),
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.code).toBe("DELIVER_SPIKE_TASKS");
+      expect(r.detail).toMatchObject({ task_id: "T-002", status: "in_progress" });
+    }
+  });
+
+  test("session:delivered with abandoned spike task → OK (abandoned bypasses block)", () => {
+    const abandonedSpike = {
+      id: "T-003",
+      kind: "spike" as const,
+      status: "abandoned" as const,
+      steps: {},
+      drives: [],
+      depends_on: [],
+      labels: [],
+    };
+    const r = preflight(deliverEntry(), {
+      snapshot: mkSnapshot("VERIFY.accept", STANDARD_CEREMONY, {
+        verify_accepted: true,
+        tasks: [abandonedSpike],
+      }),
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(true);
+  });
+
+  test("session:delivered with done spike task → DELIVER_SPIKE_TASKS (codex r49 Q1: status=done still blocks)", () => {
+    const doneSpike = {
+      id: "T-004",
+      kind: "spike" as const,
+      status: "done" as const,
+      steps: {},
+      drives: [],
+      depends_on: [],
+      labels: [],
+    };
+    const r = preflight(deliverEntry(), {
+      snapshot: mkSnapshot("VERIFY.accept", STANDARD_CEREMONY, {
+        verify_accepted: true,
+        tasks: [doneSpike],
+      }),
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe("DELIVER_SPIKE_TASKS");
+  });
+
+  test("session:delivered spike-block check fires BEFORE EXECUTE.done verify-min check", () => {
+    // EXECUTE.done quick has spike too → spike wins (more actionable diagnostic).
+    const QUICK_CEREMONY: Ceremony = {
+      spec_phase: false,
+      verify_phase: false,
+      settle_phase: false,
+      strict_spec_review: false,
+      lessons_required: "skip",
+      strict_drift_check: false,
+    };
+    const spike = {
+      id: "T-005",
+      kind: "spike" as const,
+      status: "in_progress" as const,
+      steps: {},
+      drives: [],
+      depends_on: [],
+      labels: [],
+    };
+    const r = preflight(deliverEntry(), {
+      snapshot: mkSnapshot("EXECUTE.done", QUICK_CEREMONY, { tasks: [spike] }),
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe("DELIVER_SPIKE_TASKS");
   });
 });

@@ -860,3 +860,31 @@ describe("loaf gate decide verify-accept — Slice 1.C sub-cycle 6 (MVP)", () =>
     expect(errJson.code).toBe("NO_HUMAN_ACTOR");
   });
 });
+
+// ── Slice 1.D sub-cycle 1 — negative coverage for `loaf advance DONE.delivered` ──
+//
+// Codex r50 residual C: the 3 `→ DONE.delivered` edges were removed from
+// LEGAL_TRANSITIONS in Slice 1.D; `loaf advance DONE.delivered` must now
+// return TRANSITION_ILLEGAL from every source. This pins the invariant at
+// the CLI surface alongside the core change, before deliver CLI lands in
+// sub-cycle 2.
+describe("loaf advance DONE.delivered — Slice 1.D edge removal", () => {
+  test("from VERIFY.accept → TRANSITION_ILLEGAL (was OK pre-Slice-1.D)", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtVerifyAccept(dir);
+
+    const result = await runCli([
+      "advance", "DONE.delivered",
+      "--feature", "auth-refresh",
+      "--feature-dir", dir,
+    ]);
+
+    expect(result.exit).toBe(2);
+    expect(result.stderr).toContain("TRANSITION_ILLEGAL");
+    // Cursor unchanged on disk.
+    const journal = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
+    const lines = journal.trim().split("\n").map((l) => JSON.parse(l));
+    // No new event:phase_advanced past VERIFY.accept arrival.
+    expect(lines[lines.length - 1].payload.to).toBe("VERIFY.accept");
+  });
+});
