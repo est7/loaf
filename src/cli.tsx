@@ -420,6 +420,98 @@ export async function main(argv: string[] = process.argv): Promise<number> {
       );
     });
 
+  // ── loaf deliver ────────────────────────────────────────────────────
+  // Slice 1.D sub-cycle 2. Emits a single `session:delivered` entry
+  // (human-only actor); the reducer flips the cursor directly to
+  // DONE.delivered (no companion `event:phase_advanced` — that edge was
+  // removed in sub-cycle 1). Three legal source sub_states per
+  // PER_KIND_SUB_STATE: EXECUTE.done, VERIFY.accept, SETTLE.lessons.
+  // Preflight step 5c enforces the ceremony / verify_accepted / spike-
+  // tasks preconditions per protocol §5.2 / §10.8 / §1824:
+  //   * EXECUTE.done    → DELIVER_VERIFY_MIN_UNAVAILABLE (deferred —
+  //                       verify-min check infra not yet wired).
+  //   * VERIFY.accept   → ceremony.settle_phase=false + verify_accepted=true
+  //                       (DELIVER_SETTLE_PHASE_BYPASS / DELIVER_NOT_ACCEPTED).
+  //   * SETTLE.lessons  → verify_accepted=true (defensive; legal
+  //                       transitions cannot reach here without approval).
+  //   * Any source      → no non-abandoned spike tasks (DELIVER_SPIKE_TASKS).
+  // Output is advisory-only per protocol §1824 — the deliver step does
+  // not invoke git/gh; it records the cursor flip and renders a "next:"
+  // hint that callers can grep for.
+  program
+    .command("deliver")
+    .description("Deliver the feature session (emits session:delivered → DONE.delivered)")
+    .requiredOption("--feature <name>", "Feature whose session to deliver")
+    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
+    .option("--reason <text>", "Optional rationale to record on the session:delivered entry")
+    .action(async (opts: { feature: string; featureDir?: string; reason?: string }) => {
+      // (1) Human-only actor — `session:delivered` is HUMAN_ONLY per PER_KIND_ACTOR.
+      const resolution = resolveHumanActor({
+        env: process.env,
+        readGitConfig: getGitEmail,
+        isInteractiveHuman: process.stdin.isTTY === true,
+      });
+      if (!resolution.ok) {
+        emitFailure(resolution.code, resolution.message);
+        return;
+      }
+      const humanActor = resolution.actor;
+
+      // (2) Load session.
+      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      const session = await loadSession(featureDir);
+      const from = session.snapshot.state?.sub_state;
+      if (!from) {
+        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        return;
+      }
+
+      // (3) Build payload (reason is optional per SessionReasonPayload).
+      const payload: Record<string, unknown> = {};
+      if (opts.reason !== undefined) payload["reason"] = opts.reason;
+
+      // (4) Mutate. preflight step 5c enforces all delivery preconditions;
+      //     reducer flips cursor to DONE.delivered.
+      const result = await mutate(
+        {
+          at: new Date().toISOString(),
+          actor: humanActor,
+          entry_schema_version: 1,
+          kind: "session:delivered",
+          payload,
+        },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq },
+      );
+      if (!result.ok) {
+        emitFailure(result.code, result.message, result.detail);
+        return;
+      }
+
+      // (5) Success output. Single advisory hint per protocol §10.12 +
+      //     §1824 ("advisory only, 不碰 git/gh"). Callers can grep `next:`
+      //     to chain commands in scripts.
+      const advisory = [
+        `session complete — \`loaf start <feature>\` to begin another`,
+      ];
+      const out = {
+        ok: true,
+        feature: opts.feature,
+        from,
+        to: "DONE.delivered" as const,
+        actor: humanActor,
+        sub_state: result.snapshot.state?.sub_state,
+        advisory,
+      };
+      if (useJson) {
+        process.stdout.write(JSON.stringify(out) + "\n");
+      } else {
+        process.stdout.write(
+          `delivered ${opts.feature} (advisory only) — ${from} → DONE.delivered by ${humanActor}\n` +
+          `next: ${advisory[0]}\n`,
+        );
+      }
+    });
+
   try {
     await program.parseAsync(argv);
     return exitCode;

@@ -861,6 +861,642 @@ describe("loaf gate decide verify-accept — Slice 1.C sub-cycle 6 (MVP)", () =>
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+// Slice 1.D sub-cycle 2 — loaf deliver CLI (MVP)
+//
+// Seeds extend the existing verify-accept seed: approve the verify-accept
+// gate so verify_accepted=true (deliver preflight step 5c gate), then
+// (deep variant) walk through SETTLE.* via raw event:phase_advanced so
+// the cursor reaches SETTLE.lessons.
+// ─────────────────────────────────────────────────────────────────────────
+
+const DEEP_NO_STRICT_REVIEW_CEREMONY = {
+  spec_phase: true,
+  verify_phase: true,
+  settle_phase: true,
+  // strict_spec_review intentionally false: with true, verify-accept check 5
+  // would require kind=spec-review evidence with actor ≠ implementer, and the
+  // seed does not stage any. Slice 1.D deliver tests focus on the deliver
+  // gate, not strict-spec-review enforcement (that has dedicated coverage in
+  // gates/verify-accept-check.test.ts). Real deep ceremony in production
+  // keeps strict_spec_review=true; this seed-specific variant is documented
+  // here and not exported beyond cli.test.ts.
+  strict_spec_review: false,
+  lessons_required: "must" as const,
+  strict_drift_check: true,
+};
+
+/**
+ * Extend seedFeatureAtVerifyAccept by running gate decide verify-accept
+ * --approve via raw mutate (Pass 1.5 evaluates with the seeded state's
+ * vacuous-pass profile: no done tasks, no findings, acceptance_na REQ).
+ * After this returns, snapshot.state.verify_accepted=true and the cursor
+ * stays at VERIFY.accept.
+ */
+async function seedFeatureAtVerifyAcceptApproved(dir: string): Promise<void> {
+  await seedFeatureAtVerifyAccept(dir);
+  const { loadSession } = await import("../../src/core/cli-runtime.js");
+  const { snapshot, tail_seq } = await loadSession(dir);
+  const result = await mutateRaw(
+    {
+      at: new Date(2026, 4, 15, 11, 30, 0).toISOString(),
+      actor: "human:seed@test.invalid",
+      entry_schema_version: 1,
+      kind: "gate:decided",
+      payload: { gate_kind: "verify-accept", decision: "approved", reason: "seed approval" },
+    },
+    { feature_dir: dir, snapshot, tail_seq, fsync: false },
+  );
+  if (!result.ok) throw new Error(`seed verify-accept approve failed: ${result.message}`);
+}
+
+/**
+ * Seed a feature dir all the way through to SETTLE.lessons with deep
+ * ceremony (strict_spec_review false — see DEEP_NO_STRICT_REVIEW_CEREMONY
+ * comment). Path: session:started (deep) → walk to SPEC.design → spec-lock
+ * approve → walk to VERIFY.accept → verify-accept approve → advance
+ * VERIFY.accept→SETTLE.reconcile→SETTLE.lessons via raw event:phase_advanced.
+ * After this returns, cursor is at SETTLE.lessons, verify_accepted=true,
+ * ceremony settle_phase=true; the deliver preflight will accept from this
+ * source provided no spike tasks exist (seed plans only T-001 behavioral).
+ */
+async function seedFeatureAtSettleLessons(dir: string): Promise<void> {
+  // Step 1: write spec.md (same shape as seedFeatureAtSpecDesign).
+  await fsP.writeFile(
+    path.join(dir, "spec.md"),
+    `---
+schema_version: 2
+spec_version: 1
+feature:
+  id: F-001
+  name: OAuth token refresh
+intent: users should not perceive auth recovery flows in flight
+adr_refs: []
+requirements:
+  - id: REQ-AUTH-001
+    type: ubiquitous
+    response: the system shall do something measurable here
+    acceptance_na: true
+    acceptance_na_reason: subjective UX validated via manual testing scope
+scenarios: []
+needs_clarification: []
+---
+
+## Why
+prose body here
+`,
+  );
+
+  // Step 2: boot session with deep ceremony.
+  let snapshot = (await import("../../src/core/reducer.js")).initialSnapshot();
+  let tailSeq = -1;
+  const boot = await mutateRaw(
+    {
+      at: "2026-05-15T10:00:00.000Z",
+      actor: "cli:loaf",
+      entry_schema_version: 1,
+      kind: "session:started",
+      payload: {
+        session_id: "550e8400-e29b-41d4-a716-446655440000",
+        feature: "auth-refresh",
+        ceremony: DEEP_NO_STRICT_REVIEW_CEREMONY,
+      },
+    },
+    { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+  );
+  if (!boot.ok) throw new Error(`settle-seed boot failed: ${boot.message}`);
+  snapshot = boot.snapshot;
+  tailSeq++;
+
+  // Step 3: walk TRIAGE → SPEC.proposal.
+  for (const [from, to] of [
+    ["TRIAGE.score", "TRIAGE.confirm"],
+    ["TRIAGE.confirm", "SPEC.proposal"],
+  ] as Array<[string, string]>) {
+    const r = await mutateRaw(
+      {
+        at: new Date(2026, 4, 15, 10, 0, tailSeq + 1).toISOString(),
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "event:phase_advanced",
+        payload: { from: from as any, to: to as any },
+      },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    );
+    if (!r.ok) throw new Error(`settle-seed walk1 ${from}->${to} failed: ${r.message}`);
+    snapshot = r.snapshot;
+    tailSeq++;
+  }
+
+  // Step 4: spec_submitted + req batch.
+  const submitBatch = await mutateBatchRaw(
+    [
+      {
+        at: new Date(2026, 4, 15, 10, 0, tailSeq + 1).toISOString(),
+        actor: "human:seed@test.invalid",
+        entry_schema_version: 1,
+        kind: "event:spec_submitted",
+        payload: {
+          spec_version: 1,
+          feature: { id: "F-001", name: "OAuth token refresh" },
+          intent: "users should not perceive auth recovery flows in flight",
+          adr_refs: [],
+          needs_clarification: [],
+        },
+      },
+      {
+        at: new Date(2026, 4, 15, 10, 0, tailSeq + 2).toISOString(),
+        actor: "human:seed@test.invalid",
+        entry_schema_version: 1,
+        kind: "event:spec_req_added",
+        payload: {
+          spec_version: 1,
+          req: {
+            id: "REQ-AUTH-001",
+            type: "ubiquitous",
+            response: "the system shall do something measurable here",
+            acceptance_na: true,
+            acceptance_na_reason: "subjective UX validated via manual testing scope",
+          },
+        },
+      },
+    ],
+    { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+  );
+  if (!submitBatch.ok) throw new Error(`settle-seed submit failed: ${submitBatch.message}`);
+  snapshot = submitBatch.snapshot;
+  tailSeq += 2;
+
+  // Step 5: walk SPEC.proposal → SPEC.design.
+  for (const [from, to] of [
+    ["SPEC.proposal", "SPEC.spec"],
+    ["SPEC.spec", "SPEC.plan"],
+    ["SPEC.plan", "SPEC.design"],
+  ] as Array<[string, string]>) {
+    const r = await mutateRaw(
+      {
+        at: new Date(2026, 4, 15, 10, 0, tailSeq + 1).toISOString(),
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "event:phase_advanced",
+        payload: { from: from as any, to: to as any },
+      },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    );
+    if (!r.ok) throw new Error(`settle-seed walk2 ${from}->${to} failed: ${r.message}`);
+    snapshot = r.snapshot;
+    tailSeq++;
+  }
+
+  // Step 6: plan tasks (single behavioral; no spike).
+  const planResult = await mutateRaw(
+    {
+      at: new Date(2026, 4, 15, 10, 0, tailSeq + 1).toISOString(),
+      actor: "human:seed@test.invalid",
+      entry_schema_version: 1,
+      kind: "event:tasks_planned",
+      payload: {
+        based_on: { spec: 1 },
+        tasks: [
+          {
+            id: "T-001",
+            kind: "behavioral",
+            drives: ["REQ-AUTH-001"],
+            tests: ["TokenCoord.refreshOnce"],
+            status: "pending",
+            depends_on: [],
+            labels: [],
+            execution: {
+              red: { applicability: "must", status: "pending", evidence_refs: [] },
+              implement: { applicability: "must", status: "pending", evidence_refs: [] },
+              refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+            },
+          },
+        ],
+      },
+    },
+    { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+  );
+  if (!planResult.ok) throw new Error(`settle-seed plan failed: ${planResult.message}`);
+  snapshot = planResult.snapshot;
+  tailSeq++;
+
+  // Step 7: spec-lock approve (dual-entry batch with phase_advanced).
+  const specLockBatch = await mutateBatchRaw(
+    [
+      {
+        at: new Date(2026, 4, 15, 11, 0, tailSeq + 1).toISOString(),
+        actor: "human:seed@test.invalid",
+        entry_schema_version: 1,
+        kind: "gate:decided",
+        payload: { gate_kind: "spec-lock", decision: "approved", reason: "seed approval" },
+      },
+      {
+        at: new Date(2026, 4, 15, 11, 0, tailSeq + 2).toISOString(),
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "event:phase_advanced",
+        payload: { from: "SPEC.design", to: "EXECUTE.plan" },
+      },
+    ],
+    { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+  );
+  if (!specLockBatch.ok) throw new Error(`settle-seed spec-lock failed: ${specLockBatch.message}`);
+  snapshot = specLockBatch.snapshot;
+  tailSeq += 2;
+
+  // Step 8: walk EXECUTE → VERIFY.accept.
+  for (const [from, to] of [
+    ["EXECUTE.plan", "EXECUTE.work"],
+    ["EXECUTE.work", "EXECUTE.done"],
+    ["EXECUTE.done", "VERIFY.plan"],
+    ["VERIFY.plan", "VERIFY.run"],
+    ["VERIFY.run", "VERIFY.review"],
+    ["VERIFY.review", "VERIFY.acceptance"],
+    ["VERIFY.acceptance", "VERIFY.visual"],
+    ["VERIFY.visual", "VERIFY.accept"],
+  ] as Array<[string, string]>) {
+    const r = await mutateRaw(
+      {
+        at: new Date(2026, 4, 15, 11, 0, tailSeq + 1).toISOString(),
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "event:phase_advanced",
+        payload: { from: from as any, to: to as any },
+      },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    );
+    if (!r.ok) throw new Error(`settle-seed walk3 ${from}->${to} failed: ${r.message}`);
+    snapshot = r.snapshot;
+    tailSeq++;
+  }
+
+  // Step 9: verify-accept approve.
+  const verifyApprove = await mutateRaw(
+    {
+      at: new Date(2026, 4, 15, 12, 0, tailSeq + 1).toISOString(),
+      actor: "human:seed@test.invalid",
+      entry_schema_version: 1,
+      kind: "gate:decided",
+      payload: { gate_kind: "verify-accept", decision: "approved", reason: "seed approval" },
+    },
+    { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+  );
+  if (!verifyApprove.ok) throw new Error(`settle-seed verify-accept failed: ${verifyApprove.message}`);
+  snapshot = verifyApprove.snapshot;
+  tailSeq++;
+
+  // Step 10: advance VERIFY.accept → SETTLE.reconcile → SETTLE.lessons via raw
+  // event:phase_advanced. `loaf settle` CLI lands in sub-cycle 3; until then,
+  // the cursor walk uses the validator directly (verify_accepted=true now, so
+  // SETTLE_NOT_ACCEPTED does not fire).
+  for (const [from, to] of [
+    ["VERIFY.accept", "SETTLE.reconcile"],
+    ["SETTLE.reconcile", "SETTLE.lessons"],
+  ] as Array<[string, string]>) {
+    const r = await mutateRaw(
+      {
+        at: new Date(2026, 4, 15, 12, 0, tailSeq + 1).toISOString(),
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "event:phase_advanced",
+        payload: { from: from as any, to: to as any },
+      },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    );
+    if (!r.ok) throw new Error(`settle-seed walk4 ${from}->${to} failed: ${r.message}`);
+    snapshot = r.snapshot;
+    tailSeq++;
+  }
+}
+
+describe("loaf deliver — Slice 1.D sub-cycle 2 (MVP)", () => {
+  test("happy path: VERIFY.accept standard + verify_accepted=true → DONE.delivered", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtVerifyAcceptApproved(dir);
+
+    const result = await runCli(
+      [
+        "deliver",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--reason", "ready to ship",
+        "--json",
+      ],
+      { env: { LOAF_USER: "tester@example.invalid" } },
+    );
+
+    expect(result.exit).toBe(0);
+    expect(result.stderr).toBe("");
+    const out = JSON.parse(result.stdout);
+    expect(out.ok).toBe(true);
+    expect(out.feature).toBe("auth-refresh");
+    expect(out.from).toBe("VERIFY.accept");
+    expect(out.to).toBe("DONE.delivered");
+    expect(out.sub_state).toBe("DONE.delivered");
+    expect(out.actor).toBe("human:tester@example.invalid");
+    expect(Array.isArray(out.advisory)).toBe(true);
+    expect(out.advisory.length).toBeGreaterThan(0);
+
+    // Journal sanity: last entry is session:delivered.
+    const journal = await fsP.readFile(path.join(dir, "journal.jsonl"), "utf8");
+    const lines = journal.trim().split("\n").map((l) => JSON.parse(l));
+    const last = lines[lines.length - 1];
+    expect(last.kind).toBe("session:delivered");
+    expect(last.actor).toBe("human:tester@example.invalid");
+    expect(last.payload.reason).toBe("ready to ship");
+  });
+
+  test("happy path: SETTLE.lessons deep + verify_accepted=true → DONE.delivered", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtSettleLessons(dir);
+
+    const result = await runCli(
+      [
+        "deliver",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--json",
+      ],
+      { env: { LOAF_USER: "tester@example.invalid" } },
+    );
+
+    expect(result.exit).toBe(0);
+    expect(result.stderr).toBe("");
+    const out = JSON.parse(result.stdout);
+    expect(out.ok).toBe(true);
+    expect(out.from).toBe("SETTLE.lessons");
+    expect(out.to).toBe("DONE.delivered");
+    expect(out.sub_state).toBe("DONE.delivered");
+  });
+
+  test("text-mode output renders advisory hint on stdout", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtVerifyAcceptApproved(dir);
+
+    const result = await runCli(
+      [
+        "deliver",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+      ],
+      { env: { LOAF_USER: "tester@example.invalid" } },
+    );
+
+    expect(result.exit).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toMatch(/delivered auth-refresh/);
+    expect(result.stdout).toMatch(/DONE\.delivered/);
+    expect(result.stdout).toMatch(/^next: /m);
+  });
+
+  test("fail: VERIFY.accept + verify_accepted=false → DELIVER_NOT_ACCEPTED", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtVerifyAccept(dir); // no gate approve → verify_accepted=false
+
+    const result = await runCli(
+      [
+        "deliver",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--json",
+      ],
+      { env: { LOAF_USER: "tester@example.invalid" } },
+    );
+
+    expect(result.exit).toBe(2);
+    expect(result.stdout).toBe("");
+    const errJson = JSON.parse(result.stderr.trim());
+    expect(errJson.code).toBe("DELIVER_NOT_ACCEPTED");
+  });
+
+  test("fail: EXECUTE.done attempt (quick path) → DELIVER_VERIFY_MIN_UNAVAILABLE", async () => {
+    // Build a custom seed that ends at EXECUTE.done (no VERIFY.* walk).
+    // Use STANDARD ceremony for simplicity — preflight rejects EXECUTE.done
+    // deliver regardless of ceremony per Slice 1.D fail-closed gate.
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtSpecDesign(dir);
+
+    // Approve spec-lock + walk to EXECUTE.done via raw mutate.
+    const { loadSession } = await import("../../src/core/cli-runtime.js");
+    let { snapshot, tail_seq } = await loadSession(dir);
+    let tailSeq = tail_seq;
+    const lockBatch = await mutateBatchRaw(
+      [
+        {
+          at: new Date(2026, 4, 15, 11, 0, tailSeq + 1).toISOString(),
+          actor: "human:seed@test.invalid",
+          entry_schema_version: 1,
+          kind: "gate:decided",
+          payload: { gate_kind: "spec-lock", decision: "approved", reason: "seed approval" },
+        },
+        {
+          at: new Date(2026, 4, 15, 11, 0, tailSeq + 2).toISOString(),
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "event:phase_advanced",
+          payload: { from: "SPEC.design", to: "EXECUTE.plan" },
+        },
+      ],
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    );
+    if (!lockBatch.ok) throw new Error(`spec-lock seed failed: ${lockBatch.message}`);
+    snapshot = lockBatch.snapshot;
+    tailSeq += 2;
+    for (const [from, to] of [
+      ["EXECUTE.plan", "EXECUTE.work"],
+      ["EXECUTE.work", "EXECUTE.done"],
+    ] as Array<[string, string]>) {
+      const r = await mutateRaw(
+        {
+          at: new Date(2026, 4, 15, 11, 0, tailSeq + 1).toISOString(),
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "event:phase_advanced",
+          payload: { from: from as any, to: to as any },
+        },
+        { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+      );
+      if (!r.ok) throw new Error(`walk failed: ${r.message}`);
+      snapshot = r.snapshot;
+      tailSeq++;
+    }
+
+    const result = await runCli(
+      [
+        "deliver",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--json",
+      ],
+      { env: { LOAF_USER: "tester@example.invalid" } },
+    );
+
+    expect(result.exit).toBe(2);
+    expect(result.stdout).toBe("");
+    const errJson = JSON.parse(result.stderr.trim());
+    expect(errJson.code).toBe("DELIVER_VERIFY_MIN_UNAVAILABLE");
+  });
+
+  test("fail: non-abandoned spike task present → DELIVER_SPIKE_TASKS", async () => {
+    // Plant a spike task in the original tasks_planned at SPEC.design so it
+    // rides the projection through to VERIFY.accept. event:tasks_amended at
+    // VERIFY.* expects an existing task — adding new ones requires
+    // tasks_planned which is only legal at SPEC.design / EXECUTE.plan. So we
+    // duplicate the SPEC seed inline here with T-002 added.
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtSpecDesign(dir); // sets cursor at SPEC.design with T-001 planned + tasks_based_on=1
+
+    // Inject a spike task via a fresh tasks_planned at SPEC.design that
+    // supersedes the prior one (reducer reseeds projection on each
+    // tasks_planned). based_on.spec must match current spec_version=1.
+    const { loadSession } = await import("../../src/core/cli-runtime.js");
+    let { snapshot, tail_seq } = await loadSession(dir);
+    let tailSeq = tail_seq;
+    const replan = await mutateRaw(
+      {
+        at: new Date(2026, 4, 15, 10, 30, 0).toISOString(),
+        actor: "human:seed@test.invalid",
+        entry_schema_version: 1,
+        kind: "event:tasks_planned",
+        payload: {
+          based_on: { spec: 1 },
+          tasks: [
+            {
+              id: "T-001",
+              kind: "behavioral",
+              drives: ["REQ-AUTH-001"],
+              tests: ["TokenCoord.refreshOnce"],
+              status: "pending",
+              depends_on: [],
+              labels: [],
+              execution: {
+                red: { applicability: "must", status: "pending", evidence_refs: [] },
+                implement: { applicability: "must", status: "pending", evidence_refs: [] },
+                refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+              },
+            },
+            {
+              id: "T-002",
+              kind: "spike",
+              no_test_rationale: "exploratory spike task: no behavioral assertions required",
+              status: "in_progress",
+              depends_on: [],
+              labels: [],
+              execution: {
+                explore: { applicability: "must", status: "running", evidence_refs: [] },
+                prototype: { applicability: "must", status: "pending", evidence_refs: [] },
+                record: { applicability: "must", status: "pending", evidence_refs: [] },
+              },
+            },
+          ],
+        },
+      },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    );
+    if (!replan.ok) throw new Error(`spike replan seed failed: ${replan.message}`);
+    snapshot = replan.snapshot;
+    tailSeq++;
+
+    // Now spec-lock approve + walk to VERIFY.accept + verify-accept approve.
+    const lockBatch = await mutateBatchRaw(
+      [
+        {
+          at: new Date(2026, 4, 15, 11, 0, tailSeq + 1).toISOString(),
+          actor: "human:seed@test.invalid",
+          entry_schema_version: 1,
+          kind: "gate:decided",
+          payload: { gate_kind: "spec-lock", decision: "approved", reason: "seed approval" },
+        },
+        {
+          at: new Date(2026, 4, 15, 11, 0, tailSeq + 2).toISOString(),
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "event:phase_advanced",
+          payload: { from: "SPEC.design", to: "EXECUTE.plan" },
+        },
+      ],
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    );
+    if (!lockBatch.ok) throw new Error(`spike spec-lock seed failed: ${lockBatch.message}`);
+    snapshot = lockBatch.snapshot;
+    tailSeq += 2;
+
+    for (const [from, to] of [
+      ["EXECUTE.plan", "EXECUTE.work"],
+      ["EXECUTE.work", "EXECUTE.done"],
+      ["EXECUTE.done", "VERIFY.plan"],
+      ["VERIFY.plan", "VERIFY.run"],
+      ["VERIFY.run", "VERIFY.review"],
+      ["VERIFY.review", "VERIFY.acceptance"],
+      ["VERIFY.acceptance", "VERIFY.visual"],
+      ["VERIFY.visual", "VERIFY.accept"],
+    ] as Array<[string, string]>) {
+      const r = await mutateRaw(
+        {
+          at: new Date(2026, 4, 15, 11, 0, tailSeq + 1).toISOString(),
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "event:phase_advanced",
+          payload: { from: from as any, to: to as any },
+        },
+        { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+      );
+      if (!r.ok) throw new Error(`spike walk ${from}->${to} failed: ${r.message}`);
+      snapshot = r.snapshot;
+      tailSeq++;
+    }
+
+    const verifyApprove = await mutateRaw(
+      {
+        at: new Date(2026, 4, 15, 12, 0, tailSeq + 1).toISOString(),
+        actor: "human:seed@test.invalid",
+        entry_schema_version: 1,
+        kind: "gate:decided",
+        payload: { gate_kind: "verify-accept", decision: "approved", reason: "seed approval" },
+      },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    );
+    if (!verifyApprove.ok) throw new Error(`spike verify-accept seed failed: ${verifyApprove.message}`);
+
+    const result = await runCli(
+      [
+        "deliver",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--json",
+      ],
+      { env: { LOAF_USER: "tester@example.invalid" } },
+    );
+
+    expect(result.exit).toBe(2);
+    expect(result.stdout).toBe("");
+    const errJson = JSON.parse(result.stderr.trim());
+    expect(errJson.code).toBe("DELIVER_SPIKE_TASKS");
+    expect(errJson.detail).toMatchObject({ task_id: "T-002", status: "in_progress" });
+  });
+
+  test("fail: LOAF_USER unset (no tty) → NO_HUMAN_ACTOR, stdout empty", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtVerifyAcceptApproved(dir);
+
+    const result = await runCli(
+      [
+        "deliver",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--json",
+      ],
+      { env: { LOAF_USER: undefined } },
+    );
+
+    expect(result.exit).toBe(2);
+    expect(result.stdout).toBe("");
+    const errJson = JSON.parse(result.stderr.trim());
+    expect(errJson.code).toBe("NO_HUMAN_ACTOR");
+  });
+});
+
 // ── Slice 1.D sub-cycle 1 — negative coverage for `loaf advance DONE.delivered` ──
 //
 // Codex r50 residual C: the 3 `→ DONE.delivered` edges were removed from
