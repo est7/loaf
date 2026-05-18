@@ -4168,6 +4168,46 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
       "run interactively with git user.email configured, or set LOAF_USER explicitly",
     doc_anchor: "protocol.md#§10.8",
   },
+  SPEC_VERSION_NOT_MONOTONIC: {
+    exit_code: 2,
+    message_template:
+      "spec_version must be {expected} (current+1) at batch head, got {actual}",
+    fix_template:
+      "ensure `loaf spec submit` / `add-*` invocations carry spec_version = state.spec_version + 1; per protocol §586 each CLI invocation bumps spec_version by exactly 1, regardless of how many items are in the batch",
+    doc_anchor: "protocol.md#§586",
+  },
+  SPEC_VERSION_BATCH_MISMATCH: {
+    exit_code: 2,
+    message_template:
+      "spec_version must be {expected} at batch_index={index}, got {actual}",
+    fix_template:
+      "within a single mutateBatch invocation, the batch head (batch_index=0) bumps state.spec_version; all subsequent companion entries (batch_index>0) must carry the SAME spec_version. Regenerate the batch with a consistent spec_version across all entries",
+    doc_anchor: "protocol.md#§586",
+  },
+  DUPLICATE_REQ_ID: {
+    exit_code: 2,
+    message_template:
+      "REQ id {id} is already in the spec projection",
+    fix_template:
+      "allocate a fresh REQ id under the same id_namespace (the CLI scans for max serial + 1 inside the per-session lock) or `loaf finding raise --category spec-gap --action amend-spec` if you need to retire the existing REQ",
+    doc_anchor: "protocol.md#§600",
+  },
+  DUPLICATE_SCEN_ID: {
+    exit_code: 2,
+    message_template:
+      "SCEN id {id} is already in the spec projection",
+    fix_template:
+      "allocate a fresh SCEN id under the same id_namespace, or amend via finding mechanism if retiring an existing scenario",
+    doc_anchor: "protocol.md#§600",
+  },
+  DUPLICATE_VIS_ID: {
+    exit_code: 2,
+    message_template:
+      "VIS id {id} is already in the spec projection",
+    fix_template:
+      "allocate a fresh VIS id under the same id_namespace, or amend via finding mechanism if retiring an existing visual contract",
+    doc_anchor: "protocol.md#§600",
+  },
 } as const;
 
 // §40 Input schemas + INPUT_SCHEMAS + InputSourceResolver (rev 4.3 / ADR-0004 A2/A3/A5/A10/A11)
