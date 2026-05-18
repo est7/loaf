@@ -3751,6 +3751,8 @@ export const DiagnosticCode = z.enum([
   // themselves. Spec-lock checks above (2/3/4/5/6/7/8) live in detail.checks.
   "GATE_PRECONDITION_VIOLATION",           // src/core/journal-mutate.ts Pass 1.5 — evaluateSpecLock returned !ok; detail.checks: FailedCheck[]
   "MULTIPLE_GATE_DECISIONS",               // src/core/journal-mutate.ts Pass 1.5 — batch carries ≥2 approved gate:decided entries (any gate_kind); protocol §10.8 requires one gate decision per atomic operation
+  // ── Slice 1.B sub-cycle 4 — CLI gate decide MVP (codex r31 Option B) ──
+  "GATE_NOT_IMPLEMENTED",                  // src/cli.tsx `loaf gate decide <name>` — gate name (e.g. verify-accept) is documented in GateName enum but its CLI wire is deferred to a later slice; only spec-lock is wired in this release
 ]);
 export type DiagnosticCode = z.infer<typeof DiagnosticCode>;
 
@@ -4339,6 +4341,14 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
       "batch contains {count} approved gate:decided entries (gate_kinds={gate_kinds}); protocol §10.8 requires one gate decision per atomic operation",
     fix_template:
       "split the batch — emit each gate decision as its own mutation. A batch carrying ≥2 gate approvals (even with different gate_kinds, e.g. spec-lock + verify-accept) is not a valid atomic operation. Rejected gate decisions are not counted; only approvals trigger this rule",
+    doc_anchor: "protocol.md#§10.8",
+  },
+  GATE_NOT_IMPLEMENTED: {
+    exit_code: 2,
+    message_template:
+      "gate={gate} is recognized by the protocol but its CLI wire is deferred; only spec-lock is wired in this release",
+    fix_template:
+      "use `loaf gate decide spec-lock` until the verify-accept (and other future gates) wire lands in a later slice. The GateName enum lists the full set of recognized gates; CLI wiring catches up gate-by-gate",
     doc_anchor: "protocol.md#§10.8",
   },
 } as const;

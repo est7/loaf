@@ -17,14 +17,16 @@
 import { Command, CommanderError } from "commander";
 import packageJson from "../package.json" with { type: "json" };
 
+import { resolveHumanActor } from "./core/actor-resolver.js";
 import {
   LOAF_DOCS_URL,
   LOAF_ISSUE_URL,
   defaultFeatureDir,
+  getGitEmail,
   helpFooter,
   loadSession,
 } from "./core/cli-runtime.js";
-import { mutate } from "./core/journal-mutate.js";
+import { mutate, mutateBatch } from "./core/journal-mutate.js";
 import type { Ceremony } from "./core/journal-entry.js";
 
 const PRESETS: Record<string, Ceremony> = {
@@ -79,6 +81,34 @@ export async function main(argv: string[] = process.argv): Promise<number> {
   let exitCode = 0;
   const fail = (code: string, message: string) => {
     process.stderr.write(`error: ${code} — ${message}\n`);
+    exitCode = 2;
+  };
+
+  // emitFailure — richer error path used by `gate decide` (Slice 1.B
+  // sub-cycle 4). Protocol §10.0 keeps stdout for primary output only,
+  // so structured JSON failures go to stderr too. detail.checks (when
+  // present, e.g. GATE_PRECONDITION_VIOLATION) is one-line-per-check in
+  // text mode for readability.
+  const emitFailure = (
+    code: string,
+    message: string,
+    detail?: Record<string, unknown>,
+  ) => {
+    if (useJson) {
+      const out: Record<string, unknown> = { ok: false, code, message };
+      if (detail) out.detail = detail;
+      process.stderr.write(JSON.stringify(out) + "\n");
+    } else {
+      process.stderr.write(`error: ${code} — ${message}\n`);
+      const checks = detail?.["checks"];
+      if (Array.isArray(checks)) {
+        for (const c of checks as Array<{ check?: number; code?: string; message?: string }>) {
+          process.stderr.write(
+            `  [check ${c.check ?? "?"}] ${c.code ?? "UNKNOWN"}: ${c.message ?? ""}\n`,
+          );
+        }
+      }
+    }
     exitCode = 2;
   };
 
@@ -192,6 +222,154 @@ export async function main(argv: string[] = process.argv): Promise<number> {
           );
         }
       }
+    });
+
+  // ── loaf gate decide <gate-name> ────────────────────────────────────
+  // Slice 1.B sub-cycle 4: spec-lock direct gate MVP. Emits
+  //   approve: [gate:decided, event:phase_advanced SPEC.design → EXECUTE.plan]
+  //   reject:  [gate:decided]
+  // Pending-head enforcement and `pending:resolved` co-emission are
+  // intentionally deferred — full protocol §10.7/§10.8 lands with the
+  // pending CLI surface in a later slice.
+  program
+    .command("gate")
+    .description("Gate decision commands (spec-lock; verify-accept is deferred)")
+    .command("decide <gate-name>")
+    .description("Decide a gate (emits gate:decided + event:phase_advanced on approve)")
+    .option("--approve", "Approve the gate")
+    .option("--reject", "Reject the gate")
+    .requiredOption("--reason <text>", "Decision rationale (passed through to GateDecidedPayload)")
+    .requiredOption("--feature <name>", "Feature whose session to gate")
+    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
+    .action(async (
+      gateName: string,
+      opts: {
+        approve?: boolean;
+        reject?: boolean;
+        reason: string;
+        feature: string;
+        featureDir?: string;
+      },
+    ) => {
+      // (1) action-level mutex: exactly one of --approve / --reject
+      const approve = opts.approve === true;
+      const reject = opts.reject === true;
+      if (approve === reject) {
+        emitFailure(
+          "USAGE",
+          "exactly one of --approve | --reject is required",
+        );
+        return;
+      }
+      // (2) unsupported gate names
+      if (gateName !== "spec-lock") {
+        emitFailure(
+          "GATE_NOT_IMPLEMENTED",
+          `gate=${gateName} is not yet wired in this release; only spec-lock is supported`,
+          { gate: gateName },
+        );
+        return;
+      }
+      // (3) resolve human actor (gate is human-only per per-kind actor policy)
+      const resolution = resolveHumanActor({
+        env: process.env,
+        readGitConfig: getGitEmail,
+        isInteractiveHuman: process.stdin.isTTY === true,
+      });
+      if (!resolution.ok) {
+        emitFailure(resolution.code, resolution.message);
+        return;
+      }
+      const humanActor = resolution.actor;
+      // (4) load session
+      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      const session = await loadSession(featureDir);
+      const from = session.snapshot.state?.sub_state;
+      if (!from) {
+        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        return;
+      }
+      // (5) build entries + execute
+      const ctx = {
+        feature_dir: featureDir,
+        snapshot: session.snapshot,
+        tail_seq: session.tail_seq,
+      };
+      const now = new Date().toISOString();
+      if (approve) {
+        // dual-entry batch: human gate:decided + machine event:phase_advanced.
+        // mutateBatch Pass 1.5 evaluates spec-lock via evaluateSpecLock; any
+        // failure surfaces as GATE_PRECONDITION_VIOLATION with checks[] in
+        // detail. spec-lock specifically moves SPEC.design → EXECUTE.plan.
+        const result = await mutateBatch(
+          [
+            {
+              at: now,
+              actor: humanActor,
+              entry_schema_version: 1,
+              kind: "gate:decided",
+              payload: { gate_kind: "spec-lock", decision: "approved", reason: opts.reason },
+            },
+            {
+              at: now,
+              actor,
+              entry_schema_version: 1,
+              kind: "event:phase_advanced",
+              payload: { from, to: "EXECUTE.plan" },
+            },
+          ],
+          ctx,
+        );
+        if (!result.ok) {
+          emitFailure(result.code, result.message, result.detail);
+          return;
+        }
+        const out = {
+          ok: true,
+          gate: "spec-lock",
+          decision: "approved" as const,
+          from,
+          to: "EXECUTE.plan",
+          actor: humanActor,
+          sub_state: result.snapshot.state?.sub_state,
+          spec_locked: result.snapshot.state?.spec_locked,
+        };
+        process.stdout.write(
+          useJson
+            ? JSON.stringify(out) + "\n"
+            : `gate spec-lock approved by ${humanActor} — ${from} → EXECUTE.plan\n`,
+        );
+        return;
+      }
+      // reject: single entry, no phase advance
+      const result = await mutate(
+        {
+          at: now,
+          actor: humanActor,
+          entry_schema_version: 1,
+          kind: "gate:decided",
+          payload: { gate_kind: "spec-lock", decision: "rejected", reason: opts.reason },
+        },
+        ctx,
+      );
+      if (!result.ok) {
+        emitFailure(result.code, result.message, result.detail);
+        return;
+      }
+      const out = {
+        ok: true,
+        gate: "spec-lock",
+        decision: "rejected" as const,
+        from,
+        actor: humanActor,
+        sub_state: result.snapshot.state?.sub_state,
+        spec_locked: result.snapshot.state?.spec_locked,
+      };
+      process.stdout.write(
+        useJson
+          ? JSON.stringify(out) + "\n"
+          : `gate spec-lock rejected by ${humanActor} — cursor stays at ${from}\n`,
+      );
     });
 
   try {

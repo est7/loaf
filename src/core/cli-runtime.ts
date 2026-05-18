@@ -11,6 +11,7 @@
 // rehydration when applicable), surfaces typed errors, and returns the
 // in-memory snapshot + tail seq so commands can call `mutate()`.
 
+import { execFileSync } from "node:child_process";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
@@ -53,4 +54,27 @@ export async function loadSession(featureDir: string): Promise<SessionLoad> {
 
 export function defaultFeatureDir(feature: string): string {
   return path.join(process.cwd(), ".loaf", feature);
+}
+
+/**
+ * Read git's configured user.email. Tiny boundary helper for
+ * actor-resolver; resolver remains the policy owner. Returns null when
+ * git is unavailable or no email is configured (the resolver treats
+ * either case as "no git fallback available").
+ *
+ * Uses execFileSync (not execSync) so there is no shell parsing path —
+ * no dynamic input here, but the cleaner CLI boundary by default
+ * (codex r31 Q2.1).
+ */
+export function getGitEmail(): string | null {
+  try {
+    const out = execFileSync("git", ["config", "user.email"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    const trimmed = out.trim();
+    return trimmed.length === 0 ? null : trimmed;
+  } catch {
+    return null;
+  }
 }
