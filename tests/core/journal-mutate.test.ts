@@ -1490,3 +1490,265 @@ describe("mutate evidence:added — strict refines (Slice 1.C sub-cycle 1)", () 
     expect(after).toBe(before);
   });
 });
+
+// ────────────────────────────────────────────────────────────────────────
+// Slice 1.C sub-cycle 5 — mutateBatch Pass 1.5 verify-accept gate wire
+// ────────────────────────────────────────────────────────────────────────
+
+describe("mutateBatch Pass 1.5 — verify-accept gate wire (Slice 1.C sub-cycle 5)", () => {
+  // Minimal valid spec.md for verify-accept evaluation: single ubiquitous
+  // REQ with acceptance_na=true so SCEN/VIS coverage is skipped; no done
+  // tasks in the seeded snapshot so RUN/REVIEW lane obligations are empty.
+  const SPEC_MD_VERIFY_HAPPY = `---
+schema_version: 2
+spec_version: 1
+feature:
+  id: F-001
+  name: OAuth refresh
+intent: keep auth invisible during refresh roundtrips
+adr_refs: []
+needs_clarification: []
+requirements:
+  - id: REQ-AUTH-001
+    type: ubiquitous
+    response: the system shall preserve the original request after refresh
+    acceptance_na: true
+    acceptance_na_reason: covered by manual UX walk-through scope
+scenarios: []
+---
+
+# OAuth refresh
+
+(spec body...)
+`;
+
+  /**
+   * Bootstrap session + walk to VERIFY.accept. PER_KIND_SUB_STATE for
+   * gate:decided allows ["SPEC.design", "VERIFY.accept"], so we can land
+   * a verify-accept gate decision once the cursor reaches VERIFY.accept.
+   *
+   * The walk goes TRIAGE.score → ... → SPEC.design → EXECUTE.plan → work
+   * → done → VERIFY.plan → run → review → acceptance → visual → accept.
+   * No tasks/evidence/findings are populated — Pass 1.5 verify-accept
+   * eval only reads spec.md + snapshot.tasks/evidence/findings/state,
+   * and the snapshot already has them as defaults from the reducer.
+   */
+  async function seedAtVerifyAccept(): Promise<{ dir: string; snapshot: Snapshot; tailSeq: number }> {
+    const dir = await tmpFeatureDir();
+    let snapshot = initialSnapshot();
+    let tailSeq = -1;
+    const boot = await mutate(
+      {
+        at: "2026-05-15T10:00:00.000Z",
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "session:started",
+        payload: {
+          session_id: "550e8400-e29b-41d4-a716-446655440000",
+          feature: "f",
+          ceremony: STANDARD,
+        },
+      },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    );
+    if (!boot.ok) throw new Error(`boot failed: ${boot.message}`);
+    snapshot = boot.snapshot;
+    tailSeq++;
+    const walk: Array<[string, string]> = [
+      ["TRIAGE.score", "TRIAGE.confirm"],
+      ["TRIAGE.confirm", "SPEC.proposal"],
+      ["SPEC.proposal", "SPEC.spec"],
+      ["SPEC.spec", "SPEC.plan"],
+      ["SPEC.plan", "SPEC.design"],
+      ["SPEC.design", "EXECUTE.plan"],
+      ["EXECUTE.plan", "EXECUTE.work"],
+      ["EXECUTE.work", "EXECUTE.done"],
+      ["EXECUTE.done", "VERIFY.plan"],
+      ["VERIFY.plan", "VERIFY.run"],
+      ["VERIFY.run", "VERIFY.review"],
+      ["VERIFY.review", "VERIFY.acceptance"],
+      ["VERIFY.acceptance", "VERIFY.visual"],
+      ["VERIFY.visual", "VERIFY.accept"],
+    ];
+    for (const [from, to] of walk) {
+      const r = await mutate(
+        {
+          at: new Date(2026, 4, 15, 10, 0, tailSeq + 1).toISOString(),
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "event:phase_advanced",
+          payload: { from: from as any, to: to as any },
+        },
+        { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+      );
+      if (!r.ok) throw new Error(`walk ${from}->${to} failed: ${r.message}`);
+      snapshot = r.snapshot;
+      tailSeq++;
+    }
+    return { dir, snapshot, tailSeq };
+  }
+
+  test("approve verify-accept happy → ok=true, flag flipped, journal grows", async () => {
+    const { dir, snapshot, tailSeq } = await seedAtVerifyAccept();
+    await fs.writeFile(path.join(dir, "spec.md"), SPEC_MD_VERIFY_HAPPY);
+    // Inject tasks_based_on to satisfy check 4 precondition without
+    // emitting a full event:tasks_planned (focus the test on the gate
+    // wire, not the reducer chain). Pass 1.5 reads ctx.snapshot directly,
+    // so the manipulation is invisible to the journal append path.
+    const happySnap: Snapshot = { ...snapshot, tasks_based_on: { spec: 1 } };
+    const journalBefore = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
+
+    const result = await mutate(
+      {
+        at: "2026-05-15T11:00:00.000Z",
+        actor: "human:est9",
+        entry_schema_version: 1,
+        kind: "gate:decided",
+        payload: {
+          gate_kind: "verify-accept",
+          decision: "approved",
+          reason: "all checks pass",
+        },
+      },
+      { feature_dir: dir, snapshot: happySnap, tail_seq: tailSeq, fsync: false },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("unreachable");
+    expect(result.snapshot.state?.verify_accepted).toBe(true);
+    expect(result.snapshot.state?.sub_state).toBe("VERIFY.accept"); // gate does NOT move cursor
+    const journalAfter = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
+    expect(journalAfter.length).toBeGreaterThan(journalBefore.length);
+  });
+
+  test("missing spec.md → GATE_PRECONDITION_VIOLATION + gate=verify-accept + subcode=SPEC_NOT_FOUND", async () => {
+    const { dir, snapshot, tailSeq } = await seedAtVerifyAccept();
+    const journalBefore = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
+    // Deliberately do NOT write spec.md — proves eval ran + spec read failed.
+
+    const result = await mutate(
+      {
+        at: "2026-05-15T11:00:00.000Z",
+        actor: "human:est9",
+        entry_schema_version: 1,
+        kind: "gate:decided",
+        payload: {
+          gate_kind: "verify-accept",
+          decision: "approved",
+          reason: "go",
+        },
+      },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("unreachable");
+    expect(result.code).toBe("GATE_PRECONDITION_VIOLATION");
+    expect((result.detail as { gate?: string }).gate).toBe("verify-accept");
+    expect((result.detail as { failure_count?: number }).failure_count).toBe(1);
+    const checks = (result.detail as { checks?: Array<{ code: string; detail?: { subcode?: string } }> }).checks ?? [];
+    expect(checks[0]!.code).toBe("SPEC_FRONTMATTER_INVALID");
+    expect(checks[0]!.detail?.subcode).toBe("SPEC_NOT_FOUND");
+    // Journal untouched — Pass 1.5 fired before Pass 2/4 append.
+    const journalAfter = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
+    expect(journalAfter).toBe(journalBefore);
+  });
+
+  test("verify-accept rejected pass-through — evaluateVerifyAccept NOT called (no spec.md needed)", async () => {
+    const { dir, snapshot, tailSeq } = await seedAtVerifyAccept();
+    // Deliberately do NOT write spec.md — proves eval was skipped for rejection.
+
+    const result = await mutate(
+      {
+        at: "2026-05-15T11:00:00.000Z",
+        actor: "human:est9",
+        entry_schema_version: 1,
+        kind: "gate:decided",
+        payload: {
+          gate_kind: "verify-accept",
+          decision: "rejected",
+          reason: "not ready",
+        },
+      },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("unreachable");
+    // verify_accepted stays false on rejection.
+    expect(result.snapshot.state?.verify_accepted).toBe(false);
+  });
+
+  test("MULTIPLE_GATE_DECISIONS rejects two approved verify-accept entries in one batch", async () => {
+    const { dir, snapshot, tailSeq } = await seedAtVerifyAccept();
+
+    const result = await mutateBatch(
+      [
+        {
+          at: "2026-05-15T11:00:00.000Z",
+          actor: "human:est9",
+          entry_schema_version: 1,
+          kind: "gate:decided",
+          payload: { gate_kind: "verify-accept", decision: "approved", reason: "ok" },
+        },
+        {
+          at: "2026-05-15T11:00:01.000Z",
+          actor: "human:est9",
+          entry_schema_version: 1,
+          kind: "gate:decided",
+          payload: { gate_kind: "verify-accept", decision: "approved", reason: "again" },
+        },
+      ],
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("unreachable");
+    expect(result.code).toBe("MULTIPLE_GATE_DECISIONS");
+    expect((result.detail as { count?: number }).count).toBe(2);
+  });
+
+  test("verify-accept fail with open finding → GATE_PRECONDITION_VIOLATION + OPEN_FINDINGS_PRESENT", async () => {
+    const { dir, snapshot, tailSeq } = await seedAtVerifyAccept();
+    await fs.writeFile(path.join(dir, "spec.md"), SPEC_MD_VERIFY_HAPPY);
+    // Inject tasks_based_on + an open finding directly into snapshot
+    // (bypassing the tasks_planned + finding:raised journal paths because
+    // Pass 1.5 reads ctx.snapshot pre-batch). Without tasks_based_on,
+    // check 4 precondition fires before check 2 reaches the open-finding
+    // assertion; we want the test focused on check 2 visibility.
+    const snapWithFinding: Snapshot = {
+      ...snapshot,
+      tasks_based_on: { spec: 1 },
+      findings: [
+        ...snapshot.findings,
+        { id: "FND-001", category: "impl-defect", action: "fix-impl", status: "open" },
+      ],
+    };
+    const journalBefore = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
+
+    const result = await mutate(
+      {
+        at: "2026-05-15T11:00:00.000Z",
+        actor: "human:est9",
+        entry_schema_version: 1,
+        kind: "gate:decided",
+        payload: {
+          gate_kind: "verify-accept",
+          decision: "approved",
+          reason: "wishing it through",
+        },
+      },
+      { feature_dir: dir, snapshot: snapWithFinding, tail_seq: tailSeq, fsync: false },
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("unreachable");
+    expect(result.code).toBe("GATE_PRECONDITION_VIOLATION");
+    expect((result.detail as { gate?: string }).gate).toBe("verify-accept");
+    const checks = (result.detail as { checks?: Array<{ code: string }> }).checks ?? [];
+    expect(checks.some((c) => c.code === "OPEN_FINDINGS_PRESENT")).toBe(true);
+    // Journal untouched.
+    const journalAfter = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
+    expect(journalAfter).toBe(journalBefore);
+  });
+});

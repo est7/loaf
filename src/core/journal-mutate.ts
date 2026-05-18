@@ -43,6 +43,7 @@ import path from "node:path";
 
 import { AppendError, appendMany } from "./journal-append.js";
 import { evaluateSpecLock } from "./gates/spec-lock-eval.js";
+import { evaluateVerifyAccept } from "./gates/verify-accept-eval.js";
 import { REDUCER_IMPLEMENTED_KINDS, type JournalEntry } from "./journal-entry.js";
 import { apply, type Snapshot } from "./reducer.js";
 import { preflight, type PreflightFailureCode } from "./reducer/preflight.js";
@@ -269,10 +270,28 @@ export async function mutateBatch(
           },
         };
       }
+    } else if (gateKind === "verify-accept") {
+      // Slice 1.C sub-cycle 5: mirror of spec-lock wire above. Pass ceremony
+      // is already on ctx.snapshot.state.ceremony — verifyAcceptCheck reads
+      // strict_spec_review there for check 5 gating. Same
+      // GATE_PRECONDITION_VIOLATION shape; detail.gate disambiguates from
+      // spec-lock for downstream renderers / ERROR_CATALOG (codex r42
+      // non-blocking note: catalog wording must not describe
+      // SPEC_FRONTMATTER_INVALID only as spec-lock check 1).
+      const gateResult = await evaluateVerifyAccept(ctx.snapshot, ctx.feature_dir);
+      if (!gateResult.ok) {
+        return {
+          ok: false,
+          code: "GATE_PRECONDITION_VIOLATION",
+          message: `gate:decided verify-accept approval failed ${gateResult.checks.length} verify-accept check(s); see detail.checks`,
+          detail: {
+            gate: "verify-accept",
+            failure_count: gateResult.checks.length,
+            checks: gateResult.checks,
+          },
+        };
+      }
     }
-    // gateKind === "verify-accept" falls through here: its wire lands in
-    // a later sub-cycle. Until then, verify-accept approval is gated only
-    // by preflight (PER_KIND_SUB_STATE / payload schema / actor authority).
   }
 
   // Pass 2: sidecar promotion. All entries validated; from here we accept
