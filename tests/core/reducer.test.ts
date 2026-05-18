@@ -418,7 +418,41 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
       },
       "event:phase_advanced": { from: "TRIAGE.score", to: "TRIAGE.confirm" },
       "event:ceremony_set": STANDARD_CEREMONY,
-      "event:tasks_planned": { tasks: [{ id: "T-001" }] },
+      "event:tasks_planned": {
+        based_on: { spec: 1 },
+        tasks: [
+          {
+            id: "T-001",
+            kind: "behavioral",
+            drives: ["REQ-AUTH-001"],
+            tests: ["StubTest.run"],
+            status: "pending",
+            depends_on: [],
+            labels: [],
+            execution: {
+              red: { applicability: "must", status: "pending", evidence_refs: [] },
+              implement: { applicability: "must", status: "pending", evidence_refs: [] },
+              refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+            },
+          },
+        ],
+      },
+      "event:tasks_amended": {
+        task: {
+          id: "T-001",
+          kind: "behavioral",
+          drives: ["REQ-AUTH-001"],
+          tests: ["StubTest.run"],
+          status: "pending",
+          depends_on: [],
+          labels: [],
+          execution: {
+            red: { applicability: "must", status: "pending", evidence_refs: [] },
+            implement: { applicability: "must", status: "pending", evidence_refs: [] },
+            refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+          },
+        },
+      },
       "event:task_claimed": { task_id: "T-001" },
       "event:task_step_started": { task_id: "T-001", step: "implement" },
       "event:task_step_done": { task_id: "T-001", step: "implement", result: "passed" },

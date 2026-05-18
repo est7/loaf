@@ -34,6 +34,7 @@ import type {
   SessionState,
   Snapshot,
   TaskState,
+  TaskStepStatus,
 } from "./reducer.js";
 
 // ── Legacy v0.0.x runtime validators (audit r4 fix) ─────────────────────
@@ -505,16 +506,22 @@ export async function rehydrateMigration(
         { sidecar: "tasks.json", index: idx },
       );
     }
+    // sub-cycle 3a: TaskState gained kind/drives/depends_on/labels +
+    // step applicability. Legacy v0.0.x doesn't carry these; default
+    // kind=behavioral (most common) and seed step applicability=must.
     const base: TaskState = {
       id: t.id,
+      kind: (t.kind as TaskState["kind"]) ?? "behavioral",
       status: t.status ?? "pending",
       steps: {},
+      drives: [],
+      depends_on: [],
+      labels: [],
     };
-    if (t.kind !== undefined) base.kind = t.kind;
     if (t.steps) {
       for (const [k, v] of Object.entries(t.steps)) {
-        const stepStatus = (v?.status as TaskState["steps"][string]["status"]) ?? "pending";
-        base.steps[k] = { status: stepStatus };
+        const stepStatus = (v?.status as TaskStepStatus) ?? "pending";
+        base.steps[k] = { status: stepStatus, applicability: "must" };
       }
     }
     return base;
@@ -615,7 +622,17 @@ export async function rehydrateMigration(
     return { id: p.id, kind: p.kind, resolved: p.resolved ?? false };
   });
 
-  return { state, tasks, evidence, findings, pending, requirements: [], scenarios: [], visual_contracts: [] };
+  return {
+    state,
+    tasks,
+    evidence,
+    findings,
+    pending,
+    requirements: [],
+    scenarios: [],
+    visual_contracts: [],
+    tasks_based_on: null,
+  };
 }
 
 /**

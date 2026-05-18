@@ -3725,6 +3725,10 @@ export const DiagnosticCode = z.enum([
   // ── Slice 1.B sub-cycle 2 — spec-lock gate (codex r20) ──
   "SPEC_FRONTMATTER_INVALID",              // src/core/spec-frontmatter.ts — disk/yaml/zod read failures collapsed under check 1 with detail.subcode (SPEC_NOT_FOUND | SPEC_YAML_INVALID | SPEC_FRONTMATTER_INVALID)
   "SPEC_HAS_UNCLARIFIED",                  // src/core/gates/spec-lock-check.ts — check 2: frontmatter.needs_clarification non-empty
+  // ── Slice 1.B sub-cycle 3a — TaskState projection + F-010 fix (codex r23) ──
+  "TASK_NOT_FOUND",                        // src/core/reducer.ts tasks_amended / task_step_* — referenced task id not in projection
+  "TASK_STEP_NOT_FOUND",                   // src/core/reducer.ts task_step_started / _done — referenced step not seeded on task
+  "DUPLICATE_TASK_ID",                     // src/core/reducer.ts tasks_planned — duplicate id within same payload
 ]);
 export type DiagnosticCode = z.infer<typeof DiagnosticCode>;
 
@@ -4226,6 +4230,30 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
     fix_template:
       "edit spec.md to remove resolved needs_clarification entries, or run `loaf finding raise --category spec-gap --action clarify` to formalize the resolution flow; spec-lock check 2 requires needs_clarification === []",
     doc_anchor: "protocol.md#§5.1",
+  },
+  TASK_NOT_FOUND: {
+    exit_code: 2,
+    message_template:
+      "task {task_id} is not in the current tasks projection",
+    fix_template:
+      "run `loaf tasks list` to see live ids; if you meant to add a new task, use `loaf tasks add` instead of amend/step; if you expected the id to exist, the projection may be stale — run `loaf doctor --rebuild` to rebuild from journal",
+    doc_anchor: "protocol.md#§10.8",
+  },
+  TASK_STEP_NOT_FOUND: {
+    exit_code: 2,
+    message_template:
+      "step {step} is not seeded on task {task_id} — seeded steps are derived from the task's kind execution schema (§14)",
+    fix_template:
+      "use only the per-kind step names — behavioral: red/implement/refactor; structural: implement/refactor; visual-ui: mockup/implement/screenshot-compare; docs: draft/review; spike: explore/prototype/record; chore: execute. Running an unseeded step name was a silent add bug in v0.0.x — sub-cycle 3a fails fast instead",
+    doc_anchor: "protocol.md#§10.8",
+  },
+  DUPLICATE_TASK_ID: {
+    exit_code: 2,
+    message_template:
+      "task id {task_id} appears more than once in tasks_planned payload",
+    fix_template:
+      "tasks_planned is whole-replacement — each task id must be unique within the batch. Rename one or merge them in the planning input",
+    doc_anchor: "protocol.md#§10.8",
   },
 } as const;
 

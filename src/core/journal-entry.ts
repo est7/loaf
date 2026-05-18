@@ -17,6 +17,10 @@ import {
   ScenarioGherkin,
   VisualContract,
 } from "./spec-schema.js";
+import {
+  TaskFullPayload,
+  TaskIdPayload,
+} from "./task-schema.js";
 
 // Hard byte ceiling per serialized JournalEntry. Mirrors §34
 // entry_byte_limit_kb (64KB); enforced by appendEntry at step 5 final
@@ -255,35 +259,42 @@ export type GateDecidedPayload = z.infer<typeof GateDecidedPayload>;
 // runtime "reducer-implemented" gate in journal-mutate.ts.
 
 const TaskRefPayload = z
-  .object({ task_id: z.string().min(1) })
+  .object({ task_id: TaskIdPayload })
   .passthrough();
 
 const TaskStepRefPayload = z
   .object({
-    task_id: z.string().min(1),
+    task_id: TaskIdPayload,
     step: z.string().min(1),
   })
   .passthrough();
 
 const TaskStepDonePayload = z
   .object({
-    task_id: z.string().min(1),
+    task_id: TaskIdPayload,
     step: z.string().min(1),
     result: z.enum(["passed", "failed", "waived", "na"]).optional(),
   })
   .passthrough();
 
+// Slice 1.B sub-cycle 3a (codex r23 BLOCK 1 fix): tasks_planned upgrades
+// from `{ tasks: [{ id, kind? }] }` to the full TaskFull discriminated
+// union so the reducer can seed per-kind execution steps + cross-cutting
+// fields needed by spec-lock checks 3/4/6/7/8 (lands in sub-cycle 3b).
 const TasksPlannedPayload = z
   .object({
-    tasks: z
-      .array(
-        z
-          .object({
-            id: z.string().min(1),
-            kind: z.string().min(1).optional(),
-          })
-          .passthrough(),
-      ),
+    based_on: z.object({ spec: z.number().int().positive() }),
+    tasks: z.array(TaskFullPayload),
+  })
+  .passthrough();
+
+// Slice 1.B sub-cycle 3a (F-010 #1+#2): tasks_amended strict single-task
+// replace. Batch amend lands as N journal entries via mutateBatch sharing
+// batch_id (same pattern as spec add-*).
+const TasksAmendedPayload = z
+  .object({
+    task: TaskFullPayload,
+    reason: z.string().min(10).optional(),
   })
   .passthrough();
 
@@ -388,7 +399,7 @@ export const PER_KIND_PAYLOAD: Record<EntryKind, z.ZodTypeAny> = {
   "event:phase_advanced": PhaseAdvancedPayload,
   "event:ceremony_set": CeremonyPayload,
   "event:tasks_planned": TasksPlannedPayload,
-  "event:tasks_amended": RecordPayload,
+  "event:tasks_amended": TasksAmendedPayload,
   "event:task_claimed": TaskRefPayload,
   "event:task_step_started": TaskStepRefPayload,
   "event:task_step_done": TaskStepDonePayload,
@@ -431,6 +442,7 @@ export const REDUCER_IMPLEMENTED_KINDS: ReadonlySet<EntryKind> = new Set([
   "event:phase_advanced",
   "event:ceremony_set",
   "event:tasks_planned",
+  "event:tasks_amended",
   "event:task_claimed",
   "event:task_step_started",
   "event:task_step_done",

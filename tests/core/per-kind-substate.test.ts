@@ -26,6 +26,27 @@ const DEEP_CEREMONY: Ceremony = {
   strict_drift_check: true,
 };
 
+function stubExecutionStep(): Record<string, unknown> {
+  return { applicability: "must", status: "pending", evidence_refs: [] };
+}
+
+function stubBehavioralTask(id: string): Record<string, unknown> {
+  return {
+    id,
+    kind: "behavioral",
+    drives: ["REQ-AUTH-001"],
+    tests: ["StubTest.run"],
+    status: "pending",
+    depends_on: [],
+    labels: [],
+    execution: {
+      red: stubExecutionStep(),
+      implement: stubExecutionStep(),
+      refactor: { ...stubExecutionStep(), applicability: "optional" },
+    },
+  };
+}
+
 function payloadFor(kind: string): Record<string, unknown> {
   // Schema-valid payloads per PER_KIND_PAYLOAD (audit r1/r2 strict schemas).
   // Each implemented kind's payload must satisfy the per-kind narrowed schema
@@ -43,7 +64,12 @@ function payloadFor(kind: string): Record<string, unknown> {
     case "event:ceremony_set":
       return DEEP_CEREMONY;
     case "event:tasks_planned":
-      return { tasks: [{ id: "T-001", kind: "behavioral" }] };
+      return {
+        based_on: { spec: 1 },
+        tasks: [stubBehavioralTask("T-001")],
+      };
+    case "event:tasks_amended":
+      return { task: stubBehavioralTask("T-001") };
     case "event:task_claimed":
     case "event:task_abandoned":
       return { task_id: "T-001" };

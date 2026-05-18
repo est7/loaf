@@ -12,6 +12,8 @@
 import type { Ceremony, EntryKind, JournalEntry, SubState } from "./journal-entry.js";
 import { preflight } from "./reducer/preflight.js";
 import type { PreflightFailureCode } from "./reducer/preflight.js";
+import { extractTaskSlim, shouldPromoteToDone } from "./task-schema.js";
+import type { TaskFullProjection } from "./task-schema.js";
 
 export interface SessionState {
   session_id: string;
@@ -35,11 +37,29 @@ export interface SessionState {
 
 export type TaskStepStatus = "pending" | "running" | "passed" | "failed" | "waived" | "na";
 
+export type TaskStepApplicability = "must" | "optional" | "na";
+
+export type TaskKind = "behavioral" | "structural" | "visual-ui" | "docs" | "spike" | "chore";
+
+// Slim TaskState projection (Slice 1.B sub-cycle 3a). Mirrors only the
+// cross-cutting fields needed by spec-lock checks 3/4/6/7/8 + auto-promote;
+// the canonical body (tests/test_layer, execution.evidence_refs/reason/
+// started_at, etc.) lives in the journal payload and round-trips via
+// `loaf doctor --rebuild`. steps carry applicability so the auto-promote
+// helper distinguishes must vs optional vs na (codex r23 BLOCK 2 fix).
 export interface TaskState {
   id: string;
-  kind?: string;
-  status: "pending" | "in_progress" | "done" | "abandoned";
-  steps: Record<string, { status: TaskStepStatus }>;
+  kind: TaskKind;
+  status: "pending" | "ready" | "in_progress" | "done" | "abandoned";
+  steps: Record<string, { status: TaskStepStatus; applicability: TaskStepApplicability }>;
+  drives: string[];
+  depends_on: string[];
+  labels: string[];
+  red_test_registered?: boolean;
+  no_test_rationale?: string;
+  visual_contract_refs?: string[];
+  requires_acceptance?: boolean;
+  requires_visual?: boolean;
 }
 
 export interface EvidenceState {
@@ -98,6 +118,12 @@ export interface Snapshot {
   requirements: RequirementState[];
   scenarios: ScenarioState[];
   visual_contracts: VisualContractState[];
+  /** Set by `event:tasks_planned`. spec-lock check 3 compares
+   *  `tasks_based_on.spec === state.spec_version`. null until first
+   *  tasks_planned lands. NOT a mirror of state.spec_version: this is the
+   *  frozen spec version at the moment tasks were planned, while
+   *  state.spec_version is the live counter. */
+  tasks_based_on: { spec: number } | null;
 }
 
 export function initialSnapshot(): Snapshot {
@@ -110,6 +136,7 @@ export function initialSnapshot(): Snapshot {
     requirements: [],
     scenarios: [],
     visual_contracts: [],
+    tasks_based_on: null,
   };
 }
 
@@ -124,7 +151,9 @@ export type ApplyResult =
         | "INVALID_PAYLOAD"
         | "REDUCER_NOT_IMPLEMENTED"
         | "PENDING_NOT_FOUND"
-        | "FINDING_NOT_FOUND";
+        | "FINDING_NOT_FOUND"
+        | "TASK_NOT_FOUND"
+        | "TASK_STEP_NOT_FOUND";
       message: string;
       detail?: Record<string, unknown>;
     };
@@ -295,13 +324,60 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
     }
 
     case "event:tasks_planned": {
-      // payload: { tasks: TaskSummary[] }
-      const payload = entry.payload as { tasks?: Array<{ id: string; kind?: string }> };
-      const taskList: TaskState[] = (payload.tasks ?? []).map((t) => {
-        const base: TaskState = { id: t.id, status: "pending", steps: {} };
-        return t.kind !== undefined ? { ...base, kind: t.kind } : base;
-      });
-      return { ok: true, snapshot: { ...prev, tasks: taskList } };
+      // Slice 1.B sub-cycle 3a: full TaskFull payload + tasks_based_on.
+      // Replaces the whole tasks projection (per protocol §624-626: tasks
+      // submit is whole-replacement) and freezes the spec version this
+      // task graph derives from. PER_KIND_PAYLOAD strict-validates the
+      // payload shape before this handler runs (preflight gate), so
+      // duplicate-id refines + kind-specific required fields are already
+      // enforced; reducer adds a defense-in-depth duplicate-id sweep per
+      // codex r24 note #5.
+      const payload = entry.payload as {
+        based_on?: { spec?: number };
+        tasks?: ReadonlyArray<TaskFullProjection>;
+      };
+      if (typeof payload.based_on?.spec !== "number") {
+        return invalidPayload(entry.kind, "missing based_on.spec");
+      }
+      const incoming = payload.tasks ?? [];
+      const seenIds = new Set<string>();
+      for (const t of incoming) {
+        if (seenIds.has(t.id)) {
+          return invalidPayload(entry.kind, `DUPLICATE_TASK_ID: ${t.id} appears more than once in tasks_planned payload`);
+        }
+        seenIds.add(t.id);
+      }
+      const taskList: TaskState[] = incoming.map(extractTaskSlim);
+      return {
+        ok: true,
+        snapshot: {
+          ...prev,
+          tasks: taskList,
+          tasks_based_on: { spec: payload.based_on.spec },
+        },
+      };
+    }
+
+    case "event:tasks_amended": {
+      // Slice 1.B sub-cycle 3a (F-010 #1+#2): strict single-task replace.
+      // Batch amend lands as N journal entries through mutateBatch.
+      const payload = entry.payload as {
+        task?: TaskFullProjection;
+        reason?: string;
+      };
+      if (!payload.task) return invalidPayload(entry.kind, "missing task");
+      const idx = prev.tasks.findIndex((t) => t.id === payload.task!.id);
+      if (idx === -1) {
+        return {
+          ok: false,
+          code: "TASK_NOT_FOUND",
+          message: `tasks_amended: task ${payload.task.id} not in projection`,
+          detail: { task_id: payload.task.id },
+        };
+      }
+      const slim = extractTaskSlim(payload.task);
+      const tasks = prev.tasks.map((t, i) => (i === idx ? slim : t));
+      return { ok: true, snapshot: { ...prev, tasks } };
     }
 
     case "event:task_claimed": {
@@ -315,26 +391,82 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
     }
 
     case "event:task_step_started": {
-      // payload: { task_id, step }
+      // Slice 1.B sub-cycle 3a (codex r24 note #3): fail fast on missing
+      // task or unseeded step so we don't silently add a step without
+      // applicability metadata (which would later subvert auto-promote).
       const payload = entry.payload as { task_id?: string; step?: string };
       if (!payload.task_id || !payload.step) return invalidPayload(entry.kind, "missing task_id/step");
+      const task = prev.tasks.find((t) => t.id === payload.task_id);
+      if (!task) {
+        return {
+          ok: false,
+          code: "TASK_NOT_FOUND",
+          message: `task_step_started: task ${payload.task_id} not in projection`,
+          detail: { task_id: payload.task_id },
+        };
+      }
+      const seeded = task.steps[payload.step];
+      if (!seeded) {
+        return {
+          ok: false,
+          code: "TASK_STEP_NOT_FOUND",
+          message: `task_step_started: step ${payload.step} not seeded on task ${payload.task_id}`,
+          detail: { task_id: payload.task_id, step: payload.step },
+        };
+      }
       const tasks = prev.tasks.map((t) =>
         t.id === payload.task_id
-          ? { ...t, steps: { ...t.steps, [payload.step!]: { status: "running" as const } } }
+          ? {
+              ...t,
+              steps: {
+                ...t.steps,
+                [payload.step!]: { applicability: seeded.applicability, status: "running" as const },
+              },
+            }
           : t,
       );
       return { ok: true, snapshot: { ...prev, tasks } };
     }
 
     case "event:task_step_done": {
-      // payload: { task_id, step, result? }
-      const payload = entry.payload as { task_id?: string; step?: string; result?: "passed" | "failed" | "waived" | "na" };
+      // Slice 1.B sub-cycle 3a (F-010 #3 + codex r24 note #3):
+      //   - fail fast on missing task / unseeded step
+      //   - auto-promote task.status="done" when every must-applicable
+      //     step is terminal-positive (passed|waived|na). optional steps
+      //     never block; failed/running/pending must blocks promotion
+      const payload = entry.payload as {
+        task_id?: string;
+        step?: string;
+        result?: "passed" | "failed" | "waived" | "na";
+      };
       if (!payload.task_id || !payload.step) return invalidPayload(entry.kind, "missing task_id/step");
-      const result = payload.result ?? "passed";
+      const task = prev.tasks.find((t) => t.id === payload.task_id);
+      if (!task) {
+        return {
+          ok: false,
+          code: "TASK_NOT_FOUND",
+          message: `task_step_done: task ${payload.task_id} not in projection`,
+          detail: { task_id: payload.task_id },
+        };
+      }
+      const seeded = task.steps[payload.step];
+      if (!seeded) {
+        return {
+          ok: false,
+          code: "TASK_STEP_NOT_FOUND",
+          message: `task_step_done: step ${payload.step} not seeded on task ${payload.task_id}`,
+          detail: { task_id: payload.task_id, step: payload.step },
+        };
+      }
+      const newStatus: TaskStepStatus = payload.result ?? "passed";
+      const updatedSteps = {
+        ...task.steps,
+        [payload.step]: { applicability: seeded.applicability, status: newStatus },
+      };
+      const nextStatus: TaskState["status"] =
+        task.status === "done" ? "done" : shouldPromoteToDone(updatedSteps) ? "done" : task.status;
       const tasks = prev.tasks.map((t) =>
-        t.id === payload.task_id
-          ? { ...t, steps: { ...t.steps, [payload.step!]: { status: result } } }
-          : t,
+        t.id === payload.task_id ? { ...t, steps: updatedSteps, status: nextStatus } : t,
       );
       return { ok: true, snapshot: { ...prev, tasks } };
     }
