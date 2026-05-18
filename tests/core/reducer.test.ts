@@ -312,8 +312,9 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
   });
 
   // Audit r1 Blocker #5: kinds without an apply handler must fail-fast,
-  // not no-op silently. event:spec_req_added is one of the still-unimplemented
-  // kinds in Phase D MVP — exercise the new contract.
+  // not no-op silently. `session:resumed` is one of the still-unimplemented
+  // kinds (in PER_KIND_PAYLOAD but not REDUCER_IMPLEMENTED_KINDS), allowed
+  // at ANY_SUB_STATE — exercise the new contract without phase walking.
   test("unimplemented EntryKind returns REDUCER_NOT_IMPLEMENTED (fail-fast default)", () => {
     let snap = initialSnapshot();
     snap = mustOk(
@@ -332,36 +333,14 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
       }),
     );
 
-    // Advance into SPEC.spec so spec_req_added is sub_state-legal.
-    const path = [
-      ["TRIAGE.score", "TRIAGE.confirm"],
-      ["TRIAGE.confirm", "SPEC.proposal"],
-      ["SPEC.proposal", "SPEC.spec"],
-    ] as const;
-    let seq = 1;
-    for (const [from, to] of path) {
-      snap = mustOk(
-        apply(snap, {
-          seq,
-          entry_id: `JE-${String(seq + 1).padStart(6, "0")}`,
-          at: new Date(2026, 4, 15, 10, 0, seq).toISOString(),
-          actor: "cli:loaf",
-          entry_schema_version: 1,
-          kind: "event:phase_advanced",
-          payload: { from, to },
-        }),
-      );
-      seq++;
-    }
-
     const result = apply(snap, {
-      seq,
-      entry_id: `JE-${String(seq + 1).padStart(6, "0")}`,
+      seq: 1,
+      entry_id: "JE-000002",
       at: "2026-05-15T10:00:10.000Z",
       actor: "cli:loaf",
       entry_schema_version: 1,
-      kind: "event:spec_req_added",
-      payload: { id: "REQ-001", type: "ubiquitous", response: "test" },
+      kind: "session:resumed",
+      payload: { resumed_by: "human:ffoisx@gmail.com" },
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.code).toBe("REDUCER_NOT_IMPLEMENTED");
@@ -444,6 +423,44 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
       "event:task_step_started": { task_id: "T-001", step: "implement" },
       "event:task_step_done": { task_id: "T-001", step: "implement", result: "passed" },
       "event:task_abandoned": { task_id: "T-001" },
+      "event:spec_submitted": {
+        spec_version: 1,
+        feature: { id: "F-001", name: "stub" },
+        intent: "stub intent payload at least twenty chars long",
+        adr_refs: [],
+        needs_clarification: [],
+      },
+      "event:spec_req_added": {
+        spec_version: 1,
+        req: {
+          id: "REQ-AUTH-001",
+          type: "ubiquitous",
+          response: "the system shall do something measurable here",
+          acceptance_na: true,
+          acceptance_na_reason: "covered by manual UX testing",
+        },
+      },
+      "event:spec_scenario_added": {
+        spec_version: 1,
+        scenario: {
+          id: "SCEN-AUTH-E2E-001",
+          name: "stub scenario",
+          tag: "e2e",
+          requires_acceptance: true,
+          given: ["a given precondition"],
+          when: ["a when action"],
+          then: ["a then assertion"],
+        },
+      },
+      "event:spec_visual_added": {
+        spec_version: 1,
+        visual: {
+          id: "VIS-AUTH-001",
+          target: "stub UI element target description",
+          checks: ["stub check description here"],
+          requires_visual: true,
+        },
+      },
       "evidence:added": { id: "EV-1", kind: "local-check" },
       "finding:raised": { id: "FND-1", category: "spec-gap", action: "amend-spec" },
       "finding:closed": { id: "FND-1" },

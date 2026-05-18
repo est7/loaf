@@ -3030,9 +3030,14 @@ export const CONCURRENCY_INVARIANTS = {
       why: "gate approval pops the pending head + records the gate decision; both entries land in one batch so readers never see a half-resolved gate",
     },
     {
-      cmd: "loaf spec submit",
-      emits: ["event:spec_submitted"],
-      why: "single-entry mutator; listed for completeness — the reducer derives the spec.md projection + based_on.spec pointer from this entry",
+      cmd: "loaf spec submit <file>",
+      emits: [
+        "event:spec_submitted (batch_index=0)",
+        "event:spec_req_added × N (batch_index=1..)",
+        "event:spec_scenario_added × M",
+        "event:spec_visual_added × K",
+      ],
+      why: "Slice 1.B sub-cycle 1: whole-replacement submit emits ONE atomic batch sharing batch_id + spec_version. spec_submitted at batch_index=0 carries header (feature/intent/adr_refs/needs_clarification) AND resets reducer projection arrays; companion add-* entries repopulate within the same batch so journal is replay-complete (codex r17 canonical-truth invariant)",
     },
     {
       cmd: "loaf pending raise (skill / hook / sub-agent path)",
@@ -3711,6 +3716,12 @@ export const DiagnosticCode = z.enum([
   // ── audit r1-r5 — actor resolver ──
   "INVALID_ACTOR_FORMAT",                  // src/core/actor-resolver.ts:35-72
   "NO_HUMAN_ACTOR",                        // src/core/actor-resolver.ts:81-101
+  // ── Slice 1.B sub-cycle 1 — SPEC content reducer (codex r17) ──
+  "SPEC_VERSION_NOT_MONOTONIC",            // src/core/reducer.ts checkSpecVersion(Head) — batch head must bump current+1
+  "SPEC_VERSION_BATCH_MISMATCH",           // src/core/reducer.ts checkSpecVersion — batch continuation must equal current
+  "DUPLICATE_REQ_ID",                      // src/core/reducer.ts spec_req_added — id already in requirements[]
+  "DUPLICATE_SCEN_ID",                     // src/core/reducer.ts spec_scenario_added — id already in scenarios[]
+  "DUPLICATE_VIS_ID",                      // src/core/reducer.ts spec_visual_added — id already in visual_contracts[]
 ]);
 export type DiagnosticCode = z.infer<typeof DiagnosticCode>;
 

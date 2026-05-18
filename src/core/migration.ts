@@ -472,6 +472,7 @@ export async function rehydrateMigration(
     iteration: legacyState.iteration ?? 1,
     spec_locked: legacyState.spec_locked ?? false,
     verify_accepted: false,
+    spec_version: 0,
     ceremony,
   };
 
@@ -614,7 +615,7 @@ export async function rehydrateMigration(
     return { id: p.id, kind: p.kind, resolved: p.resolved ?? false };
   });
 
-  return { state, tasks, evidence, findings, pending };
+  return { state, tasks, evidence, findings, pending, requirements: [], scenarios: [], visual_contracts: [] };
 }
 
 /**

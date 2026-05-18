@@ -69,6 +69,48 @@ function payloadFor(kind: string): Record<string, unknown> {
       return { reason: "covered for stub" };
     case "spike:converted":
       return { convert_target: "F-002" };
+    case "event:spec_submitted":
+      return {
+        spec_version: 1,
+        feature: { id: "F-001", name: "stub" },
+        intent: "stub intent payload at least twenty chars long",
+        adr_refs: [],
+        needs_clarification: [],
+      };
+    case "event:spec_req_added":
+      return {
+        spec_version: 1,
+        req: {
+          id: "REQ-AUTH-001",
+          type: "ubiquitous",
+          response: "the system shall do something measurable here",
+          acceptance_na: true,
+          acceptance_na_reason: "covered by manual UX testing scope",
+        },
+      };
+    case "event:spec_scenario_added":
+      return {
+        spec_version: 1,
+        scenario: {
+          id: "SCEN-AUTH-E2E-001",
+          name: "stub scenario",
+          tag: "e2e",
+          requires_acceptance: true,
+          given: ["a precondition"],
+          when: ["an action"],
+          then: ["an assertion"],
+        },
+      };
+    case "event:spec_visual_added":
+      return {
+        spec_version: 1,
+        visual: {
+          id: "VIS-AUTH-001",
+          target: "stub UI element target description",
+          checks: ["stub check description here"],
+          requires_visual: true,
+        },
+      };
     case "migration:snapshot_imported":
       return {
         source_schema_version: 1,

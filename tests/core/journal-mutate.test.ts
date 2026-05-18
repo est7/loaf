@@ -296,54 +296,34 @@ describe("mutate — transactional journal write (audit r1 Blocker #3)", () => {
     expect(boot.ok).toBe(true);
     if (!boot.ok) return;
 
-    // Walk to SPEC.spec where event:spec_req_added is sub_state-legal.
-    let snapshot = boot.snapshot;
-    let tailSeq = 0;
-    const transitions = [
-      ["TRIAGE.score", "TRIAGE.confirm"],
-      ["TRIAGE.confirm", "SPEC.proposal"],
-      ["SPEC.proposal", "SPEC.spec"],
-    ] as const;
-    for (const [from, to] of transitions) {
-      const r = await mutate(
-        {
-          at: new Date(2026, 4, 15, 10, 0, tailSeq + 1).toISOString(),
-          actor: "cli:loaf",
-          entry_schema_version: 1,
-          kind: "event:phase_advanced",
-          payload: { from, to },
-        },
-        { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
-      );
-      expect(r.ok).toBe(true);
-      if (!r.ok) return;
-      snapshot = r.snapshot;
-      tailSeq++;
-    }
+    // Use `session:resumed` — still unimplemented in REDUCER_IMPLEMENTED_KINDS,
+    // allowed at ANY_SUB_STATE so no phase walking needed.
+    const snapshot = boot.snapshot;
+    const tailSeq = 0;
 
-    // Pre-condition: journal has 4 entries (boot + 3 transitions).
+    // Pre-condition: journal has 1 entry (boot session:started).
     const journalBefore = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
-    expect(journalBefore.trim().split("\n")).toHaveLength(4);
+    expect(journalBefore.trim().split("\n")).toHaveLength(1);
 
-    // event:spec_req_added is preflight-legal in SPEC.spec but reducer hasn't
-    // implemented it — must refuse without appending.
+    // event:spec_req_added was preflight-legal but unimplemented; Slice 1.B
+    // implemented it, so we now use session:resumed which remains unimplemented.
     const bad = await mutate(
       {
         at: "2026-05-15T11:00:00.000Z",
         actor: "cli:loaf",
         entry_schema_version: 1,
-        kind: "event:spec_req_added",
-        payload: { id: "REQ-001", type: "ubiquitous", response: "test" },
+        kind: "session:resumed",
+        payload: { resumed_by: "human:ffoisx@gmail.com" },
       },
       { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
     );
     expect(bad.ok).toBe(false);
     if (!bad.ok) expect(bad.code).toBe("REDUCER_ERROR");
 
-    // Journal MUST still have exactly 4 entries — the unimplemented kind
+    // Journal MUST still have exactly 1 entry — the unimplemented kind
     // was not appended.
     const journalAfter = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
-    expect(journalAfter.trim().split("\n")).toHaveLength(4);
+    expect(journalAfter.trim().split("\n")).toHaveLength(1);
     expect(journalAfter).toBe(journalBefore);
   });
 
@@ -923,12 +903,10 @@ describe("mutateBatch — Slice 1.0 Cycle 3 (multi-entry transactional)", () => 
   });
 
   // ── F: REDUCER_IMPLEMENTED gate also fires in batch path ─────────────────
-  test("F. mid-batch unimplemented kind (event:spec_req_added) → REDUCER_ERROR failed_index, no append", async () => {
+  test("F. mid-batch unimplemented kind (session:resumed) → REDUCER_ERROR failed_index, no append", async () => {
     const dir = await tmpFeatureDir();
-    // Walk to SPEC.spec so the kind is sub_state-legal.
-    let snapshot = initialSnapshot();
-    let tailSeq = -1;
-    const ops: Array<Parameters<typeof mutate>[0]> = [
+    // session:resumed is ANY_SUB_STATE — boot is enough.
+    const boot = await mutate(
       {
         at: "2026-05-15T10:00:00.000Z",
         actor: "cli:loaf",
@@ -940,47 +918,24 @@ describe("mutateBatch — Slice 1.0 Cycle 3 (multi-entry transactional)", () => 
           ceremony: STANDARD,
         },
       },
-      {
-        at: "2026-05-15T10:00:01.000Z",
-        actor: "cli:loaf",
-        entry_schema_version: 1,
-        kind: "event:phase_advanced",
-        payload: { from: "TRIAGE.score", to: "TRIAGE.confirm" },
-      },
-      {
-        at: "2026-05-15T10:00:02.000Z",
-        actor: "cli:loaf",
-        entry_schema_version: 1,
-        kind: "event:phase_advanced",
-        payload: { from: "TRIAGE.confirm", to: "SPEC.proposal" },
-      },
-      {
-        at: "2026-05-15T10:00:03.000Z",
-        actor: "cli:loaf",
-        entry_schema_version: 1,
-        kind: "event:phase_advanced",
-        payload: { from: "SPEC.proposal", to: "SPEC.spec" },
-      },
-    ];
-    for (const op of ops) {
-      const r = await mutate(op, { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false });
-      expect(r.ok).toBe(true);
-      if (!r.ok) return;
-      snapshot = r.snapshot;
-      tailSeq++;
-    }
+      { feature_dir: dir, snapshot: initialSnapshot(), tail_seq: -1, fsync: false },
+    );
+    expect(boot.ok).toBe(true);
+    if (!boot.ok) return;
+    const snapshot = boot.snapshot;
+    const tailSeq = 0;
     const journalBefore = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
 
-    // Batch [valid phase_advanced (cursor stays SPEC.spec is broken — let's
-    // use a kind reducer-unimplemented at position 1 instead).
+    // event:spec_req_added was previously the unimplemented kind exercised
+    // here; Slice 1.B implemented it. session:resumed remains unimplemented.
     const batch = await mutateBatch(
       [
         {
           at: "2026-05-15T11:00:00.000Z",
           actor: "cli:loaf",
           entry_schema_version: 1,
-          kind: "event:spec_req_added",
-          payload: { id: "REQ-001", type: "ubiquitous", response: "test" },
+          kind: "session:resumed",
+          payload: { resumed_by: "human:ffoisx@gmail.com" },
         },
       ],
       { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },

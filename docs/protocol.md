@@ -583,9 +583,11 @@ needs_clarification: []
 
 `spec_version` bump 规则:
 
-- 每次调用 = 一次 atomic invocation → `spec_version += 1`(**不**按 item +N;batch 输入 N 条仍只 +1,见 §11.2 batch 三纪律)
+- 每次调用 = 一次 atomic invocation → `spec_version += 1`(**不**按 item +N;batch 输入 N 条仍只 +1,见 §11.2 batch 三纪律)。同规则适用 `loaf spec submit` —— `event:spec_submitted` 是 batch 头(batch_index=0)且 spec_version 必须 = current+1;同 batch 内 companion `event:spec_req_added` / `_scenario_added` / `_visual_added` (batch_index≥1)共享该 spec_version,reducer 在 batch 头 bump,后续 entry 仅校验等于
+- reducer 在 `event:spec_submitted` 时**重置** `requirements` / `scenarios` / `visual_contracts` 三个 projection 数组到 `[]`(whole-replacement 语义,§4.2 derived projection);companion entries 在同 batch 内重新填充。`mutateBatch` 4-pass 原子性保证 submit-batch all-or-nothing
 - `tasks.based_on.spec` 在 spec-lock 时记录当时的 `spec_version`,保证「spec 内容变了 → version 必然变」的 monotonic 锚
 - 30+ 次 add-\* 是内部 audit 计数,不面向终端用户
+- runtime 错误码:batch 头 spec_version ≠ current+1 → `SPEC_VERSION_NOT_MONOTONIC`(`INVALID_PAYLOAD` 范畴);batch 续条 spec_version ≠ current → `SPEC_VERSION_BATCH_MISMATCH`;同 invocation 内 / 跨 invocation `id` 重复 → `DUPLICATE_REQ_ID` / `DUPLICATE_SCEN_ID` / `DUPLICATE_VIS_ID`
 
 phase gating(镜像 `loaf tasks add` 的 EXECUTE post-lock 规则):
 
@@ -1787,8 +1789,8 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 | `loaf resume` | 恢复 session(从 `resume-pack.json` 接力)。**rev 4.3**(ADR-0004 A8):`--fresh` flag 已砍 — routine phase-switch 上下文切片改走 `loaf context pack` | 0 |
 | `loaf context pack [--phase auto\|<sub_state>] [--format json\|text]` | **rev 4.3**(ADR-0004 A8):phase-aware context pack(`CONTEXT_PACK_TEMPLATES` 见 `schemas.ts` §38)— 每 sub_state 输出当前 phase 需要的最小上下文 slice。read-only,不写盘。default `--phase auto` 读 `state.json` 当前 sub_state | 0 |
 | `loaf handoff` | **rev 5.0**:read-side 命令,reducer 从当前 journal + snapshots 派生 `snapshots/resume-pack.json`(显式 context overflow 接力快照);不 emit 新 journal entry,只触发 snapshot rebuild | 0 |
-| `loaf spec submit <file>` | 提交 spec.md,严格 schema 校验 | 0 / 2 |
-| `loaf spec submit --json -` | 从 stdin 接收 JSON(机器流水线) | 0 / 2 |
+| `loaf spec submit <file>` | 提交 spec.md,严格 schema 校验。**Slice 1.B sub-cycle 1**:emit atomic batch `[spec_submitted(reset), spec_req_added × N, spec_scenario_added × M, spec_visual_added × K]`(共享 batch_id + spec_version,reducer 在头 entry 重置 projection 三数组并 bump `state.spec_version`,companion entries 同 batch 内重填) | 0 / 2 |
+| `loaf spec submit --json -` | 从 stdin 接收 JSON(机器流水线);同 `loaf spec submit <file>` 的 batch 语义 | 0 / 2 |
 | `loaf spec init` | 生成 spec.md 模板,适合 `$EDITOR` 跟进 | 0 |
 | `loaf spec edit` | 编辑当前 spec.md + 再次 schema check | 0 / 2 |
 | `loaf spec add-req --input <src>` | **rev 4.3**(ADR-0004 A1 / A4 / A5):增量加单条或 batch EARS REQ。Input 含 `id_namespace`(`^REQ-[A-Z][A-Z0-9]*$`)+ EARS 字段;CLI 在 lock 内拼完整 `id`(`REQ-<NS>-<NNN>`)落 `spec.md`,`spec_version += 1`(per invocation,A10)。pre-lock(SPEC.spec/plan/design)合法;post-lock 拒 → `SPEC_LOCKED_NO_DIRECT_EDIT` exit 2,走 `amend-spec` finding。`--schema --json` dump input JSON Schema | 0 / 2 |
@@ -1838,10 +1840,10 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 |---|---|
 | `loaf advance` | `event:phase_advanced` |
 | `loaf ceremony set` | `event:ceremony_set` |
-| `loaf spec add-req` | `event:spec_req_added`(batch:N entries 共享 batch_id) |
+| `loaf spec add-req` | `event:spec_req_added`(batch:N entries 共享 batch_id + spec_version) |
 | `loaf spec add-scenario` | `event:spec_scenario_added`(batch) |
 | `loaf spec add-visual` | `event:spec_visual_added`(batch) |
-| `loaf spec submit` | `event:spec_submitted` |
+| `loaf spec submit <file>` | atomic batch:`event:spec_submitted` (batch_index=0,reducer 重置 projection arrays) + companion `event:spec_req_added` × N / `_scenario_added` × M / `_visual_added` × K (batch_index≥1,共享同一 batch_id + spec_version)。整批保证 journal 可 replay 回 `spec.md`(canonical truth,§4.2 derived projection) |
 | `loaf tasks submit` / `tasks plan` | `event:tasks_planned` |
 | `loaf tasks add` | `event:tasks_amended`(EXECUTE 阶段)/ batch entry under `event:tasks_planned`(SPEC.design) |
 | `loaf tasks claim` | `event:task_claimed` |

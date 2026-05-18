@@ -23,6 +23,10 @@ export interface SessionState {
   spec_locked: boolean;
   /** Set true by `gate:decided verify-accept approved`. Parallel to spec_locked: flag only, no cursor move. */
   verify_accepted: boolean;
+  /** Live spec-projection counter. Bumped +1 per `loaf spec submit` / `add-*` invocation
+   *  (protocol §586). 0 before first submission. spec-lock check 3 compares
+   *  `tasks.based_on.spec === state.spec_version`. */
+  spec_version: number;
   ceremony: Ceremony;
 }
 
@@ -59,16 +63,54 @@ export interface PendingState {
   resolved: boolean;
 }
 
+// SPEC projection — slim mirror of spec.md frontmatter. Reducer extracts
+// only the cross-cutting fields needed by spec-lock checks 4-7 (§5.1);
+// the canonical full body (`trigger`/`response`/`given`/`when`/`then`/
+// `target`/`checks`) lives in the journal payload (full replay source).
+export interface RequirementState {
+  id: string;
+  type: "ubiquitous" | "event-driven" | "state-driven" | "optional" | "unwanted";
+  measurable?: { metric: string; threshold: string | number; unit?: string; direction: "lte" | "gte" | "eq" };
+  verified_by_scenarios?: string[];
+  acceptance_na?: true;
+  acceptance_na_reason?: string;
+}
+
+export interface ScenarioState {
+  id: string;
+  tag?: "happy" | "edge" | "error" | "e2e";
+  requires_acceptance?: boolean;
+  acceptance_na?: string;
+}
+
+export interface VisualContractState {
+  id: string;
+  requires_visual?: boolean;
+  visual_na?: string;
+}
+
 export interface Snapshot {
   state: SessionState | null;
   tasks: TaskState[];
   evidence: EvidenceState[];
   findings: FindingState[];
   pending: PendingState[];
+  requirements: RequirementState[];
+  scenarios: ScenarioState[];
+  visual_contracts: VisualContractState[];
 }
 
 export function initialSnapshot(): Snapshot {
-  return { state: null, tasks: [], evidence: [], findings: [], pending: [] };
+  return {
+    state: null,
+    tasks: [],
+    evidence: [],
+    findings: [],
+    pending: [],
+    requirements: [],
+    scenarios: [],
+    visual_contracts: [],
+  };
 }
 
 export type ApplyResult =
@@ -129,6 +171,7 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
           iteration: 1,
           spec_locked: false,
           verify_accepted: false,
+          spec_version: 0,
           ceremony: MIGRATION_BOOTSTRAP_CEREMONY,
         },
       },
@@ -168,6 +211,7 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
           iteration: 1,
           spec_locked: false,
           verify_accepted: false,
+          spec_version: 0,
           ceremony: payload.ceremony,
         },
       },
@@ -304,6 +348,104 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
       return { ok: true, snapshot: { ...prev, tasks } };
     }
 
+    case "event:spec_submitted": {
+      // Whole-replacement entrypoint (protocol §576-587). `loaf spec submit`
+      // emits this as batch_index=0 with companion add-* entries at
+      // batch_index>=1. spec_submitted bumps state.spec_version and resets
+      // the 3 projection arrays; companions repopulate within the batch.
+      const payload = entry.payload as {
+        spec_version?: number;
+        feature?: { id?: string; name?: string };
+        intent?: string;
+      };
+      if (typeof payload.spec_version !== "number") {
+        return invalidPayload(entry.kind, "missing spec_version");
+      }
+      const versionCheck = checkSpecVersionHead(entry, payload.spec_version, prev.state.spec_version);
+      if (!versionCheck.ok) {
+        return invalidPayload(entry.kind, versionCheck.message);
+      }
+      return {
+        ok: true,
+        snapshot: {
+          ...prev,
+          state: { ...prev.state, spec_version: versionCheck.nextVersion },
+          requirements: [],
+          scenarios: [],
+          visual_contracts: [],
+        },
+      };
+    }
+
+    case "event:spec_req_added": {
+      const payload = entry.payload as { spec_version?: number; req?: RequirementPayload };
+      if (typeof payload.spec_version !== "number" || !payload.req) {
+        return invalidPayload(entry.kind, "missing spec_version or req");
+      }
+      const versionCheck = checkSpecVersion(entry, payload.spec_version, prev.state.spec_version);
+      if (!versionCheck.ok) {
+        return invalidPayload(entry.kind, versionCheck.message);
+      }
+      if (prev.requirements.some((r) => r.id === payload.req!.id)) {
+        return invalidPayload(entry.kind, `DUPLICATE_REQ_ID: ${payload.req.id} already in projection`);
+      }
+      const slim = extractRequirementSlim(payload.req);
+      prev.requirements.push(slim);
+      return {
+        ok: true,
+        snapshot:
+          versionCheck.nextVersion === prev.state.spec_version
+            ? prev
+            : { ...prev, state: { ...prev.state, spec_version: versionCheck.nextVersion } },
+      };
+    }
+
+    case "event:spec_scenario_added": {
+      const payload = entry.payload as { spec_version?: number; scenario?: ScenarioPayload };
+      if (typeof payload.spec_version !== "number" || !payload.scenario) {
+        return invalidPayload(entry.kind, "missing spec_version or scenario");
+      }
+      const versionCheck = checkSpecVersion(entry, payload.spec_version, prev.state.spec_version);
+      if (!versionCheck.ok) {
+        return invalidPayload(entry.kind, versionCheck.message);
+      }
+      if (prev.scenarios.some((s) => s.id === payload.scenario!.id)) {
+        return invalidPayload(entry.kind, `DUPLICATE_SCEN_ID: ${payload.scenario.id} already in projection`);
+      }
+      const slim = extractScenarioSlim(payload.scenario);
+      prev.scenarios.push(slim);
+      return {
+        ok: true,
+        snapshot:
+          versionCheck.nextVersion === prev.state.spec_version
+            ? prev
+            : { ...prev, state: { ...prev.state, spec_version: versionCheck.nextVersion } },
+      };
+    }
+
+    case "event:spec_visual_added": {
+      const payload = entry.payload as { spec_version?: number; visual?: VisualPayload };
+      if (typeof payload.spec_version !== "number" || !payload.visual) {
+        return invalidPayload(entry.kind, "missing spec_version or visual");
+      }
+      const versionCheck = checkSpecVersion(entry, payload.spec_version, prev.state.spec_version);
+      if (!versionCheck.ok) {
+        return invalidPayload(entry.kind, versionCheck.message);
+      }
+      if (prev.visual_contracts.some((v) => v.id === payload.visual!.id)) {
+        return invalidPayload(entry.kind, `DUPLICATE_VIS_ID: ${payload.visual.id} already in projection`);
+      }
+      const slim = extractVisualSlim(payload.visual);
+      prev.visual_contracts.push(slim);
+      return {
+        ok: true,
+        snapshot:
+          versionCheck.nextVersion === prev.state.spec_version
+            ? prev
+            : { ...prev, state: { ...prev.state, spec_version: versionCheck.nextVersion } },
+      };
+    }
+
     case "evidence:added": {
       const payload = entry.payload as { id?: string; kind?: string; result?: string; covers?: string[]; actor?: string };
       if (!payload.id || !payload.kind) return invalidPayload(entry.kind, "missing id/kind");
@@ -435,4 +577,114 @@ function invalidPayload(kind: string, reason: string): ApplyResult {
     code: "INVALID_PAYLOAD",
     message: `${kind}: ${reason}`,
   };
+}
+
+// ── SPEC content reducer helpers (Slice 1.B sub-cycle 1) ─────────────────
+// spec_version monotonic invariant + slim projection extraction.
+//
+// `loaf spec submit` is a batch: spec_submitted at batch_index=0 followed
+// by companion add-* entries at index>=1, all sharing batch_id and
+// spec_version. Standalone `loaf spec add-req|add-scenario|add-visual` is
+// also a batch (single entry or N entries) sharing one spec_version.
+//
+// Reducer disambiguates new-invocation head vs continuation via
+// entry.batch_index:
+//   - undefined | 0 → must bump (payload.spec_version === current + 1)
+//   - >0            → must equal current (already bumped by batch head)
+
+type RequirementPayload = {
+  id: string;
+  type: RequirementState["type"];
+  measurable?: RequirementState["measurable"];
+  verified_by_scenarios?: string[];
+  acceptance_na?: true;
+  acceptance_na_reason?: string;
+};
+
+type ScenarioPayload = {
+  id: string;
+  tag?: ScenarioState["tag"];
+  requires_acceptance?: boolean;
+  acceptance_na?: string;
+};
+
+type VisualPayload = {
+  id: string;
+  requires_visual?: boolean;
+  visual_na?: string;
+};
+
+type SpecVersionCheck =
+  | { ok: true; nextVersion: number }
+  | { ok: false; message: string };
+
+function checkSpecVersionHead(
+  entry: JournalEntry,
+  payloadVersion: number,
+  currentVersion: number,
+): SpecVersionCheck {
+  // spec_submitted is always batch head — either standalone (no envelope)
+  // or batch_index=0. batch_index>0 is illegal for spec_submitted.
+  if (entry.batch_index !== undefined && entry.batch_index !== 0) {
+    return {
+      ok: false,
+      message: `SPEC_VERSION_BATCH_MISMATCH: spec_submitted must appear at batch_index=0, got ${entry.batch_index}`,
+    };
+  }
+  if (payloadVersion !== currentVersion + 1) {
+    return {
+      ok: false,
+      message: `SPEC_VERSION_NOT_MONOTONIC: spec_version must be ${currentVersion + 1} (current+1), got ${payloadVersion}`,
+    };
+  }
+  return { ok: true, nextVersion: payloadVersion };
+}
+
+function checkSpecVersion(
+  entry: JournalEntry,
+  payloadVersion: number,
+  currentVersion: number,
+): SpecVersionCheck {
+  const isHead = entry.batch_index === undefined || entry.batch_index === 0;
+  if (isHead) {
+    if (payloadVersion !== currentVersion + 1) {
+      return {
+        ok: false,
+        message: `SPEC_VERSION_NOT_MONOTONIC: spec_version must be ${currentVersion + 1} (current+1) at batch head, got ${payloadVersion}`,
+      };
+    }
+    return { ok: true, nextVersion: payloadVersion };
+  }
+  // batch continuation — head already bumped state.
+  if (payloadVersion !== currentVersion) {
+    return {
+      ok: false,
+      message: `SPEC_VERSION_BATCH_MISMATCH: spec_version must be ${currentVersion} at batch_index=${entry.batch_index}, got ${payloadVersion}`,
+    };
+  }
+  return { ok: true, nextVersion: currentVersion };
+}
+
+function extractRequirementSlim(req: RequirementPayload): RequirementState {
+  const slim: RequirementState = { id: req.id, type: req.type };
+  if (req.measurable !== undefined) slim.measurable = req.measurable;
+  if (req.verified_by_scenarios !== undefined) slim.verified_by_scenarios = req.verified_by_scenarios;
+  if (req.acceptance_na !== undefined) slim.acceptance_na = req.acceptance_na;
+  if (req.acceptance_na_reason !== undefined) slim.acceptance_na_reason = req.acceptance_na_reason;
+  return slim;
+}
+
+function extractScenarioSlim(scenario: ScenarioPayload): ScenarioState {
+  const slim: ScenarioState = { id: scenario.id };
+  if (scenario.tag !== undefined) slim.tag = scenario.tag;
+  if (scenario.requires_acceptance !== undefined) slim.requires_acceptance = scenario.requires_acceptance;
+  if (scenario.acceptance_na !== undefined) slim.acceptance_na = scenario.acceptance_na;
+  return slim;
+}
+
+function extractVisualSlim(visual: VisualPayload): VisualContractState {
+  const slim: VisualContractState = { id: visual.id };
+  if (visual.requires_visual !== undefined) slim.requires_visual = visual.requires_visual;
+  if (visual.visual_na !== undefined) slim.visual_na = visual.visual_na;
+  return slim;
 }

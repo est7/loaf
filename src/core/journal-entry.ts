@@ -322,6 +322,169 @@ const SessionReasonPayload = z
   })
   .passthrough();
 
+// ── SPEC content payload schemas (Slice 1.B sub-cycle 1) ─────────────────
+// Runtime mirror of docs/schemas.ts §7-10. Full canonical body fields are
+// REQUIRED so journal replay can rebuild spec.md (deletion / migration /
+// `loaf doctor --rebuild`). Reducer extracts a slim projection at apply
+// time; the journal stays the single source of truth.
+//
+// Co-located here (vs imported from docs/schemas.ts) because docs/ is
+// outside tsconfig.include and is the docs/protocol surface, not a runtime
+// package boundary (codex r17).
+
+const ReqIdPayload = z.string().regex(/^REQ-[A-Z][A-Z0-9]*-\d{3,}$/);
+const ScenIdPayload = z.string().regex(/^SCEN-[A-Z][A-Z0-9-]*-\d{3,}$/);
+const VisIdPayload = z.string().regex(/^VIS-[A-Z][A-Z0-9-]*-\d{3,}$/);
+const FeatureIdPayload = z.string().regex(/^F-\d{3,}$/);
+const NcIdPayload = z.string().regex(/^NC-\d{3,}$/);
+
+const MeasurablePayload = z
+  .object({
+    metric: z.string().min(3),
+    threshold: z.union([z.string(), z.number()]),
+    unit: z.string().optional(),
+    direction: z.enum(["lte", "gte", "eq"]).default("lte"),
+  })
+  .passthrough();
+
+const VerifiabilityRefine = z
+  .object({
+    measurable: MeasurablePayload.optional(),
+    verified_by_scenarios: z.array(ScenIdPayload).optional(),
+    acceptance_na: z.literal(true).optional(),
+    acceptance_na_reason: z.string().min(10).optional(),
+  })
+  .refine(
+    (v) => {
+      const hasMeasurable = v.measurable !== undefined;
+      const hasScenarios = v.verified_by_scenarios !== undefined && v.verified_by_scenarios.length > 0;
+      const hasNa = v.acceptance_na === true && (v.acceptance_na_reason?.length ?? 0) >= 10;
+      return hasMeasurable || hasScenarios || hasNa;
+    },
+    { message: "REQ must declare measurable, verified_by_scenarios[], or acceptance_na+reason (≥10 chars)" },
+  );
+
+const ReqBase = z.object({ id: ReqIdPayload });
+
+const RequirementUbiquitousPayload = ReqBase.extend({
+  type: z.literal("ubiquitous"),
+  response: z.string().min(10),
+}).and(VerifiabilityRefine);
+
+const RequirementEventDrivenPayload = ReqBase.extend({
+  type: z.literal("event-driven"),
+  trigger: z.string().min(5),
+  response: z.string().min(10),
+}).and(VerifiabilityRefine);
+
+const RequirementStateDrivenPayload = ReqBase.extend({
+  type: z.literal("state-driven"),
+  while_: z.string().min(5),
+  behavior: z.string().min(10),
+}).and(VerifiabilityRefine);
+
+const RequirementOptionalPayload = ReqBase.extend({
+  type: z.literal("optional"),
+  feature: z.string().min(5),
+  response: z.string().min(10),
+}).and(VerifiabilityRefine);
+
+const RequirementUnwantedPayload = ReqBase.extend({
+  type: z.literal("unwanted"),
+  condition: z.string().min(5),
+  response: z.string().min(10),
+}).and(VerifiabilityRefine);
+
+const RequirementEarsPayload = z.union([
+  RequirementUbiquitousPayload,
+  RequirementEventDrivenPayload,
+  RequirementStateDrivenPayload,
+  RequirementOptionalPayload,
+  RequirementUnwantedPayload,
+]);
+
+const ScenarioGherkinPayload = z
+  .object({
+    id: ScenIdPayload,
+    name: z.string().min(3),
+    tag: z.enum(["happy", "edge", "error", "e2e"]).optional(),
+    requires_acceptance: z.boolean().optional(),
+    acceptance_na: z.string().min(5).optional(),
+    given: z.array(z.string().min(3)).min(1),
+    when: z.array(z.string().min(3)).min(1),
+    then: z.array(z.string().min(3)).min(1),
+  })
+  .refine(
+    (s) => !(s.tag === "e2e" && s.acceptance_na !== undefined && s.requires_acceptance),
+    { message: "cannot set both requires_acceptance and acceptance_na" },
+  );
+
+const VisualContractPayload = z
+  .object({
+    id: VisIdPayload,
+    target: z.string().min(3),
+    checks: z.array(z.string().min(3)).min(1),
+    requires_visual: z.boolean().optional(),
+    visual_na: z.string().min(5).optional(),
+  })
+  .passthrough();
+
+const NeedsClarificationPayload = z
+  .object({
+    id: NcIdPayload,
+    question: z.string().min(5),
+    context: z.string().optional(),
+    options: z.array(z.string()).optional(),
+  })
+  .passthrough();
+
+// Journal payload schemas — companion add-* entries carry one item each;
+// spec_submitted carries the frontmatter header + adr_refs / needs_clarification
+// (the only fields that have no per-item companion entry, so replay would
+// otherwise lose them — codex r17 ripple #4).
+
+const BatchSpecVersion = z.number().int().positive();
+
+export const SpecSubmittedPayload = z
+  .object({
+    spec_version: BatchSpecVersion,
+    feature: z
+      .object({
+        id: FeatureIdPayload,
+        name: z.string().min(3),
+      })
+      .passthrough(),
+    intent: z.string().min(20),
+    adr_refs: z.array(z.string()),
+    needs_clarification: z.array(NeedsClarificationPayload),
+  })
+  .passthrough();
+export type SpecSubmittedPayload = z.infer<typeof SpecSubmittedPayload>;
+
+export const SpecReqAddedPayload = z
+  .object({
+    spec_version: BatchSpecVersion,
+    req: RequirementEarsPayload,
+  })
+  .passthrough();
+export type SpecReqAddedPayload = z.infer<typeof SpecReqAddedPayload>;
+
+export const SpecScenarioAddedPayload = z
+  .object({
+    spec_version: BatchSpecVersion,
+    scenario: ScenarioGherkinPayload,
+  })
+  .passthrough();
+export type SpecScenarioAddedPayload = z.infer<typeof SpecScenarioAddedPayload>;
+
+export const SpecVisualAddedPayload = z
+  .object({
+    spec_version: BatchSpecVersion,
+    visual: VisualContractPayload,
+  })
+  .passthrough();
+export type SpecVisualAddedPayload = z.infer<typeof SpecVisualAddedPayload>;
+
 // PER_KIND_PAYLOAD — preflight + final validate parse the payload against
 // the schema mapped here. Kinds with strict schemas (12 reducer-implemented
 // + 1 gate + 1 migration) are validated to the field level. Kinds without
@@ -337,10 +500,10 @@ export const PER_KIND_PAYLOAD: Record<EntryKind, z.ZodTypeAny> = {
   "event:task_step_started": TaskStepRefPayload,
   "event:task_step_done": TaskStepDonePayload,
   "event:task_abandoned": TaskRefPayload,
-  "event:spec_req_added": RecordPayload,
-  "event:spec_scenario_added": RecordPayload,
-  "event:spec_visual_added": RecordPayload,
-  "event:spec_submitted": RecordPayload,
+  "event:spec_req_added": SpecReqAddedPayload,
+  "event:spec_scenario_added": SpecScenarioAddedPayload,
+  "event:spec_visual_added": SpecVisualAddedPayload,
+  "event:spec_submitted": SpecSubmittedPayload,
 
   // Domain ledger entries
   "evidence:added": EvidenceAddedPayload,
@@ -379,6 +542,10 @@ export const REDUCER_IMPLEMENTED_KINDS: ReadonlySet<EntryKind> = new Set([
   "event:task_step_started",
   "event:task_step_done",
   "event:task_abandoned",
+  "event:spec_submitted",
+  "event:spec_req_added",
+  "event:spec_scenario_added",
+  "event:spec_visual_added",
   "evidence:added",
   "finding:raised",
   "finding:closed",
