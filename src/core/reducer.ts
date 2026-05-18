@@ -405,9 +405,23 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
     }
 
     case "event:task_claimed": {
-      // payload: { task_id }
+      // Slice 2 SC1 (codex r56 BLOCK 3a): defense-in-depth TASK_NOT_FOUND.
+      // Preflight step 5e is authoritative — task existence + claimability +
+      // deps_on satisfied are all gated there before reducer dry-run. This
+      // fall-through fail-fast prevents the historical silent-no-op (where
+      // an unknown task_id would skip the .map predicate without touching
+      // the projection, returning ok=true).
       const payload = entry.payload as { task_id?: string };
       if (!payload.task_id) return invalidPayload(entry.kind, "missing task_id");
+      const task = prev.tasks.find((t) => t.id === payload.task_id);
+      if (!task) {
+        return {
+          ok: false,
+          code: "TASK_NOT_FOUND",
+          message: `task_claimed: task ${payload.task_id} not in projection`,
+          detail: { task_id: payload.task_id },
+        };
+      }
       const tasks = prev.tasks.map((t) =>
         t.id === payload.task_id ? { ...t, status: "in_progress" as const } : t,
       );

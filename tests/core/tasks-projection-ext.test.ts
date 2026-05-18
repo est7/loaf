@@ -139,12 +139,25 @@ function seedAtExecutePlan(): Snapshot {
   return snap;
 }
 
-function seedAtExecuteWork(tasksPayload: Record<string, unknown>): Snapshot {
+function seedAtExecuteWork(
+  tasksPayload: Record<string, unknown>,
+  opts: { claim?: string[] } = {},
+): Snapshot {
   let snap = seedAtExecutePlan();
   snap = mustOk(apply(snap, entry(7, "event:tasks_planned", tasksPayload)));
   snap = mustOk(
     apply(snap, entry(8, "event:phase_advanced", { from: "EXECUTE.plan", to: "EXECUTE.work" })),
   );
+  // Slice 2 SC1: preflight step 5e requires task.status=in_progress before
+  // step_started / step_done. Claim the specified tasks (default: all planned
+  // tasks) so existing tests that exercise step lifecycle continue to work.
+  const planned = (tasksPayload["tasks"] as Array<{ id: string }> | undefined) ?? [];
+  const claimIds = opts.claim ?? planned.map((t) => t.id);
+  let seq = 9;
+  for (const taskId of claimIds) {
+    snap = mustOk(apply(snap, entry(seq, "event:task_claimed", { task_id: taskId })));
+    seq++;
+  }
   return snap;
 }
 
@@ -404,7 +417,9 @@ describe("event:task_step_done auto-promote — Slice 1.B sub-cycle 3a (F-010 #3
     );
     const task = snap.tasks.find((t) => t.id === "T-001")!;
     expect(task.steps.red?.status).toBe("pending");
-    expect(task.status).toBe("pending");
+    // Slice 2 SC1: seedAtWork now claims T-001, so status starts at in_progress;
+    // auto-promote does NOT fire (one must step still pending) → stays in_progress.
+    expect(task.status).toBe("in_progress");
   });
 
   test("must failed → no promote (failed must blocks done)", () => {
@@ -416,7 +431,8 @@ describe("event:task_step_done auto-promote — Slice 1.B sub-cycle 3a (F-010 #3
       apply(snap, entry(10, "event:task_step_done", { task_id: "T-001", step: "implement", result: "failed" })),
     );
     const task = snap.tasks.find((t) => t.id === "T-001")!;
-    expect(task.status).toBe("pending");
+    // Slice 2 SC1: post-claim status is in_progress; failed must blocks promote.
+    expect(task.status).toBe("in_progress");
   });
 
   test("waived must counts as terminal-positive → promote", () => {
@@ -437,6 +453,9 @@ describe("event:task_step_done auto-promote — Slice 1.B sub-cycle 3a (F-010 #3
       apply(snap, entry(9, "event:task_step_done", { task_id: "T-001", step: "implement", result: "passed" })),
     );
     const task = snap.tasks.find((t) => t.id === "T-001")!;
-    expect(task.status).toBe("pending");
+    // Slice 2 SC1: post-claim status is in_progress; red must still pending
+    // blocks promote (codex r23 BLOCK 2: seeded-but-untouched must must stay
+    // in the deny set for promote checks).
+    expect(task.status).toBe("in_progress");
   });
 });

@@ -3794,6 +3794,11 @@ export const DiagnosticCode = z.enum([
   "DELIVER_VERIFY_MIN_UNAVAILABLE",        // src/core/reducer/preflight.ts step 5c — `session:delivered` at EXECUTE.done; quick/light path requires verify-min (§3) which is not yet implemented in v0.1.0
   "DELIVER_SPIKE_TASKS",                   // src/core/reducer/preflight.ts step 5c — snapshot.tasks contains a non-abandoned spike task (protocol §703 + §1298 hard block)
   "SETTLE_NOT_ACCEPTED",                   // src/core/reducer/transition.ts — `event:phase_advanced` VERIFY.accept→SETTLE.reconcile but snapshot.state.verify_accepted=false (gate must approve before settle)
+  // ── Slice 2 SC1 — task lifecycle preflight (codex r56/r57) ──
+  "TASK_NOT_CLAIMABLE",                    // src/core/reducer/preflight.ts step 5e — event:task_claimed for task with status ∈ {done, abandoned} (terminal — cannot be reclaimed)
+  "TASK_ALREADY_CLAIMED",                  // src/core/reducer/preflight.ts step 5e — event:task_claimed for task with status=in_progress
+  "TASK_DEPS_NOT_SATISFIED",               // src/core/reducer/preflight.ts step 5e — event:task_claimed but some task in deps_on is not status=done
+  "TASK_NOT_CLAIMED",                      // src/core/reducer/preflight.ts step 5e — event:task_step_started or event:task_step_done but task.status ≠ in_progress (must claim before mutating steps)
 ]);
 export type DiagnosticCode = z.infer<typeof DiagnosticCode>;
 
@@ -4506,6 +4511,39 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
     fix_template:
       "run `loaf gate decide verify-accept --approve --reason \"...\"` before `loaf settle`; the gate flips snapshot.state.verify_accepted before the transition validator will admit the SETTLE entry",
     doc_anchor: "protocol.md#§5.2",
+  },
+  // ── Slice 2 SC1 — task lifecycle preflight (codex r56/r57) ──
+  TASK_NOT_CLAIMABLE: {
+    exit_code: 2,
+    message_template:
+      "task {task_id} cannot be claimed (status={status} — terminal state)",
+    fix_template:
+      "tasks with status=done are already complete; status=abandoned tasks cannot be reactivated. Run `loaf tasks list` to inspect the task graph, or `loaf tasks next` to pick a different ready task",
+    doc_anchor: "protocol.md#§10.8",
+  },
+  TASK_ALREADY_CLAIMED: {
+    exit_code: 2,
+    message_template:
+      "task {task_id} is already claimed (status=in_progress); claim is idempotent only for the holding worker",
+    fix_template:
+      "another worker may already hold this task; run `loaf tasks list` to inspect active claims. Stale-claim release is handled in a future slice (no CLI surface for abandon in v0.1.0 yet) — raise a finding with action=fix-impl if needed",
+    doc_anchor: "protocol.md#§10.8",
+  },
+  TASK_DEPS_NOT_SATISFIED: {
+    exit_code: 2,
+    message_template:
+      "task {task_id} cannot be claimed: dependency {blocking_dep} is not done (status={blocking_status})",
+    fix_template:
+      "complete deps_on tasks first (run `loaf tasks list --status pending` to see what is blocking), or use `loaf tasks next` to pick a task with all deps satisfied",
+    doc_anchor: "protocol.md#§10.8",
+  },
+  TASK_NOT_CLAIMED: {
+    exit_code: 2,
+    message_template:
+      "task {task_id} step {step} mutation requires task.status=in_progress (got status={status}); claim the task first",
+    fix_template:
+      "run `loaf tasks claim {task_id}` to move the task from pending/ready to in_progress before emitting task_step_started or task_step_done; once auto-promoted to done, steps cannot be re-mutated",
+    doc_anchor: "protocol.md#§10.8",
   },
 } as const;
 

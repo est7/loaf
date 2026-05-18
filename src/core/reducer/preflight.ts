@@ -80,7 +80,15 @@ export type PreflightFailureCode =
   | "DELIVER_NOT_ACCEPTED"
   | "DELIVER_SETTLE_PHASE_BYPASS"
   | "DELIVER_VERIFY_MIN_UNAVAILABLE"
-  | "DELIVER_SPIKE_TASKS";
+  | "DELIVER_SPIKE_TASKS"
+  // Slice 2 SC1 — task lifecycle preflight refines (step 5e). TASK_NOT_FOUND
+  // is reused (already in DiagnosticCode for the reducer-side path) so no
+  // new union member here for that code.
+  | "TASK_NOT_FOUND"
+  | "TASK_NOT_CLAIMABLE"
+  | "TASK_ALREADY_CLAIMED"
+  | "TASK_DEPS_NOT_SATISFIED"
+  | "TASK_NOT_CLAIMED";
 
 export type PreflightResult =
   | { ok: true }
@@ -285,7 +293,106 @@ export function preflight(
     }
   }
 
-  // (5d) Transition (for kinds carrying a state-machine edge).
+  // (5e) Slice 2 SC1 — task lifecycle preflight refines.
+  //
+  // `event:task_claimed` / `event:task_step_started` / `event:task_step_done`
+  // payloads carry a task_id (+ step). Reducer-side checks today report
+  // TASK_NOT_FOUND / TASK_STEP_NOT_FOUND after dry-run, and `task_claimed`
+  // historically silently no-opped on unknown ids (codex r56 BLOCK 3a).
+  // This step lifts those checks into preflight where they belong, and
+  // adds the claim/status/deps refines the reducer never enforced:
+  //   * task_claimed:
+  //       - task exists in snapshot.tasks → else TASK_NOT_FOUND
+  //       - task.status ∈ {pending, ready} → else
+  //         * status=in_progress → TASK_ALREADY_CLAIMED
+  //         * status=done/abandoned → TASK_NOT_CLAIMABLE
+  //       - all deps_on tasks have status=done → else TASK_DEPS_NOT_SATISFIED
+  //   * task_step_started / task_step_done:
+  //       - task exists → TASK_NOT_FOUND
+  //       - task.status === "in_progress" → else TASK_NOT_CLAIMED
+  // Reducer keeps its TASK_NOT_FOUND / TASK_STEP_NOT_FOUND fallbacks as
+  // defense-in-depth (preflight is authoritative, reducer must not silently
+  // no-op).
+  if (
+    entry.kind === "event:task_claimed" ||
+    entry.kind === "event:task_step_started" ||
+    entry.kind === "event:task_step_done"
+  ) {
+    const payload = (rawEntry as { payload?: Record<string, unknown> }).payload ?? {};
+    const task_id = payload["task_id"] as string | undefined;
+    if (!task_id) {
+      // Schema validation should have caught this; defensive.
+      return {
+        ok: false,
+        code: "INVALID_PAYLOAD",
+        message: `${entry.kind}: missing task_id`,
+        detail: { kind: entry.kind },
+      };
+    }
+    const task = ctx.snapshot.tasks.find((t) => t.id === task_id);
+    if (!task) {
+      return {
+        ok: false,
+        code: "TASK_NOT_FOUND",
+        message: `${entry.kind}: task ${task_id} is not in the current tasks projection`,
+        detail: { task_id, kind: entry.kind },
+      };
+    }
+    if (entry.kind === "event:task_claimed") {
+      if (task.status === "in_progress") {
+        return {
+          ok: false,
+          code: "TASK_ALREADY_CLAIMED",
+          message: `task ${task_id} is already claimed (status=in_progress)`,
+          detail: { task_id, status: task.status },
+        };
+      }
+      if (task.status === "done" || task.status === "abandoned") {
+        return {
+          ok: false,
+          code: "TASK_NOT_CLAIMABLE",
+          message: `task ${task_id} cannot be claimed (status=${task.status} — terminal state)`,
+          detail: { task_id, status: task.status },
+        };
+      }
+      // status ∈ {pending, ready} — check deps_on.
+      for (const depId of task.depends_on) {
+        const dep = ctx.snapshot.tasks.find((t) => t.id === depId);
+        if (!dep) {
+          // Unknown dep — treat as unsatisfied (CLI/reducer caller's
+          // problem; tasks_planned should have enforced graph closure
+          // earlier).
+          return {
+            ok: false,
+            code: "TASK_DEPS_NOT_SATISFIED",
+            message: `task ${task_id} cannot be claimed: dependency ${depId} is not in the tasks projection`,
+            detail: { task_id, blocking_dep: depId, blocking_status: "missing" },
+          };
+        }
+        if (dep.status !== "done") {
+          return {
+            ok: false,
+            code: "TASK_DEPS_NOT_SATISFIED",
+            message: `task ${task_id} cannot be claimed: dependency ${depId} is not done (status=${dep.status})`,
+            detail: { task_id, blocking_dep: depId, blocking_status: dep.status },
+          };
+        }
+      }
+    } else {
+      // task_step_started or task_step_done
+      const step = payload["step"] as string | undefined;
+      if (task.status !== "in_progress") {
+        return {
+          ok: false,
+          code: "TASK_NOT_CLAIMED",
+          message: `task ${task_id} step ${step ?? "?"} mutation requires task.status=in_progress (got status=${task.status}); claim the task first`,
+          detail: { task_id, step, status: task.status, kind: entry.kind },
+        };
+      }
+    }
+  }
+
+  // (5f) Transition (for kinds carrying a state-machine edge).
   const transitionResult = checkTransition(
     entry.kind,
     rawEntry as Record<string, unknown>,

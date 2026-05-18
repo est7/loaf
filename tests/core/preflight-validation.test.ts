@@ -108,13 +108,29 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
     if (!result.ok) expect(result.code).toBe("SUB_STATE_AUTHORITY_VIOLATION");
   });
 
-  test("event:task_step_done in EXECUTE.work → OK", () => {
+  test("event:task_step_done in EXECUTE.work → OK (with claimed task seeded)", () => {
+    // Slice 2 SC1: preflight step 5e requires task exists + status=in_progress
+    // before step_done. Seed a claimed task into the snapshot so this test
+    // continues to assert authority-gate behavior (not the new TASK_* refines,
+    // which have dedicated coverage below).
+    const claimedTask = {
+      id: "T-001",
+      kind: "behavioral" as const,
+      status: "in_progress" as const,
+      steps: { implement: { applicability: "must" as const, status: "pending" as const } },
+      drives: [],
+      depends_on: [],
+      labels: [],
+    };
     const result = preflight(
       baseEntry({
         kind: "event:task_step_done",
         payload: { task_id: "T-001", step: "implement" },
       }),
-      { snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY), tail_seq: -1 },
+      {
+        snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [claimedTask] }),
+        tail_seq: -1,
+      },
     );
     expect(result.ok).toBe(true);
   });
@@ -458,5 +474,188 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
     });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.code).toBe("DELIVER_SPIKE_TASKS");
+  });
+
+  // ── Slice 2 SC1 — step 5e: task lifecycle preflight refines ──────────
+  //
+  // `event:task_claimed` / `event:task_step_started` / `event:task_step_done`
+  // payloads carry task_id (+ step). Preflight enforces task existence +
+  // claimability + status/deps preconditions. TASK_NOT_FOUND reused from
+  // existing reducer-side coverage; 4 new codes added in SC1.
+
+  const makeTask = (
+    overrides: Partial<TaskState> & Pick<TaskState, "id" | "kind" | "status">,
+  ): TaskState => ({
+    steps: {},
+    drives: [],
+    depends_on: [],
+    labels: [],
+    ...overrides,
+  });
+
+  test("event:task_claimed @ EXECUTE.work + task missing → TASK_NOT_FOUND", () => {
+    const r = preflight(
+      baseEntry({ kind: "event:task_claimed", payload: { task_id: "T-999" } }),
+      { snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [] }), tail_seq: -1 },
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe("TASK_NOT_FOUND");
+  });
+
+  test("event:task_claimed + task.status=in_progress → TASK_ALREADY_CLAIMED", () => {
+    const task = makeTask({ id: "T-001", kind: "behavioral", status: "in_progress" });
+    const r = preflight(
+      baseEntry({ kind: "event:task_claimed", payload: { task_id: "T-001" } }),
+      { snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [task] }), tail_seq: -1 },
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.code).toBe("TASK_ALREADY_CLAIMED");
+      expect(r.detail).toMatchObject({ task_id: "T-001", status: "in_progress" });
+    }
+  });
+
+  test("event:task_claimed + task.status=done → TASK_NOT_CLAIMABLE", () => {
+    const task = makeTask({ id: "T-001", kind: "behavioral", status: "done" });
+    const r = preflight(
+      baseEntry({ kind: "event:task_claimed", payload: { task_id: "T-001" } }),
+      { snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [task] }), tail_seq: -1 },
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.code).toBe("TASK_NOT_CLAIMABLE");
+      expect(r.detail).toMatchObject({ task_id: "T-001", status: "done" });
+    }
+  });
+
+  test("event:task_claimed + task.status=abandoned → TASK_NOT_CLAIMABLE", () => {
+    const task = makeTask({ id: "T-001", kind: "behavioral", status: "abandoned" });
+    const r = preflight(
+      baseEntry({ kind: "event:task_claimed", payload: { task_id: "T-001" } }),
+      { snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [task] }), tail_seq: -1 },
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe("TASK_NOT_CLAIMABLE");
+  });
+
+  test("event:task_claimed + deps_on dep not done → TASK_DEPS_NOT_SATISFIED", () => {
+    const dep = makeTask({ id: "T-002", kind: "behavioral", status: "in_progress" });
+    const task = makeTask({
+      id: "T-001",
+      kind: "behavioral",
+      status: "pending",
+      depends_on: ["T-002"],
+    });
+    const r = preflight(
+      baseEntry({ kind: "event:task_claimed", payload: { task_id: "T-001" } }),
+      {
+        snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [task, dep] }),
+        tail_seq: -1,
+      },
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.code).toBe("TASK_DEPS_NOT_SATISFIED");
+      expect(r.detail).toMatchObject({
+        task_id: "T-001",
+        blocking_dep: "T-002",
+        blocking_status: "in_progress",
+      });
+    }
+  });
+
+  test("event:task_claimed + deps_on dep done → OK", () => {
+    const dep = makeTask({ id: "T-002", kind: "behavioral", status: "done" });
+    const task = makeTask({
+      id: "T-001",
+      kind: "behavioral",
+      status: "pending",
+      depends_on: ["T-002"],
+    });
+    const r = preflight(
+      baseEntry({ kind: "event:task_claimed", payload: { task_id: "T-001" } }),
+      {
+        snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [task, dep] }),
+        tail_seq: -1,
+      },
+    );
+    expect(r.ok).toBe(true);
+  });
+
+  test("event:task_claimed + deps_on dep missing from projection → TASK_DEPS_NOT_SATISFIED (blocking_status=missing)", () => {
+    const task = makeTask({
+      id: "T-001",
+      kind: "behavioral",
+      status: "pending",
+      depends_on: ["T-ghost"],
+    });
+    const r = preflight(
+      baseEntry({ kind: "event:task_claimed", payload: { task_id: "T-001" } }),
+      {
+        snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [task] }),
+        tail_seq: -1,
+      },
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.code).toBe("TASK_DEPS_NOT_SATISFIED");
+      expect(r.detail).toMatchObject({ blocking_dep: "T-ghost", blocking_status: "missing" });
+    }
+  });
+
+  test("event:task_step_started + task.status=pending → TASK_NOT_CLAIMED", () => {
+    const task = makeTask({
+      id: "T-001",
+      kind: "behavioral",
+      status: "pending",
+      steps: { implement: { applicability: "must", status: "pending" } },
+    });
+    const r = preflight(
+      baseEntry({
+        kind: "event:task_step_started",
+        payload: { task_id: "T-001", step: "implement" },
+      }),
+      { snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [task] }), tail_seq: -1 },
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.code).toBe("TASK_NOT_CLAIMED");
+      expect(r.detail).toMatchObject({ task_id: "T-001", step: "implement", status: "pending" });
+    }
+  });
+
+  test("event:task_step_done + task.status=done (auto-promoted) → TASK_NOT_CLAIMED (no re-mutation after promote)", () => {
+    const task = makeTask({
+      id: "T-001",
+      kind: "behavioral",
+      status: "done",
+      steps: { implement: { applicability: "must", status: "passed" } },
+    });
+    const r = preflight(
+      baseEntry({
+        kind: "event:task_step_done",
+        payload: { task_id: "T-001", step: "implement", result: "passed" },
+      }),
+      { snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [task] }), tail_seq: -1 },
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe("TASK_NOT_CLAIMED");
+  });
+
+  test("event:task_step_started + task.status=in_progress + step seeded → OK", () => {
+    const task = makeTask({
+      id: "T-001",
+      kind: "behavioral",
+      status: "in_progress",
+      steps: { implement: { applicability: "must", status: "pending" } },
+    });
+    const r = preflight(
+      baseEntry({
+        kind: "event:task_step_started",
+        payload: { task_id: "T-001", step: "implement" },
+      }),
+      { snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [task] }), tail_seq: -1 },
+    );
+    expect(r.ok).toBe(true);
   });
 });
