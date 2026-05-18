@@ -511,13 +511,17 @@ describe("loaf gate decide spec-lock — Slice 1.B sub-cycle 4 (MVP)", () => {
     expect(check1?.detail?.subcode).toBe("SPEC_NOT_FOUND");
   });
 
-  test("unsupported verify-accept gate → GATE_NOT_IMPLEMENTED, stdout empty", async () => {
+  test("unknown gate name (deploy-lock) → GATE_NOT_IMPLEMENTED, stdout empty", async () => {
+    // Slice 1.C sub-cycle 6 update: verify-accept is now wired (was the
+    // unsupported probe pre-1.C). The closed GateName enum {spec-lock,
+    // verify-accept} for v0.1.0 means any third name (e.g. a hypothetical
+    // future deploy-lock) still triggers GATE_NOT_IMPLEMENTED here.
     const dir = await tmpFeatureDir();
     await seedFeatureAtSpecDesign(dir);
 
     const result = await runCli(
       [
-        "gate", "decide", "verify-accept",
+        "gate", "decide", "deploy-lock",
         "--approve",
         "--reason", "x",
         "--feature", "auth-refresh",
@@ -531,7 +535,7 @@ describe("loaf gate decide spec-lock — Slice 1.B sub-cycle 4 (MVP)", () => {
     expect(result.stdout).toBe("");
     const errJson = JSON.parse(result.stderr.trim());
     expect(errJson.code).toBe("GATE_NOT_IMPLEMENTED");
-    expect(errJson.detail.gate).toBe("verify-accept");
+    expect(errJson.detail.gate).toBe("deploy-lock");
   });
 
   test("LOAF_USER unset + non-interactive → NO_HUMAN_ACTOR, stdout empty", async () => {
@@ -632,5 +636,227 @@ describe("loaf gate decide spec-lock — Slice 1.B sub-cycle 4 (MVP)", () => {
     );
     expect(result.exit).toBe(2);
     expect(result.stderr).toMatch(/--reason|reason/);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────
+// Slice 1.C sub-cycle 6 — loaf gate decide verify-accept MVP
+// ────────────────────────────────────────────────────────────────────────
+
+/**
+ * Extend seedFeatureAtSpecDesign + advance through spec-lock approve to
+ * EXECUTE.plan, then walk through EXECUTE.{work, done} + VERIFY.{plan,
+ * run, review, acceptance, visual, accept} so verify-accept gate:decided
+ * is sub_state-legal. Builds on the spec-lock seed (which also writes
+ * spec.md + plans tasks) so the verify-accept happy path can find both.
+ */
+async function seedFeatureAtVerifyAccept(dir: string): Promise<void> {
+  await seedFeatureAtSpecDesign(dir);
+  // Read current state — seedFeatureAtSpecDesign leaves cursor at SPEC.design
+  // with tasks_planned emitted (tasks_based_on=1). spec_locked is still
+  // false (no gate decided yet). For verify-accept we don't need spec_locked
+  // (verify-accept gate doesn't read that flag), so just walk the cursor
+  // forward.
+  const { loadSession } = await import("../../src/core/cli-runtime.js");
+  let { snapshot, tail_seq } = await loadSession(dir);
+  let tailSeq = tail_seq;
+  for (const [from, to] of [
+    ["SPEC.design", "EXECUTE.plan"],
+    ["EXECUTE.plan", "EXECUTE.work"],
+    ["EXECUTE.work", "EXECUTE.done"],
+    ["EXECUTE.done", "VERIFY.plan"],
+    ["VERIFY.plan", "VERIFY.run"],
+    ["VERIFY.run", "VERIFY.review"],
+    ["VERIFY.review", "VERIFY.acceptance"],
+    ["VERIFY.acceptance", "VERIFY.visual"],
+    ["VERIFY.visual", "VERIFY.accept"],
+  ] as Array<[string, string]>) {
+    const r = await mutateRaw(
+      {
+        at: new Date(2026, 4, 15, 11, 0, tailSeq + 1).toISOString(),
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "event:phase_advanced",
+        payload: { from: from as any, to: to as any },
+      },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    );
+    if (!r.ok) throw new Error(`seed-verify walk ${from}->${to} failed: ${r.message}`);
+    snapshot = r.snapshot;
+    tailSeq++;
+  }
+}
+
+describe("loaf gate decide verify-accept — Slice 1.C sub-cycle 6 (MVP)", () => {
+  test("approve happy path: single-entry batch, flag flipped, cursor stays at VERIFY.accept", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtVerifyAccept(dir);
+
+    const result = await runCli(
+      [
+        "gate", "decide", "verify-accept",
+        "--approve",
+        "--reason", "all 5 checks pass",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--json",
+      ],
+      { env: { LOAF_USER: "tester@example.invalid" } },
+    );
+
+    expect(result.exit).toBe(0);
+    expect(result.stderr).toBe("");
+    const out = JSON.parse(result.stdout);
+    expect(out.ok).toBe(true);
+    expect(out.gate).toBe("verify-accept");
+    expect(out.decision).toBe("approved");
+    expect(out.from).toBe("VERIFY.accept");
+    expect(out.actor).toBe("human:tester@example.invalid");
+    expect(out.sub_state).toBe("VERIFY.accept"); // gate does NOT move cursor
+    expect(out.verify_accepted).toBe(true);
+    // Journal sanity: last entry is gate:decided (single-entry, no companion).
+    const journal = await fsP.readFile(path.join(dir, "journal.jsonl"), "utf8");
+    const lines = journal.trim().split("\n").map((l) => JSON.parse(l));
+    expect(lines[lines.length - 1].kind).toBe("gate:decided");
+    expect(lines[lines.length - 1].payload.gate_kind).toBe("verify-accept");
+  });
+
+  test("reject happy path: single entry, verify_accepted stays false", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtVerifyAccept(dir);
+
+    const result = await runCli(
+      [
+        "gate", "decide", "verify-accept",
+        "--reject",
+        "--reason", "open finding pending resolution",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--json",
+      ],
+      { env: { LOAF_USER: "tester@example.invalid" } },
+    );
+
+    expect(result.exit).toBe(0);
+    expect(result.stderr).toBe("");
+    const out = JSON.parse(result.stdout);
+    expect(out.ok).toBe(true);
+    expect(out.gate).toBe("verify-accept");
+    expect(out.decision).toBe("rejected");
+    expect(out.verify_accepted).toBe(false);
+    expect(out.sub_state).toBe("VERIFY.accept");
+  });
+
+  test("text-mode approve renders human-readable message on stdout", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtVerifyAccept(dir);
+
+    const result = await runCli(
+      [
+        "gate", "decide", "verify-accept",
+        "--approve",
+        "--reason", "all checks pass",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+      ],
+      { env: { LOAF_USER: "tester@example.invalid" } },
+    );
+
+    expect(result.exit).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toMatch(/gate verify-accept approved/);
+    expect(result.stdout).toMatch(/verify_accepted=true/);
+    expect(result.stdout).toMatch(/cursor stays at VERIFY.accept/);
+  });
+
+  test("approve fails when spec.md missing — JSON failure to stderr, stdout empty", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtVerifyAccept(dir);
+    // Remove spec.md to trigger Pass 1.5 evaluateVerifyAccept failure.
+    await fsP.unlink(path.join(dir, "spec.md"));
+
+    const result = await runCli(
+      [
+        "gate", "decide", "verify-accept",
+        "--approve",
+        "--reason", "trying without spec",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--json",
+      ],
+      { env: { LOAF_USER: "tester@example.invalid" } },
+    );
+
+    expect(result.exit).toBe(2);
+    expect(result.stdout).toBe("");
+    const errJson = JSON.parse(result.stderr.trim());
+    expect(errJson.code).toBe("GATE_PRECONDITION_VIOLATION");
+    expect(errJson.detail.gate).toBe("verify-accept");
+    expect(errJson.detail.failure_count).toBe(1);
+    const check1 = (errJson.detail.checks as Array<{ check: number; code: string; detail?: { subcode?: string } }>)[0];
+    expect(check1?.check).toBe(1);
+    expect(check1?.code).toBe("SPEC_FRONTMATTER_INVALID");
+    expect(check1?.detail?.subcode).toBe("SPEC_NOT_FOUND");
+  });
+
+  test("text-mode failure renders per-check lines on stderr (verify-accept)", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtVerifyAccept(dir);
+    await fsP.unlink(path.join(dir, "spec.md"));
+
+    const result = await runCli(
+      [
+        "gate", "decide", "verify-accept",
+        "--approve",
+        "--reason", "trying without spec",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+      ],
+      { env: { LOAF_USER: "tester@example.invalid" } },
+    );
+
+    expect(result.exit).toBe(2);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toMatch(/GATE_PRECONDITION_VIOLATION/);
+    expect(result.stderr).toMatch(/\[check 1\] SPEC_FRONTMATTER_INVALID/);
+  });
+
+  test("--approve + --reject (verify-accept mutex fail) → USAGE error, stdout empty", async () => {
+    const dir = await tmpFeatureDir();
+    const result = await runCli(
+      [
+        "gate", "decide", "verify-accept",
+        "--approve", "--reject",
+        "--reason", "x",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+      ],
+      { env: { LOAF_USER: "tester@example.invalid" } },
+    );
+    expect(result.exit).toBe(2);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toMatch(/USAGE/);
+  });
+
+  test("LOAF_USER unset (verify-accept) → NO_HUMAN_ACTOR, stdout empty", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtVerifyAccept(dir);
+
+    const result = await runCli(
+      [
+        "gate", "decide", "verify-accept",
+        "--approve",
+        "--reason", "x",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--json",
+      ],
+      { env: { LOAF_USER: undefined } },
+    );
+
+    expect(result.exit).toBe(2);
+    expect(result.stdout).toBe("");
+    const errJson = JSON.parse(result.stderr.trim());
+    expect(errJson.code).toBe("NO_HUMAN_ACTOR");
   });
 });

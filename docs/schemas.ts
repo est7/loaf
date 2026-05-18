@@ -3752,7 +3752,15 @@ export const DiagnosticCode = z.enum([
   "GATE_PRECONDITION_VIOLATION",           // src/core/journal-mutate.ts Pass 1.5 — evaluateSpecLock returned !ok; detail.checks: FailedCheck[]
   "MULTIPLE_GATE_DECISIONS",               // src/core/journal-mutate.ts Pass 1.5 — batch carries ≥2 approved gate:decided entries (any gate_kind); protocol §10.8 requires one gate decision per atomic operation
   // ── Slice 1.B sub-cycle 4 — CLI gate decide MVP (codex r31 Option B) ──
-  "GATE_NOT_IMPLEMENTED",                  // src/cli.tsx `loaf gate decide <name>` — gate name (e.g. verify-accept) is documented in GateName enum but its CLI wire is deferred to a later slice; only spec-lock is wired in this release
+  "GATE_NOT_IMPLEMENTED",                  // src/cli.tsx `loaf gate decide <name>` — gate name not recognized (Slice 1.C wires spec-lock + verify-accept; protocol GateName enum is closed at these two for v0.1.0)
+  // ── Slice 1.C sub-cycle 3 — verify-accept-check (codex r33 + r38 + r40) ──
+  "VERIFY_LANE_NOT_PASSED",                // src/core/gates/verify-accept-check.ts check 1 — applicable lane (run/review/acceptance/visual) has no evidence with passing/approved/waived result
+  "OPEN_FINDINGS_PRESENT",                 // src/core/gates/verify-accept-check.ts check 2 — snapshot.findings still has status=open entries
+  "COVERAGE_NOT_SATISFIED",                // src/core/gates/verify-accept-check.ts check 3 — non-na REQ/SCEN/VIS has no evidence with covers+canSatisfy+passing result (protocol §1035 filter)
+  "TASK_DONE_NO_EVIDENCE",                 // src/core/gates/verify-accept-check.ts check 4 — task.status=done has no evidence (kind ∈ {task-summary, local-check, manual, waiver})
+  "SPEC_REVIEW_MISSING",                   // src/core/gates/verify-accept-check.ts check 5 — ceremony.strict_spec_review=true but no spec-review evidence with result ∈ {passed, approved}
+  "SPEC_REVIEW_IMPLEMENTER_CONFLICT",      // src/core/gates/verify-accept-check.ts check 5 — every passing spec-review actor is in implementer set; no independent reviewer signed off
+  "SPEC_REVIEW_IMPLEMENTER_UNKNOWN",       // src/core/gates/verify-accept-check.ts check 5 — implementer set empty (done-task evidence all from cli:* actors); fail-closed
 ]);
 export type DiagnosticCode = z.infer<typeof DiagnosticCode>;
 
@@ -4241,10 +4249,14 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
   },
   SPEC_FRONTMATTER_INVALID: {
     exit_code: 2,
+    // gate context lives on the parent GATE_PRECONDITION_VIOLATION envelope
+    // (detail.gate). FailedCheck.detail only carries {subcode, ...read.detail}
+    // — no gate or readable detail placeholder, so the template intentionally
+    // avoids those vars to stay correctly substituted.
     message_template:
-      "spec.md frontmatter is invalid for spec-lock check 1 (subcode={subcode}): {detail}",
+      "spec.md frontmatter failed gate check 1 (subcode={subcode})",
     fix_template:
-      "subcode=SPEC_NOT_FOUND: run `loaf spec init` then `loaf spec submit` to seed spec.md; subcode=SPEC_YAML_INVALID: check the `---`-fenced YAML block at the top of spec.md for syntax errors; subcode=SPEC_FRONTMATTER_INVALID: run `loaf spec submit --schema` to dump the SpecFrontmatter schema and fix the offending field",
+      "subcode=SPEC_NOT_FOUND: run `loaf spec init` then `loaf spec submit` to seed spec.md; subcode=SPEC_YAML_INVALID: check the `---`-fenced YAML block at the top of spec.md for syntax errors; subcode=SPEC_FRONTMATTER_INVALID: run `loaf spec submit --schema` to dump the SpecFrontmatter schema and fix the offending field. Both spec-lock and verify-accept require a valid spec.md at check 1.",
     doc_anchor: "protocol.md#§5.1",
   },
   SPEC_HAS_UNCLARIFIED: {
@@ -4281,18 +4293,22 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
   },
   TASKS_NOT_PLANNED: {
     exit_code: 2,
+    // FailedCheck.detail is empty for this code in both gate evaluators;
+    // gate context lives on parent GATE_PRECONDITION_VIOLATION envelope.
     message_template:
-      "spec-lock check 3: tasks have not been planned (snapshot.tasks_based_on is null)",
+      "gate task-graph check: tasks have not been planned (snapshot.tasks_based_on is null)",
     fix_template:
-      "run `loaf tasks submit <plan-file>` to emit event:tasks_planned and seed the task graph; spec-lock check 3 requires tasks_based_on.spec to match the current spec.spec_version",
+      "run `loaf tasks submit <plan-file>` to emit event:tasks_planned and seed the task graph; spec-lock check 3 and verify-accept check 4 both require tasks_based_on.spec to match the current spec.spec_version",
     doc_anchor: "protocol.md#§5.1",
   },
   TASKS_BASED_ON_STALE: {
     exit_code: 2,
+    // FailedCheck.detail has {tasks_based_on_spec, current_spec_version} —
+    // gate context lives on parent envelope, not this check detail.
     message_template:
-      "spec-lock check 3: tasks_based_on.spec={tasks_based_on_spec} but current spec.spec_version={current_spec_version} — the task graph was planned against an older spec",
+      "gate task-graph check: tasks_based_on.spec={tasks_based_on_spec} but current spec.spec_version={current_spec_version} — the task graph was planned against an older spec",
     fix_template:
-      "either re-plan tasks against the current spec via `loaf tasks submit` (whole-replacement), or amend individual tasks via `loaf tasks add/amend` + raise a `loaf finding raise --category spec-gap --action amend-spec` if a spec roll-back is needed",
+      "either re-plan tasks against the current spec via `loaf tasks submit` (whole-replacement), or amend individual tasks via `loaf tasks add/amend` + raise a `loaf finding raise --category spec-gap --action amend-spec` if a spec roll-back is needed. Surfaces for spec-lock (check 3) and verify-accept (check 4 precondition).",
     doc_anchor: "protocol.md#§5.1",
   },
   REQ_NOT_DRIVEN: {
@@ -4329,10 +4345,12 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
   },
   GATE_PRECONDITION_VIOLATION: {
     exit_code: 2,
+    // detail carries {gate, failure_count, checks} from Pass 1.5
+    // (src/core/journal-mutate.ts spec-lock + verify-accept branches).
     message_template:
-      "gate:decided approval rejected at the mutate layer: {failure_count} spec-lock check(s) failed",
+      "gate:decided {gate} approval rejected at the mutate layer: {failure_count} check(s) failed",
     fix_template:
-      "this is a mutate-layer envelope around the underlying spec-lock checks (see detail.checks for the list with codes like MISSING_VERIFIABILITY / REQ_NOT_DRIVEN / TASKS_BASED_ON_STALE / etc). Fix each listed check then retry the gate decision. Pass 1.5 runs after preflight + reducer dry-run + before sidecar promotion, so a rejected gate batch leaves no on-disk residue",
+      "this is a mutate-layer envelope around the underlying gate checks (see detail.checks for the list). spec-lock failure codes: MISSING_VERIFIABILITY / REQ_NOT_DRIVEN / E2E_SCENARIO_UNBOUND / VISUAL_CONTRACT_UNBOUND / TASKS_NOT_PLANNED / TASKS_BASED_ON_STALE / TASK_KIND_SCHEMA_VIOLATION / SPEC_HAS_UNCLARIFIED. verify-accept failure codes: VERIFY_LANE_NOT_PASSED / OPEN_FINDINGS_PRESENT / COVERAGE_NOT_SATISFIED / TASK_DONE_NO_EVIDENCE / SPEC_REVIEW_MISSING / SPEC_REVIEW_IMPLEMENTER_CONFLICT / SPEC_REVIEW_IMPLEMENTER_UNKNOWN / TASKS_NOT_PLANNED (precondition) / TASKS_BASED_ON_STALE (precondition). Fix each listed check then retry the gate decision. Pass 1.5 runs after preflight + reducer dry-run + before sidecar promotion, so a rejected gate batch leaves no on-disk residue.",
     doc_anchor: "protocol.md#§5.1",
   },
   MULTIPLE_GATE_DECISIONS: {
@@ -4345,11 +4363,73 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
   },
   GATE_NOT_IMPLEMENTED: {
     exit_code: 2,
+    // NOTE on placeholder syntax (codex r45 catch): {curly} is mustache-style
+    // placeholder syntax (docs/schemas.ts:2821-2822). Avoid literal curly
+    // braces in templates; use backticks for inline code instead.
     message_template:
-      "gate={gate} is recognized by the protocol but its CLI wire is deferred; only spec-lock is wired in this release",
+      "gate={gate} is not recognized; protocol GateName enum is closed at `spec-lock` or `verify-accept` for v0.1.0",
     fix_template:
-      "use `loaf gate decide spec-lock` until the verify-accept (and other future gates) wire lands in a later slice. The GateName enum lists the full set of recognized gates; CLI wiring catches up gate-by-gate",
+      "use `loaf gate decide spec-lock` or `loaf gate decide verify-accept`. Future gates beyond v0.1.0 would extend the GateName enum in journal-entry.ts + evidence-schema.ts (lockstep) and wire here.",
     doc_anchor: "protocol.md#§10.8",
+  },
+  VERIFY_LANE_NOT_PASSED: {
+    exit_code: 2,
+    message_template:
+      "verify-accept check 1: applicable VERIFY lane={lane} has no evidence with passing/approved/waived result",
+    fix_template:
+      "add an evidence:added entry with check={lane} (or a matching kind via the narrow fallback map: local-check/task-summary→run, verify-review/spec-review→review, acceptance→acceptance, visual-review→visual) and result one of `passed`, `approved`, or `waived`. Applicable lanes derive from spec: REQ ⇒ REVIEW, SCEN.tag=e2e ⇒ ACCEPTANCE, VIS ⇒ VISUAL, done task ⇒ RUN+REVIEW.",
+    doc_anchor: "protocol.md#§5.2",
+  },
+  OPEN_FINDINGS_PRESENT: {
+    exit_code: 2,
+    // FailedCheck.detail provides {count, open_ids} after the sub-cycle 6
+    // r45 fix in verify-accept-check.ts (count was previously only embedded
+    // in the human message string, not in structured detail).
+    message_template:
+      "verify-accept check 2: {count} finding(s) still open (ids={open_ids}); resolve or close before verify-accept",
+    fix_template:
+      "run `loaf finding close <FND-id> --resolution <text>` for each listed finding, OR add evidence + raise a follow-up finding if the gap is real. verify-accept check 2 requires snapshot.findings to have no entries with status=open.",
+    doc_anchor: "protocol.md#§5.2",
+  },
+  COVERAGE_NOT_SATISFIED: {
+    exit_code: 2,
+    message_template:
+      "verify-accept check 3: {covered_id} ({covered_kind}) has no evidence passing canSatisfy() with result `passed`, `approved`, or `waived`",
+    fix_template:
+      "add evidence:added covering {covered_id} per protocol §5.4: REQ allows task-summary/verify-review/spec-review/manual+reason/waiver+reason; SCEN.tag=e2e allows acceptance/manual+reason/waiver+reason; VIS allows visual-review+attachment/manual+reason/waiver+reason. Result must be passed/approved/waived per §1035.",
+    doc_anchor: "protocol.md#§5.2",
+  },
+  TASK_DONE_NO_EVIDENCE: {
+    exit_code: 2,
+    message_template:
+      "verify-accept check 4: task {task_id} is status=done but has no evidence covering it (kind one of `task-summary`, `local-check`, `manual`, or `waiver`)",
+    fix_template:
+      "add evidence:added with covers including {task_id} and kind in the T-allowed set. Most commonly: a task-summary written on closing the task; alternatively local-check (test/lint/typecheck run), manual (human attest), or waiver (human waiver with reason ≥10 chars).",
+    doc_anchor: "protocol.md#§5.2",
+  },
+  SPEC_REVIEW_MISSING: {
+    exit_code: 2,
+    message_template:
+      "verify-accept check 5: ceremony.strict_spec_review=true requires ≥1 evidence kind=spec-review with result `passed` or `approved` from an actor ≠ implementer; none found",
+    fix_template:
+      "have an independent reviewer (not the implementer of done tasks; not a cli:* automation actor) run a spec review and add an evidence:added with kind=spec-review and result `passed` or `approved`. Note: result=waived does NOT count for spec-review (kind=spec-review + result=waived bypasses the human+reason refine guarantee that kind=manual or kind=waiver provides).",
+    doc_anchor: "protocol.md#§5.2",
+  },
+  SPEC_REVIEW_IMPLEMENTER_CONFLICT: {
+    exit_code: 2,
+    message_template:
+      "verify-accept check 5: every passing spec-review actor is in the implementer set; no independent reviewer signed off (actors={spec_review_actors}, implementers={implementers})",
+    fix_template:
+      "have a non-implementer (someone other than the actors on done-task task-summary/local-check evidence) submit an additional evidence with kind=spec-review and result `passed` or `approved`. One independent reviewer is sufficient — implementer self-reviews can coexist.",
+    doc_anchor: "protocol.md#§5.2",
+  },
+  SPEC_REVIEW_IMPLEMENTER_UNKNOWN: {
+    exit_code: 2,
+    message_template:
+      "verify-accept check 5: cannot establish implementer set (all done-task evidence actors are cli:* automation); strict_spec_review fails closed",
+    fix_template:
+      "ensure at least one done-task evidence (task-summary or local-check) carries a non-cli:* actor (e.g. human:dev@example.com); the strict_spec_review comparison requires a real implementer identity to compare against. Without it, the gate cannot prove the spec reviewer is independent.",
+    doc_anchor: "protocol.md#§5.2",
   },
 } as const;
 

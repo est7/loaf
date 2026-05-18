@@ -212,7 +212,10 @@ export function verifyAcceptCheck(
       check: 2,
       code: "OPEN_FINDINGS_PRESENT",
       message: `${open.length} finding(s) still open; resolve or close before verify-accept`,
-      detail: { open_ids: open.map((f) => f.id) },
+      // codex r45 fix: count was previously only in the human message,
+      // not in structured detail. ERROR_CATALOG OPEN_FINDINGS_PRESENT
+      // template uses {count} placeholder, which now resolves correctly.
+      detail: { count: open.length, open_ids: open.map((f) => f.id) },
     });
   }
 

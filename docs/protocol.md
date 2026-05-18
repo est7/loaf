@@ -268,7 +268,7 @@ DONE                                                 terminal
 | `spec_phase` | bool | `false` | 跑 SPEC.* sub_states 吗?(false → TRIAGE.confirm 直接进 EXECUTE.plan)|
 | `verify_phase` | bool | `false` | 跑 VERIFY.* sub_states 吗?(false → EXECUTE.done 跳 VERIFY;verify-min 在 `loaf deliver` 入口跑)|
 | `settle_phase` | bool | `false` | 跑 SETTLE.* sub_states 吗?(false → 不产 reconcile.json)|
-| `strict_spec_review` | bool | `false` | spec-lock gate 额外校验 `kind=spec-review` evidence 且 `actor ≠ implementer`?|
+| `strict_spec_review` | bool | `false` | verify-accept gate **check 5** 额外校验 `kind=spec-review` evidence 且 `actor ≠ implementer`?(rev 5.1 修正:Slice 1.C sub-cycle 3 实现锁定。早期 docs 误描述为 spec-lock 范畴;runtime 在 `src/core/gates/verify-accept-check.ts` 里按 §5.2 第 5 条 + §1037 实现)|
 | `lessons_required` | enum | `"skip"` | SETTLE.lessons:`"must"` / `"may"` / `"skip"` |
 | `strict_drift_check` | bool | `false` | SETTLE.reconcile 严格 drift?(无 carried_forward)|
 
@@ -725,7 +725,7 @@ CLI 分配流程(每次 add-\* / batch invocation):
 - `manual` 和 `waiver` 是**两个独立 kind**:
   - `manual`:人工验证(`result` 通常是 `passed/failed`)
   - `waiver`:人工豁免(`result=waived`,`actor` 必须 `human:*`,`reason` 必填 ≥10 字符)
-- `*-review` kind 的 `actor` 必须 ≠ implementer(`ceremony.strict_spec_review=true` 时 gate-time enforce;rev 4.2)
+- `kind=spec-review` 的 `actor` 必须 ≠ implementer(`ceremony.strict_spec_review=true` 时 verify-accept gate check 5 enforce;rev 4.2;rev 5.1 修正:gate 主体是 verify-accept,不是 spec-lock。实现位置 `src/core/gates/verify-accept-check.ts` deriveImplementers helper:implementer = done-task task-summary/local-check evidence 的 actor 集合,排除 `cli:*` 前缀)
 - visual evidence 的 `attachments[]` 是对象数组,**强制 sha256 + mime**;rev 5.0 路径规范化到 `.loaf/<feature>/attachments/<entry_id>/<file>`(按发出该 evidence 的 journal entry_id JE-NNNNNN 分桶,**非** EV-id);`evidence_id` 仍保留在 payload 中作为 evidence projection 的稳定 ID
 - gate-decision 通过 `loaf gate decide` 写入,不直接编辑
 
@@ -1194,7 +1194,7 @@ loaf resume --fresh
 | Lane | 钩中项 |
 |---|---|
 | `VERIFY.run` | #1(只允许 `local-check` / `task-summary` evidence)+ #3(evidence kind 限定 test/lint/typecheck 类) |
-| `VERIFY.review` | #1(finding raise 主路径)+ #3(`verify-review`,`ceremony.strict_spec_review=true` 时强制 `actor ≠ implementer`)+ #5(action back-edge 集中在此 lane) |
+| `VERIFY.review` | #1(finding raise 主路径)+ #3(`verify-review` 是 VERIFY.review lane 的常规 evidence kind,无 actor 独立性约束)+ #5(action back-edge 集中在此 lane) — rev 5.1 修正:`ceremony.strict_spec_review=true` 的 `actor ≠ implementer` 约束是 verify-accept gate **check 5** 对 `kind=spec-review` evidence 的要求,不属于本 lane(早期 docs 混淆了 `verify-review` 与 `spec-review` 两种 kind,见 `src/core/gates/verify-accept-check.ts` Slice 1.C sub-cycle 3) |
 | `VERIFY.acceptance` | #3(`kind=acceptance`,覆盖 `SCEN-*` tag=e2e)+ #7(diagnostic class 与 `local-check` 不同) |
 | `VERIFY.visual` | #3(`visual-review` 必带 attachment sha256/mime)+ #4(human approval 常见) |
 

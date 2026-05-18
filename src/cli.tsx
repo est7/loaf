@@ -225,17 +225,26 @@ export async function main(argv: string[] = process.argv): Promise<number> {
     });
 
   // ── loaf gate decide <gate-name> ────────────────────────────────────
-  // Slice 1.B sub-cycle 4: spec-lock direct gate MVP. Emits
-  //   approve: [gate:decided, event:phase_advanced SPEC.design → EXECUTE.plan]
-  //   reject:  [gate:decided]
+  // Slice 1.B sub-cycle 4 (spec-lock) + Slice 1.C sub-cycle 6 (verify-accept).
+  // Approve emissions differ per gate:
+  //   spec-lock:     [gate:decided, event:phase_advanced SPEC.design → EXECUTE.plan]
+  //                  (dual-entry batch — gate decision + cursor advance)
+  //   verify-accept: [gate:decided]
+  //                  (single-entry — gate flips verify_accepted flag only;
+  //                   cursor stays at VERIFY.accept. `loaf deliver` /
+  //                   `loaf settle` later move the cursor per ceremony.settle_phase.)
+  //   reject:        [gate:decided] for both gates (no cursor side-effect)
+  //
   // Pending-head enforcement and `pending:resolved` co-emission are
   // intentionally deferred — full protocol §10.7/§10.8 lands with the
   // pending CLI surface in a later slice.
   program
     .command("gate")
-    .description("Gate decision commands (spec-lock; verify-accept is deferred)")
+    .description("Gate decision commands (spec-lock + verify-accept)")
     .command("decide <gate-name>")
-    .description("Decide a gate (emits gate:decided + event:phase_advanced on approve)")
+    .description(
+      "Decide a gate (emits gate:decided; spec-lock approve also advances cursor)",
+    )
     .option("--approve", "Approve the gate")
     .option("--reject", "Reject the gate")
     .requiredOption("--reason <text>", "Decision rationale (passed through to GateDecidedPayload)")
@@ -261,11 +270,11 @@ export async function main(argv: string[] = process.argv): Promise<number> {
         );
         return;
       }
-      // (2) unsupported gate names
-      if (gateName !== "spec-lock") {
+      // (2) gate name validation — must be in GateName enum
+      if (gateName !== "spec-lock" && gateName !== "verify-accept") {
         emitFailure(
           "GATE_NOT_IMPLEMENTED",
-          `gate=${gateName} is not yet wired in this release; only spec-lock is supported`,
+          `gate=${gateName} is not recognized; protocol GateName enum is closed at {spec-lock, verify-accept}`,
           { gate: gateName },
         );
         return;
@@ -289,7 +298,7 @@ export async function main(argv: string[] = process.argv): Promise<number> {
         emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
         return;
       }
-      // (5) build entries + execute
+      // (5) build entries + execute per-gate
       const ctx = {
         feature_dir: featureDir,
         snapshot: session.snapshot,
@@ -297,27 +306,65 @@ export async function main(argv: string[] = process.argv): Promise<number> {
       };
       const now = new Date().toISOString();
       if (approve) {
-        // dual-entry batch: human gate:decided + machine event:phase_advanced.
-        // mutateBatch Pass 1.5 evaluates spec-lock via evaluateSpecLock; any
-        // failure surfaces as GATE_PRECONDITION_VIOLATION with checks[] in
-        // detail. spec-lock specifically moves SPEC.design → EXECUTE.plan.
-        const result = await mutateBatch(
-          [
-            {
-              at: now,
-              actor: humanActor,
-              entry_schema_version: 1,
-              kind: "gate:decided",
-              payload: { gate_kind: "spec-lock", decision: "approved", reason: opts.reason },
-            },
-            {
-              at: now,
-              actor,
-              entry_schema_version: 1,
-              kind: "event:phase_advanced",
-              payload: { from, to: "EXECUTE.plan" },
-            },
-          ],
+        if (gateName === "spec-lock") {
+          // dual-entry batch: human gate:decided + machine event:phase_advanced.
+          // mutateBatch Pass 1.5 evaluates spec-lock via evaluateSpecLock; any
+          // failure surfaces as GATE_PRECONDITION_VIOLATION with checks[] in
+          // detail. spec-lock specifically moves SPEC.design → EXECUTE.plan.
+          const result = await mutateBatch(
+            [
+              {
+                at: now,
+                actor: humanActor,
+                entry_schema_version: 1,
+                kind: "gate:decided",
+                payload: { gate_kind: "spec-lock", decision: "approved", reason: opts.reason },
+              },
+              {
+                at: now,
+                actor,
+                entry_schema_version: 1,
+                kind: "event:phase_advanced",
+                payload: { from, to: "EXECUTE.plan" },
+              },
+            ],
+            ctx,
+          );
+          if (!result.ok) {
+            emitFailure(result.code, result.message, result.detail);
+            return;
+          }
+          const out = {
+            ok: true,
+            gate: "spec-lock",
+            decision: "approved" as const,
+            from,
+            to: "EXECUTE.plan",
+            actor: humanActor,
+            sub_state: result.snapshot.state?.sub_state,
+            spec_locked: result.snapshot.state?.spec_locked,
+          };
+          process.stdout.write(
+            useJson
+              ? JSON.stringify(out) + "\n"
+              : `gate spec-lock approved by ${humanActor} — ${from} → EXECUTE.plan\n`,
+          );
+          return;
+        }
+        // verify-accept approve: single-entry [gate:decided].
+        // mutateBatch Pass 1.5 evaluates verify-accept via evaluateVerifyAccept
+        // (5 checks: lane status / open findings / coverage / done-task evidence
+        // / deep spec-review). Gate does NOT move cursor — cursor stays at
+        // VERIFY.accept; `loaf deliver` / `loaf settle` advance cursor later
+        // per ceremony.settle_phase.
+        const result = await mutate(
+          {
+            at: now,
+            actor: humanActor,
+            entry_schema_version: 1,
+            kind: "gate:decided",
+            payload: { gate_kind: "verify-accept", decision: "approved", reason: opts.reason },
+          },
           ctx,
         );
         if (!result.ok) {
@@ -326,29 +373,29 @@ export async function main(argv: string[] = process.argv): Promise<number> {
         }
         const out = {
           ok: true,
-          gate: "spec-lock",
+          gate: "verify-accept",
           decision: "approved" as const,
           from,
-          to: "EXECUTE.plan",
           actor: humanActor,
           sub_state: result.snapshot.state?.sub_state,
-          spec_locked: result.snapshot.state?.spec_locked,
+          verify_accepted: result.snapshot.state?.verify_accepted,
         };
         process.stdout.write(
           useJson
             ? JSON.stringify(out) + "\n"
-            : `gate spec-lock approved by ${humanActor} — ${from} → EXECUTE.plan\n`,
+            : `gate verify-accept approved by ${humanActor} — verify_accepted=true, cursor stays at ${from} (advance via \`loaf deliver\` / \`loaf settle\`)\n`,
         );
         return;
       }
-      // reject: single entry, no phase advance
+      // reject: single entry, no cursor side-effect, no Pass 1.5 eval.
+      // Shared between spec-lock and verify-accept.
       const result = await mutate(
         {
           at: now,
           actor: humanActor,
           entry_schema_version: 1,
           kind: "gate:decided",
-          payload: { gate_kind: "spec-lock", decision: "rejected", reason: opts.reason },
+          payload: { gate_kind: gateName, decision: "rejected", reason: opts.reason },
         },
         ctx,
       );
@@ -358,17 +405,18 @@ export async function main(argv: string[] = process.argv): Promise<number> {
       }
       const out = {
         ok: true,
-        gate: "spec-lock",
+        gate: gateName,
         decision: "rejected" as const,
         from,
         actor: humanActor,
         sub_state: result.snapshot.state?.sub_state,
         spec_locked: result.snapshot.state?.spec_locked,
+        verify_accepted: result.snapshot.state?.verify_accepted,
       };
       process.stdout.write(
         useJson
           ? JSON.stringify(out) + "\n"
-          : `gate spec-lock rejected by ${humanActor} — cursor stays at ${from}\n`,
+          : `gate ${gateName} rejected by ${humanActor} — cursor stays at ${from}\n`,
       );
     });
 
