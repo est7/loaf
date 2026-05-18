@@ -15,6 +15,7 @@
 // follow-up work in a companion PR per the audit r1 punch list.
 
 import { Command, CommanderError } from "commander";
+import { promises as fsP, readFileSync } from "node:fs";
 import packageJson from "../package.json" with { type: "json" };
 
 import { resolveHumanActor } from "./core/actor-resolver.js";
@@ -508,6 +509,118 @@ export async function main(argv: string[] = process.argv): Promise<number> {
         process.stdout.write(
           `delivered ${opts.feature} (advisory only) — ${from} → DONE.delivered by ${humanActor}\n` +
           `next: ${advisory[0]}\n`,
+        );
+      }
+    });
+
+  // ── loaf tasks submit <file> ────────────────────────────────────────
+  // Slice 2 SC2. The first --file-based mutator: reads a JSON document
+  // describing the full task graph + spec version anchor, emits
+  // event:tasks_planned (whole-replacement at SPEC.design; per protocol
+  // §1810). PER_KIND_PAYLOAD strict-validates the payload during preflight
+  // — CLI passes the parsed JSON through directly without re-validating
+  // against TasksPlannedPayload (single-source via preflight).
+  //
+  // Input shape (codex r57 acceptance — no bare-array fallback):
+  //   {
+  //     "based_on": { "spec": 1 },
+  //     "tasks": [ <TaskFullPayload>, ... ]
+  //   }
+  //
+  // Actor: cli:loaf — submit is machine-driven (CLI just routes input to
+  // mutate; no human decision encoded in the entry).
+  //
+  // Failure paths:
+  //   - file missing            → INPUT_FILE_NOT_FOUND (CLI-side)
+  //   - JSON parse fail         → SCHEMA_VALIDATION_FAILED (CLI-side)
+  //   - payload schema violation → INVALID_PAYLOAD (preflight)
+  //   - wrong sub_state          → SUB_STATE_AUTHORITY_VIOLATION (preflight)
+  //   - no session               → NO_SESSION (CLI-side)
+  program
+    .command("tasks")
+    .description("Task lifecycle commands (Slice 2 MVP: submit)")
+    .command("submit <file>")
+    .description("Submit a complete task graph from JSON file (or '-' for stdin)")
+    .requiredOption("--feature <name>", "Feature whose task graph to submit")
+    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
+    .action(async (file: string, opts: { feature: string; featureDir?: string }) => {
+      // (1) Read content from file or stdin.
+      let content: string;
+      if (file === "-") {
+        // readFileSync(0) reads from stdin (fd 0). Cross-runtime (node + bun).
+        try {
+          content = readFileSync(0, "utf8");
+        } catch (err) {
+          emitFailure("MISSING_INPUT", `cannot read stdin: ${String(err)}`);
+          return;
+        }
+      } else {
+        try {
+          content = await fsP.readFile(file, "utf8");
+        } catch (err) {
+          if ((err as { code?: string }).code === "ENOENT") {
+            emitFailure("INPUT_FILE_NOT_FOUND", `input file does not exist: ${file}`, { path: file });
+          } else {
+            emitFailure("INPUT_FILE_NOT_FOUND", `cannot read input file ${file}: ${String(err)}`, { path: file });
+          }
+          return;
+        }
+      }
+
+      // (2) Parse JSON.
+      let payload: unknown;
+      try {
+        payload = JSON.parse(content);
+      } catch (err) {
+        emitFailure(
+          "SCHEMA_VALIDATION_FAILED",
+          `input is not valid JSON: ${(err as Error).message}`,
+        );
+        return;
+      }
+
+      // (3) Load session.
+      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      const session = await loadSession(featureDir);
+      if (!session.snapshot.state) {
+        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        return;
+      }
+
+      // (4) Mutate. Preflight validates TasksPlannedPayload + sub_state +
+      // duplicate task ids + reducer dry-run + final-validate. CLI does
+      // not duplicate any of that.
+      const result = await mutate(
+        {
+          at: new Date().toISOString(),
+          actor,
+          entry_schema_version: 1,
+          kind: "event:tasks_planned",
+          payload: payload as Record<string, unknown>,
+        },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq },
+      );
+      if (!result.ok) {
+        emitFailure(result.code, result.message, result.detail);
+        return;
+      }
+
+      // (5) Success output. Echo task ids for the planner / shell scripts.
+      const tasks = result.snapshot.tasks;
+      const taskIds = tasks.map((t) => t.id);
+      const out = {
+        ok: true,
+        feature: opts.feature,
+        sub_state: result.snapshot.state?.sub_state,
+        tasks_count: tasks.length,
+        task_ids: taskIds,
+        tasks_based_on: result.snapshot.tasks_based_on,
+      };
+      if (useJson) {
+        process.stdout.write(JSON.stringify(out) + "\n");
+      } else {
+        process.stdout.write(
+          `submitted ${tasks.length} task${tasks.length === 1 ? "" : "s"}: ${taskIds.join(", ")}\n`,
         );
       }
     });

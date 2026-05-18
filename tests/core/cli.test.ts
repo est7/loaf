@@ -319,36 +319,44 @@ prose body here
     tailSeq++;
   }
 
-  // Plan tasks at SPEC.design (sub-cycle 3c per-kind expansion).
-  const planResult = await mutateRaw(
-    {
-      at: new Date(2026, 4, 15, 10, 0, tailSeq + 1).toISOString(),
-      actor: "human:seed@test.invalid",
-      entry_schema_version: 1,
-      kind: "event:tasks_planned",
-      payload: {
-        based_on: { spec: 1 },
-        tasks: [
-          {
-            id: "T-001",
-            kind: "behavioral",
-            drives: ["REQ-AUTH-001"],
-            tests: ["TokenCoord.refreshOnce"],
-            status: "pending",
-            depends_on: [],
-            labels: [],
-            execution: {
-              red: { applicability: "must", status: "pending", evidence_refs: [] },
-              implement: { applicability: "must", status: "pending", evidence_refs: [] },
-              refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
-            },
+  // Plan tasks at SPEC.design via `loaf tasks submit` CLI (Slice 2 SC2 —
+  // closes raw-mutate gap for the initial task graph; codex r57 NB1
+  // continuation of "stop coupling to internal mutate walks").
+  const tasksFile = path.join(dir, ".tasks-seed.json");
+  await fsP.writeFile(
+    tasksFile,
+    JSON.stringify({
+      based_on: { spec: 1 },
+      tasks: [
+        {
+          id: "T-001",
+          kind: "behavioral",
+          drives: ["REQ-AUTH-001"],
+          tests: ["TokenCoord.refreshOnce"],
+          status: "pending",
+          depends_on: [],
+          labels: [],
+          execution: {
+            red: { applicability: "must", status: "pending", evidence_refs: [] },
+            implement: { applicability: "must", status: "pending", evidence_refs: [] },
+            refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
           },
-        ],
-      },
-    },
-    { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+        },
+      ],
+    }),
   );
-  if (!planResult.ok) throw new Error(`seed plan failed: ${planResult.message}`);
+  const submitResult = await runCli(
+    [
+      "tasks", "submit", tasksFile,
+      "--feature", "auth-refresh",
+      "--feature-dir", dir,
+      "--json",
+    ],
+  );
+  if (submitResult.exit !== 0) {
+    throw new Error(`seed loaf tasks submit failed: ${submitResult.stderr || submitResult.stdout}`);
+  }
+  await fsP.unlink(tasksFile).catch(() => {}); // ignore cleanup errors
 }
 
 describe("loaf gate decide spec-lock — Slice 1.B sub-cycle 4 (MVP)", () => {
@@ -1055,38 +1063,44 @@ prose body here
     tailSeq++;
   }
 
-  // Step 6: plan tasks (single behavioral; no spike).
-  const planResult = await mutateRaw(
-    {
-      at: new Date(2026, 4, 15, 10, 0, tailSeq + 1).toISOString(),
-      actor: "human:seed@test.invalid",
-      entry_schema_version: 1,
-      kind: "event:tasks_planned",
-      payload: {
-        based_on: { spec: 1 },
-        tasks: [
-          {
-            id: "T-001",
-            kind: "behavioral",
-            drives: ["REQ-AUTH-001"],
-            tests: ["TokenCoord.refreshOnce"],
-            status: "pending",
-            depends_on: [],
-            labels: [],
-            execution: {
-              red: { applicability: "must", status: "pending", evidence_refs: [] },
-              implement: { applicability: "must", status: "pending", evidence_refs: [] },
-              refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
-            },
+  // Step 6: plan tasks via `loaf tasks submit` CLI (Slice 2 SC2).
+  const settleTasksFile = path.join(dir, ".tasks-settle-seed.json");
+  await fsP.writeFile(
+    settleTasksFile,
+    JSON.stringify({
+      based_on: { spec: 1 },
+      tasks: [
+        {
+          id: "T-001",
+          kind: "behavioral",
+          drives: ["REQ-AUTH-001"],
+          tests: ["TokenCoord.refreshOnce"],
+          status: "pending",
+          depends_on: [],
+          labels: [],
+          execution: {
+            red: { applicability: "must", status: "pending", evidence_refs: [] },
+            implement: { applicability: "must", status: "pending", evidence_refs: [] },
+            refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
           },
-        ],
-      },
-    },
-    { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+        },
+      ],
+    }),
   );
-  if (!planResult.ok) throw new Error(`settle-seed plan failed: ${planResult.message}`);
-  snapshot = planResult.snapshot;
-  tailSeq++;
+  const planSubmit = await runCli(
+    [
+      "tasks", "submit", settleTasksFile,
+      "--feature", "auth-refresh",
+      "--feature-dir", dir,
+      "--json",
+    ],
+  );
+  if (planSubmit.exit !== 0) {
+    throw new Error(`settle-seed loaf tasks submit failed: ${planSubmit.stderr || planSubmit.stdout}`);
+  }
+  await fsP.unlink(settleTasksFile).catch(() => {});
+  // Reload session state after CLI mutate.
+  ({ snapshot, tail_seq: tailSeq } = await (await import("../../src/core/cli-runtime.js")).loadSession(dir));
 
   // Step 7: spec-lock approve (dual-entry batch with phase_advanced).
   const specLockBatch = await mutateBatchRaw(
@@ -1371,56 +1385,60 @@ describe("loaf deliver — Slice 1.D sub-cycle 2 (MVP)", () => {
     const dir = await tmpFeatureDir();
     await seedFeatureAtSpecDesign(dir); // sets cursor at SPEC.design with T-001 planned + tasks_based_on=1
 
-    // Inject a spike task via a fresh tasks_planned at SPEC.design that
-    // supersedes the prior one (reducer reseeds projection on each
-    // tasks_planned). based_on.spec must match current spec_version=1.
+    // Re-submit with spike task injected via `loaf tasks submit` CLI (Slice 2 SC2).
+    // tasks_planned is whole-replacement at SPEC.design; the new submit
+    // supersedes the prior seed's T-001-only plan with T-001 + T-002 (spike).
+    const replanFile = path.join(dir, ".tasks-spike-replan.json");
+    await fsP.writeFile(
+      replanFile,
+      JSON.stringify({
+        based_on: { spec: 1 },
+        tasks: [
+          {
+            id: "T-001",
+            kind: "behavioral",
+            drives: ["REQ-AUTH-001"],
+            tests: ["TokenCoord.refreshOnce"],
+            status: "pending",
+            depends_on: [],
+            labels: [],
+            execution: {
+              red: { applicability: "must", status: "pending", evidence_refs: [] },
+              implement: { applicability: "must", status: "pending", evidence_refs: [] },
+              refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+            },
+          },
+          {
+            id: "T-002",
+            kind: "spike",
+            no_test_rationale: "exploratory spike task: no behavioral assertions required",
+            status: "in_progress",
+            depends_on: [],
+            labels: [],
+            execution: {
+              explore: { applicability: "must", status: "running", evidence_refs: [] },
+              prototype: { applicability: "must", status: "pending", evidence_refs: [] },
+              record: { applicability: "must", status: "pending", evidence_refs: [] },
+            },
+          },
+        ],
+      }),
+    );
+    const replanSubmit = await runCli(
+      [
+        "tasks", "submit", replanFile,
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--json",
+      ],
+    );
+    if (replanSubmit.exit !== 0) {
+      throw new Error(`spike replan submit failed: ${replanSubmit.stderr || replanSubmit.stdout}`);
+    }
+    await fsP.unlink(replanFile).catch(() => {});
     const { loadSession } = await import("../../src/core/cli-runtime.js");
     let { snapshot, tail_seq } = await loadSession(dir);
     let tailSeq = tail_seq;
-    const replan = await mutateRaw(
-      {
-        at: new Date(2026, 4, 15, 10, 30, 0).toISOString(),
-        actor: "human:seed@test.invalid",
-        entry_schema_version: 1,
-        kind: "event:tasks_planned",
-        payload: {
-          based_on: { spec: 1 },
-          tasks: [
-            {
-              id: "T-001",
-              kind: "behavioral",
-              drives: ["REQ-AUTH-001"],
-              tests: ["TokenCoord.refreshOnce"],
-              status: "pending",
-              depends_on: [],
-              labels: [],
-              execution: {
-                red: { applicability: "must", status: "pending", evidence_refs: [] },
-                implement: { applicability: "must", status: "pending", evidence_refs: [] },
-                refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
-              },
-            },
-            {
-              id: "T-002",
-              kind: "spike",
-              no_test_rationale: "exploratory spike task: no behavioral assertions required",
-              status: "in_progress",
-              depends_on: [],
-              labels: [],
-              execution: {
-                explore: { applicability: "must", status: "running", evidence_refs: [] },
-                prototype: { applicability: "must", status: "pending", evidence_refs: [] },
-                record: { applicability: "must", status: "pending", evidence_refs: [] },
-              },
-            },
-          ],
-        },
-      },
-      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
-    );
-    if (!replan.ok) throw new Error(`spike replan seed failed: ${replan.message}`);
-    snapshot = replan.snapshot;
-    tailSeq++;
 
     // Now spec-lock approve + walk to VERIFY.accept + verify-accept approve.
     const lockBatch = await mutateBatchRaw(
@@ -1729,37 +1747,44 @@ needs_clarification: []
       snapshot = r.snapshot;
       tailSeq++;
     }
-    const planResult = await mutateRaw(
-      {
-        at: new Date(2026, 4, 15, 10, 0, tailSeq + 1).toISOString(),
-        actor: "human:seed@test.invalid",
-        entry_schema_version: 1,
-        kind: "event:tasks_planned",
-        payload: {
-          based_on: { spec: 1 },
-          tasks: [
-            {
-              id: "T-001",
-              kind: "behavioral",
-              drives: ["REQ-AUTH-001"],
-              tests: ["TokenCoord.refreshOnce"],
-              status: "pending",
-              depends_on: [],
-              labels: [],
-              execution: {
-                red: { applicability: "must", status: "pending", evidence_refs: [] },
-                implement: { applicability: "must", status: "pending", evidence_refs: [] },
-                refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
-              },
+    // Plan tasks via `loaf tasks submit` CLI (Slice 2 SC2 sweep).
+    const noApproveTasksFile = path.join(dir, ".tasks-no-approve.json");
+    await fsP.writeFile(
+      noApproveTasksFile,
+      JSON.stringify({
+        based_on: { spec: 1 },
+        tasks: [
+          {
+            id: "T-001",
+            kind: "behavioral",
+            drives: ["REQ-AUTH-001"],
+            tests: ["TokenCoord.refreshOnce"],
+            status: "pending",
+            depends_on: [],
+            labels: [],
+            execution: {
+              red: { applicability: "must", status: "pending", evidence_refs: [] },
+              implement: { applicability: "must", status: "pending", evidence_refs: [] },
+              refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
             },
-          ],
-        },
-      },
-      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+          },
+        ],
+      }),
     );
-    if (!planResult.ok) throw new Error(`plan failed: ${planResult.message}`);
-    snapshot = planResult.snapshot;
-    tailSeq++;
+    const planSubmit = await runCli(
+      [
+        "tasks", "submit", noApproveTasksFile,
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--json",
+      ],
+    );
+    if (planSubmit.exit !== 0) {
+      throw new Error(`no-approve plan submit failed: ${planSubmit.stderr || planSubmit.stdout}`);
+    }
+    await fsP.unlink(noApproveTasksFile).catch(() => {});
+    // Reload snapshot/tail after CLI mutate.
+    ({ snapshot, tail_seq: tailSeq } = await (await import("../../src/core/cli-runtime.js")).loadSession(dir));
     const lockBatch = await mutateBatchRaw(
       [
         {
@@ -1887,6 +1912,370 @@ describe("loaf advance DONE.delivered — Slice 1.D edge removal", () => {
     const lines = journal.trim().split("\n").map((l) => JSON.parse(l));
     // No new event:phase_advanced past VERIFY.accept arrival.
     expect(lines[lines.length - 1].payload.to).toBe("VERIFY.accept");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Slice 2 SC2 — loaf tasks submit CLI (MVP)
+//
+// Reads JSON { based_on: { spec }, tasks: [...] } from file (or `-` for
+// stdin) → emits event:tasks_planned at SPEC.design. Preflight validates
+// TasksPlannedPayload + sub_state + duplicate task ids. CLI surfaces:
+//   - INPUT_FILE_NOT_FOUND (file missing)
+//   - SCHEMA_VALIDATION_FAILED (JSON parse fail)
+//   - INVALID_PAYLOAD (TasksPlannedPayload mismatch; preflight)
+//   - SUB_STATE_AUTHORITY_VIOLATION (wrong cursor; preflight)
+//   - DUPLICATE_TASK_ID (duplicate ids in tasks[]; reducer)
+//   - NO_SESSION (no session started)
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("loaf tasks submit — Slice 2 SC2 (MVP)", () => {
+  // Seed helper that walks to SPEC.design via raw mutate WITHOUT planning tasks
+  // (so tests can drive the submit CLI). Mirrors seedFeatureAtSpecDesign minus
+  // the final tasks_planned step.
+  async function seedAtSpecDesignNoTasks(dir: string): Promise<void> {
+    await fsP.writeFile(
+      path.join(dir, "spec.md"),
+      `---
+schema_version: 2
+spec_version: 1
+feature:
+  id: F-001
+  name: OAuth token refresh
+intent: users should not perceive auth recovery flows in flight
+adr_refs: []
+requirements:
+  - id: REQ-AUTH-001
+    type: ubiquitous
+    response: the system shall do something measurable here
+    acceptance_na: true
+    acceptance_na_reason: subjective UX validated via manual testing scope
+scenarios: []
+needs_clarification: []
+---
+`,
+    );
+    let snapshot = (await import("../../src/core/reducer.js")).initialSnapshot();
+    let tailSeq = -1;
+    const boot = await mutateRaw(
+      {
+        at: "2026-05-15T10:00:00.000Z",
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "session:started",
+        payload: {
+          session_id: "550e8400-e29b-41d4-a716-446655440000",
+          feature: "auth-refresh",
+          ceremony: STANDARD_CEREMONY,
+        },
+      },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    );
+    if (!boot.ok) throw new Error(`no-tasks seed boot failed: ${boot.message}`);
+    snapshot = boot.snapshot;
+    tailSeq++;
+    for (const [from, to] of [
+      ["TRIAGE.score", "TRIAGE.confirm"],
+      ["TRIAGE.confirm", "SPEC.proposal"],
+    ] as Array<[string, string]>) {
+      const r = await mutateRaw(
+        {
+          at: new Date(2026, 4, 15, 10, 0, tailSeq + 1).toISOString(),
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "event:phase_advanced",
+          payload: { from: from as any, to: to as any },
+        },
+        { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+      );
+      if (!r.ok) throw new Error(`walk failed: ${r.message}`);
+      snapshot = r.snapshot;
+      tailSeq++;
+    }
+    const submitBatch = await mutateBatchRaw(
+      [
+        {
+          at: new Date(2026, 4, 15, 10, 0, tailSeq + 1).toISOString(),
+          actor: "human:seed@test.invalid",
+          entry_schema_version: 1,
+          kind: "event:spec_submitted",
+          payload: {
+            spec_version: 1,
+            feature: { id: "F-001", name: "OAuth token refresh" },
+            intent: "users should not perceive auth recovery flows in flight",
+            adr_refs: [],
+            needs_clarification: [],
+          },
+        },
+        {
+          at: new Date(2026, 4, 15, 10, 0, tailSeq + 2).toISOString(),
+          actor: "human:seed@test.invalid",
+          entry_schema_version: 1,
+          kind: "event:spec_req_added",
+          payload: {
+            spec_version: 1,
+            req: {
+              id: "REQ-AUTH-001",
+              type: "ubiquitous",
+              response: "the system shall do something measurable here",
+              acceptance_na: true,
+              acceptance_na_reason: "subjective UX validated via manual testing scope",
+            },
+          },
+        },
+      ],
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    );
+    if (!submitBatch.ok) throw new Error(`submit failed: ${submitBatch.message}`);
+    snapshot = submitBatch.snapshot;
+    tailSeq += 2;
+    for (const [from, to] of [
+      ["SPEC.proposal", "SPEC.spec"],
+      ["SPEC.spec", "SPEC.plan"],
+      ["SPEC.plan", "SPEC.design"],
+    ] as Array<[string, string]>) {
+      const r = await mutateRaw(
+        {
+          at: new Date(2026, 4, 15, 10, 0, tailSeq + 1).toISOString(),
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "event:phase_advanced",
+          payload: { from: from as any, to: to as any },
+        },
+        { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+      );
+      if (!r.ok) throw new Error(`walk2 failed: ${r.message}`);
+      snapshot = r.snapshot;
+      tailSeq++;
+    }
+  }
+
+  const validTasksPayload = {
+    based_on: { spec: 1 },
+    tasks: [
+      {
+        id: "T-001",
+        kind: "behavioral",
+        drives: ["REQ-AUTH-001"],
+        tests: ["TokenCoord.refreshOnce"],
+        status: "pending",
+        depends_on: [],
+        labels: [],
+        execution: {
+          red: { applicability: "must", status: "pending", evidence_refs: [] },
+          implement: { applicability: "must", status: "pending", evidence_refs: [] },
+          refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+        },
+      },
+    ],
+  };
+
+  test("happy path: valid JSON file → event:tasks_planned + tasks_count + task_ids", async () => {
+    const dir = await tmpFeatureDir();
+    await seedAtSpecDesignNoTasks(dir);
+    const tasksFile = path.join(dir, ".tasks-test.json");
+    await fsP.writeFile(tasksFile, JSON.stringify(validTasksPayload));
+
+    const result = await runCli(
+      [
+        "tasks", "submit", tasksFile,
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--json",
+      ],
+    );
+
+    expect(result.exit).toBe(0);
+    expect(result.stderr).toBe("");
+    const out = JSON.parse(result.stdout);
+    expect(out.ok).toBe(true);
+    expect(out.feature).toBe("auth-refresh");
+    expect(out.sub_state).toBe("SPEC.design"); // tasks_planned does not move cursor
+    expect(out.tasks_count).toBe(1);
+    expect(out.task_ids).toEqual(["T-001"]);
+    expect(out.tasks_based_on).toEqual({ spec: 1 });
+
+    // Journal: last entry is event:tasks_planned with full payload.
+    const journal = await fsP.readFile(path.join(dir, "journal.jsonl"), "utf8");
+    const lines = journal.trim().split("\n").map((l) => JSON.parse(l));
+    const last = lines[lines.length - 1];
+    expect(last.kind).toBe("event:tasks_planned");
+    expect(last.payload.tasks[0].id).toBe("T-001");
+  });
+
+  test("text-mode output renders task ids", async () => {
+    const dir = await tmpFeatureDir();
+    await seedAtSpecDesignNoTasks(dir);
+    const tasksFile = path.join(dir, ".tasks-text.json");
+    await fsP.writeFile(tasksFile, JSON.stringify(validTasksPayload));
+
+    const result = await runCli(
+      [
+        "tasks", "submit", tasksFile,
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+      ],
+    );
+
+    expect(result.exit).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toMatch(/submitted 1 task: T-001/);
+  });
+
+  test("fail: file does not exist → INPUT_FILE_NOT_FOUND", async () => {
+    const dir = await tmpFeatureDir();
+    await seedAtSpecDesignNoTasks(dir);
+
+    const result = await runCli(
+      [
+        "tasks", "submit", path.join(dir, "nonexistent.json"),
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--json",
+      ],
+    );
+
+    expect(result.exit).toBe(2);
+    expect(result.stdout).toBe("");
+    const errJson = JSON.parse(result.stderr.trim());
+    expect(errJson.code).toBe("INPUT_FILE_NOT_FOUND");
+    expect(errJson.detail).toMatchObject({ path: expect.stringContaining("nonexistent.json") });
+  });
+
+  test("fail: malformed JSON → SCHEMA_VALIDATION_FAILED", async () => {
+    const dir = await tmpFeatureDir();
+    await seedAtSpecDesignNoTasks(dir);
+    const tasksFile = path.join(dir, ".tasks-bad-json.json");
+    await fsP.writeFile(tasksFile, "{ not valid json");
+
+    const result = await runCli(
+      [
+        "tasks", "submit", tasksFile,
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--json",
+      ],
+    );
+
+    expect(result.exit).toBe(2);
+    expect(result.stdout).toBe("");
+    const errJson = JSON.parse(result.stderr.trim());
+    expect(errJson.code).toBe("SCHEMA_VALIDATION_FAILED");
+    expect(errJson.message).toMatch(/JSON/i);
+  });
+
+  test("fail: missing based_on → INVALID_PAYLOAD (preflight)", async () => {
+    const dir = await tmpFeatureDir();
+    await seedAtSpecDesignNoTasks(dir);
+    const tasksFile = path.join(dir, ".tasks-no-based-on.json");
+    await fsP.writeFile(
+      tasksFile,
+      JSON.stringify({ tasks: validTasksPayload.tasks }), // missing based_on
+    );
+
+    const result = await runCli(
+      [
+        "tasks", "submit", tasksFile,
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--json",
+      ],
+    );
+
+    expect(result.exit).toBe(2);
+    expect(result.stdout).toBe("");
+    const errJson = JSON.parse(result.stderr.trim());
+    expect(errJson.code).toBe("INVALID_PAYLOAD");
+  });
+
+  test("fail: wrong sub_state (TRIAGE.score) → SUB_STATE_AUTHORITY_VIOLATION", async () => {
+    const dir = await tmpFeatureDir();
+    // Seed with only session:started (cursor at TRIAGE.score).
+    const snapshot0 = (await import("../../src/core/reducer.js")).initialSnapshot();
+    const boot = await mutateRaw(
+      {
+        at: "2026-05-15T10:00:00.000Z",
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "session:started",
+        payload: {
+          session_id: "550e8400-e29b-41d4-a716-446655440000",
+          feature: "auth-refresh",
+          ceremony: STANDARD_CEREMONY,
+        },
+      },
+      { feature_dir: dir, snapshot: snapshot0, tail_seq: -1, fsync: false },
+    );
+    if (!boot.ok) throw new Error(`boot failed: ${boot.message}`);
+    const tasksFile = path.join(dir, ".tasks-triage.json");
+    await fsP.writeFile(tasksFile, JSON.stringify(validTasksPayload));
+
+    const result = await runCli(
+      [
+        "tasks", "submit", tasksFile,
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--json",
+      ],
+    );
+
+    expect(result.exit).toBe(2);
+    expect(result.stdout).toBe("");
+    const errJson = JSON.parse(result.stderr.trim());
+    expect(errJson.code).toBe("SUB_STATE_AUTHORITY_VIOLATION");
+  });
+
+  test("fail: duplicate task ids in tasks[] → REDUCER_ERROR (wraps DUPLICATE_TASK_ID; SC4 to surface top-level per codex r59 P2)", async () => {
+    const dir = await tmpFeatureDir();
+    await seedAtSpecDesignNoTasks(dir);
+    const tasksFile = path.join(dir, ".tasks-dup.json");
+    await fsP.writeFile(
+      tasksFile,
+      JSON.stringify({
+        based_on: { spec: 1 },
+        tasks: [validTasksPayload.tasks[0], validTasksPayload.tasks[0]], // same id twice
+      }),
+    );
+
+    const result = await runCli(
+      [
+        "tasks", "submit", tasksFile,
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--json",
+      ],
+    );
+
+    expect(result.exit).toBe(2);
+    expect(result.stdout).toBe("");
+    const errJson = JSON.parse(result.stderr.trim());
+    // Pass 1 reducer dry-run flags this as REDUCER_ERROR with the underlying
+    // DUPLICATE_TASK_ID surfacing in the message text (reducer wraps
+    // invalidPayload→INVALID_PAYLOAD into REDUCER_ERROR at the mutate layer
+    // since the failure is caught during dry-run apply, not preflight).
+    expect(errJson.code).toBe("REDUCER_ERROR");
+    expect(errJson.message).toMatch(/DUPLICATE_TASK_ID/);
+  });
+
+  test("fail: no session → NO_SESSION", async () => {
+    const dir = await tmpFeatureDir();
+    // No seed — empty feature dir.
+    const tasksFile = path.join(dir, ".tasks-empty.json");
+    await fsP.writeFile(tasksFile, JSON.stringify(validTasksPayload));
+
+    const result = await runCli(
+      [
+        "tasks", "submit", tasksFile,
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--json",
+      ],
+    );
+
+    expect(result.exit).toBe(2);
+    expect(result.stdout).toBe("");
+    const errJson = JSON.parse(result.stderr.trim());
+    expect(errJson.code).toBe("NO_SESSION");
   });
 });
 
