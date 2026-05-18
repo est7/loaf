@@ -2555,11 +2555,24 @@ export const SUB_STATE_CONTRACTS: Array<z.infer<typeof SubStateContract>> = [
     // transitions directly to DONE.delivered. verify_phase=true (standard
     // / deep) still advances to VERIFY.plan as before.
     //
+    // Slice 1.D (sub-cycle 1): the `event:phase_advanced` edge from
+    // EXECUTE.done to DONE.delivered has been removed from LEGAL_TRANSITIONS
+    // (transition.ts:31). DONE.delivered is reached only via
+    // `session:delivered`, owned by `loaf deliver`. Until verify-min check
+    // infrastructure lands (protocol §3 / §3.2), the EXECUTE.done deliver
+    // path is fail-closed by preflight step 5c with
+    // DELIVER_VERIFY_MIN_UNAVAILABLE. `next` below still lists
+    // DONE.delivered because this table documents prompt / hook flow
+    // (the user-action chain skills should suggest), NOT
+    // `event:phase_advanced` edge legality (that lives in
+    // transition.ts:LEGAL_TRANSITIONS).
+    //
     // Spike: regardless of profile, `loaf deliver` is hard-blocked
-    // (§10.8). The user must invoke one of the §8.3 outcomes
-    // (`loaf archive` / `loaf spike convert` / `loaf abandon`); these
-    // are session-terminal commands callable from any sub-state, not
-    // state-machine forward edges, so they are NOT in `next` here.
+    // (§10.8 + Slice 1.D DELIVER_SPIKE_TASKS at preflight step 5c).
+    // The user must invoke one of the §8.3 outcomes (`loaf archive` /
+    // `loaf spike convert` / `loaf abandon`); these are session-terminal
+    // commands callable from any sub-state, not state-machine forward
+    // edges, so they are NOT in `next` here.
     next: ["VERIFY.plan", "DONE.delivered"],
     prompt_inject:
       "All tasks complete. verify_phase=true → advance to VERIFY.plan." +
@@ -2624,13 +2637,22 @@ export const SUB_STATE_CONTRACTS: Array<z.infer<typeof SubStateContract>> = [
     entry: "all applicable checks passed/waived + no open findings",
     exit:
       "verify-accept gate approved." +
-      " settle_phase=true (deep) → SETTLE.reconcile;" +
+      " settle_phase=true (deep) → SETTLE.reconcile via `loaf settle`;" +
       " settle_phase=false (standard) → DONE.delivered via `loaf deliver`",
     write_paths: [".loaf/<feature>/evidence.jsonl"],
+    // Slice 1.D (sub-cycle 1): event:phase_advanced VERIFY.accept→DONE.delivered
+    // edge was removed from LEGAL_TRANSITIONS. The only event:phase_advanced
+    // edge from VERIFY.accept is now SETTLE.reconcile (gated by
+    // ceremony.settle_phase=true + verify_accepted=true; codes
+    // SETTLE_PHASE_DISABLED / SETTLE_NOT_ACCEPTED). DONE.delivered is
+    // reached by `loaf deliver` (session:delivered direct cursor flip).
+    // `next` keeps both entries because this is the prompt / hook flow
+    // suggestion list, not the event:phase_advanced edge table.
     next: ["SETTLE.reconcile", "DONE.delivered"],
     prompt_inject:
       "Verify-accept gate. Review check status + open findings. Approve or reject." +
-      " On approve: settle_phase=true → SETTLE.reconcile; settle_phase=false → run `loaf deliver` to enter DONE.delivered.",
+      " On approve: settle_phase=true → `loaf settle` enters SETTLE.reconcile;" +
+      " settle_phase=false → `loaf deliver` enters DONE.delivered.",
   },
 
   // ─── SETTLE ───
@@ -2655,6 +2677,11 @@ export const SUB_STATE_CONTRACTS: Array<z.infer<typeof SubStateContract>> = [
     entry: "reconcile valid (deep only after rev 5.x; quick/light/standard skip SETTLE)",
     exit: "lessons.md appended (deep: lessons_required=must)",
     write_paths: [".loaf/<feature>/lessons.md"],
+    // Slice 1.D (sub-cycle 1): event:phase_advanced SETTLE.lessons→DONE.delivered
+    // edge was removed. DONE.delivered is reached via `loaf deliver` only.
+    // DONE.archived / DONE.abandoned remain as user-eject edges via
+    // `loaf archive` / `loaf abandon` (always-legal targets in
+    // transition.ts ALWAYS_LEGAL_TARGETS).
     next: ["DONE.delivered", "DONE.archived", "DONE.abandoned"],
     prompt_inject:
       "Append lessons (deep: MUST). User then runs `loaf deliver` / `loaf archive` / `loaf abandon`.",

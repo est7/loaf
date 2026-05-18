@@ -1038,11 +1038,16 @@ async function updateRegistry(sessionId: string, snapshot: RegistryFile) {
 
 **Human**:`loaf gate decide verify-accept --approve --reason "..."`。
 
-**Transition target**(rev 5.x,跟 ceremony.settle_phase 分支):
-- `settle_phase=true`(deep)→ `SETTLE.reconcile`(走 reconcile + lessons MUST)
-- `settle_phase=false`(standard)→ `DONE.delivered` 经 `loaf deliver`(无 verify-min 二次跑,VERIFY 已覆盖)
+**Transition target**(rev 5.x + Slice 1.D,跟 ceremony.settle_phase 分支):
+- `settle_phase=true`(deep)→ `SETTLE.reconcile` 经 `loaf settle`(event:phase_advanced;走 reconcile + lessons MUST)
+- `settle_phase=false`(standard)→ `DONE.delivered` 经 `loaf deliver`(session:delivered 直接 cursor flip;无 verify-min 二次跑,VERIFY 已覆盖)
 
-详 `schemas.ts` `SUB_STATE_CONTRACTS.VERIFY.accept.next = ["SETTLE.reconcile", "DONE.delivered"]`,validateTransition 按 ceremony.settle_phase 选边。
+**Slice 1.D 边界变更**:Slice 1.D sub-cycle 1 把 `event:phase_advanced` 图里所有指向 `DONE.delivered` 的边(VERIFY.accept、EXECUTE.done、SETTLE.lessons → DONE.delivered)从 `LEGAL_TRANSITIONS` 里全砍。`session:delivered` 是 DONE.delivered 的唯一入口(reducer 直接 cursor flip,见 `reducer.ts:706-712`)。所以:
+- `loaf advance DONE.delivered` 从任何 source 都返 `TRANSITION_ILLEGAL`,只有 `loaf deliver` 能进 DONE.delivered。
+- VERIFY.accept → SETTLE.reconcile 仍是 `event:phase_advanced`(`loaf settle` 的路径),validateTransition 在该边检查 `ceremony.settle_phase=true`(否则 `SETTLE_PHASE_DISABLED`)+ `verify_accepted=true`(否则 `SETTLE_NOT_ACCEPTED`)。
+- `loaf deliver` 的 ceremony / verify_accepted / spike-tasks preconditions 由 `preflight.ts` step 5c 拦截(diagnostic codes `DELIVER_NOT_ACCEPTED` / `DELIVER_SETTLE_PHASE_BYPASS` / `DELIVER_VERIFY_MIN_UNAVAILABLE` / `DELIVER_SPIKE_TASKS`;见 §10.5)。
+
+详 `schemas.ts` `SUB_STATE_CONTRACTS.VERIFY.accept.next = ["SETTLE.reconcile", "DONE.delivered"]` —— 这是 prompt / hook flow 提示,非 `event:phase_advanced` 边表;后者按 Slice 1.D 调整后,仅 `["SETTLE.reconcile"]` 是真正的 `event:phase_advanced` 合法目标,`DONE.delivered` 走 `loaf deliver` session:delivered 直发。
 
 ### 5.3 反向 transition
 
@@ -1628,6 +1633,18 @@ error: <one-line human description>
 | `INVALID_ACTOR_FORMAT` | exit 2 | Explicit `LOAF_USER` / git human identifier cannot form a valid `human:<id>` ActorString | Set raw identifier without namespace prefix; unset bad env to allow fallback |
 | `NO_HUMAN_ACTOR` | exit 2 | Human-only command cannot resolve a human actor in the current context | Run interactively with git user.email or set `LOAF_USER` explicitly |
 
+**rev 5.x Slice 1.D runtime codes**(deliver / settle preflight refines;`event:phase_advanced → DONE.delivered` edges removed in Slice 1.D sub-cycle 1 so `loaf advance DONE.delivered` returns `TRANSITION_ILLEGAL` from every source):
+
+| Code | Severity | When emitted | Fix hint |
+|---|---:|---|---|
+| `DELIVER_NOT_ACCEPTED` | exit 2 | `loaf deliver` at `VERIFY.accept` or `SETTLE.lessons` but snapshot.state.verify_accepted=false | Run `loaf gate decide verify-accept --approve --reason "..."` first |
+| `DELIVER_SETTLE_PHASE_BYPASS` | exit 2 | `loaf deliver` at `VERIFY.accept` but `ceremony.settle_phase=true` (deep must run `loaf settle` then walk SETTLE.* first) | Run `loaf settle`, complete SETTLE.* phase, then `loaf deliver` from `SETTLE.lessons` |
+| `DELIVER_VERIFY_MIN_UNAVAILABLE` | exit 2 | `loaf deliver` at `EXECUTE.done` (quick / light direct-deliver path) but verify-min check infrastructure (§3) is not yet implemented in this build | Use ceremony=standard or deep to traverse `VERIFY.*` before delivery; quick / light direct-delivery via verify-min is a follow-up slice |
+| `DELIVER_SPIKE_TASKS` | exit 2 | `loaf deliver` (any source) but snapshot.tasks contains a non-abandoned spike task (protocol §703 + §1298 hard block) | Abandon the spike task or run `loaf spike convert --to-feature F-N`; spike tasks must not remain in non-abandoned status when the session delivers |
+| `SETTLE_NOT_ACCEPTED` | exit 2 | `loaf settle` (event:phase_advanced VERIFY.accept → SETTLE.reconcile) but snapshot.state.verify_accepted=false | Run `loaf gate decide verify-accept --approve --reason "..."` before `loaf settle` |
+
+注 — Slice 1.D 之前的 `SETTLE_PHASE_BYPASS` 是 transition validator 在 `VERIFY.accept → DONE.delivered` 且 `ceremony.settle_phase=true` 时发的 diagnostic。Slice 1.D 把这条边从 LEGAL_TRANSITIONS 里移除后,`loaf advance DONE.delivered` 走的是 `TRANSITION_ILLEGAL` 路径;deep ceremony 用户经 `loaf deliver` 触发同一语义违规时由 `DELIVER_SETTLE_PHASE_BYPASS` 接管(preflight step 5c,session:delivered kind)。`SETTLE_PHASE_BYPASS` code 本身在 v0.1.0 retired,read-side 工具碰到老 journal 里的该值时按 `DELIVER_SETTLE_PHASE_BYPASS` 语义解释。
+
 完整出错示例(`SCHEMA_VALIDATION_FAILED`):
 
 ```
@@ -1815,13 +1832,13 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 | `loaf finding close <FND-id>` | **rev 5.0**:emit `finding:closed`;reducer 派生到 `snapshots/findings.json` | 0 / 2 |
 | `loaf verify status` | 实时算各 check 状态 | 0 |
 | `loaf gate decide <G>` | gate 决策 → **rev 5.0**:走 §11.2 transaction,**同一 batch 内 emit** `gate:decided` + `pending:resolved`(消 head pending kind=gate_decision)+ `event:phase_advanced`(target 由 §3.5 复用的 LEGAL_TRANSITIONS 给出)。reducer 派生 evidence projection 中 `kind=gate-decision` 视图。head 不匹配 → step 3 preflight 报 `GATE_NOT_PENDING` exit 2 | 0 / 2 |
-| `loaf settle` | **rev 5.0 + 5.x**:走 §11.2 transaction 进入 SETTLE.reconcile,emit `event:phase_advanced`;reducer 计算 drift + 派生到 `snapshots/reconcile.json`(**rev 5.x:deep only**;quick / light / standard 不产 reconcile snapshot)。session lifecycle chaos deviation 保留单 verb | 0 / 2 |
+| `loaf settle` | **rev 5.0 + 5.x + Slice 1.D sub-cycle 3**:走 §11.2 transaction 进入 SETTLE.reconcile,emit `event:phase_advanced`(`cli:` actor — settle 是机器 cursor 推进,不需要 human:* 决定;chaos deviation 仅是单 verb 命名);transition validator 检查 `ceremony.settle_phase=true`(否则 `SETTLE_PHASE_DISABLED`)+ `verify_accepted=true`(否则 `SETTLE_NOT_ACCEPTED`)。reducer 计算 drift + 派生到 `snapshots/reconcile.json`(**rev 5.x:deep only**;quick / light / standard 不产 reconcile snapshot;**Slice 1.D MVP**:reconcile snapshot 后置,`loaf settle` 仅推 cursor,reconcile.json 等延后 slice;CLI advisory 输出**不**声称 `reconcile.json rebuilt`)| 0 / 2 |
 | `loaf check <path>` | 纯 schema check(CI 用,任意 artifact 文件) | 0 / 2 |
 | `loaf <artifact> schema --json` | 自描述命令,dump JSON Schema(spec/tasks/evidence/finding/state,**限定 5 个 enum**,非 catch-all) | 0 |
 | `loaf amend --target spec\|tasks` | spec-lock 前编辑回退;**post-lock 拒绝执行,提示走 finding** | 0 / 2 |
 | `loaf profile escalate --confirm` | 接受 auto-escalation prompt。**rev 4.1 Q3**:本身就是答 `pending(kind=profile_escalation)` head 的方式,head 不匹配 → `ESCALATION_NOT_PENDING` exit 2 | 0 / 2 |
 | `loaf spike convert --to-feature F-N` | spike → 新 feature scaffold | 0 / 2 |
-| `loaf deliver` | **rev 3.1:advisory only,不碰 git/gh**;mark DONE.delivered + 打印 suggested next commands;spike hard block。**rev 4.1 + 5.x**:有效 source sub-state 取决于 ceremony —— `verify_phase=false`(`quick` / `light`)从 `EXECUTE.done` 调用(触发 verify-min,通过则 DONE.delivered;light 额外打印 "REQ coverage not closed" 提示,见 §3 verify-min);`verify_phase=true && settle_phase=false`(`standard`)从 `VERIFY.accept` 调用(VERIFY 已走完,无 verify-min 二次跑);`settle_phase=true`(`deep`)从 `SETTLE.lessons` 调用(reconcile.json + lessons.md 已产)| 0 / 2 |
+| `loaf deliver` | **rev 3.1:advisory only,不碰 git/gh**;emit `session:delivered`(`human:` actor;reducer 直接 cursor flip 到 DONE.delivered,**不**经 `event:phase_advanced`)+ 打印 advisory `next:` 提示;spike hard block。**rev 4.1 + 5.x + Slice 1.D sub-cycle 2**:有效 source sub-state 取决于 ceremony —— `verify_phase=false`(`quick` / `light`)从 `EXECUTE.done` 调用(**Slice 1.D MVP**:fail-closed `DELIVER_VERIFY_MIN_UNAVAILABLE` —— verify-min check 基础设施未实装,等后续 slice;light "REQ coverage not closed" 提示也跟着 verify-min 一起延后);`verify_phase=true && settle_phase=false`(`standard`)从 `VERIFY.accept` 调用(VERIFY 已走完,无 verify-min 二次跑;preflight step 5c 校验 `verify_accepted=true` 否则 `DELIVER_NOT_ACCEPTED`、`settle_phase=false` 否则 `DELIVER_SETTLE_PHASE_BYPASS`);`settle_phase=true`(`deep`)从 `SETTLE.lessons` 调用(reconcile.json + lessons.md 已产;preflight 同样校验 `verify_accepted=true`)。任何 source 都校验 snapshot.tasks 无非-abandoned spike 任务(`DELIVER_SPIKE_TASKS`,§703 + §1298) | 0 / 2 |
 | `loaf archive --reason "..."` | 不交付关闭 | 0 / 2 |
 | `loaf abandon --reason "..."` | 中途放弃(reason required) | 0 / 2 |
 | `loaf lessons add` | **rev 5.0**:emit `evidence:added`(payload.kind=`manual`,内容是 lesson 文本;LongTextField > 8KB 走 sidecar);reducer 拼接派生 `lessons.md`(Advisory,内容形态不在 schema 闭环内,见 §13.1)| 0 / 2 |

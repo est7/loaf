@@ -165,8 +165,9 @@ describe("loaf CLI — Blocker #7 MVP surface", () => {
 
 import { mutate as mutateRaw, mutateBatch as mutateBatchRaw } from "../../src/core/journal-mutate.js";
 import { promises as fsP } from "node:fs";
+import type { Ceremony } from "../../src/core/journal-entry.js";
 
-const STANDARD_CEREMONY = {
+const STANDARD_CEREMONY: Ceremony = {
   spec_phase: true,
   verify_phase: true,
   settle_phase: false,
@@ -180,8 +181,16 @@ const STANDARD_CEREMONY = {
  * planned task graph (matching the gate-passing setup in journal-mutate
  * test H). Uses raw mutate/mutateBatch (CLI surface for spec/tasks
  * commands lands in later slices). Returns the feature dir path.
+ *
+ * Slice 1.D sub-cycle 4: accepts an optional ceremony override so the
+ * E2E lifecycle tests can drive a deep walk from the same shared
+ * fixture. Default stays STANDARD_CEREMONY for the 9 pre-existing
+ * callers (backward compatible).
  */
-async function seedFeatureAtSpecDesign(dir: string): Promise<void> {
+async function seedFeatureAtSpecDesign(
+  dir: string,
+  ceremony: Ceremony = STANDARD_CEREMONY,
+): Promise<void> {
   // Write spec.md to disk first — evaluateSpecLock reads from this.
   await fsP.writeFile(
     path.join(dir, "spec.md"),
@@ -221,7 +230,7 @@ prose body here
       payload: {
         session_id: "550e8400-e29b-41d4-a716-446655440000",
         feature: "auth-refresh",
-        ceremony: STANDARD_CEREMONY,
+        ceremony,
       },
     },
     { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
@@ -1169,22 +1178,20 @@ async function seedFeatureAtSettleLessons(dir: string): Promise<void> {
     throw new Error(`settle-seed loaf settle failed: ${settleResult.stderr || settleResult.stdout}`);
   }
 
-  // Raw advance SETTLE.reconcile → SETTLE.lessons (no CLI surface for this
-  // intermediate advance until `loaf advance` extends to deep ceremonies in
-  // a follow-up slice).
-  const { loadSession } = await import("../../src/core/cli-runtime.js");
-  const { snapshot, tail_seq } = await loadSession(dir);
-  const r = await mutateRaw(
-    {
-      at: new Date(2026, 4, 15, 13, 0, 0).toISOString(),
-      actor: "cli:loaf",
-      entry_schema_version: 1,
-      kind: "event:phase_advanced",
-      payload: { from: "SETTLE.reconcile", to: "SETTLE.lessons" },
-    },
-    { feature_dir: dir, snapshot, tail_seq, fsync: false },
+  // SETTLE.reconcile → SETTLE.lessons via `loaf advance` CLI (sub-cycle 4
+  // closes codex r54 NB2 fully: every cursor advance in the seed now goes
+  // through a public CLI command, eliminating the last raw-mutate transition).
+  const advanceResult = await runCli(
+    [
+      "advance", "SETTLE.lessons",
+      "--feature", "auth-refresh",
+      "--feature-dir", dir,
+      "--json",
+    ],
   );
-  if (!r.ok) throw new Error(`settle-seed SETTLE.reconcile→lessons failed: ${r.message}`);
+  if (advanceResult.exit !== 0) {
+    throw new Error(`settle-seed loaf advance SETTLE.lessons failed: ${advanceResult.stderr || advanceResult.stdout}`);
+  }
 }
 
 describe("loaf deliver — Slice 1.D sub-cycle 2 (MVP)", () => {
@@ -1880,5 +1887,191 @@ describe("loaf advance DONE.delivered — Slice 1.D edge removal", () => {
     const lines = journal.trim().split("\n").map((l) => JSON.parse(l));
     // No new event:phase_advanced past VERIFY.accept arrival.
     expect(lines[lines.length - 1].payload.to).toBe("VERIFY.accept");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Slice 1.D sub-cycle 4 — End-to-end lifecycle CLI tests
+//
+// Validates the full feature lifecycle from SPEC.design through DONE.delivered
+// using the CLI surface exposed in Slices 1.A–1.D. SPEC content + tasks_planned
+// still go through raw mutate seeds (their CLI surfaces are Slice 4 territory),
+// but every transition / gate / cursor move from spec-lock onward runs
+// through `loaf advance` / `loaf gate decide` / `loaf settle` / `loaf deliver`.
+//
+// These tests are the contract that §15 done-when items 1+2 hold end-to-end:
+//   - Standard ceremony reaches DONE.delivered via spec-lock + verify-accept + deliver.
+//   - Deep ceremony reaches DONE.delivered via spec-lock + verify-accept + settle + advance + deliver.
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("End-to-end lifecycle CLI — Slice 1.D sub-cycle 4", () => {
+  test("standard ceremony: SPEC.design → DONE.delivered through full CLI chain", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtSpecDesign(dir, STANDARD_CEREMONY);
+    const env = { LOAF_USER: "e2e@test.invalid" };
+
+    // CLI 1: spec-lock approve (cursor → EXECUTE.plan).
+    let r = await runCli(
+      [
+        "gate", "decide", "spec-lock",
+        "--approve", "--reason", "e2e: spec ready",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--json",
+      ],
+      { env },
+    );
+    expect(r.exit).toBe(0);
+    expect(JSON.parse(r.stdout).sub_state).toBe("EXECUTE.plan");
+
+    // CLI 2: walk EXECUTE.plan → VERIFY.accept via loaf advance.
+    for (const target of [
+      "EXECUTE.work", "EXECUTE.done",
+      "VERIFY.plan", "VERIFY.run", "VERIFY.review",
+      "VERIFY.acceptance", "VERIFY.visual", "VERIFY.accept",
+    ]) {
+      r = await runCli(
+        [
+          "advance", target,
+          "--feature", "auth-refresh",
+          "--feature-dir", dir,
+          "--json",
+        ],
+      );
+      expect(r.exit, `advance to ${target} failed: ${r.stderr}`).toBe(0);
+    }
+
+    // CLI 3: verify-accept approve (verify_accepted=true, cursor stays at VERIFY.accept).
+    r = await runCli(
+      [
+        "gate", "decide", "verify-accept",
+        "--approve", "--reason", "e2e: all checks pass",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--json",
+      ],
+      { env },
+    );
+    expect(r.exit).toBe(0);
+    expect(JSON.parse(r.stdout).verify_accepted).toBe(true);
+
+    // CLI 4: deliver (cursor → DONE.delivered).
+    r = await runCli(
+      [
+        "deliver",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--reason", "e2e standard lifecycle complete",
+        "--json",
+      ],
+      { env },
+    );
+    expect(r.exit).toBe(0);
+    const out = JSON.parse(r.stdout);
+    expect(out.sub_state).toBe("DONE.delivered");
+    expect(out.from).toBe("VERIFY.accept");
+
+    // Journal sanity: ends with session:delivered.
+    const journal = await fsP.readFile(path.join(dir, "journal.jsonl"), "utf8");
+    const lines = journal.trim().split("\n").map((l) => JSON.parse(l));
+    expect(lines[lines.length - 1].kind).toBe("session:delivered");
+  });
+
+  test("deep ceremony: SPEC.design → DONE.delivered via settle + advance + deliver", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtSpecDesign(dir, DEEP_NO_STRICT_REVIEW_CEREMONY);
+    const env = { LOAF_USER: "e2e@test.invalid" };
+
+    // CLI 1: spec-lock approve.
+    let r = await runCli(
+      [
+        "gate", "decide", "spec-lock",
+        "--approve", "--reason", "e2e deep: spec ready",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--json",
+      ],
+      { env },
+    );
+    expect(r.exit).toBe(0);
+
+    // CLI 2: walk to VERIFY.accept.
+    for (const target of [
+      "EXECUTE.work", "EXECUTE.done",
+      "VERIFY.plan", "VERIFY.run", "VERIFY.review",
+      "VERIFY.acceptance", "VERIFY.visual", "VERIFY.accept",
+    ]) {
+      r = await runCli(
+        [
+          "advance", target,
+          "--feature", "auth-refresh",
+          "--feature-dir", dir,
+          "--json",
+        ],
+      );
+      expect(r.exit, `deep advance to ${target} failed: ${r.stderr}`).toBe(0);
+    }
+
+    // CLI 3: verify-accept approve.
+    r = await runCli(
+      [
+        "gate", "decide", "verify-accept",
+        "--approve", "--reason", "e2e deep: all checks pass",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--json",
+      ],
+      { env },
+    );
+    expect(r.exit).toBe(0);
+    expect(JSON.parse(r.stdout).verify_accepted).toBe(true);
+
+    // CLI 4: settle (VERIFY.accept → SETTLE.reconcile).
+    r = await runCli(
+      [
+        "settle",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--json",
+      ],
+    );
+    expect(r.exit).toBe(0);
+    expect(JSON.parse(r.stdout).sub_state).toBe("SETTLE.reconcile");
+
+    // CLI 5: advance SETTLE.reconcile → SETTLE.lessons.
+    r = await runCli(
+      [
+        "advance", "SETTLE.lessons",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--json",
+      ],
+    );
+    expect(r.exit).toBe(0);
+
+    // CLI 6: deliver (cursor → DONE.delivered).
+    r = await runCli(
+      [
+        "deliver",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--reason", "e2e deep lifecycle complete",
+        "--json",
+      ],
+      { env },
+    );
+    expect(r.exit).toBe(0);
+    const out = JSON.parse(r.stdout);
+    expect(out.sub_state).toBe("DONE.delivered");
+    expect(out.from).toBe("SETTLE.lessons");
+
+    // Journal sanity: ends with session:delivered.
+    const journal = await fsP.readFile(path.join(dir, "journal.jsonl"), "utf8");
+    const lines = journal.trim().split("\n").map((l) => JSON.parse(l));
+    expect(lines[lines.length - 1].kind).toBe("session:delivered");
+
+    // §15 done-when item 2: the deep lifecycle journey is fully CLI-driven
+    // (every event:phase_advanced + gate:decided + session:delivered after
+    // the SPEC content seed lands via a CLI command, not raw mutate).
   });
 });
