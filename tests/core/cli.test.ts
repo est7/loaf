@@ -2280,6 +2280,239 @@ needs_clarification: []
 });
 
 // ─────────────────────────────────────────────────────────────────────────
+// Slice 2 SC3 — loaf tasks claim + step start + step done CLI (MVP)
+//
+// All 3 commands wire over SC1 preflight step 5e + existing reducer
+// handlers. Source sub_state: EXECUTE.work. Tests use SC2 seedFeatureAt
+// SpecDesign (which now invokes loaf tasks submit) + a SC3-local helper
+// that walks to EXECUTE.work via loaf gate decide + loaf advance.
+// ─────────────────────────────────────────────────────────────────────────
+
+async function seedFeatureAtExecuteWork(dir: string): Promise<void> {
+  await seedFeatureAtSpecDesign(dir);
+  // spec-lock approve (cursor → EXECUTE.plan)
+  const lockResult = await runCli(
+    [
+      "gate", "decide", "spec-lock",
+      "--approve", "--reason", "sc3-seed: spec ready",
+      "--feature", "auth-refresh",
+      "--feature-dir", dir,
+      "--json",
+    ],
+    { env: { LOAF_USER: "sc3-seed@test.invalid" } },
+  );
+  if (lockResult.exit !== 0) {
+    throw new Error(`sc3-seed spec-lock failed: ${lockResult.stderr}`);
+  }
+  // advance EXECUTE.plan → EXECUTE.work
+  const advResult = await runCli(
+    [
+      "advance", "EXECUTE.work",
+      "--feature", "auth-refresh",
+      "--feature-dir", dir,
+      "--json",
+    ],
+  );
+  if (advResult.exit !== 0) {
+    throw new Error(`sc3-seed advance failed: ${advResult.stderr}`);
+  }
+}
+
+describe("loaf tasks claim + step start + step done — Slice 2 SC3 (MVP)", () => {
+  test("happy: claim → step start red → step done red passed (no auto-promote yet)", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtExecuteWork(dir);
+
+    // claim T-001
+    let r = await runCli(
+      [
+        "tasks", "claim", "T-001",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--json",
+      ],
+    );
+    expect(r.exit).toBe(0);
+    let out = JSON.parse(r.stdout);
+    expect(out.task_id).toBe("T-001");
+    expect(out.status).toBe("in_progress");
+
+    // step start red
+    r = await runCli(
+      [
+        "tasks", "step", "start",
+        "--task", "T-001", "--step", "red",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--json",
+      ],
+    );
+    expect(r.exit).toBe(0);
+    out = JSON.parse(r.stdout);
+    expect(out.task_id).toBe("T-001");
+    expect(out.step).toBe("red");
+    expect(out.step_status).toBe("running");
+
+    // step done red passed
+    r = await runCli(
+      [
+        "tasks", "step", "done",
+        "--task", "T-001", "--step", "red", "--result", "passed",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--json",
+      ],
+    );
+    expect(r.exit).toBe(0);
+    out = JSON.parse(r.stdout);
+    expect(out.step_status).toBe("passed");
+    expect(out.task_status).toBe("in_progress"); // implement still pending → no auto-promote
+  });
+
+  test("happy: full step lifecycle → task auto-promotes to done", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtExecuteWork(dir);
+
+    // claim
+    await runCli(["tasks", "claim", "T-001", "--feature", "auth-refresh", "--feature-dir", dir]);
+    // run red + implement (both must); skip refactor (optional)
+    for (const step of ["red", "implement"]) {
+      await runCli([
+        "tasks", "step", "start",
+        "--task", "T-001", "--step", step,
+        "--feature", "auth-refresh", "--feature-dir", dir,
+      ]);
+      const r = await runCli([
+        "tasks", "step", "done",
+        "--task", "T-001", "--step", step, "--result", "passed",
+        "--feature", "auth-refresh", "--feature-dir", dir,
+        "--json",
+      ]);
+      const out = JSON.parse(r.stdout);
+      if (step === "implement") {
+        // After implement passes, all must steps terminal-positive → auto-promote.
+        expect(out.task_status).toBe("done");
+      }
+    }
+  });
+
+  test("text-mode renders state-change line + auto-promote hint when fires", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtExecuteWork(dir);
+    await runCli(["tasks", "claim", "T-001", "--feature", "auth-refresh", "--feature-dir", dir]);
+    await runCli([
+      "tasks", "step", "start",
+      "--task", "T-001", "--step", "red",
+      "--feature", "auth-refresh", "--feature-dir", dir,
+    ]);
+    await runCli([
+      "tasks", "step", "done",
+      "--task", "T-001", "--step", "red", "--result", "passed",
+      "--feature", "auth-refresh", "--feature-dir", dir,
+    ]);
+    await runCli([
+      "tasks", "step", "start",
+      "--task", "T-001", "--step", "implement",
+      "--feature", "auth-refresh", "--feature-dir", dir,
+    ]);
+    // Final step_done → auto-promote.
+    const r = await runCli([
+      "tasks", "step", "done",
+      "--task", "T-001", "--step", "implement", "--result", "passed",
+      "--feature", "auth-refresh", "--feature-dir", dir,
+    ]);
+    expect(r.exit).toBe(0);
+    expect(r.stdout).toMatch(/done T-001 step=implement result=passed/);
+    expect(r.stdout).toMatch(/auto-promoted to done/);
+  });
+
+  test("fail claim: unknown task → TASK_NOT_FOUND", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtExecuteWork(dir);
+    const r = await runCli(
+      [
+        "tasks", "claim", "T-999",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--json",
+      ],
+    );
+    expect(r.exit).toBe(2);
+    expect(r.stdout).toBe("");
+    const errJson = JSON.parse(r.stderr.trim());
+    expect(errJson.code).toBe("TASK_NOT_FOUND");
+  });
+
+  test("fail claim: already claimed → TASK_ALREADY_CLAIMED", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtExecuteWork(dir);
+    await runCli(["tasks", "claim", "T-001", "--feature", "auth-refresh", "--feature-dir", dir]);
+    const r = await runCli(
+      [
+        "tasks", "claim", "T-001",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--json",
+      ],
+    );
+    expect(r.exit).toBe(2);
+    const errJson = JSON.parse(r.stderr.trim());
+    expect(errJson.code).toBe("TASK_ALREADY_CLAIMED");
+  });
+
+  test("fail step start: task not claimed → TASK_NOT_CLAIMED", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtExecuteWork(dir);
+    // no claim — try step start directly
+    const r = await runCli(
+      [
+        "tasks", "step", "start",
+        "--task", "T-001", "--step", "red",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--json",
+      ],
+    );
+    expect(r.exit).toBe(2);
+    const errJson = JSON.parse(r.stderr.trim());
+    expect(errJson.code).toBe("TASK_NOT_CLAIMED");
+  });
+
+  test("fail step done: bad --result → USAGE", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtExecuteWork(dir);
+    const r = await runCli(
+      [
+        "tasks", "step", "done",
+        "--task", "T-001", "--step", "red", "--result", "BOGUS",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--json",
+      ],
+    );
+    expect(r.exit).toBe(2);
+    expect(r.stderr).toMatch(/USAGE/);
+  });
+
+  test("fail step start: wrong sub_state (SPEC.design) → SUB_STATE_AUTHORITY_VIOLATION", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtSpecDesign(dir); // cursor at SPEC.design, no claim
+    const r = await runCli(
+      [
+        "tasks", "step", "start",
+        "--task", "T-001", "--step", "red",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--json",
+      ],
+    );
+    expect(r.exit).toBe(2);
+    const errJson = JSON.parse(r.stderr.trim());
+    expect(errJson.code).toBe("SUB_STATE_AUTHORITY_VIOLATION");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
 // Slice 1.D sub-cycle 4 — End-to-end lifecycle CLI tests
 //
 // Validates the full feature lifecycle from SPEC.design through DONE.delivered

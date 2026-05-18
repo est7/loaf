@@ -513,19 +513,28 @@ export async function main(argv: string[] = process.argv): Promise<number> {
       }
     });
 
+  // ── loaf tasks <subcommand> ─────────────────────────────────────────
+  // Slice 2 SC2/SC3 task lifecycle CLI surface. The parent `tasks`
+  // command is a namespace; sub-commands carry the actual work:
+  //   submit <file>          — emit event:tasks_planned (SC2)
+  //   claim <task-id>        — emit event:task_claimed (SC3)
+  //   step start             — emit event:task_step_started (SC3)
+  //   step done              — emit event:task_step_done (SC3)
+  // All preconditions enforced by SC1 preflight step 5e (TASK_NOT_FOUND
+  // / TASK_NOT_CLAIMABLE / TASK_ALREADY_CLAIMED / TASK_DEPS_NOT_SATISFIED
+  // / TASK_NOT_CLAIMED).
+  const tasksCmd = program
+    .command("tasks")
+    .description("Task lifecycle commands (Slice 2 MVP: submit / claim / step)");
+
   // ── loaf tasks submit <file> ────────────────────────────────────────
-  // Slice 2 SC2. The first --file-based mutator: reads a JSON document
-  // describing the full task graph + spec version anchor, emits
+  // Slice 2 SC2. Reads a JSON document `{ based_on, tasks }`, emits
   // event:tasks_planned (whole-replacement at SPEC.design; per protocol
-  // §1810). PER_KIND_PAYLOAD strict-validates the payload during preflight
-  // — CLI passes the parsed JSON through directly without re-validating
-  // against TasksPlannedPayload (single-source via preflight).
+  // §1810). PER_KIND_PAYLOAD strict-validates payload during preflight —
+  // CLI passes parsed JSON through directly (single-source via preflight).
   //
   // Input shape (codex r57 acceptance — no bare-array fallback):
-  //   {
-  //     "based_on": { "spec": 1 },
-  //     "tasks": [ <TaskFullPayload>, ... ]
-  //   }
+  //   { "based_on": { "spec": 1 }, "tasks": [ <TaskFullPayload>, ... ] }
   //
   // Actor: cli:loaf — submit is machine-driven (CLI just routes input to
   // mutate; no human decision encoded in the entry).
@@ -536,9 +545,7 @@ export async function main(argv: string[] = process.argv): Promise<number> {
   //   - payload schema violation → INVALID_PAYLOAD (preflight)
   //   - wrong sub_state          → SUB_STATE_AUTHORITY_VIOLATION (preflight)
   //   - no session               → NO_SESSION (CLI-side)
-  program
-    .command("tasks")
-    .description("Task lifecycle commands (Slice 2 MVP: submit)")
+  tasksCmd
     .command("submit <file>")
     .description("Submit a complete task graph from JSON file (or '-' for stdin)")
     .requiredOption("--feature <name>", "Feature whose task graph to submit")
@@ -621,6 +628,181 @@ export async function main(argv: string[] = process.argv): Promise<number> {
       } else {
         process.stdout.write(
           `submitted ${tasks.length} task${tasks.length === 1 ? "" : "s"}: ${taskIds.join(", ")}\n`,
+        );
+      }
+    });
+
+  // ── loaf tasks claim <task-id> ──────────────────────────────────────
+  // Slice 2 SC3. Emits `event:task_claimed` for a pending/ready task at
+  // EXECUTE.work. SC1 preflight step 5e enforces existence + claimability
+  // + deps_on satisfied (TASK_NOT_FOUND / TASK_NOT_CLAIMABLE /
+  // TASK_ALREADY_CLAIMED / TASK_DEPS_NOT_SATISFIED). Reducer flips
+  // status to in_progress; subsequent step_started/step_done can proceed.
+  // Actor: cli:loaf — claim is machine-driven (worker pulls task).
+  tasksCmd
+    .command("claim <task-id>")
+    .description("Claim a ready task (pending → in_progress) at EXECUTE.work")
+    .requiredOption("--feature <name>", "Feature whose task to claim")
+    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
+    .action(async (taskId: string, opts: { feature: string; featureDir?: string }) => {
+      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      const session = await loadSession(featureDir);
+      if (!session.snapshot.state) {
+        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        return;
+      }
+      const result = await mutate(
+        {
+          at: new Date().toISOString(),
+          actor,
+          entry_schema_version: 1,
+          kind: "event:task_claimed",
+          payload: { task_id: taskId },
+        },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq },
+      );
+      if (!result.ok) {
+        emitFailure(result.code, result.message, result.detail);
+        return;
+      }
+      // Read the actual claimed task status from the reducer-applied snapshot
+      // (codex r60 P2: do not hardcode "in_progress" — if the reducer ever
+      // changes claim semantics, the CLI output should reflect that without
+      // requiring a test to catch the drift).
+      const claimed = result.snapshot.tasks.find((t) => t.id === taskId);
+      const status = claimed?.status ?? "in_progress";
+      const out = {
+        ok: true,
+        feature: opts.feature,
+        task_id: taskId,
+        status,
+        sub_state: result.snapshot.state?.sub_state,
+      };
+      if (useJson) {
+        process.stdout.write(JSON.stringify(out) + "\n");
+      } else {
+        process.stdout.write(`claimed ${taskId} (status=${status})\n`);
+      }
+    });
+
+  // ── loaf tasks step <subcommand> ────────────────────────────────────
+  // Slice 2 SC3. Sub-namespace for task step lifecycle. `step start` and
+  // `step done` both require task.status=in_progress (SC1 TASK_NOT_CLAIMED).
+  const stepCmd = tasksCmd
+    .command("step")
+    .description("Task step lifecycle (start / done)");
+
+  // ── loaf tasks step start --task T-N --step <s> ─────────────────────
+  // Slice 2 SC3. Emits `event:task_step_started`. SC1 preflight gates:
+  // task exists + status=in_progress + step seeded (step-seeded check
+  // remains reducer-side TASK_STEP_NOT_FOUND).
+  stepCmd
+    .command("start")
+    .description("Mark a task step as running (task must be claimed)")
+    .requiredOption("--task <task-id>", "Task whose step to start")
+    .requiredOption("--step <step-name>", "Step name (kind-specific; see spec)")
+    .requiredOption("--feature <name>", "Feature whose task lifecycle to advance")
+    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
+    .action(async (opts: { task: string; step: string; feature: string; featureDir?: string }) => {
+      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      const session = await loadSession(featureDir);
+      if (!session.snapshot.state) {
+        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        return;
+      }
+      const result = await mutate(
+        {
+          at: new Date().toISOString(),
+          actor,
+          entry_schema_version: 1,
+          kind: "event:task_step_started",
+          payload: { task_id: opts.task, step: opts.step },
+        },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq },
+      );
+      if (!result.ok) {
+        emitFailure(result.code, result.message, result.detail);
+        return;
+      }
+      const updated = result.snapshot.tasks.find((t) => t.id === opts.task);
+      const out = {
+        ok: true,
+        feature: opts.feature,
+        task_id: opts.task,
+        step: opts.step,
+        step_status: updated?.steps[opts.step]?.status,
+        sub_state: result.snapshot.state?.sub_state,
+      };
+      if (useJson) {
+        process.stdout.write(JSON.stringify(out) + "\n");
+      } else {
+        process.stdout.write(`started ${opts.task} step=${opts.step} (status=running)\n`);
+      }
+    });
+
+  // ── loaf tasks step done --task T-N --step <s> [--result <r>] ───────
+  // Slice 2 SC3. Emits `event:task_step_done`. SC1 preflight gates same
+  // as step start. Reducer auto-promotes task.status=done when all must-
+  // applicable steps are terminal-positive (passed | waived | na).
+  // --result defaults to "passed" if omitted; valid values per
+  // TaskStepDonePayload schema: passed | failed | waived | na.
+  // SC3 MVP: no --evidence-* flag (deferred to Slice 3 Ledger CLI; the
+  // batch evidence emission contract per protocol §1809 lands when
+  // evidence add CLI ships).
+  stepCmd
+    .command("done")
+    .description("Mark a task step as done (--result passed|failed|waived|na; default passed)")
+    .requiredOption("--task <task-id>", "Task whose step to mark done")
+    .requiredOption("--step <step-name>", "Step name (kind-specific)")
+    .option("--result <r>", "Step result: passed (default) | failed | waived | na", "passed")
+    .requiredOption("--feature <name>", "Feature whose task lifecycle to advance")
+    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
+    .action(async (opts: { task: string; step: string; result: string; feature: string; featureDir?: string }) => {
+      // Validate --result client-side (payload schema also enforces).
+      const validResults = ["passed", "failed", "waived", "na"] as const;
+      if (!(validResults as readonly string[]).includes(opts.result)) {
+        emitFailure(
+          "USAGE",
+          `--result must be one of: passed | failed | waived | na (got ${opts.result})`,
+        );
+        return;
+      }
+      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      const session = await loadSession(featureDir);
+      if (!session.snapshot.state) {
+        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        return;
+      }
+      const result = await mutate(
+        {
+          at: new Date().toISOString(),
+          actor,
+          entry_schema_version: 1,
+          kind: "event:task_step_done",
+          payload: { task_id: opts.task, step: opts.step, result: opts.result },
+        },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq },
+      );
+      if (!result.ok) {
+        emitFailure(result.code, result.message, result.detail);
+        return;
+      }
+      const updated = result.snapshot.tasks.find((t) => t.id === opts.task);
+      const out = {
+        ok: true,
+        feature: opts.feature,
+        task_id: opts.task,
+        step: opts.step,
+        step_status: updated?.steps[opts.step]?.status,
+        task_status: updated?.status, // reflects auto-promote if it fired
+        sub_state: result.snapshot.state?.sub_state,
+      };
+      if (useJson) {
+        process.stdout.write(JSON.stringify(out) + "\n");
+      } else {
+        const promote = updated?.status === "done" ? " (task auto-promoted to done)" : "";
+        process.stdout.write(
+          `done ${opts.task} step=${opts.step} result=${opts.result}${promote}\n`,
         );
       }
     });
