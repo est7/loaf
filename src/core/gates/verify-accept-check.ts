@@ -47,6 +47,10 @@ import { canSatisfy } from "../evidence-compat.js";
 export type FailedCheck = {
   check: 1 | 2 | 3 | 4 | 5;
   code:
+    // Slice 1.C sub-cycle 4: caller's responsibility (spec.md read failures
+    // map to check 1 via verify-accept-eval.ts), parallel to spec-lock-check
+    // structure. Pure verifyAcceptCheck() never returns this code itself.
+    | "SPEC_FRONTMATTER_INVALID"
     | "VERIFY_LANE_NOT_PASSED"
     | "OPEN_FINDINGS_PRESENT"
     | "COVERAGE_NOT_SATISFIED"
