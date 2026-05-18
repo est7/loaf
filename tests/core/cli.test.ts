@@ -2225,7 +2225,7 @@ needs_clarification: []
     expect(errJson.code).toBe("SUB_STATE_AUTHORITY_VIOLATION");
   });
 
-  test("fail: duplicate task ids in tasks[] → REDUCER_ERROR (wraps DUPLICATE_TASK_ID; SC4 to surface top-level per codex r59 P2)", async () => {
+  test("fail: duplicate task ids in tasks[] → DUPLICATE_TASK_ID (preflight; codex r59 P2.1 closure in SC4)", async () => {
     const dir = await tmpFeatureDir();
     await seedAtSpecDesignNoTasks(dir);
     const tasksFile = path.join(dir, ".tasks-dup.json");
@@ -2249,12 +2249,11 @@ needs_clarification: []
     expect(result.exit).toBe(2);
     expect(result.stdout).toBe("");
     const errJson = JSON.parse(result.stderr.trim());
-    // Pass 1 reducer dry-run flags this as REDUCER_ERROR with the underlying
-    // DUPLICATE_TASK_ID surfacing in the message text (reducer wraps
-    // invalidPayload→INVALID_PAYLOAD into REDUCER_ERROR at the mutate layer
-    // since the failure is caught during dry-run apply, not preflight).
-    expect(errJson.code).toBe("REDUCER_ERROR");
-    expect(errJson.message).toMatch(/DUPLICATE_TASK_ID/);
+    // SC4 (codex r59 P2.1 closure): preflight step 5d.1 catches duplicate
+    // task ids and surfaces DUPLICATE_TASK_ID top-level. Reducer's
+    // defensive sweep is now fallback for raw paths that bypass preflight.
+    expect(errJson.code).toBe("DUPLICATE_TASK_ID");
+    expect(errJson.detail).toMatchObject({ task_id: "T-001" });
   });
 
   test("fail: no session → NO_SESSION", async () => {
@@ -2513,6 +2512,470 @@ describe("loaf tasks claim + step start + step done — Slice 2 SC3 (MVP)", () =
 });
 
 // ─────────────────────────────────────────────────────────────────────────
+// Slice 2 SC4 — loaf tasks list + tasks next + P2 closures + E2E
+//
+// Read-only commands wire over `snapshot.tasks` projection. `ready` is
+// derived (Option C arch per codex r57): status=pending + deps_on all
+// done. No journal entries emitted.
+//
+// Plus three follow-up closures from earlier SC2/SC3 reviews:
+//   - r59 P2.3 — tasks_planned legal at EXECUTE.plan for replanning
+//   - r59 P2.1 — DUPLICATE_TASK_ID surface promotion (pinned in submit test)
+//   - r60 P2.3 — step start idempotency contract pinned
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("loaf tasks list — Slice 2 SC4 (MVP)", () => {
+  test("happy: list empty projection (no tasks) → 0 count, hint message", async () => {
+    const dir = await tmpFeatureDir();
+    // Seed without tasks (uses SC2's seedAtSpecDesignNoTasks via inline
+    // recreation since it's local to that describe; replicate boot only).
+    const snapshot0 = (await import("../../src/core/reducer.js")).initialSnapshot();
+    const boot = await mutateRaw(
+      {
+        at: "2026-05-15T10:00:00.000Z",
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "session:started",
+        payload: {
+          session_id: "550e8400-e29b-41d4-a716-446655440000",
+          feature: "auth-refresh",
+          ceremony: STANDARD_CEREMONY,
+        },
+      },
+      { feature_dir: dir, snapshot: snapshot0, tail_seq: -1, fsync: false },
+    );
+    if (!boot.ok) throw new Error(`boot failed: ${boot.message}`);
+
+    const r = await runCli(
+      [
+        "tasks", "list",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--json",
+      ],
+    );
+    expect(r.exit).toBe(0);
+    expect(r.stderr).toBe("");
+    const out = JSON.parse(r.stdout);
+    expect(out.ok).toBe(true);
+    expect(out.count).toBe(0);
+    expect(out.tasks).toEqual([]);
+  });
+
+  test("happy: list after submit shows T-001 with ready=true (no deps)", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtSpecDesign(dir); // T-001 planned, no deps, status=pending
+
+    const r = await runCli(
+      [
+        "tasks", "list",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--json",
+      ],
+    );
+    expect(r.exit).toBe(0);
+    const out = JSON.parse(r.stdout);
+    expect(out.count).toBe(1);
+    expect(out.tasks[0].id).toBe("T-001");
+    expect(out.tasks[0].status).toBe("pending");
+    expect(out.tasks[0].ready).toBe(true);
+  });
+
+  test("text-mode renders T-id + kind + status + ready columns", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtSpecDesign(dir);
+    const r = await runCli(
+      [
+        "tasks", "list",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+      ],
+    );
+    expect(r.exit).toBe(0);
+    expect(r.stdout).toMatch(/^T-001 behavioral pending \[ready\]$/m);
+  });
+
+  test("--status filter: pending matches; --status ready matches derived", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtSpecDesign(dir);
+
+    // pending filter
+    const rPending = await runCli(
+      [
+        "tasks", "list", "--status", "pending",
+        "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      ],
+    );
+    expect(JSON.parse(rPending.stdout).count).toBe(1);
+
+    // ready filter (derived; T-001 is pending+no deps → ready=true → match)
+    const rReady = await runCli(
+      [
+        "tasks", "list", "--status", "ready",
+        "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      ],
+    );
+    expect(JSON.parse(rReady.stdout).count).toBe(1);
+
+    // done filter (no done tasks)
+    const rDone = await runCli(
+      [
+        "tasks", "list", "--status", "done",
+        "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      ],
+    );
+    expect(JSON.parse(rDone.stdout).count).toBe(0);
+  });
+
+  test("--status invalid → USAGE", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtSpecDesign(dir);
+    const r = await runCli(
+      [
+        "tasks", "list", "--status", "BOGUS",
+        "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      ],
+    );
+    expect(r.exit).toBe(2);
+    expect(r.stderr).toMatch(/USAGE/);
+  });
+
+  test("ready=false when deps_on incomplete", async () => {
+    const dir = await tmpFeatureDir();
+    // Plant a 2-task graph: T-002 depends on T-001. T-001 pending → T-002 not ready.
+    await seedAtSpecDesignNoTasksSC4(dir);
+    const tasksFile = path.join(dir, ".tasks-deps.json");
+    await fsP.writeFile(
+      tasksFile,
+      JSON.stringify({
+        based_on: { spec: 1 },
+        tasks: [
+          {
+            id: "T-001",
+            kind: "behavioral",
+            drives: ["REQ-AUTH-001"],
+            tests: ["TokenCoord.refreshOnce"],
+            status: "pending",
+            depends_on: [],
+            labels: [],
+            execution: {
+              red: { applicability: "must", status: "pending", evidence_refs: [] },
+              implement: { applicability: "must", status: "pending", evidence_refs: [] },
+              refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+            },
+          },
+          {
+            id: "T-002",
+            kind: "behavioral",
+            drives: ["REQ-AUTH-001"],
+            tests: ["TokenCoord.refreshTwice"],
+            status: "pending",
+            depends_on: ["T-001"],
+            labels: [],
+            execution: {
+              red: { applicability: "must", status: "pending", evidence_refs: [] },
+              implement: { applicability: "must", status: "pending", evidence_refs: [] },
+              refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+            },
+          },
+        ],
+      }),
+    );
+    const submit = await runCli([
+      "tasks", "submit", tasksFile,
+      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+    ]);
+    expect(submit.exit).toBe(0);
+
+    const r = await runCli(
+      [
+        "tasks", "list",
+        "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      ],
+    );
+    const out = JSON.parse(r.stdout);
+    expect(out.count).toBe(2);
+    const t1 = out.tasks.find((t: any) => t.id === "T-001");
+    const t2 = out.tasks.find((t: any) => t.id === "T-002");
+    expect(t1.ready).toBe(true); // no deps
+    expect(t2.ready).toBe(false); // T-001 not done yet
+  });
+});
+
+// Local helper for SC4 tests (mirrors SC2's seedAtSpecDesignNoTasks which is
+// scoped to that describe block; SC4 reuses the same shape for list/next
+// fixtures).
+async function seedAtSpecDesignNoTasksSC4(dir: string): Promise<void> {
+  await fsP.writeFile(
+    path.join(dir, "spec.md"),
+    `---
+schema_version: 2
+spec_version: 1
+feature:
+  id: F-001
+  name: OAuth token refresh
+intent: users should not perceive auth recovery flows in flight
+adr_refs: []
+requirements:
+  - id: REQ-AUTH-001
+    type: ubiquitous
+    response: the system shall do something measurable here
+    acceptance_na: true
+    acceptance_na_reason: subjective UX validated via manual testing scope
+scenarios: []
+needs_clarification: []
+---
+`,
+  );
+  let snapshot = (await import("../../src/core/reducer.js")).initialSnapshot();
+  let tailSeq = -1;
+  const boot = await mutateRaw(
+    {
+      at: "2026-05-15T10:00:00.000Z",
+      actor: "cli:loaf",
+      entry_schema_version: 1,
+      kind: "session:started",
+      payload: {
+        session_id: "550e8400-e29b-41d4-a716-446655440000",
+        feature: "auth-refresh",
+        ceremony: STANDARD_CEREMONY,
+      },
+    },
+    { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+  );
+  if (!boot.ok) throw new Error(`SC4 no-tasks seed boot failed: ${boot.message}`);
+  snapshot = boot.snapshot;
+  tailSeq++;
+  for (const [from, to] of [
+    ["TRIAGE.score", "TRIAGE.confirm"],
+    ["TRIAGE.confirm", "SPEC.proposal"],
+  ] as Array<[string, string]>) {
+    const r = await mutateRaw(
+      {
+        at: new Date(2026, 4, 15, 10, 0, tailSeq + 1).toISOString(),
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "event:phase_advanced",
+        payload: { from: from as any, to: to as any },
+      },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    );
+    if (!r.ok) throw new Error(`SC4 seed walk failed: ${r.message}`);
+    snapshot = r.snapshot;
+    tailSeq++;
+  }
+  const submitBatch = await mutateBatchRaw(
+    [
+      {
+        at: new Date(2026, 4, 15, 10, 0, tailSeq + 1).toISOString(),
+        actor: "human:seed@test.invalid",
+        entry_schema_version: 1,
+        kind: "event:spec_submitted",
+        payload: {
+          spec_version: 1,
+          feature: { id: "F-001", name: "OAuth token refresh" },
+          intent: "users should not perceive auth recovery flows in flight",
+          adr_refs: [],
+          needs_clarification: [],
+        },
+      },
+      {
+        at: new Date(2026, 4, 15, 10, 0, tailSeq + 2).toISOString(),
+        actor: "human:seed@test.invalid",
+        entry_schema_version: 1,
+        kind: "event:spec_req_added",
+        payload: {
+          spec_version: 1,
+          req: {
+            id: "REQ-AUTH-001",
+            type: "ubiquitous",
+            response: "the system shall do something measurable here",
+            acceptance_na: true,
+            acceptance_na_reason: "subjective UX validated via manual testing scope",
+          },
+        },
+      },
+    ],
+    { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+  );
+  if (!submitBatch.ok) throw new Error(`SC4 seed submit failed: ${submitBatch.message}`);
+  snapshot = submitBatch.snapshot;
+  tailSeq += 2;
+  for (const [from, to] of [
+    ["SPEC.proposal", "SPEC.spec"],
+    ["SPEC.spec", "SPEC.plan"],
+    ["SPEC.plan", "SPEC.design"],
+  ] as Array<[string, string]>) {
+    const r = await mutateRaw(
+      {
+        at: new Date(2026, 4, 15, 10, 0, tailSeq + 1).toISOString(),
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "event:phase_advanced",
+        payload: { from: from as any, to: to as any },
+      },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    );
+    if (!r.ok) throw new Error(`SC4 seed walk2 failed: ${r.message}`);
+    snapshot = r.snapshot;
+    tailSeq++;
+  }
+}
+
+describe("loaf tasks next — Slice 2 SC4 (MVP)", () => {
+  test("happy: first ready task (T-001 no deps) → prints id", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtSpecDesign(dir);
+    const r = await runCli(
+      [
+        "tasks", "next",
+        "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      ],
+    );
+    expect(r.exit).toBe(0);
+    const out = JSON.parse(r.stdout);
+    expect(out.task_id).toBe("T-001");
+    expect(out.kind).toBe("behavioral");
+  });
+
+  test("text-mode prints bare T-id (or empty if none)", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtSpecDesign(dir);
+    const r = await runCli(
+      [
+        "tasks", "next",
+        "--feature", "auth-refresh", "--feature-dir", dir,
+      ],
+    );
+    expect(r.exit).toBe(0);
+    expect(r.stdout.trim()).toBe("T-001");
+  });
+
+  test("no ready tasks (T-001 in_progress) → null/empty", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtExecuteWork(dir);
+    await runCli(["tasks", "claim", "T-001", "--feature", "auth-refresh", "--feature-dir", dir]);
+
+    const r = await runCli(
+      [
+        "tasks", "next",
+        "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      ],
+    );
+    expect(r.exit).toBe(0);
+    const out = JSON.parse(r.stdout);
+    expect(out.task_id).toBeNull();
+  });
+});
+
+// ─── r59 P2.3 closure: tasks_planned legal at EXECUTE.plan ───────────────
+describe("loaf tasks submit at EXECUTE.plan — replan path (r59 P2.3 closure)", () => {
+  test("submit re-plans tasks at EXECUTE.plan (per PER_KIND_SUB_STATE: tasks_planned allowed in both SPEC.design and EXECUTE.plan)", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtSpecDesign(dir);
+    // Approve spec-lock to advance to EXECUTE.plan.
+    const lock = await runCli(
+      [
+        "gate", "decide", "spec-lock",
+        "--approve", "--reason", "re-plan path test",
+        "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      ],
+      { env: { LOAF_USER: "replan@test.invalid" } },
+    );
+    expect(lock.exit).toBe(0);
+    expect(JSON.parse(lock.stdout).sub_state).toBe("EXECUTE.plan");
+
+    // Now re-submit tasks at EXECUTE.plan (e.g. via finding-amend replan).
+    const replanFile = path.join(dir, ".tasks-replan.json");
+    await fsP.writeFile(
+      replanFile,
+      JSON.stringify({
+        based_on: { spec: 1 }, // same spec_version
+        tasks: [
+          {
+            id: "T-001",
+            kind: "behavioral",
+            drives: ["REQ-AUTH-001"],
+            tests: ["TokenCoord.refreshOnce"],
+            status: "pending",
+            depends_on: [],
+            labels: [],
+            execution: {
+              red: { applicability: "must", status: "pending", evidence_refs: [] },
+              implement: { applicability: "must", status: "pending", evidence_refs: [] },
+              refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+            },
+          },
+          {
+            id: "T-002", // new task added on re-plan
+            kind: "behavioral",
+            drives: ["REQ-AUTH-001"],
+            tests: ["TokenCoord.refreshExtra"],
+            status: "pending",
+            depends_on: [],
+            labels: [],
+            execution: {
+              red: { applicability: "must", status: "pending", evidence_refs: [] },
+              implement: { applicability: "must", status: "pending", evidence_refs: [] },
+              refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+            },
+          },
+        ],
+      }),
+    );
+
+    const r = await runCli(
+      [
+        "tasks", "submit", replanFile,
+        "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      ],
+    );
+    expect(r.exit).toBe(0);
+    expect(r.stderr).toBe("");
+    const out = JSON.parse(r.stdout);
+    expect(out.tasks_count).toBe(2);
+    expect(out.task_ids).toEqual(["T-001", "T-002"]);
+    expect(out.sub_state).toBe("EXECUTE.plan"); // cursor unchanged
+  });
+});
+
+// ─── r60 P2.3 closure: step start idempotency contract ──────────────────
+describe("loaf tasks step start idempotency — Slice 2 SC4 (r60 P2.3 closure)", () => {
+  test("re-running step start on same task+step succeeds; emits redundant journal entry", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtExecuteWork(dir);
+    await runCli(["tasks", "claim", "T-001", "--feature", "auth-refresh", "--feature-dir", dir]);
+
+    // First step start.
+    const r1 = await runCli([
+      "tasks", "step", "start",
+      "--task", "T-001", "--step", "red",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+    ]);
+    expect(r1.exit).toBe(0);
+    expect(JSON.parse(r1.stdout).step_status).toBe("running");
+
+    // Second step start on the same step — current contract: accepted
+    // audit-trail redundancy. Reducer rewrites step.status=running.
+    const r2 = await runCli([
+      "tasks", "step", "start",
+      "--task", "T-001", "--step", "red",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+    ]);
+    expect(r2.exit).toBe(0);
+    expect(JSON.parse(r2.stdout).step_status).toBe("running");
+
+    // Journal grows by 2 event:task_step_started entries (idempotent state,
+    // non-idempotent log).
+    const journal = await fsP.readFile(path.join(dir, "journal.jsonl"), "utf8");
+    const lines = journal.trim().split("\n").map((l) => JSON.parse(l));
+    const startEntries = lines.filter((l) => l.kind === "event:task_step_started");
+    expect(startEntries).toHaveLength(2);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
 // Slice 1.D sub-cycle 4 — End-to-end lifecycle CLI tests
 //
 // Validates the full feature lifecycle from SPEC.design through DONE.delivered
@@ -2695,5 +3158,128 @@ describe("End-to-end lifecycle CLI — Slice 1.D sub-cycle 4", () => {
     // §15 done-when item 2: the deep lifecycle journey is fully CLI-driven
     // (every event:phase_advanced + gate:decided + session:delivered after
     // the SPEC content seed lands via a CLI command, not raw mutate).
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Slice 2 SC4 — End-to-end task lifecycle CLI test
+//
+// Closes Slice 2 by chaining all task CLI surfaces (submit / claim / step
+// start / step done / list / next) into a complete worker workflow.
+// Extends Slice 1.D's E2E with the task lifecycle CLI commands — proves
+// that after `loaf tasks submit`, a worker can claim + execute + auto-
+// promote a task entirely through the public CLI, without any raw mutate
+// in the test body.
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("End-to-end task lifecycle CLI — Slice 2 SC4", () => {
+  test("submit → claim → step lifecycle → auto-promote done → list/next reflect state", async () => {
+    const dir = await tmpFeatureDir();
+    await seedAtSpecDesignNoTasksSC4(dir);
+
+    // Helper to keep the test body concise.
+    const cli = (args: string[], env?: Record<string, string | undefined>) =>
+      runCli(args.concat(["--feature", "auth-refresh", "--feature-dir", dir]),
+        env ? { env } : {});
+
+    // CLI 1: tasks submit (single task T-001 with red+implement must steps).
+    const tasksFile = path.join(dir, ".tasks-e2e.json");
+    await fsP.writeFile(
+      tasksFile,
+      JSON.stringify({
+        based_on: { spec: 1 },
+        tasks: [
+          {
+            id: "T-001",
+            kind: "behavioral",
+            drives: ["REQ-AUTH-001"],
+            tests: ["TokenCoord.refreshOnce"],
+            status: "pending",
+            depends_on: [],
+            labels: [],
+            execution: {
+              red: { applicability: "must", status: "pending", evidence_refs: [] },
+              implement: { applicability: "must", status: "pending", evidence_refs: [] },
+              refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+            },
+          },
+        ],
+      }),
+    );
+    let r = await cli(["tasks", "submit", tasksFile, "--json"]);
+    expect(r.exit).toBe(0);
+    expect(JSON.parse(r.stdout).task_ids).toEqual(["T-001"]);
+
+    // CLI 2: tasks next at SPEC.design → T-001 (ready, no deps).
+    r = await cli(["tasks", "next", "--json"]);
+    expect(JSON.parse(r.stdout).task_id).toBe("T-001");
+
+    // CLI 3: spec-lock approve → EXECUTE.plan.
+    r = await cli(
+      ["gate", "decide", "spec-lock", "--approve", "--reason", "e2e"],
+      { LOAF_USER: "e2e@test.invalid" },
+    );
+    expect(r.exit).toBe(0);
+
+    // CLI 4: advance EXECUTE.plan → EXECUTE.work.
+    r = await cli(["advance", "EXECUTE.work"]);
+    expect(r.exit).toBe(0);
+
+    // CLI 5: tasks claim T-001 → in_progress.
+    r = await cli(["tasks", "claim", "T-001", "--json"]);
+    expect(r.exit).toBe(0);
+    expect(JSON.parse(r.stdout).status).toBe("in_progress");
+
+    // CLI 6: tasks list (T-001 in_progress, ready=false since no longer pending).
+    r = await cli(["tasks", "list", "--json"]);
+    let listOut = JSON.parse(r.stdout);
+    expect(listOut.tasks[0].status).toBe("in_progress");
+    expect(listOut.tasks[0].ready).toBe(false);
+
+    // CLI 7: tasks next at this point → null (no pending tasks).
+    r = await cli(["tasks", "next", "--json"]);
+    expect(JSON.parse(r.stdout).task_id).toBeNull();
+
+    // CLI 8: run red step (start + done passed).
+    r = await cli(["tasks", "step", "start", "--task", "T-001", "--step", "red"]);
+    expect(r.exit).toBe(0);
+    r = await cli(["tasks", "step", "done", "--task", "T-001", "--step", "red", "--result", "passed", "--json"]);
+    expect(r.exit).toBe(0);
+    expect(JSON.parse(r.stdout).task_status).toBe("in_progress"); // implement still pending
+
+    // CLI 9: run implement step (start + done passed → auto-promote).
+    r = await cli(["tasks", "step", "start", "--task", "T-001", "--step", "implement"]);
+    expect(r.exit).toBe(0);
+    r = await cli(["tasks", "step", "done", "--task", "T-001", "--step", "implement", "--result", "passed", "--json"]);
+    expect(r.exit).toBe(0);
+    const doneOut = JSON.parse(r.stdout);
+    expect(doneOut.step_status).toBe("passed");
+    expect(doneOut.task_status).toBe("done"); // auto-promote fired
+
+    // CLI 10: tasks list (T-001 done now).
+    r = await cli(["tasks", "list", "--json"]);
+    listOut = JSON.parse(r.stdout);
+    expect(listOut.tasks[0].status).toBe("done");
+
+    // CLI 11: advance EXECUTE.work → EXECUTE.done (manual advance; future
+    // slice may auto-derive when all tasks done).
+    r = await cli(["advance", "EXECUTE.done"]);
+    expect(r.exit).toBe(0);
+
+    // Journal sanity: a sequence of CLI-driven entries from submit through
+    // step_done auto-promote.
+    const journal = await fsP.readFile(path.join(dir, "journal.jsonl"), "utf8");
+    const lines = journal.trim().split("\n").map((l) => JSON.parse(l));
+    const cliEntries = lines.filter((l) =>
+      ["event:tasks_planned", "event:task_claimed", "event:task_step_started",
+        "event:task_step_done"].includes(l.kind),
+    );
+    // 1 tasks_planned + 1 task_claimed + 2 task_step_started + 2 task_step_done = 6
+    expect(cliEntries.length).toBe(6);
+    expect(cliEntries[cliEntries.length - 1].kind).toBe("event:task_step_done");
+    expect(cliEntries[cliEntries.length - 1].payload.step).toBe("implement");
+
+    // Slice 2 done-when: planning + execution lifecycle commands all
+    // landed through public CLI. SC4 final.
   });
 });

@@ -88,7 +88,12 @@ export type PreflightFailureCode =
   | "TASK_NOT_CLAIMABLE"
   | "TASK_ALREADY_CLAIMED"
   | "TASK_DEPS_NOT_SATISFIED"
-  | "TASK_NOT_CLAIMED";
+  | "TASK_NOT_CLAIMED"
+  // Slice 2 SC4 (codex r59 P2.1) — DUPLICATE_TASK_ID promoted from reducer
+  // to preflight so the user-facing CLI surface returns the actionable
+  // diagnostic directly instead of REDUCER_ERROR wrapping. Reducer keeps
+  // its defensive check as fallback.
+  | "DUPLICATE_TASK_ID";
 
 export type PreflightResult =
   | { ok: true }
@@ -289,6 +294,33 @@ export function preflight(
             "deliver from SETTLE.lessons requires verify_accepted=true (gate approval missing — journal may be inconsistent)",
           detail: { sub_state, verify_accepted },
         };
+      }
+    }
+  }
+
+  // (5d.1) Slice 2 SC4 — DUPLICATE_TASK_ID for event:tasks_planned (codex
+  // r59 P2.1 closure). Promoted from reducer-side invalidPayload (which
+  // mutate's Pass 1 wraps as REDUCER_ERROR) to top-level preflight so the
+  // user-facing CLI surface returns the actionable diagnostic directly.
+  // Reducer keeps its defensive duplicate-id sweep as fallback for raw
+  // mutate paths that bypass preflight.
+  if (entry.kind === "event:tasks_planned") {
+    const tasksPayload = (rawEntry as { payload?: Record<string, unknown> }).payload ?? {};
+    const incoming = tasksPayload["tasks"] as Array<{ id?: string }> | undefined;
+    if (Array.isArray(incoming)) {
+      const seenIds = new Set<string>();
+      for (const t of incoming) {
+        if (typeof t?.id === "string") {
+          if (seenIds.has(t.id)) {
+            return {
+              ok: false,
+              code: "DUPLICATE_TASK_ID",
+              message: `tasks_planned: task id ${t.id} appears more than once in payload`,
+              detail: { task_id: t.id },
+            };
+          }
+          seenIds.add(t.id);
+        }
       }
     }
   }

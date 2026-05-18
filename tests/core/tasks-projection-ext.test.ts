@@ -237,7 +237,11 @@ describe("event:tasks_planned — Slice 1.B sub-cycle 3a", () => {
     }
   });
 
-  test("rejects duplicate task ids in same payload (codex r24 #5)", () => {
+  test("rejects duplicate task ids in same payload (codex r24 #5 + Slice 2 SC4 r59 P2.1 surface promotion)", () => {
+    // Slice 2 SC4 (codex r59 P2.1): DUPLICATE_TASK_ID is now caught by
+    // preflight step 5d.1 (top-level surface). Reducer's defensive sweep
+    // still fires for raw paths that bypass preflight, but apply() routes
+    // through preflight first → top-level DUPLICATE_TASK_ID wins.
     const snap = seedAtExecutePlan();
     const result = apply(
       snap,
@@ -248,8 +252,8 @@ describe("event:tasks_planned — Slice 1.B sub-cycle 3a", () => {
     );
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.code).toBe("INVALID_PAYLOAD");
-      expect(result.message).toMatch(/DUPLICATE_TASK_ID/);
+      expect(result.code).toBe("DUPLICATE_TASK_ID");
+      expect(result.detail).toMatchObject({ task_id: "T-001" });
     }
   });
 

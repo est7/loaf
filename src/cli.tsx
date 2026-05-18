@@ -666,11 +666,20 @@ export async function main(argv: string[] = process.argv): Promise<number> {
         return;
       }
       // Read the actual claimed task status from the reducer-applied snapshot
-      // (codex r60 P2: do not hardcode "in_progress" — if the reducer ever
-      // changes claim semantics, the CLI output should reflect that without
-      // requiring a test to catch the drift).
+      // (codex r60 P2.1 + r61 BLOCK closure): fail-fast if the post-mutate
+      // lookup misses. Preflight + reducer guarantee task exists on success,
+      // so a missing lookup is an internal contract violation — match the
+      // fail-fast pattern step start / step done use, instead of silently
+      // falling back to a hardcoded status.
       const claimed = result.snapshot.tasks.find((t) => t.id === taskId);
-      const status = claimed?.status ?? "in_progress";
+      if (!claimed) {
+        emitFailure(
+          "REDUCER_ERROR",
+          `internal: task ${taskId} missing from snapshot after successful task_claimed apply`,
+        );
+        return;
+      }
+      const status = claimed.status;
       const out = {
         ok: true,
         feature: opts.feature,
@@ -685,6 +694,126 @@ export async function main(argv: string[] = process.argv): Promise<number> {
       }
     });
 
+  // ── loaf tasks list [--status <s>] [--json] ─────────────────────────
+  // Slice 2 SC4. Read-only snapshot dump of `snapshot.tasks`. Computes
+  // the derived `ready: boolean` column per Option C arch (codex r57):
+  //   ready = status === "pending" && depends_on.every(dep_done)
+  // No journal entry emitted. Optional `--status <s>` filter narrows
+  // output to tasks whose status matches the filter (pending / ready /
+  // in_progress / done / abandoned). Text mode: one line per task with
+  // stable columns `<T-id> <kind> <status> [ready]`. JSON: full slim
+  // TaskState array + derived ready boolean per task.
+  tasksCmd
+    .command("list")
+    .description("List tasks (read-only); shows derived `ready` column")
+    .requiredOption("--feature <name>", "Feature whose tasks to list")
+    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
+    .option(
+      "--status <s>",
+      "Filter by task status (pending|ready|in_progress|done|abandoned)",
+    )
+    .action(async (opts: { feature: string; featureDir?: string; status?: string }) => {
+      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      const session = await loadSession(featureDir);
+      if (!session.snapshot.state) {
+        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        return;
+      }
+      const tasks = session.snapshot.tasks;
+      const tasksById = new Map(tasks.map((t) => [t.id, t]));
+      const withDerived = tasks.map((t) => {
+        const depsAllDone =
+          t.depends_on.length === 0 ||
+          t.depends_on.every((d) => tasksById.get(d)?.status === "done");
+        return {
+          ...t,
+          ready: t.status === "pending" && depsAllDone,
+        };
+      });
+
+      // Apply --status filter (codex r60 P2 wording: validate filter
+      // value client-side for actionable USAGE error).
+      const validStatuses = ["pending", "ready", "in_progress", "done", "abandoned"] as const;
+      if (opts.status !== undefined && !(validStatuses as readonly string[]).includes(opts.status)) {
+        emitFailure(
+          "USAGE",
+          `--status must be one of: ${validStatuses.join(" | ")} (got ${opts.status})`,
+        );
+        return;
+      }
+      // "ready" status filter matches derived ready=true (since no task
+      // ever persists status="ready" per Option C arch — codex r57).
+      const filtered = withDerived.filter((t) => {
+        if (!opts.status) return true;
+        if (opts.status === "ready") return t.ready;
+        return t.status === opts.status;
+      });
+
+      if (useJson) {
+        process.stdout.write(
+          JSON.stringify({
+            ok: true,
+            feature: opts.feature,
+            count: filtered.length,
+            tasks: filtered,
+          }) + "\n",
+        );
+      } else {
+        if (filtered.length === 0) {
+          process.stdout.write(
+            opts.status
+              ? `no tasks match --status=${opts.status}\n`
+              : `no tasks in projection (run \`loaf tasks submit\` first)\n`,
+          );
+        } else {
+          for (const t of filtered) {
+            const ready = t.ready ? " [ready]" : "";
+            process.stdout.write(`${t.id} ${t.kind} ${t.status}${ready}\n`);
+          }
+        }
+      }
+    });
+
+  // ── loaf tasks next ─────────────────────────────────────────────────
+  // Slice 2 SC4. Computes the next ready task (status=pending +
+  // depends_on all done). Returns first match in journal order. No
+  // journal entry emitted. Exits 0 with empty stdout when no ready
+  // task exists (caller scripts can use this as a sentinel).
+  tasksCmd
+    .command("next")
+    .description("Print the next ready task id (or empty if none); read-only")
+    .requiredOption("--feature <name>", "Feature whose ready task to compute")
+    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
+    .action(async (opts: { feature: string; featureDir?: string }) => {
+      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      const session = await loadSession(featureDir);
+      if (!session.snapshot.state) {
+        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        return;
+      }
+      const tasks = session.snapshot.tasks;
+      const tasksById = new Map(tasks.map((t) => [t.id, t]));
+      const ready = tasks.find((t) => {
+        if (t.status !== "pending") return false;
+        return (
+          t.depends_on.length === 0 ||
+          t.depends_on.every((d) => tasksById.get(d)?.status === "done")
+        );
+      });
+      if (useJson) {
+        process.stdout.write(
+          JSON.stringify({
+            ok: true,
+            feature: opts.feature,
+            task_id: ready?.id ?? null,
+            kind: ready?.kind ?? null,
+          }) + "\n",
+        );
+      } else {
+        process.stdout.write(ready ? `${ready.id}\n` : "");
+      }
+    });
+
   // ── loaf tasks step <subcommand> ────────────────────────────────────
   // Slice 2 SC3. Sub-namespace for task step lifecycle. `step start` and
   // `step done` both require task.status=in_progress (SC1 TASK_NOT_CLAIMED).
@@ -696,6 +825,14 @@ export async function main(argv: string[] = process.argv): Promise<number> {
   // Slice 2 SC3. Emits `event:task_step_started`. SC1 preflight gates:
   // task exists + status=in_progress + step seeded (step-seeded check
   // remains reducer-side TASK_STEP_NOT_FOUND).
+  //
+  // Slice 2 SC4 (codex r60 P2.3 closure) — idempotency contract: running
+  // `step start` on a step already at status=running emits a second
+  // event:task_step_started entry; reducer rewrites step.status to running
+  // (idempotent state). This is accepted audit-trail redundancy — the
+  // journal records every claim/start regardless of effect. No
+  // TASK_STEP_ALREADY_RUNNING refine; future slice can add one if the
+  // redundancy becomes operationally noisy.
   stepCmd
     .command("start")
     .description("Mark a task step as running (task must be claimed)")
@@ -724,13 +861,31 @@ export async function main(argv: string[] = process.argv): Promise<number> {
         emitFailure(result.code, result.message, result.detail);
         return;
       }
+      // Slice 2 SC4 (codex r60 P2.2 closure): preflight + reducer guarantee
+      // task + step exist on success; fail-fast if either is missing so
+      // output schema never silently drops `step_status` to undefined.
       const updated = result.snapshot.tasks.find((t) => t.id === opts.task);
+      if (!updated) {
+        emitFailure(
+          "REDUCER_ERROR",
+          `internal: task ${opts.task} missing from snapshot after successful step_started apply`,
+        );
+        return;
+      }
+      const stepInfo = updated.steps[opts.step];
+      if (!stepInfo) {
+        emitFailure(
+          "REDUCER_ERROR",
+          `internal: step ${opts.step} missing from task ${opts.task} after successful step_started apply`,
+        );
+        return;
+      }
       const out = {
         ok: true,
         feature: opts.feature,
         task_id: opts.task,
         step: opts.step,
-        step_status: updated?.steps[opts.step]?.status,
+        step_status: stepInfo.status,
         sub_state: result.snapshot.state?.sub_state,
       };
       if (useJson) {
@@ -787,20 +942,37 @@ export async function main(argv: string[] = process.argv): Promise<number> {
         emitFailure(result.code, result.message, result.detail);
         return;
       }
+      // Slice 2 SC4 (codex r60 P2.2 closure): same fail-fast assertions
+      // as step start — concrete step_status / task_status in output.
       const updated = result.snapshot.tasks.find((t) => t.id === opts.task);
+      if (!updated) {
+        emitFailure(
+          "REDUCER_ERROR",
+          `internal: task ${opts.task} missing from snapshot after successful step_done apply`,
+        );
+        return;
+      }
+      const stepInfo = updated.steps[opts.step];
+      if (!stepInfo) {
+        emitFailure(
+          "REDUCER_ERROR",
+          `internal: step ${opts.step} missing from task ${opts.task} after successful step_done apply`,
+        );
+        return;
+      }
       const out = {
         ok: true,
         feature: opts.feature,
         task_id: opts.task,
         step: opts.step,
-        step_status: updated?.steps[opts.step]?.status,
-        task_status: updated?.status, // reflects auto-promote if it fired
+        step_status: stepInfo.status,
+        task_status: updated.status, // reflects auto-promote if it fired
         sub_state: result.snapshot.state?.sub_state,
       };
       if (useJson) {
         process.stdout.write(JSON.stringify(out) + "\n");
       } else {
-        const promote = updated?.status === "done" ? " (task auto-promoted to done)" : "";
+        const promote = updated.status === "done" ? " (task auto-promoted to done)" : "";
         process.stdout.write(
           `done ${opts.task} step=${opts.step} result=${opts.result}${promote}\n`,
         );
