@@ -10,6 +10,14 @@
 
 import { z } from "zod";
 
+import {
+  FeatureIdPayload,
+  NeedsClarification,
+  RequirementEarsVerifiable,
+  ScenarioGherkin,
+  VisualContract,
+} from "./spec-schema.js";
+
 // Hard byte ceiling per serialized JournalEntry. Mirrors §34
 // entry_byte_limit_kb (64KB); enforced by appendEntry at step 5 final
 // validate. Long fields exceeding sidecar_threshold_kb (8KB) MUST be
@@ -322,126 +330,11 @@ const SessionReasonPayload = z
   })
   .passthrough();
 
-// ── SPEC content payload schemas (Slice 1.B sub-cycle 1) ─────────────────
-// Runtime mirror of docs/schemas.ts §7-10. Full canonical body fields are
-// REQUIRED so journal replay can rebuild spec.md (deletion / migration /
-// `loaf doctor --rebuild`). Reducer extracts a slim projection at apply
-// time; the journal stays the single source of truth.
-//
-// Co-located here (vs imported from docs/schemas.ts) because docs/ is
-// outside tsconfig.include and is the docs/protocol surface, not a runtime
-// package boundary (codex r17).
-
-const ReqIdPayload = z.string().regex(/^REQ-[A-Z][A-Z0-9]*-\d{3,}$/);
-const ScenIdPayload = z.string().regex(/^SCEN-[A-Z][A-Z0-9-]*-\d{3,}$/);
-const VisIdPayload = z.string().regex(/^VIS-[A-Z][A-Z0-9-]*-\d{3,}$/);
-const FeatureIdPayload = z.string().regex(/^F-\d{3,}$/);
-const NcIdPayload = z.string().regex(/^NC-\d{3,}$/);
-
-const MeasurablePayload = z
-  .object({
-    metric: z.string().min(3),
-    threshold: z.union([z.string(), z.number()]),
-    unit: z.string().optional(),
-    direction: z.enum(["lte", "gte", "eq"]).default("lte"),
-  })
-  .passthrough();
-
-const VerifiabilityRefine = z
-  .object({
-    measurable: MeasurablePayload.optional(),
-    verified_by_scenarios: z.array(ScenIdPayload).optional(),
-    acceptance_na: z.literal(true).optional(),
-    acceptance_na_reason: z.string().min(10).optional(),
-  })
-  .refine(
-    (v) => {
-      const hasMeasurable = v.measurable !== undefined;
-      const hasScenarios = v.verified_by_scenarios !== undefined && v.verified_by_scenarios.length > 0;
-      const hasNa = v.acceptance_na === true && (v.acceptance_na_reason?.length ?? 0) >= 10;
-      return hasMeasurable || hasScenarios || hasNa;
-    },
-    { message: "REQ must declare measurable, verified_by_scenarios[], or acceptance_na+reason (≥10 chars)" },
-  );
-
-const ReqBase = z.object({ id: ReqIdPayload });
-
-const RequirementUbiquitousPayload = ReqBase.extend({
-  type: z.literal("ubiquitous"),
-  response: z.string().min(10),
-}).and(VerifiabilityRefine);
-
-const RequirementEventDrivenPayload = ReqBase.extend({
-  type: z.literal("event-driven"),
-  trigger: z.string().min(5),
-  response: z.string().min(10),
-}).and(VerifiabilityRefine);
-
-const RequirementStateDrivenPayload = ReqBase.extend({
-  type: z.literal("state-driven"),
-  while_: z.string().min(5),
-  behavior: z.string().min(10),
-}).and(VerifiabilityRefine);
-
-const RequirementOptionalPayload = ReqBase.extend({
-  type: z.literal("optional"),
-  feature: z.string().min(5),
-  response: z.string().min(10),
-}).and(VerifiabilityRefine);
-
-const RequirementUnwantedPayload = ReqBase.extend({
-  type: z.literal("unwanted"),
-  condition: z.string().min(5),
-  response: z.string().min(10),
-}).and(VerifiabilityRefine);
-
-const RequirementEarsPayload = z.union([
-  RequirementUbiquitousPayload,
-  RequirementEventDrivenPayload,
-  RequirementStateDrivenPayload,
-  RequirementOptionalPayload,
-  RequirementUnwantedPayload,
-]);
-
-const ScenarioGherkinPayload = z
-  .object({
-    id: ScenIdPayload,
-    name: z.string().min(3),
-    tag: z.enum(["happy", "edge", "error", "e2e"]).optional(),
-    requires_acceptance: z.boolean().optional(),
-    acceptance_na: z.string().min(5).optional(),
-    given: z.array(z.string().min(3)).min(1),
-    when: z.array(z.string().min(3)).min(1),
-    then: z.array(z.string().min(3)).min(1),
-  })
-  .refine(
-    (s) => !(s.tag === "e2e" && s.acceptance_na !== undefined && s.requires_acceptance),
-    { message: "cannot set both requires_acceptance and acceptance_na" },
-  );
-
-const VisualContractPayload = z
-  .object({
-    id: VisIdPayload,
-    target: z.string().min(3),
-    checks: z.array(z.string().min(3)).min(1),
-    requires_visual: z.boolean().optional(),
-    visual_na: z.string().min(5).optional(),
-  })
-  .passthrough();
-
-const NeedsClarificationPayload = z
-  .object({
-    id: NcIdPayload,
-    question: z.string().min(5),
-    context: z.string().optional(),
-    options: z.array(z.string()).optional(),
-  })
-  .passthrough();
-
-// Journal payload schemas — companion add-* entries carry one item each;
-// spec_submitted carries the frontmatter header + adr_refs / needs_clarification
-// (the only fields that have no per-item companion entry, so replay would
-// otherwise lose them — codex r17 ripple #4).
+// ── SPEC content payload schemas (Slice 1.B sub-cycle 1, refactored r20) ──
+// Structural shapes + verifiability refine live in `spec-schema.ts` so that
+// (a) the verifiable variant gates journal append strict, and (b) the
+// structural variant powers spec.md frontmatter parsing where missing
+// verifiability is reachable as spec-lock check 5 (codex r20 BLOCK fix).
 
 const BatchSpecVersion = z.number().int().positive();
 
@@ -456,7 +349,7 @@ export const SpecSubmittedPayload = z
       .passthrough(),
     intent: z.string().min(20),
     adr_refs: z.array(z.string()),
-    needs_clarification: z.array(NeedsClarificationPayload),
+    needs_clarification: z.array(NeedsClarification),
   })
   .passthrough();
 export type SpecSubmittedPayload = z.infer<typeof SpecSubmittedPayload>;
@@ -464,7 +357,7 @@ export type SpecSubmittedPayload = z.infer<typeof SpecSubmittedPayload>;
 export const SpecReqAddedPayload = z
   .object({
     spec_version: BatchSpecVersion,
-    req: RequirementEarsPayload,
+    req: RequirementEarsVerifiable,
   })
   .passthrough();
 export type SpecReqAddedPayload = z.infer<typeof SpecReqAddedPayload>;
@@ -472,7 +365,7 @@ export type SpecReqAddedPayload = z.infer<typeof SpecReqAddedPayload>;
 export const SpecScenarioAddedPayload = z
   .object({
     spec_version: BatchSpecVersion,
-    scenario: ScenarioGherkinPayload,
+    scenario: ScenarioGherkin,
   })
   .passthrough();
 export type SpecScenarioAddedPayload = z.infer<typeof SpecScenarioAddedPayload>;
@@ -480,7 +373,7 @@ export type SpecScenarioAddedPayload = z.infer<typeof SpecScenarioAddedPayload>;
 export const SpecVisualAddedPayload = z
   .object({
     spec_version: BatchSpecVersion,
-    visual: VisualContractPayload,
+    visual: VisualContract,
   })
   .passthrough();
 export type SpecVisualAddedPayload = z.infer<typeof SpecVisualAddedPayload>;

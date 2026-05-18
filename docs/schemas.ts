@@ -3722,6 +3722,9 @@ export const DiagnosticCode = z.enum([
   "DUPLICATE_REQ_ID",                      // src/core/reducer.ts spec_req_added — id already in requirements[]
   "DUPLICATE_SCEN_ID",                     // src/core/reducer.ts spec_scenario_added — id already in scenarios[]
   "DUPLICATE_VIS_ID",                      // src/core/reducer.ts spec_visual_added — id already in visual_contracts[]
+  // ── Slice 1.B sub-cycle 2 — spec-lock gate (codex r20) ──
+  "SPEC_FRONTMATTER_INVALID",              // src/core/spec-frontmatter.ts — disk/yaml/zod read failures collapsed under check 1 with detail.subcode (SPEC_NOT_FOUND | SPEC_YAML_INVALID | SPEC_FRONTMATTER_INVALID)
+  "SPEC_HAS_UNCLARIFIED",                  // src/core/gates/spec-lock-check.ts — check 2: frontmatter.needs_clarification non-empty
 ]);
 export type DiagnosticCode = z.infer<typeof DiagnosticCode>;
 
@@ -4207,6 +4210,22 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
     fix_template:
       "allocate a fresh VIS id under the same id_namespace, or amend via finding mechanism if retiring an existing visual contract",
     doc_anchor: "protocol.md#§600",
+  },
+  SPEC_FRONTMATTER_INVALID: {
+    exit_code: 2,
+    message_template:
+      "spec.md frontmatter is invalid for spec-lock check 1 (subcode={subcode}): {detail}",
+    fix_template:
+      "subcode=SPEC_NOT_FOUND: run `loaf spec init` then `loaf spec submit` to seed spec.md; subcode=SPEC_YAML_INVALID: check the `---`-fenced YAML block at the top of spec.md for syntax errors; subcode=SPEC_FRONTMATTER_INVALID: run `loaf spec submit --schema` to dump the SpecFrontmatter schema and fix the offending field",
+    doc_anchor: "protocol.md#§5.1",
+  },
+  SPEC_HAS_UNCLARIFIED: {
+    exit_code: 2,
+    message_template:
+      "spec has {count} unresolved needs_clarification entries (ids={ids}); resolve or remove them before spec-lock can pass",
+    fix_template:
+      "edit spec.md to remove resolved needs_clarification entries, or run `loaf finding raise --category spec-gap --action clarify` to formalize the resolution flow; spec-lock check 2 requires needs_clarification === []",
+    doc_anchor: "protocol.md#§5.1",
   },
 } as const;
 
