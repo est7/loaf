@@ -512,6 +512,80 @@ export async function main(argv: string[] = process.argv): Promise<number> {
       }
     });
 
+  // ── loaf settle ─────────────────────────────────────────────────────
+  // Slice 1.D sub-cycle 3. Deep-ceremony-only cursor advance:
+  // VERIFY.accept → SETTLE.reconcile. Emits a single
+  // `event:phase_advanced` with `cli:` actor — settle is a deterministic
+  // cursor move (no human decision), so unlike `loaf deliver` it does not
+  // resolve a human:* actor. Per protocol §10.6 chaos deviation, the
+  // command keeps the single-verb name even though it follows the
+  // event:phase_advanced kind contract.
+  //
+  // All failure paths surface through stable-core validators:
+  //   * cursor != VERIFY.accept           → TRANSITION_ILLEGAL (edge legality)
+  //   * cursor=VERIFY.accept, settle_phase=false → SETTLE_PHASE_DISABLED
+  //   * cursor=VERIFY.accept, verify_accepted=false → SETTLE_NOT_ACCEPTED
+  //   * no session                        → NO_SESSION
+  //
+  // Output (text mode):
+  //   `settled <feature> — VERIFY.accept → SETTLE.reconcile`
+  //   `next: loaf advance SETTLE.lessons`
+  // JSON includes `advisory: string[]` for scripted chaining. The output
+  // intentionally does NOT claim `snapshots/reconcile.json rebuilt`
+  // (per codex r49 Q4): the derived reconcile snapshot is deferred to a
+  // later slice; the CLI here only owns the cursor transition.
+  program
+    .command("settle")
+    .description("Advance VERIFY.accept → SETTLE.reconcile (deep ceremony only)")
+    .requiredOption("--feature <name>", "Feature whose session to settle")
+    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
+    .action(async (opts: { feature: string; featureDir?: string }) => {
+      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      const session = await loadSession(featureDir);
+      const from = session.snapshot.state?.sub_state;
+      if (!from) {
+        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        return;
+      }
+
+      // mutate. preflight + transition validator enforce all preconditions
+      // (settle_phase / verify_accepted / cursor edge legality).
+      const result = await mutate(
+        {
+          at: new Date().toISOString(),
+          actor, // module-level cli:loaf actor — settle is machine-driven
+          entry_schema_version: 1,
+          kind: "event:phase_advanced",
+          payload: { from, to: "SETTLE.reconcile" },
+        },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq },
+      );
+      if (!result.ok) {
+        emitFailure(result.code, result.message, result.detail);
+        return;
+      }
+
+      const advisory = [
+        "complete SETTLE.* phase (loaf advance SETTLE.lessons) then `loaf deliver`",
+      ];
+      const out = {
+        ok: true,
+        feature: opts.feature,
+        from,
+        to: "SETTLE.reconcile" as const,
+        sub_state: result.snapshot.state?.sub_state,
+        advisory,
+      };
+      if (useJson) {
+        process.stdout.write(JSON.stringify(out) + "\n");
+      } else {
+        process.stdout.write(
+          `settled ${opts.feature} — ${from} → SETTLE.reconcile\n` +
+          `next: ${advisory[0]}\n`,
+        );
+      }
+    });
+
   try {
     await program.parseAsync(argv);
     return exitCode;

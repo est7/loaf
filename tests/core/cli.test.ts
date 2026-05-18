@@ -911,16 +911,14 @@ async function seedFeatureAtVerifyAcceptApproved(dir: string): Promise<void> {
 }
 
 /**
- * Seed a feature dir all the way through to SETTLE.lessons with deep
- * ceremony (strict_spec_review false — see DEEP_NO_STRICT_REVIEW_CEREMONY
- * comment). Path: session:started (deep) → walk to SPEC.design → spec-lock
- * approve → walk to VERIFY.accept → verify-accept approve → advance
- * VERIFY.accept→SETTLE.reconcile→SETTLE.lessons via raw event:phase_advanced.
- * After this returns, cursor is at SETTLE.lessons, verify_accepted=true,
- * ceremony settle_phase=true; the deliver preflight will accept from this
- * source provided no spike tasks exist (seed plans only T-001 behavioral).
+ * Sub-cycle 3 refactor: extracted from seedFeatureAtSettleLessons so the
+ * `loaf settle` describe block can land at VERIFY.accept (deep + approved)
+ * and call settle CLI directly. Seeds session:started (deep, non-strict)
+ * → walk to SPEC.design → spec-lock approve → walk to VERIFY.accept →
+ * verify-accept approve via raw mutate. Returns with cursor at
+ * VERIFY.accept, verify_accepted=true, ceremony deep+settle_phase=true.
  */
-async function seedFeatureAtSettleLessons(dir: string): Promise<void> {
+async function seedFeatureAtVerifyAcceptApprovedDeep(dir: string): Promise<void> {
   // Step 1: write spec.md (same shape as seedFeatureAtSpecDesign).
   await fsP.writeFile(
     path.join(dir, "spec.md"),
@@ -1143,31 +1141,50 @@ prose body here
     { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
   );
   if (!verifyApprove.ok) throw new Error(`settle-seed verify-accept failed: ${verifyApprove.message}`);
-  snapshot = verifyApprove.snapshot;
-  tailSeq++;
+}
 
-  // Step 10: advance VERIFY.accept → SETTLE.reconcile → SETTLE.lessons via raw
-  // event:phase_advanced. `loaf settle` CLI lands in sub-cycle 3; until then,
-  // the cursor walk uses the validator directly (verify_accepted=true now, so
-  // SETTLE_NOT_ACCEPTED does not fire).
-  for (const [from, to] of [
-    ["VERIFY.accept", "SETTLE.reconcile"],
-    ["SETTLE.reconcile", "SETTLE.lessons"],
-  ] as Array<[string, string]>) {
-    const r = await mutateRaw(
-      {
-        at: new Date(2026, 4, 15, 12, 0, tailSeq + 1).toISOString(),
-        actor: "cli:loaf",
-        entry_schema_version: 1,
-        kind: "event:phase_advanced",
-        payload: { from: from as any, to: to as any },
-      },
-      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
-    );
-    if (!r.ok) throw new Error(`settle-seed walk4 ${from}->${to} failed: ${r.message}`);
-    snapshot = r.snapshot;
-    tailSeq++;
+/**
+ * Compose seedFeatureAtVerifyAcceptApprovedDeep + walk through SETTLE.* so
+ * the cursor reaches SETTLE.lessons (the source sub_state used by the
+ * deliver-from-SETTLE test). Sub-cycle 3 closes codex r53 NB2: the
+ * VERIFY.accept → SETTLE.reconcile leg now runs through the public
+ * `loaf settle` CLI; SETTLE.reconcile → SETTLE.lessons uses raw mutate
+ * because there is no public CLI for that intermediate advance yet
+ * (would be `loaf advance SETTLE.lessons`).
+ */
+async function seedFeatureAtSettleLessons(dir: string): Promise<void> {
+  await seedFeatureAtVerifyAcceptApprovedDeep(dir);
+
+  // Run `loaf settle` to make the VERIFY.accept → SETTLE.reconcile leg
+  // go through the production CLI (codex r53 NB2 closure).
+  const settleResult = await runCli(
+    [
+      "settle",
+      "--feature", "auth-refresh",
+      "--feature-dir", dir,
+      "--json",
+    ],
+  );
+  if (settleResult.exit !== 0) {
+    throw new Error(`settle-seed loaf settle failed: ${settleResult.stderr || settleResult.stdout}`);
   }
+
+  // Raw advance SETTLE.reconcile → SETTLE.lessons (no CLI surface for this
+  // intermediate advance until `loaf advance` extends to deep ceremonies in
+  // a follow-up slice).
+  const { loadSession } = await import("../../src/core/cli-runtime.js");
+  const { snapshot, tail_seq } = await loadSession(dir);
+  const r = await mutateRaw(
+    {
+      at: new Date(2026, 4, 15, 13, 0, 0).toISOString(),
+      actor: "cli:loaf",
+      entry_schema_version: 1,
+      kind: "event:phase_advanced",
+      payload: { from: "SETTLE.reconcile", to: "SETTLE.lessons" },
+    },
+    { feature_dir: dir, snapshot, tail_seq, fsync: false },
+  );
+  if (!r.ok) throw new Error(`settle-seed SETTLE.reconcile→lessons failed: ${r.message}`);
 }
 
 describe("loaf deliver — Slice 1.D sub-cycle 2 (MVP)", () => {
@@ -1494,6 +1511,347 @@ describe("loaf deliver — Slice 1.D sub-cycle 2 (MVP)", () => {
     expect(result.stdout).toBe("");
     const errJson = JSON.parse(result.stderr.trim());
     expect(errJson.code).toBe("NO_HUMAN_ACTOR");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Slice 1.D sub-cycle 3 — loaf settle CLI (MVP)
+//
+// VERIFY.accept → SETTLE.reconcile via event:phase_advanced with cli:
+// actor. All preconditions (settle_phase / verify_accepted / cursor edge
+// legality) are enforced by sub-cycle 1's transition validator —
+// CLI is a thin wrapper that emits a single entry and renders advisory.
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("loaf settle — Slice 1.D sub-cycle 3 (MVP)", () => {
+  test("happy: deep + verify_accepted=true → SETTLE.reconcile", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtVerifyAcceptApprovedDeep(dir);
+
+    const result = await runCli(
+      [
+        "settle",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--json",
+      ],
+    );
+
+    expect(result.exit).toBe(0);
+    expect(result.stderr).toBe("");
+    const out = JSON.parse(result.stdout);
+    expect(out.ok).toBe(true);
+    expect(out.feature).toBe("auth-refresh");
+    expect(out.from).toBe("VERIFY.accept");
+    expect(out.to).toBe("SETTLE.reconcile");
+    expect(out.sub_state).toBe("SETTLE.reconcile");
+    expect(Array.isArray(out.advisory)).toBe(true);
+    expect(out.advisory.length).toBeGreaterThan(0);
+
+    // Journal sanity: last entry is event:phase_advanced VERIFY.accept→SETTLE.reconcile.
+    const journal = await fsP.readFile(path.join(dir, "journal.jsonl"), "utf8");
+    const lines = journal.trim().split("\n").map((l) => JSON.parse(l));
+    const last = lines[lines.length - 1];
+    expect(last.kind).toBe("event:phase_advanced");
+    expect(last.payload.from).toBe("VERIFY.accept");
+    expect(last.payload.to).toBe("SETTLE.reconcile");
+    // cli: actor (not human — settle is machine cursor advance per codex r49 Q6).
+    expect(last.actor.startsWith("cli:")).toBe(true);
+  });
+
+  test("text-mode output renders advisory hint on stdout", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtVerifyAcceptApprovedDeep(dir);
+
+    const result = await runCli(
+      [
+        "settle",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+      ],
+    );
+
+    expect(result.exit).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toMatch(/settled auth-refresh/);
+    expect(result.stdout).toMatch(/VERIFY\.accept → SETTLE\.reconcile/);
+    expect(result.stdout).toMatch(/^next: /m);
+    // codex r49 Q4: must NOT claim reconcile.json rebuilt — deferred slice.
+    expect(result.stdout).not.toMatch(/reconcile\.json/);
+  });
+
+  test("fail: standard ceremony (settle_phase=false) → SETTLE_PHASE_DISABLED", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtVerifyAcceptApproved(dir); // standard + verify_accepted=true
+
+    const result = await runCli(
+      [
+        "settle",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--json",
+      ],
+    );
+
+    expect(result.exit).toBe(2);
+    expect(result.stdout).toBe("");
+    const errJson = JSON.parse(result.stderr.trim());
+    expect(errJson.code).toBe("SETTLE_PHASE_DISABLED");
+  });
+
+  test("fail: deep ceremony + verify_accepted=false → SETTLE_NOT_ACCEPTED", async () => {
+    // Build a deep walk to VERIFY.accept WITHOUT verify-accept approval.
+    // Inline because no shared helper covers "deep at VERIFY.accept, no
+    // approve" — the existing seedFeatureAtVerifyAcceptApprovedDeep adds the
+    // approval, which we explicitly want to skip here.
+    const dir = await tmpFeatureDir();
+    await fsP.writeFile(
+      path.join(dir, "spec.md"),
+      `---
+schema_version: 2
+spec_version: 1
+feature:
+  id: F-001
+  name: OAuth token refresh
+intent: users should not perceive auth recovery flows in flight
+adr_refs: []
+requirements:
+  - id: REQ-AUTH-001
+    type: ubiquitous
+    response: the system shall do something measurable here
+    acceptance_na: true
+    acceptance_na_reason: subjective UX validated via manual testing scope
+scenarios: []
+needs_clarification: []
+---
+
+## Why
+`,
+    );
+    let snapshot = (await import("../../src/core/reducer.js")).initialSnapshot();
+    let tailSeq = -1;
+    const boot = await mutateRaw(
+      {
+        at: "2026-05-15T10:00:00.000Z",
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "session:started",
+        payload: {
+          session_id: "550e8400-e29b-41d4-a716-446655440000",
+          feature: "auth-refresh",
+          ceremony: DEEP_NO_STRICT_REVIEW_CEREMONY,
+        },
+      },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    );
+    if (!boot.ok) throw new Error(`no-approve seed boot failed: ${boot.message}`);
+    snapshot = boot.snapshot;
+    tailSeq++;
+
+    for (const [from, to] of [
+      ["TRIAGE.score", "TRIAGE.confirm"],
+      ["TRIAGE.confirm", "SPEC.proposal"],
+    ] as Array<[string, string]>) {
+      const r = await mutateRaw(
+        {
+          at: new Date(2026, 4, 15, 10, 0, tailSeq + 1).toISOString(),
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "event:phase_advanced",
+          payload: { from: from as any, to: to as any },
+        },
+        { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+      );
+      if (!r.ok) throw new Error(`walk failed: ${r.message}`);
+      snapshot = r.snapshot;
+      tailSeq++;
+    }
+    const submitBatch = await mutateBatchRaw(
+      [
+        {
+          at: new Date(2026, 4, 15, 10, 0, tailSeq + 1).toISOString(),
+          actor: "human:seed@test.invalid",
+          entry_schema_version: 1,
+          kind: "event:spec_submitted",
+          payload: {
+            spec_version: 1,
+            feature: { id: "F-001", name: "OAuth token refresh" },
+            intent: "users should not perceive auth recovery flows in flight",
+            adr_refs: [],
+            needs_clarification: [],
+          },
+        },
+        {
+          at: new Date(2026, 4, 15, 10, 0, tailSeq + 2).toISOString(),
+          actor: "human:seed@test.invalid",
+          entry_schema_version: 1,
+          kind: "event:spec_req_added",
+          payload: {
+            spec_version: 1,
+            req: {
+              id: "REQ-AUTH-001",
+              type: "ubiquitous",
+              response: "the system shall do something measurable here",
+              acceptance_na: true,
+              acceptance_na_reason: "subjective UX validated via manual testing scope",
+            },
+          },
+        },
+      ],
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    );
+    if (!submitBatch.ok) throw new Error(`submit failed: ${submitBatch.message}`);
+    snapshot = submitBatch.snapshot;
+    tailSeq += 2;
+    for (const [from, to] of [
+      ["SPEC.proposal", "SPEC.spec"],
+      ["SPEC.spec", "SPEC.plan"],
+      ["SPEC.plan", "SPEC.design"],
+    ] as Array<[string, string]>) {
+      const r = await mutateRaw(
+        {
+          at: new Date(2026, 4, 15, 10, 0, tailSeq + 1).toISOString(),
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "event:phase_advanced",
+          payload: { from: from as any, to: to as any },
+        },
+        { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+      );
+      if (!r.ok) throw new Error(`walk2 failed: ${r.message}`);
+      snapshot = r.snapshot;
+      tailSeq++;
+    }
+    const planResult = await mutateRaw(
+      {
+        at: new Date(2026, 4, 15, 10, 0, tailSeq + 1).toISOString(),
+        actor: "human:seed@test.invalid",
+        entry_schema_version: 1,
+        kind: "event:tasks_planned",
+        payload: {
+          based_on: { spec: 1 },
+          tasks: [
+            {
+              id: "T-001",
+              kind: "behavioral",
+              drives: ["REQ-AUTH-001"],
+              tests: ["TokenCoord.refreshOnce"],
+              status: "pending",
+              depends_on: [],
+              labels: [],
+              execution: {
+                red: { applicability: "must", status: "pending", evidence_refs: [] },
+                implement: { applicability: "must", status: "pending", evidence_refs: [] },
+                refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+              },
+            },
+          ],
+        },
+      },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    );
+    if (!planResult.ok) throw new Error(`plan failed: ${planResult.message}`);
+    snapshot = planResult.snapshot;
+    tailSeq++;
+    const lockBatch = await mutateBatchRaw(
+      [
+        {
+          at: new Date(2026, 4, 15, 11, 0, tailSeq + 1).toISOString(),
+          actor: "human:seed@test.invalid",
+          entry_schema_version: 1,
+          kind: "gate:decided",
+          payload: { gate_kind: "spec-lock", decision: "approved", reason: "seed approval" },
+        },
+        {
+          at: new Date(2026, 4, 15, 11, 0, tailSeq + 2).toISOString(),
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "event:phase_advanced",
+          payload: { from: "SPEC.design", to: "EXECUTE.plan" },
+        },
+      ],
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    );
+    if (!lockBatch.ok) throw new Error(`lock failed: ${lockBatch.message}`);
+    snapshot = lockBatch.snapshot;
+    tailSeq += 2;
+    for (const [from, to] of [
+      ["EXECUTE.plan", "EXECUTE.work"],
+      ["EXECUTE.work", "EXECUTE.done"],
+      ["EXECUTE.done", "VERIFY.plan"],
+      ["VERIFY.plan", "VERIFY.run"],
+      ["VERIFY.run", "VERIFY.review"],
+      ["VERIFY.review", "VERIFY.acceptance"],
+      ["VERIFY.acceptance", "VERIFY.visual"],
+      ["VERIFY.visual", "VERIFY.accept"],
+    ] as Array<[string, string]>) {
+      const r = await mutateRaw(
+        {
+          at: new Date(2026, 4, 15, 11, 0, tailSeq + 1).toISOString(),
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "event:phase_advanced",
+          payload: { from: from as any, to: to as any },
+        },
+        { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+      );
+      if (!r.ok) throw new Error(`walk3 failed: ${r.message}`);
+      snapshot = r.snapshot;
+      tailSeq++;
+    }
+    // NO verify-accept approval — verify_accepted stays false at VERIFY.accept.
+
+    const result = await runCli(
+      [
+        "settle",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--json",
+      ],
+    );
+
+    expect(result.exit).toBe(2);
+    expect(result.stdout).toBe("");
+    const errJson = JSON.parse(result.stderr.trim());
+    expect(errJson.code).toBe("SETTLE_NOT_ACCEPTED");
+  });
+
+  test("fail: wrong sub_state (SPEC.design) → TRANSITION_ILLEGAL", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtSpecDesign(dir); // cursor at SPEC.design
+
+    const result = await runCli(
+      [
+        "settle",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--json",
+      ],
+    );
+
+    expect(result.exit).toBe(2);
+    expect(result.stdout).toBe("");
+    const errJson = JSON.parse(result.stderr.trim());
+    expect(errJson.code).toBe("TRANSITION_ILLEGAL");
+  });
+
+  test("fail: no session → NO_SESSION", async () => {
+    const dir = await tmpFeatureDir();
+    // No seed — empty feature dir.
+
+    const result = await runCli(
+      [
+        "settle",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--json",
+      ],
+    );
+
+    expect(result.exit).toBe(2);
+    expect(result.stdout).toBe("");
+    const errJson = JSON.parse(result.stderr.trim());
+    expect(errJson.code).toBe("NO_SESSION");
   });
 });
 
