@@ -80,7 +80,14 @@ function payloadFor(kind: string): Record<string, unknown> {
     case "gate:decided":
       return { gate_kind: "spec-lock", decision: "approved", reason: "ok" };
     case "evidence:added":
-      return { id: "EV-000001", kind: "local-check" };
+      return {
+        id: "EV-000001",
+        kind: "local-check",
+        iteration: 1,
+        actor: "cli:loaf",
+        result: "passed",
+        summary: "stub local-check evidence",
+      };
     case "finding:raised":
       return { id: "FND-001", category: "spec-gap", action: "amend-spec" };
     case "finding:closed":

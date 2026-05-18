@@ -43,6 +43,10 @@ async function buildFixture(): Promise<string> {
     }),
     "spec.md": "## REQ-AUTH-001\nWHEN user logs in, system shall issue a session token.\n",
     "evidence.jsonl":
+      // v0.0.x legacy kind="test" exercises the migration normalization
+      // path (test → local-check per docs/schemas.ts:741-749 +
+      // ADR-0005:720). Restored from r34 fixture churn after r35 noted
+      // the documented legacy values must round-trip.
       JSON.stringify({ id: "EV-000001", kind: "test", result: "passed" }) + "\n",
     "findings.jsonl":
       JSON.stringify({ id: "FND-001", category: "spec-gap", action: "amend-spec" }) + "\n",
@@ -111,9 +115,12 @@ describe("migrateV2 — Stage 5 §5.2", () => {
       expect(replay.snapshot.tasks).toHaveLength(2);
       expect(replay.snapshot.tasks[0]!.id).toBe("T-001");
       expect(replay.snapshot.tasks[0]!.status).toBe("in_progress");
-      // - evidence.jsonl had 1 entry
+      // - evidence.jsonl had 1 entry; legacy kind="test" normalized to
+      //   "local-check" via LEGACY_EVIDENCE_KIND_MAP per docs §741-749 +
+      //   ADR-0005:720 (codex r35 fix).
       expect(replay.snapshot.evidence).toHaveLength(1);
       expect(replay.snapshot.evidence[0]!.id).toBe("EV-000001");
+      expect(replay.snapshot.evidence[0]!.kind).toBe("local-check");
       // - findings.jsonl had 1 entry
       expect(replay.snapshot.findings).toHaveLength(1);
       expect(replay.snapshot.findings[0]!.id).toBe("FND-001");
@@ -379,6 +386,28 @@ describe("migrateV2 — Stage 5 §5.2", () => {
     expect(caught).not.toBeNull();
     expect(caught!.code).toBe("MIGRATION_INCOMPLETE");
     expect(caught!.message).toMatch(/evidence/);
+  });
+
+  // Slice 1.C sub-cycle 1 r35: fail-loud goal preserved for non-documented
+  // legacy values. Only documented v0.0.x kinds (test/review/visual/manual/
+  // waiver/gate-decision) are mapped; anything else throws.
+  test("migration rejects evidence.jsonl line with undocumented legacy kind", async () => {
+    const featureDir = await buildFixture();
+    await fs.writeFile(
+      path.join(featureDir, "evidence.jsonl"),
+      JSON.stringify({ id: "EV-000001", kind: "bogus_unknown_kind", result: "passed" }) + "\n",
+    );
+
+    let caught: MigrationError | null = null;
+    try {
+      await migrateV2(featureDir, { fsync: false });
+    } catch (err) {
+      caught = err as MigrationError;
+    }
+    expect(caught).not.toBeNull();
+    expect(caught!.code).toBe("MIGRATION_INCOMPLETE");
+    expect(caught!.message).toMatch(/unknown kind/);
+    expect(caught!.message).toMatch(/bogus_unknown_kind/);
   });
 
   test("migration rejects findings.jsonl line with invalid status enum", async () => {

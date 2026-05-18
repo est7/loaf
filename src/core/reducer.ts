@@ -14,6 +14,12 @@ import { preflight } from "./reducer/preflight.js";
 import type { PreflightFailureCode } from "./reducer/preflight.js";
 import { extractTaskSlim, shouldPromoteToDone } from "./task-schema.js";
 import type { TaskFullProjection } from "./task-schema.js";
+import type {
+  AttachmentPayload,
+  EvidenceKind,
+  EvidenceResult,
+  VerifyCheckKind,
+} from "./evidence-schema.js";
 
 export interface SessionState {
   session_id: string;
@@ -62,12 +68,29 @@ export interface TaskState {
   requires_visual?: boolean;
 }
 
+// Slice 1.C sub-cycle 1: 3 new projection fields (check / reason /
+// attachments) back verify-accept gate check 1 (lane status via
+// EvidenceEntry.check) + check 3 (canSatisfy reason/attachments) without
+// re-reading journal payload at gate time.
+//
+// EvidenceState is the SLIM projection — not a 1:1 mirror of the full
+// EvidenceFullPayload journal payload. The full payload also carries
+// iteration / summary / cmd / exit / wall_ms / task_id / gate / decided_by
+// / based_on / waiver_obligation_id / external_ref; those live on the
+// journal entry and round-trip via doctor --rebuild but do not need to
+// surface in the snapshot projection for verify-accept gate evaluation.
+//
+// `test_layer` intentionally NOT mirrored even at the full-payload layer:
+// codex r33 confirmed §5.4 canSatisfy doesn't require it for current MVP.
 export interface EvidenceState {
   id: string;
-  kind: string;
-  result?: string;
+  kind: EvidenceKind;
+  result?: EvidenceResult;
   covers: string[];
   actor: string;
+  check?: VerifyCheckKind;
+  reason?: string;
+  attachments?: AttachmentPayload[];
 }
 
 export interface FindingState {
@@ -579,15 +602,36 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
     }
 
     case "evidence:added": {
-      const payload = entry.payload as { id?: string; kind?: string; result?: string; covers?: string[]; actor?: string };
+      // Slice 1.C sub-cycle 1 (codex r33 Q2 + r34 BLOCK 2): payload is
+      // strict-validated against EvidenceFullPayload at journal-mutate Pass 1
+      // (PER_KIND_PAYLOAD lookup). EvidenceFullPayload is `.strict()` and
+      // requires id/kind/iteration/actor/result/summary. Reducer extracts the
+      // slim projection subset narrowed to EvidenceState fields; the full
+      // payload (iteration/summary/cmd/exit/wall_ms/task_id/gate/decided_by/
+      // based_on/waiver_obligation_id/external_ref) round-trips via the
+      // journal itself, not projection. Defense-in-depth: id/kind presence
+      // still checked here in case a future code path skips the schema gate.
+      const payload = entry.payload as {
+        id?: string;
+        kind?: EvidenceKind;
+        result?: EvidenceResult;
+        covers?: string[];
+        actor?: string;
+        check?: VerifyCheckKind;
+        reason?: string;
+        attachments?: AttachmentPayload[];
+      };
       if (!payload.id || !payload.kind) return invalidPayload(entry.kind, "missing id/kind");
-      const evBase: EvidenceState = {
+      const ev: EvidenceState = {
         id: payload.id,
         kind: payload.kind,
         covers: payload.covers ?? [],
         actor: payload.actor ?? entry.actor,
       };
-      const ev: EvidenceState = payload.result !== undefined ? { ...evBase, result: payload.result } : evBase;
+      if (payload.result !== undefined) ev.result = payload.result;
+      if (payload.check !== undefined) ev.check = payload.check;
+      if (payload.reason !== undefined) ev.reason = payload.reason;
+      if (payload.attachments !== undefined) ev.attachments = payload.attachments;
       prev.evidence.push(ev);
       return { ok: true, snapshot: prev };
     }

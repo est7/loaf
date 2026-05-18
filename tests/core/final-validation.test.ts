@@ -58,6 +58,9 @@ const oversizeEvidence = (): JournalEntry => ({
   payload: {
     id: "EV-000001",
     kind: "local-check",
+    iteration: 1,
+    actor: "cli:loaf",
+    result: "passed",
     summary: { mode: "inline", text: "x".repeat(20_000) },
   },
 });

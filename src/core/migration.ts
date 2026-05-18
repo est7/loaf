@@ -26,6 +26,7 @@ import path from "node:path";
 import { z } from "zod";
 
 import { appendEntry } from "./journal-append.js";
+import { EvidenceKind, EvidenceResult } from "./evidence-schema.js";
 import type { AttachmentRef, Ceremony, JournalEntry, SubState } from "./journal-entry.js";
 import type {
   EvidenceState,
@@ -109,15 +110,38 @@ const LegacyPendingSchema = z
 // state/tasks/pending Zod but missed these two JSONL artifacts. Without
 // runtime checks, `covers:"not-array"` / `status:"nonsense"` enter the
 // typed Snapshot. JSONL is parsed per-line so the schema applies per-record.
+// Slice 1.C sub-cycle 1 (codex r34 BLOCK 1 + r35 fix): kind stays loose
+// at parse time because docs/schemas.ts:741-749 + ADR-0005:716-720
+// document v0.0.x evidence.jsonl.kind values (`test/review/visual/manual/
+// waiver/gate-decision`) that DO NOT all match the new EvidenceKind enum.
+// Normalized via LEGACY_EVIDENCE_KIND_MAP at migration time; truly unknown
+// values surface as MIGRATION_INCOMPLETE (codex r34 fail-loud goal
+// preserved for non-documented garbage). Result tightens to EvidenceResult
+// — `skipped` was removed in rev 3.1 so any legacy `skipped` correctly
+// fails loud here.
 const LegacyEvidenceSchema = z
   .object({
     id: z.string().min(1),
     kind: z.string().min(1),
-    result: z.string().optional(),
+    result: EvidenceResult.optional(),
     covers: z.array(z.string()).optional(),
     actor: z.string().optional(),
   })
   .passthrough();
+
+// v0.0.x → v2 evidence kind normalization (docs/schemas.ts:741-749 +
+// ADR-0005:720). The 3 renamed kinds map to their new spelling; the 3
+// already-valid kinds pass through; anything else throws below.
+const LEGACY_EVIDENCE_KIND_MAP: Record<string, EvidenceKind | undefined> = {
+  // Renamed (rev 3.1):
+  test: "local-check",
+  review: "verify-review",
+  visual: "visual-review",
+  // Pass-through (already valid new EvidenceKind values):
+  manual: "manual",
+  waiver: "waiver",
+  "gate-decision": "gate-decision",
+};
 
 const LegacyFindingSchema = z
   .object({
@@ -550,9 +574,23 @@ export async function rehydrateMigration(
       );
     }
     const e = parsed.data;
+    // Slice 1.C sub-cycle 1 (codex r34 BLOCK 1 + r35 fix): normalize
+    // documented legacy kinds (`test/review/visual`) to their new spelling.
+    // Pass-through-valid kinds (`manual/waiver/gate-decision`) survive
+    // unchanged. Truly unknown kinds throw MIGRATION_INCOMPLETE so an
+    // operator can clean the legacy sidecar before retrying — preserves
+    // the r34 fail-loud goal for non-documented values.
+    const normalizedKind = LEGACY_EVIDENCE_KIND_MAP[e.kind];
+    if (normalizedKind === undefined) {
+      throw new MigrationError(
+        "MIGRATION_INCOMPLETE",
+        `legacy evidence.jsonl line ${idx + 1} has unknown kind=${JSON.stringify(e.kind)}; expected one of ${Object.keys(LEGACY_EVIDENCE_KIND_MAP).join("/")} (docs/schemas.ts:741-749 + ADR-0005:716-720)`,
+        { sidecar: "evidence.jsonl", line: idx + 1, legacy_kind: e.kind },
+      );
+    }
     const ev: EvidenceState = {
       id: e.id,
-      kind: e.kind,
+      kind: normalizedKind,
       covers: e.covers ?? [],
       actor: e.actor ?? "migration:v0.0.x→v2",
     };

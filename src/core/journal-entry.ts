@@ -21,6 +21,7 @@ import {
   TaskFullPayload,
   TaskIdPayload,
 } from "./task-schema.js";
+import { EvidenceFullPayload } from "./evidence-schema.js";
 
 // Hard byte ceiling per serialized JournalEntry. Mirrors §34
 // entry_byte_limit_kb (64KB); enforced by appendEntry at step 5 final
@@ -298,15 +299,14 @@ const TasksAmendedPayload = z
   })
   .passthrough();
 
-const EvidenceAddedPayload = z
-  .object({
-    id: z.string().min(1),
-    kind: z.string().min(1),
-    result: z.string().optional(),
-    covers: z.array(z.string()).optional(),
-    actor: z.string().optional(),
-  })
-  .passthrough();
+// Slice 1.C sub-cycle 1 (codex r34 BLOCK 2 fix): EvidenceAddedPayload is the
+// strict, full mirror of docs/schemas.ts §16 EvidenceEntry (modulo
+// schema_version + at which live on the envelope). `.strict()` rejects
+// unknown keys at append time. Cross-field refines fire here:
+//   - manual/waiver: actor must start with human:*, reason ≥10 chars
+//   - visual-review: attachments[] must be non-empty
+// All 17 documented EvidenceEntry payload fields are validated.
+const EvidenceAddedPayload = EvidenceFullPayload;
 
 const FindingRaisedPayload = z
   .object({

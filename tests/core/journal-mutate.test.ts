@@ -201,6 +201,9 @@ describe("mutate — transactional journal write (audit r1 Blocker #3)", () => {
         payload: {
           id: "EV-000001",
           kind: "local-check",
+          iteration: 1,
+          actor: "cli:loaf",
+          result: "passed",
           summary: { mode: "inline", text: big },
         },
       },
@@ -550,7 +553,14 @@ describe("mutateBatch — Slice 1.0 Cycle 3 (multi-entry transactional)", () => 
           actor: "cli:loaf",
           entry_schema_version: 1,
           kind: "evidence:added",
-          payload: { id: "EV-000001", kind: "local-check" },
+          payload: {
+            id: "EV-000001",
+            kind: "local-check",
+            iteration: 1,
+            actor: "cli:loaf",
+            result: "passed",
+            summary: "stub local-check evidence",
+          },
         },
         {
           at: "2026-05-15T11:00:01.000Z",
@@ -731,6 +741,9 @@ describe("mutateBatch — Slice 1.0 Cycle 3 (multi-entry transactional)", () => 
           payload: {
             id: "EV-000001",
             kind: "local-check",
+            iteration: 1,
+            actor: "cli:loaf",
+            result: "passed",
             summary: { mode: "inline", text: "x".repeat(10_000) },
           },
         },
@@ -1329,5 +1342,151 @@ needs_clarification: []
     if (!result.ok) {
       expect(result.code).toBe("GATE_PRECONDITION_VIOLATION");
     }
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────
+// Slice 1.C sub-cycle 1 — EvidenceFullPayload strict refines via mutate
+// (codex r34 HIGH 3): prove PER_KIND_PAYLOAD wire actually triggers the
+// schema refines at append time, not just at the EvidenceFullPayload unit
+// boundary. These tests exercise the full path: mutate → preflight → Pass 1
+// payload schema lookup → reject → no journal write.
+// ───────────────────────────────────────────────────────────────────────
+
+describe("mutate evidence:added — strict refines (Slice 1.C sub-cycle 1)", () => {
+  async function bootstrapToExecuteWork(): Promise<{ dir: string; snapshot: Snapshot; tailSeq: number }> {
+    const dir = await tmpFeatureDir();
+    const boot = await mutate(
+      {
+        at: "2026-05-15T10:00:00.000Z",
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "session:started",
+        payload: {
+          session_id: "550e8400-e29b-41d4-a716-446655440000",
+          feature: "f",
+          ceremony: STANDARD,
+        },
+      },
+      { feature_dir: dir, snapshot: initialSnapshot(), tail_seq: -1, fsync: false },
+    );
+    if (!boot.ok) throw new Error(`bootstrap failed: ${boot.code}`);
+    const transitions = [
+      ["TRIAGE.score", "TRIAGE.confirm"],
+      ["TRIAGE.confirm", "SPEC.proposal"],
+      ["SPEC.proposal", "SPEC.spec"],
+      ["SPEC.spec", "SPEC.plan"],
+      ["SPEC.plan", "SPEC.design"],
+      ["SPEC.design", "EXECUTE.plan"],
+      ["EXECUTE.plan", "EXECUTE.work"],
+    ] as const;
+    let snapshot = boot.snapshot;
+    let tailSeq = 0;
+    for (const [from, to] of transitions) {
+      const r = await mutate(
+        {
+          at: new Date(2026, 4, 15, 10, 0, tailSeq + 1).toISOString(),
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "event:phase_advanced",
+          payload: { from, to },
+        },
+        { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+      );
+      if (!r.ok) throw new Error(`transition ${from}->${to} failed: ${r.code}`);
+      snapshot = r.snapshot;
+      tailSeq++;
+    }
+    return { dir, snapshot, tailSeq };
+  }
+
+  test("kind=visual-review without attachments → INVALID_PAYLOAD, no append", async () => {
+    const { dir, snapshot, tailSeq } = await bootstrapToExecuteWork();
+    const before = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
+
+    const r = await mutate(
+      {
+        at: "2026-05-15T11:00:00.000Z",
+        actor: "human:reviewer@example.com",
+        entry_schema_version: 1,
+        kind: "evidence:added",
+        payload: {
+          id: "EV-000001",
+          kind: "visual-review",
+          iteration: 1,
+          actor: "human:reviewer@example.com",
+          result: "approved",
+          summary: "visual review of UI VIS-AUTH-001",
+          covers: ["VIS-AUTH-001"],
+          // attachments intentionally omitted — refine should reject.
+        },
+      },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    );
+
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe("INVALID_PAYLOAD");
+    // Journal byte-identical — refine fired before append.
+    const after = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
+    expect(after).toBe(before);
+  });
+
+  test("kind=manual without human:* actor → INVALID_PAYLOAD, no append", async () => {
+    const { dir, snapshot, tailSeq } = await bootstrapToExecuteWork();
+    const before = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
+
+    const r = await mutate(
+      {
+        at: "2026-05-15T11:00:00.000Z",
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "evidence:added",
+        payload: {
+          id: "EV-000001",
+          kind: "manual",
+          iteration: 1,
+          actor: "cli:loaf",                       // NOT human:* → refine rejects
+          result: "passed",
+          summary: "manual verification of REQ-AUTH-001",
+          reason: "tested the flow by hand on staging",
+          covers: ["REQ-AUTH-001"],
+        },
+      },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    );
+
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe("INVALID_PAYLOAD");
+    const after = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
+    expect(after).toBe(before);
+  });
+
+  test("unknown payload key (.strict() catch) → INVALID_PAYLOAD, no append", async () => {
+    const { dir, snapshot, tailSeq } = await bootstrapToExecuteWork();
+    const before = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
+
+    const r = await mutate(
+      {
+        at: "2026-05-15T11:00:00.000Z",
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "evidence:added",
+        payload: {
+          id: "EV-000001",
+          kind: "local-check",
+          iteration: 1,
+          actor: "cli:loaf",
+          result: "passed",
+          summary: "stub local-check evidence",
+          bogus_undocumented_field: "should not pass strict mode",
+        },
+      },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    );
+
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe("INVALID_PAYLOAD");
+    const after = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
+    expect(after).toBe(before);
   });
 });
