@@ -3729,6 +3729,13 @@ export const DiagnosticCode = z.enum([
   "TASK_NOT_FOUND",                        // src/core/reducer.ts tasks_amended / task_step_* — referenced task id not in projection
   "TASK_STEP_NOT_FOUND",                   // src/core/reducer.ts task_step_started / _done — referenced step not seeded on task
   "DUPLICATE_TASK_ID",                     // src/core/reducer.ts tasks_planned — duplicate id within same payload
+  // ── Slice 1.B sub-cycle 3b — spec-lock checks 3/4/6/7/8 (codex r26) ──
+  "TASKS_NOT_PLANNED",                     // src/core/gates/spec-lock-check.ts check 3 — snapshot.tasks_based_on is null
+  "TASKS_BASED_ON_STALE",                  // src/core/gates/spec-lock-check.ts check 3 — tasks_based_on.spec ≠ frontmatter.spec_version
+  "REQ_NOT_DRIVEN",                        // src/core/gates/spec-lock-check.ts check 4 — REQ has no task with drives[] including its id (REQ-side coverage; distinct from legacy DRIVES_NOT_BOUND which named the inverse direction)
+  "E2E_SCENARIO_UNBOUND",                  // src/core/gates/spec-lock-check.ts check 6 — e2e scenario lacks a task with requires_acceptance=true AND drives.includes(scenario.id)
+  "VISUAL_CONTRACT_UNBOUND",               // src/core/gates/spec-lock-check.ts check 7 — visual_contract lacks a visual-ui task with visual_contract_refs.includes(visual.id)
+  "TASK_KIND_SCHEMA_VIOLATION",            // src/core/gates/spec-lock-check.ts check 8 — projected kind-specific obligations missing (defense-in-depth for migration:snapshot_imported)
 ]);
 export type DiagnosticCode = z.infer<typeof DiagnosticCode>;
 
@@ -4254,6 +4261,54 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
     fix_template:
       "tasks_planned is whole-replacement — each task id must be unique within the batch. Rename one or merge them in the planning input",
     doc_anchor: "protocol.md#§10.8",
+  },
+  TASKS_NOT_PLANNED: {
+    exit_code: 2,
+    message_template:
+      "spec-lock check 3: tasks have not been planned (snapshot.tasks_based_on is null)",
+    fix_template:
+      "run `loaf tasks submit <plan-file>` to emit event:tasks_planned and seed the task graph; spec-lock check 3 requires tasks_based_on.spec to match the current spec.spec_version",
+    doc_anchor: "protocol.md#§5.1",
+  },
+  TASKS_BASED_ON_STALE: {
+    exit_code: 2,
+    message_template:
+      "spec-lock check 3: tasks_based_on.spec={tasks_based_on_spec} but current spec.spec_version={current_spec_version} — the task graph was planned against an older spec",
+    fix_template:
+      "either re-plan tasks against the current spec via `loaf tasks submit` (whole-replacement), or amend individual tasks via `loaf tasks add/amend` + raise a `loaf finding raise --category spec-gap --action amend-spec` if a spec roll-back is needed",
+    doc_anchor: "protocol.md#§5.1",
+  },
+  REQ_NOT_DRIVEN: {
+    exit_code: 2,
+    message_template:
+      "spec-lock check 4: requirement {req_id} is not referenced by any task.drives[]",
+    fix_template:
+      "add a task whose drives[] array includes {req_id}, or remove the requirement from spec.md if it is no longer in scope. Note: this is the REQ-side coverage code (distinct from legacy DRIVES_NOT_BOUND which named the inverse direction)",
+    doc_anchor: "protocol.md#§5.1",
+  },
+  E2E_SCENARIO_UNBOUND: {
+    exit_code: 2,
+    message_template:
+      "spec-lock check 6: e2e scenario {scenario_id} has no binding task (requires task with requires_acceptance=true AND drives includes {scenario_id})",
+    fix_template:
+      "either (a) add a task with requires_acceptance=true and drives including {scenario_id}, or (b) mark the scenario with acceptance_na=<reason ≥5 chars> in spec.md if e2e acceptance is intentionally skipped for this iteration",
+    doc_anchor: "protocol.md#§5.1",
+  },
+  VISUAL_CONTRACT_UNBOUND: {
+    exit_code: 2,
+    message_template:
+      "spec-lock check 7: visual_contract {visual_id} has no visual-ui task whose visual_contract_refs includes it",
+    fix_template:
+      "either (a) add a visual-ui task with visual_contract_refs including {visual_id}, or (b) mark the visual_contract with visual_na=<reason ≥5 chars> in spec.md if visual verification is intentionally deferred",
+    doc_anchor: "protocol.md#§5.1",
+  },
+  TASK_KIND_SCHEMA_VIOLATION: {
+    exit_code: 2,
+    message_template:
+      "spec-lock check 8: task {task_id} (kind={kind}) violates projected kind-specific obligations: {reasons}",
+    fix_template:
+      "amend the task to satisfy its kind contract: behavioral with labels=['bug'] requires red_test_registered=true; structural/docs/spike/chore require no_test_rationale (string ≥10 chars); visual-ui requires visual_contract_refs[] with ≥1 entry. Most commonly surfaces after migration:snapshot_imported when legacy v0.0.x projections lack the required fields",
+    doc_anchor: "protocol.md#§5.1",
   },
 } as const;
 
