@@ -169,7 +169,20 @@ export type PreflightFailureCode =
   // code so mutateBatch surfaces the actionable diagnostic instead
   // of REDUCER_ERROR wrap (codex r96 §2).
   | "FINDING_AMEND_SPEC_NOT_LOCKED"
-  | "FINDING_NOT_FOUND";
+  | "FINDING_NOT_FOUND"
+  // Slice E — SPEC_VERSION_NOT_MONOTONIC / SPEC_VERSION_BATCH_MISMATCH
+  // preflight promotion (mirror Slice 2 SC4 DUPLICATE_TASK_ID + Slice 4
+  // SC1 DUPLICATE_REQ_ID/SCEN/VIS pattern). Reducer keeps
+  // checkSpecVersionHead/checkSpecVersion as defense-in-depth for raw
+  // apply paths bypassing preflight; preflight catches the public
+  // CLI surface case so users see the actionable code instead of
+  // INVALID_PAYLOAD wrap. Fires on the 4 SPEC content kinds:
+  //   spec_submitted    — must be batch head (batch_index undef|0);
+  //                       payload.spec_version === current+1
+  //   spec_*_added      — head:        payload.spec_version === current+1
+  //                       continuation: payload.spec_version === current
+  | "SPEC_VERSION_NOT_MONOTONIC"
+  | "SPEC_VERSION_BATCH_MISMATCH";
 
 export type PreflightResult =
   | { ok: true }
@@ -827,6 +840,95 @@ export function preflight(
         message: `spec_visual_added: VIS ${payload.visual.id} already in projection`,
         detail: { id: payload.visual.id },
       };
+    }
+  }
+
+  // (5j) Slice E — SPEC_VERSION_NOT_MONOTONIC / SPEC_VERSION_BATCH_MISMATCH
+  // preflight promotion. Mirrors Slice 2 SC4 DUPLICATE_TASK_ID + Slice 4
+  // SC1 DUPLICATE_REQ_ID/SCEN/VIS pattern: reducer keeps its message-
+  // string checkSpecVersionHead/checkSpecVersion as defense-in-depth for
+  // raw apply paths; preflight surfaces the public code so CLI users
+  // see the actionable diagnostic instead of INVALID_PAYLOAD wrap.
+  //
+  // Ordering inside spec_submitted: batch_index gate (head must be 0)
+  // runs BEFORE the version check so a misplaced spec_submitted in the
+  // middle of a batch returns the structurally meaningful code.
+  const SPEC_VERSION_KINDS = new Set<EntryKind>([
+    "event:spec_submitted",
+    "event:spec_req_added",
+    "event:spec_scenario_added",
+    "event:spec_visual_added",
+  ]);
+  if (SPEC_VERSION_KINDS.has(entry.kind)) {
+    const payload = payloadParsed.data as { spec_version: number };
+    const payloadVersion = payload.spec_version;
+    const currentVersion = ctx.snapshot.state?.spec_version ?? 0;
+
+    if (entry.kind === "event:spec_submitted") {
+      // spec_submitted is the whole-replacement entrypoint and ALWAYS
+      // the batch head (batch_index undefined or 0). batch_index > 0
+      // is structurally illegal.
+      if (entry.batch_index !== undefined && entry.batch_index !== 0) {
+        return {
+          ok: false,
+          code: "SPEC_VERSION_BATCH_MISMATCH",
+          message: `spec_submitted must appear at batch_index=0 (got ${entry.batch_index}); it is the whole-replacement entrypoint`,
+          detail: {
+            kind: entry.kind,
+            batch_index: entry.batch_index,
+            expected_batch_index: 0,
+          },
+        };
+      }
+      if (payloadVersion !== currentVersion + 1) {
+        return {
+          ok: false,
+          code: "SPEC_VERSION_NOT_MONOTONIC",
+          message: `spec_submitted: spec_version must be ${currentVersion + 1} (current+1), got ${payloadVersion}`,
+          detail: {
+            kind: entry.kind,
+            payload_spec_version: payloadVersion,
+            current_spec_version: currentVersion,
+            expected_spec_version: currentVersion + 1,
+          },
+        };
+      }
+    } else {
+      // spec_*_added: HEAD path bumps (must equal current+1);
+      // CONTINUATION path tracks (must equal current — the head
+      // already bumped state in mutateBatch's accumulator).
+      const isHead = entry.batch_index === undefined || entry.batch_index === 0;
+      if (isHead) {
+        if (payloadVersion !== currentVersion + 1) {
+          return {
+            ok: false,
+            code: "SPEC_VERSION_NOT_MONOTONIC",
+            message: `${entry.kind}: spec_version must be ${currentVersion + 1} (current+1) at batch head, got ${payloadVersion}`,
+            detail: {
+              kind: entry.kind,
+              payload_spec_version: payloadVersion,
+              current_spec_version: currentVersion,
+              expected_spec_version: currentVersion + 1,
+              batch_position: "head",
+            },
+          };
+        }
+      } else {
+        if (payloadVersion !== currentVersion) {
+          return {
+            ok: false,
+            code: "SPEC_VERSION_BATCH_MISMATCH",
+            message: `${entry.kind}: spec_version must be ${currentVersion} at batch_index=${entry.batch_index} (batch continuation), got ${payloadVersion}`,
+            detail: {
+              kind: entry.kind,
+              payload_spec_version: payloadVersion,
+              current_spec_version: currentVersion,
+              batch_index: entry.batch_index,
+              batch_position: "continuation",
+            },
+          };
+        }
+      }
     }
   }
 

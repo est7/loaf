@@ -3809,6 +3809,12 @@ export const DiagnosticCode = z.enum([
   "PROJECTION_WRITE_FAILED",               // src/core/journal-mutate.ts Pass 5 — writeDerivedSpecMd threw after journal append succeeded; journal authoritative, run `loaf doctor --rebuild` to resync
   // ── Slice B — finding amend-spec back-edge batch (codex r94/r96) ──
   "FINDING_AMEND_SPEC_NOT_LOCKED",         // src/core/reducer/preflight.ts — `finding:raised` action=amend-spec when state.spec_locked=false; pre-lock should edit via `loaf spec submit / add-*` directly
+  // ── Slice E — SPEC_VERSION_NOT_MONOTONIC / SPEC_VERSION_BATCH_MISMATCH promotion ──
+  // (mirror Slice 2 SC4 DUPLICATE_TASK_ID + Slice 4 SC1 DUPLICATE_REQ_ID/SCEN/VIS).
+  // Both were previously reducer message strings under INVALID_PAYLOAD wrap;
+  // promoted so CLI surfaces the actionable code directly.
+  "SPEC_VERSION_NOT_MONOTONIC",            // src/core/reducer/preflight.ts spec_version != current+1 at batch head (spec_submitted | spec_*_added head)
+  "SPEC_VERSION_BATCH_MISMATCH",           // src/core/reducer/preflight.ts spec_submitted at batch_index>0 (structurally illegal) OR spec_*_added continuation with spec_version != current
 ]);
 export type DiagnosticCode = z.infer<typeof DiagnosticCode>;
 
@@ -4631,6 +4637,25 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
     fix_template:
       "drop --action amend-spec and use `loaf spec submit` / `loaf spec add-req` / etc. directly while spec is unlocked; amend-spec is reserved for post-`gate decide spec-lock --approve` recovery.",
     doc_anchor: "protocol.md#§6.1",
+  },
+  // Slice E: promoted from reducer message strings under INVALID_PAYLOAD.
+  // CLI surfaces these directly now; reducer keeps message-string checks
+  // as defense-in-depth for raw apply paths.
+  SPEC_VERSION_NOT_MONOTONIC: {
+    exit_code: 2,
+    message_template:
+      "{kind}: spec_version must be {expected_spec_version} (current+1), got {payload_spec_version}",
+    fix_template:
+      "set spec_version to {expected_spec_version} in the input payload (or omit it and let `loaf spec submit` fill the current+1 default).",
+    doc_anchor: "protocol.md#§4.2",
+  },
+  SPEC_VERSION_BATCH_MISMATCH: {
+    exit_code: 2,
+    message_template:
+      "{kind}: spec_version must be {current_spec_version} at batch_index={batch_index} (continuation must track head), got {payload_spec_version}",
+    fix_template:
+      "in a multi-entry spec batch, the head (batch_index=0) bumps spec_version to current+1 and all continuation entries (batch_index≥1) must set spec_version to that same value. Check the head entry's payload.spec_version and align companions.",
+    doc_anchor: "protocol.md#§4.2",
   },
 } as const;
 

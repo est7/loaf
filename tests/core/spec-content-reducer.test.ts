@@ -377,8 +377,11 @@ describe("reducer SPEC content handlers — Slice 1.B sub-cycle 1", () => {
     );
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.code).toBe("INVALID_PAYLOAD");
-      expect(result.message).toMatch(/SPEC_VERSION_NOT_MONOTONIC|not monotonic/);
+      // Slice E promotion: SPEC_VERSION_NOT_MONOTONIC surfaced from
+      // preflight directly (was wrapped as INVALID_PAYLOAD by reducer
+      // before the promotion).
+      expect(result.code).toBe("SPEC_VERSION_NOT_MONOTONIC");
+      expect(result.message).toMatch(/spec_version must be/);
     }
   });
 
@@ -405,8 +408,9 @@ describe("reducer SPEC content handlers — Slice 1.B sub-cycle 1", () => {
     );
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.code).toBe("INVALID_PAYLOAD");
-      expect(result.message).toMatch(/SPEC_VERSION_BATCH_MISMATCH|batch.*mismatch/i);
+      // Slice E promotion: SPEC_VERSION_BATCH_MISMATCH from preflight.
+      expect(result.code).toBe("SPEC_VERSION_BATCH_MISMATCH");
+      expect(result.message).toMatch(/SPEC_VERSION_BATCH_MISMATCH|batch/i);
     }
   });
 
@@ -490,8 +494,10 @@ describe("reducer SPEC content handlers — Slice 1.B sub-cycle 1", () => {
     );
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.code).toBe("INVALID_PAYLOAD");
-      expect(result.message).toMatch(/SPEC_VERSION_NOT_MONOTONIC|not monotonic/);
+      // Slice E promotion: SPEC_VERSION_NOT_MONOTONIC from preflight
+      // (was reducer message-string under INVALID_PAYLOAD before).
+      expect(result.code).toBe("SPEC_VERSION_NOT_MONOTONIC");
+      expect(result.message).toMatch(/spec_version must be/);
     }
   });
 });

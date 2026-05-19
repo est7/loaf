@@ -208,7 +208,9 @@ describe("loaf spec submit — SC1 happy paths", () => {
       "--feature", feature, "--feature-dir", dir,
     ]);
     expect(r.exit).not.toBe(0);
-    expect(r.stderr).toMatch(/SPEC_VERSION_NOT_MONOTONIC|INVALID_PAYLOAD/);
+    // Slice E promotion: SPEC_VERSION_NOT_MONOTONIC surfaces directly
+    // (was wrapped as INVALID_PAYLOAD by reducer pre-promotion).
+    expect(r.stderr).toMatch(/SPEC_VERSION_NOT_MONOTONIC/);
   });
 
   test("JSON output emits {ok, feature, spec_version, req_ids, scen_ids, vis_ids}", async () => {
