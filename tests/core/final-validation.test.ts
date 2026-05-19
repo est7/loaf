@@ -136,7 +136,7 @@ describe("final-validation — Stage 4 end-to-end §11.2 step 4-6", () => {
       actor: "cli:loaf",
       entry_schema_version: 1,
       kind: "pending:added",
-      payload: { id: "PEND-001", kind: "ask_user_question", non_long_text_field: huge },
+      payload: { id: "PEND-0001", kind: "ask_user_question", question: "stub", non_long_text_field: huge },
     };
     // Promote does nothing here (payload has no LongTextField shape).
     const promoted = await promoteSidecars(raw, root, { fsync: false });

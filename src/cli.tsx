@@ -1053,6 +1053,244 @@ export async function main(argv: string[] = process.argv): Promise<number> {
       }
     });
 
+  // ── loaf pending raise / list / status / resolve ─────────────────────
+  // Slice 3 SC1 — minimum FIFO surface over the pending queue.
+  //   raise   --kind <K> --question <Q> [--options <csv>] [--task-id <tid>]
+  //              CLI allocates PEND-N (max-serial+1); emits pending:added.
+  //              stdout in text mode = bare PEND-id (scriptable; codex r62).
+  //   list    [--json]
+  //              snapshot.pending projection + derived `head: boolean`
+  //              flag = first unresolved entry. Text mode = 4 fixed
+  //              columns `<PEND-id> <kind> <open|resolved> <head|->`.
+  //   status  [--id <id>] [--json]
+  //              default = head (or null if queue has no unresolved entry);
+  //              --id = specific entry; miss → PENDING_NOT_FOUND.
+  //   resolve --answer <ans>
+  //              strict FIFO pop — no --id flag (no skip-ahead per
+  //              protocol §10.8 + codex r63). Empty queue → PENDING_NOT_FOUND.
+  //
+  // Question / options / task_id round-trip via journal payload passthrough
+  // (.passthrough()). PendingState projection stays {id, kind, resolved} —
+  // surfacing the richer fields is a follow-up refine outside SC1.
+  //
+  // GATE_NOT_PENDING / ESCALATION_NOT_PENDING and the gate-decide
+  // pending:resolved co-emission are deferred to SC4.
+  const pendingCmd = program
+    .command("pending")
+    .description("Pending queue commands (raise / list / status / resolve)");
+
+  pendingCmd
+    .command("raise")
+    .description("Raise a new pending entry (CLI allocates PEND-id)")
+    .requiredOption(
+      "--kind <kind>",
+      "Pending kind (ask_user_question | gate_decision | spec_clarification | finding_decision | profile_escalation)",
+    )
+    .requiredOption(
+      "--question <text>",
+      "Question / rationale shown to whoever resolves it (required for ALL kinds)",
+    )
+    .option("--options <csv>", "Comma-separated answer options (passthrough)")
+    .option("--task-id <id>", "Optional task association (passthrough)")
+    .requiredOption("--feature <name>", "Feature whose session to raise pending against")
+    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
+    .action(async (opts: {
+      kind: string;
+      question: string;
+      options?: string;
+      taskId?: string;
+      feature: string;
+      featureDir?: string;
+    }) => {
+      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      const session = await loadSession(featureDir);
+      if (!session.snapshot.state) {
+        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        return;
+      }
+      // Single-writer PEND-id allocator: max-serial+1, zero-padded to ≥4
+      // digits to match `^PEND-\d{4,}$` (docs/schemas.ts §PendingId,
+      // protocol §10.7 rev 4.1). Parser is intentionally permissive on
+      // older/legacy unpadded ids so a v0.0.x journal can replay; the
+      // allocator only emits canonical form (codex r64 BLOCK 2).
+      const maxSerial = session.snapshot.pending.reduce((max, p) => {
+        const m = /^PEND-(\d+)$/.exec(p.id);
+        if (!m) return max;
+        return Math.max(max, Number.parseInt(m[1]!, 10));
+      }, 0);
+      const id = `PEND-${String(maxSerial + 1).padStart(4, "0")}`;
+      const payload: Record<string, unknown> = {
+        id,
+        kind: opts.kind,
+        question: opts.question,
+      };
+      if (opts.options !== undefined) {
+        payload["options"] = opts.options
+          .split(",")
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0);
+      }
+      if (opts.taskId !== undefined) payload["task_id"] = opts.taskId;
+      const result = await mutate(
+        {
+          at: new Date().toISOString(),
+          actor,
+          entry_schema_version: 1,
+          kind: "pending:added",
+          payload,
+        },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq },
+      );
+      if (!result.ok) {
+        emitFailure(result.code, result.message, result.detail);
+        return;
+      }
+      if (useJson) {
+        process.stdout.write(
+          JSON.stringify({ ok: true, feature: opts.feature, id, kind: opts.kind }) + "\n",
+        );
+      } else {
+        process.stdout.write(id + "\n");
+      }
+    });
+
+  pendingCmd
+    .command("list")
+    .description("List pending entries (FIFO; first unresolved is head)")
+    .requiredOption("--feature <name>", "Feature whose pending to list")
+    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
+    .action(async (opts: { feature: string; featureDir?: string }) => {
+      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      const session = await loadSession(featureDir);
+      if (!session.snapshot.state) {
+        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        return;
+      }
+      const headIdx = session.snapshot.pending.findIndex((p) => !p.resolved);
+      const rows = session.snapshot.pending.map((p, i) => ({
+        ...p,
+        head: i === headIdx,
+      }));
+      if (useJson) {
+        process.stdout.write(
+          JSON.stringify({
+            ok: true,
+            feature: opts.feature,
+            count: rows.length,
+            pending: rows,
+          }) + "\n",
+        );
+      } else {
+        for (const r of rows) {
+          process.stdout.write(
+            `${r.id} ${r.kind} ${r.resolved ? "resolved" : "open"} ${r.head ? "head" : "-"}\n`,
+          );
+        }
+      }
+    });
+
+  pendingCmd
+    .command("status")
+    .description("Status of head pending entry (default) or specific entry by --id")
+    .requiredOption("--feature <name>", "Feature whose pending to inspect")
+    .option("--id <id>", "Lookup a specific PEND-id (default: head)")
+    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
+    .action(async (opts: { feature: string; id?: string; featureDir?: string }) => {
+      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      const session = await loadSession(featureDir);
+      if (!session.snapshot.state) {
+        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        return;
+      }
+      const headIdx = session.snapshot.pending.findIndex((p) => !p.resolved);
+      let target: { id: string; kind: string; resolved: boolean; head: boolean } | null;
+      if (opts.id !== undefined) {
+        const idx = session.snapshot.pending.findIndex((p) => p.id === opts.id);
+        if (idx === -1) {
+          emitFailure(
+            "PENDING_NOT_FOUND",
+            `pending id=${opts.id} not found in queue`,
+            { pending_id: opts.id },
+          );
+          return;
+        }
+        target = { ...session.snapshot.pending[idx]!, head: idx === headIdx };
+      } else {
+        // Default = head; empty queue yields null (script-friendly per
+        // codex r63 — distinct from --id miss which is PENDING_NOT_FOUND).
+        target =
+          headIdx === -1
+            ? null
+            : { ...session.snapshot.pending[headIdx]!, head: true };
+      }
+      if (useJson) {
+        process.stdout.write(
+          JSON.stringify({
+            ok: true,
+            feature: opts.feature,
+            pending: target,
+          }) + "\n",
+        );
+      } else {
+        if (target === null) {
+          process.stdout.write("no open pending\n");
+        } else {
+          process.stdout.write(
+            `${target.id} ${target.kind} ${target.resolved ? "resolved" : "open"} ${target.head ? "head" : "-"}\n`,
+          );
+        }
+      }
+    });
+
+  pendingCmd
+    .command("resolve")
+    .description("Resolve the head pending entry (strict FIFO; no --id flag)")
+    .requiredOption("--answer <text>", "Resolution answer (passthrough into pending:resolved payload)")
+    .requiredOption("--feature <name>", "Feature whose pending to resolve")
+    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
+    .action(async (opts: { answer: string; feature: string; featureDir?: string }) => {
+      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      const session = await loadSession(featureDir);
+      if (!session.snapshot.state) {
+        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        return;
+      }
+      const head = session.snapshot.pending.find((p) => !p.resolved);
+      if (!head) {
+        emitFailure(
+          "PENDING_NOT_FOUND",
+          "pending:resolved called but the queue has no unresolved head",
+        );
+        return;
+      }
+      const result = await mutate(
+        {
+          at: new Date().toISOString(),
+          actor,
+          entry_schema_version: 1,
+          kind: "pending:resolved",
+          payload: { id: head.id, answer: opts.answer },
+        },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq },
+      );
+      if (!result.ok) {
+        emitFailure(result.code, result.message, result.detail);
+        return;
+      }
+      if (useJson) {
+        process.stdout.write(
+          JSON.stringify({
+            ok: true,
+            feature: opts.feature,
+            resolved_id: head.id,
+            kind: head.kind,
+          }) + "\n",
+        );
+      } else {
+        process.stdout.write(`resolved ${head.id} (kind=${head.kind})\n`);
+      }
+    });
+
   try {
     await program.parseAsync(argv);
     return exitCode;

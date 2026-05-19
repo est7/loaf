@@ -322,16 +322,32 @@ const FindingClosedPayload = z
   })
   .passthrough();
 
+// Slice 3 SC1 (codex r64 BLOCK 1+2+3 fix): mirror docs/schemas.ts canonical
+// shapes for PendingId / PendingPromptKind / question min length. Closed
+// schema at journal-append means a typo kind (e.g. "gate-decision" vs
+// "gate_decision") or empty question never reach the projection — where
+// they would silently bypass the head-block invariant in preflight.
+export const PendingId = z.string().regex(/^PEND-\d{4,}$/);
+
+export const PendingPromptKind = z.enum([
+  "ask_user_question",
+  "gate_decision",
+  "spec_clarification",
+  "finding_decision",
+  "profile_escalation",
+]);
+
 const PendingAddedPayload = z
   .object({
-    id: z.string().min(1),
-    kind: z.string().min(1),
+    id: PendingId,
+    kind: PendingPromptKind,
+    question: z.string().min(3),
   })
   .passthrough();
 
 const PendingResolvedPayload = z
   .object({
-    id: z.string().min(1),
+    id: PendingId,
   })
   .passthrough();
 

@@ -505,8 +505,8 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
       },
       "finding:raised": { id: "FND-1", category: "spec-gap", action: "amend-spec" },
       "finding:closed": { id: "FND-1" },
-      "pending:added": { id: "PEND-1", kind: "ask_user_question" },
-      "pending:resolved": { id: "PEND-1" },
+      "pending:added": { id: "PEND-0001", kind: "ask_user_question", question: "stub" },
+      "pending:resolved": { id: "PEND-0001" },
       "gate:decided": { gate_kind: "spec-lock", decision: "approved", reason: "ok" },
       "session:delivered": { reason: "test" },
       "session:archived": { reason: "test" },
@@ -562,7 +562,7 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
         actor: "cli:loaf",
         entry_schema_version: 1,
         kind: "pending:added",
-        payload: { id: "PEND-1", kind: "ask_user_question" },
+        payload: { id: "PEND-0001", kind: "ask_user_question", question: "stub" },
       }),
     );
     expect(snap.pending).toHaveLength(1);
@@ -576,7 +576,7 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
         actor: "cli:loaf",
         entry_schema_version: 1,
         kind: "pending:resolved",
-        payload: { id: "PEND-1" },
+        payload: { id: "PEND-0001" },
       }),
     );
     expect(snap.pending[0]!.resolved).toBe(true);

@@ -25,9 +25,10 @@ describe("appendEntry — Stage 1", () => {
       at: "2026-05-15T10:00:00.000Z",
       actor: "cli:loaf",
       entry_schema_version: 1,
-      // pending:added with strict PendingAddedPayload — requires id + kind.
+      // pending:added with strict PendingAddedPayload — requires id + kind
+      // + question (≥3 chars; Slice 3 SC1 schema-tighten, codex r64).
       kind: "pending:added",
-      payload: { id: "PEND-001", kind: "ask_user_question" },
+      payload: { id: "PEND-0001", kind: "ask_user_question", question: "stub" },
       ...overrides,
     };
   }
@@ -180,7 +181,7 @@ describe("appendEntry — Stage 1", () => {
     // Overshoot the 64KB ceiling. Use a valid pending:added payload
     // (PendingAddedPayload .passthrough() allows extras) so we hit byte
     // ceiling, not payload schema.
-    const bigPayload = { id: "PEND-001", kind: "ask_user_question", note: "x".repeat(70_000) };
+    const bigPayload = { id: "PEND-0001", kind: "ask_user_question", question: "stub", note: "x".repeat(70_000) };
     const oversize = validEntry({ payload: bigPayload });
 
     await expect(appendEntry(filePath, oversize, { fsync: false })).rejects.toMatchObject({
@@ -191,7 +192,7 @@ describe("appendEntry — Stage 1", () => {
 
   test("F. entry serialized just below 64KB → accepted", async () => {
     const filePath = await tmpJournal();
-    const payload = { id: "PEND-001", kind: "ask_user_question", note: "y".repeat(60_000) };
+    const payload = { id: "PEND-0001", kind: "ask_user_question", question: "stub", note: "y".repeat(60_000) };
     const ok = validEntry({ payload });
     await appendEntry(filePath, ok, { fsync: false });
     const contents = await fs.readFile(filePath, "utf8");
@@ -245,14 +246,15 @@ describe("appendMany — Slice 1.0 Cycle 2", () => {
       actor: "cli:loaf",
       entry_schema_version: 1,
       kind: "pending:added",
-      payload: { id, kind: "ask_user_question" },
+      // Slice 3 SC1: PendingAddedPayload requires question ≥3 chars.
+      payload: { id, kind: "ask_user_question", question: "stub" },
     };
   }
 
   // ── A: tracer bullet — happy path multi-entry write ───────────────────────
   test("A. appends 2 valid entries to an empty journal in one single newline-joined write", async () => {
     const filePath = await tmpJournal();
-    const entries = [pendingAdded(0, "PEND-001"), pendingAdded(1, "PEND-002")];
+    const entries = [pendingAdded(0, "PEND-0001"), pendingAdded(1, "PEND-0002")];
 
     await appendMany(filePath, entries, { fsync: false });
 
@@ -271,8 +273,8 @@ describe("appendMany — Slice 1.0 Cycle 2", () => {
   // must leave the journal in its prior state (no partial write).
   test("B. entry #2 has wrong seq → SEQ_NOT_MONOTONIC, file never created (ENOENT)", async () => {
     const filePath = await tmpJournal();
-    const good = pendingAdded(0, "PEND-001");
-    const badSeq = { ...pendingAdded(1, "PEND-002"), seq: 5 } as JournalEntry;
+    const good = pendingAdded(0, "PEND-0001");
+    const badSeq = { ...pendingAdded(1, "PEND-0002"), seq: 5 } as JournalEntry;
 
     await expect(appendMany(filePath, [good, badSeq], { fsync: false })).rejects.toBeInstanceOf(
       AppendError,
@@ -285,8 +287,8 @@ describe("appendMany — Slice 1.0 Cycle 2", () => {
 
   test("B. entry #2 has invalid envelope → INVALID_ENVELOPE, no partial write", async () => {
     const filePath = await tmpJournal();
-    const good = pendingAdded(0, "PEND-001");
-    const badEnvelope = { ...pendingAdded(1, "PEND-002"), actor: "alice" } as JournalEntry;
+    const good = pendingAdded(0, "PEND-0001");
+    const badEnvelope = { ...pendingAdded(1, "PEND-0002"), actor: "alice" } as JournalEntry;
 
     await expect(
       appendMany(filePath, [good, badEnvelope], { fsync: false }),
@@ -299,11 +301,11 @@ describe("appendMany — Slice 1.0 Cycle 2", () => {
   test("B. mid-batch fail over non-empty journal → tail unchanged", async () => {
     const filePath = await tmpJournal();
     // Seed with one entry so journal exists at seq=0.
-    await appendMany(filePath, [pendingAdded(0, "PEND-SEED")], { fsync: false });
+    await appendMany(filePath, [pendingAdded(0, "PEND-0003")], { fsync: false });
     const before = await fs.readFile(filePath, "utf8");
 
-    const good = pendingAdded(1, "PEND-001");
-    const bad = { ...pendingAdded(2, "PEND-002"), entry_id: "EV-000003" } as JournalEntry;
+    const good = pendingAdded(1, "PEND-0001");
+    const bad = { ...pendingAdded(2, "PEND-0002"), entry_id: "EV-000003" } as JournalEntry;
 
     await expect(
       appendMany(filePath, [good, bad], { fsync: false }),
@@ -326,7 +328,7 @@ describe("appendMany — Slice 1.0 Cycle 2", () => {
   // entry[0].seq must match tail+1; entry[i].seq must match entry[i-1].seq+1.
   test("D. seq jumps inside batch (0 then 2) → SEQ_NOT_MONOTONIC", async () => {
     const filePath = await tmpJournal();
-    const entries = [pendingAdded(0, "PEND-A"), pendingAdded(2, "PEND-B")];
+    const entries = [pendingAdded(0, "PEND-0001"), pendingAdded(2, "PEND-0002")];
     await expect(appendMany(filePath, entries, { fsync: false })).rejects.toMatchObject({
       code: "SEQ_NOT_MONOTONIC",
     });
@@ -335,9 +337,9 @@ describe("appendMany — Slice 1.0 Cycle 2", () => {
 
   test("D. batch starts at wrong seq (tail=0, batch starts at 5) → SEQ_NOT_MONOTONIC", async () => {
     const filePath = await tmpJournal();
-    await appendMany(filePath, [pendingAdded(0, "PEND-SEED")], { fsync: false });
+    await appendMany(filePath, [pendingAdded(0, "PEND-0003")], { fsync: false });
 
-    const entries = [pendingAdded(5, "PEND-A"), pendingAdded(6, "PEND-B")];
+    const entries = [pendingAdded(5, "PEND-0001"), pendingAdded(6, "PEND-0002")];
     await expect(appendMany(filePath, entries, { fsync: false })).rejects.toMatchObject({
       code: "SEQ_NOT_MONOTONIC",
     });
@@ -346,9 +348,9 @@ describe("appendMany — Slice 1.0 Cycle 2", () => {
   // ── E: batch extends existing journal contiguously ───────────────────────
   test("E. batch appended to non-empty journal extends seq contiguously", async () => {
     const filePath = await tmpJournal();
-    await appendMany(filePath, [pendingAdded(0, "PEND-SEED")], { fsync: false });
+    await appendMany(filePath, [pendingAdded(0, "PEND-0003")], { fsync: false });
 
-    const entries = [pendingAdded(1, "PEND-A"), pendingAdded(2, "PEND-B")];
+    const entries = [pendingAdded(1, "PEND-0001"), pendingAdded(2, "PEND-0002")];
     await appendMany(filePath, entries, { fsync: false });
 
     const lines = (await fs.readFile(filePath, "utf8")).trim().split("\n");
@@ -364,9 +366,9 @@ describe("appendMany — Slice 1.0 Cycle 2", () => {
     const filePath = await tmpJournal();
     const big = (seq: number, id: string): JournalEntry => ({
       ...pendingAdded(seq, id),
-      payload: { id, kind: "ask_user_question", note: "x".repeat(35_000) },
+      payload: { id, kind: "ask_user_question", question: "stub", note: "x".repeat(35_000) },
     });
-    const entries = [big(0, "PEND-A"), big(1, "PEND-B")];
+    const entries = [big(0, "PEND-0001"), big(1, "PEND-0002")];
 
     await expect(appendMany(filePath, entries, { fsync: false })).rejects.toMatchObject({
       code: "ENTRY_OVERSIZE",
@@ -380,11 +382,11 @@ describe("appendMany — Slice 1.0 Cycle 2", () => {
   // payload tests prove single-entry behavior; this proves it in batch path.
   test("G. entry #2 payload missing required field → INVALID_PAYLOAD, no partial write", async () => {
     const filePath = await tmpJournal();
-    const good = pendingAdded(0, "PEND-A");
+    const good = pendingAdded(0, "PEND-0001");
     // PendingAddedPayload requires `id` and `kind`; strip `kind` to trip schema.
     const bad = {
-      ...pendingAdded(1, "PEND-B"),
-      payload: { id: "PEND-B" },
+      ...pendingAdded(1, "PEND-0002"),
+      payload: { id: "PEND-0002" },
     } as JournalEntry;
 
     await expect(appendMany(filePath, [good, bad], { fsync: false })).rejects.toMatchObject({

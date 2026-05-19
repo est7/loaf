@@ -59,7 +59,12 @@ function pendingLine(seq: number): string {
     actor: "cli:loaf",
     entry_schema_version: 1,
     kind: "pending:added",
-    payload: { id: `PEND-${seq}`, kind: "ask_user_question" },
+    // Slice 3 SC1: PendingAddedPayload canonical PEND-\d{4,} + question.
+    payload: {
+      id: `PEND-${String(seq).padStart(4, "0")}`,
+      kind: "ask_user_question",
+      question: "stub",
+    },
   } as JournalEntry);
 }
 

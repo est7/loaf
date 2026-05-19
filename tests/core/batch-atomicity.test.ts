@@ -52,7 +52,13 @@ function pendingEntry(seq: number, batchId: string, batchIndex: number, batchCou
     actor: "cli:loaf",
     entry_schema_version: 1,
     kind: "pending:added",
-    payload: { id: `PEND-${seq}`, kind: "ask_user_question" },
+    // Slice 3 SC1: PendingAddedPayload requires canonical PEND-\d{4,} +
+    // question ≥3 chars (codex r64 BLOCK fixes 1/2/3).
+    payload: {
+      id: `PEND-${String(seq).padStart(4, "0")}`,
+      kind: "ask_user_question",
+      question: "stub",
+    },
     batch_id: batchId,
     batch_index: batchIndex,
     batch_count: batchCount,
@@ -139,8 +145,8 @@ describe("batch atomicity — ADR-0005 §4.16", () => {
         actor: "cli:loaf",
         entry_schema_version: 1,
         kind: "pending:resolved" as const,
-        // pending FIFO: the head is PEND-1 (the first one we added at seq=1).
-        payload: { id: "PEND-1" },
+        // pending FIFO: the head is PEND-0001 (the first one we added at seq=1).
+        payload: { id: "PEND-0001" },
       } as JournalEntry,
     ];
     await fs.writeFile(fp, lines.map(serialize).join(""));

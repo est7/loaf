@@ -69,7 +69,7 @@ function baseEntry(overrides: Record<string, unknown> = {}): Record<string, unkn
     actor: "cli:loaf",
     entry_schema_version: 1,
     kind: "pending:added",
-    payload: { id: "PEND-001", kind: "ask_user_question", question: "?" },
+    payload: { id: "PEND-0001", kind: "ask_user_question", question: "stub" },
     ...overrides,
   };
 }

@@ -93,7 +93,13 @@ export type PreflightFailureCode =
   // to preflight so the user-facing CLI surface returns the actionable
   // diagnostic directly instead of REDUCER_ERROR wrapping. Reducer keeps
   // its defensive check as fallback.
-  | "DUPLICATE_TASK_ID";
+  | "DUPLICATE_TASK_ID"
+  // Slice 3 SC1 — pending head invariant (protocol §10.7 rev 4.1 Q3
+  // minimal). Pending kinds {gate_decision, profile_escalation} block
+  // event:phase_advanced; other kinds in the queue do not. GATE_NOT_PENDING
+  // / ESCALATION_NOT_PENDING and the gate-decide pending:resolved
+  // co-emission are deferred to SC4 (codex r62/r63 sign-off).
+  | "PENDING_BLOCKS_ADVANCE";
 
 export type PreflightResult =
   | { ok: true }
@@ -218,6 +224,22 @@ export function preflight(
         code: "FROM_CURSOR_MISMATCH",
         message: `event:phase_advanced payload.from=${from} but current sub_state=${sub_state}`,
         detail: { payload_from: from, current_sub_state: sub_state },
+      };
+    }
+    // Slice 3 SC1: pending-head invariant. The first UNRESOLVED entry in the
+    // FIFO queue is the head; entries with resolved=true remain in projection
+    // (reducer history) but never count as the head. Two blocker kinds per
+    // protocol §10.7 rev 4.1 Q3 minimal. This check sits between
+    // FROM_CURSOR_MISMATCH and validateTransition so malformed cursors still
+    // report FROM_CURSOR_MISMATCH first, but a blocking pending head stops
+    // any advance before edge legality is evaluated.
+    const head = ctx.snapshot.pending.find((p) => !p.resolved);
+    if (head && (head.kind === "gate_decision" || head.kind === "profile_escalation")) {
+      return {
+        ok: false,
+        code: "PENDING_BLOCKS_ADVANCE",
+        message: `pending head ${head.id} (kind=${head.kind}) blocks \`loaf advance\` until resolved`,
+        detail: { pending_id: head.id, kind: head.kind },
       };
     }
   }
