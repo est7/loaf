@@ -118,7 +118,18 @@ export type PreflightFailureCode =
   // task.steps; amend-tasks accepts absence but validates if present.
   | "FINDING_ACTION_INCOHERENT"
   | "FINDING_ACTION_UNUSUAL_REASON_REQUIRED"
-  | "FINDING_TARGET_REQUIRED";
+  | "FINDING_TARGET_REQUIRED"
+  // Slice 3 SC4 — pending-head guard for gate:decided.
+  // GATE_NOT_PENDING fires when the unresolved pending head is a
+  // non-gate kind (ask_user_question / spec_clarification /
+  // finding_decision / profile_escalation): the user must resolve
+  // the active prompt before deciding a gate. Heads with
+  // kind=gate_decision OR no head at all are soft-allowed (co-emission
+  // adds pending:resolved when present; nothing when absent).
+  // Strict gate_decision(<G>) matching needs PendingAddedPayload
+  // gate_name field — deferred (no schema yet to discriminate
+  // spec-lock vs verify-accept heads).
+  | "GATE_NOT_PENDING";
 
 export type PreflightResult =
   | { ok: true }
@@ -226,6 +237,32 @@ export function preflight(
         message: `gate:decided gate_kind=verify-accept requires sub_state=VERIFY.accept (got ${sub_state})`,
         detail: { gate_kind: gateKind, sub_state, expected: "VERIFY.accept" },
       };
+    }
+    // Slice 3 SC4: GATE_NOT_PENDING guard on approved gate decisions.
+    // If a pending head exists with a non-gate kind, the user must
+    // resolve that blocker before deciding the gate (the active prompt
+    // could be asking a question that affects the decision itself).
+    // gate_decision heads are soft-allowed (CLI co-emits pending:resolved
+    // in the same batch); absent head also passes (no co-emission).
+    // Rejected decisions bypass this guard — rejecting a gate is itself
+    // an answer that does not require resolving a parallel pending.
+    const decision = (payloadParsed.data as { decision?: string }).decision;
+    if (decision === "approved") {
+      const pendingHead = ctx.snapshot.pending.find((p) => !p.resolved);
+      if (pendingHead && pendingHead.kind !== "gate_decision") {
+        return {
+          ok: false,
+          code: "GATE_NOT_PENDING",
+          message:
+            `gate:decided ${gateKind} approve blocked: pending head ${pendingHead.id} ` +
+            `(kind=${pendingHead.kind}) is not a gate_decision prompt; resolve it first`,
+          detail: {
+            gate_kind: gateKind,
+            head_id: pendingHead.id,
+            head_kind: pendingHead.kind,
+          },
+        };
+      }
     }
   }
 

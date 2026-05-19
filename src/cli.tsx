@@ -237,9 +237,14 @@ export async function main(argv: string[] = process.argv): Promise<number> {
   //                   `loaf settle` later move the cursor per ceremony.settle_phase.)
   //   reject:        [gate:decided] for both gates (no cursor side-effect)
   //
-  // Pending-head enforcement and `pending:resolved` co-emission are
-  // intentionally deferred — full protocol §10.7/§10.8 lands with the
-  // pending CLI surface in a later slice.
+  // Slice 3 SC4: pending:resolved co-emission soft-binding (codex r68
+  // → r71 plan). When the snapshot's unresolved pending head exists
+  // with kind=gate_decision, the approve batch appends pending:resolved
+  // so the head is cleared atomically with the decision. Heads with a
+  // non-gate kind are rejected upstream by preflight GATE_NOT_PENDING
+  // (resolve the active prompt first). Rejected decisions do not
+  // co-emit. Strict gate_decision(<G>) matching is deferred until
+  // PendingAddedPayload gains a gate_name discriminator.
   program
     .command("gate")
     .description("Gate decision commands (spec-lock + verify-accept)")
@@ -307,31 +312,49 @@ export async function main(argv: string[] = process.argv): Promise<number> {
         tail_seq: session.tail_seq,
       };
       const now = new Date().toISOString();
+      // SC4 soft pending co-emission: if the unresolved head is a
+      // gate_decision prompt, the approve batch appends pending:resolved
+      // so the head clears atomically. Non-gate heads are rejected by
+      // preflight GATE_NOT_PENDING (see reducer/preflight.ts (5a)).
+      const pendingHead = session.snapshot.pending.find((p) => !p.resolved);
+      const coEmitPendingResolved =
+        approve && pendingHead && pendingHead.kind === "gate_decision";
       if (approve) {
         if (gateName === "spec-lock") {
           // dual-entry batch: human gate:decided + machine event:phase_advanced.
           // mutateBatch Pass 1.5 evaluates spec-lock via evaluateSpecLock; any
           // failure surfaces as GATE_PRECONDITION_VIOLATION with checks[] in
           // detail. spec-lock specifically moves SPEC.design → EXECUTE.plan.
-          const result = await mutateBatch(
-            [
-              {
-                at: now,
-                actor: humanActor,
-                entry_schema_version: 1,
-                kind: "gate:decided",
-                payload: { gate_kind: "spec-lock", decision: "approved", reason: opts.reason },
-              },
-              {
-                at: now,
-                actor,
-                entry_schema_version: 1,
-                kind: "event:phase_advanced",
-                payload: { from, to: "EXECUTE.plan" },
-              },
-            ],
-            ctx,
-          );
+          // SC4: when coEmitPendingResolved, insert pending:resolved between
+          // the gate decision and the cursor advance — order matters for
+          // reducer dry-run (pending head must still be unresolved when
+          // pending:resolved applies; phase_advanced runs after).
+          const entries: Parameters<typeof mutateBatch>[0] = [
+            {
+              at: now,
+              actor: humanActor,
+              entry_schema_version: 1,
+              kind: "gate:decided",
+              payload: { gate_kind: "spec-lock", decision: "approved", reason: opts.reason },
+            },
+          ];
+          if (coEmitPendingResolved && pendingHead) {
+            entries.push({
+              at: now,
+              actor,
+              entry_schema_version: 1,
+              kind: "pending:resolved",
+              payload: { id: pendingHead.id, answer: "gate-decide:spec-lock:approved" },
+            });
+          }
+          entries.push({
+            at: now,
+            actor,
+            entry_schema_version: 1,
+            kind: "event:phase_advanced",
+            payload: { from, to: "EXECUTE.plan" },
+          });
+          const result = await mutateBatch(entries, ctx);
           if (!result.ok) {
             emitFailure(result.code, result.message, result.detail);
             return;
@@ -353,22 +376,43 @@ export async function main(argv: string[] = process.argv): Promise<number> {
           );
           return;
         }
-        // verify-accept approve: single-entry [gate:decided].
+        // verify-accept approve: single-entry [gate:decided] OR 2-entry
+        // batch [gate:decided, pending:resolved] when SC4 co-emission fires.
         // mutateBatch Pass 1.5 evaluates verify-accept via evaluateVerifyAccept
         // (5 checks: lane status / open findings / coverage / done-task evidence
         // / deep spec-review). Gate does NOT move cursor — cursor stays at
         // VERIFY.accept; `loaf deliver` / `loaf settle` advance cursor later
         // per ceremony.settle_phase.
-        const result = await mutate(
-          {
-            at: now,
-            actor: humanActor,
-            entry_schema_version: 1,
-            kind: "gate:decided",
-            payload: { gate_kind: "verify-accept", decision: "approved", reason: opts.reason },
-          },
-          ctx,
-        );
+        const result = coEmitPendingResolved && pendingHead
+          ? await mutateBatch(
+            [
+              {
+                at: now,
+                actor: humanActor,
+                entry_schema_version: 1,
+                kind: "gate:decided",
+                payload: { gate_kind: "verify-accept", decision: "approved", reason: opts.reason },
+              },
+              {
+                at: now,
+                actor,
+                entry_schema_version: 1,
+                kind: "pending:resolved",
+                payload: { id: pendingHead.id, answer: "gate-decide:verify-accept:approved" },
+              },
+            ],
+            ctx,
+          )
+          : await mutate(
+            {
+              at: now,
+              actor: humanActor,
+              entry_schema_version: 1,
+              kind: "gate:decided",
+              payload: { gate_kind: "verify-accept", decision: "approved", reason: opts.reason },
+            },
+            ctx,
+          );
         if (!result.ok) {
           emitFailure(result.code, result.message, result.detail);
           return;
@@ -902,18 +946,46 @@ export async function main(argv: string[] = process.argv): Promise<number> {
   // applicable steps are terminal-positive (passed | waived | na).
   // --result defaults to "passed" if omitted; valid values per
   // TaskStepDonePayload schema: passed | failed | waived | na.
-  // SC3 MVP: no --evidence-* flag (deferred to Slice 3 Ledger CLI; the
-  // batch evidence emission contract per protocol §1809 lands when
-  // evidence add CLI ships).
+  //
+  // Slice 3 SC4 (codex r62 plan): optional --evidence-* flags trigger a
+  // mutateBatch [event:task_step_done, evidence:added] so a single
+  // command both closes the step and registers its proof under one
+  // batch_id. CLI allocates EV-NNNNNN (max-serial+1, zero-pad ≥6),
+  // injects task_id from --task, and forwards remaining fields to the
+  // EvidenceFullPayload schema. Without --evidence-* the original
+  // single-entry behavior is preserved.
   stepCmd
     .command("done")
     .description("Mark a task step as done (--result passed|failed|waived|na; default passed)")
     .requiredOption("--task <task-id>", "Task whose step to mark done")
     .requiredOption("--step <step-name>", "Step name (kind-specific)")
     .option("--result <r>", "Step result: passed (default) | failed | waived | na", "passed")
+    // Slice 3 SC4 --evidence-* batch flags. Any one of these triggers
+    // the batch path; --evidence-kind + --evidence-summary are then
+    // required together (others optional, mirrors evidence add payload).
+    .option("--evidence-kind <kind>", "Evidence kind (closed EvidenceKind enum)")
+    .option("--evidence-result <r>", "Evidence result (passed | failed | approved | rejected | waived)")
+    .option("--evidence-summary <text>", "Evidence summary (≥3 chars)")
+    .option("--evidence-covers <csv>", "Comma-separated REQ/SCEN/VIS/Task ids covered by this evidence")
+    .option("--evidence-check <kind>", "Verify-check kind (run | review | acceptance | visual)")
+    .option("--evidence-reason <text>", "Evidence reason (manual/waiver require ≥10 chars)")
+    .option("--evidence-actor <actor>", "Override evidence actor (default: cli:loaf; required human:* for manual/waiver)")
     .requiredOption("--feature <name>", "Feature whose task lifecycle to advance")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-    .action(async (opts: { task: string; step: string; result: string; feature: string; featureDir?: string }) => {
+    .action(async (opts: {
+      task: string;
+      step: string;
+      result: string;
+      feature: string;
+      featureDir?: string;
+      evidenceKind?: string;
+      evidenceResult?: string;
+      evidenceSummary?: string;
+      evidenceCovers?: string;
+      evidenceCheck?: string;
+      evidenceReason?: string;
+      evidenceActor?: string;
+    }) => {
       // Validate --result client-side (payload schema also enforces).
       const validResults = ["passed", "failed", "waived", "na"] as const;
       if (!(validResults as readonly string[]).includes(opts.result)) {
@@ -923,22 +995,102 @@ export async function main(argv: string[] = process.argv): Promise<number> {
         );
         return;
       }
+      // SC4 batch path: any --evidence-* flag triggers; --kind + --summary
+      // are mutually required (kind without summary or vice versa → USAGE).
+      const evidenceFlagSet =
+        opts.evidenceKind !== undefined ||
+        opts.evidenceResult !== undefined ||
+        opts.evidenceSummary !== undefined ||
+        opts.evidenceCovers !== undefined ||
+        opts.evidenceCheck !== undefined ||
+        opts.evidenceReason !== undefined ||
+        opts.evidenceActor !== undefined;
+      if (evidenceFlagSet) {
+        if (opts.evidenceKind === undefined || opts.evidenceSummary === undefined) {
+          emitFailure(
+            "USAGE",
+            "--evidence-kind and --evidence-summary must be specified together when any --evidence-* flag is present",
+          );
+          return;
+        }
+      }
       const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
       const session = await loadSession(featureDir);
       if (!session.snapshot.state) {
         emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
         return;
       }
-      const result = await mutate(
-        {
-          at: new Date().toISOString(),
-          actor,
-          entry_schema_version: 1,
-          kind: "event:task_step_done",
-          payload: { task_id: opts.task, step: opts.step, result: opts.result },
-        },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq },
-      );
+      const now = new Date().toISOString();
+      // Build the step_done entry. SC4 batch path adds evidence:added
+      // afterward when --evidence-* is set.
+      const stepDoneEntry = {
+        at: now,
+        actor,
+        entry_schema_version: 1,
+        kind: "event:task_step_done" as const,
+        payload: { task_id: opts.task, step: opts.step, result: opts.result },
+      };
+      const ctx = {
+        feature_dir: featureDir,
+        snapshot: session.snapshot,
+        tail_seq: session.tail_seq,
+      };
+      let result:
+        | Awaited<ReturnType<typeof mutate>>
+        | Awaited<ReturnType<typeof mutateBatch>>;
+      let evidenceId: string | undefined;
+      if (evidenceFlagSet) {
+        // Allocate EV-NNNNNN — same shape as evidence add CLI.
+        const maxSerial = session.snapshot.evidence.reduce((max, e) => {
+          const m = /^EV-(\d+)$/.exec(e.id);
+          if (!m) return max;
+          return Math.max(max, Number.parseInt(m[1]!, 10));
+        }, 0);
+        evidenceId = `EV-${String(maxSerial + 1).padStart(6, "0")}`;
+        const iteration = session.snapshot.state.iteration ?? 1;
+        const evidenceActor = opts.evidenceActor ?? actor;
+        const evidencePayload: Record<string, unknown> = {
+          id: evidenceId,
+          kind: opts.evidenceKind,
+          iteration,
+          actor: evidenceActor,
+          // Evidence.result defaults to the step result so passed steps
+          // emit passed evidence by default; caller can override via
+          // --evidence-result for waiver / approved / rejected cases.
+          result: opts.evidenceResult ?? opts.result,
+          summary: opts.evidenceSummary,
+          task_id: opts.task,
+        };
+        if (opts.evidenceCovers !== undefined) {
+          evidencePayload["covers"] = opts.evidenceCovers
+            .split(",")
+            .map((s) => s.trim())
+            .filter((s) => s.length > 0);
+        }
+        if (opts.evidenceCheck !== undefined) evidencePayload["check"] = opts.evidenceCheck;
+        if (opts.evidenceReason !== undefined) evidencePayload["reason"] = opts.evidenceReason;
+        // Journal envelope actor is always the CLI-injected machine actor
+        // (codex r72 BLOCK fix): protocol §10.8 keeps `--actor` a permanent
+        // non-flag — envelope provenance must stay `cli:loaf@...` so audit
+        // trail aligns with the adjacent event:task_step_done entry.
+        // Payload.actor inside evidencePayload can still carry `human:*`
+        // for manual/waiver evidence (preserved above).
+        result = await mutateBatch(
+          [
+            stepDoneEntry,
+            {
+              at: now,
+              actor,
+              entry_schema_version: 1,
+              kind: "evidence:added",
+              payload: evidencePayload,
+            },
+          ],
+          ctx,
+        );
+      } else {
+        result = await mutate(stepDoneEntry, ctx);
+      }
       if (!result.ok) {
         emitFailure(result.code, result.message, result.detail);
         return;
@@ -961,7 +1113,7 @@ export async function main(argv: string[] = process.argv): Promise<number> {
         );
         return;
       }
-      const out = {
+      const out: Record<string, unknown> = {
         ok: true,
         feature: opts.feature,
         task_id: opts.task,
@@ -970,12 +1122,14 @@ export async function main(argv: string[] = process.argv): Promise<number> {
         task_status: updated.status, // reflects auto-promote if it fired
         sub_state: result.snapshot.state?.sub_state,
       };
+      if (evidenceId !== undefined) out["evidence_id"] = evidenceId;
       if (useJson) {
         process.stdout.write(JSON.stringify(out) + "\n");
       } else {
         const promote = updated.status === "done" ? " (task auto-promoted to done)" : "";
+        const evidenceSuffix = evidenceId !== undefined ? ` evidence=${evidenceId}` : "";
         process.stdout.write(
-          `done ${opts.task} step=${opts.step} result=${opts.result}${promote}\n`,
+          `done ${opts.task} step=${opts.step} result=${opts.result}${evidenceSuffix}${promote}\n`,
         );
       }
     });
