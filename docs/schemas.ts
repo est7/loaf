@@ -3759,8 +3759,12 @@ export const DiagnosticCode = z.enum([
   "INVALID_ACTOR_FORMAT",                  // src/core/actor-resolver.ts:35-72
   "NO_HUMAN_ACTOR",                        // src/core/actor-resolver.ts:81-101
   // ── Slice 1.B sub-cycle 1 — SPEC content reducer (codex r17) ──
-  "SPEC_VERSION_NOT_MONOTONIC",            // src/core/reducer.ts checkSpecVersion(Head) — batch head must bump current+1
-  "SPEC_VERSION_BATCH_MISMATCH",           // src/core/reducer.ts checkSpecVersion — batch continuation must equal current
+  // SPEC_VERSION_NOT_MONOTONIC + SPEC_VERSION_BATCH_MISMATCH originally
+  // landed here as reducer message strings. Slice E (codex r100 audit)
+  // promoted them to PreflightFailureCode and registered the canonical
+  // public catalog entries below alongside the other Slice E codes
+  // (search for "Slice E — SPEC_VERSION_*"); duplicate rows here have
+  // been removed so docs/schemas.ts represents a single source of truth.
   "DUPLICATE_REQ_ID",                      // src/core/reducer.ts spec_req_added — id already in requirements[]
   "DUPLICATE_SCEN_ID",                     // src/core/reducer.ts spec_scenario_added — id already in scenarios[]
   "DUPLICATE_VIS_ID",                      // src/core/reducer.ts spec_visual_added — id already in visual_contracts[]
@@ -4309,22 +4313,16 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
       "run interactively with git user.email configured, or set LOAF_USER explicitly",
     doc_anchor: "protocol.md#§10.8",
   },
-  SPEC_VERSION_NOT_MONOTONIC: {
-    exit_code: 2,
-    message_template:
-      "spec_version must be {expected} (current+1) at batch head, got {actual}",
-    fix_template:
-      "ensure `loaf spec submit` / `add-*` invocations carry spec_version = state.spec_version + 1; per protocol §586 each CLI invocation bumps spec_version by exactly 1, regardless of how many items are in the batch",
-    doc_anchor: "protocol.md#§586",
-  },
-  SPEC_VERSION_BATCH_MISMATCH: {
-    exit_code: 2,
-    message_template:
-      "spec_version must be {expected} at batch_index={index}, got {actual}",
-    fix_template:
-      "within a single mutateBatch invocation, the batch head (batch_index=0) bumps state.spec_version; all subsequent companion entries (batch_index>0) must carry the SAME spec_version. Regenerate the batch with a consistent spec_version across all entries",
-    doc_anchor: "protocol.md#§586",
-  },
+  // SPEC_VERSION_NOT_MONOTONIC + SPEC_VERSION_BATCH_MISMATCH catalog
+  // entries originally landed here under Slice 1.B sub-cycle 1 with
+  // placeholders {expected}/{actual}/{index} and doc_anchor §586.
+  // Slice E promoted these to PreflightFailureCode and registered
+  // runtime-aligned canonical entries below (look for "Slice E:
+  // promoted from reducer message strings"). The duplicate rows
+  // were removed during the r100 audit cleanup so the catalog
+  // represents a single source of truth that matches the runtime
+  // detail keys (kind / payload_spec_version / expected_spec_version
+  // / current_spec_version / batch_index).
   DUPLICATE_REQ_ID: {
     exit_code: 2,
     message_template:
