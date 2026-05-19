@@ -160,6 +160,7 @@
     "TASK_ALREADY_CLAIMED":        "task {task_id} is already claimed (status=in_progress)",
     "TASK_DEPS_NOT_SATISFIED":     "task {task_id} cannot be claimed: dependency {blocking_dep} is not done (status={blocking_status})",
     "TASK_NOT_CLAIMED":            "task {task_id} step {step} mutation requires task.status=in_progress (got status={status}); claim the task first",
+    "PROJECTION_WRITE_FAILED":     "{projection} projection write failed after journal append at last_seq={last_seq} (spec_version={spec_version}): {error}",
     "DONE_TERMINAL_INVARIANT":    "DONE.* requires state.pending.length === 0 and no task with status=\"in_progress\" in tasks.json",
     "ABANDON_REQUIRES_REASON":    "loaf abandon requires --reason argument",
     "TASKS_EXECUTION_DRIFT":      "Task {task_id} step={step} status={status} disagrees with evidence.jsonl",

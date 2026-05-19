@@ -44,10 +44,21 @@ import path from "node:path";
 import { AppendError, appendMany } from "./journal-append.js";
 import { evaluateSpecLock } from "./gates/spec-lock-eval.js";
 import { evaluateVerifyAccept } from "./gates/verify-accept-eval.js";
-import { REDUCER_IMPLEMENTED_KINDS, type JournalEntry } from "./journal-entry.js";
+import { REDUCER_IMPLEMENTED_KINDS, type EntryKind, type JournalEntry } from "./journal-entry.js";
 import { apply, type Snapshot } from "./reducer.js";
 import { preflight, type PreflightFailureCode } from "./reducer/preflight.js";
 import { promoteSidecars } from "./sidecar.js";
+import { writeDerivedSpecMd } from "./spec-projection.js";
+
+// Slice A SC-A2: kinds that drive the spec.md projection writer at Pass 5
+// (post-appendMany). Scoping by this set means non-spec batches never
+// touch the FS for spec.md.
+const SPEC_EMITTING_KINDS: ReadonlySet<EntryKind> = new Set<EntryKind>([
+  "event:spec_submitted",
+  "event:spec_req_added",
+  "event:spec_scenario_added",
+  "event:spec_visual_added",
+]);
 
 export interface MutateContext {
   /** Feature directory; journal.jsonl + attachments/ + snapshots/ live here */
@@ -67,7 +78,8 @@ export type MutateFailureCode =
   | "REDUCER_ERROR"
   | "INVALID_BATCH"
   | "GATE_PRECONDITION_VIOLATION"
-  | "MULTIPLE_GATE_DECISIONS";
+  | "MULTIPLE_GATE_DECISIONS"
+  | "PROJECTION_WRITE_FAILED";
 
 export type MutateResult =
   | { ok: true; snapshot: Snapshot; entry: JournalEntry }
@@ -363,6 +375,40 @@ export async function mutateBatch(
       message: `append failed: ${String(err)}`,
       detail: { err: String(err) },
     };
+  }
+
+  // Pass 5 — post-appendMany spec.md projection sync (Slice A SC-A2).
+  // Journal is authoritative (Pass 4 already succeeded). spec.md is a
+  // derived projection; sync it from finalSnapshot. On failure surface
+  // PROJECTION_WRITE_FAILED — `loaf doctor --rebuild` (Slice 5 D) is
+  // the recovery path; retrying the same payload would hit
+  // DUPLICATE_*_ID against the already-appended journal entry.
+  //
+  // TODO(slice 5 — lock acquire): Pass 5 MUST live inside the per-feature
+  // lock window. mutateBatch defers step 1 lock acquire / step 10 lock
+  // release per the MVP single-writer assumption (see protocol §11.2 +
+  // module header). When the lock lands, projection sync runs before
+  // release so concurrent CLI invocations cannot race spec.md.
+  if (promoted.some((entry) => SPEC_EMITTING_KINDS.has(entry.kind))) {
+    try {
+      await writeDerivedSpecMd(finalSnapshot, ctx.feature_dir);
+    } catch (err) {
+      const lastSeq = promoted[promoted.length - 1]!.seq;
+      return {
+        ok: false,
+        code: "PROJECTION_WRITE_FAILED",
+        message:
+          `spec.md projection write failed after journal append at last_seq=${lastSeq}; journal is authoritative — run 'loaf doctor --rebuild' to resync. Cause: ${(err as Error).message}`,
+        detail: {
+          projection: "spec.md",
+          path: path.join(ctx.feature_dir, "spec.md"),
+          journal_appended: true,
+          last_seq: lastSeq,
+          spec_version: finalSnapshot.state?.spec_version ?? null,
+          error: (err as Error).message,
+        },
+      };
+    }
   }
 
   return { ok: true, snapshot: finalSnapshot, entries: promoted };

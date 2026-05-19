@@ -3805,6 +3805,8 @@ export const DiagnosticCode = z.enum([
   "TASK_ALREADY_CLAIMED",                  // src/core/reducer/preflight.ts step 5e — event:task_claimed for task with status=in_progress
   "TASK_DEPS_NOT_SATISFIED",               // src/core/reducer/preflight.ts step 5e — event:task_claimed but some task in deps_on is not status=done
   "TASK_NOT_CLAIMED",                      // src/core/reducer/preflight.ts step 5e — event:task_step_started or event:task_step_done but task.status ≠ in_progress (must claim before mutating steps)
+  // ── Slice A SC-A2 — spec.md projection writer (post-appendMany Pass 5) ──
+  "PROJECTION_WRITE_FAILED",               // src/core/journal-mutate.ts Pass 5 — writeDerivedSpecMd threw after journal append succeeded; journal authoritative, run `loaf doctor --rebuild` to resync
 ]);
 export type DiagnosticCode = z.infer<typeof DiagnosticCode>;
 
@@ -4598,6 +4600,23 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
     fix_template:
       "run `loaf tasks claim {task_id}` to move the task from pending/ready to in_progress before emitting task_step_started or task_step_done; once auto-promoted to done, steps cannot be re-mutated",
     doc_anchor: "protocol.md#§10.8",
+  },
+  // Slice A SC-A2: PROJECTION_WRITE_FAILED is surfaced by
+  // mutateBatch Pass 5 (post-appendMany) when writeDerivedSpecMd
+  // throws. Journal append already succeeded — retrying the same
+  // command would hit DUPLICATE_*_ID against the appended event.
+  // The fix path is the doctor rebuild (Slice 5 D), NOT a retry.
+  // NOTE: this entry exists for protocol/catalog consistency.
+  // Today's CLI `emitFailure` (src/cli.tsx:103-123) prints the
+  // mutateBatch `message` directly and does not render ERROR_CATALOG;
+  // wiring catalog rendering is out of SC-A2 scope (codex r90).
+  PROJECTION_WRITE_FAILED: {
+    exit_code: 2,
+    message_template:
+      "{projection} projection write failed after journal append at last_seq={last_seq} (spec_version={spec_version}): {error}",
+    fix_template:
+      "the journal already records the change; do NOT retry the same command. Run `loaf doctor --rebuild` (when available) to resync derived projections from journal truth, or inspect `.loaf/<feature>/journal.jsonl` tail manually.",
+    doc_anchor: "protocol.md#§10.15",
   },
 } as const;
 

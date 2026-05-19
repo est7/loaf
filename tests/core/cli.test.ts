@@ -3283,3 +3283,153 @@ describe("End-to-end task lifecycle CLI — Slice 2 SC4", () => {
     // landed through public CLI. SC4 final.
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// Slice A SC-A2 — spec.md projection writer e2e unlock.
+//
+// Proves the full TRIAGE → SPEC → EXECUTE.plan chain walks through the
+// public CLI WITHOUT any hand-written spec.md. spec.md is produced
+// exclusively by Pass 5 (post-appendMany projection writer) from
+// Snapshot.spec_header + .requirements / .scenarios / .visual_contracts.
+//
+// Closes Slice 4 SC4 deferred e2e (`gate decide spec-lock --approve`
+// previously blocked because evaluateSpecLock reads spec.md from disk
+// and no reducer apply wrote it; Slice A widens Snapshot + Pass 5
+// renders the projection).
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("End-to-end SPEC content → spec-lock approve (Slice A SC-A2)", () => {
+  test("init → submit → add-req → tasks submit → advance → gate decide spec-lock --approve walks through", async () => {
+    const dir = await tmpFeatureDir();
+    const cli = (args: string[], env?: Record<string, string | undefined>) =>
+      runCli(
+        args.concat(["--feature", "auth-refresh", "--feature-dir", dir]),
+        env ? { env } : {},
+      );
+
+    // 1. start session (TRIAGE.score). Uses runCli directly because
+    // `loaf start` takes the feature as a positional arg and does not
+    // accept the helper's --feature flag.
+    let r = await runCli(
+      ["start", "auth-refresh", "--ceremony", "standard", "--feature-dir", dir],
+    );
+    expect(r.exit).toBe(0);
+
+    // 2. spec init — scaffold spec.md template. Pass 5 hasn't fired yet
+    // because no spec_*_added events have flowed.
+    r = await cli([
+      "spec", "init",
+      "--feature-id", "F-001",
+      "--feature-name", "OAuth token refresh",
+      "--intent", "users should not perceive auth recovery flows in flight",
+    ]);
+    expect(r.exit).toBe(0);
+
+    // 3. Walk TRIAGE → SPEC.proposal so spec submit is legal.
+    r = await cli(["advance", "TRIAGE.confirm"]);
+    expect(r.exit).toBe(0);
+    r = await cli(["advance", "SPEC.proposal"]);
+    expect(r.exit).toBe(0);
+
+    // 4. spec submit — whole-replacement entry. Pass 5 NOW writes spec.md
+    // from snapshot (overwrites the init scaffold).
+    const submitFile = path.join(dir, ".submit.json");
+    await fsP.writeFile(
+      submitFile,
+      JSON.stringify({
+        feature: { id: "F-001", name: "OAuth token refresh" },
+        intent: "users should not perceive auth recovery flows in flight",
+        adr_refs: [],
+        requirements: [],
+        scenarios: [],
+        visual_contracts: [],
+        needs_clarification: [],
+      }),
+    );
+    r = await cli(["spec", "submit", "--input", submitFile]);
+    expect(r.exit).toBe(0);
+
+    // After submit, spec.md must be readable + Pass 5 wrote feature.id=F-001.
+    const specAfterSubmit = await fsP.readFile(path.join(dir, "spec.md"), "utf8");
+    expect(specAfterSubmit).toMatch(/^---/);
+    expect(specAfterSubmit).toContain("F-001");
+    expect(specAfterSubmit).toContain("OAuth token refresh");
+
+    // 5. spec add-req — adds REQ-AUTH-001 (full body, e.g. event-driven).
+    const addReqFile = path.join(dir, ".add-req.json");
+    await fsP.writeFile(
+      addReqFile,
+      JSON.stringify({
+        id_namespace: "REQ-AUTH",
+        type: "ubiquitous",
+        response: "the system shall do something measurable here",
+        acceptance_na: true,
+        acceptance_na_reason: "subjective UX validated via manual testing scope",
+      }),
+    );
+    r = await cli(["spec", "add-req", "--input", addReqFile]);
+    expect(r.exit).toBe(0);
+
+    // After add-req, Pass 5 rewrote spec.md including REQ-AUTH-001.
+    const specAfterAddReq = await fsP.readFile(path.join(dir, "spec.md"), "utf8");
+    expect(specAfterAddReq).toContain("REQ-AUTH-001");
+
+    // 6. Walk SPEC.proposal → SPEC.spec → SPEC.plan → SPEC.design.
+    for (const to of ["SPEC.spec", "SPEC.plan", "SPEC.design"]) {
+      r = await cli(["advance", to]);
+      expect(r.exit).toBe(0);
+    }
+
+    // 7. tasks submit — task graph at SPEC.design, drives REQ-AUTH-001.
+    // Required for spec-lock check 3 (tasks_based_on.spec) + check 4
+    // (REQ_NOT_DRIVEN).
+    const tasksFile = path.join(dir, ".tasks.json");
+    await fsP.writeFile(
+      tasksFile,
+      JSON.stringify({
+        based_on: { spec: 2 },  // spec_version is 2 after add-req
+        tasks: [
+          {
+            id: "T-001",
+            kind: "behavioral",
+            drives: ["REQ-AUTH-001"],
+            tests: ["TokenCoord.refreshOnce"],
+            status: "pending",
+            depends_on: [],
+            labels: [],
+            execution: {
+              red: { applicability: "must", status: "pending", evidence_refs: [] },
+              implement: { applicability: "must", status: "pending", evidence_refs: [] },
+              refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+            },
+          },
+        ],
+      }),
+    );
+    r = await cli(["tasks", "submit", tasksFile, "--json"]);
+    expect(r.exit).toBe(0);
+
+    // 8. THE UNLOCK — gate decide spec-lock --approve walks through.
+    // evaluateSpecLock reads spec.md (Pass-5-rendered) + parses
+    // SpecFrontmatter + runs 8 checks. Returns ok → batch [gate:decided,
+    // phase_advanced SPEC.design → EXECUTE.plan] appends + projection
+    // updates state.spec_locked=true + cursor=EXECUTE.plan.
+    r = await cli(
+      ["gate", "decide", "spec-lock", "--approve", "--reason", "e2e unlock SC-A2", "--json"],
+      { LOAF_USER: "e2e@test.invalid" },
+    );
+    expect(r.exit).toBe(0);
+    const gateOut = JSON.parse(r.stdout);
+    expect(gateOut.ok).toBe(true);
+
+    // 9. Verify final state via status.
+    r = await cli(["status", "--json"]);
+    expect(r.exit).toBe(0);
+    const status = JSON.parse(r.stdout);
+    expect(status.state.sub_state).toBe("EXECUTE.plan");
+    expect(status.state.spec_locked).toBe(true);
+
+    // Slice A SC-A2 done-when: full CLI walk with spec.md produced
+    // entirely by Pass 5 projection writer.
+  });
+});
