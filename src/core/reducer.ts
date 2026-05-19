@@ -543,12 +543,20 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
       // spec_header from payload (Slice A SC1 widen), and resets the 3
       // projection arrays so companions repopulate from scratch within
       // the batch.
+      //
+      // apply() runs preflight() before this switch (~L287-295) for
+      // non-bootstrap kinds, and preflight parses PER_KIND_PAYLOAD —
+      // SpecSubmittedPayload is .strict and requires feature{id,name} /
+      // intent / adr_refs / needs_clarification. We rely on that: no
+      // defensive `?? "" / []` fallbacks (codex r88 — those would be
+      // dead silent fallbacks masking a misuse). The `typeof spec_version
+      // !== "number"` guard stays for consistency with sibling cases.
       const payload = entry.payload as {
-        spec_version?: number;
-        feature?: { id?: string; name?: string };
-        intent?: string;
-        adr_refs?: unknown;
-        needs_clarification?: unknown;
+        spec_version: number;
+        feature: { id: string; name: string };
+        intent: string;
+        adr_refs: string[];
+        needs_clarification: NeedsClarification[];
       };
       if (typeof payload.spec_version !== "number") {
         return invalidPayload(entry.kind, "missing spec_version");
@@ -557,23 +565,15 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
       if (!versionCheck.ok) {
         return invalidPayload(entry.kind, versionCheck.message);
       }
-      // Payload schema (SpecSubmittedPayload) already validated by
-      // PER_KIND_PAYLOAD at preflight — feature/intent/adr_refs/
-      // needs_clarification all guaranteed present and well-typed when
-      // apply() runs. The defensive ?? fallbacks here are belt-and-
-      // suspenders for raw .apply() callers that bypass preflight
-      // (tests / migration).
-      const specHeader: SpecHeader = {
-        feature: {
-          id: payload.feature?.id ?? "",
-          name: payload.feature?.name ?? "",
-        },
-        intent: payload.intent ?? "",
-        adr_refs: Array.isArray(payload.adr_refs) ? (payload.adr_refs as string[]) : [],
-        needs_clarification: Array.isArray(payload.needs_clarification)
-          ? (payload.needs_clarification as NeedsClarification[])
-          : [],
-      };
+      // structuredClone to isolate the snapshot's spec_header from
+      // entry.payload aliasing (codex r88 — projection that SC-A2 will
+      // re-serialize must not share pointers with caller-owned objects).
+      const specHeader: SpecHeader = structuredClone({
+        feature: { id: payload.feature.id, name: payload.feature.name },
+        intent: payload.intent,
+        adr_refs: payload.adr_refs,
+        needs_clarification: payload.needs_clarification,
+      });
       return {
         ok: true,
         snapshot: {
@@ -600,7 +600,9 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
         return invalidPayload(entry.kind, `DUPLICATE_REQ_ID: ${payload.req.id} already in projection`);
       }
       // Slice A SC1 widen: push full payload.req (was extractRequirementSlim).
-      prev.requirements.push(payload.req);
+      // structuredClone isolates projection from caller-owned object
+      // (codex r88 — mirrors extractTaskSlim's fresh-object discipline).
+      prev.requirements.push(structuredClone(payload.req));
       return {
         ok: true,
         snapshot:
@@ -622,7 +624,7 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
       if (prev.scenarios.some((s) => s.id === payload.scenario!.id)) {
         return invalidPayload(entry.kind, `DUPLICATE_SCEN_ID: ${payload.scenario.id} already in projection`);
       }
-      prev.scenarios.push(payload.scenario);
+      prev.scenarios.push(structuredClone(payload.scenario));
       return {
         ok: true,
         snapshot:
@@ -644,7 +646,7 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
       if (prev.visual_contracts.some((v) => v.id === payload.visual!.id)) {
         return invalidPayload(entry.kind, `DUPLICATE_VIS_ID: ${payload.visual.id} already in projection`);
       }
-      prev.visual_contracts.push(payload.visual);
+      prev.visual_contracts.push(structuredClone(payload.visual));
       return {
         ok: true,
         snapshot:
