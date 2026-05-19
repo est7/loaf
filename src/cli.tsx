@@ -1688,9 +1688,64 @@ export async function main(argv: string[] = process.argv): Promise<number> {
       if (hasTask && hasStep) {
         payload["target"] = { task_id: opts.targetTask, step: opts.targetStep };
       }
+      // Slice B: amend-spec emits a 2-entry batch [finding:raised,
+      // event:phase_advanced(back_edge→SPEC.spec)] so the lock-bypass
+      // is journal-derivable + replay-safe. Other actions remain
+      // single-entry until their respective back-edge slices land.
+      const nowIso = new Date().toISOString();
+      if (opts.action === "amend-spec") {
+        const currentSubState = session.snapshot.state.sub_state;
+        const batchResult = await mutateBatch(
+          [
+            {
+              at: nowIso,
+              actor,
+              entry_schema_version: 1,
+              kind: "finding:raised",
+              payload,
+            },
+            {
+              // codex r96 Q6 ack: cli:loaf actor on derived
+              // phase_advanced (consistent with gate-decide
+              // co-emission). Human attribution lives on the
+              // sibling finding:raised entry one journal line away.
+              at: nowIso,
+              actor: "cli:loaf",
+              entry_schema_version: 1,
+              kind: "event:phase_advanced",
+              payload: {
+                from: currentSubState,
+                to: "SPEC.spec",
+                back_edge: { action: "amend-spec", finding_id: id },
+              },
+            },
+          ],
+          { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq },
+        );
+        if (!batchResult.ok) {
+          emitFailure(batchResult.code, batchResult.message, batchResult.detail);
+          return;
+        }
+        if (useJson) {
+          process.stdout.write(
+            JSON.stringify({
+              ok: true,
+              feature: opts.feature,
+              id,
+              category: opts.category,
+              action: opts.action,
+              back_edge: { from: currentSubState, to: "SPEC.spec" },
+            }) + "\n",
+          );
+        } else {
+          process.stdout.write(`${id} (back-edge ${currentSubState} → SPEC.spec)\n`);
+        }
+        return;
+      }
+
       const result = await mutate(
         {
-          at: new Date().toISOString(),
+          at: nowIso,
           actor,
           entry_schema_version: 1,
           kind: "finding:raised",

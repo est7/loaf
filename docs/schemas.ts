@@ -3807,6 +3807,8 @@ export const DiagnosticCode = z.enum([
   "TASK_NOT_CLAIMED",                      // src/core/reducer/preflight.ts step 5e — event:task_step_started or event:task_step_done but task.status ≠ in_progress (must claim before mutating steps)
   // ── Slice A SC-A2 — spec.md projection writer (post-appendMany Pass 5) ──
   "PROJECTION_WRITE_FAILED",               // src/core/journal-mutate.ts Pass 5 — writeDerivedSpecMd threw after journal append succeeded; journal authoritative, run `loaf doctor --rebuild` to resync
+  // ── Slice B — finding amend-spec back-edge batch (codex r94/r96) ──
+  "FINDING_AMEND_SPEC_NOT_LOCKED",         // src/core/reducer/preflight.ts — `finding:raised` action=amend-spec when state.spec_locked=false; pre-lock should edit via `loaf spec submit / add-*` directly
 ]);
 export type DiagnosticCode = z.infer<typeof DiagnosticCode>;
 
@@ -4617,6 +4619,18 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
     fix_template:
       "the journal already records the change; do NOT retry the same command. Run `loaf doctor --rebuild` (when available) to resync derived projections from journal truth, or inspect `.loaf/<feature>/journal.jsonl` tail manually.",
     doc_anchor: "protocol.md#§10.15",
+  },
+  // Slice B SC-B1: paired with FINDING_NOT_FOUND when back_edge
+  // references a stale / nonexistent finding. cli emitFailure prints
+  // mutateBatch.message directly today; catalog rendering wiring is
+  // out of slice scope per Slice A SC-A2 r92 NOTE.
+  FINDING_AMEND_SPEC_NOT_LOCKED: {
+    exit_code: 2,
+    message_template:
+      "finding raise action=amend-spec requires state.spec_locked=true; spec is not locked at sub_state={current_sub_state}, edit directly via `loaf spec submit / add-*`",
+    fix_template:
+      "drop --action amend-spec and use `loaf spec submit` / `loaf spec add-req` / etc. directly while spec is unlocked; amend-spec is reserved for post-`gate decide spec-lock --approve` recovery.",
+    doc_anchor: "protocol.md#§6.1",
   },
 } as const;
 

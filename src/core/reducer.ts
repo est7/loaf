@@ -316,6 +316,14 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
         ...prev.state,
         sub_state: payload.to,
         phase: extractPhase(payload.to),
+        // Slice B: reset spec_locked on any transition into SPEC.spec
+        // (forward SPEC.proposal→SPEC.spec OR back-edge from EXECUTE.*
+        // / VERIFY.* sponsored by an amend-spec finding). Forward case
+        // is a no-op (spec_locked already false at SPEC.proposal);
+        // back-edge case lifts the lock so subsequent spec_*_added
+        // events can fire (SPEC_LOCKED_NO_DIRECT_EDIT preflight gates
+        // those when locked).
+        spec_locked: payload.to === "SPEC.spec" ? false : prev.state.spec_locked,
       };
       return { ok: true, snapshot: { ...prev, state: next } };
     }

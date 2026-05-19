@@ -67,6 +67,25 @@ const ALWAYS_LEGAL_TARGETS: ReadonlySet<SubState> = new Set([
   "DONE.abandoned",
 ]);
 
+// Slice B — back-edge from-states for amend-spec sponsorship. Covers
+// every sub_state where state.spec_locked can legally be true after
+// `gate decide spec-lock --approve` (which fires at SPEC.design and
+// flips the lock). SETTLE.* deliberately excluded: finding:raised is
+// not authorized at SETTLE per PER_KIND_SUB_STATE, so the lookup
+// never happens at SETTLE; widening this set without widening finding
+// authority would be misleading (codex r94 Finding 2 ack).
+const BACK_EDGE_AMEND_SPEC_FROM: ReadonlySet<SubState> = new Set([
+  "EXECUTE.plan",
+  "EXECUTE.work",
+  "EXECUTE.done",
+  "VERIFY.plan",
+  "VERIFY.run",
+  "VERIFY.review",
+  "VERIFY.acceptance",
+  "VERIFY.visual",
+  "VERIFY.accept",
+]);
+
 export interface TransitionContext {
   ceremony: Ceremony;
   actor: string;
@@ -79,6 +98,16 @@ export interface TransitionContext {
    * false (which only matters for that edge).
    */
   verify_accepted?: boolean;
+  /**
+   * Slice B: back-edge sponsorship extracted from
+   * `event:phase_advanced.payload.back_edge`. When set, validateTransition
+   * enforces the action's target+from contract and bypasses forward-edge
+   * legality. Caller (preflight) is also responsible for verifying the
+   * referenced finding exists in `snapshot.findings` with matching
+   * action and status="open" — that check needs snapshot which transition
+   * doesn't carry.
+   */
+  back_edge?: { action: "amend-spec"; finding_id: string };
 }
 
 export type TransitionResult =
@@ -100,6 +129,56 @@ export function validateTransition(
   target: SubState,
   ctx: TransitionContext,
 ): TransitionResult {
+  // Slice B back-edge sponsorship — must run BEFORE ALWAYS_LEGAL_TARGETS
+  // bypass (codex r96 §1). Otherwise a malformed payload like
+  // `{back_edge:{action:"amend-spec"}, to:"DONE.archived"}` would slip
+  // past the action→target contract via the eject-target exception.
+  if (ctx.back_edge !== undefined) {
+    if (ctx.back_edge.action === "amend-spec") {
+      if (target !== "SPEC.spec") {
+        return {
+          ok: false,
+          code: "TRANSITION_ILLEGAL",
+          message: `back_edge action=amend-spec requires target=SPEC.spec, got ${target}`,
+          detail: {
+            from: prev,
+            to: target,
+            back_edge_action: ctx.back_edge.action,
+            expected_target: "SPEC.spec",
+            reason: "back_edge_target_mismatch",
+          },
+        };
+      }
+      if (!BACK_EDGE_AMEND_SPEC_FROM.has(prev)) {
+        return {
+          ok: false,
+          code: "TRANSITION_ILLEGAL",
+          message: `back_edge action=amend-spec is not legal from ${prev}; allowed from EXECUTE.* + VERIFY.*`,
+          detail: {
+            from: prev,
+            to: target,
+            back_edge_action: ctx.back_edge.action,
+            allowed_from: [...BACK_EDGE_AMEND_SPEC_FROM],
+            reason: "back_edge_from_not_allowed",
+          },
+        };
+      }
+      // Back-edge legal at the transition layer; preflight verifies the
+      // referenced finding_id against snapshot.findings (existence +
+      // action match + status=open).
+      return { ok: true };
+    }
+    // Future back_edge variants land here additively. The
+    // discriminatedUnion in journal-entry.ts catches unknown actions
+    // at payload parse time, so this branch is defensive.
+    return {
+      ok: false,
+      code: "TRANSITION_ILLEGAL",
+      message: `unknown back_edge.action ${(ctx.back_edge as { action: string }).action}`,
+      detail: { back_edge: ctx.back_edge, reason: "back_edge_action_unknown" },
+    };
+  }
+
   // User-explicit eject targets bypass legality + ceremony guards.
   if (ALWAYS_LEGAL_TARGETS.has(target)) {
     return { ok: true };

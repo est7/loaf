@@ -240,10 +240,35 @@ export const SessionStartedPayload = z
   .passthrough();
 export type SessionStartedPayload = z.infer<typeof SessionStartedPayload>;
 
+// Slice B — back-edge sponsorship encoded on the payload (codex r94/r96).
+// Authorization is journal-derivable / replay-safe: validateTransition,
+// reducer.apply's internal preflight, journal-mutate Pass 1 / Pass 3,
+// and replayJournal all re-derive the back-edge legality from
+// `payload.back_edge` + `snapshot.findings` without batch context.
+//
+// Discriminated union on `action` so future amend-tasks / fix-impl /
+// fix-test back-edges extend additively (codex r96 Q1 ack).
+const BackEdgeAmendSpec = z
+  .object({
+    action: z.literal("amend-spec"),
+    finding_id: FindingId,
+  })
+  .strict();
+
+const BackEdge = z.discriminatedUnion("action", [BackEdgeAmendSpec]);
+
 export const PhaseAdvancedPayload = z
   .object({
     from: SubState,
     to: SubState,
+    /**
+     * Back-edge sponsorship (Slice B). When set, `to` MUST be the
+     * target dictated by `action` (amend-spec → SPEC.spec), and the
+     * referenced finding MUST exist in snapshot.findings with
+     * matching action and status="open" (preflight enforces).
+     * Absent on forward transitions (the default).
+     */
+    back_edge: BackEdge.optional(),
   })
   .passthrough();
 export type PhaseAdvancedPayload = z.infer<typeof PhaseAdvancedPayload>;

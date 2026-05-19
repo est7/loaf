@@ -150,7 +150,26 @@ export type PreflightFailureCode =
   // post-lock callers must walk through `loaf finding raise --action
   // amend-spec` to back-edge into SPEC.spec.
   | "SPEC_NOT_INITIALIZED"
-  | "SPEC_LOCKED_NO_DIRECT_EDIT";
+  | "SPEC_LOCKED_NO_DIRECT_EDIT"
+  // Slice B — finding amend-spec back-edge batch (codex r94/r96).
+  // FINDING_AMEND_SPEC_NOT_LOCKED: `finding:raised` with
+  // action=amend-spec when state.spec_locked=false. The amend-spec
+  // surface is reserved for post-lock recovery; pre-lock callers
+  // should use `loaf spec submit / add-*` directly (gated by
+  // SPEC_LOCKED_NO_DIRECT_EDIT as the inverse). Only ever fires at
+  // EXECUTE.* / VERIFY.* (the lanes where finding:raised is allowed
+  // and spec_locked CAN be true); SUB_STATE_AUTHORITY_VIOLATION
+  // wins at SPEC.* / SETTLE.* / TRIAGE.* (codex r94 Finding 3 ack).
+  //
+  // FINDING_NOT_FOUND: `event:phase_advanced` with payload.back_edge
+  // referencing a finding_id that doesn't exist in projection, has
+  // wrong action, or is already_closed (status=closed). Reused from
+  // the reducer's `finding:closed` already_closed convention; the
+  // detail.reason field disambiguates. Promotion to a preflight
+  // code so mutateBatch surfaces the actionable diagnostic instead
+  // of REDUCER_ERROR wrap (codex r96 §2).
+  | "FINDING_AMEND_SPEC_NOT_LOCKED"
+  | "FINDING_NOT_FOUND";
 
 export type PreflightResult =
   | { ok: true }
@@ -318,6 +337,52 @@ export function preflight(
         message: `pending head ${head.id} (kind=${head.kind}) blocks \`loaf advance\` until resolved`,
         detail: { pending_id: head.id, kind: head.kind },
       };
+    }
+
+    // Slice B — back_edge sponsorship verifies against snapshot.findings
+    // (codex r96 §3: open-only requirement, closed → FINDING_NOT_FOUND
+    // with detail.reason="already_closed" mirroring finding:closed).
+    // Runs before checkTransition because validateTransition's contract
+    // is target+from legality; the finding-existence lookup needs the
+    // snapshot which transition doesn't carry.
+    const rawPayload =
+      ((rawEntry as { payload?: Record<string, unknown> }).payload ?? {}) as Record<string, unknown>;
+    const backEdge = rawPayload["back_edge"] as
+      | { action?: string; finding_id?: string }
+      | undefined;
+    if (backEdge !== undefined && typeof backEdge.finding_id === "string") {
+      const findingId = backEdge.finding_id;
+      const finding = ctx.snapshot.findings.find((f) => f.id === findingId);
+      if (!finding) {
+        return {
+          ok: false,
+          code: "FINDING_NOT_FOUND",
+          message: `event:phase_advanced.back_edge.finding_id=${findingId} not found in projection`,
+          detail: { id: findingId, reason: "not_found" },
+        };
+      }
+      if (finding.status === "closed") {
+        return {
+          ok: false,
+          code: "FINDING_NOT_FOUND",
+          message: `event:phase_advanced.back_edge.finding_id=${findingId} is already_closed; only open findings can sponsor back-edges`,
+          detail: { id: findingId, reason: "already_closed" },
+        };
+      }
+      if (finding.action !== backEdge.action) {
+        return {
+          ok: false,
+          code: "FINDING_NOT_FOUND",
+          message:
+            `event:phase_advanced.back_edge.action=${backEdge.action} but finding ${findingId} has action=${finding.action}`,
+          detail: {
+            id: findingId,
+            reason: "action_mismatch",
+            expected_action: backEdge.action,
+            actual_action: finding.action,
+          },
+        };
+      }
     }
   }
 
@@ -650,6 +715,27 @@ export function preflight(
         }
       }
     }
+
+    // Slice B — amend-spec specifically requires state.spec_locked=true
+    // (codex r94 Finding 3 placement: AFTER generic sub_state authority
+    // L164+ so SUB_STATE_AUTHORITY_VIOLATION wins at SPEC.* / SETTLE.* /
+    // TRIAGE.*; this refine only fires at the legal raise lanes
+    // EXECUTE.* + VERIFY.* where finding:raised is authorized).
+    // Pre-lock callers should edit via `loaf spec submit / add-*`
+    // directly — SPEC_LOCKED_NO_DIRECT_EDIT is the inverse gate.
+    if (payload.action === "amend-spec" && !ctx.snapshot.state?.spec_locked) {
+      return {
+        ok: false,
+        code: "FINDING_AMEND_SPEC_NOT_LOCKED",
+        message:
+          `finding raise action=amend-spec requires state.spec_locked=true; spec is not locked at sub_state=${sub_state}, edit directly via 'loaf spec submit / add-*'`,
+        detail: {
+          current_spec_locked: false,
+          current_sub_state: sub_state,
+          hint: "use loaf spec submit / add-* directly to edit spec when not locked",
+        },
+      };
+    }
   }
 
   // (5i) Slice 4 SC3 — SPEC content phase gating (rev 4.3 ADR-0004 A4 /
@@ -793,14 +879,22 @@ function checkTransition(
   const payload = (raw["payload"] as Record<string, unknown> | undefined) ?? {};
 
   if (kind === "event:phase_advanced") {
-    // payload: { from: SubState, to: SubState }
+    // payload: { from: SubState, to: SubState, back_edge?: BackEdge }
     const from = payload["from"] as SubState | undefined;
     const to = payload["to"] as SubState | undefined;
     if (from === undefined || to === undefined) return null; // schema already rejected upstream
+    // Slice B: extract back_edge sponsorship from payload so
+    // validateTransition can enforce action→target/from contract.
+    // The finding_id existence check happens at the outer preflight
+    // path (needs snapshot.findings, not visible here).
+    const backEdge = payload["back_edge"] as
+      | { action: "amend-spec"; finding_id: string }
+      | undefined;
     return validateTransition(from, to, {
       ceremony: ctx.ceremony,
       actor: ctx.actor,
       verify_accepted: ctx.verify_accepted,
+      ...(backEdge !== undefined ? { back_edge: backEdge } : {}),
     });
   }
 

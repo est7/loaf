@@ -235,12 +235,18 @@ async function seedLightAtExecuteWorkWithTask(): Promise<{ dir: string; feature:
 }
 
 describe("loaf finding raise — SC3 happy paths + schema tighten", () => {
-  test("raise typical (spec-gap × amend-spec) → FND-001 stdout bare; projection populated", async () => {
+  // Slice B note: these tests use action=defer (typical for spec-gap;
+  // no back-edge / lock implications) so the quick-ceremony seed at
+  // EXECUTE.plan with spec_locked=false still produces a happy raise.
+  // amend-spec-specific assertions live in tests/core/amend-spec-back-edge.test.ts
+  // (Slice B introduced FINDING_AMEND_SPEC_NOT_LOCKED to reject
+  // pre-lock amend-spec; that's covered there, not here).
+  test("raise typical (spec-gap × defer) → FND-001 stdout bare; projection populated", async () => {
     const { dir, feature } = await seedQuickAtExecutePlan();
     const r = await runCli([
       "finding", "raise",
       "--category", "spec-gap",
-      "--action", "amend-spec",
+      "--action", "defer",
       "--summary", "spec missing field X",
       "--feature", feature, "--feature-dir", dir,
     ]);
@@ -252,7 +258,7 @@ describe("loaf finding raise — SC3 happy paths + schema tighten", () => {
     expect(s.snapshot.findings[0]).toMatchObject({
       id: "FND-001",
       category: "spec-gap",
-      action: "amend-spec",
+      action: "defer",
       status: "open",
       summary: "spec missing field X",
     });
@@ -262,13 +268,13 @@ describe("loaf finding raise — SC3 happy paths + schema tighten", () => {
     const { dir, feature } = await seedQuickAtExecutePlan();
     const r1 = await runCli([
       "finding", "raise",
-      "--category", "spec-gap", "--action", "amend-spec",
+      "--category", "spec-gap", "--action", "defer",
       "--feature", feature, "--feature-dir", dir,
     ]);
     expect(r1.stdout.trim()).toBe("FND-001");
     const r2 = await runCli([
       "finding", "raise",
-      "--category", "impl-defect", "--action", "amend-tasks",
+      "--category", "impl-defect", "--action", "backlog",
       "--feature", feature, "--feature-dir", dir,
     ]);
     expect(r2.stdout.trim()).toBe("FND-002");
@@ -278,13 +284,13 @@ describe("loaf finding raise — SC3 happy paths + schema tighten", () => {
     const { dir, feature } = await seedQuickAtExecutePlan();
     const r = await runCli([
       "finding", "raise",
-      "--category", "spec-gap", "--action", "amend-spec",
+      "--category", "spec-gap", "--action", "defer",
       "--feature", feature, "--feature-dir", dir, "--json",
     ]);
     expect(r.exit).toBe(0);
     expect(JSON.parse(r.stdout)).toEqual({
       ok: true, feature, id: "FND-001",
-      category: "spec-gap", action: "amend-spec",
+      category: "spec-gap", action: "defer",
     });
   });
 
@@ -554,11 +560,11 @@ describe("loaf finding list", () => {
   test("list text mode shows raised findings; --status filters open/closed", async () => {
     const { dir, feature } = await seedQuickAtExecutePlan();
     await runCli([
-      "finding", "raise", "--category", "spec-gap", "--action", "amend-spec",
+      "finding", "raise", "--category", "spec-gap", "--action", "defer",
       "--feature", feature, "--feature-dir", dir,
     ]);
     await runCli([
-      "finding", "raise", "--category", "impl-defect", "--action", "amend-tasks",
+      "finding", "raise", "--category", "impl-defect", "--action", "backlog",
       "--feature", feature, "--feature-dir", dir,
     ]);
     const all = await runCli([
@@ -569,7 +575,7 @@ describe("loaf finding list", () => {
     const lines = all.stdout.trim().split("\n");
     expect(lines).toHaveLength(2);
     // Expect 4 columns: <FND-id> <category> <action> <status>
-    expect(lines[0]!.split(/\s+/)).toEqual(["FND-001", "spec-gap", "amend-spec", "open"]);
+    expect(lines[0]!.split(/\s+/)).toEqual(["FND-001", "spec-gap", "defer", "open"]);
 
     await runCli([
       "finding", "close", "FND-001",
@@ -618,7 +624,7 @@ describe("loaf finding close", () => {
   test("close FND-001 marks status closed", async () => {
     const { dir, feature } = await seedQuickAtExecutePlan();
     await runCli([
-      "finding", "raise", "--category", "spec-gap", "--action", "amend-spec",
+      "finding", "raise", "--category", "spec-gap", "--action", "defer",
       "--feature", feature, "--feature-dir", dir,
     ]);
     const r = await runCli([
@@ -644,7 +650,7 @@ describe("loaf finding close", () => {
   test("close already-closed finding → FINDING_NOT_FOUND (detail.reason=already_closed)", async () => {
     const { dir, feature } = await seedQuickAtExecutePlan();
     await runCli([
-      "finding", "raise", "--category", "spec-gap", "--action", "amend-spec",
+      "finding", "raise", "--category", "spec-gap", "--action", "defer",
       "--feature", feature, "--feature-dir", dir,
     ]);
     await runCli([
