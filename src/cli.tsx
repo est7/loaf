@@ -1291,6 +1291,151 @@ export async function main(argv: string[] = process.argv): Promise<number> {
       }
     });
 
+  // ── loaf evidence add --input <file> ──────────────────────────────────
+  // Slice 3 SC2 — minimal single-entry evidence add over the existing
+  // EvidenceFullPayload schema (src/core/evidence-schema.ts).
+  //
+  // Scope per codex r62 → r66 sign-off:
+  //   - Single-entry --input only; array → USAGE deterministic reject
+  //     (no silent first-element processing).
+  //   - Caller-supplied `id` → USAGE exit 2 BEFORE mutate/append; CLI is
+  //     the single-source EV-id allocator (max-serial+1, zero-padded to
+  //     ≥6 digits per docs/schemas.ts EvidenceIdPayload regex).
+  //   - Attachments are PRE-HASHED PASSTHROUGH ONLY: input.attachments
+  //     must match runtime AttachmentPayload {path, sha256(64 lowercase
+  //     hex), mime, bytes?}. CLI does NOT stat / hash / copy / verify
+  //     files — the rev 4.3 / ADR-0004 A6 auto-hash transaction lands
+  //     in SC2b.
+  //   - No `--external-ref` CLI flag; `external_ref` is allowed only
+  //     as an --input field (passthrough via EvidenceFullPayload).
+  //   - EvidenceFullPayload refines already enforce: manual/waiver actor
+  //     must start with `human:` and reason ≥10; visual-review requires
+  //     ≥1 attachment. CLI does not duplicate these checks.
+  const evidenceCmd = program
+    .command("evidence")
+    .description("Evidence ledger commands (Slice 3 SC2 MVP: add)");
+
+  evidenceCmd
+    .command("add")
+    .description("Append an evidence entry from --input JSON (CLI allocates EV-id)")
+    .requiredOption("--input <file>", "Path to JSON file holding the EvidenceFullPayload minus id")
+    .requiredOption("--feature <name>", "Feature whose ledger to append to")
+    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
+    .action(async (opts: { input: string; feature: string; featureDir?: string }) => {
+      // (1) Read --input file.
+      let content: string;
+      try {
+        content = await fsP.readFile(opts.input, "utf8");
+      } catch (err) {
+        if ((err as { code?: string }).code === "ENOENT") {
+          emitFailure(
+            "INPUT_FILE_NOT_FOUND",
+            `input file does not exist: ${opts.input}`,
+            { path: opts.input },
+          );
+        } else {
+          emitFailure(
+            "INPUT_FILE_NOT_FOUND",
+            `cannot read input file ${opts.input}: ${String(err)}`,
+            { path: opts.input },
+          );
+        }
+        return;
+      }
+
+      // (2) Parse JSON.
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(content);
+      } catch (err) {
+        emitFailure(
+          "SCHEMA_VALIDATION_FAILED",
+          `input is not valid JSON: ${(err as Error).message}`,
+        );
+        return;
+      }
+
+      // (3) Boundary guards (codex r66 Q2 + Q4): single-entry shape;
+      // caller MUST NOT supply id (CLI is single-source allocator).
+      if (Array.isArray(parsed)) {
+        emitFailure(
+          "USAGE",
+          "evidence add --input expects a single object; arrays are not supported in this slice",
+        );
+        return;
+      }
+      if (parsed === null || typeof parsed !== "object") {
+        emitFailure(
+          "USAGE",
+          `evidence add --input must be a JSON object, got ${parsed === null ? "null" : typeof parsed}`,
+        );
+        return;
+      }
+      const inputObj = parsed as Record<string, unknown>;
+      if ("id" in inputObj) {
+        emitFailure(
+          "USAGE",
+          "do not include `id` in --input — CLI is the single-source EV-id allocator",
+        );
+        return;
+      }
+
+      // (4) Load session.
+      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      const session = await loadSession(featureDir);
+      if (!session.snapshot.state) {
+        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        return;
+      }
+
+      // (5) Allocate EV-NNNNNN: scan numeric EV ids (`EV-\d+`) in
+      // projection, take max numeric part, +1, zero-pad to ≥6 digits per
+      // EvidenceIdPayload. Non-numeric / non-EV ids (legacy / drift) are
+      // skipped — by construction only CLI-allocated ids enter, and the
+      // next allocation always emits canonical 6-digit padded form.
+      const maxSerial = session.snapshot.evidence.reduce((max, e) => {
+        const m = /^EV-(\d+)$/.exec(e.id);
+        if (!m) return max;
+        return Math.max(max, Number.parseInt(m[1]!, 10));
+      }, 0);
+      const id = `EV-${String(maxSerial + 1).padStart(6, "0")}`;
+
+      // (6) Merge id into payload, hand to mutate(). Preflight will run
+      // EvidenceFullPayload strict + refines (manual/waiver actor +
+      // reason, visual-review attachments) at PER_KIND_PAYLOAD; sub_state
+      // authority gate is also preflight's job. CLI does not duplicate.
+      const fullPayload = { ...inputObj, id };
+      const result = await mutate(
+        {
+          at: new Date().toISOString(),
+          actor,
+          entry_schema_version: 1,
+          kind: "evidence:added",
+          payload: fullPayload,
+        },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq },
+      );
+      if (!result.ok) {
+        emitFailure(result.code, result.message, result.detail);
+        return;
+      }
+
+      // (7) Output. Bare EV-id in text mode (scriptable); {ok, feature,
+      // id, kind} in JSON mode — same shape rhythm as pending raise.
+      if (useJson) {
+        process.stdout.write(
+          JSON.stringify({
+            ok: true,
+            feature: opts.feature,
+            id,
+            kind: inputObj["kind"],
+          }) + "\n",
+        );
+      } else {
+        process.stdout.write(id + "\n");
+      }
+    });
+
   try {
     await program.parseAsync(argv);
     return exitCode;
