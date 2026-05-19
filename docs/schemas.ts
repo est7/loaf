@@ -3700,6 +3700,7 @@ export const DiagnosticCode = z.enum([
   "SCHEMA_VALIDATION_FAILED",              // A3
   "SPEC_LOCKED_NO_DIRECT_EDIT",            // A4
   "SPEC_NOT_INITIALIZED",                  // A4
+  "SPEC_ALREADY_INITIALIZED",              // Slice 4 SC4 — `loaf spec init` guard
   "ATTACHMENT_NOT_FOUND",                  // A6
   "ATTACHMENT_NOT_FILE",                   // A6
   "FINDING_ACTION_UNUSUAL_REASON_REQUIRED",// A7
@@ -3860,6 +3861,18 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
       "resets_spec_locked effect lifts the gate); then retry the spec " +
       "add/submit",
     doc_anchor: "protocol.md#§5.3",
+  },
+  SPEC_ALREADY_INITIALIZED: {
+    // Slice 4 SC4: `loaf spec init` refuses to overwrite an existing
+    // spec.md. detail.spec_md_path carries the existing file path so
+    // scripts can locate it. No --force flag in Slice 4 (codex r74).
+    exit_code: 2,
+    message_template:
+      "spec.md already exists at {spec_md_path}; refusing to overwrite",
+    fix_template:
+      "edit the existing spec.md directly, or remove it before re-running " +
+      "`loaf spec init` (no --force flag in Slice 4)",
+    doc_anchor: "protocol.md#§4.2",
   },
   SPEC_NOT_INITIALIZED: {
     // Slice 4 SC3: preflight refine (5i) emits this with detail.kind

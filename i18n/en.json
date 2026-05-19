@@ -147,6 +147,7 @@
     "ESCALATION_NOT_PENDING":     "`loaf profile escalate --confirm` requires pending head kind=profile_escalation; current head: {actual_head}",
     "FINDING_TARGET_REQUIRED":    "finding action={action} target validation failed ({reason}): task_id={task_id}, step={step}",
     "SPEC_NOT_INITIALIZED":       "{kind} blocked: spec_version=0; run `loaf spec submit` first to bump spec_version to 1",
+    "SPEC_ALREADY_INITIALIZED":   "spec.md already exists at {spec_md_path}; refusing to overwrite",
     "SPEC_LOCKED_NO_DIRECT_EDIT": "{kind} blocked: spec_locked=true; use `loaf finding raise --category spec-gap --action amend-spec` to back-edge into SPEC.spec",
     "AMEND_REJECTED_POST_LOCK":   "spec_locked=true; use `loaf finding raise` instead of `loaf amend`",
     "DELIVER_FORBIDDEN_FOR_SPIKE": "spike tasks cannot be delivered; use `loaf archive`, `loaf spike convert`, or `loaf abandon`",

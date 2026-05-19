@@ -147,6 +147,7 @@
     "ESCALATION_NOT_PENDING":     "`loaf profile escalate --confirm` 要求 pending head kind=profile_escalation;当前 head:{actual_head}",
     "FINDING_TARGET_REQUIRED":    "finding action={action} target 校验失败({reason}):task_id={task_id}, step={step}",
     "SPEC_NOT_INITIALIZED":       "{kind} 被拒:spec_version=0;先跑 `loaf spec submit` 把 spec_version 升到 1",
+    "SPEC_ALREADY_INITIALIZED":   "spec.md 已存在于 {spec_md_path};拒绝覆盖",
     "SPEC_LOCKED_NO_DIRECT_EDIT": "{kind} 被拒:spec_locked=true;用 `loaf finding raise --category spec-gap --action amend-spec` 走 amend-spec 回退到 SPEC.spec",
     "AMEND_REJECTED_POST_LOCK":   "spec_locked=true;使用 `loaf finding raise` 替代 `loaf amend`",
     "DELIVER_FORBIDDEN_FOR_SPIKE": "spike 任务不允许 deliver;使用 `loaf archive` / `loaf spike convert` / `loaf abandon`",

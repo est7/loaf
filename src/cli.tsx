@@ -16,6 +16,7 @@
 
 import { Command, CommanderError } from "commander";
 import { promises as fsP, readFileSync } from "node:fs";
+import path from "node:path";
 import packageJson from "../package.json" with { type: "json" };
 
 import { resolveHumanActor } from "./core/actor-resolver.js";
@@ -34,6 +35,7 @@ import {
   SpecAddReqInput,
   SpecAddScenarioInput,
   SpecAddVisualInput,
+  SpecFrontmatter,
   SpecSubmitInput,
   nextSerialInNamespace,
 } from "./core/spec-schema.js";
@@ -2056,6 +2058,137 @@ export async function main(argv: string[] = process.argv): Promise<number> {
       snapshotKey: "visual_contracts",
     },
   ];
+
+  // ── loaf spec init — scaffold spec.md (no journal entry) ─────────────
+  // Slice 4 SC4 (codex r74 sign-off): writes a parser-valid minimal
+  // spec.md template under <featureDir>/spec.md. Pure I/O — no journal
+  // entry, no state mutation; spec content goes through `loaf spec submit`
+  // / `loaf spec add-*` which emit the canonical journal events.
+  //
+  // Refuses to overwrite an existing spec.md with SPEC_ALREADY_INITIALIZED
+  // (codex r74: no --force in Slice 4 — strict-over-Postel). Empty
+  // requirements / scenarios / visual_contracts / needs_clarification
+  // arrays so the file passes SpecFrontmatter parsing without leaking
+  // tutorial-style sample placeholders into real submits.
+  specCmd
+    .command("init")
+    .description("Write a parser-valid minimal spec.md scaffold (no journal entry)")
+    .requiredOption("--feature <name>", "Feature whose spec.md to scaffold")
+    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
+    .option("--feature-id <id>", "Override feature.id in scaffold (default: F-XXX placeholder)")
+    .option("--feature-name <text>", "Override feature.name in scaffold (default: --feature value)")
+    .option(
+      "--intent <text>",
+      "Override intent line in scaffold (default: TODO placeholder ≥20 chars)",
+    )
+    .action(async (opts: {
+      feature: string;
+      featureDir?: string;
+      featureId?: string;
+      featureName?: string;
+      intent?: string;
+    }) => {
+      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      const specMdPath = path.join(featureDir, "spec.md");
+      // SPEC_ALREADY_INITIALIZED guard: refuse to overwrite. Check
+      // before any I/O so the error surface is the file's existence,
+      // not a partial write.
+      try {
+        await fsP.access(specMdPath);
+        // File exists — refuse.
+        emitFailure(
+          "SPEC_ALREADY_INITIALIZED",
+          `spec.md already exists at ${specMdPath}; edit it directly or remove before re-init`,
+          { spec_md_path: specMdPath },
+        );
+        return;
+      } catch {
+        // ENOENT — proceed.
+      }
+      // Ensure feature dir exists (loaf start would have created it,
+      // but spec init might be called before start in a fresh tree).
+      await fsP.mkdir(featureDir, { recursive: true });
+      // FeatureIdPayload regex is `^F-\d{3,}$`. F-000 is a deliberate
+      // placeholder that parses but is obviously a stand-in — caller
+      // should override with `--feature-id F-NNN` before running submit.
+      // codex r81 BLOCK fix: validate the composed scaffold against
+      // SpecFrontmatter BEFORE writing. Otherwise caller overrides like
+      // `--feature-id BAD --feature-name x --intent short` would emit a
+      // file that immediately fails the production readSpecFrontmatter()
+      // parser, giving scripts a false-success result. Validation here
+      // catches feature.id regex / feature.name min length / intent
+      // min length / etc. upfront with SCHEMA_VALIDATION_FAILED.
+      const featureId = opts.featureId ?? "F-000";
+      // SpecFrontmatter requires feature.name length ≥3. The --feature
+      // flag is a loaf-internal feature key that can be short (e.g.
+      // "F1"); when no --feature-name override is supplied and the
+      // feature key is too short, fall back to a clearly-marked
+      // placeholder so the scaffold parses but does not pretend to be
+      // a finished display name.
+      const featureName =
+        opts.featureName ??
+        (opts.feature.length >= 3 ? opts.feature : "TODO Feature Name");
+      const intent =
+        opts.intent ??
+        "TODO: describe the feature intent in at least twenty characters";
+      // codex r81 BLOCK fix: validate the composed scaffold against
+      // SpecFrontmatter BEFORE any disk write. Caller overrides
+      // (--feature-id BAD / --feature-name x / --intent short) would
+      // otherwise write a spec.md that immediately fails the production
+      // readSpecFrontmatter() parser. Validation here catches feature.id
+      // regex / feature.name min length / intent min length upfront with
+      // SCHEMA_VALIDATION_FAILED and zero partial-write risk.
+      const scaffoldObj = {
+        schema_version: 2,
+        spec_version: 1,
+        feature: { id: featureId, name: featureName },
+        intent,
+        adr_refs: [],
+        requirements: [],
+        scenarios: [],
+        visual_contracts: [],
+        needs_clarification: [],
+      };
+      const scaffoldParse = SpecFrontmatter.safeParse(scaffoldObj);
+      if (!scaffoldParse.success) {
+        emitFailure(
+          "SCHEMA_VALIDATION_FAILED",
+          "spec init scaffold failed SpecFrontmatter validation; check --feature-id (/^F-\\d{3,}$/), --feature-name (≥3 chars), --intent (≥20 chars)",
+          { issues: scaffoldParse.error.issues },
+        );
+        return;
+      }
+      // codex r80 BLOCK fix: YAML scalars containing colons / leading
+      // dashes / hashes (e.g. the default "TODO: describe..." intent)
+      // would otherwise be parsed as nested mappings or comments. Quote
+      // every interpolated scalar via JSON.stringify — JSON-encoded
+      // strings are also valid double-quoted YAML scalars, so the
+      // production readSpecFrontmatter() parser accepts them.
+      const md =
+        `---\n` +
+        `schema_version: 2\n` +
+        `spec_version: 1\n` +
+        `feature:\n` +
+        `  id: ${JSON.stringify(featureId)}\n` +
+        `  name: ${JSON.stringify(featureName)}\n` +
+        `intent: ${JSON.stringify(intent)}\n` +
+        `adr_refs: []\n` +
+        `requirements: []\n` +
+        `scenarios: []\n` +
+        `needs_clarification: []\n` +
+        `---\n` +
+        `\n## Why\n\nTODO: describe motivation and scope. Edit this section, then run \`loaf spec submit --input <json>\` to record the canonical spec.\n`;
+      await fsP.writeFile(specMdPath, md);
+      if (useJson) {
+        process.stdout.write(
+          JSON.stringify({ ok: true, feature: opts.feature, spec_md_path: specMdPath }) + "\n",
+        );
+      } else {
+        process.stdout.write(
+          `spec init: wrote scaffold to ${specMdPath}\nnext: edit, then \`loaf spec submit --input <json> --feature ${opts.feature}\`\n`,
+        );
+      }
+    });
 
   for (const cfg of REGISTER_SPEC_ADD) {
     specCmd
