@@ -22,6 +22,12 @@ import {
   TaskIdPayload,
 } from "./task-schema.js";
 import { EvidenceFullPayload } from "./evidence-schema.js";
+import {
+  FindingAction,
+  FindingCategory,
+  FindingId,
+  FindingTarget,
+} from "./finding-schema.js";
 
 // Hard byte ceiling per serialized JournalEntry. Mirrors §34
 // entry_byte_limit_kb (64KB); enforced by appendEntry at step 5 final
@@ -308,17 +314,26 @@ const TasksAmendedPayload = z
 // All 17 documented EvidenceEntry payload fields are validated.
 const EvidenceAddedPayload = EvidenceFullPayload;
 
+// Slice 3 SC3 (codex r68): mirror docs/schemas.ts §5/§16 canonical shapes.
+// Closed category/action enums + canonical FindingId regex catch typos
+// at append time — preflight grid + target refines (see preflight.ts) run
+// against the parsed typed payload. summary/reason/target are accepted as
+// typed optional fields rather than passthrough so the projection can
+// surface them via FindingState.
 const FindingRaisedPayload = z
   .object({
-    id: z.string().min(1),
-    category: z.string().min(1),
-    action: z.string().min(1),
+    id: FindingId,
+    category: FindingCategory,
+    action: FindingAction,
+    summary: z.string().min(3).optional(),
+    reason: z.string().optional(),
+    target: FindingTarget.optional(),
   })
   .passthrough();
 
 const FindingClosedPayload = z
   .object({
-    id: z.string().min(1),
+    id: FindingId,
   })
   .passthrough();
 

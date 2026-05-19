@@ -37,6 +37,14 @@ import type { Ceremony, EntryKind, SubState } from "../journal-entry.js";
 import type { Snapshot } from "../reducer.js";
 import { validateTransition, type TransitionResult } from "./transition.js";
 import { isActorAllowed, isSubStateAllowed } from "./per-kind.js";
+import {
+  FINDING_ACTION_TARGET_MODE,
+  FINDING_UNUSUAL_REASON_MIN_LENGTH,
+  FIX_ACTION_STEP,
+  cellRisk,
+  type FindingAction,
+  type FindingCategory,
+} from "../finding-schema.js";
 
 // Defaults applied when snapshot.state is null (no session:started yet).
 // Mirrors the bootstrap behavior that journal-mutate.ts previously injected
@@ -99,7 +107,18 @@ export type PreflightFailureCode =
   // event:phase_advanced; other kinds in the queue do not. GATE_NOT_PENDING
   // / ESCALATION_NOT_PENDING and the gate-decide pending:resolved
   // co-emission are deferred to SC4 (codex r62/r63 sign-off).
-  | "PENDING_BLOCKS_ADVANCE";
+  | "PENDING_BLOCKS_ADVANCE"
+  // Slice 3 SC3 — FINDING_ACTION_GRID + target_payload preflight
+  // (protocol §4.5 / docs/schemas.ts §37 / codex r68 sign-off).
+  // INCOHERENT: 4 grid cells where structure offers no transition
+  // target (spec-gap × {fix-impl,fix-test}, new-scope × same).
+  // UNUSUAL_REASON_REQUIRED: unusual cells require --reason ≥20 chars.
+  // TARGET_REQUIRED: fix-impl/fix-test must specify {task_id, step}
+  // with step=action's canonical step + task in projection + step in
+  // task.steps; amend-tasks accepts absence but validates if present.
+  | "FINDING_ACTION_INCOHERENT"
+  | "FINDING_ACTION_UNUSUAL_REASON_REQUIRED"
+  | "FINDING_TARGET_REQUIRED";
 
 export type PreflightResult =
   | { ok: true }
@@ -442,6 +461,135 @@ export function preflight(
           message: `task ${task_id} step ${step ?? "?"} mutation requires task.status=in_progress (got status=${task.status}); claim the task first`,
           detail: { task_id, step, status: task.status, kind: entry.kind },
         };
+      }
+    }
+  }
+
+  // (5g) Slice 3 SC3 — finding:raised refines (FINDING_ACTION_GRID +
+  // target_payload). Runs after PER_KIND_PAYLOAD parse so `parsed.data`
+  // is the typed FindingRaisedPayload. Order:
+  //   1. INCOHERENT grid cells block first (no transition target).
+  //   2. UNUSUAL cells require --reason ≥20 chars.
+  //   3. Target shape (fix-impl/fix-test require {task_id, step}; step
+  //      must equal action's canonical step; task must exist; step must
+  //      exist in task.steps; amend-tasks accepts absence but validates
+  //      if present).
+  if (entry.kind === "finding:raised") {
+    const payload = payloadParsed.data as {
+      category: FindingCategory;
+      action: FindingAction;
+      reason?: string;
+      target?: { task_id: string; step: string };
+    };
+    const risk = cellRisk(payload.category, payload.action);
+    if (risk === "incoherent") {
+      return {
+        ok: false,
+        code: "FINDING_ACTION_INCOHERENT",
+        message:
+          `finding raise category=${payload.category} × action=${payload.action} is structurally incoherent ` +
+          `(no task target a transition can land on); amend-spec first to add target before fix-impl/fix-test`,
+        detail: { category: payload.category, action: payload.action },
+      };
+    }
+    if (risk === "unusual") {
+      const reasonLength = payload.reason?.length ?? 0;
+      if (reasonLength < FINDING_UNUSUAL_REASON_MIN_LENGTH) {
+        return {
+          ok: false,
+          code: "FINDING_ACTION_UNUSUAL_REASON_REQUIRED",
+          message:
+            `finding raise category=${payload.category} × action=${payload.action} is an unusual cell; ` +
+            `--reason ≥${FINDING_UNUSUAL_REASON_MIN_LENGTH} chars required (got ${reasonLength})`,
+          detail: {
+            category: payload.category,
+            action: payload.action,
+            current_reason_length: reasonLength,
+            min_reason_length: FINDING_UNUSUAL_REASON_MIN_LENGTH,
+          },
+        };
+      }
+    }
+    const mode = FINDING_ACTION_TARGET_MODE[payload.action];
+    if (mode === "task_id_step") {
+      if (!payload.target) {
+        return {
+          ok: false,
+          code: "FINDING_TARGET_REQUIRED",
+          message: `finding raise action=${payload.action} requires --target-task + --target-step`,
+          detail: { action: payload.action, reason: "missing" },
+        };
+      }
+      const expectedStep = FIX_ACTION_STEP[payload.action];
+      if (expectedStep && payload.target.step !== expectedStep) {
+        return {
+          ok: false,
+          code: "FINDING_TARGET_REQUIRED",
+          message:
+            `finding raise action=${payload.action} requires step="${expectedStep}" ` +
+            `(got step="${payload.target.step}")`,
+          detail: {
+            action: payload.action,
+            task_id: payload.target.task_id,
+            step: payload.target.step,
+            expected_step: expectedStep,
+            reason: "step_mismatch",
+          },
+        };
+      }
+    }
+    if (mode === "none" && payload.target) {
+      // codex r69 BLOCK 1: amend-spec / defer / backlog must not carry a
+      // target — `requires_target_payload="none"` is the action-effect
+      // contract from FINDING_ACTION_EFFECTS, not advisory prose. Accepting
+      // a bogus target would project misleading state into snapshot.findings
+      // and break strict-over-Postel for the journal payload.
+      return {
+        ok: false,
+        code: "FINDING_TARGET_REQUIRED",
+        message:
+          `finding raise action=${payload.action} does not accept a target ` +
+          `(target_payload="none"); drop --target-task / --target-step`,
+        detail: {
+          action: payload.action,
+          task_id: payload.target.task_id,
+          step: payload.target.step,
+          reason: "target_not_allowed",
+        },
+      };
+    }
+    if (mode === "task_id_step" || mode === "task_id_optional") {
+      if (payload.target) {
+        const task = ctx.snapshot.tasks.find((t) => t.id === payload.target!.task_id);
+        if (!task) {
+          return {
+            ok: false,
+            code: "FINDING_TARGET_REQUIRED",
+            message:
+              `finding raise target.task_id=${payload.target.task_id} not found in projection`,
+            detail: {
+              action: payload.action,
+              task_id: payload.target.task_id,
+              reason: "task_not_found",
+            },
+          };
+        }
+        if (!(payload.target.step in task.steps)) {
+          return {
+            ok: false,
+            code: "FINDING_TARGET_REQUIRED",
+            message:
+              `finding raise target.step=${payload.target.step} not in task ${payload.target.task_id} ` +
+              `(kind=${task.kind}) steps`,
+            detail: {
+              action: payload.action,
+              task_id: payload.target.task_id,
+              step: payload.target.step,
+              available_steps: Object.keys(task.steps),
+              reason: "step_not_found",
+            },
+          };
+        }
       }
     }
   }

@@ -3704,6 +3704,7 @@ export const DiagnosticCode = z.enum([
   "ATTACHMENT_NOT_FILE",                   // A6
   "FINDING_ACTION_UNUSUAL_REASON_REQUIRED",// A7
   "FINDING_ACTION_INCOHERENT",             // A7
+  "FINDING_TARGET_REQUIRED",               // Slice 3 SC3 (rev 4.3 §37 target_payload preflight)
   // ── pre-rev-4.3 codes already referenced from schemas.ts ──
   "MUTUALLY_EXCLUSIVE_FLAGS",              // §35 FLAG_EXCLUSIONS
   "INVALID_ENV_VALUE",                     // §35 commentary
@@ -3894,6 +3895,28 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
       "amend the spec first (category=spec-gap / new-scope × " +
       "action=amend-spec) so a target task can be planned, then raise " +
       "the fix-impl / fix-test finding against that task",
+    doc_anchor: "protocol.md#§4.5",
+  },
+  FINDING_TARGET_REQUIRED: {
+    // Slice 3 SC3 (rev 4.3 §37 + ADR-0004 A7). The action-effect
+    // FINDING_ACTION_EFFECTS.requires_target_payload contract is enforced
+    // at preflight. detail.reason carries the specific violation:
+    //   missing            — task_id_step action raised without target
+    //   task_not_found     — target.task_id not in snapshot.tasks
+    //   step_mismatch      — target.step != action's canonical step
+    //                        (fix-impl needs "implement", fix-test needs "red")
+    //   step_not_found     — target.step not in task.steps for the target task
+    //   target_not_allowed — `none`-mode action raised with a target
+    //                        (amend-spec / defer / backlog cannot carry one)
+    exit_code: 2,
+    message_template:
+      "finding action={action} target validation failed ({reason}): " +
+      "task_id={task_id}, step={step}",
+    fix_template:
+      "fix-impl/fix-test require --target-task + --target-step matching " +
+      "the action's canonical step (fix-impl=implement, fix-test=red); " +
+      "amend-tasks accepts an optional but valid target; " +
+      "amend-spec / defer / backlog must not carry a target",
     doc_anchor: "protocol.md#§4.5",
   },
   MUTUALLY_EXCLUSIVE_FLAGS: {

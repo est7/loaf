@@ -1602,6 +1602,7 @@ error: <one-line human description>
 | `ATTACHMENT_NOT_FILE` | `attachments[].path` 是目录 / socket / FIFO / 符号链接到非文件 | A6 |
 | `FINDING_ACTION_UNUSUAL_REASON_REQUIRED` | `finding raise` cell 是 `unusual`(`FINDING_ACTION_GRID`)但 `--reason` 缺或 < 20 字符 | A7 |
 | `FINDING_ACTION_INCOHERENT` | `finding raise` cell 是 `incoherent`(4 个结构性死格)| A7 |
+| `FINDING_TARGET_REQUIRED` | `finding raise` 的 target_payload 校验失败;`detail.reason ∈ {missing, task_not_found, step_mismatch, step_not_found, target_not_allowed}` —— fix-impl / fix-test 必须给 `{task_id, step}` 且 step 匹配 action canonical step;amend-tasks 可省 target 但给了就必须 valid;amend-spec / defer / backlog (`requires_target_payload="none"`) 不接受 target | Slice 3 SC3 / A7 target_payload |
 | `SETTLE_PHASE_DISABLED` | `VERIFY.accept → SETTLE.reconcile` 但 `ceremony.settle_phase=false`(quick / light / standard);`loaf settle` 在非 deep profile 调用同理 exit 2 | rev 5.x |
 | `SETTLE_PHASE_BYPASS` | `VERIFY.accept → DONE.delivered` 但 `ceremony.settle_phase=true`(deep);deep 必须经 SETTLE.reconcile + SETTLE.lessons | rev 5.x |
 

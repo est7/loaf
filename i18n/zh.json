@@ -145,6 +145,7 @@
     "PENDING_BLOCKS_ADVANCE":     "pending head {pending_id}(kind={kind})阻塞 `loaf advance`,需先 resolve",
     "GATE_NOT_PENDING":           "`loaf gate decide {gate}` 要求 pending head kind=gate_decision;当前 head:{actual_head}",
     "ESCALATION_NOT_PENDING":     "`loaf profile escalate --confirm` 要求 pending head kind=profile_escalation;当前 head:{actual_head}",
+    "FINDING_TARGET_REQUIRED":    "finding action={action} target 校验失败({reason}):task_id={task_id}, step={step}",
     "AMEND_REJECTED_POST_LOCK":   "spec_locked=true;使用 `loaf finding raise` 替代 `loaf amend`",
     "DELIVER_FORBIDDEN_FOR_SPIKE": "spike 任务不允许 deliver;使用 `loaf archive` / `loaf spike convert` / `loaf abandon`",
     "DELIVER_NOT_ACCEPTED":        "deliver 要求 verify_accepted=true(sub_state={sub_state});先运行 `loaf gate decide verify-accept --approve`",

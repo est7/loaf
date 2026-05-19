@@ -29,6 +29,7 @@ import {
 } from "./core/cli-runtime.js";
 import { mutate, mutateBatch } from "./core/journal-mutate.js";
 import type { Ceremony } from "./core/journal-entry.js";
+import { FindingId } from "./core/finding-schema.js";
 
 const PRESETS: Record<string, Ceremony> = {
   quick: {
@@ -1433,6 +1434,229 @@ export async function main(argv: string[] = process.argv): Promise<number> {
         );
       } else {
         process.stdout.write(id + "\n");
+      }
+    });
+
+  // ── loaf finding raise / list / close ────────────────────────────────
+  // Slice 3 SC3 — finding ledger CLI + FINDING_ACTION_GRID + target_payload
+  // preflight (protocol §4.5 + §10.8 / docs/schemas.ts §5 / §37).
+  //
+  // Scope per codex r68 conditional sign-off:
+  //   - raise: closed FindingCategory / FindingAction enums via schema;
+  //     CLI allocates FND-NNN (max-serial+1, zero-pad ≥3 digits per
+  //     FindingId); --summary/--reason/--target-task/--target-step flags
+  //     accepted as typed optional payload fields.
+  //   - Partial target flags (only one of --target-task / --target-step)
+  //     rejected at CLI boundary with USAGE before mutate.
+  //   - Grid + target invariants enforced in stable-core preflight
+  //     (FINDING_ACTION_INCOHERENT / FINDING_ACTION_UNUSUAL_REASON_REQUIRED
+  //     / FINDING_TARGET_REQUIRED with detail.reason).
+  //   - list: read-only snapshot.findings; --status filters open/closed;
+  //     JSON exposes the slim projection including summary/reason/target.
+  //   - close: positional <FND-id>; reducer returns FINDING_NOT_FOUND with
+  //     detail.reason ∈ {unknown, already_closed} (codex r68 #4).
+  //
+  // Deferred to SC4: back-edge batch path on raise (amend-spec →
+  // event:phase_advanced SPEC.spec; amend-tasks → event:tasks_amended +
+  // EXECUTE.work; fix-impl/fix-test → tasks.<T>.execution.<step>.status
+  // = "running" mutation co-emitted in same mutateBatch).
+  const findingCmd = program
+    .command("finding")
+    .description("Finding ledger commands (Slice 3 SC3 MVP: raise / list / close)");
+
+  findingCmd
+    .command("raise")
+    .description("Raise a new finding (CLI allocates FND-id)")
+    .requiredOption(
+      "--category <category>",
+      "Finding category (spec-gap | spec-defect | impl-defect | test-defect | new-scope | risk-escalation)",
+    )
+    .requiredOption(
+      "--action <action>",
+      "Finding action (amend-spec | amend-tasks | fix-impl | fix-test | defer | backlog)",
+    )
+    .option("--summary <text>", "One-line finding summary (passthrough)")
+    .option("--reason <text>", "Justification (required ≥20 chars on unusual cells)")
+    .option("--target-task <task-id>", "Target task for fix-impl / fix-test / amend-tasks")
+    .option("--target-step <step>", "Target step (must equal action's canonical step)")
+    .requiredOption("--feature <name>", "Feature whose ledger to append to")
+    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
+    .action(async (opts: {
+      category: string;
+      action: string;
+      summary?: string;
+      reason?: string;
+      targetTask?: string;
+      targetStep?: string;
+      feature: string;
+      featureDir?: string;
+    }) => {
+      // Partial target flags: USAGE before mutate (codex r68 RED #5).
+      const hasTask = opts.targetTask !== undefined;
+      const hasStep = opts.targetStep !== undefined;
+      if (hasTask !== hasStep) {
+        emitFailure(
+          "USAGE",
+          "--target-task and --target-step must be specified together (or both omitted)",
+        );
+        return;
+      }
+      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      const session = await loadSession(featureDir);
+      if (!session.snapshot.state) {
+        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        return;
+      }
+      // FND-NNN allocator: scan numeric FND ids in projection, max+1,
+      // zero-pad to ≥3 digits per FindingId regex.
+      const maxSerial = session.snapshot.findings.reduce((max, f) => {
+        const m = /^FND-(\d+)$/.exec(f.id);
+        if (!m) return max;
+        return Math.max(max, Number.parseInt(m[1]!, 10));
+      }, 0);
+      const id = `FND-${String(maxSerial + 1).padStart(3, "0")}`;
+      const payload: Record<string, unknown> = {
+        id,
+        category: opts.category,
+        action: opts.action,
+      };
+      if (opts.summary !== undefined) payload["summary"] = opts.summary;
+      if (opts.reason !== undefined) payload["reason"] = opts.reason;
+      if (hasTask && hasStep) {
+        payload["target"] = { task_id: opts.targetTask, step: opts.targetStep };
+      }
+      const result = await mutate(
+        {
+          at: new Date().toISOString(),
+          actor,
+          entry_schema_version: 1,
+          kind: "finding:raised",
+          payload,
+        },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq },
+      );
+      if (!result.ok) {
+        emitFailure(result.code, result.message, result.detail);
+        return;
+      }
+      if (useJson) {
+        process.stdout.write(
+          JSON.stringify({
+            ok: true,
+            feature: opts.feature,
+            id,
+            category: opts.category,
+            action: opts.action,
+          }) + "\n",
+        );
+      } else {
+        process.stdout.write(id + "\n");
+      }
+    });
+
+  findingCmd
+    .command("list")
+    .description("List findings (read-only; --status filters open|closed)")
+    .requiredOption("--feature <name>", "Feature whose findings to list")
+    .option("--status <s>", "Filter by status (open | closed)")
+    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
+    .action(async (opts: { feature: string; status?: string; featureDir?: string }) => {
+      if (opts.status !== undefined && opts.status !== "open" && opts.status !== "closed") {
+        emitFailure("USAGE", `--status must be one of: open | closed (got ${opts.status})`);
+        return;
+      }
+      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      const session = await loadSession(featureDir);
+      if (!session.snapshot.state) {
+        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        return;
+      }
+      const rows = opts.status
+        ? session.snapshot.findings.filter((f) => f.status === opts.status)
+        : session.snapshot.findings;
+      if (useJson) {
+        process.stdout.write(
+          JSON.stringify({
+            ok: true,
+            feature: opts.feature,
+            count: rows.length,
+            findings: rows,
+          }) + "\n",
+        );
+      } else {
+        for (const r of rows) {
+          process.stdout.write(`${r.id} ${r.category} ${r.action} ${r.status}\n`);
+        }
+      }
+    });
+
+  findingCmd
+    .command("close <fnd-id>")
+    .description("Close a finding (emits finding:closed)")
+    .requiredOption("--feature <name>", "Feature whose ledger to close against")
+    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
+    .action(async (fndId: string, opts: { feature: string; featureDir?: string }) => {
+      // CLI-side id format check fires before projection lookup so a
+      // non-canonical id (e.g. legacy `FND-1`) yields INVALID_PAYLOAD
+      // rather than "not in projection" — matches the schema-tightening
+      // contract at the journal boundary.
+      const idParse = FindingId.safeParse(fndId);
+      if (!idParse.success) {
+        emitFailure(
+          "INVALID_PAYLOAD",
+          `finding close id must match FindingId regex /^FND-\\d{3,}$/ (got ${fndId})`,
+          { id: fndId, issues: idParse.error.issues },
+        );
+        return;
+      }
+      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      const session = await loadSession(featureDir);
+      if (!session.snapshot.state) {
+        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        return;
+      }
+      // CLI-side pre-check surfaces FINDING_NOT_FOUND directly (instead of
+      // letting mutate() wrap the reducer error as REDUCER_ERROR). Reducer
+      // keeps the same checks as defense-in-depth for raw mutate paths.
+      // Detail.reason distinguishes unknown vs already_closed for callers
+      // that want to react programmatically (codex r68 #4).
+      const existing = session.snapshot.findings.find((f) => f.id === fndId);
+      if (!existing) {
+        emitFailure(
+          "FINDING_NOT_FOUND",
+          `finding:closed references unknown finding id=${fndId}`,
+          { id: fndId, reason: "unknown" },
+        );
+        return;
+      }
+      if (existing.status === "closed") {
+        emitFailure(
+          "FINDING_NOT_FOUND",
+          `finding:closed references finding id=${fndId} that is already closed`,
+          { id: fndId, reason: "already_closed" },
+        );
+        return;
+      }
+      const result = await mutate(
+        {
+          at: new Date().toISOString(),
+          actor,
+          entry_schema_version: 1,
+          kind: "finding:closed",
+          payload: { id: fndId },
+        },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq },
+      );
+      if (!result.ok) {
+        emitFailure(result.code, result.message, result.detail);
+        return;
+      }
+      if (useJson) {
+        process.stdout.write(
+          JSON.stringify({ ok: true, feature: opts.feature, id: fndId, status: "closed" }) + "\n",
+        );
+      } else {
+        process.stdout.write(`closed ${fndId}\n`);
       }
     });
 

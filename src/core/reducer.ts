@@ -98,6 +98,11 @@ export interface FindingState {
   category: string;
   action: string;
   status: "open" | "closed";
+  // Slice 3 SC3 — payload-derived fields projected so `finding list` /
+  // `status --json` surface user-input without re-replaying the journal.
+  summary?: string;
+  reason?: string;
+  target?: { task_id: string; step: string };
 }
 
 export interface PendingState {
@@ -652,7 +657,17 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
     }
 
     case "finding:raised": {
-      const payload = entry.payload as { id?: string; category?: string; action?: string };
+      // Payload schema strict-validated at preflight (PER_KIND_PAYLOAD →
+      // FindingRaisedPayload). Defense-in-depth id/category/action check
+      // retained for raw mutate paths that bypass preflight.
+      const payload = entry.payload as {
+        id?: string;
+        category?: string;
+        action?: string;
+        summary?: string;
+        reason?: string;
+        target?: { task_id: string; step: string };
+      };
       if (!payload.id || !payload.category || !payload.action) {
         return invalidPayload(entry.kind, "missing id/category/action");
       }
@@ -662,11 +677,19 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
         action: payload.action,
         status: "open",
       };
+      if (payload.summary !== undefined) f.summary = payload.summary;
+      if (payload.reason !== undefined) f.reason = payload.reason;
+      if (payload.target !== undefined) f.target = payload.target;
       prev.findings.push(f);
       return { ok: true, snapshot: prev };
     }
 
     case "finding:closed": {
+      // Slice 3 SC3 (codex r68 #4): close is idempotent only at the
+      // already-closed level — re-emitting finding:closed on a closed
+      // finding returns FINDING_NOT_FOUND with detail.reason=already_closed
+      // so the projection stays a single-source contract (one close per
+      // finding, no silent retry that would re-emit an audit-trail entry).
       const payload = entry.payload as { id?: string };
       if (!payload.id) return invalidPayload(entry.kind, "missing id");
       const idx = prev.findings.findIndex((f) => f.id === payload.id);
@@ -675,6 +698,16 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
           ok: false,
           code: "FINDING_NOT_FOUND",
           message: `finding:closed references unknown finding id=${payload.id}`,
+          detail: { id: payload.id, reason: "unknown" },
+        };
+      }
+      const existing = prev.findings[idx]!;
+      if (existing.status === "closed") {
+        return {
+          ok: false,
+          code: "FINDING_NOT_FOUND",
+          message: `finding:closed references finding id=${payload.id} that is already closed`,
+          detail: { id: payload.id, reason: "already_closed" },
         };
       }
       const findings = prev.findings.map((f, i) => (i === idx ? { ...f, status: "closed" as const } : f));
