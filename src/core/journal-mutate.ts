@@ -394,11 +394,12 @@ export async function mutateBatch(
       await writeDerivedSpecMd(finalSnapshot, ctx.feature_dir);
     } catch (err) {
       const lastSeq = promoted[promoted.length - 1]!.seq;
+      const failSpecVer = finalSnapshot.state?.spec_version ?? "unknown";
       return {
         ok: false,
         code: "PROJECTION_WRITE_FAILED",
         message:
-          `spec.md projection write failed after journal append at last_seq=${lastSeq}; journal is authoritative — run 'loaf doctor --rebuild' to resync. Cause: ${(err as Error).message}`,
+          `spec.md projection write failed after journal append at last_seq=${lastSeq} (spec_version=${failSpecVer}); journal is authoritative — run 'loaf doctor --rebuild' to resync. Cause: ${(err as Error).message}`,
         detail: {
           projection: "spec.md",
           path: path.join(ctx.feature_dir, "spec.md"),

@@ -3412,8 +3412,15 @@ describe("End-to-end SPEC content → spec-lock approve (Slice A SC-A2)", () => 
     // 8. THE UNLOCK — gate decide spec-lock --approve walks through.
     // evaluateSpecLock reads spec.md (Pass-5-rendered) + parses
     // SpecFrontmatter + runs 8 checks. Returns ok → batch [gate:decided,
-    // phase_advanced SPEC.design → EXECUTE.plan] appends + projection
-    // updates state.spec_locked=true + cursor=EXECUTE.plan.
+    // phase_advanced SPEC.design → EXECUTE.plan] appends.
+    //
+    // Note: this batch contains NO kinds from SPEC_EMITTING_KINDS so
+    // Pass 5 does NOT run here — the final state flip
+    // (spec_locked=true + cursor=EXECUTE.plan) comes from the reducer
+    // apply of the batch + the next `loaf status` projection read.
+    // Pass 5 was already exercised by steps 4 (spec submit) and 5
+    // (spec add-req); evaluateSpecLock now reads what those writes
+    // produced.
     r = await cli(
       ["gate", "decide", "spec-lock", "--approve", "--reason", "e2e unlock SC-A2", "--json"],
       { LOAF_USER: "e2e@test.invalid" },

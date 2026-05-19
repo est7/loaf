@@ -203,21 +203,31 @@ describe("writeDerivedSpecMd — Slice A SC-A2 atomic IO", () => {
     }
   });
 
-  test("atomic-write invariant: final spec.md unchanged when projection write fails (codex r90 Q7)", async () => {
-    // Pre-create spec.md AS A DIRECTORY at the target path. fs.rename
-    // onto a directory must fail; the prior file content (we use a
-    // fresh dir so file is absent) must remain absent.
+  test("FS-failure surface: final spec.md unchanged when writeDerivedSpecMd rejects (codex r92 reword)", async () => {
+    // Pre-create spec.md AS A DIRECTORY at the target path. With this
+    // setup writeDerivedSpecMd fails at the initial readFile (EISDIR)
+    // — BEFORE tmp-file creation / fsync / rename. So this test does
+    // NOT exercise rename-stage atomicity (codex r92 #2 — original
+    // claim was incorrect). What it DOES prove is the broader
+    // invariant: any FS-level failure during projection write leaves
+    // the prior on-disk state intact, never partially replaced.
+    //
+    // The rename-stage atomicity is owned by the underlying syscall
+    // semantics (POSIX rename within same FS is atomic by spec).
+    // Deterministic rename-stage fault injection would require either
+    // extracting a tiny atomic-write helper with an injectable fs
+    // adapter, or a test-only flag in the production API — codex r90
+    // Q7 explicitly recommended against the latter.
     const dir = await mkdtemp(path.join(tmpdir(), "loaf-spec-projection-"));
     try {
       const specPath = path.join(dir, "spec.md");
-      await mkdir(specPath); // pre-create as directory
+      await mkdir(specPath); // pre-create as directory → readFile throws EISDIR
 
       const snap = snapshotWithSpec(makeHeader());
       await expect(writeDerivedSpecMd(snap, dir)).rejects.toThrow();
 
-      // Final spec.md is still the directory we created — never replaced
-      // by a partial file. (The atomic-rename invariant: absent OR
-      // unchanged, never partially written.)
+      // Final spec.md is still the directory we created — pre-existing
+      // state preserved, not partially replaced by tmp residue.
       const stat = await import("node:fs/promises").then((fsp) => fsp.stat(specPath));
       expect(stat.isDirectory()).toBe(true);
     } finally {
