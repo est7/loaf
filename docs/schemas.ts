@@ -3705,6 +3705,10 @@ export const DiagnosticCode = z.enum([
   "FINDING_ACTION_UNUSUAL_REASON_REQUIRED",// A7
   "FINDING_ACTION_INCOHERENT",             // A7
   "FINDING_TARGET_REQUIRED",               // Slice 3 SC3 (rev 4.3 §37 target_payload preflight)
+  // SPEC_LOCKED_NO_DIRECT_EDIT + SPEC_NOT_INITIALIZED were pre-registered
+  // in the rev 4.3 ADR-0004 A4 block above. Slice 4 SC3 wires them
+  // through preflight refines (5i); no DiagnosticCode/ERROR_CATALOG
+  // additions needed here.
   // ── pre-rev-4.3 codes already referenced from schemas.ts ──
   "MUTUALLY_EXCLUSIVE_FLAGS",              // §35 FLAG_EXCLUSIONS
   "INVALID_ENV_VALUE",                     // §35 commentary
@@ -3843,20 +3847,34 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
     doc_anchor: "protocol.md#§10.5",
   },
   SPEC_LOCKED_NO_DIRECT_EDIT: {
+    // Slice 4 SC3: preflight refine (5i) emits this with
+    // detail.kind = journal entry kind (event:spec_submitted /
+    // event:spec_req_added / event:spec_scenario_added /
+    // event:spec_visual_added) and detail.spec_locked = true.
     exit_code: 2,
     message_template:
-      "spec is locked at phase {phase}; direct add/edit is rejected",
+      "{kind} blocked: spec_locked=true; direct add/edit rejected post-lock",
     fix_template:
       "raise a finding with category=spec-gap (or spec-defect) and " +
-      "action=amend-spec to roll back to SPEC.spec and amend",
+      "action=amend-spec to back-edge into SPEC.spec (the finding's " +
+      "resets_spec_locked effect lifts the gate); then retry the spec " +
+      "add/submit",
     doc_anchor: "protocol.md#§5.3",
   },
   SPEC_NOT_INITIALIZED: {
+    // Slice 4 SC3: preflight refine (5i) emits this with detail.kind
+    // (one of the 3 add-* kinds; spec_submitted is exempt as the init
+    // step) and detail.spec_version = 0. Recovery path under SC3 is
+    // `loaf spec submit` (whole-replacement) — `loaf spec init`
+    // (scaffold-only, no journal entry) is deferred to SC4 and will
+    // chain into submit there.
     exit_code: 2,
     message_template:
-      "spec has not been initialized for feature {feature_id}",
+      "{kind} blocked: spec_version=0 (spec not yet submitted)",
     fix_template:
-      "run `loaf spec init` first, then retry the add command",
+      "run `loaf spec submit --input <file>` first to bump spec_version " +
+      "to 1, then retry the add-* command (SC4 will add `loaf spec init` " +
+      "as a separate scaffold helper that chains into submit)",
     doc_anchor: "protocol.md#§4.2",
   },
   ATTACHMENT_NOT_FOUND: {

@@ -140,7 +140,17 @@ export type PreflightFailureCode =
   // existing projection.
   | "DUPLICATE_REQ_ID"
   | "DUPLICATE_SCEN_ID"
-  | "DUPLICATE_VIS_ID";
+  | "DUPLICATE_VIS_ID"
+  // Slice 4 SC3 — SPEC content phase gating (rev 4.3 ADR-0004 A4,
+  // protocol §10.8). SPEC_NOT_INITIALIZED fires when caller attempts
+  // an incremental `spec add-*` before any `spec submit` has bumped
+  // state.spec_version (codex r74: mutator truth is journal/snapshot,
+  // not spec.md file existence). SPEC_LOCKED_NO_DIRECT_EDIT fires
+  // when state.spec_locked === true blocks ALL spec content kinds;
+  // post-lock callers must walk through `loaf finding raise --action
+  // amend-spec` to back-edge into SPEC.spec.
+  | "SPEC_NOT_INITIALIZED"
+  | "SPEC_LOCKED_NO_DIRECT_EDIT";
 
 export type PreflightResult =
   | { ok: true }
@@ -639,6 +649,53 @@ export function preflight(
           };
         }
       }
+    }
+  }
+
+  // (5i) Slice 4 SC3 — SPEC content phase gating (rev 4.3 ADR-0004 A4 /
+  // protocol §10.8). Two guards on the 4 SPEC content kinds:
+  //   - SPEC_LOCKED_NO_DIRECT_EDIT (fires first): state.spec_locked
+  //     === true blocks ALL spec content kinds including spec_submitted
+  //     (whole-replacement). Defensive — production cannot reach
+  //     spec_locked=true with sub_state ∈ ALL_SPEC under the normal
+  //     gate-decide spec-lock approve path (the cursor advance moves
+  //     out of ALL_SPEC). amend-spec back-edge resets spec_locked to
+  //     false before re-entering SPEC.spec, so this check protects
+  //     against raw mutate / hand-edited journal scenarios.
+  //   - SPEC_NOT_INITIALIZED: state.spec_version === 0 blocks the 3
+  //     add-* kinds (spec_req_added / spec_scenario_added /
+  //     spec_visual_added). event:spec_submitted is the init step and
+  //     is exempt. Catches the natural "user typed `spec add-req` at
+  //     SPEC.proposal before running spec submit" mistake.
+  const SPEC_CONTENT_KINDS = new Set<EntryKind>([
+    "event:spec_submitted",
+    "event:spec_req_added",
+    "event:spec_scenario_added",
+    "event:spec_visual_added",
+  ]);
+  if (SPEC_CONTENT_KINDS.has(entry.kind)) {
+    if (ctx.snapshot.state?.spec_locked === true) {
+      return {
+        ok: false,
+        code: "SPEC_LOCKED_NO_DIRECT_EDIT",
+        message:
+          `${entry.kind} blocked: spec_locked=true; ` +
+          `walk back via \`loaf finding raise --category spec-gap --action amend-spec\` to re-enter SPEC.spec`,
+        detail: { kind: entry.kind, spec_locked: true },
+      };
+    }
+    if (
+      entry.kind !== "event:spec_submitted" &&
+      (ctx.snapshot.state?.spec_version ?? 0) === 0
+    ) {
+      return {
+        ok: false,
+        code: "SPEC_NOT_INITIALIZED",
+        message:
+          `${entry.kind} blocked: spec is not initialized (spec_version=0); ` +
+          `run \`loaf spec submit --input <file>\` first to bump spec_version to 1`,
+        detail: { kind: entry.kind, spec_version: ctx.snapshot.state?.spec_version ?? 0 },
+      };
     }
   }
 
