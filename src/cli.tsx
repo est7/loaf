@@ -1738,7 +1738,13 @@ export async function main(argv: string[] = process.argv): Promise<number> {
             }) + "\n",
           );
         } else {
-          process.stdout.write(`${id} (back-edge ${currentSubState} → SPEC.spec)\n`);
+          // codex r98 §1: keep text-mode stdout bare (matches every
+          // other `loaf finding raise` action). Callers script
+          // `FND=$(loaf finding raise ...)` and feed the id straight
+          // into `loaf finding close`; a decorated string would
+          // break that pipeline contract. The back_edge sponsorship
+          // is observable from the journal tail + JSON mode.
+          process.stdout.write(id + "\n");
         }
         return;
       }

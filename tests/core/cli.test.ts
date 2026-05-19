@@ -3440,3 +3440,114 @@ describe("End-to-end SPEC content → spec-lock approve (Slice A SC-A2)", () => 
     // entirely by Pass 5 projection writer.
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// Slice B — CLI shell test for `loaf finding raise --action amend-spec`
+// (codex r98 §1 fix: text-mode stdout MUST stay bare FND-id; r98 added
+// CLI-level coverage gap callout. Raw mutateBatch tests in
+// amend-spec-back-edge.test.ts prove the stable core; this test proves
+// the public command branch + stdout contract).
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("loaf finding raise --action amend-spec — Slice B CLI shell", () => {
+  test("post-lock EXECUTE.work amend-spec: bare FND-id stdout + journal back-edge + snapshot SPEC.spec/!spec_locked", async () => {
+    const dir = await tmpFeatureDir();
+    const cli = (args: string[], env?: Record<string, string | undefined>) =>
+      runCli(
+        args.concat(["--feature", "auth-refresh", "--feature-dir", dir]),
+        env ? { env } : {},
+      );
+
+    // Seed: SPEC.design with spec.md + planned tasks (Slice 4 fixture).
+    await seedFeatureAtSpecDesign(dir);
+
+    // Approve spec-lock → EXECUTE.plan with spec_locked=true. Walk
+    // forward to EXECUTE.work where finding:raised is authorized.
+    let r = await cli(
+      ["gate", "decide", "spec-lock", "--approve", "--reason", "slice-b cli shell test"],
+      { LOAF_USER: "engineer@test.invalid" },
+    );
+    expect(r.exit).toBe(0);
+    r = await cli(["advance", "EXECUTE.work"]);
+    expect(r.exit).toBe(0);
+
+    // The actual SUT call: amend-spec back-edge in text mode.
+    r = await cli(
+      ["finding", "raise", "--category", "spec-gap", "--action", "amend-spec",
+       "--summary", "missed REQ-XXX coverage"],
+      { LOAF_USER: "engineer@test.invalid" },
+    );
+
+    // Assertion 1: exit 0.
+    expect(r.exit).toBe(0);
+
+    // Assertion 2: text stdout exactly `FND-001\n` (codex r98 §1 fix —
+    // no decorated "back-edge ..." annotation; pipeable contract).
+    expect(r.stdout).toBe("FND-001\n");
+
+    // Assertion 3: journal tail has [finding:raised, event:phase_advanced]
+    // with payload.back_edge.finding_id="FND-001".
+    const journal = await fsP.readFile(path.join(dir, "journal.jsonl"), "utf8");
+    const lines = journal.trim().split("\n").map((l) => JSON.parse(l));
+    const tail = lines.slice(-2);
+    expect(tail[0]!.kind).toBe("finding:raised");
+    expect(tail[0]!.payload.id).toBe("FND-001");
+    expect(tail[0]!.payload.action).toBe("amend-spec");
+    expect(tail[1]!.kind).toBe("event:phase_advanced");
+    expect(tail[1]!.payload.from).toBe("EXECUTE.work");
+    expect(tail[1]!.payload.to).toBe("SPEC.spec");
+    expect(tail[1]!.payload.back_edge).toEqual({
+      action: "amend-spec",
+      finding_id: "FND-001",
+    });
+    // Batch envelope: both entries share batch_id with index 0/1, count 2.
+    expect(tail[0]!.batch_id).toBe(tail[1]!.batch_id);
+    expect(tail[0]!.batch_index).toBe(0);
+    expect(tail[1]!.batch_index).toBe(1);
+    expect(tail[0]!.batch_count).toBe(2);
+    // Actor split: finding:raised uses the CLI's default actor
+    // (cli:loaf@<user> at cli.tsx:91, since finding raise does NOT
+    // call resolveHumanActor); the back-edge phase_advanced is
+    // explicitly bare "cli:loaf" (derived, no user attribution).
+    expect(tail[0]!.actor).toMatch(/^cli:loaf/);
+    expect(tail[1]!.actor).toBe("cli:loaf");
+
+    // Assertion 4: status snapshot post-back-edge.
+    r = await cli(["status", "--json"]);
+    expect(r.exit).toBe(0);
+    const status = JSON.parse(r.stdout);
+    expect(status.state.sub_state).toBe("SPEC.spec");
+    expect(status.state.spec_locked).toBe(false);
+  });
+
+  test("amend-spec JSON mode emits structured back_edge field (back_edge from/to)", async () => {
+    const dir = await tmpFeatureDir();
+    const cli = (args: string[], env?: Record<string, string | undefined>) =>
+      runCli(
+        args.concat(["--feature", "auth-refresh", "--feature-dir", dir]),
+        env ? { env } : {},
+      );
+    await seedFeatureAtSpecDesign(dir);
+    let r = await cli(
+      ["gate", "decide", "spec-lock", "--approve", "--reason", "slice-b json"],
+      { LOAF_USER: "engineer@test.invalid" },
+    );
+    expect(r.exit).toBe(0);
+    r = await cli(["advance", "EXECUTE.work"]);
+    expect(r.exit).toBe(0);
+    r = await cli(
+      ["finding", "raise", "--category", "spec-gap", "--action", "amend-spec",
+       "--json"],
+      { LOAF_USER: "engineer@test.invalid" },
+    );
+    expect(r.exit).toBe(0);
+    expect(JSON.parse(r.stdout)).toEqual({
+      ok: true,
+      feature: "auth-refresh",
+      id: "FND-001",
+      category: "spec-gap",
+      action: "amend-spec",
+      back_edge: { from: "EXECUTE.work", to: "SPEC.spec" },
+    });
+  });
+});
