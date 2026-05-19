@@ -30,7 +30,13 @@ import {
 import { mutate, mutateBatch } from "./core/journal-mutate.js";
 import type { Ceremony } from "./core/journal-entry.js";
 import { FindingId } from "./core/finding-schema.js";
-import { SpecSubmitInput } from "./core/spec-schema.js";
+import {
+  SpecAddReqInput,
+  SpecAddScenarioInput,
+  SpecAddVisualInput,
+  SpecSubmitInput,
+  nextSerialInNamespace,
+} from "./core/spec-schema.js";
 
 const PRESETS: Record<string, Ceremony> = {
   quick: {
@@ -1844,9 +1850,11 @@ export async function main(argv: string[] = process.argv): Promise<number> {
   // SC2/SC3 deferrals: id_namespace allocator (SC2); SPEC_NOT_INITIALIZED
   // / SPEC_LOCKED_NO_DIRECT_EDIT preflight (SC3 — currently relies on
   // PER_KIND_SUB_STATE ALL_SPEC gate).
-  program
+  const specCmd = program
     .command("spec")
-    .description("SPEC content commands (Slice 4: submit; add-req/scenario/visual + init follow)")
+    .description("SPEC content commands (submit / add-req / add-scenario / add-visual; init in SC4)");
+
+  specCmd
     .command("submit")
     .description("Whole-replacement spec submit from JSON --input (CLI fills spec_version)")
     .requiredOption("--input <file>", "JSON file with SpecFrontmatter-shaped content")
@@ -1995,6 +2003,178 @@ export async function main(argv: string[] = process.argv): Promise<number> {
         );
       }
     });
+
+  // ── loaf spec add-req / add-scenario / add-visual ────────────────────
+  // Slice 4 SC2 (codex r74 sign-off, rev 4.3 / ADR-0004 A5). Incremental
+  // add path: caller submits a namespace stem; CLI allocates the canonical
+  // full id `<namespace>-<NNN>` (zero-pad ≥3, max-serial+1 per namespace);
+  // spec_version bumps once per CLI invocation (caller never supplies);
+  // single-item or array-of-items both accepted (array → one mutateBatch
+  // with N entries sharing one batch_id + spec_version, allocator advances
+  // across batch entries).
+  //
+  // SPEC_NOT_INITIALIZED + SPEC_LOCKED_NO_DIRECT_EDIT phase gating is SC3.
+  // Currently relies on PER_KIND_SUB_STATE ALL_SPEC gate + existing
+  // SPEC_VERSION_NOT_MONOTONIC reducer check.
+  //
+  // Each command is structurally identical; the only differences are:
+  //   1. Input schema (SpecAddReqInput / SpecAddScenarioInput / SpecAddVisualInput)
+  //   2. Snapshot projection scanned (requirements / scenarios / visual_contracts)
+  //   3. Output payload field name (req / scenario / visual)
+  //   4. Journal entry kind (event:spec_req_added / spec_scenario_added /
+  //      spec_visual_added)
+  // The shared shape factored into `registerSpecAdd()` to avoid drift across
+  // the three commands.
+
+  interface SpecAddKindConfig {
+    name: "req" | "scenario" | "visual";
+    payloadField: "req" | "scenario" | "visual";
+    entryKind: "event:spec_req_added" | "event:spec_scenario_added" | "event:spec_visual_added";
+    inputSchema: typeof SpecAddReqInput | typeof SpecAddScenarioInput | typeof SpecAddVisualInput;
+    snapshotKey: "requirements" | "scenarios" | "visual_contracts";
+  }
+  const REGISTER_SPEC_ADD: SpecAddKindConfig[] = [
+    {
+      name: "req",
+      payloadField: "req",
+      entryKind: "event:spec_req_added",
+      inputSchema: SpecAddReqInput,
+      snapshotKey: "requirements",
+    },
+    {
+      name: "scenario",
+      payloadField: "scenario",
+      entryKind: "event:spec_scenario_added",
+      inputSchema: SpecAddScenarioInput,
+      snapshotKey: "scenarios",
+    },
+    {
+      name: "visual",
+      payloadField: "visual",
+      entryKind: "event:spec_visual_added",
+      inputSchema: SpecAddVisualInput,
+      snapshotKey: "visual_contracts",
+    },
+  ];
+
+  for (const cfg of REGISTER_SPEC_ADD) {
+    specCmd
+      .command(`add-${cfg.name}`)
+      .description(`Add ${cfg.name} entries via id_namespace stamping (CLI allocates ${cfg.name.toUpperCase()} ids)`)
+      .requiredOption("--input <file>", `JSON file with SpecAdd${cfg.name[0]!.toUpperCase()}${cfg.name.slice(1)}Input shape (item or array)`)
+      .requiredOption("--feature <name>", `Feature whose spec to extend`)
+      .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
+      .action(async (opts: { input: string; feature: string; featureDir?: string }) => {
+        // (1) Read --input.
+        let content: string;
+        try {
+          content = await fsP.readFile(opts.input, "utf8");
+        } catch (err) {
+          const code = (err as { code?: string }).code;
+          emitFailure(
+            "INPUT_FILE_NOT_FOUND",
+            code === "ENOENT"
+              ? `input file does not exist: ${opts.input}`
+              : `cannot read input file ${opts.input}: ${String(err)}`,
+            { path: opts.input },
+          );
+          return;
+        }
+        // (2) Parse JSON + CLI boundary schema validation.
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(content);
+        } catch (err) {
+          emitFailure(
+            "SCHEMA_VALIDATION_FAILED",
+            `input is not valid JSON: ${(err as Error).message}`,
+          );
+          return;
+        }
+        const inputParse = cfg.inputSchema.safeParse(parsed);
+        if (!inputParse.success) {
+          emitFailure(
+            "SCHEMA_VALIDATION_FAILED",
+            `spec add-${cfg.name} input failed schema validation`,
+            { issues: inputParse.error.issues },
+          );
+          return;
+        }
+        const items: ReadonlyArray<{ id_namespace: string; [k: string]: unknown }> =
+          Array.isArray(inputParse.data) ? inputParse.data : [inputParse.data];
+        // (3) Load session.
+        const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+        const session = await loadSession(featureDir);
+        if (!session.snapshot.state) {
+          emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+          return;
+        }
+        // (4) Per-namespace allocator. Track counter across the batch so
+        // multiple items in the same invocation share a coherent
+        // monotonic sequence per namespace.
+        const projection = (session.snapshot[cfg.snapshotKey] as ReadonlyArray<{ id: string }>);
+        const existingIds = projection.map((p) => p.id);
+        const counters = new Map<string, number>();
+        const allocatedIds: string[] = [];
+        const transformedItems: Array<{ id: string; rest: Record<string, unknown> }> = [];
+        for (const raw of items) {
+          const ns = raw.id_namespace;
+          let next = counters.get(ns);
+          if (next === undefined) {
+            next = nextSerialInNamespace(existingIds, ns);
+          }
+          const fullId = `${ns}-${String(next).padStart(3, "0")}`;
+          counters.set(ns, next + 1);
+          allocatedIds.push(fullId);
+          // Strip id_namespace; CLI does not pass it through to the
+          // journal payload (output regex enforces id only).
+          const { id_namespace: _ns, ...rest } = raw;
+          transformedItems.push({ id: fullId, rest });
+        }
+        // (5) Build batch: one event:spec_*_added per item. spec_version
+        // = current+1; reducer applies whole-batch monotonic check
+        // (batch head bumps; companions share). Per protocol: each CLI
+        // invocation = one spec_version bump, irrespective of N items.
+        const targetVersion = session.snapshot.state.spec_version + 1;
+        const now = new Date().toISOString();
+        const entries: Parameters<typeof mutateBatch>[0] = transformedItems.map(
+          ({ id, rest }, _idx) => ({
+            at: now,
+            actor,
+            entry_schema_version: 1,
+            kind: cfg.entryKind,
+            payload: {
+              spec_version: targetVersion,
+              [cfg.payloadField]: { id, ...rest },
+            },
+          }),
+        );
+        const result = await mutateBatch(entries, {
+          feature_dir: featureDir,
+          snapshot: session.snapshot,
+          tail_seq: session.tail_seq,
+        });
+        if (!result.ok) {
+          emitFailure(result.code, result.message, result.detail);
+          return;
+        }
+        if (useJson) {
+          process.stdout.write(
+            JSON.stringify({
+              ok: true,
+              feature: opts.feature,
+              spec_version: result.snapshot.state?.spec_version,
+              ids: allocatedIds,
+              sub_state: result.snapshot.state?.sub_state,
+            }) + "\n",
+          );
+        } else {
+          process.stdout.write(
+            `spec add-${cfg.name} v${result.snapshot.state?.spec_version}: ${allocatedIds.join(", ")}\n`,
+          );
+        }
+      });
+  }
 
   try {
     await program.parseAsync(argv);

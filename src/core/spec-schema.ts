@@ -223,3 +223,93 @@ export const SpecSubmitInput = z
   })
   .passthrough();
 export type SpecSubmitInput = z.infer<typeof SpecSubmitInput>;
+
+// ── Slice 4 SC2 — id_namespace input regexes (rev 4.3 / ADR-0004 A5) ────
+//
+// Input: caller submits a namespace stem (no numeric suffix).
+// Output: CLI stamps the canonical full id `<ns>-<3+digits>`.
+// Two regexes are intentionally non-overlapping — a full id is NOT a
+// legal namespace and vice versa.
+
+export const ReqIdNamespace = z.string().regex(/^REQ-[A-Z][A-Z0-9]*$/);
+export const ScenIdNamespace = z.string().regex(/^SCEN-[A-Z][A-Z0-9-]*$/);
+export const VisIdNamespace = z.string().regex(/^VIS-[A-Z][A-Z0-9-]*$/);
+
+// SpecAddReqInputItem / SpecAddScenarioInputItem / SpecAddVisualInputItem
+// — CLI boundary shape for `loaf spec add-*`. id_namespace replaces the
+// full `id` field used by the journal payload variants. The CLI stamps
+// the full id (via per-namespace allocator) before emitting the
+// event:spec_req_added entry. Heavy verifiability refines still fire at
+// journal-append time via RequirementEarsVerifiable / ScenarioGherkin
+// / VisualContract — this CLI-side schema only guards the structural
+// shape needed for allocation (passthrough on non-id fields).
+//
+// Single-item or array-of-items both accepted. Array → batch path:
+// one mutateBatch with N entries sharing one spec_version, allocator
+// advances per-namespace across the batch.
+
+// codex r76 BLOCK fix: refine rejects caller-supplied `id`. The CLI
+// allocator owns the full id contract; accepting `id` from input would
+// let caller bypass per-namespace allocation and silently desync stdout
+// (which prints the allocated id) from journal (which would store the
+// caller-supplied id via spread overwrite).
+const rejectCallerSuppliedId = <T extends Record<string, unknown>>(v: T): boolean => !("id" in v);
+const ID_REJECTION_MESSAGE =
+  "id_namespace expected; full id is CLI-allocated and must not be supplied in input";
+
+const SpecAddReqInputItemShape = z
+  .object({
+    id_namespace: ReqIdNamespace,
+    type: z.enum(["ubiquitous", "event-driven", "state-driven", "optional", "unwanted"]),
+  })
+  .passthrough()
+  .refine(rejectCallerSuppliedId, { message: ID_REJECTION_MESSAGE });
+export const SpecAddReqInput = z.union([
+  SpecAddReqInputItemShape,
+  z.array(SpecAddReqInputItemShape).min(1),
+]);
+export type SpecAddReqInputItem = z.infer<typeof SpecAddReqInputItemShape>;
+
+const SpecAddScenarioInputItemShape = z
+  .object({
+    id_namespace: ScenIdNamespace,
+    name: z.string().min(3),
+  })
+  .passthrough()
+  .refine(rejectCallerSuppliedId, { message: ID_REJECTION_MESSAGE });
+export const SpecAddScenarioInput = z.union([
+  SpecAddScenarioInputItemShape,
+  z.array(SpecAddScenarioInputItemShape).min(1),
+]);
+export type SpecAddScenarioInputItem = z.infer<typeof SpecAddScenarioInputItemShape>;
+
+const SpecAddVisualInputItemShape = z
+  .object({
+    id_namespace: VisIdNamespace,
+    target: z.string().min(3),
+  })
+  .passthrough()
+  .refine(rejectCallerSuppliedId, { message: ID_REJECTION_MESSAGE });
+export const SpecAddVisualInput = z.union([
+  SpecAddVisualInputItemShape,
+  z.array(SpecAddVisualInputItemShape).min(1),
+]);
+export type SpecAddVisualInputItem = z.infer<typeof SpecAddVisualInputItemShape>;
+
+/**
+ * Per-namespace id allocator: scan existing ids in `existing` for
+ * those matching `<namespace>-<digits>`, find max serial, return next.
+ * Used by CLI to stamp full ids on add-* invocations.
+ */
+export function nextSerialInNamespace(existing: readonly string[], namespace: string): number {
+  const prefix = `${namespace}-`;
+  let max = 0;
+  for (const id of existing) {
+    if (!id.startsWith(prefix)) continue;
+    const tail = id.slice(prefix.length);
+    const n = Number.parseInt(tail, 10);
+    if (Number.isNaN(n)) continue;
+    if (n > max) max = n;
+  }
+  return max + 1;
+}
