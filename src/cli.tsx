@@ -30,6 +30,7 @@ import {
 import { mutate, mutateBatch } from "./core/journal-mutate.js";
 import type { Ceremony } from "./core/journal-entry.js";
 import { FindingId } from "./core/finding-schema.js";
+import { SpecSubmitInput } from "./core/spec-schema.js";
 
 const PRESETS: Record<string, Ceremony> = {
   quick: {
@@ -1811,6 +1812,187 @@ export async function main(argv: string[] = process.argv): Promise<number> {
         );
       } else {
         process.stdout.write(`closed ${fndId}\n`);
+      }
+    });
+
+  // ── loaf spec submit --input <file> ──────────────────────────────────
+  // Slice 4 SC1 — whole-replacement spec content entry (protocol §10.8 +
+  // rev 4.3 ADR-0004 A4). The reducer for event:spec_submitted resets
+  // requirements / scenarios / visual_contracts projections to [] (codex
+  // r74 reminder: spec submit is whole-replacement, not incremental).
+  //
+  // Input shape mirrors SpecFrontmatter (full-id companions; id_namespace
+  // is reserved for spec add-* in SC2):
+  //   {
+  //     spec_version?,                 // CLI fills with current+1 if absent
+  //     feature: { id, name },
+  //     intent: string ≥20 chars,
+  //     adr_refs: string[],
+  //     needs_clarification: ...,
+  //     requirements?: RequirementEarsVerifiable[],
+  //     scenarios?: ScenarioGherkin[],
+  //     visual_contracts?: VisualContract[],
+  //   }
+  //
+  // Emits a mutateBatch: [event:spec_submitted at batch_index=0, ...
+  // event:spec_req_added at batch_index=1.., ... event:spec_scenario_added,
+  // ... event:spec_visual_added]. All entries share a single batch_id +
+  // spec_version. Empty companion arrays land a 1-entry batch.
+  //
+  // DUPLICATE_REQ_ID / DUPLICATE_SCEN_ID / DUPLICATE_VIS_ID fire from
+  // preflight (5h) when companion arrays collide within the submit batch.
+  // SC2/SC3 deferrals: id_namespace allocator (SC2); SPEC_NOT_INITIALIZED
+  // / SPEC_LOCKED_NO_DIRECT_EDIT preflight (SC3 — currently relies on
+  // PER_KIND_SUB_STATE ALL_SPEC gate).
+  program
+    .command("spec")
+    .description("SPEC content commands (Slice 4: submit; add-req/scenario/visual + init follow)")
+    .command("submit")
+    .description("Whole-replacement spec submit from JSON --input (CLI fills spec_version)")
+    .requiredOption("--input <file>", "JSON file with SpecFrontmatter-shaped content")
+    .requiredOption("--feature <name>", "Feature whose spec to submit")
+    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
+    .action(async (opts: { input: string; feature: string; featureDir?: string }) => {
+      // (1) Read --input.
+      let content: string;
+      try {
+        content = await fsP.readFile(opts.input, "utf8");
+      } catch (err) {
+        const code = (err as { code?: string }).code;
+        emitFailure(
+          "INPUT_FILE_NOT_FOUND",
+          code === "ENOENT"
+            ? `input file does not exist: ${opts.input}`
+            : `cannot read input file ${opts.input}: ${String(err)}`,
+          { path: opts.input },
+        );
+        return;
+      }
+      // (2) Parse JSON.
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(content);
+      } catch (err) {
+        emitFailure(
+          "SCHEMA_VALIDATION_FAILED",
+          `input is not valid JSON: ${(err as Error).message}`,
+        );
+        return;
+      }
+      if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+        emitFailure(
+          "USAGE",
+          "spec submit --input expects a JSON object (SpecFrontmatter shape)",
+        );
+        return;
+      }
+      // CLI boundary: typed runtime schema enforcement (codex r75 BLOCK
+      // fix). A malformed `spec_version: "2"` or `requirements: "oops"`
+      // would otherwise silently degrade (drop to current+1 / coerce to
+      // []) and bump spec_version with empty projection — worse than a
+      // hard failure. SpecSubmitInput rejects wrong types before mutate.
+      const inputParse = SpecSubmitInput.safeParse(parsed);
+      if (!inputParse.success) {
+        emitFailure(
+          "SCHEMA_VALIDATION_FAILED",
+          `spec submit input failed SpecSubmitInput schema validation`,
+          { issues: inputParse.error.issues },
+        );
+        return;
+      }
+      const input = inputParse.data;
+      // (3) Load session.
+      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      const session = await loadSession(featureDir);
+      if (!session.snapshot.state) {
+        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        return;
+      }
+      const currentVersion = session.snapshot.state.spec_version;
+      // (4) spec_version handling: CLI fills with current+1 when absent;
+      // when caller supplies, defer to reducer's monotonic check (codex
+      // r74 — both paths must reach the same SPEC_VERSION_NOT_MONOTONIC
+      // surface when mismatch, so we let preflight/reducer enforce
+      // instead of duplicating the check here).
+      const specVersion = input.spec_version ?? currentVersion + 1;
+      // (5) Extract companion arrays (already defaulted to [] by schema).
+      const reqs = input.requirements;
+      const scens = input.scenarios;
+      const viss = input.visual_contracts;
+      // (6) Build batch entries.
+      const headPayload: Record<string, unknown> = {
+        spec_version: specVersion,
+        feature: input.feature,
+        intent: input.intent,
+        adr_refs: input.adr_refs,
+        needs_clarification: input.needs_clarification,
+      };
+      const now = new Date().toISOString();
+      const entries: Parameters<typeof mutateBatch>[0] = [
+        {
+          at: now,
+          actor,
+          entry_schema_version: 1,
+          kind: "event:spec_submitted",
+          payload: headPayload,
+        },
+      ];
+      for (const req of reqs) {
+        entries.push({
+          at: now,
+          actor,
+          entry_schema_version: 1,
+          kind: "event:spec_req_added",
+          payload: { spec_version: specVersion, req },
+        });
+      }
+      for (const scen of scens) {
+        entries.push({
+          at: now,
+          actor,
+          entry_schema_version: 1,
+          kind: "event:spec_scenario_added",
+          payload: { spec_version: specVersion, scenario: scen },
+        });
+      }
+      for (const vis of viss) {
+        entries.push({
+          at: now,
+          actor,
+          entry_schema_version: 1,
+          kind: "event:spec_visual_added",
+          payload: { spec_version: specVersion, visual: vis },
+        });
+      }
+      // (7) Mutate.
+      const result = await mutateBatch(entries, {
+        feature_dir: featureDir,
+        snapshot: session.snapshot,
+        tail_seq: session.tail_seq,
+      });
+      if (!result.ok) {
+        emitFailure(result.code, result.message, result.detail);
+        return;
+      }
+      // (8) Output. Echo collected ids for shell scripting.
+      const reqIds = result.snapshot.requirements.map((r) => r.id);
+      const scenIds = result.snapshot.scenarios.map((s) => s.id);
+      const visIds = result.snapshot.visual_contracts.map((v) => v.id);
+      const out = {
+        ok: true,
+        feature: opts.feature,
+        spec_version: result.snapshot.state?.spec_version,
+        req_ids: reqIds,
+        scen_ids: scenIds,
+        vis_ids: visIds,
+        sub_state: result.snapshot.state?.sub_state,
+      };
+      if (useJson) {
+        process.stdout.write(JSON.stringify(out) + "\n");
+      } else {
+        process.stdout.write(
+          `spec submitted v${out.spec_version}: ${reqIds.length} req / ${scenIds.length} scen / ${visIds.length} vis\n`,
+        );
       }
     });
 

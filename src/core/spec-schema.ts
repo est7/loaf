@@ -186,3 +186,40 @@ export const SpecFrontmatter = z.object({
   needs_clarification: z.array(NeedsClarification),
 });
 export type SpecFrontmatter = z.infer<typeof SpecFrontmatter>;
+
+// ── SpecSubmitInput — `loaf spec submit --input` CLI boundary schema ────
+//
+// Slice 4 SC1 (codex r75 BLOCK fix): typed runtime guard at the CLI
+// boundary. Diverges from `SpecFrontmatter` where the submit input
+// contract diverges:
+//   - `spec_version` is OPTIONAL (CLI fills with current+1 when absent;
+//     when present, reducer enforces monotonic via SPEC_VERSION_NOT_MONOTONIC).
+//   - `requirements` / `scenarios` / `visual_contracts` /
+//     `needs_clarification` / `adr_refs` all default to `[]`.
+//   - companions use the strict VERIFIABLE variant (RequirementEarsVerifiable)
+//     because they round-trip through journal payloads that already gate
+//     on verifiability.
+//   - `.passthrough()` (not `.strict()`) so forward-compat extra fields
+//     don't break callers; typed fields must match types or surface
+//     SCHEMA_VALIDATION_FAILED before mutateBatch.
+//
+// A caller typo like `spec_version: "2"` or `requirements: "oops"` would
+// previously have silently degraded (drop to current+1 / treat as empty)
+// — codex r75 BLOCK forces this schema to reject those cases instead.
+
+export const SpecSubmitInput = z
+  .object({
+    spec_version: z.number().int().positive().optional(),
+    feature: z.object({
+      id: FeatureIdPayload,
+      name: z.string().min(3),
+    }),
+    intent: z.string().min(20),
+    adr_refs: z.array(z.string()).default([]),
+    requirements: z.array(RequirementEarsVerifiable).default([]),
+    scenarios: z.array(ScenarioGherkin).default([]),
+    visual_contracts: z.array(VisualContract).default([]),
+    needs_clarification: z.array(NeedsClarification).default([]),
+  })
+  .passthrough();
+export type SpecSubmitInput = z.infer<typeof SpecSubmitInput>;

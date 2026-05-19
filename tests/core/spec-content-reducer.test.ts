@@ -350,8 +350,10 @@ describe("reducer SPEC content handlers — Slice 1.B sub-cycle 1", () => {
     );
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.code).toBe("INVALID_PAYLOAD");
-      expect(result.message).toMatch(/DUPLICATE_REQ_ID|duplicate/i);
+      // Slice 4 SC1 promotion: DUPLICATE_REQ_ID is now a top-level
+      // PreflightFailureCode (mirror Slice 2 SC4 DUPLICATE_TASK_ID).
+      expect(result.code).toBe("DUPLICATE_REQ_ID");
+      expect(result.message).toMatch(/REQ-AUTH-001/);
     }
   });
 
@@ -373,8 +375,8 @@ describe("reducer SPEC content handlers — Slice 1.B sub-cycle 1", () => {
     );
     expect(dup.ok).toBe(false);
     if (!dup.ok) {
-      expect(dup.code).toBe("INVALID_PAYLOAD");
-      expect(dup.message).toMatch(/DUPLICATE_SCEN_ID|duplicate/i);
+      expect(dup.code).toBe("DUPLICATE_SCEN_ID");
+      expect(dup.message).toMatch(/SCEN-AUTH-E2E-001/);
     }
   });
 
@@ -396,8 +398,8 @@ describe("reducer SPEC content handlers — Slice 1.B sub-cycle 1", () => {
     );
     expect(dup.ok).toBe(false);
     if (!dup.ok) {
-      expect(dup.code).toBe("INVALID_PAYLOAD");
-      expect(dup.message).toMatch(/DUPLICATE_VIS_ID|duplicate/i);
+      expect(dup.code).toBe("DUPLICATE_VIS_ID");
+      expect(dup.message).toMatch(/VIS-AUTH-001/);
     }
   });
 

@@ -129,7 +129,18 @@ export type PreflightFailureCode =
   // Strict gate_decision(<G>) matching needs PendingAddedPayload
   // gate_name field — deferred (no schema yet to discriminate
   // spec-lock vs verify-accept heads).
-  | "GATE_NOT_PENDING";
+  | "GATE_NOT_PENDING"
+  // Slice 4 SC1 — DUPLICATE_REQ_ID / DUPLICATE_SCEN_ID / DUPLICATE_VIS_ID
+  // preflight promotion (mirror Slice 2 SC4 DUPLICATE_TASK_ID pattern).
+  // Reducer keeps its defense-in-depth message-string check; preflight
+  // catches the public surface case so CLI emits the actionable code
+  // rather than REDUCER_ERROR wrap. Two cases fire: (a) within same
+  // submit batch (second entry sees first's id already in projection
+  // via mutateBatch dry-run), (b) cross-invocation collision against
+  // existing projection.
+  | "DUPLICATE_REQ_ID"
+  | "DUPLICATE_SCEN_ID"
+  | "DUPLICATE_VIS_ID";
 
 export type PreflightResult =
   | { ok: true }
@@ -628,6 +639,51 @@ export function preflight(
           };
         }
       }
+    }
+  }
+
+  // (5h) Slice 4 SC1 — DUPLICATE_REQ_ID / DUPLICATE_SCEN_ID /
+  // DUPLICATE_VIS_ID preflight promotion. Mirrors the DUPLICATE_TASK_ID
+  // pattern from Slice 2 SC4: reducer keeps its defensive message-string
+  // check as fallback for raw mutate paths, but the public surface code
+  // surfaces here so CLI can emit it directly (not wrapped as REDUCER_ERROR).
+  // Within a submit batch the second occurrence sees the first already in
+  // ctx.snapshot via mutateBatch dry-run accumulation; cross-invocation
+  // collisions hit the same path. Note: only entries with batch_index >= 1
+  // OR standalone add-* invocations should hit projection collision; the
+  // batch head (spec_submitted, batch_index=0) does not carry req/scen/vis
+  // payload, so this check only fires on the three add-* kinds.
+  if (entry.kind === "event:spec_req_added") {
+    const payload = payloadParsed.data as { req: { id: string } };
+    if (ctx.snapshot.requirements.some((r) => r.id === payload.req.id)) {
+      return {
+        ok: false,
+        code: "DUPLICATE_REQ_ID",
+        message: `spec_req_added: REQ ${payload.req.id} already in projection`,
+        detail: { id: payload.req.id },
+      };
+    }
+  }
+  if (entry.kind === "event:spec_scenario_added") {
+    const payload = payloadParsed.data as { scenario: { id: string } };
+    if (ctx.snapshot.scenarios.some((s) => s.id === payload.scenario.id)) {
+      return {
+        ok: false,
+        code: "DUPLICATE_SCEN_ID",
+        message: `spec_scenario_added: SCEN ${payload.scenario.id} already in projection`,
+        detail: { id: payload.scenario.id },
+      };
+    }
+  }
+  if (entry.kind === "event:spec_visual_added") {
+    const payload = payloadParsed.data as { visual: { id: string } };
+    if (ctx.snapshot.visual_contracts.some((v) => v.id === payload.visual.id)) {
+      return {
+        ok: false,
+        code: "DUPLICATE_VIS_ID",
+        message: `spec_visual_added: VIS ${payload.visual.id} already in projection`,
+        detail: { id: payload.visual.id },
+      };
     }
   }
 
