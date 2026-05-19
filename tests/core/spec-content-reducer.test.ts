@@ -102,6 +102,53 @@ function fullEventDrivenReqPayload(spec_version: number, id: string): unknown {
   };
 }
 
+// Slice A SC1: per-EARS-variant payload helpers — needed to prove the
+// widened RequirementState preserves variant-specific body fields under
+// the discriminated union (codex r86 §"per-variant REQ preservation").
+// Each variant picks a different verifiability path (measurable /
+// verified_by_scenarios / acceptance_na) to also exercise the
+// VerifiabilityFields stack in passing.
+
+function fullStateDrivenReqPayload(spec_version: number, id: string): unknown {
+  return {
+    spec_version,
+    req: {
+      id,
+      type: "state-driven",
+      while_: "session is in flight and refresh token is valid",
+      behavior: "the system shall renew access tokens at most every 60s",
+      measurable: { metric: "p99_renew_latency_ms", threshold: 300, direction: "lte" },
+    },
+  };
+}
+
+function fullOptionalReqPayload(spec_version: number, id: string): unknown {
+  return {
+    spec_version,
+    req: {
+      id,
+      type: "optional",
+      feature: "biometric unlock",
+      response: "the system shall offer biometric prompt before password fallback",
+      verified_by_scenarios: ["SCEN-AUTH-OPT-001"],
+    },
+  };
+}
+
+function fullUnwantedReqPayload(spec_version: number, id: string): unknown {
+  return {
+    spec_version,
+    req: {
+      id,
+      type: "unwanted",
+      condition: "user submits an empty password field",
+      response: "the system shall reject submission without contacting the auth server",
+      acceptance_na: true,
+      acceptance_na_reason: "negative-path UX validated by manual smoke test",
+    },
+  };
+}
+
 function fullScenarioPayload(spec_version: number, id: string): unknown {
   return {
     spec_version,
@@ -289,7 +336,13 @@ describe("reducer SPEC content handlers — Slice 1.B sub-cycle 1", () => {
     expect(next.requirements[0]!.id).toBe("REQ-AUTH-001");
   });
 
-  test("projection is slim — full body in entry.payload, only slim fields enter Snapshot", () => {
+  test("event:spec_req_added preserves full event-driven REQ body in Snapshot.requirements[] (Slice A SC1 inversion)", () => {
+    // Slice A SC1 (codex r84/r86): widen RequirementState slim → full.
+    // Prior test (Slice 1.B SC1) asserted body fields stay OFF the
+    // projection — that contract is reversed under spec.md projection
+    // writer prereq. Body fields MUST land on Snapshot so
+    // writeDerivedSpecMd can re-serialize the frontmatter without
+    // re-reading the journal.
     const snap = seedAtSpecProposalPostSubmit();
     const fullPayload = fullEventDrivenReqPayload(2, "REQ-AUTH-001") as {
       spec_version: number;
@@ -300,17 +353,12 @@ describe("reducer SPEC content handlers — Slice 1.B sub-cycle 1", () => {
       apply(snap, entry(4, "event:spec_req_added", fullPayload)),
     );
 
-    // canonical body fields are present in the journal payload (replay source)
-    expect(fullPayload.req.trigger).toBe("an API request receives HTTP 401");
-    expect(fullPayload.req.response).toMatch(/refresh the access token/);
-
-    // projection is slim — only id/type/verifiability triad, no body fields
-    const slim = next.requirements[0]!;
-    expect(slim.id).toBe("REQ-AUTH-001");
-    expect(slim.type).toBe("event-driven");
-    expect(slim.verified_by_scenarios).toEqual(["SCEN-AUTH-E2E-001"]);
-    expect((slim as unknown as Record<string, unknown>).trigger).toBeUndefined();
-    expect((slim as unknown as Record<string, unknown>).response).toBeUndefined();
+    const stored = next.requirements[0]! as unknown as Record<string, unknown>;
+    expect(stored["id"]).toBe("REQ-AUTH-001");
+    expect(stored["type"]).toBe("event-driven");
+    expect(stored["trigger"]).toBe("an API request receives HTTP 401");
+    expect(stored["response"]).toMatch(/refresh the access token/);
+    expect(stored["verified_by_scenarios"]).toEqual(["SCEN-AUTH-E2E-001"]);
   });
 
   test("event:spec_req_added stale standalone version is rejected (post-submit)", () => {
@@ -515,5 +563,143 @@ describe("SPEC payload schemas — canonical truth required for replay", () => {
     if (!result.ok) {
       expect(result.message).toMatch(/payload schema|adr_refs/i);
     }
+  });
+});
+
+// Slice A SC1 — full spec projection on Snapshot (codex r84 BLOCK → r85
+// v2 ack → r86 GO). Adds:
+//   - Snapshot.spec_header (feature/intent/adr_refs/needs_clarification)
+//   - widened RequirementState / ScenarioState / VisualContractState
+//     from slim id-only to full RequirementEarsShape / ScenarioGherkin /
+//     VisualContract z.infer types.
+// Unblocks SC-A2 spec.md projection writer (composeSpecMdFrontmatter
+// becomes a pure function of Snapshot only). spec-lock-check is
+// behaviorally unchanged: it reads parsed frontmatter, not snapshot
+// arrays (src/core/gates/spec-lock-check.ts:64-214). Only id-only sites
+// in reducer / preflight consume snapshot.requirements/scenarios/
+// visual_contracts (DUPLICATE_*_ID promotion).
+
+describe("reducer SPEC content full projection — Slice A SC1", () => {
+  test("initialSnapshot().spec_header is null", () => {
+    const snap = initialSnapshot();
+    expect(snap.spec_header).toBeNull();
+  });
+
+  test("event:spec_submitted populates spec_header with full header fields", () => {
+    const snap = seedAtSpecProposal();
+    const next = mustOk(
+      apply(snap, entry(3, "event:spec_submitted", fullSubmittedPayload(1))),
+    );
+
+    expect(next.spec_header).not.toBeNull();
+    expect(next.spec_header!.feature).toEqual({ id: "F-001", name: "OAuth access token refresh" });
+    expect(next.spec_header!.intent).toBe("users should not perceive auth recovery flows in flight");
+    expect(next.spec_header!.adr_refs).toEqual([]);
+    expect(next.spec_header!.needs_clarification).toEqual([]);
+  });
+
+  test("event:spec_submitted carries adr_refs[] and needs_clarification[] entries through to spec_header", () => {
+    const snap = seedAtSpecProposal();
+    const payload = {
+      spec_version: 1,
+      feature: { id: "F-007", name: "Refresh interceptor" },
+      intent: "ensure auth recovery happens transparently across all request paths",
+      adr_refs: ["ADR-0042", "ADR-0099"],
+      needs_clarification: [
+        { id: "NC-001", question: "should refresh be skipped on idempotent GETs?" },
+      ],
+    };
+    const next = mustOk(apply(snap, entry(3, "event:spec_submitted", payload)));
+
+    expect(next.spec_header!.feature.id).toBe("F-007");
+    expect(next.spec_header!.adr_refs).toEqual(["ADR-0042", "ADR-0099"]);
+    expect(next.spec_header!.needs_clarification).toHaveLength(1);
+    expect(next.spec_header!.needs_clarification[0]!.id).toBe("NC-001");
+  });
+
+  test("event:spec_submitted re-submit rebuilds spec_header (whole-replacement semantics)", () => {
+    let snap = seedAtSpecProposal();
+    snap = mustOk(apply(snap, entry(3, "event:spec_submitted", fullSubmittedPayload(1))));
+    expect(snap.spec_header!.feature.id).toBe("F-001");
+
+    snap = mustOk(
+      apply(
+        snap,
+        entry(4, "event:spec_submitted", {
+          spec_version: 2,
+          feature: { id: "F-002", name: "Logout flow hardening" },
+          intent: "logout must not leave dangling refresh tokens in storage",
+          adr_refs: ["ADR-0007"],
+          needs_clarification: [],
+        }),
+      ),
+    );
+
+    // re-submit replaces — not merges
+    expect(snap.spec_header!.feature).toEqual({ id: "F-002", name: "Logout flow hardening" });
+    expect(snap.spec_header!.intent).toBe("logout must not leave dangling refresh tokens in storage");
+    expect(snap.spec_header!.adr_refs).toEqual(["ADR-0007"]);
+  });
+
+  // Parameterized over 5 EARS variants. Without this, the widening could
+  // accidentally only preserve the happy event-driven case (codex r86
+  // explicit concern). Each variant probes a different variant-specific
+  // body field that didn't survive the prior slim extractor.
+
+  const EARS_VARIANTS: Array<{
+    variant: string;
+    payloadFn: (v: number, id: string) => unknown;
+    bodyKey: string;
+    bodyMatcher: RegExp;
+  }> = [
+    { variant: "ubiquitous", payloadFn: fullUbiquitousReqPayload, bodyKey: "response", bodyMatcher: /handle the case correctly/ },
+    { variant: "event-driven", payloadFn: fullEventDrivenReqPayload, bodyKey: "trigger", bodyMatcher: /HTTP 401/ },
+    { variant: "state-driven", payloadFn: fullStateDrivenReqPayload, bodyKey: "while_", bodyMatcher: /session is in flight/ },
+    { variant: "optional", payloadFn: fullOptionalReqPayload, bodyKey: "feature", bodyMatcher: /biometric unlock/ },
+    { variant: "unwanted", payloadFn: fullUnwantedReqPayload, bodyKey: "condition", bodyMatcher: /empty password field/ },
+  ];
+
+  test.each(EARS_VARIANTS)(
+    "event:spec_req_added preserves full $variant REQ body in Snapshot.requirements[]",
+    ({ payloadFn, bodyKey, bodyMatcher }) => {
+      const snap = seedAtSpecProposalPostSubmit();
+      const next = mustOk(
+        apply(snap, entry(4, "event:spec_req_added", payloadFn(2, "REQ-VAR-001"))),
+      );
+
+      const stored = next.requirements[0]! as unknown as Record<string, unknown>;
+      expect(stored["id"]).toBe("REQ-VAR-001");
+      expect(stored[bodyKey]).toMatch(bodyMatcher);
+    },
+  );
+
+  test("event:spec_scenario_added preserves full SCEN body (name/given/when/then) in Snapshot.scenarios[]", () => {
+    const snap = seedAtSpecProposalPostSubmit();
+    const next = mustOk(
+      apply(snap, entry(4, "event:spec_scenario_added", fullScenarioPayload(2, "SCEN-AUTH-E2E-001"))),
+    );
+
+    const stored = next.scenarios[0]! as unknown as Record<string, unknown>;
+    expect(stored["id"]).toBe("SCEN-AUTH-E2E-001");
+    expect(stored["name"]).toBe("Expired token recovered by refresh");
+    expect(stored["tag"]).toBe("e2e");
+    expect(stored["given"]).toEqual(["user has valid refresh token", "access token is expired"]);
+    expect(stored["when"]).toEqual(["user opens the order list"]);
+    expect(stored["then"]).toEqual(["system refreshes the access token", "order list is displayed"]);
+  });
+
+  test("event:spec_visual_added preserves full VIS body (target/checks) in Snapshot.visual_contracts[]", () => {
+    const snap = seedAtSpecProposalPostSubmit();
+    const next = mustOk(
+      apply(snap, entry(4, "event:spec_visual_added", fullVisualPayload(2, "VIS-AUTH-001"))),
+    );
+
+    const stored = next.visual_contracts[0]! as unknown as Record<string, unknown>;
+    expect(stored["id"]).toBe("VIS-AUTH-001");
+    expect(stored["target"]).toBe("Login primary button during refresh in-flight");
+    expect(stored["checks"]).toEqual([
+      "shows loading spinner inside button",
+      "button is disabled to prevent repeated taps",
+    ]);
   });
 });

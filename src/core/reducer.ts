@@ -20,6 +20,12 @@ import type {
   EvidenceResult,
   VerifyCheckKind,
 } from "./evidence-schema.js";
+import type {
+  NeedsClarification,
+  RequirementEarsShape,
+  ScenarioGherkin,
+  VisualContract,
+} from "./spec-schema.js";
 
 export interface SessionState {
   session_id: string;
@@ -111,30 +117,35 @@ export interface PendingState {
   resolved: boolean;
 }
 
-// SPEC projection — slim mirror of spec.md frontmatter. Reducer extracts
-// only the cross-cutting fields needed by spec-lock checks 4-7 (§5.1);
-// the canonical full body (`trigger`/`response`/`given`/`when`/`then`/
-// `target`/`checks`) lives in the journal payload (full replay source).
-export interface RequirementState {
-  id: string;
-  type: "ubiquitous" | "event-driven" | "state-driven" | "optional" | "unwanted";
-  measurable?: { metric: string; threshold: string | number; unit?: string; direction: "lte" | "gte" | "eq" };
-  verified_by_scenarios?: string[];
-  acceptance_na?: true;
-  acceptance_na_reason?: string;
-}
+// SPEC projection — full mirror of spec.md frontmatter (Slice A SC1 widen).
+// Prior to Slice A this was a slim id+verifiability mirror; widened to the
+// full EARS body / Gherkin / VisualContract z.infer types so the SC-A2
+// spec.md projection writer can re-serialize from snapshot alone (codex
+// r84 BLOCK absorb).
+//
+// spec-lock-check.ts:64-214 reads parsed frontmatter from
+// readSpecFrontmatter(), NOT these arrays — so the widening is type/test
+// fallout only, no gate-eval behavior change. Snapshot arrays are only
+// consumed for `.id`-only duplicate checks at:
+//   - reducer.ts cases for spec_*_added (DUPLICATE_*_ID surface)
+//   - preflight.ts spec_*_added refines (top-level DUPLICATE promotion)
+export type RequirementState = RequirementEarsShape;
+export type ScenarioState = ScenarioGherkin;
+export type VisualContractState = VisualContract;
 
-export interface ScenarioState {
-  id: string;
-  tag?: "happy" | "edge" | "error" | "e2e";
-  requires_acceptance?: boolean;
-  acceptance_na?: string;
-}
-
-export interface VisualContractState {
-  id: string;
-  requires_visual?: boolean;
-  visual_na?: string;
+// SpecHeader — the non-array portion of spec.md frontmatter
+// (feature / intent / adr_refs / needs_clarification). Populated by
+// `event:spec_submitted` apply; reset on each submit (whole-replacement).
+// null until first submit lands. Slice A SC1 introduces this projection
+// so SC-A2's writeDerivedSpecMd can render the full frontmatter from
+// snapshot without re-reading the journal.
+export interface SpecHeader {
+  /** Protocol F-NNN feature id from spec.md frontmatter — distinct from
+   *  `SessionState.feature` (the loaf-internal session feature key). */
+  feature: { id: string; name: string };
+  intent: string;
+  adr_refs: string[];
+  needs_clarification: NeedsClarification[];
 }
 
 export interface Snapshot {
@@ -143,6 +154,7 @@ export interface Snapshot {
   evidence: EvidenceState[];
   findings: FindingState[];
   pending: PendingState[];
+  spec_header: SpecHeader | null;
   requirements: RequirementState[];
   scenarios: ScenarioState[];
   visual_contracts: VisualContractState[];
@@ -161,6 +173,7 @@ export function initialSnapshot(): Snapshot {
     evidence: [],
     findings: [],
     pending: [],
+    spec_header: null,
     requirements: [],
     scenarios: [],
     visual_contracts: [],
@@ -526,12 +539,16 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
     case "event:spec_submitted": {
       // Whole-replacement entrypoint (protocol §576-587). `loaf spec submit`
       // emits this as batch_index=0 with companion add-* entries at
-      // batch_index>=1. spec_submitted bumps state.spec_version and resets
-      // the 3 projection arrays; companions repopulate within the batch.
+      // batch_index>=1. spec_submitted bumps state.spec_version, populates
+      // spec_header from payload (Slice A SC1 widen), and resets the 3
+      // projection arrays so companions repopulate from scratch within
+      // the batch.
       const payload = entry.payload as {
         spec_version?: number;
         feature?: { id?: string; name?: string };
         intent?: string;
+        adr_refs?: unknown;
+        needs_clarification?: unknown;
       };
       if (typeof payload.spec_version !== "number") {
         return invalidPayload(entry.kind, "missing spec_version");
@@ -540,11 +557,29 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
       if (!versionCheck.ok) {
         return invalidPayload(entry.kind, versionCheck.message);
       }
+      // Payload schema (SpecSubmittedPayload) already validated by
+      // PER_KIND_PAYLOAD at preflight — feature/intent/adr_refs/
+      // needs_clarification all guaranteed present and well-typed when
+      // apply() runs. The defensive ?? fallbacks here are belt-and-
+      // suspenders for raw .apply() callers that bypass preflight
+      // (tests / migration).
+      const specHeader: SpecHeader = {
+        feature: {
+          id: payload.feature?.id ?? "",
+          name: payload.feature?.name ?? "",
+        },
+        intent: payload.intent ?? "",
+        adr_refs: Array.isArray(payload.adr_refs) ? (payload.adr_refs as string[]) : [],
+        needs_clarification: Array.isArray(payload.needs_clarification)
+          ? (payload.needs_clarification as NeedsClarification[])
+          : [],
+      };
       return {
         ok: true,
         snapshot: {
           ...prev,
           state: { ...prev.state, spec_version: versionCheck.nextVersion },
+          spec_header: specHeader,
           requirements: [],
           scenarios: [],
           visual_contracts: [],
@@ -553,7 +588,7 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
     }
 
     case "event:spec_req_added": {
-      const payload = entry.payload as { spec_version?: number; req?: RequirementPayload };
+      const payload = entry.payload as { spec_version?: number; req?: RequirementState };
       if (typeof payload.spec_version !== "number" || !payload.req) {
         return invalidPayload(entry.kind, "missing spec_version or req");
       }
@@ -564,8 +599,8 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
       if (prev.requirements.some((r) => r.id === payload.req!.id)) {
         return invalidPayload(entry.kind, `DUPLICATE_REQ_ID: ${payload.req.id} already in projection`);
       }
-      const slim = extractRequirementSlim(payload.req);
-      prev.requirements.push(slim);
+      // Slice A SC1 widen: push full payload.req (was extractRequirementSlim).
+      prev.requirements.push(payload.req);
       return {
         ok: true,
         snapshot:
@@ -576,7 +611,7 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
     }
 
     case "event:spec_scenario_added": {
-      const payload = entry.payload as { spec_version?: number; scenario?: ScenarioPayload };
+      const payload = entry.payload as { spec_version?: number; scenario?: ScenarioState };
       if (typeof payload.spec_version !== "number" || !payload.scenario) {
         return invalidPayload(entry.kind, "missing spec_version or scenario");
       }
@@ -587,8 +622,7 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
       if (prev.scenarios.some((s) => s.id === payload.scenario!.id)) {
         return invalidPayload(entry.kind, `DUPLICATE_SCEN_ID: ${payload.scenario.id} already in projection`);
       }
-      const slim = extractScenarioSlim(payload.scenario);
-      prev.scenarios.push(slim);
+      prev.scenarios.push(payload.scenario);
       return {
         ok: true,
         snapshot:
@@ -599,7 +633,7 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
     }
 
     case "event:spec_visual_added": {
-      const payload = entry.payload as { spec_version?: number; visual?: VisualPayload };
+      const payload = entry.payload as { spec_version?: number; visual?: VisualContractState };
       if (typeof payload.spec_version !== "number" || !payload.visual) {
         return invalidPayload(entry.kind, "missing spec_version or visual");
       }
@@ -610,8 +644,7 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
       if (prev.visual_contracts.some((v) => v.id === payload.visual!.id)) {
         return invalidPayload(entry.kind, `DUPLICATE_VIS_ID: ${payload.visual.id} already in projection`);
       }
-      const slim = extractVisualSlim(payload.visual);
-      prev.visual_contracts.push(slim);
+      prev.visual_contracts.push(payload.visual);
       return {
         ok: true,
         snapshot:
@@ -816,28 +849,6 @@ function invalidPayload(kind: string, reason: string): ApplyResult {
 //   - undefined | 0 → must bump (payload.spec_version === current + 1)
 //   - >0            → must equal current (already bumped by batch head)
 
-type RequirementPayload = {
-  id: string;
-  type: RequirementState["type"];
-  measurable?: RequirementState["measurable"];
-  verified_by_scenarios?: string[];
-  acceptance_na?: true;
-  acceptance_na_reason?: string;
-};
-
-type ScenarioPayload = {
-  id: string;
-  tag?: ScenarioState["tag"];
-  requires_acceptance?: boolean;
-  acceptance_na?: string;
-};
-
-type VisualPayload = {
-  id: string;
-  requires_visual?: boolean;
-  visual_na?: string;
-};
-
 type SpecVersionCheck =
   | { ok: true; nextVersion: number }
   | { ok: false; message: string };
@@ -889,26 +900,7 @@ function checkSpecVersion(
   return { ok: true, nextVersion: currentVersion };
 }
 
-function extractRequirementSlim(req: RequirementPayload): RequirementState {
-  const slim: RequirementState = { id: req.id, type: req.type };
-  if (req.measurable !== undefined) slim.measurable = req.measurable;
-  if (req.verified_by_scenarios !== undefined) slim.verified_by_scenarios = req.verified_by_scenarios;
-  if (req.acceptance_na !== undefined) slim.acceptance_na = req.acceptance_na;
-  if (req.acceptance_na_reason !== undefined) slim.acceptance_na_reason = req.acceptance_na_reason;
-  return slim;
-}
-
-function extractScenarioSlim(scenario: ScenarioPayload): ScenarioState {
-  const slim: ScenarioState = { id: scenario.id };
-  if (scenario.tag !== undefined) slim.tag = scenario.tag;
-  if (scenario.requires_acceptance !== undefined) slim.requires_acceptance = scenario.requires_acceptance;
-  if (scenario.acceptance_na !== undefined) slim.acceptance_na = scenario.acceptance_na;
-  return slim;
-}
-
-function extractVisualSlim(visual: VisualPayload): VisualContractState {
-  const slim: VisualContractState = { id: visual.id };
-  if (visual.requires_visual !== undefined) slim.requires_visual = visual.requires_visual;
-  if (visual.visual_na !== undefined) slim.visual_na = visual.visual_na;
-  return slim;
-}
+// Slice A SC1: slim extractors removed. RequirementState / ScenarioState /
+// VisualContractState are now the full RequirementEarsShape / ScenarioGherkin
+// / VisualContract z.infer types; reducer apply pushes the full payload
+// directly. composeSpecMdFrontmatter (SC-A2) re-serializes from snapshot.

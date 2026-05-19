@@ -666,6 +666,7 @@ export async function rehydrateMigration(
     evidence,
     findings,
     pending,
+    spec_header: null,
     requirements: [],
     scenarios: [],
     visual_contracts: [],
