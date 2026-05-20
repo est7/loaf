@@ -62,6 +62,31 @@ async function runCli(
   }
 }
 
+// Per-feature CLI driver. `step` runs a `loaf` command (always --json, env
+// injected) and throws a labelled error on non-zero exit so the failing
+// scenario step is unambiguous; it returns parsed JSON stdout (or null).
+// `writeInput` writes a JSON input file into the feature dir.
+function makeCli(dir: string, env: Record<string, string | undefined>) {
+  const step = async (label: string, argv: string[]): Promise<any> => {
+    const r = await runCli([...argv, "--feature-dir", dir, "--json"], { env });
+    if (r.exit !== 0) {
+      throw new Error(
+        `STEP FAILED [${label}]: exit ${r.exit}\n` +
+          `  argv: ${argv.join(" ")}\n` +
+          `  stderr: ${r.stderr.trim()}\n` +
+          `  stdout: ${r.stdout.trim()}`,
+      );
+    }
+    return r.stdout.trim() ? JSON.parse(r.stdout) : null;
+  };
+  const writeInput = async (name: string, payload: unknown): Promise<string> => {
+    const p = path.join(dir, name);
+    await fs.writeFile(p, JSON.stringify(payload, null, 2));
+    return p;
+  };
+  return { step, writeInput };
+}
+
 describe("E2E — full worker lifecycle (standard ceremony)", () => {
   // SCEN-E2E-001 — see docs/e2e-scenarios.md
   test("SCEN-E2E-001 — standard feature runs start -> deliver via the CLI", async () => {
@@ -69,25 +94,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", () => {
     const F = "e2e-std";
     const ENV = { LOAF_USER: "e2e@test.invalid" };
 
-    // Run a CLI step; throw a labelled error on non-zero exit so the first
-    // gap is unambiguous. Returns parsed JSON stdout (or null).
-    const step = async (label: string, argv: string[]): Promise<any> => {
-      const r = await runCli([...argv, "--feature-dir", dir, "--json"], { env: ENV });
-      if (r.exit !== 0) {
-        throw new Error(
-          `STEP FAILED [${label}]: exit ${r.exit}\n` +
-            `  argv: ${argv.join(" ")}\n` +
-            `  stderr: ${r.stderr.trim()}\n` +
-            `  stdout: ${r.stdout.trim()}`,
-        );
-      }
-      return r.stdout.trim() ? JSON.parse(r.stdout) : null;
-    };
-    const writeInput = async (name: string, payload: unknown): Promise<string> => {
-      const p = path.join(dir, name);
-      await fs.writeFile(p, JSON.stringify(payload, null, 2));
-      return p;
-    };
+    const { step, writeInput } = makeCli(dir, ENV);
 
     // ── TRIAGE ──────────────────────────────────────────────────────────
     const started = await step("start", ["start", F, "--ceremony", "standard"]);
@@ -220,23 +227,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", () => {
     const F = "e2e-struct";
     const ENV = { LOAF_USER: "e2e@test.invalid" };
 
-    const step = async (label: string, argv: string[]): Promise<any> => {
-      const r = await runCli([...argv, "--feature-dir", dir, "--json"], { env: ENV });
-      if (r.exit !== 0) {
-        throw new Error(
-          `STEP FAILED [${label}]: exit ${r.exit}\n` +
-            `  argv: ${argv.join(" ")}\n` +
-            `  stderr: ${r.stderr.trim()}\n` +
-            `  stdout: ${r.stdout.trim()}`,
-        );
-      }
-      return r.stdout.trim() ? JSON.parse(r.stdout) : null;
-    };
-    const writeInput = async (name: string, payload: unknown): Promise<string> => {
-      const p = path.join(dir, name);
-      await fs.writeFile(p, JSON.stringify(payload, null, 2));
-      return p;
-    };
+    const { step, writeInput } = makeCli(dir, ENV);
 
     // ── TRIAGE + SPEC ───────────────────────────────────────────────────
     await step("start", ["start", F, "--ceremony", "standard"]);
@@ -361,23 +352,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", () => {
     const F = "e2e-mixed";
     const ENV = { LOAF_USER: "e2e@test.invalid" };
 
-    const step = async (label: string, argv: string[]): Promise<any> => {
-      const r = await runCli([...argv, "--feature-dir", dir, "--json"], { env: ENV });
-      if (r.exit !== 0) {
-        throw new Error(
-          `STEP FAILED [${label}]: exit ${r.exit}\n` +
-            `  argv: ${argv.join(" ")}\n` +
-            `  stderr: ${r.stderr.trim()}\n` +
-            `  stdout: ${r.stdout.trim()}`,
-        );
-      }
-      return r.stdout.trim() ? JSON.parse(r.stdout) : null;
-    };
-    const writeInput = async (name: string, payload: unknown): Promise<string> => {
-      const p = path.join(dir, name);
-      await fs.writeFile(p, JSON.stringify(payload, null, 2));
-      return p;
-    };
+    const { step, writeInput } = makeCli(dir, ENV);
 
     // ── TRIAGE + SPEC content (add-req + add-scenario + add-visual) ──────
     await step("start", ["start", F, "--ceremony", "standard"]);
