@@ -639,7 +639,7 @@ CLI 分配流程(每次 add-\* / batch invocation):
       "tests": ["TokenCoord.concurrent401OnlyRefreshesOnce"],
       "test_layer": "unit",
       "depends_on": [],
-      "red_test_registered": true,             // labels 含 "bug" 时必须 true
+      "red_test_registered": true,             // R2:运行时由 register-red 置位(done 的 bug task 必已注册)
       "status": "done",
       "execution": {
         "red":       { "applicability": "must", "status": "passed", "evidence_refs": ["EV-000123"] },
@@ -698,7 +698,7 @@ CLI 分配流程(每次 add-\* / batch invocation):
 
 **关键约束**:
 - 6 task kind:`behavioral` / `structural` / `visual-ui` / `docs` / `spike` / `chore`
-- bug-fix 不再是独立 kind,用 `behavioral + labels: ["bug"]`;含 `bug` label 时必须 `red_test_registered=true`
+- bug-fix 不再是独立 kind,用 `behavioral + labels: ["bug"]`;bug task 出生即未注册,RED 经 `loaf tasks register-red` 注册后 `red_test_registered=true`,implement step 前由 preflight 把关(§9.3)
 - 每个 kind 有**自己的 execution 形状**(只包含本 kind 合法的 step)
 - spike task **永远不允许 `loaf deliver`**——只能 archive / convert / abandon
 - `tasks.execution.<step>.status` 是 **cache**,不是真理源;真理源是 `evidence.jsonl`。`loaf tasks check` 跑一致性校验
@@ -1019,7 +1019,7 @@ async function updateRegistry(sessionId: string, snapshot: RegistryFile) {
 7. 每个 visual_contract 满足之一:
    - 有 visual-ui task `visual_contract_refs[]` 引用它
    - visual_contract 自带 `visual_na` + reason
-8. 每个 task 通过 kind-specific schema(`behavioral+labels=["bug"]` 必须 `red_test_registered=true`,`structural/docs/spike/chore` 必须 `no_test_rationale`,`visual-ui` 必须 `visual_contract_refs[]`)
+8. 每个 task 通过 kind-specific schema(`structural/docs/spike/chore` 必须 `no_test_rationale`,`visual-ui` 必须 `visual_contract_refs[]`)。**R2**:bug task 的 RED 是执行纪律,不在 spec-lock 校验——bug task 出生即未注册,RED 注册由运行时 preflight(`BUG_TASK_REQUIRES_RED`)与 verify-accept(`BUG_TASK_RED_NOT_REGISTERED`)把关
 
 **Human**:`loaf gate decide spec-lock --approve --reason "..."` → evidence.jsonl `kind=gate-decision`。
 
@@ -1272,7 +1272,7 @@ EXECUTE.done    all tasks reached final status
 
 | Task kind | step 序列 | 说明 |
 |---|---|---|
-| `behavioral` | `red` → `implement` → `refactor` | TDD 三段。labels=["bug"] 时 `red_test_registered=true` 必填 |
+| `behavioral` | `red` → `implement` → `refactor` | TDD 三段。labels=["bug"] 时 RED 经 `register-red` 注册(§9.3),非创建期字段 |
 | `structural` | `implement` → `refactor` | 行为不变;无 red |
 | `visual-ui` | `mockup` → `implement` → `screenshot-compare` | mockup 抽取视觉合约,compare 校验 |
 | `docs` | `draft` → `review` | 写 + peer review |
@@ -1428,7 +1428,7 @@ Visual  drives visual check (VIS-* → task.visual_contract_refs[] → visual ch
 
 ### 9.3 RED-first(behavioral+label=bug 唯一硬约束)
 
-含 `labels: ["bug"]` 的 behavioral task 必须 `loaf tasks register-red --task-id T-XXX` 先 RED。CLI mutator 层 enforce:非 RED 已 register 的 bug task 试图把 `task.execution.implement.status` 改成 `running` 时阻断。
+含 `labels: ["bug"]` 的 behavioral task 必须先 `loaf tasks register-red <T-N>` 注册 RED。CLI mutator 层 enforce:RED 未注册的 bug task 试图 start 或 done `implement` step 时一律阻断(`BUG_TASK_REQUIRES_RED`,start / done 双边把关)。
 
 **CLI 强制边界声明(rev 5.x,显式)**:
 

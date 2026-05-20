@@ -1598,6 +1598,13 @@ const TaskBase = z.object({
   status: z.enum(["pending", "ready", "in_progress", "done", "abandoned"]),
 });
 
+// Slice C SC-C4 (R2): the creation-time `labels=['bug'] => red_test_registered`
+// refine is removed. red_test_registered is runtime state set by
+// `loaf tasks register-red`; a bug task is born unregistered. The bug-RED
+// rule moved to runtime preflight (BUG_TASK_REQUIRES_RED at the implement
+// step) + verify-accept (BUG_TASK_RED_NOT_REGISTERED). The field stays
+// optional on the full payload so the reducer can set it and it round-trips
+// on replay. See protocol.md §9.3 + src/core/reducer/preflight.ts.
 export const TaskBehavioral = TaskBase.extend({
   kind: z.literal("behavioral"),
   drives: z.array(DrivesRef).min(1),
@@ -1607,10 +1614,7 @@ export const TaskBehavioral = TaskBase.extend({
   execution: BehavioralExecution,
   requires_acceptance: z.boolean().optional(),
   requires_visual: z.boolean().optional(),
-}).refine(
-  (t) => !t.labels.includes("bug") || t.red_test_registered === true,
-  { message: "behavioral tasks with label=bug require red_test_registered=true" },
-);
+});
 
 export const TaskStructural = TaskBase.extend({
   kind: z.literal("structural"),
@@ -1645,8 +1649,11 @@ export const TaskChore = TaskBase.extend({
   execution: ChoreExecution,
 });
 
+// Zod 4: `.refine()` returns a ZodObject, so discriminatedUnion accepts the
+// schema directly — no `.sourceType()` unwrap (a removed Zod 3 ZodEffects
+// method). TaskBehavioral no longer carries a refine post-R2 either.
 export const Task = z.discriminatedUnion("kind", [
-  TaskBehavioral.sourceType(),
+  TaskBehavioral,
   TaskStructural,
   TaskVisualUi,
   TaskDocs,
@@ -4454,7 +4461,7 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
     message_template:
       "spec-lock check 8: task {task_id} (kind={kind}) violates projected kind-specific obligations: {reasons}",
     fix_template:
-      "amend the task to satisfy its kind contract: behavioral with labels=['bug'] requires red_test_registered=true; structural/docs/spike/chore require no_test_rationale (string ≥10 chars); visual-ui requires visual_contract_refs[] with ≥1 entry. Most commonly surfaces after migration:snapshot_imported when legacy v0.0.x projections lack the required fields",
+      "amend the task to satisfy its kind contract: structural/docs/spike/chore require no_test_rationale (string ≥10 chars); visual-ui requires visual_contract_refs[] with ≥1 entry. Most commonly surfaces after migration:snapshot_imported when legacy v0.0.x projections lack the required fields. Slice C R2: bug-task RED is execution discipline, not a spec-lock obligation — a behavioral task with labels=['bug'] is born unregistered, and RED registration is enforced at runtime by BUG_TASK_REQUIRES_RED (preflight, implement step) and BUG_TASK_RED_NOT_REGISTERED (verify-accept), never by this check",
     doc_anchor: "protocol.md#§5.1",
   },
   GATE_PRECONDITION_VIOLATION: {
@@ -4818,6 +4825,11 @@ export type SpecVisualInput = z.infer<typeof SpecVisualInput>;
 // ── TaskInput: mirrors Task discriminated union but omits id (CLI
 // allocates), execution (CLI initializes all steps to status=pending,
 // applicability=must), and status (CLI sets to "pending" on create).
+// Slice C SC-C4 (R2): no red_test_registered — it is runtime state set by
+// `loaf tasks register-red` after the task exists, never a creation-time
+// input. Every variant is `.strict()`: a caller supplying id / status /
+// execution / red_test_registered / any unknown key is rejected, not
+// silently stripped (ADR-0004 shape enforcement).
 
 const TaskInputBase = z.object({
   drives: z.array(DrivesRef).optional(),
@@ -4830,42 +4842,41 @@ const TaskBehavioralInput = TaskInputBase.extend({
   drives: z.array(DrivesRef).min(1),
   tests: z.array(z.string().min(3)).min(1),
   test_layer: z.enum(["unit", "integration", "e2e"]).optional(),
-  red_test_registered: z.boolean().optional(),
   requires_acceptance: z.boolean().optional(),
   requires_visual: z.boolean().optional(),
-}).refine(
-  (t) => !t.labels.includes("bug") || t.red_test_registered === true,
-  { message: "behavioral tasks with label=bug require red_test_registered=true" },
-);
+}).strict();
 
 const TaskStructuralInput = TaskInputBase.extend({
   kind: z.literal("structural"),
   no_test_rationale: z.string().min(10),
-});
+}).strict();
 
 const TaskVisualUiInput = TaskInputBase.extend({
   kind: z.literal("visual-ui"),
   visual_contract_refs: z.array(VisId).min(1),
   no_test_rationale: z.string().min(10).optional(),
-});
+}).strict();
 
 const TaskDocsInput = TaskInputBase.extend({
   kind: z.literal("docs"),
   no_test_rationale: z.string().min(10),
-});
+}).strict();
 
 const TaskSpikeInput = TaskInputBase.extend({
   kind: z.literal("spike"),
   no_test_rationale: z.string().min(10),
-});
+}).strict();
 
 const TaskChoreInput = TaskInputBase.extend({
   kind: z.literal("chore"),
   no_test_rationale: z.string().min(10),
-});
+}).strict();
 
+// Zod 4: discriminatedUnion accepts each `.strict()` ZodObject directly —
+// `.sourceType()` (a removed Zod 3 ZodEffects method) is no longer needed
+// now that the R2 bug-RED refine is gone.
 export const TaskInput = z.discriminatedUnion("kind", [
-  TaskBehavioralInput.sourceType(),
+  TaskBehavioralInput,
   TaskStructuralInput,
   TaskVisualUiInput,
   TaskDocsInput,
