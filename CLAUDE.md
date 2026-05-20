@@ -172,6 +172,6 @@ Commit message bodies are **thick** — each sub-cycle commit carries: design de
 - `docs/schemas.ts` — Zod source of truth + `ERROR_CATALOG` + `DiagnosticCode` enum + `PER_KIND_PAYLOAD` table
 - `docs/adr/0005-truth-model-single-typed-journal.md` — current truth model
 - `docs/adr/0001..0004` — earlier ADRs (deprecated parts marked in 0005)
-- `docs/moni-review.md` / `docs/plan.md` — earlier review artifacts
+- `docs/archive/moni-review.md` / `docs/plan.md` — earlier review artifacts
 - `skills/CONTRACT.md` — loaf-cli ↔ loaf-skill boundary contract
 - `loaf.config.example.json` — feature-config schema (protected_files / stable_core / paths / commands)

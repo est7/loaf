@@ -393,5 +393,5 @@ Per ADR-0005 §9 — explicitly not on this plan, not blocking GA:
 - [`docs/adr/0005-truth-model-single-typed-journal.md`](adr/0005-truth-model-single-typed-journal.md) — single source of design truth
 - [`docs/protocol.md`](protocol.md) — rev 5.0 (after Stage 0)
 - [`docs/schemas.ts`](schemas.ts) — rev 5.0 (after Stage 0)
-- [`docs/moni-review.md`](moni-review.md) — round-2 three-way audit source
+- [`docs/archive/moni-review.md`](archive/moni-review.md) — round-2 three-way audit source
 - [`skills/CONTRACT.md`](../skills/CONTRACT.md) — loaf-skill recommended pattern (H1 landing)

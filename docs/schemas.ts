@@ -2050,7 +2050,7 @@ export const LoafConfig = z.object({
       schema: z.array(z.string()).default([]),
       security: z.array(z.string()).default([]),
     })
-    .default({}),
+    .prefault({}),
 
   // ── Commands (skills + loaf-cli invoke these) ──
   commands: z
@@ -2062,7 +2062,7 @@ export const LoafConfig = z.object({
       acceptance: z.array(z.string()).default([]),
       build: z.array(z.string()).default([]),
     })
-    .default({}),
+    .prefault({}),
 
   // ── Constitution (SDD defaults; loaf-skill reads these to tune prompts) ──
   constitution: z
@@ -2088,12 +2088,12 @@ export const LoafConfig = z.object({
       // verify loops. v1 cadence is fixed at per-phase. Do NOT
       // re-propose; this rejection is preserved across grilling passes.
     })
-    .default({}),
+    .prefault({}),
 
   // ── Locale (rev 3.1 i18n) ──
   locale: z.object({
     default_lang: z.enum(["en", "zh"]).default("en"),
-  }).default({}),
+  }).prefault({}),
 });
 export type LoafConfig = z.infer<typeof LoafConfig>;
 

@@ -16,7 +16,7 @@
   - `tests/spike/*.test.ts` → `tests/core/*.test.ts`
   - `skills/CONTRACT.md`（loaf-skill 边界）
   - ADR-0001 / ADR-0002 / ADR-0003 / ADR-0004
-  - `docs/moni-review.md`
+  - `docs/archive/moni-review.md`
 
 ### Audit history
 
@@ -1020,7 +1020,7 @@ Codex 建议的 implementation order：
 - ADR-0001/0002/0003/0004
 - `docs/protocol.md` rev 4.3 → rev 5.0
 - `docs/schemas.ts` rev 5.0；SCHEMA_VERSION 1 → 2
-- `docs/moni-review.md`
+- `docs/archive/moni-review.md`
 - `skills/CONTRACT.md`
 - `src/spike/*.ts` → `src/core/*.ts`
 - `tests/spike/*.test.ts` → `tests/core/*.test.ts`

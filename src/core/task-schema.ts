@@ -163,9 +163,10 @@ export const TaskChorePayload = TaskBase.extend({
   execution: ChoreExecutionPayload,
 });
 
-// TaskFull — discriminated union via .or() chain (Z does not combine
-// .discriminatedUnion with .refine() on members, so we use a plain union
-// and rely on `kind` literal narrowing for downstream code).
+// TaskFull — z.union over the six per-kind payload variants; `kind` literal
+// drives narrowing downstream. Kept as z.union (not z.discriminatedUnion)
+// to keep parse-error shape stable — no variant carries a .refine(), and a
+// Zod-4 probe (F-014) confirmed .refine() does not block discriminatedUnion.
 export const TaskFullPayload = z.union([
   TaskBehavioralPayload,
   TaskStructuralPayload,
@@ -320,9 +321,10 @@ export const TaskChoreInput = z
   .object({ ...TaskInputBaseShape, kind: z.literal("chore"), no_test_rationale: z.string().min(10) })
   .strict();
 
-// Plain union (not discriminatedUnion) — the behavioral variant carries a
-// .refine(), which zod cannot combine with .discriminatedUnion (mirrors
-// the TaskFullPayload comment above).
+// TaskInput — z.union over the six per-kind input variants; `kind` literal
+// drives narrowing. Kept as z.union for the same reason as TaskFullPayload
+// above (no variant carries a .refine(); z.union keeps parse-error shape
+// stable).
 export const TaskInput = z.union([
   TaskBehavioralInput,
   TaskStructuralInput,
