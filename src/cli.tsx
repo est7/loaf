@@ -30,6 +30,7 @@ import {
 } from "./core/cli-runtime.js";
 import { mutate, mutateBatch } from "./core/journal-mutate.js";
 import type { Ceremony } from "./core/journal-entry.js";
+import { latestCanonicalTaskBody, materializeTaskForAmend } from "./core/task-history.js";
 import { FindingId } from "./core/finding-schema.js";
 import {
   SpecAddReqInput,
@@ -930,6 +931,166 @@ export async function main(argv: string[] = process.argv): Promise<number> {
         process.stdout.write(`${taskId} complete (status=done)\n`);
       }
     });
+
+  // ── loaf tasks amend <task-id> --policy <step>=<applicability> ───────
+  // Slice C SC-C2c. Narrowly amends a task's execution[].applicability at
+  // EXECUTE.plan (protocol §1822 / §8.6). `--policy` is repeatable; each
+  // value is `<step>=<must|optional|na>`.
+  //
+  // event:tasks_amended carries a WHOLE task body, but the slim
+  // Snapshot.tasks projection drops canonical fields (tests / test_layer /
+  // execution evidence_refs / …). The CLI rebuilds the full payload:
+  //   latestCanonicalTaskBody(journal) → materializeTaskForAmend(+ live
+  //   runtime status) → apply the --policy applicability deltas.
+  // §8.6 frozen-field enforcement is preflight's job (mode=replace);
+  // this command only ever changes applicability.
+  //
+  // Failure paths:
+  //   - no/ malformed / dup --policy        → SCHEMA_VALIDATION_FAILED (CLI)
+  //   - unknown task                        → TASK_NOT_FOUND (CLI)
+  //   - task in projection, no journal body → CANONICAL_TASK_BODY_UNAVAILABLE
+  //     (migration-imported task; codex r107 #3)
+  //   - --policy step not in task.execution → TASK_STEP_NOT_FOUND (CLI)
+  //   - amend outside EXECUTE.plan           → MUTATION_OUT_OF_RIGHTS (preflight)
+  tasksCmd
+    .command("amend <task-id>")
+    .description("Amend a task's step applicability at EXECUTE.plan (--policy <step>=<applicability>)")
+    .requiredOption("--feature <name>", "Feature whose task to amend")
+    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
+    .option(
+      "--policy <step=applicability>",
+      "Step applicability override (must|optional|na); repeatable",
+      (val: string, acc: string[]) => [...acc, val],
+      [] as string[],
+    )
+    .action(
+      async (taskId: string, opts: { feature: string; featureDir?: string; policy: string[] }) => {
+        // (1) Parse + validate --policy flags.
+        const policies = opts.policy ?? [];
+        if (policies.length === 0) {
+          emitFailure(
+            "SCHEMA_VALIDATION_FAILED",
+            "tasks amend requires at least one --policy <step>=<applicability>",
+          );
+          return;
+        }
+        const APPLICABILITY = ["must", "optional", "na"];
+        const policyMap = new Map<string, string>();
+        for (const p of policies) {
+          const eq = p.indexOf("=");
+          if (eq <= 0 || eq === p.length - 1) {
+            emitFailure(
+              "SCHEMA_VALIDATION_FAILED",
+              `malformed --policy '${p}' — expected <step>=<applicability>`,
+            );
+            return;
+          }
+          const step = p.slice(0, eq);
+          const applicability = p.slice(eq + 1);
+          if (!APPLICABILITY.includes(applicability)) {
+            emitFailure(
+              "SCHEMA_VALIDATION_FAILED",
+              `--policy '${p}': applicability must be one of must | optional | na`,
+            );
+            return;
+          }
+          if (policyMap.has(step)) {
+            emitFailure(
+              "SCHEMA_VALIDATION_FAILED",
+              `--policy step '${step}' specified more than once`,
+            );
+            return;
+          }
+          policyMap.set(step, applicability);
+        }
+
+        // (2) Load session.
+        const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+        const session = await loadSession(featureDir);
+        if (!session.snapshot.state) {
+          emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+          return;
+        }
+
+        // (3) Current task must be in the projection.
+        const current = session.snapshot.tasks.find((t) => t.id === taskId);
+        if (!current) {
+          emitFailure(
+            "TASK_NOT_FOUND",
+            `task ${taskId} is not in the current tasks projection`,
+            { task_id: taskId },
+          );
+          return;
+        }
+
+        // (4) Recover the canonical full body from the journal. A task
+        // present in the projection but absent from every plan/amend entry
+        // is migration-imported — its body lives only in the v0.0.x
+        // snapshot, so a whole-task amend cannot be reconstructed here
+        // (codex r107 #3 — distinct from TASK_NOT_FOUND).
+        const base = latestCanonicalTaskBody(session.entries, taskId);
+        if (!base) {
+          emitFailure(
+            "CANONICAL_TASK_BODY_UNAVAILABLE",
+            `task ${taskId} is in the projection but has no canonical body in the journal (migration-imported); cannot amend in place`,
+            { task_id: taskId, source: "migration" },
+          );
+          return;
+        }
+
+        // (5) Materialize (canonical body + live runtime status) then apply
+        // the --policy applicability deltas.
+        const materialized = materializeTaskForAmend(base, current);
+        const execution = materialized.execution as Record<
+          string,
+          { applicability: string }
+        >;
+        for (const [step, applicability] of policyMap) {
+          const seeded = execution[step];
+          if (!seeded) {
+            emitFailure(
+              "TASK_STEP_NOT_FOUND",
+              `step '${step}' is not in task ${taskId}'s execution set`,
+              { task_id: taskId, step },
+            );
+            return;
+          }
+          seeded.applicability = applicability;
+        }
+
+        // (6) Emit event:tasks_amended (mode=replace). Preflight §8.6
+        // validates the change is applicability-only.
+        const result = await mutate(
+          {
+            at: new Date().toISOString(),
+            actor,
+            entry_schema_version: 1,
+            kind: "event:tasks_amended",
+            payload: { mode: "replace", task: materialized },
+          },
+          { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq },
+        );
+        if (!result.ok) {
+          emitFailure(result.code, result.message, result.detail);
+          return;
+        }
+
+        // (7) Success output.
+        const applied = [...policyMap].map(([s, a]) => `${s}=${a}`).join(", ");
+        const out = {
+          ok: true,
+          feature: opts.feature,
+          task_id: taskId,
+          policy: Object.fromEntries(policyMap),
+          sub_state: result.snapshot.state?.sub_state,
+        };
+        if (useJson) {
+          process.stdout.write(JSON.stringify(out) + "\n");
+        } else {
+          process.stdout.write(`amended ${taskId} (${applied})\n`);
+        }
+      },
+    );
 
   // ── loaf tasks step <subcommand> ────────────────────────────────────
   // Slice 2 SC3. Sub-namespace for task step lifecycle. `step start` and

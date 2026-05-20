@@ -166,6 +166,7 @@
     "SPEC_VERSION_BATCH_MISMATCH": "{kind}: batch_index={batch_index} 处 spec_version 必须等于 {current_spec_version},实际为 {payload_spec_version}",
     "TASK_COMPLETE_PRECONDITION_VIOLATED": "task {task_id} 尚未完成(status={status});以下 must 级 step 未达 terminal-positive:{blocking_steps}",
     "MUTATION_OUT_OF_RIGHTS": "task {task_id} 的 event:tasks_amended 在 sub_state {sub_state} 不被允许 —— §8.6 未授予该改动的 mutation right",
+    "CANONICAL_TASK_BODY_UNAVAILABLE": "task {task_id} 在投影中存在,但 journal 里没有 canonical body(migration 导入);无法重建整 task 的 amend",
     "DONE_TERMINAL_INVARIANT":    "DONE.* 状态要求 state.pending.length === 0 且 tasks.json 中无 status=\"in_progress\" 的 task",
     "ABANDON_REQUIRES_REASON":    "loaf abandon 必须带 --reason 参数",
     "TASKS_EXECUTION_DRIFT":      "任务 {task_id} step={step} status={status} 与 evidence.jsonl 不一致",

@@ -166,6 +166,7 @@
     "SPEC_VERSION_BATCH_MISMATCH": "{kind}: spec_version must be {current_spec_version} at batch_index={batch_index}, got {payload_spec_version}",
     "TASK_COMPLETE_PRECONDITION_VIOLATED": "task {task_id} is not complete (status={status}); must-applicable steps not terminal-positive: {blocking_steps}",
     "MUTATION_OUT_OF_RIGHTS": "event:tasks_amended on task {task_id} is not permitted at sub_state {sub_state} — §8.6 grants no mutation right for this change",
+    "CANONICAL_TASK_BODY_UNAVAILABLE": "task {task_id} is in the projection but has no canonical body in the journal (migration-imported); a whole-task amend cannot be reconstructed",
     "DONE_TERMINAL_INVARIANT":    "DONE.* requires state.pending.length === 0 and no task with status=\"in_progress\" in tasks.json",
     "ABANDON_REQUIRES_REASON":    "loaf abandon requires --reason argument",
     "TASKS_EXECUTION_DRIFT":      "Task {task_id} step={step} status={status} disagrees with evidence.jsonl",

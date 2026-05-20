@@ -3821,6 +3821,8 @@ export const DiagnosticCode = z.enum([
   "SPEC_VERSION_BATCH_MISMATCH",           // src/core/reducer/preflight.ts spec_submitted at batch_index>0 (structurally illegal) OR spec_*_added continuation with spec_version != current
   // ── Slice C SC-C1 — `loaf tasks complete` NO-OP confirmation ──
   "TASK_COMPLETE_PRECONDITION_VIOLATED",   // src/cli.tsx `loaf tasks complete` — task.status != done; one or more must-applicable steps not terminal-positive (passed|waived|na)
+  // ── Slice C SC-C2c — `loaf tasks amend` canonical body recovery ──
+  "CANONICAL_TASK_BODY_UNAVAILABLE",       // src/cli.tsx `loaf tasks amend` — task is in the projection but has no journal tasks_planned/tasks_amended body (migration-imported); a whole-task amend cannot be reconstructed
 ]);
 export type DiagnosticCode = z.infer<typeof DiagnosticCode>;
 
@@ -4670,6 +4672,15 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
       "task {task_id} is not complete (status={status}); must-applicable steps not terminal-positive: {blocking_steps}",
     fix_template:
       "finish each blocking step via `loaf tasks step start/done`; a task auto-promotes to status=done once every must-applicable step is passed/waived/na, and `loaf tasks complete` then confirms it. Run `loaf tasks list` to inspect step status.",
+    doc_anchor: "protocol.md#§10.8",
+  },
+  // ── Slice C SC-C2c — `loaf tasks amend` canonical body recovery ──
+  CANONICAL_TASK_BODY_UNAVAILABLE: {
+    exit_code: 2,
+    message_template:
+      "task {task_id} is in the projection but has no canonical body in the journal (migration-imported); a whole-task amend cannot be reconstructed",
+    fix_template:
+      "the task was rehydrated from a v0.0.x migration snapshot, so its full body never landed as a journal tasks_planned/tasks_amended entry. Re-plan the task graph via `loaf tasks submit`, or wait for the history-aware doctor path that will reconstruct migrated task bodies.",
     doc_anchor: "protocol.md#§10.8",
   },
 } as const;

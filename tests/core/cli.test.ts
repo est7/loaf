@@ -3698,3 +3698,166 @@ describe("loaf tasks complete — Slice C SC-C1 (NO-OP confirmation)", () => {
     expect(r.stderr).toMatch(/error: TASK_COMPLETE_PRECONDITION_VIOLATED/);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// loaf tasks amend — Slice C SC-C2c
+//
+// `tasks amend <T-id> --policy <step>=<applicability>` narrowly mutates a
+// task's execution[].applicability at EXECUTE.plan (protocol §1822 / §8.6).
+// The CLI reconstructs the whole-task event:tasks_amended payload from the
+// canonical journal body (latestCanonicalTaskBody) overlaid with live
+// runtime state (materializeTaskForAmend), then applies the --policy
+// deltas — so body-only fields (tests / evidence_refs / …) survive.
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("loaf tasks amend — Slice C SC-C2c (--policy applicability mutation)", () => {
+  async function seedFeatureAtExecutePlan(dir: string): Promise<void> {
+    await seedFeatureAtSpecDesign(dir);
+    const lock = await runCli(
+      [
+        "gate", "decide", "spec-lock", "--approve",
+        "--reason", "sc2c-seed: spec ready",
+        "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      ],
+      { env: { LOAF_USER: "sc2c-seed@test.invalid" } },
+    );
+    if (lock.exit !== 0) throw new Error(`sc2c-seed spec-lock failed: ${lock.stderr}`);
+  }
+
+  test("happy: --policy refactor=na flips the step applicability at EXECUTE.plan", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtExecutePlan(dir);
+
+    const r = await runCli([
+      "tasks", "amend", "T-001", "--policy", "refactor=na",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+    ]);
+    expect(r.exit).toBe(0);
+    const out = JSON.parse(r.stdout);
+    expect(out.ok).toBe(true);
+    expect(out.task_id).toBe("T-001");
+
+    const list = await runCli([
+      "tasks", "list", "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+    ]);
+    const listed = JSON.parse(list.stdout);
+    const t001 = listed.tasks.find((t: { id: string }) => t.id === "T-001");
+    expect(t001.steps.refactor.applicability).toBe("na");
+  });
+
+  test("happy: multiple --policy flags apply in one amend", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtExecutePlan(dir);
+
+    const r = await runCli([
+      "tasks", "amend", "T-001",
+      "--policy", "refactor=na", "--policy", "red=optional",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+    ]);
+    expect(r.exit).toBe(0);
+
+    const list = await runCli([
+      "tasks", "list", "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+    ]);
+    const t001 = JSON.parse(list.stdout).tasks.find((t: { id: string }) => t.id === "T-001");
+    expect(t001.steps.refactor.applicability).toBe("na");
+    expect(t001.steps.red.applicability).toBe("optional");
+  });
+
+  test("preserves canonical body fields the slim projection drops", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtExecutePlan(dir);
+    await runCli([
+      "tasks", "amend", "T-001", "--policy", "refactor=na",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+    ]);
+    // The emitted event:tasks_amended must carry the canonical `tests`
+    // field — materializeTaskForAmend recovers it from the journal body.
+    const journal = await fsP.readFile(path.join(dir, "journal.jsonl"), "utf8");
+    const lastAmend = journal
+      .trimEnd()
+      .split("\n")
+      .map((l) => JSON.parse(l))
+      .filter((e) => e.kind === "event:tasks_amended")
+      .at(-1);
+    expect(lastAmend.payload.task.tests).toEqual(["TokenCoord.refreshOnce"]);
+  });
+
+  test("fail: unknown task → TASK_NOT_FOUND", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtExecutePlan(dir);
+    const r = await runCli([
+      "tasks", "amend", "T-404", "--policy", "refactor=na",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+    ]);
+    expect(r.exit).toBe(2);
+    expect(JSON.parse(r.stderr.trim()).code).toBe("TASK_NOT_FOUND");
+  });
+
+  test("fail: unknown step in --policy → TASK_STEP_NOT_FOUND", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtExecutePlan(dir);
+    const r = await runCli([
+      "tasks", "amend", "T-001", "--policy", "bogus=na",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+    ]);
+    expect(r.exit).toBe(2);
+    expect(JSON.parse(r.stderr.trim()).code).toBe("TASK_STEP_NOT_FOUND");
+  });
+
+  test("fail: invalid applicability value → SCHEMA_VALIDATION_FAILED", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtExecutePlan(dir);
+    const r = await runCli([
+      "tasks", "amend", "T-001", "--policy", "refactor=sometimes",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+    ]);
+    expect(r.exit).toBe(2);
+    expect(JSON.parse(r.stderr.trim()).code).toBe("SCHEMA_VALIDATION_FAILED");
+  });
+
+  test("fail: malformed --policy (no '=') → SCHEMA_VALIDATION_FAILED", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtExecutePlan(dir);
+    const r = await runCli([
+      "tasks", "amend", "T-001", "--policy", "refactor",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+    ]);
+    expect(r.exit).toBe(2);
+    expect(JSON.parse(r.stderr.trim()).code).toBe("SCHEMA_VALIDATION_FAILED");
+  });
+
+  test("fail: no --policy flag → SCHEMA_VALIDATION_FAILED", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtExecutePlan(dir);
+    const r = await runCli([
+      "tasks", "amend", "T-001",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+    ]);
+    expect(r.exit).toBe(2);
+    expect(JSON.parse(r.stderr.trim()).code).toBe("SCHEMA_VALIDATION_FAILED");
+  });
+
+  test("fail: duplicate step in --policy → SCHEMA_VALIDATION_FAILED", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtExecutePlan(dir);
+    const r = await runCli([
+      "tasks", "amend", "T-001",
+      "--policy", "refactor=na", "--policy", "refactor=optional",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+    ]);
+    expect(r.exit).toBe(2);
+    expect(JSON.parse(r.stderr.trim()).code).toBe("SCHEMA_VALIDATION_FAILED");
+  });
+
+  test("fail: amend outside EXECUTE.plan → MUTATION_OUT_OF_RIGHTS", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtExecuteWork(dir); // cursor at EXECUTE.work
+    const r = await runCli([
+      "tasks", "amend", "T-001", "--policy", "refactor=na",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+    ]);
+    expect(r.exit).toBe(2);
+    expect(JSON.parse(r.stderr.trim()).code).toBe("MUTATION_OUT_OF_RIGHTS");
+  });
+});
