@@ -2056,4 +2056,16 @@ describe("E2E — full worker lifecycle (standard ceremony)", () => {
     expect(approved.actor).toBe("human:reviewer@test.invalid");
   });
 
+  // ── future tier — see docs/e2e-scenarios.md ─────────────────────────
+  // Inert inventory anchors. Each scenario needs a CLI command or finding
+  // back-edge that does not exist yet (amend-tasks / fix-impl / fix-test
+  // back-edges; archive / abandon / spike-convert terminals). Each `todo`
+  // becomes a real test in the slice that implements its surface — do not
+  // build setup around the absent commands.
+  test.todo("SCEN-E2E-020 — amend-tasks back-edge");
+  test.todo("SCEN-E2E-021 — fix-impl loop");
+  test.todo("SCEN-E2E-022 — fix-test loop");
+  test.todo("SCEN-E2E-035 — archive terminal");
+  test.todo("SCEN-E2E-036 — abandon terminal");
+  test.todo("SCEN-E2E-037 — spike convert");
 });

@@ -52,7 +52,7 @@ Source: codex independent enumeration r119 (AMQ thread
 - **Covers** the full standard spine; the baseline regression guard.
 
 ### SCEN-E2E-002 — Standard structural / DAG append path
-- **Tier** §15-close · **Status** todo
+- **Tier** §15-close · **Status** green
 - **Given** a standard feature whose SPEC.design task graph is built with
   `tasks add` and contains two structural tasks linked by `depends_on`.
 - **When** `tasks amend --policy` narrows the optional `refactor` step,
@@ -63,7 +63,7 @@ Source: codex independent enumeration r119 (AMQ thread
   EXECUTE.plan policy mutation, `depends_on` DAG readiness.
 
 ### SCEN-E2E-003 — Standard visual / docs / chore mixed task path
-- **Tier** §15-close · **Status** todo
+- **Tier** §15-close · **Status** green
 - **Given** a standard feature with `add-req` / `add-scenario` / `add-visual`
   content and visual-ui + docs + chore tasks.
 - **When** each kind's step ladder completes and evidence covers the
@@ -73,7 +73,7 @@ Source: codex independent enumeration r119 (AMQ thread
   surface.
 
 ### SCEN-E2E-004 — Deep happy path with settle
-- **Tier** §15-close · **Status** todo · **Impl** absorbs SCEN-E2E-008
+- **Tier** §15-close · **Status** green · **Impl** absorbs SCEN-E2E-008
 - **Given** a deep-ceremony feature with implementer evidence and a separate
   human/skill spec-review actor (deep sets `strict_spec_review`).
 - **When** VERIFY.accept is approved, a direct `deliver` is rejected,
@@ -104,14 +104,14 @@ Source: codex independent enumeration r119 (AMQ thread
 - **Covers** light's "intent-anchored but not closed" contract.
 
 ### SCEN-E2E-007 — Standard settle disabled
-- **Tier** inventory · **Status** todo
+- **Tier** inventory · **Status** green
 - **Given** a standard feature at VERIFY.accept with `verify_accepted=true`.
 - **When** `settle` is called.
 - **Then** the CLI returns `SETTLE_PHASE_DISABLED`.
 - **Covers** the standard no-SETTLE branch (rev 5.x).
 
 ### SCEN-E2E-008 — Deep deliver cannot bypass settle
-- **Tier** inventory · **Status** todo · **Impl** may fold into SCEN-E2E-004
+- **Tier** inventory · **Status** green · **Impl** may fold into SCEN-E2E-004
 - **Given** a deep feature at VERIFY.accept with `verify_accepted=true`.
 - **When** `deliver` is called before `settle`.
 - **Then** the CLI returns `DELIVER_SETTLE_PHASE_BYPASS`.
@@ -122,7 +122,7 @@ Source: codex independent enumeration r119 (AMQ thread
 ## Task-kind coverage
 
 ### SCEN-E2E-009 — Behavioral bug RED gate
-- **Tier** inventory · **Status** todo
+- **Tier** inventory · **Status** green
 - **Given** a claimed behavioral task with `labels=["bug"]`.
 - **When** the `implement` step is started or done before `register-red`.
 - **Then** the CLI returns `BUG_TASK_REQUIRES_RED`; after
@@ -130,14 +130,14 @@ Source: codex independent enumeration r119 (AMQ thread
 - **Covers** the Slice C R2 bug-RED runtime boundary.
 
 ### SCEN-E2E-010 — Structural task no-red shape
-- **Tier** inventory · **Status** todo · **Impl** fold into SCEN-E2E-002
+- **Tier** inventory · **Status** green · **Impl** fold into SCEN-E2E-002
 - **Given** a structural task with `no_test_rationale`.
 - **When** `implement` / `refactor` complete with no `red` step.
 - **Then** the task auto-promotes and verify can cover it.
 - **Covers** the structural execution shape.
 
 ### SCEN-E2E-011 — Visual-ui task shape
-- **Tier** inventory · **Status** todo · **Impl** fold into SCEN-E2E-003
+- **Tier** inventory · **Status** green · **Impl** fold into SCEN-E2E-003
 - **Given** a visual-ui task referencing a `VIS-*` contract.
 - **When** `mockup` / `implement` / `screenshot-compare` complete and
   visual-review evidence covers the VIS.
@@ -145,21 +145,21 @@ Source: codex independent enumeration r119 (AMQ thread
 - **Covers** `visual_contract_refs` and VIS evidence.
 
 ### SCEN-E2E-012 — Docs task shape
-- **Tier** optional · **Status** todo · **Impl** fold into SCEN-E2E-003
+- **Tier** optional · **Status** green · **Impl** fold into SCEN-E2E-003
 - **Given** a docs task.
 - **When** `draft` / `review` complete and evidence covers task/REQ.
 - **Then** the task closes.
 - **Covers** the docs step ladder.
 
 ### SCEN-E2E-013 — Chore task shape
-- **Tier** optional · **Status** todo · **Impl** fold into SCEN-E2E-003
+- **Tier** optional · **Status** green · **Impl** fold into SCEN-E2E-003
 - **Given** a chore task.
 - **When** the single `execute` step completes.
 - **Then** the task closes with no `red` / `refactor`.
 - **Covers** the single-step kind.
 
 ### SCEN-E2E-014 — Spike cannot deliver
-- **Tier** inventory · **Status** todo
+- **Tier** inventory · **Status** green
 - **Given** a session containing a non-abandoned spike task.
 - **When** `deliver` is called from an otherwise deliverable source.
 - **Then** the CLI returns `DELIVER_SPIKE_TASKS`.
@@ -188,7 +188,7 @@ Source: codex independent enumeration r119 (AMQ thread
 - **Covers** the post-lock mutation boundary.
 
 ### SCEN-E2E-017 — tasks add at SPEC.design
-- **Tier** inventory · **Status** todo · **Impl** fold into SCEN-E2E-002
+- **Tier** inventory · **Status** green · **Impl** fold into SCEN-E2E-002
 - **Given** an existing planned task graph.
 - **When** `tasks add` appends id-less single / batch input.
 - **Then** allocated `T-` ids are returned and existing canonical task
@@ -196,7 +196,7 @@ Source: codex independent enumeration r119 (AMQ thread
 - **Covers** the whole-replacement graph-rebuild risk.
 
 ### SCEN-E2E-018 — tasks amend --policy at EXECUTE.plan
-- **Tier** inventory · **Status** todo · **Impl** fold into SCEN-E2E-002
+- **Tier** inventory · **Status** green · **Impl** fold into SCEN-E2E-002
 - **Given** a locked task graph with the cursor at EXECUTE.plan.
 - **When** `tasks amend T --policy refactor=na` runs.
 - **Then** only `applicability` changes; the task executes under the
@@ -254,7 +254,7 @@ Source: codex independent enumeration r119 (AMQ thread
 ## Gate rejection
 
 ### SCEN-E2E-024 — spec-lock reject then approve
-- **Tier** inventory · **Status** todo
+- **Tier** inventory · **Status** green
 - **Given** SPEC.design with valid spec + tasks.
 - **When** `gate spec-lock --reject` runs, then later `--approve`.
 - **Then** after `--reject` the cursor stays SPEC.design and `spec_locked`
@@ -262,7 +262,7 @@ Source: codex independent enumeration r119 (AMQ thread
 - **Covers** reject no-side-effect; the approve dual-entry batch.
 
 ### SCEN-E2E-025 — verify-accept reject then approve
-- **Tier** inventory · **Status** todo
+- **Tier** inventory · **Status** green
 - **Given** VERIFY.accept with passing evidence.
 - **When** `gate verify-accept --reject` runs, then `deliver`, then a later
   `--approve`.
@@ -311,7 +311,7 @@ Source: codex independent enumeration r119 (AMQ thread
 ## Graph / concurrency shape
 
 ### SCEN-E2E-029 — multi-task DAG readiness
-- **Tier** inventory · **Status** todo · **Impl** fold into SCEN-E2E-002
+- **Tier** inventory · **Status** green · **Impl** fold into SCEN-E2E-002
 - **Given** T-002 `depends_on` T-001.
 - **When** `tasks next` / `tasks list` run before and after T-001 completes.
 - **Then** T-002 is not ready before, ready after.
