@@ -213,4 +213,145 @@ describe("E2E — full worker lifecycle (standard ceremony)", () => {
     const delivered = await step("deliver", ["deliver", "--feature", F]);
     expect(delivered.sub_state ?? delivered.state?.sub_state).toBe("DONE.delivered");
   });
+
+  // SCEN-E2E-002 — see docs/e2e-scenarios.md (absorbs SCEN-010/017/018/029)
+  test("SCEN-E2E-002 — standard structural + DAG built via tasks add", async () => {
+    const dir = await tmpFeatureDir();
+    const F = "e2e-struct";
+    const ENV = { LOAF_USER: "e2e@test.invalid" };
+
+    const step = async (label: string, argv: string[]): Promise<any> => {
+      const r = await runCli([...argv, "--feature-dir", dir, "--json"], { env: ENV });
+      if (r.exit !== 0) {
+        throw new Error(
+          `STEP FAILED [${label}]: exit ${r.exit}\n` +
+            `  argv: ${argv.join(" ")}\n` +
+            `  stderr: ${r.stderr.trim()}\n` +
+            `  stdout: ${r.stdout.trim()}`,
+        );
+      }
+      return r.stdout.trim() ? JSON.parse(r.stdout) : null;
+    };
+    const writeInput = async (name: string, payload: unknown): Promise<string> => {
+      const p = path.join(dir, name);
+      await fs.writeFile(p, JSON.stringify(payload, null, 2));
+      return p;
+    };
+
+    // ── TRIAGE + SPEC ───────────────────────────────────────────────────
+    await step("start", ["start", F, "--ceremony", "standard"]);
+    await step("advance TRIAGE.confirm", ["advance", "TRIAGE.confirm", "--feature", F]);
+    await step("advance SPEC.proposal", ["advance", "SPEC.proposal", "--feature", F]);
+    await step("spec init", ["spec", "init", "--feature", F]);
+    const submitInput = await writeInput("submit.json", {
+      feature: { id: "F-001", name: "E2E structural DAG" },
+      intent: "drive a structural-task DAG built incrementally via tasks add",
+      adr_refs: [],
+      needs_clarification: [],
+    });
+    await step("spec submit", ["spec", "submit", "--input", submitInput, "--feature", F]);
+    const reqInput = await writeInput("req.json", {
+      id_namespace: "REQ-CORE",
+      type: "ubiquitous",
+      response: "the system shall complete the structural DAG lifecycle smoke",
+      acceptance_na: true,
+      acceptance_na_reason: "exercised by this end-to-end lifecycle integration test",
+    });
+    await step("spec add-req", ["spec", "add-req", "--input", reqInput, "--feature", F]);
+    await step("advance SPEC.spec", ["advance", "SPEC.spec", "--feature", F]);
+    await step("advance SPEC.plan", ["advance", "SPEC.plan", "--feature", F]);
+    await step("advance SPEC.design", ["advance", "SPEC.design", "--feature", F]);
+
+    // ── tasks add — build the graph incrementally (no tasks submit) ──────
+    const t1 = await writeInput("task1.json", {
+      kind: "structural",
+      drives: ["REQ-CORE-001"],
+      no_test_rationale: "rename the internal token module; no behavior change",
+    });
+    await step("tasks add T-001", ["tasks", "add", t1, "--feature", F]);
+    const t2 = await writeInput("task2.json", {
+      kind: "structural",
+      no_test_rationale: "extract a shared helper once T-001 lands; no behavior change",
+      depends_on: ["T-001"],
+    });
+    await step("tasks add T-002", ["tasks", "add", t2, "--feature", F]);
+
+    // ── gate spec-lock → EXECUTE.plan ───────────────────────────────────
+    await step("gate spec-lock", [
+      "gate", "decide", "spec-lock", "--approve",
+      "--reason", "structural DAG feature passes spec-lock", "--feature", F,
+    ]);
+
+    // ── tasks amend --policy at EXECUTE.plan: narrow refactor must -> na ─
+    // tasks add materializes every step at applicability=must; structural
+    // refactor is narrowed to na so the task auto-promotes after implement.
+    await step("tasks amend T-001", ["tasks", "amend", "T-001", "--policy", "refactor=na", "--feature", F]);
+    await step("tasks amend T-002", ["tasks", "amend", "T-002", "--policy", "refactor=na", "--feature", F]);
+
+    await step("advance EXECUTE.work", ["advance", "EXECUTE.work", "--feature", F]);
+
+    // ── DAG readiness: T-002 depends_on T-001 ───────────────────────────
+    const next1 = await step("tasks next (pre)", ["tasks", "next", "--feature", F]);
+    expect(JSON.stringify(next1)).toContain("T-001");
+    expect(JSON.stringify(next1)).not.toContain("T-002");
+
+    await step("tasks claim T-001", ["tasks", "claim", "T-001", "--feature", F]);
+    await step("step start implement T-001", [
+      "tasks", "step", "start", "--task", "T-001", "--step", "implement", "--feature", F,
+    ]);
+    await step("step done implement T-001", [
+      "tasks", "step", "done", "--task", "T-001", "--step", "implement", "--feature", F,
+    ]);
+
+    const next2 = await step("tasks next (post)", ["tasks", "next", "--feature", F]);
+    expect(JSON.stringify(next2)).toContain("T-002");
+
+    await step("tasks claim T-002", ["tasks", "claim", "T-002", "--feature", F]);
+    await step("step start implement T-002", [
+      "tasks", "step", "start", "--task", "T-002", "--step", "implement", "--feature", F,
+    ]);
+    await step("step done implement T-002", [
+      "tasks", "step", "done", "--task", "T-002", "--step", "implement", "--feature", F,
+    ]);
+
+    await step("advance EXECUTE.done", ["advance", "EXECUTE.done", "--feature", F]);
+
+    // ── VERIFY ──────────────────────────────────────────────────────────
+    for (const ss of [
+      "VERIFY.plan", "VERIFY.run", "VERIFY.review",
+      "VERIFY.acceptance", "VERIFY.visual", "VERIFY.accept",
+    ]) {
+      await step(`advance ${ss}`, ["advance", ss, "--feature", F]);
+    }
+    const tsEvidence = await writeInput("ev-task-summary.json", {
+      kind: "task-summary",
+      iteration: 1,
+      actor: "cli:loaf",
+      result: "passed",
+      summary: "structural changes verified for T-001 and T-002",
+      task_id: "T-001",
+      covers: ["T-001", "T-002"],
+      cmd: "bun test",
+      exit: 0,
+    });
+    await step("evidence add task-summary", ["evidence", "add", "--input", tsEvidence, "--feature", F]);
+    const vrEvidence = await writeInput("ev-verify-review.json", {
+      kind: "verify-review",
+      iteration: 1,
+      actor: "cli:loaf",
+      result: "approved",
+      summary: "spec-fit review passed; no anti-pattern",
+      check: "review",
+      covers: ["REQ-CORE-001"],
+    });
+    await step("evidence add verify-review", ["evidence", "add", "--input", vrEvidence, "--feature", F]);
+
+    await step("gate verify-accept", [
+      "gate", "decide", "verify-accept", "--approve",
+      "--reason", "all verify-accept checks pass for the structural DAG feature",
+      "--feature", F,
+    ]);
+    const delivered = await step("deliver", ["deliver", "--feature", F]);
+    expect(delivered.sub_state ?? delivered.state?.sub_state).toBe("DONE.delivered");
+  });
 });
