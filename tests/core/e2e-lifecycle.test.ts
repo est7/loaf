@@ -492,4 +492,132 @@ describe("E2E — full worker lifecycle (standard ceremony)", () => {
     const delivered = await step("deliver", ["deliver", "--feature", F]);
     expect(delivered.sub_state ?? delivered.state?.sub_state).toBe("DONE.delivered");
   });
+
+  // SCEN-E2E-004 — see docs/e2e-scenarios.md (absorbs SCEN-008)
+  test("SCEN-E2E-004 — deep ceremony runs through settle to deliver", async () => {
+    const dir = await tmpFeatureDir();
+    const F = "e2e-deep";
+    const ENV = { LOAF_USER: "e2e@test.invalid" };
+    const { step, writeInput } = makeCli(dir, ENV);
+
+    // ── TRIAGE + SPEC ───────────────────────────────────────────────────
+    await step("start", ["start", F, "--ceremony", "deep"]);
+    await step("advance TRIAGE.confirm", ["advance", "TRIAGE.confirm", "--feature", F]);
+    await step("advance SPEC.proposal", ["advance", "SPEC.proposal", "--feature", F]);
+    await step("spec init", ["spec", "init", "--feature", F]);
+    const submitInput = await writeInput("submit.json", {
+      feature: { id: "F-001", name: "E2E deep ceremony" },
+      intent: "drive a deep-ceremony feature through the SETTLE phase to deliver",
+      adr_refs: [],
+      needs_clarification: [],
+    });
+    await step("spec submit", ["spec", "submit", "--input", submitInput, "--feature", F]);
+    const reqInput = await writeInput("req.json", {
+      id_namespace: "REQ-CORE",
+      type: "ubiquitous",
+      response: "the system shall complete the deep-ceremony lifecycle smoke",
+      acceptance_na: true,
+      acceptance_na_reason: "exercised by this end-to-end lifecycle integration test",
+    });
+    await step("spec add-req", ["spec", "add-req", "--input", reqInput, "--feature", F]);
+    await step("advance SPEC.spec", ["advance", "SPEC.spec", "--feature", F]);
+    await step("advance SPEC.plan", ["advance", "SPEC.plan", "--feature", F]);
+    await step("advance SPEC.design", ["advance", "SPEC.design", "--feature", F]);
+
+    // ── tasks ───────────────────────────────────────────────────────────
+    const st = await step("status pre-tasks", ["status", "--feature", F]);
+    const specVersion: number = st.state?.spec_version ?? st.spec_version;
+    const tasksFile = await writeInput("tasks.json", {
+      based_on: { spec: specVersion },
+      tasks: [
+        {
+          id: "T-001",
+          kind: "behavioral",
+          drives: ["REQ-CORE-001"],
+          tests: ["e2e.deepSmoke"],
+          status: "pending",
+          depends_on: [],
+          labels: [],
+          execution: {
+            red: { applicability: "must", status: "pending", evidence_refs: [] },
+            implement: { applicability: "must", status: "pending", evidence_refs: [] },
+            refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+          },
+        },
+      ],
+    });
+    await step("tasks submit", ["tasks", "submit", tasksFile, "--feature", F]);
+    await step("gate spec-lock", [
+      "gate", "decide", "spec-lock", "--approve",
+      "--reason", "deep feature passes spec-lock", "--feature", F,
+    ]);
+
+    // ── EXECUTE ─────────────────────────────────────────────────────────
+    await step("advance EXECUTE.work", ["advance", "EXECUTE.work", "--feature", F]);
+    await step("tasks claim T-001", ["tasks", "claim", "T-001", "--feature", F]);
+    for (const stp of ["red", "implement"]) {
+      await step(`step start ${stp}`, [
+        "tasks", "step", "start", "--task", "T-001", "--step", stp, "--feature", F,
+      ]);
+      await step(`step done ${stp}`, [
+        "tasks", "step", "done", "--task", "T-001", "--step", stp, "--feature", F,
+      ]);
+    }
+    await step("advance EXECUTE.done", ["advance", "EXECUTE.done", "--feature", F]);
+
+    // ── VERIFY ──────────────────────────────────────────────────────────
+    for (const ss of [
+      "VERIFY.plan", "VERIFY.run", "VERIFY.review",
+      "VERIFY.acceptance", "VERIFY.visual", "VERIFY.accept",
+    ]) {
+      await step(`advance ${ss}`, ["advance", ss, "--feature", F]);
+    }
+    // deep sets strict_spec_review → verify-accept check 5 fires. The
+    // task-summary actor is a non-cli:* implementer (so the implementer set
+    // is non-empty); the spec-review actor differs from it (so check 5's
+    // actor∉implementer holds). spec-review also satisfies lane=review.
+    const tsEvidence = await writeInput("ev-task-summary.json", {
+      kind: "task-summary",
+      iteration: 1,
+      actor: "skill:loaf-cli/impl",
+      result: "passed",
+      summary: "unit tests pass for T-001",
+      task_id: "T-001",
+      covers: ["T-001"],
+      cmd: "bun test",
+      exit: 0,
+    });
+    await step("evidence add task-summary", ["evidence", "add", "--input", tsEvidence, "--feature", F]);
+    const srEvidence = await writeInput("ev-spec-review.json", {
+      kind: "spec-review",
+      iteration: 1,
+      actor: "human:reviewer@test.invalid",
+      result: "approved",
+      summary: "independent spec-fit review; implementation matches the spec",
+      check: "review",
+      covers: ["REQ-CORE-001"],
+    });
+    await step("evidence add spec-review", ["evidence", "add", "--input", srEvidence, "--feature", F]);
+
+    await step("gate verify-accept", [
+      "gate", "decide", "verify-accept", "--approve",
+      "--reason", "all verify-accept checks pass for the deep feature",
+      "--feature", F,
+    ]);
+
+    // ── deep deliver routing — SCEN-008: deliver cannot bypass settle ────
+    const bypass = await runCli(
+      ["deliver", "--feature", F, "--feature-dir", dir, "--json"],
+      { env: ENV },
+    );
+    expect(bypass.exit).toBe(2);
+    expect(bypass.stderr + bypass.stdout).toContain("DELIVER_SETTLE_PHASE_BYPASS");
+
+    // ── SETTLE ──────────────────────────────────────────────────────────
+    await step("settle", ["settle", "--feature", F]);
+    await step("advance SETTLE.lessons", ["advance", "SETTLE.lessons", "--feature", F]);
+
+    const delivered = await step("deliver", ["deliver", "--feature", F]);
+    expect(delivered.sub_state ?? delivered.state?.sub_state).toBe("DONE.delivered");
+  });
 });
