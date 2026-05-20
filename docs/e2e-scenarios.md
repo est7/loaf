@@ -318,7 +318,7 @@ Source: codex independent enumeration r119 (AMQ thread
 - **Covers** `depends_on` stable-core behavior through the CLI.
 
 ### SCEN-E2E-030 — fan-out independent tasks
-- **Tier** optional · **Status** todo
+- **Tier** optional · **Status** green
 - **Given** two independent tasks.
 - **When** both are claimed and `in_progress` before either finishes.
 - **Then** both can complete; EXECUTE.done is legal only after both are
@@ -338,7 +338,7 @@ Source: codex independent enumeration r119 (AMQ thread
 - **Covers** batch atomicity at the user-facing CLI level.
 
 ### SCEN-E2E-032 — visual evidence attachment happy path
-- **Tier** optional · **Status** todo · **Impl** assert the current
+- **Tier** optional · **Status** green · **Impl** assert the current
   pre-hashed payload path; do not assert auto-hash/copy until it lands.
 - **Given** visual-review evidence with a pre-hashed attachment payload.
 - **When** `evidence add` runs.
@@ -358,7 +358,7 @@ Source: codex independent enumeration r119 (AMQ thread
 ## Actor / terminal
 
 ### SCEN-E2E-034 — human actor resolution for gate / deliver
-- **Tier** optional · **Status** todo
+- **Tier** optional · **Status** green
 - **Given** a non-TTY `runCli` invocation.
 - **When** gate / deliver run with `LOAF_USER` set, and again without it
   and without a git fallback.

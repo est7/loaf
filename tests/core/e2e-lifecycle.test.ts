@@ -1776,4 +1776,275 @@ describe("E2E — full worker lifecycle (standard ceremony)", () => {
     expect(list2.pending.every((p: any) => p.resolved)).toBe(true);
   });
 
+  // SCEN-E2E-030 — see docs/e2e-scenarios.md
+  test("SCEN-E2E-030 — two independent tasks fan out, both claimed concurrently", async () => {
+    const dir = await tmpFeatureDir();
+    const F = "e2e-fanout";
+    const ENV = { LOAF_USER: "e2e@test.invalid" };
+    const { step, writeInput } = makeCli(dir, ENV);
+
+    await step("start", ["start", F, "--ceremony", "standard"]);
+    await step("advance TRIAGE.confirm", ["advance", "TRIAGE.confirm", "--feature", F]);
+    await step("advance SPEC.proposal", ["advance", "SPEC.proposal", "--feature", F]);
+    await step("spec init", ["spec", "init", "--feature", F]);
+    const submitInput = await writeInput("submit.json", {
+      feature: { id: "F-001", name: "E2E fan-out independent tasks" },
+      intent: "exercise the worker active-set with two independent fan-out tasks",
+      adr_refs: [],
+      needs_clarification: [],
+    });
+    await step("spec submit", ["spec", "submit", "--input", submitInput, "--feature", F]);
+    const reqInput = await writeInput("req.json", {
+      id_namespace: "REQ-CORE",
+      type: "ubiquitous",
+      response: "the system shall complete the fan-out lifecycle smoke",
+      acceptance_na: true,
+      acceptance_na_reason: "exercised by this end-to-end lifecycle integration test",
+    });
+    await step("spec add-req", ["spec", "add-req", "--input", reqInput, "--feature", F]);
+    await step("advance SPEC.spec", ["advance", "SPEC.spec", "--feature", F]);
+    await step("advance SPEC.plan", ["advance", "SPEC.plan", "--feature", F]);
+    await step("advance SPEC.design", ["advance", "SPEC.design", "--feature", F]);
+    const st = await step("status pre-tasks", ["status", "--feature", F]);
+    const specVersion: number = st.state?.spec_version ?? st.spec_version;
+    // two behavioral tasks, no depends_on between them — independent.
+    const behavioral = (id: string) => ({
+      id,
+      kind: "behavioral",
+      drives: ["REQ-CORE-001"],
+      tests: [`e2e.fanout.${id}`],
+      status: "pending",
+      depends_on: [],
+      labels: [],
+      execution: {
+        red: { applicability: "must", status: "pending", evidence_refs: [] },
+        implement: { applicability: "must", status: "pending", evidence_refs: [] },
+        refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+      },
+    });
+    const tasksFile = await writeInput("tasks.json", {
+      based_on: { spec: specVersion },
+      tasks: [behavioral("T-001"), behavioral("T-002")],
+    });
+    await step("tasks submit", ["tasks", "submit", tasksFile, "--feature", F]);
+    await step("gate spec-lock", [
+      "gate", "decide", "spec-lock", "--approve",
+      "--reason", "spec and independent task graph complete", "--feature", F,
+    ]);
+    await step("advance EXECUTE.work", ["advance", "EXECUTE.work", "--feature", F]);
+
+    // fan-out: both independent tasks are claimed before either finishes —
+    // the worker active set holds two in_progress tasks at once.
+    await step("tasks claim T-001", ["tasks", "claim", "T-001", "--feature", F]);
+    await step("tasks claim T-002", ["tasks", "claim", "T-002", "--feature", F]);
+    const claimed = await step("tasks list (both claimed)", ["tasks", "list", "--feature", F]);
+    const claimedById = Object.fromEntries(claimed.tasks.map((t: any) => [t.id, t.status]));
+    expect(claimedById["T-001"]).toBe("in_progress");
+    expect(claimedById["T-002"]).toBe("in_progress");
+
+    // each task has an in-flight red step before either completes.
+    await step("step start red T-001", [
+      "tasks", "step", "start", "--task", "T-001", "--step", "red", "--feature", F,
+    ]);
+    await step("step start red T-002", [
+      "tasks", "step", "start", "--task", "T-002", "--step", "red", "--feature", F,
+    ]);
+
+    // both tasks complete; EXECUTE.done is reached with both terminal.
+    for (const id of ["T-001", "T-002"]) {
+      await step(`step done red ${id}`, [
+        "tasks", "step", "done", "--task", id, "--step", "red", "--feature", F,
+      ]);
+      await step(`step start implement ${id}`, [
+        "tasks", "step", "start", "--task", id, "--step", "implement", "--feature", F,
+      ]);
+      await step(`step done implement ${id}`, [
+        "tasks", "step", "done", "--task", id, "--step", "implement", "--feature", F,
+      ]);
+    }
+    const done = await step("tasks list (both done)", ["tasks", "list", "--feature", F]);
+    const doneById = Object.fromEntries(done.tasks.map((t: any) => [t.id, t.status]));
+    expect(doneById["T-001"]).toBe("done");
+    expect(doneById["T-002"]).toBe("done");
+    await step("advance EXECUTE.done", ["advance", "EXECUTE.done", "--feature", F]);
+  });
+
+  // SCEN-E2E-032 — see docs/e2e-scenarios.md
+  test("SCEN-E2E-032 — visual-review evidence with a pre-hashed attachment satisfies VIS coverage", async () => {
+    const dir = await tmpFeatureDir();
+    const F = "e2e-visual-evidence";
+    const ENV = { LOAF_USER: "e2e@test.invalid" };
+    const { step, writeInput } = makeCli(dir, ENV);
+
+    await step("start", ["start", F, "--ceremony", "standard"]);
+    await step("advance TRIAGE.confirm", ["advance", "TRIAGE.confirm", "--feature", F]);
+    await step("advance SPEC.proposal", ["advance", "SPEC.proposal", "--feature", F]);
+    await step("spec init", ["spec", "init", "--feature", F]);
+    const submitInput = await writeInput("submit.json", {
+      feature: { id: "F-001", name: "E2E visual evidence attachment" },
+      intent: "exercise the visual-review evidence attachment path through verify-accept",
+      adr_refs: [],
+      needs_clarification: [],
+    });
+    await step("spec submit", ["spec", "submit", "--input", submitInput, "--feature", F]);
+    const reqInput = await writeInput("req.json", {
+      id_namespace: "REQ-CORE",
+      type: "ubiquitous",
+      response: "the system shall complete the visual-evidence lifecycle smoke",
+      acceptance_na: true,
+      acceptance_na_reason: "exercised by this end-to-end lifecycle integration test",
+    });
+    await step("spec add-req", ["spec", "add-req", "--input", reqInput, "--feature", F]);
+    const visInput = await writeInput("vis.json", {
+      id_namespace: "VIS-CORE",
+      target: "the primary screen layout",
+      checks: ["renders the header", "renders the content region"],
+    });
+    await step("spec add-visual", ["spec", "add-visual", "--input", visInput, "--feature", F]);
+    await step("advance SPEC.spec", ["advance", "SPEC.spec", "--feature", F]);
+    await step("advance SPEC.plan", ["advance", "SPEC.plan", "--feature", F]);
+    await step("advance SPEC.design", ["advance", "SPEC.design", "--feature", F]);
+
+    // one visual-ui task bound to VIS-CORE-001 via visual_contract_refs.
+    const tVisual = await writeInput("task-visual.json", {
+      kind: "visual-ui",
+      visual_contract_refs: ["VIS-CORE-001"],
+      drives: ["REQ-CORE-001"],
+      no_test_rationale: "visual parity is verified by screenshot comparison, not unit tests",
+    });
+    await step("tasks add visual-ui", ["tasks", "add", tVisual, "--feature", F]);
+    await step("gate spec-lock", [
+      "gate", "decide", "spec-lock", "--approve",
+      "--reason", "visual-ui feature passes spec-lock", "--feature", F,
+    ]);
+    await step("advance EXECUTE.work", ["advance", "EXECUTE.work", "--feature", F]);
+    await step("tasks claim T-001", ["tasks", "claim", "T-001", "--feature", F]);
+    for (const stp of ["mockup", "implement", "screenshot-compare"]) {
+      await step(`step start ${stp}`, [
+        "tasks", "step", "start", "--task", "T-001", "--step", stp, "--feature", F,
+      ]);
+      await step(`step done ${stp}`, [
+        "tasks", "step", "done", "--task", "T-001", "--step", stp, "--feature", F,
+      ]);
+    }
+    await step("advance EXECUTE.done", ["advance", "EXECUTE.done", "--feature", F]);
+    for (const ss of [
+      "VERIFY.plan", "VERIFY.run", "VERIFY.review",
+      "VERIFY.acceptance", "VERIFY.visual", "VERIFY.accept",
+    ]) {
+      await step(`advance ${ss}`, ["advance", ss, "--feature", F]);
+    }
+    const tsEvidence = await writeInput("ev-task-summary.json", {
+      kind: "task-summary", iteration: 1, actor: "cli:loaf", result: "passed",
+      summary: "the visual-ui task is verified", task_id: "T-001", covers: ["T-001"],
+      cmd: "bun test", exit: 0,
+    });
+    await step("evidence add task-summary", ["evidence", "add", "--input", tsEvidence, "--feature", F]);
+    const vrEvidence = await writeInput("ev-verify-review.json", {
+      kind: "verify-review", iteration: 1, actor: "cli:loaf", result: "approved",
+      summary: "spec-fit review passed", check: "review", covers: ["REQ-CORE-001"],
+    });
+    await step("evidence add verify-review", ["evidence", "add", "--input", vrEvidence, "--feature", F]);
+    // visual-review evidence carries a pre-hashed attachment payload — the
+    // CLI does not stat/hash/copy the file in this slice, it is passthrough
+    // metadata. The visual-review covers VIS-CORE-001 so VIS coverage holds.
+    const vsEvidence = await writeInput("ev-visual-review.json", {
+      kind: "visual-review", iteration: 1, actor: "cli:loaf", result: "approved",
+      summary: "visual contract VIS-CORE-001 matches the mockup", check: "visual",
+      covers: ["VIS-CORE-001"],
+      attachments: [
+        { path: "screenshots/vis-core-001.png", sha256: "b".repeat(64), mime: "image/png", bytes: 2048 },
+      ],
+    });
+    await step("evidence add visual-review", ["evidence", "add", "--input", vsEvidence, "--feature", F]);
+
+    // VIS coverage from the visual-review attachment satisfies verify-accept.
+    await step("gate verify-accept", [
+      "gate", "decide", "verify-accept", "--approve",
+      "--reason", "visual evidence covers VIS-CORE-001; all verify-accept checks pass", "--feature", F,
+    ]);
+    const delivered = await step("deliver", ["deliver", "--feature", F]);
+    expect(delivered.sub_state ?? delivered.state?.sub_state).toBe("DONE.delivered");
+  });
+
+  // SCEN-E2E-034 — see docs/e2e-scenarios.md
+  test("SCEN-E2E-034 — human-only commands need a resolvable human actor", async () => {
+    const dir = await tmpFeatureDir();
+    const F = "e2e-actor";
+    // The session is driven with NO LOAF_USER — start/advance/spec/tasks
+    // emit a cli: actor and do not need a human actor. Only `gate decide`
+    // and `deliver` resolve a human: actor.
+    const noUser = makeCli(dir, { LOAF_USER: undefined });
+    const { step, writeInput } = noUser;
+
+    await step("start", ["start", F, "--ceremony", "standard"]);
+    await step("advance TRIAGE.confirm", ["advance", "TRIAGE.confirm", "--feature", F]);
+    await step("advance SPEC.proposal", ["advance", "SPEC.proposal", "--feature", F]);
+    await step("spec init", ["spec", "init", "--feature", F]);
+    const submitInput = await writeInput("submit.json", {
+      feature: { id: "F-001", name: "E2E human actor resolution" },
+      intent: "exercise the human-only gate actor resolution boundary",
+      adr_refs: [],
+      needs_clarification: [],
+    });
+    await step("spec submit", ["spec", "submit", "--input", submitInput, "--feature", F]);
+    const reqInput = await writeInput("req.json", {
+      id_namespace: "REQ-CORE",
+      type: "ubiquitous",
+      response: "the system shall complete the actor-resolution smoke",
+      acceptance_na: true,
+      acceptance_na_reason: "exercised by this end-to-end lifecycle integration test",
+    });
+    await step("spec add-req", ["spec", "add-req", "--input", reqInput, "--feature", F]);
+    await step("advance SPEC.spec", ["advance", "SPEC.spec", "--feature", F]);
+    await step("advance SPEC.plan", ["advance", "SPEC.plan", "--feature", F]);
+    await step("advance SPEC.design", ["advance", "SPEC.design", "--feature", F]);
+    const st = await step("status pre-tasks", ["status", "--feature", F]);
+    const specVersion: number = st.state?.spec_version ?? st.spec_version;
+    const tasksFile = await writeInput("tasks.json", {
+      based_on: { spec: specVersion },
+      tasks: [
+        {
+          id: "T-001",
+          kind: "behavioral",
+          drives: ["REQ-CORE-001"],
+          tests: ["e2e.actorSmoke"],
+          status: "pending",
+          depends_on: [],
+          labels: [],
+          execution: {
+            red: { applicability: "must", status: "pending", evidence_refs: [] },
+            implement: { applicability: "must", status: "pending", evidence_refs: [] },
+            refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+          },
+        },
+      ],
+    });
+    await step("tasks submit", ["tasks", "submit", tasksFile, "--feature", F]);
+
+    // gate decide is human-only. Non-TTY runCli + no LOAF_USER + no explicit
+    // git fallback → NO_HUMAN_ACTOR (the CI-safety guard never derives a
+    // human: actor from git config in a non-interactive context).
+    const noActor = await runCli(
+      ["gate", "decide", "spec-lock", "--approve", "--reason",
+        "attempting the gate with no resolvable human actor",
+        "--feature", F, "--feature-dir", dir, "--json"],
+      { env: { LOAF_USER: undefined } },
+    );
+    expect(noActor.exit).toBe(2);
+    expect(noActor.stderr + noActor.stdout).toContain("NO_HUMAN_ACTOR");
+
+    // with LOAF_USER set the gate resolves a human: actor and advances.
+    const withActor = await runCli(
+      ["gate", "decide", "spec-lock", "--approve", "--reason",
+        "spec and task graph complete; human actor resolved from LOAF_USER",
+        "--feature", F, "--feature-dir", dir, "--json"],
+      { env: { LOAF_USER: "reviewer@test.invalid" } },
+    );
+    expect(withActor.exit).toBe(0);
+    const approved = JSON.parse(withActor.stdout);
+    expect(approved.sub_state ?? approved.state?.sub_state).toBe("EXECUTE.plan");
+    expect(approved.actor).toBe("human:reviewer@test.invalid");
+  });
+
 });
