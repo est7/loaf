@@ -1435,4 +1435,110 @@ describe("E2E — full worker lifecycle (standard ceremony)", () => {
     const afterDone = await step("status after step done", ["status", "--feature", F]);
     expect(afterDone.evidence_count).toBe(1);
   });
+
+  // SCEN-E2E-005 — see docs/e2e-scenarios.md
+  test("SCEN-E2E-005 — quick ceremony deliver from EXECUTE.done is fail-closed", async () => {
+    const dir = await tmpFeatureDir();
+    const F = "e2e-quick";
+    const ENV = { LOAF_USER: "e2e@test.invalid" };
+    const { step } = makeCli(dir, ENV);
+
+    const started = await step("start", ["start", F, "--ceremony", "quick"]);
+    expect(started.sub_state).toBe("TRIAGE.score");
+    await step("advance TRIAGE.confirm", ["advance", "TRIAGE.confirm", "--feature", F]);
+    // quick has spec_phase=false — TRIAGE.confirm forks straight to
+    // EXECUTE.plan, skipping the whole SPEC.* ladder and the spec-lock gate.
+    await step("advance EXECUTE.plan", ["advance", "EXECUTE.plan", "--feature", F]);
+    await step("advance EXECUTE.work", ["advance", "EXECUTE.work", "--feature", F]);
+    await step("advance EXECUTE.done", ["advance", "EXECUTE.done", "--feature", F]);
+
+    // quick also skips VERIFY (verify_phase=false). The MVP has no
+    // verify-min check, so deliver from EXECUTE.done is fail-closed rather
+    // than silently shipping an unverified feature.
+    const blocked = await runCli(
+      ["deliver", "--feature", F, "--feature-dir", dir, "--json"],
+      { env: ENV },
+    );
+    expect(blocked.exit).toBe(2);
+    expect(blocked.stderr + blocked.stdout).toContain("DELIVER_VERIFY_MIN_UNAVAILABLE");
+  });
+
+  // SCEN-E2E-006 — see docs/e2e-scenarios.md
+  test("SCEN-E2E-006 — light ceremony deliver from EXECUTE.done is fail-closed", async () => {
+    const dir = await tmpFeatureDir();
+    const F = "e2e-light";
+    const ENV = { LOAF_USER: "e2e@test.invalid" };
+    const { step, writeInput } = makeCli(dir, ENV);
+
+    // light has spec_phase=true — it traverses SPEC.* and the spec-lock
+    // gate exactly like standard; only VERIFY/SETTLE are skipped.
+    await step("start", ["start", F, "--ceremony", "light"]);
+    await step("advance TRIAGE.confirm", ["advance", "TRIAGE.confirm", "--feature", F]);
+    await step("advance SPEC.proposal", ["advance", "SPEC.proposal", "--feature", F]);
+    await step("spec init", ["spec", "init", "--feature", F]);
+    const submitInput = await writeInput("submit.json", {
+      feature: { id: "F-001", name: "E2E light ceremony" },
+      intent: "exercise the light-ceremony fail-closed deliver boundary",
+      adr_refs: [],
+      needs_clarification: [],
+    });
+    await step("spec submit", ["spec", "submit", "--input", submitInput, "--feature", F]);
+    const reqInput = await writeInput("req.json", {
+      id_namespace: "REQ-CORE",
+      type: "ubiquitous",
+      response: "the system shall complete the light-ceremony smoke",
+      acceptance_na: true,
+      acceptance_na_reason: "exercised by this end-to-end lifecycle integration test",
+    });
+    await step("spec add-req", ["spec", "add-req", "--input", reqInput, "--feature", F]);
+    await step("advance SPEC.spec", ["advance", "SPEC.spec", "--feature", F]);
+    await step("advance SPEC.plan", ["advance", "SPEC.plan", "--feature", F]);
+    await step("advance SPEC.design", ["advance", "SPEC.design", "--feature", F]);
+    const st = await step("status pre-tasks", ["status", "--feature", F]);
+    const specVersion: number = st.state?.spec_version ?? st.spec_version;
+    const tasksFile = await writeInput("tasks.json", {
+      based_on: { spec: specVersion },
+      tasks: [
+        {
+          id: "T-001",
+          kind: "behavioral",
+          drives: ["REQ-CORE-001"],
+          tests: ["e2e.lightSmoke"],
+          status: "pending",
+          depends_on: [],
+          labels: [],
+          execution: {
+            red: { applicability: "must", status: "pending", evidence_refs: [] },
+            implement: { applicability: "must", status: "pending", evidence_refs: [] },
+            refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+          },
+        },
+      ],
+    });
+    await step("tasks submit", ["tasks", "submit", tasksFile, "--feature", F]);
+    await step("gate spec-lock", [
+      "gate", "decide", "spec-lock", "--approve",
+      "--reason", "spec and task graph complete for the light feature", "--feature", F,
+    ]);
+    await step("advance EXECUTE.work", ["advance", "EXECUTE.work", "--feature", F]);
+    await step("tasks claim T-001", ["tasks", "claim", "T-001", "--feature", F]);
+    for (const stp of ["red", "implement"]) {
+      await step(`step start ${stp}`, [
+        "tasks", "step", "start", "--task", "T-001", "--step", stp, "--feature", F,
+      ]);
+      await step(`step done ${stp}`, [
+        "tasks", "step", "done", "--task", "T-001", "--step", stp, "--feature", F,
+      ]);
+    }
+    await step("advance EXECUTE.done", ["advance", "EXECUTE.done", "--feature", F]);
+
+    // light skips VERIFY (verify_phase=false); deliver from EXECUTE.done is
+    // fail-closed until the verify-min check lands.
+    const blocked = await runCli(
+      ["deliver", "--feature", F, "--feature-dir", dir, "--json"],
+      { env: ENV },
+    );
+    expect(blocked.exit).toBe(2);
+    expect(blocked.stderr + blocked.stdout).toContain("DELIVER_VERIFY_MIN_UNAVAILABLE");
+  });
 });

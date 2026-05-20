@@ -88,7 +88,7 @@ Source: codex independent enumeration r119 (AMQ thread
 ## Ceremony / phase-skip
 
 ### SCEN-E2E-005 — Quick direct-deliver fail-closed
-- **Tier** inventory · **Status** todo · **Impl** assert fail-closed now;
+- **Tier** inventory · **Status** green · **Impl** assert fail-closed now;
   upgrade to a happy path when verify-min lands.
 - **Given** a quick-ceremony feature (quick skips SPEC / VERIFY / SETTLE).
 - **When** execution reaches EXECUTE.done and `deliver` is called.
@@ -96,7 +96,7 @@ Source: codex independent enumeration r119 (AMQ thread
 - **Covers** the quick fork and the current verify-min deferred boundary.
 
 ### SCEN-E2E-006 — Light direct-deliver fail-closed
-- **Tier** inventory · **Status** todo · **Impl** assert fail-closed now;
+- **Tier** inventory · **Status** green · **Impl** assert fail-closed now;
   later assert the light warning once verify-min exists.
 - **Given** a light-ceremony feature (light runs SPEC, skips VERIFY/SETTLE).
 - **When** execution reaches EXECUTE.done and `deliver` is called.
