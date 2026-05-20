@@ -354,4 +354,167 @@ describe("E2E — full worker lifecycle (standard ceremony)", () => {
     const delivered = await step("deliver", ["deliver", "--feature", F]);
     expect(delivered.sub_state ?? delivered.state?.sub_state).toBe("DONE.delivered");
   });
+
+  // SCEN-E2E-003 — see docs/e2e-scenarios.md (absorbs SCEN-011/012/013)
+  test("SCEN-E2E-003 — standard visual-ui + docs + chore mixed kinds", async () => {
+    const dir = await tmpFeatureDir();
+    const F = "e2e-mixed";
+    const ENV = { LOAF_USER: "e2e@test.invalid" };
+
+    const step = async (label: string, argv: string[]): Promise<any> => {
+      const r = await runCli([...argv, "--feature-dir", dir, "--json"], { env: ENV });
+      if (r.exit !== 0) {
+        throw new Error(
+          `STEP FAILED [${label}]: exit ${r.exit}\n` +
+            `  argv: ${argv.join(" ")}\n` +
+            `  stderr: ${r.stderr.trim()}\n` +
+            `  stdout: ${r.stdout.trim()}`,
+        );
+      }
+      return r.stdout.trim() ? JSON.parse(r.stdout) : null;
+    };
+    const writeInput = async (name: string, payload: unknown): Promise<string> => {
+      const p = path.join(dir, name);
+      await fs.writeFile(p, JSON.stringify(payload, null, 2));
+      return p;
+    };
+
+    // ── TRIAGE + SPEC content (add-req + add-scenario + add-visual) ──────
+    await step("start", ["start", F, "--ceremony", "standard"]);
+    await step("advance TRIAGE.confirm", ["advance", "TRIAGE.confirm", "--feature", F]);
+    await step("advance SPEC.proposal", ["advance", "SPEC.proposal", "--feature", F]);
+    await step("spec init", ["spec", "init", "--feature", F]);
+    const submitInput = await writeInput("submit.json", {
+      feature: { id: "F-001", name: "E2E mixed task kinds" },
+      intent: "drive visual-ui, docs and chore task kinds end-to-end via the CLI",
+      adr_refs: [],
+      needs_clarification: [],
+    });
+    await step("spec submit", ["spec", "submit", "--input", submitInput, "--feature", F]);
+    const reqInput = await writeInput("req.json", {
+      id_namespace: "REQ-CORE",
+      type: "ubiquitous",
+      response: "the system shall complete the mixed-kind lifecycle smoke",
+      acceptance_na: true,
+      acceptance_na_reason: "exercised by this end-to-end lifecycle integration test",
+    });
+    await step("spec add-req", ["spec", "add-req", "--input", reqInput, "--feature", F]);
+    const scenInput = await writeInput("scen.json", {
+      id_namespace: "SCEN-CORE",
+      name: "mixed-kind feature delivers",
+      tag: "happy",
+      given: ["a feature with visual-ui, docs and chore tasks"],
+      when: ["every task step ladder completes"],
+      then: ["verify-accept and deliver succeed"],
+    });
+    await step("spec add-scenario", ["spec", "add-scenario", "--input", scenInput, "--feature", F]);
+    const visInput = await writeInput("vis.json", {
+      id_namespace: "VIS-CORE",
+      target: "the primary screen layout",
+      checks: ["renders the header", "renders the content region"],
+    });
+    await step("spec add-visual", ["spec", "add-visual", "--input", visInput, "--feature", F]);
+    await step("advance SPEC.spec", ["advance", "SPEC.spec", "--feature", F]);
+    await step("advance SPEC.plan", ["advance", "SPEC.plan", "--feature", F]);
+    await step("advance SPEC.design", ["advance", "SPEC.design", "--feature", F]);
+
+    // ── tasks add — visual-ui + docs + chore ────────────────────────────
+    const tVisual = await writeInput("task-visual.json", {
+      kind: "visual-ui",
+      visual_contract_refs: ["VIS-CORE-001"],
+      drives: ["REQ-CORE-001"],
+      no_test_rationale: "visual parity is verified by screenshot comparison, not unit tests",
+    });
+    await step("tasks add visual-ui", ["tasks", "add", tVisual, "--feature", F]);
+    const tDocs = await writeInput("task-docs.json", {
+      kind: "docs",
+      no_test_rationale: "documentation task; correctness is verified by peer review",
+    });
+    await step("tasks add docs", ["tasks", "add", tDocs, "--feature", F]);
+    const tChore = await writeInput("task-chore.json", {
+      kind: "chore",
+      no_test_rationale: "mechanical chore; no behavior change to test",
+    });
+    await step("tasks add chore", ["tasks", "add", tChore, "--feature", F]);
+
+    await step("gate spec-lock", [
+      "gate", "decide", "spec-lock", "--approve",
+      "--reason", "mixed-kind feature passes spec-lock", "--feature", F,
+    ]);
+    await step("advance EXECUTE.work", ["advance", "EXECUTE.work", "--feature", F]);
+
+    // ── EXECUTE — each kind's step ladder ───────────────────────────────
+    const ladders: Array<[string, string[]]> = [
+      ["T-001", ["mockup", "implement", "screenshot-compare"]],
+      ["T-002", ["draft", "review"]],
+      ["T-003", ["execute"]],
+    ];
+    for (const [task, steps] of ladders) {
+      await step(`tasks claim ${task}`, ["tasks", "claim", task, "--feature", F]);
+      for (const stp of steps) {
+        await step(`step start ${task} ${stp}`, [
+          "tasks", "step", "start", "--task", task, "--step", stp, "--feature", F,
+        ]);
+        await step(`step done ${task} ${stp}`, [
+          "tasks", "step", "done", "--task", task, "--step", stp, "--feature", F,
+        ]);
+      }
+    }
+    await step("advance EXECUTE.done", ["advance", "EXECUTE.done", "--feature", F]);
+
+    // ── VERIFY ──────────────────────────────────────────────────────────
+    for (const ss of [
+      "VERIFY.plan", "VERIFY.run", "VERIFY.review",
+      "VERIFY.acceptance", "VERIFY.visual", "VERIFY.accept",
+    ]) {
+      await step(`advance ${ss}`, ["advance", ss, "--feature", F]);
+    }
+    // task-summary → check 4 (3 done tasks) + lane=run; verify-review →
+    // lane=review; visual-review → lane=visual + check 3 (VIS-CORE-001).
+    const tsEvidence = await writeInput("ev-task-summary.json", {
+      kind: "task-summary",
+      iteration: 1,
+      actor: "cli:loaf",
+      result: "passed",
+      summary: "all mixed-kind tasks verified",
+      task_id: "T-001",
+      covers: ["T-001", "T-002", "T-003"],
+      cmd: "bun test",
+      exit: 0,
+    });
+    await step("evidence add task-summary", ["evidence", "add", "--input", tsEvidence, "--feature", F]);
+    const vrEvidence = await writeInput("ev-verify-review.json", {
+      kind: "verify-review",
+      iteration: 1,
+      actor: "cli:loaf",
+      result: "approved",
+      summary: "spec-fit review passed; no anti-pattern",
+      check: "review",
+      covers: ["REQ-CORE-001"],
+    });
+    await step("evidence add verify-review", ["evidence", "add", "--input", vrEvidence, "--feature", F]);
+    const vsEvidence = await writeInput("ev-visual-review.json", {
+      kind: "visual-review",
+      iteration: 1,
+      actor: "cli:loaf",
+      result: "approved",
+      summary: "visual contract VIS-CORE-001 matches the mockup",
+      check: "visual",
+      covers: ["VIS-CORE-001"],
+      // visual-review requires >=1 pre-hashed attachment; the CLI does not
+      // stat/hash/copy the file in this slice — it is passthrough metadata.
+      attachments: [
+        { path: "screenshots/vis-core-001.png", sha256: "a".repeat(64), mime: "image/png", bytes: 1024 },
+      ],
+    });
+    await step("evidence add visual-review", ["evidence", "add", "--input", vsEvidence, "--feature", F]);
+
+    await step("gate verify-accept", [
+      "gate", "decide", "verify-accept", "--approve",
+      "--reason", "all verify-accept checks pass for the mixed-kind feature",
+      "--feature", F,
+    ]);
+    const delivered = await step("deliver", ["deliver", "--feature", F]);
+    expect(delivered.sub_state ?? delivered.state?.sub_state).toBe("DONE.delivered");
+  });
 });
