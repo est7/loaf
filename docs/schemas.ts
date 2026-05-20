@@ -4016,16 +4016,22 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
       "out-of-scope for this feature",
     doc_anchor: "protocol.md#§4.3",
   },
+  // Slice C SC-C2b — emitted by preflight for event:tasks_amended §8.6
+  // violations (frozen-field change at EXECUTE.plan / unsponsored mode=add
+  // / mode=replace outside EXECUTE.plan). detail carries task_id + mode +
+  // sub_state always, plus field/from/to (frozen-field case) or reason
+  // (operation-level rejection). Template uses only the always-present keys.
   MUTATION_OUT_OF_RIGHTS: {
     exit_code: 2,
     message_template:
-      "command {command} attempted to write {target} but the current " +
-      "sub_state {sub_state} grants no mutation right for that field",
+      "event:tasks_amended on task {task_id} is not permitted at " +
+      "sub_state {sub_state} — §8.6 grants no mutation right for this change",
     fix_template:
-      "see the mutation rights matrix (protocol.md §8.6) for which " +
-      "sub_state may mutate which field; advance to the correct " +
-      "sub_state or raise a finding to back-edge through the legal " +
-      "transition",
+      "the mutation rights matrix (protocol.md §8.6) limits EXECUTE.plan " +
+      "`tasks amend` to execution[].applicability changes plus a " +
+      "status pending→ready advance; graph/kind-flag fields are frozen. " +
+      "To restructure the task graph, raise a finding to back-edge through " +
+      "the legal transition instead of amending in place",
     doc_anchor: "protocol.md#§8.6",
   },
   LOCK_TIMEOUT: {

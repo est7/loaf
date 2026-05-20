@@ -409,14 +409,33 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
     }
 
     case "event:tasks_amended": {
-      // Slice 1.B sub-cycle 3a (F-010 #1+#2): strict single-task replace.
-      // Batch amend lands as N journal entries through mutateBatch.
+      // Slice 1.B sub-cycle 3a (F-010 #1+#2) + Slice C SC-C2b mode
+      // discriminator. `mode` defaults to "replace" — absent on pre-mode
+      // entries, which replay with the historical replace-only semantics.
+      //   replace: overwrite an existing task by id; missing → TASK_NOT_FOUND.
+      //   add:     append a task; id already present → DUPLICATE_TASK_ID.
+      // §8.6 mutation-rights + add-authority gating live in preflight; this
+      // handler keeps the existence checks as defense-in-depth for raw apply.
       const payload = entry.payload as {
+        mode?: "add" | "replace";
         task?: TaskFullProjection;
         reason?: string;
       };
       if (!payload.task) return invalidPayload(entry.kind, "missing task");
+      const mode = payload.mode ?? "replace";
       const idx = prev.tasks.findIndex((t) => t.id === payload.task!.id);
+      if (mode === "add") {
+        if (idx !== -1) {
+          return {
+            ok: false,
+            code: "DUPLICATE_TASK_ID",
+            message: `tasks_amended add: task ${payload.task.id} is already in the projection`,
+            detail: { task_id: payload.task.id },
+          };
+        }
+        const slim = extractTaskSlim(payload.task);
+        return { ok: true, snapshot: { ...prev, tasks: [...prev.tasks, slim] } };
+      }
       if (idx === -1) {
         return {
           ok: false,

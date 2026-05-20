@@ -34,7 +34,8 @@
 
 import { JournalEntry, PER_KIND_PAYLOAD } from "../journal-entry.js";
 import type { Ceremony, EntryKind, SubState } from "../journal-entry.js";
-import type { Snapshot } from "../reducer.js";
+import type { Snapshot, TaskState } from "../reducer.js";
+import { extractTaskSlim, type TaskFullProjection } from "../task-schema.js";
 import { validateTransition, type TransitionResult } from "./transition.js";
 import { isActorAllowed, isSubStateAllowed } from "./per-kind.js";
 import {
@@ -182,7 +183,16 @@ export type PreflightFailureCode =
   //   spec_*_added      — head:        payload.spec_version === current+1
   //                       continuation: payload.spec_version === current
   | "SPEC_VERSION_NOT_MONOTONIC"
-  | "SPEC_VERSION_BATCH_MISMATCH";
+  | "SPEC_VERSION_BATCH_MISMATCH"
+  // Slice C SC-C2b — event:tasks_amended §8.6 mutation rights. Promoted
+  // from the protocol-named code (docs/schemas.ts §8.6) to a preflight
+  // failure so `tasks amend` surfaces the actionable diagnostic. Fires
+  // when: a mode=replace amend at EXECUTE.plan changes a frozen field
+  // (graph / kind-flag / step set / step status / illegal status move);
+  // a mode=add amend is unsponsored (no legit SC-C2b emitter); or a
+  // mode=replace amend is attempted outside EXECUTE.plan (unsponsored
+  // until a future finding amend-tasks back-edge carries sponsorship).
+  | "MUTATION_OUT_OF_RIGHTS";
 
 export type PreflightResult =
   | { ok: true }
@@ -192,6 +202,88 @@ export type PreflightResult =
       message: string;
       detail?: Record<string, unknown>;
     };
+
+// Slice C SC-C2b — §8.6 frozen-field diff for `tasks amend`. Both inputs
+// are slim TaskState projections (the incoming task is run through
+// extractTaskSlim first). Returns the first field the amend changes that
+// EXECUTE.plan mutation rights forbid, or null when the change is in-rights
+// (execution[].applicability only, plus an optional status pending→ready).
+interface FrozenViolation {
+  field: string;
+  from: unknown;
+  to: unknown;
+}
+
+function arraysEqual(
+  a: readonly unknown[] | undefined,
+  b: readonly unknown[] | undefined,
+): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  return a.length === b.length && a.every((v, i) => v === b[i]);
+}
+
+function firstFrozenViolation(
+  current: TaskState,
+  incoming: TaskState,
+): FrozenViolation | null {
+  // status: unchanged, or the single legal advance pending → ready.
+  if (incoming.status !== current.status) {
+    const legalAdvance =
+      current.status === "pending" && incoming.status === "ready";
+    if (!legalAdvance) {
+      return { field: "status", from: current.status, to: incoming.status };
+    }
+  }
+  if (incoming.kind !== current.kind) {
+    return { field: "kind", from: current.kind, to: incoming.kind };
+  }
+  // Array graph fields — exact deep equality (codex r108: no set-normalize).
+  if (!arraysEqual(current.drives, incoming.drives)) {
+    return { field: "drives", from: current.drives, to: incoming.drives };
+  }
+  if (!arraysEqual(current.depends_on, incoming.depends_on)) {
+    return { field: "depends_on", from: current.depends_on, to: incoming.depends_on };
+  }
+  if (!arraysEqual(current.labels, incoming.labels)) {
+    return { field: "labels", from: current.labels, to: incoming.labels };
+  }
+  if (!arraysEqual(current.visual_contract_refs, incoming.visual_contract_refs)) {
+    return {
+      field: "visual_contract_refs",
+      from: current.visual_contract_refs,
+      to: incoming.visual_contract_refs,
+    };
+  }
+  // Scalar kind-flag fields (undefined-safe via ===).
+  for (const f of [
+    "red_test_registered",
+    "no_test_rationale",
+    "requires_acceptance",
+    "requires_visual",
+  ] as const) {
+    if (current[f] !== incoming[f]) {
+      return { field: f, from: current[f], to: incoming[f] };
+    }
+  }
+  // Execution step set frozen; per-step status frozen; applicability free.
+  const curSteps = Object.keys(current.steps).sort();
+  const incSteps = Object.keys(incoming.steps).sort();
+  if (!arraysEqual(curSteps, incSteps)) {
+    return { field: "execution.steps", from: curSteps, to: incSteps };
+  }
+  for (const stepName of curSteps) {
+    const c = current.steps[stepName];
+    const i = incoming.steps[stepName];
+    if (c && i && c.status !== i.status) {
+      return {
+        field: `execution.${stepName}.status`,
+        from: c.status,
+        to: i.status,
+      };
+    }
+  }
+  return null;
+}
 
 export function preflight(
   rawEntry: unknown,
@@ -499,6 +591,78 @@ export function preflight(
           seenIds.add(t.id);
         }
       }
+    }
+  }
+
+  // (5d.2) Slice C SC-C2b — event:tasks_amended §8.6 mutation rights.
+  // `tasks amend` (mode=replace at EXECUTE.plan) may change only
+  // execution[].applicability and advance status pending→ready; every
+  // graph / kind-flag / step-set / step-status field is frozen. mode=add
+  // is unsponsored in SC-C2b (no legit emitter — SC-C3 wires the
+  // protocol-backed add path). A mode=replace amend outside EXECUTE.plan
+  // is unsponsored until a future finding amend-tasks back-edge carries an
+  // explicit sponsorship marker. Enforcement is option B (codex r108): the
+  // frozen diff runs against the slim Snapshot.tasks projection — body-only
+  // fields (tests / test_layer / execution evidence_refs / reason /
+  // started_at) are out of preflight reach and CLI-guarded by
+  // materializeTaskForAmend.
+  if (entry.kind === "event:tasks_amended") {
+    const amended = payloadParsed.data as {
+      mode?: "add" | "replace";
+      task: TaskFullProjection;
+    };
+    const mode = amended.mode ?? "replace";
+    const taskId = amended.task.id;
+
+    if (mode === "add") {
+      return {
+        ok: false,
+        code: "MUTATION_OUT_OF_RIGHTS",
+        message: `event:tasks_amended mode=add on task ${taskId} is not authorized — no add path is wired yet (Slice C SC-C3)`,
+        detail: { task_id: taskId, mode, sub_state, reason: "unsponsored_add" },
+      };
+    }
+
+    if (sub_state !== "EXECUTE.plan") {
+      return {
+        ok: false,
+        code: "MUTATION_OUT_OF_RIGHTS",
+        message: `event:tasks_amended mode=replace is permitted only at EXECUTE.plan (current sub_state=${sub_state})`,
+        detail: {
+          task_id: taskId,
+          mode,
+          sub_state,
+          reason: "replace_outside_execute_plan",
+        },
+      };
+    }
+
+    const currentTask = ctx.snapshot.tasks.find((t) => t.id === taskId);
+    if (!currentTask) {
+      return {
+        ok: false,
+        code: "TASK_NOT_FOUND",
+        message: `tasks_amended: task ${taskId} is not in the current tasks projection`,
+        detail: { task_id: taskId },
+      };
+    }
+
+    const incomingSlim = extractTaskSlim(amended.task);
+    const violation = firstFrozenViolation(currentTask, incomingSlim);
+    if (violation) {
+      return {
+        ok: false,
+        code: "MUTATION_OUT_OF_RIGHTS",
+        message: `event:tasks_amended on task ${taskId} changes frozen field '${violation.field}' — §8.6 forbids it at EXECUTE.plan`,
+        detail: {
+          task_id: taskId,
+          mode,
+          sub_state,
+          field: violation.field,
+          from: violation.from,
+          to: violation.to,
+        },
+      };
     }
   }
 

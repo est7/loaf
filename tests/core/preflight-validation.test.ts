@@ -659,3 +659,281 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
     expect(r.ok).toBe(true);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// event:tasks_amended §8.6 mutation-rights preflight — Slice C SC-C2b.
+//
+// `tasks amend` at EXECUTE.plan may only change execution[].applicability
+// and advance status pending→ready (protocol §8.6). All graph-contract and
+// kind-flag fields are frozen. Enforcement is option B (codex r108): the
+// diff runs against the slim Snapshot.tasks projection — body-only fields
+// (tests/test_layer/evidence_refs/...) are out of preflight reach and
+// guarded CLI-side by materializeTaskForAmend (residual risk).
+// ─────────────────────────────────────────────────────────────────────────
+
+function behavioralFull(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  const execStep = (
+    applicability: string,
+    status = "pending",
+  ): Record<string, unknown> => ({ applicability, status, evidence_refs: [] });
+  return {
+    id: "T-001",
+    kind: "behavioral",
+    drives: ["REQ-AUTH-001"],
+    tests: ["TokenCoord.refreshOnce"],
+    status: "pending",
+    depends_on: [],
+    labels: [],
+    execution: {
+      red: execStep("must"),
+      implement: execStep("must"),
+      refactor: execStep("optional"),
+    },
+    ...overrides,
+  };
+}
+
+// The slim TaskState that extractTaskSlim(behavioralFull()) projects to —
+// the baseline "current" task seeded into the snapshot.
+function slimT001(overrides: Partial<TaskState> = {}): TaskState {
+  return {
+    id: "T-001",
+    kind: "behavioral",
+    status: "pending",
+    steps: {
+      red: { applicability: "must", status: "pending" },
+      implement: { applicability: "must", status: "pending" },
+      refactor: { applicability: "optional", status: "pending" },
+    },
+    drives: ["REQ-AUTH-001"],
+    depends_on: [],
+    labels: [],
+    ...overrides,
+  };
+}
+
+function amendEntry(
+  payload: Record<string, unknown>,
+): Record<string, unknown> {
+  return baseEntry({ kind: "event:tasks_amended", payload });
+}
+
+describe("preflight — event:tasks_amended §8.6 mutation rights (Slice C SC-C2b)", () => {
+  function planCtx(current: TaskState) {
+    return {
+      snapshot: mkSnapshot("EXECUTE.plan", STANDARD_CEREMONY, { tasks: [current] }),
+      tail_seq: -1,
+    };
+  }
+
+  test("applicability-only change at EXECUTE.plan → OK", () => {
+    const incoming = behavioralFull({
+      execution: {
+        red: { applicability: "must", status: "pending", evidence_refs: [] },
+        implement: { applicability: "must", status: "pending", evidence_refs: [] },
+        // refactor optional → na: a legal §8.6 applicability mutation.
+        refactor: { applicability: "na", status: "pending", evidence_refs: [] },
+      },
+    });
+    const result = preflight(
+      amendEntry({ mode: "replace", task: incoming }),
+      planCtx(slimT001()),
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  test("status pending→ready at EXECUTE.plan → OK", () => {
+    const incoming = behavioralFull({ status: "ready" });
+    const result = preflight(
+      amendEntry({ mode: "replace", task: incoming }),
+      planCtx(slimT001({ status: "pending" })),
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  test("status ready→pending → MUTATION_OUT_OF_RIGHTS", () => {
+    const incoming = behavioralFull({ status: "pending" });
+    const result = preflight(
+      amendEntry({ mode: "replace", task: incoming }),
+      planCtx(slimT001({ status: "ready" })),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("MUTATION_OUT_OF_RIGHTS");
+  });
+
+  test("status in_progress→ready → MUTATION_OUT_OF_RIGHTS", () => {
+    const incoming = behavioralFull({ status: "ready" });
+    const result = preflight(
+      amendEntry({ mode: "replace", task: incoming }),
+      planCtx(slimT001({ status: "in_progress" })),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("MUTATION_OUT_OF_RIGHTS");
+  });
+
+  test("status ready→done → MUTATION_OUT_OF_RIGHTS (codex r108 named example)", () => {
+    const incoming = behavioralFull({ status: "done" });
+    const result = preflight(
+      amendEntry({ mode: "replace", task: incoming }),
+      planCtx(slimT001({ status: "ready" })),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("MUTATION_OUT_OF_RIGHTS");
+      expect(result.detail?.["field"]).toBe("status");
+    }
+  });
+
+  test("kind change behavioral→structural → MUTATION_OUT_OF_RIGHTS", () => {
+    // A structural task replacing a behavioral one — kind is the discriminator
+    // and is frozen; the diff catches `kind` before the (also-changed) step set.
+    const structural = {
+      id: "T-001",
+      kind: "structural",
+      no_test_rationale: "pure rename, no behavior change to test",
+      status: "pending",
+      depends_on: [],
+      labels: [],
+      execution: {
+        implement: { applicability: "must", status: "pending", evidence_refs: [] },
+        refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+      },
+    };
+    const result = preflight(
+      amendEntry({ mode: "replace", task: structural }),
+      planCtx(slimT001()),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("MUTATION_OUT_OF_RIGHTS");
+      expect(result.detail?.["field"]).toBe("kind");
+    }
+  });
+
+  test("drives change → MUTATION_OUT_OF_RIGHTS", () => {
+    const incoming = behavioralFull({ drives: ["REQ-AUTH-999"] });
+    const result = preflight(
+      amendEntry({ mode: "replace", task: incoming }),
+      planCtx(slimT001()),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("MUTATION_OUT_OF_RIGHTS");
+      expect(result.detail?.["field"]).toBe("drives");
+    }
+  });
+
+  test("depends_on change → MUTATION_OUT_OF_RIGHTS", () => {
+    const incoming = behavioralFull({ depends_on: ["T-002"] });
+    const result = preflight(
+      amendEntry({ mode: "replace", task: incoming }),
+      planCtx(slimT001()),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("MUTATION_OUT_OF_RIGHTS");
+  });
+
+  test("labels change → MUTATION_OUT_OF_RIGHTS", () => {
+    const incoming = behavioralFull({ labels: ["perf"] });
+    const result = preflight(
+      amendEntry({ mode: "replace", task: incoming }),
+      planCtx(slimT001()),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("MUTATION_OUT_OF_RIGHTS");
+  });
+
+  test("kind-flag change (red_test_registered) → MUTATION_OUT_OF_RIGHTS", () => {
+    const incoming = behavioralFull({ red_test_registered: true });
+    const result = preflight(
+      amendEntry({ mode: "replace", task: incoming }),
+      planCtx(slimT001()),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("MUTATION_OUT_OF_RIGHTS");
+  });
+
+  test("kind-flag change (requires_visual) → MUTATION_OUT_OF_RIGHTS", () => {
+    const incoming = behavioralFull({ requires_visual: true });
+    const result = preflight(
+      amendEntry({ mode: "replace", task: incoming }),
+      planCtx(slimT001()),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("MUTATION_OUT_OF_RIGHTS");
+      expect(result.detail?.["field"]).toBe("requires_visual");
+    }
+  });
+
+  test("step.status change → MUTATION_OUT_OF_RIGHTS", () => {
+    const incoming = behavioralFull({
+      execution: {
+        red: { applicability: "must", status: "passed", evidence_refs: [] },
+        implement: { applicability: "must", status: "pending", evidence_refs: [] },
+        refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+      },
+    });
+    const result = preflight(
+      amendEntry({ mode: "replace", task: incoming }),
+      planCtx(slimT001()),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("MUTATION_OUT_OF_RIGHTS");
+  });
+
+  test("step set change vs current projection → MUTATION_OUT_OF_RIGHTS", () => {
+    // Current projection (hand-built) is missing `refactor`; the incoming
+    // behavioral payload has all 3 — a step-set mismatch preflight rejects.
+    const current = slimT001({
+      steps: {
+        red: { applicability: "must", status: "pending" },
+        implement: { applicability: "must", status: "pending" },
+      },
+    });
+    const result = preflight(
+      amendEntry({ mode: "replace", task: behavioralFull() }),
+      planCtx(current),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("MUTATION_OUT_OF_RIGHTS");
+  });
+
+  test("mode='add' is unsponsored in SC-C2b → MUTATION_OUT_OF_RIGHTS", () => {
+    const result = preflight(
+      amendEntry({ mode: "add", task: behavioralFull({ id: "T-050" }) }),
+      planCtx(slimT001()),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("MUTATION_OUT_OF_RIGHTS");
+  });
+
+  test("mode='replace' outside EXECUTE.plan → MUTATION_OUT_OF_RIGHTS", () => {
+    const result = preflight(
+      amendEntry({ mode: "replace", task: behavioralFull() }),
+      {
+        snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [slimT001()] }),
+        tail_seq: -1,
+      },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("MUTATION_OUT_OF_RIGHTS");
+  });
+
+  test("replace on an unknown task id at EXECUTE.plan → TASK_NOT_FOUND", () => {
+    const result = preflight(
+      amendEntry({ mode: "replace", task: behavioralFull({ id: "T-404" }) }),
+      planCtx(slimT001()),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("TASK_NOT_FOUND");
+  });
+
+  test("no-op replace (nothing changed) at EXECUTE.plan → OK", () => {
+    const result = preflight(
+      amendEntry({ mode: "replace", task: behavioralFull() }),
+      planCtx(slimT001()),
+    );
+    expect(result.ok).toBe(true);
+  });
+});

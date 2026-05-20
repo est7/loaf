@@ -323,8 +323,15 @@ const TasksPlannedPayload = z
 // Slice 1.B sub-cycle 3a (F-010 #1+#2): tasks_amended strict single-task
 // replace. Batch amend lands as N journal entries via mutateBatch sharing
 // batch_id (same pattern as spec add-*).
+//
+// Slice C SC-C2b: `mode` discriminator (codex r105 Q1=b). `replace`
+// overwrites an existing task by id; `add` appends a task absent from the
+// projection. `.default("replace")` keeps any pre-mode entry (hand-authored
+// / migration / older fixture) replaying as the historical replace-only
+// semantics; the CLI always sets `mode` explicitly.
 const TasksAmendedPayload = z
   .object({
+    mode: z.enum(["add", "replace"]).default("replace"),
     task: TaskFullPayload,
     reason: z.string().min(10).optional(),
   })

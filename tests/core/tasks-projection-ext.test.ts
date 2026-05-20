@@ -283,7 +283,10 @@ describe("event:tasks_planned — Slice 1.B sub-cycle 3a", () => {
 });
 
 describe("event:tasks_amended — Slice 1.B sub-cycle 3a (F-010)", () => {
-  test("replaces an existing task by id and preserves payload status", () => {
+  test("replace applies §8.6-permitted status + applicability changes to the projection", () => {
+    // Slice C SC-C2b: a replace at EXECUTE.plan may advance status
+    // pending→ready and rewrite execution[].applicability — and nothing
+    // else. Earlier this test changed `drives`, now a §8.6 violation.
     let snap = seedAtExecutePlan();
     snap = mustOk(
       apply(
@@ -301,18 +304,21 @@ describe("event:tasks_amended — Slice 1.B sub-cycle 3a (F-010)", () => {
         entry(8, "event:tasks_amended", {
           task: behavioralTask({
             id: "T-001",
-            drives: ["REQ-AUTH-005"],
-            tests: ["NewTest.something"],
             status: "ready",
+            execution: {
+              red: step("must"),
+              implement: step("must"),
+              refactor: step("na"),
+            },
           }),
-          reason: "scope expanded to cover refresh token rotation behavior",
+          reason: "refactor step ruled not applicable for this task",
         }),
       ),
     );
 
     const task = snap.tasks.find((t) => t.id === "T-001")!;
-    expect(task.drives).toEqual(["REQ-AUTH-005"]);
     expect(task.status).toBe("ready");
+    expect(task.steps.refactor!.applicability).toBe("na");
   });
 
   test("rejects amend on unknown task id with TASK_NOT_FOUND", () => {
@@ -351,6 +357,78 @@ describe("event:tasks_amended — Slice 1.B sub-cycle 3a (F-010)", () => {
 
     const result = apply(snap, entry(8, "event:tasks_amended", {}));
     expect(result.ok).toBe(false);
+  });
+});
+
+describe("event:tasks_amended mode discriminator — Slice C SC-C2b", () => {
+  // NOTE on coverage scope: `apply()` runs preflight() before the reducer
+  // switch (reducer.ts:303). In SC-C2b preflight rejects every mode='add'
+  // (MUTATION_OUT_OF_RIGHTS — see preflight-validation.test.ts), so the
+  // reducer's mode='add' branch is unreachable via apply() this sub-cycle.
+  // The add branch is built per codex r105 Q3=a (schema/reducer must not
+  // drift); its behavioral coverage lands in SC-C3, where `tasks add` +
+  // preflight add-authorization make it reachable.
+  function seedWithT001(): Snapshot {
+    let snap = seedAtExecutePlan();
+    snap = mustOk(
+      apply(
+        snap,
+        entry(7, "event:tasks_planned", {
+          based_on: { spec: 1 },
+          tasks: [behavioralTask({ id: "T-001" })],
+        }),
+      ),
+    );
+    return snap;
+  }
+
+  test("mode='replace' (explicit) applies a §8.6-permitted change", () => {
+    const snap = seedWithT001();
+    const result = apply(
+      snap,
+      entry(8, "event:tasks_amended", {
+        mode: "replace",
+        task: behavioralTask({
+          id: "T-001",
+          execution: { red: step("must"), implement: step("must"), refactor: step("na") },
+        }),
+      }),
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.snapshot.tasks.find((t) => t.id === "T-001")!.steps.refactor!.applicability)
+        .toBe("na");
+    }
+  });
+
+  test("mode='replace' on an unknown id → TASK_NOT_FOUND", () => {
+    const snap = seedWithT001();
+    const result = apply(
+      snap,
+      entry(8, "event:tasks_amended", {
+        mode: "replace",
+        task: behavioralTask({ id: "T-404" }),
+      }),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("TASK_NOT_FOUND");
+  });
+
+  test("absent mode defaults to replace (pre-mode entries replay unchanged)", () => {
+    const snap = seedWithT001();
+    // No `mode` key — the historical shape; reducer + preflight must treat
+    // it as replace. A no-field-change replace is §8.6-clean.
+    const replace = apply(
+      snap,
+      entry(8, "event:tasks_amended", { task: behavioralTask({ id: "T-001" }) }),
+    );
+    expect(replace.ok).toBe(true);
+    const missing = apply(
+      snap,
+      entry(8, "event:tasks_amended", { task: behavioralTask({ id: "T-777" }) }),
+    );
+    expect(missing.ok).toBe(false);
+    if (!missing.ok) expect(missing.code).toBe("TASK_NOT_FOUND");
   });
 });
 
