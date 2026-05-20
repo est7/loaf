@@ -6,8 +6,10 @@
 // CLI for tasks. This file uses ONLY runCli for every transition, so it is
 // the first true integration proof of the worker workflow.
 //
-// Scenario inventory: docs/e2e-scenarios.md. This file currently implements
-// SCEN-E2E-001 (the §15-close standard happy path).
+// Scenario inventory: docs/e2e-scenarios.md. This file implements the
+// §15-close set (001-004) and the full inventory tier
+// (005/006/007/009/014/015/019/024/025/026/031). Remaining: optional ×9
+// + future ×6, which land as their command / back-edge slices ship.
 //
 // Smoke methodology: a failed `step()` throws with the step label, so the
 // first gap is named precisely. Gaps get fixed sub-cycle by sub-cycle.
