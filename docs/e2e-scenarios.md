@@ -180,7 +180,7 @@ Source: codex independent enumeration r119 (AMQ thread
 - **Covers** the id allocator + version semantics.
 
 ### SCEN-E2E-016 — SPEC append post-lock rejected
-- **Tier** optional · **Status** todo
+- **Tier** optional · **Status** green
 - **Given** `spec_locked=true` in EXECUTE / VERIFY.
 - **When** `spec add-*` is called directly.
 - **Then** `SPEC_LOCKED_NO_DIRECT_EDIT` (or sub_state authority) rejects;
@@ -243,7 +243,7 @@ Source: codex independent enumeration r119 (AMQ thread
 - **Covers** the test-defect / TDD repair path.
 
 ### SCEN-E2E-023 — defer/backlog finding blocks accept until closed
-- **Tier** optional · **Status** todo
+- **Tier** optional · **Status** green
 - **Given** VERIFY has an open `defer` / `backlog` finding.
 - **When** `gate verify-accept --approve` is attempted.
 - **Then** `OPEN_FINDINGS_PRESENT`; after `finding close`, approve passes.
@@ -291,7 +291,7 @@ Source: codex independent enumeration r119 (AMQ thread
   `gate_decision` blocking is exercised via SCEN-E2E-027.
 
 ### SCEN-E2E-027 — gate pending co-resolution
-- **Tier** optional · **Status** todo
+- **Tier** optional · **Status** green
 - **Given** a pending head of kind `gate_decision`.
 - **When** a gate approve command runs.
 - **Then** `gate:decided` and `pending:resolved` are co-emitted in one
@@ -299,7 +299,7 @@ Source: codex independent enumeration r119 (AMQ thread
 - **Covers** the atomic pending/gate batch.
 
 ### SCEN-E2E-028 — pending FIFO no skip
-- **Tier** optional · **Status** todo
+- **Tier** optional · **Status** green
 - **Given** two pending entries.
 - **When** `pending resolve` runs.
 - **Then** only the head resolves; the second becomes head; there is no

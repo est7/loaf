@@ -1543,4 +1543,237 @@ describe("E2E — full worker lifecycle (standard ceremony)", () => {
     expect(blocked.exit).toBe(2);
     expect(blocked.stderr + blocked.stdout).toContain("DELIVER_VERIFY_MIN_UNAVAILABLE");
   });
+
+  // SCEN-E2E-016 — see docs/e2e-scenarios.md
+  test("SCEN-E2E-016 — spec add-* is rejected once the spec is locked", async () => {
+    const dir = await tmpFeatureDir();
+    const F = "e2e-postlock";
+    const ENV = { LOAF_USER: "e2e@test.invalid" };
+    const { step, writeInput } = makeCli(dir, ENV);
+
+    await step("start", ["start", F, "--ceremony", "standard"]);
+    await step("advance TRIAGE.confirm", ["advance", "TRIAGE.confirm", "--feature", F]);
+    await step("advance SPEC.proposal", ["advance", "SPEC.proposal", "--feature", F]);
+    await step("spec init", ["spec", "init", "--feature", F]);
+    const submitInput = await writeInput("submit.json", {
+      feature: { id: "F-001", name: "E2E post-lock spec edit" },
+      intent: "exercise the post-lock direct spec-edit rejection",
+      adr_refs: [],
+      needs_clarification: [],
+    });
+    await step("spec submit", ["spec", "submit", "--input", submitInput, "--feature", F]);
+    const reqInput = await writeInput("req.json", {
+      id_namespace: "REQ-CORE",
+      type: "ubiquitous",
+      response: "the system shall complete the post-lock rejection smoke",
+      acceptance_na: true,
+      acceptance_na_reason: "exercised by this end-to-end lifecycle integration test",
+    });
+    await step("spec add-req", ["spec", "add-req", "--input", reqInput, "--feature", F]);
+    await step("advance SPEC.spec", ["advance", "SPEC.spec", "--feature", F]);
+    await step("advance SPEC.plan", ["advance", "SPEC.plan", "--feature", F]);
+    await step("advance SPEC.design", ["advance", "SPEC.design", "--feature", F]);
+    const st = await step("status pre-tasks", ["status", "--feature", F]);
+    const specVersion: number = st.state?.spec_version ?? st.spec_version;
+    const tasksFile = await writeInput("tasks.json", {
+      based_on: { spec: specVersion },
+      tasks: [
+        {
+          id: "T-001",
+          kind: "behavioral",
+          drives: ["REQ-CORE-001"],
+          tests: ["e2e.postLock"],
+          status: "pending",
+          depends_on: [],
+          labels: [],
+          execution: {
+            red: { applicability: "must", status: "pending", evidence_refs: [] },
+            implement: { applicability: "must", status: "pending", evidence_refs: [] },
+            refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+          },
+        },
+      ],
+    });
+    await step("tasks submit", ["tasks", "submit", tasksFile, "--feature", F]);
+    await step("gate spec-lock", [
+      "gate", "decide", "spec-lock", "--approve",
+      "--reason", "spec and task graph complete", "--feature", F,
+    ]);
+
+    // cursor is EXECUTE.plan, spec_locked=true — a direct spec append is
+    // rejected. SPEC_LOCKED_NO_DIRECT_EDIT is defense-in-depth for the
+    // abnormal spec_locked-while-in-SPEC.* case; in the normal flow the
+    // spec-lock gate co-advances the cursor out of SPEC.*, so the reachable
+    // rejection at EXECUTE.plan is the sub_state authority guard (the
+    // e2e-scenarios.md SCEN-E2E-016 "or sub_state authority" branch). A
+    // post-lock spec change must go through a finding amend-spec back-edge.
+    const lateReq = await writeInput("late-req.json", {
+      id_namespace: "REQ-CORE",
+      type: "ubiquitous",
+      response: "the system shall reject this post-lock requirement append",
+      acceptance_na: true,
+      acceptance_na_reason: "this requirement is never recorded; the append is expected to fail",
+    });
+    const rejected = await runCli(
+      ["spec", "add-req", "--input", lateReq, "--feature", F, "--feature-dir", dir, "--json"],
+      { env: ENV },
+    );
+    expect(rejected.exit).toBe(2);
+    expect(rejected.stderr + rejected.stdout).toContain("SUB_STATE_AUTHORITY_VIOLATION");
+  });
+
+  // SCEN-E2E-023 — see docs/e2e-scenarios.md
+  test("SCEN-E2E-023 — an open defer finding blocks verify-accept until closed", async () => {
+    const dir = await tmpFeatureDir();
+    const F = "e2e-open-finding";
+    const ENV = { LOAF_USER: "e2e@test.invalid" };
+    const cli = makeCli(dir, ENV);
+    const { step } = cli;
+    await seedToVerifyAccept(
+      cli, F, "E2E open finding gate", "exercise the open-finding block on verify-accept",
+    );
+
+    // a defer finding raised at VERIFY.accept is open and carries no back-edge.
+    const fnd = await step("finding raise defer", [
+      "finding", "raise", "--category", "risk-escalation", "--action", "defer",
+      "--summary", "a follow-up risk is deferred to a later cycle",
+      "--feature", F,
+    ]);
+    expect(fnd.id).toMatch(/^FND-\d{3,}$/);
+
+    // verify-accept is blocked while the finding is open
+    const blocked = await runCli(
+      ["gate", "decide", "verify-accept", "--approve",
+        "--reason", "attempting approval while an open finding is present",
+        "--feature", F, "--feature-dir", dir, "--json"],
+      { env: ENV },
+    );
+    expect(blocked.exit).toBe(2);
+    expect(blocked.stderr + blocked.stdout).toContain("OPEN_FINDINGS_PRESENT");
+
+    // closing the finding unblocks the gate; the feature still delivers
+    await step("finding close", ["finding", "close", fnd.id, "--feature", F]);
+    await step("gate verify-accept", [
+      "gate", "decide", "verify-accept", "--approve",
+      "--reason", "all verify-accept checks pass once the finding is closed", "--feature", F,
+    ]);
+    const delivered = await step("deliver", ["deliver", "--feature", F]);
+    expect(delivered.sub_state ?? delivered.state?.sub_state).toBe("DONE.delivered");
+  });
+
+  // SCEN-E2E-027 — see docs/e2e-scenarios.md
+  test("SCEN-E2E-027 — a gate_decision pending head is co-resolved by the gate batch", async () => {
+    const dir = await tmpFeatureDir();
+    const F = "e2e-gate-pending";
+    const ENV = { LOAF_USER: "e2e@test.invalid" };
+    const { step, writeInput } = makeCli(dir, ENV);
+
+    await step("start", ["start", F, "--ceremony", "standard"]);
+    await step("advance TRIAGE.confirm", ["advance", "TRIAGE.confirm", "--feature", F]);
+    await step("advance SPEC.proposal", ["advance", "SPEC.proposal", "--feature", F]);
+    await step("spec init", ["spec", "init", "--feature", F]);
+    const submitInput = await writeInput("submit.json", {
+      feature: { id: "F-001", name: "E2E gate pending co-resolution" },
+      intent: "exercise the gate-decide co-emitted pending resolution batch",
+      adr_refs: [],
+      needs_clarification: [],
+    });
+    await step("spec submit", ["spec", "submit", "--input", submitInput, "--feature", F]);
+    const reqInput = await writeInput("req.json", {
+      id_namespace: "REQ-CORE",
+      type: "ubiquitous",
+      response: "the system shall complete the gate-pending co-resolution smoke",
+      acceptance_na: true,
+      acceptance_na_reason: "exercised by this end-to-end lifecycle integration test",
+    });
+    await step("spec add-req", ["spec", "add-req", "--input", reqInput, "--feature", F]);
+    await step("advance SPEC.spec", ["advance", "SPEC.spec", "--feature", F]);
+    await step("advance SPEC.plan", ["advance", "SPEC.plan", "--feature", F]);
+    await step("advance SPEC.design", ["advance", "SPEC.design", "--feature", F]);
+    const st = await step("status pre-tasks", ["status", "--feature", F]);
+    const specVersion: number = st.state?.spec_version ?? st.spec_version;
+    const tasksFile = await writeInput("tasks.json", {
+      based_on: { spec: specVersion },
+      tasks: [
+        {
+          id: "T-001",
+          kind: "behavioral",
+          drives: ["REQ-CORE-001"],
+          tests: ["e2e.gatePending"],
+          status: "pending",
+          depends_on: [],
+          labels: [],
+          execution: {
+            red: { applicability: "must", status: "pending", evidence_refs: [] },
+            implement: { applicability: "must", status: "pending", evidence_refs: [] },
+            refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+          },
+        },
+      ],
+    });
+    await step("tasks submit", ["tasks", "submit", tasksFile, "--feature", F]);
+
+    // a gate_decision pending head would block a bare `advance`; the gate
+    // batch co-emits pending:resolved before its phase_advanced, so the
+    // approve clears the head and advances the cursor in one transaction.
+    const pend = await step("pending raise gate_decision", [
+      "pending", "raise", "--kind", "gate_decision",
+      "--question", "approve the spec-lock gate for this feature?",
+      "--feature", F,
+    ]);
+    expect(pend.id).toMatch(/^PEND-\d{4,}$/);
+
+    const approved = await step("gate spec-lock approve", [
+      "gate", "decide", "spec-lock", "--approve",
+      "--reason", "spec and task graph complete; co-resolves the gate pending",
+      "--feature", F,
+    ]);
+    expect(approved.sub_state ?? approved.state?.sub_state).toBe("EXECUTE.plan");
+
+    // the gate_decision head was cleared by the co-emitted pending:resolved.
+    const pendList = await step("pending list", ["pending", "list", "--feature", F]);
+    const gatePend = pendList.pending.find((p: any) => p.id === pend.id);
+    expect(gatePend.resolved).toBe(true);
+    expect(pendList.pending.some((p: any) => !p.resolved)).toBe(false);
+  });
+
+  // SCEN-E2E-028 — see docs/e2e-scenarios.md
+  test("SCEN-E2E-028 — pending resolve is strict FIFO with no skip-ahead", async () => {
+    const dir = await tmpFeatureDir();
+    const F = "e2e-fifo";
+    const ENV = { LOAF_USER: "e2e@test.invalid" };
+    const { step } = makeCli(dir, ENV);
+
+    await step("start", ["start", F, "--ceremony", "standard"]);
+    const p1 = await step("raise pending 1", [
+      "pending", "raise", "--kind", "ask_user_question",
+      "--question", "the first question raised into the queue?", "--feature", F,
+    ]);
+    const p2 = await step("raise pending 2", [
+      "pending", "raise", "--kind", "ask_user_question",
+      "--question", "the second question raised into the queue?", "--feature", F,
+    ]);
+
+    // FIFO: the first-raised entry is the head.
+    const list0 = await step("pending list (initial)", ["pending", "list", "--feature", F]);
+    expect(list0.pending.find((p: any) => p.head)?.id).toBe(p1.id);
+
+    // `pending resolve` has no --id flag — it pops the head only.
+    await step("resolve head", [
+      "pending", "resolve", "--answer", "answering the first queued question", "--feature", F,
+    ]);
+    const list1 = await step("pending list (after first resolve)", ["pending", "list", "--feature", F]);
+    expect(list1.pending.find((p: any) => p.id === p1.id)?.resolved).toBe(true);
+    const second = list1.pending.find((p: any) => p.id === p2.id);
+    expect(second?.resolved).toBe(false);
+    expect(second?.head).toBe(true); // the second entry is now the head
+
+    // resolving again pops the second; the queue drains in raise order.
+    await step("resolve second", [
+      "pending", "resolve", "--answer", "answering the second queued question", "--feature", F,
+    ]);
+    const list2 = await step("pending list (drained)", ["pending", "list", "--feature", F]);
+    expect(list2.pending.every((p: any) => p.resolved)).toBe(true);
+  });
+
 });
