@@ -1646,6 +1646,12 @@ error: <one-line human description>
 
 注 — Slice 1.D 之前的 `SETTLE_PHASE_BYPASS` 是 transition validator 在 `VERIFY.accept → DONE.delivered` 且 `ceremony.settle_phase=true` 时发的 diagnostic。Slice 1.D 把这条边从 LEGAL_TRANSITIONS 里移除后,`loaf advance DONE.delivered` 走的是 `TRANSITION_ILLEGAL` 路径;deep ceremony 用户经 `loaf deliver` 触发同一语义违规时由 `DELIVER_SETTLE_PHASE_BYPASS` 接管(preflight step 5c,session:delivered kind)。`SETTLE_PHASE_BYPASS` code 本身在 v0.1.0 retired,read-side 工具碰到老 journal 里的该值时按 `DELIVER_SETTLE_PHASE_BYPASS` 语义解释。
 
+**rev 5.x Session 7 runtime code**(F-016 — the EXECUTE.done all-tasks-final preflight refine):
+
+| Code | Severity | When emitted | Fix hint |
+|---|---:|---|---|
+| `EXECUTE_DONE_TASKS_NOT_FINAL` | exit 2 | `event:phase_advanced` for the `EXECUTE.work → EXECUTE.done` edge, but `snapshot.tasks` contains a task whose status is not `done` or `abandoned` — protocol defines `EXECUTE.done` as all tasks reached a final status. Preflight refine on the plain forward edge only (a `back_edge` entry keeps its own sponsorship / transition diagnostics) | Finish every task's remaining steps so it auto-promotes to `done`, then retry `loaf advance EXECUTE.done`. `detail.non_final` lists the offending `{task_id, status}` pairs |
+
 完整出错示例(`SCHEMA_VALIDATION_FAILED`):
 
 ```

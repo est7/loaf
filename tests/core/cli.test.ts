@@ -166,6 +166,7 @@ describe("loaf CLI — Blocker #7 MVP surface", () => {
 import { mutate as mutateRaw, mutateBatch as mutateBatchRaw } from "../../src/core/journal-mutate.js";
 import { promises as fsP } from "node:fs";
 import type { Ceremony } from "../../src/core/journal-entry.js";
+import type { Snapshot } from "../../src/core/reducer.js";
 
 const STANDARD_CEREMONY: Ceremony = {
   spec_phase: true,
@@ -667,6 +668,82 @@ describe("loaf gate decide spec-lock — Slice 1.B sub-cycle 4 (MVP)", () => {
  * is sub_state-legal. Builds on the spec-lock seed (which also writes
  * spec.md + plans tasks) so the verify-accept happy path can find both.
  */
+// F-016: abandon every non-final planted task so the EXECUTE.work →
+// EXECUTE.done edge passes the all-tasks-final preflight guard. These
+// seeds are minimal fixtures for gate / deliver / settle command
+// mechanics — they do not exercise task execution, so the cheapest
+// terminal status that keeps verify-accept vacuously passing (abandoned
+// tasks are skipped by both deriveVerifyApplicability and check 4) is
+// `abandoned`. Raw-mutate channel; caller must be at EXECUTE.work.
+async function seedAbandonPlantedTasks(
+  dir: string,
+  snapshot: Snapshot,
+  tailSeq: number,
+): Promise<{ snapshot: Snapshot; tailSeq: number }> {
+  for (const task of snapshot.tasks) {
+    if (task.status === "done" || task.status === "abandoned") continue;
+    const r = await mutateRaw(
+      {
+        at: new Date(2026, 4, 15, 11, 0, tailSeq + 1).toISOString(),
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "event:task_abandoned",
+        payload: { task_id: task.id },
+      },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    );
+    if (!r.ok) throw new Error(`seed task abandon ${task.id} failed: ${r.message}`);
+    snapshot = r.snapshot;
+    tailSeq++;
+  }
+  return { snapshot, tailSeq };
+}
+
+// F-016: drive ONE planted task to status=done — event:task_claimed +
+// an event:task_step_done for each `must` step. Used where a seed needs
+// a non-abandoned terminal task (the spike-block fixture, whose spike
+// must stay non-abandoned to trigger DELIVER_SPIKE_TASKS). Raw-mutate
+// channel; caller must be at EXECUTE.work.
+async function seedCompleteTask(
+  dir: string,
+  snapshot: Snapshot,
+  tailSeq: number,
+  taskId: string,
+): Promise<{ snapshot: Snapshot; tailSeq: number }> {
+  const task = snapshot.tasks.find((t) => t.id === taskId);
+  if (!task) throw new Error(`seedCompleteTask: task ${taskId} not in snapshot`);
+  const claim = await mutateRaw(
+    {
+      at: new Date(2026, 4, 15, 11, 0, tailSeq + 1).toISOString(),
+      actor: "cli:loaf",
+      entry_schema_version: 1,
+      kind: "event:task_claimed",
+      payload: { task_id: taskId },
+    },
+    { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+  );
+  if (!claim.ok) throw new Error(`seedCompleteTask claim ${taskId} failed: ${claim.message}`);
+  snapshot = claim.snapshot;
+  tailSeq++;
+  for (const [stepName, step] of Object.entries(task.steps)) {
+    if (step.applicability !== "must") continue;
+    const done = await mutateRaw(
+      {
+        at: new Date(2026, 4, 15, 11, 0, tailSeq + 1).toISOString(),
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "event:task_step_done",
+        payload: { task_id: taskId, step: stepName, result: "passed" },
+      },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    );
+    if (!done.ok) throw new Error(`seedCompleteTask step ${taskId}/${stepName} failed: ${done.message}`);
+    snapshot = done.snapshot;
+    tailSeq++;
+  }
+  return { snapshot, tailSeq };
+}
+
 async function seedFeatureAtVerifyAccept(dir: string): Promise<void> {
   await seedFeatureAtSpecDesign(dir);
   // Read current state — seedFeatureAtSpecDesign leaves cursor at SPEC.design
@@ -701,6 +778,12 @@ async function seedFeatureAtVerifyAccept(dir: string): Promise<void> {
     if (!r.ok) throw new Error(`seed-verify walk ${from}->${to} failed: ${r.message}`);
     snapshot = r.snapshot;
     tailSeq++;
+    // F-016: once at EXECUTE.work, abandon the planted task graph so the
+    // next step (EXECUTE.work → EXECUTE.done) passes the all-tasks-final
+    // preflight guard.
+    if (to === "EXECUTE.work") {
+      ({ snapshot, tailSeq } = await seedAbandonPlantedTasks(dir, snapshot, tailSeq));
+    }
   }
 }
 
@@ -1150,6 +1233,11 @@ prose body here
     if (!r.ok) throw new Error(`settle-seed walk3 ${from}->${to} failed: ${r.message}`);
     snapshot = r.snapshot;
     tailSeq++;
+    // F-016: abandon the planted task graph at EXECUTE.work before the
+    // EXECUTE.work → EXECUTE.done step (all-tasks-final preflight guard).
+    if (to === "EXECUTE.work") {
+      ({ snapshot, tailSeq } = await seedAbandonPlantedTasks(dir, snapshot, tailSeq));
+    }
   }
 
   // Step 9: verify-accept approve.
@@ -1358,6 +1446,11 @@ describe("loaf deliver — Slice 1.D sub-cycle 2 (MVP)", () => {
       if (!r.ok) throw new Error(`walk failed: ${r.message}`);
       snapshot = r.snapshot;
       tailSeq++;
+      // F-016: abandon the planted task graph at EXECUTE.work before the
+      // EXECUTE.work → EXECUTE.done step (all-tasks-final preflight guard).
+      if (to === "EXECUTE.work") {
+        ({ snapshot, tailSeq } = await seedAbandonPlantedTasks(dir, snapshot, tailSeq));
+      }
     }
 
     const result = await runCli(
@@ -1412,11 +1505,11 @@ describe("loaf deliver — Slice 1.D sub-cycle 2 (MVP)", () => {
             id: "T-002",
             kind: "spike",
             no_test_rationale: "exploratory spike task: no behavioral assertions required",
-            status: "in_progress",
+            status: "pending",
             depends_on: [],
             labels: [],
             execution: {
-              explore: { applicability: "must", status: "running", evidence_refs: [] },
+              explore: { applicability: "must", status: "pending", evidence_refs: [] },
               prototype: { applicability: "must", status: "pending", evidence_refs: [] },
               record: { applicability: "must", status: "pending", evidence_refs: [] },
             },
@@ -1464,42 +1557,43 @@ describe("loaf deliver — Slice 1.D sub-cycle 2 (MVP)", () => {
     snapshot = lockBatch.snapshot;
     tailSeq += 2;
 
-    for (const [from, to] of [
-      ["EXECUTE.plan", "EXECUTE.work"],
-      ["EXECUTE.work", "EXECUTE.done"],
-      ["EXECUTE.done", "VERIFY.plan"],
-      ["VERIFY.plan", "VERIFY.run"],
-      ["VERIFY.run", "VERIFY.review"],
-      ["VERIFY.review", "VERIFY.acceptance"],
-      ["VERIFY.acceptance", "VERIFY.visual"],
-      ["VERIFY.visual", "VERIFY.accept"],
-    ] as Array<[string, string]>) {
+    // F-016: walk to EXECUTE.work, drive the spike task T-002 to done (it
+    // must stay non-abandoned to trigger DELIVER_SPIKE_TASKS) and abandon
+    // the behavioral T-001, then cross EXECUTE.done. The spike hard block
+    // is source-agnostic (protocol §703 / §1298), so deliver is exercised
+    // from EXECUTE.done — no VERIFY walk needed.
+    {
       const r = await mutateRaw(
         {
           at: new Date(2026, 4, 15, 11, 0, tailSeq + 1).toISOString(),
           actor: "cli:loaf",
           entry_schema_version: 1,
           kind: "event:phase_advanced",
-          payload: { from: from as any, to: to as any },
+          payload: { from: "EXECUTE.plan", to: "EXECUTE.work" },
         },
         { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
       );
-      if (!r.ok) throw new Error(`spike walk ${from}->${to} failed: ${r.message}`);
+      if (!r.ok) throw new Error(`spike walk EXECUTE.work failed: ${r.message}`);
       snapshot = r.snapshot;
       tailSeq++;
     }
-
-    const verifyApprove = await mutateRaw(
-      {
-        at: new Date(2026, 4, 15, 12, 0, tailSeq + 1).toISOString(),
-        actor: "human:seed@test.invalid",
-        entry_schema_version: 1,
-        kind: "gate:decided",
-        payload: { gate_kind: "verify-accept", decision: "approved", reason: "seed approval" },
-      },
-      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
-    );
-    if (!verifyApprove.ok) throw new Error(`spike verify-accept seed failed: ${verifyApprove.message}`);
+    ({ snapshot, tailSeq } = await seedCompleteTask(dir, snapshot, tailSeq, "T-002"));
+    ({ snapshot, tailSeq } = await seedAbandonPlantedTasks(dir, snapshot, tailSeq));
+    {
+      const r = await mutateRaw(
+        {
+          at: new Date(2026, 4, 15, 11, 0, tailSeq + 1).toISOString(),
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "event:phase_advanced",
+          payload: { from: "EXECUTE.work", to: "EXECUTE.done" },
+        },
+        { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+      );
+      if (!r.ok) throw new Error(`spike walk EXECUTE.done failed: ${r.message}`);
+      snapshot = r.snapshot;
+      tailSeq++;
+    }
 
     const result = await runCli(
       [
@@ -1515,7 +1609,7 @@ describe("loaf deliver — Slice 1.D sub-cycle 2 (MVP)", () => {
     expect(result.stdout).toBe("");
     const errJson = JSON.parse(result.stderr.trim());
     expect(errJson.code).toBe("DELIVER_SPIKE_TASKS");
-    expect(errJson.detail).toMatchObject({ task_id: "T-002", status: "in_progress" });
+    expect(errJson.detail).toMatchObject({ task_id: "T-002", status: "done" });
   });
 
   test("fail: LOAF_USER unset (no tty) → NO_HUMAN_ACTOR, stdout empty", async () => {
@@ -1830,6 +1924,11 @@ needs_clarification: []
       if (!r.ok) throw new Error(`walk3 failed: ${r.message}`);
       snapshot = r.snapshot;
       tailSeq++;
+      // F-016: abandon the planted task graph at EXECUTE.work before the
+      // EXECUTE.work → EXECUTE.done step (all-tasks-final preflight guard).
+      if (to === "EXECUTE.work") {
+        ({ snapshot, tailSeq } = await seedAbandonPlantedTasks(dir, snapshot, tailSeq));
+      }
     }
     // NO verify-accept approval — verify_accepted stays false at VERIFY.accept.
 
@@ -3024,6 +3123,14 @@ describe("End-to-end lifecycle CLI — Slice 1.D sub-cycle 4", () => {
         ],
       );
       expect(r.exit, `advance to ${target} failed: ${r.stderr}`).toBe(0);
+      // F-016: abandon the seed task graph at EXECUTE.work before the next
+      // advance crosses EXECUTE.done (all-tasks-final preflight guard). The
+      // task abandon rides the raw-mutate channel — consistent with this
+      // test's SPEC + tasks_planned seed, which is already raw-mutate.
+      if (target === "EXECUTE.work") {
+        const sess = await (await import("../../src/core/cli-runtime.js")).loadSession(dir);
+        await seedAbandonPlantedTasks(dir, sess.snapshot, sess.tail_seq);
+      }
     }
 
     // CLI 3: verify-accept approve (verify_accepted=true, cursor stays at VERIFY.accept).
@@ -3095,6 +3202,14 @@ describe("End-to-end lifecycle CLI — Slice 1.D sub-cycle 4", () => {
         ],
       );
       expect(r.exit, `deep advance to ${target} failed: ${r.stderr}`).toBe(0);
+      // F-016: abandon the seed task graph at EXECUTE.work before the next
+      // advance crosses EXECUTE.done (all-tasks-final preflight guard). The
+      // task abandon rides the raw-mutate channel — consistent with this
+      // test's SPEC + tasks_planned seed, which is already raw-mutate.
+      if (target === "EXECUTE.work") {
+        const sess = await (await import("../../src/core/cli-runtime.js")).loadSession(dir);
+        await seedAbandonPlantedTasks(dir, sess.snapshot, sess.tail_seq);
+      }
     }
 
     // CLI 3: verify-accept approve.

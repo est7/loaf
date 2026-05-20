@@ -1850,7 +1850,16 @@ describe("E2E — full worker lifecycle (standard ceremony)", () => {
       "tasks", "step", "start", "--task", "T-002", "--step", "red", "--feature", F,
     ]);
 
-    // both tasks complete; EXECUTE.done is reached with both terminal.
+    // EXECUTE.done is legal only after every task is terminal (F-016) —
+    // with both tasks still in_progress, `advance EXECUTE.done` is rejected.
+    const blockedDone = await runCli(
+      ["advance", "EXECUTE.done", "--feature", F, "--feature-dir", dir, "--json"],
+      { env: ENV },
+    );
+    expect(blockedDone.exit).toBe(2);
+    expect(blockedDone.stderr + blockedDone.stdout).toContain("EXECUTE_DONE_TASKS_NOT_FINAL");
+
+    // both tasks complete; EXECUTE.done is then reached with both terminal.
     for (const id of ["T-001", "T-002"]) {
       await step(`step done red ${id}`, [
         "tasks", "step", "done", "--task", id, "--step", "red", "--feature", F,

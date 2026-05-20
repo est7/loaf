@@ -3747,6 +3747,7 @@ export const DiagnosticCode = z.enum([
   "SUB_STATE_AUTHORITY_VIOLATION",         // src/core/reducer/preflight.ts:90-97
   "TRANSITION_ILLEGAL",                    // src/core/reducer/transition.ts:82-94
   "VERIFY_PHASE_FORK_VIOLATION",           // src/core/reducer/transition.ts:125-144
+  "EXECUTE_DONE_TASKS_NOT_FINAL",          // F-016 — preflight: EXECUTE.work→EXECUTE.done requires every task status ∈ {done, abandoned}
   // ── audit r1-r5 — reducer.apply ──
   "ALREADY_STARTED",                       // src/core/reducer.ts:109-115; src/core/reducer.ts:134-141
   "FINDING_NOT_FOUND",                     // src/core/reducer.ts:333-342
@@ -3890,6 +3891,24 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
       "resets_spec_locked effect lifts the gate); then retry the spec " +
       "add/submit",
     doc_anchor: "protocol.md#§5.3",
+  },
+  EXECUTE_DONE_TASKS_NOT_FINAL: {
+    // F-016: preflight refine on event:phase_advanced. The EXECUTE.work →
+    // EXECUTE.done edge requires every task in a final status (done |
+    // abandoned) — protocol defines EXECUTE.done as "all tasks final".
+    // detail.non_final = [{task_id, status}, ...]; detail.count = number
+    // of offending tasks (the template interpolates count only — the
+    // structured list rides detail, not the rendered message).
+    exit_code: 2,
+    message_template:
+      "cannot advance EXECUTE.work to EXECUTE.done: {count} task(s) are not " +
+      "in a final status (done or abandoned)",
+    fix_template:
+      "finish every task — run its remaining steps via `loaf tasks step` " +
+      "until each task auto-promotes to status=done — then retry " +
+      "`loaf advance EXECUTE.done`; see detail.non_final for the tasks " +
+      "still pending or in progress",
+    doc_anchor: "protocol.md#§10.5",
   },
   SPEC_ALREADY_INITIALIZED: {
     // Slice 4 SC4: `loaf spec init` refuses to overwrite an existing

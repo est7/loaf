@@ -1104,4 +1104,116 @@ describe("preflight — bug-task RED registration (Slice C SC-C4)", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.code).toBe("BUG_TASK_FLAG_MISUSE");
   });
+
+  // ── F-016 — EXECUTE.work → EXECUTE.done all-tasks-final guard ─────────
+  //
+  // protocol defines EXECUTE.done as "all tasks reached a final status".
+  // The preflight refine rejects the plain forward edge when any task is
+  // non-final (pending / ready / in_progress); done + abandoned are
+  // final; zero tasks passes vacuously (quick ceremony reaches
+  // EXECUTE.done with no task graph). The guard only reads task.status,
+  // so this builder leaves steps empty.
+  const f016Task = (id: string, status: TaskState["status"]): TaskState => ({
+    id,
+    kind: "behavioral",
+    status,
+    steps: {},
+    drives: [],
+    depends_on: [],
+    labels: [],
+  });
+
+  const executeDoneEntry = () =>
+    baseEntry({
+      kind: "event:phase_advanced",
+      payload: { from: "EXECUTE.work", to: "EXECUTE.done" },
+    });
+
+  for (const status of ["pending", "ready", "in_progress"] as const) {
+    test(`event:phase_advanced EXECUTE.work→EXECUTE.done + a ${status} task → EXECUTE_DONE_TASKS_NOT_FINAL`, () => {
+      const r = preflight(executeDoneEntry(), {
+        snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, {
+          tasks: [f016Task("T-001", status)],
+        }),
+        tail_seq: -1,
+      });
+      expect(r.ok).toBe(false);
+      if (!r.ok) {
+        expect(r.code).toBe("EXECUTE_DONE_TASKS_NOT_FINAL");
+        expect(r.detail).toMatchObject({
+          count: 1,
+          non_final: [{ task_id: "T-001", status }],
+        });
+      }
+    });
+  }
+
+  test("event:phase_advanced EXECUTE.work→EXECUTE.done + all tasks done → ok", () => {
+    const r = preflight(executeDoneEntry(), {
+      snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, {
+        tasks: [f016Task("T-001", "done"), f016Task("T-002", "done")],
+      }),
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(true);
+  });
+
+  test("event:phase_advanced EXECUTE.work→EXECUTE.done + done + abandoned → ok", () => {
+    const r = preflight(executeDoneEntry(), {
+      snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, {
+        tasks: [f016Task("T-001", "done"), f016Task("T-002", "abandoned")],
+      }),
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(true);
+  });
+
+  test("event:phase_advanced EXECUTE.work→EXECUTE.done + zero tasks → ok (vacuous)", () => {
+    const r = preflight(executeDoneEntry(), {
+      snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [] }),
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(true);
+  });
+
+  test("EXECUTE_DONE_TASKS_NOT_FINAL detail lists every non-final task in order", () => {
+    const r = preflight(executeDoneEntry(), {
+      snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, {
+        tasks: [
+          f016Task("T-001", "done"),
+          f016Task("T-002", "in_progress"),
+          f016Task("T-003", "pending"),
+        ],
+      }),
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.code).toBe("EXECUTE_DONE_TASKS_NOT_FINAL");
+      expect(r.detail).toMatchObject({
+        count: 2,
+        non_final: [
+          { task_id: "T-002", status: "in_progress" },
+          { task_id: "T-003", status: "pending" },
+        ],
+      });
+    }
+  });
+
+  test("the guard is scoped to EXECUTE.work→EXECUTE.done — an unrelated edge is unaffected", () => {
+    // a pending task does not block, e.g., SPEC.plan → SPEC.design.
+    const r = preflight(
+      baseEntry({
+        kind: "event:phase_advanced",
+        payload: { from: "SPEC.plan", to: "SPEC.design" },
+      }),
+      {
+        snapshot: mkSnapshot("SPEC.plan", STANDARD_CEREMONY, {
+          tasks: [f016Task("T-001", "pending")],
+        }),
+        tail_seq: -1,
+      },
+    );
+    expect(r.ok).toBe(true);
+  });
 });

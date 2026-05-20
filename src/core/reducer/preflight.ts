@@ -109,6 +109,12 @@ export type PreflightFailureCode =
   // / ESCALATION_NOT_PENDING and the gate-decide pending:resolved
   // co-emission are deferred to SC4 (codex r62/r63 sign-off).
   | "PENDING_BLOCKS_ADVANCE"
+  // Session 7 / F-016 — the EXECUTE.work → EXECUTE.done edge requires
+  // every task to be in a final status (done | abandoned). protocol.md
+  // defines EXECUTE.done as "all tasks reached final status"; without
+  // this refine a pending / in_progress task slipped past the phase
+  // boundary unenforced (verify-accept check 4 only scans done tasks).
+  | "EXECUTE_DONE_TASKS_NOT_FINAL"
   // Slice 3 SC3 — FINDING_ACTION_GRID + target_payload preflight
   // (protocol §4.5 / docs/schemas.ts §37 / codex r68 sign-off).
   // INCOHERENT: 4 grid cells where structure offers no transition
@@ -496,6 +502,37 @@ export function preflight(
             expected_action: backEdge.action,
             actual_action: finding.action,
           },
+        };
+      }
+    }
+
+    // (5b.2) Session 7 / F-016 — EXECUTE.done = all tasks final.
+    // protocol.md §10.5 / §2 define EXECUTE.done as "all tasks reached a
+    // final status". Without this refine a pending / ready / in_progress
+    // task slips past the EXECUTE.work → EXECUTE.done boundary unenforced
+    // (verify-accept check 4 only scans done tasks). Applies to the plain
+    // forward edge only: a back_edge entry keeps its own sponsorship /
+    // transition diagnostics (codex r123 constraint #1) — back_edge
+    // targets SPEC.spec, never EXECUTE.done, but the gate is explicit.
+    const phaseTo = payload["to"] as SubState | undefined;
+    if (
+      backEdge === undefined &&
+      sub_state === "EXECUTE.work" &&
+      phaseTo === "EXECUTE.done"
+    ) {
+      const nonFinal = ctx.snapshot.tasks
+        .filter((t) => t.status !== "done" && t.status !== "abandoned")
+        .map((t) => ({ task_id: t.id, status: t.status }));
+      if (nonFinal.length > 0) {
+        return {
+          ok: false,
+          code: "EXECUTE_DONE_TASKS_NOT_FINAL",
+          message:
+            `cannot advance EXECUTE.work → EXECUTE.done: ${nonFinal.length} task(s) ` +
+            `are not in a final status (` +
+            nonFinal.map((t) => `${t.task_id}=${t.status}`).join(", ") +
+            `); every task must be done or abandoned`,
+          detail: { non_final: nonFinal, count: nonFinal.length },
         };
       }
     }

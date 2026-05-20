@@ -155,6 +155,7 @@
     "DELIVER_SETTLE_PHASE_BYPASS": "deliver from VERIFY.accept requires ceremony.settle_phase=false (standard); deep ceremony must run `loaf settle` first",
     "DELIVER_VERIFY_MIN_UNAVAILABLE": "quick/light deliver from EXECUTE.done requires verify-min, which is not yet implemented (ceremony_label={ceremony_label})",
     "DELIVER_SPIKE_TASKS":         "cannot deliver: task {task_id} is kind=spike (status={status}); spike tasks block delivery for the entire session",
+    "EXECUTE_DONE_TASKS_NOT_FINAL": "cannot advance EXECUTE.work → EXECUTE.done: {count} task(s) are not in a final status (done or abandoned); finish every task's remaining steps first",
     "SETTLE_NOT_ACCEPTED":         "VERIFY.accept → SETTLE.reconcile requires verify_accepted=true; run `loaf gate decide verify-accept --approve` before `loaf settle`",
     "TASK_NOT_CLAIMABLE":          "task {task_id} cannot be claimed (status={status} — terminal state)",
     "TASK_ALREADY_CLAIMED":        "task {task_id} is already claimed (status=in_progress)",

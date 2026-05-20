@@ -550,6 +550,24 @@ describe("loaf gate decide — SC4 soft pending:resolved co-emission", () => {
         { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, fsync: false },
       );
       if (!r.ok) throw new Error(`walk ${from}→${to}: ${r.message}`);
+      if (to === "EXECUTE.work") {
+        // F-016: abandon the seed task T-001 before crossing EXECUTE.done
+        // (all-tasks-final preflight guard). This fixture exercises the
+        // gate-pending co-emission, not task execution — an abandoned task
+        // keeps verify-accept vacuously passing.
+        s = await loadSnapshot(dir);
+        const ab = await mutate(
+          {
+            at: new Date().toISOString(),
+            actor: "cli:loaf",
+            entry_schema_version: 1,
+            kind: "event:task_abandoned",
+            payload: { task_id: "T-001" },
+          },
+          { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, fsync: false },
+        );
+        if (!ab.ok) throw new Error(`seed task abandon: ${ab.message}`);
+      }
     }
     await rawRaisePending(dir, "PEND-0001", "gate_decision", "approve verify-accept?");
     const before = await readJournalLines(dir);

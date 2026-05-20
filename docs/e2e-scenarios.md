@@ -318,7 +318,10 @@ Source: codex independent enumeration r119 (AMQ thread
 - **Covers** `depends_on` stable-core behavior through the CLI.
 
 ### SCEN-E2E-030 — fan-out independent tasks
-- **Tier** optional · **Status** green
+- **Tier** optional · **Status** green · **Impl** the "legal only after both
+  terminal" clause is enforced by the F-016 `EXECUTE_DONE_TASKS_NOT_FINAL`
+  preflight guard; the test asserts both the rejection (tasks in_progress)
+  and the post-completion success.
 - **Given** two independent tasks.
 - **When** both are claimed and `in_progress` before either finishes.
 - **Then** both can complete; EXECUTE.done is legal only after both are
