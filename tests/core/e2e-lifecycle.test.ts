@@ -620,4 +620,73 @@ describe("E2E — full worker lifecycle (standard ceremony)", () => {
     const delivered = await step("deliver", ["deliver", "--feature", F]);
     expect(delivered.sub_state ?? delivered.state?.sub_state).toBe("DONE.delivered");
   });
+
+  // SCEN-E2E-024 — see docs/e2e-scenarios.md
+  test("SCEN-E2E-024 — spec-lock reject keeps cursor, approve advances", async () => {
+    const dir = await tmpFeatureDir();
+    const F = "e2e-lock-reject";
+    const ENV = { LOAF_USER: "e2e@test.invalid" };
+    const { step, writeInput } = makeCli(dir, ENV);
+
+    await step("start", ["start", F, "--ceremony", "standard"]);
+    await step("advance TRIAGE.confirm", ["advance", "TRIAGE.confirm", "--feature", F]);
+    await step("advance SPEC.proposal", ["advance", "SPEC.proposal", "--feature", F]);
+    await step("spec init", ["spec", "init", "--feature", F]);
+    const submitInput = await writeInput("submit.json", {
+      feature: { id: "F-001", name: "E2E spec-lock reject" },
+      intent: "exercise the spec-lock gate reject then approve path",
+      adr_refs: [],
+      needs_clarification: [],
+    });
+    await step("spec submit", ["spec", "submit", "--input", submitInput, "--feature", F]);
+    const reqInput = await writeInput("req.json", {
+      id_namespace: "REQ-CORE",
+      type: "ubiquitous",
+      response: "the system shall complete the spec-lock reject smoke",
+      acceptance_na: true,
+      acceptance_na_reason: "exercised by this end-to-end lifecycle integration test",
+    });
+    await step("spec add-req", ["spec", "add-req", "--input", reqInput, "--feature", F]);
+    await step("advance SPEC.spec", ["advance", "SPEC.spec", "--feature", F]);
+    await step("advance SPEC.plan", ["advance", "SPEC.plan", "--feature", F]);
+    await step("advance SPEC.design", ["advance", "SPEC.design", "--feature", F]);
+    const st = await step("status pre-tasks", ["status", "--feature", F]);
+    const specVersion: number = st.state?.spec_version ?? st.spec_version;
+    const tasksFile = await writeInput("tasks.json", {
+      based_on: { spec: specVersion },
+      tasks: [
+        {
+          id: "T-001",
+          kind: "behavioral",
+          drives: ["REQ-CORE-001"],
+          tests: ["e2e.lockRejectSmoke"],
+          status: "pending",
+          depends_on: [],
+          labels: [],
+          execution: {
+            red: { applicability: "must", status: "pending", evidence_refs: [] },
+            implement: { applicability: "must", status: "pending", evidence_refs: [] },
+            refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+          },
+        },
+      ],
+    });
+    await step("tasks submit", ["tasks", "submit", tasksFile, "--feature", F]);
+
+    // ── reject — cursor stays SPEC.design, spec_locked stays false ──────
+    await step("gate spec-lock reject", [
+      "gate", "decide", "spec-lock", "--reject",
+      "--reason", "hold for one more spec review pass", "--feature", F,
+    ]);
+    const afterReject = await step("status after reject", ["status", "--feature", F]);
+    expect(afterReject.state.sub_state).toBe("SPEC.design");
+    expect(afterReject.state.spec_locked).toBe(false);
+
+    // ── approve — cursor advances to EXECUTE.plan ───────────────────────
+    const approved = await step("gate spec-lock approve", [
+      "gate", "decide", "spec-lock", "--approve",
+      "--reason", "spec and task graph are complete", "--feature", F,
+    ]);
+    expect(approved.sub_state ?? approved.state?.sub_state).toBe("EXECUTE.plan");
+  });
 });
