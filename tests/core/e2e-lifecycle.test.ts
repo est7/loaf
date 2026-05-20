@@ -689,4 +689,114 @@ describe("E2E — full worker lifecycle (standard ceremony)", () => {
     ]);
     expect(approved.sub_state ?? approved.state?.sub_state).toBe("EXECUTE.plan");
   });
+
+  // SCEN-E2E-025 — see docs/e2e-scenarios.md
+  test("SCEN-E2E-025 — verify-accept reject blocks deliver, approve unblocks", async () => {
+    const dir = await tmpFeatureDir();
+    const F = "e2e-verify-reject";
+    const ENV = { LOAF_USER: "e2e@test.invalid" };
+    const { step, writeInput } = makeCli(dir, ENV);
+
+    // ── drive a standard feature to VERIFY.accept with evidence ─────────
+    await step("start", ["start", F, "--ceremony", "standard"]);
+    await step("advance TRIAGE.confirm", ["advance", "TRIAGE.confirm", "--feature", F]);
+    await step("advance SPEC.proposal", ["advance", "SPEC.proposal", "--feature", F]);
+    await step("spec init", ["spec", "init", "--feature", F]);
+    const submitInput = await writeInput("submit.json", {
+      feature: { id: "F-001", name: "E2E verify-accept reject" },
+      intent: "exercise the verify-accept gate reject then approve path",
+      adr_refs: [],
+      needs_clarification: [],
+    });
+    await step("spec submit", ["spec", "submit", "--input", submitInput, "--feature", F]);
+    const reqInput = await writeInput("req.json", {
+      id_namespace: "REQ-CORE",
+      type: "ubiquitous",
+      response: "the system shall complete the verify-accept reject smoke",
+      acceptance_na: true,
+      acceptance_na_reason: "exercised by this end-to-end lifecycle integration test",
+    });
+    await step("spec add-req", ["spec", "add-req", "--input", reqInput, "--feature", F]);
+    await step("advance SPEC.spec", ["advance", "SPEC.spec", "--feature", F]);
+    await step("advance SPEC.plan", ["advance", "SPEC.plan", "--feature", F]);
+    await step("advance SPEC.design", ["advance", "SPEC.design", "--feature", F]);
+    const st = await step("status pre-tasks", ["status", "--feature", F]);
+    const specVersion: number = st.state?.spec_version ?? st.spec_version;
+    const tasksFile = await writeInput("tasks.json", {
+      based_on: { spec: specVersion },
+      tasks: [
+        {
+          id: "T-001",
+          kind: "behavioral",
+          drives: ["REQ-CORE-001"],
+          tests: ["e2e.verifyRejectSmoke"],
+          status: "pending",
+          depends_on: [],
+          labels: [],
+          execution: {
+            red: { applicability: "must", status: "pending", evidence_refs: [] },
+            implement: { applicability: "must", status: "pending", evidence_refs: [] },
+            refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+          },
+        },
+      ],
+    });
+    await step("tasks submit", ["tasks", "submit", tasksFile, "--feature", F]);
+    await step("gate spec-lock", [
+      "gate", "decide", "spec-lock", "--approve",
+      "--reason", "spec and task graph complete", "--feature", F,
+    ]);
+    await step("advance EXECUTE.work", ["advance", "EXECUTE.work", "--feature", F]);
+    await step("tasks claim T-001", ["tasks", "claim", "T-001", "--feature", F]);
+    for (const stp of ["red", "implement"]) {
+      await step(`step start ${stp}`, [
+        "tasks", "step", "start", "--task", "T-001", "--step", stp, "--feature", F,
+      ]);
+      await step(`step done ${stp}`, [
+        "tasks", "step", "done", "--task", "T-001", "--step", stp, "--feature", F,
+      ]);
+    }
+    await step("advance EXECUTE.done", ["advance", "EXECUTE.done", "--feature", F]);
+    for (const ss of [
+      "VERIFY.plan", "VERIFY.run", "VERIFY.review",
+      "VERIFY.acceptance", "VERIFY.visual", "VERIFY.accept",
+    ]) {
+      await step(`advance ${ss}`, ["advance", ss, "--feature", F]);
+    }
+    const tsEvidence = await writeInput("ev-task-summary.json", {
+      kind: "task-summary", iteration: 1, actor: "cli:loaf", result: "passed",
+      summary: "unit tests pass for T-001", task_id: "T-001", covers: ["T-001"],
+      cmd: "bun test", exit: 0,
+    });
+    await step("evidence add task-summary", ["evidence", "add", "--input", tsEvidence, "--feature", F]);
+    const vrEvidence = await writeInput("ev-verify-review.json", {
+      kind: "verify-review", iteration: 1, actor: "cli:loaf", result: "approved",
+      summary: "spec-fit review passed", check: "review", covers: ["REQ-CORE-001"],
+    });
+    await step("evidence add verify-review", ["evidence", "add", "--input", vrEvidence, "--feature", F]);
+
+    // ── reject — verify_accepted stays false, deliver is blocked ────────
+    await step("gate verify-accept reject", [
+      "gate", "decide", "verify-accept", "--reject",
+      "--reason", "hold for one more verification pass", "--feature", F,
+    ]);
+    const afterReject = await step("status after reject", ["status", "--feature", F]);
+    expect(afterReject.state.sub_state).toBe("VERIFY.accept");
+    expect(afterReject.state.verify_accepted).toBe(false);
+
+    const blocked = await runCli(
+      ["deliver", "--feature", F, "--feature-dir", dir, "--json"],
+      { env: ENV },
+    );
+    expect(blocked.exit).toBe(2);
+    expect(blocked.stderr + blocked.stdout).toContain("DELIVER_NOT_ACCEPTED");
+
+    // ── approve — deliver unblocked ─────────────────────────────────────
+    await step("gate verify-accept approve", [
+      "gate", "decide", "verify-accept", "--approve",
+      "--reason", "all verify-accept checks pass", "--feature", F,
+    ]);
+    const delivered = await step("deliver", ["deliver", "--feature", F]);
+    expect(delivered.sub_state ?? delivered.state?.sub_state).toBe("DONE.delivered");
+  });
 });
