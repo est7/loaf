@@ -3861,3 +3861,183 @@ describe("loaf tasks amend — Slice C SC-C2c (--policy applicability mutation)"
     expect(JSON.parse(r.stderr.trim()).code).toBe("MUTATION_OUT_OF_RIGHTS");
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// loaf tasks add — Slice C SC-C3
+//
+// `tasks add --input <src>` appends id-less task(s) to the graph at
+// SPEC.design (protocol §1818 / emit table L1866). It is the append
+// variant of `tasks submit`: it emits ONE whole-replacement
+// event:tasks_planned whose payload.tasks is the re-materialized existing
+// graph plus the newly seeded tasks. The CLI allocates each T-id
+// (max-serial+1, zero-pad ≥3); the input must not carry `id` (§706).
+// EXECUTE-phase add is the future finding amend-tasks flow, not this path
+// (codex r111 Q3).
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("loaf tasks add — Slice C SC-C3 (SPEC.design append)", () => {
+  // Protocol-shaped TaskInput: omits id / status / execution (all
+  // CLI-owned, codex r113). The CLI allocates the id, sets status=pending,
+  // and initializes the per-kind execution map.
+  function taskInput(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      kind: "behavioral",
+      drives: ["REQ-AUTH-002"],
+      tests: ["NewFeature.spec"],
+      ...overrides,
+    };
+  }
+
+  async function writeInput(dir: string, content: unknown): Promise<string> {
+    const p = path.join(dir, ".add-input.json");
+    await fsP.writeFile(p, JSON.stringify(content));
+    return p;
+  }
+
+  test("happy: append a single task at SPEC.design → CLI allocates id + execution", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtSpecDesign(dir); // cursor at SPEC.design, T-001 submitted
+    const input = await writeInput(dir, taskInput());
+
+    const r = await runCli([
+      "tasks", "add", input,
+      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+    ]);
+    expect(r.exit).toBe(0);
+    const out = JSON.parse(r.stdout);
+    expect(out.ok).toBe(true);
+    expect(out.task_ids).toEqual(["T-002"]);
+
+    const list = await runCli([
+      "tasks", "list", "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+    ]);
+    const listed = JSON.parse(list.stdout).tasks;
+    expect(listed.map((t: { id: string }) => t.id)).toEqual(["T-001", "T-002"]);
+    // CLI-initialized execution: every behavioral step seeded must/pending.
+    const t002 = listed.find((t: { id: string }) => t.id === "T-002");
+    expect(t002.status).toBe("pending");
+    expect(Object.keys(t002.steps).sort()).toEqual(["implement", "red", "refactor"]);
+    expect(t002.steps.refactor.applicability).toBe("must");
+  });
+
+  test("happy: batch add allocates consecutive T-ids", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtSpecDesign(dir);
+    const input = await writeInput(dir, [taskInput(), taskInput()]);
+
+    const r = await runCli([
+      "tasks", "add", input,
+      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+    ]);
+    expect(r.exit).toBe(0);
+    expect(JSON.parse(r.stdout).task_ids).toEqual(["T-002", "T-003"]);
+  });
+
+  test("re-emit preserves the existing graph's task bodies", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtSpecDesign(dir);
+    const input = await writeInput(dir, taskInput());
+    await runCli([
+      "tasks", "add", input,
+      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+    ]);
+    // The emitted tasks_planned must carry T-001 with its canonical body.
+    const journal = await fsP.readFile(path.join(dir, "journal.jsonl"), "utf8");
+    const lastPlan = journal
+      .trimEnd()
+      .split("\n")
+      .map((l) => JSON.parse(l))
+      .filter((e) => e.kind === "event:tasks_planned")
+      .at(-1);
+    const t001 = lastPlan.payload.tasks.find((t: { id: string }) => t.id === "T-001");
+    expect(t001.tests).toEqual(["TokenCoord.refreshOnce"]);
+    expect(lastPlan.payload.tasks.map((t: { id: string }) => t.id)).toEqual(["T-001", "T-002"]);
+  });
+
+  test("fail: input carrying `id` is rejected (§706 — id is CLI-allocated)", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtSpecDesign(dir);
+    const input = await writeInput(dir, taskInput({ id: "T-099" }));
+
+    const r = await runCli([
+      "tasks", "add", input,
+      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+    ]);
+    expect(r.exit).toBe(2);
+    expect(JSON.parse(r.stderr.trim()).code).toBe("SCHEMA_VALIDATION_FAILED");
+  });
+
+  test("fail: input carrying `execution` is rejected (CLI initializes it)", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtSpecDesign(dir);
+    const input = await writeInput(
+      dir,
+      taskInput({
+        execution: {
+          red: { applicability: "must", status: "pending", evidence_refs: [] },
+          implement: { applicability: "must", status: "pending", evidence_refs: [] },
+          refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+        },
+      }),
+    );
+
+    const r = await runCli([
+      "tasks", "add", input,
+      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+    ]);
+    expect(r.exit).toBe(2);
+    expect(JSON.parse(r.stderr.trim()).code).toBe("SCHEMA_VALIDATION_FAILED");
+  });
+
+  test("fail: input carrying `status` is rejected (CLI sets it to pending)", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtSpecDesign(dir);
+    const input = await writeInput(dir, taskInput({ status: "ready" }));
+
+    const r = await runCli([
+      "tasks", "add", input,
+      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+    ]);
+    expect(r.exit).toBe(2);
+    expect(JSON.parse(r.stderr.trim()).code).toBe("SCHEMA_VALIDATION_FAILED");
+  });
+
+  test("fail: malformed JSON input → SCHEMA_VALIDATION_FAILED", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtSpecDesign(dir);
+    const p = path.join(dir, ".bad-input.json");
+    await fsP.writeFile(p, "{ not json");
+
+    const r = await runCli([
+      "tasks", "add", p,
+      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+    ]);
+    expect(r.exit).toBe(2);
+    expect(JSON.parse(r.stderr.trim()).code).toBe("SCHEMA_VALIDATION_FAILED");
+  });
+
+  test("fail: missing input file → INPUT_FILE_NOT_FOUND", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtSpecDesign(dir);
+
+    const r = await runCli([
+      "tasks", "add", path.join(dir, "nonexistent.json"),
+      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+    ]);
+    expect(r.exit).toBe(2);
+    expect(JSON.parse(r.stderr.trim()).code).toBe("INPUT_FILE_NOT_FOUND");
+  });
+
+  test("fail: tasks add outside SPEC.design → SUB_STATE_AUTHORITY_VIOLATION", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtExecuteWork(dir); // cursor at EXECUTE.work
+    const input = await writeInput(dir, taskInput());
+
+    const r = await runCli([
+      "tasks", "add", input,
+      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+    ]);
+    expect(r.exit).toBe(2);
+    expect(JSON.parse(r.stderr.trim()).code).toBe("SUB_STATE_AUTHORITY_VIOLATION");
+  });
+});

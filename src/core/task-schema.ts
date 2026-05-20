@@ -257,3 +257,100 @@ export function shouldPromoteToDone(
   if (mustSteps.length === 0) return false;
   return mustSteps.every((s) => s.status === "passed" || s.status === "waived" || s.status === "na");
 }
+
+// ── TaskInput — `loaf tasks add` input shape (Slice C SC-C3) ─────────────
+// Runtime mirror of docs/schemas.ts §40 TaskInput. The input shape OMITS
+// the three CLI-owned fields:
+//   - id         — CLI allocates the next T-NNN serial
+//   - status     — CLI sets "pending" on create
+//   - execution  — CLI initializes every per-kind step to
+//                  applicability="must", status="pending"
+// `.strict()` on every variant: a caller that supplies id / status /
+// execution / any unknown key is REJECTED, not silently stripped — the
+// shape-enforcement point of ADR-0004 (codex r113 BLOCK).
+
+const TaskInputBaseShape = {
+  drives: z.array(RawDrivesRef).optional(),
+  depends_on: z.array(TaskIdPayload).default([]),
+  labels: z.array(z.string()).default([]),
+};
+
+export const TaskBehavioralInput = z
+  .object({
+    ...TaskInputBaseShape,
+    kind: z.literal("behavioral"),
+    drives: z.array(RawDrivesRef).min(1),
+    tests: z.array(z.string().min(3)).min(1),
+    test_layer: z.enum(["unit", "integration", "e2e"]).optional(),
+    red_test_registered: z.boolean().optional(),
+    requires_acceptance: z.boolean().optional(),
+    requires_visual: z.boolean().optional(),
+  })
+  .strict()
+  .refine((t) => !t.labels.includes("bug") || t.red_test_registered === true, {
+    message: "behavioral tasks with labels=['bug'] require red_test_registered=true",
+  });
+
+export const TaskStructuralInput = z
+  .object({ ...TaskInputBaseShape, kind: z.literal("structural"), no_test_rationale: z.string().min(10) })
+  .strict();
+
+export const TaskVisualUiInput = z
+  .object({
+    ...TaskInputBaseShape,
+    kind: z.literal("visual-ui"),
+    visual_contract_refs: z.array(VisIdPayload).min(1),
+    no_test_rationale: z.string().min(10).optional(),
+  })
+  .strict();
+
+export const TaskDocsInput = z
+  .object({ ...TaskInputBaseShape, kind: z.literal("docs"), no_test_rationale: z.string().min(10) })
+  .strict();
+
+export const TaskSpikeInput = z
+  .object({ ...TaskInputBaseShape, kind: z.literal("spike"), no_test_rationale: z.string().min(10) })
+  .strict();
+
+export const TaskChoreInput = z
+  .object({ ...TaskInputBaseShape, kind: z.literal("chore"), no_test_rationale: z.string().min(10) })
+  .strict();
+
+// Plain union (not discriminatedUnion) — the behavioral variant carries a
+// .refine(), which zod cannot combine with .discriminatedUnion (mirrors
+// the TaskFullPayload comment above).
+export const TaskInput = z.union([
+  TaskBehavioralInput,
+  TaskStructuralInput,
+  TaskVisualUiInput,
+  TaskDocsInput,
+  TaskSpikeInput,
+  TaskChoreInput,
+]);
+export type TaskInput = z.infer<typeof TaskInput>;
+
+// Per-kind execution step set, derived from the *ExecutionPayload schemas
+// so it cannot drift from them.
+const KIND_EXECUTION_STEPS: Record<TaskFullProjection["kind"], readonly string[]> = {
+  behavioral: Object.keys(BehavioralExecutionPayload.shape),
+  structural: Object.keys(StructuralExecutionPayload.shape),
+  "visual-ui": Object.keys(VisualUiExecutionPayload.shape),
+  docs: Object.keys(DocsExecutionPayload.shape),
+  spike: Object.keys(SpikeExecutionPayload.shape),
+  chore: Object.keys(ChoreExecutionPayload.shape),
+};
+
+/**
+ * Materialize a validated `TaskInput` into a full `TaskFullPayload` by
+ * stamping the three CLI-owned fields: the allocated `id`, `status="pending"`,
+ * and a per-kind `execution` map whose every step starts at
+ * applicability="must", status="pending" (docs/schemas.ts §40 — `tasks
+ * amend --policy` is the path to narrow applicability afterward).
+ */
+export function materializeTaskInput(input: TaskInput, id: string): TaskFullPayload {
+  const execution: Record<string, TaskExecutionStepPayload> = {};
+  for (const step of KIND_EXECUTION_STEPS[input.kind]) {
+    execution[step] = { applicability: "must", status: "pending", evidence_refs: [] };
+  }
+  return { ...input, id, status: "pending", execution } as TaskFullPayload;
+}

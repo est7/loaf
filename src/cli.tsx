@@ -31,6 +31,11 @@ import {
 import { mutate, mutateBatch } from "./core/journal-mutate.js";
 import type { Ceremony } from "./core/journal-entry.js";
 import { latestCanonicalTaskBody, materializeTaskForAmend } from "./core/task-history.js";
+import {
+  TaskInput,
+  materializeTaskInput,
+  type TaskFullPayload,
+} from "./core/task-schema.js";
 import { FindingId } from "./core/finding-schema.js";
 import {
   SpecAddReqInput,
@@ -683,6 +688,183 @@ export async function main(argv: string[] = process.argv): Promise<number> {
       } else {
         process.stdout.write(
           `submitted ${tasks.length} task${tasks.length === 1 ? "" : "s"}: ${taskIds.join(", ")}\n`,
+        );
+      }
+    });
+
+  // ── loaf tasks add <file> ───────────────────────────────────────────
+  // Slice C SC-C3. Appends id-less task(s) to the graph at SPEC.design —
+  // the append variant of `tasks submit` (codex r111 Q6). Emits ONE
+  // whole-replacement event:tasks_planned (protocol §1818 / emit table
+  // L1866): payload.tasks is the re-materialized existing graph plus the
+  // newly seeded tasks. Single object or array input; the CLI allocates
+  // each T-id (max-serial+1, zero-pad ≥3) — input must NOT carry `id`
+  // (protocol §706).
+  //
+  // The existing graph is reconstructed from the journal, not the slim
+  // projection: latestCanonicalTaskBody recovers each task's canonical
+  // body, materializeTaskForAmend overlays live runtime status. A task in
+  // the projection with no journal body (migration-imported) is a hard
+  // stop — CANONICAL_TASK_BODY_UNAVAILABLE — never synthesize fields
+  // (codex r111 Q2).
+  //
+  // SPEC.design-only (codex r111 Q3): EXECUTE-phase task add is the future
+  // finding amend-tasks flow, not this command.
+  //
+  // Concurrency: T-id allocation uses the same loadSession→max+1→mutate
+  // pattern as the other id allocators. There is no `.lock` yet (Slice 5);
+  // `appendMany`'s SEQ_NOT_MONOTONIC check is best-effort stale-tail
+  // detection, NOT a full concurrent guard — `tasks add` operates under
+  // the existing single-writer assumption (codex r112).
+  tasksCmd
+    .command("add <file>")
+    .description("Append id-less task(s) to the graph at SPEC.design (JSON file or '-' for stdin)")
+    .requiredOption("--feature <name>", "Feature whose task graph to extend")
+    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
+    .action(async (file: string, opts: { feature: string; featureDir?: string }) => {
+      // (1) Read input from file or stdin.
+      let content: string;
+      if (file === "-") {
+        try {
+          content = readFileSync(0, "utf8");
+        } catch (err) {
+          emitFailure("MISSING_INPUT", `cannot read stdin: ${String(err)}`);
+          return;
+        }
+      } else {
+        try {
+          content = await fsP.readFile(file, "utf8");
+        } catch (err) {
+          if ((err as { code?: string }).code === "ENOENT") {
+            emitFailure("INPUT_FILE_NOT_FOUND", `input file does not exist: ${file}`, { path: file });
+          } else {
+            emitFailure("INPUT_FILE_NOT_FOUND", `cannot read input file ${file}: ${String(err)}`, { path: file });
+          }
+          return;
+        }
+      }
+
+      // (2) Parse JSON; normalize to an array; validate each against the
+      // strict TaskInput schema. TaskInput omits id / status / execution
+      // (CLI-owned); `.strict()` rejects a caller that supplies any of
+      // them — the shape-enforcement point of ADR-0004 (codex r113).
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(content);
+      } catch (err) {
+        emitFailure("SCHEMA_VALIDATION_FAILED", `input is not valid JSON: ${(err as Error).message}`);
+        return;
+      }
+      const rawTasks: unknown[] = Array.isArray(parsed) ? parsed : [parsed];
+      if (rawTasks.length === 0) {
+        emitFailure("SCHEMA_VALIDATION_FAILED", "tasks add input is an empty array");
+        return;
+      }
+      const validatedInputs: TaskInput[] = [];
+      for (const raw of rawTasks) {
+        const p = TaskInput.safeParse(raw);
+        if (!p.success) {
+          emitFailure(
+            "SCHEMA_VALIDATION_FAILED",
+            `tasks add input is not a valid id-less task (omit id / status / execution): ${p.error.issues.map((i) => i.message).join("; ")}`,
+            { issues: p.error.issues },
+          );
+          return;
+        }
+        validatedInputs.push(p.data);
+      }
+
+      // (3) Load session; tasks add is SPEC.design-only.
+      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      const session = await loadSession(featureDir);
+      if (!session.snapshot.state) {
+        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        return;
+      }
+      if (session.snapshot.state.sub_state !== "SPEC.design") {
+        emitFailure(
+          "SUB_STATE_AUTHORITY_VIOLATION",
+          `loaf tasks add is only valid at SPEC.design (current sub_state=${session.snapshot.state.sub_state}); post-lock task additions go through \`loaf finding raise --action amend-tasks\``,
+          { sub_state: session.snapshot.state.sub_state },
+        );
+        return;
+      }
+
+      // (4) Re-materialize every existing task to its canonical full body.
+      // tasks_planned is whole-replacement, so the re-emit must carry the
+      // complete graph; the slim projection alone would erase body fields.
+      const existingFull: TaskFullPayload[] = [];
+      for (const t of session.snapshot.tasks) {
+        const base = latestCanonicalTaskBody(session.entries, t.id);
+        if (!base) {
+          emitFailure(
+            "CANONICAL_TASK_BODY_UNAVAILABLE",
+            `task ${t.id} is in the projection but has no canonical body in the journal (migration-imported); cannot rebuild the graph to append`,
+            { task_id: t.id, source: "migration" },
+          );
+          return;
+        }
+        existingFull.push(materializeTaskForAmend(base, t));
+      }
+
+      // (5) Allocate T-ids. Existing ids must all be canonical T-NNN — a
+      // non-canonical id cannot participate in collision-safe allocation
+      // (codex r112: fail loud, do not skip).
+      let maxSerial = 0;
+      for (const t of session.snapshot.tasks) {
+        const m = /^T-(\d{3,})$/.exec(t.id);
+        if (!m) {
+          emitFailure(
+            "REDUCER_ERROR",
+            `internal: task id ${t.id} in the projection is not canonical T-NNN; cannot allocate the next id`,
+            { task_id: t.id },
+          );
+          return;
+        }
+        const n = Number.parseInt(m[1]!, 10);
+        if (n > maxSerial) maxSerial = n;
+      }
+      // Materialize each validated input into a full TaskFull — the CLI
+      // stamps the allocated id, status="pending", and the per-kind
+      // execution map (all steps applicability="must", status="pending").
+      const seededNew = validatedInputs.map((input, i) =>
+        materializeTaskInput(input, `T-${String(maxSerial + 1 + i).padStart(3, "0")}`),
+      );
+      const newIds = seededNew.map((t) => t.id);
+
+      // (6) Emit one whole-replacement event:tasks_planned. based_on carries
+      // forward the spec version the graph derives from.
+      const based_on = session.snapshot.tasks_based_on ?? {
+        spec: session.snapshot.state.spec_version,
+      };
+      const result = await mutate(
+        {
+          at: new Date().toISOString(),
+          actor,
+          entry_schema_version: 1,
+          kind: "event:tasks_planned",
+          payload: { based_on, tasks: [...existingFull, ...seededNew] },
+        },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq },
+      );
+      if (!result.ok) {
+        emitFailure(result.code, result.message, result.detail);
+        return;
+      }
+
+      // (7) Success output — echo the allocated ids for shell scripting.
+      const out = {
+        ok: true,
+        feature: opts.feature,
+        task_ids: newIds,
+        tasks_count: result.snapshot.tasks.length,
+        sub_state: result.snapshot.state?.sub_state,
+      };
+      if (useJson) {
+        process.stdout.write(JSON.stringify(out) + "\n");
+      } else {
+        process.stdout.write(
+          `added ${newIds.length} task${newIds.length === 1 ? "" : "s"}: ${newIds.join(", ")}\n`,
         );
       }
     });
