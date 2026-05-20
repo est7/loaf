@@ -171,7 +171,7 @@ Source: codex independent enumeration r119 (AMQ thread
 ## Append / mutation paths
 
 ### SCEN-E2E-015 — SPEC incremental append pre-lock
-- **Tier** inventory · **Status** todo
+- **Tier** inventory · **Status** green
 - **Given** a feature in SPEC.spec / plan / design, pre-lock.
 - **When** `spec add-req` / `add-scenario` / `add-visual` are called with
   single and batch inputs.
@@ -208,7 +208,7 @@ Source: codex independent enumeration r119 (AMQ thread
 ## Iteration / back-edges
 
 ### SCEN-E2E-019 — amend-spec back-edge and re-lock
-- **Tier** inventory · **Status** todo
+- **Tier** inventory · **Status** green
 - **Given** a locked session in EXECUTE or VERIFY.
 - **When** `finding raise --action amend-spec` is emitted.
 - **Then** the cursor returns to SPEC.spec, `spec_locked` resets to false,
@@ -276,7 +276,7 @@ Source: codex independent enumeration r119 (AMQ thread
 ## Pending / blocking
 
 ### SCEN-E2E-026 — pending blocks advance (blocking-kind contract)
-- **Tier** inventory · **Status** todo
+- **Tier** inventory · **Status** green
 - **Given** a session with a pending head.
 - **When** the head is a `profile_escalation` pending and `advance` is
   attempted, then the pending is resolved; and separately, the head is a
@@ -330,7 +330,7 @@ Source: codex independent enumeration r119 (AMQ thread
 ## Evidence / attachment / batch
 
 ### SCEN-E2E-031 — task step done with co-emitted evidence
-- **Tier** inventory · **Status** todo
+- **Tier** inventory · **Status** green
 - **Given** an in-progress task step.
 - **When** `tasks step done` includes `--evidence-*` flags.
 - **Then** one CLI call closes the step and adds `EV-` evidence, returning

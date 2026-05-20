@@ -1088,4 +1088,351 @@ describe("E2E — full worker lifecycle (standard ceremony)", () => {
     expect(rejected.exit).toBe(2);
     expect(rejected.stderr + rejected.stdout).toContain("SETTLE_PHASE_DISABLED");
   });
+
+  // SCEN-E2E-015 — see docs/e2e-scenarios.md
+  test("SCEN-E2E-015 — spec add-* allocates per-namespace ids, bumps version once per call", async () => {
+    const dir = await tmpFeatureDir();
+    const F = "e2e-spec-append";
+    const ENV = { LOAF_USER: "e2e@test.invalid" };
+    const { step, writeInput } = makeCli(dir, ENV);
+
+    await step("start", ["start", F, "--ceremony", "standard"]);
+    await step("advance TRIAGE.confirm", ["advance", "TRIAGE.confirm", "--feature", F]);
+    await step("advance SPEC.proposal", ["advance", "SPEC.proposal", "--feature", F]);
+    await step("spec init", ["spec", "init", "--feature", F]);
+    const submitInput = await writeInput("submit.json", {
+      feature: { id: "F-001", name: "E2E spec append" },
+      intent: "exercise the incremental spec add-* id allocator and version bump",
+      adr_refs: [],
+      needs_clarification: [],
+    });
+    const submitted = await step("spec submit", ["spec", "submit", "--input", submitInput, "--feature", F]);
+    expect(submitted.spec_version).toBe(1);
+    await step("advance SPEC.spec", ["advance", "SPEC.spec", "--feature", F]);
+
+    // ── single-item add-req — first id in the REQ-CORE namespace ─────────
+    const req1 = await writeInput("req1.json", {
+      id_namespace: "REQ-CORE",
+      type: "ubiquitous",
+      response: "the system shall allocate the first requirement id",
+      acceptance_na: true,
+      acceptance_na_reason: "exercised structurally by this allocator integration test",
+    });
+    const r1 = await step("add-req single", ["spec", "add-req", "--input", req1, "--feature", F]);
+    expect(r1.ids).toEqual(["REQ-CORE-001"]);
+    expect(r1.spec_version).toBe(2);
+
+    // ── batch add-req — two items, ONE invocation, ONE version bump ──────
+    const reqBatch = await writeInput("req-batch.json", [
+      {
+        id_namespace: "REQ-CORE",
+        type: "ubiquitous",
+        response: "the system shall allocate the second requirement id",
+        acceptance_na: true,
+        acceptance_na_reason: "structural allocator coverage only",
+      },
+      {
+        id_namespace: "REQ-CORE",
+        type: "ubiquitous",
+        response: "the system shall allocate the third requirement id",
+        acceptance_na: true,
+        acceptance_na_reason: "structural allocator coverage only",
+      },
+    ]);
+    const r2 = await step("add-req batch", ["spec", "add-req", "--input", reqBatch, "--feature", F]);
+    expect(r2.ids).toEqual(["REQ-CORE-002", "REQ-CORE-003"]);
+    expect(r2.spec_version).toBe(3); // a two-item batch bumps the version exactly once
+
+    // ── scenario namespace allocates independently of REQ ───────────────
+    const scen1 = await writeInput("scen1.json", {
+      id_namespace: "SCEN-CORE",
+      name: "first scenario",
+      tag: "happy",
+      given: ["a feature with an incrementally appended spec"],
+      when: ["a scenario is appended"],
+      then: ["it receives the first SCEN id in its own namespace"],
+    });
+    const s1 = await step("add-scenario", ["spec", "add-scenario", "--input", scen1, "--feature", F]);
+    expect(s1.ids).toEqual(["SCEN-CORE-001"]);
+    expect(s1.spec_version).toBe(4);
+
+    // ── visual namespace, batch — VIS ids start at 001 in their namespace
+    const visBatch = await writeInput("vis-batch.json", [
+      { id_namespace: "VIS-CORE", target: "the header region", checks: ["renders the title"] },
+      { id_namespace: "VIS-CORE", target: "the footer region", checks: ["renders the status line"] },
+    ]);
+    const v1 = await step("add-visual batch", ["spec", "add-visual", "--input", visBatch, "--feature", F]);
+    expect(v1.ids).toEqual(["VIS-CORE-001", "VIS-CORE-002"]);
+    expect(v1.spec_version).toBe(5);
+
+    // each namespace counted from 001; five invocations → five bumps.
+    const st = await step("status", ["status", "--feature", F]);
+    expect(st.state.spec_version).toBe(5);
+    expect(st.state.spec_locked).toBe(false);
+  });
+
+  // SCEN-E2E-019 — see docs/e2e-scenarios.md
+  test("SCEN-E2E-019 — amend-spec back-edge resets the lock, re-lock still reaches deliver", async () => {
+    const dir = await tmpFeatureDir();
+    const F = "e2e-amend-spec";
+    const ENV = { LOAF_USER: "e2e@test.invalid" };
+    const { step, writeInput } = makeCli(dir, ENV);
+
+    // behavioral task whose execution ladder is red + implement (+ optional
+    // refactor). `drives` is overridden per submit so the re-plan covers the
+    // requirement added after the back-edge.
+    const tasksPayload = (specVersion: number, drives: string[]) => ({
+      based_on: { spec: specVersion },
+      tasks: [
+        {
+          id: "T-001",
+          kind: "behavioral",
+          drives,
+          tests: ["e2e.amendSpec"],
+          status: "pending",
+          depends_on: [],
+          labels: [],
+          execution: {
+            red: { applicability: "must", status: "pending", evidence_refs: [] },
+            implement: { applicability: "must", status: "pending", evidence_refs: [] },
+            refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+          },
+        },
+      ],
+    });
+    const reqInput = async (name: string, response: string) =>
+      writeInput(name, {
+        id_namespace: "REQ-CORE",
+        type: "ubiquitous",
+        response,
+        acceptance_na: true,
+        acceptance_na_reason: "exercised by this end-to-end lifecycle integration test",
+      });
+
+    // ── drive a standard feature to a locked EXECUTE.work ───────────────
+    await step("start", ["start", F, "--ceremony", "standard"]);
+    await step("advance TRIAGE.confirm", ["advance", "TRIAGE.confirm", "--feature", F]);
+    await step("advance SPEC.proposal", ["advance", "SPEC.proposal", "--feature", F]);
+    await step("spec init", ["spec", "init", "--feature", F]);
+    const submitInput = await writeInput("submit.json", {
+      feature: { id: "F-001", name: "E2E amend-spec back-edge" },
+      intent: "exercise the amend-spec finding back-edge and the spec re-lock path",
+      adr_refs: [],
+      needs_clarification: [],
+    });
+    await step("spec submit", ["spec", "submit", "--input", submitInput, "--feature", F]);
+    await step("spec add-req", [
+      "spec", "add-req",
+      "--input", await reqInput("req1.json", "the system shall complete the amend-spec smoke"),
+      "--feature", F,
+    ]);
+    await step("advance SPEC.spec", ["advance", "SPEC.spec", "--feature", F]);
+    await step("advance SPEC.plan", ["advance", "SPEC.plan", "--feature", F]);
+    await step("advance SPEC.design", ["advance", "SPEC.design", "--feature", F]);
+    await step("tasks submit", [
+      "tasks", "submit",
+      await writeInput("tasks-v2.json", tasksPayload(2, ["REQ-CORE-001"])),
+      "--feature", F,
+    ]);
+    await step("gate spec-lock", [
+      "gate", "decide", "spec-lock", "--approve",
+      "--reason", "spec and task graph complete for the first lock", "--feature", F,
+    ]);
+    await step("advance EXECUTE.work", ["advance", "EXECUTE.work", "--feature", F]);
+
+    // ── amend-spec back-edge: cursor → SPEC.spec, spec_locked → false ────
+    const raised = await step("finding raise amend-spec", [
+      "finding", "raise", "--category", "spec-gap", "--action", "amend-spec",
+      "--summary", "the spec omits a requirement surfaced during execution",
+      "--feature", F,
+    ]);
+    expect(raised.id).toMatch(/^FND-\d{3,}$/);
+    expect(raised.back_edge.to).toBe("SPEC.spec");
+    const afterBackEdge = await step("status after back-edge", ["status", "--feature", F]);
+    expect(afterBackEdge.state.sub_state).toBe("SPEC.spec");
+    expect(afterBackEdge.state.spec_locked).toBe(false);
+
+    // ── amend the spec: a new requirement bumps spec_version ────────────
+    await step("spec add-req (amended)", [
+      "spec", "add-req",
+      "--input", await reqInput("req2.json", "the system shall cover the requirement added post back-edge"),
+      "--feature", F,
+    ]);
+
+    // ── re-plan against the bumped spec, then re-lock ───────────────────
+    await step("advance SPEC.plan", ["advance", "SPEC.plan", "--feature", F]);
+    await step("advance SPEC.design", ["advance", "SPEC.design", "--feature", F]);
+    await step("tasks submit (re-plan)", [
+      "tasks", "submit",
+      await writeInput("tasks-v3.json", tasksPayload(3, ["REQ-CORE-001", "REQ-CORE-002"])),
+      "--feature", F,
+    ]);
+    const reLock = await step("gate spec-lock (re-lock)", [
+      "gate", "decide", "spec-lock", "--approve",
+      "--reason", "amended spec and re-planned task graph are complete", "--feature", F,
+    ]);
+    expect(reLock.sub_state ?? reLock.state?.sub_state).toBe("EXECUTE.plan");
+
+    // ── finish the lifecycle; the open amend-spec finding must be closed
+    //    before verify-accept (open findings block the gate) ─────────────
+    await step("advance EXECUTE.work", ["advance", "EXECUTE.work", "--feature", F]);
+    await step("finding close", ["finding", "close", raised.id, "--feature", F]);
+    await step("tasks claim T-001", ["tasks", "claim", "T-001", "--feature", F]);
+    for (const stp of ["red", "implement"]) {
+      await step(`step start ${stp}`, [
+        "tasks", "step", "start", "--task", "T-001", "--step", stp, "--feature", F,
+      ]);
+      await step(`step done ${stp}`, [
+        "tasks", "step", "done", "--task", "T-001", "--step", stp, "--feature", F,
+      ]);
+    }
+    await step("advance EXECUTE.done", ["advance", "EXECUTE.done", "--feature", F]);
+    for (const ss of [
+      "VERIFY.plan", "VERIFY.run", "VERIFY.review",
+      "VERIFY.acceptance", "VERIFY.visual", "VERIFY.accept",
+    ]) {
+      await step(`advance ${ss}`, ["advance", ss, "--feature", F]);
+    }
+    const tsEvidence = await writeInput("ev-task-summary.json", {
+      kind: "task-summary", iteration: 1, actor: "cli:loaf", result: "passed",
+      summary: "unit tests pass for T-001 against the amended spec", task_id: "T-001",
+      covers: ["T-001"], cmd: "bun test", exit: 0,
+    });
+    await step("evidence add task-summary", ["evidence", "add", "--input", tsEvidence, "--feature", F]);
+    const vrEvidence = await writeInput("ev-verify-review.json", {
+      kind: "verify-review", iteration: 1, actor: "cli:loaf", result: "approved",
+      summary: "spec-fit review passed against the amended spec", check: "review",
+      covers: ["REQ-CORE-001", "REQ-CORE-002"],
+    });
+    await step("evidence add verify-review", ["evidence", "add", "--input", vrEvidence, "--feature", F]);
+    await step("gate verify-accept", [
+      "gate", "decide", "verify-accept", "--approve",
+      "--reason", "all verify-accept checks pass after the amend-spec cycle", "--feature", F,
+    ]);
+    const delivered = await step("deliver", ["deliver", "--feature", F]);
+    expect(delivered.sub_state ?? delivered.state?.sub_state).toBe("DONE.delivered");
+  });
+
+  // SCEN-E2E-026 — see docs/e2e-scenarios.md
+  test("SCEN-E2E-026 — profile_escalation pending blocks advance; spec_clarification does not", async () => {
+    const dir = await tmpFeatureDir();
+    const F = "e2e-pending-block";
+    const ENV = { LOAF_USER: "e2e@test.invalid" };
+    const { step } = makeCli(dir, ENV);
+
+    await step("start", ["start", F, "--ceremony", "standard"]);
+
+    // ── a profile_escalation head blocks `loaf advance` ─────────────────
+    const pe = await step("pending raise profile_escalation", [
+      "pending", "raise", "--kind", "profile_escalation",
+      "--question", "should this feature escalate to a deeper ceremony profile?",
+      "--feature", F,
+    ]);
+    expect(pe.id).toMatch(/^PEND-\d{4,}$/);
+
+    const blocked = await runCli(
+      ["advance", "TRIAGE.confirm", "--feature", F, "--feature-dir", dir, "--json"],
+      { env: ENV },
+    );
+    expect(blocked.exit).toBe(2);
+    expect(blocked.stderr + blocked.stdout).toContain("PENDING_BLOCKS_ADVANCE");
+
+    // ── resolving the head clears the block ─────────────────────────────
+    await step("pending resolve", [
+      "pending", "resolve",
+      "--answer", "no escalation needed; the standard ceremony profile stands",
+      "--feature", F,
+    ]);
+    const advanced = await step("advance TRIAGE.confirm", ["advance", "TRIAGE.confirm", "--feature", F]);
+    expect(advanced.sub_state).toBe("TRIAGE.confirm");
+
+    // ── a spec_clarification head is FIFO-visible but never blocks ──────
+    await step("pending raise spec_clarification", [
+      "pending", "raise", "--kind", "spec_clarification",
+      "--question", "which downstream module owns the projection write path?",
+      "--feature", F,
+    ]);
+    const stillAdvances = await step("advance SPEC.proposal", [
+      "advance", "SPEC.proposal", "--feature", F,
+    ]);
+    expect(stillAdvances.sub_state).toBe("SPEC.proposal");
+  });
+
+  // SCEN-E2E-031 — see docs/e2e-scenarios.md
+  test("SCEN-E2E-031 — tasks step done co-emits EV- evidence in one CLI call", async () => {
+    const dir = await tmpFeatureDir();
+    const F = "e2e-step-evidence";
+    const ENV = { LOAF_USER: "e2e@test.invalid" };
+    const { step, writeInput } = makeCli(dir, ENV);
+
+    await step("start", ["start", F, "--ceremony", "standard"]);
+    await step("advance TRIAGE.confirm", ["advance", "TRIAGE.confirm", "--feature", F]);
+    await step("advance SPEC.proposal", ["advance", "SPEC.proposal", "--feature", F]);
+    await step("spec init", ["spec", "init", "--feature", F]);
+    const submitInput = await writeInput("submit.json", {
+      feature: { id: "F-001", name: "E2E step-done evidence batch" },
+      intent: "exercise the tasks step done co-emitted evidence batch path",
+      adr_refs: [],
+      needs_clarification: [],
+    });
+    await step("spec submit", ["spec", "submit", "--input", submitInput, "--feature", F]);
+    const reqInput = await writeInput("req.json", {
+      id_namespace: "REQ-CORE",
+      type: "ubiquitous",
+      response: "the system shall complete the step-evidence batch smoke",
+      acceptance_na: true,
+      acceptance_na_reason: "exercised by this end-to-end lifecycle integration test",
+    });
+    await step("spec add-req", ["spec", "add-req", "--input", reqInput, "--feature", F]);
+    await step("advance SPEC.spec", ["advance", "SPEC.spec", "--feature", F]);
+    await step("advance SPEC.plan", ["advance", "SPEC.plan", "--feature", F]);
+    await step("advance SPEC.design", ["advance", "SPEC.design", "--feature", F]);
+    const st = await step("status pre-tasks", ["status", "--feature", F]);
+    const specVersion: number = st.state?.spec_version ?? st.spec_version;
+    const tasksFile = await writeInput("tasks.json", {
+      based_on: { spec: specVersion },
+      tasks: [
+        {
+          id: "T-001",
+          kind: "behavioral",
+          drives: ["REQ-CORE-001"],
+          tests: ["e2e.stepEvidence"],
+          status: "pending",
+          depends_on: [],
+          labels: [],
+          execution: {
+            red: { applicability: "must", status: "pending", evidence_refs: [] },
+            implement: { applicability: "must", status: "pending", evidence_refs: [] },
+            refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+          },
+        },
+      ],
+    });
+    await step("tasks submit", ["tasks", "submit", tasksFile, "--feature", F]);
+    await step("gate spec-lock", [
+      "gate", "decide", "spec-lock", "--approve",
+      "--reason", "spec and task graph complete", "--feature", F,
+    ]);
+    await step("advance EXECUTE.work", ["advance", "EXECUTE.work", "--feature", F]);
+    await step("tasks claim T-001", ["tasks", "claim", "T-001", "--feature", F]);
+    await step("step start red", [
+      "tasks", "step", "start", "--task", "T-001", "--step", "red", "--feature", F,
+    ]);
+
+    // ── one CLI call closes the step AND registers its proof ────────────
+    const done = await step("step done red + evidence", [
+      "tasks", "step", "done", "--task", "T-001", "--step", "red",
+      "--evidence-kind", "task-summary",
+      "--evidence-summary", "the red test reproduces the targeted behavior gap",
+      "--evidence-covers", "T-001",
+      "--feature", F,
+    ]);
+    // the step is closed — its status reflects the terminal-positive result.
+    expect(done.step_status).toBe("passed");
+    expect(done.evidence_id).toMatch(/^EV-\d{6}$/);
+
+    // the co-emitted evidence is in the projection — one batch, one EV.
+    const afterDone = await step("status after step done", ["status", "--feature", F]);
+    expect(afterDone.evidence_count).toBe(1);
+  });
 });
