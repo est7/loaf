@@ -281,3 +281,29 @@ describe("SessionLoad.entries — Slice C SC-C2a", () => {
     expect(session.entries[0]!.kind).toBe("session:started");
   });
 });
+
+describe("materializeTaskForAmend — red_test_registered overlay (Slice C SC-C4)", () => {
+  test("overlays a runtime red_test_registered=true that the canonical body lacks", () => {
+    // codex r115 BLOCK 2: red_test_registered is runtime state (set by
+    // register-red). A `tasks amend` after registration rebuilds from the
+    // canonical body — the helper must carry the live flag, else §8.6 sees
+    // a frozen-field change true→undefined.
+    const base = behavioralTask({ id: "T-001", labels: ["bug"] }); // no red flag
+    const current: TaskState = {
+      id: "T-001",
+      kind: "behavioral",
+      status: "in_progress",
+      steps: {
+        red: { applicability: "must", status: "passed" },
+        implement: { applicability: "must", status: "pending" },
+        refactor: { applicability: "optional", status: "pending" },
+      },
+      drives: ["REQ-AUTH-001"],
+      depends_on: [],
+      labels: ["bug"],
+      red_test_registered: true,
+    };
+    const out = materializeTaskForAmend(base as never, current);
+    expect((out as { red_test_registered?: boolean }).red_test_registered).toBe(true);
+  });
+});

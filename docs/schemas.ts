@@ -3823,6 +3823,10 @@ export const DiagnosticCode = z.enum([
   "TASK_COMPLETE_PRECONDITION_VIOLATED",   // src/cli.tsx `loaf tasks complete` — task.status != done; one or more must-applicable steps not terminal-positive (passed|waived|na)
   // ── Slice C SC-C2c — `loaf tasks amend` canonical body recovery ──
   "CANONICAL_TASK_BODY_UNAVAILABLE",       // src/cli.tsx `loaf tasks amend` — task is in the projection but has no journal tasks_planned/tasks_amended body (migration-imported); a whole-task amend cannot be reconstructed
+  // ── Slice C SC-C4 — bug-task RED registration (R2 invariant relocation) ──
+  "BUG_TASK_REQUIRES_RED",                 // src/core/reducer/preflight.ts — behavioral bug task started/completed its implement step before `loaf tasks register-red` set red_test_registered
+  "BUG_TASK_FLAG_MISUSE",                  // src/core/reducer/preflight.ts — red_test_registered=true used outside a red-step task_step_done on a behavioral bug task (passed/waived), or smuggled into a newly planned task
+  "BUG_TASK_RED_NOT_REGISTERED",           // src/core/gates/verify-accept-check.ts check 4 — done behavioral bug task never registered its RED test (defense-in-depth)
 ]);
 export type DiagnosticCode = z.infer<typeof DiagnosticCode>;
 
@@ -4682,6 +4686,31 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
     fix_template:
       "the task was rehydrated from a v0.0.x migration snapshot, so its full body never landed as a journal tasks_planned/tasks_amended entry. Re-plan the task graph via `loaf tasks submit`, or wait for the history-aware doctor path that will reconstruct migrated task bodies.",
     doc_anchor: "protocol.md#§10.8",
+  },
+  // ── Slice C SC-C4 — bug-task RED registration (R2 invariant relocation) ──
+  BUG_TASK_REQUIRES_RED: {
+    exit_code: 2,
+    message_template:
+      "behavioral bug task {task_id} cannot start or complete its implement step before its RED test is registered",
+    fix_template:
+      "run `loaf tasks register-red {task_id}` once the failing RED test is in place; protocol §9.3 requires RED registration before the implement step of a behavioral task labelled `bug`.",
+    doc_anchor: "protocol.md#§9.3",
+  },
+  BUG_TASK_FLAG_MISUSE: {
+    exit_code: 2,
+    message_template:
+      "task {task_id}: red_test_registered=true is valid only on a red-step task_step_done for a behavioral bug task (passed/waived result) — not on this entry",
+    fix_template:
+      "do not set red_test_registered in a planned task or on a non-red step; the flag is owned by `loaf tasks register-red`, which the reducer promotes to task-level registration.",
+    doc_anchor: "protocol.md#§9.3",
+  },
+  BUG_TASK_RED_NOT_REGISTERED: {
+    exit_code: 2,
+    message_template:
+      "behavioral bug task {task_id} is done but never registered its RED test (red_test_registered≠true)",
+    fix_template:
+      "a done behavioral bug task must have registered its RED test via `loaf tasks register-red`; this is a verify-accept defense-in-depth check for migration / raw-API journals — rebuild the journal or register RED retroactively before re-running the gate.",
+    doc_anchor: "protocol.md#§9.3",
   },
 } as const;
 

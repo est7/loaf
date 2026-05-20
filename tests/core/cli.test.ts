@@ -4041,3 +4041,110 @@ describe("loaf tasks add — Slice C SC-C3 (SPEC.design append)", () => {
     expect(JSON.parse(r.stderr.trim()).code).toBe("SUB_STATE_AUTHORITY_VIOLATION");
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// loaf tasks register-red — Slice C SC-C4 (R2)
+//
+// `tasks register-red <T-N>` records that the failing RED test for a
+// behavioral+bug task is in place — it emits one
+// event:task_step_done {step:"red", result:"passed", red_test_registered:true}.
+// Until then the bug task's `implement` step is gated by
+// BUG_TASK_REQUIRES_RED. Ordering: claim → register-red → step implement.
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("loaf tasks register-red — Slice C SC-C4 (R2)", () => {
+  // Seed a claimed behavioral+bug task (T-002) at EXECUTE.work: add it at
+  // SPEC.design via `tasks add`, lock the spec, advance, claim it.
+  async function seedClaimedBugTask(dir: string): Promise<void> {
+    await seedFeatureAtSpecDesign(dir);
+    const input = path.join(dir, ".bug-seed.json");
+    await fsP.writeFile(
+      input,
+      JSON.stringify({ kind: "behavioral", drives: ["REQ-AUTH-001"], tests: ["Bug.repro"], labels: ["bug"] }),
+    );
+    let r = await runCli([
+      "tasks", "add", input, "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+    ]);
+    if (r.exit !== 0) throw new Error(`seed tasks add failed: ${r.stderr}`);
+    r = await runCli(
+      ["gate", "decide", "spec-lock", "--approve", "--reason", "sc4-seed", "--feature", "auth-refresh", "--feature-dir", dir, "--json"],
+      { env: { LOAF_USER: "sc4-seed@test.invalid" } },
+    );
+    if (r.exit !== 0) throw new Error(`seed spec-lock failed: ${r.stderr}`);
+    r = await runCli(["advance", "EXECUTE.work", "--feature", "auth-refresh", "--feature-dir", dir]);
+    if (r.exit !== 0) throw new Error(`seed advance failed: ${r.stderr}`);
+    r = await runCli(["tasks", "claim", "T-002", "--feature", "auth-refresh", "--feature-dir", dir]);
+    if (r.exit !== 0) throw new Error(`seed claim failed: ${r.stderr}`);
+  }
+
+  test("happy: register-red on a claimed bug task → exit 0", async () => {
+    const dir = await tmpFeatureDir();
+    await seedClaimedBugTask(dir);
+    const r = await runCli([
+      "tasks", "register-red", "T-002",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+    ]);
+    expect(r.exit).toBe(0);
+    expect(JSON.parse(r.stdout).task_id).toBe("T-002");
+  });
+
+  test("register-red opens the implement gate (BUG_TASK_REQUIRES_RED before, OK after)", async () => {
+    const dir = await tmpFeatureDir();
+    await seedClaimedBugTask(dir);
+
+    // Before register-red — implement is gated.
+    let r = await runCli([
+      "tasks", "step", "start", "--task", "T-002", "--step", "implement",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+    ]);
+    expect(r.exit).toBe(2);
+    expect(JSON.parse(r.stderr.trim()).code).toBe("BUG_TASK_REQUIRES_RED");
+
+    // Register RED, then implement starts.
+    r = await runCli([
+      "tasks", "register-red", "T-002",
+      "--feature", "auth-refresh", "--feature-dir", dir,
+    ]);
+    expect(r.exit).toBe(0);
+    r = await runCli([
+      "tasks", "step", "start", "--task", "T-002", "--step", "implement",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+    ]);
+    expect(r.exit).toBe(0);
+  });
+
+  test("fail: register-red on a non-bug task → BUG_TASK_FLAG_MISUSE", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtExecuteWork(dir); // T-001 is a non-bug behavioral task
+    await runCli(["tasks", "claim", "T-001", "--feature", "auth-refresh", "--feature-dir", dir]);
+    const r = await runCli([
+      "tasks", "register-red", "T-001",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+    ]);
+    expect(r.exit).toBe(2);
+    expect(JSON.parse(r.stderr.trim()).code).toBe("BUG_TASK_FLAG_MISUSE");
+  });
+
+  test("fail: register-red on an unknown task → TASK_NOT_FOUND", async () => {
+    const dir = await tmpFeatureDir();
+    await seedClaimedBugTask(dir);
+    const r = await runCli([
+      "tasks", "register-red", "T-404",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+    ]);
+    expect(r.exit).toBe(2);
+    expect(JSON.parse(r.stderr.trim()).code).toBe("TASK_NOT_FOUND");
+  });
+
+  test("fail: register-red on an unclaimed task → TASK_NOT_CLAIMED", async () => {
+    const dir = await tmpFeatureDir();
+    await seedClaimedBugTask(dir);
+    // T-001 (from seedFeatureAtSpecDesign) was never claimed.
+    const r = await runCli([
+      "tasks", "register-red", "T-001",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+    ]);
+    expect(r.exit).toBe(2);
+    expect(JSON.parse(r.stderr.trim()).code).toBe("TASK_NOT_CLAIMED");
+  });
+});

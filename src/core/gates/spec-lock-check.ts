@@ -185,11 +185,11 @@ export function specLockCheck(
   if (snapshot.tasks.length > 0) {
     for (const task of snapshot.tasks) {
       const reasons: string[] = [];
-      if (task.kind === "behavioral") {
-        if (task.labels.includes("bug") && task.red_test_registered !== true) {
-          reasons.push("behavioral task with labels=['bug'] requires red_test_registered=true");
-        }
-      } else if (task.kind === "visual-ui") {
+      // Slice C SC-C4 (R2): the behavioral `labels=['bug']` → red_test_registered
+      // obligation is removed from check 8. bug-RED is EXECUTE discipline
+      // (enforced by BUG_TASK_REQUIRES_RED at the implement step), not spec
+      // completeness — check 8 keeps only the spec-time kind obligations.
+      if (task.kind === "visual-ui") {
         if (!task.visual_contract_refs || task.visual_contract_refs.length === 0) {
           reasons.push("visual-ui task requires visual_contract_refs[] with ≥1 entry");
         }

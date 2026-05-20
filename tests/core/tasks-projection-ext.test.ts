@@ -172,11 +172,12 @@ describe("event:tasks_planned — Slice 1.B sub-cycle 3a", () => {
         entry(7, "event:tasks_planned", {
           based_on: { spec: 2 },
           tasks: [
+            // Slice C SC-C4 (R2): a planned task is born without
+            // red_test_registered — that flag is set by register-red.
             behavioralTask({
               id: "T-001",
               drives: ["REQ-AUTH-001", "REQ-AUTH-002"],
               labels: ["bug"],
-              red_test_registered: true,
             }),
             structuralTask({ id: "T-099", depends_on: ["T-001"] }),
             visualUiTask({ id: "T-200" }),
@@ -192,7 +193,7 @@ describe("event:tasks_planned — Slice 1.B sub-cycle 3a", () => {
     expect(behavioral.kind).toBe("behavioral");
     expect(behavioral.drives).toEqual(["REQ-AUTH-001", "REQ-AUTH-002"]);
     expect(behavioral.labels).toEqual(["bug"]);
-    expect(behavioral.red_test_registered).toBe(true);
+    expect(behavioral.red_test_registered).toBeUndefined();
     expect(behavioral.steps.red?.applicability).toBe("must");
     expect(behavioral.steps.refactor?.applicability).toBe("optional");
 
@@ -205,20 +206,11 @@ describe("event:tasks_planned — Slice 1.B sub-cycle 3a", () => {
     expect(visual.visual_contract_refs).toEqual(["VIS-AUTH-001"]);
   });
 
-  test("rejects behavioral with labels=['bug'] but missing red_test_registered", () => {
-    const snap = seedAtExecutePlan();
-    const result = apply(
-      snap,
-      entry(7, "event:tasks_planned", {
-        based_on: { spec: 1 },
-        tasks: [behavioralTask({ labels: ["bug"] /* red_test_registered missing */ })],
-      }),
-    );
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.message).toMatch(/red_test_registered|payload schema/);
-    }
-  });
+  // NOTE: the old "rejects behavioral labels=['bug'] missing
+  // red_test_registered" test was removed in Slice C SC-C4 (R2) — a bug
+  // task is now born unregistered. The replacement is the "behavioral bug
+  // task submittable WITHOUT red_test_registered" test in the SC-C4
+  // describe block below.
 
   test("rejects visual-ui missing visual_contract_refs", () => {
     const snap = seedAtExecutePlan();
@@ -539,5 +531,43 @@ describe("event:task_step_done auto-promote — Slice 1.B sub-cycle 3a (F-010 #3
     // blocks promote (codex r23 BLOCK 2: seeded-but-untouched must must stay
     // in the deny set for promote checks).
     expect(task.status).toBe("in_progress");
+  });
+});
+
+describe("bug-task RED registration — Slice C SC-C4 (R2)", () => {
+  test("a behavioral task labelled bug is submittable WITHOUT red_test_registered", () => {
+    // R2 deletes the creation-time refine — bug tasks are born unregistered.
+    let snap = seedAtExecutePlan();
+    const result = apply(
+      snap,
+      entry(7, "event:tasks_planned", {
+        based_on: { spec: 1 },
+        tasks: [behavioralTask({ id: "T-001", labels: ["bug"] })],
+      }),
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const t = result.snapshot.tasks.find((x) => x.id === "T-001")!;
+      expect(t.labels).toEqual(["bug"]);
+      expect(t.red_test_registered).toBeUndefined();
+    }
+  });
+
+  test("task_step_done step=red red_test_registered=true sets task.red_test_registered", () => {
+    let snap = seedAtExecuteWork(
+      { based_on: { spec: 1 }, tasks: [behavioralTask({ id: "T-001", labels: ["bug"] })] },
+    );
+    snap = mustOk(
+      apply(
+        snap,
+        entry(10, "event:task_step_done", {
+          task_id: "T-001",
+          step: "red",
+          result: "passed",
+          red_test_registered: true,
+        }),
+      ),
+    );
+    expect(snap.tasks.find((t) => t.id === "T-001")!.red_test_registered).toBe(true);
   });
 });

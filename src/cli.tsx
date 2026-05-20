@@ -1274,6 +1274,57 @@ export async function main(argv: string[] = process.argv): Promise<number> {
       },
     );
 
+  // ── loaf tasks register-red <task-id> ───────────────────────────────
+  // Slice C SC-C4 (R2). Records that the failing RED test for a
+  // behavioral bug task is in place. Emits one
+  //   event:task_step_done { step:"red", result:"passed", red_test_registered:true }
+  // which the reducer promotes to task-level red_test_registered=true.
+  // Until then the bug task's `implement` step is gated by preflight's
+  // BUG_TASK_REQUIRES_RED. Ordering is claim → register-red → step
+  // implement; the failure surface is entirely preflight's:
+  //   - unknown task            → TASK_NOT_FOUND
+  //   - task not claimed        → TASK_NOT_CLAIMED
+  //   - non-bug / non-behavioral → BUG_TASK_FLAG_MISUSE (red flag misuse)
+  tasksCmd
+    .command("register-red <task-id>")
+    .description("Register the RED test for a claimed behavioral bug task (EXECUTE.work)")
+    .requiredOption("--feature <name>", "Feature whose task to register")
+    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
+    .action(async (taskId: string, opts: { feature: string; featureDir?: string }) => {
+      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      const session = await loadSession(featureDir);
+      if (!session.snapshot.state) {
+        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        return;
+      }
+      const result = await mutate(
+        {
+          at: new Date().toISOString(),
+          actor,
+          entry_schema_version: 1,
+          kind: "event:task_step_done",
+          payload: { task_id: taskId, step: "red", result: "passed", red_test_registered: true },
+        },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq },
+      );
+      if (!result.ok) {
+        emitFailure(result.code, result.message, result.detail);
+        return;
+      }
+      const out = {
+        ok: true,
+        feature: opts.feature,
+        task_id: taskId,
+        red_test_registered: true,
+        sub_state: result.snapshot.state?.sub_state,
+      };
+      if (useJson) {
+        process.stdout.write(JSON.stringify(out) + "\n");
+      } else {
+        process.stdout.write(`registered RED for ${taskId}\n`);
+      }
+    });
+
   // ── loaf tasks step <subcommand> ────────────────────────────────────
   // Slice 2 SC3. Sub-namespace for task step lifecycle. `step start` and
   // `step done` both require task.status=in_progress (SC1 TASK_NOT_CLAIMED).

@@ -581,6 +581,24 @@ describe("verifyAcceptCheck — check 4 task evidence + stale precondition", () 
       expect(fails).toEqual([]);
     }
   });
+
+  test("done bug task with red_test_registered≠true → BUG_TASK_RED_NOT_REGISTERED (Slice C SC-C4)", () => {
+    // R2 defense-in-depth: preflight protects new legal writes, but
+    // verify-accept catches a done bug task that never registered RED —
+    // migration / raw-API / pre-guard historical journals.
+    const fm = makeFrontmatter();
+    const snap = happySnapshot(fm);
+    const t001 = snap.tasks.find((t) => t.id === "T-001")!;
+    t001.labels = ["bug"];
+    delete (t001 as { red_test_registered?: boolean }).red_test_registered;
+    const result = verifyAcceptCheck(snap, fm);
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("unreachable");
+    const fails = result.checks.filter(
+      (c) => c.code === "BUG_TASK_RED_NOT_REGISTERED" && c.detail?.task_id === "T-001",
+    );
+    expect(fails.length).toBe(1);
+  });
 });
 
 // ───────────────────────────────────────────────────────────────────────

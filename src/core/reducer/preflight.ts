@@ -192,7 +192,17 @@ export type PreflightFailureCode =
   // a mode=add amend is unsponsored (no legit SC-C2b emitter); or a
   // mode=replace amend is attempted outside EXECUTE.plan (unsponsored
   // until a future finding amend-tasks back-edge carries sponsorship).
-  | "MUTATION_OUT_OF_RIGHTS";
+  | "MUTATION_OUT_OF_RIGHTS"
+  // Slice C SC-C4 — bug-task RED registration (R2 invariant relocation).
+  // BUG_TASK_REQUIRES_RED: a behavioral task labelled `bug` cannot start
+  // OR complete its `implement` step (event:task_step_started /
+  // task_step_done, step="implement", any result) until register-red has
+  // set red_test_registered. BUG_TASK_FLAG_MISUSE: the red_test_registered
+  // flag may only ride a red-step task_step_done on a behavioral bug task
+  // with a passed/waived result, and may not be smuggled into a newly
+  // planned task (event:tasks_planned creation-time rejection).
+  | "BUG_TASK_REQUIRES_RED"
+  | "BUG_TASK_FLAG_MISUSE";
 
 export type PreflightResult =
   | { ok: true }
@@ -575,7 +585,9 @@ export function preflight(
   // mutate paths that bypass preflight.
   if (entry.kind === "event:tasks_planned") {
     const tasksPayload = (rawEntry as { payload?: Record<string, unknown> }).payload ?? {};
-    const incoming = tasksPayload["tasks"] as Array<{ id?: string }> | undefined;
+    const incoming = tasksPayload["tasks"] as
+      | Array<{ id?: string; red_test_registered?: unknown }>
+      | undefined;
     if (Array.isArray(incoming)) {
       const seenIds = new Set<string>();
       for (const t of incoming) {
@@ -589,6 +601,19 @@ export function preflight(
             };
           }
           seenIds.add(t.id);
+        }
+        // Slice C SC-C4 (R2) — creation-time red-flag rejection. A planned
+        // task must be born unregistered; red_test_registered is set only
+        // by `loaf tasks register-red` after the task exists, so the
+        // journal records RED registration strictly after task creation.
+        // (Preflight only — replay of pre-guard journals stays apply-only.)
+        if (t?.red_test_registered === true) {
+          return {
+            ok: false,
+            code: "BUG_TASK_FLAG_MISUSE",
+            message: `tasks_planned: task ${t.id ?? "?"} carries red_test_registered=true — a planned task is born unregistered; use \`loaf tasks register-red\` after creation`,
+            detail: { task_id: t.id, kind: "event:tasks_planned" },
+          };
         }
       }
     }
@@ -761,6 +786,45 @@ export function preflight(
           message: `task ${task_id} step ${step ?? "?"} mutation requires task.status=in_progress (got status=${task.status}); claim the task first`,
           detail: { task_id, step, status: task.status, kind: entry.kind },
         };
+      }
+      // (5e.1) Slice C SC-C4 (R2) — bug-task implement gate. A behavioral
+      // task labelled `bug` cannot start OR complete its `implement` step
+      // until `loaf tasks register-red` has set red_test_registered. Both
+      // edges are gated regardless of result, so a direct task_step_done
+      // cannot bypass task_step_started (codex r115 Q4).
+      if (
+        step === "implement" &&
+        task.kind === "behavioral" &&
+        task.labels.includes("bug") &&
+        task.red_test_registered !== true
+      ) {
+        return {
+          ok: false,
+          code: "BUG_TASK_REQUIRES_RED",
+          message: `behavioral bug task ${task_id} must register its RED test before the implement step — run \`loaf tasks register-red ${task_id}\` first`,
+          detail: { task_id, step, kind: entry.kind },
+        };
+      }
+      // (5e.2) Slice C SC-C4 (R2) — red-flag misuse gate. The
+      // red_test_registered flag may ride a task_step_done only when it is
+      // a red-step registration on a behavioral bug task with a
+      // passed/waived result (undefined result reduces to "passed").
+      if (entry.kind === "event:task_step_done" && payload["red_test_registered"] === true) {
+        const result = payload["result"] as string | undefined;
+        const okResult = result === undefined || result === "passed" || result === "waived";
+        const okShape =
+          step === "red" &&
+          task.kind === "behavioral" &&
+          task.labels.includes("bug") &&
+          okResult;
+        if (!okShape) {
+          return {
+            ok: false,
+            code: "BUG_TASK_FLAG_MISUSE",
+            message: `red_test_registered=true is valid only on a red-step task_step_done for a behavioral bug task with a passed/waived result (task ${task_id}, step=${step ?? "?"}, result=${result ?? "passed"}, kind=${task.kind})`,
+            detail: { task_id, step, result: result ?? "passed", kind: task.kind, labels: task.labels },
+          };
+        }
       }
     }
   }

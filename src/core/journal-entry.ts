@@ -306,6 +306,11 @@ const TaskStepDonePayload = z
     task_id: TaskIdPayload,
     step: z.string().min(1),
     result: z.enum(["passed", "failed", "waived", "na"]).optional(),
+    // Slice C SC-C4 (R2): `loaf tasks register-red` emits a red-step
+    // task_step_done carrying this flag — the reducer promotes it to
+    // task-level red_test_registered. Typed (not accidental passthrough)
+    // so preflight's BUG_TASK_FLAG_MISUSE gate sees a real field.
+    red_test_registered: z.boolean().optional(),
   })
   .passthrough();
 

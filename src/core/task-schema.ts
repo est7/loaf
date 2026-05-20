@@ -107,6 +107,12 @@ const TaskBase = z.object({
 // (where applicable) refines for cross-field rules (e.g. behavioral with
 // label=bug must have red_test_registered=true).
 
+// Slice C SC-C4 (R2): the creation-time `labels=['bug'] => red_test_registered`
+// refine is removed. red_test_registered is runtime state set by
+// `loaf tasks register-red`; a bug task is born unregistered. The bug-RED
+// rule moved to runtime preflight (BUG_TASK_REQUIRES_RED at the implement
+// step) — see src/core/reducer/preflight.ts. The field stays optional on
+// the full payload so the reducer can set it and it round-trips on replay.
 export const TaskBehavioralPayload = TaskBase.extend({
   kind: z.literal("behavioral"),
   drives: z.array(RawDrivesRef).min(1),
@@ -119,10 +125,7 @@ export const TaskBehavioralPayload = TaskBase.extend({
   // setting requires_visual=true; spec-lock check 7 consumes this in
   // sub-cycle 3b. Codex r24 BLOCK fix.
   requires_visual: z.boolean().optional(),
-}).refine(
-  (t) => !t.labels.includes("bug") || t.red_test_registered === true,
-  { message: "behavioral tasks with labels=['bug'] require red_test_registered=true" },
-);
+});
 
 export const TaskStructuralPayload = TaskBase.extend({
   kind: z.literal("structural"),
@@ -275,6 +278,11 @@ const TaskInputBaseShape = {
   labels: z.array(z.string()).default([]),
 };
 
+// Slice C SC-C4 (R2): TaskInput has no `red_test_registered` — it is
+// runtime state set by `loaf tasks register-red` after the task exists,
+// never a creation-time input field. The `labels=['bug']` refine is gone
+// too: a bug task is born unregistered (the bug-RED rule is enforced at
+// the implement step by preflight).
 export const TaskBehavioralInput = z
   .object({
     ...TaskInputBaseShape,
@@ -282,14 +290,10 @@ export const TaskBehavioralInput = z
     drives: z.array(RawDrivesRef).min(1),
     tests: z.array(z.string().min(3)).min(1),
     test_layer: z.enum(["unit", "integration", "e2e"]).optional(),
-    red_test_registered: z.boolean().optional(),
     requires_acceptance: z.boolean().optional(),
     requires_visual: z.boolean().optional(),
   })
-  .strict()
-  .refine((t) => !t.labels.includes("bug") || t.red_test_registered === true, {
-    message: "behavioral tasks with labels=['bug'] require red_test_registered=true",
-  });
+  .strict();
 
 export const TaskStructuralInput = z
   .object({ ...TaskInputBaseShape, kind: z.literal("structural"), no_test_rationale: z.string().min(10) })

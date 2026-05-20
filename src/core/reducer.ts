@@ -521,6 +521,7 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
         task_id?: string;
         step?: string;
         result?: "passed" | "failed" | "waived" | "na";
+        red_test_registered?: boolean;
       };
       if (!payload.task_id || !payload.step) return invalidPayload(entry.kind, "missing task_id/step");
       const task = prev.tasks.find((t) => t.id === payload.task_id);
@@ -548,8 +549,19 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
       };
       const nextStatus: TaskState["status"] =
         task.status === "done" ? "done" : shouldPromoteToDone(updatedSteps) ? "done" : task.status;
+      // Slice C SC-C4 (R2): a red-step task_step_done carrying
+      // red_test_registered=true (emitted by `loaf tasks register-red`)
+      // promotes the flag to task-level. preflight's BUG_TASK_FLAG_MISUSE
+      // gate guarantees the flag only arrives on a legal red registration.
       const tasks = prev.tasks.map((t) =>
-        t.id === payload.task_id ? { ...t, steps: updatedSteps, status: nextStatus } : t,
+        t.id === payload.task_id
+          ? {
+              ...t,
+              steps: updatedSteps,
+              status: nextStatus,
+              ...(payload.red_test_registered === true ? { red_test_registered: true } : {}),
+            }
+          : t,
       );
       return { ok: true, snapshot: { ...prev, tasks } };
     }

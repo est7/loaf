@@ -57,6 +57,11 @@ export type FailedCheck = {
     | "TASKS_NOT_PLANNED"
     | "TASKS_BASED_ON_STALE"
     | "TASK_DONE_NO_EVIDENCE"
+    // Slice C SC-C4 (R2) — defense-in-depth: a done behavioral bug task
+    // that never registered its RED test. Preflight's BUG_TASK_REQUIRES_RED
+    // protects new legal writes; this catches migration / raw-API / pre-
+    // guard historical journals at the verify-accept gate.
+    | "BUG_TASK_RED_NOT_REGISTERED"
     | "SPEC_REVIEW_MISSING"
     | "SPEC_REVIEW_IMPLEMENTER_CONFLICT"
     | "SPEC_REVIEW_IMPLEMENTER_UNKNOWN";
@@ -298,6 +303,23 @@ export function verifyAcceptCheck(
           check: 4,
           code: "TASK_DONE_NO_EVIDENCE",
           message: `task ${task.id} is status=done but has no evidence (kind ∈ {task-summary, local-check, manual, waiver}) covering it`,
+          detail: { task_id: task.id },
+        });
+      }
+      // Slice C SC-C4 (R2) — defense-in-depth for the bug-RED invariant.
+      // Preflight's BUG_TASK_REQUIRES_RED gates new implement writes, but
+      // a migration-imported / raw-API / pre-guard journal could carry a
+      // done behavioral bug task that never registered RED. verify-accept
+      // is the final boundary that catches it.
+      if (
+        task.kind === "behavioral" &&
+        task.labels.includes("bug") &&
+        task.red_test_registered !== true
+      ) {
+        failures.push({
+          check: 4,
+          code: "BUG_TASK_RED_NOT_REGISTERED",
+          message: `behavioral bug task ${task.id} is status=done but never registered its RED test (red_test_registered≠true)`,
           detail: { task_id: task.id },
         });
       }

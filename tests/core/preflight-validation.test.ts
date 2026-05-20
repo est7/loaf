@@ -937,3 +937,171 @@ describe("preflight — event:tasks_amended §8.6 mutation rights (Slice C SC-C2
     expect(result.ok).toBe(true);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// Slice C SC-C4 — bug-task RED registration (R2 invariant relocation).
+//
+// The bug-RED rule moves from a creation-time schema refine to runtime
+// preflight: a behavioral task labelled `bug` may be born without
+// red_test_registered, but cannot START or COMPLETE its `implement` step
+// until register-red has set the flag (BUG_TASK_REQUIRES_RED, both edges,
+// any result — codex r115 Q4). The red flag itself may only be set via a
+// red-step task_step_done on a behavioral+bug task (BUG_TASK_FLAG_MISUSE),
+// and may not be smuggled in at creation time through event:tasks_planned.
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("preflight — bug-task RED registration (Slice C SC-C4)", () => {
+  function bugTaskState(overrides: Partial<TaskState> = {}): TaskState {
+    return {
+      id: "T-001",
+      kind: "behavioral",
+      status: "in_progress", // claimed — step_started/done require in_progress
+      steps: {
+        red: { applicability: "must", status: "pending" },
+        implement: { applicability: "must", status: "pending" },
+        refactor: { applicability: "optional", status: "pending" },
+      },
+      drives: ["REQ-AUTH-001"],
+      depends_on: [],
+      labels: ["bug"],
+      ...overrides,
+    };
+  }
+
+  function workCtx(task: TaskState) {
+    return {
+      snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [task] }),
+      tail_seq: -1,
+    };
+  }
+
+  test("task_step_started implement on an unregistered bug task → BUG_TASK_REQUIRES_RED", () => {
+    const result = preflight(
+      baseEntry({ kind: "event:task_step_started", payload: { task_id: "T-001", step: "implement" } }),
+      workCtx(bugTaskState()),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("BUG_TASK_REQUIRES_RED");
+  });
+
+  test("task_step_done implement on an unregistered bug task → BUG_TASK_REQUIRES_RED (direct-done bypass)", () => {
+    const result = preflight(
+      baseEntry({ kind: "event:task_step_done", payload: { task_id: "T-001", step: "implement" } }),
+      workCtx(bugTaskState()),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("BUG_TASK_REQUIRES_RED");
+  });
+
+  test("task_step_done implement result=failed on unregistered bug task → still BUG_TASK_REQUIRES_RED", () => {
+    const result = preflight(
+      baseEntry({
+        kind: "event:task_step_done",
+        payload: { task_id: "T-001", step: "implement", result: "failed" },
+      }),
+      workCtx(bugTaskState()),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("BUG_TASK_REQUIRES_RED");
+  });
+
+  test("task_step_started implement on a registered bug task → OK", () => {
+    const result = preflight(
+      baseEntry({ kind: "event:task_step_started", payload: { task_id: "T-001", step: "implement" } }),
+      workCtx(bugTaskState({ red_test_registered: true })),
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  test("task_step_started implement on a non-bug behavioral task → OK (no RED requirement)", () => {
+    const result = preflight(
+      baseEntry({ kind: "event:task_step_started", payload: { task_id: "T-001", step: "implement" } }),
+      workCtx(bugTaskState({ labels: [] })),
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  test("task_step_started red on an unregistered bug task → OK (red precedes implement)", () => {
+    const result = preflight(
+      baseEntry({ kind: "event:task_step_started", payload: { task_id: "T-001", step: "red" } }),
+      workCtx(bugTaskState()),
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  test("register-red shape: task_step_done step=red result=passed red_test_registered=true → OK", () => {
+    const result = preflight(
+      baseEntry({
+        kind: "event:task_step_done",
+        payload: { task_id: "T-001", step: "red", result: "passed", red_test_registered: true },
+      }),
+      workCtx(bugTaskState()),
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  test("BUG_TASK_FLAG_MISUSE: red_test_registered=true on a non-red step", () => {
+    const result = preflight(
+      baseEntry({
+        kind: "event:task_step_done",
+        payload: { task_id: "T-001", step: "implement", result: "passed", red_test_registered: true },
+      }),
+      workCtx(bugTaskState({ red_test_registered: true })),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("BUG_TASK_FLAG_MISUSE");
+  });
+
+  test("BUG_TASK_FLAG_MISUSE: red_test_registered=true with result=failed", () => {
+    const result = preflight(
+      baseEntry({
+        kind: "event:task_step_done",
+        payload: { task_id: "T-001", step: "red", result: "failed", red_test_registered: true },
+      }),
+      workCtx(bugTaskState()),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("BUG_TASK_FLAG_MISUSE");
+  });
+
+  test("BUG_TASK_FLAG_MISUSE: red_test_registered=true on a non-bug behavioral task", () => {
+    const result = preflight(
+      baseEntry({
+        kind: "event:task_step_done",
+        payload: { task_id: "T-001", step: "red", result: "passed", red_test_registered: true },
+      }),
+      workCtx(bugTaskState({ labels: [] })),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("BUG_TASK_FLAG_MISUSE");
+  });
+
+  test("BUG_TASK_FLAG_MISUSE: event:tasks_planned carrying a task with red_test_registered=true", () => {
+    // Creation-time flag smuggling — codex r115 BLOCK 1. The bug task must
+    // be born unregistered; register-red is the only path to the flag.
+    const plannedBug = {
+      id: "T-001",
+      kind: "behavioral",
+      drives: ["REQ-AUTH-001"],
+      tests: ["Bug.repro"],
+      status: "pending",
+      depends_on: [],
+      labels: ["bug"],
+      red_test_registered: true,
+      execution: {
+        red: { applicability: "must", status: "pending", evidence_refs: [] },
+        implement: { applicability: "must", status: "pending", evidence_refs: [] },
+        refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+      },
+    };
+    const result = preflight(
+      baseEntry({
+        kind: "event:tasks_planned",
+        payload: { based_on: { spec: 1 }, tasks: [plannedBug] },
+      }),
+      { snapshot: mkSnapshot("SPEC.design", STANDARD_CEREMONY), tail_seq: -1 },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("BUG_TASK_FLAG_MISUSE");
+  });
+});

@@ -431,7 +431,10 @@ describe("specLockCheck check 7 — VISUAL_CONTRACT_UNBOUND", () => {
 });
 
 describe("specLockCheck check 8 — TASK_KIND_SCHEMA_VIOLATION", () => {
-  test("behavioral with labels.bug missing red_test_registered fails", () => {
+  test("behavioral with labels.bug missing red_test_registered PASSES (Slice C SC-C4 R2)", () => {
+    // R2 relocates the bug-RED rule out of spec-lock: bug-RED is EXECUTE
+    // discipline (enforced at task_step_started/done implement), not spec
+    // completeness. check 8 no longer flags an unregistered bug task.
     const fm = makeFrontmatter();
     const snap: Snapshot = {
       ...initialSnapshot(),
@@ -439,21 +442,13 @@ describe("specLockCheck check 8 — TASK_KIND_SCHEMA_VIOLATION", () => {
         behavioralTask({
           drives: ["REQ-AUTH-001"],
           labels: ["bug"],
-          // red_test_registered missing
+          // red_test_registered missing — no longer a spec-lock failure
         }),
       ],
       tasks_based_on: { spec: 1 },
     };
     const result = specLockCheck(snap, fm);
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      const check8 = result.checks.find((c) => c.check === 8);
-      expect(check8?.code).toBe("TASK_KIND_SCHEMA_VIOLATION");
-      expect(check8?.detail?.task_id).toBe("T-001");
-      expect(check8?.detail?.reasons).toEqual([
-        "behavioral task with labels=['bug'] requires red_test_registered=true",
-      ]);
-    }
+    expect(result.ok).toBe(true);
   });
 
   test("behavioral with labels.bug and red_test_registered=true passes", () => {
@@ -525,11 +520,22 @@ describe("specLockCheck check 8 — TASK_KIND_SCHEMA_VIOLATION", () => {
     const snap: Snapshot = {
       ...initialSnapshot(),
       tasks: [
-        behavioralTask({
+        // Slice C SC-C4 (R2): bug-RED is no longer a check-8 violation —
+        // use two genuine kind-obligation failures instead.
+        {
           id: "T-001",
-          drives: ["REQ-AUTH-001"],
-          labels: ["bug"],
-        }),
+          kind: "visual-ui",
+          status: "pending",
+          steps: {
+            mockup: step("must"),
+            implement: step("must"),
+            "screenshot-compare": step("must"),
+          },
+          drives: [],
+          depends_on: [],
+          labels: [],
+          visual_contract_refs: [], // ← check-8 violation
+        },
         {
           id: "T-099",
           kind: "structural",
@@ -538,6 +544,7 @@ describe("specLockCheck check 8 — TASK_KIND_SCHEMA_VIOLATION", () => {
           drives: [],
           depends_on: [],
           labels: [],
+          // no_test_rationale missing ← check-8 violation
         },
       ],
       tasks_based_on: { spec: 1 },
@@ -559,11 +566,16 @@ describe("specLockCheck check 8 — TASK_KIND_SCHEMA_VIOLATION", () => {
     const snap: Snapshot = {
       ...initialSnapshot(),
       tasks: [
-        behavioralTask({
-          drives: ["REQ-AUTH-001"],
-          labels: ["bug"],
-          // red_test_registered missing
-        }),
+        // structural missing no_test_rationale — a genuine check-8 violation.
+        {
+          id: "T-099",
+          kind: "structural",
+          status: "pending",
+          steps: { implement: step("must"), refactor: step("optional") },
+          drives: [],
+          depends_on: [],
+          labels: [],
+        },
       ],
       tasks_based_on: null, // check 3 will fail TASKS_NOT_PLANNED
     };
@@ -582,10 +594,16 @@ describe("specLockCheck check 8 — TASK_KIND_SCHEMA_VIOLATION", () => {
     const snap: Snapshot = {
       ...initialSnapshot(),
       tasks: [
-        behavioralTask({
-          drives: ["REQ-AUTH-001"],
-          labels: ["bug"],
-        }),
+        {
+          id: "T-099",
+          kind: "structural",
+          status: "pending",
+          steps: { implement: step("must"), refactor: step("optional") },
+          drives: [],
+          depends_on: [],
+          labels: [],
+          // no_test_rationale missing — check-8 violation
+        },
       ],
       tasks_based_on: { spec: 1 },
     };
