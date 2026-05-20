@@ -1817,7 +1817,7 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 | `loaf tasks submit <file>` | 提交完整 task graph(SPEC.design 阶段)。**rev 5.0**:走 §11.2 transaction,emit `event:tasks_planned`(payload 含完整 task array);reducer 派生 `snapshots/tasks.json` | 0 / 2 |
 | `loaf tasks add --input <src>` | **rev 4.3** + **rev 5.0**:单条或 batch task 加入。SPEC.design 阶段 emit `event:tasks_planned`(整批 entry,batch markers);EXECUTE 阶段 emit `event:tasks_amended`(走 finding `amend-tasks` 路径)。原 `<T-N>` positional + `--kind` / `--drives` per-field flag **已砍**;CLI 在 lock 内单调分配 `T-id`(`^T-\d{3,}$`)并 stdout 回打;reducer 派生 `snapshots/tasks.json` | 0 / 2 |
 | `loaf tasks claim <T-N>` | 把 task 从 `ready` 拉到 `in_progress`(worker 拿活,fan-out 多 worker 并发用);CLI 在 lock 内确认 deps_on satisfied | 0 / 2 |
-| `loaf tasks complete <T-N>` | 把 task 整体推到 `done`(要求全部 must step 已 passed/waived/na);**rev 4.1**:同 `tasks step done` 也是单 transaction。**rev 4.2**:rename from `loaf tasks done` — 与 `tasks step done` 同名异级歧义,改 `complete` 消歧(clig.dev §8) | 0 / 2 |
+| `loaf tasks complete <T-N>` | 确认 task 已达 `done`(全部 must step 已 passed/waived/na)。**rev 5.0 / Slice C SC-C1**:`event:task_step_done` 已在末个 must step 完成时 auto-promote `task.status=done`,故 `tasks complete` 是**只读确认命令**——不 emit journal entry;task 已 `done` → exit 0,否则 `TASK_COMPLETE_PRECONDITION_VIOLATED` exit 2 并列出未达 terminal-positive 的 must step。**rev 4.2**:rename from `loaf tasks done` — 与 `tasks step done` 同名异级歧义,改 `complete` 消歧(clig.dev §8) | 0 / 2 |
 | `loaf tasks register-red <T-N>` | 给 `behavioral+labels=["bug"]` task 注册 RED 测试(§9.3 唯一硬约束)| 0 / 2 |
 | `loaf tasks amend <T-N> --policy <...>` | spec-lock 后窄修 `execution[].applicability`(EXECUTE.plan 阶段;不能改 drives / depends_on / kind,见 §8.6) | 0 / 2 |
 | `loaf tasks list` | 列所有 task 当前 step(rev 4.0:rename from `loaf tasks status`,避免跟 `loaf status` session-level 命名歧义) | 0 |
@@ -1866,7 +1866,8 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 | `loaf tasks add` | `event:tasks_amended`(EXECUTE 阶段)/ batch entry under `event:tasks_planned`(SPEC.design) |
 | `loaf tasks claim` | `event:task_claimed` |
 | `loaf tasks step start` | `event:task_step_started` |
-| `loaf tasks step done` / `tasks complete` | `event:task_step_done`(+ 同一 batch 内 `evidence:added` 若 `--evidence-*`) |
+| `loaf tasks step done` | `event:task_step_done`(+ 同一 batch 内 `evidence:added` 若 `--evidence-*`) |
+| `loaf tasks complete` | (无 entry — **rev 5.0 / Slice C SC-C1**:只读确认命令;`task_step_done` 的 auto-promote 已使显式 completion entry 冗余) |
 | `loaf tasks amend` | `event:tasks_amended` |
 | `loaf evidence add` | `evidence:added`(batch) |
 | `loaf waive` | `evidence:added`(payload.kind=`waiver`) |

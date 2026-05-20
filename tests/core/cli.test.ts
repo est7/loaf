@@ -3551,3 +3551,150 @@ describe("loaf finding raise --action amend-spec — Slice B CLI shell", () => {
     });
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// loaf tasks complete — Slice C SC-C1
+//
+// `tasks complete <T-id>` is a NO-OP confirmation command (codex r101 Q2=a):
+// it emits NO journal entry. event:task_step_done already auto-promotes a
+// task to status=done when every must-applicable step is terminal-positive
+// (passed|waived|na), so `tasks complete` confirms that invariant and exits
+// 0 — or fails TASK_COMPLETE_PRECONDITION_VIOLATED exit 2, listing the
+// must-applicable steps still not terminal. Read-only: no journal append,
+// no sub_state gate.
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("loaf tasks complete — Slice C SC-C1 (NO-OP confirmation)", () => {
+  async function driveTaskToDone(dir: string): Promise<void> {
+    await runCli(["tasks", "claim", "T-001", "--feature", "auth-refresh", "--feature-dir", dir]);
+    for (const step of ["red", "implement"]) {
+      await runCli([
+        "tasks", "step", "start", "--task", "T-001", "--step", step,
+        "--feature", "auth-refresh", "--feature-dir", dir,
+      ]);
+      await runCli([
+        "tasks", "step", "done", "--task", "T-001", "--step", step, "--result", "passed",
+        "--feature", "auth-refresh", "--feature-dir", dir,
+      ]);
+    }
+  }
+
+  test("happy: task with all must steps passed → exit 0, status=done", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtExecuteWork(dir);
+    await driveTaskToDone(dir);
+
+    const r = await runCli([
+      "tasks", "complete", "T-001",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+    ]);
+    expect(r.exit).toBe(0);
+    expect(JSON.parse(r.stdout)).toEqual({
+      ok: true,
+      feature: "auth-refresh",
+      task_id: "T-001",
+      status: "done",
+    });
+  });
+
+  test("happy text mode: prints confirmation line", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtExecuteWork(dir);
+    await driveTaskToDone(dir);
+
+    const r = await runCli([
+      "tasks", "complete", "T-001",
+      "--feature", "auth-refresh", "--feature-dir", dir,
+    ]);
+    expect(r.exit).toBe(0);
+    // Exact stdout match — pins the text-mode confirmation as a
+    // composition contract (codex r104 note 1).
+    expect(r.stdout).toBe("T-001 complete (status=done)\n");
+  });
+
+  test("NO-OP: emits no journal entry — journal line count unchanged", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtExecuteWork(dir);
+    await driveTaskToDone(dir);
+
+    const journalPath = path.join(dir, "journal.jsonl");
+    const before = (await fs.readFile(journalPath, "utf8")).trimEnd().split("\n").length;
+    const r = await runCli([
+      "tasks", "complete", "T-001",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+    ]);
+    expect(r.exit).toBe(0);
+    const after = (await fs.readFile(journalPath, "utf8")).trimEnd().split("\n").length;
+    expect(after).toBe(before);
+  });
+
+  test("fail: a must step still pending → TASK_COMPLETE_PRECONDITION_VIOLATED exit 2", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtExecuteWork(dir);
+    // claim + only `red` done; `implement` (must) stays pending → no auto-promote.
+    await runCli(["tasks", "claim", "T-001", "--feature", "auth-refresh", "--feature-dir", dir]);
+    await runCli([
+      "tasks", "step", "start", "--task", "T-001", "--step", "red",
+      "--feature", "auth-refresh", "--feature-dir", dir,
+    ]);
+    await runCli([
+      "tasks", "step", "done", "--task", "T-001", "--step", "red", "--result", "passed",
+      "--feature", "auth-refresh", "--feature-dir", dir,
+    ]);
+
+    const r = await runCli([
+      "tasks", "complete", "T-001",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+    ]);
+    expect(r.exit).toBe(2);
+    expect(r.stdout).toBe("");
+    const err = JSON.parse(r.stderr.trim());
+    expect(err.code).toBe("TASK_COMPLETE_PRECONDITION_VIOLATED");
+    expect(err.detail.task_id).toBe("T-001");
+    expect(err.detail.blocking_steps).toContain("implement");
+    expect(err.detail.blocking_steps).not.toContain("red");
+  });
+
+  test("fail: untouched task → exit 2, blocking_steps lists every must step", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtExecuteWork(dir);
+
+    const r = await runCli([
+      "tasks", "complete", "T-001",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+    ]);
+    expect(r.exit).toBe(2);
+    const err = JSON.parse(r.stderr.trim());
+    expect(err.code).toBe("TASK_COMPLETE_PRECONDITION_VIOLATED");
+    expect(err.detail.blocking_steps).toEqual(
+      expect.arrayContaining(["red", "implement"]),
+    );
+  });
+
+  test("fail: unknown task → TASK_NOT_FOUND exit 2", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtExecuteWork(dir);
+
+    const r = await runCli([
+      "tasks", "complete", "T-999",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+    ]);
+    expect(r.exit).toBe(2);
+    expect(r.stdout).toBe("");
+    const err = JSON.parse(r.stderr.trim());
+    expect(err.code).toBe("TASK_NOT_FOUND");
+    expect(err.detail.task_id).toBe("T-999");
+  });
+
+  test("fail text mode: renders error line", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtExecuteWork(dir);
+
+    const r = await runCli([
+      "tasks", "complete", "T-001",
+      "--feature", "auth-refresh", "--feature-dir", dir,
+    ]);
+    expect(r.exit).toBe(2);
+    expect(r.stderr).toMatch(/error: TASK_COMPLETE_PRECONDITION_VIOLATED/);
+  });
+});

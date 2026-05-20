@@ -3819,6 +3819,8 @@ export const DiagnosticCode = z.enum([
   // promoted so CLI surfaces the actionable code directly.
   "SPEC_VERSION_NOT_MONOTONIC",            // src/core/reducer/preflight.ts spec_version != current+1 at batch head (spec_submitted | spec_*_added head)
   "SPEC_VERSION_BATCH_MISMATCH",           // src/core/reducer/preflight.ts spec_submitted at batch_index>0 (structurally illegal) OR spec_*_added continuation with spec_version != current
+  // ── Slice C SC-C1 — `loaf tasks complete` NO-OP confirmation ──
+  "TASK_COMPLETE_PRECONDITION_VIOLATED",   // src/cli.tsx `loaf tasks complete` — task.status != done; one or more must-applicable steps not terminal-positive (passed|waived|na)
 ]);
 export type DiagnosticCode = z.infer<typeof DiagnosticCode>;
 
@@ -4654,6 +4656,15 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
     fix_template:
       "in a multi-entry spec batch, the head (batch_index=0) bumps spec_version to current+1 and all continuation entries (batch_index≥1) must set spec_version to that same value. Check the head entry's payload.spec_version and align companions.",
     doc_anchor: "protocol.md#§4.2",
+  },
+  // ── Slice C SC-C1 — `loaf tasks complete` NO-OP confirmation ──
+  TASK_COMPLETE_PRECONDITION_VIOLATED: {
+    exit_code: 2,
+    message_template:
+      "task {task_id} is not complete (status={status}); must-applicable steps not terminal-positive: {blocking_steps}",
+    fix_template:
+      "finish each blocking step via `loaf tasks step start/done`; a task auto-promotes to status=done once every must-applicable step is passed/waived/na, and `loaf tasks complete` then confirms it. Run `loaf tasks list` to inspect step status.",
+    doc_anchor: "protocol.md#§10.8",
   },
 } as const;
 

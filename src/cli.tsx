@@ -868,6 +868,69 @@ export async function main(argv: string[] = process.argv): Promise<number> {
       }
     });
 
+  // ── loaf tasks complete <task-id> ───────────────────────────────────
+  // Slice C SC-C1. NO-OP confirmation command (codex r101 Q2=a): emits NO
+  // journal entry. `event:task_step_done` already auto-promotes a task to
+  // status=done once every must-applicable step is terminal-positive
+  // (passed | waived | na — see shouldPromoteToDone). `tasks complete`
+  // therefore only confirms that invariant: exit 0 when task.status=done,
+  // else TASK_COMPLETE_PRECONDITION_VIOLATED exit 2 listing the
+  // must-applicable steps that are not yet terminal-positive.
+  //
+  // Read-only — no mutate(), no sub_state gate (it appends nothing). The
+  // protocol §1869 emit-table row mapping `tasks complete → task_step_done`
+  // is corrected in the same commit (the auto-promote path made an explicit
+  // completion entry redundant).
+  tasksCmd
+    .command("complete <task-id>")
+    .description("Confirm a task has reached status=done (read-only; emits nothing)")
+    .requiredOption("--feature <name>", "Feature whose task to confirm")
+    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
+    .action(async (taskId: string, opts: { feature: string; featureDir?: string }) => {
+      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      const session = await loadSession(featureDir);
+      if (!session.snapshot.state) {
+        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        return;
+      }
+      const task = session.snapshot.tasks.find((t) => t.id === taskId);
+      if (!task) {
+        emitFailure(
+          "TASK_NOT_FOUND",
+          `task ${taskId} is not in the current tasks projection`,
+          { task_id: taskId },
+        );
+        return;
+      }
+      if (task.status !== "done") {
+        // Enumerate the must-applicable steps that block auto-promote so the
+        // caller knows exactly what is still owed (codex r101 Q2 detail).
+        const TERMINAL_POSITIVE = ["passed", "waived", "na"];
+        const blockingSteps = Object.entries(task.steps)
+          .filter(
+            ([, s]) => s.applicability === "must" && !TERMINAL_POSITIVE.includes(s.status),
+          )
+          .map(([name]) => name);
+        emitFailure(
+          "TASK_COMPLETE_PRECONDITION_VIOLATED",
+          `task ${taskId} is not complete (status=${task.status}); must-applicable steps not terminal-positive: ${blockingSteps.join(", ") || "(none — task has no must steps to auto-promote)"}`,
+          { task_id: taskId, status: task.status, blocking_steps: blockingSteps },
+        );
+        return;
+      }
+      const out = {
+        ok: true,
+        feature: opts.feature,
+        task_id: taskId,
+        status: task.status,
+      };
+      if (useJson) {
+        process.stdout.write(JSON.stringify(out) + "\n");
+      } else {
+        process.stdout.write(`${taskId} complete (status=done)\n`);
+      }
+    });
+
   // ── loaf tasks step <subcommand> ────────────────────────────────────
   // Slice 2 SC3. Sub-namespace for task step lifecycle. `step start` and
   // `step done` both require task.status=in_progress (SC1 TASK_NOT_CLAIMED).

@@ -164,6 +164,7 @@
     "FINDING_AMEND_SPEC_NOT_LOCKED": "finding raise action=amend-spec requires state.spec_locked=true; spec is not locked at sub_state={current_sub_state}, edit directly via `loaf spec submit / add-*`",
     "SPEC_VERSION_NOT_MONOTONIC":  "{kind}: spec_version must be {expected_spec_version} (current+1), got {payload_spec_version}",
     "SPEC_VERSION_BATCH_MISMATCH": "{kind}: spec_version must be {current_spec_version} at batch_index={batch_index}, got {payload_spec_version}",
+    "TASK_COMPLETE_PRECONDITION_VIOLATED": "task {task_id} is not complete (status={status}); must-applicable steps not terminal-positive: {blocking_steps}",
     "DONE_TERMINAL_INVARIANT":    "DONE.* requires state.pending.length === 0 and no task with status=\"in_progress\" in tasks.json",
     "ABANDON_REQUIRES_REASON":    "loaf abandon requires --reason argument",
     "TASKS_EXECUTION_DRIFT":      "Task {task_id} step={step} status={status} disagrees with evidence.jsonl",
