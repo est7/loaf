@@ -32,6 +32,12 @@ export interface ReplayResult {
   snapshot: Snapshot;
   meta: SnapshotMeta;
   entries_applied: number;
+  /** The parsed entries of the successful replay prefix, in journal order.
+   *  Populated only when `ReplayOptions.collect_entries` is set — generic /
+   *  perf-sensitive callers keep the default streaming behavior (Slice C
+   *  SC-C2a). Consumed by `latestCanonicalTaskBody` to recover canonical
+   *  task bodies the slim projection drops. */
+  entries?: JE[];
 }
 
 export interface ReplayError {
@@ -48,6 +54,10 @@ export interface ReplayOptions {
    *  If omitted, migration entries fall through to reducer.apply's default
    *  bootstrap (cursor at TRIAGE.score, no projection rehydrated). */
   feature_dir?: string;
+  /** Opt-in: accumulate the parsed entries of the successful replay prefix
+   *  into `ReplayResult.entries`. Off by default so generic replay keeps its
+   *  streaming memory profile (Slice C SC-C2a). */
+  collect_entries?: boolean;
 }
 
 export async function replayJournal(
@@ -64,6 +74,7 @@ export async function replayJournal(
         snapshot: initialSnapshot(),
         meta: emptyMeta(),
         entries_applied: 0,
+        ...(opts.collect_entries ? { entries: [] } : {}),
       };
     }
     return { ok: false, code: "JOURNAL_READ_FAILED", message: String(err) };
@@ -75,6 +86,7 @@ export async function replayJournal(
       snapshot: initialSnapshot(),
       meta: emptyMeta(),
       entries_applied: 0,
+      ...(opts.collect_entries ? { entries: [] } : {}),
     };
   }
 
@@ -94,6 +106,9 @@ export async function replayJournal(
   let rolling = emptyMeta().rolling_checksum;
   let offset = 0;
   let applied = 0;
+  // Slice C SC-C2a: opt-in accumulation of the replay prefix. Stays
+  // undefined when collect_entries is off so the property is absent.
+  const collected: JE[] | undefined = opts.collect_entries ? [] : undefined;
 
   for (const line of completeLines) {
     const lineBytes = Buffer.byteLength(line + "\n", "utf8");
@@ -164,6 +179,7 @@ export async function replayJournal(
     rolling = extendRollingChecksum(rolling, line);
     offset += lineBytes;
     applied++;
+    collected?.push(entry);
   }
 
   return {
@@ -178,6 +194,7 @@ export async function replayJournal(
       written_at: new Date().toISOString(),
     },
     entries_applied: applied,
+    ...(collected ? { entries: collected } : {}),
   };
 }
 

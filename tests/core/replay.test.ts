@@ -112,4 +112,56 @@ describe("replayJournal — Stage 3 §3.6", () => {
       expect(result.at_seq).toBe(1);
     }
   });
+
+  // ── Slice C SC-C2a — opt-in entry collection ──────────────────────────
+  // `collect_entries` lets callers (loadSession → tasks amend) recover the
+  // canonical full task body, which the slim Snapshot.tasks drops. Off by
+  // default so generic / perf-sensitive replay keeps streaming behavior.
+  test("collect_entries:true returns the applied entries in journal order", async () => {
+    const filePath = await tmpJournal();
+    await appendEntry(filePath, startEntry(), { fsync: false });
+    await appendEntry(
+      filePath,
+      {
+        seq: 1,
+        entry_id: "JE-000002",
+        at: "2026-05-15T10:01:00.000Z",
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "event:phase_advanced",
+        payload: { from: "TRIAGE.score", to: "TRIAGE.confirm" },
+      },
+      { fsync: false },
+    );
+    const result = await replayJournal(filePath, { collect_entries: true });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.entries).toBeDefined();
+      expect(result.entries).toHaveLength(2);
+      expect(result.entries![0]!.kind).toBe("session:started");
+      expect(result.entries![1]!.kind).toBe("event:phase_advanced");
+    }
+  });
+
+  test("collect_entries omitted leaves entries undefined", async () => {
+    const filePath = await tmpJournal();
+    await appendEntry(filePath, startEntry(), { fsync: false });
+    const result = await replayJournal(filePath);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.entries).toBeUndefined();
+    }
+  });
+
+  test("collect_entries:true on an absent journal yields an empty entries array", async () => {
+    const filePath = path.join(
+      await fs.mkdtemp(path.join(os.tmpdir(), "loaf-replay-")),
+      "journal.jsonl",
+    );
+    const result = await replayJournal(filePath, { collect_entries: true });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.entries).toEqual([]);
+    }
+  });
 });

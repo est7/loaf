@@ -16,6 +16,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 
 import { replayJournal } from "./journal-bootstrap.js";
+import type { JournalEntry } from "./journal-entry.js";
 import { initialSnapshot, type Snapshot } from "./reducer.js";
 
 // These are replaced at build time via tsdown's `define`. Dev / test runs
@@ -36,19 +37,38 @@ export interface SessionLoad {
   feature_dir: string;
   snapshot: Snapshot;
   tail_seq: number;
+  /** The parsed entries of the replayed journal, in order (Slice C SC-C2a).
+   *  `loadSession` always requests collection so commands that need the
+   *  canonical full task body (`tasks amend`) can call `latestCanonicalTaskBody`
+   *  against the same replay prefix that produced `snapshot` — no second
+   *  journal read, no TOCTOU gap. Empty for a fresh feature. */
+  entries: JournalEntry[];
 }
 
 export async function loadSession(featureDir: string): Promise<SessionLoad> {
   await fs.mkdir(featureDir, { recursive: true });
   const journalPath = path.join(featureDir, "journal.jsonl");
-  const replay = await replayJournal(journalPath, { feature_dir: featureDir });
+  const replay = await replayJournal(journalPath, {
+    feature_dir: featureDir,
+    collect_entries: true,
+  });
   if (!replay.ok) {
     throw new Error(`failed to load session at ${featureDir}: ${replay.code} — ${replay.message}`);
+  }
+  // collect_entries:true above guarantees `entries` is present on a
+  // successful replay. Fail fast rather than `?? []` — a silent empty
+  // fallback would hand SC-C2b an empty canonical history and make
+  // `tasks amend` falsely report TASK_NOT_FOUND (codex r107 BLOCK).
+  if (replay.entries === undefined) {
+    throw new Error(
+      "internal invariant: replayJournal returned ok with collect_entries=true but no entries",
+    );
   }
   return {
     feature_dir: featureDir,
     snapshot: replay.entries_applied === 0 ? initialSnapshot() : replay.snapshot,
     tail_seq: replay.meta.last_applied_seq,
+    entries: replay.entries,
   };
 }
 
