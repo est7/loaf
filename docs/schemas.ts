@@ -3112,8 +3112,8 @@ export const CONCURRENCY_INVARIANTS = {
     },
     {
       cmd: "loaf tasks add --input (single or batch)",
-      emits: ["event:tasks_amended (EXECUTE phase) OR event:tasks_planned envelope-internal entries (SPEC.design)"],
-      why: "ADR-0004 A5+A10: T-id range allocation + tasks projection rebuild + state pointer agreement must land together in one batch",
+      emits: ["event:tasks_amended mode=add + sponsored_by_finding_id (EXECUTE.work, via --finding) OR event:tasks_planned whole-graph (SPEC.design)"],
+      why: "ADR-0004 A5+A10: T-id range allocation + tasks projection rebuild + state pointer agreement must land together in one batch. Phase 11 Item 3 SC1b: the EXECUTE.work add is the sponsored path — each added task is one event:tasks_amended mode=add carrying sponsored_by_finding_id (the amend-tasks finding that authorizes the post-back-edge graph mutation)",
     },
     {
       cmd: "loaf evidence add --input (single or batch)",
@@ -4058,11 +4058,19 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
       "out-of-scope for this feature",
     doc_anchor: "protocol.md#§4.3",
   },
-  // Slice C SC-C2b — emitted by preflight for event:tasks_amended §8.6
-  // violations (frozen-field change at EXECUTE.plan / unsponsored mode=add
-  // / mode=replace outside EXECUTE.plan). detail carries task_id + mode +
+  // Slice C SC-C2b + Phase 11 Item 3 SC1b — emitted by preflight for
+  // event:tasks_amended §8.6 violations. detail carries task_id + mode +
   // sub_state always, plus field/from/to (frozen-field case) or reason
   // (operation-level rejection). Template uses only the always-present keys.
+  // Two paths surface this code:
+  //   - UNSPONSORED: frozen-field change at EXECUTE.plan / unsponsored
+  //     mode=add / mode=replace outside EXECUTE.plan.
+  //   - SPONSORED (SC1b, sponsored_by_finding_id present, finding already
+  //     verified valid): wrong sub_state (detail.reason=
+  //     sponsored_tasks_amended_wrong_sub_state — sponsored amends are
+  //     EXECUTE.work-only) OR a frozen-field change that erases / rewrites
+  //     execution progress (task status, a retained step's status, a new
+  //     step born non-pending, or removal of a progress-bearing step).
   MUTATION_OUT_OF_RIGHTS: {
     exit_code: 2,
     message_template:
@@ -4072,8 +4080,11 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
       "the mutation rights matrix (protocol.md §8.6) limits EXECUTE.plan " +
       "`tasks amend` to execution[].applicability changes plus a " +
       "status pending→ready advance; graph/kind-flag fields are frozen. " +
-      "To restructure the task graph, raise a finding to back-edge through " +
-      "the legal transition instead of amending in place",
+      "To restructure the task graph, raise a `finding raise --action " +
+      "amend-tasks` back-edge, then run the sponsored `tasks add --finding` " +
+      "/ `tasks amend --input --finding` at EXECUTE.work — a sponsored " +
+      "amend may change graph/definition fields but never erases execution " +
+      "progress (task/step status is frozen)",
     doc_anchor: "protocol.md#§8.6",
   },
   LOCK_TIMEOUT: {

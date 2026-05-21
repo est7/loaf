@@ -1364,6 +1364,15 @@ spike task 完工有 3 个合法出口,**永远不允许 deliver**:
 
 task graph 契约改(加 task / 改 drives / 改 kind / 改 depends_on)只能在 SPEC.design(`event:tasks_planned` 初创)或经 finding action `amend-tasks` 回退路径(emit `event:tasks_amended`),**不能在 EXECUTE.work 直接改 task graph**。
 
+**Sponsored `event:tasks_amended`(Phase 11 Item 3 SC1b)**:`finding raise --action amend-tasks` 的回退把 cursor 落到 `EXECUTE.work` 后,该处的 `tasks amend` / `tasks add` 默认仍被 §8.6 `MUTATION_OUT_OF_RIGHTS` preflight 拒绝。要在回退后真正改 task graph,`event:tasks_amended` payload 必须携带显式的 `sponsored_by_finding_id` 标记 —— 一个 journal-derivable 的授权字段(payload schema `.strict()`,typo'd key 在 append 处即失败,不会被静默当作 unsponsored)。preflight §8.6 sponsored 分支:
+
+- 先按 back-edge sponsorship 同样的判据校验该 finding(`preflight.ts` step 5b 先例):不存在 / 已 closed / `action !== amend-tasks` → `FINDING_NOT_FOUND`(`detail.reason` ∈ `not_found` / `already_closed` / `action_mismatch`)。
+- finding 校验通过后,授权 / surface 违规才用 `MUTATION_OUT_OF_RIGHTS`。sponsored `tasks_amended` 仅在 `EXECUTE.work` 合法(回退目标),其它 sub_state → `MUTATION_OUT_OF_RIGHTS` `detail.reason=sponsored_tasks_amended_wrong_sub_state`。
+- **frozen-field 红线(HARD)**:sponsored `mode=replace` 可改 graph / definition 字段(`kind` / `drives` / `depends_on` / `labels` / `visual_contract_refs` / scalar kind-flags / execution step SET / `execution.<step>.applicability`),但**冻结 identity + execution progress**:task `id`、task-level `status`、每个保留 step 的 `status`。新引入的 step 必须以 `pending` 出生;带 execution 进度的 step —— `status` 非 `pending`,或带 `evidence_refs` / `started_at` / step `reason` —— 不得被 replace 删除(删除等于抹掉历史)。sponsored `mode=add` 引入的任务必须以全新 / 未启动状态出生(task + 每 step `pending`、空 `evidence_refs`、无 `started_at` / `reason`、`red_test_registered` 不为 `true`),否则 `MUTATION_OUT_OF_RIGHTS`(`detail.reason=sponsored_add_not_fresh`)—— 一次 sponsored add 不得伪造已完成的工作。**任何 sponsored 路径都不得以 graph amend 之名抹除、改写或伪造 execution 进度。**
+- finding 不因 sponsored `tasks_amended` 关闭;一个 open amend-tasks finding 可 sponsor 多次 amend;worker 之后显式 `finding close`。
+
+**enforcement locus(SC1b 锁定,延续 SC-C2c 的 option B)**:stable-core preflight 在 slim `Snapshot.tasks` 投影上跑 frozen / allowed split —— 它能看到 `id` / task `status` / graph 字段 / execution step set / 每 step `status`,覆盖 Q4 的 *status*-based 进度红线。body-only 字段(`tests` / `test_layer` / 每 step `evidence_refs` / `started_at` / step `reason`)**不在** slim 投影内,stable-core preflight **不**独立复核它们的保留 —— body-only 字段由 sponsored `tasks amend --input` CLI 路径守卫:`carryForwardStepProgress` 把 retained step 的 body-only 进度从 canonical body 前向携带到新 graph;removed-step body-only 检查拒绝删除任何带 `evidence_refs` / `started_at` / `reason` 的 step;`materializeTaskForAmend` 只负责把 slim runtime status 叠加上去。这是有意的 locus 分工,不是 preflight 能力缺口。残余:绕过 CLI 的 raw journal caller 删除一个 slim-`pending` 但带 body-only 进度的 step,stable-core preflight 看不到 —— 即 option-B 的已知边界。
+
 ---
 
 ## 9. BDD / TDD 纪律
@@ -1834,12 +1843,12 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 | `loaf spec add-scenario --input <src>` | **rev 4.3**(ADR-0004 A1 / A4 / A5):增量加 Gherkin scenario,id_namespace 模式 `^SCEN-[A-Z][A-Z0-9-]*$`。其余规约同 `spec add-req` | 0 / 2 |
 | `loaf spec add-visual --input <src>` | **rev 4.3**(ADR-0004 A1 / A4 / A5):增量加 visual contract,id_namespace 模式 `^VIS-[A-Z][A-Z0-9-]*$`。其余规约同 `spec add-req` | 0 / 2 |
 | `loaf tasks submit <file>` | 提交完整 task graph(SPEC.design 阶段)。**rev 5.0**:走 §11.2 transaction,emit `event:tasks_planned`(payload 含完整 task array);reducer 派生 `snapshots/tasks.json` | 0 / 2 |
-| `loaf tasks add <file>` | **rev 4.3** + **rev 5.0**:单条或 batch task 加入。SPEC.design 阶段 emit `event:tasks_planned`(整批 entry,batch markers);EXECUTE 阶段 emit `event:tasks_amended`(走 finding `amend-tasks` 路径)。原 `<T-N>` positional + `--kind` / `--drives` per-field flag **已砍**;CLI 在 lock 内单调分配 `T-id`(`^T-\d{3,}$`)并 stdout 回打;reducer 派生 `snapshots/tasks.json` | 0 / 2 |
+| `loaf tasks add <file> [--finding <FND-N>]` | **rev 4.3** + **rev 5.0** + **Item 3 SC1b**:单条或 batch task 加入。`SPEC.design` 阶段(无 `--finding`)emit 整图 whole-replacement `event:tasks_planned`;`EXECUTE.work` 阶段(带 `--finding <FND-N>`)是 sponsored 路径 —— 每个新增 task emit 一条 `event:tasks_amended` `mode=add` + `sponsored_by_finding_id`(input 含多个 task 时走 `mutateBatch`)。`--finding` 在 `SPEC.design` → `USAGE` 拒绝;无 `--finding` 在非 `SPEC.design` → `SUB_STATE_AUTHORITY_VIOLATION`。原 `<T-N>` positional + `--kind` / `--drives` per-field flag **已砍**;CLI 在 lock 内单调分配 `T-id`(`^T-\d{3,}$`)并 stdout 回打;reducer 派生 `snapshots/tasks.json` | 0 / 2 |
 | `loaf tasks claim <T-N>` | 把 task 从 `ready` 拉到 `in_progress`(worker 拿活,fan-out 多 worker 并发用);CLI 在 lock 内确认 deps_on satisfied | 0 / 2 |
 | `loaf tasks abandon <T-N> --reason "..."` | **Item 1**:把非终态 task 标记为 `abandoned`(EXECUTE.work 阶段;`--reason` 必填,emit `event:task_abandoned` payload 含 task_id + reason)。已终态(`done` / `abandoned`)→ `TASK_NOT_ABANDONABLE` exit 2;若有非终态 task 在 `depends_on` 指向该 task → `TASK_ABANDON_BLOCKED_DEPENDENTS` exit 2(放弃父任务会孤立子任务)。配合 `EXECUTE_DONE_TASKS_NOT_FINAL`:超出范围的 task 可 abandon 后再 `loaf advance EXECUTE.done` | 0 / 2 |
 | `loaf tasks complete <T-N>` | 确认 task 已达 `done`(全部 must step 已 passed/waived/na)。**rev 5.0 / Slice C SC-C1**:`event:task_step_done` 已在末个 must step 完成时 auto-promote `task.status=done`,故 `tasks complete` 是**只读确认命令**——不 emit journal entry;task 已 `done` → exit 0,否则 `TASK_COMPLETE_PRECONDITION_VIOLATED` exit 2 并列出未达 terminal-positive 的 must step。**rev 4.2**:rename from `loaf tasks done` — 与 `tasks step done` 同名异级歧义,改 `complete` 消歧(clig.dev §8) | 0 / 2 |
 | `loaf tasks register-red <T-N>` | 给 `behavioral+labels=["bug"]` task 注册 RED 测试(§9.3 唯一硬约束)| 0 / 2 |
-| `loaf tasks amend <T-N> --policy <...>` | spec-lock 后窄修 `execution[].applicability`(EXECUTE.plan 阶段;不能改 drives / depends_on / kind,见 §8.6) | 0 / 2 |
+| `loaf tasks amend <T-N> (--policy <...> \| --input <file> --finding <FND-N>)` | 两条互斥 surface。`--policy`(spec-lock 后 EXECUTE.plan 阶段)窄修 `execution[].applicability`,不能改 drives / depends_on / kind(见 §8.6)。**Item 3 SC1b**:`--input <file> --finding <FND-N>` 是 sponsored 结构化 graph 替换 —— 回退到 `EXECUTE.work` 后用新 id-less task 定义替换该 task 的 graph,emit `event:tasks_amended` `mode=replace` + `sponsored_by_finding_id`;CLI 以 `materializeTaskForAmend` 把 current runtime 进度叠加到新 graph,preflight §8.6 sponsored 分支校验 finding + frozen-field 红线。`--policy` 与 `--input` 同时给 → `USAGE` 拒绝 | 0 / 2 |
 | `loaf tasks list` | 列所有 task 当前 step(rev 4.0:rename from `loaf tasks status`,避免跟 `loaf status` session-level 命名歧义) | 0 |
 | `loaf tasks next` | CLI 算下一个 ready task | 0 |
 | `loaf tasks check` | `snapshots/tasks.json` 的 `execution.<step>.status` 与 `snapshots/evidence.json` 一致性校验(rev 5.0:两个 derived projection 是 reducer 同一次重建产物,理论无 drift;mismatch → 触发 §10.15 snapshot-seq-mismatch / 提示 `loaf doctor --rebuild`);rename from `loaf check tasks` (rev 4.0) | 0 / 2 |
@@ -1883,13 +1892,13 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 | `loaf spec add-visual` | `event:spec_visual_added`(batch) |
 | `loaf spec submit <file>` | atomic batch:`event:spec_submitted` (batch_index=0,reducer 重置 projection arrays) + companion `event:spec_req_added` × N / `_scenario_added` × M / `_visual_added` × K (batch_index≥1,共享同一 batch_id + spec_version)。整批保证 journal 可 replay 回 `spec.md`(canonical truth,§4.2 derived projection) |
 | `loaf tasks submit` / `tasks plan` | `event:tasks_planned` |
-| `loaf tasks add` | `event:tasks_amended`(EXECUTE 阶段)/ batch entry under `event:tasks_planned`(SPEC.design) |
+| `loaf tasks add` | `event:tasks_amended` `mode=add` + `sponsored_by_finding_id`(EXECUTE.work 阶段,带 `--finding`;每 task 一条,多 task 走 batch)/ whole-graph `event:tasks_planned`(SPEC.design) |
 | `loaf tasks claim` | `event:task_claimed` |
 | `loaf tasks abandon` | `event:task_abandoned`(payload `task_id` + `reason`;actor `cli:loaf`) |
 | `loaf tasks step start` | `event:task_step_started` |
 | `loaf tasks step done` | `event:task_step_done`(+ 同一 batch 内 `evidence:added` 若 `--evidence-*`) |
 | `loaf tasks complete` | (无 entry — **rev 5.0 / Slice C SC-C1**:只读确认命令;`task_step_done` 的 auto-promote 已使显式 completion entry 冗余) |
-| `loaf tasks amend` | `event:tasks_amended` |
+| `loaf tasks amend` | `event:tasks_amended`(`--policy` → `mode=replace` unsponsored;`--input --finding` → `mode=replace` + `sponsored_by_finding_id`) |
 | `loaf evidence add` | `evidence:added`(batch) |
 | `loaf waive` | `evidence:added`(payload.kind=`waiver`) |
 | `loaf finding raise` | `finding:raised` |

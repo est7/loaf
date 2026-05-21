@@ -95,3 +95,43 @@ export function materializeTaskForAmend(
   }
   return out;
 }
+
+/**
+ * Carry per-step execution PROGRESS forward from a task's current canonical
+ * body onto a fresh replacement graph — for a sponsored `tasks amend --input`
+ * (Phase 11 Item 3 SC1b, codex r136 Q4).
+ *
+ * The `--input` file is an id-less `TaskInput`; `materializeTaskInput` gives
+ * the replacement a fresh `execution` block (every step `pending`,
+ * `evidence_refs: []`, no `started_at` / `reason`). A sponsored graph amend
+ * must NOT erase execution history, so for every step RETAINED across the
+ * replacement (present in both bodies) this copies the body-only progress
+ * fields — `evidence_refs`, `started_at`, `reason` — from the canonical body.
+ * A step introduced by the replacement keeps its fresh (unstarted,
+ * no-evidence) values.
+ *
+ * `status` / `applicability` are NOT carried here — `materializeTaskForAmend`
+ * overlays those from the slim projection downstream. This helper is the
+ * CLI-side guard for the body-only half of the Q4 frozen-field rule:
+ * stable-core preflight runs against the slim `Snapshot.tasks` projection,
+ * which drops `evidence_refs` / `started_at` / step `reason`, so it cannot
+ * verify their preservation (see the §8.6 sponsored-branch comment in
+ * preflight.ts).
+ */
+export function carryForwardStepProgress(
+  replacement: TaskFullPayload,
+  canonical: TaskFullPayload,
+): TaskFullPayload {
+  const out = structuredClone(replacement);
+  const outExec = out.execution as Record<string, TaskExecutionStepPayload>;
+  const priorExec = canonical.execution as Record<string, TaskExecutionStepPayload>;
+  for (const stepName of Object.keys(outExec)) {
+    const prior = priorExec[stepName];
+    const step = outExec[stepName];
+    if (!prior || !step) continue;
+    step.evidence_refs = structuredClone(prior.evidence_refs);
+    if (prior.started_at !== undefined) step.started_at = prior.started_at;
+    if (prior.reason !== undefined) step.reason = prior.reason;
+  }
+  return out;
+}

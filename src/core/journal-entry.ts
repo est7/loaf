@@ -357,13 +357,23 @@ const TasksPlannedPayload = z
 // projection. `.default("replace")` keeps any pre-mode entry (hand-authored
 // / migration / older fixture) replaying as the historical replace-only
 // semantics; the CLI always sets `mode` explicitly.
+//
+// Phase 11 Item 3 SC1b (codex r136 Q1): `sponsored_by_finding_id` is the
+// journal-derivable sponsorship marker that authorizes a post-back-edge
+// `tasks amend` / `tasks add` at EXECUTE.work — preflight §8.6 reads it to
+// relax the unsponsored mutation-rights rejections after verifying the
+// referenced finding is open with action=amend-tasks. The schema is
+// `.strict()` (not `.passthrough()`): this is an authority-bearing payload,
+// so a typo'd top-level key (e.g. `sponsored_by_findng_id`) must fail at
+// append time, not be silently dropped and read as unsponsored.
 const TasksAmendedPayload = z
   .object({
     mode: z.enum(["add", "replace"]).default("replace"),
     task: TaskFullPayload,
     reason: z.string().min(10).optional(),
+    sponsored_by_finding_id: FindingId.optional(),
   })
-  .passthrough();
+  .strict();
 
 // Slice 1.C sub-cycle 1 (codex r34 BLOCK 2 fix): EvidenceAddedPayload is the
 // strict, full mirror of docs/schemas.ts §16 EvidenceEntry (modulo

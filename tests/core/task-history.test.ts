@@ -22,6 +22,7 @@ import path from "node:path";
 import os from "node:os";
 
 import {
+  carryForwardStepProgress,
   latestCanonicalTaskBody,
   materializeTaskForAmend,
 } from "../../src/core/task-history.js";
@@ -305,5 +306,99 @@ describe("materializeTaskForAmend — red_test_registered overlay (Slice C SC-C4
     };
     const out = materializeTaskForAmend(base as never, current);
     expect((out as { red_test_registered?: boolean }).red_test_registered).toBe(true);
+  });
+});
+
+describe("carryForwardStepProgress — Phase 11 Item 3 SC1b", () => {
+  // A sponsored `tasks amend --input` builds the replacement from an id-less
+  // TaskInput — `materializeTaskInput` gives it a FRESH execution block (every
+  // step pending, evidence_refs []), so the new graph carries no execution
+  // progress. carryForwardStepProgress copies the body-only progress fields
+  // (evidence_refs / started_at / reason) forward from the canonical body for
+  // every RETAINED step, so a graph amend cannot erase execution history
+  // (codex r136 Q4).
+  function freshReplacement(): ReturnType<typeof behavioralTask> {
+    return behavioralTask({
+      id: "T-001",
+      execution: {
+        red: step("must", "pending"),
+        implement: step("must", "pending"),
+        refactor: step("optional", "pending"),
+      },
+    });
+  }
+
+  test("carries evidence_refs / started_at / reason forward for a retained step", () => {
+    const canonical = behavioralTask({
+      id: "T-001",
+      execution: {
+        red: step("must", "passed", {
+          evidence_refs: ["EV-000001"],
+          started_at: "2026-05-15T11:00:00.000Z",
+          reason: "RED registered",
+        }),
+        implement: step("must", "running", { started_at: "2026-05-15T12:00:00.000Z" }),
+        refactor: step("optional", "pending"),
+      },
+    });
+    const out = carryForwardStepProgress(freshReplacement() as never, canonical as never);
+    const exec = (out as {
+      execution: Record<string, { evidence_refs: string[]; started_at?: string; reason?: string }>;
+    }).execution;
+    expect(exec.red!.evidence_refs).toEqual(["EV-000001"]);
+    expect(exec.red!.started_at).toBe("2026-05-15T11:00:00.000Z");
+    expect(exec.red!.reason).toBe("RED registered");
+    expect(exec.implement!.started_at).toBe("2026-05-15T12:00:00.000Z");
+  });
+
+  test("does not carry status / applicability — those are materializeTaskForAmend's job", () => {
+    const canonical = behavioralTask({
+      id: "T-001",
+      execution: {
+        red: step("must", "passed", { evidence_refs: ["EV-000001"] }),
+        implement: step("na", "na"),
+        refactor: step("optional", "pending"),
+      },
+    });
+    const out = carryForwardStepProgress(freshReplacement() as never, canonical as never);
+    const exec = (out as {
+      execution: Record<string, { status: string; applicability: string }>;
+    }).execution;
+    // status / applicability stay at the fresh replacement's values.
+    expect(exec.red!.status).toBe("pending");
+    expect(exec.implement!.status).toBe("pending");
+    expect(exec.implement!.applicability).toBe("must");
+  });
+
+  test("a step absent from the canonical body keeps its fresh (unstarted) values", () => {
+    // The canonical body has no `refactor` step — the graph amend introduces
+    // it; a new step is born with no evidence and no started_at.
+    const canonical = behavioralTask({
+      id: "T-001",
+      execution: {
+        red: step("must", "passed", { evidence_refs: ["EV-000001"] }),
+        implement: step("must", "running", { started_at: "2026-05-15T12:00:00.000Z" }),
+      },
+    });
+    const out = carryForwardStepProgress(freshReplacement() as never, canonical as never);
+    const exec = (out as {
+      execution: Record<string, { evidence_refs: string[]; started_at?: string }>;
+    }).execution;
+    expect(exec.refactor!.evidence_refs).toEqual([]);
+    expect(exec.refactor!.started_at).toBeUndefined();
+  });
+
+  test("returns a no-alias copy — mutating the result does not corrupt the replacement", () => {
+    const replacement = freshReplacement();
+    const out = carryForwardStepProgress(
+      replacement as never,
+      behavioralTask({ id: "T-001" }) as never,
+    );
+    (out as { execution: Record<string, { evidence_refs: string[] }> }).execution
+      .red!.evidence_refs.push("EV-999");
+    expect(
+      (replacement as { execution: Record<string, { evidence_refs: string[] }> }).execution
+        .red!.evidence_refs,
+    ).toEqual([]);
   });
 });

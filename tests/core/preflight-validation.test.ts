@@ -13,7 +13,12 @@
 import { describe, expect, test } from "vitest";
 
 import { preflight } from "../../src/core/reducer/preflight.js";
-import { initialSnapshot, type Snapshot, type TaskState } from "../../src/core/reducer.js";
+import {
+  initialSnapshot,
+  type FindingState,
+  type Snapshot,
+  type TaskState,
+} from "../../src/core/reducer.js";
 import type { Ceremony, SubState } from "../../src/core/journal-entry.js";
 
 const STANDARD_CEREMONY: Ceremony = {
@@ -40,7 +45,11 @@ const DEEP_CEREMONY: Ceremony = {
 function mkSnapshot(
   sub_state: SubState,
   ceremony: Ceremony,
-  overrides: { verify_accepted?: boolean; tasks?: TaskState[] } = {},
+  overrides: {
+    verify_accepted?: boolean;
+    tasks?: TaskState[];
+    findings?: FindingState[];
+  } = {},
 ): Snapshot {
   const phase = sub_state.split(".")[0] as
     | "TRIAGE" | "SPEC" | "EXECUTE" | "VERIFY" | "SETTLE" | "DONE";
@@ -58,6 +67,7 @@ function mkSnapshot(
       ceremony,
     },
     tasks: overrides.tasks ?? [],
+    findings: overrides.findings ?? [],
   };
 }
 
@@ -935,6 +945,485 @@ describe("preflight — event:tasks_amended §8.6 mutation rights (Slice C SC-C2
       planCtx(slimT001()),
     );
     expect(result.ok).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Phase 11 Item 3 SC1b — sponsored event:tasks_amended preflight (codex r136).
+//
+// After a `finding raise --action amend-tasks` back-edge lands the cursor at
+// EXECUTE.work, a post-back-edge `tasks amend` / `tasks add` is authorized by
+// an explicit `sponsored_by_finding_id` marker on the tasks_amended payload.
+// Preflight verifies the marker against snapshot.findings (mirroring the
+// back-edge sponsorship precedent: missing/closed/action-mismatch →
+// FINDING_NOT_FOUND), pins the surface to EXECUTE.work (Q3), and under valid
+// sponsorship enforces the Q4 frozen-field split: identity + execution
+// progress (task id / status, per-retained-step status) is FROZEN; graph /
+// definition fields + the step set are ALLOWED to change; new steps are born
+// unstarted; a progress-bearing step may not be removed.
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("preflight — sponsored event:tasks_amended (Phase 11 Item 3 SC1b)", () => {
+  const OPEN_AMEND_TASKS: FindingState = {
+    id: "FND-001",
+    category: "new-scope",
+    action: "amend-tasks",
+    status: "open",
+  };
+
+  function workCtx(
+    current: TaskState,
+    findings: FindingState[] = [OPEN_AMEND_TASKS],
+  ) {
+    return {
+      snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, {
+        tasks: [current],
+        findings,
+      }),
+      tail_seq: -1,
+    };
+  }
+
+  // ── finding-existence checks (mirror the back-edge sponsorship precedent) ──
+
+  test("sponsored replace, finding missing → FINDING_NOT_FOUND not_found", () => {
+    const result = preflight(
+      amendEntry({
+        mode: "replace",
+        task: behavioralFull(),
+        sponsored_by_finding_id: "FND-404",
+      }),
+      workCtx(slimT001()),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("FINDING_NOT_FOUND");
+      expect(result.detail?.["reason"]).toBe("not_found");
+    }
+  });
+
+  test("sponsored replace, finding closed → FINDING_NOT_FOUND already_closed", () => {
+    const result = preflight(
+      amendEntry({
+        mode: "replace",
+        task: behavioralFull(),
+        sponsored_by_finding_id: "FND-001",
+      }),
+      workCtx(slimT001(), [{ ...OPEN_AMEND_TASKS, status: "closed" }]),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("FINDING_NOT_FOUND");
+      expect(result.detail?.["reason"]).toBe("already_closed");
+    }
+  });
+
+  test("sponsored replace, finding action != amend-tasks → FINDING_NOT_FOUND action_mismatch", () => {
+    const result = preflight(
+      amendEntry({
+        mode: "replace",
+        task: behavioralFull(),
+        sponsored_by_finding_id: "FND-001",
+      }),
+      workCtx(slimT001(), [{ ...OPEN_AMEND_TASKS, action: "amend-spec" }]),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("FINDING_NOT_FOUND");
+      expect(result.detail?.["reason"]).toBe("action_mismatch");
+      expect(result.detail?.["expected_action"]).toBe("amend-tasks");
+      expect(result.detail?.["actual_action"]).toBe("amend-spec");
+    }
+  });
+
+  // ── Q3 sub_state surface ──────────────────────────────────────────────────
+
+  test("sponsored replace at EXECUTE.plan → MUTATION_OUT_OF_RIGHTS wrong_sub_state", () => {
+    const result = preflight(
+      amendEntry({
+        mode: "replace",
+        task: behavioralFull(),
+        sponsored_by_finding_id: "FND-001",
+      }),
+      {
+        snapshot: mkSnapshot("EXECUTE.plan", STANDARD_CEREMONY, {
+          tasks: [slimT001()],
+          findings: [OPEN_AMEND_TASKS],
+        }),
+        tail_seq: -1,
+      },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("MUTATION_OUT_OF_RIGHTS");
+      expect(result.detail?.["reason"]).toBe(
+        "sponsored_tasks_amended_wrong_sub_state",
+      );
+    }
+  });
+
+  test("sponsored replace at VERIFY.review → MUTATION_OUT_OF_RIGHTS wrong_sub_state", () => {
+    const result = preflight(
+      amendEntry({
+        mode: "replace",
+        task: behavioralFull(),
+        sponsored_by_finding_id: "FND-001",
+      }),
+      {
+        snapshot: mkSnapshot("VERIFY.review", STANDARD_CEREMONY, {
+          tasks: [slimT001()],
+          findings: [OPEN_AMEND_TASKS],
+        }),
+        tail_seq: -1,
+      },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("MUTATION_OUT_OF_RIGHTS");
+      expect(result.detail?.["reason"]).toBe(
+        "sponsored_tasks_amended_wrong_sub_state",
+      );
+    }
+  });
+
+  // ── Q4 allowed graph/definition changes under sponsorship ─────────────────
+
+  test("sponsored replace changing graph fields (drives/depends_on/kind-flags) → OK", () => {
+    const incoming = behavioralFull({
+      drives: ["REQ-AUTH-999"],
+      depends_on: ["T-002"],
+      labels: ["perf"],
+      requires_acceptance: true,
+    });
+    const result = preflight(
+      amendEntry({
+        mode: "replace",
+        task: incoming,
+        sponsored_by_finding_id: "FND-001",
+      }),
+      workCtx(slimT001()),
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  test("sponsored replace changing the step SET (kind behavioral→visual-ui) → OK", () => {
+    // A sponsored replace may re-classify the task: behavioral
+    // (red/implement/refactor) → visual-ui (mockup/implement/screenshot-
+    // compare). The step set changes; only `implement` is retained (still
+    // `pending`); new steps are born `pending`. All slim-projectable.
+    const incoming = {
+      id: "T-001",
+      kind: "visual-ui",
+      drives: ["REQ-AUTH-001"],
+      status: "pending",
+      depends_on: [],
+      labels: [],
+      visual_contract_refs: ["VIS-UI-001"],
+      execution: {
+        mockup: { applicability: "must", status: "pending", evidence_refs: [] },
+        implement: { applicability: "must", status: "pending", evidence_refs: [] },
+        "screenshot-compare": { applicability: "must", status: "pending", evidence_refs: [] },
+      },
+    };
+    const result = preflight(
+      amendEntry({
+        mode: "replace",
+        task: incoming,
+        sponsored_by_finding_id: "FND-001",
+      }),
+      workCtx(slimT001()),
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  test("sponsored replace, applicability change on a retained step → OK", () => {
+    const incoming = behavioralFull({
+      execution: {
+        red: { applicability: "must", status: "pending", evidence_refs: [] },
+        implement: { applicability: "must", status: "pending", evidence_refs: [] },
+        refactor: { applicability: "na", status: "pending", evidence_refs: [] },
+      },
+    });
+    const result = preflight(
+      amendEntry({
+        mode: "replace",
+        task: incoming,
+        sponsored_by_finding_id: "FND-001",
+      }),
+      workCtx(slimT001()),
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  // ── Q4 FROZEN: identity + execution progress ──────────────────────────────
+
+  test("sponsored replace changing task id → MUTATION_OUT_OF_RIGHTS field=id", () => {
+    const incoming = behavioralFull({ id: "T-999" });
+    const result = preflight(
+      amendEntry({
+        mode: "replace",
+        task: incoming,
+        sponsored_by_finding_id: "FND-001",
+      }),
+      // current is T-001; the incoming carries a different id — there is no
+      // current task to match it. With a sponsored marker the replace targets
+      // T-999 which is absent → TASK_NOT_FOUND wins before the frozen check.
+      workCtx(slimT001()),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("TASK_NOT_FOUND");
+  });
+
+  test("sponsored replace changing task status (in_progress→pending) → MUTATION_OUT_OF_RIGHTS", () => {
+    const incoming = behavioralFull({ status: "pending" });
+    const result = preflight(
+      amendEntry({
+        mode: "replace",
+        task: incoming,
+        sponsored_by_finding_id: "FND-001",
+      }),
+      workCtx(slimT001({ status: "in_progress" })),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("MUTATION_OUT_OF_RIGHTS");
+      expect(result.detail?.["field"]).toBe("status");
+    }
+  });
+
+  test("sponsored replace changing a RETAINED step's status → MUTATION_OUT_OF_RIGHTS", () => {
+    // `implement` is `running` in current; the incoming rewinds it to
+    // `pending` — erasing execution progress on a retained step.
+    const current = slimT001({
+      steps: {
+        red: { applicability: "must", status: "passed" },
+        implement: { applicability: "must", status: "running" },
+        refactor: { applicability: "optional", status: "pending" },
+      },
+    });
+    const incoming = behavioralFull({
+      execution: {
+        red: { applicability: "must", status: "passed", evidence_refs: [] },
+        implement: { applicability: "must", status: "pending", evidence_refs: [] },
+        refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+      },
+    });
+    const result = preflight(
+      amendEntry({
+        mode: "replace",
+        task: incoming,
+        sponsored_by_finding_id: "FND-001",
+      }),
+      workCtx(current),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("MUTATION_OUT_OF_RIGHTS");
+      expect(result.detail?.["field"]).toBe("execution.implement.status");
+    }
+  });
+
+  test("sponsored replace introducing a new step with a non-pending status → MUTATION_OUT_OF_RIGHTS", () => {
+    // A brand-new step (introduced by the kind change behavioral→visual-ui)
+    // must be born `pending`; one born `passed` fabricates completed work.
+    // `materializeTaskInput` always seeds `pending` — this is the raw-API
+    // defense-in-depth case.
+    const incoming = {
+      id: "T-001",
+      kind: "visual-ui",
+      drives: ["REQ-AUTH-001"],
+      status: "pending",
+      depends_on: [],
+      labels: [],
+      visual_contract_refs: ["VIS-UI-001"],
+      execution: {
+        mockup: { applicability: "must", status: "passed", evidence_refs: [] },
+        implement: { applicability: "must", status: "pending", evidence_refs: [] },
+        "screenshot-compare": { applicability: "must", status: "pending", evidence_refs: [] },
+      },
+    };
+    const result = preflight(
+      amendEntry({
+        mode: "replace",
+        task: incoming,
+        sponsored_by_finding_id: "FND-001",
+      }),
+      workCtx(slimT001()),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("MUTATION_OUT_OF_RIGHTS");
+      expect(result.detail?.["field"]).toBe("execution.mockup.status");
+    }
+  });
+
+  test("sponsored replace removing a PROGRESS-BEARING step → MUTATION_OUT_OF_RIGHTS", () => {
+    // The kind change behavioral→structural drops the `red` step. `red` is
+    // `passed` in current — removing a step that carries execution history
+    // erases progress.
+    const current = slimT001({
+      steps: {
+        red: { applicability: "must", status: "passed" },
+        implement: { applicability: "must", status: "passed" },
+        refactor: { applicability: "optional", status: "passed" },
+      },
+    });
+    const incoming = {
+      id: "T-001",
+      kind: "structural",
+      drives: ["REQ-AUTH-001"],
+      no_test_rationale: "pure rename, no behavior change to test",
+      status: "pending",
+      depends_on: [],
+      labels: [],
+      execution: {
+        // red removed — but it has a non-pending status in current.
+        implement: { applicability: "must", status: "passed", evidence_refs: [] },
+        refactor: { applicability: "optional", status: "passed", evidence_refs: [] },
+      },
+    };
+    const result = preflight(
+      amendEntry({
+        mode: "replace",
+        task: incoming,
+        sponsored_by_finding_id: "FND-001",
+      }),
+      workCtx(current),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("MUTATION_OUT_OF_RIGHTS");
+      expect(result.detail?.["field"]).toBe("execution.red.status");
+    }
+  });
+
+  test("sponsored replace removing a PENDING step → OK", () => {
+    // The kind change behavioral→structural drops the `red` step. `red` is
+    // `pending` in current — no progress to erase, removable.
+    const incoming = {
+      id: "T-001",
+      kind: "structural",
+      drives: ["REQ-AUTH-001"],
+      no_test_rationale: "pure rename, no behavior change to test",
+      status: "pending",
+      depends_on: [],
+      labels: [],
+      execution: {
+        implement: { applicability: "must", status: "pending", evidence_refs: [] },
+        refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+      },
+    };
+    const result = preflight(
+      amendEntry({
+        mode: "replace",
+        task: incoming,
+        sponsored_by_finding_id: "FND-001",
+      }),
+      workCtx(slimT001()),
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  // ── Q5 sponsored mode=add ─────────────────────────────────────────────────
+
+  test("sponsored add of a missing task at EXECUTE.work → OK", () => {
+    const result = preflight(
+      amendEntry({
+        mode: "add",
+        task: behavioralFull({ id: "T-050" }),
+        sponsored_by_finding_id: "FND-001",
+      }),
+      workCtx(slimT001()),
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  test("sponsored add of an already-present task id → preflight OK (reducer dry-run rejects)", () => {
+    // Duplicate-id detection for mode=add is the reducer's defense-in-depth
+    // (reducer.ts tasks_amended branch → DUPLICATE_TASK_ID), not preflight's:
+    // preflight authorizes the sponsored add, the mutateBatch reducer dry-run
+    // catches the collision. A direct preflight() call therefore returns ok.
+    const result = preflight(
+      amendEntry({
+        mode: "add",
+        task: behavioralFull({ id: "T-001" }),
+        sponsored_by_finding_id: "FND-001",
+      }),
+      workCtx(slimT001()),
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  test("sponsored add of a task forged with completed work → MUTATION_OUT_OF_RIGHTS (codex r137 BLOCK 1)", () => {
+    // A sponsored add introduces a MISSING task — it must be born fresh.
+    // The CLI `tasks add --finding` path builds the task via
+    // materializeTaskInput (always fresh), but a raw journal caller could
+    // supply a full TaskFullPayload with task.status=done + passed steps +
+    // evidence. Stable-core preflight must reject the forgery (Q4: a
+    // sponsored amend may not fabricate execution progress).
+    const result = preflight(
+      amendEntry({
+        mode: "add",
+        task: behavioralFull({
+          id: "T-050",
+          status: "done",
+          execution: {
+            red: { applicability: "must", status: "passed", evidence_refs: ["EV-000001"] },
+            implement: { applicability: "must", status: "passed", evidence_refs: ["EV-000002"] },
+            refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+          },
+        }),
+        sponsored_by_finding_id: "FND-001",
+      }),
+      workCtx(slimT001()),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("MUTATION_OUT_OF_RIGHTS");
+      expect(result.detail?.["reason"]).toBe("sponsored_add_not_fresh");
+      expect(result.detail?.["field"]).toBe("status");
+    }
+  });
+
+  test("sponsored add of a task whose step carries evidence_refs → MUTATION_OUT_OF_RIGHTS (codex r137 BLOCK 1)", () => {
+    // The task is `pending` but a step already holds evidence — fabricated
+    // execution history. The per-step scan in firstAddFreshnessViolation
+    // catches it even when the task-level status looks fresh.
+    const result = preflight(
+      amendEntry({
+        mode: "add",
+        task: behavioralFull({
+          id: "T-051",
+          execution: {
+            red: { applicability: "must", status: "pending", evidence_refs: ["EV-000009"] },
+            implement: { applicability: "must", status: "pending", evidence_refs: [] },
+            refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+          },
+        }),
+        sponsored_by_finding_id: "FND-001",
+      }),
+      workCtx(slimT001()),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("MUTATION_OUT_OF_RIGHTS");
+      expect(result.detail?.["reason"]).toBe("sponsored_add_not_fresh");
+      expect(result.detail?.["field"]).toBe("execution.red.evidence_refs");
+    }
+  });
+
+  // ── unsponsored paths untouched ───────────────────────────────────────────
+
+  test("unsponsored replace at EXECUTE.work (no marker) → MUTATION_OUT_OF_RIGHTS replace_outside_execute_plan", () => {
+    const result = preflight(
+      amendEntry({ mode: "replace", task: behavioralFull() }),
+      workCtx(slimT001()),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("MUTATION_OUT_OF_RIGHTS");
+      expect(result.detail?.["reason"]).toBe("replace_outside_execute_plan");
+    }
   });
 });
 

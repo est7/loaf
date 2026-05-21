@@ -30,7 +30,11 @@ import {
 } from "./core/cli-runtime.js";
 import { mutate, mutateBatch } from "./core/journal-mutate.js";
 import type { Ceremony, SubState } from "./core/journal-entry.js";
-import { latestCanonicalTaskBody, materializeTaskForAmend } from "./core/task-history.js";
+import {
+  carryForwardStepProgress,
+  latestCanonicalTaskBody,
+  materializeTaskForAmend,
+} from "./core/task-history.js";
 import {
   TaskInput,
   materializeTaskInput,
@@ -829,36 +833,41 @@ export async function main(argv: string[] = process.argv): Promise<number> {
       }
     });
 
-  // ── loaf tasks add <file> ───────────────────────────────────────────
-  // Slice C SC-C3. Appends id-less task(s) to the graph at SPEC.design —
-  // the append variant of `tasks submit` (codex r111 Q6). Emits ONE
-  // whole-replacement event:tasks_planned (protocol §1818 / emit table
-  // L1866): payload.tasks is the re-materialized existing graph plus the
-  // newly seeded tasks. Single object or array input; the CLI allocates
-  // each T-id (max-serial+1, zero-pad ≥3) — input must NOT carry `id`
-  // (protocol §706).
+  // ── loaf tasks add <file> [--finding <FND-N>] ───────────────────────
+  // Slice C SC-C3 + Phase 11 Item 3 SC1b. Two surfaces, gated by --finding:
   //
-  // The existing graph is reconstructed from the journal, not the slim
-  // projection: latestCanonicalTaskBody recovers each task's canonical
-  // body, materializeTaskForAmend overlays live runtime status. A task in
-  // the projection with no journal body (migration-imported) is a hard
-  // stop — CANONICAL_TASK_BODY_UNAVAILABLE — never synthesize fields
-  // (codex r111 Q2).
+  // (a) UNSPONSORED — `tasks add <file>` at SPEC.design (no --finding).
+  //     Appends id-less task(s) to the graph, the append variant of
+  //     `tasks submit` (codex r111 Q6). Emits ONE whole-replacement
+  //     event:tasks_planned (protocol §1818 / emit table L1886):
+  //     payload.tasks is the re-materialized existing graph plus the
+  //     newly seeded tasks. The existing graph is reconstructed from the
+  //     journal — latestCanonicalTaskBody recovers each task's canonical
+  //     body, materializeTaskForAmend overlays live runtime status. A
+  //     task with no journal body (migration-imported) is a hard stop —
+  //     CANONICAL_TASK_BODY_UNAVAILABLE — never synthesize fields.
   //
-  // SPEC.design-only (codex r111 Q3): EXECUTE-phase task add is the future
-  // finding amend-tasks flow, not this command.
+  // (b) SPONSORED — `tasks add <file> --finding <FND-N>` at EXECUTE.work.
+  //     Post-back-edge graph amend: emits one event:tasks_amended
+  //     mode="add" + sponsored_by_finding_id PER added task (a mutateBatch
+  //     when the input has several). Preflight §8.6 verifies the finding
+  //     is open with action=amend-tasks (SC1b sponsored branch).
   //
-  // Concurrency: T-id allocation uses the same loadSession→max+1→mutate
-  // pattern as the other id allocators. There is no `.lock` yet (Slice 5);
-  // `appendMany`'s SEQ_NOT_MONOTONIC check is best-effort stale-tail
-  // detection, NOT a full concurrent guard — `tasks add` operates under
-  // the existing single-writer assumption (codex r112).
+  // --finding at SPEC.design → USAGE reject (the unsponsored path is
+  // whole-graph tasks_planned, not sponsored). No --finding outside
+  // SPEC.design → SUB_STATE_AUTHORITY_VIOLATION as before.
+  //
+  // The CLI allocates each T-id (max-serial+1, zero-pad ≥3) — input must
+  // NOT carry `id` (protocol §706). T-id allocation uses the same
+  // loadSession→max+1→mutate pattern as the other id allocators; no
+  // `.lock` yet (Slice 5), single-writer assumption (codex r112).
   tasksCmd
     .command("add <file>")
-    .description("Append id-less task(s) to the graph at SPEC.design (JSON file or '-' for stdin)")
+    .description("Append id-less task(s) to the graph (SPEC.design whole-graph, or EXECUTE.work sponsored via --finding)")
     .requiredOption("--feature <name>", "Feature whose task graph to extend")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-    .action(async (file: string, opts: { feature: string; featureDir?: string }) => {
+    .option("--finding <FND-N>", "Sponsoring amend-tasks finding (sponsored add at EXECUTE.work)")
+    .action(async (file: string, opts: { feature: string; featureDir?: string; finding?: string }) => {
       // (1) Read input from file or stdin.
       let content: string;
       if (file === "-") {
@@ -911,40 +920,35 @@ export async function main(argv: string[] = process.argv): Promise<number> {
         validatedInputs.push(p.data);
       }
 
-      // (3) Load session; tasks add is SPEC.design-only.
+      // (3) Load session; resolve the surface (unsponsored vs sponsored).
       const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
       const session = await loadSession(featureDir);
       if (!session.snapshot.state) {
         emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
         return;
       }
-      if (session.snapshot.state.sub_state !== "SPEC.design") {
+      const subState = session.snapshot.state.sub_state;
+      const sponsored = opts.finding !== undefined;
+      // --finding is the EXECUTE.work sponsored path; SPEC.design is the
+      // unsponsored whole-graph path. Reject the cross-product explicitly
+      // rather than silently ignoring the flag (codex r136 Q6).
+      if (sponsored && subState === "SPEC.design") {
+        emitFailure(
+          "USAGE",
+          "--finding is for the sponsored EXECUTE.work add; at SPEC.design `tasks add` is the unsponsored whole-graph path — drop --finding",
+        );
+        return;
+      }
+      if (!sponsored && subState !== "SPEC.design") {
         emitFailure(
           "SUB_STATE_AUTHORITY_VIOLATION",
-          `loaf tasks add is only valid at SPEC.design (current sub_state=${session.snapshot.state.sub_state}); post-lock task additions go through \`loaf finding raise --action amend-tasks\``,
-          { sub_state: session.snapshot.state.sub_state },
+          `loaf tasks add without --finding is only valid at SPEC.design (current sub_state=${subState}); post-lock task additions go through \`loaf finding raise --action amend-tasks\` then \`tasks add --finding\``,
+          { sub_state: subState },
         );
         return;
       }
 
-      // (4) Re-materialize every existing task to its canonical full body.
-      // tasks_planned is whole-replacement, so the re-emit must carry the
-      // complete graph; the slim projection alone would erase body fields.
-      const existingFull: TaskFullPayload[] = [];
-      for (const t of session.snapshot.tasks) {
-        const base = latestCanonicalTaskBody(session.entries, t.id);
-        if (!base) {
-          emitFailure(
-            "CANONICAL_TASK_BODY_UNAVAILABLE",
-            `task ${t.id} is in the projection but has no canonical body in the journal (migration-imported); cannot rebuild the graph to append`,
-            { task_id: t.id, source: "migration" },
-          );
-          return;
-        }
-        existingFull.push(materializeTaskForAmend(base, t));
-      }
-
-      // (5) Allocate T-ids. Existing ids must all be canonical T-NNN — a
+      // (4) Allocate T-ids. Existing ids must all be canonical T-NNN — a
       // non-canonical id cannot participate in collision-safe allocation
       // (codex r112: fail loud, do not skip).
       let maxSerial = 0;
@@ -968,6 +972,70 @@ export async function main(argv: string[] = process.argv): Promise<number> {
         materializeTaskInput(input, `T-${String(maxSerial + 1 + i).padStart(3, "0")}`),
       );
       const newIds = seededNew.map((t) => t.id);
+
+      if (sponsored) {
+        // (5s) SPONSORED — emit one event:tasks_amended mode="add" +
+        // sponsored_by_finding_id per added task (a mutateBatch when the
+        // input carries several). Preflight §8.6 verifies the finding is
+        // open with action=amend-tasks; the reducer dry-run appends each
+        // task and rejects a duplicate id.
+        const sponsoredBatch: Parameters<typeof mutateBatch>[0] = seededNew.map(
+          (task) => ({
+            at: new Date().toISOString(),
+            actor,
+            entry_schema_version: 1,
+            kind: "event:tasks_amended",
+            payload: {
+              mode: "add",
+              task,
+              sponsored_by_finding_id: opts.finding,
+            },
+          }),
+        );
+        const result = await mutateBatch(sponsoredBatch, {
+          feature_dir: featureDir,
+          snapshot: session.snapshot,
+          tail_seq: session.tail_seq,
+        });
+        if (!result.ok) {
+          emitFailure(result.code, result.message, result.detail);
+          return;
+        }
+        const out = {
+          ok: true,
+          feature: opts.feature,
+          task_ids: newIds,
+          sponsored_by_finding_id: opts.finding,
+          tasks_count: result.snapshot.tasks.length,
+          sub_state: result.snapshot.state?.sub_state,
+        };
+        if (useJson) {
+          process.stdout.write(JSON.stringify(out) + "\n");
+        } else {
+          process.stdout.write(
+            `added ${newIds.length} task${newIds.length === 1 ? "" : "s"} (sponsored by ${opts.finding}): ${newIds.join(", ")}\n`,
+          );
+        }
+        return;
+      }
+
+      // (5u) UNSPONSORED — re-materialize every existing task to its
+      // canonical full body. tasks_planned is whole-replacement, so the
+      // re-emit must carry the complete graph; the slim projection alone
+      // would erase body fields.
+      const existingFull: TaskFullPayload[] = [];
+      for (const t of session.snapshot.tasks) {
+        const base = latestCanonicalTaskBody(session.entries, t.id);
+        if (!base) {
+          emitFailure(
+            "CANONICAL_TASK_BODY_UNAVAILABLE",
+            `task ${t.id} is in the projection but has no canonical body in the journal (migration-imported); cannot rebuild the graph to append`,
+            { task_id: t.id, source: "migration" },
+          );
+          return;
+        }
+        existingFull.push(materializeTaskForAmend(base, t));
+      }
 
       // (6) Emit one whole-replacement event:tasks_planned. based_on carries
       // forward the spec version the graph derives from.
@@ -1317,29 +1385,42 @@ export async function main(argv: string[] = process.argv): Promise<number> {
       }
     });
 
-  // ── loaf tasks amend <task-id> --policy <step>=<applicability> ───────
-  // Slice C SC-C2c. Narrowly amends a task's execution[].applicability at
-  // EXECUTE.plan (protocol §1822 / §8.6). `--policy` is repeatable; each
-  // value is `<step>=<must|optional|na>`.
+  // ── loaf tasks amend <task-id> (--policy ... | --input <file> --finding) ──
+  // Two surfaces, mutually exclusive:
   //
-  // event:tasks_amended carries a WHOLE task body, but the slim
-  // Snapshot.tasks projection drops canonical fields (tests / test_layer /
-  // execution evidence_refs / …). The CLI rebuilds the full payload:
-  //   latestCanonicalTaskBody(journal) → materializeTaskForAmend(+ live
-  //   runtime status) → apply the --policy applicability deltas.
-  // §8.6 frozen-field enforcement is preflight's job (mode=replace);
-  // this command only ever changes applicability.
+  // (a) UNSPONSORED `--policy` (Slice C SC-C2c) — narrowly amends a task's
+  //     execution[].applicability at EXECUTE.plan (protocol §1822 / §8.6).
+  //     `--policy` is repeatable; each value is `<step>=<must|optional|na>`.
+  //     The CLI rebuilds the full payload from the journal:
+  //       latestCanonicalTaskBody(journal) → materializeTaskForAmend(+ live
+  //       runtime status) → apply the --policy applicability deltas.
+  //     Emits event:tasks_amended mode="replace" (no sponsorship marker).
+  //
+  // (b) SPONSORED `--input <file> --finding <FND-N>` (Phase 11 Item 3 SC1b)
+  //     — a structured-input graph replacement at EXECUTE.work after an
+  //     amend-tasks finding back-edge. The input file is the NEW id-less
+  //     task definition; the CLI materializes it under the existing T-id,
+  //     overlays current runtime progress via materializeTaskForAmend (so
+  //     a retained step keeps its live status — Q4 frozen-field rule), and
+  //     emits event:tasks_amended mode="replace" + sponsored_by_finding_id.
+  //     Preflight §8.6 verifies the finding is open with action=amend-tasks
+  //     and enforces the sponsored frozen-field split.
+  //
+  // --policy and --input are mutually exclusive (USAGE reject if both).
   //
   // Failure paths:
-  //   - no/ malformed / dup --policy        → SCHEMA_VALIDATION_FAILED (CLI)
-  //   - unknown task                        → TASK_NOT_FOUND (CLI)
-  //   - task in projection, no journal body → CANONICAL_TASK_BODY_UNAVAILABLE
-  //     (migration-imported task; codex r107 #3)
-  //   - --policy step not in task.execution → TASK_STEP_NOT_FOUND (CLI)
-  //   - amend outside EXECUTE.plan           → MUTATION_OUT_OF_RIGHTS (preflight)
+  //   - no flag at all / both flags          → USAGE (CLI)
+  //   - no/ malformed / dup --policy         → SCHEMA_VALIDATION_FAILED (CLI)
+  //   - --finding without --input (or vice versa) → USAGE (CLI)
+  //   - unknown task                         → TASK_NOT_FOUND (CLI)
+  //   - task in projection, no journal body  → CANONICAL_TASK_BODY_UNAVAILABLE
+  //     (migration-imported task; codex r107 #3 — --policy path)
+  //   - --policy step not in task.execution  → TASK_STEP_NOT_FOUND (CLI)
+  //   - unsponsored amend outside EXECUTE.plan → MUTATION_OUT_OF_RIGHTS
+  //   - sponsored amend outside EXECUTE.work / bad finding → preflight §8.6
   tasksCmd
     .command("amend <task-id>")
-    .description("Amend a task's step applicability at EXECUTE.plan (--policy <step>=<applicability>)")
+    .description("Amend a task: --policy <step>=<applicability> (EXECUTE.plan) or --input <file> --finding <FND-N> (sponsored, EXECUTE.work)")
     .requiredOption("--feature <name>", "Feature whose task to amend")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .option(
@@ -1348,17 +1429,200 @@ export async function main(argv: string[] = process.argv): Promise<number> {
       (val: string, acc: string[]) => [...acc, val],
       [] as string[],
     )
+    .option("--input <file>", "New id-less task definition for a sponsored graph replacement (JSON file or '-')")
+    .option("--finding <FND-N>", "Sponsoring amend-tasks finding (required with --input)")
     .action(
-      async (taskId: string, opts: { feature: string; featureDir?: string; policy: string[] }) => {
-        // (1) Parse + validate --policy flags.
+      async (
+        taskId: string,
+        opts: {
+          feature: string;
+          featureDir?: string;
+          policy: string[];
+          input?: string;
+          finding?: string;
+        },
+      ) => {
+        // (0) Resolve the surface — --policy and --input are mutually
+        // exclusive; --finding pairs with --input.
         const policies = opts.policy ?? [];
-        if (policies.length === 0) {
+        const hasPolicy = policies.length > 0;
+        const hasInput = opts.input !== undefined;
+        const hasFinding = opts.finding !== undefined;
+        if (hasPolicy && hasInput) {
           emitFailure(
-            "SCHEMA_VALIDATION_FAILED",
-            "tasks amend requires at least one --policy <step>=<applicability>",
+            "USAGE",
+            "--policy and --input are mutually exclusive: --policy narrows applicability at EXECUTE.plan, --input replaces the task graph (sponsored) at EXECUTE.work",
           );
           return;
         }
+        if (hasInput !== hasFinding) {
+          emitFailure(
+            "USAGE",
+            "--input and --finding must be specified together — a sponsored graph replacement needs the sponsoring amend-tasks finding",
+          );
+          return;
+        }
+        if (!hasPolicy && !hasInput) {
+          emitFailure(
+            "USAGE",
+            "tasks amend needs either --policy <step>=<applicability> or --input <file> --finding <FND-N>",
+          );
+          return;
+        }
+
+        // ── (b) SPONSORED --input path ──────────────────────────────────
+        if (hasInput) {
+          const inputPath = opts.input!;
+          const findingId = opts.finding!;
+          // (b1) Read the new id-less task definition.
+          let inContent: string;
+          if (inputPath === "-") {
+            try {
+              inContent = readFileSync(0, "utf8");
+            } catch (err) {
+              emitFailure("MISSING_INPUT", `cannot read stdin: ${String(err)}`);
+              return;
+            }
+          } else {
+            try {
+              inContent = await fsP.readFile(inputPath, "utf8");
+            } catch (err) {
+              if ((err as { code?: string }).code === "ENOENT") {
+                emitFailure("INPUT_FILE_NOT_FOUND", `input file does not exist: ${inputPath}`, { path: inputPath });
+              } else {
+                emitFailure("INPUT_FILE_NOT_FOUND", `cannot read input file ${inputPath}: ${String(err)}`, { path: inputPath });
+              }
+              return;
+            }
+          }
+          // (b2) Parse + validate the id-less TaskInput. Strict: id /
+          // status / execution are CLI-owned and must not be supplied.
+          let inParsed: unknown;
+          try {
+            inParsed = JSON.parse(inContent);
+          } catch (err) {
+            emitFailure("SCHEMA_VALIDATION_FAILED", `input is not valid JSON: ${(err as Error).message}`);
+            return;
+          }
+          const inTask = TaskInput.safeParse(inParsed);
+          if (!inTask.success) {
+            emitFailure(
+              "SCHEMA_VALIDATION_FAILED",
+              `tasks amend --input is not a valid id-less task (omit id / status / execution): ${inTask.error.issues.map((i) => i.message).join("; ")}`,
+              { issues: inTask.error.issues },
+            );
+            return;
+          }
+          // (b3) Load session; the task being replaced must exist.
+          const sFeatureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+          const sSession = await loadSession(sFeatureDir);
+          if (!sSession.snapshot.state) {
+            emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+            return;
+          }
+          const sCurrent = sSession.snapshot.tasks.find((t) => t.id === taskId);
+          if (!sCurrent) {
+            emitFailure(
+              "TASK_NOT_FOUND",
+              `task ${taskId} is not in the current tasks projection`,
+              { task_id: taskId },
+            );
+            return;
+          }
+          // (b4) Recover the current canonical body from the journal. A
+          // task in the projection but absent from every plan/amend entry
+          // is migration-imported — its body lives only in the v0.0.x
+          // snapshot, so a whole-task amend cannot preserve its execution
+          // progress (codex r107 #3 — distinct from TASK_NOT_FOUND; mirrors
+          // the --policy path).
+          const sCanonical = latestCanonicalTaskBody(sSession.entries, taskId);
+          if (!sCanonical) {
+            emitFailure(
+              "CANONICAL_TASK_BODY_UNAVAILABLE",
+              `task ${taskId} is in the projection but has no canonical body in the journal (migration-imported); cannot amend in place`,
+              { task_id: taskId, source: "migration" },
+            );
+            return;
+          }
+          // (b5) Materialize the input under the EXISTING task id, carry the
+          // body-only execution progress forward from the canonical body for
+          // retained steps (codex r136 Q4 — a sponsored graph amend must not
+          // erase evidence_refs / started_at / step reason), then overlay
+          // live runtime status/applicability via materializeTaskForAmend.
+          // carryForwardStepProgress is the CLI-side guard for the body-only
+          // fields the slim projection drops; materializeTaskForAmend handles
+          // the slim status overlay; preflight §8.6 re-verifies the
+          // slim-visible half (status / step set / step status).
+          const sNewGraph = materializeTaskInput(inTask.data, taskId);
+          // (b5.1) codex r137 BLOCK 2 — reject a sponsored replace that DROPS
+          // a canonical step still carrying execution progress. Preflight's
+          // slim-projection check (firstSponsoredFrozenViolation) rejects a
+          // removed step with non-pending STATUS, but a `pending` step can
+          // still hold body-only progress — evidence_refs / started_at /
+          // reason — that the slim projection drops. This removed-step
+          // body-only check is the canonical-body half of the Q4 locus split
+          // (preflight owns the slim-visible half).
+          const sNewSteps = new Set(Object.keys(sNewGraph.execution));
+          const sPriorExec = sCanonical.execution as Record<
+            string,
+            { status: string; evidence_refs: string[]; started_at?: string; reason?: string }
+          >;
+          for (const [stepName, prior] of Object.entries(sPriorExec)) {
+            if (sNewSteps.has(stepName)) continue;
+            if (
+              prior.status !== "pending" ||
+              prior.evidence_refs.length > 0 ||
+              prior.started_at !== undefined ||
+              prior.reason !== undefined
+            ) {
+              emitFailure(
+                "MUTATION_OUT_OF_RIGHTS",
+                `sponsored tasks amend on ${taskId} drops step '${stepName}', which carries ` +
+                  `execution progress — a graph amend may not erase execution history (codex r136 Q4)`,
+                { task_id: taskId, step: stepName, reason: "sponsored_amend_drops_progress_step" },
+              );
+              return;
+            }
+          }
+          const sWithProgress = carryForwardStepProgress(sNewGraph, sCanonical);
+          const sMaterialized = materializeTaskForAmend(sWithProgress, sCurrent);
+          // (b6) Emit event:tasks_amended mode="replace" + sponsorship
+          // marker. Preflight §8.6 sponsored branch does the rest.
+          const sResult = await mutate(
+            {
+              at: new Date().toISOString(),
+              actor,
+              entry_schema_version: 1,
+              kind: "event:tasks_amended",
+              payload: {
+                mode: "replace",
+                task: sMaterialized,
+                sponsored_by_finding_id: findingId,
+              },
+            },
+            { feature_dir: sFeatureDir, snapshot: sSession.snapshot, tail_seq: sSession.tail_seq },
+          );
+          if (!sResult.ok) {
+            emitFailure(sResult.code, sResult.message, sResult.detail);
+            return;
+          }
+          const sOut = {
+            ok: true,
+            feature: opts.feature,
+            task_id: taskId,
+            sponsored_by_finding_id: findingId,
+            sub_state: sResult.snapshot.state?.sub_state,
+          };
+          if (useJson) {
+            process.stdout.write(JSON.stringify(sOut) + "\n");
+          } else {
+            process.stdout.write(`amended ${taskId} (sponsored by ${findingId})\n`);
+          }
+          return;
+        }
+
+        // ── (a) UNSPONSORED --policy path ───────────────────────────────
+        // (1) Parse + validate --policy flags.
         const APPLICABILITY = ["must", "optional", "na"];
         const policyMap = new Map<string, string>();
         for (const p of policies) {

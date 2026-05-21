@@ -4217,7 +4217,11 @@ describe("loaf tasks amend — Slice C SC-C2c (--policy applicability mutation)"
     expect(JSON.parse(r.stderr.trim()).code).toBe("SCHEMA_VALIDATION_FAILED");
   });
 
-  test("fail: no --policy flag → SCHEMA_VALIDATION_FAILED", async () => {
+  // Phase 11 Item 3 SC1b: `tasks amend` now has two surfaces (--policy and
+  // --input); with neither flag the request is genuinely ambiguous, so the
+  // code is USAGE ("needs either --policy or --input"), not the old
+  // single-mode SCHEMA_VALIDATION_FAILED.
+  test("fail: no --policy / --input flag → USAGE", async () => {
     const dir = await tmpFeatureDir();
     await seedFeatureAtExecutePlan(dir);
     const r = await runCli([
@@ -4225,7 +4229,7 @@ describe("loaf tasks amend — Slice C SC-C2c (--policy applicability mutation)"
       "--feature", "auth-refresh", "--feature-dir", dir, "--json",
     ]);
     expect(r.exit).toBe(2);
-    expect(JSON.parse(r.stderr.trim()).code).toBe("SCHEMA_VALIDATION_FAILED");
+    expect(JSON.parse(r.stderr.trim()).code).toBe("USAGE");
   });
 
   test("fail: duplicate step in --policy → SCHEMA_VALIDATION_FAILED", async () => {

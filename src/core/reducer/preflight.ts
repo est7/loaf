@@ -36,7 +36,11 @@ import { JournalEntry, PER_KIND_PAYLOAD } from "../journal-entry.js";
 import type { Ceremony, EntryKind, SubState } from "../journal-entry.js";
 import type { Snapshot, TaskState } from "../reducer.js";
 import { extractTaskSlim, type TaskFullProjection } from "../task-schema.js";
-import { validateTransition, type TransitionResult } from "./transition.js";
+import {
+  validateTransition,
+  type TransitionContext,
+  type TransitionResult,
+} from "./transition.js";
 import { isActorAllowed, isSubStateAllowed } from "./per-kind.js";
 import {
   FINDING_ACTION_TARGET_MODE,
@@ -313,6 +317,112 @@ function firstFrozenViolation(
         from: c.status,
         to: i.status,
       };
+    }
+  }
+  return null;
+}
+
+// Phase 11 Item 3 SC1b — frozen-field check for a SPONSORED `mode=replace`
+// `event:tasks_amended` at EXECUTE.work (codex r136 Q4, HARD GATE). Both
+// arguments are slim TaskState projections. Sponsorship widens the EXECUTE.plan
+// rule: graph / definition fields (kind / drives / depends_on / labels /
+// visual_contract_refs / scalar kind-flags) and the execution step SET become
+// mutable — the worker is restructuring the task graph in response to a
+// finding. What stays FROZEN is identity + execution PROGRESS:
+//   - task `status` — replacing a graph definition must not rewind or fast-
+//     forward where the task is in its lifecycle.
+//   - per-RETAINED-step `status` — a step kept across the replace keeps its
+//     current status; the new graph definition cannot erase its progress.
+//   - new steps must be born `pending` (unstarted) — a replace cannot fabricate
+//     completed work.
+//   - a step whose current status is non-`pending` (progress-bearing) must NOT
+//     be removed — dropping it from the graph erases execution history.
+// codex's red-line: no sponsored path may erase / rewrite execution progress
+// under the name of a graph amend. (`id` is verified by the caller's
+// TASK_NOT_FOUND lookup, not here.) Body-only progress fields — `evidence_refs`
+// / `started_at` / step `reason` — are NOT in the slim projection; stable-core
+// preflight does not independently re-verify them (see the §8.6 enforcement
+// note at the sponsored branch below).
+function firstSponsoredFrozenViolation(
+  current: TaskState,
+  incoming: TaskState,
+): FrozenViolation | null {
+  // Task-level status is frozen — unconditionally (no pending→ready latitude:
+  // a sponsored replace at EXECUTE.work is not the planning surface).
+  if (incoming.status !== current.status) {
+    return { field: "status", from: current.status, to: incoming.status };
+  }
+  // Step-set MAY change. For each RETAINED step (present in both), status is
+  // frozen. For each step REMOVED by the replace, reject if it carries
+  // progress (status !== "pending"). For each NEW step, reject if it is born
+  // with a non-`pending` status.
+  for (const [stepName, cur] of Object.entries(current.steps)) {
+    const inc = incoming.steps[stepName];
+    if (inc === undefined) {
+      // Removed step — only legal when it has no execution progress.
+      if (cur.status !== "pending") {
+        return {
+          field: `execution.${stepName}.status`,
+          from: cur.status,
+          to: undefined,
+        };
+      }
+      continue;
+    }
+    if (cur.status !== inc.status) {
+      return {
+        field: `execution.${stepName}.status`,
+        from: cur.status,
+        to: inc.status,
+      };
+    }
+  }
+  for (const [stepName, inc] of Object.entries(incoming.steps)) {
+    if (current.steps[stepName] === undefined && inc.status !== "pending") {
+      return {
+        field: `execution.${stepName}.status`,
+        from: undefined,
+        to: inc.status,
+      };
+    }
+  }
+  return null;
+}
+
+// Phase 11 Item 3 SC1b — freshness check for a SPONSORED `mode=add`
+// event:tasks_amended (codex r137 BLOCK 1). A sponsored add introduces a
+// task MISSING from the graph; it must be born fresh / unstarted. The
+// reducer dry-run rejects a duplicate id, but nothing else stops a raw
+// journal caller from supplying a full TaskFullPayload that smuggles
+// completed work — task.status=`done`, a step `passed` with `evidence_refs`,
+// a runtime `red_test_registered` flag. codex r136 Q4: a sponsored amend
+// may not fabricate execution progress. The CLI `tasks add --finding` path
+// builds the task via `materializeTaskInput` (always fresh), so this guards
+// the stable-core journal path against raw callers. Operates on the full
+// incoming payload (not the slim projection) — `evidence_refs` /
+// `started_at` / `reason` ride the payload even though the projection
+// drops them.
+function firstAddFreshnessViolation(
+  task: TaskFullProjection,
+): { field: string; value: unknown } | null {
+  if (task.status !== "pending") {
+    return { field: "status", value: task.status };
+  }
+  if (task.red_test_registered === true) {
+    return { field: "red_test_registered", value: true };
+  }
+  for (const [stepName, step] of Object.entries(task.execution)) {
+    if (step.status !== "pending") {
+      return { field: `execution.${stepName}.status`, value: step.status };
+    }
+    if (step.evidence_refs.length > 0) {
+      return { field: `execution.${stepName}.evidence_refs`, value: step.evidence_refs };
+    }
+    if (step.started_at !== undefined) {
+      return { field: `execution.${stepName}.started_at`, value: step.started_at };
+    }
+    if (step.reason !== undefined) {
+      return { field: `execution.${stepName}.reason`, value: step.reason };
     }
   }
   return null;
@@ -700,31 +810,162 @@ export function preflight(
     }
   }
 
-  // (5d.2) Slice C SC-C2b — event:tasks_amended §8.6 mutation rights.
-  // `tasks amend` (mode=replace at EXECUTE.plan) may change only
+  // (5d.2) Slice C SC-C2b + Phase 11 Item 3 SC1b — event:tasks_amended §8.6
+  // mutation rights.
+  //
+  // UNSPONSORED `tasks amend` (mode=replace at EXECUTE.plan) may change only
   // execution[].applicability and advance status pending→ready; every
-  // graph / kind-flag / step-set / step-status field is frozen. mode=add
-  // is unsponsored in SC-C2b (no legit emitter — SC-C3 wires the
-  // protocol-backed add path). A mode=replace amend outside EXECUTE.plan
-  // is unsponsored until a future finding amend-tasks back-edge carries an
-  // explicit sponsorship marker. Enforcement is option B (codex r108): the
-  // frozen diff runs against the slim Snapshot.tasks projection — body-only
-  // fields (tests / test_layer / execution evidence_refs / reason /
-  // started_at) are out of preflight reach and CLI-guarded by
-  // materializeTaskForAmend.
+  // graph / kind-flag / step-set / step-status field is frozen. An
+  // unsponsored mode=add or a mode=replace outside EXECUTE.plan is rejected.
+  //
+  // SPONSORED `tasks_amended` (SC1b) carries `sponsored_by_finding_id` — the
+  // journal-derivable marker that authorizes a post-back-edge graph amend at
+  // EXECUTE.work. The sponsored branch runs FIRST (before the unsponsored
+  // mode=add / replace-outside-EXECUTE.plan rejections): it verifies the
+  // marker against snapshot.findings exactly like the back-edge sponsorship
+  // precedent (step 5b: missing / closed / action-mismatch → FINDING_NOT_FOUND),
+  // pins the surface to EXECUTE.work (Q3), and under valid sponsorship enforces
+  // the Q4 frozen-field split — identity + execution PROGRESS frozen, graph /
+  // definition fields + step set mutable.
+  //
+  // Enforcement is option B (codex r108, reaffirmed for SC1b at r136):
+  // the frozen diff runs against the slim Snapshot.tasks projection. Body-only
+  // fields — `tests` / `test_layer` / per-step `evidence_refs` / `reason` /
+  // `started_at` — are NOT in the slim projection, so stable-core preflight
+  // does NOT independently re-verify their preservation. The CLI sponsored
+  // `tasks amend --input` path carries those body-only progress fields
+  // forward from the current canonical body via `carryForwardStepProgress`
+  // (task-history.ts) for every retained step; that carry-forward is the
+  // body-only-field guard. This is a deliberate locus split, not a preflight
+  // capability gap.
   if (entry.kind === "event:tasks_amended") {
     const amended = payloadParsed.data as {
       mode?: "add" | "replace";
       task: TaskFullProjection;
+      sponsored_by_finding_id?: string;
     };
     const mode = amended.mode ?? "replace";
     const taskId = amended.task.id;
+    const sponsorId = amended.sponsored_by_finding_id;
+
+    if (sponsorId !== undefined) {
+      // (a) Verify the sponsorship marker against snapshot.findings — mirror
+      // the back-edge sponsorship checks (step 5b): the finding must exist,
+      // be open, and carry action=amend-tasks. These are FINDING_NOT_FOUND
+      // (the finding is the thing being checked); only AFTER the finding is
+      // known valid do authorization / surface violations use
+      // MUTATION_OUT_OF_RIGHTS.
+      const finding = ctx.snapshot.findings.find((f) => f.id === sponsorId);
+      if (!finding) {
+        return {
+          ok: false,
+          code: "FINDING_NOT_FOUND",
+          message: `event:tasks_amended.sponsored_by_finding_id=${sponsorId} not found in projection`,
+          detail: { id: sponsorId, reason: "not_found" },
+        };
+      }
+      if (finding.status === "closed") {
+        return {
+          ok: false,
+          code: "FINDING_NOT_FOUND",
+          message: `event:tasks_amended.sponsored_by_finding_id=${sponsorId} is already_closed; only open findings can sponsor a tasks amend`,
+          detail: { id: sponsorId, reason: "already_closed" },
+        };
+      }
+      if (finding.action !== "amend-tasks") {
+        return {
+          ok: false,
+          code: "FINDING_NOT_FOUND",
+          message: `event:tasks_amended.sponsored_by_finding_id=${sponsorId} has action=${finding.action} but only amend-tasks findings can sponsor a tasks amend`,
+          detail: {
+            id: sponsorId,
+            reason: "action_mismatch",
+            expected_action: "amend-tasks",
+            actual_action: finding.action,
+          },
+        };
+      }
+
+      // (b) Q3 — sponsored tasks_amended is legal ONLY at EXECUTE.work (the
+      // amend-tasks back-edge target). The per-kind sub_state table allows
+      // the whole VERIFY-or-post-lock-EXECUTE band; the sponsored path
+      // narrows it.
+      if (sub_state !== "EXECUTE.work") {
+        return {
+          ok: false,
+          code: "MUTATION_OUT_OF_RIGHTS",
+          message: `sponsored event:tasks_amended is permitted only at EXECUTE.work (current sub_state=${sub_state})`,
+          detail: {
+            task_id: taskId,
+            mode,
+            sub_state,
+            reason: "sponsored_tasks_amended_wrong_sub_state",
+          },
+        };
+      }
+
+      // (c) mode=add — the reducer dry-run catches a duplicate id
+      // (DUPLICATE_TASK_ID); firstAddFreshnessViolation rejects a forged
+      // task that smuggles execution progress (codex r137 BLOCK 1: a
+      // sponsored add must introduce a fresh / unstarted task).
+      // mode=replace — verify the Q4 frozen-field split.
+      if (mode === "add") {
+        const violation = firstAddFreshnessViolation(amended.task);
+        if (violation) {
+          return {
+            ok: false,
+            code: "MUTATION_OUT_OF_RIGHTS",
+            message:
+              `sponsored event:tasks_amended mode=add must introduce a fresh task — ` +
+              `'${violation.field}' carries execution progress (§8.6: a sponsored ` +
+              `amend may not fabricate completed work)`,
+            detail: {
+              task_id: taskId,
+              mode,
+              sub_state,
+              field: violation.field,
+              reason: "sponsored_add_not_fresh",
+            },
+          };
+        }
+      }
+      if (mode === "replace") {
+        const currentTask = ctx.snapshot.tasks.find((t) => t.id === taskId);
+        if (!currentTask) {
+          return {
+            ok: false,
+            code: "TASK_NOT_FOUND",
+            message: `tasks_amended: task ${taskId} is not in the current tasks projection`,
+            detail: { task_id: taskId },
+          };
+        }
+        const incomingSlim = extractTaskSlim(amended.task);
+        const violation = firstSponsoredFrozenViolation(currentTask, incomingSlim);
+        if (violation) {
+          return {
+            ok: false,
+            code: "MUTATION_OUT_OF_RIGHTS",
+            message: `sponsored event:tasks_amended on task ${taskId} changes frozen field '${violation.field}' — a graph amend may not erase or rewrite execution progress (§8.6)`,
+            detail: {
+              task_id: taskId,
+              mode,
+              sub_state,
+              field: violation.field,
+              from: violation.from,
+              to: violation.to,
+            },
+          };
+        }
+      }
+      // Sponsored path validated — fall through (no unsponsored rejection).
+      return { ok: true };
+    }
 
     if (mode === "add") {
       return {
         ok: false,
         code: "MUTATION_OUT_OF_RIGHTS",
-        message: `event:tasks_amended mode=add on task ${taskId} is not authorized — no add path is wired yet (Slice C SC-C3)`,
+        message: `event:tasks_amended mode=add on task ${taskId} is not authorized — an add must be sponsored by an amend-tasks finding (sponsored_by_finding_id)`,
         detail: { task_id: taskId, mode, sub_state, reason: "unsponsored_add" },
       };
     }
@@ -1358,13 +1599,14 @@ function checkTransition(
     const from = payload["from"] as SubState | undefined;
     const to = payload["to"] as SubState | undefined;
     if (from === undefined || to === undefined) return null; // schema already rejected upstream
-    // Slice B: extract back_edge sponsorship from payload so
-    // validateTransition can enforce action→target/from contract.
-    // The finding_id existence check happens at the outer preflight
-    // path (needs snapshot.findings, not visible here).
-    const backEdge = payload["back_edge"] as
-      | { action: "amend-spec"; finding_id: string }
-      | undefined;
+    // Slice B / Phase 11 Item 3 SC1: extract back_edge sponsorship from
+    // payload so validateTransition can enforce action→target/from contract.
+    // The finding_id existence check happens at the outer preflight path
+    // (needs snapshot.findings, not visible here). The cast is the full
+    // 2-arm BackEdge union (amend-spec | amend-tasks) — SC1 added the
+    // amend-tasks arm; the runtime object already passes through to
+    // validateTransition's 2-arm union, this only realigns the annotation.
+    const backEdge = payload["back_edge"] as TransitionContext["back_edge"];
     return validateTransition(from, to, {
       ceremony: ctx.ceremony,
       actor: ctx.actor,
