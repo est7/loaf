@@ -262,6 +262,30 @@ Source: codex independent enumeration r119 (AMQ thread
 - **Then** `OPEN_FINDINGS_PRESENT`; after `finding close`, approve passes.
 - **Covers** the verify gate open-finding invariant without a back-edge.
 
+### SCEN-E2E-039 — fix-impl back-edge repair loop carried through to delivery
+- **Tier** inventory · **Status** green
+- **Given** a standard feature driven to VERIFY.accept with proper REQ /
+  task / evidence (verify-accept CAN pass) and a done behavioral task.
+- **When** `finding raise --action fix-impl` is emitted from a VERIFY
+  sub_state, the reset `implement` step is rerun to `passed`, the cursor
+  re-advances EXECUTE.work → EXECUTE.done → VERIFY.* → VERIFY.accept,
+  `gate verify-accept --approve` is attempted, the finding is closed, and
+  `gate verify-accept --approve` then `deliver` are run.
+- **Then** the back-edge co-emits its atomic 3-entry batch and bumps
+  iteration; `gate verify-accept --approve` is blocked
+  `OPEN_FINDINGS_PRESENT` (verify-accept check 2) while the `fix-impl`
+  finding is open; after rerunning the reset step + `finding close`,
+  `--approve` succeeds; `deliver` reaches `DONE.delivered`; at the end the
+  iteration is still bumped and the `fix-impl` finding is `closed`.
+- **Covers** the full back-edge repair loop closing the lifecycle —
+  SCEN-E2E-020/021/022 prove only that a back-edge LANDS (the finding
+  stays open); SCEN-E2E-023 proves the open-finding gate block for a
+  non-back-edge defer finding. This is the distinct cross-cutting proof: a
+  back-edge repair finding carried all the way through to delivery (Phase
+  11 Item 3 SC4).
+- **Note** new id — post-dates the codex r119 38-scenario enumeration; the
+  Phase 11 Item 3 SC4 close-out scenario.
+
 ---
 
 ## Gate rejection

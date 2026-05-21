@@ -1661,6 +1661,111 @@ describe("E2E — full worker lifecycle (standard ceremony)", () => {
     expect(delivered.sub_state ?? delivered.state?.sub_state).toBe("DONE.delivered");
   });
 
+  // SCEN-E2E-039 — see docs/e2e-scenarios.md (Phase 11 Item 3 SC4).
+  // The full back-edge repair loop closing the lifecycle: SCEN-E2E-020/021/
+  // 022 prove a back-edge LANDS (the finding stays open — they stop there);
+  // SCEN-E2E-023 proves the open-finding verify-accept block for a
+  // non-back-edge defer finding. This scenario is the distinct cross-cutting
+  // proof — a `fix-impl` back-edge repair finding raised from VERIFY,
+  // carried all the way through to delivery: the back-edge co-emits its
+  // 3-entry batch, the reset `implement` step is rerun, verify-accept is
+  // blocked OPEN_FINDINGS_PRESENT while the finding is open, `finding close`
+  // unblocks it, and `deliver` reaches DONE.delivered.
+  test("SCEN-E2E-039 — a fix-impl back-edge repair finding is carried through to DONE.delivered", async () => {
+    const dir = await tmpFeatureDir();
+    const F = "e2e-fix-impl-repair";
+    const ENV = { LOAF_USER: "e2e@test.invalid" };
+    const cli = makeCli(dir, ENV);
+    const { step } = cli;
+
+    // ── drive a standard feature to VERIFY.accept (REQ / task / evidence
+    //    all in place so verify-accept CAN eventually pass) ──────────────
+    await seedToVerifyAccept(
+      cli, F, "E2E fix-impl repair loop",
+      "carry a fix-impl back-edge repair finding through to delivery",
+    );
+    const iterBefore = (await step("status pre-back-edge", ["status", "--feature", F]))
+      .state.iteration;
+
+    // ── fix-impl back-edge raised from a VERIFY sub_state (VERIFY.accept) ─
+    // co-emits [finding:raised, event:task_step_reset, event:phase_advanced(
+    // back_edge → EXECUTE.work)]: cursor → EXECUTE.work, iteration +1, the
+    // implement step resets to pending, the task reopens to in_progress.
+    const raised = await step("finding raise fix-impl", [
+      "finding", "raise", "--category", "impl-defect", "--action", "fix-impl",
+      "--summary", "the implementation regressed against REQ-CORE-001",
+      "--target-task", "T-001", "--target-step", "implement",
+      "--feature", F,
+    ]);
+    expect(raised.id).toMatch(/^FND-\d{3,}$/);
+    expect(raised.back_edge.to).toBe("EXECUTE.work");
+
+    // ── the back-edge moved the cursor to EXECUTE.work and bumped iteration
+    const afterBackEdge = await step("status post-back-edge", ["status", "--feature", F]);
+    expect(afterBackEdge.state.sub_state).toBe("EXECUTE.work");
+    expect(afterBackEdge.state.iteration).toBe(iterBefore + 1);
+
+    // ── the target task reopened; the reset implement step is pending ────
+    const reopenTasks = await step("tasks list post-back-edge", ["tasks", "list", "--feature", F]);
+    const t001Reopened = reopenTasks.tasks.find((t: { id: string }) => t.id === "T-001");
+    expect(t001Reopened.status).toBe("in_progress");
+    expect(t001Reopened.steps.implement.status).toBe("pending");
+    expect(t001Reopened.steps.red.status).toBe("passed"); // history not erased
+
+    // ── re-run the reset implement step to a terminal status ─────────────
+    await step("step start implement (rerun)", [
+      "tasks", "step", "start", "--task", "T-001", "--step", "implement", "--feature", F,
+    ]);
+    await step("step done implement (rerun)", [
+      "tasks", "step", "done", "--task", "T-001", "--step", "implement",
+      "--result", "passed", "--feature", F,
+    ]);
+    const repairedTasks = await step("tasks list post-repair", ["tasks", "list", "--feature", F]);
+    const t001Repaired = repairedTasks.tasks.find((t: { id: string }) => t.id === "T-001");
+    expect(t001Repaired.status).toBe("done");
+
+    // ── re-advance EXECUTE.work → EXECUTE.done → VERIFY.* → VERIFY.accept ─
+    await step("advance EXECUTE.done", ["advance", "EXECUTE.done", "--feature", F]);
+    for (const ss of [
+      "VERIFY.plan", "VERIFY.run", "VERIFY.review",
+      "VERIFY.acceptance", "VERIFY.visual", "VERIFY.accept",
+    ]) {
+      await step(`advance ${ss}`, ["advance", ss, "--feature", F]);
+    }
+
+    // ── verify-accept --approve is BLOCKED while the fix-impl finding is
+    //    open — verify-accept check 2 surfaces OPEN_FINDINGS_PRESENT ──────
+    const blocked = await runCli(
+      ["gate", "decide", "verify-accept", "--approve",
+        "--reason", "attempting approval while the fix-impl finding is open",
+        "--feature", F, "--feature-dir", dir, "--json"],
+      { env: ENV },
+    );
+    expect(blocked.exit).toBe(2);
+    expect(blocked.stderr + blocked.stdout).toContain("OPEN_FINDINGS_PRESENT");
+
+    // ── close the fix-impl repair finding ───────────────────────────────
+    await step("finding close", ["finding", "close", raised.id, "--feature", F]);
+
+    // ── verify-accept --approve now succeeds ────────────────────────────
+    await step("gate verify-accept", [
+      "gate", "decide", "verify-accept", "--approve",
+      "--reason", "all verify-accept checks pass once the fix-impl finding is closed",
+      "--feature", F,
+    ]);
+
+    // ── deliver reaches DONE.delivered ──────────────────────────────────
+    const delivered = await step("deliver", ["deliver", "--feature", F]);
+    expect(delivered.sub_state ?? delivered.state?.sub_state).toBe("DONE.delivered");
+
+    // ── final state: the back-edge bumped iteration, the finding is closed
+    const finalStatus = await step("status final", ["status", "--feature", F]);
+    expect(finalStatus.state.iteration).toBe(iterBefore + 1);
+    const finalFindings = await step("finding list final", ["finding", "list", "--feature", F]);
+    const fnd = finalFindings.findings.find((f: { id: string }) => f.id === raised.id);
+    expect(fnd.status).toBe("closed");
+  });
+
   // SCEN-E2E-027 — see docs/e2e-scenarios.md
   test("SCEN-E2E-027 — a gate_decision pending head is co-resolved by the gate batch", async () => {
     const dir = await tmpFeatureDir();
