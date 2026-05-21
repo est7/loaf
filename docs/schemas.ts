@@ -516,9 +516,10 @@ export const EntryKind = z.enum([
   "event:task_claimed",
   "event:task_step_started",
   "event:task_step_done",
-  // event:task_step_reset (Phase 11 Item 3 SC2) — co-emitted by
-  // `loaf finding raise --action fix-impl` (and fix-test) inside the
-  // 3-entry back-edge batch; resets a task's repair step to `pending`.
+  // event:task_step_reset (Phase 11 Item 3 SC2/SC3) — co-emitted by
+  // `loaf finding raise --action fix-impl|fix-test` inside the 3-entry
+  // back-edge batch; resets a task's repair step to `pending` (fix-impl →
+  // "implement", fix-test → "red").
   "event:task_step_reset",
   "event:task_abandoned",
   "event:spec_req_added",

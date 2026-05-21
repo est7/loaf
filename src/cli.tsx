@@ -2623,14 +2623,16 @@ export async function main(argv: string[] = process.argv): Promise<number> {
       // Other actions remain single-entry until their slices land.
       const nowIso = new Date().toISOString();
 
-      // Phase 11 Item 3 SC2 — fix-impl (and SC3 fix-test) emit a 3-entry
-      // batch [finding:raised, event:task_step_reset, event:phase_advanced(
+      // Phase 11 Item 3 SC2/SC3 — fix-impl / fix-test emit a 3-entry batch
+      // [finding:raised, event:task_step_reset, event:phase_advanced(
       // back_edge → EXECUTE.work)]. The reset entry returns the target
       // repair step to `pending` so the fix loop can re-run it. The step
       // is the action's canonical step (fix-impl → "implement",
-      // fix-test → "red"). FIX_RESET_STEP is keyed so SC3 adds one row.
+      // fix-test → "red"). Both actions share the keyed batch path and the
+      // event:task_step_reset kind — the only per-action input is this map.
       const FIX_RESET_STEP: Record<string, string> = {
         "fix-impl": "implement",
+        "fix-test": "red",
       };
       const fixResetStep = FIX_RESET_STEP[opts.action];
       // fix-impl is a `task_id_step` target action: the CLI cannot build the

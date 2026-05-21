@@ -4077,6 +4077,141 @@ describe("loaf finding raise --action fix-impl — Item 3 SC2 CLI shell", () => 
 });
 
 // ─────────────────────────────────────────────────────────────────────────
+// Phase 11 Item 3 SC3 — CLI shell test for `loaf finding raise --action
+// fix-test`. fix-test co-emits the same 3-entry batch as fix-impl [finding:
+// raised, event:task_step_reset, event:phase_advanced(back_edge →
+// EXECUTE.work)], reusing the SC2 event:task_step_reset kind with step="red"
+// (FIX_ACTION_STEP["fix-test"]). The reset returns the target task's red step
+// to `pending` and reopens the task to `in_progress`; the finding stays open.
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("loaf finding raise --action fix-test — Item 3 SC3 CLI shell", () => {
+  test("fix-test on a done task: 3-entry batch resets red step + reopens task + bumps iteration", async () => {
+    const dir = await tmpFeatureDir();
+    const cli = (args: string[], env?: Record<string, string | undefined>) =>
+      runCli(
+        args.concat(["--feature", "auth-refresh", "--feature-dir", dir]),
+        env ? { env } : {},
+      );
+
+    await seedFeatureAtExecuteWork(dir);
+
+    // Claim T-001 and run its full must-step lifecycle so it auto-promotes
+    // to status=done (red + implement passed; refactor optional).
+    await cli(["tasks", "claim", "T-001"]);
+    for (const stepName of ["red", "implement"]) {
+      await cli(["tasks", "step", "start", "--task", "T-001", "--step", stepName]);
+      await cli([
+        "tasks", "step", "done", "--task", "T-001", "--step", stepName, "--result", "passed",
+      ]);
+    }
+    let r = await cli(["tasks", "list", "--json"]);
+    expect(JSON.parse(r.stdout).tasks.find((t: { id: string }) => t.id === "T-001").status)
+      .toBe("done");
+
+    const iterBefore = JSON.parse((await cli(["status", "--json"])).stdout).state.iteration;
+
+    // SUT: fix-test back-edge in text mode.
+    r = await cli(
+      ["finding", "raise", "--category", "test-defect", "--action", "fix-test",
+       "--summary", "the red test asserts the wrong contract for REQ-AUTH-001",
+       "--target-task", "T-001", "--target-step", "red"],
+      { LOAF_USER: "engineer@test.invalid" },
+    );
+    expect(r.exit).toBe(0);
+    expect(r.stdout).toBe("FND-001\n");
+
+    // Assertion: journal tail is the atomic 3-entry batch in order.
+    const journal = await fsP.readFile(path.join(dir, "journal.jsonl"), "utf8");
+    const lines = journal.trim().split("\n").map((l) => JSON.parse(l));
+    const tail = lines.slice(-3);
+    expect(tail.map((e) => e.kind)).toEqual([
+      "finding:raised",
+      "event:task_step_reset",
+      "event:phase_advanced",
+    ]);
+    expect(tail[0]!.payload.action).toBe("fix-test");
+    expect(tail[0]!.payload.target).toEqual({ task_id: "T-001", step: "red" });
+    expect(tail[1]!.payload).toEqual({
+      task_id: "T-001",
+      step: "red",
+      finding_id: "FND-001",
+    });
+    expect(tail[1]!.actor).toBe("cli:loaf");
+    expect(tail[2]!.payload.to).toBe("EXECUTE.work");
+    expect(tail[2]!.payload.back_edge).toEqual({ action: "fix-test", finding_id: "FND-001" });
+    // One shared batch envelope across all 3 entries.
+    expect(tail[0]!.batch_id).toBe(tail[1]!.batch_id);
+    expect(tail[1]!.batch_id).toBe(tail[2]!.batch_id);
+    expect(tail.map((e) => e.batch_index)).toEqual([0, 1, 2]);
+    expect(tail.every((e) => e.batch_count === 3)).toBe(true);
+
+    // Assertion: cursor → EXECUTE.work, iteration +1.
+    const status = JSON.parse((await cli(["status", "--json"])).stdout);
+    expect(status.state.sub_state).toBe("EXECUTE.work");
+    expect(status.state.iteration).toBe(iterBefore + 1);
+
+    // Assertion: the target task reopened to in_progress, red step back to
+    // pending.
+    const tasks = JSON.parse((await cli(["tasks", "list", "--json"])).stdout).tasks;
+    const t = tasks.find((x: { id: string }) => x.id === "T-001");
+    expect(t.status).toBe("in_progress");
+    expect(t.steps.red.status).toBe("pending");
+    // The sibling implement step keeps its passed status — only red reset.
+    expect(t.steps.implement.status).toBe("passed");
+
+    // Assertion: the fix-test finding stays open (it is a repair loop).
+    const findings = JSON.parse((await cli(["finding", "list", "--json"])).stdout).findings;
+    expect(findings.find((f: { id: string }) => f.id === "FND-001").status).toBe("open");
+  });
+
+  test("fix-test without --target-task/--target-step fails cleanly (FINDING_TARGET_REQUIRED)", async () => {
+    // A missing target falls through to the lone-finding:raised path; its
+    // preflight FINDING_TARGET_REQUIRED refine is the authoritative gate
+    // (the 3-entry batch only runs once the target is present).
+    const dir = await tmpFeatureDir();
+    const cli = (args: string[], env?: Record<string, string | undefined>) =>
+      runCli(
+        args.concat(["--feature", "auth-refresh", "--feature-dir", dir]),
+        env ? { env } : {},
+      );
+    await seedFeatureAtExecuteWork(dir);
+    const r = await cli(
+      ["finding", "raise", "--category", "test-defect", "--action", "fix-test",
+       "--summary", "missing the target flags"],
+      { LOAF_USER: "engineer@test.invalid" },
+    );
+    expect(r.exit).toBe(2);
+    expect(r.stderr + r.stdout).toMatch(/FINDING_TARGET_REQUIRED/);
+  });
+
+  test("fix-test JSON mode emits structured back_edge field", async () => {
+    const dir = await tmpFeatureDir();
+    const cli = (args: string[], env?: Record<string, string | undefined>) =>
+      runCli(
+        args.concat(["--feature", "auth-refresh", "--feature-dir", dir]),
+        env ? { env } : {},
+      );
+    await seedFeatureAtExecuteWork(dir);
+    const r = await cli(
+      ["finding", "raise", "--category", "test-defect", "--action", "fix-test",
+       "--target-task", "T-001", "--target-step", "red",
+       "--summary", "red test wrong", "--json"],
+      { LOAF_USER: "engineer@test.invalid" },
+    );
+    expect(r.exit).toBe(0);
+    expect(JSON.parse(r.stdout)).toEqual({
+      ok: true,
+      feature: "auth-refresh",
+      id: "FND-001",
+      category: "test-defect",
+      action: "fix-test",
+      back_edge: { from: "EXECUTE.work", to: "EXECUTE.work" },
+    });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
 // loaf tasks complete — Slice C SC-C1
 //
 // `tasks complete <T-id>` is a NO-OP confirmation command (codex r101 Q2=a):

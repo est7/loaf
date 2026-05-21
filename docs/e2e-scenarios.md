@@ -241,12 +241,19 @@ Source: codex independent enumeration r119 (AMQ thread
   kind (Phase 11 Item 3 SC2).
 
 ### SCEN-E2E-022 — fix-test loop
-- **Tier** future · **Status** todo · **Impl** as SCEN-E2E-021, target step
-  `red`.
-- **Given** VERIFY raises a `test-defect` `fix-test` finding.
-- **When** the test is corrected and the finding closes.
-- **Then** verify-accept no longer sees an open finding.
-- **Covers** the test-defect / TDD repair path.
+- **Tier** inventory · **Status** green · **Impl** as SCEN-E2E-021, target
+  step `red`.
+- **Given** a done behavioral task and a `test-defect` `fix-test` finding
+  targeting `{task_id, step:"red"}`.
+- **When** `finding raise --action fix-test` is emitted.
+- **Then** the same atomic 3-entry batch `[finding:raised,
+  event:task_step_reset, event:phase_advanced(back_edge)]` lands; the
+  cursor returns to EXECUTE.work, iteration is bumped, the target task's
+  `red` step resets to `pending` and the task reopens to `in_progress`,
+  the `fix-test` finding stays open, and prior execution history (the
+  passed `implement` step) is not erased.
+- **Covers** the test-defect / TDD repair path — `event:task_step_reset`
+  reused for fix-test (Phase 11 Item 3 SC3).
 
 ### SCEN-E2E-023 — defer/backlog finding blocks accept until closed
 - **Tier** optional · **Status** green

@@ -36,11 +36,12 @@ const ALL_SPEC: SubState[] = [
 
 const ALL_EXECUTE: SubState[] = ["EXECUTE.plan", "EXECUTE.work", "EXECUTE.done"];
 
-// Phase 11 Item 3 SC2 — the fix-impl back-edge from-set (codex r139 Q4):
+// Phase 11 Item 3 SC2/SC3 — the fix back-edge from-set (codex r139 Q4, r142):
 // the VERIFY_OR_POST_LOCK_EXECUTE band minus EXECUTE.plan. `event:task_step_reset`
-// is co-emitted from exactly these sub_states (it mirrors the `fix-impl`
-// BACK_EDGE_FROM row in transition.ts). Deliberately NOT ANY_SUB_STATE and
-// NOT EXECUTE.plan — at the planning surface a step is restructured directly.
+// is co-emitted from exactly these sub_states by both fix-impl and fix-test
+// (it mirrors the identical `fix-impl` / `fix-test` BACK_EDGE_FROM rows in
+// transition.ts). Deliberately NOT ANY_SUB_STATE and NOT EXECUTE.plan — at the
+// planning surface a step is restructured directly.
 const FIX_BACK_EDGE_FROM: SubState[] = [
   "EXECUTE.work", "EXECUTE.done",
   "VERIFY.plan", "VERIFY.run", "VERIFY.review",
@@ -110,10 +111,11 @@ export const PER_KIND_ACTOR: Record<EntryKind, readonly ActorPrefix[]> = {
   "event:task_claimed": ALL_NON_MIGRATION,
   "event:task_step_started": ALL_NON_MIGRATION,
   "event:task_step_done": ALL_NON_MIGRATION,
-  // Phase 11 Item 3 SC2 (codex r139 Q4): event:task_step_reset is a
-  // mechanical entry the CLI co-emits inside the fix-impl back-edge batch —
-  // human attribution lives on the sibling finding:raised entry, so the
-  // reset itself is cli-only (no human/skill/ci can author it directly).
+  // Phase 11 Item 3 SC2/SC3 (codex r139 Q4, r142): event:task_step_reset is
+  // a mechanical entry the CLI co-emits inside the fix-impl / fix-test
+  // back-edge batch — human attribution lives on the sibling finding:raised
+  // entry, so the reset itself is cli-only (no human/skill/ci can author it
+  // directly).
   "event:task_step_reset": CLI_ONLY,
   "event:task_abandoned": ALL_NON_MIGRATION,
   "event:spec_req_added": ALL_NON_MIGRATION,

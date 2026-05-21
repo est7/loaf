@@ -1215,23 +1215,26 @@ export function preflight(
     }
   }
 
-  // (5e.4) Phase 11 Item 3 SC2 — event:task_step_reset refines (codex r139
-  // Q3). `loaf finding raise --action fix-impl` co-emits this inside its
-  // 3-entry back-edge batch. Per-kind already gates actor (cli-only) +
-  // sub_state (the fix-impl from-set). This step adds the sponsorship +
-  // target-authority refines:
-  //   - finding_id exists / open / action=fix-impl → else FINDING_NOT_FOUND
-  //     (detail.reason ∈ {not_found, already_closed, action_mismatch}),
-  //     mirroring the back-edge sponsorship precedent (step 5b).
-  //   - the finding's `target` must equal the reset payload's
-  //     {task_id, step}, and `step` must equal FIX_ACTION_STEP["fix-impl"]
-  //     ("implement"). A structurally-valid-but-unauthorized payload is
+  // (5e.4) Phase 11 Item 3 SC2/SC3 — event:task_step_reset refines (codex
+  // r139 Q3, r142). `loaf finding raise --action fix-impl|fix-test` co-emits
+  // this inside its 3-entry back-edge batch. Per-kind already gates actor
+  // (cli-only) + sub_state (the shared fix back-edge from-set). This step
+  // adds the sponsorship + target-authority refines:
+  //   - finding_id exists / open / action ∈ {fix-impl, fix-test} → else
+  //     FINDING_NOT_FOUND (detail.reason ∈ {not_found, already_closed,
+  //     action_mismatch}), mirroring the back-edge sponsorship precedent
+  //     (step 5b).
+  //   - the finding's `target` must equal the reset payload's {task_id,
+  //     step}, and `step` must equal the finding action's canonical step
+  //     FIX_ACTION_STEP[finding.action] (fix-impl → "implement", fix-test →
+  //     "red"). A structurally-valid-but-unauthorized payload is
   //     MUTATION_OUT_OF_RIGHTS (reason task_step_reset_target_mismatch /
   //     task_step_reset_step_mismatch) — the payload parsed, but it is not
   //     authorized by its sponsoring finding.
   //   - the task + step must exist in the projection (a step absent from
   //     the task is a target mismatch — the finding cannot legitimately
   //     target a step the task does not carry).
+  //   - the target task must not be `abandoned` (r141 guard — see below).
   // No new DiagnosticCode — FINDING_NOT_FOUND + MUTATION_OUT_OF_RIGHTS
   // are reused (codex r139 Q3).
   if (entry.kind === "event:task_step_reset") {
@@ -1257,27 +1260,32 @@ export function preflight(
         detail: { id: payload.finding_id, reason: "already_closed" },
       };
     }
-    if (finding.action !== "fix-impl") {
+    // SC3 (codex r142): the kind serves both fix-impl and fix-test — a step
+    // reset may be sponsored by either action. Any other action (amend-* /
+    // defer / backlog) carries no canonical step and cannot author a reset.
+    if (finding.action !== "fix-impl" && finding.action !== "fix-test") {
       return {
         ok: false,
         code: "FINDING_NOT_FOUND",
-        message: `event:task_step_reset.finding_id=${payload.finding_id} has action=${finding.action} but only fix-impl findings can sponsor a step reset`,
+        message: `event:task_step_reset.finding_id=${payload.finding_id} has action=${finding.action} but only fix-impl / fix-test findings can sponsor a step reset`,
         detail: {
           id: payload.finding_id,
           reason: "action_mismatch",
-          expected_action: "fix-impl",
+          expected_action: ["fix-impl", "fix-test"],
           actual_action: finding.action,
         },
       };
     }
     // The payload's {task_id, step} must equal the finding's target — the
-    // reset cannot drift off the task/step the finding authorized.
-    const expectedStep = FIX_ACTION_STEP["fix-impl"]!;
+    // reset cannot drift off the task/step the finding authorized. The
+    // canonical step is the finding action's own (fix-impl → "implement",
+    // fix-test → "red") — SC3 keys it off finding.action, not a hardcode.
+    const expectedStep = FIX_ACTION_STEP[finding.action]!;
     if (payload.step !== expectedStep) {
       return {
         ok: false,
         code: "MUTATION_OUT_OF_RIGHTS",
-        message: `event:task_step_reset step="${payload.step}" but fix-impl resets step="${expectedStep}"`,
+        message: `event:task_step_reset step="${payload.step}" but ${finding.action} resets step="${expectedStep}"`,
         detail: {
           finding_id: payload.finding_id,
           task_id: payload.task_id,
@@ -1322,17 +1330,19 @@ export function preflight(
         },
       };
     }
-    // codex r140 P1 — fix-impl may reopen a `done` task (r139 Q5: a done
-    // task's step cannot otherwise be re-run), but `abandoned` is a TERMINAL
-    // status and must NOT be reactivated (protocol.md — abandoned is a final
-    // task status; docs/schemas.ts — abandoned tasks cannot be reactivated).
-    // The reducer rewrites the target task to `in_progress`; without this
-    // guard a fix-impl finding targeting an abandoned task would resurrect it.
+    // codex r140 P1 — a fix-impl/fix-test step reset may reopen a `done`
+    // task (r139 Q5: a done task's step cannot otherwise be re-run), but
+    // `abandoned` is a TERMINAL status and must NOT be reactivated
+    // (protocol.md — abandoned is a final task status; docs/schemas.ts —
+    // abandoned tasks cannot be reactivated). The reducer rewrites the target
+    // task to `in_progress`; without this guard a fix finding targeting an
+    // abandoned task would resurrect it. The guard is action-agnostic — it
+    // serves both fix-impl and fix-test.
     if (task.status === "abandoned") {
       return {
         ok: false,
         code: "MUTATION_OUT_OF_RIGHTS",
-        message: `event:task_step_reset cannot reset task ${payload.task_id}: status=abandoned is terminal and cannot be reactivated (fix-impl may reopen a done task, never an abandoned one)`,
+        message: `event:task_step_reset cannot reset task ${payload.task_id}: status=abandoned is terminal and cannot be reactivated (a fix step reset may reopen a done task, never an abandoned one)`,
         detail: {
           finding_id: payload.finding_id,
           task_id: payload.task_id,
@@ -1727,14 +1737,14 @@ function checkTransition(
     const from = payload["from"] as SubState | undefined;
     const to = payload["to"] as SubState | undefined;
     if (from === undefined || to === undefined) return null; // schema already rejected upstream
-    // Slice B / Phase 11 Item 3 SC1-SC2: extract back_edge sponsorship from
+    // Slice B / Phase 11 Item 3 SC1-SC3: extract back_edge sponsorship from
     // payload so validateTransition can enforce action→target/from contract.
     // The finding_id existence check happens at the outer preflight path
     // (needs snapshot.findings, not visible here). The cast is the full
-    // 3-arm BackEdge union (amend-spec | amend-tasks | fix-impl) — SC1 added
-    // the amend-tasks arm, SC2 the fix-impl arm; the runtime object already
-    // passes through to validateTransition's union, this only realigns the
-    // annotation.
+    // 4-arm BackEdge union (amend-spec | amend-tasks | fix-impl | fix-test) —
+    // SC1 added the amend-tasks arm, SC2 the fix-impl arm, SC3 the fix-test
+    // arm; the runtime object already passes through to validateTransition's
+    // union, this only realigns the annotation.
     const backEdge = payload["back_edge"] as TransitionContext["back_edge"];
     return validateTransition(from, to, {
       ceremony: ctx.ceremony,

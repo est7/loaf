@@ -279,10 +279,23 @@ const BackEdgeFixImpl = z
   })
   .strict();
 
+// Phase 11 Item 3 SC3 — fix-test back-edge. Identical shape to
+// BackEdgeFixImpl (codex r142): no `target` / `task_id` on the back_edge
+// payload — the target (EXECUTE.work) is dictated by `action`, and the
+// step reset (step="red") travels as a sibling `event:task_step_reset`
+// entry in the same batch.
+const BackEdgeFixTest = z
+  .object({
+    action: z.literal("fix-test"),
+    finding_id: FindingId,
+  })
+  .strict();
+
 const BackEdge = z.discriminatedUnion("action", [
   BackEdgeAmendSpec,
   BackEdgeAmendTasks,
   BackEdgeFixImpl,
+  BackEdgeFixTest,
 ]);
 
 export const PhaseAdvancedPayload = z
@@ -290,12 +303,12 @@ export const PhaseAdvancedPayload = z
     from: SubState,
     to: SubState,
     /**
-     * Back-edge sponsorship (Slice B). When set, `to` MUST be the
-     * target dictated by `action` (amend-spec → SPEC.spec,
-     * amend-tasks → EXECUTE.work), and the referenced finding MUST
-     * exist in snapshot.findings with matching action and
-     * status="open" (preflight enforces). Absent on forward
-     * transitions (the default).
+     * Back-edge sponsorship (Slice B / Phase 11 Item 3). When set, `to`
+     * MUST be the target dictated by `action` (amend-spec → SPEC.spec;
+     * amend-tasks / fix-impl / fix-test → EXECUTE.work), and the referenced
+     * finding MUST exist in snapshot.findings with matching action and
+     * status="open" (preflight enforces). Absent on forward transitions
+     * (the default).
      */
     back_edge: BackEdge.optional(),
   })
@@ -354,15 +367,15 @@ const TaskStepDonePayload = z
   })
   .passthrough();
 
-// Phase 11 Item 3 SC2 — `event:task_step_reset` (codex r139 Q1). Co-emitted
-// by `loaf finding raise --action fix-impl` (and fix-test in SC3) inside the
+// Phase 11 Item 3 SC2/SC3 — `event:task_step_reset` (codex r139 Q1, r142).
+// Co-emitted by `loaf finding raise --action fix-impl|fix-test` inside the
 // 3-entry back-edge batch. Resets a task's repair step to `pending` so the
-// fix loop can re-run it. `step` is explicit on the payload (SC3 reuses this
-// kind for fix-test → "red"). `.strict()` — the payload carries a
-// finding_id authority reference, so a typo'd key must fail at append, not
-// be silently dropped. The reset's authorization (the finding must be open
-// with action=fix-impl, and the finding's target must equal {task_id, step})
-// is verified by the per-kind preflight refine.
+// fix loop can re-run it. `step` is explicit on the payload — fix-impl resets
+// "implement", fix-test resets "red" (FIX_ACTION_STEP). `.strict()` — the
+// payload carries a finding_id authority reference, so a typo'd key must fail
+// at append, not be silently dropped. The reset's authorization (the finding
+// must be open with action ∈ {fix-impl, fix-test}, and the finding's target
+// must equal {task_id, step}) is verified by the per-kind preflight refine.
 export const TaskStepResetPayload = z
   .object({
     task_id: TaskIdPayload,

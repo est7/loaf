@@ -82,8 +82,8 @@ const LEGAL_TRANSITIONS: Record<SubState, readonly SubState[]> = {
 };
 
 // Back-edge actions (Phase 11 Item 3). `amend-spec` wired at SC0,
-// `amend-tasks` at SC1, `fix-impl` at SC2; the `fix-test` row lands in SC3.
-type BackEdgeAction = "amend-spec" | "amend-tasks" | "fix-impl";
+// `amend-tasks` at SC1, `fix-impl` at SC2, `fix-test` at SC3.
+type BackEdgeAction = "amend-spec" | "amend-tasks" | "fix-impl" | "fix-test";
 
 // Per-action back-edge from-state table (Phase 11 Item 3 SC0). Reshaped
 // from the single `BACK_EDGE_AMEND_SPEC_FROM` constant so SC1-SC3 add a
@@ -140,6 +140,20 @@ const BACK_EDGE_FROM: Record<BackEdgeAction, ReadonlySet<SubState>> = {
     "VERIFY.visual",
     "VERIFY.accept",
   ]),
+  // The `fix-test` row (Phase 11 Item 3 SC3, codex r142) is identical to
+  // the `fix-impl` row — same EXECUTE.work/done + VERIFY.* band, EXECUTE.plan
+  // excluded, intentional `EXECUTE.work → EXECUTE.work` self-loop (mid-work
+  // test-defect / TDD repair).
+  "fix-test": new Set([
+    "EXECUTE.work",
+    "EXECUTE.done",
+    "VERIFY.plan",
+    "VERIFY.run",
+    "VERIFY.review",
+    "VERIFY.acceptance",
+    "VERIFY.visual",
+    "VERIFY.accept",
+  ]),
 };
 
 export interface TransitionContext {
@@ -166,7 +180,8 @@ export interface TransitionContext {
   back_edge?:
     | { action: "amend-spec"; finding_id: string }
     | { action: "amend-tasks"; finding_id: string }
-    | { action: "fix-impl"; finding_id: string };
+    | { action: "fix-impl"; finding_id: string }
+    | { action: "fix-test"; finding_id: string };
 }
 
 export type TransitionResult =
@@ -291,6 +306,46 @@ export function validateTransition(
           ok: false,
           code: "TRANSITION_ILLEGAL",
           message: `back_edge action=fix-impl is not legal from ${prev}; allowed from EXECUTE.work / EXECUTE.done + VERIFY.*`,
+          detail: {
+            from: prev,
+            to: target,
+            back_edge_action: ctx.back_edge.action,
+            allowed_from: [...allowedFrom],
+            reason: "back_edge_from_not_allowed",
+          },
+        };
+      }
+      // Back-edge legal at the transition layer; preflight verifies the
+      // referenced finding_id against snapshot.findings (existence +
+      // action match + status=open) and the task_step_reset entry's
+      // target authority.
+      return { ok: true };
+    }
+    if (ctx.back_edge.action === "fix-test") {
+      // Phase 11 Item 3 SC3 — fix-test back-edge targets EXECUTE.work
+      // (codex r142). Mirrors the fix-impl arm exactly; the step reset
+      // (step="red") travels as a sibling `event:task_step_reset` entry
+      // in the same batch — this arm only gates the cursor edge.
+      if (target !== "EXECUTE.work") {
+        return {
+          ok: false,
+          code: "TRANSITION_ILLEGAL",
+          message: `back_edge action=fix-test requires target=EXECUTE.work, got ${target}`,
+          detail: {
+            from: prev,
+            to: target,
+            back_edge_action: ctx.back_edge.action,
+            expected_target: "EXECUTE.work",
+            reason: "back_edge_target_mismatch",
+          },
+        };
+      }
+      const allowedFrom = BACK_EDGE_FROM["fix-test"];
+      if (!allowedFrom.has(prev)) {
+        return {
+          ok: false,
+          code: "TRANSITION_ILLEGAL",
+          message: `back_edge action=fix-test is not legal from ${prev}; allowed from EXECUTE.work / EXECUTE.done + VERIFY.*`,
           detail: {
             from: prev,
             to: target,

@@ -2312,7 +2312,142 @@ describe("E2E — full worker lifecycle (standard ceremony)", () => {
     expect(fnd.status).toBe("open");
   });
 
-  test.todo("SCEN-E2E-022 — fix-test loop");
+  // SCEN-E2E-022 — see docs/e2e-scenarios.md (Phase 11 Item 3 SC3).
+  // `finding raise --action fix-test` co-emits the same atomic 3-entry batch
+  // as fix-impl [finding:raised, event:task_step_reset, event:phase_advanced(
+  // back_edge → EXECUTE.work)], reusing the SC2 event:task_step_reset kind
+  // with step="red". The reset returns the target task's `red` step to
+  // `pending` and reopens the task to `in_progress`; cursor → EXECUTE.work,
+  // iteration +1, the finding stays open, and prior execution history (the
+  // passed `implement` step) is not erased.
+  test("SCEN-E2E-022 — fix-test loop resets the red step and reopens the task without erasing history", async () => {
+    const dir = await tmpFeatureDir();
+    const F = "e2e-fix-test";
+    const ENV = { LOAF_USER: "e2e@test.invalid" };
+    const { step, writeInput } = makeCli(dir, ENV);
+
+    // ── drive a standard feature to a locked EXECUTE.work with a graph ──
+    await step("start", ["start", F, "--ceremony", "standard"]);
+    await step("advance TRIAGE.confirm", ["advance", "TRIAGE.confirm", "--feature", F]);
+    await step("advance SPEC.proposal", ["advance", "SPEC.proposal", "--feature", F]);
+    await step("spec init", ["spec", "init", "--feature", F]);
+    const submitInput = await writeInput("submit.json", {
+      feature: { id: "F-001", name: "E2E fix-test back-edge" },
+      intent: "exercise the fix-test finding back-edge and step reset",
+      adr_refs: [],
+      needs_clarification: [],
+    });
+    await step("spec submit", ["spec", "submit", "--input", submitInput, "--feature", F]);
+    await step("spec add-req", [
+      "spec", "add-req",
+      "--input", await writeInput("req.json", {
+        id_namespace: "REQ-CORE",
+        type: "ubiquitous",
+        response: "the system shall complete the fix-test smoke",
+        acceptance_na: true,
+        acceptance_na_reason: "exercised by this end-to-end lifecycle integration test",
+      }),
+      "--feature", F,
+    ]);
+    await step("advance SPEC.spec", ["advance", "SPEC.spec", "--feature", F]);
+    await step("advance SPEC.plan", ["advance", "SPEC.plan", "--feature", F]);
+    await step("advance SPEC.design", ["advance", "SPEC.design", "--feature", F]);
+    await step("tasks submit", [
+      "tasks", "submit",
+      await writeInput("tasks.json", {
+        based_on: { spec: 2 },
+        tasks: [
+          {
+            id: "T-001",
+            kind: "behavioral",
+            drives: ["REQ-CORE-001"],
+            tests: ["e2e.fixTest"],
+            status: "pending",
+            depends_on: [],
+            labels: [],
+            execution: {
+              red: { applicability: "must", status: "pending", evidence_refs: [] },
+              implement: { applicability: "must", status: "pending", evidence_refs: [] },
+              refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+            },
+          },
+        ],
+      }),
+      "--feature", F,
+    ]);
+    await step("gate spec-lock", [
+      "gate", "decide", "spec-lock", "--approve",
+      "--reason", "spec and task graph complete for the lock", "--feature", F,
+    ]);
+    await step("advance EXECUTE.work", ["advance", "EXECUTE.work", "--feature", F]);
+
+    // ── run the task's must steps so it auto-promotes to done ───────────
+    await step("claim T-001", ["tasks", "claim", "T-001", "--feature", F]);
+    for (const stepName of ["red", "implement"]) {
+      await step(`step start ${stepName}`, [
+        "tasks", "step", "start", "--task", "T-001", "--step", stepName, "--feature", F,
+      ]);
+      await step(`step done ${stepName}`, [
+        "tasks", "step", "done", "--task", "T-001", "--step", stepName,
+        "--result", "passed", "--feature", F,
+      ]);
+    }
+    const beforeTasks = await step("tasks list before", ["tasks", "list", "--feature", F]);
+    const t001Before = beforeTasks.tasks.find((t: { id: string }) => t.id === "T-001");
+    expect(t001Before.status).toBe("done");
+    expect(t001Before.steps.red.status).toBe("passed");
+    expect(t001Before.steps.implement.status).toBe("passed");
+    const iterBefore = (await step("status before", ["status", "--feature", F])).state.iteration;
+
+    // ── fix-test back-edge: an open finding targeting {T-001, red} ──────
+    const raised = await step("finding raise fix-test", [
+      "finding", "raise", "--category", "test-defect", "--action", "fix-test",
+      "--summary", "the red test asserts the wrong contract for REQ-CORE-001",
+      "--target-task", "T-001", "--target-step", "red",
+      "--feature", F,
+    ]);
+    expect(raised.id).toMatch(/^FND-\d{3,}$/);
+    expect(raised.back_edge.to).toBe("EXECUTE.work");
+
+    // ── the journal carries the atomic 3-entry batch in order ───────────
+    const journal = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
+    const entries = journal.trim().split("\n").map((l) => JSON.parse(l));
+    const tail = entries.slice(-3);
+    expect(tail.map((e) => e.kind)).toEqual([
+      "finding:raised",
+      "event:task_step_reset",
+      "event:phase_advanced",
+    ]);
+    expect(tail[0].payload.action).toBe("fix-test");
+    expect(tail[1].payload).toEqual({
+      task_id: "T-001",
+      step: "red",
+      finding_id: raised.id,
+    });
+    expect(tail[2].payload.to).toBe("EXECUTE.work");
+    expect(tail[2].payload.back_edge).toEqual({ action: "fix-test", finding_id: raised.id });
+    expect(tail[0].batch_id).toBe(tail[1].batch_id);
+    expect(tail[1].batch_id).toBe(tail[2].batch_id);
+
+    // ── cursor → EXECUTE.work, iteration +1 ─────────────────────────────
+    const after = await step("status after", ["status", "--feature", F]);
+    expect(after.state.sub_state).toBe("EXECUTE.work");
+    expect(after.state.iteration).toBe(iterBefore + 1);
+
+    // ── the target task reopened to in_progress, red step pending ───────
+    const afterTasks = await step("tasks list after", ["tasks", "list", "--feature", F]);
+    const t001After = afterTasks.tasks.find((t: { id: string }) => t.id === "T-001");
+    expect(t001After.status).toBe("in_progress");
+    expect(t001After.steps.red.status).toBe("pending");
+    // prior execution history is NOT erased — the passed implement step survives.
+    expect(t001After.steps.implement.status).toBe("passed");
+
+    // ── the fix-test finding stays open (it is a repair loop) ───────────
+    const findings = await step("finding list", ["finding", "list", "--feature", F]);
+    const fnd = findings.findings.find((f: { id: string }) => f.id === raised.id);
+    expect(fnd.status).toBe("open");
+  });
+
   // ── Item 2 — archive / abandon session-terminal commands ────────────
   test("SCEN-E2E-035 — archive terminal: started session → DONE.archived", async () => {
     const dir = await tmpFeatureDir();
