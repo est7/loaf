@@ -1217,3 +1217,188 @@ describe("preflight — bug-task RED registration (Slice C SC-C4)", () => {
     expect(r.ok).toBe(true);
   });
 });
+
+describe("preflight — event:task_abandoned refines (Item 1)", () => {
+  // `loaf tasks abandon <T-N> --reason "..."` emits `event:task_abandoned`.
+  // Per-kind already gates actor (ALL_NON_MIGRATION) + sub_state
+  // (EXECUTE.work). These tests cover the new (5e.3) refine:
+  //   - task must exist in snapshot.tasks → else TASK_NOT_FOUND
+  //   - task.status ∉ {done, abandoned} → else TASK_NOT_ABANDONABLE
+  //   - no non-terminal direct dependent → else TASK_ABANDON_BLOCKED_DEPENDENTS
+  // INVALID_PAYLOAD for empty / missing reason rides the PER_KIND_PAYLOAD
+  // parse (TaskAbandonedPayload requires reason: z.string().min(1)).
+
+  const mkTask = (
+    overrides: Partial<TaskState> & Pick<TaskState, "id" | "kind" | "status">,
+  ): TaskState => ({
+    steps: {},
+    drives: [],
+    depends_on: [],
+    labels: [],
+    ...overrides,
+  });
+
+  const abandonEntry = (
+    overrides: Record<string, unknown> = {},
+  ): Record<string, unknown> =>
+    baseEntry({
+      kind: "event:task_abandoned",
+      payload: { task_id: "T-001", reason: "out of scope", ...overrides },
+    });
+
+  test("pending task @ EXECUTE.work → ok", () => {
+    const task = mkTask({ id: "T-001", kind: "behavioral", status: "pending" });
+    const r = preflight(abandonEntry(), {
+      snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [task] }),
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(true);
+  });
+
+  test("ready task @ EXECUTE.work → ok", () => {
+    const task = mkTask({ id: "T-001", kind: "behavioral", status: "ready" });
+    const r = preflight(abandonEntry(), {
+      snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [task] }),
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(true);
+  });
+
+  test("in_progress task @ EXECUTE.work → ok", () => {
+    const task = mkTask({ id: "T-001", kind: "behavioral", status: "in_progress" });
+    const r = preflight(abandonEntry(), {
+      snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [task] }),
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(true);
+  });
+
+  test("task missing from projection → TASK_NOT_FOUND", () => {
+    const r = preflight(abandonEntry({ task_id: "T-999" }), {
+      snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [] }),
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.code).toBe("TASK_NOT_FOUND");
+      expect(r.detail).toMatchObject({ task_id: "T-999", kind: "event:task_abandoned" });
+    }
+  });
+
+  test("task.status=done → TASK_NOT_ABANDONABLE", () => {
+    const task = mkTask({ id: "T-001", kind: "behavioral", status: "done" });
+    const r = preflight(abandonEntry(), {
+      snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [task] }),
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.code).toBe("TASK_NOT_ABANDONABLE");
+      expect(r.detail).toMatchObject({ task_id: "T-001", status: "done" });
+    }
+  });
+
+  test("task.status=abandoned → TASK_NOT_ABANDONABLE", () => {
+    const task = mkTask({ id: "T-001", kind: "behavioral", status: "abandoned" });
+    const r = preflight(abandonEntry(), {
+      snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [task] }),
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.code).toBe("TASK_NOT_ABANDONABLE");
+      expect(r.detail).toMatchObject({ task_id: "T-001", status: "abandoned" });
+    }
+  });
+
+  test("empty reason → INVALID_PAYLOAD", () => {
+    const task = mkTask({ id: "T-001", kind: "behavioral", status: "pending" });
+    const r = preflight(abandonEntry({ reason: "" }), {
+      snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [task] }),
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe("INVALID_PAYLOAD");
+  });
+
+  test("missing reason → INVALID_PAYLOAD", () => {
+    const task = mkTask({ id: "T-001", kind: "behavioral", status: "pending" });
+    const r = preflight(
+      baseEntry({ kind: "event:task_abandoned", payload: { task_id: "T-001" } }),
+      {
+        snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [task] }),
+        tail_seq: -1,
+      },
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe("INVALID_PAYLOAD");
+  });
+
+  test("task with a non-terminal direct dependent → TASK_ABANDON_BLOCKED_DEPENDENTS", () => {
+    const parent = mkTask({ id: "T-001", kind: "behavioral", status: "pending" });
+    const child = mkTask({
+      id: "T-002",
+      kind: "behavioral",
+      status: "pending",
+      depends_on: ["T-001"],
+    });
+    const r = preflight(abandonEntry(), {
+      snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, {
+        tasks: [parent, child],
+      }),
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.code).toBe("TASK_ABANDON_BLOCKED_DEPENDENTS");
+      expect(r.detail).toMatchObject({
+        task_id: "T-001",
+        blocking_dependents: ["T-002"],
+      });
+    }
+  });
+
+  test("task whose only dependent is done → ok", () => {
+    const parent = mkTask({ id: "T-001", kind: "behavioral", status: "pending" });
+    const child = mkTask({
+      id: "T-002",
+      kind: "behavioral",
+      status: "done",
+      depends_on: ["T-001"],
+    });
+    const r = preflight(abandonEntry(), {
+      snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, {
+        tasks: [parent, child],
+      }),
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(true);
+  });
+
+  test("task whose only dependent is abandoned → ok", () => {
+    const parent = mkTask({ id: "T-001", kind: "behavioral", status: "pending" });
+    const child = mkTask({
+      id: "T-002",
+      kind: "behavioral",
+      status: "abandoned",
+      depends_on: ["T-001"],
+    });
+    const r = preflight(abandonEntry(), {
+      snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, {
+        tasks: [parent, child],
+      }),
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(true);
+  });
+
+  test("wrong sub_state (EXECUTE.plan) → SUB_STATE_AUTHORITY_VIOLATION", () => {
+    const task = mkTask({ id: "T-001", kind: "behavioral", status: "pending" });
+    const r = preflight(abandonEntry(), {
+      snapshot: mkSnapshot("EXECUTE.plan", STANDARD_CEREMONY, { tasks: [task] }),
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe("SUB_STATE_AUTHORITY_VIOLATION");
+  });
+});

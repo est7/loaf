@@ -562,7 +562,7 @@ describe("loaf gate decide — SC4 soft pending:resolved co-emission", () => {
             actor: "cli:loaf",
             entry_schema_version: 1,
             kind: "event:task_abandoned",
-            payload: { task_id: "T-001" },
+            payload: { task_id: "T-001", reason: "seed fixture: gate-pending test, no task execution" },
           },
           { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, fsync: false },
         );

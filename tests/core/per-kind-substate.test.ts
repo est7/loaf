@@ -94,8 +94,9 @@ function payloadFor(kind: string): Record<string, unknown> {
     case "event:tasks_amended":
       return { task: stubBehavioralTask("T-001") };
     case "event:task_claimed":
-    case "event:task_abandoned":
       return { task_id: "T-001" };
+    case "event:task_abandoned":
+      return { task_id: "T-001", reason: "stub abandon reason" };
     case "event:task_step_started":
       return { task_id: "T-001", step: "implement" };
     case "event:task_step_done":

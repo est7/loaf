@@ -688,7 +688,7 @@ async function seedAbandonPlantedTasks(
         actor: "cli:loaf",
         entry_schema_version: 1,
         kind: "event:task_abandoned",
-        payload: { task_id: task.id },
+        payload: { task_id: task.id, reason: "seed fixture: planted task not executed" },
       },
       { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
     );
@@ -2607,6 +2607,112 @@ describe("loaf tasks claim + step start + step done — Slice 2 SC3 (MVP)", () =
     expect(r.exit).toBe(2);
     const errJson = JSON.parse(r.stderr.trim());
     expect(errJson.code).toBe("SUB_STATE_AUTHORITY_VIOLATION");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Item 1 — loaf tasks abandon <T-N> --reason "..."
+//
+// Emits event:task_abandoned at EXECUTE.work. The planted seed task T-001
+// (depends_on: []) has no dependents, so the BLOCKED_DEPENDENTS guard does
+// not fire. F-016 integration: abandoning the only non-final task makes the
+// EXECUTE.work → EXECUTE.done edge pass the all-tasks-final guard.
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("loaf tasks abandon — Item 1", () => {
+  test("happy: abandon T-001 → exit 0, status=abandoned, machine-readable", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtExecuteWork(dir);
+
+    const r = await runCli([
+      "tasks", "abandon", "T-001",
+      "--reason", "out of scope after re-planning",
+      "--feature", "auth-refresh",
+      "--feature-dir", dir,
+      "--json",
+    ]);
+    expect(r.exit).toBe(0);
+    expect(r.stderr).toBe("");
+    const out = JSON.parse(r.stdout);
+    expect(out.ok).toBe(true);
+    expect(out.task_id).toBe("T-001");
+    expect(out.status).toBe("abandoned");
+    expect(out.feature).toBe("auth-refresh");
+    expect(out.sub_state).toBe("EXECUTE.work");
+  });
+
+  test("missing --reason → exit 2 (commander)", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtExecuteWork(dir);
+
+    const r = await runCli([
+      "tasks", "abandon", "T-001",
+      "--feature", "auth-refresh",
+      "--feature-dir", dir,
+      "--json",
+    ]);
+    expect(r.exit).toBe(2);
+  });
+
+  test("abandoning an already-abandoned task → exit 2 + TASK_NOT_ABANDONABLE", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtExecuteWork(dir);
+
+    const first = await runCli([
+      "tasks", "abandon", "T-001",
+      "--reason", "out of scope",
+      "--feature", "auth-refresh",
+      "--feature-dir", dir,
+      "--json",
+    ]);
+    expect(first.exit).toBe(0);
+
+    const second = await runCli([
+      "tasks", "abandon", "T-001",
+      "--reason", "out of scope again",
+      "--feature", "auth-refresh",
+      "--feature-dir", dir,
+      "--json",
+    ]);
+    expect(second.exit).toBe(2);
+    const errJson = JSON.parse(second.stderr.trim());
+    expect(errJson.code).toBe("TASK_NOT_ABANDONABLE");
+    expect(errJson.detail).toMatchObject({ task_id: "T-001", status: "abandoned" });
+  });
+
+  test("F-016 integration: abandoning the planted task makes advance EXECUTE.done succeed", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtExecuteWork(dir);
+
+    // Before abandon: the planted T-001 is pending — EXECUTE.done is blocked.
+    const blocked = await runCli([
+      "advance", "EXECUTE.done",
+      "--feature", "auth-refresh",
+      "--feature-dir", dir,
+      "--json",
+    ]);
+    expect(blocked.exit).toBe(2);
+    // `advance` failure path emits text (`fail()`), not JSON.
+    expect(blocked.stderr).toContain("EXECUTE_DONE_TASKS_NOT_FINAL");
+
+    // Abandon the out-of-scope task.
+    const abandon = await runCli([
+      "tasks", "abandon", "T-001",
+      "--reason", "descoped from this feature",
+      "--feature", "auth-refresh",
+      "--feature-dir", dir,
+      "--json",
+    ]);
+    expect(abandon.exit).toBe(0);
+
+    // After abandon: every task is terminal — EXECUTE.done passes.
+    const advance = await runCli([
+      "advance", "EXECUTE.done",
+      "--feature", "auth-refresh",
+      "--feature-dir", dir,
+      "--json",
+    ]);
+    expect(advance.exit).toBe(0);
   });
 });
 

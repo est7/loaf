@@ -931,6 +931,72 @@ export async function main(argv: string[] = process.argv): Promise<number> {
       }
     });
 
+  // ── loaf tasks abandon <task-id> --reason "..." ─────────────────────
+  // Item 1. Emits `event:task_abandoned` for a non-terminal task at
+  // EXECUTE.work. Preflight step 5e.3 enforces existence + abandonability
+  // (TASK_NOT_FOUND / TASK_NOT_ABANDONABLE / TASK_ABANDON_BLOCKED_DEPENDENTS).
+  // Reducer flips status → abandoned; the journal payload carries the why.
+  // Actor: cli:loaf — per-kind authority is ALL_NON_MIGRATION (not
+  // human-only), so abandon is machine-driven like claim, no human actor
+  // resolution.
+  tasksCmd
+    .command("abandon <task-id>")
+    .description("Abandon a non-terminal task (→ abandoned) at EXECUTE.work")
+    .requiredOption("--reason <text>", "Why the task is being abandoned (required)")
+    .requiredOption("--feature <name>", "Feature whose task to abandon")
+    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
+    .action(
+      async (
+        taskId: string,
+        opts: { reason: string; feature: string; featureDir?: string },
+      ) => {
+        const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+        const session = await loadSession(featureDir);
+        if (!session.snapshot.state) {
+          emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+          return;
+        }
+        const result = await mutate(
+          {
+            at: new Date().toISOString(),
+            actor,
+            entry_schema_version: 1,
+            kind: "event:task_abandoned",
+            payload: { task_id: taskId, reason: opts.reason },
+          },
+          { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq },
+        );
+        if (!result.ok) {
+          emitFailure(result.code, result.message, result.detail);
+          return;
+        }
+        // Read the abandoned task status from the reducer-applied snapshot;
+        // fail-fast if the post-mutate lookup misses (preflight + reducer
+        // guarantee the task exists on success — same pattern as claim).
+        const abandoned = result.snapshot.tasks.find((t) => t.id === taskId);
+        if (!abandoned) {
+          emitFailure(
+            "REDUCER_ERROR",
+            `internal: task ${taskId} missing from snapshot after successful task_abandoned apply`,
+          );
+          return;
+        }
+        const status = abandoned.status;
+        const out = {
+          ok: true,
+          feature: opts.feature,
+          task_id: taskId,
+          status,
+          sub_state: result.snapshot.state?.sub_state,
+        };
+        if (useJson) {
+          process.stdout.write(JSON.stringify(out) + "\n");
+        } else {
+          process.stdout.write(`abandoned ${taskId} (status=${status})\n`);
+        }
+      },
+    );
+
   // ── loaf tasks list [--status <s>] [--json] ─────────────────────────
   // Slice 2 SC4. Read-only snapshot dump of `snapshot.tasks`. Computes
   // the derived `ready: boolean` column per Option C arch (codex r57):

@@ -3817,6 +3817,9 @@ export const DiagnosticCode = z.enum([
   "TASK_ALREADY_CLAIMED",                  // src/core/reducer/preflight.ts step 5e — event:task_claimed for task with status=in_progress
   "TASK_DEPS_NOT_SATISFIED",               // src/core/reducer/preflight.ts step 5e — event:task_claimed but some task in deps_on is not status=done
   "TASK_NOT_CLAIMED",                      // src/core/reducer/preflight.ts step 5e — event:task_step_started or event:task_step_done but task.status ≠ in_progress (must claim before mutating steps)
+  // ── Item 1 — `loaf tasks abandon` preflight (codex r127) ──
+  "TASK_NOT_ABANDONABLE",                  // src/core/reducer/preflight.ts step 5e.3 — event:task_abandoned for a task with status ∈ {done, abandoned} (already final — abandon is a no-op)
+  "TASK_ABANDON_BLOCKED_DEPENDENTS",       // src/core/reducer/preflight.ts step 5e.3 — event:task_abandoned but a non-terminal task lists the target in depends_on (would strand the dependent)
   // ── Slice A SC-A2 — spec.md projection writer (post-appendMany Pass 5) ──
   "PROJECTION_WRITE_FAILED",               // src/core/journal-mutate.ts Pass 5 — writeDerivedSpecMd threw after journal append succeeded; journal authoritative, run `loaf doctor --rebuild` to resync
   // ── Slice B — finding amend-spec back-edge batch (codex r94/r96) ──
@@ -3904,8 +3907,10 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
       "cannot advance EXECUTE.work to EXECUTE.done: {count} task(s) are not " +
       "in a final status (done or abandoned)",
     fix_template:
-      "finish every task — run its remaining steps via `loaf tasks step` " +
-      "until each task auto-promotes to status=done — then retry " +
+      "finish the remaining steps — run each task's steps via " +
+      "`loaf tasks step` until it auto-promotes to status=done — OR " +
+      "abandon out-of-scope tasks with " +
+      "`loaf tasks abandon <T-N> --reason \"...\"`, then retry " +
       "`loaf advance EXECUTE.done`; see detail.non_final for the tasks " +
       "still pending or in progress",
     doc_anchor: "protocol.md#§10.5",
@@ -4645,6 +4650,31 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
       "task {task_id} step {step} mutation requires task.status=in_progress (got status={status}); claim the task first",
     fix_template:
       "run `loaf tasks claim {task_id}` to move the task from pending/ready to in_progress before emitting task_step_started or task_step_done; once auto-promoted to done, steps cannot be re-mutated",
+    doc_anchor: "protocol.md#§10.8",
+  },
+  // ── Item 1 — `loaf tasks abandon` preflight (codex r127) ──
+  TASK_NOT_ABANDONABLE: {
+    // Item 1: preflight step 5e.3 on event:task_abandoned. A task already
+    // in a final status (done | abandoned) cannot be abandoned — the
+    // operation would be a no-op contract error. detail carries task_id +
+    // the offending status.
+    exit_code: 2,
+    message_template:
+      "task {task_id} cannot be abandoned (status={status} — already in a final status)",
+    fix_template:
+      "tasks with status=done are already complete and status=abandoned tasks are already abandoned; run `loaf tasks list` to inspect the task graph and abandon a non-terminal task instead",
+    doc_anchor: "protocol.md#§10.8",
+  },
+  TASK_ABANDON_BLOCKED_DEPENDENTS: {
+    // Item 1: preflight step 5e.3 on event:task_abandoned. Abandoning a
+    // task that a non-terminal task depends on would strand the
+    // dependent — task_claimed preflight requires deps status=done (not
+    // abandoned). detail.blocking_dependents lists the offending task ids.
+    exit_code: 2,
+    message_template:
+      "task {task_id} cannot be abandoned: non-terminal task(s) {blocking_dependents} depend on it",
+    fix_template:
+      "abandon or complete the dependent tasks first (see detail.blocking_dependents), then retry `loaf tasks abandon {task_id} --reason \"...\"`; abandoning a parent would strand a pending child",
     doc_anchor: "protocol.md#§10.8",
   },
   // Slice A SC-A2: PROJECTION_WRITE_FAILED is surfaced by

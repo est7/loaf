@@ -1650,7 +1650,14 @@ error: <one-line human description>
 
 | Code | Severity | When emitted | Fix hint |
 |---|---:|---|---|
-| `EXECUTE_DONE_TASKS_NOT_FINAL` | exit 2 | `event:phase_advanced` for the `EXECUTE.work → EXECUTE.done` edge, but `snapshot.tasks` contains a task whose status is not `done` or `abandoned` — protocol defines `EXECUTE.done` as all tasks reached a final status. Preflight refine on the plain forward edge only (a `back_edge` entry keeps its own sponsorship / transition diagnostics) | Finish every task's remaining steps so it auto-promotes to `done`, then retry `loaf advance EXECUTE.done`. `detail.non_final` lists the offending `{task_id, status}` pairs |
+| `EXECUTE_DONE_TASKS_NOT_FINAL` | exit 2 | `event:phase_advanced` for the `EXECUTE.work → EXECUTE.done` edge, but `snapshot.tasks` contains a task whose status is not `done` or `abandoned` — protocol defines `EXECUTE.done` as all tasks reached a final status. Preflight refine on the plain forward edge only (a `back_edge` entry keeps its own sponsorship / transition diagnostics) | Finish the remaining steps so each task auto-promotes to `done`, OR abandon out-of-scope tasks via `loaf tasks abandon <T-N> --reason "..."`, then retry `loaf advance EXECUTE.done`. `detail.non_final` lists the offending `{task_id, status}` pairs |
+
+**Item 1 runtime codes**(`loaf tasks abandon` — the EXECUTE.work task-abandon preflight refines):
+
+| Code | Severity | When emitted | Fix hint |
+|---|---:|---|---|
+| `TASK_NOT_ABANDONABLE` | exit 2 | `event:task_abandoned` (`loaf tasks abandon`) but the target task is already in a final status (`done` or `abandoned`) — abandoning a terminal task is a no-op contract error | Run `loaf tasks list` to inspect the task graph; abandon a non-terminal task instead. `detail` carries `{task_id, status}` |
+| `TASK_ABANDON_BLOCKED_DEPENDENTS` | exit 2 | `event:task_abandoned` but a non-terminal task lists the target in its `depends_on` — abandoning the parent would strand the dependent (`task_claimed` preflight requires deps `status=done`, not `abandoned`) | Abandon or complete the dependent tasks first, then retry `loaf tasks abandon <T-N> --reason "..."`. `detail.blocking_dependents` lists the offending task ids |
 
 完整出错示例(`SCHEMA_VALIDATION_FAILED`):
 
@@ -1823,6 +1830,7 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 | `loaf tasks submit <file>` | 提交完整 task graph(SPEC.design 阶段)。**rev 5.0**:走 §11.2 transaction,emit `event:tasks_planned`(payload 含完整 task array);reducer 派生 `snapshots/tasks.json` | 0 / 2 |
 | `loaf tasks add <file>` | **rev 4.3** + **rev 5.0**:单条或 batch task 加入。SPEC.design 阶段 emit `event:tasks_planned`(整批 entry,batch markers);EXECUTE 阶段 emit `event:tasks_amended`(走 finding `amend-tasks` 路径)。原 `<T-N>` positional + `--kind` / `--drives` per-field flag **已砍**;CLI 在 lock 内单调分配 `T-id`(`^T-\d{3,}$`)并 stdout 回打;reducer 派生 `snapshots/tasks.json` | 0 / 2 |
 | `loaf tasks claim <T-N>` | 把 task 从 `ready` 拉到 `in_progress`(worker 拿活,fan-out 多 worker 并发用);CLI 在 lock 内确认 deps_on satisfied | 0 / 2 |
+| `loaf tasks abandon <T-N> --reason "..."` | **Item 1**:把非终态 task 标记为 `abandoned`(EXECUTE.work 阶段;`--reason` 必填,emit `event:task_abandoned` payload 含 task_id + reason)。已终态(`done` / `abandoned`)→ `TASK_NOT_ABANDONABLE` exit 2;若有非终态 task 在 `depends_on` 指向该 task → `TASK_ABANDON_BLOCKED_DEPENDENTS` exit 2(放弃父任务会孤立子任务)。配合 `EXECUTE_DONE_TASKS_NOT_FINAL`:超出范围的 task 可 abandon 后再 `loaf advance EXECUTE.done` | 0 / 2 |
 | `loaf tasks complete <T-N>` | 确认 task 已达 `done`(全部 must step 已 passed/waived/na)。**rev 5.0 / Slice C SC-C1**:`event:task_step_done` 已在末个 must step 完成时 auto-promote `task.status=done`,故 `tasks complete` 是**只读确认命令**——不 emit journal entry;task 已 `done` → exit 0,否则 `TASK_COMPLETE_PRECONDITION_VIOLATED` exit 2 并列出未达 terminal-positive 的 must step。**rev 4.2**:rename from `loaf tasks done` — 与 `tasks step done` 同名异级歧义,改 `complete` 消歧(clig.dev §8) | 0 / 2 |
 | `loaf tasks register-red <T-N>` | 给 `behavioral+labels=["bug"]` task 注册 RED 测试(§9.3 唯一硬约束)| 0 / 2 |
 | `loaf tasks amend <T-N> --policy <...>` | spec-lock 后窄修 `execution[].applicability`(EXECUTE.plan 阶段;不能改 drives / depends_on / kind,见 §8.6) | 0 / 2 |
@@ -1871,6 +1879,7 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 | `loaf tasks submit` / `tasks plan` | `event:tasks_planned` |
 | `loaf tasks add` | `event:tasks_amended`(EXECUTE 阶段)/ batch entry under `event:tasks_planned`(SPEC.design) |
 | `loaf tasks claim` | `event:task_claimed` |
+| `loaf tasks abandon` | `event:task_abandoned`(payload `task_id` + `reason`;actor `cli:loaf`) |
 | `loaf tasks step start` | `event:task_step_started` |
 | `loaf tasks step done` | `event:task_step_done`(+ 同一 batch 内 `evidence:added` 若 `--evidence-*`) |
 | `loaf tasks complete` | (无 entry — **rev 5.0 / Slice C SC-C1**:只读确认命令;`task_step_done` 的 auto-promote 已使显式 completion entry 冗余) |

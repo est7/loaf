@@ -301,6 +301,17 @@ const TaskStepRefPayload = z
   })
   .passthrough();
 
+// Item 1 — `loaf tasks abandon <T-N> --reason "..."`. The journal payload
+// carries the why (reason) even though the reducer projection stays
+// minimal (status→abandoned only). `.passthrough()` mirrors the sibling
+// TaskRefPayload / TaskStepRefPayload.
+const TaskAbandonedPayload = z
+  .object({
+    task_id: TaskIdPayload,
+    reason: z.string().min(1),
+  })
+  .passthrough();
+
 const TaskStepDonePayload = z
   .object({
     task_id: TaskIdPayload,
@@ -471,7 +482,7 @@ export const PER_KIND_PAYLOAD: Record<EntryKind, z.ZodTypeAny> = {
   "event:task_claimed": TaskRefPayload,
   "event:task_step_started": TaskStepRefPayload,
   "event:task_step_done": TaskStepDonePayload,
-  "event:task_abandoned": TaskRefPayload,
+  "event:task_abandoned": TaskAbandonedPayload,
   "event:spec_req_added": SpecReqAddedPayload,
   "event:spec_scenario_added": SpecScenarioAddedPayload,
   "event:spec_visual_added": SpecVisualAddedPayload,

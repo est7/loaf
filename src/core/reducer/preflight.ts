@@ -208,7 +208,15 @@ export type PreflightFailureCode =
   // with a passed/waived result, and may not be smuggled into a newly
   // planned task (event:tasks_planned creation-time rejection).
   | "BUG_TASK_REQUIRES_RED"
-  | "BUG_TASK_FLAG_MISUSE";
+  | "BUG_TASK_FLAG_MISUSE"
+  // Item 1 — `loaf tasks abandon <T-N>` (event:task_abandoned) refines.
+  // TASK_NOT_ABANDONABLE: the task is already in a final status (done |
+  // abandoned) — abandoning a terminal task is a no-op contract error.
+  // TASK_ABANDON_BLOCKED_DEPENDENTS: another non-terminal task lists this
+  // task in its depends_on; abandoning the parent would strand the child
+  // (task_claimed preflight requires deps status=done, not abandoned).
+  | "TASK_NOT_ABANDONABLE"
+  | "TASK_ABANDON_BLOCKED_DEPENDENTS";
 
 export type PreflightResult =
   | { ok: true }
@@ -863,6 +871,70 @@ export function preflight(
           };
         }
       }
+    }
+  }
+
+  // (5e.3) Item 1 — event:task_abandoned refines.
+  //
+  // `loaf tasks abandon <T-N> --reason "..."` emits event:task_abandoned.
+  // Per-kind already gates actor (ALL_NON_MIGRATION) + sub_state
+  // (EXECUTE.work) — this step adds the task-graph refines the reducer
+  // never enforced (the reducer flips status→abandoned unconditionally):
+  //   - task exists in snapshot.tasks → else TASK_NOT_FOUND
+  //   - task.status ∉ {done, abandoned} → else TASK_NOT_ABANDONABLE
+  //     (abandoning a terminal task is a no-op contract error)
+  //   - no non-terminal task lists this task in depends_on → else
+  //     TASK_ABANDON_BLOCKED_DEPENDENTS (abandoning the parent strands
+  //     the child: task_claimed preflight requires deps status=done).
+  // INVALID_PAYLOAD for missing / empty reason rides the PER_KIND_PAYLOAD
+  // parse above (TaskAbandonedPayload requires reason: z.string().min(1)).
+  if (entry.kind === "event:task_abandoned") {
+    const payload = (rawEntry as { payload?: Record<string, unknown> }).payload ?? {};
+    const task_id = payload["task_id"] as string | undefined;
+    if (!task_id) {
+      // Schema validation should have caught this; defensive.
+      return {
+        ok: false,
+        code: "INVALID_PAYLOAD",
+        message: `${entry.kind}: missing task_id`,
+        detail: { kind: entry.kind },
+      };
+    }
+    const task = ctx.snapshot.tasks.find((t) => t.id === task_id);
+    if (!task) {
+      return {
+        ok: false,
+        code: "TASK_NOT_FOUND",
+        message: `${entry.kind}: task ${task_id} is not in the current tasks projection`,
+        detail: { task_id, kind: entry.kind },
+      };
+    }
+    if (task.status === "done" || task.status === "abandoned") {
+      return {
+        ok: false,
+        code: "TASK_NOT_ABANDONABLE",
+        message: `task ${task_id} cannot be abandoned (status=${task.status} — already in a final status)`,
+        detail: { task_id, status: task.status },
+      };
+    }
+    const blockingDependents = ctx.snapshot.tasks
+      .filter(
+        (t) =>
+          t.depends_on.includes(task_id) &&
+          t.status !== "done" &&
+          t.status !== "abandoned",
+      )
+      .map((t) => t.id);
+    if (blockingDependents.length > 0) {
+      return {
+        ok: false,
+        code: "TASK_ABANDON_BLOCKED_DEPENDENTS",
+        message:
+          `task ${task_id} cannot be abandoned: ${blockingDependents.length} non-terminal ` +
+          `task(s) depend on it (${blockingDependents.join(", ")}); abandon or complete ` +
+          `the dependents first`,
+        detail: { task_id, blocking_dependents: blockingDependents },
+      };
     }
   }
 
