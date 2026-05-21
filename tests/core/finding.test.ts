@@ -112,6 +112,30 @@ async function seedQuickAtExecutePlan(): Promise<{ dir: string; feature: string 
 }
 
 /**
+ * As seedQuickAtExecutePlan, plus one more forward edge to EXECUTE.work.
+ * Phase 11 Item 3 SC1 made `finding raise --action amend-tasks` co-emit a
+ * back-edge to EXECUTE.work; EXECUTE.plan is deliberately excluded from
+ * the amend-tasks from-set (the planning surface uses the plain forward
+ * edge), so amend-tasks grid-enforcement tests must seed at EXECUTE.work.
+ */
+async function seedQuickAtExecuteWork(): Promise<{ dir: string; feature: string }> {
+  const { dir, feature } = await seedQuickAtExecutePlan();
+  const s = await loadSnapshot(dir);
+  const r = await mutate(
+    {
+      at: new Date().toISOString(),
+      actor: "cli:loaf",
+      entry_schema_version: 1,
+      kind: "event:phase_advanced",
+      payload: { from: "EXECUTE.plan", to: "EXECUTE.work" },
+    },
+    { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, fsync: false },
+  );
+  if (!r.ok) throw new Error(`walk EXECUTE.plan→EXECUTE.work failed: ${r.code} ${r.message}`);
+  return { dir, feature };
+}
+
+/**
  * Light-ceremony walk to EXECUTE.work with a behavioral task T-001 seeded
  * into the projection via event:tasks_planned. Needed for target_payload
  * tests where preflight must verify task.id and task.steps[step] exist.
@@ -382,7 +406,9 @@ describe("loaf finding raise — FINDING_ACTION_GRID enforcement", () => {
   });
 
   test("unusual cell with --reason ≥20 chars → succeeds", async () => {
-    const { dir, feature } = await seedQuickAtExecutePlan();
+    // SC1: amend-tasks co-emits a back-edge to EXECUTE.work, so the seed
+    // must sit in the amend-tasks from-set (EXECUTE.plan is excluded).
+    const { dir, feature } = await seedQuickAtExecuteWork();
     const r = await runCli([
       "finding", "raise",
       "--category", "spec-gap", "--action", "amend-tasks",
@@ -394,7 +420,8 @@ describe("loaf finding raise — FINDING_ACTION_GRID enforcement", () => {
   });
 
   test("typical cell (impl-defect × amend-tasks) without --reason → succeeds", async () => {
-    const { dir, feature } = await seedQuickAtExecutePlan();
+    // SC1: see note above — seed at EXECUTE.work, not EXECUTE.plan.
+    const { dir, feature } = await seedQuickAtExecuteWork();
     const r = await runCli([
       "finding", "raise",
       "--category", "impl-defect", "--action", "amend-tasks",

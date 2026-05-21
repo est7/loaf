@@ -214,16 +214,17 @@ Source: codex independent enumeration r119 (AMQ thread
 - **Then** the cursor returns to SPEC.spec, `spec_locked` resets to false,
   spec content changes, spec-lock must be re-approved, and the session can
   still reach `DONE.delivered`.
-- **Covers** the one finding back-edge currently wired in `src/cli.tsx`.
+- **Covers** the amend-spec finding back-edge wired in `src/cli.tsx`.
 
 ### SCEN-E2E-020 — amend-tasks back-edge
-- **Tier** future · **Status** todo · **Impl** `cli.tsx` records the finding
-  but does not co-emit the task-graph back-edge — needs the amend-tasks slice.
+- **Tier** inventory · **Status** green
 - **Given** VERIFY finds task-graph drift.
 - **When** `finding raise --action amend-tasks` is emitted.
-- **Then** the session returns to EXECUTE.work, the task graph is amended,
-  and execution continues.
-- **Covers** the amend-tasks iteration loop.
+- **Then** the cursor returns to EXECUTE.work, iteration is bumped, the
+  `amend-tasks` finding stays open, and the journal carries the atomic
+  `[finding:raised, event:phase_advanced(back_edge)]` batch.
+- **Covers** the amend-tasks back-edge (SC1 is back-edge-only — the task
+  graph is not yet amended; that lands in SC1b).
 
 ### SCEN-E2E-021 — fix-impl loop
 - **Tier** future · **Status** todo · **Impl** automatic step reset / back-edge
@@ -419,9 +420,9 @@ elsewhere. Recorded so the boundary is explicit, not forgotten.
   CLI-boundary unit tests.
 - **Id-allocator edge cases** beyond one single+batch happy path (duplicate
   ids, regex variants, malformed namespaces) — unit / integration tests.
-- **The full 6×6 finding action grid** — E2E covers one back-edge
-  (SCEN-E2E-019) and one open-finding block (SCEN-E2E-023); grid coherence
-  lives in preflight unit tests.
+- **The full 6×6 finding action grid** — E2E covers two back-edges
+  (SCEN-E2E-019 amend-spec, SCEN-E2E-020 amend-tasks) and one open-finding
+  block (SCEN-E2E-023); grid coherence lives in preflight unit tests.
 - **Commander usage errors** for every missing flag — CLI unit tests for
   deterministic stderr / exit 2.
 - **Journal tail corruption, checksum, migration sidecars, crash recovery** —

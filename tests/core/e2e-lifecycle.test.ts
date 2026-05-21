@@ -2063,7 +2063,120 @@ describe("E2E — full worker lifecycle (standard ceremony)", () => {
   // in the slice that implements its surface — do not build setup around
   // the absent commands. Item 2 promoted the archive / abandon terminals
   // out of this tier — SCEN-E2E-035/036 below are real tests now.
-  test.todo("SCEN-E2E-020 — amend-tasks back-edge");
+  // SCEN-E2E-020 — see docs/e2e-scenarios.md (Phase 11 Item 3 SC1).
+  // Back-edge-only: `finding raise --action amend-tasks` co-emits the
+  // atomic [finding:raised, event:phase_advanced(back_edge)] batch.
+  // cursor → EXECUTE.work, iteration +1, the finding stays open, the
+  // task graph is UNCHANGED (no event:tasks_amended — that is SC1b).
+  test("SCEN-E2E-020 — amend-tasks back-edge moves the cursor and bumps iteration without amending the task graph", async () => {
+    const dir = await tmpFeatureDir();
+    const F = "e2e-amend-tasks";
+    const ENV = { LOAF_USER: "e2e@test.invalid" };
+    const { step, writeInput } = makeCli(dir, ENV);
+
+    const reqInput = async (name: string, response: string) =>
+      writeInput(name, {
+        id_namespace: "REQ-CORE",
+        type: "ubiquitous",
+        response,
+        acceptance_na: true,
+        acceptance_na_reason: "exercised by this end-to-end lifecycle integration test",
+      });
+    const tasksPayload = {
+      based_on: { spec: 2 },
+      tasks: [
+        {
+          id: "T-001",
+          kind: "behavioral",
+          drives: ["REQ-CORE-001"],
+          tests: ["e2e.amendTasks"],
+          status: "pending",
+          depends_on: [],
+          labels: [],
+          execution: {
+            red: { applicability: "must", status: "pending", evidence_refs: [] },
+            implement: { applicability: "must", status: "pending", evidence_refs: [] },
+            refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+          },
+        },
+      ],
+    };
+
+    // ── drive a standard feature to a locked EXECUTE.work ───────────────
+    await step("start", ["start", F, "--ceremony", "standard"]);
+    await step("advance TRIAGE.confirm", ["advance", "TRIAGE.confirm", "--feature", F]);
+    await step("advance SPEC.proposal", ["advance", "SPEC.proposal", "--feature", F]);
+    await step("spec init", ["spec", "init", "--feature", F]);
+    const submitInput = await writeInput("submit.json", {
+      feature: { id: "F-001", name: "E2E amend-tasks back-edge" },
+      intent: "exercise the amend-tasks finding back-edge (back-edge-only)",
+      adr_refs: [],
+      needs_clarification: [],
+    });
+    await step("spec submit", ["spec", "submit", "--input", submitInput, "--feature", F]);
+    await step("spec add-req", [
+      "spec", "add-req",
+      "--input", await reqInput("req1.json", "the system shall complete the amend-tasks smoke"),
+      "--feature", F,
+    ]);
+    await step("advance SPEC.spec", ["advance", "SPEC.spec", "--feature", F]);
+    await step("advance SPEC.plan", ["advance", "SPEC.plan", "--feature", F]);
+    await step("advance SPEC.design", ["advance", "SPEC.design", "--feature", F]);
+    await step("tasks submit", [
+      "tasks", "submit",
+      await writeInput("tasks-v2.json", tasksPayload),
+      "--feature", F,
+    ]);
+    await step("gate spec-lock", [
+      "gate", "decide", "spec-lock", "--approve",
+      "--reason", "spec and task graph complete for the lock", "--feature", F,
+    ]);
+    await step("advance EXECUTE.work", ["advance", "EXECUTE.work", "--feature", F]);
+
+    // ── snapshot the task graph before the back-edge ────────────────────
+    const before = await step("status before back-edge", ["status", "--feature", F]);
+    expect(before.state.sub_state).toBe("EXECUTE.work");
+    const iterationBefore = before.state.iteration;
+    const tasksBefore = await step("tasks list before", ["tasks", "list", "--feature", F]);
+
+    // ── amend-tasks back-edge: cursor → EXECUTE.work, iteration +1 ───────
+    const raised = await step("finding raise amend-tasks", [
+      "finding", "raise", "--category", "new-scope", "--action", "amend-tasks",
+      "--summary", "execution surfaced a missing task step", "--feature", F,
+    ]);
+    expect(raised.id).toMatch(/^FND-\d{3,}$/);
+    expect(raised.back_edge.to).toBe("EXECUTE.work");
+
+    const after = await step("status after back-edge", ["status", "--feature", F]);
+    expect(after.state.sub_state).toBe("EXECUTE.work");
+    expect(after.state.iteration).toBe(iterationBefore + 1);
+
+    // ── the amend-tasks finding stays open (SC1 is back-edge-only) ───────
+    const findings = await step("finding list", ["finding", "list", "--feature", F]);
+    const fnd = findings.findings.find((f: { id: string }) => f.id === raised.id);
+    expect(fnd.status).toBe("open");
+
+    // ── the journal carries the atomic 2-entry back-edge batch ──────────
+    const journal = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
+    const entries = journal.trim().split("\n").map((l) => JSON.parse(l));
+    const tail = entries.slice(-2);
+    expect(tail[0].kind).toBe("finding:raised");
+    expect(tail[0].payload.action).toBe("amend-tasks");
+    expect(tail[1].kind).toBe("event:phase_advanced");
+    expect(tail[1].payload.back_edge).toEqual({
+      action: "amend-tasks",
+      finding_id: raised.id,
+    });
+    expect(tail[1].payload.to).toBe("EXECUTE.work");
+    expect(tail[0].batch_id).toBe(tail[1].batch_id);
+    // No event:tasks_amended anywhere — SC1 does not amend the graph.
+    expect(entries.some((e: { kind: string }) => e.kind === "event:tasks_amended")).toBe(false);
+
+    // ── the task graph is UNCHANGED across the back-edge ────────────────
+    const tasksAfter = await step("tasks list after", ["tasks", "list", "--feature", F]);
+    expect(tasksAfter).toEqual(tasksBefore);
+  });
+
   test.todo("SCEN-E2E-021 — fix-impl loop");
   test.todo("SCEN-E2E-022 — fix-test loop");
   // ── Item 2 — archive / abandon session-terminal commands ────────────

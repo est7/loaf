@@ -29,7 +29,7 @@ import {
   loadSession,
 } from "./core/cli-runtime.js";
 import { mutate, mutateBatch } from "./core/journal-mutate.js";
-import type { Ceremony } from "./core/journal-entry.js";
+import type { Ceremony, SubState } from "./core/journal-entry.js";
 import { latestCanonicalTaskBody, materializeTaskForAmend } from "./core/task-history.js";
 import {
   TaskInput,
@@ -2348,12 +2348,20 @@ export async function main(argv: string[] = process.argv): Promise<number> {
       if (hasTask && hasStep) {
         payload["target"] = { task_id: opts.targetTask, step: opts.targetStep };
       }
-      // Slice B: amend-spec emits a 2-entry batch [finding:raised,
-      // event:phase_advanced(back_edge→SPEC.spec)] so the lock-bypass
-      // is journal-derivable + replay-safe. Other actions remain
-      // single-entry until their respective back-edge slices land.
+      // Slice B / Phase 11 Item 3 SC1: back-edge actions emit a 2-entry
+      // batch [finding:raised, event:phase_advanced(back_edge)] so the
+      // cursor move is journal-derivable + replay-safe. amend-spec →
+      // SPEC.spec (lock-bypass); amend-tasks → EXECUTE.work (back-edge-
+      // only, no event:tasks_amended — that is SC1b). The target is
+      // dictated by `action` and re-derived by validateTransition.
+      // Other actions remain single-entry until their slices land.
       const nowIso = new Date().toISOString();
-      if (opts.action === "amend-spec") {
+      const BACK_EDGE_TARGET: Record<string, SubState> = {
+        "amend-spec": "SPEC.spec",
+        "amend-tasks": "EXECUTE.work",
+      };
+      const backEdgeTarget = BACK_EDGE_TARGET[opts.action];
+      if (backEdgeTarget !== undefined) {
         const currentSubState = session.snapshot.state.sub_state;
         const batchResult = await mutateBatch(
           [
@@ -2375,8 +2383,8 @@ export async function main(argv: string[] = process.argv): Promise<number> {
               kind: "event:phase_advanced",
               payload: {
                 from: currentSubState,
-                to: "SPEC.spec",
-                back_edge: { action: "amend-spec", finding_id: id },
+                to: backEdgeTarget,
+                back_edge: { action: opts.action, finding_id: id },
               },
             },
           ],
@@ -2394,7 +2402,7 @@ export async function main(argv: string[] = process.argv): Promise<number> {
               id,
               category: opts.category,
               action: opts.action,
-              back_edge: { from: currentSubState, to: "SPEC.spec" },
+              back_edge: { from: currentSubState, to: backEdgeTarget },
             }) + "\n",
           );
         } else {

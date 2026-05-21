@@ -255,7 +255,18 @@ const BackEdgeAmendSpec = z
   })
   .strict();
 
-const BackEdge = z.discriminatedUnion("action", [BackEdgeAmendSpec]);
+// Phase 11 Item 3 SC1 — amend-tasks back-edge. Identical shape to
+// BackEdgeAmendSpec (codex r134 Q3): no `target` / `task_id` on the
+// payload — the target (EXECUTE.work) is dictated by `action` and
+// re-derived by validateTransition.
+const BackEdgeAmendTasks = z
+  .object({
+    action: z.literal("amend-tasks"),
+    finding_id: FindingId,
+  })
+  .strict();
+
+const BackEdge = z.discriminatedUnion("action", [BackEdgeAmendSpec, BackEdgeAmendTasks]);
 
 export const PhaseAdvancedPayload = z
   .object({
@@ -263,10 +274,11 @@ export const PhaseAdvancedPayload = z
     to: SubState,
     /**
      * Back-edge sponsorship (Slice B). When set, `to` MUST be the
-     * target dictated by `action` (amend-spec → SPEC.spec), and the
-     * referenced finding MUST exist in snapshot.findings with
-     * matching action and status="open" (preflight enforces).
-     * Absent on forward transitions (the default).
+     * target dictated by `action` (amend-spec → SPEC.spec,
+     * amend-tasks → EXECUTE.work), and the referenced finding MUST
+     * exist in snapshot.findings with matching action and
+     * status="open" (preflight enforces). Absent on forward
+     * transitions (the default).
      */
     back_edge: BackEdge.optional(),
   })

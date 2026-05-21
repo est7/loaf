@@ -3827,6 +3827,122 @@ describe("loaf finding raise --action amend-spec — Slice B CLI shell", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────
+// Phase 11 Item 3 SC1 — CLI shell test for `loaf finding raise --action
+// amend-tasks`. Mirrors the amend-spec block above: `amend-tasks` now
+// co-emits a 2-entry batch [finding:raised, event:phase_advanced(
+// back_edge → EXECUTE.work)]. SC1 is back-edge-only — no
+// event:tasks_amended, no graph change, finding stays open.
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("loaf finding raise --action amend-tasks — Item 3 SC1 CLI shell", () => {
+  test("post-lock EXECUTE.work amend-tasks: bare FND-id stdout + journal back-edge + iteration bump + finding open", async () => {
+    const dir = await tmpFeatureDir();
+    const cli = (args: string[], env?: Record<string, string | undefined>) =>
+      runCli(
+        args.concat(["--feature", "auth-refresh", "--feature-dir", dir]),
+        env ? { env } : {},
+      );
+
+    await seedFeatureAtSpecDesign(dir);
+
+    // Approve spec-lock → EXECUTE.plan; walk forward to EXECUTE.work
+    // where finding:raised is authorized.
+    let r = await cli(
+      ["gate", "decide", "spec-lock", "--approve", "--reason", "sc1 cli shell test"],
+      { LOAF_USER: "engineer@test.invalid" },
+    );
+    expect(r.exit).toBe(0);
+    r = await cli(["advance", "EXECUTE.work"]);
+    expect(r.exit).toBe(0);
+
+    // SUT: amend-tasks back-edge in text mode.
+    r = await cli(
+      ["finding", "raise", "--category", "new-scope", "--action", "amend-tasks",
+       "--summary", "task graph misses a step surfaced during execution"],
+      { LOAF_USER: "engineer@test.invalid" },
+    );
+
+    // Assertion 1: exit 0.
+    expect(r.exit).toBe(0);
+
+    // Assertion 2: text stdout exactly `FND-001\n` — bare pipeable id,
+    // matches every other `loaf finding raise` action.
+    expect(r.stdout).toBe("FND-001\n");
+
+    // Assertion 3: journal tail has [finding:raised, event:phase_advanced]
+    // sharing one batch envelope, back_edge → EXECUTE.work.
+    const journal = await fsP.readFile(path.join(dir, "journal.jsonl"), "utf8");
+    const lines = journal.trim().split("\n").map((l) => JSON.parse(l));
+    const tail = lines.slice(-2);
+    expect(tail[0]!.kind).toBe("finding:raised");
+    expect(tail[0]!.payload.id).toBe("FND-001");
+    expect(tail[0]!.payload.action).toBe("amend-tasks");
+    expect(tail[1]!.kind).toBe("event:phase_advanced");
+    expect(tail[1]!.payload.from).toBe("EXECUTE.work");
+    expect(tail[1]!.payload.to).toBe("EXECUTE.work");
+    expect(tail[1]!.payload.back_edge).toEqual({
+      action: "amend-tasks",
+      finding_id: "FND-001",
+    });
+    expect(tail[0]!.batch_id).toBe(tail[1]!.batch_id);
+    expect(tail[0]!.batch_index).toBe(0);
+    expect(tail[1]!.batch_index).toBe(1);
+    expect(tail[0]!.batch_count).toBe(2);
+    expect(tail[0]!.actor).toMatch(/^cli:loaf/);
+    expect(tail[1]!.actor).toBe("cli:loaf");
+
+    // Assertion 4: status snapshot — cursor at EXECUTE.work, lock
+    // preserved (amend-tasks does not clear it), iteration bumped +1.
+    // A freshly-started session begins at iteration=1 (reducer.ts);
+    // the back-edge SC0 bump takes it to 2.
+    r = await cli(["status", "--json"]);
+    expect(r.exit).toBe(0);
+    const status = JSON.parse(r.stdout);
+    expect(status.state.sub_state).toBe("EXECUTE.work");
+    expect(status.state.spec_locked).toBe(true);
+    expect(status.state.iteration).toBe(2);
+
+    // Assertion 5: SC1 is back-edge-only — the finding stays open.
+    r = await cli(["finding", "list", "--json"]);
+    expect(r.exit).toBe(0);
+    const findings = JSON.parse(r.stdout);
+    const fnd = findings.findings.find((f: { id: string }) => f.id === "FND-001");
+    expect(fnd.status).toBe("open");
+  });
+
+  test("amend-tasks JSON mode emits structured back_edge field (back_edge from/to)", async () => {
+    const dir = await tmpFeatureDir();
+    const cli = (args: string[], env?: Record<string, string | undefined>) =>
+      runCli(
+        args.concat(["--feature", "auth-refresh", "--feature-dir", dir]),
+        env ? { env } : {},
+      );
+    await seedFeatureAtSpecDesign(dir);
+    let r = await cli(
+      ["gate", "decide", "spec-lock", "--approve", "--reason", "sc1 json"],
+      { LOAF_USER: "engineer@test.invalid" },
+    );
+    expect(r.exit).toBe(0);
+    r = await cli(["advance", "EXECUTE.work"]);
+    expect(r.exit).toBe(0);
+    r = await cli(
+      ["finding", "raise", "--category", "new-scope", "--action", "amend-tasks",
+       "--json"],
+      { LOAF_USER: "engineer@test.invalid" },
+    );
+    expect(r.exit).toBe(0);
+    expect(JSON.parse(r.stdout)).toEqual({
+      ok: true,
+      feature: "auth-refresh",
+      id: "FND-001",
+      category: "new-scope",
+      action: "amend-tasks",
+      back_edge: { from: "EXECUTE.work", to: "EXECUTE.work" },
+    });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
 // loaf tasks complete — Slice C SC-C1
 //
 // `tasks complete <T-id>` is a NO-OP confirmation command (codex r101 Q2=a):

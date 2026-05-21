@@ -81,9 +81,9 @@ const LEGAL_TRANSITIONS: Record<SubState, readonly SubState[]> = {
   "DONE.abandoned": [],
 };
 
-// Back-edge actions (Phase 11 Item 3). Only `amend-spec` is wired at
-// SC0; `amend-tasks` / `fix-impl` / `fix-test` rows land in SC1-SC3.
-type BackEdgeAction = "amend-spec";
+// Back-edge actions (Phase 11 Item 3). `amend-spec` wired at SC0,
+// `amend-tasks` at SC1; `fix-impl` / `fix-test` rows land in SC2-SC3.
+type BackEdgeAction = "amend-spec" | "amend-tasks";
 
 // Per-action back-edge from-state table (Phase 11 Item 3 SC0). Reshaped
 // from the single `BACK_EDGE_AMEND_SPEC_FROM` constant so SC1-SC3 add a
@@ -99,6 +99,23 @@ type BackEdgeAction = "amend-spec";
 const BACK_EDGE_FROM: Record<BackEdgeAction, ReadonlySet<SubState>> = {
   "amend-spec": new Set([
     "EXECUTE.plan",
+    "EXECUTE.work",
+    "EXECUTE.done",
+    "VERIFY.plan",
+    "VERIFY.run",
+    "VERIFY.review",
+    "VERIFY.acceptance",
+    "VERIFY.visual",
+    "VERIFY.accept",
+  ]),
+  // The `amend-tasks` row (Phase 11 Item 3 SC1) is the `amend-spec`
+  // row minus `EXECUTE.plan`: at the planning surface a task-graph
+  // change is the plain forward edge to EXECUTE.work, not a back-edge
+  // (codex r134 Q1). `EXECUTE.work → EXECUTE.work` is an intentional
+  // self-loop (mid-work drift; the iteration bump is cursor-
+  // independent since SC0). SETTLE.* stays excluded — finding:raised
+  // is not authorized there per PER_KIND_SUB_STATE.
+  "amend-tasks": new Set([
     "EXECUTE.work",
     "EXECUTE.done",
     "VERIFY.plan",
@@ -131,7 +148,9 @@ export interface TransitionContext {
    * action and status="open" — that check needs snapshot which transition
    * doesn't carry.
    */
-  back_edge?: { action: "amend-spec"; finding_id: string };
+  back_edge?:
+    | { action: "amend-spec"; finding_id: string }
+    | { action: "amend-tasks"; finding_id: string };
 }
 
 export type TransitionResult =
@@ -179,6 +198,44 @@ export function validateTransition(
           ok: false,
           code: "TRANSITION_ILLEGAL",
           message: `back_edge action=amend-spec is not legal from ${prev}; allowed from EXECUTE.* + VERIFY.*`,
+          detail: {
+            from: prev,
+            to: target,
+            back_edge_action: ctx.back_edge.action,
+            allowed_from: [...allowedFrom],
+            reason: "back_edge_from_not_allowed",
+          },
+        };
+      }
+      // Back-edge legal at the transition layer; preflight verifies the
+      // referenced finding_id against snapshot.findings (existence +
+      // action match + status=open).
+      return { ok: true };
+    }
+    if (ctx.back_edge.action === "amend-tasks") {
+      // Phase 11 Item 3 SC1 — amend-tasks back-edge targets EXECUTE.work
+      // (codex r134 Q2). `EXECUTE.work → EXECUTE.work` is an intentional
+      // self-loop; the iteration bump stays cursor-independent.
+      if (target !== "EXECUTE.work") {
+        return {
+          ok: false,
+          code: "TRANSITION_ILLEGAL",
+          message: `back_edge action=amend-tasks requires target=EXECUTE.work, got ${target}`,
+          detail: {
+            from: prev,
+            to: target,
+            back_edge_action: ctx.back_edge.action,
+            expected_target: "EXECUTE.work",
+            reason: "back_edge_target_mismatch",
+          },
+        };
+      }
+      const allowedFrom = BACK_EDGE_FROM["amend-tasks"];
+      if (!allowedFrom.has(prev)) {
+        return {
+          ok: false,
+          code: "TRANSITION_ILLEGAL",
+          message: `back_edge action=amend-tasks is not legal from ${prev}; allowed from EXECUTE.work / EXECUTE.done + VERIFY.*`,
           detail: {
             from: prev,
             to: target,
