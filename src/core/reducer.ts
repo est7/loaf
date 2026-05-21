@@ -311,7 +311,7 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
   // Apply per-kind state mutations.
   switch (entry.kind) {
     case "event:phase_advanced": {
-      const payload = entry.payload as { to: SubState };
+      const payload = entry.payload as { to: SubState; back_edge?: { action: string } };
       const next: SessionState = {
         ...prev.state,
         sub_state: payload.to,
@@ -324,6 +324,13 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
         // events can fire (SPEC_LOCKED_NO_DIRECT_EDIT preflight gates
         // those when locked).
         spec_locked: payload.to === "SPEC.spec" ? false : prev.state.spec_locked,
+        // Phase 11 Item 3 SC0: every finding back-edge increments
+        // iteration by 1 (protocol.md §1 L210-212). A plain forward
+        // `advance` carries no `back_edge` and leaves iteration alone.
+        iteration:
+          payload.back_edge !== undefined
+            ? prev.state.iteration + 1
+            : prev.state.iteration,
       };
       return { ok: true, snapshot: { ...prev, state: next } };
     }

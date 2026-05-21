@@ -81,24 +81,34 @@ const LEGAL_TRANSITIONS: Record<SubState, readonly SubState[]> = {
   "DONE.abandoned": [],
 };
 
-// Slice B — back-edge from-states for amend-spec sponsorship. Covers
-// every sub_state where state.spec_locked can legally be true after
-// `gate decide spec-lock --approve` (which fires at SPEC.design and
-// flips the lock). SETTLE.* deliberately excluded: finding:raised is
-// not authorized at SETTLE per PER_KIND_SUB_STATE, so the lookup
-// never happens at SETTLE; widening this set without widening finding
-// authority would be misleading (codex r94 Finding 2 ack).
-const BACK_EDGE_AMEND_SPEC_FROM: ReadonlySet<SubState> = new Set([
-  "EXECUTE.plan",
-  "EXECUTE.work",
-  "EXECUTE.done",
-  "VERIFY.plan",
-  "VERIFY.run",
-  "VERIFY.review",
-  "VERIFY.acceptance",
-  "VERIFY.visual",
-  "VERIFY.accept",
-]);
+// Back-edge actions (Phase 11 Item 3). Only `amend-spec` is wired at
+// SC0; `amend-tasks` / `fix-impl` / `fix-test` rows land in SC1-SC3.
+type BackEdgeAction = "amend-spec";
+
+// Per-action back-edge from-state table (Phase 11 Item 3 SC0). Reshaped
+// from the single `BACK_EDGE_AMEND_SPEC_FROM` constant so SC1-SC3 add a
+// row each instead of a parallel constant each.
+//
+// The `amend-spec` row covers every sub_state where state.spec_locked
+// can legally be true after `gate decide spec-lock --approve` (which
+// fires at SPEC.design and flips the lock). SETTLE.* deliberately
+// excluded: finding:raised is not authorized at SETTLE per
+// PER_KIND_SUB_STATE, so the lookup never happens at SETTLE; widening
+// this set without widening finding authority would be misleading
+// (codex r94 Finding 2 ack).
+const BACK_EDGE_FROM: Record<BackEdgeAction, ReadonlySet<SubState>> = {
+  "amend-spec": new Set([
+    "EXECUTE.plan",
+    "EXECUTE.work",
+    "EXECUTE.done",
+    "VERIFY.plan",
+    "VERIFY.run",
+    "VERIFY.review",
+    "VERIFY.acceptance",
+    "VERIFY.visual",
+    "VERIFY.accept",
+  ]),
+};
 
 export interface TransitionContext {
   ceremony: Ceremony;
@@ -163,7 +173,8 @@ export function validateTransition(
           },
         };
       }
-      if (!BACK_EDGE_AMEND_SPEC_FROM.has(prev)) {
+      const allowedFrom = BACK_EDGE_FROM["amend-spec"];
+      if (!allowedFrom.has(prev)) {
         return {
           ok: false,
           code: "TRANSITION_ILLEGAL",
@@ -172,7 +183,7 @@ export function validateTransition(
             from: prev,
             to: target,
             back_edge_action: ctx.back_edge.action,
-            allowed_from: [...BACK_EDGE_AMEND_SPEC_FROM],
+            allowed_from: [...allowedFrom],
             reason: "back_edge_from_not_allowed",
           },
         };

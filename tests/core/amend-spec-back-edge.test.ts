@@ -224,6 +224,62 @@ describe("reducer.apply phase_advanced — Slice B spec_locked reset", () => {
   });
 });
 
+// ── reducer.apply — iteration bump on finding back-edge (Phase 11 Item 3 SC0) ──
+//
+// protocol.md §1 (~L210-212): EVERY finding back-edge increments
+// `state.iteration` by 1. A plain forward `event:phase_advanced`
+// (no `back_edge`) leaves iteration unchanged.
+
+describe("reducer.apply phase_advanced — Item 3 SC0 iteration bump", () => {
+  test("amend-spec back_edge → iteration += 1 (and spec_locked still reset to false)", () => {
+    const snap = snapshotPostLock("EXECUTE.work", {
+      findings: [{ id: "FND-001", action: "amend-spec", status: "open" }],
+    });
+    expect(snap.state!.iteration).toBe(0); // snapshotPostLock baseline
+    const next = apply(
+      snap,
+      makeEntry(99, "event:phase_advanced", {
+        from: "EXECUTE.work",
+        to: "SPEC.spec",
+        back_edge: { action: "amend-spec", finding_id: "FND-001" },
+      }),
+    );
+    expect(next.ok).toBe(true);
+    if (next.ok) {
+      expect(next.snapshot.state!.iteration).toBe(1);
+      // regression — spec_locked reset must still hold
+      expect(next.snapshot.state!.spec_locked).toBe(false);
+      expect(next.snapshot.state!.sub_state).toBe("SPEC.spec");
+    }
+  });
+
+  test("plain forward phase_advanced (no back_edge) leaves iteration unchanged", () => {
+    const snap = snapshotPostLock("EXECUTE.plan");
+    expect(snap.state!.iteration).toBe(0);
+    const next = apply(
+      snap,
+      makeEntry(99, "event:phase_advanced", { from: "EXECUTE.plan", to: "EXECUTE.work" }),
+    );
+    expect(next.ok).toBe(true);
+    if (next.ok) {
+      expect(next.snapshot.state!.iteration).toBe(0);
+    }
+  });
+
+  test("forward SPEC.proposal → SPEC.spec (no back_edge) leaves iteration unchanged", () => {
+    const snap = snapshotPostLock("SPEC.proposal", { spec_locked: false });
+    expect(snap.state!.iteration).toBe(0);
+    const next = apply(
+      snap,
+      makeEntry(99, "event:phase_advanced", { from: "SPEC.proposal", to: "SPEC.spec" }),
+    );
+    expect(next.ok).toBe(true);
+    if (next.ok) {
+      expect(next.snapshot.state!.iteration).toBe(0);
+    }
+  });
+});
+
 // ── mutateBatch integration ─────────────────────────────────────────────
 
 describe("mutateBatch — Slice B amend-spec batch integration", () => {
