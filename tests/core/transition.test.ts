@@ -61,21 +61,31 @@ describe("validateTransition — Gate #1", () => {
     }
   });
 
-  // ── 2A.2: always-legal user-explicit eject targets (§8.3) ──────────────
-  test("2A.2. DONE.archived is reachable from any sub_state (user eject)", () => {
+  // ── 2A.2: DONE.archived / DONE.abandoned are NOT event:phase_advanced
+  // targets (Item 2) ─────────────────────────────────────────────────────
+  //
+  // Item 2 removed both terminals from the transition graph (formerly
+  // ALWAYS_LEGAL_TARGETS). They are reached only via `session:archived` /
+  // `session:abandoned` (reducer cursor flip), the same way Slice 1.D made
+  // DONE.delivered reachable only via `session:delivered`. `loaf advance`
+  // into either terminal is now TRANSITION_ILLEGAL — `loaf archive --reason`
+  // / `loaf abandon --reason` own those transitions + the required reason.
+  test("2A.2. DONE.archived is NOT an event:phase_advanced target → TRANSITION_ILLEGAL", () => {
     const result = validateTransition("EXECUTE.plan", "DONE.archived", {
       ceremony: QUICK_CEREMONY,
       actor: ACTOR,
     });
-    expect(result.ok).toBe(true);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("TRANSITION_ILLEGAL");
   });
 
-  test("2A.2. DONE.abandoned is reachable from any sub_state (user eject)", () => {
+  test("2A.2. DONE.abandoned is NOT an event:phase_advanced target → TRANSITION_ILLEGAL", () => {
     const result = validateTransition("SPEC.spec", "DONE.abandoned", {
       ceremony: STANDARD_CEREMONY,
       actor: ACTOR,
     });
-    expect(result.ok).toBe(true);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("TRANSITION_ILLEGAL");
   });
 
   // ── 2A.3: Slice 1.D — VERIFY.accept fork (rev 5.x → 1.D refactor) ──────
@@ -150,14 +160,17 @@ describe("validateTransition — Gate #1", () => {
     if (!result.ok) expect(result.code).toBe("SETTLE_PHASE_DISABLED");
   });
 
-  test("2A.3. DONE.archived eject bypasses ceremony guard from VERIFY.accept", () => {
-    // User-explicit eject must not be blocked by ceremony.settle_phase mismatch.
+  test("2A.3. VERIFY.accept → DONE.archived always TRANSITION_ILLEGAL (Item 2 — `loaf archive` territory)", () => {
+    // pre-Item-2 this returned OK (DONE.archived was an always-legal eject
+    // target). The edge was removed so `loaf archive --reason` owns the path
+    // through session:archived.
     const result = validateTransition("VERIFY.accept", "DONE.archived", {
       ceremony: DEEP_CEREMONY,
       actor: ACTOR,
       verify_accepted: false,
     });
-    expect(result.ok).toBe(true);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("TRANSITION_ILLEGAL");
   });
 
   // ── 2A.4: Audit r1 Blocker #2 — TRIAGE.confirm spec_phase fork ──────────
@@ -236,7 +249,10 @@ describe("validateTransition — Gate #1", () => {
     if (!result.ok) expect(result.code).toBe("TRANSITION_ILLEGAL");
   });
 
-  // ── 2A.6: Slice 1.D — SETTLE.lessons → DONE.delivered edge removed ─────
+  // ── 2A.6: SETTLE.lessons is a terminal of the event:phase_advanced graph
+  // (Slice 1.D removed → DONE.delivered; Item 2 removed → DONE.archived/
+  // abandoned). All three DONE.* terminals are reached only via their
+  // dedicated `session:*` kind. ──────────────────────────────────────────
   test("2A.6. SETTLE.lessons → DONE.delivered always TRANSITION_ILLEGAL (Slice 1.D — `loaf deliver` territory)", () => {
     const result = validateTransition("SETTLE.lessons", "DONE.delivered", {
       ceremony: DEEP_CEREMONY,
@@ -247,12 +263,25 @@ describe("validateTransition — Gate #1", () => {
     if (!result.ok) expect(result.code).toBe("TRANSITION_ILLEGAL");
   });
 
-  test("2A.6. SETTLE.lessons → DONE.archived still allowed (user eject path)", () => {
+  test("2A.6. SETTLE.lessons → DONE.archived always TRANSITION_ILLEGAL (Item 2 — `loaf archive` territory)", () => {
+    // pre-Item-2 this returned OK (DONE.archived was an always-legal eject
+    // target reachable from SETTLE.lessons). The edge was removed.
     const result = validateTransition("SETTLE.lessons", "DONE.archived", {
       ceremony: DEEP_CEREMONY,
       actor: ACTOR,
       verify_accepted: true,
     });
-    expect(result.ok).toBe(true);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("TRANSITION_ILLEGAL");
+  });
+
+  test("2A.6. SETTLE.lessons → DONE.abandoned always TRANSITION_ILLEGAL (Item 2 — `loaf abandon` territory)", () => {
+    const result = validateTransition("SETTLE.lessons", "DONE.abandoned", {
+      ceremony: DEEP_CEREMONY,
+      actor: ACTOR,
+      verify_accepted: true,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("TRANSITION_ILLEGAL");
   });
 });

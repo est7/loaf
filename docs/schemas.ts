@@ -2686,9 +2686,12 @@ export const SUB_STATE_CONTRACTS: Array<z.infer<typeof SubStateContract>> = [
     write_paths: [".loaf/<feature>/lessons.md"],
     // Slice 1.D (sub-cycle 1): event:phase_advanced SETTLE.lessons→DONE.delivered
     // edge was removed. DONE.delivered is reached via `loaf deliver` only.
-    // DONE.archived / DONE.abandoned remain as user-eject edges via
-    // `loaf archive` / `loaf abandon` (always-legal targets in
-    // transition.ts ALWAYS_LEGAL_TARGETS).
+    // Item 2: the SETTLE.lessons→DONE.archived/abandoned edges were likewise
+    // removed — DONE.archived / DONE.abandoned are reached only via
+    // `loaf archive --reason` / `loaf abandon --reason` (session:archived /
+    // session:abandoned reducer cursor flip). No DONE.* terminal is an
+    // event:phase_advanced target. The `next` list below is the documented
+    // operator path, not the event:phase_advanced edge graph.
     next: ["DONE.delivered", "DONE.archived", "DONE.abandoned"],
     prompt_inject:
       "Append lessons (deep: MUST). User then runs `loaf deliver` / `loaf archive` / `loaf abandon`.",
@@ -3820,6 +3823,8 @@ export const DiagnosticCode = z.enum([
   // ── Item 1 — `loaf tasks abandon` preflight (codex r127) ──
   "TASK_NOT_ABANDONABLE",                  // src/core/reducer/preflight.ts step 5e.3 — event:task_abandoned for a task with status ∈ {done, abandoned} (already final — abandon is a no-op)
   "TASK_ABANDON_BLOCKED_DEPENDENTS",       // src/core/reducer/preflight.ts step 5e.3 — event:task_abandoned but a non-terminal task lists the target in depends_on (would strand the dependent)
+  // ── Item 2 — `loaf archive` / `loaf abandon` preflight (codex r129) ──
+  "SESSION_REASON_REQUIRED",               // src/core/reducer/preflight.ts step 5c.2 — session:archived or session:abandoned with no reason key (the shared SessionReasonPayload makes reason optional; archive/abandon tighten it to required)
   // ── Slice A SC-A2 — spec.md projection writer (post-appendMany Pass 5) ──
   "PROJECTION_WRITE_FAILED",               // src/core/journal-mutate.ts Pass 5 — writeDerivedSpecMd threw after journal append succeeded; journal authoritative, run `loaf doctor --rebuild` to resync
   // ── Slice B — finding amend-spec back-edge batch (codex r94/r96) ──
@@ -4675,6 +4680,21 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
       "task {task_id} cannot be abandoned: non-terminal task(s) {blocking_dependents} depend on it",
     fix_template:
       "abandon or complete the dependent tasks first (see detail.blocking_dependents), then retry `loaf tasks abandon {task_id} --reason \"...\"`; abandoning a parent would strand a pending child",
+    doc_anchor: "protocol.md#§10.8",
+  },
+  // ── Item 2 — `loaf archive` / `loaf abandon` preflight (codex r129) ──
+  SESSION_REASON_REQUIRED: {
+    // Item 2: preflight step 5c.2 on session:archived / session:abandoned.
+    // Both kinds share SessionReasonPayload with session:delivered, where
+    // reason is optional; archive / abandon require it (protocol §10.8).
+    // An empty-string reason fails the payload parse as INVALID_PAYLOAD;
+    // this code fires only when the reason key is absent. detail.kind
+    // carries the offending session-terminal kind.
+    exit_code: 2,
+    message_template:
+      "{kind}: --reason is required (the session-terminal entry must record why)",
+    fix_template:
+      "re-run with `--reason \"...\"`; `loaf archive` and `loaf abandon` both require a rationale on the journal entry",
     doc_anchor: "protocol.md#§10.8",
   },
   // Slice A SC-A2: PROJECTION_WRITE_FAILED is surfaced by

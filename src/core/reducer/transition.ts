@@ -9,7 +9,14 @@
 // removed from the `event:phase_advanced` graph so `loaf advance
 // DONE.delivered` returns TRANSITION_ILLEGAL and `loaf deliver` owns the
 // delivery transition + its ceremony/flag preconditions (preflight step
-// 5c). The settle_phase / verify_phase fork that previously gated
+// 5c). Symmetrically (Item 2), `session:archived` / `session:abandoned`
+// are the only kinds that can reach DONE.archived / DONE.abandoned (same
+// reducer direct cursor flip; see reducer.ts:837-854); their edges are
+// likewise absent from the `event:phase_advanced` graph so `loaf advance
+// DONE.archived` / `loaf advance DONE.abandoned` return TRANSITION_ILLEGAL
+// and `loaf archive --reason` / `loaf abandon --reason` own the terminal
+// transition + the required `reason` (preflight SESSION_REASON_REQUIRED
+// refine). The settle_phase / verify_phase fork that previously gated
 // DONE.delivered now lives on `loaf deliver` preflight; this helper still
 // gates `loaf settle` (VERIFY.accept → SETTLE.reconcile) and the spec_phase
 // / verify_phase forks for the SPEC.* and VERIFY.* entry points.
@@ -17,15 +24,18 @@
 // The helper enforces:
 //
 //   1. Forward edge legality (LEGAL_TRANSITIONS graph)
-//   2. Always-legal user-explicit eject targets (DONE.archived / DONE.abandoned
-//      per protocol.md §8.3) bypass legality + ceremony guards
-//   3. TRIAGE.confirm fork: spec_phase=true → SPEC.proposal, false → EXECUTE.plan
-//   4. EXECUTE.done fork: verify_phase=true → VERIFY.plan only
+//   2. TRIAGE.confirm fork: spec_phase=true → SPEC.proposal, false → EXECUTE.plan
+//   3. EXECUTE.done fork: verify_phase=true → VERIFY.plan only
 //      (verify_phase=false → DONE.delivered is now a `loaf deliver` concern
 //      gated by verify-min, not an `event:phase_advanced` edge)
-//   5. VERIFY.accept → SETTLE.reconcile fork (Slice 1.D):
+//   4. VERIFY.accept → SETTLE.reconcile fork (Slice 1.D):
 //        - settle_phase=false (standard / quick / light) => SETTLE_PHASE_DISABLED
 //        - verify_accepted=false                          => SETTLE_NOT_ACCEPTED
+//
+// The DONE.* terminals carry no `event:phase_advanced` edges at all:
+// DONE.delivered / DONE.archived / DONE.abandoned are each reached only via
+// their dedicated `session:*` kind. `loaf advance` into any of them is
+// TRANSITION_ILLEGAL.
 //
 // Spec source: protocol.md §2.1 / §5.2, ADR-0005 §10.
 
@@ -39,6 +49,15 @@ import type { Ceremony, GateName, SubState } from "../journal-entry.js";
 // SETTLE.lessons). DONE.delivered is reached exclusively via `session:delivered`
 // (reducer direct cursor flip) — `loaf deliver`'s territory. `loaf advance
 // DONE.delivered` from any sub_state now returns TRANSITION_ILLEGAL.
+//
+// Item 2: removed the 2 `SETTLE.lessons → DONE.archived/abandoned` edges
+// and dropped both terminals from ALWAYS_LEGAL_TARGETS. DONE.archived /
+// DONE.abandoned are now reached exclusively via `session:archived` /
+// `session:abandoned` (reducer direct cursor flip) — `loaf archive` /
+// `loaf abandon`'s territory, which carry the required `reason`. `loaf
+// advance DONE.archived` / `loaf advance DONE.abandoned` from any
+// sub_state now return TRANSITION_ILLEGAL. SETTLE.lessons is therefore a
+// terminal of the `event:phase_advanced` graph.
 const LEGAL_TRANSITIONS: Record<SubState, readonly SubState[]> = {
   "TRIAGE.score": ["TRIAGE.confirm"],
   "TRIAGE.confirm": ["SPEC.proposal", "EXECUTE.plan"], // spec_phase fork
@@ -56,16 +75,11 @@ const LEGAL_TRANSITIONS: Record<SubState, readonly SubState[]> = {
   "VERIFY.visual": ["VERIFY.accept"],
   "VERIFY.accept": ["SETTLE.reconcile"], // Slice 1.D: DONE.delivered now via `loaf deliver`
   "SETTLE.reconcile": ["SETTLE.lessons"],
-  "SETTLE.lessons": ["DONE.archived", "DONE.abandoned"], // Slice 1.D: DONE.delivered now via `loaf deliver`
+  "SETTLE.lessons": [], // Item 2: DONE.archived/abandoned now via `loaf archive` / `loaf abandon`
   "DONE.delivered": [],
   "DONE.archived": [],
   "DONE.abandoned": [],
 };
-
-const ALWAYS_LEGAL_TARGETS: ReadonlySet<SubState> = new Set([
-  "DONE.archived",
-  "DONE.abandoned",
-]);
 
 // Slice B — back-edge from-states for amend-spec sponsorship. Covers
 // every sub_state where state.spec_locked can legally be true after
@@ -129,10 +143,10 @@ export function validateTransition(
   target: SubState,
   ctx: TransitionContext,
 ): TransitionResult {
-  // Slice B back-edge sponsorship — must run BEFORE ALWAYS_LEGAL_TARGETS
-  // bypass (codex r96 §1). Otherwise a malformed payload like
-  // `{back_edge:{action:"amend-spec"}, to:"DONE.archived"}` would slip
-  // past the action→target contract via the eject-target exception.
+  // Slice B back-edge sponsorship — enforces the action→target contract
+  // before the forward-edge legality check below. A malformed payload
+  // like `{back_edge:{action:"amend-spec"}, to:"SPEC.spec"}` from a
+  // disallowed `from` state is still rejected here.
   if (ctx.back_edge !== undefined) {
     if (ctx.back_edge.action === "amend-spec") {
       if (target !== "SPEC.spec") {
@@ -179,11 +193,6 @@ export function validateTransition(
     };
   }
 
-  // User-explicit eject targets bypass legality + ceremony guards.
-  if (ALWAYS_LEGAL_TARGETS.has(target)) {
-    return { ok: true };
-  }
-
   const allowed = LEGAL_TRANSITIONS[prev] ?? [];
   if (!allowed.includes(target)) {
     return {
@@ -194,7 +203,6 @@ export function validateTransition(
         from: prev,
         to: target,
         allowed_forward: [...allowed],
-        always_legal: [...ALWAYS_LEGAL_TARGETS],
       },
     };
   }

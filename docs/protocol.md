@@ -1617,7 +1617,7 @@ error: <one-line human description>
 | `SEQ_NOT_MONOTONIC` | exit 2 | Candidate entry does not extend journal tail by exactly +1 | Refresh tail under lock; if tail is corrupt run doctor tail check |
 | `SPEC_PHASE_FORK_VIOLATION` | exit 2 | Ceremony `spec_phase` disagrees with the TRIAGE.confirm fork target | Follow the selected ceremony path: SPEC.* when enabled, EXECUTE.plan when disabled |
 | `SUB_STATE_AUTHORITY_VIOLATION` | exit 2 | Journal kind is not legal in the current `sub_state` | Advance/back-edge to a state that permits this kind, or use a valid command |
-| `TRANSITION_ILLEGAL` | exit 2 | Transition edge is not in `LEGAL_TRANSITIONS` and not an always-legal terminal target | Choose an allowed transition for the current cursor |
+| `TRANSITION_ILLEGAL` | exit 2 | Transition edge is not in `LEGAL_TRANSITIONS` (the `DONE.*` terminals carry no `event:phase_advanced` edges — reach them via `loaf deliver` / `loaf archive --reason` / `loaf abandon --reason`) | Choose an allowed transition for the current cursor |
 | `VERIFY_PHASE_FORK_VIOLATION` | exit 2 | Ceremony `verify_phase` disagrees with the EXECUTE.done fork target | Enter VERIFY when verify is enabled; deliver directly only when disabled |
 | `ALREADY_STARTED` | exit 2 | `session:started` or `migration:snapshot_imported` is applied after state already exists | Resume existing session or migrate/start in a fresh feature dir |
 | `FINDING_NOT_FOUND` | exit 2 | `finding:closed` references an unknown finding id | List findings and close an existing id |
@@ -1658,6 +1658,12 @@ error: <one-line human description>
 |---|---:|---|---|
 | `TASK_NOT_ABANDONABLE` | exit 2 | `event:task_abandoned` (`loaf tasks abandon`) but the target task is already in a final status (`done` or `abandoned`) — abandoning a terminal task is a no-op contract error | Run `loaf tasks list` to inspect the task graph; abandon a non-terminal task instead. `detail` carries `{task_id, status}` |
 | `TASK_ABANDON_BLOCKED_DEPENDENTS` | exit 2 | `event:task_abandoned` but a non-terminal task lists the target in its `depends_on` — abandoning the parent would strand the dependent (`task_claimed` preflight requires deps `status=done`, not `abandoned`) | Abandon or complete the dependent tasks first, then retry `loaf tasks abandon <T-N> --reason "..."`. `detail.blocking_dependents` lists the offending task ids |
+
+**Item 2 runtime codes**(`loaf archive` / `loaf abandon` — the session-terminal reason-required preflight refine):
+
+| Code | Severity | When emitted | Fix hint |
+|---|---:|---|---|
+| `SESSION_REASON_REQUIRED` | exit 2 | `session:archived` (`loaf archive`) or `session:abandoned` (`loaf abandon`) carries no `reason` key — both kinds share `SessionReasonPayload` with `session:delivered`, where `reason` is optional, so archive / abandon tighten it to required at preflight. An empty-string reason fails the payload parse as `INVALID_PAYLOAD` first | Re-run with `--reason "..."`; `loaf archive` and `loaf abandon` both require a rationale on the journal entry. `detail.kind` carries the offending session-terminal kind |
 
 完整出错示例(`SCHEMA_VALIDATION_FAILED`):
 

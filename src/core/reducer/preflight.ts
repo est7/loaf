@@ -216,7 +216,16 @@ export type PreflightFailureCode =
   // task in its depends_on; abandoning the parent would strand the child
   // (task_claimed preflight requires deps status=done, not abandoned).
   | "TASK_NOT_ABANDONABLE"
-  | "TASK_ABANDON_BLOCKED_DEPENDENTS";
+  | "TASK_ABANDON_BLOCKED_DEPENDENTS"
+  // Item 2 — `loaf archive` / `loaf abandon` (session:archived /
+  // session:abandoned) refine. SESSION_REASON_REQUIRED fires when either
+  // session-terminal kind carries no `reason` key. The shared
+  // SessionReasonPayload makes reason OPTIONAL (session:delivered
+  // legitimately allows no reason); archive / abandon tighten it to
+  // required. An empty-string reason is already rejected upstream by the
+  // PER_KIND_PAYLOAD parse (`z.string().min(1)`) as INVALID_PAYLOAD — this
+  // refine handles only the absent case.
+  | "SESSION_REASON_REQUIRED";
 
 export type PreflightResult =
   | { ok: true }
@@ -619,6 +628,33 @@ export function preflight(
           detail: { sub_state, verify_accepted },
         };
       }
+    }
+  }
+
+  // (5c.2) Item 2 — `loaf archive` / `loaf abandon` reason-required refine.
+  //
+  // `session:archived` / `session:abandoned` carry their own cursor
+  // authority (reducer flips directly to DONE.archived / DONE.abandoned,
+  // not via `event:phase_advanced`). Both share `SessionReasonPayload`
+  // with `session:delivered`, where `reason` is OPTIONAL — deliver
+  // legitimately allows no rationale. archive / abandon tighten it to
+  // required (protocol §10.8: "reason required"). An empty-string reason
+  // is rejected upstream by the PER_KIND_PAYLOAD parse (`z.string().min(1)`)
+  // as INVALID_PAYLOAD; this refine handles only the absent case (no
+  // whitespace-trimming — that would be stricter than the repo's
+  // `z.string().min(1)` convention).
+  if (
+    entry.kind === "session:archived" ||
+    entry.kind === "session:abandoned"
+  ) {
+    const payload = (rawEntry as { payload?: Record<string, unknown> }).payload ?? {};
+    if (payload["reason"] === undefined) {
+      return {
+        ok: false,
+        code: "SESSION_REASON_REQUIRED",
+        message: `${entry.kind}: --reason is required (the session-terminal entry must record why)`,
+        detail: { kind: entry.kind },
+      };
     }
   }
 

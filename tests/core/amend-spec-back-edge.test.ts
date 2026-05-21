@@ -1,8 +1,7 @@
 // Slice B — finding amend-spec back-edge batch tests.
 //
 // Covers (codex r94/r96 plan v2 → r96 GO-with-refinements):
-//   - validateTransition: back-edge action→target/from contract +
-//     order BEFORE ALWAYS_LEGAL_TARGETS bypass
+//   - validateTransition: back-edge action→target/from contract
 //   - reducer.apply phase_advanced: spec_locked reset on SPEC.spec
 //   - preflight refines: FINDING_AMEND_SPEC_NOT_LOCKED +
 //     FINDING_NOT_FOUND (open-only)
@@ -123,9 +122,12 @@ describe("validateTransition — Slice B back-edge (codex r96 §1)", () => {
     }
   });
 
-  test("back_edge runs BEFORE ALWAYS_LEGAL_TARGETS bypass (r96 §1) — DONE.archived rejected with back_edge", () => {
-    // Without the order fix, DONE.archived would slip through the
-    // ALWAYS_LEGAL_TARGETS branch and ignore the action contract.
+  test("amend-spec back_edge targeting DONE.archived rejected — must target SPEC.spec (r96 §1)", () => {
+    // An amend-spec back_edge is legal only into SPEC.spec; DONE.archived
+    // is not a back_edge target. (This test historically also guarded
+    // ordering against the ALWAYS_LEGAL_TARGETS eject bypass — that set
+    // was removed in Phase 11 Item 2; DONE.* terminals now carry no
+    // event:phase_advanced edges at all.)
     const r = validateTransition("EXECUTE.work", "DONE.archived", {
       ceremony: STANDARD,
       actor: "cli:loaf",

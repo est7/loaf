@@ -573,6 +573,143 @@ export async function main(argv: string[] = process.argv): Promise<number> {
       }
     });
 
+  // ── loaf archive / loaf abandon ─────────────────────────────────────
+  // Item 2 — the two non-delivered session-terminal commands (protocol
+  // §8.3 三出口 minus `spike convert`). Both emit a `session:*` entry whose
+  // reducer flips the cursor directly to DONE.archived / DONE.abandoned
+  // (no `event:phase_advanced`). Modeled on `loaf deliver` above, with two
+  // differences: `--reason` is REQUIRED (deliver's is optional), and the
+  // preflight refine (step 5c.2) rejects an absent reason as
+  // SESSION_REASON_REQUIRED. Both kinds are HUMAN_ONLY per PER_KIND_ACTOR
+  // and accept any non-DONE source sub_state per PER_KIND_SUB_STATE.
+  // The two blocks are intentionally parallel — kept side-by-side rather
+  // than abstracted, consistent with `deliver` not sharing a helper.
+  program
+    .command("archive")
+    .description("Close the feature session without delivering (emits session:archived → DONE.archived)")
+    .requiredOption("--feature <name>", "Feature whose session to archive")
+    .requiredOption("--reason <text>", "Rationale recorded on the session:archived entry")
+    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
+    .action(async (opts: { feature: string; reason: string; featureDir?: string }) => {
+      // (1) Human-only actor — `session:archived` is HUMAN_ONLY per PER_KIND_ACTOR.
+      const resolution = resolveHumanActor({
+        env: process.env,
+        readGitConfig: getGitEmail,
+        isInteractiveHuman: process.stdin.isTTY === true,
+      });
+      if (!resolution.ok) {
+        emitFailure(resolution.code, resolution.message);
+        return;
+      }
+      const humanActor = resolution.actor;
+
+      // (2) Load session.
+      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      const session = await loadSession(featureDir);
+      const from = session.snapshot.state?.sub_state;
+      if (!from) {
+        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        return;
+      }
+
+      // (3) Mutate. preflight step 5c.2 enforces reason-required; reducer
+      //     flips cursor to DONE.archived.
+      const result = await mutate(
+        {
+          at: new Date().toISOString(),
+          actor: humanActor,
+          entry_schema_version: 1,
+          kind: "session:archived",
+          payload: { reason: opts.reason },
+        },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq },
+      );
+      if (!result.ok) {
+        emitFailure(result.code, result.message, result.detail);
+        return;
+      }
+
+      // (4) Success output.
+      const out = {
+        ok: true,
+        feature: opts.feature,
+        from,
+        to: "DONE.archived" as const,
+        actor: humanActor,
+        sub_state: result.snapshot.state?.sub_state,
+      };
+      if (useJson) {
+        process.stdout.write(JSON.stringify(out) + "\n");
+      } else {
+        process.stdout.write(
+          `archived ${opts.feature} — ${from} → DONE.archived by ${humanActor}\n`,
+        );
+      }
+    });
+
+  program
+    .command("abandon")
+    .description("Abandon the feature session (emits session:abandoned → DONE.abandoned)")
+    .requiredOption("--feature <name>", "Feature whose session to abandon")
+    .requiredOption("--reason <text>", "Rationale recorded on the session:abandoned entry")
+    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
+    .action(async (opts: { feature: string; reason: string; featureDir?: string }) => {
+      // (1) Human-only actor — `session:abandoned` is HUMAN_ONLY per PER_KIND_ACTOR.
+      const resolution = resolveHumanActor({
+        env: process.env,
+        readGitConfig: getGitEmail,
+        isInteractiveHuman: process.stdin.isTTY === true,
+      });
+      if (!resolution.ok) {
+        emitFailure(resolution.code, resolution.message);
+        return;
+      }
+      const humanActor = resolution.actor;
+
+      // (2) Load session.
+      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      const session = await loadSession(featureDir);
+      const from = session.snapshot.state?.sub_state;
+      if (!from) {
+        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        return;
+      }
+
+      // (3) Mutate. preflight step 5c.2 enforces reason-required; reducer
+      //     flips cursor to DONE.abandoned.
+      const result = await mutate(
+        {
+          at: new Date().toISOString(),
+          actor: humanActor,
+          entry_schema_version: 1,
+          kind: "session:abandoned",
+          payload: { reason: opts.reason },
+        },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq },
+      );
+      if (!result.ok) {
+        emitFailure(result.code, result.message, result.detail);
+        return;
+      }
+
+      // (4) Success output.
+      const out = {
+        ok: true,
+        feature: opts.feature,
+        from,
+        to: "DONE.abandoned" as const,
+        actor: humanActor,
+        sub_state: result.snapshot.state?.sub_state,
+      };
+      if (useJson) {
+        process.stdout.write(JSON.stringify(out) + "\n");
+      } else {
+        process.stdout.write(
+          `abandoned ${opts.feature} — ${from} → DONE.abandoned by ${humanActor}\n`,
+        );
+      }
+    });
+
   // ── loaf tasks <subcommand> ─────────────────────────────────────────
   // Slice 2 SC2/SC3 task lifecycle CLI surface. The parent `tasks`
   // command is a namespace; sub-commands carry the actual work:

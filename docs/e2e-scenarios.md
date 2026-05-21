@@ -370,16 +370,16 @@ Source: codex independent enumeration r119 (AMQ thread
 - **Covers** the human-only command boundary.
 
 ### SCEN-E2E-035 — archive terminal
-- **Tier** future · **Status** todo · **Impl** `loaf archive` is absent from
-  `src/cli.tsx` (protocol-only).
+- **Tier** optional · **Status** green · **Impl** `loaf archive --reason`
+  emits `session:archived` (Item 2).
 - **Given** a started session.
 - **When** `archive --reason` runs.
 - **Then** the session reaches `DONE.archived`.
 - **Covers** the non-delivered archive exit.
 
 ### SCEN-E2E-036 — abandon terminal
-- **Tier** future · **Status** todo · **Impl** `loaf abandon` is absent from
-  `src/cli.tsx` (protocol-only).
+- **Tier** optional · **Status** green · **Impl** `loaf abandon --reason`
+  emits `session:abandoned` (Item 2).
 - **Given** a started session.
 - **When** `abandon --reason` runs.
 - **Then** the session reaches `DONE.abandoned`.

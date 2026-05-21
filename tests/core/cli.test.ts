@@ -119,6 +119,59 @@ describe("loaf CLI — Blocker #7 MVP surface", () => {
     expect(adv.stderr).toMatch(/TRANSITION_ILLEGAL/);
   });
 
+  // Item 2 (codex r130) — `loaf advance DONE.archived` / `DONE.abandoned`
+  // must not bypass the reason-required `loaf archive` / `loaf abandon`
+  // path. event:phase_advanced into these terminals is TRANSITION_ILLEGAL,
+  // symmetric with `advance DONE.delivered` above. The journal must NOT be
+  // appended (all-or-nothing reject before write).
+  test("loaf advance DONE.archived → exit 2 + TRANSITION_ILLEGAL, journal not appended", async () => {
+    const dir = await tmpFeatureDir();
+    await runCli([
+      "start", "auth-refresh",
+      "--ceremony", "standard",
+      "--feature-dir", dir,
+      "--json",
+    ]);
+    const journalPath = path.join(dir, "journal.jsonl");
+    const before = await fs.readFile(journalPath, "utf8");
+
+    const adv = await runCli([
+      "advance", "DONE.archived",
+      "--feature", "auth-refresh",
+      "--feature-dir", dir,
+      "--json",
+    ]);
+    expect(adv.exit).toBe(2);
+    expect(adv.stderr).toMatch(/TRANSITION_ILLEGAL/);
+
+    const after = await fs.readFile(journalPath, "utf8");
+    expect(after).toBe(before);
+  });
+
+  test("loaf advance DONE.abandoned → exit 2 + TRANSITION_ILLEGAL, journal not appended", async () => {
+    const dir = await tmpFeatureDir();
+    await runCli([
+      "start", "auth-refresh",
+      "--ceremony", "standard",
+      "--feature-dir", dir,
+      "--json",
+    ]);
+    const journalPath = path.join(dir, "journal.jsonl");
+    const before = await fs.readFile(journalPath, "utf8");
+
+    const adv = await runCli([
+      "advance", "DONE.abandoned",
+      "--feature", "auth-refresh",
+      "--feature-dir", dir,
+      "--json",
+    ]);
+    expect(adv.exit).toBe(2);
+    expect(adv.stderr).toMatch(/TRANSITION_ILLEGAL/);
+
+    const after = await fs.readFile(journalPath, "utf8");
+    expect(after).toBe(before);
+  });
+
   test("loaf status reads the current cursor + projection counts", async () => {
     const dir = await tmpFeatureDir();
     await runCli([
@@ -4367,5 +4420,203 @@ describe("loaf tasks register-red — Slice C SC-C4 (R2)", () => {
     ]);
     expect(r.exit).toBe(2);
     expect(JSON.parse(r.stderr.trim()).code).toBe("TASK_NOT_CLAIMED");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Item 2 — loaf archive / loaf abandon (session-terminal commands)
+//
+// Both emit a session:* entry whose reducer flips the cursor directly to
+// DONE.archived / DONE.abandoned. A freshly-started session sits at
+// TRIAGE.score (non-DONE) — a valid source per PER_KIND_SUB_STATE
+// (ANY_NON_DONE). Both kinds are HUMAN_ONLY, so LOAF_USER must resolve a
+// human: actor. --reason is required (commander rejects its absence).
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("loaf archive — Item 2", () => {
+  test("happy: archive a started session → exit 0, DONE.archived, machine-readable", async () => {
+    const dir = await tmpFeatureDir();
+    const started = await runCli([
+      "start", "auth-refresh", "--ceremony", "standard",
+      "--feature-dir", dir, "--json",
+    ]);
+    expect(started.exit).toBe(0);
+
+    const r = await runCli(
+      [
+        "archive",
+        "--reason", "spike concluded; kept the worktree for reference",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--json",
+      ],
+      { env: { LOAF_USER: "tester@example.invalid" } },
+    );
+    expect(r.exit).toBe(0);
+    expect(r.stderr).toBe("");
+    const out = JSON.parse(r.stdout);
+    expect(out.ok).toBe(true);
+    expect(out.feature).toBe("auth-refresh");
+    expect(out.from).toBe("TRIAGE.score");
+    expect(out.to).toBe("DONE.archived");
+    expect(out.sub_state).toBe("DONE.archived");
+    expect(out.actor).toBe("human:tester@example.invalid");
+  });
+
+  test("text mode: archive prints a concise line, no JSON", async () => {
+    const dir = await tmpFeatureDir();
+    await runCli([
+      "start", "auth-refresh", "--ceremony", "standard",
+      "--feature-dir", dir, "--json",
+    ]);
+
+    const r = await runCli(
+      [
+        "archive",
+        "--reason", "no longer needed",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+      ],
+      { env: { LOAF_USER: "tester@example.invalid" } },
+    );
+    expect(r.exit).toBe(0);
+    expect(r.stdout).toContain("archived auth-refresh");
+    expect(r.stdout).toContain("DONE.archived");
+    expect(() => JSON.parse(r.stdout)).toThrow();
+  });
+
+  test("missing --reason → exit 2 (commander)", async () => {
+    const dir = await tmpFeatureDir();
+    await runCli([
+      "start", "auth-refresh", "--ceremony", "standard",
+      "--feature-dir", dir, "--json",
+    ]);
+
+    const r = await runCli(
+      ["archive", "--feature", "auth-refresh", "--feature-dir", dir, "--json"],
+      { env: { LOAF_USER: "tester@example.invalid" } },
+    );
+    expect(r.exit).toBe(2);
+  });
+
+  test("journal entry carries the human: actor and the reason", async () => {
+    const dir = await tmpFeatureDir();
+    await runCli([
+      "start", "auth-refresh", "--ceremony", "standard",
+      "--feature-dir", dir, "--json",
+    ]);
+
+    const r = await runCli(
+      [
+        "archive",
+        "--reason", "descoped during triage",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--json",
+      ],
+      { env: { LOAF_USER: "alice@example.invalid" } },
+    );
+    expect(r.exit).toBe(0);
+
+    const journal = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
+    const lines = journal.trim().split("\n").map((l) => JSON.parse(l));
+    const last = lines[lines.length - 1];
+    expect(last.kind).toBe("session:archived");
+    expect(last.actor).toBe("human:alice@example.invalid");
+    expect(last.payload.reason).toBe("descoped during triage");
+  });
+});
+
+describe("loaf abandon — Item 2", () => {
+  test("happy: abandon a started session → exit 0, DONE.abandoned, machine-readable", async () => {
+    const dir = await tmpFeatureDir();
+    const started = await runCli([
+      "start", "auth-refresh", "--ceremony", "standard",
+      "--feature-dir", dir, "--json",
+    ]);
+    expect(started.exit).toBe(0);
+
+    const r = await runCli(
+      [
+        "abandon",
+        "--reason", "no value, dropping the feature",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--json",
+      ],
+      { env: { LOAF_USER: "tester@example.invalid" } },
+    );
+    expect(r.exit).toBe(0);
+    expect(r.stderr).toBe("");
+    const out = JSON.parse(r.stdout);
+    expect(out.ok).toBe(true);
+    expect(out.feature).toBe("auth-refresh");
+    expect(out.from).toBe("TRIAGE.score");
+    expect(out.to).toBe("DONE.abandoned");
+    expect(out.sub_state).toBe("DONE.abandoned");
+    expect(out.actor).toBe("human:tester@example.invalid");
+  });
+
+  test("text mode: abandon prints a concise line, no JSON", async () => {
+    const dir = await tmpFeatureDir();
+    await runCli([
+      "start", "auth-refresh", "--ceremony", "standard",
+      "--feature-dir", dir, "--json",
+    ]);
+
+    const r = await runCli(
+      [
+        "abandon",
+        "--reason", "scrapped",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+      ],
+      { env: { LOAF_USER: "tester@example.invalid" } },
+    );
+    expect(r.exit).toBe(0);
+    expect(r.stdout).toContain("abandoned auth-refresh");
+    expect(r.stdout).toContain("DONE.abandoned");
+    expect(() => JSON.parse(r.stdout)).toThrow();
+  });
+
+  test("missing --reason → exit 2 (commander)", async () => {
+    const dir = await tmpFeatureDir();
+    await runCli([
+      "start", "auth-refresh", "--ceremony", "standard",
+      "--feature-dir", dir, "--json",
+    ]);
+
+    const r = await runCli(
+      ["abandon", "--feature", "auth-refresh", "--feature-dir", dir, "--json"],
+      { env: { LOAF_USER: "tester@example.invalid" } },
+    );
+    expect(r.exit).toBe(2);
+  });
+
+  test("journal entry carries the human: actor and the reason", async () => {
+    const dir = await tmpFeatureDir();
+    await runCli([
+      "start", "auth-refresh", "--ceremony", "standard",
+      "--feature-dir", dir, "--json",
+    ]);
+
+    const r = await runCli(
+      [
+        "abandon",
+        "--reason", "blocked by an upstream decision",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--json",
+      ],
+      { env: { LOAF_USER: "bob@example.invalid" } },
+    );
+    expect(r.exit).toBe(0);
+
+    const journal = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
+    const lines = journal.trim().split("\n").map((l) => JSON.parse(l));
+    const last = lines[lines.length - 1];
+    expect(last.kind).toBe("session:abandoned");
+    expect(last.actor).toBe("human:bob@example.invalid");
+    expect(last.payload.reason).toBe("blocked by an upstream decision");
   });
 });

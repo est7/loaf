@@ -2059,13 +2059,57 @@ describe("E2E — full worker lifecycle (standard ceremony)", () => {
   // ── future tier — see docs/e2e-scenarios.md ─────────────────────────
   // Inert inventory anchors. Each scenario needs a CLI command or finding
   // back-edge that does not exist yet (amend-tasks / fix-impl / fix-test
-  // back-edges; archive / abandon / spike-convert terminals). Each `todo`
-  // becomes a real test in the slice that implements its surface — do not
-  // build setup around the absent commands.
+  // back-edges; spike-convert terminal). Each `todo` becomes a real test
+  // in the slice that implements its surface — do not build setup around
+  // the absent commands. Item 2 promoted the archive / abandon terminals
+  // out of this tier — SCEN-E2E-035/036 below are real tests now.
   test.todo("SCEN-E2E-020 — amend-tasks back-edge");
   test.todo("SCEN-E2E-021 — fix-impl loop");
   test.todo("SCEN-E2E-022 — fix-test loop");
-  test.todo("SCEN-E2E-035 — archive terminal");
-  test.todo("SCEN-E2E-036 — abandon terminal");
+  // ── Item 2 — archive / abandon session-terminal commands ────────────
+  test("SCEN-E2E-035 — archive terminal: started session → DONE.archived", async () => {
+    const dir = await tmpFeatureDir();
+    const F = "e2e-archive";
+    const ENV = { LOAF_USER: "e2e@test.invalid" };
+    const { step } = makeCli(dir, ENV);
+
+    const started = await step("start", ["start", F, "--ceremony", "standard"]);
+    expect(started.sub_state).toBe("TRIAGE.score");
+
+    const archived = await step("archive", [
+      "archive", "--reason", "spike concluded; nothing to deliver", "--feature", F,
+    ]);
+    expect(archived.ok).toBe(true);
+    expect(archived.from).toBe("TRIAGE.score");
+    expect(archived.to).toBe("DONE.archived");
+    expect(archived.sub_state).toBe("DONE.archived");
+    expect(archived.actor).toBe("human:e2e@test.invalid");
+
+    const status = await step("status", ["status", "--feature", F]);
+    expect(status.state?.sub_state ?? status.sub_state).toBe("DONE.archived");
+  });
+
+  test("SCEN-E2E-036 — abandon terminal: started session → DONE.abandoned", async () => {
+    const dir = await tmpFeatureDir();
+    const F = "e2e-abandon";
+    const ENV = { LOAF_USER: "e2e@test.invalid" };
+    const { step } = makeCli(dir, ENV);
+
+    const started = await step("start", ["start", F, "--ceremony", "standard"]);
+    expect(started.sub_state).toBe("TRIAGE.score");
+
+    const abandoned = await step("abandon", [
+      "abandon", "--reason", "no value; dropping the feature", "--feature", F,
+    ]);
+    expect(abandoned.ok).toBe(true);
+    expect(abandoned.from).toBe("TRIAGE.score");
+    expect(abandoned.to).toBe("DONE.abandoned");
+    expect(abandoned.sub_state).toBe("DONE.abandoned");
+    expect(abandoned.actor).toBe("human:e2e@test.invalid");
+
+    const status = await step("status", ["status", "--feature", F]);
+    expect(status.state?.sub_state ?? status.sub_state).toBe("DONE.abandoned");
+  });
+
   test.todo("SCEN-E2E-037 — spike convert");
 });

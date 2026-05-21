@@ -1402,3 +1402,122 @@ describe("preflight — event:task_abandoned refines (Item 1)", () => {
     if (!r.ok) expect(r.code).toBe("SUB_STATE_AUTHORITY_VIOLATION");
   });
 });
+
+describe("preflight — session:archived / session:abandoned reason-required (Item 2)", () => {
+  // `loaf archive --reason "..."` / `loaf abandon --reason "..."` emit
+  // `session:archived` / `session:abandoned`. Both kinds share
+  // SessionReasonPayload with `session:delivered`, where `reason` is
+  // OPTIONAL. The (5c.2) refine tightens archive / abandon to required:
+  //   - reason key absent → SESSION_REASON_REQUIRED (exit 2)
+  //   - empty-string reason → INVALID_PAYLOAD (rides the PER_KIND_PAYLOAD
+  //     parse, z.string().min(1)) — not this refine's job
+  //   - session:delivered with no reason stays OK (deliver is optional)
+  // Per-kind already gates actor (HUMAN_ONLY) + sub_state (ANY_NON_DONE).
+
+  const archiveEntry = (overrides: Record<string, unknown> = {}) =>
+    baseEntry({
+      kind: "session:archived",
+      actor: "human:est9",
+      payload: { reason: "spike kept for reference" },
+      ...overrides,
+    });
+
+  const abandonEntry = (overrides: Record<string, unknown> = {}) =>
+    baseEntry({
+      kind: "session:abandoned",
+      actor: "human:est9",
+      payload: { reason: "no value, dropping" },
+      ...overrides,
+    });
+
+  test("session:archived missing reason → SESSION_REASON_REQUIRED", () => {
+    const r = preflight(archiveEntry({ payload: {} }), {
+      snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY),
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.code).toBe("SESSION_REASON_REQUIRED");
+      expect(r.detail).toMatchObject({ kind: "session:archived" });
+    }
+  });
+
+  test("session:abandoned missing reason → SESSION_REASON_REQUIRED", () => {
+    const r = preflight(abandonEntry({ payload: {} }), {
+      snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY),
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.code).toBe("SESSION_REASON_REQUIRED");
+      expect(r.detail).toMatchObject({ kind: "session:abandoned" });
+    }
+  });
+
+  test("session:archived with a reason @ TRIAGE.score → ok", () => {
+    const r = preflight(archiveEntry(), {
+      snapshot: mkSnapshot("TRIAGE.score", STANDARD_CEREMONY),
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(true);
+  });
+
+  test("session:abandoned with a reason @ EXECUTE.work → ok", () => {
+    const r = preflight(abandonEntry(), {
+      snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY),
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(true);
+  });
+
+  test("session:archived empty-string reason → INVALID_PAYLOAD (payload parse, not this refine)", () => {
+    const r = preflight(archiveEntry({ payload: { reason: "" } }), {
+      snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY),
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe("INVALID_PAYLOAD");
+  });
+
+  test("session:archived from a DONE sub_state → SUB_STATE_AUTHORITY_VIOLATION", () => {
+    const r = preflight(archiveEntry(), {
+      snapshot: mkSnapshot("DONE.delivered", STANDARD_CEREMONY),
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe("SUB_STATE_AUTHORITY_VIOLATION");
+  });
+
+  test("session:abandoned from a DONE sub_state → SUB_STATE_AUTHORITY_VIOLATION", () => {
+    const r = preflight(abandonEntry(), {
+      snapshot: mkSnapshot("DONE.archived", STANDARD_CEREMONY),
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe("SUB_STATE_AUTHORITY_VIOLATION");
+  });
+
+  test("session:archived with a non-human actor → ACTOR_AUTHORITY_VIOLATION", () => {
+    const r = preflight(archiveEntry({ actor: "cli:loaf" }), {
+      snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY),
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe("ACTOR_AUTHORITY_VIOLATION");
+  });
+
+  test("regression: session:delivered with NO reason stays OK (deliver is reason-optional)", () => {
+    const r = preflight(
+      baseEntry({
+        kind: "session:delivered",
+        actor: "human:est9",
+        payload: {},
+      }),
+      {
+        snapshot: mkSnapshot("VERIFY.accept", STANDARD_CEREMONY, { verify_accepted: true }),
+        tail_seq: -1,
+      },
+    );
+    expect(r.ok).toBe(true);
+  });
+});
