@@ -101,6 +101,8 @@ function payloadFor(kind: string): Record<string, unknown> {
       return { task_id: "T-001", step: "implement" };
     case "event:task_step_done":
       return { task_id: "T-001", step: "implement", result: "passed" };
+    case "event:task_step_reset":
+      return { task_id: "T-001", step: "implement", finding_id: "FND-001" };
     case "gate:decided":
       return { gate_kind: "spec-lock", decision: "approved", reason: "ok" };
     case "evidence:added":

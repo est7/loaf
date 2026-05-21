@@ -2543,10 +2543,12 @@ export async function main(argv: string[] = process.argv): Promise<number> {
   //   - close: positional <FND-id>; reducer returns FINDING_NOT_FOUND with
   //     detail.reason ∈ {unknown, already_closed} (codex r68 #4).
   //
-  // Deferred to SC4: back-edge batch path on raise (amend-spec →
-  // event:phase_advanced SPEC.spec; amend-tasks → event:tasks_amended +
-  // EXECUTE.work; fix-impl/fix-test → tasks.<T>.execution.<step>.status
-  // = "running" mutation co-emitted in same mutateBatch).
+  // Back-edge batch paths on raise (Phase 11 Item 3): amend-spec →
+  // [finding:raised, event:phase_advanced SPEC.spec]; amend-tasks →
+  // [finding:raised, event:phase_advanced EXECUTE.work]; fix-impl →
+  // [finding:raised, event:task_step_reset, event:phase_advanced
+  // EXECUTE.work] (the reset returns the implement step to "pending").
+  // fix-test (SC3) mirrors fix-impl with the "red" step.
   const findingCmd = program
     .command("finding")
     .description("Finding ledger commands (Slice 3 SC3 MVP: raise / list / close)");
@@ -2620,6 +2622,82 @@ export async function main(argv: string[] = process.argv): Promise<number> {
       // dictated by `action` and re-derived by validateTransition.
       // Other actions remain single-entry until their slices land.
       const nowIso = new Date().toISOString();
+
+      // Phase 11 Item 3 SC2 — fix-impl (and SC3 fix-test) emit a 3-entry
+      // batch [finding:raised, event:task_step_reset, event:phase_advanced(
+      // back_edge → EXECUTE.work)]. The reset entry returns the target
+      // repair step to `pending` so the fix loop can re-run it. The step
+      // is the action's canonical step (fix-impl → "implement",
+      // fix-test → "red"). FIX_RESET_STEP is keyed so SC3 adds one row.
+      const FIX_RESET_STEP: Record<string, string> = {
+        "fix-impl": "implement",
+      };
+      const fixResetStep = FIX_RESET_STEP[opts.action];
+      // fix-impl is a `task_id_step` target action: the CLI cannot build the
+      // event:task_step_reset entry without {task_id, step}. When the target
+      // is absent, fall through to the lone-`finding:raised` path below — its
+      // FINDING_TARGET_REQUIRED preflight refine is the authoritative,
+      // already-tested target gate (the 3-entry batch path only runs when
+      // the target is present).
+      if (fixResetStep !== undefined && hasTask && hasStep) {
+        const currentSubState = session.snapshot.state.sub_state;
+        const batchResult = await mutateBatch(
+          [
+            {
+              at: nowIso,
+              actor,
+              entry_schema_version: 1,
+              kind: "finding:raised",
+              payload,
+            },
+            {
+              // cli:loaf actor on the mechanical reset entry — human
+              // attribution lives on the sibling finding:raised entry.
+              at: nowIso,
+              actor: "cli:loaf",
+              entry_schema_version: 1,
+              kind: "event:task_step_reset",
+              payload: {
+                task_id: opts.targetTask,
+                step: fixResetStep,
+                finding_id: id,
+              },
+            },
+            {
+              at: nowIso,
+              actor: "cli:loaf",
+              entry_schema_version: 1,
+              kind: "event:phase_advanced",
+              payload: {
+                from: currentSubState,
+                to: "EXECUTE.work",
+                back_edge: { action: opts.action, finding_id: id },
+              },
+            },
+          ],
+          { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq },
+        );
+        if (!batchResult.ok) {
+          emitFailure(batchResult.code, batchResult.message, batchResult.detail);
+          return;
+        }
+        if (useJson) {
+          process.stdout.write(
+            JSON.stringify({
+              ok: true,
+              feature: opts.feature,
+              id,
+              category: opts.category,
+              action: opts.action,
+              back_edge: { from: currentSubState, to: "EXECUTE.work" },
+            }) + "\n",
+          );
+        } else {
+          process.stdout.write(id + "\n");
+        }
+        return;
+      }
+
       const BACK_EDGE_TARGET: Record<string, SubState> = {
         "amend-spec": "SPEC.spec",
         "amend-tasks": "EXECUTE.work",

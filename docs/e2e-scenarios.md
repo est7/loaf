@@ -227,13 +227,18 @@ Source: codex independent enumeration r119 (AMQ thread
   graph is not yet amended; that lands in SC1b).
 
 ### SCEN-E2E-021 — fix-impl loop
-- **Tier** future · **Status** todo · **Impl** automatic step reset / back-edge
-  not wired; CLI only records/closes the finding.
-- **Given** VERIFY raises an `impl-defect` `fix-impl` finding targeting a
-  task + step.
-- **When** the implementation reruns and the finding closes.
-- **Then** verify-accept no longer sees an open finding.
-- **Covers** the impl-defect repair path.
+- **Tier** inventory · **Status** green
+- **Given** a done behavioral task and an `impl-defect` `fix-impl` finding
+  targeting `{task_id, step:"implement"}`.
+- **When** `finding raise --action fix-impl` is emitted.
+- **Then** the atomic 3-entry batch `[finding:raised,
+  event:task_step_reset, event:phase_advanced(back_edge)]` lands; the
+  cursor returns to EXECUTE.work, iteration is bumped, the target task's
+  `implement` step resets to `pending` and the task reopens to
+  `in_progress`, the `fix-impl` finding stays open, and prior execution
+  history (the passed `red` step) is not erased.
+- **Covers** the impl-defect repair path + the `event:task_step_reset`
+  kind (Phase 11 Item 3 SC2).
 
 ### SCEN-E2E-022 — fix-test loop
 - **Tier** future · **Status** todo · **Impl** as SCEN-E2E-021, target step

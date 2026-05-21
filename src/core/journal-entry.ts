@@ -149,6 +149,7 @@ export const EntryKind = z.enum([
   "event:task_claimed",
   "event:task_step_started",
   "event:task_step_done",
+  "event:task_step_reset",
   "event:task_abandoned",
   "event:spec_req_added",
   "event:spec_scenario_added",
@@ -266,7 +267,23 @@ const BackEdgeAmendTasks = z
   })
   .strict();
 
-const BackEdge = z.discriminatedUnion("action", [BackEdgeAmendSpec, BackEdgeAmendTasks]);
+// Phase 11 Item 3 SC2 — fix-impl back-edge. Identical shape to
+// BackEdgeAmendSpec / BackEdgeAmendTasks (codex r139 Q6): no `target` /
+// `task_id` on the back_edge payload — the target (EXECUTE.work) is
+// dictated by `action`, and the step reset travels as a sibling
+// `event:task_step_reset` entry in the same batch.
+const BackEdgeFixImpl = z
+  .object({
+    action: z.literal("fix-impl"),
+    finding_id: FindingId,
+  })
+  .strict();
+
+const BackEdge = z.discriminatedUnion("action", [
+  BackEdgeAmendSpec,
+  BackEdgeAmendTasks,
+  BackEdgeFixImpl,
+]);
 
 export const PhaseAdvancedPayload = z
   .object({
@@ -336,6 +353,24 @@ const TaskStepDonePayload = z
     red_test_registered: z.boolean().optional(),
   })
   .passthrough();
+
+// Phase 11 Item 3 SC2 — `event:task_step_reset` (codex r139 Q1). Co-emitted
+// by `loaf finding raise --action fix-impl` (and fix-test in SC3) inside the
+// 3-entry back-edge batch. Resets a task's repair step to `pending` so the
+// fix loop can re-run it. `step` is explicit on the payload (SC3 reuses this
+// kind for fix-test → "red"). `.strict()` — the payload carries a
+// finding_id authority reference, so a typo'd key must fail at append, not
+// be silently dropped. The reset's authorization (the finding must be open
+// with action=fix-impl, and the finding's target must equal {task_id, step})
+// is verified by the per-kind preflight refine.
+export const TaskStepResetPayload = z
+  .object({
+    task_id: TaskIdPayload,
+    step: z.string().min(1),
+    finding_id: FindingId,
+  })
+  .strict();
+export type TaskStepResetPayload = z.infer<typeof TaskStepResetPayload>;
 
 // Slice 1.B sub-cycle 3a (codex r23 BLOCK 1 fix): tasks_planned upgrades
 // from `{ tasks: [{ id, kind? }] }` to the full TaskFull discriminated
@@ -504,6 +539,7 @@ export const PER_KIND_PAYLOAD: Record<EntryKind, z.ZodTypeAny> = {
   "event:task_claimed": TaskRefPayload,
   "event:task_step_started": TaskStepRefPayload,
   "event:task_step_done": TaskStepDonePayload,
+  "event:task_step_reset": TaskStepResetPayload,
   "event:task_abandoned": TaskAbandonedPayload,
   "event:spec_req_added": SpecReqAddedPayload,
   "event:spec_scenario_added": SpecScenarioAddedPayload,
@@ -547,6 +583,7 @@ export const REDUCER_IMPLEMENTED_KINDS: ReadonlySet<EntryKind> = new Set([
   "event:task_claimed",
   "event:task_step_started",
   "event:task_step_done",
+  "event:task_step_reset",
   "event:task_abandoned",
   "event:spec_submitted",
   "event:spec_req_added",

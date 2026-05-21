@@ -573,6 +573,55 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
       return { ok: true, snapshot: { ...prev, tasks } };
     }
 
+    case "event:task_step_reset": {
+      // Phase 11 Item 3 SC2 (codex r139 Q5): `loaf finding raise --action
+      // fix-impl` co-emits this inside its 3-entry back-edge batch. It
+      // resets the target repair step to `pending` AND reopens the task to
+      // `in_progress` — even a `done` task, because event:task_step_started
+      // / task_step_done preflight require task.status==="in_progress" to
+      // re-run the step. The reset is status-only: applicability is
+      // preserved, and the body-only fields evidence_refs / started_at /
+      // reason are NOT erased (SC1b Q4 history-preservation rule — the slim
+      // projection does not carry them anyway). Preflight is authoritative
+      // for the sponsorship + target-authority refines; the fail-fast
+      // checks here are defense-in-depth against a raw apply path.
+      const payload = entry.payload as { task_id?: string; step?: string };
+      if (!payload.task_id || !payload.step) {
+        return invalidPayload(entry.kind, "missing task_id/step");
+      }
+      const task = prev.tasks.find((t) => t.id === payload.task_id);
+      if (!task) {
+        return {
+          ok: false,
+          code: "TASK_NOT_FOUND",
+          message: `task_step_reset: task ${payload.task_id} not in projection`,
+          detail: { task_id: payload.task_id },
+        };
+      }
+      const seeded = task.steps[payload.step];
+      if (!seeded) {
+        return {
+          ok: false,
+          code: "TASK_STEP_NOT_FOUND",
+          message: `task_step_reset: step ${payload.step} not seeded on task ${payload.task_id}`,
+          detail: { task_id: payload.task_id, step: payload.step },
+        };
+      }
+      const tasks = prev.tasks.map((t) =>
+        t.id === payload.task_id
+          ? {
+              ...t,
+              status: "in_progress" as const,
+              steps: {
+                ...t.steps,
+                [payload.step!]: { applicability: seeded.applicability, status: "pending" as const },
+              },
+            }
+          : t,
+      );
+      return { ok: true, snapshot: { ...prev, tasks } };
+    }
+
     case "event:task_abandoned": {
       const payload = entry.payload as { task_id?: string };
       if (!payload.task_id) return invalidPayload(entry.kind, "missing task_id");

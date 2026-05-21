@@ -41,8 +41,8 @@ export type FindingCategory = z.infer<typeof FindingCategory>;
 export const FindingAction = z.enum([
   "amend-spec",   // → SPEC.spec, spec_version+1
   "amend-tasks",  // → EXECUTE.work, tasks.version+1
-  "fix-impl",     // → tasks.<T>.execution.implement.status=running
-  "fix-test",     // → tasks.<T>.execution.red.status=running
+  "fix-impl",     // → EXECUTE.work; event:task_step_reset sets execution.implement.status=pending
+  "fix-test",     // → EXECUTE.work; event:task_step_reset sets execution.red.status=pending
   "defer",        // close finding, drift recorded in reconcile
   "backlog",      // close finding, candidate for next feature
 ]);

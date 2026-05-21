@@ -516,6 +516,10 @@ export const EntryKind = z.enum([
   "event:task_claimed",
   "event:task_step_started",
   "event:task_step_done",
+  // event:task_step_reset (Phase 11 Item 3 SC2) — co-emitted by
+  // `loaf finding raise --action fix-impl` (and fix-test) inside the
+  // 3-entry back-edge batch; resets a task's repair step to `pending`.
+  "event:task_step_reset",
   "event:task_abandoned",
   "event:spec_req_added",
   "event:spec_scenario_added",
@@ -650,6 +654,7 @@ export const ENTRY_SCHEMA_VERSIONS = {
   "event:task_claimed": 1,
   "event:task_step_started": 1,
   "event:task_step_done": 1,
+  "event:task_step_reset": 1,
   "event:task_abandoned": 1,
   "event:spec_req_added": 1,
   "event:spec_scenario_added": 1,
@@ -1043,8 +1048,8 @@ export type FindingCategory = z.infer<typeof FindingCategory>;
 export const FindingAction = z.enum([
   "amend-spec",   // → SPEC.spec, spec_version+1, re-pass spec-lock, iter+1
   "amend-tasks",  // → EXECUTE.work, tasks.version+1; auto re-lock if scope/risk escalates
-  "fix-impl",     // → EXECUTE.work, transitions.ts sets task.execution.implement.status=running, iter+1, no version change
-  "fix-test",     // → EXECUTE.work, transitions.ts sets task.execution.red.status=running, iter+1
+  "fix-impl",     // → EXECUTE.work; event:task_step_reset sets execution.implement.status=pending, iter+1, no version change
+  "fix-test",     // → EXECUTE.work; event:task_step_reset sets execution.red.status=pending, iter+1
   "defer",        // close finding, drift recorded in reconcile (current run)
   "backlog",      // close finding, candidate for next feature/lessons.md
 ]);
@@ -3067,8 +3072,8 @@ export const CONCURRENCY_INVARIANTS = {
     },
     {
       cmd: "loaf finding raise --action <X>",
-      emits: ["finding:raised", "event:tasks_amended (if action requires_target_payload)", "event:phase_advanced (if back-edge transition + iteration bump)"],
-      why: "back-edge transition + payload application must land atomically (otherwise iteration count and execution state diverge across the batch boundary)",
+      emits: ["finding:raised", "event:task_step_reset (fix-impl/fix-test — resets the repair step)", "event:phase_advanced (if back-edge transition + iteration bump)"],
+      why: "back-edge transition + step reset must land atomically (otherwise iteration count and execution state diverge across the batch boundary)",
     },
     {
       cmd: "loaf gate decide <G>",

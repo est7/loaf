@@ -456,6 +456,7 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
       "event:task_claimed": { task_id: "T-001" },
       "event:task_step_started": { task_id: "T-001", step: "implement" },
       "event:task_step_done": { task_id: "T-001", step: "implement", result: "passed" },
+      "event:task_step_reset": { task_id: "T-001", step: "implement", finding_id: "FND-001" },
       "event:task_abandoned": { task_id: "T-001", reason: "round-trip fixture" },
       "event:spec_submitted": {
         spec_version: 1,

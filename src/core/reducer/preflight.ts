@@ -1215,6 +1215,134 @@ export function preflight(
     }
   }
 
+  // (5e.4) Phase 11 Item 3 SC2 — event:task_step_reset refines (codex r139
+  // Q3). `loaf finding raise --action fix-impl` co-emits this inside its
+  // 3-entry back-edge batch. Per-kind already gates actor (cli-only) +
+  // sub_state (the fix-impl from-set). This step adds the sponsorship +
+  // target-authority refines:
+  //   - finding_id exists / open / action=fix-impl → else FINDING_NOT_FOUND
+  //     (detail.reason ∈ {not_found, already_closed, action_mismatch}),
+  //     mirroring the back-edge sponsorship precedent (step 5b).
+  //   - the finding's `target` must equal the reset payload's
+  //     {task_id, step}, and `step` must equal FIX_ACTION_STEP["fix-impl"]
+  //     ("implement"). A structurally-valid-but-unauthorized payload is
+  //     MUTATION_OUT_OF_RIGHTS (reason task_step_reset_target_mismatch /
+  //     task_step_reset_step_mismatch) — the payload parsed, but it is not
+  //     authorized by its sponsoring finding.
+  //   - the task + step must exist in the projection (a step absent from
+  //     the task is a target mismatch — the finding cannot legitimately
+  //     target a step the task does not carry).
+  // No new DiagnosticCode — FINDING_NOT_FOUND + MUTATION_OUT_OF_RIGHTS
+  // are reused (codex r139 Q3).
+  if (entry.kind === "event:task_step_reset") {
+    const payload = payloadParsed.data as {
+      task_id: string;
+      step: string;
+      finding_id: string;
+    };
+    const finding = ctx.snapshot.findings.find((f) => f.id === payload.finding_id);
+    if (!finding) {
+      return {
+        ok: false,
+        code: "FINDING_NOT_FOUND",
+        message: `event:task_step_reset.finding_id=${payload.finding_id} not found in projection`,
+        detail: { id: payload.finding_id, reason: "not_found" },
+      };
+    }
+    if (finding.status === "closed") {
+      return {
+        ok: false,
+        code: "FINDING_NOT_FOUND",
+        message: `event:task_step_reset.finding_id=${payload.finding_id} is already_closed; only open findings can sponsor a step reset`,
+        detail: { id: payload.finding_id, reason: "already_closed" },
+      };
+    }
+    if (finding.action !== "fix-impl") {
+      return {
+        ok: false,
+        code: "FINDING_NOT_FOUND",
+        message: `event:task_step_reset.finding_id=${payload.finding_id} has action=${finding.action} but only fix-impl findings can sponsor a step reset`,
+        detail: {
+          id: payload.finding_id,
+          reason: "action_mismatch",
+          expected_action: "fix-impl",
+          actual_action: finding.action,
+        },
+      };
+    }
+    // The payload's {task_id, step} must equal the finding's target — the
+    // reset cannot drift off the task/step the finding authorized.
+    const expectedStep = FIX_ACTION_STEP["fix-impl"]!;
+    if (payload.step !== expectedStep) {
+      return {
+        ok: false,
+        code: "MUTATION_OUT_OF_RIGHTS",
+        message: `event:task_step_reset step="${payload.step}" but fix-impl resets step="${expectedStep}"`,
+        detail: {
+          finding_id: payload.finding_id,
+          task_id: payload.task_id,
+          step: payload.step,
+          expected_step: expectedStep,
+          reason: "task_step_reset_step_mismatch",
+        },
+      };
+    }
+    const expectedTarget = finding.target;
+    if (
+      expectedTarget === undefined ||
+      expectedTarget.task_id !== payload.task_id ||
+      expectedTarget.step !== payload.step
+    ) {
+      return {
+        ok: false,
+        code: "MUTATION_OUT_OF_RIGHTS",
+        message: `event:task_step_reset target {task_id=${payload.task_id}, step=${payload.step}} does not match finding ${payload.finding_id}'s target`,
+        detail: {
+          finding_id: payload.finding_id,
+          expected_target: expectedTarget ?? null,
+          actual_target: { task_id: payload.task_id, step: payload.step },
+          reason: "task_step_reset_target_mismatch",
+        },
+      };
+    }
+    // The target task + step must exist in the projection — a step the task
+    // does not carry cannot be reset (treated as a target mismatch: the
+    // finding's target points at a step absent from the task graph).
+    const task = ctx.snapshot.tasks.find((t) => t.id === payload.task_id);
+    if (!task || !(payload.step in task.steps)) {
+      return {
+        ok: false,
+        code: "MUTATION_OUT_OF_RIGHTS",
+        message: `event:task_step_reset target {task_id=${payload.task_id}, step=${payload.step}} is not present in the tasks projection`,
+        detail: {
+          finding_id: payload.finding_id,
+          task_id: payload.task_id,
+          step: payload.step,
+          reason: "task_step_reset_target_mismatch",
+        },
+      };
+    }
+    // codex r140 P1 — fix-impl may reopen a `done` task (r139 Q5: a done
+    // task's step cannot otherwise be re-run), but `abandoned` is a TERMINAL
+    // status and must NOT be reactivated (protocol.md — abandoned is a final
+    // task status; docs/schemas.ts — abandoned tasks cannot be reactivated).
+    // The reducer rewrites the target task to `in_progress`; without this
+    // guard a fix-impl finding targeting an abandoned task would resurrect it.
+    if (task.status === "abandoned") {
+      return {
+        ok: false,
+        code: "MUTATION_OUT_OF_RIGHTS",
+        message: `event:task_step_reset cannot reset task ${payload.task_id}: status=abandoned is terminal and cannot be reactivated (fix-impl may reopen a done task, never an abandoned one)`,
+        detail: {
+          finding_id: payload.finding_id,
+          task_id: payload.task_id,
+          status: task.status,
+          reason: "task_step_reset_task_abandoned",
+        },
+      };
+    }
+  }
+
   // (5g) Slice 3 SC3 — finding:raised refines (FINDING_ACTION_GRID +
   // target_payload). Runs after PER_KIND_PAYLOAD parse so `parsed.data`
   // is the typed FindingRaisedPayload. Order:
@@ -1599,13 +1727,14 @@ function checkTransition(
     const from = payload["from"] as SubState | undefined;
     const to = payload["to"] as SubState | undefined;
     if (from === undefined || to === undefined) return null; // schema already rejected upstream
-    // Slice B / Phase 11 Item 3 SC1: extract back_edge sponsorship from
+    // Slice B / Phase 11 Item 3 SC1-SC2: extract back_edge sponsorship from
     // payload so validateTransition can enforce action→target/from contract.
     // The finding_id existence check happens at the outer preflight path
     // (needs snapshot.findings, not visible here). The cast is the full
-    // 2-arm BackEdge union (amend-spec | amend-tasks) — SC1 added the
-    // amend-tasks arm; the runtime object already passes through to
-    // validateTransition's 2-arm union, this only realigns the annotation.
+    // 3-arm BackEdge union (amend-spec | amend-tasks | fix-impl) — SC1 added
+    // the amend-tasks arm, SC2 the fix-impl arm; the runtime object already
+    // passes through to validateTransition's union, this only realigns the
+    // annotation.
     const backEdge = payload["back_edge"] as TransitionContext["back_edge"];
     return validateTransition(from, to, {
       ceremony: ctx.ceremony,

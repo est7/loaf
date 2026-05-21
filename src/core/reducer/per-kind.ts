@@ -36,6 +36,17 @@ const ALL_SPEC: SubState[] = [
 
 const ALL_EXECUTE: SubState[] = ["EXECUTE.plan", "EXECUTE.work", "EXECUTE.done"];
 
+// Phase 11 Item 3 SC2 — the fix-impl back-edge from-set (codex r139 Q4):
+// the VERIFY_OR_POST_LOCK_EXECUTE band minus EXECUTE.plan. `event:task_step_reset`
+// is co-emitted from exactly these sub_states (it mirrors the `fix-impl`
+// BACK_EDGE_FROM row in transition.ts). Deliberately NOT ANY_SUB_STATE and
+// NOT EXECUTE.plan — at the planning surface a step is restructured directly.
+const FIX_BACK_EDGE_FROM: SubState[] = [
+  "EXECUTE.work", "EXECUTE.done",
+  "VERIFY.plan", "VERIFY.run", "VERIFY.review",
+  "VERIFY.acceptance", "VERIFY.visual", "VERIFY.accept",
+];
+
 export const PER_KIND_SUB_STATE: Record<EntryKind, SubStateGuard> = {
   // State machine transitions
   "event:phase_advanced": ANY_SUB_STATE, // validateTransition gates the edge itself
@@ -50,6 +61,7 @@ export const PER_KIND_SUB_STATE: Record<EntryKind, SubStateGuard> = {
   "event:task_claimed": new Set(["EXECUTE.work"]),
   "event:task_step_started": new Set(["EXECUTE.work"]),
   "event:task_step_done": new Set(["EXECUTE.work"]),
+  "event:task_step_reset": new Set(FIX_BACK_EDGE_FROM),
   "event:task_abandoned": new Set(["EXECUTE.work"]),
   "event:spec_req_added": new Set(ALL_SPEC),
   "event:spec_scenario_added": new Set(ALL_SPEC),
@@ -85,6 +97,7 @@ export type ActorPrefix = "human" | "skill" | "ci" | "cli" | "migration";
 
 const ALL_NON_MIGRATION: readonly ActorPrefix[] = ["human", "skill", "ci", "cli"];
 const HUMAN_ONLY: readonly ActorPrefix[] = ["human"];
+const CLI_ONLY: readonly ActorPrefix[] = ["cli"];
 const MIGRATION_ONLY: readonly ActorPrefix[] = ["migration"];
 
 // Actor authority table — ADR-0005 §3.4. Empty array would denote "any actor";
@@ -97,6 +110,11 @@ export const PER_KIND_ACTOR: Record<EntryKind, readonly ActorPrefix[]> = {
   "event:task_claimed": ALL_NON_MIGRATION,
   "event:task_step_started": ALL_NON_MIGRATION,
   "event:task_step_done": ALL_NON_MIGRATION,
+  // Phase 11 Item 3 SC2 (codex r139 Q4): event:task_step_reset is a
+  // mechanical entry the CLI co-emits inside the fix-impl back-edge batch —
+  // human attribution lives on the sibling finding:raised entry, so the
+  // reset itself is cli-only (no human/skill/ci can author it directly).
+  "event:task_step_reset": CLI_ONLY,
   "event:task_abandoned": ALL_NON_MIGRATION,
   "event:spec_req_added": ALL_NON_MIGRATION,
   "event:spec_scenario_added": ALL_NON_MIGRATION,

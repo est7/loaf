@@ -82,8 +82,8 @@ const LEGAL_TRANSITIONS: Record<SubState, readonly SubState[]> = {
 };
 
 // Back-edge actions (Phase 11 Item 3). `amend-spec` wired at SC0,
-// `amend-tasks` at SC1; `fix-impl` / `fix-test` rows land in SC2-SC3.
-type BackEdgeAction = "amend-spec" | "amend-tasks";
+// `amend-tasks` at SC1, `fix-impl` at SC2; the `fix-test` row lands in SC3.
+type BackEdgeAction = "amend-spec" | "amend-tasks" | "fix-impl";
 
 // Per-action back-edge from-state table (Phase 11 Item 3 SC0). Reshaped
 // from the single `BACK_EDGE_AMEND_SPEC_FROM` constant so SC1-SC3 add a
@@ -125,6 +125,21 @@ const BACK_EDGE_FROM: Record<BackEdgeAction, ReadonlySet<SubState>> = {
     "VERIFY.visual",
     "VERIFY.accept",
   ]),
+  // The `fix-impl` row (Phase 11 Item 3 SC2, codex r139 Q6) is identical
+  // to the `amend-tasks` row — the same EXECUTE.work/done + VERIFY.* band,
+  // EXECUTE.plan excluded (at the planning surface a step is restructured
+  // directly, not via a finding back-edge). The `EXECUTE.work →
+  // EXECUTE.work` self-loop is intentional (mid-work impl-defect repair).
+  "fix-impl": new Set([
+    "EXECUTE.work",
+    "EXECUTE.done",
+    "VERIFY.plan",
+    "VERIFY.run",
+    "VERIFY.review",
+    "VERIFY.acceptance",
+    "VERIFY.visual",
+    "VERIFY.accept",
+  ]),
 };
 
 export interface TransitionContext {
@@ -150,7 +165,8 @@ export interface TransitionContext {
    */
   back_edge?:
     | { action: "amend-spec"; finding_id: string }
-    | { action: "amend-tasks"; finding_id: string };
+    | { action: "amend-tasks"; finding_id: string }
+    | { action: "fix-impl"; finding_id: string };
 }
 
 export type TransitionResult =
@@ -248,6 +264,46 @@ export function validateTransition(
       // Back-edge legal at the transition layer; preflight verifies the
       // referenced finding_id against snapshot.findings (existence +
       // action match + status=open).
+      return { ok: true };
+    }
+    if (ctx.back_edge.action === "fix-impl") {
+      // Phase 11 Item 3 SC2 — fix-impl back-edge targets EXECUTE.work
+      // (codex r139 Q6). The step reset travels as a sibling
+      // `event:task_step_reset` entry in the same batch; this arm only
+      // gates the cursor edge.
+      if (target !== "EXECUTE.work") {
+        return {
+          ok: false,
+          code: "TRANSITION_ILLEGAL",
+          message: `back_edge action=fix-impl requires target=EXECUTE.work, got ${target}`,
+          detail: {
+            from: prev,
+            to: target,
+            back_edge_action: ctx.back_edge.action,
+            expected_target: "EXECUTE.work",
+            reason: "back_edge_target_mismatch",
+          },
+        };
+      }
+      const allowedFrom = BACK_EDGE_FROM["fix-impl"];
+      if (!allowedFrom.has(prev)) {
+        return {
+          ok: false,
+          code: "TRANSITION_ILLEGAL",
+          message: `back_edge action=fix-impl is not legal from ${prev}; allowed from EXECUTE.work / EXECUTE.done + VERIFY.*`,
+          detail: {
+            from: prev,
+            to: target,
+            back_edge_action: ctx.back_edge.action,
+            allowed_from: [...allowedFrom],
+            reason: "back_edge_from_not_allowed",
+          },
+        };
+      }
+      // Back-edge legal at the transition layer; preflight verifies the
+      // referenced finding_id against snapshot.findings (existence +
+      // action match + status=open) and the task_step_reset entry's
+      // target authority.
       return { ok: true };
     }
     // Future back_edge variants land here additively. The

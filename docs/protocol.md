@@ -1857,7 +1857,7 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 | `loaf evidence add --input <src>` | **rev 5.0**:走 §11.2 transaction,**emit `evidence:added`**(单条或 batch,batch markers N≥2);reducer 派生到 `snapshots/evidence.json`(含 covers[] / check / actor / result)。**rev 4.1**:不接受 `--id` flag,EV-id 由 CLI 单调分配在 payload 内并 stdout 回打;支持 `external_ref` 字段留调用方 correlation。**rev 4.3**(ADR-0004 A3 / A6 / A10):走 `--input` JSON 形态,`attachments` 接受简化 `[{ path }]` — CLI 自动 sha256 + mime infer + canonical path 拷到 `.loaf/<feature>/attachments/<entry_id>/`(**rev 5.0**:按 journal entry_id 分桶,非 EV-id)+ stat bytes(见 §4.4);path 不存在 → `ATTACHMENT_NOT_FOUND` exit 2,非常规文件 → `ATTACHMENT_NOT_FILE` | 0 / 2 |
 | `loaf evidence schema --json` | dump evidence JSON Schema | 0 |
 | `loaf waive <obligation-id> --reason "..."` | **rev 5.0**:emit `evidence:added`(payload `kind=waiver`);reducer 派生到 `snapshots/evidence.json` 的 waiver view。actor 必须 `human:*`;reason ≥10 字符 | 0 / 2 |
-| `loaf finding raise --category X --action Y --summary "..."` | **rev 5.0**:emit `finding:raised`;若 action `requires_target_payload`(如 `amend-tasks` / `fix-impl`),同 batch 加 emit `event:tasks_amended` + `event:phase_advanced`(back-edge transition);reducer 派生到 `snapshots/findings.json` | 0 / 2 |
+| `loaf finding raise --category X --action Y --summary "..."` | **rev 5.0**:emit `finding:raised`;若 action 触发 back-edge,同 batch 加 emit `event:phase_advanced`(`amend-spec` → SPEC.spec;`amend-tasks` → EXECUTE.work);`fix-impl` / `fix-test`(Phase 11 Item 3 SC2-SC3)再额外 emit `event:task_step_reset`(把目标 step 重置为 `pending`),整批 `[finding:raised, event:task_step_reset, event:phase_advanced]`;reducer 派生到 `snapshots/findings.json` | 0 / 2 |
 | `loaf finding list [--status open\|closed]` | 列 findings | 0 |
 | `loaf finding close <FND-id>` | **rev 5.0**:emit `finding:closed`;reducer 派生到 `snapshots/findings.json` | 0 / 2 |
 | `loaf verify status` | 实时算各 check 状态 | 0 |
@@ -1901,7 +1901,7 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 | `loaf tasks amend` | `event:tasks_amended`(`--policy` → `mode=replace` unsponsored;`--input --finding` → `mode=replace` + `sponsored_by_finding_id`) |
 | `loaf evidence add` | `evidence:added`(batch) |
 | `loaf waive` | `evidence:added`(payload.kind=`waiver`) |
-| `loaf finding raise` | `finding:raised` |
+| `loaf finding raise` | `finding:raised`(+ back-edge:`amend-spec` / `amend-tasks` → `event:phase_advanced`;`fix-impl` / `fix-test` → `event:task_step_reset` + `event:phase_advanced`) |
 | `loaf finding close` | `finding:closed` |
 | `loaf pending raise` | `pending:added` |
 | `loaf pending resolve` | `pending:resolved` |
