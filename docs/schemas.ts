@@ -772,7 +772,7 @@ export const MIGRATION_V1_TO_V2_BOUNDARY = {
 //
 // 6 macro phases × 17 sub-states. First-class state machine.
 // SubState format: `<Phase>.<step>` so hooks can parse via split(".").
-// Invariant (enforced by StateJson.refine): sub_state.startsWith(phase + ".")
+// Invariant (enforced by StateProjection.refine): sub_state.startsWith(phase + ".")
 
 export const Phase = z.enum([
   "TRIAGE",
@@ -1310,7 +1310,7 @@ export const PendingPromptEntry = PendingPrompt.extend({
 export type PendingPromptEntry = z.infer<typeof PendingPromptEntry>;
 
 // ─────────────────────────────────────────────────────────────────
-// 12. state.json — derived projection (rev 5.0; reducer-rebuilt from journal)
+// 12. state.json — StateProjection (rev 5.0 / Phase 15 SC1; journal-derived)
 // ─────────────────────────────────────────────────────────────────
 //
 // rev 5.0 (ADR-0005 §3.1): state.json is no longer the canonical truth source —
@@ -1321,11 +1321,18 @@ export type PendingPromptEntry = z.infer<typeof PendingPromptEntry>;
 // journal append (§11.2) → reducer apply → snapshot rebuild. Readers MUST run
 // the §10.15 / Gate #5 fast-check against `snapshots/_meta.json` before parsing
 // this projection; mismatch → exit 2 SNAPSHOT_STALE_REBUILD_REQUIRED, no silent
-// cached-snapshot fallback. The StateJson Zod schema below remains the read
-// contract for CLI / TUI / CI consumers of the projection.
+// cached-snapshot fallback.
 //
-// rev 4.0: StateJson carries session-level state ONLY (state machine
-// position + identity + control + liveness). Active-set detail is NOT
+// Phase 15 SC1 (F-019) split the old monolithic `StateJson` into
+// `StateProjection` (the FULLY journal-derived half — below) and
+// `SessionRuntimeFile` (§12b — machine-local `cwd` / `debug` /
+// `heartbeat_at`, never replay-derived, never written by `--rebuild`).
+// `complexity_score` has no journal source and is `null` until a future
+// TRIAGE-scoring slice; `session_label` / `loaf_version_required` are
+// nullable so a pre-SC1 (legacy) `session:started` entry still projects.
+//
+// rev 4.0: StateProjection carries session-level state ONLY (state machine
+// position + identity + control). Active-set detail is NOT
 // stored here — it lives in `snapshots/tasks.json` (rev 5.0 reader path;
 // worker active set via task.status="in_progress") and is expressed via
 // sub_state for control phase intent (e.g. VERIFY.review when running the
@@ -1334,18 +1341,22 @@ export type PendingPromptEntry = z.infer<typeof PendingPromptEntry>;
 // workspace is reserved for multi-worktree/team display. v1 does NOT
 // wire any gate or path logic to it; pure display field.
 
-export const StateJson = z
+export const StateProjection = z
   .object({
     schema_version: SchemaVersion,
+    // nullable: a pre-SC1 `session:started` entry carries no version pin.
     loaf_version_required: z
       .string()
-      .regex(/^[\^~]?\d+\.\d+(\.\d+)?$/),
+      .regex(/^[\^~]?\d+\.\d+(\.\d+)?$/)
+      .nullable(),
 
     // ── Identity ──
-    session_id: z.string().uuid(),
-    session_label: z.string().min(3),
-    cwd: z.string(),
-    workspace: z.string().default("default"),  // v1: display only
+    // session_id mirrors the journal `SessionStartedPayload` (min 1) — the
+    // CLI-generated value is always a UUID in practice.
+    session_id: z.string().min(1),
+    // nullable: a pre-SC1 `session:started` entry carries no label.
+    session_label: z.string().min(3).nullable(),
+    workspace: z.string().default("default"),  // v1: display only; legacy → "default"
 
     // ── State machine ──
     // rev 4.0: sub_state precisely identifies control-phase intent
@@ -1387,14 +1398,12 @@ export const StateJson = z
     // depth — see protocol.md §10.7. FIFO strict in v1.0.
     pending: z.array(PendingPromptEntry).default([]),
 
-    // ── Debug flag ──
-    debug: z.boolean(),
-
     // ── Ceremony & scoring(rev 4.2:Profile enum 砍,ceremony hybrid B+label)──
     // CLI logic 走 ceremony.* 6 flag;ceremony_label 仅 cosmetic display(skill 写入)
     ceremony: Ceremony,
     ceremony_label: CeremonyLabel.default(""),
-    complexity_score: z.number().int().min(0).max(100),
+    // No journal source yet — `null` until a TRIAGE-scoring slice (F-019).
+    complexity_score: z.number().int().min(0).max(100).nullable(),
 
     // ── Version refs ──
     based_on: z.object({
@@ -1411,10 +1420,8 @@ export const StateJson = z
     // hide a projection-writer bug.
     spec_version: z.number().int().nonnegative().default(0),
 
-    // ── Heartbeat ──
-    heartbeat_at: z.string().datetime(),
-
     // ── Timestamps ──
+    // created_at = `session:started` envelope; updated_at = last entry.
     created_at: z.string().datetime(),
     updated_at: z.string().datetime(),
   })
@@ -1437,7 +1444,31 @@ export const StateJson = z
     },
     { message: "DONE.* requires pending = [] (active-set invariant enforced cross-file by transitions.ts)" },
   );
-export type StateJson = z.infer<typeof StateJson>;
+export type StateProjection = z.infer<typeof StateProjection>;
+
+// ─────────────────────────────────────────────────────────────────
+// 12b. SessionRuntimeFile — machine-local / liveness (Phase 15 SC1)
+// ─────────────────────────────────────────────────────────────────
+//
+// The non-journal half of the old `StateJson` monolith. These fields have
+// no journal source and cannot be replay-derived: `cwd` is a machine path,
+// `debug` a per-invocation runtime flag, `heartbeat_at` a liveness ping.
+// `loaf doctor --rebuild` NEVER reads or writes this file — it is owned by
+// the live CLI, outside the snapshot-projection / replay-proof contract.
+// `session_id` correlates the file with its session.
+//
+// The on-disk location + the live writer are a later Phase 15 slice; SC1
+// defines the contract so the StateProjection split is complete.
+export const SessionRuntimeFile = z
+  .object({
+    schema_version: SchemaVersion,
+    session_id: z.string().min(1),
+    cwd: z.string(),
+    debug: z.boolean(),
+    heartbeat_at: z.string().datetime(),
+  })
+  .strict();
+export type SessionRuntimeFile = z.infer<typeof SessionRuntimeFile>;
 
 // ─────────────────────────────────────────────────────────────────
 // 13. Registry — per-session file (Q15 翻牌)
@@ -1901,13 +1932,13 @@ export type FindingsEvent = z.infer<typeof FindingsEvent>;
 // `src/core/projection-schema.ts`; the serializer is
 // `src/core/projection-writer.ts`.
 //
-// Per codex r156 Option C, `--rebuild` rebuilds only the FOUR fully
-// journal-derived files — tasks.json (§14 `TasksJson` above) +
+// `--rebuild` rebuilds the FIVE fully journal-derived files — state.json
+// (§12 `StateProjection`) + tasks.json (§14 `TasksJson` above) +
 // evidence.json / findings.json / pending.json (the three new containers
-// below) — plus `_meta.json`. `state.json` is DEFERRED: its `StateJson`
-// (§12) contract carries fields with no journal source (session_label /
-// cwd / complexity_score / heartbeat_at …), so a faithful rebuild needs a
-// schema-split (derived projection vs identity/liveness) — its own slice.
+// below) — plus `_meta.json`. Phase 15 SC1 (F-019) closed the former
+// `state.json` deferral by splitting the old `StateJson` monolith into the
+// journal-derived `StateProjection` (§12) and the machine-local
+// `SessionRuntimeFile` (§12b), which `--rebuild` never touches.
 //
 // Container shape (codex r156 Q2): minimal `{schema_version, <items>:[...]}`.
 // NO `version` field on Evidence/Findings/Pending — only `TasksJson.version`
@@ -2079,7 +2110,7 @@ export type GateDiagnostic = z.infer<typeof GateDiagnostic>;
 // Written by explicit `loaf handoff` only (Q4 batch decision). Context
 // overflow detection is loaf-skill's job; loaf-cli only persists the pack.
 //
-// rev 4.0: state_snapshot is StateJson (no longer carries current_*).
+// rev 4.0: state_snapshot is StateProjection (no longer carries current_*).
 // To preserve "what was running" information at handoff time, the pack
 // also carries tasks_active_summary — a derived snapshot of in-progress
 // tasks plus each one's currently running step. Without this, a fresh
@@ -2102,7 +2133,7 @@ export const ResumePack = z.object({
   at: z.string().datetime(),
   session_id: z.string().uuid(),
   reason: z.string().min(5),
-  state_snapshot: StateJson,
+  state_snapshot: StateProjection,
   // rev 4.0: active-set snapshot, since state_snapshot no longer carries
   // current_task/current_step. Empty array when no task is in_progress.
   tasks_active_summary: z.array(TasksActiveSummary).default([]),

@@ -30,6 +30,7 @@ import {
   composeEvidenceJson,
   composeFindingsJson,
   composePendingJson,
+  composeStateProjection,
   composeTasksJson,
   writeProjections,
 } from "../../src/core/projection-writer.js";
@@ -534,8 +535,175 @@ async function buildFullFeatureJournal(opts: { withPlan: boolean }): Promise<str
   return dir;
 }
 
+// ── composeStateProjection (Phase 15 SC1, F-019) ─────────────────────────
+
+type SState = NonNullable<Snapshot["state"]>;
+
+function sessionState(overrides: Partial<SState> = {}): SState {
+  return {
+    session_id: "550e8400-e29b-41d4-a716-446655440000",
+    feature: "auth-refresh",
+    phase: "SPEC",
+    sub_state: "SPEC.design",
+    iteration: 1,
+    spec_locked: false,
+    verify_accepted: false,
+    spec_version: 1,
+    ceremony: STANDARD,
+    ...overrides,
+  };
+}
+
+function stateSnapshot(
+  overrides: Partial<SState> = {},
+  snapOverrides: Partial<Snapshot> = {},
+): Snapshot {
+  return { ...initialSnapshot(), state: sessionState(overrides), ...snapOverrides };
+}
+
+/** A widened (post-SC1) session:started entry carrying the bucket-C fields. */
+function startedWidened(): JournalEntry {
+  return entry(0, "session:started", {
+    session_id: "550e8400-e29b-41d4-a716-446655440000",
+    feature: "auth-refresh",
+    ceremony: STANDARD,
+    session_label: "OAuth refresh",
+    ceremony_label: "standard",
+    workspace: "team-a",
+    loaf_version_required: "^0.1.0",
+  });
+}
+
+/** A legacy (pre-SC1) session:started entry — bucket-C fields absent. */
+function startedLegacy(): JournalEntry {
+  return entry(0, "session:started", {
+    session_id: "550e8400-e29b-41d4-a716-446655440000",
+    feature: "auth-refresh",
+    ceremony: STANDARD,
+  });
+}
+
+describe("composeStateProjection — Phase 15 SC1", () => {
+  test("returns null when the snapshot has no session (empty journal → file skipped)", () => {
+    expect(composeStateProjection(initialSnapshot(), [])).toBeNull();
+  });
+
+  test("widened session:started — bucket-C fields project verbatim", () => {
+    const state = composeStateProjection(stateSnapshot(), [startedWidened()]);
+    expect(state).not.toBeNull();
+    expect(state!.session_label).toBe("OAuth refresh");
+    expect(state!.ceremony_label).toBe("standard");
+    expect(state!.workspace).toBe("team-a");
+    expect(state!.loaf_version_required).toBe("^0.1.0");
+  });
+
+  test("legacy session:started — bucket-C fields fall back to the documented defaults", () => {
+    const state = composeStateProjection(stateSnapshot(), [startedLegacy()]);
+    expect(state!.session_label).toBeNull();
+    expect(state!.loaf_version_required).toBeNull();
+    expect(state!.workspace).toBe("default");
+    expect(state!.ceremony_label).toBe("");
+  });
+
+  test("complexity_score is always null — no journal source (F-019)", () => {
+    const state = composeStateProjection(stateSnapshot(), [startedWidened()]);
+    expect(state!.complexity_score).toBeNull();
+  });
+
+  test("created_at = session:started envelope; updated_at = last replayed entry", () => {
+    const entries = [
+      startedWidened(),
+      entry(1, "event:phase_advanced", { from: "TRIAGE.score", to: "TRIAGE.confirm" }),
+      entry(2, "event:phase_advanced", { from: "TRIAGE.confirm", to: "SPEC.proposal" }),
+    ];
+    const state = composeStateProjection(stateSnapshot(), entries);
+    expect(state!.created_at).toBe("2026-05-21T10:00:00.000Z");
+    expect(state!.updated_at).toBe("2026-05-21T10:00:02.000Z");
+  });
+
+  test("D-bucket fields (cwd / debug / heartbeat_at) never appear in the projection", () => {
+    const state = composeStateProjection(stateSnapshot(), [startedWidened()]);
+    expect(state).not.toHaveProperty("cwd");
+    expect(state).not.toHaveProperty("debug");
+    expect(state).not.toHaveProperty("heartbeat_at");
+  });
+
+  test("based_on.tasks counts plan + amend; based_on.spec from tasks_based_on", () => {
+    const entries = [
+      startedWidened(),
+      entry(1, "event:tasks_planned", { based_on: { spec: 2 }, tasks: [behavioralTask()] }),
+      entry(2, "event:tasks_amended", { task: behavioralTask({ tests: ["x.test"] }) }),
+    ];
+    const snap = stateSnapshot({}, { tasks_based_on: { spec: 2 } });
+    const state = composeStateProjection(snap, entries);
+    expect(state!.based_on).toEqual({ spec: 2, tasks: 2 });
+  });
+
+  test("pending is the LIVE queue — resolved filtered out, no `resolved` key (BLOCK 1)", () => {
+    const entries = [
+      startedWidened(),
+      entry(1, "pending:added", { id: "PEND-0001", kind: "ask_user_question", question: "first?" }),
+      entry(2, "pending:added", { id: "PEND-0002", kind: "ask_user_question", question: "second?" }),
+      entry(3, "pending:resolved", { id: "PEND-0001" }),
+    ];
+    const state = composeStateProjection(stateSnapshot(), entries);
+    expect(state!.pending).toHaveLength(1);
+    expect(state!.pending[0]!.pending_id).toBe("PEND-0002");
+    // state.json carries the live-queue shape — the `resolved` tag belongs
+    // to pending.json alone (codex r168 BLOCK 1).
+    expect(state!.pending[0]).not.toHaveProperty("resolved");
+  });
+
+  test("THROWS on a present-but-invalid bucket-C field — rebuild must not launder corruption (BLOCK 2)", () => {
+    // session_label present but not a string — corruption, not legacy absence.
+    const badLabel = entry(0, "session:started", {
+      session_id: "550e8400-e29b-41d4-a716-446655440000",
+      feature: "auth-refresh",
+      ceremony: STANDARD,
+      session_label: 42,
+    });
+    expect(() => composeStateProjection(stateSnapshot(), [badLabel])).toThrow();
+
+    // loaf_version_required present but malformed — fails the version regex.
+    const badVersion = entry(0, "session:started", {
+      session_id: "550e8400-e29b-41d4-a716-446655440000",
+      feature: "auth-refresh",
+      ceremony: STANDARD,
+      loaf_version_required: "not-a-version",
+    });
+    expect(() => composeStateProjection(stateSnapshot(), [badVersion])).toThrow();
+  });
+
+  test("DONE.* terminal — an empty live queue satisfies the pending=[] invariant", () => {
+    const entries = [
+      startedWidened(),
+      entry(1, "pending:added", { id: "PEND-0001", kind: "ask_user_question", question: "blk?" }),
+      entry(2, "pending:resolved", { id: "PEND-0001" }),
+    ];
+    const state = composeStateProjection(
+      stateSnapshot({ phase: "DONE", sub_state: "DONE.delivered" }),
+      entries,
+    );
+    expect(state!.pending).toEqual([]);
+    expect(state!.sub_state).toBe("DONE.delivered");
+  });
+
+  test("THROWS when sub_state does not match phase (StateProjection refine — corruption)", () => {
+    expect(() =>
+      composeStateProjection(
+        stateSnapshot({ phase: "SPEC", sub_state: "EXECUTE.work" }),
+        [startedWidened()],
+      ),
+    ).toThrow();
+  });
+
+  test("THROWS when the snapshot has session state but no session:started entry", () => {
+    expect(() => composeStateProjection(stateSnapshot(), [])).toThrow(/no session:started/);
+  });
+});
+
 describe("writeProjections — Phase 14 SC1 end-to-end", () => {
-  test("writes tasks/evidence/findings/pending + _meta.json from a real journal", async () => {
+  test("writes state/tasks/evidence/findings/pending + _meta.json from a real journal", async () => {
     const dir = await buildFullFeatureJournal({ withPlan: true });
     try {
       const replay = await replayJournal(path.join(dir, "journal.jsonl"), {
@@ -551,11 +719,15 @@ describe("writeProjections — Phase 14 SC1 end-to-end", () => {
       });
 
       const snapDir = path.join(dir, "snapshots");
+      const state = JSON.parse(await readFile(path.join(snapDir, "state.json"), "utf8"));
       const tasks = JSON.parse(await readFile(path.join(snapDir, "tasks.json"), "utf8"));
       const evidence = JSON.parse(await readFile(path.join(snapDir, "evidence.json"), "utf8"));
       const findings = JSON.parse(await readFile(path.join(snapDir, "findings.json"), "utf8"));
       const pending = JSON.parse(await readFile(path.join(snapDir, "pending.json"), "utf8"));
       const meta = JSON.parse(await readFile(path.join(snapDir, "_meta.json"), "utf8"));
+
+      expect(state.session_id).toBeTruthy();
+      expect(state.sub_state.startsWith(state.phase + ".")).toBe(true);
 
       expect(tasks.tasks).toHaveLength(1);
       expect(tasks.tasks[0].id).toBe("T-001");
@@ -602,7 +774,8 @@ describe("writeProjections — Phase 14 SC1 end-to-end", () => {
       await expect(stat(path.join(snapDir, "tasks.json"))).rejects.toMatchObject({
         code: "ENOENT",
       });
-      // the other three + _meta.json are still present.
+      // state.json + the other three + _meta.json are still present.
+      expect((await stat(path.join(snapDir, "state.json"))).isFile()).toBe(true);
       expect((await stat(path.join(snapDir, "evidence.json"))).isFile()).toBe(true);
       expect((await stat(path.join(snapDir, "findings.json"))).isFile()).toBe(true);
       expect((await stat(path.join(snapDir, "pending.json"))).isFile()).toBe(true);
@@ -658,7 +831,7 @@ describe("writeProjections — Phase 14 SC1 end-to-end", () => {
 
       await writeProjections(dir, input);
       const snapDir = path.join(dir, "snapshots");
-      const files = ["tasks.json", "evidence.json", "findings.json", "pending.json", "_meta.json"];
+      const files = ["state.json", "tasks.json", "evidence.json", "findings.json", "pending.json", "_meta.json"];
       const first: Record<string, string> = {};
       for (const f of files) first[f] = await readFile(path.join(snapDir, f), "utf8");
 

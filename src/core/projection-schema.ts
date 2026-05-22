@@ -2,17 +2,20 @@
 // --rebuild` write path (Phase 14 SC1, ADR-0005 §3.6 / findings.md F-018).
 //
 // `loaf doctor --rebuild` replays the journal seq=0 and re-serializes the
-// four fully-journal-derived projection files under `.loaf/<feature>/
+// five fully-journal-derived projection files under `.loaf/<feature>/
 // snapshots/`. The on-disk read contracts these schemas validate:
 //
+//   state.json     → StateProjection (Phase 15 SC1 — F-019)
 //   tasks.json     → TasksJson      (mirrors docs/schemas.ts §14)
 //   evidence.json  → EvidenceJson   (new container, codex r156 Q2)
 //   findings.json  → FindingsJson   (new container — finding-state list)
 //   pending.json   → PendingJson    (new container — projection entries)
 //
-// `state.json` is intentionally absent: its `StateJson` contract carries
-// fields with NO journal source (session_label / cwd / complexity_score …),
-// so a faithful rebuild needs a schema-split — deferred (F-018, own slice).
+// Phase 15 SC1 split the old monolithic `StateJson` into `StateProjection`
+// (the journal-derived half, below) and `SessionRuntimeFile`
+// (docs/schemas.ts §11b — machine-local `cwd` / `debug` / `heartbeat_at`,
+// never replay-derived, never written by `--rebuild`). `complexity_score`
+// has no journal source yet and stays `null` in the projection (F-019).
 //
 // Layering mirrors the other neutral `*-schema.ts` modules: this module
 // imports the per-domain payload shapes (TaskFullPayload / EvidenceFullShape)
@@ -33,7 +36,7 @@ import {
   EvidenceResult,
 } from "./evidence-schema.js";
 import { FindingAction, FindingCategory } from "./finding-schema.js";
-import { PendingId, PendingPromptKind } from "./journal-entry.js";
+import { Ceremony, PendingId, PendingPromptKind, SubState } from "./journal-entry.js";
 
 // Projection schema-version pin — mirrors docs/schemas.ts:417-418
 // (SchemaVersion = z.literal(2)) and snapshot.ts FEATURE_SCHEMA_VERSION.
@@ -114,20 +117,27 @@ export const FindingsJson = z
   .strict();
 export type FindingsJson = z.infer<typeof FindingsJson>;
 
-// ── pending.json — PendingJson (new container) ──────────────────────────
+// ── pending entries — PendingQueueEntry / PendingProjectionEntry ────────
 //
-// PendingProjectionEntry = the documented §11 `PendingPromptEntry` fields
+// PendingQueueEntry = the documented §11 `PendingPromptEntry` fields
 // (pending_id / kind / question / options? / blocks / raised_at /
-// raised_by / at / raised_by_task_id?) PLUS `resolved: boolean`.
+// raised_by / at / raised_by_task_id?). It is the LIVE-queue shape, with
+// NO `resolved` flag — `state.json` (§12 `StateProjection.pending`) carries
+// exactly this: only unresolved blockers (codex r168 BLOCK 1 — `state.json`
+// is a public read contract and must not leak `pending.json`'s tagged form).
+//
+// PendingProjectionEntry = PendingQueueEntry PLUS `resolved: boolean` —
+// `pending.json`'s entry: the full append-only ledger, every `pending:added`
+// tagged with whether a matching `pending:resolved` exists.
 //
 // The journal `pending:added` payload carries only id / kind / question
 // (+ optional options / task_id) and ONE envelope timestamp + actor; the
-// rich `PendingPromptEntry` fields are collapsed onto journal truth:
+// rich fields are collapsed onto journal truth:
 //   - raised_at + at  ← the single envelope timestamp
 //   - raised_by       ← the envelope actor
 //   - blocks          ← the constant "advance" (never carried on payload)
 //   - resolved        ← true iff a matching `pending:resolved` entry exists
-export const PendingProjectionEntry = z
+export const PendingQueueEntry = z
   .object({
     pending_id: PendingId,
     kind: PendingPromptKind,
@@ -138,9 +148,13 @@ export const PendingProjectionEntry = z
     raised_by: z.string().min(1),
     at: z.string().datetime(),
     raised_by_task_id: z.string().regex(/^T-\d{3,}$/).optional(),
-    resolved: z.boolean(),
   })
   .strict();
+export type PendingQueueEntry = z.infer<typeof PendingQueueEntry>;
+
+export const PendingProjectionEntry = PendingQueueEntry.extend({
+  resolved: z.boolean(),
+}).strict();
 export type PendingProjectionEntry = z.infer<typeof PendingProjectionEntry>;
 
 export const PendingJson = z
@@ -150,6 +164,79 @@ export const PendingJson = z
   })
   .strict();
 export type PendingJson = z.infer<typeof PendingJson>;
+
+// ── state.json — StateProjection (Phase 15 SC1, F-019) ──────────────────
+//
+// The journal-derived half of the rev-4.0 `StateJson` read contract
+// (docs/schemas.ts §11). `loaf doctor --rebuild` re-serializes this from
+// journal truth alone; mutate step 8 (Phase 15 SC3) will maintain it live.
+//
+// The non-journal half of the old monolith — `cwd` / `debug` /
+// `heartbeat_at` — split out to `SessionRuntimeFile` (docs/schemas.ts
+// §11b): machine-local liveness, never replay-derived, never written by
+// `--rebuild` (codex r167 Q3).
+//
+// Bucket-C identity fields (`session_label` / `workspace` /
+// `loaf_version_required` / `ceremony_label`) ride the widened
+// `session:started` payload. A pre-SC1 (legacy) entry lacks them;
+// `composeStateProjection` applies the documented fallback — `workspace`
+// → "default", `ceremony_label` → "", `session_label` &
+// `loaf_version_required` → null. `complexity_score` has no journal
+// source at all (codex r167 Q2) so it is `null` until a future
+// TRIAGE-scoring slice — nullable here, never invented.
+const StateProjectionPhase = z.enum([
+  "TRIAGE", "SPEC", "EXECUTE", "VERIFY", "SETTLE", "DONE",
+]);
+
+// `pending` is the LIVE FIFO queue — only entries with no matching
+// `pending:resolved`, carried as `PendingQueueEntry` (NO `resolved` flag —
+// that tagged form belongs to `pending.json` alone; codex r168 BLOCK 1).
+// The DONE.* refine below depends on the queue being empty once every
+// blocker is resolved.
+export const StateProjection = z
+  .object({
+    schema_version: SchemaVersionLiteral,
+    // ── identity ──
+    session_id: z.string().min(1),
+    session_label: z.string().min(3).nullable(),
+    workspace: z.string().min(1),
+    loaf_version_required: z
+      .string()
+      .regex(/^[\^~]?\d+\.\d+(\.\d+)?$/)
+      .nullable(),
+    // ── state machine ──
+    phase: StateProjectionPhase,
+    sub_state: SubState,
+    iteration: z.number().int().positive(),
+    // ── gate approval flags ──
+    spec_locked: z.boolean(),
+    verify_accepted: z.boolean(),
+    // ── pending FIFO queue (live — unresolved only, no `resolved` flag) ──
+    pending: z.array(PendingQueueEntry),
+    // ── ceremony & scoring ──
+    ceremony: Ceremony,
+    ceremony_label: z.string(),
+    complexity_score: z.number().int().min(0).max(100).nullable(),
+    // ── version refs ──
+    based_on: z
+      .object({
+        spec: z.number().int().nonnegative(),
+        tasks: z.number().int().nonnegative(),
+      })
+      .strict(),
+    spec_version: z.number().int().nonnegative(),
+    // ── timestamps ──
+    created_at: z.string().datetime(),
+    updated_at: z.string().datetime(),
+  })
+  .strict()
+  .refine((s) => s.sub_state.startsWith(s.phase + "."), {
+    message: "sub_state must start with phase + '.'",
+  })
+  .refine((s) => !s.phase.startsWith("DONE") || s.pending.length === 0, {
+    message: "DONE.* requires pending = [] (live queue empty at terminal)",
+  });
+export type StateProjection = z.infer<typeof StateProjection>;
 
 // Re-export the enum types used by the schema, so a consumer of the
 // container types does not have to also reach into evidence-schema.

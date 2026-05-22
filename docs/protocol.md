@@ -249,7 +249,7 @@ DONE                                                 terminal
 ```
 
 **rev 4.0 终态 invariant**:任意 `DONE.*` 子状态下:
-- `state.pending.length === 0`(rev 4.1 起 `pending` 为 FIFO 数组,空形态是 `[]`,**不**是 `null`;StateJson 内嵌 refine 强制)
+- `state.pending.length === 0`(rev 4.1 起 `pending` 为 FIFO 数组,空形态是 `[]`,**不**是 `null`;StateProjection 内嵌 refine 强制)
 - `tasks.json` 中无 `status="in_progress"` 的 task(active-set 部分,cross-file invariant 由 `transitions.ts` 在 `loaf advance` / `loaf tasks check` 时强制 —— Zod 单文件 refine 无法表达跨文件约束,这是 rev 4.0 fresh design 对 §1 原则 3「Schema IS the contract」的一档让步)
 - `DONE.abandoned` 必有 reason(写入 `loaf abandon --reason`)
 
@@ -425,20 +425,26 @@ EXECUTE 之前的 evidence 不浪费;`based_on.spec` 跳号让审计能识别"�
 
 > **rev 5.0 note**: 本节字段语义未变;变的是 layer——`state.json` 不再是 mutation 入口,任何 phase / sub_state / ceremony / pending / iteration 推进都通过 journal entry 由 reducer derive。原"单源真理"标题在 rev 5.0 退场,canonical truth 移至 `journal.jsonl`(§4 intro + §13.1)。
 
-rev 4.0 后字段分三组(active-set detail 不再 store 在 state):
-- **identity**:`session_id` / `session_label` / `cwd` / `workspace`
-- **control**:`pending` / `spec_locked` / `verify_accepted` / `phase` / `sub_state`
-- **liveness**:`heartbeat_at`
+> **Phase 15 SC1 note**(F-019):原单体 `StateJson` 按 journal 溯源拆成两个契约 —— `StateProjection`(本节,journal 全派生,`loaf doctor --rebuild` 重建)+ `SessionRuntimeFile`(§4.1a,机器本地 `cwd` / `debug` / `heartbeat_at`,无 journal 来源,`--rebuild` 不碰)。`session_label` / `loaf_version_required` 改 nullable(pre-SC1 的 legacy `session:started` 缺这些字段,走兜底);`complexity_score` 无 journal 来源,恒为 `null` 直到将来的 TRIAGE-scoring slice。
+
+`StateProjection` 字段分组(active-set detail 不再 store 在 state):
+- **identity**:`session_id` / `session_label`(nullable)/ `workspace` / `loaf_version_required`(nullable)
+- **state machine**:`phase` / `sub_state` / `iteration`
+- **gate flags**:`spec_locked` / `verify_accepted`
+- **control**:`pending`(live FIFO 队列 — 只含未 resolved 的 blocker)
+- **ceremony**:`ceremony` / `ceremony_label` / `complexity_score`(nullable)
+- **version refs**:`based_on` / `spec_version`
+- **timestamps**:`created_at`(= `session:started` envelope)/ `updated_at`(= 末条目 envelope)
 
 > **Slice 1.A note**:`spec_locked` 和 `verify_accepted` 是 gate 批准 flag,**gate 不再移 cursor**(以前 `gate:decided spec-lock` 同时翻 flag + 移 cursor 到 EXECUTE.plan,现在只翻 flag)。Cursor 推进由同一 batch 内的 `event:phase_advanced`(spec-lock 配 SPEC.design→EXECUTE.plan)或 `loaf deliver`/`loaf settle`(verify-accept 后)负责。
 
 ```json
+// snapshots/state.json — StateProjection (journal-derived)
 {
   "schema_version": 2,
   "loaf_version_required": "^1.0",
   "session_id": "550e8400-e29b-41d4-a716-446655440000",
   "session_label": "popposhell · auth refresh",
-  "cwd": "/Users/est9/popposhell",
   "workspace": "default",
   "phase": "VERIFY",
   "sub_state": "VERIFY.visual",
@@ -446,7 +452,6 @@ rev 4.0 后字段分三组(active-set detail 不再 store 在 state):
   "spec_locked": true,
   "verify_accepted": false,
   "pending": [],
-  "debug": false,
   "ceremony": {
     "spec_phase": true,
     "verify_phase": true,
@@ -456,13 +461,16 @@ rev 4.0 后字段分三组(active-set detail 不再 store 在 state):
     "strict_drift_check": false
   },
   "ceremony_label": "standard",
-  "complexity_score": 38,
+  "complexity_score": null,
   "based_on": { "spec": 3, "tasks": 5 },
-  "heartbeat_at": "2026-05-12T10:30:45Z",
+  "spec_version": 3,
   "created_at": "2026-05-12T08:00Z",
   "updated_at": "2026-05-12T10:30:45Z"
 }
 ```
+
+> `complexity_score` 示例为 `null` —— Phase 15 SC1 无 journal 来源,恒 null(F-019);
+> `session_label` / `loaf_version_required` 在 legacy `session:started` 缺失时同为 `null`。
 
 **非空 pending 队列示例**(fan-out 中 worker A 撞 profile_escalation,worker B 撞 finding_decision,user 还没答 head):
 
@@ -498,12 +506,27 @@ rev 4.0 后字段分三组(active-set detail 不再 store 在 state):
 > rev 4.0:`current_task` / `current_step` / `current_check` 字段已**全砍**。「正在跑哪些 task」走 `tasks.json` filter `status="in_progress"`(worker active set);「当前 step」走 `task.execution.<step>.status === "running"` derive;「正在跑哪个 verify check」由 sub_state 表达(`VERIFY.run` / `VERIFY.review` / `VERIFY.acceptance` / `VERIFY.visual`)。
 
 **Invariant**:
-- `sub_state.startsWith(phase + ".")` (StateJson 内嵌 refine)
+- `sub_state.startsWith(phase + ".")` (StateProjection 内嵌 refine)
 - `phase = "DONE"` 时 `tasks.json` 中无 `status="in_progress"`(**cross-file invariant**,由 `transitions.ts` 强制 — Zod 单文件 refine 无法表达;rev 4.0 fresh design 对 §1 原则 3 的一档让步)
 - `pending` 是 **FIFO 队列**(rev 4.1:数组,default `[]`);**head 元素 `pending[0]` 是 active blocker**。Protocol 层阻塞规则极简(rev 4.1 Q3,见 §10.7 / §14.3 L2019):**`loaf advance` 在 head kind ∈ {`gate_decision`, `profile_escalation`} 时 exit 2**。其它 35+ 命令 protocol 不做 pending 阻塞 — fan-out 调度由 skill 通过 `loaf pending list` 决策。resolve 永远 pop head(v1.0 严格 FIFO,无 `--id` 跳序)
 - **`pending` 反向定义**(rev 4.1):每个 entry 是一次 **single blocking interaction**(等用户回答 / human gate 批准 / finding decision / profile escalation 等);**不是** unfinished work 集合,**不是** derived obligation list。所有其它"待处理事项"(未跑完的 check / 未关的 finding / 未做的 task)由 tasks / spec / evidence / findings 派生计算,**不进** state.pending。队列存在的唯一原因:rev 4.0 fan-out(EXECUTE.work)多 worker 各自 raise 不同 pending,FIFO 排队避免互相阻塞。详见 §14.3
-- **DONE.* 终态**:`pending.length === 0`(StateJson 内嵌 refine 强制 — `pending` 是数组,空形态是 `[]` 不是 `null`);active-set cross-file invariant 见 §2(`tasks.json` 中无 `in_progress`)
+- **DONE.* 终态**:`pending.length === 0`(StateProjection 内嵌 refine 强制 — `pending` 是数组,空形态是 `[]` 不是 `null`);active-set cross-file invariant 见 §2(`tasks.json` 中无 `in_progress`)
 - `workspace` 字段 v1 仅 display 用,不接入任何 gate / 路径逻辑
+
+### 4.1a SessionRuntimeFile(机器本地 — 非投影,`--rebuild` 不写)
+
+> **Authority**: 机器本地 / liveness 文件,**非派生投影**。`cwd` / `debug` / `heartbeat_at` 无 journal 来源、无法 replay 重建,故 Phase 15 SC1(F-019)从 `state.json` 拆出。`loaf doctor --rebuild` 永不读写本文件;由 live CLI 拥有,在 snapshot-projection / replay-proof 契约之外。落盘位置 + live writer 是后续 Phase 15 slice;SC1 只定契约,使 `StateProjection` 拆分完整。
+
+```json
+// SessionRuntimeFile — machine-local, NOT a snapshot projection
+{
+  "schema_version": 2,
+  "session_id": "550e8400-e29b-41d4-a716-446655440000",
+  "cwd": "/Users/est9/popposhell",
+  "debug": false,
+  "heartbeat_at": "2026-05-12T10:30:45Z"
+}
+```
 
 ### 4.2 spec.md(EARS 三选一可验证 + Gherkin + Visual Contracts + adr_refs)
 
@@ -892,7 +915,7 @@ gate / submit / transition / diff-guard 失败时**覆写**到 `.loaf/<feature>/
   "at": "2026-05-12T11:00Z",
   "session_id": "550e8400-...",
   "reason": "main context approaching token limit; handoff to fresh session",
-  "state_snapshot": { /* StateJson 当前完整 */ },
+  "state_snapshot": { /* StateProjection 当前完整(§4.1)*/ },
   "recent_evidence": ["EV-000125","EV-000126","EV-000127","EV-000128"],
   "recent_findings": ["FND-001","FND-002"],
   "open_pending": null,
@@ -1829,7 +1852,7 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 
 | 命令 | 用途 | exit |
 |---|---|---|
-| `loaf start <desc> [--feature <name>]` | 进入 TRIAGE,在 `.loaf/<feature>/` 起新 session。**rev 4.1**:stdout **最后一行**打印新 session 的 UUID(可预测,shell 脚本可 `UUID=$(loaf start ... \| tail -1)` 抓取);stderr 一行 state-change(§10.12)| 0 / 2 |
+| `loaf start <feature> [--ceremony <preset>] [--label <text>] [--workspace <name>]` | 进入 TRIAGE,在 `.loaf/<feature>/` 起新 session。**rev 4.1**:stdout **最后一行**打印新 session 的 UUID(可预测,shell 脚本可 `UUID=$(loaf start ... \| tail -1)` 抓取);stderr 一行 state-change(§10.12)。**Phase 15 SC1**(F-019):`--label` / `--workspace` 连同 `--ceremony` preset 名一并写入 `session:started` payload 的 bucket-C identity 字段(`session_label` / `workspace` / `ceremony_label` / `loaf_version_required`),使 `state.json` 投影全 journal 派生 | 0 / 2 |
 | `loaf status` | 读 state + artifact 健康度 | 0 |
 | `loaf advance` | 跑下一 transition + diff guard | 0 / 1 / 2 |
 | `loaf resume` | 恢复 session(从 `resume-pack.json` 接力)。**rev 4.3**(ADR-0004 A8):`--fresh` flag 已砍 — routine phase-switch 上下文切片改走 `loaf context pack` | 0 |

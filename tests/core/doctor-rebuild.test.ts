@@ -197,7 +197,7 @@ describe("loaf doctor --rebuild — Phase 14 SC2", () => {
       expect(r.exit).toBe(0);
       expect(r.stderr).toBe("");
       const snapDir = path.join(dir, "snapshots");
-      for (const f of ["evidence.json", "findings.json", "pending.json", "_meta.json"]) {
+      for (const f of ["state.json", "evidence.json", "findings.json", "pending.json", "_meta.json"]) {
         expect((await fs.stat(path.join(snapDir, f))).isFile()).toBe(true);
       }
       expect(r.stdout).toContain("# snapshot as-of seq=");
@@ -220,7 +220,7 @@ describe("loaf doctor --rebuild — Phase 14 SC2", () => {
       expect(out.feature).toBe("auth-refresh");
       expect(typeof out.tail_seq).toBe("number");
       expect(out.rebuilt).toEqual([
-        "evidence.json", "findings.json", "pending.json", "_meta.json",
+        "state.json", "evidence.json", "findings.json", "pending.json", "_meta.json",
       ]);
       expect(out.rebuilt).not.toContain("tasks.json");
     } finally {
@@ -241,6 +241,68 @@ describe("loaf doctor --rebuild — Phase 14 SC2", () => {
       expect(
         (await fs.stat(path.join(dir, "snapshots", "tasks.json"))).isFile(),
       ).toBe(true);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("rebuilds state.json — 5/5 projections, journal-derived StateProjection", async () => {
+    const dir = await tmpDir();
+    try {
+      await seedJournal(dir, { withPlan: true });
+      const r = await runCli([
+        "doctor", "--rebuild", "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      ]);
+      expect(r.exit).toBe(0);
+      const out = JSON.parse(r.stdout);
+      // state.json leads the rebuilt list; _meta.json trails — 5/5 + tasks.
+      expect(out.rebuilt).toEqual([
+        "state.json", "tasks.json", "evidence.json",
+        "findings.json", "pending.json", "_meta.json",
+      ]);
+      const state = JSON.parse(
+        await fs.readFile(path.join(dir, "snapshots", "state.json"), "utf8"),
+      );
+      expect(state.session_id).toBe("550e8400-e29b-41d4-a716-446655440000");
+      expect(state.phase).toBe("SPEC");
+      expect(state.sub_state).toBe("SPEC.design");
+      expect(state.based_on).toEqual({ spec: 1, tasks: 1 });
+      // seedJournal's hand-rolled session:started predates the SC1 widening
+      // — the documented legacy fallback applies.
+      expect(state.session_label).toBeNull();
+      expect(state.loaf_version_required).toBeNull();
+      expect(state.workspace).toBe("default");
+      expect(state.ceremony_label).toBe("");
+      // complexity_score has no journal source — always null (F-019).
+      expect(state.complexity_score).toBeNull();
+      // D-bucket machine-local fields never appear in the projection.
+      expect(state).not.toHaveProperty("cwd");
+      expect(state).not.toHaveProperty("debug");
+      expect(state).not.toHaveProperty("heartbeat_at");
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a session started with --label / --workspace projects them into state.json", async () => {
+    const dir = await tmpDir();
+    try {
+      const s = await runCli([
+        "start", "auth-refresh", "--feature-dir", dir,
+        "--ceremony", "standard", "--label", "OAuth refresh", "--workspace", "team-a",
+      ]);
+      expect(s.exit).toBe(0);
+      const r = await runCli([
+        "doctor", "--rebuild", "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      ]);
+      expect(r.exit).toBe(0);
+      const state = JSON.parse(
+        await fs.readFile(path.join(dir, "snapshots", "state.json"), "utf8"),
+      );
+      expect(state.session_label).toBe("OAuth refresh");
+      expect(state.workspace).toBe("team-a");
+      expect(state.ceremony_label).toBe("standard");
+      expect(state.loaf_version_required).toMatch(/^\^\d+\.\d+\.\d+$/);
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
     }

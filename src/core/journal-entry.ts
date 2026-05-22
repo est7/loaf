@@ -232,11 +232,27 @@ const CeremonyPayload = z
   })
   .passthrough();
 
+// Phase 15 SC1 (F-019): bucket-C identity fields widened onto the payload
+// so `state.json` becomes a fully journal-derived projection. All four are
+// `.optional()` — a pre-SC1 (legacy) `session:started` entry lacks them,
+// and `composeStateProjection` applies the documented fallback (workspace
+// → "default", ceremony_label → "", session_label / loaf_version_required
+// → null). `complexity_score` is deliberately NOT widened here: it is a
+// TRIAGE-phase score with no value at `loaf start` time and no journal
+// source yet (codex r167 Q2) — the projection field stays `null` until a
+// future TRIAGE-scoring slice.
 export const SessionStartedPayload = z
   .object({
     session_id: z.string().min(1),
     feature: z.string().min(1),
     ceremony: CeremonyPayload,
+    session_label: z.string().min(3).optional(),
+    ceremony_label: z.string().optional(),
+    workspace: z.string().min(1).optional(),
+    loaf_version_required: z
+      .string()
+      .regex(/^[\^~]?\d+\.\d+(\.\d+)?$/)
+      .optional(),
   })
   .passthrough();
 export type SessionStartedPayload = z.infer<typeof SessionStartedPayload>;

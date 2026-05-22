@@ -140,12 +140,28 @@ export async function main(argv: string[] = process.argv): Promise<number> {
     .command("start <feature>")
     .description("Start a new feature session (emits session:started)")
     .option("--ceremony <preset>", "Preset label: quick / light / standard / deep", "standard")
+    .option("--label <text>", "Human-readable session label (≥3 chars)")
+    .option("--workspace <name>", "Workspace name (multi-worktree display)", "default")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-    .action(async (feature: string, opts: { ceremony: string; featureDir?: string }) => {
+    .action(async (
+      feature: string,
+      opts: { ceremony: string; label?: string; workspace: string; featureDir?: string },
+    ) => {
       const ceremony = PRESETS[opts.ceremony];
       if (!ceremony) {
         fail("INVALID_PRESET",
           `unknown ceremony preset "${opts.ceremony}" — known: ${Object.keys(PRESETS).join(", ")}`);
+        return;
+      }
+      // Phase 15 SC1 (F-019): --label is optional, but when given it must
+      // satisfy the session:started payload contract (≥3 chars). Reject
+      // client-side with a usage error rather than a deep INVALID_PAYLOAD.
+      if (opts.label !== undefined && opts.label.length < 3) {
+        fail("USAGE", "--label must be at least 3 characters");
+        return;
+      }
+      if (opts.workspace.length < 1) {
+        fail("USAGE", "--workspace must not be empty");
         return;
       }
       const featureDir = opts.featureDir ?? defaultFeatureDir(feature);
@@ -157,7 +173,17 @@ export async function main(argv: string[] = process.argv): Promise<number> {
           actor,
           entry_schema_version: 1,
           kind: "session:started",
-          payload: { session_id: sessionId, feature, ceremony },
+          // Phase 15 SC1 (F-019): bucket-C identity fields ride the
+          // session:started payload so state.json is fully journal-derived.
+          payload: {
+            session_id: sessionId,
+            feature,
+            ceremony,
+            ceremony_label: opts.ceremony,
+            workspace: opts.workspace,
+            loaf_version_required: `^${packageJson.version}`,
+            ...(opts.label !== undefined ? { session_label: opts.label } : {}),
+          },
         },
         { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq },
       );
@@ -170,6 +196,7 @@ export async function main(argv: string[] = process.argv): Promise<number> {
         feature,
         session_id: sessionId,
         ceremony_label: opts.ceremony,
+        workspace: opts.workspace,
         feature_dir: featureDir,
         sub_state: result.snapshot.state?.sub_state,
       };

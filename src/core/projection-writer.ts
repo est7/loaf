@@ -3,7 +3,7 @@
 //
 // `loaf doctor --rebuild` does a full journal replay (replayJournal seq=0,
 // collect_entries:true) → in-memory `Snapshot` + `JournalEntry[]` + `meta`,
-// then re-serializes the four fully-journal-derived projection files plus
+// then re-serializes the five fully-journal-derived projection files plus
 // `_meta.json` under `.loaf/<feature>/snapshots/`.
 //
 // Layering mirrors spec-projection.ts: pure `compose*` functions (no IO,
@@ -17,10 +17,10 @@
 // `latestCanonicalTaskBody` reconstructs full task bodies from the entry
 // stream; evidence / pending bodies come straight off the entry payloads.
 //
-// `state.json` is intentionally NOT written: its `StateJson` contract
-// carries fields with no journal source (session_label / cwd /
-// complexity_score / heartbeat_at …) — a faithful rebuild needs a
-// schema-split, deferred to its own slice (F-018).
+// `state.json` IS written (Phase 15 SC1): the old monolithic `StateJson`
+// was split into the journal-derived `StateProjection` (re-serialized
+// here) and `SessionRuntimeFile` — machine-local `cwd` / `debug` /
+// `heartbeat_at`, which `--rebuild` never reads or writes (F-019).
 //
 // Migration scope: a v0.0.x-migrated journal carries its projection state
 // via `migration:snapshot_imported` sidecar rehydration, not via ordinary
@@ -33,7 +33,7 @@ import { randomBytes } from "node:crypto";
 import * as fsp from "node:fs/promises";
 import * as path from "node:path";
 
-import type { JournalEntry } from "./journal-entry.js";
+import { SessionStartedPayload, type JournalEntry } from "./journal-entry.js";
 import type { Snapshot } from "./reducer.js";
 import type { SnapshotMeta } from "./snapshot.js";
 import { writeMeta } from "./snapshot.js";
@@ -43,12 +43,106 @@ import {
   FindingsJson,
   PendingJson,
   PROJECTION_SCHEMA_VERSION,
+  StateProjection,
   TasksJson,
   type PendingProjectionEntry,
+  type PendingQueueEntry,
 } from "./projection-schema.js";
 import { EvidenceFullPayload } from "./evidence-schema.js";
 
 // ── Pure compose functions ──────────────────────────────────────────────
+
+/**
+ * Compose `snapshots/state.json` from a replayed snapshot + journal entries.
+ *
+ * Returns `null` when the journal carries no `session:started`
+ * (`snapshot.state` null — empty journal): there is no session to project,
+ * so the file is SKIPPED, never written empty (mirrors `composeTasksJson`).
+ *
+ * The bucket-C identity fields (`session_label` / `workspace` /
+ * `ceremony_label` / `loaf_version_required`) come off the `session:started`
+ * payload, re-parsed through `SessionStartedPayload`: a pre-SC1 (legacy)
+ * entry lacks them (field `undefined` → documented fallback —
+ * `workspace`→"default", `ceremony_label`→"", `session_label` &
+ * `loaf_version_required`→null), but a field PRESENT-but-malformed fails
+ * fast — `--rebuild` must not launder payload corruption into a fallback
+ * (codex r168 BLOCK 2). `complexity_score` has no journal source — always
+ * `null` (F-019). `created_at` is the `session:started` envelope timestamp;
+ * `updated_at` is the last replayed entry's. `based_on.tasks` counts
+ * `event:tasks_planned` + `event:tasks_amended` (= `TasksJson.version`).
+ *
+ * `pending` is the LIVE queue — `composePendingJson` minus every entry with
+ * a matching `pending:resolved`, mapped down to `PendingQueueEntry` (the
+ * `resolved` tag belongs to `pending.json`, not the public `state.json`
+ * contract — codex r168 BLOCK 1). The composed object is validated against
+ * `StateProjection` before return (defense-in-depth, mirrors the others).
+ */
+export function composeStateProjection(
+  snapshot: Snapshot,
+  entries: readonly JournalEntry[],
+): StateProjection | null {
+  const state = snapshot.state;
+  if (state === null) return null;
+
+  const startEntry = entries.find((e) => e.kind === "session:started");
+  if (startEntry === undefined) {
+    // `snapshot.state` is non-null only via `session:started` or a
+    // `migration:snapshot_imported` bootstrap; `doctor --rebuild` rejects
+    // migrated journals upstream, so a missing start entry here is
+    // projection corruption — throw rather than invent identity.
+    throw new Error(
+      "composeStateProjection: snapshot carries session state but the journal has no session:started entry — projection corruption",
+    );
+  }
+  const lastEntry = entries[entries.length - 1];
+  if (lastEntry === undefined) {
+    throw new Error(
+      "composeStateProjection: snapshot carries session state but the entry stream is empty — projection corruption",
+    );
+  }
+
+  // Re-parse the `session:started` payload through `SessionStartedPayload`
+  // (codex r168 BLOCK 2): `replayJournal` validates only the envelope, not
+  // `PER_KIND_PAYLOAD`, so `--rebuild` must distinguish a LEGACY entry
+  // (bucket-C field absent → documented fallback) from a CORRUPT one
+  // (bucket-C field present but malformed → fail fast). `.parse` throws on
+  // the corrupt case; an absent optional field is `undefined` → fallback.
+  const startPayload = SessionStartedPayload.parse(startEntry.payload);
+  const sessionLabel = startPayload.session_label ?? null;
+  const ceremonyLabel = startPayload.ceremony_label ?? "";
+  const workspace = startPayload.workspace ?? "default";
+  const loafVersionRequired = startPayload.loaf_version_required ?? null;
+
+  const tasksVersion = entries.filter(
+    (e) => e.kind === "event:tasks_planned" || e.kind === "event:tasks_amended",
+  ).length;
+
+  return StateProjection.parse({
+    schema_version: PROJECTION_SCHEMA_VERSION,
+    session_id: state.session_id,
+    session_label: sessionLabel,
+    workspace,
+    loaf_version_required: loafVersionRequired,
+    phase: state.phase,
+    sub_state: state.sub_state,
+    iteration: state.iteration,
+    spec_locked: state.spec_locked,
+    verify_accepted: state.verify_accepted,
+    pending: composePendingJson(entries)
+      .pending.filter((p) => !p.resolved)
+      .map(({ resolved: _resolved, ...queue }): PendingQueueEntry => queue),
+    ceremony: state.ceremony,
+    ceremony_label: ceremonyLabel,
+    complexity_score: null,
+    based_on: {
+      spec: snapshot.tasks_based_on?.spec ?? 0,
+      tasks: tasksVersion,
+    },
+    spec_version: state.spec_version,
+    created_at: startEntry.at,
+    updated_at: lastEntry.at,
+  });
+}
 
 /**
  * Compose `snapshots/tasks.json` from a replayed snapshot + journal entries.
@@ -241,24 +335,27 @@ export interface WriteProjectionsInput {
 }
 
 /**
- * Re-serialize the four journal-derived projection files plus `_meta.json`
+ * Re-serialize the five journal-derived projection files plus `_meta.json`
  * under `<featureDir>/snapshots/`.
  *
  * Each data file is written atomically; `_meta.json` is written LAST (via
  * `writeMeta`) so a reader can never observe a fresh `_meta` pointing at
  * stale projections — metadata strictly after data.
  *
- * `tasks.json` is written only when a task plan exists (`composeTasksJson`
- * non-null); with no plan it is removed if present, so a `--rebuild` never
- * leaves a stale tasks.json behind.
+ * `state.json` / `tasks.json` are written only when their content exists
+ * (`composeStateProjection` / `composeTasksJson` non-null) — an empty
+ * journal has no session, a planless journal has no task graph; with
+ * neither present the file is removed, so a `--rebuild` never leaves a
+ * stale projection behind.
  *
  * Does NOT acquire the per-feature lock — the caller (`loaf doctor
  * --rebuild`, SC2) drives this from within its own critical section.
  *
  * Returns the basenames of the files present after the rebuild, in write
- * order — `tasks.json` only when a plan existed, then evidence / findings /
- * pending / `_meta.json`. The `loaf doctor --rebuild` CLI surfaces this as
- * its `rebuilt` list, so it never claims a file it did not write.
+ * order — `state.json` first (skipped only for an empty journal), then
+ * `tasks.json` when a plan existed, then evidence / findings / pending /
+ * `_meta.json`. The `loaf doctor --rebuild` CLI surfaces this as its
+ * `rebuilt` list, so it never claims a file it did not write.
  */
 export async function writeProjections(
   featureDir: string,
@@ -269,6 +366,18 @@ export async function writeProjections(
   await fsp.mkdir(snapshotsDir, { recursive: true });
 
   const written: string[] = [];
+
+  // state.json — the session-root projection (Phase 15 SC1). Written
+  // whenever a session exists; for an empty journal composeStateProjection
+  // returns null and a stale state.json is removed (mirrors tasks.json).
+  const statePath = path.join(snapshotsDir, "state.json");
+  const stateJson = composeStateProjection(snapshot, entries);
+  if (stateJson !== null) {
+    await writeJsonAtomic(statePath, stateJson);
+    written.push("state.json");
+  } else {
+    await fsp.rm(statePath, { force: true });
+  }
 
   // tasks.json — written when a task plan exists, else REMOVED. A stale
   // tasks.json left from a prior state would survive the `_meta.json`
