@@ -490,6 +490,20 @@ const SessionReasonPayload = z
   })
   .passthrough();
 
+// `spike:converted` — Phase 12. Record-only spike exit (protocol §8.3): the
+// `loaf spike convert` command emits this audit entry, then archives the
+// session via a sponsored `session:archived` in the same batch. `to_feature`
+// is the F-NNN id the spike learnings carry into — the new feature itself is
+// opened by a separate `loaf start`. `.strict()` (the kind was a loose
+// RecordPayload pre-SC2): caller-side payload typos must fail Gate #3, not
+// pass silently.
+const SpikeConvertedPayload = z
+  .object({
+    to_feature: FeatureIdPayload,
+    reason: z.string().min(1),
+  })
+  .strict();
+
 // ── SPEC content payload schemas (Slice 1.B sub-cycle 1, refactored r20) ──
 // Structural shapes + verifiability refine live in `spec-schema.ts` so that
 // (a) the verifiable variant gates journal append strict, and (b) the
@@ -577,7 +591,7 @@ export const PER_KIND_PAYLOAD: Record<EntryKind, z.ZodTypeAny> = {
   "session:abandoned": SessionReasonPayload,
 
   // Spike + migration
-  "spike:converted": RecordPayload,
+  "spike:converted": SpikeConvertedPayload,
   "migration:snapshot_imported": MigrationSnapshotImportedPayload,
 };
 
@@ -611,4 +625,5 @@ export const REDUCER_IMPLEMENTED_KINDS: ReadonlySet<EntryKind> = new Set([
   "session:delivered",
   "session:archived",
   "session:abandoned",
+  "spike:converted",
 ]);

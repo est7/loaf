@@ -486,6 +486,80 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
     if (!r.ok) expect(r.code).toBe("DELIVER_SPIKE_TASKS");
   });
 
+  // ── Phase 12 — `spike:converted` precondition (SPIKE_CONVERT_NO_SPIKE_TASK) ──
+  //
+  // `loaf spike convert` is a spike-task exit (protocol §8.3). Preflight
+  // requires the session to hold at least one non-abandoned kind=spike task,
+  // so a non-spike session cannot emit a spike:converted audit entry and
+  // archive itself — that would make the journal misrepresent the session.
+
+  const spikeConvertEntry = (overrides: Record<string, unknown> = {}) =>
+    baseEntry({
+      kind: "spike:converted",
+      actor: "human:est9",
+      payload: { to_feature: "F-002", reason: "carry forward to F-002" },
+      ...overrides,
+    });
+
+  test("spike:converted with a non-abandoned spike task → OK", () => {
+    const spikeTask = {
+      id: "T-001", kind: "spike" as const, status: "in_progress" as const,
+      steps: {}, drives: [], depends_on: [], labels: [],
+    };
+    const r = preflight(spikeConvertEntry(), {
+      snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [spikeTask] }),
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(true);
+  });
+
+  test("spike:converted with a done spike task → OK (done is non-abandoned)", () => {
+    const spikeTask = {
+      id: "T-001", kind: "spike" as const, status: "done" as const,
+      steps: {}, drives: [], depends_on: [], labels: [],
+    };
+    const r = preflight(spikeConvertEntry(), {
+      snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [spikeTask] }),
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(true);
+  });
+
+  test("spike:converted with no tasks → SPIKE_CONVERT_NO_SPIKE_TASK", () => {
+    const r = preflight(spikeConvertEntry(), {
+      snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [] }),
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe("SPIKE_CONVERT_NO_SPIKE_TASK");
+  });
+
+  test("spike:converted with only an abandoned spike task → SPIKE_CONVERT_NO_SPIKE_TASK", () => {
+    const abandonedSpike = {
+      id: "T-002", kind: "spike" as const, status: "abandoned" as const,
+      steps: {}, drives: [], depends_on: [], labels: [],
+    };
+    const r = preflight(spikeConvertEntry(), {
+      snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [abandonedSpike] }),
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe("SPIKE_CONVERT_NO_SPIKE_TASK");
+  });
+
+  test("spike:converted with only a non-spike task → SPIKE_CONVERT_NO_SPIKE_TASK", () => {
+    const behavioralTask = {
+      id: "T-003", kind: "behavioral" as const, status: "in_progress" as const,
+      steps: {}, drives: [], depends_on: [], labels: [],
+    };
+    const r = preflight(spikeConvertEntry(), {
+      snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [behavioralTask] }),
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe("SPIKE_CONVERT_NO_SPIKE_TASK");
+  });
+
   // ── Slice 2 SC1 — step 5e: task lifecycle preflight refines ──────────
   //
   // `event:task_claimed` / `event:task_step_started` / `event:task_step_done`

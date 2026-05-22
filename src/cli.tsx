@@ -714,6 +714,108 @@ export async function main(argv: string[] = process.argv): Promise<number> {
       }
     });
 
+  // ── loaf spike <subcommand> ─────────────────────────────────────────
+  // Phase 12 — spike-task exit `convert` (protocol §8.3). Record-only:
+  // emits a 2-entry batch [spike:converted, session:archived]. The
+  // spike:converted entry records {to_feature, reason}; the sponsored
+  // session:archived owns the terminal cursor flip to DONE.archived. The
+  // target feature F-N is opened later by a separate `loaf start` — this
+  // command does NOT scaffold it. Precondition (preflight 5c.3):
+  // SPIKE_CONVERT_NO_SPIKE_TASK if the session holds no non-abandoned
+  // kind=spike task.
+  const spikeCmd = program
+    .command("spike")
+    .description("Spike-task exits (protocol §8.3)");
+
+  spikeCmd
+    .command("convert")
+    .description(
+      "Convert a spike session — emits spike:converted then archives to DONE.archived",
+    )
+    .requiredOption("--feature <name>", "Feature whose spike session to convert")
+    .requiredOption(
+      "--to-feature <id>",
+      "Target feature id (F-NNN) the spike learnings carry into",
+    )
+    .requiredOption("--reason <text>", "Rationale recorded on the spike:converted entry")
+    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
+    .action(
+      async (opts: {
+        feature: string;
+        toFeature: string;
+        reason: string;
+        featureDir?: string;
+      }) => {
+        // (1) Human-only actor — `spike:converted` is HUMAN_ONLY per PER_KIND_ACTOR.
+        const resolution = resolveHumanActor({
+          env: process.env,
+          readGitConfig: getGitEmail,
+          isInteractiveHuman: process.stdin.isTTY === true,
+        });
+        if (!resolution.ok) {
+          emitFailure(resolution.code, resolution.message);
+          return;
+        }
+        const humanActor = resolution.actor;
+
+        // (2) Load session.
+        const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+        const session = await loadSession(featureDir);
+        const from = session.snapshot.state?.sub_state;
+        if (!from) {
+          emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+          return;
+        }
+
+        // (3) Mutate — 2-entry batch. spike:converted (record-only) MUST
+        //     precede session:archived: it carries ANY_NON_DONE authority and
+        //     would be rejected against the post-archive DONE snapshot. The
+        //     sponsored session:archived performs the terminal cursor flip.
+        const now = new Date().toISOString();
+        const result = await mutateBatch(
+          [
+            {
+              at: now,
+              actor: humanActor,
+              entry_schema_version: 1,
+              kind: "spike:converted",
+              payload: { to_feature: opts.toFeature, reason: opts.reason },
+            },
+            {
+              at: now,
+              actor: humanActor,
+              entry_schema_version: 1,
+              kind: "session:archived",
+              payload: { reason: opts.reason },
+            },
+          ],
+          { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq },
+        );
+        if (!result.ok) {
+          emitFailure(result.code, result.message, result.detail);
+          return;
+        }
+
+        // (4) Success output.
+        const out = {
+          ok: true,
+          feature: opts.feature,
+          to_feature: opts.toFeature,
+          from,
+          to: "DONE.archived" as const,
+          actor: humanActor,
+          sub_state: result.snapshot.state?.sub_state,
+        };
+        if (useJson) {
+          process.stdout.write(JSON.stringify(out) + "\n");
+        } else {
+          process.stdout.write(
+            `converted ${opts.feature} → ${opts.toFeature} — ${from} → DONE.archived by ${humanActor}\n`,
+          );
+        }
+      },
+    );
+
   // ── loaf tasks <subcommand> ─────────────────────────────────────────
   // Slice 2 SC2/SC3 task lifecycle CLI surface. The parent `tasks`
   // command is a namespace; sub-commands carry the actual work:

@@ -5009,3 +5009,92 @@ describe("loaf abandon — Item 2", () => {
     expect(last.payload.reason).toBe("blocked by an upstream decision");
   });
 });
+
+describe("loaf spike convert — Phase 12", () => {
+  test("fail: no spike task in session → SPIKE_CONVERT_NO_SPIKE_TASK", async () => {
+    const dir = await tmpFeatureDir();
+    await runCli([
+      "start", "auth-refresh", "--ceremony", "standard",
+      "--feature-dir", dir, "--json",
+    ]);
+    const r = await runCli(
+      [
+        "spike", "convert",
+        "--to-feature", "F-002",
+        "--reason", "spike learnings carry forward",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir, "--json",
+      ],
+      { env: { LOAF_USER: "tester@example.invalid" } },
+    );
+    expect(r.exit).toBe(2);
+    expect(r.stderr + r.stdout).toContain("SPIKE_CONVERT_NO_SPIKE_TASK");
+  });
+
+  test("fail: missing --to-feature → exit 2 (commander)", async () => {
+    const dir = await tmpFeatureDir();
+    await runCli([
+      "start", "auth-refresh", "--ceremony", "standard",
+      "--feature-dir", dir, "--json",
+    ]);
+    const r = await runCli(
+      [
+        "spike", "convert", "--reason", "x",
+        "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      ],
+      { env: { LOAF_USER: "tester@example.invalid" } },
+    );
+    expect(r.exit).toBe(2);
+  });
+
+  test("fail: missing --reason → exit 2 (commander)", async () => {
+    const dir = await tmpFeatureDir();
+    await runCli([
+      "start", "auth-refresh", "--ceremony", "standard",
+      "--feature-dir", dir, "--json",
+    ]);
+    const r = await runCli(
+      [
+        "spike", "convert", "--to-feature", "F-002",
+        "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      ],
+      { env: { LOAF_USER: "tester@example.invalid" } },
+    );
+    expect(r.exit).toBe(2);
+  });
+
+  test("fail: malformed --to-feature → exit 2", async () => {
+    const dir = await tmpFeatureDir();
+    await runCli([
+      "start", "auth-refresh", "--ceremony", "standard",
+      "--feature-dir", dir, "--json",
+    ]);
+    const r = await runCli(
+      [
+        "spike", "convert",
+        "--to-feature", "not-a-feature-id",
+        "--reason", "x",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir, "--json",
+      ],
+      { env: { LOAF_USER: "tester@example.invalid" } },
+    );
+    expect(r.exit).toBe(2);
+  });
+
+  test("fail: no session → NO_SESSION", async () => {
+    const dir = await tmpFeatureDir();
+    const r = await runCli(
+      [
+        "spike", "convert",
+        "--to-feature", "F-002",
+        "--reason", "x",
+        "--feature", "ghost",
+        "--feature-dir", dir, "--json",
+      ],
+      { env: { LOAF_USER: "tester@example.invalid" } },
+    );
+    expect(r.exit).not.toBe(0);
+    expect(r.stderr + r.stdout).toContain("NO_SESSION");
+  });
+});

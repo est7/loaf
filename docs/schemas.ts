@@ -1646,7 +1646,8 @@ export const TaskSpike = TaskBase.extend({
   no_test_rationale: z.string().min(10),
   execution: SpikeExecution,
   // Note: spike tasks may NOT result in DONE.delivered.
-  // Exits: DONE.archived, or convert (archives spike + opens new feature).
+  // Exits: DONE.archived, or `loaf spike convert` (records to_feature +
+  // archives the spike session; the new feature is opened separately).
 });
 
 export const TaskChore = TaskBase.extend({
@@ -3849,6 +3850,8 @@ export const DiagnosticCode = z.enum([
   "BUG_TASK_REQUIRES_RED",                 // src/core/reducer/preflight.ts — behavioral bug task started/completed its implement step before `loaf tasks register-red` set red_test_registered
   "BUG_TASK_FLAG_MISUSE",                  // src/core/reducer/preflight.ts — red_test_registered=true used outside a red-step task_step_done on a behavioral bug task (passed/waived), or smuggled into a newly planned task
   "BUG_TASK_RED_NOT_REGISTERED",           // src/core/gates/verify-accept-check.ts check 4 — done behavioral bug task never registered its RED test (defense-in-depth)
+  // ── Phase 12 — `loaf spike convert` (spike:converted) precondition ──
+  "SPIKE_CONVERT_NO_SPIKE_TASK",           // src/core/reducer/preflight.ts step 5c.3 — `spike:converted` but snapshot.tasks holds no non-abandoned kind=spike task (`loaf spike convert` is a spike-task exit, protocol §8.3)
 ]);
 export type DiagnosticCode = z.infer<typeof DiagnosticCode>;
 
@@ -4630,7 +4633,7 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
     message_template:
       "cannot deliver: task {task_id} is kind=spike (status={status}); spike tasks block delivery for the entire session",
     fix_template:
-      "abandon the spike task (`loaf tasks step done --task {task_id} --step ... --result abandoned`) or convert it to a feature (`loaf spike convert --to-feature F-N`); spike tasks must not remain in non-abandoned status when the session delivers",
+      "abandon the spike task (`loaf tasks step done --task {task_id} --step ... --result abandoned`) or convert it to a feature (`loaf spike convert --to-feature F-N --reason \"...\"`); spike tasks must not remain in non-abandoned status when the session delivers",
     doc_anchor: "protocol.md#§703",
   },
   SETTLE_NOT_ACCEPTED: {
@@ -4804,6 +4807,14 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
     fix_template:
       "a done behavioral bug task must have registered its RED test via `loaf tasks register-red`; this is a verify-accept defense-in-depth check for migration / raw-API journals — rebuild the journal or register RED retroactively before re-running the gate.",
     doc_anchor: "protocol.md#§9.3",
+  },
+  SPIKE_CONVERT_NO_SPIKE_TASK: {
+    exit_code: 2,
+    message_template:
+      "cannot convert: the session has no non-abandoned spike task; `loaf spike convert` is a spike-task exit (protocol §8.3)",
+    fix_template:
+      "run `loaf spike convert` only from a session that holds a kind=spike task; for a non-spike session close it with `loaf archive --reason \"...\"` or `loaf abandon --reason \"...\"`",
+    doc_anchor: "protocol.md#§8.3",
   },
 } as const;
 

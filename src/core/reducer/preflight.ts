@@ -229,7 +229,15 @@ export type PreflightFailureCode =
   // required. An empty-string reason is already rejected upstream by the
   // PER_KIND_PAYLOAD parse (`z.string().min(1)`) as INVALID_PAYLOAD — this
   // refine handles only the absent case.
-  | "SESSION_REASON_REQUIRED";
+  | "SESSION_REASON_REQUIRED"
+  // Phase 12 — `loaf spike convert` (spike:converted) precondition.
+  // SPIKE_CONVERT_NO_SPIKE_TASK fires when the session holds no
+  // non-abandoned kind=spike task. `spike convert` is a spike-task exit
+  // (protocol §8.3); without this guard a non-spike session could emit a
+  // spike:converted audit entry and archive itself, making the journal
+  // misrepresent the session. Done spikes count; abandoned spikes do not
+  // (mirrors the DELIVER_SPIKE_TASKS predicate).
+  | "SPIKE_CONVERT_NO_SPIKE_TASK";
 
 export type PreflightResult =
   | { ok: true }
@@ -738,6 +746,29 @@ export function preflight(
           detail: { sub_state, verify_accepted },
         };
       }
+    }
+  }
+
+  // (5c.3) Phase 12 — `loaf spike convert` precondition.
+  //
+  // `spike:converted` is a record-only audit entry; the sponsored
+  // `session:archived` in the same batch owns the terminal cursor flip.
+  // `loaf spike convert` is specifically a spike-task exit (protocol §8.3),
+  // so the session must hold at least one non-abandoned kind=spike task.
+  // Otherwise a non-spike session could emit a spike:converted entry and
+  // archive itself, making the journal misrepresent the session. Done
+  // spikes count; abandoned spikes do not (mirrors DELIVER_SPIKE_TASKS).
+  if (entry.kind === "spike:converted") {
+    const hasActiveSpike = ctx.snapshot.tasks.some(
+      (t) => t.kind === "spike" && t.status !== "abandoned",
+    );
+    if (!hasActiveSpike) {
+      return {
+        ok: false,
+        code: "SPIKE_CONVERT_NO_SPIKE_TASK",
+        message:
+          "cannot convert: the session has no non-abandoned spike task; `loaf spike convert` is a spike-task exit (protocol §8.3)",
+      };
     }
   }
 

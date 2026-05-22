@@ -174,6 +174,7 @@
     "BUG_TASK_REQUIRES_RED": "behavioral bug task {task_id} cannot start or complete its implement step before its RED test is registered",
     "BUG_TASK_FLAG_MISUSE": "task {task_id}: red_test_registered=true is valid only on a red-step task_step_done for a behavioral bug task (passed/waived result) — not on this entry",
     "BUG_TASK_RED_NOT_REGISTERED": "behavioral bug task {task_id} is done but never registered its RED test (red_test_registered≠true)",
+    "SPIKE_CONVERT_NO_SPIKE_TASK": "cannot convert: the session has no non-abandoned spike task; `loaf spike convert` is a spike-task exit (protocol §8.3)",
     "DONE_TERMINAL_INVARIANT":    "DONE.* requires state.pending.length === 0 and no task with status=\"in_progress\" in tasks.json",
     "ABANDON_REQUIRES_REASON":    "loaf abandon requires --reason argument",
     "TASKS_EXECUTION_DRIFT":      "Task {task_id} step={step} status={status} disagrees with evidence.jsonl",

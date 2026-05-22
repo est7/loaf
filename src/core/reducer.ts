@@ -909,6 +909,16 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
       };
     }
 
+    case "spike:converted": {
+      // Record-only audit entry (protocol §8.3, Phase 12). The terminal
+      // cursor flip to DONE.archived rides the sponsored `session:archived`
+      // emitted in the same `loaf spike convert` batch — this kind does not
+      // move the cursor. An explicit no-op case (rather than falling through
+      // to `default` → REDUCER_NOT_IMPLEMENTED) keeps the switch honest with
+      // REDUCER_IMPLEMENTED_KINDS.
+      return { ok: true, snapshot: prev };
+    }
+
     default: {
       // Audit r1 fix #5 — silent no-op was a "pass-through reducer" bug;
       // preflight passed but projection was never mutated. Unimplemented

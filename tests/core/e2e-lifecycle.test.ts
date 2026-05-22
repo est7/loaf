@@ -2598,5 +2598,84 @@ describe("E2E — full worker lifecycle (standard ceremony)", () => {
     expect(status.state?.sub_state ?? status.sub_state).toBe("DONE.abandoned");
   });
 
-  test.todo("SCEN-E2E-037 — spike convert");
+  test("SCEN-E2E-037 — spike convert archives the session and records to_feature", async () => {
+    const dir = await tmpFeatureDir();
+    const F = "e2e-spike-convert";
+    const ENV = { LOAF_USER: "e2e@test.invalid" };
+    const { step, writeInput } = makeCli(dir, ENV);
+
+    await step("start", ["start", F, "--ceremony", "standard"]);
+    await step("advance TRIAGE.confirm", ["advance", "TRIAGE.confirm", "--feature", F]);
+    await step("advance SPEC.proposal", ["advance", "SPEC.proposal", "--feature", F]);
+    await step("spec init", ["spec", "init", "--feature", F]);
+    const submitInput = await writeInput("submit.json", {
+      feature: { id: "F-001", name: "E2E spike convert" },
+      intent: "exercise the spike-to-feature conversion exit",
+      adr_refs: [],
+      needs_clarification: [],
+    });
+    await step("spec submit", ["spec", "submit", "--input", submitInput, "--feature", F]);
+    const reqInput = await writeInput("req.json", {
+      id_namespace: "REQ-CORE",
+      type: "ubiquitous",
+      response: "the system shall complete the spike convert smoke",
+      acceptance_na: true,
+      acceptance_na_reason: "exercised by this end-to-end lifecycle integration test",
+    });
+    await step("spec add-req", ["spec", "add-req", "--input", reqInput, "--feature", F]);
+    await step("advance SPEC.spec", ["advance", "SPEC.spec", "--feature", F]);
+    await step("advance SPEC.plan", ["advance", "SPEC.plan", "--feature", F]);
+    await step("advance SPEC.design", ["advance", "SPEC.design", "--feature", F]);
+    const st = await step("status pre-tasks", ["status", "--feature", F]);
+    const specVersion: number = st.state?.spec_version ?? st.spec_version;
+    const tasksFile = await writeInput("tasks.json", {
+      based_on: { spec: specVersion },
+      tasks: [
+        {
+          id: "T-001",
+          kind: "spike",
+          drives: ["REQ-CORE-001"],
+          no_test_rationale: "explore the approach; a spike is not shipped",
+          status: "pending",
+          depends_on: [],
+          labels: [],
+          execution: {
+            explore: { applicability: "must", status: "pending", evidence_refs: [] },
+            prototype: { applicability: "must", status: "pending", evidence_refs: [] },
+            record: { applicability: "must", status: "pending", evidence_refs: [] },
+          },
+        },
+      ],
+    });
+    await step("tasks submit", ["tasks", "submit", tasksFile, "--feature", F]);
+
+    // ── spike convert: record-only exit — archives the session, records to_feature ──
+    const converted = await step("spike convert", [
+      "spike", "convert",
+      "--to-feature", "F-002",
+      "--reason", "spike learnings carry forward to F-002",
+      "--feature", F,
+    ]);
+    expect(converted.ok).toBe(true);
+    expect(converted.from).toBe("SPEC.design");
+    expect(converted.to).toBe("DONE.archived");
+    expect(converted.to_feature).toBe("F-002");
+    expect(converted.sub_state).toBe("DONE.archived");
+    expect(converted.actor).toBe("human:e2e@test.invalid");
+
+    const status = await step("status", ["status", "--feature", F]);
+    expect(status.state?.sub_state ?? status.sub_state).toBe("DONE.archived");
+
+    // The journal carries the spike:converted record entry, and the terminal
+    // session:archived is the final entry (the cursor mover, ordered last).
+    const journal = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
+    const entries = journal.trim().split("\n").map((l) => JSON.parse(l));
+    const kinds = entries.map((e) => e.kind);
+    expect(kinds).toContain("spike:converted");
+    expect(kinds[kinds.length - 1]).toBe("session:archived");
+    const convEntry = entries.find((e) => e.kind === "spike:converted");
+    expect(convEntry.payload.to_feature).toBe("F-002");
+    expect(convEntry.payload.reason).toBe("spike learnings carry forward to F-002");
+    expect(convEntry.actor).toBe("human:e2e@test.invalid");
+  });
 });

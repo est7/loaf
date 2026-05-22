@@ -174,6 +174,7 @@
     "BUG_TASK_REQUIRES_RED": "behavioral bug task {task_id} 在注册 RED 测试前不能开始或完成 implement step",
     "BUG_TASK_FLAG_MISUSE": "task {task_id}:red_test_registered=true 只在 behavioral bug task 的 red-step task_step_done(passed/waived)上有效 —— 不能用在本 entry",
     "BUG_TASK_RED_NOT_REGISTERED": "behavioral bug task {task_id} 已 done 但从未注册 RED 测试(red_test_registered≠true)",
+    "SPIKE_CONVERT_NO_SPIKE_TASK": "无法 convert:session 没有非-abandoned 的 spike task;`loaf spike convert` 是 spike-task 出口(protocol §8.3)",
     "DONE_TERMINAL_INVARIANT":    "DONE.* 状态要求 state.pending.length === 0 且 tasks.json 中无 status=\"in_progress\" 的 task",
     "ABANDON_REQUIRES_REASON":    "loaf abandon 必须带 --reason 参数",
     "TASKS_EXECUTION_DRIFT":      "任务 {task_id} step={step} status={status} 与 evidence.jsonl 不一致",
