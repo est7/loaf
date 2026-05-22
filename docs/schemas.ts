@@ -1842,6 +1842,13 @@ export const EVIDENCE_COMPAT = {
 // ─────────────────────────────────────────────────────────────────
 //
 // May be raised in VERIFY.* (always) or EXECUTE.* (only after spec_locked).
+//
+// NOTE (Phase 14 SC1): `FindingsEvent` below is the LEGACY journal/jsonl
+// EVENT schema — the per-event (opened / closed) line form. It is NOT the
+// `snapshots/findings.json` projection contract. The `loaf doctor
+// --rebuild` projection is the new `FindingsJson` (§30 below): a
+// finding-STATE list, not an event log. `FindingsEvent` is retained for
+// historical / migration reference; the projection writer never emits it.
 
 export const FindingsEvent = z.discriminatedUnion("event", [
   z
@@ -1882,6 +1889,83 @@ export const FindingsEvent = z.discriminatedUnion("event", [
   }),
 ]);
 export type FindingsEvent = z.infer<typeof FindingsEvent>;
+
+// ─────────────────────────────────────────────────────────────────
+// 30. snapshots/*.json — `loaf doctor --rebuild` projection containers
+//     (Phase 14 SC1 / ADR-0005 §3.6 — findings.md F-018, codex r155+r156)
+// ─────────────────────────────────────────────────────────────────
+//
+// `loaf doctor --rebuild` replays the journal seq=0 and re-serializes the
+// fully-journal-derived projection files under `.loaf/<feature>/snapshots/`.
+// The runtime mirror of these schemas lives in
+// `src/core/projection-schema.ts`; the serializer is
+// `src/core/projection-writer.ts`.
+//
+// Per codex r156 Option C, `--rebuild` rebuilds only the FOUR fully
+// journal-derived files — tasks.json (§14 `TasksJson` above) +
+// evidence.json / findings.json / pending.json (the three new containers
+// below) — plus `_meta.json`. `state.json` is DEFERRED: its `StateJson`
+// (§12) contract carries fields with no journal source (session_label /
+// cwd / complexity_score / heartbeat_at …), so a faithful rebuild needs a
+// schema-split (derived projection vs identity/liveness) — its own slice.
+//
+// Container shape (codex r156 Q2): minimal `{schema_version, <items>:[...]}`.
+// NO `version` field on Evidence/Findings/Pending — only `TasksJson.version`
+// is justified (whole-replacement task-plan contract counts plan + amend
+// entries); the other three are append-only ledgers with no equivalent
+// counter.
+
+// evidence.json — each item is the journal `evidence:added` payload
+// (= §16 `EvidenceEntry` minus the two envelope-owned fields) with
+// `schema_version` + `at` re-attached. So the projection item IS the full
+// §16 `EvidenceEntry`; the container just wraps the array.
+export const EvidenceJson = z.object({
+  schema_version: SchemaVersion,
+  evidence: z.array(EvidenceEntry),
+});
+export type EvidenceJson = z.infer<typeof EvidenceJson>;
+
+// findings.json — a finding-STATE list. Each item is the reducer's slim
+// finding projection (id / category / action / status + payload-derived
+// summary / reason / target). This is NOT the §17 `FindingsEvent` jsonl
+// event schema — see the §17 NOTE.
+const FindingStateProjection = z.object({
+  id: z.string().regex(/^FND-\d{3,}$/),
+  category: FindingCategory,
+  action: FindingAction,
+  status: z.enum(["open", "closed"]),
+  summary: z.string().optional(),
+  reason: z.string().optional(),
+  target: z
+    .object({ task_id: z.string().regex(/^T-\d{3,}$/), step: z.string().min(1) })
+    .optional(),
+});
+
+export const FindingsJson = z.object({
+  schema_version: SchemaVersion,
+  findings: z.array(FindingStateProjection),
+});
+export type FindingsJson = z.infer<typeof FindingsJson>;
+
+// pending.json — `PendingProjectionEntry` is the documented §11
+// `PendingPromptEntry` fields PLUS `resolved: boolean`. The journal
+// `pending:added` payload carries only id / kind / question (+ optional
+// options / task_id) and ONE envelope timestamp + actor; the rich
+// `PendingPromptEntry` fields are collapsed onto journal truth:
+//   raised_at + at ← the single envelope timestamp
+//   raised_by      ← the envelope actor
+//   blocks         ← the constant "advance" (never carried on payload)
+//   resolved       ← true iff a matching `pending:resolved` entry exists
+export const PendingProjectionEntry = PendingPromptEntry.extend({
+  resolved: z.boolean(),
+});
+export type PendingProjectionEntry = z.infer<typeof PendingProjectionEntry>;
+
+export const PendingJson = z.object({
+  schema_version: SchemaVersion,
+  pending: z.array(PendingProjectionEntry),
+});
+export type PendingJson = z.infer<typeof PendingJson>;
 
 // ─────────────────────────────────────────────────────────────────
 // 18. reconcile.json — planned vs actual + verify snapshot

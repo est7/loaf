@@ -132,7 +132,11 @@ export type CoversRefPayload = z.infer<typeof CoversRefPayload>;
 // Skipped fields (envelope-owned, not payload): schema_version + at.
 // Everything else from §16:1702-1751 is mirrored verbatim.
 
-const EvidenceFullShape = z.object({
+// Exported (Phase 14 SC1): the projection container `EvidenceJson` extends
+// this raw ZodObject with the two envelope-owned fields (`schema_version`,
+// `at`). `EvidenceFullPayload` below is a refined `ZodEffects` and cannot
+// be `.extend()`'d — projection-schema.ts needs the unrefined shape.
+export const EvidenceFullShape = z.object({
   // Required core (docs §16 lines 1704-1712).
   id: EvidenceIdPayload,                                // = docs evidence_id
   kind: EvidenceKind,
