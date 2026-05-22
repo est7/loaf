@@ -340,7 +340,7 @@ EXECUTE 阶段 CLI 自动检测 trigger 条件,**raise `PendingPrompt(kind=profi
 | `scope_expansion` | `spec_phase=false` → `true`(quick → light)|
 | `public_api_touched` / `schema_change` / `concurrency_touched` / `security_touched` | `spec_phase` / `verify_phase` / `settle_phase` 全 → `true`(quick / light → standard)|
 
-CLI 只负责检测 trigger + raise pending;**skill 决定**新 ceremony object(skill PRESETS 表里映射 trigger → 推荐 preset label),user 确认后 skill 调 `loaf advance` 同时传新 `--ceremony-json` 覆盖。详见 schemas.ts §24 `ESCALATION_DETECTIONS`。
+CLI 只负责检测 trigger + raise pending;**skill 决定**新 ceremony object(skill PRESETS 表里映射 trigger → 推荐 preset label),user 确认后 skill 算出新 6-flag Ceremony,调 `loaf profile escalate --confirm --input <ceremony.json>` 应用(emit `event:ceremony_set` + `pending:resolved`,resolve 那条 `profile_escalation` pending)。详见 schemas.ts §24 `ESCALATION_DETECTIONS`。
 
 **不允许自动降级**。
 
@@ -1866,7 +1866,7 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 | `loaf check <path>` | 纯 schema check(CI 用,任意 artifact 文件) | 0 / 2 |
 | `loaf <artifact> schema --json` | 自描述命令,dump JSON Schema(spec/tasks/evidence/finding/state,**限定 5 个 enum**,非 catch-all) | 0 |
 | `loaf amend --target spec\|tasks` | spec-lock 前编辑回退;**post-lock 拒绝执行,提示走 finding** | 0 / 2 |
-| `loaf profile escalate --confirm` | 接受 auto-escalation prompt。**rev 4.1 Q3**:本身就是答 `pending(kind=profile_escalation)` head 的方式,head 不匹配 → `ESCALATION_NOT_PENDING` exit 2 | 0 / 2 |
+| `loaf profile escalate --confirm --input <ceremony.json>` | 接受 auto-escalation prompt。`--input` 是 skill 算好的 6-flag Ceremony。emit 2-entry batch `[event:ceremony_set, pending:resolved]`(answers the `profile_escalation` head)。**rev 4.1 Q3**:本身就是答 `pending(kind=profile_escalation)` head 的方式,head 缺失 / 不匹配 → `ESCALATION_NOT_PENDING` exit 2 | 0 / 2 |
 | `loaf spike convert --to-feature F-N --reason "..."` | emit `spike:converted`(payload `{to_feature, reason}`)+ archive 当前 session 到 `DONE.archived`;**不** scaffold F-N(由后续独立 `loaf start F-N` 另开) | 0 / 2 |
 | `loaf deliver` | **rev 3.1:advisory only,不碰 git/gh**;emit `session:delivered`(`human:` actor;reducer 直接 cursor flip 到 DONE.delivered,**不**经 `event:phase_advanced`)+ 打印 advisory `next:` 提示;spike hard block。**rev 4.1 + 5.x + Slice 1.D sub-cycle 2**:有效 source sub-state 取决于 ceremony —— `verify_phase=false`(`quick` / `light`)从 `EXECUTE.done` 调用(**Slice 1.D MVP**:fail-closed `DELIVER_VERIFY_MIN_UNAVAILABLE` —— verify-min check 基础设施未实装,等后续 slice;light "REQ coverage not closed" 提示也跟着 verify-min 一起延后);`verify_phase=true && settle_phase=false`(`standard`)从 `VERIFY.accept` 调用(VERIFY 已走完,无 verify-min 二次跑;preflight step 5c 校验 `verify_accepted=true` 否则 `DELIVER_NOT_ACCEPTED`、`settle_phase=false` 否则 `DELIVER_SETTLE_PHASE_BYPASS`);`settle_phase=true`(`deep`)从 `SETTLE.lessons` 调用(reconcile.json + lessons.md 已产;preflight 同样校验 `verify_accepted=true`)。任何 source 都校验 snapshot.tasks 无非-abandoned spike 任务(`DELIVER_SPIKE_TASKS`,§703 + §1298) | 0 / 2 |
 | `loaf archive --reason "..."` | 不交付关闭 | 0 / 2 |
@@ -1886,7 +1886,6 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 | Command | Emitted kind(s) |
 |---|---|
 | `loaf advance` | `event:phase_advanced` |
-| `loaf ceremony set` | `event:ceremony_set` |
 | `loaf spec add-req` | `event:spec_req_added`(batch:N entries 共享 batch_id + spec_version) |
 | `loaf spec add-scenario` | `event:spec_scenario_added`(batch) |
 | `loaf spec add-visual` | `event:spec_visual_added`(batch) |
@@ -1915,7 +1914,7 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 | `loaf spike convert` | `spike:converted`(actor `human:`;to_feature + reason 必填) |
 | `loaf doctor --migrate-v2` | `migration:snapshot_imported`(actor `migration:*`;journal seq=0/1 only) |
 | `loaf tasks register-red` | reducer-side `event:task_step_done`(payload `red_test_registered=true`) |
-| `loaf profile escalate` | `pending:resolved`(answers `profile_escalation` head)+ `event:ceremony_set` (新 ceremony) |
+| `loaf profile escalate --confirm --input <ceremony.json>` | atomic 2-entry batch `[event:ceremony_set`(新 ceremony)`, pending:resolved`(answers `profile_escalation` head)`]` — 顺序固定:`event:ceremony_set` 在前,preflight 5c.4 守卫才看得到未 resolved 的 `profile_escalation` head |
 | `loaf lessons add` | (reducer 拼接 `lessons.md` 派生投影;journal kind 待 v0.1.x 定 — v0.1.0 直接 emit `evidence:added` payload.kind=`manual`,`lessons.md` 由 reducer 派生) |
 
 Read-only 命令(`loaf status` / `tasks list` / `tasks check` / `tasks next` / `verify status` / `finding list` / `pending list` / `pending status` / `sessions list` / `<artifact> schema` / `check <path>` / `tui` / `handoff` / `context pack` / `hook *` 中的非-mutating event)**不**写 journal,只读 `snapshots/*.json` 并执行 §10.15 fast check(Gate #5)。

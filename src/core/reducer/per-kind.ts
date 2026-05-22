@@ -51,7 +51,16 @@ const FIX_BACK_EDGE_FROM: SubState[] = [
 export const PER_KIND_SUB_STATE: Record<EntryKind, SubStateGuard> = {
   // State machine transitions
   "event:phase_advanced": ANY_SUB_STATE, // validateTransition gates the edge itself
-  "event:ceremony_set": new Set(["TRIAGE.score", "TRIAGE.confirm"]),
+  // TRIAGE.* is the initial ceremony pick. SPEC.* / EXECUTE.* are the
+  // profile-escalation lanes (protocol §207: profile_escalation is raised in
+  // SPEC.* / EXECUTE.*) — a non-TRIAGE `event:ceremony_set` is legal ONLY as
+  // the `loaf profile escalate` resolution, gated in preflight step 5c.4
+  // (ESCALATION_NOT_PENDING). This coarse table widens the band; the fine
+  // profile_escalation-head guard lives in preflight (Phase 13).
+  "event:ceremony_set": new Set([
+    "TRIAGE.score", "TRIAGE.confirm",
+    ...ALL_SPEC, ...ALL_EXECUTE,
+  ]),
   // Protocol §1800+1848: `loaf tasks submit` (initial whole-plan) emits
   // event:tasks_planned at SPEC.design (so spec-lock check 3 can verify
   // tasks_based_on.spec === spec.spec_version before the gate moves the

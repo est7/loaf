@@ -416,7 +416,7 @@ CLI 输出（命令成功路径）wrap footer：`# snapshot as-of seq=N (last_ap
 | kind | 允许的 sub_state / 触发条件 | mutation rights 来源 | 额外校验 |
 |---|---|---|---|
 | `event:phase_advanced` | 任意 non-gate transition | `loaf advance` | LEGAL_TRANSITIONS 含；ceremony phase flag |
-| `event:ceremony_set` | `TRIAGE.*` only | `loaf ceremony set` | 不可 SPEC.* 之后改 |
+| `event:ceremony_set` | `TRIAGE.*`(初始 ceremony)+ `SPEC.*` / `EXECUTE.*`(profile escalation) | `loaf profile escalate` | 非 TRIAGE 需 head=`profile_escalation`,否则 `ESCALATION_NOT_PENDING`(preflight 5c.4) |
 | `event:tasks_planned` | `EXECUTE.plan` only | `loaf tasks plan` | tasks.based_on.spec === spec_version |
 | `event:tasks_amended` | `EXECUTE.*` / `VERIFY.*` | finding action amend-tasks | 详见 §4.3 |
 | `event:task_claimed` | `EXECUTE.work` only | `loaf tasks claim` | task.status="ready" |

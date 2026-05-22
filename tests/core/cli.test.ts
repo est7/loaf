@@ -5098,3 +5098,167 @@ describe("loaf spike convert — Phase 12", () => {
     expect(r.stderr + r.stdout).toContain("NO_SESSION");
   });
 });
+
+describe("loaf profile escalate — Phase 13", () => {
+  // Walk a standard session to SPEC.proposal — a sub_state where a
+  // profile_escalation pending is legal and event:ceremony_set is allowed.
+  async function seedAtSpecProposal(dir: string): Promise<void> {
+    await runCli([
+      "start", "auth-refresh", "--ceremony", "standard",
+      "--feature-dir", dir, "--json",
+    ]);
+    await runCli([
+      "advance", "TRIAGE.confirm", "--feature", "auth-refresh",
+      "--feature-dir", dir, "--json",
+    ]);
+    await runCli([
+      "advance", "SPEC.proposal", "--feature", "auth-refresh",
+      "--feature-dir", dir, "--json",
+    ]);
+  }
+  async function writeCeremony(dir: string): Promise<string> {
+    const p = path.join(dir, "escalated-ceremony.json");
+    await fs.writeFile(p, JSON.stringify({
+      spec_phase: true, verify_phase: true, settle_phase: true,
+      strict_spec_review: true, lessons_required: "must", strict_drift_check: true,
+    }));
+    return p;
+  }
+
+  test("happy: profile escalate resolves the head, sets ceremony, leaves the cursor", async () => {
+    const dir = await tmpFeatureDir();
+    await seedAtSpecProposal(dir);
+    await runCli([
+      "pending", "raise", "--kind", "profile_escalation",
+      "--question", "scope expanded; escalate ceremony",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+    ]);
+    const ceremonyFile = await writeCeremony(dir);
+
+    const r = await runCli(
+      [
+        "profile", "escalate", "--confirm", "--input", ceremonyFile,
+        "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      ],
+      { env: { LOAF_USER: "tester@example.invalid" } },
+    );
+    expect(r.exit).toBe(0);
+    expect(r.stderr).toBe("");
+    const out = JSON.parse(r.stdout);
+    expect(out.ok).toBe(true);
+    expect(out.actor).toBe("human:tester@example.invalid");
+    expect(out.sub_state).toBe("SPEC.proposal"); // cursor unchanged
+
+    // The batch is [event:ceremony_set, pending:resolved] — consecutive,
+    // and the last two entries in the journal.
+    const journal = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
+    const entries = journal.trim().split("\n").map((l) => JSON.parse(l));
+    const last2 = entries.slice(-2);
+    expect(last2.map((e) => e.kind)).toEqual(["event:ceremony_set", "pending:resolved"]);
+    expect(last2[1].seq).toBe(last2[0].seq + 1);
+    expect(last2[0].payload.settle_phase).toBe(true); // standard had settle_phase=false
+
+    // The profile_escalation pending head is now resolved.
+    const plist = await runCli([
+      "pending", "list", "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+    ]);
+    const pj = JSON.parse(plist.stdout);
+    expect(pj.pending.every((p: { resolved: boolean }) => p.resolved)).toBe(true);
+  });
+
+  test("fail: no pending head → ESCALATION_NOT_PENDING", async () => {
+    const dir = await tmpFeatureDir();
+    await seedAtSpecProposal(dir);
+    const ceremonyFile = await writeCeremony(dir);
+    const r = await runCli(
+      [
+        "profile", "escalate", "--confirm", "--input", ceremonyFile,
+        "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      ],
+      { env: { LOAF_USER: "tester@example.invalid" } },
+    );
+    expect(r.exit).toBe(2);
+    expect(r.stderr + r.stdout).toContain("ESCALATION_NOT_PENDING");
+  });
+
+  test("fail: wrong pending head kind → ESCALATION_NOT_PENDING", async () => {
+    const dir = await tmpFeatureDir();
+    await seedAtSpecProposal(dir);
+    await runCli([
+      "pending", "raise", "--kind", "ask_user_question",
+      "--question", "which approach do you prefer",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+    ]);
+    const ceremonyFile = await writeCeremony(dir);
+    const r = await runCli(
+      [
+        "profile", "escalate", "--confirm", "--input", ceremonyFile,
+        "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      ],
+      { env: { LOAF_USER: "tester@example.invalid" } },
+    );
+    expect(r.exit).toBe(2);
+    expect(r.stderr + r.stdout).toContain("ESCALATION_NOT_PENDING");
+  });
+
+  test("fail: missing --confirm → exit 2 (commander)", async () => {
+    const dir = await tmpFeatureDir();
+    await seedAtSpecProposal(dir);
+    const ceremonyFile = await writeCeremony(dir);
+    const r = await runCli(
+      [
+        "profile", "escalate", "--input", ceremonyFile,
+        "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      ],
+      { env: { LOAF_USER: "tester@example.invalid" } },
+    );
+    expect(r.exit).toBe(2);
+  });
+
+  test("fail: missing --input → exit 2 (commander)", async () => {
+    const dir = await tmpFeatureDir();
+    await seedAtSpecProposal(dir);
+    const r = await runCli(
+      [
+        "profile", "escalate", "--confirm",
+        "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      ],
+      { env: { LOAF_USER: "tester@example.invalid" } },
+    );
+    expect(r.exit).toBe(2);
+  });
+
+  test("fail: malformed ceremony input → exit 2", async () => {
+    const dir = await tmpFeatureDir();
+    await seedAtSpecProposal(dir);
+    await runCli([
+      "pending", "raise", "--kind", "profile_escalation",
+      "--question", "escalate the ceremony",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+    ]);
+    const badFile = path.join(dir, "bad-ceremony.json");
+    await fs.writeFile(badFile, JSON.stringify({ spec_phase: true })); // 5 flags missing
+    const r = await runCli(
+      [
+        "profile", "escalate", "--confirm", "--input", badFile,
+        "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      ],
+      { env: { LOAF_USER: "tester@example.invalid" } },
+    );
+    expect(r.exit).toBe(2);
+  });
+
+  test("fail: no session → NO_SESSION", async () => {
+    const dir = await tmpFeatureDir();
+    const ceremonyFile = await writeCeremony(dir);
+    const r = await runCli(
+      [
+        "profile", "escalate", "--confirm", "--input", ceremonyFile,
+        "--feature", "ghost", "--feature-dir", dir, "--json",
+      ],
+      { env: { LOAF_USER: "tester@example.invalid" } },
+    );
+    expect(r.exit).not.toBe(0);
+    expect(r.stderr + r.stdout).toContain("NO_SESSION");
+  });
+});

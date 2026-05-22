@@ -4164,7 +4164,7 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
     fix_template:
       "resolve the head with the kind-appropriate command: " +
       "`loaf gate decide <G>` for kind=gate_decision; " +
-      "`loaf profile escalate --confirm` for kind=profile_escalation; " +
+      "`loaf profile escalate --confirm --input <ceremony.json>` for kind=profile_escalation; " +
       "`loaf pending resolve --answer <a>` for the rest",
     doc_anchor: "protocol.md#§10.7",
   },
@@ -4181,7 +4181,7 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
   ESCALATION_NOT_PENDING: {
     exit_code: 2,
     message_template:
-      "`loaf profile escalate --confirm` requires pending head " +
+      "`loaf profile escalate --confirm --input <ceremony.json>` requires pending head " +
       "kind=profile_escalation; current head: {actual_head}",
     fix_template:
       "resolve the current head first via the kind-appropriate command, " +

@@ -816,6 +816,145 @@ export async function main(argv: string[] = process.argv): Promise<number> {
       },
     );
 
+  // ── loaf profile <subcommand> ───────────────────────────────────────
+  // Phase 13 — `profile escalate` applies a ceremony escalation (protocol
+  // §10.8 / §1918). Escalation POLICY (which preset to escalate to) is a
+  // skill concern (schemas.ts §24): the skill computes the new 6-flag
+  // Ceremony and passes it via --input. This command does the atomic
+  // [event:ceremony_set, pending:resolved] batch + the ESCALATION_NOT_PENDING
+  // head guard. event:ceremony_set is ordered FIRST so preflight 5c.4 still
+  // sees the unresolved profile_escalation head before pending:resolved
+  // pops it.
+  const profileCmd = program
+    .command("profile")
+    .description("Ceremony profile commands (protocol §10.8)");
+
+  profileCmd
+    .command("escalate")
+    .description(
+      "Apply a ceremony escalation — resolve the profile_escalation pending + emit event:ceremony_set",
+    )
+    .requiredOption("--confirm", "Human acceptance of the escalation (required)")
+    .requiredOption("--input <path>", "JSON file with the escalated 6-flag Ceremony object")
+    .requiredOption("--feature <name>", "Feature whose session to escalate")
+    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
+    .action(
+      async (opts: {
+        confirm: boolean;
+        input: string;
+        feature: string;
+        featureDir?: string;
+      }) => {
+        // (1) Human-only acceptance — escalation is a human decision.
+        const resolution = resolveHumanActor({
+          env: process.env,
+          readGitConfig: getGitEmail,
+          isInteractiveHuman: process.stdin.isTTY === true,
+        });
+        if (!resolution.ok) {
+          emitFailure(resolution.code, resolution.message);
+          return;
+        }
+        const humanActor = resolution.actor;
+
+        // (2) Read + parse the escalated Ceremony. Schema validation is the
+        //     mutateBatch preflight's job (PER_KIND_PAYLOAD = CeremonyPayload).
+        let content: string;
+        try {
+          content = await fsP.readFile(opts.input, "utf8");
+        } catch (err) {
+          if ((err as { code?: string }).code === "ENOENT") {
+            emitFailure("INPUT_FILE_NOT_FOUND", `input file does not exist: ${opts.input}`, {
+              path: opts.input,
+            });
+          } else {
+            emitFailure(
+              "INPUT_FILE_NOT_FOUND",
+              `cannot read input file ${opts.input}: ${String(err)}`,
+              { path: opts.input },
+            );
+          }
+          return;
+        }
+        let ceremony: unknown;
+        try {
+          ceremony = JSON.parse(content);
+        } catch (err) {
+          emitFailure(
+            "SCHEMA_VALIDATION_FAILED",
+            `input is not valid JSON: ${(err as Error).message}`,
+          );
+          return;
+        }
+
+        // (3) Load session.
+        const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+        const session = await loadSession(featureDir);
+        const from = session.snapshot.state?.sub_state;
+        if (!from) {
+          emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+          return;
+        }
+
+        // (4) The pending:resolved entry needs the head id. Preflight 5c.4
+        //     owns the authority check (head must be profile_escalation);
+        //     this only handles the structural "no head at all" case, where
+        //     no PEND-id exists to build the pending:resolved entry.
+        const head = session.snapshot.pending.find((p) => !p.resolved);
+        if (!head) {
+          emitFailure(
+            "ESCALATION_NOT_PENDING",
+            "`loaf profile escalate --confirm --input <ceremony.json>` requires pending head kind=profile_escalation; current head: (none)",
+            { actual_head: "(none)" },
+          );
+          return;
+        }
+
+        // (5) Mutate — 2-entry batch. event:ceremony_set MUST precede
+        //     pending:resolved so preflight 5c.4 sees the unresolved head.
+        const now = new Date().toISOString();
+        const result = await mutateBatch(
+          [
+            {
+              at: now,
+              actor: humanActor,
+              entry_schema_version: 1,
+              kind: "event:ceremony_set",
+              payload: ceremony as Record<string, unknown>,
+            },
+            {
+              at: now,
+              actor: humanActor,
+              entry_schema_version: 1,
+              kind: "pending:resolved",
+              payload: { id: head.id },
+            },
+          ],
+          { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq },
+        );
+        if (!result.ok) {
+          emitFailure(result.code, result.message, result.detail);
+          return;
+        }
+
+        // (6) Success output. The batch moves no cursor — sub_state unchanged.
+        const out = {
+          ok: true,
+          feature: opts.feature,
+          resolved_pending: head.id,
+          sub_state: result.snapshot.state?.sub_state,
+          actor: humanActor,
+        };
+        if (useJson) {
+          process.stdout.write(JSON.stringify(out) + "\n");
+        } else {
+          process.stdout.write(
+            `escalated ${opts.feature} — ceremony updated, pending ${head.id} resolved (cursor ${out.sub_state})\n`,
+          );
+        }
+      },
+    );
+
   // ── loaf tasks <subcommand> ─────────────────────────────────────────
   // Slice 2 SC2/SC3 task lifecycle CLI surface. The parent `tasks`
   // command is a namespace; sub-commands carry the actual work:

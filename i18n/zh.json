@@ -144,7 +144,7 @@
     "PATH_OUTSIDE_WRITE_GUARD":   "在 sub_state={sub_state} step={step} 下,禁止写入 {path}",
     "PENDING_BLOCKS_ADVANCE":     "pending head {pending_id}(kind={kind})阻塞 `loaf advance`,需先 resolve",
     "GATE_NOT_PENDING":           "`loaf gate decide {gate}` 要求 pending head kind=gate_decision;当前 head:{actual_head}",
-    "ESCALATION_NOT_PENDING":     "`loaf profile escalate --confirm` 要求 pending head kind=profile_escalation;当前 head:{actual_head}",
+    "ESCALATION_NOT_PENDING":     "`loaf profile escalate --confirm --input <ceremony.json>` 要求 pending head kind=profile_escalation;当前 head:{actual_head}",
     "FINDING_TARGET_REQUIRED":    "finding action={action} target 校验失败({reason}):task_id={task_id}, step={step}",
     "SPEC_NOT_INITIALIZED":       "{kind} 被拒:spec_version=0;先跑 `loaf spec submit` 把 spec_version 升到 1",
     "SPEC_ALREADY_INITIALIZED":   "spec.md 已存在于 {spec_md_path};拒绝覆盖",

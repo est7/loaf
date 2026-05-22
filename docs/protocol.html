@@ -773,8 +773,8 @@
       <tr>
         <td><span class="ph triage">TRIAGE</span></td>
         <td><code>loaf start &lt;desc&gt;</code></td>
-        <td><code>loaf start</code>, <code>ceremony set</code>, <code>advance</code></td>
-        <td class="k">session:started · event:ceremony_set · event:phase_advanced</td>
+        <td><code>loaf start</code>, <code>advance</code></td>
+        <td class="k">session:started · event:phase_advanced</td>
         <td>state(phase / sub_state / ceremony / iteration / pending=[])</td>
         <td>无 human gate;用户确认 ceremony 后 <code>advance</code></td>
       </tr>
@@ -1169,7 +1169,7 @@
     <thead><tr><th>Command</th><th>Emits</th><th>说明</th></tr></thead>
     <tbody>
       <tr><td class="k">loaf advance</td><td class="k">event:phase_advanced</td><td>非 gate transition;diff-guard 兜底</td></tr>
-      <tr><td class="k">loaf ceremony set</td><td class="k">event:ceremony_set</td><td>TRIAGE 阶段定 ceremony flag;SPEC.* 后不可改</td></tr>
+      <tr><td class="k">loaf profile escalate</td><td class="k">event:ceremony_set</td><td>profile escalation 升档 ceremony;非 TRIAGE 需 profile_escalation head(+ pending:resolved)</td></tr>
       <tr><td class="k">loaf tasks submit</td><td class="k">event:tasks_planned</td><td>整体 task graph 提交(SPEC.design)</td></tr>
       <tr><td class="k">loaf tasks claim</td><td class="k">event:task_claimed</td><td>worker 把 task 从 ready → in_progress</td></tr>
       <tr><td class="k">loaf tasks step start</td><td class="k">event:task_step_started</td><td>开始 step(per-kind 合法集校验)</td></tr>
@@ -1182,7 +1182,7 @@
       <tr><td class="k">loaf gate decide</td><td class="k">gate:decided<br>+ pending:resolved(head)</td><td>同 batch 消 head + 写 gate decision;<code>human:</code> only</td></tr>
       <tr><td class="k">loaf pending raise</td><td class="k">pending:added</td><td>append 队尾;CLI 分 PEND-id</td></tr>
       <tr><td class="k">loaf pending resolve</td><td class="k">pending:resolved</td><td>FIFO 严格,永 pop head</td></tr>
-      <tr><td class="k">loaf profile escalate</td><td class="k">pending:resolved + event:ceremony_set</td><td>response 到 profile_escalation head</td></tr>
+      <tr><td class="k">loaf profile escalate</td><td class="k">event:ceremony_set + pending:resolved</td><td>2-entry batch；ceremony_set 在前(preflight 5c.4 守卫)；resolve profile_escalation head</td></tr>
       <tr><td class="k">loaf lessons add</td><td class="k">evidence:added(payload.kind=manual)</td><td>reducer 拼接派生 lessons.md</td></tr>
       <tr><td class="k">loaf settle</td><td class="k">event:phase_advanced(→ SETTLE.reconcile)</td><td>仅 <code>ceremony.settle_phase=true</code>(rev 5.x:deep only)合法;quick/light/standard 调用 → exit 2 <code>SETTLE_PHASE_DISABLED</code>。reducer 计算落 snapshots/reconcile.json</td></tr>
     </tbody>

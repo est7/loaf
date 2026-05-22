@@ -560,6 +560,86 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
     if (!r.ok) expect(r.code).toBe("SPIKE_CONVERT_NO_SPIKE_TASK");
   });
 
+  // ── Phase 13 — `event:ceremony_set` profile-escalation authorization ──
+  //
+  // `event:ceremony_set` is freely legal at TRIAGE (the initial ceremony
+  // pick). Outside TRIAGE it is legal ONLY as the resolution of a
+  // profile_escalation pending — `loaf profile escalate` emits it. Preflight
+  // requires the unresolved head to be kind=profile_escalation, else
+  // ESCALATION_NOT_PENDING. detail.actual_head feeds the ERROR_CATALOG
+  // {actual_head} placeholder.
+
+  const ceremonySetEntry = (overrides: Record<string, unknown> = {}) =>
+    baseEntry({
+      kind: "event:ceremony_set",
+      actor: "human:est9",
+      payload: DEEP_CEREMONY,
+      ...overrides,
+    });
+  const pendingHead = (kind: string, resolved = false) => ({
+    id: "PEND-0001",
+    kind,
+    resolved,
+  });
+
+  test("event:ceremony_set at TRIAGE.score → OK (initial ceremony pick, unguarded)", () => {
+    const r = preflight(ceremonySetEntry(), {
+      snapshot: mkSnapshot("TRIAGE.score", STANDARD_CEREMONY),
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(true);
+  });
+
+  test("event:ceremony_set at SPEC.design with a profile_escalation head → OK", () => {
+    const r = preflight(ceremonySetEntry(), {
+      snapshot: {
+        ...mkSnapshot("SPEC.design", STANDARD_CEREMONY),
+        pending: [pendingHead("profile_escalation")],
+      },
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(true);
+  });
+
+  test("event:ceremony_set at SPEC.design with no pending head → ESCALATION_NOT_PENDING", () => {
+    const r = preflight(ceremonySetEntry(), {
+      snapshot: mkSnapshot("SPEC.design", STANDARD_CEREMONY),
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.code).toBe("ESCALATION_NOT_PENDING");
+      expect(r.detail).toMatchObject({ actual_head: "(none)" });
+    }
+  });
+
+  test("event:ceremony_set at EXECUTE.work with a wrong-kind head → ESCALATION_NOT_PENDING", () => {
+    const r = preflight(ceremonySetEntry(), {
+      snapshot: {
+        ...mkSnapshot("EXECUTE.work", STANDARD_CEREMONY),
+        pending: [pendingHead("gate_decision")],
+      },
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.code).toBe("ESCALATION_NOT_PENDING");
+      expect(r.detail).toMatchObject({ actual_head: "gate_decision" });
+    }
+  });
+
+  test("event:ceremony_set at SPEC.design with only a resolved profile_escalation → ESCALATION_NOT_PENDING", () => {
+    const r = preflight(ceremonySetEntry(), {
+      snapshot: {
+        ...mkSnapshot("SPEC.design", STANDARD_CEREMONY),
+        pending: [pendingHead("profile_escalation", true)],
+      },
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe("ESCALATION_NOT_PENDING");
+  });
+
   // ── Slice 2 SC1 — step 5e: task lifecycle preflight refines ──────────
   //
   // `event:task_claimed` / `event:task_step_started` / `event:task_step_done`

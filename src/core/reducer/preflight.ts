@@ -237,7 +237,14 @@ export type PreflightFailureCode =
   // spike:converted audit entry and archive itself, making the journal
   // misrepresent the session. Done spikes count; abandoned spikes do not
   // (mirrors the DELIVER_SPIKE_TASKS predicate).
-  | "SPIKE_CONVERT_NO_SPIKE_TASK";
+  | "SPIKE_CONVERT_NO_SPIKE_TASK"
+  // Phase 13 — `loaf profile escalate` authorization. ESCALATION_NOT_PENDING
+  // fires when a non-TRIAGE `event:ceremony_set` is attempted but the
+  // unresolved pending head is not kind=profile_escalation (absent or wrong
+  // kind). The DiagnosticCode + ERROR_CATALOG entry already existed (Slice 3
+  // SC4 deferred the runtime wiring); this promotes it into the preflight
+  // union so `loaf profile escalate` surfaces the actionable code.
+  | "ESCALATION_NOT_PENDING";
 
 export type PreflightResult =
   | { ok: true }
@@ -769,6 +776,34 @@ export function preflight(
         message:
           "cannot convert: the session has no non-abandoned spike task; `loaf spike convert` is a spike-task exit (protocol §8.3)",
       };
+    }
+  }
+
+  // (5c.4) Phase 13 — `loaf profile escalate` authorization for a non-TRIAGE
+  // `event:ceremony_set`.
+  //
+  // `event:ceremony_set` is freely legal at TRIAGE (the initial ceremony
+  // pick). Outside TRIAGE it is legal ONLY as the resolution of a
+  // profile_escalation pending — `loaf profile escalate` emits it as the
+  // FIRST entry of a [event:ceremony_set, pending:resolved] batch, so this
+  // guard still sees the unresolved head before pending:resolved pops it.
+  // detail.actual_head feeds the ERROR_CATALOG {actual_head} placeholder.
+  if (entry.kind === "event:ceremony_set") {
+    const isTriage =
+      sub_state === "TRIAGE.score" || sub_state === "TRIAGE.confirm";
+    if (!isTriage) {
+      const head = ctx.snapshot.pending.find((p) => !p.resolved);
+      if (!head || head.kind !== "profile_escalation") {
+        const actualHead = head ? head.kind : "(none)";
+        return {
+          ok: false,
+          code: "ESCALATION_NOT_PENDING",
+          message:
+            "`loaf profile escalate --confirm --input <ceremony.json>` requires pending head " +
+            `kind=profile_escalation; current head: ${actualHead}`,
+          detail: { actual_head: actualHead },
+        };
+      }
     }
   }
 
