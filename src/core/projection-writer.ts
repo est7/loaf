@@ -254,14 +254,21 @@ export interface WriteProjectionsInput {
  *
  * Does NOT acquire the per-feature lock — the caller (`loaf doctor
  * --rebuild`, SC2) drives this from within its own critical section.
+ *
+ * Returns the basenames of the files present after the rebuild, in write
+ * order — `tasks.json` only when a plan existed, then evidence / findings /
+ * pending / `_meta.json`. The `loaf doctor --rebuild` CLI surfaces this as
+ * its `rebuilt` list, so it never claims a file it did not write.
  */
 export async function writeProjections(
   featureDir: string,
   input: WriteProjectionsInput,
-): Promise<void> {
+): Promise<string[]> {
   const { snapshot, entries, meta } = input;
   const snapshotsDir = path.join(featureDir, "snapshots");
   await fsp.mkdir(snapshotsDir, { recursive: true });
+
+  const written: string[] = [];
 
   // tasks.json — written when a task plan exists, else REMOVED. A stale
   // tasks.json left from a prior state would survive the `_meta.json`
@@ -270,6 +277,7 @@ export async function writeProjections(
   const tasksJson = composeTasksJson(snapshot, entries);
   if (tasksJson !== null) {
     await writeJsonAtomic(tasksPath, tasksJson);
+    written.push("tasks.json");
   } else {
     await fsp.rm(tasksPath, { force: true });
   }
@@ -278,16 +286,22 @@ export async function writeProjections(
     path.join(snapshotsDir, "evidence.json"),
     composeEvidenceJson(entries),
   );
+  written.push("evidence.json");
   await writeJsonAtomic(
     path.join(snapshotsDir, "findings.json"),
     composeFindingsJson(snapshot),
   );
+  written.push("findings.json");
   await writeJsonAtomic(
     path.join(snapshotsDir, "pending.json"),
     composePendingJson(entries),
   );
+  written.push("pending.json");
 
   // Metadata strictly after data — a reader must never see a fresh _meta
   // pointing at stale projection files.
   await writeMeta(path.join(snapshotsDir, "_meta.json"), meta);
+  written.push("_meta.json");
+
+  return written;
 }

@@ -29,6 +29,8 @@ import {
   loadSession,
 } from "./core/cli-runtime.js";
 import { mutate, mutateBatch } from "./core/journal-mutate.js";
+import { replayJournal } from "./core/journal-bootstrap.js";
+import { writeProjections } from "./core/projection-writer.js";
 import type { Ceremony, SubState } from "./core/journal-entry.js";
 import {
   carryForwardStepProgress,
@@ -954,6 +956,126 @@ export async function main(argv: string[] = process.argv): Promise<number> {
         }
       },
     );
+
+  // ── loaf doctor --rebuild ───────────────────────────────────────────
+  // Phase 14 SC2. The only doctor mode this release: --rebuild does a full
+  // journal replay (replayJournal from seq=0) and re-serializes the four
+  // journal-derived snapshot projections + _meta.json via writeProjections
+  // (Phase 14 SC1). The read-only check suite (bare `loaf doctor`, §10.15)
+  // + the other sub-flags (--check-tail / --migrate-v2 / --scope /
+  // --verify-checksum) are later slices.
+  //
+  // Exit codes (codex r160): 0 = rebuilt OK; 1 = a valid request whose
+  // rebuild cannot complete (unreplayable journal, unsupported migrated
+  // journal, serialization/write failure); 2 = CLI usage error (missing
+  // --feature, or bare `doctor` with no implemented mode) via emitFailure.
+  // No per-feature lock — the repo runs under the single-writer assumption
+  // (no .lock infra; F-014 r112).
+  program
+    .command("doctor")
+    .description("Repository self-check. This release implements --rebuild only")
+    .option("--rebuild", "Full journal replay → rebuild snapshots/*.json + _meta.json")
+    .option("--feature <name>", "Feature whose snapshots to rebuild (required with --rebuild)")
+    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
+    .action(async (opts: { rebuild?: boolean; feature?: string; featureDir?: string }) => {
+      // failRebuild — the exit-1 path: a valid request whose rebuild cannot
+      // complete. Distinct from emitFailure (exit 2 = CLI usage error).
+      const failRebuild = (code: string, message: string): void => {
+        if (useJson) {
+          process.stderr.write(JSON.stringify({ ok: false, code, message }) + "\n");
+        } else {
+          process.stderr.write(`error: ${code} — ${message}\n`);
+        }
+        exitCode = 1;
+      };
+
+      if (!opts.rebuild) {
+        emitFailure(
+          "DOCTOR_MODE_NOT_IMPLEMENTED",
+          "only --rebuild is implemented for loaf doctor in this release",
+        );
+        return;
+      }
+
+      // --feature is validated AFTER mode selection so a literal bare
+      // `loaf doctor` surfaces DOCTOR_MODE_NOT_IMPLEMENTED, not a
+      // missing-feature error — `--feature` is a Commander `.option`, not
+      // `.requiredOption`, precisely so mode is checked first (codex r161).
+      if (!opts.feature) {
+        emitFailure(
+          "DOCTOR_FEATURE_REQUIRED",
+          "doctor --rebuild requires --feature <name>",
+        );
+        return;
+      }
+
+      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      const journalPath = path.join(featureDir, "journal.jsonl");
+      const replay = await replayJournal(journalPath, {
+        collect_entries: true,
+        feature_dir: featureDir,
+      });
+      if (!replay.ok) {
+        failRebuild(
+          replay.code,
+          `journal at ${journalPath} cannot be replayed — ${replay.message}`,
+        );
+        return;
+      }
+      const entries = replay.entries;
+      if (entries === undefined) {
+        failRebuild(
+          "DOCTOR_REBUILD_FAILED",
+          "internal invariant: replay returned ok without collected entries",
+        );
+        return;
+      }
+
+      // A v0.0.x-migrated journal carries its projection state through
+      // `migration:snapshot_imported` sidecar rehydration, not the event
+      // payloads the SC1 serializer folds — rebuilding one is a follow-up
+      // intersecting `doctor --migrate-v2` (F-018). Fail cleanly before
+      // writeProjections rather than let composeTasksJson throw.
+      if (entries.some((e) => e.kind === "migration:snapshot_imported")) {
+        failRebuild(
+          "DOCTOR_REBUILD_MIGRATED_UNSUPPORTED",
+          "doctor --rebuild does not yet support v0.0.x-migrated journals (intersects doctor --migrate-v2)",
+        );
+        return;
+      }
+
+      let rebuilt: string[];
+      try {
+        rebuilt = await writeProjections(featureDir, {
+          snapshot: replay.snapshot,
+          entries,
+          meta: replay.meta,
+        });
+      } catch (err) {
+        failRebuild(
+          "DOCTOR_REBUILD_FAILED",
+          `snapshot rebuild failed — ${(err as Error).message}`,
+        );
+        return;
+      }
+
+      const out = {
+        ok: true,
+        feature: opts.feature,
+        feature_dir: featureDir,
+        tail_seq: replay.meta.last_applied_seq,
+        rebuilt,
+      };
+      if (useJson) {
+        process.stdout.write(JSON.stringify(out) + "\n");
+      } else {
+        process.stdout.write(
+          `rebuilt ${rebuilt.length} projection file(s) for ${opts.feature}:\n` +
+          rebuilt.map((f) => `  snapshots/${f}\n`).join("") +
+          `# snapshot as-of seq=${replay.meta.last_applied_seq}\n`,
+        );
+      }
+    });
 
   // ── loaf tasks <subcommand> ─────────────────────────────────────────
   // Slice 2 SC2/SC3 task lifecycle CLI surface. The parent `tasks`
