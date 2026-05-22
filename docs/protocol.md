@@ -306,8 +306,8 @@ skill `loaf start` 流程:算 complexity_score → 推 preset label → user 接
 当 `ceremony.verify_phase=false` 时跳过完整 VERIFY;verify-min 机器检查在 `loaf deliver` 入口跑(`EXECUTE.done → DONE.delivered` 边界):
 - 若 task 触代码 → 必须有 build/test 类 evidence 至少一条
 - 若 task 是 visual-ui → 必须有 manual/visual-review evidence 至少一条
-- 若任一 task 是 spike → **deliver hard block**(同 §10.8);stderr 提示用户**显式**走 §8.3 三出口之一:`loaf archive --reason "..."` / `loaf spike convert --to-feature F-N` / `loaf abandon --reason "..."`。**不 auto-archive**(§8.3 三出口全部要求用户显式动作 + 都需 `--reason`,protocol 不替用户编造 reason)
-- **混跑 spike + 非 spike task**(rev 4.1 显式):session 内同时有 spike 和 deliverable task 是边缘 case — spike block 是 **session-level**,任一 spike 触发整 session deliver hard block。**默认推荐**:`loaf advance` 进 `EXECUTE.plan` 时检测到混跑 → stderr warning,建议拆(spike 独立起一个 quick session)。**用户坚持混跑**:只能整 session 走 §8.3 三出口(non-spike 工作通过 `loaf spike convert --to-feature F-N` 在新 feature 里继承,旧 session DONE.archived)
+- 若任一 task 是 spike → **deliver hard block**(同 §10.8);stderr 提示用户**显式**走 §8.3 三出口之一:`loaf archive --reason "..."` / `loaf spike convert --to-feature F-N --reason "..."` / `loaf abandon --reason "..."`。**不 auto-archive**(§8.3 三出口全部要求用户显式动作 + 都需 `--reason`,protocol 不替用户编造 reason)
+- **混跑 spike + 非 spike task**(rev 4.1 显式):session 内同时有 spike 和 deliverable task 是边缘 case — spike block 是 **session-level**,任一 spike 触发整 session deliver hard block。**默认推荐**:`loaf advance` 进 `EXECUTE.plan` 时检测到混跑 → stderr warning,建议拆(spike 独立起一个 quick session)。**用户坚持混跑**:只能整 session 走 §8.3 三出口(non-spike 工作由 `loaf spike convert --to-feature F-N --reason "..."` 记录 `to_feature` 后,经后续独立的 `loaf start F-N` 在新 feature 里继承;`spike convert` 本身只 archive 旧 session 到 DONE.archived,不创建新 feature)
 - 若都没有 → 阻塞,要求显式 `loaf evidence add --kind manual --reason "..."`
 
 **verify-min 通过 → `loaf deliver` 一步转移到 `DONE.delivered`**(stdout 仍打印 advisory commit/PR 建议,见 §10.14);失败 → exit 2 + stderr 列出缺什么 evidence。
@@ -1291,10 +1291,10 @@ spike task 完工有 3 个合法出口,**永远不允许 deliver**:
 1. archive:   loaf archive --reason "spike, kept worktree for reference"
               → state → DONE.archived
 
-2. convert:   loaf spike convert --to-feature F-002
-              → spike findings 写入 lessons.md
+2. convert:   loaf spike convert --to-feature F-002 --reason "..."
+              → emit spike:converted(payload {to_feature, reason})
               → 当前 session → DONE.archived
-              → 新 session 开 F-002 把学到的写进 spec
+              → F-002 不由本命令创建;后续独立 loaf start F-002 另开,把学到的写进 spec
 
 3. abandon:   loaf abandon --reason "no value"
               → state → DONE.abandoned
@@ -1650,7 +1650,7 @@ error: <one-line human description>
 | `DELIVER_NOT_ACCEPTED` | exit 2 | `loaf deliver` at `VERIFY.accept` or `SETTLE.lessons` but snapshot.state.verify_accepted=false | Run `loaf gate decide verify-accept --approve --reason "..."` first |
 | `DELIVER_SETTLE_PHASE_BYPASS` | exit 2 | `loaf deliver` at `VERIFY.accept` but `ceremony.settle_phase=true` (deep must run `loaf settle` then walk SETTLE.* first) | Run `loaf settle`, complete SETTLE.* phase, then `loaf deliver` from `SETTLE.lessons` |
 | `DELIVER_VERIFY_MIN_UNAVAILABLE` | exit 2 | `loaf deliver` at `EXECUTE.done` (quick / light direct-deliver path) but verify-min check infrastructure (§3) is not yet implemented in this build | Use ceremony=standard or deep to traverse `VERIFY.*` before delivery; quick / light direct-delivery via verify-min is a follow-up slice |
-| `DELIVER_SPIKE_TASKS` | exit 2 | `loaf deliver` (any source) but snapshot.tasks contains a non-abandoned spike task (protocol §703 + §1298 hard block) | Abandon the spike task or run `loaf spike convert --to-feature F-N`; spike tasks must not remain in non-abandoned status when the session delivers |
+| `DELIVER_SPIKE_TASKS` | exit 2 | `loaf deliver` (any source) but snapshot.tasks contains a non-abandoned spike task (protocol §703 + §1298 hard block) | Abandon the spike task or run `loaf spike convert --to-feature F-N --reason "..."`; spike tasks must not remain in non-abandoned status when the session delivers |
 | `SETTLE_NOT_ACCEPTED` | exit 2 | `loaf settle` (event:phase_advanced VERIFY.accept → SETTLE.reconcile) but snapshot.state.verify_accepted=false | Run `loaf gate decide verify-accept --approve --reason "..."` before `loaf settle` |
 
 注 — Slice 1.D 之前的 `SETTLE_PHASE_BYPASS` 是 transition validator 在 `VERIFY.accept → DONE.delivered` 且 `ceremony.settle_phase=true` 时发的 diagnostic。Slice 1.D 把这条边从 LEGAL_TRANSITIONS 里移除后,`loaf advance DONE.delivered` 走的是 `TRANSITION_ILLEGAL` 路径;deep ceremony 用户经 `loaf deliver` 触发同一语义违规时由 `DELIVER_SETTLE_PHASE_BYPASS` 接管(preflight step 5c,session:delivered kind)。`SETTLE_PHASE_BYPASS` code 本身在 v0.1.0 retired,read-side 工具碰到老 journal 里的该值时按 `DELIVER_SETTLE_PHASE_BYPASS` 语义解释。
@@ -1867,7 +1867,7 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 | `loaf <artifact> schema --json` | 自描述命令,dump JSON Schema(spec/tasks/evidence/finding/state,**限定 5 个 enum**,非 catch-all) | 0 |
 | `loaf amend --target spec\|tasks` | spec-lock 前编辑回退;**post-lock 拒绝执行,提示走 finding** | 0 / 2 |
 | `loaf profile escalate --confirm` | 接受 auto-escalation prompt。**rev 4.1 Q3**:本身就是答 `pending(kind=profile_escalation)` head 的方式,head 不匹配 → `ESCALATION_NOT_PENDING` exit 2 | 0 / 2 |
-| `loaf spike convert --to-feature F-N` | spike → 新 feature scaffold | 0 / 2 |
+| `loaf spike convert --to-feature F-N --reason "..."` | emit `spike:converted`(payload `{to_feature, reason}`)+ archive 当前 session 到 `DONE.archived`;**不** scaffold F-N(由后续独立 `loaf start F-N` 另开) | 0 / 2 |
 | `loaf deliver` | **rev 3.1:advisory only,不碰 git/gh**;emit `session:delivered`(`human:` actor;reducer 直接 cursor flip 到 DONE.delivered,**不**经 `event:phase_advanced`)+ 打印 advisory `next:` 提示;spike hard block。**rev 4.1 + 5.x + Slice 1.D sub-cycle 2**:有效 source sub-state 取决于 ceremony —— `verify_phase=false`(`quick` / `light`)从 `EXECUTE.done` 调用(**Slice 1.D MVP**:fail-closed `DELIVER_VERIFY_MIN_UNAVAILABLE` —— verify-min check 基础设施未实装,等后续 slice;light "REQ coverage not closed" 提示也跟着 verify-min 一起延后);`verify_phase=true && settle_phase=false`(`standard`)从 `VERIFY.accept` 调用(VERIFY 已走完,无 verify-min 二次跑;preflight step 5c 校验 `verify_accepted=true` 否则 `DELIVER_NOT_ACCEPTED`、`settle_phase=false` 否则 `DELIVER_SETTLE_PHASE_BYPASS`);`settle_phase=true`(`deep`)从 `SETTLE.lessons` 调用(reconcile.json + lessons.md 已产;preflight 同样校验 `verify_accepted=true`)。任何 source 都校验 snapshot.tasks 无非-abandoned spike 任务(`DELIVER_SPIKE_TASKS`,§703 + §1298) | 0 / 2 |
 | `loaf archive --reason "..."` | 不交付关闭 | 0 / 2 |
 | `loaf abandon --reason "..."` | 中途放弃(reason required) | 0 / 2 |
@@ -1912,7 +1912,7 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 | `loaf settle` | `event:phase_advanced`(SETTLE 入口);reconcile 计算落 `snapshots/reconcile.json`,不发 entry |
 | `loaf archive` | `session:archived`(actor `human:`;reason 必填) |
 | `loaf abandon` | `session:abandoned`(actor `human:`;reason 必填) |
-| `loaf spike convert` | `spike:converted`(actor `human:`) |
+| `loaf spike convert` | `spike:converted`(actor `human:`;to_feature + reason 必填) |
 | `loaf doctor --migrate-v2` | `migration:snapshot_imported`(actor `migration:*`;journal seq=0/1 only) |
 | `loaf tasks register-red` | reducer-side `event:task_step_done`(payload `red_test_registered=true`) |
 | `loaf profile escalate` | `pending:resolved`(answers `profile_escalation` head)+ `event:ceremony_set` (新 ceremony) |

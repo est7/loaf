@@ -243,7 +243,7 @@ session:archived              # reason 必填
 session:abandoned             # reason 必填
 
 # Spike branch closure
-spike:converted               # convert_target: F-N 新 feature scaffold
+spike:converted               # payload {to_feature, reason};archive 当前 session,F-N 由后续独立 loaf start 另开
 
 # Migration(v0.0.x → v0.1.0 lossy snapshot import)
 migration:snapshot_imported   # 仅 actor migration:* 且 journal seq=0/1 时合法
@@ -433,7 +433,7 @@ CLI 输出（命令成功路径）wrap footer：`# snapshot as-of seq=N (last_ap
 | `session:delivered` | `EXECUTE.done`（quick）/ `SETTLE.lessons`（standard+） | `loaf deliver` | verify-min basis / reconcile basis 必填；actor `human:` |
 | `session:archived` | 任意 non-DONE | `loaf archive` | reason；actor `human:` |
 | `session:abandoned` | 任意 non-DONE | `loaf abandon` | reason；actor `human:` |
-| `spike:converted` | spike 模式 active | `loaf spike convert` | convert_target；actor `human:` |
+| `spike:converted` | spike 模式 active | `loaf spike convert` | {to_feature, reason}；actor `human:` |
 | `migration:snapshot_imported` | journal seq=0/1 only | `loaf doctor --migrate-v2` | actor `migration:`；payload 含 §5.2 artifact refs |
 
 违反时 preflight (step 3) abort，CLI exit 2 + 具体 error code。

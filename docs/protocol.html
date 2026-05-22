@@ -1197,7 +1197,7 @@
       <tr><td class="k">loaf deliver</td><td class="k">session:delivered</td><td>advisory only,不碰 git/gh;<code>human:</code> only</td></tr>
       <tr><td class="k">loaf archive --reason</td><td class="k">session:archived</td><td>非交付关闭;<code>human:</code> only</td></tr>
       <tr><td class="k">loaf abandon --reason</td><td class="k">session:abandoned</td><td>中途放弃;<code>human:</code> only</td></tr>
-      <tr><td class="k">loaf spike convert --to-feature F-N</td><td class="k">spike:converted</td><td>spike 出口之一;<code>human:</code> only</td></tr>
+      <tr><td class="k">loaf spike convert --to-feature F-N --reason</td><td class="k">spike:converted</td><td>spike 出口之一;不 scaffold F-N;<code>human:</code> only</td></tr>
       <tr><td class="k">loaf doctor --migrate-v2</td><td class="k">migration:snapshot_imported</td><td>actor <code>migration:*</code>;journal seq=0 only;Gate #3 .strict()</td></tr>
     </tbody>
   </table>

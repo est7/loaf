@@ -425,9 +425,11 @@ Source: codex independent enumeration r119 (AMQ thread
 ### SCEN-E2E-037 — spike convert
 - **Tier** future · **Status** todo · **Impl** `loaf spike convert` is absent
   from `src/cli.tsx` (protocol-only).
-- **Given** a session with spike findings.
-- **When** `spike convert --to-feature` runs.
-- **Then** the old session archives and a new feature is scaffolded.
+- **Given** a session with a non-abandoned spike task.
+- **When** `spike convert --to-feature F-N --reason "..."` runs.
+- **Then** the old session reaches `DONE.archived` and a `spike:converted`
+  entry records `to_feature`; opening the new feature is a separate `loaf
+  start` invocation, out of scope for this scenario.
 - **Covers** the spike-to-feature conversion exit.
 
 ### SCEN-E2E-038 — doctor / migration rebuild
