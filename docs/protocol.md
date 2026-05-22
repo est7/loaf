@@ -1155,7 +1155,7 @@ function canSatisfy(evidence: EvidenceEntry, coveredId: string): boolean {
 - planned_scope 扩张超出原 allowed glob → 触发 escalation prompt
 - 跨 ceremony 阈值 → 触发 ceremony auto-escalation(详见 §3,rev 4.2)
 
-任一触发 → `pending: profile_escalation`,等 user `loaf profile escalate --confirm`。
+任一触发 → `pending: profile_escalation`,等 user `loaf profile escalate --confirm --input <ceremony.json>`。
 
 ### 6.5 Fresh context per iteration
 
@@ -1580,7 +1580,7 @@ bridge 路径 `~/.loaf/claude-bridge/` 是 **client 协议约定**,不是 loaf-c
 | **Unexpected**(panic / unknown 异常) | stderr 一行「unexpected error — debug log at `~/.loaf/crashes/<ts>.log`;report at `$LOAF_ISSUE_URL?<prefilled-context>`」+ 写完整 stack 到 crash log;exit 1。`$LOAF_ISSUE_URL` 由 build 时注入(见 §10.11),query string **预填**:`loaf_version` / `schema_version` / `phase` / `sub_state` / `last_command`(argv,sanitized — 不含文件内容)/ `crash_log_path`(本地路径,提示用户手动 review 后贴) |
 | **Diff guard violation**(`loaf advance`) | exit 2 + stderr 列出违反 path + 引用 `STEP_WRITE_PATHS_BY_KIND` rule 来源 |
 | **Session dispatch**(rev 4.1)| 4 个 diagnostic code:`FEATURE_NOT_FOUND`(cwd 0 个 feature)/ `FEATURE_AMBIGUOUS`(cwd 2+ feature 且无 dispatch 上下文)/ `SESSION_CWD_MISMATCH`(`--session <UUID>` 指定的 UUID 注册 cwd ≠ 当前 cwd)/ `SESSION_SHORT_AMBIGUOUS`(短 UUID prefix 在 registry 多匹配)。全部 exit 2,stderr 列候选 + did-you-mean。详见 §10.3 dispatch precedence 段 |
-| **Pending head invariant**(rev 4.1 Q3 minimal)| 3 个 diagnostic code:`PENDING_BLOCKS_ADVANCE`(`loaf advance` 时 head ∈ {gate_decision, profile_escalation})/ `GATE_NOT_PENDING`(`loaf gate decide <G>` 但 head 不是 `gate_decision(<G>)`)/ `ESCALATION_NOT_PENDING`(`loaf profile escalate --confirm` 但 head 不是 `profile_escalation`)。全部 exit 2,stderr 列 head 的 `pending_id` + `question`,提示先 resolve 或换合适命令 |
+| **Pending head invariant**(rev 4.1 Q3 minimal)| 3 个 diagnostic code:`PENDING_BLOCKS_ADVANCE`(`loaf advance` 时 head ∈ {gate_decision, profile_escalation})/ `GATE_NOT_PENDING`(`loaf gate decide <G>` 但 head 不是 `gate_decision(<G>)`)/ `ESCALATION_NOT_PENDING`(`loaf profile escalate --confirm --input <ceremony.json>` 但 head 不是 `profile_escalation`)。全部 exit 2,stderr 列 head 的 `pending_id` + `question`,提示先 resolve 或换合适命令 |
 | **Flag mutual exclusion**(rev 4.2,clig.dev §6)| `MUTUALLY_EXCLUSIVE_FLAGS`:format flag 冲突(`--json --plain` / `--json --format=text` / `--plain --format=json`)+ 未来其它互斥对。exit 2,stderr 列冲突 flag 对 + `--format` 归一化提示。详见 §10.7 「Format flag 归一化与互斥」段 |
 
 **信号到噪音**:类似错误**合并展示**(N 个 REQ 缺 measurable → 一条总结 + 详情写文件,不是 N 行 stderr)。最重要的信息**放在 stderr 末尾**(用户视线落点)。
@@ -1744,7 +1744,7 @@ CLI **唯一** enforce 的 pending 阻塞规则(state-machine integrity):
 
 衍生约束(同一 invariant 的 corollary,见 §10.5 + §10.8):
 - `loaf gate decide <G>`:head 必须是 `gate_decision(<G>)`,否则 `GATE_NOT_PENDING` exit 2(它本身就是该 head 的合法 resolution)
-- `loaf profile escalate --confirm`:head 必须是 `profile_escalation`,否则 `ESCALATION_NOT_PENDING` exit 2(同理)
+- `loaf profile escalate --confirm --input <ceremony.json>`:head 必须是 `profile_escalation`,否则 `ESCALATION_NOT_PENDING` exit 2(同理)
 
 **其它命令 protocol 层不做 pending 阻塞**。理由:
 - read-only 命令(`status` / `tasks list` / `pending list` 等)不动 state,无 enforce 必要
@@ -1879,7 +1879,7 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 | `loaf pending list` | 列 state.pending FIFO 队列全部 entry(**rev 4.1**:含 head + 排队的;head 标 `*`)| 0 |
 | `loaf pending status [--id PEND-N]` | 查 single entry 详情(**rev 4.1**:default 看 head;`--id` 看队列其它位置 — 只读不动队列)| 0 / 2 |
 | `loaf pending resolve [--answer <a>]` | 回答 pending head(**rev 4.1**:FIFO 严格 — 永远 pop `pending[0]`,**不接受 `--id`**;v1.0 不支持跳序);`--no-input` 时必须 `--answer` flag。resolve 成功后队列若仍非空,新 head 自动 promote 为 blocker | 0 / 2 |
-| `loaf doctor` | 版本 / 装机 / 仓库结构自检 + 修复建议。**rev 5.0** 加 5 sub-flag:`--rebuild`(full replay 重建 snapshots/)/ `--check-tail`(只跑 batch-aware tail recovery)/ `--migrate-v2`(v0.0.x → v0.1.0 sidecar import,§5.2)/ `--scope cwd`(对 cwd 下所有 `.loaf/<feature>/` 跑 mixed-version check)/ `--verify-checksum`(full chain rolling_checksum recompute,O(N))。详 §10.15 + ADR-0005 §5.4 | 0 / 1 / 2 |
+| `loaf doctor` | 版本 / 装机 / 仓库结构自检 + 修复建议。**rev 5.0** 加 5 sub-flag:`--rebuild`(full replay 重建 snapshots/)/ `--check-tail`(只跑 batch-aware tail recovery)/ `--migrate-v2`(v0.0.x → v0.1.0 sidecar import,§5.2)/ `--scope cwd`(对 cwd 下所有 `.loaf/<feature>/` 跑 mixed-version check)/ `--verify-checksum`(full chain rolling_checksum recompute,O(N))。**实现状态(Phase 14 / `1d6e1d1`)**:当前 binary 仅 ship `loaf doctor --rebuild --feature <X> [--feature-dir <path>]`(full replay 重建 snapshots/);bare `loaf doctor` 与其余 4 sub-flag 未实现 → exit 2 `DOCTOR_MODE_NOT_IMPLEMENTED`。详 §10.15 + ADR-0005 §5.4 | 0 / 1 / 2 |
 
 **Journal entry kind emitted by each Tier 1 mutator**(rev 5.0,ADR-0005 §3.3):
 
@@ -2033,6 +2033,8 @@ git / gh side effect 是 loaf-skill 或用户自己负责,**不进 loaf-cli**。
 
 `loaf doctor` 是 loaf-cli 的**唯一自检入口**,被 §4.12 / §10.4 / §10.5 / §11.2 多处引用。本节定义它跑的全部 check 与可选 `--fix` 行为。所有 check **read-only by default**,加 `--fix` 才尝试修复。
 
+> **实现状态(Phase 14 / `1d6e1d1`)**:下表与下方「调用契约」是 `loaf doctor` 的**目标诊断设计**。v0.1.0 当前 binary 仅实现 `loaf doctor --rebuild`(full replay 重建 `snapshots/`);bare `loaf doctor`、`--fix`、`--rebuild-registry` 及其余 sub-flag 均**未实现** —— bare `loaf doctor` 退出 2 `DOCTOR_MODE_NOT_IMPLEMENTED`,`--rebuild` 缺 `--feature` 退出 2 `DOCTOR_FEATURE_REQUIRED`。下表的 check 套件是后续 slice 的 backlog。
+
 | Check | 范围 | 检测条件 | `--fix` 行为 |
 |---|---|---|---|
 | **stale-lock** | `.loaf/<feature>/.lock`(所有 feature)| 文件存在 + 内含 PID 不在进程表 | `unlink` 锁文件(POSIX rename atomic 写过,所以安全)|
@@ -2056,6 +2058,10 @@ git / gh side effect 是 loaf-skill 或用户自己负责,**不进 loaf-cli**。
 **调用契约**:
 
 ```bash
+# v0.1.0(Phase 14)实现:
+loaf doctor --rebuild --feature <X> [--feature-dir <path>]   # full replay 重建 snapshots/
+
+# 目标设计 — 当前未实现(bare loaf doctor → exit 2 DOCTOR_MODE_NOT_IMPLEMENTED):
 loaf doctor              # 跑全部 check,read-only,exit 0 = 全过,exit 1 = 任一失败
 loaf doctor --fix        # 跑全部 check,可 fix 的尝试 fix,exit 0 = 全清,exit 1 = 仍有未修
 loaf doctor --rebuild-registry   # 等价 --fix 但只跑 registry-* 三 check
@@ -2491,7 +2497,7 @@ v1.0 严格 FIFO:resolve 永远 pop `pending[0]`,不接 `--id` flag。理由:5 �
 | 自动 risk_tier derivation | LLM 显式声明 task kind + labels |
 | Cucumber / Gherkin runner | Gherkin 只是 LLM lint shape |
 | Bash PreToolUse hook(每命令 latency)| diff-based guard at `loaf advance` 兜底 |
-| 自动 profile 升级无 user confirm | 升级永远要 user `loaf profile escalate --confirm` |
+| 自动 profile 升级无 user confirm | 升级永远要 user `loaf profile escalate --confirm --input <ceremony.json>` |
 | 自动 profile 降级 | 永远不允许 |
 | **vague-word blacklist** | rev 3.1 砍掉;语言风格由 loaf-skill 在 prompt 中处理 |
 | ~~**state.json event sourcing**~~ | ~~codex rev 4 提议;v1 state.json 仍是直接写入的真理源~~ — **rev 5.0 退场**:ADR-0005 落地后 state.json 是派生投影,canonical 是 journal.jsonl(γ truth model)。本条非目标终止 |

@@ -3317,6 +3317,11 @@ export const CONCURRENCY_INVARIANTS = {
   //     The 5 surface flags that gate the rev 5.0 recovery operations.
   //     CLI parser MUST accept these on `loaf doctor` only; combining
   //     with --fix is allowed where applicable.
+  //     Implementation status (Phase 14 / 1d6e1d1): the shipped CLI
+  //     accepts only `--rebuild` (+ `--feature` / `--feature-dir`);
+  //     `--check-tail` / `--migrate-v2` / `--scope cwd` /
+  //     `--verify-checksum` are deferred. The map below stays the design
+  //     target.
   doctor_sub_flags: {
     "--rebuild": "full replay from seq=0; rewrites snapshots/* and snapshots/_meta.json",
     "--check-tail": "run batch-aware tail recovery only; no snapshot rebuild unless tail truncated past last_applied_seq",
@@ -3360,7 +3365,7 @@ export const CONCURRENCY_INVARIANTS = {
   //         else GATE_NOT_PENDING. The command itself resolves the
   //         head; CLI pops pending + writes gate-decision evidence +
   //         advances state atomically in one lock window.
-  //       - `loaf profile escalate --confirm`: head must be
+  //       - `loaf profile escalate --confirm --input <ceremony.json>`: head must be
   //         profile_escalation, else ESCALATION_NOT_PENDING. Same
   //         atomic semantics.
   //
@@ -3828,7 +3833,7 @@ export const DiagnosticCode = z.enum([
   "SESSION_SHORT_AMBIGUOUS",               // §10.3 session dispatch — short UUID prefix collision
   "PENDING_BLOCKS_ADVANCE",                // §10.7 pending head ∈ {gate_decision, profile_escalation}
   "GATE_NOT_PENDING",                      // §10.7 `loaf gate decide <G>` but head isn't gate_decision(<G>)
-  "ESCALATION_NOT_PENDING",                // §10.7 `loaf profile escalate --confirm` but head isn't profile_escalation
+  "ESCALATION_NOT_PENDING",                // §10.7 `loaf profile escalate --confirm --input <ceremony.json>` but head isn't profile_escalation
   // ── audit r1-r5 — runtime preflight / transition ──
   "ACTOR_AUTHORITY_VIOLATION",             // src/core/reducer/preflight.ts:101-107
   "FROM_CURSOR_MISMATCH",                  // src/core/reducer/preflight.ts:131-140

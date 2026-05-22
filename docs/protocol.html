@@ -1211,6 +1211,7 @@
 <section id="doctor">
   <h2>⑫ <code>loaf doctor</code> · 16 项 check</h2>
   <p class="lead">所有 check 默认 read-only;加 <code>--fix</code> 才尝试修复。启动期 <code>loaf &lt;any-cmd&gt;</code> 静默跑 <code>stale-lock</code> + <code>stale-tmp</code>。</p>
+  <p class="lead"><strong>实现状态(Phase 14 / <code>1d6e1d1</code>)</strong>:下表与 sub-flags 是 <code>loaf doctor</code> 的目标诊断设计;v0.1.0 当前仅实现 <code>loaf doctor --rebuild --feature &lt;X&gt;</code>(full replay 重建 <code>snapshots/</code>)。bare <code>loaf doctor</code> 与其余 sub-flag 未实现 → exit 2 <code>DOCTOR_MODE_NOT_IMPLEMENTED</code>。</p>
 
   <table class="matrix">
     <thead>
@@ -1237,6 +1238,7 @@
   </table>
 
   <h3>Sub-flags</h3>
+  <p>v0.1.0(Phase 14)仅实现 <code>--rebuild</code>;其余 flag 为目标设计,未实现。</p>
   <table class="matrix">
     <thead><tr><th>Flag</th><th>用途</th></tr></thead>
     <tbody>
