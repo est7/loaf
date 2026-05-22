@@ -58,7 +58,9 @@ async function startFresh(): Promise<{ dir: string; feature: string }> {
   return { dir, feature };
 }
 
-async function loadSnapshot(dir: string): Promise<{ snapshot: any; tail_seq: number }> {
+async function loadSnapshot(
+  dir: string,
+): Promise<{ snapshot: any; tail_seq: number; entries: any; meta: any }> {
   const { loadSession } = await import("../../src/core/cli-runtime.js");
   return await loadSession(dir);
 }
@@ -86,7 +88,7 @@ async function injectPending(
         ...extra,
       },
     },
-    { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq },
+    { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, entries: s.entries, meta: s.meta },
   );
   if (!r.ok) throw new Error(`injectPending failed: ${r.code} ${r.message}`);
 }

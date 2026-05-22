@@ -75,7 +75,7 @@ describe("checkSnapshotFresh — Gate #5", () => {
   test("journal has one entry + meta agrees → fresh", async () => {
     const filePath = await tmpJournal();
     const entry = startEntry();
-    await appendEntry(filePath, entry, { fsync: false });
+    await appendEntry(filePath, entry, emptyMeta(), { fsync: false });
 
     const line = JSON.stringify(entry);
     const m = mkMeta({
@@ -91,7 +91,7 @@ describe("checkSnapshotFresh — Gate #5", () => {
 
   test("journal has more entries than meta last_applied_seq → tail_offset_mismatch", async () => {
     const filePath = await tmpJournal();
-    await appendEntry(filePath, startEntry(), { fsync: false });
+    const meta0 = await appendEntry(filePath, startEntry(), emptyMeta(), { fsync: false });
     await appendEntry(
       filePath,
       {
@@ -103,6 +103,7 @@ describe("checkSnapshotFresh — Gate #5", () => {
         kind: "event:phase_advanced",
         payload: { from: "TRIAGE.score", to: "TRIAGE.confirm" },
       },
+      meta0,
       { fsync: false },
     );
 
@@ -124,7 +125,7 @@ describe("checkSnapshotFresh — Gate #5", () => {
 
   test("journal tail hash differs from meta → tail_hash_mismatch", async () => {
     const filePath = await tmpJournal();
-    await appendEntry(filePath, startEntry(), { fsync: false });
+    await appendEntry(filePath, startEntry(), emptyMeta(), { fsync: false });
 
     const line = JSON.stringify(startEntry());
     const m = mkMeta({
@@ -146,7 +147,7 @@ describe("checkSnapshotFresh — Gate #5", () => {
 
   test("journal tail missing trailing newline → trailing_partial_line", async () => {
     const filePath = await tmpJournal();
-    await appendEntry(filePath, startEntry(), { fsync: false });
+    await appendEntry(filePath, startEntry(), emptyMeta(), { fsync: false });
     // Truncate one byte to drop the final \n — simulates writer-mid-append.
     const stat = await fs.stat(filePath);
     await fs.truncate(filePath, stat.size - 1);

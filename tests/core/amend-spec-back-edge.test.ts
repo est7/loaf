@@ -17,6 +17,8 @@ import path from "node:path";
 import os from "node:os";
 
 import { mutateBatch } from "../../src/core/journal-mutate.js";
+import { appendEntry } from "../../src/core/journal-append.js";
+import { emptyMeta, type SnapshotMeta } from "../../src/core/snapshot.js";
 import { apply, initialSnapshot, type Snapshot } from "../../src/core/reducer.js";
 import { replayJournal } from "../../src/core/journal-bootstrap.js";
 import { validateTransition } from "../../src/core/reducer/transition.js";
@@ -280,12 +282,72 @@ describe("reducer.apply phase_advanced — Item 3 SC0 iteration bump", () => {
   });
 });
 
+// Seed a REAL journal to EXECUTE.work, spec_locked=true (Phase 15 SC2:
+// mutateBatch step 8 re-serializes all five projection files, so the entry
+// stream must be consistent with the snapshot — a synthetic `snapshotPostLock`
+// over an empty journal is no longer admissible). amend-spec needs no task
+// graph, so the bootstrap skips tasks_planned. Raw `appendEntry` builds the
+// journal (bypassing mutateBatch's Pass 1.5 gate eval — fine for a fixture);
+// `replayJournal` then derives the authentic {snapshot, entries, meta} triple.
+async function seedRealJournalAtExecuteWork(dir: string): Promise<{
+  snapshot: Snapshot;
+  tailSeq: number;
+  entries: JournalEntry[];
+  meta: SnapshotMeta;
+}> {
+  const journalPath = path.join(dir, "journal.jsonl");
+  let seq = 0;
+  const bootstrap: JournalEntry[] = [
+    makeEntry(seq++, "session:started", {
+      session_id: "550e8400-e29b-41d4-a716-446655440000",
+      feature: "auth-refresh",
+      ceremony: STANDARD,
+    }, "cli:loaf"),
+  ];
+  for (const [from, to] of [
+    ["TRIAGE.score", "TRIAGE.confirm"],
+    ["TRIAGE.confirm", "SPEC.proposal"],
+    ["SPEC.proposal", "SPEC.spec"],
+    ["SPEC.spec", "SPEC.plan"],
+    ["SPEC.plan", "SPEC.design"],
+  ] as Array<[SubState, SubState]>) {
+    bootstrap.push(makeEntry(seq++, "event:phase_advanced", { from, to }, "cli:loaf"));
+  }
+  bootstrap.push(
+    makeEntry(seq++, "gate:decided", {
+      gate_kind: "spec-lock",
+      decision: "approved",
+      reason: "fixture bootstrap",
+    }, "human:engineer@test.local"),
+  );
+  bootstrap.push(
+    makeEntry(seq++, "event:phase_advanced", { from: "SPEC.design", to: "EXECUTE.plan" }, "cli:loaf"),
+  );
+  bootstrap.push(
+    makeEntry(seq++, "event:phase_advanced", { from: "EXECUTE.plan", to: "EXECUTE.work" }, "cli:loaf"),
+  );
+
+  let meta = emptyMeta();
+  for (const e of bootstrap) meta = await appendEntry(journalPath, e, meta, { fsync: false });
+
+  const replay = await replayJournal(journalPath, { collect_entries: true });
+  if (!replay.ok) {
+    throw new Error(`seedRealJournalAtExecuteWork replay failed: ${replay.code} ${replay.message}`);
+  }
+  return {
+    snapshot: replay.snapshot,
+    tailSeq: replay.meta.last_applied_seq,
+    entries: replay.entries ?? [],
+    meta: replay.meta,
+  };
+}
+
 // ── mutateBatch integration ─────────────────────────────────────────────
 
 describe("mutateBatch — Slice B amend-spec batch integration", () => {
   test("[finding:raised amend-spec, phase_advanced back_edge] from EXECUTE.work → spec_locked=false, sub_state=SPEC.spec", async () => {
     const dir = await tmpFeatureDir();
-    const baseSnap = snapshotPostLock("EXECUTE.work");
+    const seed = await seedRealJournalAtExecuteWork(dir);
     const r = await mutateBatch(
       [
         {
@@ -312,7 +374,14 @@ describe("mutateBatch — Slice B amend-spec batch integration", () => {
           },
         },
       ],
-      { feature_dir: dir, snapshot: baseSnap, tail_seq: -1, fsync: false },
+      {
+        feature_dir: dir,
+        snapshot: seed.snapshot,
+        tail_seq: seed.tailSeq,
+        entries: seed.entries,
+        meta: seed.meta,
+        fsync: false,
+      },
     );
     expect(r.ok).toBe(true);
     if (r.ok) {
@@ -341,7 +410,7 @@ describe("mutateBatch — Slice B amend-spec batch integration", () => {
           },
         },
       ],
-      { feature_dir: dir, snapshot: baseSnap, tail_seq: -1, fsync: false },
+      { feature_dir: dir, snapshot: baseSnap, tail_seq: -1, entries: [], meta: emptyMeta(), fsync: false },
     );
     expect(r.ok).toBe(false);
     if (!r.ok) {
@@ -369,7 +438,7 @@ describe("mutateBatch — Slice B amend-spec batch integration", () => {
           },
         },
       ],
-      { feature_dir: dir, snapshot: baseSnap, tail_seq: -1, fsync: false },
+      { feature_dir: dir, snapshot: baseSnap, tail_seq: -1, entries: [], meta: emptyMeta(), fsync: false },
     );
     expect(r.ok).toBe(false);
     if (!r.ok) {
@@ -397,7 +466,7 @@ describe("mutateBatch — Slice B amend-spec batch integration", () => {
           },
         },
       ],
-      { feature_dir: dir, snapshot: baseSnap, tail_seq: -1, fsync: false },
+      { feature_dir: dir, snapshot: baseSnap, tail_seq: -1, entries: [], meta: emptyMeta(), fsync: false },
     );
     expect(r.ok).toBe(false);
     if (!r.ok) {
@@ -408,7 +477,7 @@ describe("mutateBatch — Slice B amend-spec batch integration", () => {
 
   test("finding:raised amend-spec alone (no back-edge phase_advanced) — graceful raw-mutate path", async () => {
     const dir = await tmpFeatureDir();
-    const baseSnap = snapshotPostLock("EXECUTE.work");
+    const seed = await seedRealJournalAtExecuteWork(dir);
     const r = await mutateBatch(
       [
         {
@@ -424,7 +493,14 @@ describe("mutateBatch — Slice B amend-spec batch integration", () => {
           },
         },
       ],
-      { feature_dir: dir, snapshot: baseSnap, tail_seq: -1, fsync: false },
+      {
+        feature_dir: dir,
+        snapshot: seed.snapshot,
+        tail_seq: seed.tailSeq,
+        entries: seed.entries,
+        meta: seed.meta,
+        fsync: false,
+      },
     );
     // Codex r96 accept: standalone amend-spec is legal at the
     // schema level (records finding, leaves cursor + lock alone).
@@ -454,7 +530,7 @@ describe("mutateBatch — Slice B amend-spec batch integration", () => {
           },
         },
       ],
-      { feature_dir: dir, snapshot: baseSnap, tail_seq: -1, fsync: false },
+      { feature_dir: dir, snapshot: baseSnap, tail_seq: -1, entries: [], meta: emptyMeta(), fsync: false },
     );
     expect(r.ok).toBe(false);
     if (!r.ok) {
@@ -495,7 +571,6 @@ describe("replay anchor — Slice B journal-derivability", () => {
     // builds a small bootstrap journal first.
 
     const journalPath = path.join(dir, "journal.jsonl");
-    const { appendEntry } = await import("../../src/core/journal-append.js");
 
     // Bootstrap: session:started + walk to EXECUTE.work + gate-decide spec-lock approved.
     // We use raw appendEntry here to set up the on-disk preconditions.
@@ -532,11 +607,15 @@ describe("replay anchor — Slice B journal-derivability", () => {
     bootstrap.push(
       makeEntry(seq++, "event:phase_advanced", { from: "EXECUTE.plan", to: "EXECUTE.work" }, "cli:loaf"),
     );
-    for (const e of bootstrap) await appendEntry(journalPath, e, { fsync: false });
+    {
+      let m = emptyMeta();
+      for (const e of bootstrap) m = await appendEntry(journalPath, e, m, { fsync: false });
+    }
 
     // The bootstrap leaves cursor at EXECUTE.work, spec_locked=true.
-    // Sanity replay to confirm.
-    const pre = await replayJournal(journalPath);
+    // Sanity replay to confirm. collect_entries:true so the mutateBatch
+    // below gets the authoritative {entries, meta} prefix (Phase 15 SC2).
+    const pre = await replayJournal(journalPath, { collect_entries: true });
     expect(pre.ok).toBe(true);
     if (pre.ok) {
       expect(pre.snapshot.state!.sub_state).toBe("EXECUTE.work");
@@ -576,6 +655,8 @@ describe("replay anchor — Slice B journal-derivability", () => {
         feature_dir: dir,
         snapshot: pre.ok ? pre.snapshot : initialSnapshot(),
         tail_seq: seq - 1,
+        entries: pre.ok ? pre.entries ?? [] : [],
+        meta: pre.ok ? pre.meta : emptyMeta(),
         fsync: false,
       },
     );
@@ -604,7 +685,6 @@ describe("replay anchor — Slice B journal-derivability", () => {
     // emission moment.
     const dir = await tmpFeatureDir();
     const journalPath = path.join(dir, "journal.jsonl");
-    const { appendEntry } = await import("../../src/core/journal-append.js");
 
     // Bootstrap to EXECUTE.work + spec_locked=true (same walk as above).
     let seq = 0;
@@ -656,7 +736,10 @@ describe("replay anchor — Slice B journal-derivability", () => {
         back_edge: { action: "amend-spec", finding_id: "FND-001" },
       }, "cli:loaf"),
     );
-    for (const e of bootstrap) await appendEntry(journalPath, e, { fsync: false });
+    {
+      let m = emptyMeta();
+      for (const e of bootstrap) m = await appendEntry(journalPath, e, m, { fsync: false });
+    }
 
     const result = await replayJournal(journalPath);
     expect(result.ok).toBe(false);

@@ -19,6 +19,7 @@ import { createHash } from "node:crypto";
 import { appendEntry, AppendError } from "../../src/core/journal-append.js";
 import { promoteSidecars } from "../../src/core/sidecar.js";
 import { replayJournal } from "../../src/core/journal-bootstrap.js";
+import { emptyMeta, type SnapshotMeta } from "../../src/core/snapshot.js";
 import type { JournalEntry } from "../../src/core/journal-entry.js";
 
 async function tmpRoot(): Promise<string> {
@@ -66,7 +67,14 @@ const oversizeEvidence = (): JournalEntry => ({
 });
 
 // Drive the cursor to EXECUTE.work so evidence:added is sub_state-legal.
-async function advanceToExecuteWork(journalPath: string): Promise<number> {
+// Threads the prior `SnapshotMeta` through each append (Phase 15 SC2 —
+// appendEntry validates the prior meta against the journal tail and returns
+// the post-append meta). Returns the next free seq + the latest meta so the
+// caller can append the evidence entry on top.
+async function advanceToExecuteWork(
+  journalPath: string,
+  priorMeta: SnapshotMeta,
+): Promise<{ seq: number; meta: SnapshotMeta }> {
   const path = [
     ["TRIAGE.score", "TRIAGE.confirm"],
     ["TRIAGE.confirm", "SPEC.proposal"],
@@ -77,8 +85,9 @@ async function advanceToExecuteWork(journalPath: string): Promise<number> {
     ["EXECUTE.plan", "EXECUTE.work"],
   ] as const;
   let seq = 1;
+  let meta = priorMeta;
   for (const [from, to] of path) {
-    await appendEntry(
+    meta = await appendEntry(
       journalPath,
       {
         seq,
@@ -89,11 +98,12 @@ async function advanceToExecuteWork(journalPath: string): Promise<number> {
         kind: "event:phase_advanced",
         payload: { from, to },
       },
+      meta,
       { fsync: false },
     );
     seq++;
   }
-  return seq;
+  return { seq, meta };
 }
 
 describe("final-validation — Stage 4 end-to-end §11.2 step 4-6", () => {
@@ -101,12 +111,14 @@ describe("final-validation — Stage 4 end-to-end §11.2 step 4-6", () => {
     const root = await tmpRoot();
     const journalPath = path.join(root, "journal.jsonl");
 
-    await appendEntry(journalPath, sessionStart(), { fsync: false });
-    const seq = await advanceToExecuteWork(journalPath);
+    const startMeta = await appendEntry(journalPath, sessionStart(), emptyMeta(), {
+      fsync: false,
+    });
+    const { seq, meta } = await advanceToExecuteWork(journalPath, startMeta);
 
     const evidence = { ...oversizeEvidence(), seq, entry_id: `JE-${String(seq + 1).padStart(6, "0")}` };
     const promoted = await promoteSidecars(evidence, root, { fsync: false });
-    await appendEntry(journalPath, promoted, { fsync: false });
+    await appendEntry(journalPath, promoted, meta, { fsync: false });
 
     const result = await replayJournal(journalPath);
     expect(result.ok).toBe(true);
@@ -143,7 +155,7 @@ describe("final-validation — Stage 4 end-to-end §11.2 step 4-6", () => {
 
     let caught: AppendError | null = null;
     try {
-      await appendEntry(journalPath, promoted, { fsync: false });
+      await appendEntry(journalPath, promoted, emptyMeta(), { fsync: false });
     } catch (e) {
       caught = e as AppendError;
     }
@@ -180,7 +192,7 @@ describe("final-validation — Stage 4 end-to-end §11.2 step 4-6", () => {
       },
     };
     const promoted = await promoteSidecars(raw, root, { fsync: false });
-    await appendEntry(journalPath, promoted, { fsync: false });
+    await appendEntry(journalPath, promoted, emptyMeta(), { fsync: false });
 
     const note = (promoted.payload as { note: { ref: { path: string; sha256: string } } }).note;
     const fileExists = await fs.stat(path.join(root, note.ref.path)).then(() => true).catch(() => false);

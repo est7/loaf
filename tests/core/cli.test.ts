@@ -218,8 +218,9 @@ describe("loaf CLI — Blocker #7 MVP surface", () => {
 
 import { mutate as mutateRaw, mutateBatch as mutateBatchRaw } from "../../src/core/journal-mutate.js";
 import { promises as fsP } from "node:fs";
-import type { Ceremony } from "../../src/core/journal-entry.js";
+import type { Ceremony, JournalEntry } from "../../src/core/journal-entry.js";
 import type { Snapshot } from "../../src/core/reducer.js";
+import { emptyMeta, type SnapshotMeta } from "../../src/core/snapshot.js";
 
 const STANDARD_CEREMONY: Ceremony = {
   spec_phase: true,
@@ -275,6 +276,8 @@ prose body here
   // explicit control over the actor and intermediate state).
   let snapshot = (await import("../../src/core/reducer.js")).initialSnapshot();
   let tailSeq = -1;
+  let entries: JournalEntry[] = [];
+  let meta: SnapshotMeta = emptyMeta();
   const boot = await mutateRaw(
     {
       at: "2026-05-15T10:00:00.000Z",
@@ -287,10 +290,12 @@ prose body here
         ceremony,
       },
     },
-    { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
   );
   if (!boot.ok) throw new Error(`seed boot failed: ${boot.message}`);
   snapshot = boot.snapshot;
+  entries = entries.concat(boot.entry);
+  meta = boot.meta;
   tailSeq++;
 
   // Walk to SPEC.proposal.
@@ -306,10 +311,12 @@ prose body here
         kind: "event:phase_advanced",
         payload: { from: from as any, to: to as any },
       },
-      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
     );
     if (!r.ok) throw new Error(`seed walk failed: ${r.message}`);
     snapshot = r.snapshot;
+    entries = entries.concat(r.entry);
+    meta = r.meta;
     tailSeq++;
   }
 
@@ -346,10 +353,12 @@ prose body here
         },
       },
     ],
-    { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
   );
   if (!submitBatch.ok) throw new Error(`seed submit failed: ${submitBatch.message}`);
   snapshot = submitBatch.snapshot;
+  entries = entries.concat(submitBatch.entries);
+  meta = submitBatch.meta;
   tailSeq += 2;
 
   // Walk to SPEC.design.
@@ -366,10 +375,12 @@ prose body here
         kind: "event:phase_advanced",
         payload: { from: from as any, to: to as any },
       },
-      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
     );
     if (!r.ok) throw new Error(`seed walk2 failed: ${r.message}`);
     snapshot = r.snapshot;
+    entries = entries.concat(r.entry);
+    meta = r.meta;
     tailSeq++;
   }
 
@@ -518,6 +529,8 @@ describe("loaf gate decide spec-lock — Slice 1.B sub-cycle 4 (MVP)", () => {
     // check 3 will hit TASKS_NOT_PLANNED first, then short-circuit).
     let snapshot = (await import("../../src/core/reducer.js")).initialSnapshot();
     let tailSeq = -1;
+    let entries: JournalEntry[] = [];
+    let meta: SnapshotMeta = emptyMeta();
     const boot = await mutateRaw(
       {
         at: "2026-05-15T10:00:00.000Z",
@@ -530,10 +543,12 @@ describe("loaf gate decide spec-lock — Slice 1.B sub-cycle 4 (MVP)", () => {
           ceremony: STANDARD_CEREMONY,
         },
       },
-      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
     );
     if (!boot.ok) throw new Error(`boot: ${boot.message}`);
     snapshot = boot.snapshot;
+    entries = entries.concat(boot.entry);
+    meta = boot.meta;
     tailSeq++;
     for (const [from, to] of [
       ["TRIAGE.score", "TRIAGE.confirm"],
@@ -550,10 +565,12 @@ describe("loaf gate decide spec-lock — Slice 1.B sub-cycle 4 (MVP)", () => {
           kind: "event:phase_advanced",
           payload: { from: from as any, to: to as any },
         },
-        { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+        { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
       );
       if (!r.ok) throw new Error(`walk: ${r.message}`);
       snapshot = r.snapshot;
+      entries = entries.concat(r.entry);
+      meta = r.meta;
       tailSeq++;
     }
 
@@ -638,6 +655,8 @@ describe("loaf gate decide spec-lock — Slice 1.B sub-cycle 4 (MVP)", () => {
     // Same minimal-no-spec.md path as the JSON failure test
     let snapshot = (await import("../../src/core/reducer.js")).initialSnapshot();
     let tailSeq = -1;
+    let entries: JournalEntry[] = [];
+    let meta: SnapshotMeta = emptyMeta();
     const boot = await mutateRaw(
       {
         at: "2026-05-15T10:00:00.000Z",
@@ -650,10 +669,12 @@ describe("loaf gate decide spec-lock — Slice 1.B sub-cycle 4 (MVP)", () => {
           ceremony: STANDARD_CEREMONY,
         },
       },
-      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
     );
     if (!boot.ok) throw new Error(`boot: ${boot.message}`);
     snapshot = boot.snapshot;
+    entries = entries.concat(boot.entry);
+    meta = boot.meta;
     tailSeq++;
     for (const [from, to] of [
       ["TRIAGE.score", "TRIAGE.confirm"],
@@ -670,10 +691,12 @@ describe("loaf gate decide spec-lock — Slice 1.B sub-cycle 4 (MVP)", () => {
           kind: "event:phase_advanced",
           payload: { from: from as any, to: to as any },
         },
-        { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+        { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
       );
       if (!r.ok) throw new Error(`walk: ${r.message}`);
       snapshot = r.snapshot;
+      entries = entries.concat(r.entry);
+      meta = r.meta;
       tailSeq++;
     }
 
@@ -732,7 +755,9 @@ async function seedAbandonPlantedTasks(
   dir: string,
   snapshot: Snapshot,
   tailSeq: number,
-): Promise<{ snapshot: Snapshot; tailSeq: number }> {
+  entries: JournalEntry[],
+  meta: SnapshotMeta,
+): Promise<{ snapshot: Snapshot; tailSeq: number; entries: JournalEntry[]; meta: SnapshotMeta }> {
   for (const task of snapshot.tasks) {
     if (task.status === "done" || task.status === "abandoned") continue;
     const r = await mutateRaw(
@@ -743,13 +768,15 @@ async function seedAbandonPlantedTasks(
         kind: "event:task_abandoned",
         payload: { task_id: task.id, reason: "seed fixture: planted task not executed" },
       },
-      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
     );
     if (!r.ok) throw new Error(`seed task abandon ${task.id} failed: ${r.message}`);
     snapshot = r.snapshot;
+    entries = entries.concat(r.entry);
+    meta = r.meta;
     tailSeq++;
   }
-  return { snapshot, tailSeq };
+  return { snapshot, tailSeq, entries, meta };
 }
 
 // F-016: drive ONE planted task to status=done — event:task_claimed +
@@ -762,7 +789,9 @@ async function seedCompleteTask(
   snapshot: Snapshot,
   tailSeq: number,
   taskId: string,
-): Promise<{ snapshot: Snapshot; tailSeq: number }> {
+  entries: JournalEntry[],
+  meta: SnapshotMeta,
+): Promise<{ snapshot: Snapshot; tailSeq: number; entries: JournalEntry[]; meta: SnapshotMeta }> {
   const task = snapshot.tasks.find((t) => t.id === taskId);
   if (!task) throw new Error(`seedCompleteTask: task ${taskId} not in snapshot`);
   const claim = await mutateRaw(
@@ -773,10 +802,12 @@ async function seedCompleteTask(
       kind: "event:task_claimed",
       payload: { task_id: taskId },
     },
-    { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
   );
   if (!claim.ok) throw new Error(`seedCompleteTask claim ${taskId} failed: ${claim.message}`);
   snapshot = claim.snapshot;
+  entries = entries.concat(claim.entry);
+  meta = claim.meta;
   tailSeq++;
   for (const [stepName, step] of Object.entries(task.steps)) {
     if (step.applicability !== "must") continue;
@@ -788,13 +819,15 @@ async function seedCompleteTask(
         kind: "event:task_step_done",
         payload: { task_id: taskId, step: stepName, result: "passed" },
       },
-      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
     );
     if (!done.ok) throw new Error(`seedCompleteTask step ${taskId}/${stepName} failed: ${done.message}`);
     snapshot = done.snapshot;
+    entries = entries.concat(done.entry);
+    meta = done.meta;
     tailSeq++;
   }
-  return { snapshot, tailSeq };
+  return { snapshot, tailSeq, entries, meta };
 }
 
 async function seedFeatureAtVerifyAccept(dir: string): Promise<void> {
@@ -805,7 +838,7 @@ async function seedFeatureAtVerifyAccept(dir: string): Promise<void> {
   // (verify-accept gate doesn't read that flag), so just walk the cursor
   // forward.
   const { loadSession } = await import("../../src/core/cli-runtime.js");
-  let { snapshot, tail_seq } = await loadSession(dir);
+  let { snapshot, tail_seq, entries, meta } = await loadSession(dir);
   let tailSeq = tail_seq;
   for (const [from, to] of [
     ["SPEC.design", "EXECUTE.plan"],
@@ -826,16 +859,18 @@ async function seedFeatureAtVerifyAccept(dir: string): Promise<void> {
         kind: "event:phase_advanced",
         payload: { from: from as any, to: to as any },
       },
-      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
     );
     if (!r.ok) throw new Error(`seed-verify walk ${from}->${to} failed: ${r.message}`);
     snapshot = r.snapshot;
+    entries = entries.concat(r.entry);
+    meta = r.meta;
     tailSeq++;
     // F-016: once at EXECUTE.work, abandon the planted task graph so the
     // next step (EXECUTE.work → EXECUTE.done) passes the all-tasks-final
     // preflight guard.
     if (to === "EXECUTE.work") {
-      ({ snapshot, tailSeq } = await seedAbandonPlantedTasks(dir, snapshot, tailSeq));
+      ({ snapshot, tailSeq, entries, meta } = await seedAbandonPlantedTasks(dir, snapshot, tailSeq, entries, meta));
     }
   }
 }
@@ -1049,7 +1084,7 @@ const DEEP_NO_STRICT_REVIEW_CEREMONY = {
 async function seedFeatureAtVerifyAcceptApproved(dir: string): Promise<void> {
   await seedFeatureAtVerifyAccept(dir);
   const { loadSession } = await import("../../src/core/cli-runtime.js");
-  const { snapshot, tail_seq } = await loadSession(dir);
+  const { snapshot, tail_seq, entries, meta } = await loadSession(dir);
   const result = await mutateRaw(
     {
       at: new Date(2026, 4, 15, 11, 30, 0).toISOString(),
@@ -1058,7 +1093,7 @@ async function seedFeatureAtVerifyAcceptApproved(dir: string): Promise<void> {
       kind: "gate:decided",
       payload: { gate_kind: "verify-accept", decision: "approved", reason: "seed approval" },
     },
-    { feature_dir: dir, snapshot, tail_seq, fsync: false },
+    { feature_dir: dir, snapshot, tail_seq, entries, meta, fsync: false },
   );
   if (!result.ok) throw new Error(`seed verify-accept approve failed: ${result.message}`);
 }
@@ -1101,6 +1136,8 @@ prose body here
   // Step 2: boot session with deep ceremony.
   let snapshot = (await import("../../src/core/reducer.js")).initialSnapshot();
   let tailSeq = -1;
+  let entries: JournalEntry[] = [];
+  let meta: SnapshotMeta = emptyMeta();
   const boot = await mutateRaw(
     {
       at: "2026-05-15T10:00:00.000Z",
@@ -1113,10 +1150,12 @@ prose body here
         ceremony: DEEP_NO_STRICT_REVIEW_CEREMONY,
       },
     },
-    { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
   );
   if (!boot.ok) throw new Error(`settle-seed boot failed: ${boot.message}`);
   snapshot = boot.snapshot;
+  entries = entries.concat(boot.entry);
+  meta = boot.meta;
   tailSeq++;
 
   // Step 3: walk TRIAGE → SPEC.proposal.
@@ -1132,10 +1171,12 @@ prose body here
         kind: "event:phase_advanced",
         payload: { from: from as any, to: to as any },
       },
-      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
     );
     if (!r.ok) throw new Error(`settle-seed walk1 ${from}->${to} failed: ${r.message}`);
     snapshot = r.snapshot;
+    entries = entries.concat(r.entry);
+    meta = r.meta;
     tailSeq++;
   }
 
@@ -1172,10 +1213,12 @@ prose body here
         },
       },
     ],
-    { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
   );
   if (!submitBatch.ok) throw new Error(`settle-seed submit failed: ${submitBatch.message}`);
   snapshot = submitBatch.snapshot;
+  entries = entries.concat(submitBatch.entries);
+  meta = submitBatch.meta;
   tailSeq += 2;
 
   // Step 5: walk SPEC.proposal → SPEC.design.
@@ -1192,10 +1235,12 @@ prose body here
         kind: "event:phase_advanced",
         payload: { from: from as any, to: to as any },
       },
-      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
     );
     if (!r.ok) throw new Error(`settle-seed walk2 ${from}->${to} failed: ${r.message}`);
     snapshot = r.snapshot;
+    entries = entries.concat(r.entry);
+    meta = r.meta;
     tailSeq++;
   }
 
@@ -1235,8 +1280,12 @@ prose body here
     throw new Error(`settle-seed loaf tasks submit failed: ${planSubmit.stderr || planSubmit.stdout}`);
   }
   await fsP.unlink(settleTasksFile).catch(() => {});
-  // Reload session state after CLI mutate.
-  ({ snapshot, tail_seq: tailSeq } = await (await import("../../src/core/cli-runtime.js")).loadSession(dir));
+  // Reload session state after CLI mutate. entries/meta MUST be refreshed
+  // too — the `loaf tasks submit` subprocess appended out-of-process, so
+  // the in-memory entries/meta are stale (Phase 15 SC2 step-8 invariant).
+  ({ snapshot, tail_seq: tailSeq, entries, meta } = await (
+    await import("../../src/core/cli-runtime.js")
+  ).loadSession(dir));
 
   // Step 7: spec-lock approve (dual-entry batch with phase_advanced).
   const specLockBatch = await mutateBatchRaw(
@@ -1256,10 +1305,12 @@ prose body here
         payload: { from: "SPEC.design", to: "EXECUTE.plan" },
       },
     ],
-    { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
   );
   if (!specLockBatch.ok) throw new Error(`settle-seed spec-lock failed: ${specLockBatch.message}`);
   snapshot = specLockBatch.snapshot;
+  entries = entries.concat(specLockBatch.entries);
+  meta = specLockBatch.meta;
   tailSeq += 2;
 
   // Step 8: walk EXECUTE → VERIFY.accept.
@@ -1281,15 +1332,17 @@ prose body here
         kind: "event:phase_advanced",
         payload: { from: from as any, to: to as any },
       },
-      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
     );
     if (!r.ok) throw new Error(`settle-seed walk3 ${from}->${to} failed: ${r.message}`);
     snapshot = r.snapshot;
+    entries = entries.concat(r.entry);
+    meta = r.meta;
     tailSeq++;
     // F-016: abandon the planted task graph at EXECUTE.work before the
     // EXECUTE.work → EXECUTE.done step (all-tasks-final preflight guard).
     if (to === "EXECUTE.work") {
-      ({ snapshot, tailSeq } = await seedAbandonPlantedTasks(dir, snapshot, tailSeq));
+      ({ snapshot, tailSeq, entries, meta } = await seedAbandonPlantedTasks(dir, snapshot, tailSeq, entries, meta));
     }
   }
 
@@ -1302,7 +1355,7 @@ prose body here
       kind: "gate:decided",
       payload: { gate_kind: "verify-accept", decision: "approved", reason: "seed approval" },
     },
-    { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
   );
   if (!verifyApprove.ok) throw new Error(`settle-seed verify-accept failed: ${verifyApprove.message}`);
 }
@@ -1458,7 +1511,7 @@ describe("loaf deliver — Slice 1.D sub-cycle 2 (MVP)", () => {
 
     // Approve spec-lock + walk to EXECUTE.done via raw mutate.
     const { loadSession } = await import("../../src/core/cli-runtime.js");
-    let { snapshot, tail_seq } = await loadSession(dir);
+    let { snapshot, tail_seq, entries, meta } = await loadSession(dir);
     let tailSeq = tail_seq;
     const lockBatch = await mutateBatchRaw(
       [
@@ -1477,10 +1530,12 @@ describe("loaf deliver — Slice 1.D sub-cycle 2 (MVP)", () => {
           payload: { from: "SPEC.design", to: "EXECUTE.plan" },
         },
       ],
-      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
     );
     if (!lockBatch.ok) throw new Error(`spec-lock seed failed: ${lockBatch.message}`);
     snapshot = lockBatch.snapshot;
+    entries = entries.concat(lockBatch.entries);
+    meta = lockBatch.meta;
     tailSeq += 2;
     for (const [from, to] of [
       ["EXECUTE.plan", "EXECUTE.work"],
@@ -1494,15 +1549,17 @@ describe("loaf deliver — Slice 1.D sub-cycle 2 (MVP)", () => {
           kind: "event:phase_advanced",
           payload: { from: from as any, to: to as any },
         },
-        { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+        { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
       );
       if (!r.ok) throw new Error(`walk failed: ${r.message}`);
       snapshot = r.snapshot;
+      entries = entries.concat(r.entry);
+      meta = r.meta;
       tailSeq++;
       // F-016: abandon the planted task graph at EXECUTE.work before the
       // EXECUTE.work → EXECUTE.done step (all-tasks-final preflight guard).
       if (to === "EXECUTE.work") {
-        ({ snapshot, tailSeq } = await seedAbandonPlantedTasks(dir, snapshot, tailSeq));
+        ({ snapshot, tailSeq, entries, meta } = await seedAbandonPlantedTasks(dir, snapshot, tailSeq, entries, meta));
       }
     }
 
@@ -1583,7 +1640,7 @@ describe("loaf deliver — Slice 1.D sub-cycle 2 (MVP)", () => {
     }
     await fsP.unlink(replanFile).catch(() => {});
     const { loadSession } = await import("../../src/core/cli-runtime.js");
-    let { snapshot, tail_seq } = await loadSession(dir);
+    let { snapshot, tail_seq, entries, meta } = await loadSession(dir);
     let tailSeq = tail_seq;
 
     // Now spec-lock approve + walk to VERIFY.accept + verify-accept approve.
@@ -1604,10 +1661,12 @@ describe("loaf deliver — Slice 1.D sub-cycle 2 (MVP)", () => {
           payload: { from: "SPEC.design", to: "EXECUTE.plan" },
         },
       ],
-      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
     );
     if (!lockBatch.ok) throw new Error(`spike spec-lock seed failed: ${lockBatch.message}`);
     snapshot = lockBatch.snapshot;
+    entries = entries.concat(lockBatch.entries);
+    meta = lockBatch.meta;
     tailSeq += 2;
 
     // F-016: walk to EXECUTE.work, drive the spike task T-002 to done (it
@@ -1624,14 +1683,16 @@ describe("loaf deliver — Slice 1.D sub-cycle 2 (MVP)", () => {
           kind: "event:phase_advanced",
           payload: { from: "EXECUTE.plan", to: "EXECUTE.work" },
         },
-        { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+        { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
       );
       if (!r.ok) throw new Error(`spike walk EXECUTE.work failed: ${r.message}`);
       snapshot = r.snapshot;
+      entries = entries.concat(r.entry);
+      meta = r.meta;
       tailSeq++;
     }
-    ({ snapshot, tailSeq } = await seedCompleteTask(dir, snapshot, tailSeq, "T-002"));
-    ({ snapshot, tailSeq } = await seedAbandonPlantedTasks(dir, snapshot, tailSeq));
+    ({ snapshot, tailSeq, entries, meta } = await seedCompleteTask(dir, snapshot, tailSeq, "T-002", entries, meta));
+    ({ snapshot, tailSeq, entries, meta } = await seedAbandonPlantedTasks(dir, snapshot, tailSeq, entries, meta));
     {
       const r = await mutateRaw(
         {
@@ -1641,10 +1702,12 @@ describe("loaf deliver — Slice 1.D sub-cycle 2 (MVP)", () => {
           kind: "event:phase_advanced",
           payload: { from: "EXECUTE.work", to: "EXECUTE.done" },
         },
-        { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+        { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
       );
       if (!r.ok) throw new Error(`spike walk EXECUTE.done failed: ${r.message}`);
       snapshot = r.snapshot;
+      entries = entries.concat(r.entry);
+      meta = r.meta;
       tailSeq++;
     }
 
@@ -1802,6 +1865,8 @@ needs_clarification: []
     );
     let snapshot = (await import("../../src/core/reducer.js")).initialSnapshot();
     let tailSeq = -1;
+    let entries: JournalEntry[] = [];
+    let meta: SnapshotMeta = emptyMeta();
     const boot = await mutateRaw(
       {
         at: "2026-05-15T10:00:00.000Z",
@@ -1814,10 +1879,12 @@ needs_clarification: []
           ceremony: DEEP_NO_STRICT_REVIEW_CEREMONY,
         },
       },
-      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
     );
     if (!boot.ok) throw new Error(`no-approve seed boot failed: ${boot.message}`);
     snapshot = boot.snapshot;
+    entries = entries.concat(boot.entry);
+    meta = boot.meta;
     tailSeq++;
 
     for (const [from, to] of [
@@ -1832,10 +1899,12 @@ needs_clarification: []
           kind: "event:phase_advanced",
           payload: { from: from as any, to: to as any },
         },
-        { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+        { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
       );
       if (!r.ok) throw new Error(`walk failed: ${r.message}`);
       snapshot = r.snapshot;
+      entries = entries.concat(r.entry);
+      meta = r.meta;
       tailSeq++;
     }
     const submitBatch = await mutateBatchRaw(
@@ -1870,10 +1939,12 @@ needs_clarification: []
           },
         },
       ],
-      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
     );
     if (!submitBatch.ok) throw new Error(`submit failed: ${submitBatch.message}`);
     snapshot = submitBatch.snapshot;
+    entries = entries.concat(submitBatch.entries);
+    meta = submitBatch.meta;
     tailSeq += 2;
     for (const [from, to] of [
       ["SPEC.proposal", "SPEC.spec"],
@@ -1888,10 +1959,12 @@ needs_clarification: []
           kind: "event:phase_advanced",
           payload: { from: from as any, to: to as any },
         },
-        { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+        { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
       );
       if (!r.ok) throw new Error(`walk2 failed: ${r.message}`);
       snapshot = r.snapshot;
+      entries = entries.concat(r.entry);
+      meta = r.meta;
       tailSeq++;
     }
     // Plan tasks via `loaf tasks submit` CLI (Slice 2 SC2 sweep).
@@ -1930,8 +2003,11 @@ needs_clarification: []
       throw new Error(`no-approve plan submit failed: ${planSubmit.stderr || planSubmit.stdout}`);
     }
     await fsP.unlink(noApproveTasksFile).catch(() => {});
-    // Reload snapshot/tail after CLI mutate.
-    ({ snapshot, tail_seq: tailSeq } = await (await import("../../src/core/cli-runtime.js")).loadSession(dir));
+    // Reload snapshot/tail after CLI mutate. entries/meta MUST be refreshed
+    // too — `loaf tasks submit` appended out-of-process (Phase 15 SC2).
+    ({ snapshot, tail_seq: tailSeq, entries, meta } = await (
+      await import("../../src/core/cli-runtime.js")
+    ).loadSession(dir));
     const lockBatch = await mutateBatchRaw(
       [
         {
@@ -1949,10 +2025,12 @@ needs_clarification: []
           payload: { from: "SPEC.design", to: "EXECUTE.plan" },
         },
       ],
-      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
     );
     if (!lockBatch.ok) throw new Error(`lock failed: ${lockBatch.message}`);
     snapshot = lockBatch.snapshot;
+    entries = entries.concat(lockBatch.entries);
+    meta = lockBatch.meta;
     tailSeq += 2;
     for (const [from, to] of [
       ["EXECUTE.plan", "EXECUTE.work"],
@@ -1972,15 +2050,17 @@ needs_clarification: []
           kind: "event:phase_advanced",
           payload: { from: from as any, to: to as any },
         },
-        { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+        { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
       );
       if (!r.ok) throw new Error(`walk3 failed: ${r.message}`);
       snapshot = r.snapshot;
+      entries = entries.concat(r.entry);
+      meta = r.meta;
       tailSeq++;
       // F-016: abandon the planted task graph at EXECUTE.work before the
       // EXECUTE.work → EXECUTE.done step (all-tasks-final preflight guard).
       if (to === "EXECUTE.work") {
-        ({ snapshot, tailSeq } = await seedAbandonPlantedTasks(dir, snapshot, tailSeq));
+        ({ snapshot, tailSeq, entries, meta } = await seedAbandonPlantedTasks(dir, snapshot, tailSeq, entries, meta));
       }
     }
     // NO verify-accept approval — verify_accepted stays false at VERIFY.accept.
@@ -2109,6 +2189,8 @@ needs_clarification: []
     );
     let snapshot = (await import("../../src/core/reducer.js")).initialSnapshot();
     let tailSeq = -1;
+    let entries: JournalEntry[] = [];
+    let meta: SnapshotMeta = emptyMeta();
     const boot = await mutateRaw(
       {
         at: "2026-05-15T10:00:00.000Z",
@@ -2121,10 +2203,12 @@ needs_clarification: []
           ceremony: STANDARD_CEREMONY,
         },
       },
-      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
     );
     if (!boot.ok) throw new Error(`no-tasks seed boot failed: ${boot.message}`);
     snapshot = boot.snapshot;
+    entries = entries.concat(boot.entry);
+    meta = boot.meta;
     tailSeq++;
     for (const [from, to] of [
       ["TRIAGE.score", "TRIAGE.confirm"],
@@ -2138,10 +2222,12 @@ needs_clarification: []
           kind: "event:phase_advanced",
           payload: { from: from as any, to: to as any },
         },
-        { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+        { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
       );
       if (!r.ok) throw new Error(`walk failed: ${r.message}`);
       snapshot = r.snapshot;
+      entries = entries.concat(r.entry);
+      meta = r.meta;
       tailSeq++;
     }
     const submitBatch = await mutateBatchRaw(
@@ -2176,10 +2262,12 @@ needs_clarification: []
           },
         },
       ],
-      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
     );
     if (!submitBatch.ok) throw new Error(`submit failed: ${submitBatch.message}`);
     snapshot = submitBatch.snapshot;
+    entries = entries.concat(submitBatch.entries);
+    meta = submitBatch.meta;
     tailSeq += 2;
     for (const [from, to] of [
       ["SPEC.proposal", "SPEC.spec"],
@@ -2194,10 +2282,12 @@ needs_clarification: []
           kind: "event:phase_advanced",
           payload: { from: from as any, to: to as any },
         },
-        { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+        { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
       );
       if (!r.ok) throw new Error(`walk2 failed: ${r.message}`);
       snapshot = r.snapshot;
+      entries = entries.concat(r.entry);
+      meta = r.meta;
       tailSeq++;
     }
   }
@@ -2356,7 +2446,7 @@ needs_clarification: []
           ceremony: STANDARD_CEREMONY,
         },
       },
-      { feature_dir: dir, snapshot: snapshot0, tail_seq: -1, fsync: false },
+      { feature_dir: dir, snapshot: snapshot0, tail_seq: -1, entries: [], meta: emptyMeta(), fsync: false },
     );
     if (!boot.ok) throw new Error(`boot failed: ${boot.message}`);
     const tasksFile = path.join(dir, ".tasks-triage.json");
@@ -2800,7 +2890,7 @@ describe("loaf tasks list — Slice 2 SC4 (MVP)", () => {
           ceremony: STANDARD_CEREMONY,
         },
       },
-      { feature_dir: dir, snapshot: snapshot0, tail_seq: -1, fsync: false },
+      { feature_dir: dir, snapshot: snapshot0, tail_seq: -1, entries: [], meta: emptyMeta(), fsync: false },
     );
     if (!boot.ok) throw new Error(`boot failed: ${boot.message}`);
 
@@ -2988,6 +3078,8 @@ needs_clarification: []
   );
   let snapshot = (await import("../../src/core/reducer.js")).initialSnapshot();
   let tailSeq = -1;
+  let entries: JournalEntry[] = [];
+  let meta: SnapshotMeta = emptyMeta();
   const boot = await mutateRaw(
     {
       at: "2026-05-15T10:00:00.000Z",
@@ -3000,10 +3092,12 @@ needs_clarification: []
         ceremony: STANDARD_CEREMONY,
       },
     },
-    { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
   );
   if (!boot.ok) throw new Error(`SC4 no-tasks seed boot failed: ${boot.message}`);
   snapshot = boot.snapshot;
+  entries = entries.concat(boot.entry);
+  meta = boot.meta;
   tailSeq++;
   for (const [from, to] of [
     ["TRIAGE.score", "TRIAGE.confirm"],
@@ -3017,10 +3111,12 @@ needs_clarification: []
         kind: "event:phase_advanced",
         payload: { from: from as any, to: to as any },
       },
-      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
     );
     if (!r.ok) throw new Error(`SC4 seed walk failed: ${r.message}`);
     snapshot = r.snapshot;
+    entries = entries.concat(r.entry);
+    meta = r.meta;
     tailSeq++;
   }
   const submitBatch = await mutateBatchRaw(
@@ -3055,10 +3151,12 @@ needs_clarification: []
         },
       },
     ],
-    { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+    { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
   );
   if (!submitBatch.ok) throw new Error(`SC4 seed submit failed: ${submitBatch.message}`);
   snapshot = submitBatch.snapshot;
+  entries = entries.concat(submitBatch.entries);
+  meta = submitBatch.meta;
   tailSeq += 2;
   for (const [from, to] of [
     ["SPEC.proposal", "SPEC.spec"],
@@ -3073,10 +3171,12 @@ needs_clarification: []
         kind: "event:phase_advanced",
         payload: { from: from as any, to: to as any },
       },
-      { feature_dir: dir, snapshot, tail_seq: tailSeq, fsync: false },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
     );
     if (!r.ok) throw new Error(`SC4 seed walk2 failed: ${r.message}`);
     snapshot = r.snapshot;
+    entries = entries.concat(r.entry);
+    meta = r.meta;
     tailSeq++;
   }
 }
@@ -3288,7 +3388,7 @@ describe("End-to-end lifecycle CLI — Slice 1.D sub-cycle 4", () => {
       // test's SPEC + tasks_planned seed, which is already raw-mutate.
       if (target === "EXECUTE.work") {
         const sess = await (await import("../../src/core/cli-runtime.js")).loadSession(dir);
-        await seedAbandonPlantedTasks(dir, sess.snapshot, sess.tail_seq);
+        await seedAbandonPlantedTasks(dir, sess.snapshot, sess.tail_seq, sess.entries, sess.meta);
       }
     }
 
@@ -3367,7 +3467,7 @@ describe("End-to-end lifecycle CLI — Slice 1.D sub-cycle 4", () => {
       // test's SPEC + tasks_planned seed, which is already raw-mutate.
       if (target === "EXECUTE.work") {
         const sess = await (await import("../../src/core/cli-runtime.js")).loadSession(dir);
-        await seedAbandonPlantedTasks(dir, sess.snapshot, sess.tail_seq);
+        await seedAbandonPlantedTasks(dir, sess.snapshot, sess.tail_seq, sess.entries, sess.meta);
       }
     }
 

@@ -297,31 +297,42 @@ export function composePendingJson(entries: readonly JournalEntry[]): PendingJso
  *   3. rename tmp → final (atomic on same FS)
  *   4. best-effort fsync parent dir (durability across power loss)
  */
-async function writeJsonAtomic(filePath: string, value: unknown): Promise<void> {
+async function writeJsonAtomic(
+  filePath: string,
+  value: unknown,
+  fsync: boolean,
+): Promise<void> {
   const body = JSON.stringify(value, null, 2);
   const tmp = `${filePath}.tmp-${randomBytes(6).toString("hex")}`;
   await fsp.writeFile(tmp, body, { mode: 0o644 });
 
-  let fh = await fsp.open(tmp, "r+");
-  try {
-    await fh.sync();
-  } finally {
-    await fh.close();
+  // tmp+rename is the atomicity boundary regardless of fsync; fsync only
+  // adds power-loss durability. `fsync:false` (the test path — `mutateBatch`
+  // step 8 threads `ctx.fsync`) keeps the atomic rename, skips the syncs.
+  if (fsync) {
+    const fh = await fsp.open(tmp, "r+");
+    try {
+      await fh.sync();
+    } finally {
+      await fh.close();
+    }
   }
 
   await fsp.rename(tmp, filePath);
 
   // Best-effort parent fsync. Some filesystems (tmpfs) reject dir fsync;
   // mirror snapshot.writeMeta's tolerance.
-  try {
-    fh = await fsp.open(path.dirname(filePath), "r");
+  if (fsync) {
     try {
-      await fh.sync();
-    } finally {
-      await fh.close();
+      const dh = await fsp.open(path.dirname(filePath), "r");
+      try {
+        await dh.sync();
+      } finally {
+        await dh.close();
+      }
+    } catch {
+      /* best-effort dir fsync */
     }
-  } catch {
-    /* best-effort dir fsync */
   }
 }
 
@@ -332,6 +343,11 @@ export interface WriteProjectionsInput {
   entries: readonly JournalEntry[];
   /** The replay's accumulated meta — written verbatim to _meta.json. */
   meta: SnapshotMeta;
+  /** fsync each projection file + `_meta.json` (power-loss durability).
+   *  Default true — `loaf doctor --rebuild` always fsyncs. `mutateBatch`
+   *  step 8 threads `ctx.fsync`, so the `fsync:false` test path skips the
+   *  syncs while keeping the atomic tmp+rename. */
+  fsync?: boolean;
 }
 
 /**
@@ -362,6 +378,7 @@ export async function writeProjections(
   input: WriteProjectionsInput,
 ): Promise<string[]> {
   const { snapshot, entries, meta } = input;
+  const fsync = input.fsync ?? true;
   const snapshotsDir = path.join(featureDir, "snapshots");
   await fsp.mkdir(snapshotsDir, { recursive: true });
 
@@ -373,7 +390,7 @@ export async function writeProjections(
   const statePath = path.join(snapshotsDir, "state.json");
   const stateJson = composeStateProjection(snapshot, entries);
   if (stateJson !== null) {
-    await writeJsonAtomic(statePath, stateJson);
+    await writeJsonAtomic(statePath, stateJson, fsync);
     written.push("state.json");
   } else {
     await fsp.rm(statePath, { force: true });
@@ -385,7 +402,7 @@ export async function writeProjections(
   const tasksPath = path.join(snapshotsDir, "tasks.json");
   const tasksJson = composeTasksJson(snapshot, entries);
   if (tasksJson !== null) {
-    await writeJsonAtomic(tasksPath, tasksJson);
+    await writeJsonAtomic(tasksPath, tasksJson, fsync);
     written.push("tasks.json");
   } else {
     await fsp.rm(tasksPath, { force: true });
@@ -394,22 +411,25 @@ export async function writeProjections(
   await writeJsonAtomic(
     path.join(snapshotsDir, "evidence.json"),
     composeEvidenceJson(entries),
+    fsync,
   );
   written.push("evidence.json");
   await writeJsonAtomic(
     path.join(snapshotsDir, "findings.json"),
     composeFindingsJson(snapshot),
+    fsync,
   );
   written.push("findings.json");
   await writeJsonAtomic(
     path.join(snapshotsDir, "pending.json"),
     composePendingJson(entries),
+    fsync,
   );
   written.push("pending.json");
 
   // Metadata strictly after data — a reader must never see a fresh _meta
   // pointing at stale projection files.
-  await writeMeta(path.join(snapshotsDir, "_meta.json"), meta);
+  await writeMeta(path.join(snapshotsDir, "_meta.json"), meta, fsync);
   written.push("_meta.json");
 
   return written;

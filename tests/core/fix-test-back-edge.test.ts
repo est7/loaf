@@ -25,6 +25,10 @@ import path from "node:path";
 import os from "node:os";
 
 import { mutateBatch } from "../../src/core/journal-mutate.js";
+import { appendEntry } from "../../src/core/journal-append.js";
+import { replayJournal } from "../../src/core/journal-bootstrap.js";
+import { emptyMeta, type SnapshotMeta } from "../../src/core/snapshot.js";
+import type { JournalEntry } from "../../src/core/journal-entry.js";
 import {
   initialSnapshot,
   type FindingState,
@@ -328,6 +332,109 @@ describe("preflight — event:task_step_reset for a fix-test finding (Item 3 SC3
   });
 });
 
+// Seed a REAL journal up to `subState` with one behavioral task driven to
+// `status: "done"` (Phase 15 SC2: mutateBatch step 8 re-serializes all five
+// projection files, so the entry stream must be consistent with the
+// snapshot — a synthetic `snapshotAt` over an empty journal is no longer
+// admissible). Raw `appendEntry` builds the journal (bypassing mutateBatch's
+// Pass 1.5 gate eval — fine for a fixture); `replayJournal(collect_entries)`
+// then derives the authentic {snapshot, entries, meta} triple.
+async function seedRealJournalAt(
+  dir: string,
+  subState: "EXECUTE.work" | "VERIFY.review",
+): Promise<{
+  snapshot: Snapshot;
+  tailSeq: number;
+  entries: JournalEntry[];
+  meta: SnapshotMeta;
+}> {
+  const journalPath = path.join(dir, "journal.jsonl");
+  let seq = 0;
+  const mk = (kind: JournalEntry["kind"], payload: unknown, actor = "cli:loaf"): JournalEntry => {
+    const s = seq % 60;
+    const m = Math.floor(seq / 60) % 60;
+    return {
+      seq: seq++,
+      entry_id: `JE-${String(seq).padStart(6, "0")}`,
+      at: `2026-05-21T10:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.000Z`,
+      actor,
+      entry_schema_version: 1,
+      kind,
+      payload,
+    } as JournalEntry;
+  };
+  const bootstrap: JournalEntry[] = [
+    mk("session:started", {
+      session_id: "550e8400-e29b-41d4-a716-446655440000",
+      feature: "auth-refresh",
+      ceremony: STANDARD,
+    }),
+  ];
+  for (const [from, to] of [
+    ["TRIAGE.score", "TRIAGE.confirm"],
+    ["TRIAGE.confirm", "SPEC.proposal"],
+    ["SPEC.proposal", "SPEC.spec"],
+    ["SPEC.spec", "SPEC.plan"],
+    ["SPEC.plan", "SPEC.design"],
+  ] as Array<[string, string]>) {
+    bootstrap.push(mk("event:phase_advanced", { from, to }));
+  }
+  bootstrap.push(
+    mk("gate:decided", { gate_kind: "spec-lock", decision: "approved", reason: "fixture" },
+      "human:engineer@test.local"),
+  );
+  bootstrap.push(mk("event:phase_advanced", { from: "SPEC.design", to: "EXECUTE.plan" }));
+  bootstrap.push(
+    mk("event:tasks_planned", {
+      based_on: { spec: 1 },
+      tasks: [
+        {
+          id: "T-001",
+          kind: "behavioral",
+          drives: ["REQ-CORE-001"],
+          tests: ["Core.regressOnce"],
+          status: "pending",
+          depends_on: [],
+          labels: [],
+          execution: {
+            red: { applicability: "must", status: "pending", evidence_refs: [] },
+            implement: { applicability: "must", status: "pending", evidence_refs: [] },
+            refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+          },
+        },
+      ],
+    }, "human:engineer@test.local"),
+  );
+  bootstrap.push(mk("event:phase_advanced", { from: "EXECUTE.plan", to: "EXECUTE.work" }));
+  bootstrap.push(mk("event:task_claimed", { task_id: "T-001" }));
+  bootstrap.push(mk("event:task_step_done", { task_id: "T-001", step: "red", result: "passed" }));
+  bootstrap.push(
+    mk("event:task_step_done", { task_id: "T-001", step: "implement", result: "passed" }),
+  );
+  if (subState === "VERIFY.review") {
+    for (const [from, to] of [
+      ["EXECUTE.work", "EXECUTE.done"],
+      ["EXECUTE.done", "VERIFY.plan"],
+      ["VERIFY.plan", "VERIFY.run"],
+      ["VERIFY.run", "VERIFY.review"],
+    ] as Array<[string, string]>) {
+      bootstrap.push(mk("event:phase_advanced", { from, to }));
+    }
+  }
+
+  let meta = emptyMeta();
+  for (const e of bootstrap) meta = await appendEntry(journalPath, e, meta, { fsync: false });
+
+  const replay = await replayJournal(journalPath, { collect_entries: true });
+  if (!replay.ok) throw new Error(`seedRealJournalAt replay failed: ${replay.code} ${replay.message}`);
+  return {
+    snapshot: replay.snapshot,
+    tailSeq: replay.meta.last_applied_seq,
+    entries: replay.entries ?? [],
+    meta: replay.meta,
+  };
+}
+
 // ── mutateBatch — the atomic 3-entry fix-test batch ─────────────────────
 
 describe("mutateBatch — Item 3 SC3 fix-test 3-entry batch", () => {
@@ -369,19 +476,19 @@ describe("mutateBatch — Item 3 SC3 fix-test 3-entry batch", () => {
 
   test("happy: from VERIFY.review on a done task — red step → pending, task → in_progress, iteration +1, finding open", async () => {
     const dir = await tmpFeatureDir();
-    const baseSnap = snapshotAt("VERIFY.review", {
-      tasks: [mkTask({ status: "done" })],
-    });
+    const seed = await seedRealJournalAt(dir, "VERIFY.review");
     const r = await mutateBatch(fixTestBatch("VERIFY.review"), {
       feature_dir: dir,
-      snapshot: baseSnap,
-      tail_seq: -1,
+      snapshot: seed.snapshot,
+      tail_seq: seed.tailSeq,
+      entries: seed.entries,
+      meta: seed.meta,
       fsync: false,
     });
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.snapshot.state!.sub_state).toBe("EXECUTE.work");
-      expect(r.snapshot.state!.iteration).toBe(1);
+      expect(r.snapshot.state!.iteration).toBe(seed.snapshot.state!.iteration + 1);
       expect(r.snapshot.state!.spec_locked).toBe(true);
       const t = r.snapshot.tasks[0]!;
       expect(t.status).toBe("in_progress");
@@ -405,6 +512,8 @@ describe("mutateBatch — Item 3 SC3 fix-test 3-entry batch", () => {
       feature_dir: dir,
       snapshot: baseSnap,
       tail_seq: -1,
+      entries: [],
+      meta: emptyMeta(),
       fsync: false,
     });
     expect(r.ok).toBe(false);
@@ -416,13 +525,13 @@ describe("mutateBatch — Item 3 SC3 fix-test 3-entry batch", () => {
 
   test("happy: from EXECUTE.work self-loop on a done task — task reopens to in_progress", async () => {
     const dir = await tmpFeatureDir();
-    const baseSnap = snapshotAt("EXECUTE.work", {
-      tasks: [mkTask({ status: "done" })],
-    });
+    const seed = await seedRealJournalAt(dir, "EXECUTE.work");
     const r = await mutateBatch(fixTestBatch("EXECUTE.work"), {
       feature_dir: dir,
-      snapshot: baseSnap,
-      tail_seq: -1,
+      snapshot: seed.snapshot,
+      tail_seq: seed.tailSeq,
+      entries: seed.entries,
+      meta: seed.meta,
       fsync: false,
     });
     expect(r.ok).toBe(true);

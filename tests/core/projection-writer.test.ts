@@ -391,17 +391,23 @@ async function buildFullFeatureJournal(opts: { withPlan: boolean }): Promise<str
   const dir = await mkdtemp(path.join(tmpdir(), "loaf-projection-writer-"));
   let snapshot = initialSnapshot();
   let tail = -1;
+  let entries: JournalEntry[] = [];
+  let meta = emptyMeta();
 
   async function step(partials: Parameters<typeof mutateBatch>[0]): Promise<void> {
     const r = await mutateBatch(partials, {
       feature_dir: dir,
       snapshot,
       tail_seq: tail,
+      entries,
+      meta,
       fsync: false,
     });
     if (!r.ok) throw new Error(`journal build step failed: ${r.code} ${r.message}`);
     snapshot = r.snapshot;
     tail += partials.length;
+    entries = entries.concat(r.entries);
+    meta = r.meta;
   }
 
   await step([
@@ -853,7 +859,11 @@ describe("writeProjections — Phase 14 SC1 end-to-end", () => {
       });
       if (!replay.ok) throw new Error(`replay failed: ${replay.code}`);
 
-      // No snapshots/ dir exists yet — writeProjections must mkdir it.
+      // `buildFullFeatureJournal` drives the journal via `mutateBatch`, whose
+      // step 8 (Phase 15 SC2) already wrote `snapshots/`. Remove it so this
+      // test can re-prove writeProjections' own mkdir behavior on an absent
+      // directory.
+      await rm(path.join(dir, "snapshots"), { recursive: true, force: true });
       await expect(stat(path.join(dir, "snapshots"))).rejects.toMatchObject({
         code: "ENOENT",
       });

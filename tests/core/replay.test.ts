@@ -12,6 +12,7 @@ import os from "node:os";
 
 import { appendEntry } from "../../src/core/journal-append.js";
 import { replayJournal } from "../../src/core/journal-bootstrap.js";
+import { emptyMeta } from "../../src/core/snapshot.js";
 import type { Ceremony, JournalEntry } from "../../src/core/journal-entry.js";
 
 const STANDARD: Ceremony = {
@@ -60,7 +61,7 @@ describe("replayJournal — Stage 3 §3.6", () => {
 
   test("single session:started entry yields initialized snapshot + meta", async () => {
     const filePath = await tmpJournal();
-    await appendEntry(filePath, startEntry(), { fsync: false });
+    await appendEntry(filePath, startEntry(), emptyMeta(), { fsync: false });
 
     const result = await replayJournal(filePath);
     expect(result.ok).toBe(true);
@@ -76,7 +77,7 @@ describe("replayJournal — Stage 3 §3.6", () => {
 
   test("multiple entries advance the cursor through transitions", async () => {
     const filePath = await tmpJournal();
-    await appendEntry(filePath, startEntry(), { fsync: false });
+    const meta0 = await appendEntry(filePath, startEntry(), emptyMeta(), { fsync: false });
     await appendEntry(
       filePath,
       {
@@ -88,6 +89,7 @@ describe("replayJournal — Stage 3 §3.6", () => {
         kind: "event:phase_advanced",
         payload: { from: "TRIAGE.score", to: "TRIAGE.confirm" },
       },
+      meta0,
       { fsync: false },
     );
 
@@ -102,7 +104,7 @@ describe("replayJournal — Stage 3 §3.6", () => {
 
   test("malformed JSON line returns INVALID_ENTRY with at_seq", async () => {
     const filePath = await tmpJournal();
-    await appendEntry(filePath, startEntry(), { fsync: false });
+    await appendEntry(filePath, startEntry(), emptyMeta(), { fsync: false });
     await fs.appendFile(filePath, "not-json-at-all\n");
 
     const result = await replayJournal(filePath);
@@ -119,7 +121,7 @@ describe("replayJournal — Stage 3 §3.6", () => {
   // default so generic / perf-sensitive replay keeps streaming behavior.
   test("collect_entries:true returns the applied entries in journal order", async () => {
     const filePath = await tmpJournal();
-    await appendEntry(filePath, startEntry(), { fsync: false });
+    const meta0 = await appendEntry(filePath, startEntry(), emptyMeta(), { fsync: false });
     await appendEntry(
       filePath,
       {
@@ -131,6 +133,7 @@ describe("replayJournal — Stage 3 §3.6", () => {
         kind: "event:phase_advanced",
         payload: { from: "TRIAGE.score", to: "TRIAGE.confirm" },
       },
+      meta0,
       { fsync: false },
     );
     const result = await replayJournal(filePath, { collect_entries: true });
@@ -145,7 +148,7 @@ describe("replayJournal — Stage 3 §3.6", () => {
 
   test("collect_entries omitted leaves entries undefined", async () => {
     const filePath = await tmpJournal();
-    await appendEntry(filePath, startEntry(), { fsync: false });
+    await appendEntry(filePath, startEntry(), emptyMeta(), { fsync: false });
     const result = await replayJournal(filePath);
     expect(result.ok).toBe(true);
     if (result.ok) {

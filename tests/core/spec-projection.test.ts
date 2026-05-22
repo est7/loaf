@@ -18,6 +18,8 @@ import {
   writeDerivedSpecMd,
 } from "../../src/core/spec-projection.js";
 import { initialSnapshot, type Snapshot, type SpecHeader } from "../../src/core/reducer.js";
+import { emptyMeta } from "../../src/core/snapshot.js";
+import type { JournalEntry } from "../../src/core/journal-entry.js";
 import type { Ceremony } from "../../src/core/journal-entry.js";
 import { readSpecFrontmatter } from "../../src/core/spec-frontmatter.js";
 
@@ -269,6 +271,8 @@ describe("mutateBatch Pass 5 — PROJECTION_WRITE_FAILED surface", () => {
       await mkdir(path.join(dir, "spec.md"));
 
       let snapshot = init();
+      let entries: JournalEntry[] = [];
+      let meta = emptyMeta();
       // session:started
       const boot = await mutateBatch(
         [
@@ -284,10 +288,12 @@ describe("mutateBatch Pass 5 — PROJECTION_WRITE_FAILED surface", () => {
             },
           },
         ],
-        { feature_dir: dir, snapshot, tail_seq: -1, fsync: false },
+        { feature_dir: dir, snapshot, tail_seq: -1, entries, meta, fsync: false },
       );
       if (!boot.ok) throw new Error(`seed boot failed: ${boot.message}`);
       snapshot = boot.snapshot;
+      entries = entries.concat(boot.entries);
+      meta = boot.meta;
 
       // Walk TRIAGE.score → TRIAGE.confirm → SPEC.proposal.
       let tail = 0;
@@ -305,11 +311,13 @@ describe("mutateBatch Pass 5 — PROJECTION_WRITE_FAILED surface", () => {
               payload: { from, to } as unknown as Record<string, unknown>,
             },
           ],
-          { feature_dir: dir, snapshot, tail_seq: tail, fsync: false },
+          { feature_dir: dir, snapshot, tail_seq: tail, entries, meta, fsync: false },
         );
         if (!r.ok) throw new Error(`walk failed: ${r.message}`);
         snapshot = r.snapshot;
         tail += 1;
+        entries = entries.concat(r.entries);
+        meta = r.meta;
       }
 
       // spec_submitted at SPEC.proposal → Pass 5 fires → write fails.
@@ -329,7 +337,7 @@ describe("mutateBatch Pass 5 — PROJECTION_WRITE_FAILED surface", () => {
             },
           },
         ],
-        { feature_dir: dir, snapshot, tail_seq: tail, fsync: false },
+        { feature_dir: dir, snapshot, tail_seq: tail, entries, meta, fsync: false },
       );
 
       expect(result.ok).toBe(false);
@@ -364,7 +372,7 @@ describe("mutateBatch Pass 5 — PROJECTION_WRITE_FAILED surface", () => {
       const before = "---\nschema_version: 2\nbogus: untouched\n---\nbody\n";
       await fsP.writeFile(path.join(dir, "spec.md"), before);
 
-      let snapshot = init();
+      const snapshot = init();
       const boot = await mutateBatch(
         [
           {
@@ -379,7 +387,7 @@ describe("mutateBatch Pass 5 — PROJECTION_WRITE_FAILED surface", () => {
             },
           },
         ],
-        { feature_dir: dir, snapshot, tail_seq: -1, fsync: false },
+        { feature_dir: dir, snapshot, tail_seq: -1, entries: [], meta: emptyMeta(), fsync: false },
       );
       if (!boot.ok) throw new Error(`boot: ${boot.message}`);
 

@@ -18,6 +18,7 @@ import path from "node:path";
 import { replayJournal } from "./journal-bootstrap.js";
 import type { JournalEntry } from "./journal-entry.js";
 import { initialSnapshot, type Snapshot } from "./reducer.js";
+import type { SnapshotMeta } from "./snapshot.js";
 
 // These are replaced at build time via tsdown's `define`. Dev / test runs
 // fall back to `.invalid` sentinels so CI can spot unstamped binaries.
@@ -43,6 +44,12 @@ export interface SessionLoad {
    *  against the same replay prefix that produced `snapshot` — no second
    *  journal read, no TOCTOU gap. Empty for a fresh feature. */
   entries: JournalEntry[];
+  /** The replay's accumulated `SnapshotMeta` as of `tail_seq` (Phase 15 SC2).
+   *  Threaded into `MutateContext` so `mutateBatch` step 8 can hand
+   *  `appendMany` an authoritative prior meta — `appendMany` validates it
+   *  against the journal tail and returns the post-append meta, which step 8
+   *  writes to `_meta.json`. No re-read of the journal is needed. */
+  meta: SnapshotMeta;
 }
 
 export async function loadSession(featureDir: string): Promise<SessionLoad> {
@@ -69,6 +76,7 @@ export async function loadSession(featureDir: string): Promise<SessionLoad> {
     snapshot: replay.entries_applied === 0 ? initialSnapshot() : replay.snapshot,
     tail_seq: replay.meta.last_applied_seq,
     entries: replay.entries,
+    meta: replay.meta,
   };
 }
 

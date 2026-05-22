@@ -27,6 +27,7 @@ import {
   materializeTaskForAmend,
 } from "../../src/core/task-history.js";
 import { appendEntry } from "../../src/core/journal-append.js";
+import { emptyMeta } from "../../src/core/snapshot.js";
 import { loadSession } from "../../src/core/cli-runtime.js";
 import type { Ceremony, JournalEntry } from "../../src/core/journal-entry.js";
 import type { TaskState } from "../../src/core/reducer.js";
@@ -276,7 +277,7 @@ describe("SessionLoad.entries — Slice C SC-C2a", () => {
         feature: "auth-refresh",
         ceremony: STANDARD,
       },
-    });
+    }, emptyMeta());
     const session = await loadSession(dir);
     expect(session.entries).toHaveLength(1);
     expect(session.entries[0]!.kind).toBe("session:started");

@@ -63,7 +63,9 @@ async function runCli(argv: string[]): Promise<{ exit: number; stdout: string; s
   }
 }
 
-async function loadSnapshot(dir: string): Promise<{ snapshot: any; tail_seq: number }> {
+async function loadSnapshot(
+  dir: string,
+): Promise<{ snapshot: any; tail_seq: number; entries: any; meta: any }> {
   const { loadSession } = await import("../../src/core/cli-runtime.js");
   return await loadSession(dir);
 }
@@ -104,7 +106,7 @@ async function seedQuickAtExecutePlan(): Promise<{ dir: string; feature: string 
         kind: "event:phase_advanced",
         payload: { from, to },
       },
-      { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, fsync: false },
+      { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, entries: s.entries, meta: s.meta, fsync: false },
     );
     if (!r.ok) throw new Error(`walk ${from}→${to} failed: ${r.code} ${r.message}`);
   }
@@ -129,7 +131,7 @@ async function seedQuickAtExecuteWork(): Promise<{ dir: string; feature: string 
       kind: "event:phase_advanced",
       payload: { from: "EXECUTE.plan", to: "EXECUTE.work" },
     },
-    { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, fsync: false },
+    { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, entries: s.entries, meta: s.meta, fsync: false },
   );
   if (!r.ok) throw new Error(`walk EXECUTE.plan→EXECUTE.work failed: ${r.code} ${r.message}`);
   return { dir, feature };
@@ -170,7 +172,7 @@ async function seedLightAtExecuteWorkWithTask(): Promise<{ dir: string; feature:
         kind: "event:phase_advanced",
         payload: { from, to },
       },
-      { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, fsync: false },
+      { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, entries: s.entries, meta: s.meta, fsync: false },
     );
     if (!r.ok) throw new Error(`walk ${from}→${to} failed: ${r.code} ${r.message}`);
   }
@@ -190,7 +192,7 @@ async function seedLightAtExecuteWorkWithTask(): Promise<{ dir: string; feature:
         needs_clarification: [],
       },
     },
-    { feature_dir: dir, snapshot: s1.snapshot, tail_seq: s1.tail_seq, fsync: false },
+    { feature_dir: dir, snapshot: s1.snapshot, tail_seq: s1.tail_seq, entries: s1.entries, meta: s1.meta, fsync: false },
   );
   if (!submitted.ok) throw new Error(`spec_submitted failed: ${submitted.code} ${submitted.message}`);
   // tasks_planned with one behavioral task that has implement + red steps.
@@ -233,7 +235,7 @@ async function seedLightAtExecuteWorkWithTask(): Promise<{ dir: string; feature:
         ],
       },
     },
-    { feature_dir: dir, snapshot: s2.snapshot, tail_seq: s2.tail_seq, fsync: false },
+    { feature_dir: dir, snapshot: s2.snapshot, tail_seq: s2.tail_seq, entries: s2.entries, meta: s2.meta, fsync: false },
   );
   if (!planned.ok) throw new Error(`tasks_planned failed: ${planned.code} ${planned.message}`);
   // Walk to EXECUTE.work for finding tests.
@@ -251,7 +253,7 @@ async function seedLightAtExecuteWorkWithTask(): Promise<{ dir: string; feature:
         kind: "event:phase_advanced",
         payload: { from, to },
       },
-      { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, fsync: false },
+      { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, entries: s.entries, meta: s.meta, fsync: false },
     );
     if (!r.ok) throw new Error(`walk ${from}→${to} failed: ${r.code} ${r.message}`);
   }

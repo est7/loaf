@@ -56,7 +56,9 @@ async function runCli(argv: string[]): Promise<{ exit: number; stdout: string; s
   }
 }
 
-async function loadSnapshot(dir: string): Promise<{ snapshot: any; tail_seq: number }> {
+async function loadSnapshot(
+  dir: string,
+): Promise<{ snapshot: any; tail_seq: number; entries: any; meta: any }> {
   const { loadSession } = await import("../../src/core/cli-runtime.js");
   return await loadSession(dir);
 }
@@ -101,7 +103,7 @@ async function seedAtSpecPostSubmit(): Promise<{ dir: string; feature: string }>
         kind: "event:phase_advanced",
         payload: { from, to },
       },
-      { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, fsync: false },
+      { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, entries: s.entries, meta: s.meta, fsync: false },
     );
     if (!r.ok) throw new Error(`walk ${from}→${to} failed: ${r.code} ${r.message}`);
   }

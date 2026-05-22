@@ -179,7 +179,13 @@ async function seedToVerifyAccept(
   await step("evidence add verify-review", ["evidence", "add", "--input", vrEvidence, "--feature", F]);
 }
 
-describe("E2E — full worker lifecycle (standard ceremony)", () => {
+// These scenarios drive 20-30 real `loaf` CLI subprocesses each. Phase 15
+// SC2 added mutate step 8 — every mutation re-serializes the five
+// snapshots/*.json projection files + _meta.json — so each subprocess does
+// more fsync'd I/O. Under the full parallel `tests/core` run the longest
+// lifecycle walks exceed the default 5s per-test timeout; 30s gives ample
+// headroom (each test runs ~1-3s in isolation).
+describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 }, () => {
   // SCEN-E2E-001 — see docs/e2e-scenarios.md
   test("SCEN-E2E-001 — standard feature runs start -> deliver via the CLI", async () => {
     const dir = await tmpFeatureDir();

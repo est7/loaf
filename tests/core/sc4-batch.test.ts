@@ -80,7 +80,9 @@ async function runCli(
 // global process.env outside the test.
 const HUMAN_ENV = { LOAF_USER: "sc4-test@invalid.example" };
 
-async function loadSnapshot(dir: string): Promise<{ snapshot: any; tail_seq: number }> {
+async function loadSnapshot(
+  dir: string,
+): Promise<{ snapshot: any; tail_seq: number; entries: any; meta: any }> {
   const { loadSession } = await import("../../src/core/cli-runtime.js");
   return await loadSession(dir);
 }
@@ -153,7 +155,7 @@ SC4 fixture body.
         kind: "event:phase_advanced",
         payload: { from, to },
       },
-      { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, fsync: false },
+      { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, entries: s.entries, meta: s.meta, fsync: false },
     );
     if (!r.ok) throw new Error(`walk ${from}→${to} failed: ${r.code} ${r.message}`);
   }
@@ -193,7 +195,7 @@ SC4 fixture body.
         },
       },
     ],
-    { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, fsync: false },
+    { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, entries: s.entries, meta: s.meta, fsync: false },
   );
   if (!submitted.ok) throw new Error(`spec_submitted batch failed: ${submitted.message}`);
   // tasks_planned with one behavioral task driving REQ-AUTH-001.
@@ -224,7 +226,7 @@ SC4 fixture body.
         ],
       },
     },
-    { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, fsync: false },
+    { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, entries: s.entries, meta: s.meta, fsync: false },
   );
   if (!planned.ok) throw new Error(`tasks_planned failed: ${planned.message}`);
   return { dir, feature };
@@ -260,7 +262,7 @@ async function seedAtExecuteWorkRedRunning(): Promise<{ dir: string; feature: st
         payload: { from: "SPEC.design", to: "EXECUTE.plan" },
       },
     ],
-    { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, fsync: false },
+    { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, entries: s.entries, meta: s.meta, fsync: false },
   );
   if (!lock.ok) throw new Error(`spec-lock failed: ${lock.code} ${lock.message}`);
   // advance EXECUTE.plan → EXECUTE.work
@@ -273,7 +275,7 @@ async function seedAtExecuteWorkRedRunning(): Promise<{ dir: string; feature: st
       kind: "event:phase_advanced",
       payload: { from: "EXECUTE.plan", to: "EXECUTE.work" },
     },
-    { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, fsync: false },
+    { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, entries: s.entries, meta: s.meta, fsync: false },
   );
   if (!adv.ok) throw new Error(`advance EXECUTE.work failed: ${adv.message}`);
   // claim T-001
@@ -286,7 +288,7 @@ async function seedAtExecuteWorkRedRunning(): Promise<{ dir: string; feature: st
       kind: "event:task_claimed",
       payload: { task_id: "T-001" },
     },
-    { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, fsync: false },
+    { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, entries: s.entries, meta: s.meta, fsync: false },
   );
   if (!claim.ok) throw new Error(`task_claimed failed: ${claim.message}`);
   // step start red
@@ -299,7 +301,7 @@ async function seedAtExecuteWorkRedRunning(): Promise<{ dir: string; feature: st
       kind: "event:task_step_started",
       payload: { task_id: "T-001", step: "red" },
     },
-    { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, fsync: false },
+    { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, entries: s.entries, meta: s.meta, fsync: false },
   );
   if (!stepStart.ok) throw new Error(`step_started failed: ${stepStart.message}`);
   return { dir, feature };
@@ -322,7 +324,7 @@ async function rawRaisePending(
       kind: "pending:added",
       payload: { id, kind, question },
     },
-    { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, fsync: false },
+    { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, entries: s.entries, meta: s.meta, fsync: false },
   );
   if (!r.ok) throw new Error(`raise pending failed: ${r.code} ${r.message}`);
 }
@@ -527,7 +529,7 @@ describe("loaf gate decide — SC4 soft pending:resolved co-emission", () => {
           payload: { from: "SPEC.design", to: "EXECUTE.plan" },
         },
       ],
-      { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, fsync: false },
+      { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, entries: s.entries, meta: s.meta, fsync: false },
     );
     if (!lock.ok) throw new Error(`seed lock fail: ${lock.message}`);
     const walk: Array<[SubState, SubState]> = [
@@ -547,7 +549,7 @@ describe("loaf gate decide — SC4 soft pending:resolved co-emission", () => {
           kind: "event:phase_advanced",
           payload: { from, to },
         },
-        { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, fsync: false },
+        { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, entries: s.entries, meta: s.meta, fsync: false },
       );
       if (!r.ok) throw new Error(`walk ${from}→${to}: ${r.message}`);
       if (to === "EXECUTE.work") {
@@ -564,7 +566,7 @@ describe("loaf gate decide — SC4 soft pending:resolved co-emission", () => {
             kind: "event:task_abandoned",
             payload: { task_id: "T-001", reason: "seed fixture: gate-pending test, no task execution" },
           },
-          { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, fsync: false },
+          { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, entries: s.entries, meta: s.meta, fsync: false },
         );
         if (!ab.ok) throw new Error(`seed task abandon: ${ab.message}`);
       }
@@ -628,7 +630,7 @@ describe("loaf gate decide — SC4 soft pending:resolved co-emission", () => {
         kind: "pending:resolved",
         payload: { id: "PEND-0001", answer: "approved-via-test" },
       },
-      { feature_dir: dir, snapshot: s1.snapshot, tail_seq: s1.tail_seq, fsync: false },
+      { feature_dir: dir, snapshot: s1.snapshot, tail_seq: s1.tail_seq, entries: s1.entries, meta: s1.meta, fsync: false },
     );
     if (!resolved.ok) throw new Error(`seed resolve fail: ${resolved.message}`);
     const before = await readJournalLines(dir);

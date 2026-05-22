@@ -19,8 +19,17 @@
 //   step 7 (post-apply)       — reducer.apply already ran during dry-run on
 //                               the cloned snapshot accumulator; that IS the
 //                               new state (apply mutates in place)
-//   step 8 (snapshot rebuild) — deferred (returns in-memory snapshot;
-//                               persistence lands in later stage)
+//   step 8 (snapshot rebuild) — IMPLEMENTED (Phase 15 SC2): after the append,
+//                               re-serialize all five snapshots/*.json
+//                               projection files + _meta.json via the shared
+//                               `writeProjections`. The prefix is the
+//                               authoritative entry stream — ctx.entries (the
+//                               journal as of tail_seq) concatenated with the
+//                               just-appended promoted batch — so no journal
+//                               re-read is needed. appendMany returns the
+//                               post-append SnapshotMeta which _meta.json
+//                               records. Every mutation refreshes all five
+//                               projections (no affected-file filter).
 //   step 9 (registry refresh) — deferred
 //   step 10 (lock release)    — deferred with step 1
 //
@@ -45,9 +54,11 @@ import { AppendError, appendMany } from "./journal-append.js";
 import { evaluateSpecLock } from "./gates/spec-lock-eval.js";
 import { evaluateVerifyAccept } from "./gates/verify-accept-eval.js";
 import { REDUCER_IMPLEMENTED_KINDS, type EntryKind, type JournalEntry } from "./journal-entry.js";
+import { writeProjections } from "./projection-writer.js";
 import { apply, type Snapshot } from "./reducer.js";
 import { preflight, type PreflightFailureCode } from "./reducer/preflight.js";
 import { promoteSidecars } from "./sidecar.js";
+import { isEmptyMeta, type SnapshotMeta } from "./snapshot.js";
 import { writeDerivedSpecMd } from "./spec-projection.js";
 
 // Slice A SC-A2: kinds that drive the spec.md projection writer at Pass 5
@@ -67,6 +78,19 @@ export interface MutateContext {
   snapshot: Snapshot;
   /** Tail seq from journal — -1 if journal is empty / absent */
   tail_seq: number;
+  /** The parsed entries of the journal as of `tail_seq`, in order — what
+   *  `loadSession` returns. `mutateBatch` step 8 concatenates this with the
+   *  just-appended batch to form the authoritative prefix for
+   *  `writeProjections` (no journal re-read). Its last entry's `seq` MUST
+   *  equal `tail_seq`; a mismatch fails fast before the append. Empty for a
+   *  fresh feature (`tail_seq` = -1). */
+  entries: JournalEntry[];
+  /** The `SnapshotMeta` as of `tail_seq` — what `loadSession` returns.
+   *  Handed to `appendMany` as the authoritative prior meta; `appendMany`
+   *  validates it against the journal tail and returns the post-append meta.
+   *  Its `last_applied_seq` MUST equal `tail_seq`; a mismatch fails fast
+   *  before the append. `emptyMeta()` for a fresh feature. */
+  meta: SnapshotMeta;
   /** Disable fsync for tests */
   fsync?: boolean;
 }
@@ -82,7 +106,7 @@ export type MutateFailureCode =
   | "PROJECTION_WRITE_FAILED";
 
 export type MutateResult =
-  | { ok: true; snapshot: Snapshot; entry: JournalEntry }
+  | { ok: true; snapshot: Snapshot; entry: JournalEntry; meta: SnapshotMeta }
   | {
       ok: false;
       code: MutateFailureCode;
@@ -91,7 +115,7 @@ export type MutateResult =
     };
 
 export type MutateBatchResult =
-  | { ok: true; snapshot: Snapshot; entries: JournalEntry[] }
+  | { ok: true; snapshot: Snapshot; entries: JournalEntry[]; meta: SnapshotMeta }
   | {
       ok: false;
       code: MutateFailureCode;
@@ -355,11 +379,49 @@ export async function mutateBatch(
     };
   }
 
+  // Fail-fast context-integrity invariant (Phase 15 SC2). step 8 writes
+  // `_meta.json` from the post-append meta, which is only authoritative if
+  // `ctx.entries` / `ctx.meta` describe the SAME journal prefix as
+  // `ctx.tail_seq`. A stale or hand-built context (entries tail seq or
+  // meta.last_applied_seq drifted from tail_seq) must be rejected BEFORE the
+  // append makes the projection writes authoritative for the wrong prefix.
+  // An empty prefix (tail_seq -1) additionally requires the empty-sentinel
+  // meta — seq -1 alone does not rule out a corrupt rolling_checksum that
+  // `appendMany` would fold into the post-append meta (codex r171 BLOCK 2).
+  const ctxEntriesTailSeq = ctx.entries[ctx.entries.length - 1]?.seq ?? -1;
+  const emptyPrefixMetaBad = ctx.tail_seq === -1 && !isEmptyMeta(ctx.meta);
+  if (
+    ctxEntriesTailSeq !== ctx.tail_seq ||
+    ctx.meta.last_applied_seq !== ctx.tail_seq ||
+    emptyPrefixMetaBad
+  ) {
+    return {
+      ok: false,
+      code: "INVALID_BATCH",
+      message:
+        `MutateContext is internally inconsistent: tail_seq=${ctx.tail_seq} but ` +
+        `entries tail seq=${ctxEntriesTailSeq}, meta.last_applied_seq=${ctx.meta.last_applied_seq}` +
+        (emptyPrefixMetaBad ? ", and meta is not the empty sentinel for an empty prefix" : "") +
+        `; entries + meta must describe the same journal prefix as tail_seq`,
+      detail: {
+        tail_seq: ctx.tail_seq,
+        entries_tail_seq: ctxEntriesTailSeq,
+        meta_last_applied_seq: ctx.meta.last_applied_seq,
+        empty_prefix_meta_bad: emptyPrefixMetaBad,
+      },
+    };
+  }
+
   // Single fsync'd batch append (appendMany handles envelope + per-kind
-  // payload + per-entry + batch-total byte caps internally).
+  // payload + per-entry + batch-total byte caps internally). `appendMany`
+  // also validates `ctx.meta` against the on-disk journal tail and returns
+  // the post-append `SnapshotMeta` step 8 writes to `_meta.json`.
   const journalPath = path.join(ctx.feature_dir, "journal.jsonl");
+  let appendMeta: SnapshotMeta;
   try {
-    await appendMany(journalPath, promoted, { fsync: ctx.fsync ?? true });
+    appendMeta = await appendMany(journalPath, promoted, ctx.meta, {
+      fsync: ctx.fsync ?? true,
+    });
   } catch (err) {
     if (err instanceof AppendError) {
       return {
@@ -412,7 +474,55 @@ export async function mutateBatch(
     }
   }
 
-  return { ok: true, snapshot: finalSnapshot, entries: promoted };
+  // Step 8 — post-appendMany snapshot projection sync (Phase 15 SC2).
+  // Re-serialize all five `snapshots/*.json` projection files + `_meta.json`
+  // via the shared `writeProjections` — the same serializer `loaf doctor
+  // --rebuild` drives. Runs unconditionally: every mutation refreshes all
+  // five projections (no affected-file filter — Q3), so snapshots stay fresh
+  // on every write, not just on `doctor --rebuild`.
+  //
+  // The entry prefix is authoritative — `ctx.entries` (the journal as of
+  // tail_seq, validated above) concatenated with the just-appended
+  // `promoted` batch. `appendMeta` is the post-append meta `appendMany`
+  // returned; `writeProjections` records it verbatim in `_meta.json`,
+  // metadata strictly after data.
+  //
+  // On failure surface PROJECTION_WRITE_FAILED — mirrors the spec.md Pass-5
+  // failure shape: the journal is authoritative (the append already
+  // succeeded), `loaf doctor --rebuild` is the recovery path; retrying the
+  // same payload would hit a duplicate-id rejection against the
+  // already-appended journal entry.
+  //
+  // TODO(slice 5 — lock acquire): step 8, like Pass 5, MUST live inside the
+  // per-feature lock window once the lock lands, so concurrent CLI
+  // invocations cannot race the projection files.
+  try {
+    await writeProjections(ctx.feature_dir, {
+      snapshot: finalSnapshot,
+      entries: ctx.entries.concat(promoted),
+      meta: appendMeta,
+      fsync: ctx.fsync ?? true,
+    });
+  } catch (err) {
+    const lastSeq = promoted[promoted.length - 1]!.seq;
+    return {
+      ok: false,
+      code: "PROJECTION_WRITE_FAILED",
+      message:
+        `snapshot projection write failed after journal append at last_seq=${lastSeq}; ` +
+        `journal is authoritative — run 'loaf doctor --rebuild' to resync. ` +
+        `Cause: ${(err as Error).message}`,
+      detail: {
+        projection: "snapshots",
+        path: path.join(ctx.feature_dir, "snapshots"),
+        journal_appended: true,
+        last_seq: lastSeq,
+        error: (err as Error).message,
+      },
+    };
+  }
+
+  return { ok: true, snapshot: finalSnapshot, entries: promoted, meta: appendMeta };
 }
 
 /**
@@ -430,5 +540,5 @@ export async function mutate(
       ? { ok: false, code: batch.code, message: batch.message, detail: batch.detail }
       : { ok: false, code: batch.code, message: batch.message };
   }
-  return { ok: true, snapshot: batch.snapshot, entry: batch.entries[0]! };
+  return { ok: true, snapshot: batch.snapshot, entry: batch.entries[0]!, meta: batch.meta };
 }

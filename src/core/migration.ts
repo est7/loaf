@@ -26,6 +26,7 @@ import path from "node:path";
 import { z } from "zod";
 
 import { appendEntry } from "./journal-append.js";
+import { emptyMeta } from "./snapshot.js";
 import { EvidenceKind, EvidenceResult } from "./evidence-schema.js";
 import type { AttachmentRef, Ceremony, JournalEntry, SubState } from "./journal-entry.js";
 import type {
@@ -342,7 +343,11 @@ export async function migrateV2(
   }
 
   // Step 5: validation passed — commit the migration entry to the journal.
-  await appendEntry(journalPath, entry, { fsync });
+  // The migration entry is the seq=0 head of a fresh journal, so the prior
+  // meta is `emptyMeta()`. `appendEntry` returns the post-append meta; a
+  // migration's own `_meta.json` story is a separate deferred slice
+  // (Phase 15 SC2 does not wire it), so the return is intentionally ignored.
+  await appendEntry(journalPath, entry, emptyMeta(), { fsync });
 
   // Step 6 + 7: move the original v0.0.x files to backup.
   await fsp.mkdir(backupDir, { recursive: true });

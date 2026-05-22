@@ -14,7 +14,8 @@ import os from "node:os";
 import { main } from "../../src/cli.js";
 import { mutateBatch } from "../../src/core/journal-mutate.js";
 import { initialSnapshot, type Snapshot } from "../../src/core/reducer.js";
-import type { Ceremony } from "../../src/core/journal-entry.js";
+import type { Ceremony, JournalEntry } from "../../src/core/journal-entry.js";
+import { emptyMeta } from "../../src/core/snapshot.js";
 import { migrateV2 } from "../../src/core/migration.js";
 
 const STANDARD: Ceremony = {
@@ -83,16 +84,22 @@ function behavioralTask(): Record<string, unknown> {
 async function seedJournal(dir: string, opts: { withPlan: boolean }): Promise<void> {
   let snapshot: Snapshot = initialSnapshot();
   let tail = -1;
+  let entries: JournalEntry[] = [];
+  let meta = emptyMeta();
   async function step(partials: Parameters<typeof mutateBatch>[0]): Promise<void> {
     const r = await mutateBatch(partials, {
       feature_dir: dir,
       snapshot,
       tail_seq: tail,
+      entries,
+      meta,
       fsync: false,
     });
     if (!r.ok) throw new Error(`seed step failed: ${r.code} ${r.message}`);
     snapshot = r.snapshot;
     tail += partials.length;
+    entries = entries.concat(r.entries);
+    meta = r.meta;
   }
 
   await step([

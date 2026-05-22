@@ -23,10 +23,13 @@ import path from "node:path";
 import os from "node:os";
 
 import { mutateBatch } from "../../src/core/journal-mutate.js";
+import { appendEntry } from "../../src/core/journal-append.js";
+import { replayJournal } from "../../src/core/journal-bootstrap.js";
+import { emptyMeta, type SnapshotMeta } from "../../src/core/snapshot.js";
 import { initialSnapshot, type Snapshot } from "../../src/core/reducer.js";
 import { validateTransition } from "../../src/core/reducer/transition.js";
 import { PhaseAdvancedPayload } from "../../src/core/journal-entry.js";
-import type { Ceremony, SubState } from "../../src/core/journal-entry.js";
+import type { Ceremony, JournalEntry, SubState } from "../../src/core/journal-entry.js";
 
 const STANDARD: Ceremony = {
   spec_phase: true,
@@ -182,13 +185,90 @@ describe("PhaseAdvancedPayload — Item 3 SC1 amend-tasks back_edge arm", () => 
   });
 });
 
+// Seed a REAL journal up to `subState` (Phase 15 SC2: mutateBatch step 8
+// re-serializes all five projection files, so the entry stream must be
+// consistent with the snapshot — a synthetic `snapshotAt` over an empty
+// journal is no longer admissible). amend-tasks needs no task graph, so the
+// bootstrap skips tasks_planned; the EXECUTE.work→EXECUTE.done edge is
+// vacuously all-tasks-final. Raw `appendEntry` builds the journal (bypassing
+// mutateBatch's Pass 1.5 gate eval — fine for a fixture); `replayJournal`
+// then derives the authentic {snapshot, entries, meta} triple.
+async function seedRealJournalAt(
+  dir: string,
+  subState: "EXECUTE.work" | "VERIFY.review",
+): Promise<{
+  snapshot: Snapshot;
+  tailSeq: number;
+  entries: JournalEntry[];
+  meta: SnapshotMeta;
+}> {
+  const journalPath = path.join(dir, "journal.jsonl");
+  let seq = 0;
+  const mk = (kind: JournalEntry["kind"], payload: unknown, actor = "cli:loaf"): JournalEntry => {
+    const s = seq % 60;
+    const m = Math.floor(seq / 60) % 60;
+    return {
+      seq: seq++,
+      entry_id: `JE-${String(seq).padStart(6, "0")}`,
+      at: `2026-05-20T10:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.000Z`,
+      actor,
+      entry_schema_version: 1,
+      kind,
+      payload,
+    } as JournalEntry;
+  };
+  const bootstrap: JournalEntry[] = [
+    mk("session:started", {
+      session_id: "550e8400-e29b-41d4-a716-446655440000",
+      feature: "auth-refresh",
+      ceremony: STANDARD,
+    }),
+  ];
+  for (const [from, to] of [
+    ["TRIAGE.score", "TRIAGE.confirm"],
+    ["TRIAGE.confirm", "SPEC.proposal"],
+    ["SPEC.proposal", "SPEC.spec"],
+    ["SPEC.spec", "SPEC.plan"],
+    ["SPEC.plan", "SPEC.design"],
+  ] as Array<[string, string]>) {
+    bootstrap.push(mk("event:phase_advanced", { from, to }));
+  }
+  bootstrap.push(
+    mk("gate:decided", { gate_kind: "spec-lock", decision: "approved", reason: "fixture" },
+      "human:engineer@test.local"),
+  );
+  bootstrap.push(mk("event:phase_advanced", { from: "SPEC.design", to: "EXECUTE.plan" }));
+  bootstrap.push(mk("event:phase_advanced", { from: "EXECUTE.plan", to: "EXECUTE.work" }));
+  if (subState === "VERIFY.review") {
+    for (const [from, to] of [
+      ["EXECUTE.work", "EXECUTE.done"],
+      ["EXECUTE.done", "VERIFY.plan"],
+      ["VERIFY.plan", "VERIFY.run"],
+      ["VERIFY.run", "VERIFY.review"],
+    ] as Array<[string, string]>) {
+      bootstrap.push(mk("event:phase_advanced", { from, to }));
+    }
+  }
+
+  let meta = emptyMeta();
+  for (const e of bootstrap) meta = await appendEntry(journalPath, e, meta, { fsync: false });
+
+  const replay = await replayJournal(journalPath, { collect_entries: true });
+  if (!replay.ok) throw new Error(`seedRealJournalAt replay failed: ${replay.code} ${replay.message}`);
+  return {
+    snapshot: replay.snapshot,
+    tailSeq: replay.meta.last_applied_seq,
+    entries: replay.entries ?? [],
+    meta: replay.meta,
+  };
+}
+
 // ── mutateBatch integration ─────────────────────────────────────────────
 
 describe("mutateBatch — Item 3 SC1 amend-tasks batch integration", () => {
   test("[finding:raised amend-tasks, phase_advanced back_edge] from EXECUTE.work → EXECUTE.work self-loop, iteration +1, finding open", async () => {
     const dir = await tmpFeatureDir();
-    const baseSnap = snapshotAt("EXECUTE.work");
-    expect(baseSnap.state!.iteration).toBe(0);
+    const seed = await seedRealJournalAt(dir, "EXECUTE.work");
     const r = await mutateBatch(
       [
         {
@@ -215,15 +295,22 @@ describe("mutateBatch — Item 3 SC1 amend-tasks batch integration", () => {
           },
         },
       ],
-      { feature_dir: dir, snapshot: baseSnap, tail_seq: -1, fsync: false },
+      {
+        feature_dir: dir,
+        snapshot: seed.snapshot,
+        tail_seq: seed.tailSeq,
+        entries: seed.entries,
+        meta: seed.meta,
+        fsync: false,
+      },
     );
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.snapshot.state!.sub_state).toBe("EXECUTE.work");
       // amend-tasks does NOT clear the lock.
       expect(r.snapshot.state!.spec_locked).toBe(true);
-      // SC0 generic back_edge bump.
-      expect(r.snapshot.state!.iteration).toBe(1);
+      // SC0 generic back_edge bump — one over the seed's iteration.
+      expect(r.snapshot.state!.iteration).toBe(seed.snapshot.state!.iteration + 1);
       expect(r.snapshot.findings).toHaveLength(1);
       expect(r.snapshot.findings[0]!.id).toBe("FND-001");
       expect(r.snapshot.findings[0]!.action).toBe("amend-tasks");
@@ -234,7 +321,7 @@ describe("mutateBatch — Item 3 SC1 amend-tasks batch integration", () => {
 
   test("[finding:raised amend-tasks, phase_advanced back_edge] from VERIFY.review → EXECUTE.work, iteration +1", async () => {
     const dir = await tmpFeatureDir();
-    const baseSnap = snapshotAt("VERIFY.review");
+    const seed = await seedRealJournalAt(dir, "VERIFY.review");
     const r = await mutateBatch(
       [
         {
@@ -261,12 +348,19 @@ describe("mutateBatch — Item 3 SC1 amend-tasks batch integration", () => {
           },
         },
       ],
-      { feature_dir: dir, snapshot: baseSnap, tail_seq: -1, fsync: false },
+      {
+        feature_dir: dir,
+        snapshot: seed.snapshot,
+        tail_seq: seed.tailSeq,
+        entries: seed.entries,
+        meta: seed.meta,
+        fsync: false,
+      },
     );
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.snapshot.state!.sub_state).toBe("EXECUTE.work");
-      expect(r.snapshot.state!.iteration).toBe(1);
+      expect(r.snapshot.state!.iteration).toBe(seed.snapshot.state!.iteration + 1);
       expect(r.snapshot.findings[0]!.status).toBe("open");
     }
   });
@@ -288,7 +382,7 @@ describe("mutateBatch — Item 3 SC1 amend-tasks batch integration", () => {
           },
         },
       ],
-      { feature_dir: dir, snapshot: baseSnap, tail_seq: -1, fsync: false },
+      { feature_dir: dir, snapshot: baseSnap, tail_seq: -1, entries: [], meta: emptyMeta(), fsync: false },
     );
     expect(r.ok).toBe(false);
     if (!r.ok) {

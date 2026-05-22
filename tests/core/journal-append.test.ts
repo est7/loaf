@@ -11,6 +11,7 @@ import os from "node:os";
 
 import { AppendError, appendEntry, appendMany } from "../../src/core/journal-append.js";
 import type { JournalEntry } from "../../src/core/journal-entry.js";
+import { emptyMeta } from "../../src/core/snapshot.js";
 
 async function tmpJournal(): Promise<string> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "loaf-journal-"));
@@ -58,7 +59,7 @@ describe("appendEntry — Stage 1", () => {
       },
     };
 
-    await appendEntry(filePath, entry, { fsync: false });
+    await appendEntry(filePath, entry, emptyMeta(), { fsync: false });
 
     const contents = await fs.readFile(filePath, "utf8");
     expect(contents).toBe(JSON.stringify(entry) + "\n");
@@ -78,10 +79,10 @@ describe("appendEntry — Stage 1", () => {
     // (e.g. parsed from external JSON).
     const missingSeq = { ...validEntry(), seq: undefined } as unknown as JournalEntry;
 
-    await expect(appendEntry(filePath, missingSeq, { fsync: false })).rejects.toBeInstanceOf(
+    await expect(appendEntry(filePath, missingSeq, emptyMeta(), { fsync: false })).rejects.toBeInstanceOf(
       AppendError,
     );
-    await expect(appendEntry(filePath, missingSeq, { fsync: false })).rejects.toMatchObject({
+    await expect(appendEntry(filePath, missingSeq, emptyMeta(), { fsync: false })).rejects.toMatchObject({
       code: "INVALID_ENVELOPE",
     });
 
@@ -93,7 +94,7 @@ describe("appendEntry — Stage 1", () => {
   test("C. actor missing namespace prefix → INVALID_ENVELOPE", async () => {
     const filePath = await tmpJournal();
     const bad = validEntry({ actor: "alice" as JournalEntry["actor"] });
-    await expect(appendEntry(filePath, bad, { fsync: false })).rejects.toMatchObject({
+    await expect(appendEntry(filePath, bad, emptyMeta(), { fsync: false })).rejects.toMatchObject({
       code: "INVALID_ENVELOPE",
     });
     await expect(fs.readFile(filePath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
@@ -102,7 +103,7 @@ describe("appendEntry — Stage 1", () => {
   test("C. actor with unknown namespace prefix → INVALID_ENVELOPE", async () => {
     const filePath = await tmpJournal();
     const bad = validEntry({ actor: "robot:bob" as JournalEntry["actor"] });
-    await expect(appendEntry(filePath, bad, { fsync: false })).rejects.toMatchObject({
+    await expect(appendEntry(filePath, bad, emptyMeta(), { fsync: false })).rejects.toMatchObject({
       code: "INVALID_ENVELOPE",
     });
   });
@@ -111,7 +112,7 @@ describe("appendEntry — Stage 1", () => {
   test("D. entry_id with wrong prefix → INVALID_ENVELOPE", async () => {
     const filePath = await tmpJournal();
     const bad = validEntry({ entry_id: "EV-000001" as JournalEntry["entry_id"] });
-    await expect(appendEntry(filePath, bad, { fsync: false })).rejects.toMatchObject({
+    await expect(appendEntry(filePath, bad, emptyMeta(), { fsync: false })).rejects.toMatchObject({
       code: "INVALID_ENVELOPE",
     });
   });
@@ -119,7 +120,7 @@ describe("appendEntry — Stage 1", () => {
   test("D. entry_id with fewer than 6 digits → INVALID_ENVELOPE", async () => {
     const filePath = await tmpJournal();
     const bad = validEntry({ entry_id: "JE-1" as JournalEntry["entry_id"] });
-    await expect(appendEntry(filePath, bad, { fsync: false })).rejects.toMatchObject({
+    await expect(appendEntry(filePath, bad, emptyMeta(), { fsync: false })).rejects.toMatchObject({
       code: "INVALID_ENVELOPE",
     });
   });
@@ -128,7 +129,7 @@ describe("appendEntry — Stage 1", () => {
   test("E. entry_schema_version missing → INVALID_ENVELOPE", async () => {
     const filePath = await tmpJournal();
     const bad = { ...validEntry(), entry_schema_version: undefined } as unknown as JournalEntry;
-    await expect(appendEntry(filePath, bad, { fsync: false })).rejects.toMatchObject({
+    await expect(appendEntry(filePath, bad, emptyMeta(), { fsync: false })).rejects.toMatchObject({
       code: "INVALID_ENVELOPE",
     });
   });
@@ -136,7 +137,7 @@ describe("appendEntry — Stage 1", () => {
   test("E. entry_schema_version ≤ 0 → INVALID_ENVELOPE", async () => {
     const filePath = await tmpJournal();
     const bad = validEntry({ entry_schema_version: 0 });
-    await expect(appendEntry(filePath, bad, { fsync: false })).rejects.toMatchObject({
+    await expect(appendEntry(filePath, bad, emptyMeta(), { fsync: false })).rejects.toMatchObject({
       code: "INVALID_ENVELOPE",
     });
   });
@@ -168,7 +169,7 @@ describe("appendEntry — Stage 1", () => {
         },
       },
     };
-    await expect(appendEntry(filePath, malformedMigration, { fsync: false })).rejects.toMatchObject({
+    await expect(appendEntry(filePath, malformedMigration, emptyMeta(), { fsync: false })).rejects.toMatchObject({
       code: "INVALID_PAYLOAD",
     });
     // No journal file is created.
@@ -184,7 +185,7 @@ describe("appendEntry — Stage 1", () => {
     const bigPayload = { id: "PEND-0001", kind: "ask_user_question", question: "stub", note: "x".repeat(70_000) };
     const oversize = validEntry({ payload: bigPayload });
 
-    await expect(appendEntry(filePath, oversize, { fsync: false })).rejects.toMatchObject({
+    await expect(appendEntry(filePath, oversize, emptyMeta(), { fsync: false })).rejects.toMatchObject({
       code: "ENTRY_OVERSIZE",
     });
     await expect(fs.readFile(filePath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
@@ -194,7 +195,7 @@ describe("appendEntry — Stage 1", () => {
     const filePath = await tmpJournal();
     const payload = { id: "PEND-0001", kind: "ask_user_question", question: "stub", note: "y".repeat(60_000) };
     const ok = validEntry({ payload });
-    await appendEntry(filePath, ok, { fsync: false });
+    await appendEntry(filePath, ok, emptyMeta(), { fsync: false });
     const contents = await fs.readFile(filePath, "utf8");
     expect(contents.endsWith("\n")).toBe(true);
     expect(JSON.parse(contents.trim())).toEqual(ok);
@@ -204,7 +205,7 @@ describe("appendEntry — Stage 1", () => {
   test("G. first entry into an empty file must have seq=0", async () => {
     const filePath = await tmpJournal();
     const bad = validEntry({ seq: 5 });
-    await expect(appendEntry(filePath, bad, { fsync: false })).rejects.toMatchObject({
+    await expect(appendEntry(filePath, bad, emptyMeta(), { fsync: false })).rejects.toMatchObject({
       code: "SEQ_NOT_MONOTONIC",
     });
     await expect(fs.readFile(filePath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
@@ -212,23 +213,25 @@ describe("appendEntry — Stage 1", () => {
 
   test("G. second entry must have seq = tail.seq + 1", async () => {
     const filePath = await tmpJournal();
-    await appendEntry(filePath, validEntry({ seq: 0 }), { fsync: false });
+    const meta0 = await appendEntry(filePath, validEntry({ seq: 0 }), emptyMeta(), {
+      fsync: false,
+    });
 
     // Wrong: seq=2 skips a slot.
     const skip = validEntry({ seq: 2, entry_id: "JE-000002" });
-    await expect(appendEntry(filePath, skip, { fsync: false })).rejects.toMatchObject({
+    await expect(appendEntry(filePath, skip, meta0, { fsync: false })).rejects.toMatchObject({
       code: "SEQ_NOT_MONOTONIC",
     });
 
     // Wrong: seq=0 reuses tail.
     const reuse = validEntry({ seq: 0, entry_id: "JE-000002" });
-    await expect(appendEntry(filePath, reuse, { fsync: false })).rejects.toMatchObject({
+    await expect(appendEntry(filePath, reuse, meta0, { fsync: false })).rejects.toMatchObject({
       code: "SEQ_NOT_MONOTONIC",
     });
 
     // Correct: seq=1 — strictly tail+1.
     const ok = validEntry({ seq: 1, entry_id: "JE-000002" });
-    await appendEntry(filePath, ok, { fsync: false });
+    await appendEntry(filePath, ok, meta0, { fsync: false });
 
     const contents = await fs.readFile(filePath, "utf8");
     const lines = contents.trim().split("\n");
@@ -256,7 +259,7 @@ describe("appendMany — Slice 1.0 Cycle 2", () => {
     const filePath = await tmpJournal();
     const entries = [pendingAdded(0, "PEND-0001"), pendingAdded(1, "PEND-0002")];
 
-    await appendMany(filePath, entries, { fsync: false });
+    await appendMany(filePath, entries, emptyMeta(), { fsync: false });
 
     const contents = await fs.readFile(filePath, "utf8");
     const lines = contents.trim().split("\n");
@@ -276,10 +279,10 @@ describe("appendMany — Slice 1.0 Cycle 2", () => {
     const good = pendingAdded(0, "PEND-0001");
     const badSeq = { ...pendingAdded(1, "PEND-0002"), seq: 5 } as JournalEntry;
 
-    await expect(appendMany(filePath, [good, badSeq], { fsync: false })).rejects.toBeInstanceOf(
+    await expect(appendMany(filePath, [good, badSeq], emptyMeta(), { fsync: false })).rejects.toBeInstanceOf(
       AppendError,
     );
-    await expect(appendMany(filePath, [good, badSeq], { fsync: false })).rejects.toMatchObject({
+    await expect(appendMany(filePath, [good, badSeq], emptyMeta(), { fsync: false })).rejects.toMatchObject({
       code: "SEQ_NOT_MONOTONIC",
     });
     await expect(fs.readFile(filePath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
@@ -291,7 +294,7 @@ describe("appendMany — Slice 1.0 Cycle 2", () => {
     const badEnvelope = { ...pendingAdded(1, "PEND-0002"), actor: "alice" } as JournalEntry;
 
     await expect(
-      appendMany(filePath, [good, badEnvelope], { fsync: false }),
+      appendMany(filePath, [good, badEnvelope], emptyMeta(), { fsync: false }),
     ).rejects.toMatchObject({ code: "INVALID_ENVELOPE" });
     await expect(fs.readFile(filePath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
   });
@@ -301,14 +304,16 @@ describe("appendMany — Slice 1.0 Cycle 2", () => {
   test("B. mid-batch fail over non-empty journal → tail unchanged", async () => {
     const filePath = await tmpJournal();
     // Seed with one entry so journal exists at seq=0.
-    await appendMany(filePath, [pendingAdded(0, "PEND-0003")], { fsync: false });
+    const meta0 = await appendMany(filePath, [pendingAdded(0, "PEND-0003")], emptyMeta(), {
+      fsync: false,
+    });
     const before = await fs.readFile(filePath, "utf8");
 
     const good = pendingAdded(1, "PEND-0001");
     const bad = { ...pendingAdded(2, "PEND-0002"), entry_id: "EV-000003" } as JournalEntry;
 
     await expect(
-      appendMany(filePath, [good, bad], { fsync: false }),
+      appendMany(filePath, [good, bad], meta0, { fsync: false }),
     ).rejects.toMatchObject({ code: "INVALID_ENVELOPE" });
 
     const after = await fs.readFile(filePath, "utf8");
@@ -318,7 +323,7 @@ describe("appendMany — Slice 1.0 Cycle 2", () => {
   // ── C: empty array rejected explicitly ───────────────────────────────────
   test("C. empty entries array → INVALID_ENVELOPE", async () => {
     const filePath = await tmpJournal();
-    await expect(appendMany(filePath, [], { fsync: false })).rejects.toMatchObject({
+    await expect(appendMany(filePath, [], emptyMeta(), { fsync: false })).rejects.toMatchObject({
       code: "INVALID_ENVELOPE",
     });
     await expect(fs.readFile(filePath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
@@ -329,7 +334,7 @@ describe("appendMany — Slice 1.0 Cycle 2", () => {
   test("D. seq jumps inside batch (0 then 2) → SEQ_NOT_MONOTONIC", async () => {
     const filePath = await tmpJournal();
     const entries = [pendingAdded(0, "PEND-0001"), pendingAdded(2, "PEND-0002")];
-    await expect(appendMany(filePath, entries, { fsync: false })).rejects.toMatchObject({
+    await expect(appendMany(filePath, entries, emptyMeta(), { fsync: false })).rejects.toMatchObject({
       code: "SEQ_NOT_MONOTONIC",
     });
     await expect(fs.readFile(filePath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
@@ -337,10 +342,12 @@ describe("appendMany — Slice 1.0 Cycle 2", () => {
 
   test("D. batch starts at wrong seq (tail=0, batch starts at 5) → SEQ_NOT_MONOTONIC", async () => {
     const filePath = await tmpJournal();
-    await appendMany(filePath, [pendingAdded(0, "PEND-0003")], { fsync: false });
+    const meta0 = await appendMany(filePath, [pendingAdded(0, "PEND-0003")], emptyMeta(), {
+      fsync: false,
+    });
 
     const entries = [pendingAdded(5, "PEND-0001"), pendingAdded(6, "PEND-0002")];
-    await expect(appendMany(filePath, entries, { fsync: false })).rejects.toMatchObject({
+    await expect(appendMany(filePath, entries, meta0, { fsync: false })).rejects.toMatchObject({
       code: "SEQ_NOT_MONOTONIC",
     });
   });
@@ -348,10 +355,12 @@ describe("appendMany — Slice 1.0 Cycle 2", () => {
   // ── E: batch extends existing journal contiguously ───────────────────────
   test("E. batch appended to non-empty journal extends seq contiguously", async () => {
     const filePath = await tmpJournal();
-    await appendMany(filePath, [pendingAdded(0, "PEND-0003")], { fsync: false });
+    const meta0 = await appendMany(filePath, [pendingAdded(0, "PEND-0003")], emptyMeta(), {
+      fsync: false,
+    });
 
     const entries = [pendingAdded(1, "PEND-0001"), pendingAdded(2, "PEND-0002")];
-    await appendMany(filePath, entries, { fsync: false });
+    await appendMany(filePath, entries, meta0, { fsync: false });
 
     const lines = (await fs.readFile(filePath, "utf8")).trim().split("\n");
     expect(lines).toHaveLength(3);
@@ -370,7 +379,7 @@ describe("appendMany — Slice 1.0 Cycle 2", () => {
     });
     const entries = [big(0, "PEND-0001"), big(1, "PEND-0002")];
 
-    await expect(appendMany(filePath, entries, { fsync: false })).rejects.toMatchObject({
+    await expect(appendMany(filePath, entries, emptyMeta(), { fsync: false })).rejects.toMatchObject({
       code: "ENTRY_OVERSIZE",
       detail: { scope: "batch" },
     });
@@ -389,9 +398,141 @@ describe("appendMany — Slice 1.0 Cycle 2", () => {
       payload: { id: "PEND-0002" },
     } as JournalEntry;
 
-    await expect(appendMany(filePath, [good, bad], { fsync: false })).rejects.toMatchObject({
+    await expect(appendMany(filePath, [good, bad], emptyMeta(), { fsync: false })).rejects.toMatchObject({
       code: "INVALID_PAYLOAD",
     });
     await expect(fs.readFile(filePath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  });
+});
+
+// ── Phase 15 SC2 — appendMany returns the post-append SnapshotMeta ────────
+//
+// The returned meta MUST be byte-identical (modulo `written_at`) to what
+// `replayJournal` accumulates over the same final journal. mutate step 8
+// threads this meta straight into `_meta.json`; any drift from the replay
+// path would make a fresh `_meta.json` describe the wrong journal prefix.
+
+describe("appendMany — post-append SnapshotMeta (Phase 15 SC2)", () => {
+  const STD_CEREMONY = {
+    spec_phase: true,
+    verify_phase: true,
+    settle_phase: false,
+    strict_spec_review: false,
+    lessons_required: "skip" as const,
+    strict_drift_check: false,
+  };
+  // A reducer-replayable entry sequence: session:started then phase walks.
+  function lifecycleEntry(seq: number): JournalEntry {
+    const base = {
+      seq,
+      entry_id: `JE-${String(seq + 1).padStart(6, "0")}`,
+      at: `2026-05-22T10:00:0${seq}.000Z`,
+      actor: "cli:loaf" as const,
+      entry_schema_version: 1,
+    };
+    if (seq === 0) {
+      return {
+        ...base,
+        kind: "session:started",
+        payload: {
+          session_id: "550e8400-e29b-41d4-a716-446655440000",
+          feature: "auth-refresh",
+          ceremony: STD_CEREMONY,
+        },
+      };
+    }
+    const walk = [
+      ["TRIAGE.score", "TRIAGE.confirm"],
+      ["TRIAGE.confirm", "SPEC.proposal"],
+      ["SPEC.proposal", "SPEC.spec"],
+    ];
+    const [from, to] = walk[seq - 1]!;
+    return { ...base, kind: "event:phase_advanced", payload: { from, to } };
+  }
+
+  // The `written_at` timestamp is freshly stamped per call and is exempt
+  // from the equality — every other meta field must match exactly.
+  function metaSansTimestamp(m: import("../../src/core/snapshot.js").SnapshotMeta) {
+    const { written_at: _written_at, ...rest } = m;
+    return rest;
+  }
+
+  test("fresh-journal append: returned meta == replayJournal meta", async () => {
+    const filePath = await tmpJournal();
+    const entries = [lifecycleEntry(0), lifecycleEntry(1)];
+
+    const appendMeta = await appendMany(filePath, entries, emptyMeta(), { fsync: false });
+
+    const { replayJournal } = await import("../../src/core/journal-bootstrap.js");
+    const replay = await replayJournal(filePath);
+    if (!replay.ok) throw new Error(`replay failed: ${replay.code}`);
+
+    expect(metaSansTimestamp(appendMeta)).toEqual(metaSansTimestamp(replay.meta));
+    expect(appendMeta.last_applied_seq).toBe(1);
+  });
+
+  test("append onto a journal with prior entries: returned meta == replayJournal meta", async () => {
+    const filePath = await tmpJournal();
+    // First batch establishes a non-empty journal + a non-trivial prior meta.
+    const meta0 = await appendMany(
+      filePath,
+      [lifecycleEntry(0), lifecycleEntry(1)],
+      emptyMeta(),
+      { fsync: false },
+    );
+    // Second batch extends it — appendMany folds meta0 forward.
+    const meta1 = await appendMany(
+      filePath,
+      [lifecycleEntry(2), lifecycleEntry(3)],
+      meta0,
+      { fsync: false },
+    );
+
+    const { replayJournal } = await import("../../src/core/journal-bootstrap.js");
+    const replay = await replayJournal(filePath);
+    if (!replay.ok) throw new Error(`replay failed: ${replay.code}`);
+
+    expect(metaSansTimestamp(meta1)).toEqual(metaSansTimestamp(replay.meta));
+    expect(meta1.last_applied_seq).toBe(3);
+  });
+
+  test("stale prior meta (last_applied_seq mismatch) → PRIOR_META_STALE, journal untouched", async () => {
+    const filePath = await tmpJournal();
+    await appendMany(filePath, [lifecycleEntry(0)], emptyMeta(), { fsync: false });
+    const before = await fs.readFile(filePath, "utf8");
+
+    // emptyMeta() claims last_applied_seq=-1 but the journal tail is seq=0.
+    await expect(
+      appendMany(filePath, [lifecycleEntry(1)], emptyMeta(), { fsync: false }),
+    ).rejects.toMatchObject({ code: "PRIOR_META_STALE" });
+
+    expect(await fs.readFile(filePath, "utf8")).toBe(before);
+  });
+
+  test("empty-prefix prior meta with a non-empty rolling checksum → PRIOR_META_STALE, journal untouched", async () => {
+    const filePath = await tmpJournal();
+    // The journal is fresh — tail seq -1. A prior meta with seq -1 but a
+    // non-empty rolling_checksum is corrupt: appendMany must reject it, not
+    // fold the bad checksum into the returned post-append meta (codex r171).
+    const corrupt = { ...emptyMeta(), rolling_checksum: "a".repeat(64) };
+    await expect(
+      appendMany(filePath, [lifecycleEntry(0)], corrupt, { fsync: false }),
+    ).rejects.toMatchObject({ code: "PRIOR_META_STALE" });
+    // Validation runs before any open(O_CREAT) — the file is never written.
+    expect(await fs.readFile(filePath, "utf8").catch(() => "")).toBe("");
+  });
+
+  test("non-empty prior meta with a wrong last_entry_offset → PRIOR_META_STALE, journal untouched", async () => {
+    const filePath = await tmpJournal();
+    const meta0 = await appendMany(filePath, [lifecycleEntry(0)], emptyMeta(), { fsync: false });
+    const before = await fs.readFile(filePath, "utf8");
+
+    // meta0 is correct except a corrupted tail offset.
+    const corrupt = { ...meta0, last_entry_offset: meta0.last_entry_offset + 999 };
+    await expect(
+      appendMany(filePath, [lifecycleEntry(1)], corrupt, { fsync: false }),
+    ).rejects.toMatchObject({ code: "PRIOR_META_STALE" });
+
+    expect(await fs.readFile(filePath, "utf8")).toBe(before);
   });
 });

@@ -52,6 +52,26 @@ export function emptyMeta(): SnapshotMeta {
   };
 }
 
+/**
+ * True iff `meta` is the empty-journal sentinel — every structural field
+ * equals `emptyMeta()` (`written_at`, a free timestamp, is ignored).
+ *
+ * `appendMany` / `mutateBatch` require this when the journal tail is empty
+ * (seq -1): a fresh-prefix prior meta carrying a non-empty `rolling_checksum`
+ * or `last_entry_offset` would be folded into a post-append meta that no
+ * longer matches `replayJournal` (codex r171 BLOCK 2).
+ */
+export function isEmptyMeta(meta: SnapshotMeta): boolean {
+  const e = emptyMeta();
+  return (
+    meta.last_applied_seq === e.last_applied_seq &&
+    meta.last_entry_offset === e.last_entry_offset &&
+    meta.last_entry_line_hash === e.last_entry_line_hash &&
+    meta.rolling_checksum === e.rolling_checksum &&
+    meta.feature_schema_version === e.feature_schema_version
+  );
+}
+
 // Fast-tier hash — last entry line content only.
 export function computeLineHash(line: string): string {
   return createHash("sha256").update(line, "utf8").digest("hex");
@@ -67,24 +87,35 @@ export function extendRollingChecksum(prev: string, line: string): string {
     .digest("hex");
 }
 
-export async function writeMeta(metaPath: string, meta: SnapshotMeta): Promise<void> {
+export async function writeMeta(
+  metaPath: string,
+  meta: SnapshotMeta,
+  fsync = true,
+): Promise<void> {
   // Audit r1 fix #12: crypto.randomBytes for tmp suffix, fsync file + parent
   // dir per §11.2 atomic-rename semantics. (Math.random was predictable +
   // parent-dir fsync was missing, violating durability on power loss.)
+  // `fsync` defaults true (doctor --rebuild); `mutateBatch` step 8 threads
+  // `ctx.fsync`, so the `fsync:false` test path keeps the atomic tmp+rename
+  // but skips the syncs.
   const tmp = `${metaPath}.tmp-${randomBytes(6).toString("hex")}`;
   const body = JSON.stringify(meta, null, 2);
   await fsp.writeFile(tmp, body, { mode: 0o644 });
   // fsync the file
-  let fh = await fsp.open(tmp, "r+");
-  try { await fh.sync(); } finally { await fh.close(); }
+  if (fsync) {
+    const fh = await fsp.open(tmp, "r+");
+    try { await fh.sync(); } finally { await fh.close(); }
+  }
   await fsp.rename(tmp, metaPath);
   // fsync the parent directory so the rename is durable.
-  const dir = path.dirname(metaPath);
-  try {
-    fh = await fsp.open(dir, "r");
-    try { await fh.sync(); } finally { await fh.close(); }
-  } catch {
-    // Some filesystems (e.g. tmpfs) don't permit dir fsync; best-effort only.
+  if (fsync) {
+    const dir = path.dirname(metaPath);
+    try {
+      const dh = await fsp.open(dir, "r");
+      try { await dh.sync(); } finally { await dh.close(); }
+    } catch {
+      // Some filesystems (e.g. tmpfs) don't permit dir fsync; best-effort only.
+    }
   }
 }
 

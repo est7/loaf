@@ -185,7 +185,7 @@ export async function main(argv: string[] = process.argv): Promise<number> {
             ...(opts.label !== undefined ? { session_label: opts.label } : {}),
           },
         },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta },
       );
       if (!result.ok) {
         fail(result.code, result.message);
@@ -225,7 +225,7 @@ export async function main(argv: string[] = process.argv): Promise<number> {
           kind: "event:phase_advanced",
           payload: { from, to },
         },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta },
       );
       if (!result.ok) {
         fail(result.code, result.message);
@@ -358,6 +358,8 @@ export async function main(argv: string[] = process.argv): Promise<number> {
         feature_dir: featureDir,
         snapshot: session.snapshot,
         tail_seq: session.tail_seq,
+        entries: session.entries,
+        meta: session.meta,
       };
       const now = new Date().toISOString();
       // SC4 soft pending co-emission: if the unresolved head is a
@@ -574,7 +576,7 @@ export async function main(argv: string[] = process.argv): Promise<number> {
           kind: "session:delivered",
           payload,
         },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta },
       );
       if (!result.ok) {
         emitFailure(result.code, result.message, result.detail);
@@ -655,7 +657,7 @@ export async function main(argv: string[] = process.argv): Promise<number> {
           kind: "session:archived",
           payload: { reason: opts.reason },
         },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta },
       );
       if (!result.ok) {
         emitFailure(result.code, result.message, result.detail);
@@ -718,7 +720,7 @@ export async function main(argv: string[] = process.argv): Promise<number> {
           kind: "session:abandoned",
           payload: { reason: opts.reason },
         },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta },
       );
       if (!result.ok) {
         emitFailure(result.code, result.message, result.detail);
@@ -818,7 +820,7 @@ export async function main(argv: string[] = process.argv): Promise<number> {
               payload: { reason: opts.reason },
             },
           ],
-          { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq },
+          { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta },
         );
         if (!result.ok) {
           emitFailure(result.code, result.message, result.detail);
@@ -959,7 +961,7 @@ export async function main(argv: string[] = process.argv): Promise<number> {
               payload: { id: head.id },
             },
           ],
-          { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq },
+          { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta },
         );
         if (!result.ok) {
           emitFailure(result.code, result.message, result.detail);
@@ -1196,7 +1198,7 @@ export async function main(argv: string[] = process.argv): Promise<number> {
           kind: "event:tasks_planned",
           payload: payload as Record<string, unknown>,
         },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta },
       );
       if (!result.ok) {
         emitFailure(result.code, result.message, result.detail);
@@ -1386,6 +1388,8 @@ export async function main(argv: string[] = process.argv): Promise<number> {
           feature_dir: featureDir,
           snapshot: session.snapshot,
           tail_seq: session.tail_seq,
+          entries: session.entries,
+          meta: session.meta,
         });
         if (!result.ok) {
           emitFailure(result.code, result.message, result.detail);
@@ -1440,7 +1444,7 @@ export async function main(argv: string[] = process.argv): Promise<number> {
           kind: "event:tasks_planned",
           payload: { based_on, tasks: [...existingFull, ...seededNew] },
         },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta },
       );
       if (!result.ok) {
         emitFailure(result.code, result.message, result.detail);
@@ -1491,7 +1495,7 @@ export async function main(argv: string[] = process.argv): Promise<number> {
           kind: "event:task_claimed",
           payload: { task_id: taskId },
         },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta },
       );
       if (!result.ok) {
         emitFailure(result.code, result.message, result.detail);
@@ -1559,7 +1563,7 @@ export async function main(argv: string[] = process.argv): Promise<number> {
             kind: "event:task_abandoned",
             payload: { task_id: taskId, reason: opts.reason },
           },
-          { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq },
+          { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta },
         );
         if (!result.ok) {
           emitFailure(result.code, result.message, result.detail);
@@ -1990,7 +1994,7 @@ export async function main(argv: string[] = process.argv): Promise<number> {
                 sponsored_by_finding_id: findingId,
               },
             },
-            { feature_dir: sFeatureDir, snapshot: sSession.snapshot, tail_seq: sSession.tail_seq },
+            { feature_dir: sFeatureDir, snapshot: sSession.snapshot, tail_seq: sSession.tail_seq, entries: sSession.entries, meta: sSession.meta },
           );
           if (!sResult.ok) {
             emitFailure(sResult.code, sResult.message, sResult.detail);
@@ -2107,7 +2111,7 @@ export async function main(argv: string[] = process.argv): Promise<number> {
             kind: "event:tasks_amended",
             payload: { mode: "replace", task: materialized },
           },
-          { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq },
+          { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta },
         );
         if (!result.ok) {
           emitFailure(result.code, result.message, result.detail);
@@ -2162,7 +2166,7 @@ export async function main(argv: string[] = process.argv): Promise<number> {
           kind: "event:task_step_done",
           payload: { task_id: taskId, step: "red", result: "passed", red_test_registered: true },
         },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta },
       );
       if (!result.ok) {
         emitFailure(result.code, result.message, result.detail);
@@ -2223,7 +2227,7 @@ export async function main(argv: string[] = process.argv): Promise<number> {
           kind: "event:task_step_started",
           payload: { task_id: opts.task, step: opts.step },
         },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta },
       );
       if (!result.ok) {
         emitFailure(result.code, result.message, result.detail);
@@ -2357,6 +2361,8 @@ export async function main(argv: string[] = process.argv): Promise<number> {
         feature_dir: featureDir,
         snapshot: session.snapshot,
         tail_seq: session.tail_seq,
+        entries: session.entries,
+        meta: session.meta,
       };
       let result:
         | Awaited<ReturnType<typeof mutate>>
@@ -2503,7 +2509,7 @@ export async function main(argv: string[] = process.argv): Promise<number> {
           kind: "event:phase_advanced",
           payload: { from, to: "SETTLE.reconcile" },
         },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta },
       );
       if (!result.ok) {
         emitFailure(result.code, result.message, result.detail);
@@ -2617,7 +2623,7 @@ export async function main(argv: string[] = process.argv): Promise<number> {
           kind: "pending:added",
           payload,
         },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta },
       );
       if (!result.ok) {
         emitFailure(result.code, result.message, result.detail);
@@ -2749,7 +2755,7 @@ export async function main(argv: string[] = process.argv): Promise<number> {
           kind: "pending:resolved",
           payload: { id: head.id, answer: opts.answer },
         },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta },
       );
       if (!result.ok) {
         emitFailure(result.code, result.message, result.detail);
@@ -2891,7 +2897,7 @@ export async function main(argv: string[] = process.argv): Promise<number> {
           kind: "evidence:added",
           payload: fullPayload,
         },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta },
       );
       if (!result.ok) {
         emitFailure(result.code, result.message, result.detail);
@@ -3067,7 +3073,7 @@ export async function main(argv: string[] = process.argv): Promise<number> {
               },
             },
           ],
-          { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq },
+          { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta },
         );
         if (!batchResult.ok) {
           emitFailure(batchResult.code, batchResult.message, batchResult.detail);
@@ -3122,7 +3128,7 @@ export async function main(argv: string[] = process.argv): Promise<number> {
               },
             },
           ],
-          { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq },
+          { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta },
         );
         if (!batchResult.ok) {
           emitFailure(batchResult.code, batchResult.message, batchResult.detail);
@@ -3159,7 +3165,7 @@ export async function main(argv: string[] = process.argv): Promise<number> {
           kind: "finding:raised",
           payload,
         },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta },
       );
       if (!result.ok) {
         emitFailure(result.code, result.message, result.detail);
@@ -3271,7 +3277,7 @@ export async function main(argv: string[] = process.argv): Promise<number> {
           kind: "finding:closed",
           payload: { id: fndId },
         },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta },
       );
       if (!result.ok) {
         emitFailure(result.code, result.message, result.detail);
@@ -3442,6 +3448,8 @@ export async function main(argv: string[] = process.argv): Promise<number> {
         feature_dir: featureDir,
         snapshot: session.snapshot,
         tail_seq: session.tail_seq,
+        entries: session.entries,
+        meta: session.meta,
       });
       if (!result.ok) {
         emitFailure(result.code, result.message, result.detail);
@@ -3749,6 +3757,8 @@ export async function main(argv: string[] = process.argv): Promise<number> {
           feature_dir: featureDir,
           snapshot: session.snapshot,
           tail_seq: session.tail_seq,
+          entries: session.entries,
+          meta: session.meta,
         });
         if (!result.ok) {
           emitFailure(result.code, result.message, result.detail);
