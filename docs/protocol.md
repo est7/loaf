@@ -1,6 +1,6 @@
 # loaf-cli Protocol — v1 Draft (rev 5.x)
 
-> 2026-05-15 · prose source of truth。机器契约见 `schemas.ts`,可视化伴侣见 `protocol.html`。
+> 2026-05-15 · prose source of truth。机器契约见 `schemas.ts`,可视化伴侣见 `index.html`(原 `protocol.html`,v0.1.0 GA 起重命名为 `index.html` —— 作为持续维护的项目对外页面)。
 >
 > loaf-cli v1 是 legacy Python 原型(early-draft 内部称 "v2")的 successor,from scratch。把 legacy 当老师,不当父亲。v1 GA 之后 legacy 原型进 archive。
 >
@@ -2480,7 +2480,7 @@ v1.0 严格 FIFO:resolve 永远 pop `pending[0]`,不接 `--id` flag。理由:5 �
    - 新增 top-level artifact 类型
    - 新增 hook surface
    - 新增 top-level CLI 子命令(见下方 rev 4.3 rewording)
-4. 三件套文档(protocol.md / schemas.ts / protocol.html)与实际 CLI 行为对齐
+4. 三件套文档(protocol.md / schemas.ts / index.html)与实际 CLI 行为对齐
 5. Build-time URLs(rev 4.1):`LOAF_DOCS_URL` / `LOAF_ISSUE_URL` 均已注入非
    placeholder 值;CI release pipeline grep `*.invalid` 与默认 GitHub 路径
    命中即阻断 release(见 §10.11)
