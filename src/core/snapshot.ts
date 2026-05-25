@@ -26,6 +26,17 @@ export const FEATURE_SCHEMA_VERSION = 2;
 // "next seq = last_applied_seq + 1" yields 0 for the first append.
 export const EMPTY_LAST_APPLIED_SEQ = -1;
 
+const ZERO_HASH = "0".repeat(64);
+
+// Phase 15 SC3 (codex r175 + r176 BLOCK 2): the empty sentinel (seq=-1)
+// must imply the full structural-empty predicate exposed by `isEmptyMeta()`
+// — offset=0, both hashes=ZERO_HASH, AND feature_schema_version=current.
+// A corrupt meta claiming seq=-1 but carrying non-empty offset / hash /
+// checksum / wrong feature_schema_version would otherwise be silently
+// translated to NO_SESSION by checkSnapshotFresh's seq-only test, exactly
+// the silent-fallback shape SC3 is meant to eliminate. The refine throws
+// `meta_invalid cause=schema` upstream of `checkSnapshotFresh`, so the
+// projection-loader can classify before reading the journal.
 export const SnapshotMeta = z
   .object({
     // -1 sentinel allowed (empty journal). All real entries are nonneg.
@@ -36,10 +47,20 @@ export const SnapshotMeta = z
     feature_schema_version: z.number().int().positive(),
     written_at: z.string().datetime(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (m) =>
+      m.last_applied_seq !== EMPTY_LAST_APPLIED_SEQ ||
+      (m.last_entry_offset === 0 &&
+        m.last_entry_line_hash === ZERO_HASH &&
+        m.rolling_checksum === ZERO_HASH &&
+        m.feature_schema_version === FEATURE_SCHEMA_VERSION),
+    {
+      message:
+        "last_applied_seq=-1 (empty sentinel) requires last_entry_offset=0 + line_hash/rolling_checksum=ZERO_HASH + feature_schema_version=current",
+    },
+  );
 export type SnapshotMeta = z.infer<typeof SnapshotMeta>;
-
-const ZERO_HASH = "0".repeat(64);
 
 export function emptyMeta(): SnapshotMeta {
   return {

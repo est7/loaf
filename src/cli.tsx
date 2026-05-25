@@ -31,6 +31,13 @@ import {
 import { mutate, mutateBatch } from "./core/journal-mutate.js";
 import { replayJournal } from "./core/journal-bootstrap.js";
 import { writeProjections } from "./core/projection-writer.js";
+import {
+  loadProjections,
+  SnapshotStaleError,
+  NoSessionError,
+  type LoadResult,
+  type ProjectionKind,
+} from "./core/projection-loader.js";
 import type { Ceremony, SubState } from "./core/journal-entry.js";
 import {
   carryForwardStepProgress,
@@ -39,8 +46,10 @@ import {
 } from "./core/task-history.js";
 import {
   TaskInput,
+  extractTaskSlim,
   materializeTaskInput,
   type TaskFullPayload,
+  type TaskFullProjection,
 } from "./core/task-schema.js";
 import { FindingId } from "./core/finding-schema.js";
 import {
@@ -133,6 +142,41 @@ export async function main(argv: string[] = process.argv): Promise<number> {
       }
     }
     exitCode = 2;
+  };
+
+  // loadProjectionsOrFail — projection-loader wrapper for the four
+  // SC3-wired read-only commands (status / tasks list / pending list /
+  // finding list). On NoSessionError / SnapshotStaleError, routes through
+  // emitFailure (exit 2 + structured stderr per Q5 contract) and returns
+  // null — caller must early-return without touching stdout. The 9-reason
+  // stale taxonomy rides err.detail.reason; CLI does not interpret it,
+  // just forwards the loader-built envelope verbatim.
+  const loadProjectionsOrFail = async <K extends ProjectionKind>(
+    featureDir: string,
+    kinds: readonly K[],
+    feature: string,
+  ): Promise<LoadResult<K> | null> => {
+    try {
+      return await loadProjections({ feature_dir: featureDir, kinds });
+    } catch (err) {
+      if (err instanceof NoSessionError) {
+        emitFailure(
+          "NO_SESSION",
+          `run \`loaf start ${feature}\` first`,
+          err.detail,
+        );
+        return null;
+      }
+      if (err instanceof SnapshotStaleError) {
+        emitFailure(
+          err.code,
+          `snapshot stale (reason=${err.reason}) — run \`loaf doctor --rebuild --feature ${feature}\` to re-serialize from journal truth`,
+          err.detail,
+        );
+        return null;
+      }
+      throw err;
+    }
   };
 
   // ── loaf start <feature> ────────────────────────────────────────────
@@ -236,6 +280,10 @@ export async function main(argv: string[] = process.argv): Promise<number> {
     });
 
   // ── loaf status ─────────────────────────────────────────────────────
+  // Phase 15 SC3: switched from loadSession (full replay) to
+  // loadProjections (snapshot + fast-check). Pre-`loaf start` dir now
+  // exits 2 NO_SESSION (was exit 0 + state:null) — codex r175a confirmed
+  // (A): uniform with the other 3 SC3-wired read commands.
   program
     .command("status")
     .description("Show the current session snapshot (read-only)")
@@ -243,34 +291,51 @@ export async function main(argv: string[] = process.argv): Promise<number> {
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { feature: string; featureDir?: string }) => {
       const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-      const session = await loadSession(featureDir);
+      const loaded = await loadProjectionsOrFail(
+        featureDir,
+        ["state", "tasks", "evidence", "findings", "pending"] as const,
+        opts.feature,
+      );
+      if (loaded === null) return;
+      const { state, tasks, evidence, findings, pending, meta } = loaded;
+      // Adapter: StateProjection → SessionState-compatible slim shape
+      // (codex r176 BLOCK 1 — do not widen `status.state` with SC1 bucket-C
+      // fields or drop the historical `feature` field). Re-inject `feature`
+      // from --feature flag (StateProjection drops it; the feature dir is
+      // the canonical identity). 9-field shape mirrors reducer's SessionState.
+      const slimState = {
+        session_id: state.session_id,
+        feature: opts.feature,
+        phase: state.phase,
+        sub_state: state.sub_state,
+        iteration: state.iteration,
+        spec_locked: state.spec_locked,
+        verify_accepted: state.verify_accepted,
+        spec_version: state.spec_version,
+        ceremony: state.ceremony,
+      };
       const out = {
         ok: true,
         feature: opts.feature,
         feature_dir: featureDir,
-        tail_seq: session.tail_seq,
-        state: session.snapshot.state,
-        tasks_count: session.snapshot.tasks.length,
-        evidence_count: session.snapshot.evidence.length,
-        findings_count: session.snapshot.findings.length,
-        pending_count: session.snapshot.pending.length,
+        tail_seq: meta.last_applied_seq,
+        state: slimState,
+        tasks_count: tasks ? tasks.tasks.length : 0,
+        evidence_count: evidence.evidence.length,
+        findings_count: findings.findings.length,
+        pending_count: pending.pending.length,
       };
       if (useJson) {
         process.stdout.write(JSON.stringify(out) + "\n");
       } else {
-        const state = session.snapshot.state;
-        if (!state) {
-          process.stdout.write(`no session at ${featureDir} (tail_seq=${session.tail_seq})\n`);
-        } else {
-          process.stdout.write(
-            `feature: ${opts.feature}\n` +
-            `phase:   ${state.phase}.${state.sub_state.split(".")[1]}\n` +
-            `cursor:  ${state.sub_state}\n` +
-            `tail:    seq=${session.tail_seq}\n` +
-            `tasks=${out.tasks_count} evidence=${out.evidence_count} findings=${out.findings_count} pending=${out.pending_count}\n` +
-            `# snapshot as-of seq=${session.tail_seq}\n`,
-          );
-        }
+        process.stdout.write(
+          `feature: ${opts.feature}\n` +
+          `phase:   ${state.phase}.${state.sub_state.split(".")[1]}\n` +
+          `cursor:  ${state.sub_state}\n` +
+          `tail:    seq=${out.tail_seq}\n` +
+          `tasks=${out.tasks_count} evidence=${out.evidence_count} findings=${out.findings_count} pending=${out.pending_count}\n` +
+          `# snapshot as-of seq=${out.tail_seq} (projection-loader, Phase 15 SC3)\n`,
+        );
       }
     });
 
@@ -1616,14 +1681,24 @@ export async function main(argv: string[] = process.argv): Promise<number> {
     )
     .action(async (opts: { feature: string; featureDir?: string; status?: string }) => {
       const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-      const session = await loadSession(featureDir);
-      if (!session.snapshot.state) {
-        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
-        return;
-      }
-      const tasks = session.snapshot.tasks;
-      const tasksById = new Map(tasks.map((t) => [t.id, t]));
-      const withDerived = tasks.map((t) => {
+      // Phase 15 SC3 — projection-loader read-path. Adapter: TasksJson
+      // (TaskFullPayload[]) → slim TaskState via the same `extractTaskSlim`
+      // the reducer uses, preserving byte-equal output with the prior
+      // loadSession-derived shape. tasks: null (writer skips when no plan)
+      // surfaces as count=0 + tasks:[] — codex r173 minimum case.
+      const loaded = await loadProjectionsOrFail(
+        featureDir,
+        ["state", "tasks"] as const,
+        opts.feature,
+      );
+      if (loaded === null) return;
+      const slimTasks = loaded.tasks
+        ? loaded.tasks.tasks.map((t) =>
+            extractTaskSlim(t as unknown as TaskFullProjection),
+          )
+        : [];
+      const tasksById = new Map(slimTasks.map((t) => [t.id, t]));
+      const withDerived = slimTasks.map((t) => {
         const depsAllDone =
           t.depends_on.length === 0 ||
           t.depends_on.every((d) => tasksById.get(d)?.status === "done");
@@ -2645,14 +2720,21 @@ export async function main(argv: string[] = process.argv): Promise<number> {
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { feature: string; featureDir?: string }) => {
       const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-      const session = await loadSession(featureDir);
-      if (!session.snapshot.state) {
-        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
-        return;
-      }
-      const headIdx = session.snapshot.pending.findIndex((p) => !p.resolved);
-      const rows = session.snapshot.pending.map((p, i) => ({
-        ...p,
+      // Phase 15 SC3 — projection-loader. Adapter: PendingProjectionEntry
+      // (pending.json native — pending_id + rich fields) → slim row
+      // {id, kind, resolved, head} matching the prior PendingState shape.
+      const loaded = await loadProjectionsOrFail(
+        featureDir,
+        ["pending"] as const,
+        opts.feature,
+      );
+      if (loaded === null) return;
+      const entries = loaded.pending.pending;
+      const headIdx = entries.findIndex((p) => !p.resolved);
+      const rows = entries.map((p, i) => ({
+        id: p.pending_id,
+        kind: p.kind,
+        resolved: p.resolved,
         head: i === headIdx,
       }));
       if (useJson) {
@@ -3198,14 +3280,20 @@ export async function main(argv: string[] = process.argv): Promise<number> {
         return;
       }
       const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-      const session = await loadSession(featureDir);
-      if (!session.snapshot.state) {
-        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
-        return;
-      }
+      // Phase 15 SC3 — projection-loader. findings.json's FindingStateShape
+      // is already byte-equal to the reducer's FindingState slim shape (id,
+      // category, action, status, summary?, reason?, target?) — no adapter
+      // beyond the array unwrap.
+      const loaded = await loadProjectionsOrFail(
+        featureDir,
+        ["findings"] as const,
+        opts.feature,
+      );
+      if (loaded === null) return;
+      const all = loaded.findings.findings;
       const rows = opts.status
-        ? session.snapshot.findings.filter((f) => f.status === opts.status)
-        : session.snapshot.findings;
+        ? all.filter((f) => f.status === opts.status)
+        : all;
       if (useJson) {
         process.stdout.write(
           JSON.stringify({

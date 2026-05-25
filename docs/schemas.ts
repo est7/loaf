@@ -615,9 +615,21 @@ export type JournalEntry = z.infer<typeof JournalEntry>;
 // exits 2 SNAPSHOT_STALE_REBUILD_REQUIRED with no silent fallback. The
 // rolling_checksum chain enables `loaf doctor --verify-checksum` full audit
 // (O(N), §34 checksum_levels).
+//
+// Empty sentinel (Phase 15 SC3, codex r175): `last_applied_seq = -1` is
+// the documented empty-journal sentinel. When the sentinel is set, the
+// other structural fields MUST also be empty (`last_entry_offset = 0`,
+// `last_entry_line_hash = ZERO_HASH`, `rolling_checksum = ZERO_HASH`).
+// A corrupt meta claiming seq=-1 but carrying non-empty offset/hash/
+// checksum would otherwise be silently translated to NO_SESSION by the
+// seq-only freshness test in checkSnapshotFresh — exactly the silent-
+// fallback shape SC3 is meant to eliminate. The refine ensures the
+// projection-loader classifies such cases as `meta_invalid cause=schema`
+// upstream of any freshness check.
 export const SnapshotMeta = z
   .object({
-    last_applied_seq: z.number().int().nonnegative(),
+    // -1 sentinel allowed (empty journal); all real entries are >= 0.
+    last_applied_seq: z.number().int().gte(-1),
     last_entry_offset: z.number().int().nonnegative(),
     last_entry_line_hash: z.string().regex(/^[a-f0-9]{64}$/, {
       message: "last_entry_line_hash must be 64 lowercase hex chars",
@@ -628,7 +640,19 @@ export const SnapshotMeta = z
     feature_schema_version: z.number().int().positive(),
     written_at: z.string().datetime(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (m) =>
+      m.last_applied_seq !== -1 ||
+      (m.last_entry_offset === 0 &&
+        m.last_entry_line_hash === "0".repeat(64) &&
+        m.rolling_checksum === "0".repeat(64) &&
+        m.feature_schema_version === SCHEMA_VERSION),
+    {
+      message:
+        "last_applied_seq=-1 (empty sentinel) requires last_entry_offset=0 + line_hash/rolling_checksum=ZERO_HASH + feature_schema_version=current (mirrors runtime isEmptyMeta — codex r176 BLOCK 2)",
+    },
+  );
 export type SnapshotMeta = z.infer<typeof SnapshotMeta>;
 
 // ─────────────────────────────────────────────────────────────────
@@ -3329,12 +3353,19 @@ export const CONCURRENCY_INVARIANTS = {
   migration_sidecar_only: "migration:snapshot_imported payload is .strict() Zod with AttachmentRef-only fields; inline artifact content rejected at Zod parse",
 
   // 7j. Snapshot read fail-fast (Gate #5, ADR-0005 §3.6)
-  //     Every CLI read command (loaf state / tasks list / evidence list /
-  //     finding list / verify status / pending list / sessions list / etc.)
-  //     MUST verify snapshots/_meta.json fast-check before parsing the
-  //     snapshot. Mismatch → exit 2 SNAPSHOT_STALE_REBUILD_REQUIRED, stderr
-  //     names `loaf doctor --rebuild`. No silent fallback to cached snapshot.
-  snapshot_read_fail_fast: "all read commands verify _meta fast-check; mismatch → exit 2 + stderr hint; no silent cached-snapshot output",
+  //     CLI read commands that consume snapshots/*.json MUST verify
+  //     snapshots/_meta.json fast-check before parsing the snapshot.
+  //     Mismatch → exit 2 SNAPSHOT_STALE_REBUILD_REQUIRED, stderr names
+  //     `loaf doctor --rebuild`. No silent fallback to cached snapshot.
+  //     **Implementation status (Phase 15 SC3)**: this is the eventual
+  //     contract for every read command, but the current binary only wires
+  //     four — `loaf status` / `tasks list` / `pending list` / `finding
+  //     list` — through `src/core/projection-loader.ts` (M0-anchored
+  //     double fast-check). Other read commands (`tasks check` / `tasks
+  //     next` / `verify status` / `pending status` / `sessions list` /
+  //     `<artifact> schema` / etc.) still run on `loadSession` full
+  //     journal replay and will migrate in subsequent slices.
+  snapshot_read_fail_fast: "Phase 15 SC3 — 4 commands (status / tasks list / pending list / finding list) verify _meta fast-check via projection-loader (M0-anchored double check); mismatch → exit 2 SNAPSHOT_STALE_REBUILD_REQUIRED + structured stderr; no silent cached-snapshot output. Other read commands still on loadSession replay.",
 
   // 7k. validateTransition shared helper (Gate #1, ADR-0005 §10)
   //     `event:phase_advanced` and `gate:decided` MUST call the same
@@ -3972,6 +4003,8 @@ export const DiagnosticCode = z.enum([
   "BUG_TASK_RED_NOT_REGISTERED",           // src/core/gates/verify-accept-check.ts check 4 — done behavioral bug task never registered its RED test (defense-in-depth)
   // ── Phase 12 — `loaf spike convert` (spike:converted) precondition ──
   "SPIKE_CONVERT_NO_SPIKE_TASK",           // src/core/reducer/preflight.ts step 5c.3 — `spike:converted` but snapshot.tasks holds no non-abandoned kind=spike task (`loaf spike convert` is a spike-task exit, protocol §8.3)
+  // ── Phase 15 SC3 — reader fast-check goes live (projection-loader) ──
+  "SNAPSHOT_STALE_REBUILD_REQUIRED",       // src/core/projection-loader.ts — 9-reason stale/corruption family (journal_missing / journal_empty / tail_offset_mismatch / tail_hash_mismatch / trailing_partial_line / meta_missing / meta_invalid / projection_missing / projection_invalid). detail.reason carries the discriminant; reason-specific detail keys mirror snapshot-reader and loader-added envelope (feature_dir, fix, plus per-reason context like meta_path / projection_kind / cause)
 ]);
 export type DiagnosticCode = z.infer<typeof DiagnosticCode>;
 
@@ -4935,6 +4968,23 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
     fix_template:
       "run `loaf spike convert` only from a session that holds a kind=spike task; for a non-spike session close it with `loaf archive --reason \"...\"` or `loaf abandon --reason \"...\"`",
     doc_anchor: "protocol.md#§8.3",
+  },
+  // ── Phase 15 SC3 — projection-loader (reader fast-check goes live) ──
+  // Single code, 9-reason family (detail.reason discriminates):
+  //   journal_missing | journal_empty | tail_offset_mismatch |
+  //   tail_hash_mismatch | trailing_partial_line | meta_missing |
+  //   meta_invalid (cause: json_parse | schema) | projection_missing |
+  //   projection_invalid (cause: json_parse | schema)
+  // Loader-added envelope: detail.feature_dir, detail.fix. Reader-derived
+  // detail mirrors snapshot-reader.ts (tail_offset / line_hash / etc.).
+  // Loader-added per-reason context: meta_path (meta_*), projection_kind +
+  // projection_path (projection_*), cause (meta_invalid + projection_invalid).
+  SNAPSHOT_STALE_REBUILD_REQUIRED: {
+    exit_code: 2,
+    message_template: "snapshot stale (reason={reason}): {fix}",
+    fix_template:
+      "snapshot meta/leaves no longer agree with the journal tail; run `loaf doctor --rebuild --feature <feature>` to re-serialize from journal truth, then retry. Inspect detail.reason + reason-specific fields (meta_path / projection_kind / cause) to triage corruption source before rebuilding.",
+    doc_anchor: "protocol.md#§10.15",
   },
 } as const;
 

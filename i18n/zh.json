@@ -178,7 +178,9 @@
     "DONE_TERMINAL_INVARIANT":    "DONE.* 状态要求 state.pending.length === 0 且 tasks.json 中无 status=\"in_progress\" 的 task",
     "ABANDON_REQUIRES_REASON":    "loaf abandon 必须带 --reason 参数",
     "TASKS_EXECUTION_DRIFT":      "任务 {task_id} step={step} status={status} 与 evidence.jsonl 不一致",
-    "COVERAGE_NOT_SATISFIED":     "{covered_id} 没有任何证据满足覆盖(canSatisfy 对所有候选 evidence 都失败)"
+    "COVERAGE_NOT_SATISFIED":     "{covered_id} 没有任何证据满足覆盖(canSatisfy 对所有候选 evidence 都失败)",
+    "NO_SESSION":                 "{feature_dir} 下没有 session — 先跑 `loaf start <feature>`",
+    "SNAPSHOT_STALE_REBUILD_REQUIRED": "snapshot 失效(reason={reason}) at {feature_dir};跑 `loaf doctor --rebuild --feature <feature>` 从 journal 重建"
   },
 
   "help": {
