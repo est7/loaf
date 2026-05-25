@@ -15,13 +15,25 @@ A sibling layer `loaf-skill` (separate codebase, post-v0.1.0) handles workflow o
 
 ## Install
 
+Run directly from a GitHub release tag via `bunx` or `npx`:
+
 ```bash
-bun install
+bunx github:est7/loaf#v0.1.0 --version
+npx  github:est7/loaf#v0.1.0 --version
 ```
 
-## Usage
+Or add as a dependency:
 
-Once published, invoke via `npx loaf-cli <args>` / `bunx loaf-cli <args>`. The executable name is `loaf`.
+```bash
+bun add github:est7/loaf#v0.1.0
+npm install github:est7/loaf#v0.1.0
+```
+
+A `prepare` script builds `dist/cli.mjs` on install, so consumers do not need the build output to be committed. Requires Node ≥ 22 plus `npm` in PATH (Node ships with npm — no extra setup).
+
+The executable name is `loaf`.
+
+## Usage
 
 ```bash
 loaf start <feature> --ceremony <quick|light|standard|deep>
@@ -43,6 +55,7 @@ The authoritative command surface lives in [`docs/protocol.md`](docs/protocol.md
 ## Local development
 
 ```bash
+bun install                    # dev install
 bun run dev -- <args>          # bun run src/cli.tsx -- <args>
 bun run typecheck              # tsc --noEmit
 bun run test                   # vitest run (full suite)
@@ -59,6 +72,22 @@ node dist/cli.mjs --version
 ```
 
 `tsdown` emits `dist/cli.mjs` (single-file ESM bundle).
+
+## GA cut workflow
+
+Before tagging a release, run:
+
+```bash
+bun run ga:check
+```
+
+This chains three steps:
+
+- `bun run build` — fresh `dist/cli.mjs`.
+- `bun run ga:pack-smoke` — packs the package via `bun pm pack` into a temp dir, installs the tarball into a clean temp dir, runs the minimum lifecycle smoke (`--version` / `start` / `status` / `doctor --rebuild`), and asserts `state.json.loaf_version_required` matches the package version. Failure codes (stderr): `DIST_MISSING`, `PACK_FAILED`, `INSTALL_FAILED`, `VERSION_MISMATCH`, `START_FAILED`, `STATUS_FAILED`, `DOCTOR_REBUILD_FAILED`, `PIN_MISMATCH`.
+- `bun run ga:consistency` — verifies `package.json.version` equals the expected tag without the `v` prefix, CHANGELOG has both a `## [<version>]` entry and a `[<version>]: …/tag/<expected-tag>` link line, working tree is clean, and `HEAD == origin/main` (after `git fetch`; pass `-- --no-fetch` for offline). Failure codes: `WORKTREE_DIRTY`, `VERSION_TAG_MISMATCH`, `CHANGELOG_MISSING`, `HEAD_NOT_ORIGIN`.
+
+`ga:check` is intended to run AFTER the release commit is committed and pushed — an uncommitted version bump intentionally fails `WORKTREE_DIRTY`.
 
 ## Layout
 

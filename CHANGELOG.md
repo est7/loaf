@@ -5,6 +5,44 @@ All notable changes to `loaf-cli` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.0] — 2026-05-25
+
+First general-availability release of the loaf protocol kernel
+(ADR-0005 / rev 5.0). Promotes `0.1.0-rc.1` to stable per codex thread
+`review/cli-lifecycle-plan` r183 (GA path verdict). RC bake was
+condensed — codex r183 explicitly acknowledged "no real downstream
+consumers or external integrations yet", so longer bake collects
+hypothetical confidence not signal. Real-workflow exercise begins
+post-tag via `loaf-skill` integration.
+
+### Added
+
+- **GA-cut release gate** (`scripts/ga-package-smoke.sh` + `scripts/ga-consistency-check.sh` + `package.json scripts` `ga:check`) — packs via `bun pm pack`, installs into a clean temp dir, runs the r183-minimum lifecycle smoke (`--version` / `start` / `status` / `doctor --rebuild`), and gates the cut on version/tag/CHANGELOG/worktree/HEAD parity. Stable machine-readable failure codes on stderr (12 codes). 13 vitest cases under `tests/scripts/`. See commit `bd21575`.
+- **`prepare` script** (`package.json`) — `test -d dist || npm run build` enables `bunx github:est7/loaf#v0.1.0` / `bun add github:est7/loaf#v0.1.0` consumer installs without committing `dist/`. Required for `loaf-skill` integration via direct GitHub install.
+- **GA cut workflow** section in `README.md` documenting `bun run ga:check` as the pre-tag gate, plus consumer install examples (`bunx` / `npx` / `bun add` from GitHub tag).
+
+### Changed
+
+- **`README.md`** rewritten from rev-3.x scaffold-era framing to the loaf protocol-kernel framing (commit `6ad91d2`).
+- **`package.json description`** aligned with the rewrite.
+
+### Verification
+
+- `bun run typecheck` clean.
+- `bun run check` (Vitest): full suite green (modulo the pre-existing `tests/spike/perf.test.ts:124` F-005 perf flake — non-blocking, tracked across sessions).
+- `bun run ga:check` passes against the GA cut commit.
+- `dist/cli.mjs --version` → `0.1.0`.
+
+### codex review trace (thread `review/cli-lifecycle-plan`)
+
+- r183 — GA path locked to (a) iterate to stable on short RC bake.
+- r184 — Plan-First for GA checklist scripts (PATCH-REQUIRED → GO).
+- r185 — diff review (BLOCK on substring VERSION_MISMATCH).
+- r186 — patch follow-up GO.
+- r187 — retrospective post-tag sign-off (queued).
+
+[0.1.0]: https://github.com/est7/loaf/releases/tag/v0.1.0
+
 ## [0.1.0-rc.1] — 2026-05-25
 
 First release candidate for the loaf protocol kernel (ADR-0005 / rev 5.0).
