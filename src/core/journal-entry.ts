@@ -249,9 +249,14 @@ export const SessionStartedPayload = z
     session_label: z.string().min(3).optional(),
     ceremony_label: z.string().optional(),
     workspace: z.string().min(1).optional(),
+    // Widened to accept semver prerelease + build-metadata pins
+    // (codex r181 → r182): the CLI auto-derives this as
+    // `^${packageJson.version}`, so an RC / alpha / build-tagged
+    // package version must round-trip through the journal.
+    // Backward-compatible — old `^0.1.0` / `~1.0` pins still parse.
     loaf_version_required: z
       .string()
-      .regex(/^[\^~]?\d+\.\d+(\.\d+)?$/)
+      .regex(/^[\^~]?\d+\.\d+(\.\d+)?(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/)
       .optional(),
   })
   .passthrough();

@@ -309,7 +309,11 @@ describe("loaf doctor --rebuild — Phase 14 SC2", () => {
       expect(state.session_label).toBe("OAuth refresh");
       expect(state.workspace).toBe("team-a");
       expect(state.ceremony_label).toBe("standard");
-      expect(state.loaf_version_required).toMatch(/^\^\d+\.\d+\.\d+$/);
+      // Matches both pre-RC pins (`^0.1.0`) and RC/build-suffixed pins
+      // (`^0.1.0-rc.1`) — mirror of the widened schema regex (codex r182).
+      expect(state.loaf_version_required).toMatch(
+        /^\^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/,
+      );
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
     }

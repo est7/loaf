@@ -202,7 +202,9 @@ export const StateProjection = z
     workspace: z.string().min(1),
     loaf_version_required: z
       .string()
-      .regex(/^[\^~]?\d+\.\d+(\.\d+)?$/)
+      // Mirrors SessionStartedPayload — accepts semver prerelease +
+      // build-metadata pins (codex r181 → r182).
+      .regex(/^[\^~]?\d+\.\d+(\.\d+)?(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/)
       .nullable(),
     // ── state machine ──
     phase: StateProjectionPhase,

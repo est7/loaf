@@ -1369,9 +1369,13 @@ export const StateProjection = z
   .object({
     schema_version: SchemaVersion,
     // nullable: a pre-SC1 `session:started` entry carries no version pin.
+    // Widened (codex r181 → r182) to accept semver prerelease + build
+    // metadata, so CLI-derived `^${packageJson.version}` round-trips
+    // even when the package is `0.1.0-rc.1` / `0.2.0-alpha.1` / etc.
+    // Backward-compatible — old `^0.1.0` / `~1.0` pins still parse.
     loaf_version_required: z
       .string()
-      .regex(/^[\^~]?\d+\.\d+(\.\d+)?$/)
+      .regex(/^[\^~]?\d+\.\d+(\.\d+)?(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/)
       .nullable(),
 
     // ── Identity ──
