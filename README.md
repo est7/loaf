@@ -29,7 +29,7 @@ bun add github:est7/loaf#v0.1.0
 npm install github:est7/loaf#v0.1.0
 ```
 
-A `prepare` script builds `dist/cli.mjs` on install, so consumers do not need the build output to be committed. Requires Node ≥ 22 plus `npm` in PATH (Node ships with npm — no extra setup).
+The built `dist/cli.mjs` is committed for github-install support — consumers do not need bun, tsdown, or any post-install build step. Requires Node ≥ 22 to run.
 
 The executable name is `loaf`.
 

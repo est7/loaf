@@ -18,7 +18,7 @@ post-tag via `loaf-skill` integration.
 ### Added
 
 - **GA-cut release gate** (`scripts/ga-package-smoke.sh` + `scripts/ga-consistency-check.sh` + `package.json scripts` `ga:check`) — packs via `bun pm pack`, installs into a clean temp dir, runs the r183-minimum lifecycle smoke (`--version` / `start` / `status` / `doctor --rebuild`), and gates the cut on version/tag/CHANGELOG/worktree/HEAD parity. Stable machine-readable failure codes on stderr (12 codes). 13 vitest cases under `tests/scripts/`. See commit `bd21575`.
-- **`prepare` script** (`package.json`) — `test -d dist || npm run build` enables `bunx github:est7/loaf#v0.1.0` / `bun add github:est7/loaf#v0.1.0` consumer installs without committing `dist/`. Required for `loaf-skill` integration via direct GitHub install.
+- **`dist/cli.mjs` committed to repo** (`.gitignore` exception) — enables `bunx github:est7/loaf#v0.1.0` / `bun add github:est7/loaf#v0.1.0` consumer installs with zero post-install build step. Required for `loaf-skill` integration via direct GitHub install. (An earlier attempt during this same release used a `prepare` script to build on install; bun blocks lifecycle scripts for untrusted github-installed packages by default, so the script never ran. Committing the bundle is the standard pattern for github-installed Node CLIs.)
 - **GA cut workflow** section in `README.md` documenting `bun run ga:check` as the pre-tag gate, plus consumer install examples (`bunx` / `npx` / `bun add` from GitHub tag).
 
 ### Changed

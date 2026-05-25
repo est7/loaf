@@ -23,7 +23,6 @@
     "ga:pack-smoke": "bash scripts/ga-package-smoke.sh",
     "ga:consistency": "bash scripts/ga-consistency-check.sh",
     "ga:check": "bun run build && bun run ga:pack-smoke && bun run ga:consistency",
-    "prepare": "test -d dist || npm run build",
     "prepublishOnly": "bun run check"
   },
   "packageManager": "bun@1.3.13",
