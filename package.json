@@ -1,7 +1,7 @@
 {
   "name": "loaf-cli",
   "version": "0.1.0-rc.1",
-  "description": "A TypeScript CLI scaffold built with Ink, Commander, Zod, Vitest, tsdown, and JSONL persistence.",
+  "description": "Protocol kernel for the loaf feature-lifecycle workflow — single typed journal + in-memory projections.",
   "type": "module",
   "bin": {
     "loaf": "./dist/cli.mjs"
