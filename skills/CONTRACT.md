@@ -1,7 +1,8 @@
 # loaf-skill — contract with loaf-cli
 
 > **Status**: design intent. `loaf-skill` is the middle layer in the
-> three-tier architecture (`docs/design.md` §19):
+> three-tier architecture (`docs/protocol.md` §10 CLI Surface +
+> [`docs/adr/0005-truth-model-single-typed-journal.md`](../docs/adr/0005-truth-model-single-typed-journal.md)):
 >
 > ```
 > loaf-cli (protocol core, this repo)
@@ -12,8 +13,30 @@
 > The capabilities described below are deliberately **NOT** implemented in
 > loaf-cli. They are future `loaf-skill` responsibilities, recorded here so
 > the loaf-cli ↔ loaf-skill boundary stays explicit. When the loaf-skill
-> codebase boots up (post-v0.1.0 GA of loaf-cli), the requirements below are
-> the starting contract.
+> codebase boots up (post-v0.1.0 GA of loaf-cli, which shipped 2026-05-25),
+> the requirements below are the starting contract.
+
+## Source-of-truth note (ADR-0005)
+
+After ADR-0005, the only canonical source of truth is
+`.loaf/<feature>/journal.jsonl` (one `JournalEntry` per line). The files
+this contract refers to elsewhere as `tasks.json` / `evidence.jsonl` /
+`findings.jsonl` are **derived projections**, not source of truth.
+Concretely:
+
+- `.loaf/<feature>/snapshots/tasks.json` (and the other four
+  `snapshots/*.json` leaves) — written by `mutateBatch` after every
+  journal append, consumed by read-only CLI commands. A loaf-skill
+  caller MUST NOT write these directly; mutate via the corresponding
+  CLI verbs (`loaf tasks submit`, `loaf evidence add`, etc.), which
+  append to the journal and trigger projection writes atomically.
+- `evidence.jsonl` / `findings.jsonl` mentioned in §4 below are
+  intent-name references — the actual on-disk artifacts are
+  `journal.jsonl` (append-only journal of typed entries) plus the
+  projection leaves above. Anywhere this doc says "writes to
+  `<artifact>.jsonl`", read it as "appends a typed `JournalEntry`
+  via `loaf <command>` which the reducer projects into the named
+  leaf."
 
 ## 1. `flatten` — hierarchical intent → DAG `tasks.json`
 
