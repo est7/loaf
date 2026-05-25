@@ -258,10 +258,57 @@ export type LoadResult<K extends ProjectionKind> = {
   [P in K]: Loaded<P>;
 } & { meta: SnapshotMetaType };
 
+/**
+ * Test-only hooks for deterministic TOCTOU seam (Phase 15 SC4, codex r178 Q1).
+ *
+ * Not exposed via the canonical `loadProjections` input to keep the
+ * production API surface clean. Production callers go through
+ * `loadProjections` (no hooks); tests that need to exercise the
+ * M0-anchored linearization guard use `loadProjectionsWithHooks`.
+ *
+ * @internal Test-only. Do not use in CLI / library code paths.
+ */
+export interface LoadProjectionsHooks {
+  /**
+   * Fires after Stage 2 (first fast-check vs M0) succeeds, BEFORE
+   * Stage 3 (leaf reads). Tests use this to deterministically race a
+   * mid-call mutator: append a journal entry inside the hook, and the
+   * second fast-check (Stage 4) will see the moved tail vs cached M0
+   * and fire `SNAPSHOT_STALE_REBUILD_REQUIRED`. Awaited.
+   */
+  afterFirstFastCheck?: () => Promise<void> | void;
+}
+
+/**
+ * Public canonical loader — no hooks, used by production callers.
+ * See `loadProjectionsWithHooks` for the test-only seam.
+ */
 export async function loadProjections<K extends ProjectionKind>(input: {
   feature_dir: string;
   kinds: readonly K[];
 }): Promise<LoadResult<K>> {
+  return _loadProjectionsImpl(input);
+}
+
+/**
+ * Test-only loader — same contract as `loadProjections` plus a narrow
+ * hook surface for deterministic TOCTOU regression coverage (Phase 15
+ * SC4, codex r178). NOT exposed to CLI or documented as user-facing
+ * surface; the hook only fires inside the test seam.
+ *
+ * @internal Test-only.
+ */
+export async function loadProjectionsWithHooks<K extends ProjectionKind>(
+  input: { feature_dir: string; kinds: readonly K[] },
+  hooks: LoadProjectionsHooks,
+): Promise<LoadResult<K>> {
+  return _loadProjectionsImpl(input, hooks);
+}
+
+async function _loadProjectionsImpl<K extends ProjectionKind>(
+  input: { feature_dir: string; kinds: readonly K[] },
+  hooks?: LoadProjectionsHooks,
+): Promise<LoadResult<K>> {
   const { feature_dir: featureDir, kinds } = input;
   const snapshotsDir = path.join(featureDir, "snapshots");
   const metaPath = path.join(snapshotsDir, "_meta.json");
@@ -309,6 +356,15 @@ export async function loadProjections<K extends ProjectionKind>(input: {
   const r1 = await checkSnapshotFresh(M0, journalPath);
   const stale1 = staleFromReader(r1, featureDir);
   if (stale1) throw stale1;
+
+  // ── Stage 2.5: test-only TOCTOU seam (Phase 15 SC4, codex r178) ────
+  // The hook fires AFTER Stage 2 success and BEFORE Stage 3 leaf reads.
+  // Tests use it to simulate a mid-call mutator extending the journal
+  // tail; the Stage 4 re-check against cached M0 will then fire stale.
+  // Production callers go through `loadProjections` (no hooks).
+  if (hooks?.afterFirstFastCheck) {
+    await hooks.afterFirstFastCheck();
+  }
 
   // ── Stage 3: leaf reads ────────────────────────────────────────────
   // Implicit state read when `tasks` is requested + tasks.json may be absent.

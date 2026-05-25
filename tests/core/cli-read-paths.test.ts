@@ -332,8 +332,14 @@ describe("SC3 invalid meta/leaf → exit 2 + structured cause on stderr", () => 
 });
 
 // ─────────────────────────────────────────────────────────────────────────
-// TOCTOU — covered as .todo until impl exposes a test seam (process race
-// between fast-check and leaf read is non-deterministic without one).
+// TOCTOU coverage notes (SC4 wiring per codex r178 Q2):
+//   - Deterministic loader-level race exercised via the test-only seam
+//     `loadProjectionsWithHooks` in tests/core/projection-loader.test.ts
+//     (the "TOCTOU M0-anchored linearization guard" describe block).
+//   - End-to-end stale→rebuild lifecycle at the CLI level exercised in
+//     tests/core/sc4-e2e.test.ts.
+//   - No CLI-level test seam is exposed; mid-call CLI race testing would
+//     require an injectable boundary in the public command surface that
+//     codex deliberately ruled out. The loader-level seam + SC4 E2E
+//     cover the contract end-to-end.
 // ─────────────────────────────────────────────────────────────────────────
-
-describe.todo("SC3 TOCTOU — mid-call mutator triggers second-check stale");

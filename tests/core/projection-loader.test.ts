@@ -29,12 +29,18 @@ import {
 import { mutate as mutateRaw } from "../../src/core/journal-mutate.js";
 import type { Ceremony, JournalEntry } from "../../src/core/journal-entry.js";
 
-// API under test — does NOT exist yet (Phase 15 SC3 RED).
+// SC3 API (committed `1f21758`).
 import {
   loadProjections,
   loadProjection,
   type SnapshotStaleError,
 } from "../../src/core/projection-loader.js";
+
+// SC4 test-only seam — not exposed to CLI / docs. Used to deterministically
+// simulate a mid-call mutator extending the journal between the two
+// fast-checks (codex r178 Q1: separate test-only export, NOT an underscore
+// option on canonical loadProjections input).
+import { loadProjectionsWithHooks } from "../../src/core/projection-loader.js";
 
 const STANDARD: Ceremony = {
   spec_phase: true,
@@ -391,13 +397,61 @@ describe("loadProjections — happy paths", () => {
 // fast-check (M0-anchored) fires SnapshotStaleError.
 // ─────────────────────────────────────────────────────────────────────────
 
-describe("loadProjections — TOCTOU M0-anchored linearization guard", () => {
-  // Deterministic race simulation needs an injectable IO seam the loader
-  // does not yet expose. The contract is exercised end-to-end in
-  // cli-read-paths.test.ts via a concurrent appendEntry between the two
-  // fast-checks. Keeping a .todo here so the unit-test inventory flags
-  // the missing seam if cli-read-paths coverage regresses.
-  test.todo(
-    "TOCTOU: mutator extends journal between pre-check and leaf read → second-check SnapshotStaleError",
-  );
+describe("loadProjections — TOCTOU M0-anchored linearization guard (SC4)", () => {
+  test("mutator extends journal between pre-check and leaf read → second-check fires SnapshotStaleError", async () => {
+    // SC4 deterministic seam: the `afterFirstFastCheck` hook fires AFTER
+    // Stage 2 (first fast-check vs M0) and BEFORE Stage 3 (leaf reads).
+    // We use it to append a real journal entry — the second fast-check
+    // (Stage 4) then compares cached M0 against a tail that has moved,
+    // and must fire SNAPSHOT_STALE_REBUILD_REQUIRED with no payload.
+    //
+    // Acceptance per codex r178: this test MUST fail if the second
+    // fast-check is disabled, and pass when it is in place. (See task
+    // #17 manual probe.)
+    const dir = await tmpFeatureDir();
+    await seedStarted(dir);
+
+    let hookCalls = 0;
+    const journalPath = path.join(dir, "journal.jsonl");
+
+    await expect(
+      loadProjectionsWithHooks(
+        { feature_dir: dir, kinds: ["state"] },
+        {
+          afterFirstFastCheck: async () => {
+            hookCalls += 1;
+            // Append a second entry directly to the journal — moves the tail
+            // past M0's offset/hash without updating _meta.json. Mirrors
+            // the race window where a concurrent mutator's journal append
+            // landed but step 8 hasn't completed yet (or is the writer
+            // updating meta last per the writer protocol).
+            await appendEntry(
+              journalPath,
+              {
+                seq: 1,
+                entry_id: "JE-000002",
+                at: "2026-05-15T10:00:01.000Z",
+                actor: "cli:loaf",
+                entry_schema_version: 1,
+                kind: "event:phase_advanced",
+                payload: { from: "TRIAGE.score", to: "TRIAGE.confirm" },
+              },
+              // Use a meta that matches the on-disk tail before this append,
+              // computed from the seed. The appendEntry call doesn't need
+              // a fresh meta as input here — it just needs prior meta that
+              // matches; we fake by reading current _meta.json (still M0).
+              JSON.parse(await fs.readFile(path.join(dir, "snapshots", "_meta.json"), "utf8")),
+              { fsync: false },
+            );
+          },
+        },
+      ),
+    ).rejects.toMatchObject({
+      code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
+      // The exact reason depends on which check fires; tail_offset_mismatch
+      // is expected since the appended entry's tail offset != M0's claim.
+      reason: expect.stringMatching(/^(tail_offset_mismatch|tail_hash_mismatch)$/),
+    });
+    expect(hookCalls).toBe(1);
+  });
 });
