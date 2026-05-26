@@ -82,4 +82,25 @@ describe("Phase 16 SC-3 — readJsonInput (IO + parse)", () => {
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.value).toEqual({ from: "stdin" });
   });
+
+  test("Phase 16 SC-4b — readStdin throws → { ok:false, code:'MISSING_INPUT' }", async () => {
+    // Preserves the pre-SC-4b `loaf tasks submit -` / `loaf tasks add -`
+    // stdin-read-failure semantic (cli.tsx emitted MISSING_INPUT for
+    // readFileSync(0) throws). After SC-4b the same lane goes through
+    // readJsonInput which must propagate the same code. NOT mapped to
+    // INPUT_FILE_NOT_FOUND (no file) or SCHEMA_VALIDATION_FAILED (no
+    // JSON parse attempted) — codex r224 PATCH 4 distinct semantic.
+    const source = parseInputSource("-");
+    const r = await readJsonInput(source, {
+      readStdin: async () => {
+        throw new Error("EAGAIN: stdin closed");
+      },
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.code).toBe("MISSING_INPUT");
+      expect(r.message).toMatch(/stdin/i);
+      expect(r.detail).toMatchObject({ cause: expect.stringContaining("EAGAIN") });
+    }
+  });
 });

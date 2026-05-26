@@ -244,7 +244,7 @@ describe("protocol-parser: escaped pipe + malformed first cell (codex r191 BLOCK
       "<!-- inventory:current-begin v0.1.0 demo -->",
       "| 命令 | 用途 | exit |",
       "|---|---|---|",
-      "| `loaf tasks amend <T-N> (--policy <...> \\| --input <file> --finding <FND-N>)` | 两条互斥 surface | 0 / 2 |",
+      "| `loaf tasks amend <T-N> (--policy <...> \\| --input <src> --finding <FND-N>)` | 两条互斥 surface | 0 / 2 |",
       "<!-- inventory:current-end -->",
     ].join("\n");
     const r = parseProtocolMarkersFromText(text);

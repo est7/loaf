@@ -147,7 +147,7 @@ async function seedToAmendTasksAtWork(
   await step("advance SPEC.plan", ["advance", "SPEC.plan", "--feature", F]);
   await step("advance SPEC.design", ["advance", "SPEC.design", "--feature", F]);
   await step("tasks submit", [
-    "tasks", "submit", await writeInput("tasks.json", tasksGraph), "--feature", F,
+    "tasks", "submit", "--input", await writeInput("tasks.json", tasksGraph), "--feature", F,
   ]);
   await step("gate spec-lock", [
     "gate", "decide", "spec-lock", "--approve",
@@ -179,7 +179,7 @@ describe("SC1b — sponsored `tasks add --finding` at EXECUTE.work", () => {
       no_test_rationale: "extract a helper the missing task needs; no behavior change",
     });
     const added = await cli.step("tasks add --finding", [
-      "tasks", "add", newTask, "--finding", fnd, "--feature", F,
+      "tasks", "add", "--input", newTask, "--finding", fnd, "--feature", F,
     ]);
     expect(added.ok).toBe(true);
     expect(added.task_ids).toEqual(["T-002"]);
@@ -213,7 +213,7 @@ describe("SC1b — sponsored `tasks add --finding` at EXECUTE.work", () => {
       { kind: "chore", no_test_rationale: "second missing chore task; pure housekeeping" },
     ]);
     const added = await cli.step("tasks add batch", [
-      "tasks", "add", newTasks, "--finding", fnd, "--feature", F,
+      "tasks", "add", "--input", newTasks, "--finding", fnd, "--feature", F,
     ]);
     expect(added.task_ids).toEqual(["T-002", "T-003"]);
 
@@ -253,7 +253,7 @@ describe("SC1b — sponsored `tasks add --finding` at EXECUTE.work", () => {
       no_test_rationale: "a structural task that should never be added with --finding",
     });
     const fail = await expectFail([
-      "tasks", "add", newTask, "--finding", "FND-001", "--feature", F,
+      "tasks", "add", "--input", newTask, "--finding", "FND-001", "--feature", F,
     ]);
     expect(fail.code).toBe("USAGE");
   });
@@ -267,7 +267,7 @@ describe("SC1b — sponsored `tasks add --finding` at EXECUTE.work", () => {
       kind: "structural",
       no_test_rationale: "a structural task added without the sponsoring finding",
     });
-    const fail = await cli.expectFail(["tasks", "add", newTask, "--feature", F]);
+    const fail = await cli.expectFail(["tasks", "add", "--input", newTask, "--feature", F]);
     expect(fail.code).toBe("SUB_STATE_AUTHORITY_VIOLATION");
   });
 
@@ -282,7 +282,7 @@ describe("SC1b — sponsored `tasks add --finding` at EXECUTE.work", () => {
       no_test_rationale: "a structural task sponsored by a now-closed finding",
     });
     const fail = await cli.expectFail([
-      "tasks", "add", newTask, "--finding", fnd, "--feature", F,
+      "tasks", "add", "--input", newTask, "--finding", fnd, "--feature", F,
     ]);
     expect(fail.code).toBe("FINDING_NOT_FOUND");
     expect(fail.detail.reason).toBe("already_closed");
@@ -298,7 +298,7 @@ describe("SC1b — sponsored `tasks add --finding` at EXECUTE.work", () => {
       no_test_rationale: "a structural task sponsored by a non-existent finding",
     });
     const fail = await cli.expectFail([
-      "tasks", "add", newTask, "--finding", "FND-404", "--feature", F,
+      "tasks", "add", "--input", newTask, "--finding", "FND-404", "--feature", F,
     ]);
     expect(fail.code).toBe("FINDING_NOT_FOUND");
     expect(fail.detail.reason).toBe("not_found");

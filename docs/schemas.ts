@@ -4050,10 +4050,18 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
   },
   MISSING_INPUT: {
     exit_code: 2,
-    message_template: "command requires --input (file path, '-', or inline JSON)",
+    // Phase 16 SC-4b (codex r224 PATCH 4): widened from "--input not
+    // provided" to also cover the stdin-read-failure path. readJsonInput
+    // returns MISSING_INPUT when (a) the flag was omitted upstream (no
+    // current emit site post-SC-4a) OR (b) `--input -` was passed but
+    // deps.readStdin threw (stdin closed / EAGAIN / etc.).
+    message_template:
+      "required input source missing or unreadable: --input not provided OR stdin could not be read (--input - failed)",
     fix_template:
-      "pass --input with one of: a JSON file path, '-' for stdin, or " +
-      "inline JSON; run `loaf <cmd> --schema --json` to view the schema",
+      "pass --input with one of: a JSON file path, '-' for stdin (with " +
+      "valid piped JSON), or inline JSON; for stdin failures, verify the " +
+      "pipe is intact (e.g. `echo '{...}' | loaf <cmd> --input -`); run " +
+      "`loaf <cmd> --schema --json` to view the schema",
     doc_anchor: "protocol.md#§10.7",
   },
   SCHEMA_VALIDATION_FAILED: {
@@ -4639,7 +4647,7 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
     message_template:
       "gate task-graph check: tasks have not been planned (snapshot.tasks_based_on is null)",
     fix_template:
-      "run `loaf tasks submit <plan-file>` to emit event:tasks_planned and seed the task graph; spec-lock check 3 and verify-accept check 4 both require tasks_based_on.spec to match the current spec.spec_version",
+      "run `loaf tasks submit --input <plan-file>` to emit event:tasks_planned and seed the task graph; spec-lock check 3 and verify-accept check 4 both require tasks_based_on.spec to match the current spec.spec_version",
     doc_anchor: "protocol.md#§5.1",
   },
   TASKS_BASED_ON_STALE: {

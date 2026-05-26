@@ -21,7 +21,13 @@ export type ReadJsonInputResult =
   | { ok: true; value: unknown }
   | {
       ok: false;
-      code: "INPUT_FILE_NOT_FOUND" | "SCHEMA_VALIDATION_FAILED";
+      // Phase 16 SC-4b (codex r224 PATCH 4): MISSING_INPUT extended to
+      // cover stdin read failure ("required input source missing or
+      // unreadable: --input not provided OR stdin could not be read").
+      // Kept distinct from INPUT_FILE_NOT_FOUND (no file) and
+      // SCHEMA_VALIDATION_FAILED (no JSON parse attempted on stdin
+      // failure).
+      code: "INPUT_FILE_NOT_FOUND" | "SCHEMA_VALIDATION_FAILED" | "MISSING_INPUT";
       message: string;
       detail?: Record<string, unknown>;
     };
@@ -39,9 +45,20 @@ export async function readJsonInput(
     case "inline":
       raw = source.value;
       break;
-    case "stdin":
-      raw = await deps.readStdin();
+    case "stdin": {
+      try {
+        raw = await deps.readStdin();
+      } catch (err) {
+        const e = err as Error;
+        return {
+          ok: false,
+          code: "MISSING_INPUT",
+          message: `cannot read stdin: ${e.message}`,
+          detail: { cause: e.message },
+        };
+      }
       break;
+    }
     case "file": {
       try {
         raw = await readFile(source.path);

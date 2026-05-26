@@ -15,7 +15,7 @@
 // follow-up work in a companion PR per the audit r1 punch list.
 
 import { Command, CommanderError } from "commander";
-import { promises as fsP, readFileSync } from "node:fs";
+import { promises as fsP } from "node:fs";
 import path from "node:path";
 import packageJson from "../package.json" with { type: "json" };
 
@@ -1226,7 +1226,7 @@ export async function main(
     .command("tasks")
     .description("Task lifecycle commands (Slice 2 MVP: submit / claim / step)");
 
-  // ── loaf tasks submit <file> ────────────────────────────────────────
+  // ── loaf tasks submit --input <src> ─────────────────────────────────
   // Slice 2 SC2. Reads a JSON document `{ based_on, tasks }`, emits
   // event:tasks_planned (whole-replacement at SPEC.design; per protocol
   // §1810). PER_KIND_PAYLOAD strict-validates payload during preflight —
@@ -1245,55 +1245,41 @@ export async function main(
   //   - wrong sub_state          → SUB_STATE_AUTHORITY_VIOLATION (preflight)
   //   - no session               → NO_SESSION (CLI-side)
   tasksCmd
-    .command("submit <file>")
-    .description("Submit a complete task graph from JSON file (or '-' for stdin)")
+    .command("submit")
+    .description("Submit a complete task graph from --input <src> (stdin / inline JSON / file path; whole-graph single object)")
+    .requiredOption(
+      "--input <src>",
+      "JSON source: `-` (stdin), inline JSON literal, or file path (protocol §10.7). Whole-graph single object only.",
+    )
     .requiredOption("--feature <name>", "Feature whose task graph to submit")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-    .action(async (file: string, opts: { feature: string; featureDir?: string }) => {
-      // (1) Read content from file or stdin.
-      let content: string;
-      if (file === "-") {
-        // readFileSync(0) reads from stdin (fd 0). Cross-runtime (node + bun).
-        try {
-          content = readFileSync(0, "utf8");
-        } catch (err) {
-          emitFailure("MISSING_INPUT", `cannot read stdin: ${String(err)}`);
-          return;
-        }
-      } else {
-        try {
-          content = await fsP.readFile(file, "utf8");
-        } catch (err) {
-          if ((err as { code?: string }).code === "ENOENT") {
-            emitFailure("INPUT_FILE_NOT_FOUND", `input file does not exist: ${file}`, { path: file });
-          } else {
-            emitFailure("INPUT_FILE_NOT_FOUND", `cannot read input file ${file}: ${String(err)}`, { path: file });
-          }
-          return;
-        }
-      }
-
-      // (2) Parse JSON.
-      let payload: unknown;
-      try {
-        payload = JSON.parse(content);
-      } catch (err) {
-        emitFailure(
-          "SCHEMA_VALIDATION_FAILED",
-          `input is not valid JSON: ${(err as Error).message}`,
+    .action(async (opts: { input: string; feature: string; featureDir?: string }) => {
+      // Phase 16 SC-4b — unified --input modality (protocol §10.7).
+      const source = parseInputSource(opts.input);
+      if (source.kind === "stdin" && isStdinTty()) {
+        ctx.failure(
+          "USAGE",
+          "stdin is TTY — `loaf tasks submit --input -` expects piped input. " +
+            "Pipe JSON via `... | loaf tasks submit --input -`, OR pass inline " +
+            "JSON / file path. Run --help for examples.",
         );
         return;
       }
+      const read = await readJsonInput(source, { readStdin });
+      if (!read.ok) {
+        ctx.failure(read.code, read.message, read.detail);
+        return;
+      }
+      const payload = read.value;
 
-      // (3) Load session.
       const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-      const session = await loadSession(featureDir);
+      const session = await ctx.resolveSession(featureDir);
       if (!session.snapshot.state) {
-        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        ctx.failure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
         return;
       }
 
-      // (4) Mutate. Preflight validates TasksPlannedPayload + sub_state +
+      // Mutate. Preflight validates TasksPlannedPayload + sub_state +
       // duplicate task ids + reducer dry-run + final-validate. CLI does
       // not duplicate any of that.
       const result = await mutate(
@@ -1307,11 +1293,12 @@ export async function main(
         { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta },
       );
       if (!result.ok) {
-        emitFailure(result.code, result.message, result.detail);
+        ctx.failure(result.code, result.message, result.detail);
         return;
       }
 
-      // (5) Success output. Echo task ids for the planner / shell scripts.
+      // Success output via ctx.success — output bytes identical to
+      // pre-SC-4b shape (asserted via existing tasks-submit tests).
       const tasks = result.snapshot.tasks;
       const taskIds = tasks.map((t) => t.id);
       const out = {
@@ -1322,19 +1309,17 @@ export async function main(
         task_ids: taskIds,
         tasks_based_on: result.snapshot.tasks_based_on,
       };
-      if (useJson) {
-        process.stdout.write(JSON.stringify(out) + "\n");
-      } else {
-        process.stdout.write(
+      ctx.success(
+        out,
+        () =>
           `submitted ${tasks.length} task${tasks.length === 1 ? "" : "s"}: ${taskIds.join(", ")}\n`,
-        );
-      }
+      );
     });
 
-  // ── loaf tasks add <file> [--finding <FND-N>] ───────────────────────
+  // ── loaf tasks add --input <src> [--finding <FND-N>] ────────────────
   // Slice C SC-C3 + Phase 11 Item 3 SC1b. Two surfaces, gated by --finding:
   //
-  // (a) UNSPONSORED — `tasks add <file>` at SPEC.design (no --finding).
+  // (a) UNSPONSORED — `tasks add --input <src>` at SPEC.design (no --finding).
   //     Appends id-less task(s) to the graph, the append variant of
   //     `tasks submit` (codex r111 Q6). Emits ONE whole-replacement
   //     event:tasks_planned (protocol §1818 / emit table L1886):
@@ -1345,7 +1330,7 @@ export async function main(
   //     task with no journal body (migration-imported) is a hard stop —
   //     CANONICAL_TASK_BODY_UNAVAILABLE — never synthesize fields.
   //
-  // (b) SPONSORED — `tasks add <file> --finding <FND-N>` at EXECUTE.work.
+  // (b) SPONSORED — `tasks add --input <src> --finding <FND-N>` at EXECUTE.work.
   //     Post-back-edge graph amend: emits one event:tasks_amended
   //     mode="add" + sponsored_by_finding_id PER added task (a mutateBatch
   //     when the input has several). Preflight §8.6 verifies the finding
@@ -1360,55 +1345,48 @@ export async function main(
   // loadSession→max+1→mutate pattern as the other id allocators; no
   // `.lock` yet (Slice 5), single-writer assumption (codex r112).
   tasksCmd
-    .command("add <file>")
-    .description("Append id-less task(s) to the graph (SPEC.design whole-graph, or EXECUTE.work sponsored via --finding)")
+    .command("add")
+    .description("Append id-less task(s) to the graph — --input <src> with single object or array (batch); SPEC.design whole-graph, or EXECUTE.work sponsored via --finding")
+    .requiredOption(
+      "--input <src>",
+      "JSON source for TaskInput (single object or array): `-` (stdin), inline JSON, or file path (protocol §10.7)",
+    )
     .requiredOption("--feature <name>", "Feature whose task graph to extend")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .option("--finding <FND-N>", "Sponsoring amend-tasks finding (sponsored add at EXECUTE.work)")
-    .action(async (file: string, opts: { feature: string; featureDir?: string; finding?: string }) => {
-      // (1) Read input from file or stdin.
-      let content: string;
-      if (file === "-") {
-        try {
-          content = readFileSync(0, "utf8");
-        } catch (err) {
-          emitFailure("MISSING_INPUT", `cannot read stdin: ${String(err)}`);
-          return;
-        }
-      } else {
-        try {
-          content = await fsP.readFile(file, "utf8");
-        } catch (err) {
-          if ((err as { code?: string }).code === "ENOENT") {
-            emitFailure("INPUT_FILE_NOT_FOUND", `input file does not exist: ${file}`, { path: file });
-          } else {
-            emitFailure("INPUT_FILE_NOT_FOUND", `cannot read input file ${file}: ${String(err)}`, { path: file });
-          }
-          return;
-        }
-      }
-
-      // (2) Parse JSON; normalize to an array; validate each against the
-      // strict TaskInput schema. TaskInput omits id / status / execution
-      // (CLI-owned); `.strict()` rejects a caller that supplies any of
-      // them — the shape-enforcement point of ADR-0004 (codex r113).
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(content);
-      } catch (err) {
-        emitFailure("SCHEMA_VALIDATION_FAILED", `input is not valid JSON: ${(err as Error).message}`);
+    .action(async (opts: { input: string; feature: string; featureDir?: string; finding?: string }) => {
+      // Phase 16 SC-4b — unified --input modality (protocol §10.7).
+      const source = parseInputSource(opts.input);
+      if (source.kind === "stdin" && isStdinTty()) {
+        ctx.failure(
+          "USAGE",
+          "stdin is TTY — `loaf tasks add --input -` expects piped input. " +
+            "Pipe JSON via `... | loaf tasks add --input -`, OR pass inline " +
+            "JSON / file path. Run --help for examples.",
+        );
         return;
       }
+      const read = await readJsonInput(source, { readStdin });
+      if (!read.ok) {
+        ctx.failure(read.code, read.message, read.detail);
+        return;
+      }
+      const parsed = read.value;
+
+      // Normalize to an array; validate each against the strict TaskInput
+      // schema. TaskInput omits id / status / execution (CLI-owned);
+      // `.strict()` rejects a caller that supplies any of them — the
+      // shape-enforcement point of ADR-0004 (codex r113).
       const rawTasks: unknown[] = Array.isArray(parsed) ? parsed : [parsed];
       if (rawTasks.length === 0) {
-        emitFailure("SCHEMA_VALIDATION_FAILED", "tasks add input is an empty array");
+        ctx.failure("SCHEMA_VALIDATION_FAILED", "tasks add input is an empty array");
         return;
       }
       const validatedInputs: TaskInput[] = [];
       for (const raw of rawTasks) {
         const p = TaskInput.safeParse(raw);
         if (!p.success) {
-          emitFailure(
+          ctx.failure(
             "SCHEMA_VALIDATION_FAILED",
             `tasks add input is not a valid id-less task (omit id / status / execution): ${p.error.issues.map((i) => i.message).join("; ")}`,
             { issues: p.error.issues },
@@ -1418,11 +1396,11 @@ export async function main(
         validatedInputs.push(p.data);
       }
 
-      // (3) Load session; resolve the surface (unsponsored vs sponsored).
+      // Load session; resolve the surface (unsponsored vs sponsored).
       const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-      const session = await loadSession(featureDir);
+      const session = await ctx.resolveSession(featureDir);
       if (!session.snapshot.state) {
-        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        ctx.failure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
         return;
       }
       const subState = session.snapshot.state.sub_state;
@@ -1431,14 +1409,14 @@ export async function main(
       // unsponsored whole-graph path. Reject the cross-product explicitly
       // rather than silently ignoring the flag (codex r136 Q6).
       if (sponsored && subState === "SPEC.design") {
-        emitFailure(
+        ctx.failure(
           "USAGE",
           "--finding is for the sponsored EXECUTE.work add; at SPEC.design `tasks add` is the unsponsored whole-graph path — drop --finding",
         );
         return;
       }
       if (!sponsored && subState !== "SPEC.design") {
-        emitFailure(
+        ctx.failure(
           "SUB_STATE_AUTHORITY_VIOLATION",
           `loaf tasks add without --finding is only valid at SPEC.design (current sub_state=${subState}); post-lock task additions go through \`loaf finding raise --action amend-tasks\` then \`tasks add --finding\``,
           { sub_state: subState },
@@ -1453,7 +1431,7 @@ export async function main(
       for (const t of session.snapshot.tasks) {
         const m = /^T-(\d{3,})$/.exec(t.id);
         if (!m) {
-          emitFailure(
+          ctx.failure(
             "REDUCER_ERROR",
             `internal: task id ${t.id} in the projection is not canonical T-NNN; cannot allocate the next id`,
             { task_id: t.id },
@@ -1498,7 +1476,7 @@ export async function main(
           meta: session.meta,
         });
         if (!result.ok) {
-          emitFailure(result.code, result.message, result.detail);
+          ctx.failure(result.code, result.message, result.detail);
           return;
         }
         const out = {
@@ -1509,13 +1487,11 @@ export async function main(
           tasks_count: result.snapshot.tasks.length,
           sub_state: result.snapshot.state?.sub_state,
         };
-        if (useJson) {
-          process.stdout.write(JSON.stringify(out) + "\n");
-        } else {
-          process.stdout.write(
+        ctx.success(
+          out,
+          () =>
             `added ${newIds.length} task${newIds.length === 1 ? "" : "s"} (sponsored by ${opts.finding}): ${newIds.join(", ")}\n`,
-          );
-        }
+        );
         return;
       }
 
@@ -1527,7 +1503,7 @@ export async function main(
       for (const t of session.snapshot.tasks) {
         const base = latestCanonicalTaskBody(session.entries, t.id);
         if (!base) {
-          emitFailure(
+          ctx.failure(
             "CANONICAL_TASK_BODY_UNAVAILABLE",
             `task ${t.id} is in the projection but has no canonical body in the journal (migration-imported); cannot rebuild the graph to append`,
             { task_id: t.id, source: "migration" },
@@ -1553,7 +1529,7 @@ export async function main(
         { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta },
       );
       if (!result.ok) {
-        emitFailure(result.code, result.message, result.detail);
+        ctx.failure(result.code, result.message, result.detail);
         return;
       }
 
@@ -1565,13 +1541,11 @@ export async function main(
         tasks_count: result.snapshot.tasks.length,
         sub_state: result.snapshot.state?.sub_state,
       };
-      if (useJson) {
-        process.stdout.write(JSON.stringify(out) + "\n");
-      } else {
-        process.stdout.write(
+      ctx.success(
+        out,
+        () =>
           `added ${newIds.length} task${newIds.length === 1 ? "" : "s"}: ${newIds.join(", ")}\n`,
-        );
-      }
+      );
     });
 
   // ── loaf tasks claim <task-id> ──────────────────────────────────────
@@ -1895,7 +1869,7 @@ export async function main(
       }
     });
 
-  // ── loaf tasks amend <task-id> (--policy ... | --input <file> --finding) ──
+  // ── loaf tasks amend <task-id> (--policy ... | --input <src> --finding) ──
   // Two surfaces, mutually exclusive:
   //
   // (a) UNSPONSORED `--policy` (Slice C SC-C2c) — narrowly amends a task's
@@ -1975,7 +1949,7 @@ export async function main(
         if (!hasPolicy && !hasInput) {
           emitFailure(
             "USAGE",
-            "tasks amend needs either --policy <step>=<applicability> or --input <file> --finding <FND-N>",
+            "tasks amend needs either --policy <step>=<applicability> or --input <src> --finding <FND-N>",
           );
           return;
         }
@@ -1984,55 +1958,42 @@ export async function main(
         if (hasInput) {
           const inputPath = opts.input!;
           const findingId = opts.finding!;
-          // (b1) Read the new id-less task definition.
-          let inContent: string;
-          if (inputPath === "-") {
-            try {
-              inContent = readFileSync(0, "utf8");
-            } catch (err) {
-              emitFailure("MISSING_INPUT", `cannot read stdin: ${String(err)}`);
-              return;
-            }
-          } else {
-            try {
-              inContent = await fsP.readFile(inputPath, "utf8");
-            } catch (err) {
-              if ((err as { code?: string }).code === "ENOENT") {
-                emitFailure("INPUT_FILE_NOT_FOUND", `input file does not exist: ${inputPath}`, { path: inputPath });
-              } else {
-                emitFailure("INPUT_FILE_NOT_FOUND", `cannot read input file ${inputPath}: ${String(err)}`, { path: inputPath });
-              }
-              return;
-            }
-          }
-          // (b2) Parse + validate the id-less TaskInput. Strict: id /
-          // status / execution are CLI-owned and must not be supplied.
-          let inParsed: unknown;
-          try {
-            inParsed = JSON.parse(inContent);
-          } catch (err) {
-            emitFailure("SCHEMA_VALIDATION_FAILED", `input is not valid JSON: ${(err as Error).message}`);
+          // Phase 16 SC-4b — unified --input modality (protocol §10.7).
+          const source = parseInputSource(inputPath);
+          if (source.kind === "stdin" && isStdinTty()) {
+            ctx.failure(
+              "USAGE",
+              "stdin is TTY — `loaf tasks amend --input -` expects piped input. " +
+                "Pipe JSON via `... | loaf tasks amend --input -`, OR pass inline " +
+                "JSON / file path. Run --help for examples.",
+            );
             return;
           }
+          const read = await readJsonInput(source, { readStdin });
+          if (!read.ok) {
+            ctx.failure(read.code, read.message, read.detail);
+            return;
+          }
+          const inParsed = read.value;
           const inTask = TaskInput.safeParse(inParsed);
           if (!inTask.success) {
-            emitFailure(
+            ctx.failure(
               "SCHEMA_VALIDATION_FAILED",
               `tasks amend --input is not a valid id-less task (omit id / status / execution): ${inTask.error.issues.map((i) => i.message).join("; ")}`,
               { issues: inTask.error.issues },
             );
             return;
           }
-          // (b3) Load session; the task being replaced must exist.
+          // (b3) Load session via ctx; the task being replaced must exist.
           const sFeatureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-          const sSession = await loadSession(sFeatureDir);
+          const sSession = await ctx.resolveSession(sFeatureDir);
           if (!sSession.snapshot.state) {
-            emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+            ctx.failure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
             return;
           }
           const sCurrent = sSession.snapshot.tasks.find((t) => t.id === taskId);
           if (!sCurrent) {
-            emitFailure(
+            ctx.failure(
               "TASK_NOT_FOUND",
               `task ${taskId} is not in the current tasks projection`,
               { task_id: taskId },
@@ -2085,7 +2046,7 @@ export async function main(
               prior.started_at !== undefined ||
               prior.reason !== undefined
             ) {
-              emitFailure(
+              ctx.failure(
                 "MUTATION_OUT_OF_RIGHTS",
                 `sponsored tasks amend on ${taskId} drops step '${stepName}', which carries ` +
                   `execution progress — a graph amend may not erase execution history (codex r136 Q4)`,
@@ -2113,7 +2074,7 @@ export async function main(
             { feature_dir: sFeatureDir, snapshot: sSession.snapshot, tail_seq: sSession.tail_seq, entries: sSession.entries, meta: sSession.meta },
           );
           if (!sResult.ok) {
-            emitFailure(sResult.code, sResult.message, sResult.detail);
+            ctx.failure(sResult.code, sResult.message, sResult.detail);
             return;
           }
           const sOut = {
@@ -2123,11 +2084,7 @@ export async function main(
             sponsored_by_finding_id: findingId,
             sub_state: sResult.snapshot.state?.sub_state,
           };
-          if (useJson) {
-            process.stdout.write(JSON.stringify(sOut) + "\n");
-          } else {
-            process.stdout.write(`amended ${taskId} (sponsored by ${findingId})\n`);
-          }
+          ctx.success(sOut, () => `amended ${taskId} (sponsored by ${findingId})\n`);
           return;
         }
 

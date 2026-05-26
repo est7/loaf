@@ -144,7 +144,7 @@ async function seedToVerifyAccept(
       },
     ],
   });
-  await step("tasks submit", ["tasks", "submit", tasksFile, "--feature", F]);
+  await step("tasks submit", ["tasks", "submit", "--input", tasksFile, "--feature", F]);
   await step("gate spec-lock", [
     "gate", "decide", "spec-lock", "--approve",
     "--reason", "spec and task graph complete", "--feature", F,
@@ -244,7 +244,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
         },
       ],
     });
-    await step("tasks submit", ["tasks", "submit", tasksFile, "--feature", F]);
+    await step("tasks submit", ["tasks", "submit", "--input", tasksFile, "--feature", F]);
 
     // ── gate spec-lock (flips spec_locked; does NOT move cursor) ─────────
     await step("gate spec-lock", [
@@ -357,13 +357,13 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
       drives: ["REQ-CORE-001"],
       no_test_rationale: "rename the internal token module; no behavior change",
     });
-    await step("tasks add T-001", ["tasks", "add", t1, "--feature", F]);
+    await step("tasks add T-001", ["tasks", "add", "--input", t1, "--feature", F]);
     const t2 = await writeInput("task2.json", {
       kind: "structural",
       no_test_rationale: "extract a shared helper once T-001 lands; no behavior change",
       depends_on: ["T-001"],
     });
-    await step("tasks add T-002", ["tasks", "add", t2, "--feature", F]);
+    await step("tasks add T-002", ["tasks", "add", "--input", t2, "--feature", F]);
 
     // ── gate spec-lock → EXECUTE.plan ───────────────────────────────────
     await step("gate spec-lock", [
@@ -498,17 +498,17 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
       drives: ["REQ-CORE-001"],
       no_test_rationale: "visual parity is verified by screenshot comparison, not unit tests",
     });
-    await step("tasks add visual-ui", ["tasks", "add", tVisual, "--feature", F]);
+    await step("tasks add visual-ui", ["tasks", "add", "--input", tVisual, "--feature", F]);
     const tDocs = await writeInput("task-docs.json", {
       kind: "docs",
       no_test_rationale: "documentation task; correctness is verified by peer review",
     });
-    await step("tasks add docs", ["tasks", "add", tDocs, "--feature", F]);
+    await step("tasks add docs", ["tasks", "add", "--input", tDocs, "--feature", F]);
     const tChore = await writeInput("task-chore.json", {
       kind: "chore",
       no_test_rationale: "mechanical chore; no behavior change to test",
     });
-    await step("tasks add chore", ["tasks", "add", tChore, "--feature", F]);
+    await step("tasks add chore", ["tasks", "add", "--input", tChore, "--feature", F]);
 
     await step("gate spec-lock", [
       "gate", "decide", "spec-lock", "--approve",
@@ -644,7 +644,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
         },
       ],
     });
-    await step("tasks submit", ["tasks", "submit", tasksFile, "--feature", F]);
+    await step("tasks submit", ["tasks", "submit", "--input", tasksFile, "--feature", F]);
     await step("gate spec-lock", [
       "gate", "decide", "spec-lock", "--approve",
       "--reason", "deep feature passes spec-lock", "--feature", F,
@@ -769,7 +769,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
         },
       ],
     });
-    await step("tasks submit", ["tasks", "submit", tasksFile, "--feature", F]);
+    await step("tasks submit", ["tasks", "submit", "--input", tasksFile, "--feature", F]);
 
     // ── reject — cursor stays SPEC.design, spec_locked stays false ──────
     await step("gate spec-lock reject", [
@@ -839,7 +839,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
         },
       ],
     });
-    await step("tasks submit", ["tasks", "submit", tasksFile, "--feature", F]);
+    await step("tasks submit", ["tasks", "submit", "--input", tasksFile, "--feature", F]);
     await step("gate spec-lock", [
       "gate", "decide", "spec-lock", "--approve",
       "--reason", "spec and task graph complete", "--feature", F,
@@ -950,7 +950,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
         },
       ],
     });
-    await step("tasks submit", ["tasks", "submit", tasksFile, "--feature", F]);
+    await step("tasks submit", ["tasks", "submit", "--input", tasksFile, "--feature", F]);
     await step("gate spec-lock", [
       "gate", "decide", "spec-lock", "--approve",
       "--reason", "bug feature passes spec-lock", "--feature", F,
@@ -1031,7 +1031,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
         },
       ],
     });
-    await step("tasks submit", ["tasks", "submit", tasksFile, "--feature", F]);
+    await step("tasks submit", ["tasks", "submit", "--input", tasksFile, "--feature", F]);
     await step("gate spec-lock", [
       "gate", "decide", "spec-lock", "--approve",
       "--reason", "spike feature passes spec-lock", "--feature", F,
@@ -1238,7 +1238,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     await step("advance SPEC.plan", ["advance", "SPEC.plan", "--feature", F]);
     await step("advance SPEC.design", ["advance", "SPEC.design", "--feature", F]);
     await step("tasks submit", [
-      "tasks", "submit",
+      "tasks", "submit", "--input",
       await writeInput("tasks-v2.json", tasksPayload(2, ["REQ-CORE-001"])),
       "--feature", F,
     ]);
@@ -1271,7 +1271,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     await step("advance SPEC.plan", ["advance", "SPEC.plan", "--feature", F]);
     await step("advance SPEC.design", ["advance", "SPEC.design", "--feature", F]);
     await step("tasks submit (re-plan)", [
-      "tasks", "submit",
+      "tasks", "submit", "--input",
       await writeInput("tasks-v3.json", tasksPayload(3, ["REQ-CORE-001", "REQ-CORE-002"])),
       "--feature", F,
     ]);
@@ -1416,7 +1416,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
         },
       ],
     });
-    await step("tasks submit", ["tasks", "submit", tasksFile, "--feature", F]);
+    await step("tasks submit", ["tasks", "submit", "--input", tasksFile, "--feature", F]);
     await step("gate spec-lock", [
       "gate", "decide", "spec-lock", "--approve",
       "--reason", "spec and task graph complete", "--feature", F,
@@ -1523,7 +1523,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
         },
       ],
     });
-    await step("tasks submit", ["tasks", "submit", tasksFile, "--feature", F]);
+    await step("tasks submit", ["tasks", "submit", "--input", tasksFile, "--feature", F]);
     await step("gate spec-lock", [
       "gate", "decide", "spec-lock", "--approve",
       "--reason", "spec and task graph complete for the light feature", "--feature", F,
@@ -1600,7 +1600,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
         },
       ],
     });
-    await step("tasks submit", ["tasks", "submit", tasksFile, "--feature", F]);
+    await step("tasks submit", ["tasks", "submit", "--input", tasksFile, "--feature", F]);
     await step("gate spec-lock", [
       "gate", "decide", "spec-lock", "--approve",
       "--reason", "spec and task graph complete", "--feature", F,
@@ -1822,7 +1822,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
         },
       ],
     });
-    await step("tasks submit", ["tasks", "submit", tasksFile, "--feature", F]);
+    await step("tasks submit", ["tasks", "submit", "--input", tasksFile, "--feature", F]);
 
     // a gate_decision pending head would block a bare `advance`; the gate
     // batch co-emits pending:resolved before its phase_advanced, so the
@@ -1937,7 +1937,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
       based_on: { spec: specVersion },
       tasks: [behavioral("T-001"), behavioral("T-002")],
     });
-    await step("tasks submit", ["tasks", "submit", tasksFile, "--feature", F]);
+    await step("tasks submit", ["tasks", "submit", "--input", tasksFile, "--feature", F]);
     await step("gate spec-lock", [
       "gate", "decide", "spec-lock", "--approve",
       "--reason", "spec and independent task graph complete", "--feature", F,
@@ -2032,7 +2032,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
       drives: ["REQ-CORE-001"],
       no_test_rationale: "visual parity is verified by screenshot comparison, not unit tests",
     });
-    await step("tasks add visual-ui", ["tasks", "add", tVisual, "--feature", F]);
+    await step("tasks add visual-ui", ["tasks", "add", "--input", tVisual, "--feature", F]);
     await step("gate spec-lock", [
       "gate", "decide", "spec-lock", "--approve",
       "--reason", "visual-ui feature passes spec-lock", "--feature", F,
@@ -2140,7 +2140,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
         },
       ],
     });
-    await step("tasks submit", ["tasks", "submit", tasksFile, "--feature", F]);
+    await step("tasks submit", ["tasks", "submit", "--input", tasksFile, "--feature", F]);
 
     // gate decide is human-only. Non-TTY runCli + no LOAF_USER + no explicit
     // git fallback → NO_HUMAN_ACTOR (the CI-safety guard never derives a
@@ -2234,7 +2234,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     await step("advance SPEC.plan", ["advance", "SPEC.plan", "--feature", F]);
     await step("advance SPEC.design", ["advance", "SPEC.design", "--feature", F]);
     await step("tasks submit", [
-      "tasks", "submit",
+      "tasks", "submit", "--input",
       await writeInput("tasks-v2.json", tasksPayload),
       "--feature", F,
     ]);
@@ -2328,7 +2328,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     await step("advance SPEC.plan", ["advance", "SPEC.plan", "--feature", F]);
     await step("advance SPEC.design", ["advance", "SPEC.design", "--feature", F]);
     await step("tasks submit", [
-      "tasks", "submit",
+      "tasks", "submit", "--input",
       await writeInput("tasks.json", {
         based_on: { spec: 2 },
         tasks: [
@@ -2464,7 +2464,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     await step("advance SPEC.plan", ["advance", "SPEC.plan", "--feature", F]);
     await step("advance SPEC.design", ["advance", "SPEC.design", "--feature", F]);
     await step("tasks submit", [
-      "tasks", "submit",
+      "tasks", "submit", "--input",
       await writeInput("tasks.json", {
         based_on: { spec: 2 },
         tasks: [
@@ -2653,7 +2653,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
         },
       ],
     });
-    await step("tasks submit", ["tasks", "submit", tasksFile, "--feature", F]);
+    await step("tasks submit", ["tasks", "submit", "--input", tasksFile, "--feature", F]);
 
     // ── spike convert: record-only exit — archives the session, records to_feature ──
     const converted = await step("spike convert", [

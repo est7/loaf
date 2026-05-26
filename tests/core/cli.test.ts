@@ -412,7 +412,7 @@ prose body here
   );
   const submitResult = await runCli(
     [
-      "tasks", "submit", tasksFile,
+      "tasks", "submit", "--input", tasksFile,
       "--feature", "auth-refresh",
       "--feature-dir", dir,
       "--json",
@@ -1270,7 +1270,7 @@ prose body here
   );
   const planSubmit = await runCli(
     [
-      "tasks", "submit", settleTasksFile,
+      "tasks", "submit", "--input", settleTasksFile,
       "--feature", "auth-refresh",
       "--feature-dir", dir,
       "--json",
@@ -1629,7 +1629,7 @@ describe("loaf deliver — Slice 1.D sub-cycle 2 (MVP)", () => {
     );
     const replanSubmit = await runCli(
       [
-        "tasks", "submit", replanFile,
+        "tasks", "submit", "--input", replanFile,
         "--feature", "auth-refresh",
         "--feature-dir", dir,
         "--json",
@@ -1993,7 +1993,7 @@ needs_clarification: []
     );
     const planSubmit = await runCli(
       [
-        "tasks", "submit", noApproveTasksFile,
+        "tasks", "submit", "--input", noApproveTasksFile,
         "--feature", "auth-refresh",
         "--feature-dir", dir,
         "--json",
@@ -2320,7 +2320,7 @@ needs_clarification: []
 
     const result = await runCli(
       [
-        "tasks", "submit", tasksFile,
+        "tasks", "submit", "--input", tasksFile,
         "--feature", "auth-refresh",
         "--feature-dir", dir,
         "--json",
@@ -2353,7 +2353,7 @@ needs_clarification: []
 
     const result = await runCli(
       [
-        "tasks", "submit", tasksFile,
+        "tasks", "submit", "--input", tasksFile,
         "--feature", "auth-refresh",
         "--feature-dir", dir,
       ],
@@ -2370,7 +2370,7 @@ needs_clarification: []
 
     const result = await runCli(
       [
-        "tasks", "submit", path.join(dir, "nonexistent.json"),
+        "tasks", "submit", "--input", path.join(dir, "nonexistent.json"),
         "--feature", "auth-refresh",
         "--feature-dir", dir,
         "--json",
@@ -2392,7 +2392,7 @@ needs_clarification: []
 
     const result = await runCli(
       [
-        "tasks", "submit", tasksFile,
+        "tasks", "submit", "--input", tasksFile,
         "--feature", "auth-refresh",
         "--feature-dir", dir,
         "--json",
@@ -2417,7 +2417,7 @@ needs_clarification: []
 
     const result = await runCli(
       [
-        "tasks", "submit", tasksFile,
+        "tasks", "submit", "--input", tasksFile,
         "--feature", "auth-refresh",
         "--feature-dir", dir,
         "--json",
@@ -2454,7 +2454,7 @@ needs_clarification: []
 
     const result = await runCli(
       [
-        "tasks", "submit", tasksFile,
+        "tasks", "submit", "--input", tasksFile,
         "--feature", "auth-refresh",
         "--feature-dir", dir,
         "--json",
@@ -2481,7 +2481,7 @@ needs_clarification: []
 
     const result = await runCli(
       [
-        "tasks", "submit", tasksFile,
+        "tasks", "submit", "--input", tasksFile,
         "--feature", "auth-refresh",
         "--feature-dir", dir,
         "--json",
@@ -2506,7 +2506,7 @@ needs_clarification: []
 
     const result = await runCli(
       [
-        "tasks", "submit", tasksFile,
+        "tasks", "submit", "--input", tasksFile,
         "--feature", "auth-refresh",
         "--feature-dir", dir,
         "--json",
@@ -3031,7 +3031,7 @@ describe("loaf tasks list — Slice 2 SC4 (MVP)", () => {
       }),
     );
     const submit = await runCli([
-      "tasks", "submit", tasksFile,
+      "tasks", "submit", "--input", tasksFile,
       "--feature", "auth-refresh", "--feature-dir", dir, "--json",
     ]);
     expect(submit.exit).toBe(0);
@@ -3285,7 +3285,7 @@ describe("loaf tasks submit at EXECUTE.plan — replan path (r59 P2.3 closure)",
 
     const r = await runCli(
       [
-        "tasks", "submit", replanFile,
+        "tasks", "submit", "--input", replanFile,
         "--feature", "auth-refresh", "--feature-dir", dir, "--json",
       ],
     );
@@ -3580,7 +3580,7 @@ describe("End-to-end task lifecycle CLI — Slice 2 SC4", () => {
         ],
       }),
     );
-    let r = await cli(["tasks", "submit", tasksFile, "--json"]);
+    let r = await cli(["tasks", "submit", "--input", tasksFile, "--json"]);
     expect(r.exit).toBe(0);
     expect(JSON.parse(r.stdout).task_ids).toEqual(["T-001"]);
 
@@ -3780,7 +3780,7 @@ describe("End-to-end SPEC content → spec-lock approve (Slice A SC-A2)", () => 
         ],
       }),
     );
-    r = await cli(["tasks", "submit", tasksFile, "--json"]);
+    r = await cli(["tasks", "submit", "--input", tasksFile, "--json"]);
     expect(r.exit).toBe(0);
 
     // 8. THE UNLOCK — gate decide spec-lock --approve walks through.
@@ -4663,7 +4663,7 @@ describe("loaf tasks add — Slice C SC-C3 (SPEC.design append)", () => {
     const input = await writeInput(dir, taskInput());
 
     const r = await runCli([
-      "tasks", "add", input,
+      "tasks", "add", "--input", input,
       "--feature", "auth-refresh", "--feature-dir", dir, "--json",
     ]);
     expect(r.exit).toBe(0);
@@ -4689,7 +4689,7 @@ describe("loaf tasks add — Slice C SC-C3 (SPEC.design append)", () => {
     const input = await writeInput(dir, [taskInput(), taskInput()]);
 
     const r = await runCli([
-      "tasks", "add", input,
+      "tasks", "add", "--input", input,
       "--feature", "auth-refresh", "--feature-dir", dir, "--json",
     ]);
     expect(r.exit).toBe(0);
@@ -4701,7 +4701,7 @@ describe("loaf tasks add — Slice C SC-C3 (SPEC.design append)", () => {
     await seedFeatureAtSpecDesign(dir);
     const input = await writeInput(dir, taskInput());
     await runCli([
-      "tasks", "add", input,
+      "tasks", "add", "--input", input,
       "--feature", "auth-refresh", "--feature-dir", dir, "--json",
     ]);
     // The emitted tasks_planned must carry T-001 with its canonical body.
@@ -4723,7 +4723,7 @@ describe("loaf tasks add — Slice C SC-C3 (SPEC.design append)", () => {
     const input = await writeInput(dir, taskInput({ id: "T-099" }));
 
     const r = await runCli([
-      "tasks", "add", input,
+      "tasks", "add", "--input", input,
       "--feature", "auth-refresh", "--feature-dir", dir, "--json",
     ]);
     expect(r.exit).toBe(2);
@@ -4745,7 +4745,7 @@ describe("loaf tasks add — Slice C SC-C3 (SPEC.design append)", () => {
     );
 
     const r = await runCli([
-      "tasks", "add", input,
+      "tasks", "add", "--input", input,
       "--feature", "auth-refresh", "--feature-dir", dir, "--json",
     ]);
     expect(r.exit).toBe(2);
@@ -4758,7 +4758,7 @@ describe("loaf tasks add — Slice C SC-C3 (SPEC.design append)", () => {
     const input = await writeInput(dir, taskInput({ status: "ready" }));
 
     const r = await runCli([
-      "tasks", "add", input,
+      "tasks", "add", "--input", input,
       "--feature", "auth-refresh", "--feature-dir", dir, "--json",
     ]);
     expect(r.exit).toBe(2);
@@ -4772,7 +4772,7 @@ describe("loaf tasks add — Slice C SC-C3 (SPEC.design append)", () => {
     await fsP.writeFile(p, "{ not json");
 
     const r = await runCli([
-      "tasks", "add", p,
+      "tasks", "add", "--input", p,
       "--feature", "auth-refresh", "--feature-dir", dir, "--json",
     ]);
     expect(r.exit).toBe(2);
@@ -4784,7 +4784,7 @@ describe("loaf tasks add — Slice C SC-C3 (SPEC.design append)", () => {
     await seedFeatureAtSpecDesign(dir);
 
     const r = await runCli([
-      "tasks", "add", path.join(dir, "nonexistent.json"),
+      "tasks", "add", "--input", path.join(dir, "nonexistent.json"),
       "--feature", "auth-refresh", "--feature-dir", dir, "--json",
     ]);
     expect(r.exit).toBe(2);
@@ -4797,7 +4797,7 @@ describe("loaf tasks add — Slice C SC-C3 (SPEC.design append)", () => {
     const input = await writeInput(dir, taskInput());
 
     const r = await runCli([
-      "tasks", "add", input,
+      "tasks", "add", "--input", input,
       "--feature", "auth-refresh", "--feature-dir", dir, "--json",
     ]);
     expect(r.exit).toBe(2);
@@ -4826,7 +4826,7 @@ describe("loaf tasks register-red — Slice C SC-C4 (R2)", () => {
       JSON.stringify({ kind: "behavioral", drives: ["REQ-AUTH-001"], tests: ["Bug.repro"], labels: ["bug"] }),
     );
     let r = await runCli([
-      "tasks", "add", input, "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      "tasks", "add", "--input", input, "--feature", "auth-refresh", "--feature-dir", dir, "--json",
     ]);
     if (r.exit !== 0) throw new Error(`seed tasks add failed: ${r.stderr}`);
     r = await runCli(
