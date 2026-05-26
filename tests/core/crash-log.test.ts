@@ -150,4 +150,51 @@ describe("Phase 16 SC-2 — crash-log writer", () => {
       await fs.rm(home, { recursive: true, force: true });
     }
   });
+
+  // ── Phase 16 SC-3 — envelope extension (phase + sub_state nullable) ──
+  // Per codex r196 PATCH B: boundary still must not load journal from
+  // within the catch. SC-3 routes the context through CommandContext's
+  // cached resolution; writeCrashLog gains an optional `context` param
+  // that callers pre-fill from ctx.snapshotCrashContext().
+
+  test("SC-3 envelope: phase + sub_state nullable, omitted by default → null", async () => {
+    const home = await tmpHome();
+    try {
+      const written = await writeCrashLog(
+        {
+          argv: ["loaf", "status"],
+          cwd: "/tmp",
+          version: "0.1.0",
+          error: new Error("x"),
+        },
+        { now: () => FIXED_NOW, homeDir: () => home },
+      );
+      const env = CrashLogEnvelope.parse(JSON.parse(await fs.readFile(written!, "utf8")));
+      expect(env.phase).toBeNull();
+      expect(env.sub_state).toBeNull();
+    } finally {
+      await fs.rm(home, { recursive: true, force: true });
+    }
+  });
+
+  test("SC-3 envelope: context.phase + context.sub_state populate envelope when provided", async () => {
+    const home = await tmpHome();
+    try {
+      const written = await writeCrashLog(
+        {
+          argv: ["loaf", "deliver", "--feature", "F-042"],
+          cwd: "/tmp",
+          version: "0.1.0",
+          error: new Error("boom"),
+          context: { phase: "VERIFY", sub_state: "VERIFY.accept" },
+        },
+        { now: () => FIXED_NOW, homeDir: () => home },
+      );
+      const env = CrashLogEnvelope.parse(JSON.parse(await fs.readFile(written!, "utf8")));
+      expect(env.phase).toBe("VERIFY");
+      expect(env.sub_state).toBe("VERIFY.accept");
+    } finally {
+      await fs.rm(home, { recursive: true, force: true });
+    }
+  });
 });

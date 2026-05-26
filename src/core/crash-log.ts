@@ -39,6 +39,14 @@ export const CrashLogEnvelope = z.object({
   argv: z.array(z.string()),
   cwd: z.string(),
   feature: z.string().nullable(),
+  // Phase 16 SC-3 (codex r196 PATCH B + r206 axis H): phase/sub_state
+  // are populated by CommandContext via writeCrashLog's optional
+  // `context` input. The boundary itself NEVER loads journal/session
+  // from inside the catch — it consults the cached resolution the ctx
+  // already did. Both are null when the throw happens before any
+  // session was resolved (e.g. corrupt-journal `loaf advance`).
+  phase: z.string().nullable(),
+  sub_state: z.string().nullable(),
   exitCode: z.literal(1),
   error: z.object({
     name: z.string(),
@@ -59,6 +67,10 @@ export type WriteCrashLogInput = {
   cwd: string;
   version: string;
   error: Error;
+  /** Phase 16 SC-3: pre-resolved context from CommandContext.snapshotCrashContext().
+   *  Optional — preserves SC-2 API for callers that don't have a ctx
+   *  (e.g. boundary error before ctx was wired). */
+  context?: { phase: string | null; sub_state: string | null };
 };
 
 const DEFAULT_DEPS: WriteCrashLogDeps = {
@@ -103,6 +115,8 @@ export async function writeCrashLog(
     argv: [...input.argv],
     cwd: input.cwd,
     feature: extractFeature(input.argv),
+    phase: input.context?.phase ?? null,
+    sub_state: input.context?.sub_state ?? null,
     exitCode: 1,
     error: {
       name: input.error.name,

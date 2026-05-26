@@ -100,7 +100,7 @@ describe("Phase 16 SC-2 — top-level boundary: exit 1 on unhandled throw", () =
     }
   });
 
-  test("--json mode: corrupt journal → stderr single-line JSON {code:UNEXPECTED_ERROR, crash_log:...}, stdout empty", async () => {
+  test("--json mode: corrupt journal → stderr single-line JSON {code:UNEXPECTED_ERROR, crash_log:..., report_url:...}, stdout empty", async () => {
     const home = await tmpHome();
     const featureDir = await tmpDir();
     try {
@@ -132,6 +132,54 @@ describe("Phase 16 SC-2 — top-level boundary: exit 1 on unhandled throw", () =
       expect(obj.crash_log, "JSON envelope carries the crash log path").toMatch(
         /\.loaf\/crashes\/.+\.json$/,
       );
+      // SC-3: JSON sentinel parity with text mode — text prints both crash
+      // log path AND report URL, so JSON must also carry report_url so
+      // structured consumers don't need to reconstruct it.
+      expect(obj.report_url, "JSON envelope carries the prefilled report URL").toBeDefined();
+      expect(typeof obj.report_url).toBe("string");
+      expect(obj.report_url).toContain("loaf_version=");
+      expect(obj.report_url).toContain("crash_log_path=");
+    } finally {
+      await fs.rm(home, { recursive: true, force: true });
+      await fs.rm(featureDir, { recursive: true, force: true });
+    }
+  });
+
+  // ── Phase 16 SC-3 — boundary enrichment via CommandContext ──
+  // The boundary now consults ctx.snapshotCrashContext() for phase +
+  // sub_state. Corrupt-journal `loaf advance` fails BEFORE
+  // ctx.resolveSession completes (loadSession throws), so phase /
+  // sub_state remain null. A different test would seed a valid session
+  // then trigger a post-load throw — but that requires SC-3+ command
+  // instrumentation. For SC-3 commit: assert envelope shape, accept
+  // null phase/sub_state in the corrupt-journal path.
+
+  test("SC-3 boundary: envelope.phase + envelope.sub_state present (null for pre-resolve corrupt-journal path)", async () => {
+    const home = await tmpHome();
+    const featureDir = await tmpDir();
+    try {
+      await fs.writeFile(
+        path.join(featureDir, "journal.jsonl"),
+        '{"not":"a journal entry"}\n',
+        "utf8",
+      );
+      await runCli(
+        ["advance", "EXECUTE.work", "--feature", "X", "--feature-dir", featureDir],
+        home,
+      );
+      const crashes = path.join(home, ".loaf", "crashes");
+      const files = await fs.readdir(crashes);
+      expect(files.length).toBe(1);
+      const envelope = JSON.parse(
+        await fs.readFile(path.join(crashes, files[0]!), "utf8"),
+      );
+      // Envelope keys present even when context can't be resolved
+      expect(envelope).toHaveProperty("phase");
+      expect(envelope).toHaveProperty("sub_state");
+      // Corrupt journal trips loadSession before ctx could resolve →
+      // both null is the expected pre-resolve shape
+      expect(envelope.phase).toBeNull();
+      expect(envelope.sub_state).toBeNull();
     } finally {
       await fs.rm(home, { recursive: true, force: true });
       await fs.rm(featureDir, { recursive: true, force: true });

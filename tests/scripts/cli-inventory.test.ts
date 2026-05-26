@@ -1,5 +1,5 @@
 import { describe, expect, test, beforeAll } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -14,6 +14,11 @@ const REPO_ROOT = path.resolve(__dirname, "..", "..");
 const PROTOCOL_PATH = path.join(REPO_ROOT, "docs", "protocol.md");
 const BASELINE_PATH = path.join(__dirname, "inventory", "diagnostic-baseline.json");
 const CLI_PATH = path.join(REPO_ROOT, "src", "cli.tsx");
+// Phase 16 SC-3: presentation-layer modules (CommandContext / InputSource
+// /url-prefill) live under src/cli/. The inventory scan must cover BOTH
+// cli.tsx AND src/cli/**/*.ts so future `ctx.failure(...)` emit sites
+// can't bypass the SC-1 catalog gate (codex r206 PATCH G/I).
+const CLI_DIR = path.join(REPO_ROOT, "src", "cli");
 const I18N_EN_PATH = path.join(REPO_ROOT, "i18n", "en.json");
 const I18N_ZH_PATH = path.join(REPO_ROOT, "i18n", "zh.json");
 
@@ -352,6 +357,37 @@ describe("drift gate: DiagnosticCode emit ⊆ catalog ∪ baseline", () => {
   });
 });
 
+describe("Phase 16 SC-3 — presentation-surface catalog gate (codex r206 PATCH G/I)", () => {
+  test("extractEmittedCodes catches `ctx.failure(\"CODE\", ...)` pattern (SC-3 new emit shape)", () => {
+    const synthetic = [
+      'import type { CommandContext } from "./command-context.js";',
+      'export function foo(ctx: CommandContext): void {',
+      '  ctx.failure("UNCATALOGED_FOO", "synthetic uncataloged code");',
+      '}',
+    ].join("\n");
+    const codes = extractEmittedCodes(synthetic);
+    expect(codes.has("UNCATALOGED_FOO")).toBe(true);
+  });
+
+  test("extractEmittedCodes catches `context.failure(...)` form too", () => {
+    const synthetic = 'context.failure("UNCATALOGED_BAR", "...");';
+    const codes = extractEmittedCodes(synthetic);
+    expect(codes.has("UNCATALOGED_BAR")).toBe(true);
+  });
+
+  test("regression: legacy fail() + emitFailure() patterns still caught after SC-3 regex extension", () => {
+    const synthetic = [
+      'fail("LEGACY_A", "msg");',
+      'emitFailure("LEGACY_B", "msg");',
+      'emit("LEGACY_C", payload);',
+    ].join("\n");
+    const codes = extractEmittedCodes(synthetic);
+    expect(codes.has("LEGACY_A")).toBe(true);
+    expect(codes.has("LEGACY_B")).toBe(true);
+    expect(codes.has("LEGACY_C")).toBe(true);
+  });
+});
+
 describe("Phase 16 SC-1 — DiagnosticCode catalog hygiene", () => {
   test("diagnostic-baseline.json is empty (SC-1 retires the long-lived allowlist)", () => {
     expect(
@@ -527,21 +563,72 @@ function diffGlobalFlags(parsed: ParserResult, inv: Inventory): Finding[] {
   return findings;
 }
 
-function diffDiagnostics(bl: Baseline): Finding[] {
-  const findings: Finding[] = [];
-  const cliText = readFileSync(CLI_PATH, "utf8");
-  // Regex captures every `fail("CODE", ...)`, `failRebuild("CODE", ...)`, and
-  // `emit*("CODE", ...)` call, plus bare object literal `code: "CODE"` patterns
-  // used in some emit paths. (codex r191 PATCH 4 — add failRebuild)
-  const emitRe = /\b(?:fail(?:[A-Z][A-Za-z0-9]*)?|emit\w*)\(\s*["']([A-Z][A-Z0-9_]+)["']/g;
+/**
+ * Pure code-extraction helper. Phase 16 SC-3 extends the regex set to
+ * cover `ctx.failure("CODE", ...)` and `context.failure("CODE", ...)` in
+ * addition to the pre-existing fail/failRebuild/emit* patterns (codex
+ * r206 PATCH G/I — moving failures into CommandContext must not let
+ * uncataloged codes bypass SC-1 catalog gate). Exported for the
+ * regression test below + reusable by the JSON emitter script.
+ */
+export function extractEmittedCodes(text: string): Set<string> {
   const codes = new Set<string>();
+  // Captures:
+  //   fail("CODE", ...)
+  //   failRebuild("CODE", ...) (SC-2 removed; harness retains pattern)
+  //   emitFailure("CODE", ...) / emit*("CODE", ...)
+  //   ctx.failure("CODE", ...) / context.failure("CODE", ...) (SC-3)
+  const emitRe =
+    /\b(?:fail(?:[A-Z][A-Za-z0-9]*)?|emit\w*|(?:ctx|context)\.failure)\(\s*["']([A-Z][A-Z0-9_]+)["']/g;
   let m: RegExpExecArray | null;
-  while ((m = emitRe.exec(cliText)) !== null) {
+  while ((m = emitRe.exec(text)) !== null) {
     codes.add(m[1] ?? "");
   }
   const codeFieldRe = /\bcode:\s*["']([A-Z][A-Z0-9_]+)["']/g;
-  while ((m = codeFieldRe.exec(cliText)) !== null) {
+  while ((m = codeFieldRe.exec(text)) !== null) {
     codes.add(m[1] ?? "");
+  }
+  return codes;
+}
+
+/**
+ * Phase 16 SC-3: presentation-surface file discovery for the catalog
+ * gate. cli.tsx + every `.ts` under src/cli/ (recursive). Excludes
+ * `.test.ts` files (those EMIT codes only as fixtures, not as runtime
+ * surface). Tolerates missing src/cli/ so the harness still works
+ * pre-SC-3 (or post-SC-3 if presentation modules move).
+ */
+function discoverPresentationFiles(): string[] {
+  const files: string[] = [CLI_PATH];
+  let entries: string[] = [];
+  try {
+    entries = readdirSync(CLI_DIR, { recursive: true }) as string[];
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      return files; // src/cli/ not yet created — pre-SC-3 baseline
+    }
+    throw err;
+  }
+  for (const rel of entries) {
+    if (typeof rel !== "string") continue;
+    if (!rel.endsWith(".ts")) continue;
+    if (rel.endsWith(".test.ts")) continue;
+    files.push(path.join(CLI_DIR, rel));
+  }
+  return files;
+}
+
+function diffDiagnostics(bl: Baseline): Finding[] {
+  const findings: Finding[] = [];
+  const files = discoverPresentationFiles();
+  const codes = new Set<string>();
+  const sourceForCode = new Map<string, string>();
+  for (const file of files) {
+    const text = readFileSync(file, "utf8");
+    for (const code of extractEmittedCodes(text)) {
+      codes.add(code);
+      if (!sourceForCode.has(code)) sourceForCode.set(code, file);
+    }
   }
 
   const catalog = loadCatalogCodes();
@@ -551,11 +638,13 @@ function diffDiagnostics(bl: Baseline): Finding[] {
     if (code === "") continue;
     if (catalog.has(code)) continue;
     if (baselineCodes.has(code)) continue;
+    const sourceFile = sourceForCode.get(code) ?? CLI_PATH;
+    const rel = path.relative(REPO_ROOT, sourceFile);
     findings.push({
       kind: "uncataloged-code",
       name: code,
       doc_location: "docs/schemas.ts §39 ERROR_CATALOG",
-      runtime_location: "src/cli.tsx (multiple sites)",
+      runtime_location: `${rel} (and possibly other presentation files)`,
       suggestion: `Either register ${code} in docs/schemas.ts DiagnosticCode + ERROR_CATALOG + i18n bundles, or add it to tests/scripts/inventory/diagnostic-baseline.json with a removal_sc target.`,
     });
   }

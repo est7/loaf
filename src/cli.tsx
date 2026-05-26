@@ -20,6 +20,8 @@ import path from "node:path";
 import packageJson from "../package.json" with { type: "json" };
 
 import { UNEXPECTED_ERROR, writeCrashLog } from "./core/crash-log.js";
+import { createCommandContext } from "./cli/command-context.js";
+import { buildReportUrl } from "./cli/url-prefill.js";
 
 import { resolveHumanActor } from "./core/actor-resolver.js";
 import {
@@ -142,38 +144,28 @@ export async function main(argv: string[] = process.argv): Promise<number> {
 
   const useJson = argv.includes("--json");
   const actor = `cli:loaf@${process.env["USER"] ?? "unknown"}`;
-  let exitCode = 0;
-  const fail = (code: string, message: string) => {
-    process.stderr.write(`error: ${code} — ${message}\n`);
-    exitCode = 2;
-  };
 
-  // emitFailure — richer error path used by `gate decide` (Slice 1.B
-  // sub-cycle 4). Protocol §10.0 keeps stdout for primary output only,
-  // so structured JSON failures go to stderr too. detail.checks (when
-  // present, e.g. GATE_PRECONDITION_VIOLATION) is one-line-per-check in
-  // text mode for readability.
+  // Phase 16 SC-3 — CommandContext is the presentation-layer plumbing
+  // that owns output channel + lazy session/projection cache + failure
+  // routing + crash-log context snapshot. fail()/emitFailure() become
+  // thin shims so all 28 unmigrated commands transparently route through
+  // ctx without per-call-site changes (codex r206 axis G: 1 representative
+  // command migrated; rest follow in SC-4..SC-15 as each is touched).
+  const ctx = createCommandContext(argv, {
+    writeStdout: (s) => process.stdout.write(s),
+    writeStderr: (s) => process.stderr.write(s),
+    loadSession,
+    loadProjections,
+  });
+  const fail = (code: string, message: string): void => {
+    ctx.failure(code, message);
+  };
   const emitFailure = (
     code: string,
     message: string,
     detail?: Record<string, unknown>,
-  ) => {
-    if (useJson) {
-      const out: Record<string, unknown> = { ok: false, code, message };
-      if (detail) out.detail = detail;
-      process.stderr.write(JSON.stringify(out) + "\n");
-    } else {
-      process.stderr.write(`error: ${code} — ${message}\n`);
-      const checks = detail?.["checks"];
-      if (Array.isArray(checks)) {
-        for (const c of checks as Array<{ check?: number; code?: string; message?: string }>) {
-          process.stderr.write(
-            `  [check ${c.check ?? "?"}] ${c.code ?? "UNKNOWN"}: ${c.message ?? ""}\n`,
-          );
-        }
-      }
-    }
-    exitCode = 2;
+  ): void => {
+    ctx.failure(code, message, detail);
   };
 
   // loadProjectionsOrFail — projection-loader wrapper for the four
@@ -638,6 +630,12 @@ export async function main(argv: string[] = process.argv): Promise<number> {
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .option("--reason <text>", "Optional rationale to record on the session:delivered entry")
     .action(async (opts: { feature: string; featureDir?: string; reason?: string }) => {
+      // Phase 16 SC-3 — representative command migrated to CommandContext.
+      // Same external behavior (byte-identical text + JSON output) per
+      // codex r206 axis I; proves the API can drive a real mutate command
+      // end-to-end. SC-4..SC-15 migrate the remaining 28 handlers as
+      // each command group gets touched.
+
       // (1) Human-only actor — `session:delivered` is HUMAN_ONLY per PER_KIND_ACTOR.
       const resolution = resolveHumanActor({
         env: process.env,
@@ -645,17 +643,18 @@ export async function main(argv: string[] = process.argv): Promise<number> {
         isInteractiveHuman: process.stdin.isTTY === true,
       });
       if (!resolution.ok) {
-        emitFailure(resolution.code, resolution.message);
+        ctx.failure(resolution.code, resolution.message);
         return;
       }
       const humanActor = resolution.actor;
 
-      // (2) Load session.
+      // (2) Load session via ctx (caches per featureDir; ctx also captures
+      //     the resolved sub_state for snapshotCrashContext enrichment).
       const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-      const session = await loadSession(featureDir);
+      const session = await ctx.resolveSession(featureDir);
       const from = session.snapshot.state?.sub_state;
       if (!from) {
-        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        ctx.failure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
         return;
       }
 
@@ -676,13 +675,13 @@ export async function main(argv: string[] = process.argv): Promise<number> {
         { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta },
       );
       if (!result.ok) {
-        emitFailure(result.code, result.message, result.detail);
+        ctx.failure(result.code, result.message, result.detail);
         return;
       }
 
-      // (5) Success output. Single advisory hint per protocol §10.12 +
-      //     §1824 ("advisory only, 不碰 git/gh"). Callers can grep `next:`
-      //     to chain commands in scripts.
+      // (5) Success output via ctx.success — single payload, lazy text
+      //     renderer (only invoked in text mode). Output bytes identical
+      //     to pre-SC-3 (asserted in tests).
       const advisory = [
         `session complete — \`loaf start <feature>\` to begin another`,
       ];
@@ -695,14 +694,12 @@ export async function main(argv: string[] = process.argv): Promise<number> {
         sub_state: result.snapshot.state?.sub_state,
         advisory,
       };
-      if (useJson) {
-        process.stdout.write(JSON.stringify(out) + "\n");
-      } else {
-        process.stdout.write(
+      ctx.success(
+        out,
+        () =>
           `delivered ${opts.feature} (advisory only) — ${from} → DONE.delivered by ${humanActor}\n` +
           `next: ${advisory[0]}\n`,
-        );
-      }
+      );
     });
 
   // ── loaf archive / loaf abandon ─────────────────────────────────────
@@ -3899,32 +3896,45 @@ export async function main(argv: string[] = process.argv): Promise<number> {
 
   try {
     await program.parseAsync(argv);
-    return exitCode;
+    return ctx.exitCode;
   } catch (err) {
     if (err instanceof CommanderError) {
       if (err.exitCode === 0) return 0;
       process.stderr.write(`error: ${err.code ?? "USAGE"} — ${err.message}\n`);
       return err.exitCode === 1 ? 2 : err.exitCode;
     }
-    // Phase 16 SC-2 — unhandled error boundary (protocol §10.5 / §10.9).
+    // Phase 16 SC-2/SC-3 — unhandled error boundary (protocol §10.5 / §10.9).
     // Any non-Commander error reaching here is "Error escaped the action
     // handler" (codex r196 PATCH A wording): the discriminator is escape,
     // not whether exitCode was set. Crash log + UNEXPECTED_ERROR sentinel
-    // + exit 1. The sentinel is intentionally NOT a DiagnosticCode —
-    // docs/schemas.ts:3827-3830 scopes that union to exit-2 user-recoverable
-    // failures and ErrorEntry.exit_code is z.literal(2). See src/core/crash-log.ts.
+    // + exit 1. SC-3 enriches the envelope with phase/sub_state from the
+    // ctx cache (NO journal load inside catch — codex r196 PATCH B) and
+    // includes a prefilled report URL (sanitized last_command per codex
+    // r206 PATCH H) on both stderr and the JSON sentinel.
     const error = err instanceof Error ? err : new Error(String(err));
+    const crashContext = ctx.snapshotCrashContext();
     const crashLog = await writeCrashLog({
       argv,
       cwd: process.cwd(),
       version: packageJson.version,
       error,
+      context: { phase: crashContext.phase, sub_state: crashContext.sub_state },
+    });
+    const reportUrl = buildReportUrl({
+      base: LOAF_ISSUE_URL,
+      loaf_version: packageJson.version,
+      schema_version: "2",
+      phase: crashContext.phase,
+      sub_state: crashContext.sub_state,
+      argv,
+      crash_log_path: crashLog,
     });
     if (useJson) {
       const payload: Record<string, unknown> = {
         ok: false,
         code: UNEXPECTED_ERROR,
         message: "unexpected internal error",
+        report_url: reportUrl,
       };
       if (crashLog !== null) payload["crash_log"] = crashLog;
       process.stderr.write(JSON.stringify(payload) + "\n");
@@ -3933,9 +3943,7 @@ export async function main(argv: string[] = process.argv): Promise<number> {
       if (crashLog !== null) {
         process.stderr.write(`  crash log: ${crashLog}\n`);
       }
-      process.stderr.write(
-        `  report at ${LOAF_ISSUE_URL} (include the crash log after manual PII review)\n`,
-      );
+      process.stderr.write(`  report at ${reportUrl}\n`);
     }
     return 1;
   }

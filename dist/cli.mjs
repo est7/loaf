@@ -25,6 +25,8 @@ z.object({
 	argv: z.array(z.string()),
 	cwd: z.string(),
 	feature: z.string().nullable(),
+	phase: z.string().nullable(),
+	sub_state: z.string().nullable(),
 	exitCode: z.literal(1),
 	error: z.object({
 		name: z.string(),
@@ -39,7 +41,7 @@ const DEFAULT_DEPS = {
 };
 /** Best-effort `--feature <NAME>` extractor. Stays in this module so the
 *  boundary doesn't have to know argv shape; null on miss. */
-function extractFeature(argv) {
+function extractFeature$1(argv) {
 	const i = argv.indexOf("--feature");
 	if (i < 0 || i + 1 >= argv.length) return null;
 	const v = argv[i + 1];
@@ -66,7 +68,9 @@ async function writeCrashLog(input, depsPartial) {
 		version: input.version,
 		argv: [...input.argv],
 		cwd: input.cwd,
-		feature: extractFeature(input.argv),
+		feature: extractFeature$1(input.argv),
+		phase: input.context?.phase ?? null,
+		sub_state: input.context?.sub_state ?? null,
 		exitCode: 1,
 		error: {
 			name: input.error.name,
@@ -92,6 +96,208 @@ async function writeCrashLog(input, depsPartial) {
 		deps.writeStderr(`loaf: crash log unwritable at ${file} — ${err.message}\n`);
 		return null;
 	}
+}
+//#endregion
+//#region src/cli/command-context.ts
+/** Pre-resolve `--feature <NAME>` from argv. Best-effort; null on miss.
+*  Lifted here (was duplicated in src/core/crash-log.ts) so ctx and
+*  crash-log can agree on what "feature" means for a given invocation. */
+function extractFeature(argv) {
+	const i = argv.indexOf("--feature");
+	if (i < 0 || i + 1 >= argv.length) return null;
+	const v = argv[i + 1];
+	return v && !v.startsWith("--") ? v : null;
+}
+/** Derive `phase` from a `sub_state` like "EXECUTE.work" → "EXECUTE".
+*  Returns null if the sub_state has no dot (no phase prefix). */
+function phaseOf(subState) {
+	if (!subState) return null;
+	const i = subState.indexOf(".");
+	return i < 0 ? null : subState.slice(0, i);
+}
+function createCommandContext(argv, deps) {
+	const output = argv.includes("--json") ? "json" : "text";
+	let exitCode = 0;
+	const sessionCache = /* @__PURE__ */ new Map();
+	const projectionCache = /* @__PURE__ */ new Map();
+	let lastResolvedSubState = null;
+	return {
+		argv,
+		output,
+		get exitCode() {
+			return exitCode;
+		},
+		set exitCode(v) {
+			exitCode = v;
+		},
+		async resolveSession(featureDir) {
+			const cached = sessionCache.get(featureDir);
+			if (cached) return cached;
+			if (!deps.loadSession) throw new Error("CommandContext: loadSession dep not provided; cannot resolveSession");
+			const p = deps.loadSession(featureDir).then((sess) => {
+				const sub = sess.snapshot.state?.sub_state ?? null;
+				if (sub) lastResolvedSubState = sub;
+				return sess;
+			});
+			sessionCache.set(featureDir, p);
+			return p;
+		},
+		async resolveProjections(featureDir, kinds) {
+			const key = `${featureDir}::${[...kinds].sort().join(",")}`;
+			const cached = projectionCache.get(key);
+			if (cached) return cached;
+			if (!deps.loadProjections) throw new Error("CommandContext: loadProjections dep not provided; cannot resolveProjections");
+			const p = deps.loadProjections({
+				feature_dir: featureDir,
+				kinds
+			});
+			projectionCache.set(key, p);
+			return p;
+		},
+		success(payload, textRenderer) {
+			if (output === "json") {
+				deps.writeStdout(JSON.stringify(payload) + "\n");
+				return;
+			}
+			if (!textRenderer) throw new Error("ctx.success: text renderer required in text mode (a migrated command must always pass a text renderer; JSON mode skips it lazily)");
+			deps.writeStdout(textRenderer());
+		},
+		failure(code, message, detail) {
+			if (output === "json") {
+				const out = {
+					ok: false,
+					code,
+					message
+				};
+				if (detail !== void 0) out["detail"] = detail;
+				deps.writeStderr(JSON.stringify(out) + "\n");
+			} else {
+				deps.writeStderr(`error: ${code} — ${message}\n`);
+				const checks = detail?.["checks"];
+				if (Array.isArray(checks)) for (const c of checks) deps.writeStderr(`  [check ${c.check ?? "?"}] ${c.code ?? "UNKNOWN"}: ${c.message ?? ""}\n`);
+			}
+			exitCode = 2;
+		},
+		snapshotCrashContext() {
+			return {
+				phase: phaseOf(lastResolvedSubState),
+				sub_state: lastResolvedSubState,
+				feature: extractFeature(argv),
+				last_command: [...argv].join(" ")
+			};
+		}
+	};
+}
+//#endregion
+//#region src/cli/url-prefill.ts
+const COMMAND_WORDS = new Set([
+	"loaf",
+	"start",
+	"advance",
+	"status",
+	"spec",
+	"tasks",
+	"pending",
+	"evidence",
+	"finding",
+	"gate",
+	"deliver",
+	"settle",
+	"doctor",
+	"archive",
+	"abandon",
+	"spike",
+	"profile",
+	"submit",
+	"init",
+	"add-req",
+	"add-scenario",
+	"add-visual",
+	"claim",
+	"list",
+	"next",
+	"step",
+	"amend",
+	"complete",
+	"done",
+	"raise",
+	"resolve",
+	"add",
+	"close",
+	"decide",
+	"convert",
+	"escalate"
+]);
+const SUB_STATE_RE = /^(TRIAGE|SPEC|EXECUTE|VERIFY|SETTLE|DONE)(\.[a-z_]+)?$/;
+const GATE_NAME_RE = /^(spec-lock|verify-accept)$/;
+function isSafePositional(token) {
+	if (COMMAND_WORDS.has(token)) return true;
+	if (SUB_STATE_RE.test(token)) return true;
+	if (GATE_NAME_RE.test(token)) return true;
+	return false;
+}
+const ALLOWLIST_VALUE_FLAGS = new Set([
+	"--ceremony",
+	"--format",
+	"--feature"
+]);
+const ALWAYS_REDACT_FLAGS = new Set([
+	"--input",
+	"--reason",
+	"--answer",
+	"--summary",
+	"--label"
+]);
+const REDACTED = "<redacted>";
+function looksLikeInlineJson(s) {
+	return /^[{[]/.test(s);
+}
+function looksLikePath(s) {
+	return s.includes("/") || s.includes("\\");
+}
+/**
+* Sanitize an argv array into a single-space-joined string safe for URL
+* query inclusion. The first non-flag positional after a flag NAME is
+* considered its value; if the flag is in ALWAYS_REDACT_FLAGS or the
+* value matches a sensitivity heuristic (inline JSON / path), redact.
+* Otherwise, if the flag is in ALLOWLIST_VALUE_FLAGS, pass the value
+* through; else redact.
+*/
+function sanitizeArgvForUrl(argv) {
+	const out = [];
+	for (let i = 0; i < argv.length; i++) {
+		const token = argv[i];
+		if (!token.startsWith("--")) {
+			out.push(isSafePositional(token) ? token : REDACTED);
+			continue;
+		}
+		out.push(token);
+		const next = argv[i + 1];
+		if (next === void 0 || next.startsWith("--")) continue;
+		i++;
+		const flag = token;
+		if (ALWAYS_REDACT_FLAGS.has(flag)) out.push(REDACTED);
+		else if (looksLikeInlineJson(next) || looksLikePath(next)) out.push(REDACTED);
+		else if (ALLOWLIST_VALUE_FLAGS.has(flag)) out.push(next);
+		else out.push(REDACTED);
+	}
+	return out.join(" ");
+}
+/**
+* Build the prefilled report URL. Query params: loaf_version /
+* schema_version / phase? / sub_state? / last_command (sanitized) /
+* crash_log_path?. Per codex r206 PATCH H: nulls are omitted, not
+* stringified.
+*/
+function buildReportUrl(input) {
+	const u = new URL(input.base);
+	u.searchParams.set("loaf_version", input.loaf_version);
+	u.searchParams.set("schema_version", input.schema_version);
+	if (input.phase !== null) u.searchParams.set("phase", input.phase);
+	if (input.sub_state !== null) u.searchParams.set("sub_state", input.sub_state);
+	u.searchParams.set("last_command", sanitizeArgvForUrl(input.argv));
+	if (input.crash_log_path !== null) u.searchParams.set("crash_log_path", input.crash_log_path);
+	return u.toString();
 }
 const SchemaVersionPayload = z.literal(2);
 const ReqIdPayload = z.string().regex(/^REQ-[A-Z][A-Z0-9]*-\d{3,}$/);
@@ -5524,26 +5730,17 @@ async function main(argv = process.argv) {
 	program.name("loaf").description("Spec-driven development protocol CLI").version(version).option("--json", "Emit JSON output on stdout").addHelpText("after", helpFooter()).showHelpAfterError().exitOverride();
 	const useJson = argv.includes("--json");
 	const actor = `cli:loaf@${process.env["USER"] ?? "unknown"}`;
-	let exitCode = 0;
+	const ctx = createCommandContext(argv, {
+		writeStdout: (s) => process.stdout.write(s),
+		writeStderr: (s) => process.stderr.write(s),
+		loadSession,
+		loadProjections
+	});
 	const fail = (code, message) => {
-		process.stderr.write(`error: ${code} — ${message}\n`);
-		exitCode = 2;
+		ctx.failure(code, message);
 	};
 	const emitFailure = (code, message, detail) => {
-		if (useJson) {
-			const out = {
-				ok: false,
-				code,
-				message
-			};
-			if (detail) out.detail = detail;
-			process.stderr.write(JSON.stringify(out) + "\n");
-		} else {
-			process.stderr.write(`error: ${code} — ${message}\n`);
-			const checks = detail?.["checks"];
-			if (Array.isArray(checks)) for (const c of checks) process.stderr.write(`  [check ${c.check ?? "?"}] ${c.code ?? "UNKNOWN"}: ${c.message ?? ""}\n`);
-		}
-		exitCode = 2;
+		ctx.failure(code, message, detail);
 	};
 	const loadProjectionsOrFail = async (featureDir, kinds, feature) => {
 		try {
@@ -5856,15 +6053,15 @@ async function main(argv = process.argv) {
 			isInteractiveHuman: process.stdin.isTTY === true
 		});
 		if (!resolution.ok) {
-			emitFailure(resolution.code, resolution.message);
+			ctx.failure(resolution.code, resolution.message);
 			return;
 		}
 		const humanActor = resolution.actor;
 		const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-		const session = await loadSession(featureDir);
+		const session = await ctx.resolveSession(featureDir);
 		const from = session.snapshot.state?.sub_state;
 		if (!from) {
-			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+			ctx.failure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
 			return;
 		}
 		const payload = {};
@@ -5883,7 +6080,7 @@ async function main(argv = process.argv) {
 			meta: session.meta
 		});
 		if (!result.ok) {
-			emitFailure(result.code, result.message, result.detail);
+			ctx.failure(result.code, result.message, result.detail);
 			return;
 		}
 		const advisory = [`session complete — \`loaf start <feature>\` to begin another`];
@@ -5896,8 +6093,7 @@ async function main(argv = process.argv) {
 			sub_state: result.snapshot.state?.sub_state,
 			advisory
 		};
-		if (useJson) process.stdout.write(JSON.stringify(out) + "\n");
-		else process.stdout.write(`delivered ${opts.feature} (advisory only) — ${from} → DONE.delivered by ${humanActor}\nnext: ${advisory[0]}\n`);
+		ctx.success(out, () => `delivered ${opts.feature} (advisory only) — ${from} → DONE.delivered by ${humanActor}\nnext: ${advisory[0]}\n`);
 	});
 	program.command("archive").description("Close the feature session without delivering (emits session:archived → DONE.archived)").requiredOption("--feature <name>", "Feature whose session to archive").requiredOption("--reason <text>", "Rationale recorded on the session:archived entry").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		const resolution = resolveHumanActor({
@@ -7682,7 +7878,7 @@ feature:
 	});
 	try {
 		await program.parseAsync(argv);
-		return exitCode;
+		return ctx.exitCode;
 	} catch (err) {
 		if (err instanceof CommanderError) {
 			if (err.exitCode === 0) return 0;
@@ -7690,24 +7886,39 @@ feature:
 			return err.exitCode === 1 ? 2 : err.exitCode;
 		}
 		const error = err instanceof Error ? err : new Error(String(err));
+		const crashContext = ctx.snapshotCrashContext();
 		const crashLog = await writeCrashLog({
 			argv,
 			cwd: process.cwd(),
 			version,
-			error
+			error,
+			context: {
+				phase: crashContext.phase,
+				sub_state: crashContext.sub_state
+			}
+		});
+		const reportUrl = buildReportUrl({
+			base: LOAF_ISSUE_URL,
+			loaf_version: version,
+			schema_version: "2",
+			phase: crashContext.phase,
+			sub_state: crashContext.sub_state,
+			argv,
+			crash_log_path: crashLog
 		});
 		if (useJson) {
 			const payload = {
 				ok: false,
 				code: UNEXPECTED_ERROR,
-				message: "unexpected internal error"
+				message: "unexpected internal error",
+				report_url: reportUrl
 			};
 			if (crashLog !== null) payload["crash_log"] = crashLog;
 			process.stderr.write(JSON.stringify(payload) + "\n");
 		} else {
 			process.stderr.write(`error: ${UNEXPECTED_ERROR} — ${error.message}\n`);
 			if (crashLog !== null) process.stderr.write(`  crash log: ${crashLog}\n`);
-			process.stderr.write(`  report at ${LOAF_ISSUE_URL} (include the crash log after manual PII review)\n`);
+			process.stderr.write(`  report at ${reportUrl}\n`);
 		}
 		return 1;
 	}
