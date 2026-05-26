@@ -1600,7 +1600,7 @@ bridge 路径 `~/.loaf/claude-bridge/` 是 **client 协议约定**,不是 loaf-c
 | 错误类型 | 行为 |
 |---|---|
 | **Expected**(schema fail / illegal transition / 缺必要 flag) | stderr 一行 human readable + 指向 `.loaf/<feature>/snapshots/gate-diagnostic.json`(rev 5.0;若适用;读者先走 §10.15 Gate #5 fast check) / `loaf doctor` 给修复建议;exit 2 |
-| **Unexpected**(panic / unknown 异常) | stderr 一行「unexpected error — debug log at `~/.loaf/crashes/<ts>.log`;report at `$LOAF_ISSUE_URL?<prefilled-context>`」+ 写完整 stack 到 crash log;exit 1。`$LOAF_ISSUE_URL` 由 build 时注入(见 §10.11),query string **预填**:`loaf_version` / `schema_version` / `phase` / `sub_state` / `last_command`(argv,sanitized — 不含文件内容)/ `crash_log_path`(本地路径,提示用户手动 review 后贴) |
+| **Unexpected**(panic / unknown 异常) | stderr 一行「unexpected error — debug log at `~/.loaf/crashes/<ts>.json`;report at `$LOAF_ISSUE_URL`」+ 写完整 stack 到 crash log;exit 1。Crash log envelope shape:`CrashLogEnvelope` Zod schema in `src/core/crash-log.ts`(`{iso, version, argv, cwd, feature, exitCode:1, error:{name,message,stack}}`,文件扩展 `.json`,目录 mode 0700,文件 mode 0600,Phase 16 SC-2)。`$LOAF_ISSUE_URL` 由 build 时注入(见 §10.11)。**Deferred to SC-3 (CommandContext)**:URL query 预填 `loaf_version` / `schema_version` / `phase` / `sub_state` / `last_command`(argv,sanitized)/ `crash_log_path`,以及 envelope 内 `phase` + `sub_state` 字段 —— SC-2 的 boundary 只在 stderr 输出裸 URL + crash log 路径,prefilled query builder + 扩展 envelope 字段要等 CommandContext 落地后再做(否则 boundary 要重新自己加载 session,违反「catch 内不再读 journal」纪律,codex r196 PATCH B)。 |
 | **Diff guard violation**(`loaf advance`) | exit 2 + stderr 列出违反 path + 引用 `STEP_WRITE_PATHS_BY_KIND` rule 来源 |
 | **Session dispatch**(rev 4.1)| 4 个 diagnostic code:`FEATURE_NOT_FOUND`(cwd 0 个 feature)/ `FEATURE_AMBIGUOUS`(cwd 2+ feature 且无 dispatch 上下文)/ `SESSION_CWD_MISMATCH`(`--session <UUID>` 指定的 UUID 注册 cwd ≠ 当前 cwd)/ `SESSION_SHORT_AMBIGUOUS`(短 UUID prefix 在 registry 多匹配)。全部 exit 2,stderr 列候选 + did-you-mean。详见 §10.3 dispatch precedence 段 |
 | **Pending head invariant**(rev 4.1 Q3 minimal)| 3 个 diagnostic code:`PENDING_BLOCKS_ADVANCE`(`loaf advance` 时 head ∈ {gate_decision, profile_escalation})/ `GATE_NOT_PENDING`(`loaf gate decide <G>` 但 head 不是 `gate_decision(<G>)`)/ `ESCALATION_NOT_PENDING`(`loaf profile escalate --confirm --input <ceremony.json>` 但 head 不是 `profile_escalation`)。全部 exit 2,stderr 列 head 的 `pending_id` + `question`,提示先 resolve 或换合适命令 |
@@ -1956,7 +1956,7 @@ Read-only 命令(`loaf status` / `tasks list` / `tasks check` / `tasks next` / `
 | Code | 含义 |
 |---|---|
 | **0** | success |
-| **1** | unexpected internal error(panic / IO crash / out of disk);crash log 在 `~/.loaf/crashes/<ts>.log` |
+| **1** | unexpected internal error(panic / IO crash / out of disk);crash log 在 `~/.loaf/crashes/<ts>.json`(`CrashLogEnvelope` Zod,见 §10.5 + `src/core/crash-log.ts`) |
 | **2** | expected user error(schema validation / illegal transition / 缺必要 flag / unknown subcommand / `--no-input` + 缺 prompt input)— 这是最常见的非 0 code |
 | **130** | SIGINT(Ctrl-C 中断,POSIX 惯例) |
 
@@ -2074,7 +2074,7 @@ git / gh side effect 是 loaf-skill 或用户自己负责,**不进 loaf-cli**。
 | **registry-stale** | `~/.loaf/registry/*.json` | 文件 `at` 早于对应 state.json `heartbeat_at` > 5 分钟 | 重写 registry 投影从 canonical(`--rebuild-registry` 简写)|
 | **registry-orphan** | `~/.loaf/registry/<id>.json` | 对应 cwd 已无 `.loaf/<feature>/state.json`(repo 被删 / session id 不匹配)| `unlink` registry 文件 |
 | **registry-gc** | `~/.loaf/registry/*.json` | mtime > 30 天 | `unlink`(§4.12 GC 策略)|
-| **crash-log-prune** | `~/.loaf/crashes/*.log` | mtime > 30 天 | `unlink`(避免堆积)|
+| **crash-log-prune** | `~/.loaf/crashes/*.json` | mtime > 30 天 | `unlink`(避免堆积);文件扩展 Phase 16 SC-2 改为 `.json`(envelope `CrashLogEnvelope` Zod,见 §10.5)|
 | **schema-drift** | `.loaf/<feature>/{journal.jsonl,snapshots/_meta.json}` + legacy `.loaf/<feature>/{state,spec,tasks,evidence,findings}.json/jsonl`(仅 v0.0.x backup 或迁移源)| 当前 binary 期望 `SCHEMA_VERSION=2`(rev 5.0);journal `entry_schema_version` 或 `snapshots/_meta.json.feature_schema_version` ≠ 2 → drift;legacy `schema_version=1` artifact 出现在 active feature 而非 backup → 触发 migration-v0.0.x 路径 | 不自动 fix;打印 `SCHEMA_VERSION_MISMATCH` + migration hint(`loaf doctor --migrate-v2`);v1 GA 后 `SCHEMA_VERSION` freeze 在 2,理论无 drift |
 | **artifact-corruption** | 上同 | Zod parse 失败 / 非法 JSON | 不自动 fix;打印 path + Zod 错误,提示手动恢复或从 git 历史 checkout |
 | **url-placeholder**(只在 startup 内嵌跑)| binary build 元数据 | `LOAF_DOCS_URL` 或 `LOAF_ISSUE_URL` 是默认 placeholder(见 §10.11)| 不 fix(rebuild 才能修);警告即可 |
@@ -2085,7 +2085,7 @@ git / gh side effect 是 loaf-skill 或用户自己负责,**不进 loaf-cli**。
 | **snapshot-seq-mismatch**(rev 5.0,Gate #5)| `.loaf/<feature>/snapshots/_meta.json` | `last_applied_seq` < 实际 journal 末 entry seq,或 `last_entry_line_hash` mismatch | 不自动 fix;打印 `SNAPSHOT_STALE_REBUILD_REQUIRED` 提示跑 `loaf doctor --rebuild`(reader contract 永不静默 fallback,ADR-0005 §3.6)。**Phase 15 SC3**:`projection-loader`(`status` / `tasks list` / `pending list` / `finding list` 四个只读命令)在消费 `snapshots/<kind>.json` 前必跑 Gate #5 fast-check + 第二次 cached-M0 post-read fast-check(M0-anchored linearization guard);任一 fail → exit 2 `SNAPSHOT_STALE_REBUILD_REQUIRED`,9-reason taxonomy(`detail.reason`)包括 reader 原 5 reason(`journal_missing` / `journal_empty` / `tail_offset_mismatch` / `tail_hash_mismatch` / `trailing_partial_line`)+ loader 加 4 reason(`meta_missing` / `meta_invalid {cause: json_parse \| schema}` / `projection_missing {projection_kind}` / `projection_invalid {projection_kind, cause}`)。`tasks.json` 缺失若 `state.based_on.tasks === 0` 走 valid-empty(writer skip,§14)而非 `projection_missing`;pre-`loaf start` dir(journal + meta 均缺,或 `isEmptyMeta` sentinel + journal 空)分类成 `NO_SESSION` 而非 stale。SC3 仅切这 4 个只读命令;其他命令仍走 `loadSession` full replay |
 | **migration-v0.0.x**(rev 5.0,ADR-0005 §5.2)| `.loaf/<feature>/` | 存在 v0.0.x N-file 形态(`state.json` / `tasks.json` / `evidence.jsonl` 等)且无 `journal.jsonl` | 不自动 fix;打印 `SCHEMA_VERSION_MISMATCH` 提示跑 `loaf doctor --migrate-v2`(Step 1-7 sidecar import) |
 | **rolling-checksum-mismatch**(rev 5.0,ADR-0005 §3.1 full verify path)| `.loaf/<feature>/journal.jsonl` | `loaf doctor --verify-checksum` 重算整链(O(N))与 `_meta.rolling_checksum` 不匹配 | 不自动 fix;打印 journal 中段 corruption 位置;手动 recovery(git 历史 / backup) |
-| **sidecar-validation-drift**(rev 5.0,ADR-0005 §3.5 step 5d)| internal invariant | step 5d final-validate reducer-visible diff vs step 3c preflight 结果(应当永远相同) | 不自动 fix;指示实现 bug;dump entry payload + reducer trace 进 `~/.loaf/crashes/<ts>.log` 报 |
+| **sidecar-validation-drift**(rev 5.0,ADR-0005 §3.5 step 5d)| internal invariant | step 5d final-validate reducer-visible diff vs step 3c preflight 结果(应当永远相同) | 不自动 fix;指示实现 bug;dump entry payload + reducer trace 进 `~/.loaf/crashes/<ts>.json`(envelope `CrashLogEnvelope` Zod,见 §10.5)报 |
 
 **调用契约**:
 
@@ -2282,7 +2282,7 @@ v1 的核心目标是 protocol 可靠,不是知识复利自动化。手工 grep 
 |---|---|---|---|
 | **Canonical truth** | `.loaf/<feature>/journal.jsonl` + `.loaf/<feature>/attachments/<entry_id>/**` + `loaf.config.json`(project-level config,非 journal 一部分但同属真理源) | 协议真理源。`journal.jsonl` **append-only**,typed envelope per ADR-0005 §3.2,batch markers + per-entry `entry_schema_version`;`attachments/` per-entry sidecar(sha256 在 entry payload 内 anchor)。由 loaf-cli 单写者纪律 + §11.2 10-step transaction 保护 | ✅ |
 | **Derived projection** | `snapshots/state.json` / `snapshots/tasks.json` / `snapshots/evidence.json` / `snapshots/findings.json` / `snapshots/pending.json` / `snapshots/reconcile.json` / `snapshots/gate-diagnostic.json` / `snapshots/resume-pack.json` / `snapshots/_meta.json` / `spec.md`(post-submit) / `lessons.md` / `~/.loaf/registry/<id>.json` / `spec-draft-context.md` | 派生投影,reducer 从 journal entries 重建;**允许 ≤1 mutator 周期 stale**(写者在 lock 内增量更新)。TUI / handoff / diagnostic / read-side CLI 命令消费。Reader 必须走 §10.15 fast check;mismatch → exit 2 `SNAPSHOT_STALE_REBUILD_REQUIRED`(Gate #5,**不静默 fallback**) | ❌ |
-| **Debug-trace** | `.loaf/<feature>/trace.jsonl` / `~/.loaf/crashes/<ts>.log` | 仅 `--debug` 写 trace;crash log 永不自动 upload(§10.11)。不是 journal entry,不进 reducer | ❌ |
+| **Debug-trace** | `.loaf/<feature>/trace.jsonl` / `~/.loaf/crashes/<ts>.json` | 仅 `--debug` 写 trace;crash log 永不自动 upload(§10.11)。文件扩展 Phase 16 SC-2 改为 `.json`(envelope `CrashLogEnvelope` Zod,见 §10.5)。不是 journal entry,不进 reducer | ❌ |
 | **Advisory** | `loaf deliver` 输出 / `loaf status` 人类输出 / `lessons.md` 内容形态 | 自由 markdown / 人类可读建议;格式不强校验(`lessons.md` 文件本身是 Derived projection,但其内容形态 advisory) | ❌ |
 
 **底线规则**(Principle #15 ② + 15a 落地):

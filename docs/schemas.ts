@@ -3095,7 +3095,7 @@ export const CONCURRENCY_INVARIANTS = {
   //                          gate-diagnostic / resume-pack / _meta) +
   //                          spec.md (post-submit) + lessons.md +
   //                          ~/.loaf/registry/<id>.json + spec-draft-context.md
-  //      Debug-trace         trace.jsonl / ~/.loaf/crashes/*.log
+  //      Debug-trace         trace.jsonl / ~/.loaf/crashes/*.json
   //      Advisory            `loaf deliver` stdout / `loaf status` stdout
   //    single_writer applies to all four layers; gate authority
   //    distinction is §13.1's concern, not this rule's.

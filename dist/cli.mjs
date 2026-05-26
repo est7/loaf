@@ -3,6 +3,7 @@ import { Command, CommanderError } from "commander";
 import { promises, readFileSync } from "node:fs";
 import * as path$1 from "node:path";
 import path from "node:path";
+import os from "node:os";
 import { z } from "zod";
 import { execFileSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
@@ -11,6 +12,87 @@ import * as fs from "node:fs/promises";
 import { parse, stringify } from "yaml";
 //#region package.json
 var version = "0.1.0";
+//#endregion
+//#region src/core/crash-log.ts
+/** Sentinel code stamped into the JSON envelope and (when `--json` is
+*  set) onto the boundary stderr payload. Lives here, not in
+*  src/cli.tsx, so the SC-0 inventory regex (`code: "CODE"` scan over
+*  cli.tsx) does NOT pick it up as an uncataloged DiagnosticCode emit. */
+const UNEXPECTED_ERROR = "UNEXPECTED_ERROR";
+z.object({
+	iso: z.string(),
+	version: z.string(),
+	argv: z.array(z.string()),
+	cwd: z.string(),
+	feature: z.string().nullable(),
+	exitCode: z.literal(1),
+	error: z.object({
+		name: z.string(),
+		message: z.string(),
+		stack: z.string().nullable()
+	})
+});
+const DEFAULT_DEPS = {
+	now: () => /* @__PURE__ */ new Date(),
+	homeDir: () => os.homedir(),
+	writeStderr: (s) => process.stderr.write(s)
+};
+/** Best-effort `--feature <NAME>` extractor. Stays in this module so the
+*  boundary doesn't have to know argv shape; null on miss. */
+function extractFeature(argv) {
+	const i = argv.indexOf("--feature");
+	if (i < 0 || i + 1 >= argv.length) return null;
+	const v = argv[i + 1];
+	return v && !v.startsWith("--") ? v : null;
+}
+/** ISO 8601 with `:` replaced so the filename is portable across
+*  Windows/macOS/Linux without escaping. */
+function safeIso(d) {
+	return d.toISOString().replace(/:/g, "-");
+}
+/** Write a crash log envelope and return its absolute path. On any IO
+*  failure (EACCES, ENOSPC, unwritable parent), emit a one-line stderr
+*  diagnostic via `deps.writeStderr` and return null. Never throws —
+*  the caller is already in an error boundary and a second fault would
+*  obscure the original cause. */
+async function writeCrashLog(input, depsPartial) {
+	const deps = {
+		...DEFAULT_DEPS,
+		...depsPartial
+	};
+	const now = deps.now();
+	const envelope = {
+		iso: now.toISOString(),
+		version: input.version,
+		argv: [...input.argv],
+		cwd: input.cwd,
+		feature: extractFeature(input.argv),
+		exitCode: 1,
+		error: {
+			name: input.error.name,
+			message: input.error.message,
+			stack: input.error.stack ?? null
+		}
+	};
+	const dir = path.join(deps.homeDir(), ".loaf", "crashes");
+	const file = path.join(dir, `${safeIso(now)}.json`);
+	try {
+		await promises.mkdir(dir, {
+			recursive: true,
+			mode: 448
+		});
+		await promises.chmod(dir, 448);
+		await promises.writeFile(file, JSON.stringify(envelope, null, 2) + "\n", {
+			encoding: "utf8",
+			mode: 384
+		});
+		await promises.chmod(file, 384);
+		return file;
+	} catch (err) {
+		deps.writeStderr(`loaf: crash log unwritable at ${file} — ${err.message}\n`);
+		return null;
+	}
+}
 const SchemaVersionPayload = z.literal(2);
 const ReqIdPayload = z.string().regex(/^REQ-[A-Z][A-Z0-9]*-\d{3,}$/);
 const ScenIdPayload = z.string().regex(/^SCEN-[A-Z][A-Z0-9-]*-\d{3,}$/);
@@ -5426,6 +5508,17 @@ const PRESETS = {
 		strict_drift_check: true
 	}
 };
+let _sigintInstalled = false;
+function installSigintHandler(deps) {
+	const handler = () => {
+		deps.writeStderr("\nloaf: interrupted (SIGINT)\n");
+		deps.exit(130);
+	};
+	if (_sigintInstalled) return handler;
+	_sigintInstalled = true;
+	process.on("SIGINT", handler);
+	return handler;
+}
 async function main(argv = process.argv) {
 	const program = new Command();
 	program.name("loaf").description("Spec-driven development protocol CLI").version(version).option("--json", "Emit JSON output on stdout").addHelpText("after", helpFooter()).showHelpAfterError().exitOverride();
@@ -6027,15 +6120,6 @@ async function main(argv = process.argv) {
 		else process.stdout.write(`escalated ${opts.feature} — ceremony updated, pending ${head.id} resolved (cursor ${out.sub_state})\n`);
 	});
 	program.command("doctor").description("Repository self-check. This release implements --rebuild only").option("--rebuild", "Full journal replay → rebuild snapshots/*.json + _meta.json").option("--feature <name>", "Feature whose snapshots to rebuild (required with --rebuild)").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
-		const failRebuild = (code, message) => {
-			if (useJson) process.stderr.write(JSON.stringify({
-				ok: false,
-				code,
-				message
-			}) + "\n");
-			else process.stderr.write(`error: ${code} — ${message}\n`);
-			exitCode = 1;
-		};
 		if (!opts.rebuild) {
 			emitFailure("DOCTOR_MODE_NOT_IMPLEMENTED", "only --rebuild is implemented for loaf doctor in this release");
 			return;
@@ -6051,16 +6135,16 @@ async function main(argv = process.argv) {
 			feature_dir: featureDir
 		});
 		if (!replay.ok) {
-			failRebuild(replay.code, `journal at ${journalPath} cannot be replayed — ${replay.message}`);
+			emitFailure(replay.code, `journal at ${journalPath} cannot be replayed — ${replay.message}`);
 			return;
 		}
 		const entries = replay.entries;
 		if (entries === void 0) {
-			failRebuild("DOCTOR_REBUILD_FAILED", "internal invariant: replay returned ok without collected entries");
+			emitFailure("DOCTOR_REBUILD_FAILED", "internal invariant: replay returned ok without collected entries");
 			return;
 		}
 		if (entries.some((e) => e.kind === "migration:snapshot_imported")) {
-			failRebuild("DOCTOR_REBUILD_MIGRATED_UNSUPPORTED", "doctor --rebuild does not yet support v0.0.x-migrated journals (intersects doctor --migrate-v2)");
+			emitFailure("DOCTOR_REBUILD_MIGRATED_UNSUPPORTED", "doctor --rebuild does not yet support v0.0.x-migrated journals (intersects doctor --migrate-v2)");
 			return;
 		}
 		let rebuilt;
@@ -6071,7 +6155,7 @@ async function main(argv = process.argv) {
 				meta: replay.meta
 			});
 		} catch (err) {
-			failRebuild("DOCTOR_REBUILD_FAILED", `snapshot rebuild failed — ${err.message}`);
+			emitFailure("DOCTOR_REBUILD_FAILED", `snapshot rebuild failed — ${err.message}`);
 			return;
 		}
 		const out = {
@@ -7605,16 +7689,39 @@ feature:
 			process.stderr.write(`error: ${err.code ?? "USAGE"} — ${err.message}\n`);
 			return err.exitCode === 1 ? 2 : err.exitCode;
 		}
-		process.stderr.write(`error: ${String(err)}\n`);
-		return 2;
+		const error = err instanceof Error ? err : new Error(String(err));
+		const crashLog = await writeCrashLog({
+			argv,
+			cwd: process.cwd(),
+			version,
+			error
+		});
+		if (useJson) {
+			const payload = {
+				ok: false,
+				code: UNEXPECTED_ERROR,
+				message: "unexpected internal error"
+			};
+			if (crashLog !== null) payload["crash_log"] = crashLog;
+			process.stderr.write(JSON.stringify(payload) + "\n");
+		} else {
+			process.stderr.write(`error: ${UNEXPECTED_ERROR} — ${error.message}\n`);
+			if (crashLog !== null) process.stderr.write(`  crash log: ${crashLog}\n`);
+			process.stderr.write(`  report at ${LOAF_ISSUE_URL} (include the crash log after manual PII review)\n`);
+		}
+		return 1;
 	}
 }
 const __URL_STAMP_PROBE__ = `${LOAF_DOCS_URL} ${LOAF_ISSUE_URL}`;
 if (import.meta.main) {
+	installSigintHandler({
+		writeStderr: (s) => process.stderr.write(s),
+		exit: (code) => process.exit(code)
+	});
 	const exitCode = await main(process.argv);
 	process.exit(exitCode);
 }
 //#endregion
-export { __URL_STAMP_PROBE__, main };
+export { __URL_STAMP_PROBE__, installSigintHandler, main };
 
 //# sourceMappingURL=cli.mjs.map

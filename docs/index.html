@@ -847,7 +847,7 @@
 
     <rect x="40" y="120" width="540" height="60" rx="8" fill="var(--panel-2)" stroke="var(--line)" stroke-width="1"/>
     <text class="phase-label" x="100" y="138" text-anchor="start">DEBUG-TRACE</text>
-    <text class="node-text" x="130" y="158" text-anchor="start">trace.jsonl(--debug only)  ·  ~/.loaf/crashes/&lt;ts&gt;.log</text>
+    <text class="node-text" x="130" y="158" text-anchor="start">trace.jsonl(--debug only)  ·  ~/.loaf/crashes/&lt;ts&gt;.json</text>
     <text class="edge-label" x="130" y="172" text-anchor="start">git 永不污染;crash log 不自动 upload</text>
 
     <rect x="600" y="120" width="540" height="60" rx="8" fill="var(--panel-2)" stroke="var(--line)" stroke-width="1"/>
@@ -1229,7 +1229,7 @@
       <tr><td>registry-stale</td><td>~/.loaf/registry/*.json</td><td>at 早于 heartbeat &gt; 5 min</td><td><span class="sev-info">--rebuild-registry 重写</span></td></tr>
       <tr><td>registry-orphan</td><td>~/.loaf/registry/&lt;id&gt;.json</td><td>对应 cwd 无 .loaf/&lt;feat&gt;/</td><td><span class="sev-info">unlink</span></td></tr>
       <tr><td>registry-gc</td><td>~/.loaf/registry/*.json</td><td>mtime &gt; 30 天</td><td><span class="sev-info">unlink</span></td></tr>
-      <tr><td>crash-log-prune</td><td>~/.loaf/crashes/*.log</td><td>mtime &gt; 30 天</td><td><span class="sev-info">unlink</span></td></tr>
+      <tr><td>crash-log-prune</td><td>~/.loaf/crashes/*.json</td><td>mtime &gt; 30 天</td><td><span class="sev-info">unlink</span></td></tr>
       <tr><td>schema-drift</td><td>journal + _meta</td><td>entry_schema_version 或 feature_schema_version ≠ 2</td><td><span class="sev-warn">不自动 fix;提示 migration hint</span></td></tr>
       <tr><td>artifact-corruption</td><td>同上</td><td>Zod parse 失败</td><td><span class="sev-warn">不自动 fix;提示手动 / git checkout</span></td></tr>
       <tr><td>stale-claim</td><td>snapshots/tasks.json in_progress</td><td>started_at &gt; 30 min + 无新 evidence</td><td><span class="sev-info">v0.1.0 advisory-only;v0.1.x:emit <code>event:claim_reclaimed</code> 走 §11.2(待 ADR)</span></td></tr>

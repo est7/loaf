@@ -19,6 +19,8 @@ import { promises as fsP, readFileSync } from "node:fs";
 import path from "node:path";
 import packageJson from "../package.json" with { type: "json" };
 
+import { UNEXPECTED_ERROR, writeCrashLog } from "./core/crash-log.js";
+
 import { resolveHumanActor } from "./core/actor-resolver.js";
 import {
   LOAF_DOCS_URL,
@@ -95,6 +97,36 @@ const PRESETS: Record<string, Ceremony> = {
     strict_drift_check: true,
   },
 };
+
+// Phase 16 SC-2 — SIGINT handler (protocol §10.9 exit 130).
+//
+// Module-scope `_sigintInstalled` + DI-shaped factory `installSigintHandler`
+// per codex r196 PATCH C. Two contracts:
+//   - Idempotent install: each `main()` call could re-install otherwise,
+//     and vitest invokes `main` many times in a single process. A growing
+//     listener list eventually triggers MaxListenersExceededWarning.
+//   - Injectable deps: makes the 130-exit + "interrupted (SIGINT)" stderr
+//     unit-testable without timing-based child-process plumbing.
+// `installSigintHandler` returns the handler closure so callers (chiefly
+// the unit test) can invoke it directly without waiting for an actual
+// signal.
+export type SigintHandlerDeps = {
+  writeStderr: (s: string) => void;
+  exit: (code: number) => void;
+};
+
+let _sigintInstalled = false;
+
+export function installSigintHandler(deps: SigintHandlerDeps): () => void {
+  const handler = (): void => {
+    deps.writeStderr("\nloaf: interrupted (SIGINT)\n");
+    deps.exit(130);
+  };
+  if (_sigintInstalled) return handler;
+  _sigintInstalled = true;
+  process.on("SIGINT", handler);
+  return handler;
+}
 
 export async function main(argv: string[] = process.argv): Promise<number> {
   const program = new Command();
@@ -1059,12 +1091,18 @@ export async function main(argv: string[] = process.argv): Promise<number> {
   // + the other sub-flags (--check-tail / --migrate-v2 / --scope /
   // --verify-checksum) are later slices.
   //
-  // Exit codes (codex r160): 0 = rebuilt OK; 1 = a valid request whose
-  // rebuild cannot complete (unreplayable journal, unsupported migrated
-  // journal, serialization/write failure); 2 = CLI usage error (missing
-  // --feature, or bare `doctor` with no implemented mode) via emitFailure.
+  // Exit codes (Phase 16 SC-2 normalization, was codex r160 pre-normalization):
+  //   0 = rebuilt OK
+  //   2 = every catalogued failure (unreplayable journal, unsupported
+  //       migrated journal, serialization/write failure, missing --feature,
+  //       bare `doctor` without an implemented mode). All routed through
+  //       emitFailure to keep ERROR_CATALOG ⇔ runtime exit_code in agreement
+  //       (docs/schemas.ts:5042-5063 lists DOCTOR_REBUILD_FAILED /
+  //       DOCTOR_REBUILD_MIGRATED_UNSUPPORTED with exit_code: 2).
+  //   Exit 1 is reserved for unhandled throws caught by the top-level
+  //   boundary at the end of main(), which also writes ~/.loaf/crashes/.
   // No per-feature lock — the repo runs under the single-writer assumption
-  // (no .lock infra; F-014 r112).
+  // (no .lock infra; F-014 r112; protocol.md §11.2 step 1/8/9/10 deferred).
   program
     .command("doctor")
     .description("Repository self-check. This release implements --rebuild only")
@@ -1072,17 +1110,6 @@ export async function main(argv: string[] = process.argv): Promise<number> {
     .option("--feature <name>", "Feature whose snapshots to rebuild (required with --rebuild)")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { rebuild?: boolean; feature?: string; featureDir?: string }) => {
-      // failRebuild — the exit-1 path: a valid request whose rebuild cannot
-      // complete. Distinct from emitFailure (exit 2 = CLI usage error).
-      const failRebuild = (code: string, message: string): void => {
-        if (useJson) {
-          process.stderr.write(JSON.stringify({ ok: false, code, message }) + "\n");
-        } else {
-          process.stderr.write(`error: ${code} — ${message}\n`);
-        }
-        exitCode = 1;
-      };
-
       if (!opts.rebuild) {
         emitFailure(
           "DOCTOR_MODE_NOT_IMPLEMENTED",
@@ -1110,7 +1137,7 @@ export async function main(argv: string[] = process.argv): Promise<number> {
         feature_dir: featureDir,
       });
       if (!replay.ok) {
-        failRebuild(
+        emitFailure(
           replay.code,
           `journal at ${journalPath} cannot be replayed — ${replay.message}`,
         );
@@ -1118,7 +1145,7 @@ export async function main(argv: string[] = process.argv): Promise<number> {
       }
       const entries = replay.entries;
       if (entries === undefined) {
-        failRebuild(
+        emitFailure(
           "DOCTOR_REBUILD_FAILED",
           "internal invariant: replay returned ok without collected entries",
         );
@@ -1131,7 +1158,7 @@ export async function main(argv: string[] = process.argv): Promise<number> {
       // intersecting `doctor --migrate-v2` (F-018). Fail cleanly before
       // writeProjections rather than let composeTasksJson throw.
       if (entries.some((e) => e.kind === "migration:snapshot_imported")) {
-        failRebuild(
+        emitFailure(
           "DOCTOR_REBUILD_MIGRATED_UNSUPPORTED",
           "doctor --rebuild does not yet support v0.0.x-migrated journals (intersects doctor --migrate-v2)",
         );
@@ -1146,7 +1173,7 @@ export async function main(argv: string[] = process.argv): Promise<number> {
           meta: replay.meta,
         });
       } catch (err) {
-        failRebuild(
+        emitFailure(
           "DOCTOR_REBUILD_FAILED",
           `snapshot rebuild failed — ${(err as Error).message}`,
         );
@@ -3879,8 +3906,38 @@ export async function main(argv: string[] = process.argv): Promise<number> {
       process.stderr.write(`error: ${err.code ?? "USAGE"} — ${err.message}\n`);
       return err.exitCode === 1 ? 2 : err.exitCode;
     }
-    process.stderr.write(`error: ${String(err)}\n`);
-    return 2;
+    // Phase 16 SC-2 — unhandled error boundary (protocol §10.5 / §10.9).
+    // Any non-Commander error reaching here is "Error escaped the action
+    // handler" (codex r196 PATCH A wording): the discriminator is escape,
+    // not whether exitCode was set. Crash log + UNEXPECTED_ERROR sentinel
+    // + exit 1. The sentinel is intentionally NOT a DiagnosticCode —
+    // docs/schemas.ts:3827-3830 scopes that union to exit-2 user-recoverable
+    // failures and ErrorEntry.exit_code is z.literal(2). See src/core/crash-log.ts.
+    const error = err instanceof Error ? err : new Error(String(err));
+    const crashLog = await writeCrashLog({
+      argv,
+      cwd: process.cwd(),
+      version: packageJson.version,
+      error,
+    });
+    if (useJson) {
+      const payload: Record<string, unknown> = {
+        ok: false,
+        code: UNEXPECTED_ERROR,
+        message: "unexpected internal error",
+      };
+      if (crashLog !== null) payload["crash_log"] = crashLog;
+      process.stderr.write(JSON.stringify(payload) + "\n");
+    } else {
+      process.stderr.write(`error: ${UNEXPECTED_ERROR} — ${error.message}\n`);
+      if (crashLog !== null) {
+        process.stderr.write(`  crash log: ${crashLog}\n`);
+      }
+      process.stderr.write(
+        `  report at ${LOAF_ISSUE_URL} (include the crash log after manual PII review)\n`,
+      );
+    }
+    return 1;
   }
 }
 
@@ -3890,6 +3947,14 @@ export async function main(argv: string[] = process.argv): Promise<number> {
 export const __URL_STAMP_PROBE__ = `${LOAF_DOCS_URL} ${LOAF_ISSUE_URL}`;
 
 if (import.meta.main) {
+  // Phase 16 SC-2 — SIGINT handler installs at the binary entry only,
+  // never when the module is imported (e.g. vitest). Tests exercise the
+  // handler via direct `installSigintHandler({writeStderr, exit})` DI
+  // so they don't accidentally tear down the test runner via real exit(130).
+  installSigintHandler({
+    writeStderr: (s) => process.stderr.write(s),
+    exit: (code) => process.exit(code),
+  });
   const exitCode = await main(process.argv);
   process.exit(exitCode);
 }

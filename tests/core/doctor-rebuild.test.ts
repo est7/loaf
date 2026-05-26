@@ -350,7 +350,13 @@ describe("loaf doctor --rebuild — Phase 14 SC2", () => {
     expect(r.stdout).toBe("");
   });
 
-  test("a v0.0.x-migrated journal is rejected cleanly — exit 1, no fresh _meta.json", async () => {
+  test("a v0.0.x-migrated journal is rejected cleanly — exit 2, no fresh _meta.json", async () => {
+    // Phase 16 SC-2 PATCH A: DOCTOR_REBUILD_MIGRATED_UNSUPPORTED is a SC-1
+    // catalogued code with exit_code: 2 (docs/schemas.ts:5042-5055). The
+    // pre-SC-2 failRebuild() path emitted exit 1 here, which contradicted
+    // the catalog and the protocol §10.9 contract (exit 1 reserved for
+    // unexpected internal errors + crash log). SC-2 normalizes the helper
+    // through emitFailure() so catalog ⇔ runtime exit_code agree.
     const featureDir = await buildV0Fixture();
     try {
       await migrateV2(featureDir, {
@@ -360,7 +366,7 @@ describe("loaf doctor --rebuild — Phase 14 SC2", () => {
       const r = await runCli([
         "doctor", "--rebuild", "--feature", "auth-refresh", "--feature-dir", featureDir,
       ]);
-      expect(r.exit).toBe(1);
+      expect(r.exit).toBe(2);
       expect(r.stderr).toContain("DOCTOR_REBUILD_MIGRATED_UNSUPPORTED");
       // The guard fires before writeProjections — nothing materialized.
       await expect(
@@ -371,7 +377,10 @@ describe("loaf doctor --rebuild — Phase 14 SC2", () => {
     }
   });
 
-  test("an unreplayable journal fails cleanly — exit 1, no fresh _meta.json", async () => {
+  test("an unreplayable journal fails cleanly — exit 2, no fresh _meta.json", async () => {
+    // Phase 16 SC-2 PATCH A: same normalization as DOCTOR_REBUILD_MIGRATED_UNSUPPORTED.
+    // replayJournal's failure surface (INVALID_ENVELOPE etc.) is catalogued
+    // at exit 2; failRebuild() previously masked it as exit 1.
     const dir = await tmpDir();
     try {
       // Envelope-invalid line — replayJournal returns INVALID_ENTRY.
@@ -383,7 +392,7 @@ describe("loaf doctor --rebuild — Phase 14 SC2", () => {
       const r = await runCli([
         "doctor", "--rebuild", "--feature", "auth-refresh", "--feature-dir", dir,
       ]);
-      expect(r.exit).toBe(1);
+      expect(r.exit).toBe(2);
       expect(r.stderr).toContain("cannot be replayed");
       await expect(
         fs.stat(path.join(dir, "snapshots", "_meta.json")),
