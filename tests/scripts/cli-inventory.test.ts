@@ -14,6 +14,22 @@ const REPO_ROOT = path.resolve(__dirname, "..", "..");
 const PROTOCOL_PATH = path.join(REPO_ROOT, "docs", "protocol.md");
 const BASELINE_PATH = path.join(__dirname, "inventory", "diagnostic-baseline.json");
 const CLI_PATH = path.join(REPO_ROOT, "src", "cli.tsx");
+const I18N_EN_PATH = path.join(REPO_ROOT, "i18n", "en.json");
+const I18N_ZH_PATH = path.join(REPO_ROOT, "i18n", "zh.json");
+
+// Phase 16 SC-1 — the 7 DiagnosticCodes registered into ERROR_CATALOG +
+// i18n bundles by this slice (was the SC-0 baseline contents). Tests below
+// enforce parity strictly for THIS set, not full enum↔i18n parity (codex
+// r193 BLOCKER 2: existing enum/i18n drift is out-of-scope for SC-1).
+const SC1_TOUCHED_CODES = [
+  "INVALID_PRESET",
+  "USAGE",
+  "DOCTOR_MODE_NOT_IMPLEMENTED",
+  "DOCTOR_FEATURE_REQUIRED",
+  "DOCTOR_REBUILD_FAILED",
+  "DOCTOR_REBUILD_MIGRATED_UNSUPPORTED",
+  "REDUCER_ERROR",
+] as const;
 
 type Baseline = {
   entries: Array<{
@@ -333,6 +349,39 @@ describe("drift gate: DiagnosticCode emit ⊆ catalog ∪ baseline", () => {
         `baseline lists ${entry.code} but cli.tsx no longer emits it; remove from baseline`,
       ).toBe(true);
     }
+  });
+});
+
+describe("Phase 16 SC-1 — DiagnosticCode catalog hygiene", () => {
+  test("diagnostic-baseline.json is empty (SC-1 retires the long-lived allowlist)", () => {
+    expect(
+      baseline.entries,
+      "SC-1 must empty tests/scripts/inventory/diagnostic-baseline.json — every code that was previously baselined must now be in docs/schemas.ts ERROR_CATALOG + DiagnosticCode enum + i18n bundles",
+    ).toEqual([]);
+  });
+
+  test("every SC-1-touched code has an i18n/en.json diagnostic entry", () => {
+    const en = JSON.parse(readFileSync(I18N_EN_PATH, "utf8")) as {
+      diagnostic?: Record<string, string>;
+    };
+    const diagnostic = en.diagnostic ?? {};
+    const missing = SC1_TOUCHED_CODES.filter((code) => !(code in diagnostic));
+    expect(
+      missing,
+      `i18n/en.json.diagnostic missing entries for SC-1 codes: ${missing.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  test("every SC-1-touched code has an i18n/zh.json diagnostic entry", () => {
+    const zh = JSON.parse(readFileSync(I18N_ZH_PATH, "utf8")) as {
+      diagnostic?: Record<string, string>;
+    };
+    const diagnostic = zh.diagnostic ?? {};
+    const missing = SC1_TOUCHED_CODES.filter((code) => !(code in diagnostic));
+    expect(
+      missing,
+      `i18n/zh.json.diagnostic missing entries for SC-1 codes: ${missing.join(", ")}`,
+    ).toEqual([]);
   });
 });
 

@@ -180,7 +180,14 @@
     "TASKS_EXECUTION_DRIFT":      "任务 {task_id} step={step} status={status} 与 evidence.jsonl 不一致",
     "COVERAGE_NOT_SATISFIED":     "{covered_id} 没有任何证据满足覆盖(canSatisfy 对所有候选 evidence 都失败)",
     "NO_SESSION":                 "{feature_dir} 下没有 session — 先跑 `loaf start <feature>`",
-    "SNAPSHOT_STALE_REBUILD_REQUIRED": "snapshot 失效(reason={reason}) at {feature_dir};跑 `loaf doctor --rebuild --feature <feature>` 从 journal 重建"
+    "SNAPSHOT_STALE_REBUILD_REQUIRED": "snapshot 失效(reason={reason}) at {feature_dir};跑 `loaf doctor --rebuild --feature <feature>` 从 journal 重建",
+    "INVALID_PRESET":             "ceremony preset 不合法",
+    "USAGE":                      "CLI 用法不合法",
+    "DOCTOR_MODE_NOT_IMPLEMENTED": "当前发布版本未实现该 loaf doctor 模式",
+    "DOCTOR_FEATURE_REQUIRED":    "loaf doctor --rebuild 必须带 --feature <name>",
+    "DOCTOR_REBUILD_FAILED":      "doctor --rebuild 失败",
+    "DOCTOR_REBUILD_MIGRATED_UNSUPPORTED": "当前发布版本的 doctor --rebuild 不支持 v0.0.x-migrated journal",
+    "REDUCER_ERROR":              "reducer 内部不变量失败"
   },
 
   "help": {

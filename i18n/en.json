@@ -180,7 +180,14 @@
     "TASKS_EXECUTION_DRIFT":      "Task {task_id} step={step} status={status} disagrees with evidence.jsonl",
     "COVERAGE_NOT_SATISFIED":     "{covered_id} has no evidence that satisfies it (canSatisfy failed for all candidates)",
     "NO_SESSION":                 "no session at {feature_dir} — run `loaf start <feature>` first",
-    "SNAPSHOT_STALE_REBUILD_REQUIRED": "snapshot stale (reason={reason}) at {feature_dir}; run `loaf doctor --rebuild --feature <feature>` to re-serialize from journal truth"
+    "SNAPSHOT_STALE_REBUILD_REQUIRED": "snapshot stale (reason={reason}) at {feature_dir}; run `loaf doctor --rebuild --feature <feature>` to re-serialize from journal truth",
+    "INVALID_PRESET":             "invalid ceremony preset",
+    "USAGE":                      "invalid CLI usage",
+    "DOCTOR_MODE_NOT_IMPLEMENTED": "requested loaf doctor mode is not implemented in this release",
+    "DOCTOR_FEATURE_REQUIRED":    "loaf doctor --rebuild requires --feature <name>",
+    "DOCTOR_REBUILD_FAILED":      "doctor --rebuild failed",
+    "DOCTOR_REBUILD_MIGRATED_UNSUPPORTED": "doctor --rebuild does not support v0.0.x-migrated journals in this release",
+    "REDUCER_ERROR":              "internal reducer invariant failed"
   },
 
   "help": {

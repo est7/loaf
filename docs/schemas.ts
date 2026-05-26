@@ -4009,6 +4009,20 @@ export const DiagnosticCode = z.enum([
   "SPIKE_CONVERT_NO_SPIKE_TASK",           // src/core/reducer/preflight.ts step 5c.3 — `spike:converted` but snapshot.tasks holds no non-abandoned kind=spike task (`loaf spike convert` is a spike-task exit, protocol §8.3)
   // ── Phase 15 SC3 — reader fast-check goes live (projection-loader) ──
   "SNAPSHOT_STALE_REBUILD_REQUIRED",       // src/core/projection-loader.ts — 9-reason stale/corruption family (journal_missing / journal_empty / tail_offset_mismatch / tail_hash_mismatch / trailing_partial_line / meta_missing / meta_invalid / projection_missing / projection_invalid). detail.reason carries the discriminant; reason-specific detail keys mirror snapshot-reader and loader-added envelope (feature_dir, fix, plus per-reason context like meta_path / projection_kind / cause)
+  // ── Phase 16 SC-1 — CLI catalog hygiene (codex r187 BLOCKER 4 closure) ──
+  // The 7 codes below were emitted by src/cli.tsx but unregistered through
+  // the SC-0 inventory harness shipping window; SC-1 registers them with
+  // placeholder-free generic wording (cli.tsx fail* paths render literal
+  // strings — structured detail rendering is SC-2 work; codex r193 PATCH 3).
+  // USAGE NOT renamed (codex r193 BLOCKER 1: 17+ emit sites + tests +
+  // protocol prose); rename, if ever, is a separate dedicated SC.
+  "INVALID_PRESET",                        // src/cli.tsx — `loaf start` ceremony preset validation (protocol §10.5)
+  "USAGE",                                 // src/cli.tsx — generic CLI usage failure across many commands (protocol §10.5)
+  "DOCTOR_MODE_NOT_IMPLEMENTED",           // src/cli.tsx — `loaf doctor` invoked in a non-rebuild mode (protocol §10.15)
+  "DOCTOR_FEATURE_REQUIRED",               // src/cli.tsx — `loaf doctor --rebuild` without --feature/--feature-dir (protocol §10.15)
+  "DOCTOR_REBUILD_FAILED",                 // src/cli.tsx — `loaf doctor --rebuild` rebuild loop or projection write failed (protocol §10.15)
+  "DOCTOR_REBUILD_MIGRATED_UNSUPPORTED",   // src/cli.tsx — `loaf doctor --rebuild` invoked on a v0.0.x-migrated journal (protocol §10.15)
+  "REDUCER_ERROR",                         // src/cli.tsx + src/core/journal-mutate.ts — wraps reducer-thrown invariant failures surfaced through multiple mutator paths (protocol §10.5)
 ]);
 export type DiagnosticCode = z.infer<typeof DiagnosticCode>;
 
@@ -4989,6 +5003,63 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
     fix_template:
       "snapshot meta/leaves no longer agree with the journal tail; run `loaf doctor --rebuild --feature <feature>` to re-serialize from journal truth, then retry. Inspect detail.reason + reason-specific fields (meta_path / projection_kind / cause) to triage corruption source before rebuilding.",
     doc_anchor: "protocol.md#§10.15",
+  },
+  // ── Phase 16 SC-1 — CLI catalog hygiene (codex r187 BLOCKER 4 closure) ──
+  // Generic, placeholder-free wording per codex r193 PATCH 3: src/cli.tsx
+  // emits these via fail() / failRebuild() / emitFailure() with literal
+  // message strings — ERROR_CATALOG is not the runtime renderer for these
+  // paths yet, so introducing placeholders ({mode}, {feature}, {detail})
+  // would create undefined-substitution drift. Structured detail rendering
+  // is SC-2 work; keep these templates generic now and tighten later.
+  INVALID_PRESET: {
+    exit_code: 2,
+    message_template: "invalid ceremony preset",
+    fix_template: "Use one of quick, light, standard, or deep.",
+    doc_anchor: "protocol.md#§10.5",
+  },
+  USAGE: {
+    exit_code: 2,
+    message_template: "invalid CLI usage",
+    fix_template:
+      "Run the command with --help and retry with the required flags/arguments.",
+    doc_anchor: "protocol.md#§10.5",
+  },
+  DOCTOR_MODE_NOT_IMPLEMENTED: {
+    exit_code: 2,
+    message_template:
+      "requested loaf doctor mode is not implemented in this release",
+    fix_template:
+      "Use loaf doctor --rebuild --feature <name>; other doctor modes are deferred.",
+    doc_anchor: "protocol.md#§10.15",
+  },
+  DOCTOR_FEATURE_REQUIRED: {
+    exit_code: 2,
+    message_template: "loaf doctor --rebuild requires --feature <name>",
+    fix_template:
+      "Pass --feature <name> or --feature-dir <path> for the session to rebuild.",
+    doc_anchor: "protocol.md#§10.15",
+  },
+  DOCTOR_REBUILD_FAILED: {
+    exit_code: 2,
+    message_template: "doctor --rebuild failed",
+    fix_template:
+      "Inspect the emitted error message; fix the journal/projection issue, then rerun doctor --rebuild.",
+    doc_anchor: "protocol.md#§10.15",
+  },
+  DOCTOR_REBUILD_MIGRATED_UNSUPPORTED: {
+    exit_code: 2,
+    message_template:
+      "doctor --rebuild does not support v0.0.x-migrated journals in this release",
+    fix_template:
+      "Use the existing migrated snapshots, or wait for migrate-v2/rebuild support.",
+    doc_anchor: "protocol.md#§10.15",
+  },
+  REDUCER_ERROR: {
+    exit_code: 2,
+    message_template: "internal reducer invariant failed",
+    fix_template:
+      "Preserve the journal and command stderr; this indicates a loaf-cli bug or inconsistent projection state.",
+    doc_anchor: "protocol.md#§10.5",
   },
 } as const;
 
