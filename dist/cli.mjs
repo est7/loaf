@@ -299,6 +299,80 @@ function buildReportUrl(input) {
 	if (input.crash_log_path !== null) u.searchParams.set("crash_log_path", input.crash_log_path);
 	return u.toString();
 }
+//#endregion
+//#region src/cli/input-source.ts
+const INLINE_RE = /^[{[]/;
+function parseInputSource(arg) {
+	if (arg === "-") return { kind: "stdin" };
+	if (INLINE_RE.test(arg)) return {
+		kind: "inline",
+		value: arg
+	};
+	return {
+		kind: "file",
+		path: arg
+	};
+}
+//#endregion
+//#region src/cli/input-read.ts
+const DEFAULT_READ_FILE = (p) => promises.readFile(p, "utf8");
+async function readJsonInput(source, deps) {
+	const readFile = deps.readFile ?? DEFAULT_READ_FILE;
+	let raw;
+	switch (source.kind) {
+		case "inline":
+			raw = source.value;
+			break;
+		case "stdin":
+			raw = await deps.readStdin();
+			break;
+		case "file":
+			try {
+				raw = await readFile(source.path);
+			} catch (err) {
+				const e = err;
+				if (e.code === "ENOENT") return {
+					ok: false,
+					code: "INPUT_FILE_NOT_FOUND",
+					message: `input file does not exist: ${source.path}`,
+					detail: { path: source.path }
+				};
+				return {
+					ok: false,
+					code: "INPUT_FILE_NOT_FOUND",
+					message: `input file unreadable: ${source.path} — ${e.message}`,
+					detail: {
+						path: source.path,
+						cause: e.message
+					}
+				};
+			}
+			break;
+	}
+	try {
+		return {
+			ok: true,
+			value: JSON.parse(raw)
+		};
+	} catch (err) {
+		return {
+			ok: false,
+			code: "SCHEMA_VALIDATION_FAILED",
+			message: `invalid JSON: ${err.message}`,
+			detail: { cause: err.message }
+		};
+	}
+}
+//#endregion
+//#region src/cli/stdin.ts
+async function defaultReadStdin() {
+	let buf = "";
+	for await (const chunk of process.stdin) buf += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8");
+	return buf;
+}
+function defaultIsStdinTty() {
+	return process.stdin.isTTY === true;
+}
 const SchemaVersionPayload = z.literal(2);
 const ReqIdPayload = z.string().regex(/^REQ-[A-Z][A-Z0-9]*-\d{3,}$/);
 const ScenIdPayload = z.string().regex(/^SCEN-[A-Z][A-Z0-9-]*-\d{3,}$/);
@@ -5725,7 +5799,9 @@ function installSigintHandler(deps) {
 	process.on("SIGINT", handler);
 	return handler;
 }
-async function main(argv = process.argv) {
+async function main(argv = process.argv, deps = {}) {
+	const readStdin = deps.readStdin ?? defaultReadStdin;
+	const isStdinTty = deps.isStdinTty ?? defaultIsStdinTty;
 	const program = new Command();
 	program.name("loaf").description("Spec-driven development protocol CLI").version(version).option("--json", "Emit JSON output on stdout").addHelpText("after", helpFooter()).showHelpAfterError().exitOverride();
 	const useJson = argv.includes("--json");
@@ -7622,36 +7698,32 @@ async function main(argv = process.argv) {
 		else process.stdout.write(`closed ${fndId}\n`);
 	});
 	const specCmd = program.command("spec").description("SPEC content commands (submit / add-req / add-scenario / add-visual; init in SC4)");
-	specCmd.command("submit").description("Whole-replacement spec submit from JSON --input (CLI fills spec_version)").requiredOption("--input <file>", "JSON file with SpecFrontmatter-shaped content").requiredOption("--feature <name>", "Feature whose spec to submit").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
-		let content;
-		try {
-			content = await promises.readFile(opts.input, "utf8");
-		} catch (err) {
-			const code = err.code;
-			emitFailure("INPUT_FILE_NOT_FOUND", code === "ENOENT" ? `input file does not exist: ${opts.input}` : `cannot read input file ${opts.input}: ${String(err)}`, { path: opts.input });
+	specCmd.command("submit").description("Whole-replacement spec submit from JSON --input (CLI fills spec_version)").requiredOption("--input <src>", "JSON source: `-` (stdin), inline JSON literal, or file path (protocol §10.7)").requiredOption("--feature <name>", "Feature whose spec to submit").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+		const source = parseInputSource(opts.input);
+		if (source.kind === "stdin" && isStdinTty()) {
+			ctx.failure("USAGE", "stdin is TTY — `loaf spec submit --input -` expects piped input. Pipe JSON via `... | loaf spec submit --input -`, OR pass inline JSON / file path. Run --help for examples.");
 			return;
 		}
-		let parsed;
-		try {
-			parsed = JSON.parse(content);
-		} catch (err) {
-			emitFailure("SCHEMA_VALIDATION_FAILED", `input is not valid JSON: ${err.message}`);
+		const read = await readJsonInput(source, { readStdin });
+		if (!read.ok) {
+			ctx.failure(read.code, read.message, read.detail);
 			return;
 		}
+		const parsed = read.value;
 		if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-			emitFailure("USAGE", "spec submit --input expects a JSON object (SpecFrontmatter shape)");
+			ctx.failure("USAGE", "spec submit --input expects a JSON object (SpecFrontmatter shape)");
 			return;
 		}
 		const inputParse = SpecSubmitInput.safeParse(parsed);
 		if (!inputParse.success) {
-			emitFailure("SCHEMA_VALIDATION_FAILED", `spec submit input failed SpecSubmitInput schema validation`, { issues: inputParse.error.issues });
+			ctx.failure("SCHEMA_VALIDATION_FAILED", `spec submit input failed SpecSubmitInput schema validation`, { issues: inputParse.error.issues });
 			return;
 		}
 		const input = inputParse.data;
 		const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-		const session = await loadSession(featureDir);
+		const session = await ctx.resolveSession(featureDir);
 		if (!session.snapshot.state) {
-			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+			ctx.failure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
 			return;
 		}
 		const currentVersion = session.snapshot.state.spec_version;
@@ -7712,7 +7784,7 @@ async function main(argv = process.argv) {
 			meta: session.meta
 		});
 		if (!result.ok) {
-			emitFailure(result.code, result.message, result.detail);
+			ctx.failure(result.code, result.message, result.detail);
 			return;
 		}
 		const reqIds = result.snapshot.requirements.map((r) => r.id);
@@ -7727,8 +7799,7 @@ async function main(argv = process.argv) {
 			vis_ids: visIds,
 			sub_state: result.snapshot.state?.sub_state
 		};
-		if (useJson) process.stdout.write(JSON.stringify(out) + "\n");
-		else process.stdout.write(`spec submitted v${out.spec_version}: ${reqIds.length} req / ${scenIds.length} scen / ${visIds.length} vis\n`);
+		ctx.success(out, () => `spec submitted v${out.spec_version}: ${reqIds.length} req / ${scenIds.length} scen / ${visIds.length} vis\n`);
 	});
 	const REGISTER_SPEC_ADD = [
 		{
@@ -7797,32 +7868,28 @@ feature:
 		}) + "\n");
 		else process.stdout.write(`spec init: wrote scaffold to ${specMdPath}\nnext: edit, then \`loaf spec submit --input <json> --feature ${opts.feature}\`\n`);
 	});
-	for (const cfg of REGISTER_SPEC_ADD) specCmd.command(`add-${cfg.name}`).description(`Add ${cfg.name} entries via id_namespace stamping (CLI allocates ${cfg.name.toUpperCase()} ids)`).requiredOption("--input <file>", `JSON file with SpecAdd${cfg.name[0].toUpperCase()}${cfg.name.slice(1)}Input shape (item or array)`).requiredOption("--feature <name>", `Feature whose spec to extend`).option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
-		let content;
-		try {
-			content = await promises.readFile(opts.input, "utf8");
-		} catch (err) {
-			const code = err.code;
-			emitFailure("INPUT_FILE_NOT_FOUND", code === "ENOENT" ? `input file does not exist: ${opts.input}` : `cannot read input file ${opts.input}: ${String(err)}`, { path: opts.input });
+	for (const cfg of REGISTER_SPEC_ADD) specCmd.command(`add-${cfg.name}`).description(`Add ${cfg.name} entries via id_namespace stamping (CLI allocates ${cfg.name.toUpperCase()} ids)`).requiredOption("--input <src>", `JSON source for SpecAdd${cfg.name[0].toUpperCase()}${cfg.name.slice(1)}Input (item or array): \`-\` (stdin), inline JSON, or file path (protocol §10.7)`).requiredOption("--feature <name>", `Feature whose spec to extend`).option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+		const source = parseInputSource(opts.input);
+		if (source.kind === "stdin" && isStdinTty()) {
+			ctx.failure("USAGE", `stdin is TTY — \`loaf spec add-${cfg.name} --input -\` expects piped input. Pipe JSON via \`... | loaf spec add-${cfg.name} --input -\`, OR pass inline JSON / file path. Run --help for examples.`);
 			return;
 		}
-		let parsed;
-		try {
-			parsed = JSON.parse(content);
-		} catch (err) {
-			emitFailure("SCHEMA_VALIDATION_FAILED", `input is not valid JSON: ${err.message}`);
+		const read = await readJsonInput(source, { readStdin });
+		if (!read.ok) {
+			ctx.failure(read.code, read.message, read.detail);
 			return;
 		}
+		const parsed = read.value;
 		const inputParse = cfg.inputSchema.safeParse(parsed);
 		if (!inputParse.success) {
-			emitFailure("SCHEMA_VALIDATION_FAILED", `spec add-${cfg.name} input failed schema validation`, { issues: inputParse.error.issues });
+			ctx.failure("SCHEMA_VALIDATION_FAILED", `spec add-${cfg.name} input failed schema validation`, { issues: inputParse.error.issues });
 			return;
 		}
 		const items = Array.isArray(inputParse.data) ? inputParse.data : [inputParse.data];
 		const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-		const session = await loadSession(featureDir);
+		const session = await ctx.resolveSession(featureDir);
 		if (!session.snapshot.state) {
-			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+			ctx.failure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
 			return;
 		}
 		const existingIds = session.snapshot[cfg.snapshotKey].map((p) => p.id);
@@ -7864,17 +7931,16 @@ feature:
 			meta: session.meta
 		});
 		if (!result.ok) {
-			emitFailure(result.code, result.message, result.detail);
+			ctx.failure(result.code, result.message, result.detail);
 			return;
 		}
-		if (useJson) process.stdout.write(JSON.stringify({
+		ctx.success({
 			ok: true,
 			feature: opts.feature,
 			spec_version: result.snapshot.state?.spec_version,
 			ids: allocatedIds,
 			sub_state: result.snapshot.state?.sub_state
-		}) + "\n");
-		else process.stdout.write(`spec add-${cfg.name} v${result.snapshot.state?.spec_version}: ${allocatedIds.join(", ")}\n`);
+		}, () => `spec add-${cfg.name} v${result.snapshot.state?.spec_version}: ${allocatedIds.join(", ")}\n`);
 	});
 	try {
 		await program.parseAsync(argv);

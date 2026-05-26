@@ -598,7 +598,7 @@ needs_clarification: []
 
 #### 增量构造 + spec_version bump 策略(rev 4.3,ADR-0004 A4)
 
-`loaf spec submit <file>` 是 spec.md 的**整体替换**入口(SPEC.proposal → SPEC.spec 首次提交);rev 4.3 之后**不再**强制 LLM 一次手搓全部 EARS / scenario / visual contract。增量路径由三条 `add-*` 命令承担:
+`loaf spec submit --input <src>`(SC-4a:`-` stdin / inline JSON / file path,§10.7)是 spec.md 的**整体替换**入口(SPEC.proposal → SPEC.spec 首次提交);rev 4.3 之后**不再**强制 LLM 一次手搓全部 EARS / scenario / visual contract。增量路径由三条 `add-*` 命令承担:
 
 - `loaf spec add-req --input <src>` — 增量加 EARS REQ
 - `loaf spec add-scenario --input <src>` — 增量加 Gherkin scenario
@@ -1502,7 +1502,7 @@ skill / hook 把 loaf 输出 pipe 时依赖这条约定:
 - bare `loaf`(无子命令)→ print 短 help + 列出常用命令 + exit 2
 - 子命令缺必要参数 → print 该子命令 help + exit 2
 - unknown subcommand → 按 Levenshtein 距离 suggest "did you mean X?",**不自动执行**
-- stdin 是 TTY 且命令期待 piped input(如 `loaf spec submit --json -`)→ print help + exit 2,**不 hang**
+- stdin 是 TTY 且命令期待 piped input(如 `loaf spec submit --input -`)→ print help + exit 2,**不 hang**
 - **`-h` / `--help` 在任意位置工作**(clig.dev §2):`loaf tasks step --task T-001 -h` 等价 `loaf tasks step --help`,parser 必须 short-circuit `-h` 在 subcommand context resolved 之后,不被未识别 flag 干扰
 
 ### 10.2 TTY / Color / Pager
@@ -1746,7 +1746,7 @@ error: input does not satisfy schema for spec:add-req: /measurable/threshold: ex
 | `--session <UUID>` <!-- inventory:future reason="SC-7+SC-8 registry-based session routing" --> | — | string | `$LOAF_SESSION` env or auto-pick | **rev 4.1**:dispatch 单次覆盖,见 §10.3 precedence;接受 ≥8 字符 prefix |
 | `--feature <name>` <!-- inventory:placeholder reason="per-command flag documented in global section; runtime parity TBD via SC-3 CLI runtime extraction" --> | — | string | `$LOAF_FEATURE` env or auto-pick | **rev 4.1**:dispatch via feature 名(cwd-local alias),见 §10.3 |
 | `--lang <en\|zh>` <!-- inventory:future reason="SC-6 routing+meta flag layer (i18n bundle selector)" --> | — | enum | `LOAF_LANG` env or `en` | i18n bundle 选择,见 §10.3 env 表 + §18 |
-| `--input <src>` <!-- inventory:placeholder reason="per-command flag documented in global section; SC-3 InputSourceResolver + SC-4a/b/c unify modality across mutators" --> | — | `-\|<json>\|<path>` | — | **rev 4.3**(ADR-0004 A3/A11):Tier 1 mutator 命令的统一 JSON 输入。`-` ⇒ stdin;首字符 `{` 或 `[` ⇒ inline JSON;其余 ⇒ 文件路径(不存在 → exit 2 `INPUT_FILE_NOT_FOUND`)。接受单条对象或非空数组(batch,A10)。判别细节见下方「`--input` source 判别」 |
+| `--input <src>` <!-- inventory:placeholder reason="per-command flag documented in global section; SC-3 InputSourceResolver + SC-4a/b/c unify modality across mutators" --> | — | `-\|<json>\|<path>` | — | **rev 4.3**(ADR-0004 A3/A11)+ **Phase 16 SC-3/SC-4a**:Tier 1 mutator 命令的统一 JSON 输入 source(本行只规定 source 解析,不规定 payload shape — shape 由每个命令自己的 input schema 决定)。`-` ⇒ stdin;首字符 `{` 或 `[` ⇒ inline JSON;其余 ⇒ 文件路径(不存在 → exit 2 `INPUT_FILE_NOT_FOUND`)。**Payload shape per 命令**:`spec submit` 仅接 single object(whole-replacement);5 个 batch-capable mutator(`spec add-req` / `spec add-scenario` / `spec add-visual` / `tasks add` / `evidence add`)接 single object 或非空数组(batch,A10)。判别细节见下方「`--input` source 判别」 |
 | `--schema` <!-- inventory:future reason="SC-6 routing+meta flag layer (per-command schema introspection)" --> | — | bool | false | **rev 4.3** modifier:与 `--json` 联用(`loaf <cmd> --schema --json`)dump 该命令 input Zod schema 派生的 JSON Schema(查 `schemas.ts` §40 `INPUT_SCHEMAS`)。用于 LLM 自描述 / fixture 生成 / `SCHEMA_VALIDATION_FAILED` 修复提示 |
 
 <!-- inventory:current-end -->
@@ -1802,7 +1802,7 @@ CLI **唯一** enforce 的 pending 阻塞规则(state-machine integrity):
 - **机器管道** → `echo '{...}' | loaf <cmd> --input -`(CI / shell 脚本)
 - **单条 ad-hoc** → `loaf <cmd> --input '{"...":"..."}'`(手工 / 一次性)
 
-实现协议位于 `schemas.ts` §40 `InputSourceResolver`(discriminated union: `stdin` / `inline` / `path`)。5 个 mutator 命令(`spec:add-req` / `spec:add-scenario` / `spec:add-visual` / `tasks:add` / `evidence:add`)的 input schema 集中于同节 `INPUT_SCHEMAS`,每个支持 single 或 array 形态(batch 三纪律见 §11.2)。
+实现协议位于 `schemas.ts` §40 `InputSourceResolver`(discriminated union: `stdin` / `inline` / `path`),CLI 端实现 `src/cli/input-source.ts`(`parseInputSource`)+ `src/cli/input-read.ts`(`readJsonInput`,IO+JSON parse+error mapping)。**6 个 mutator 命令**接 `--input <src>`:`spec:submit`(whole-replacement,Phase 16 SC-4a 接入)+ `spec:add-req` / `spec:add-scenario` / `spec:add-visual`(incremental + id_namespace 分配,SC-4a 接入)+ `tasks:add`(SC-4b)+ `evidence:add`(SC-4c)。`spec:submit` 接 single object;其余 5 个支持 single 或 array(batch 三纪律见 §11.2)。TTY no-hang 守卫见 §10.1(stdin TTY + `--input -` → USAGE exit 2,不 hang)。
 
 **`--help` 顶部约定**(clig.dev §5):每个接受 `--input` 的命令 `--help` 顶部带 2-3 个工作 JSON 示例(覆盖典型 shape),flag 表在示例下方。`loaf <cmd> --schema --json` 一并 dump JSON Schema 供 LLM / fixture 自描述。
 
@@ -1849,8 +1849,8 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 
 **Tier 1 mutator 通用契约**(rev 4.3,ADR-0004 A2 / A3 / A5 / A10):
 
-- 5 个结构化 mutator(`spec add-req` / `spec add-scenario` / `spec add-visual` / `tasks add` / `evidence add`)走统一 `--input <-|json|path>` modality(§10.7);positional id / per-field flag 已砍。
-- 每条 input schema 接受单条对象**或**非空数组(batch);batch 三纪律(all-or-nothing / `spec_version += 1` per invocation / atomic id allocation)由 §11.2 transaction 落实。
+- `spec submit` + 5 个结构化 mutator(`spec add-req` / `spec add-scenario` / `spec add-visual` / `tasks add` / `evidence add`)走统一 `--input <-|json|path>` modality(§10.7);positional id / per-field flag 已砍。**`spec submit` 仅接 single object**(whole-replacement);其余 5 个支持 single 或 array(batch)。`spec submit` 接入时点见 §10.7 + Phase 16 SC-4a。
+- **`spec submit` 仅接 single object**(whole-replacement);其余 5 个结构化 mutator(`spec add-req` / `spec add-scenario` / `spec add-visual` / `tasks add` / `evidence add`)的 input schema 接受单条对象**或**非空数组(batch);batch 三纪律(all-or-nothing / `spec_version += 1` per invocation / atomic id allocation)由 §11.2 transaction 落实(只适用于支持 batch 的 5 个)。
 - `id` 由 CLI 在 per-session lock 内单调分配:REQ / SCEN / VIS 输入只携 `id_namespace`(stem),CLI 扫该 namespace 下 max serial → 拼完整 id 落 spec.md(input regex vs output regex 见 §4.2 ID 分配段 + `schemas.ts` §40)。T / EV / FND / PEND 完全 CLI 自动分配,input **不**传 namespace 字段。
 - `--schema` 全局 modifier 跟 `--json` 联用(`loaf <cmd> --schema --json`)dump 该 input 的 JSON Schema(派生自 `schemas.ts` §40 `INPUT_SCHEMAS`)。
 - shape enforcement 全在 CLI:三选一可验证 / 6×6 finding grid / attachment hash+mime / id 唯一性 — workflow content 留给 loaf-skill,见 §19。
@@ -1865,8 +1865,7 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 | `loaf resume` <!-- inventory:future reason="SC-13 lifecycle commands" --> | 恢复 session(从 `resume-pack.json` 接力)。**rev 4.3**(ADR-0004 A8):`--fresh` flag 已砍 — routine phase-switch 上下文切片改走 `loaf context pack` | 0 |
 | `loaf context pack [--phase auto\|<sub_state>] [--format json\|text]` <!-- inventory:future reason="SC-13 lifecycle commands" --> | **rev 4.3**(ADR-0004 A8):phase-aware context pack(`CONTEXT_PACK_TEMPLATES` 见 `schemas.ts` §38)— 每 sub_state 输出当前 phase 需要的最小上下文 slice。read-only,不写盘。default `--phase auto` 读 `state.json` 当前 sub_state | 0 |
 | `loaf handoff` <!-- inventory:future reason="SC-13 lifecycle commands" --> | **rev 5.0**:read-side 命令,reducer 从当前 journal + snapshots 派生 `snapshots/resume-pack.json`(显式 context overflow 接力快照);不 emit 新 journal entry,只触发 snapshot rebuild | 0 |
-| `loaf spec submit <file>` | 提交 spec.md,严格 schema 校验。**Slice 1.B sub-cycle 1**:emit atomic batch `[spec_submitted(reset), spec_req_added × N, spec_scenario_added × M, spec_visual_added × K]`(共享 batch_id + spec_version,reducer 在头 entry 重置 projection 三数组并 bump `state.spec_version`,companion entries 同 batch 内重填) | 0 / 2 |
-| `loaf spec submit --json -` | 从 stdin 接收 JSON(机器流水线);同 `loaf spec submit <file>` 的 batch 语义 | 0 / 2 |
+| `loaf spec submit --input <src>` | 提交 spec.md,严格 schema 校验。**Slice 1.B sub-cycle 1**:emit atomic batch `[spec_submitted(reset), spec_req_added × N, spec_scenario_added × M, spec_visual_added × K]`(共享 batch_id + spec_version,reducer 在头 entry 重置 projection 三数组并 bump `state.spec_version`,companion entries 同 batch 内重填)。**Phase 16 SC-4a**:`--input <src>` 接统一 modality(`-` stdin / inline JSON / file path,§10.7);whole-replacement,**仅接 single object**(不接 array)。TTY no-hang guard 见 §10.1。 | 0 / 2 |
 | `loaf spec init` | 生成 spec.md 模板,适合 `$EDITOR` 跟进 | 0 |
 | `loaf spec edit` <!-- inventory:future reason="SC-12a/b typed spec edit kinds + CLI" --> | 编辑当前 spec.md + 再次 schema check | 0 / 2 |
 | `loaf spec add-req --input <src>` | **rev 4.3**(ADR-0004 A1 / A4 / A5):增量加单条或 batch EARS REQ。Input 含 `id_namespace`(`^REQ-[A-Z][A-Z0-9]*$`)+ EARS 字段;CLI 在 lock 内拼完整 `id`(`REQ-<NS>-<NNN>`)落 `spec.md`,`spec_version += 1`(per invocation,A10)。pre-lock(SPEC.spec/plan/design)合法;post-lock 拒 → `SPEC_LOCKED_NO_DIRECT_EDIT` exit 2,走 `amend-spec` finding。`--schema --json` dump input JSON Schema | 0 / 2 |
@@ -1921,7 +1920,7 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 | `loaf spec add-req` | `event:spec_req_added`(batch:N entries 共享 batch_id + spec_version) |
 | `loaf spec add-scenario` | `event:spec_scenario_added`(batch) |
 | `loaf spec add-visual` | `event:spec_visual_added`(batch) |
-| `loaf spec submit <file>` | atomic batch:`event:spec_submitted` (batch_index=0,reducer 重置 projection arrays) + companion `event:spec_req_added` × N / `_scenario_added` × M / `_visual_added` × K (batch_index≥1,共享同一 batch_id + spec_version)。整批保证 journal 可 replay 回 `spec.md`(canonical truth,§4.2 derived projection) |
+| `loaf spec submit --input <src>` | atomic batch:`event:spec_submitted` (batch_index=0,reducer 重置 projection arrays) + companion `event:spec_req_added` × N / `_scenario_added` × M / `_visual_added` × K (batch_index≥1,共享同一 batch_id + spec_version)。整批保证 journal 可 replay 回 `spec.md`(canonical truth,§4.2 derived projection) |
 | `loaf tasks submit` / `tasks plan` | `event:tasks_planned` |
 | `loaf tasks add` | `event:tasks_amended` `mode=add` + `sponsored_by_finding_id`(EXECUTE.work 阶段,带 `--finding`;每 task 一条,多 task 走 batch)/ whole-graph `event:tasks_planned`(SPEC.design) |
 | `loaf tasks claim` | `event:task_claimed` |
@@ -2664,10 +2663,10 @@ loaf-skill     (1st-cc-plugin 里的 plugin)
 loaf evidence schema --json | jq        # 拿到 JSON Schema
 loaf spec submit --help                 # 拿到提交语义说明
 
-# 2. 产 strict 数据后提交(三种路径)
-loaf spec submit ./spec.md              # 文件提交(主路径)
-cat spec.json | loaf spec submit --json -  # JSON stdin(机器流水线)
-loaf spec init && $EDITOR .loaf/<feature>/spec.md && loaf spec submit  # 人入口
+# 2. 产 strict 数据后提交(三种路径,SC-4a 后统一 --input <src>)
+loaf spec submit --input ./spec.json                    # 文件提交(主路径)
+cat spec.json | loaf spec submit --input -              # JSON stdin(机器流水线)
+loaf spec submit --input '{"feature":{"id":"F-001"...}}' # inline JSON(一次性)
 
 # 3. 失败时读 diagnostic 修(rev 5.0:路径在 snapshots/ 下,先走 Gate #5 fast check)
 loaf gate decide spec-lock || cat .loaf/<feature>/snapshots/gate-diagnostic.json

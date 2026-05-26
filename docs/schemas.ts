@@ -3226,14 +3226,14 @@ export const CONCURRENCY_INVARIANTS = {
       why: "gate approval pops the pending head + records the gate decision; both entries land in one batch so readers never see a half-resolved gate",
     },
     {
-      cmd: "loaf spec submit <file>",
+      cmd: "loaf spec submit --input <src>",
       emits: [
         "event:spec_submitted (batch_index=0)",
         "event:spec_req_added × N (batch_index=1..)",
         "event:spec_scenario_added × M",
         "event:spec_visual_added × K",
       ],
-      why: "Slice 1.B sub-cycle 1: whole-replacement submit emits ONE atomic batch sharing batch_id + spec_version. spec_submitted at batch_index=0 carries header (feature/intent/adr_refs/needs_clarification) AND resets reducer projection arrays; companion add-* entries repopulate within the same batch so journal is replay-complete (codex r17 canonical-truth invariant)",
+      why: "Slice 1.B sub-cycle 1: whole-replacement submit emits ONE atomic batch sharing batch_id + spec_version. spec_submitted at batch_index=0 carries header (feature/intent/adr_refs/needs_clarification) AND resets reducer projection arrays; companion add-* entries repopulate within the same batch so journal is replay-complete (codex r17 canonical-truth invariant). Phase 16 SC-4a: --input <src> source-discriminator (stdin/-, inline JSON, file path; §10.7); payload is whole-replacement single object only (NOT batch-capable — that's why this row's atomic batch is INTERNAL to one submit invocation, not caller-supplied array)",
     },
     {
       cmd: "loaf pending raise (skill / hook / sub-agent path)",

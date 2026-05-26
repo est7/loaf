@@ -22,6 +22,9 @@ import packageJson from "../package.json" with { type: "json" };
 import { UNEXPECTED_ERROR, writeCrashLog } from "./core/crash-log.js";
 import { createCommandContext } from "./cli/command-context.js";
 import { buildReportUrl } from "./cli/url-prefill.js";
+import { parseInputSource } from "./cli/input-source.js";
+import { readJsonInput } from "./cli/input-read.js";
+import { defaultReadStdin, defaultIsStdinTty } from "./cli/stdin.js";
 
 import { resolveHumanActor } from "./core/actor-resolver.js";
 import {
@@ -130,7 +133,21 @@ export function installSigintHandler(deps: SigintHandlerDeps): () => void {
   return handler;
 }
 
-export async function main(argv: string[] = process.argv): Promise<number> {
+// Phase 16 SC-4a — main() gains an optional presentation-layer deps bag
+// per codex r212 PATCH 1 so tests can inject stdin / TTY semantics
+// without monkey-patching process.stdin globally. Production wires real
+// implementations; tests pass `{ readStdin: async () => "...", isStdinTty: () => true }`.
+export type MainDeps = {
+  readStdin?: () => Promise<string>;
+  isStdinTty?: () => boolean;
+};
+
+export async function main(
+  argv: string[] = process.argv,
+  deps: MainDeps = {},
+): Promise<number> {
+  const readStdin = deps.readStdin ?? defaultReadStdin;
+  const isStdinTty = deps.isStdinTty ?? defaultIsStdinTty;
   const program = new Command();
 
   program
@@ -3440,38 +3457,36 @@ export async function main(argv: string[] = process.argv): Promise<number> {
   specCmd
     .command("submit")
     .description("Whole-replacement spec submit from JSON --input (CLI fills spec_version)")
-    .requiredOption("--input <file>", "JSON file with SpecFrontmatter-shaped content")
+    .requiredOption(
+      "--input <src>",
+      "JSON source: `-` (stdin), inline JSON literal, or file path (protocol §10.7)",
+    )
     .requiredOption("--feature <name>", "Feature whose spec to submit")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { input: string; feature: string; featureDir?: string }) => {
-      // (1) Read --input.
-      let content: string;
-      try {
-        content = await fsP.readFile(opts.input, "utf8");
-      } catch (err) {
-        const code = (err as { code?: string }).code;
-        emitFailure(
-          "INPUT_FILE_NOT_FOUND",
-          code === "ENOENT"
-            ? `input file does not exist: ${opts.input}`
-            : `cannot read input file ${opts.input}: ${String(err)}`,
-          { path: opts.input },
+      // Phase 16 SC-4a — unified --input modality (protocol §10.7 +
+      // ADR-0004 A11): parseInputSource discriminates stdin / inline /
+      // file; readJsonInput handles IO + JSON parse + error mapping;
+      // ctx.failure routes through the shared CommandContext.
+      const source = parseInputSource(opts.input);
+      // TTY no-hang guard per codex r212 PATCH 2 (protocol §10.1:1505).
+      if (source.kind === "stdin" && isStdinTty()) {
+        ctx.failure(
+          "USAGE",
+          "stdin is TTY — `loaf spec submit --input -` expects piped input. " +
+            "Pipe JSON via `... | loaf spec submit --input -`, OR pass inline " +
+            "JSON / file path. Run --help for examples.",
         );
         return;
       }
-      // (2) Parse JSON.
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(content);
-      } catch (err) {
-        emitFailure(
-          "SCHEMA_VALIDATION_FAILED",
-          `input is not valid JSON: ${(err as Error).message}`,
-        );
+      const read = await readJsonInput(source, { readStdin });
+      if (!read.ok) {
+        ctx.failure(read.code, read.message, read.detail);
         return;
       }
+      const parsed = read.value;
       if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-        emitFailure(
+        ctx.failure(
           "USAGE",
           "spec submit --input expects a JSON object (SpecFrontmatter shape)",
         );
@@ -3484,7 +3499,7 @@ export async function main(argv: string[] = process.argv): Promise<number> {
       // hard failure. SpecSubmitInput rejects wrong types before mutate.
       const inputParse = SpecSubmitInput.safeParse(parsed);
       if (!inputParse.success) {
-        emitFailure(
+        ctx.failure(
           "SCHEMA_VALIDATION_FAILED",
           `spec submit input failed SpecSubmitInput schema validation`,
           { issues: inputParse.error.issues },
@@ -3492,11 +3507,11 @@ export async function main(argv: string[] = process.argv): Promise<number> {
         return;
       }
       const input = inputParse.data;
-      // (3) Load session.
+      // Load session via ctx (caches; captures sub_state for crash context).
       const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-      const session = await loadSession(featureDir);
+      const session = await ctx.resolveSession(featureDir);
       if (!session.snapshot.state) {
-        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        ctx.failure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
         return;
       }
       const currentVersion = session.snapshot.state.spec_version;
@@ -3564,10 +3579,10 @@ export async function main(argv: string[] = process.argv): Promise<number> {
         meta: session.meta,
       });
       if (!result.ok) {
-        emitFailure(result.code, result.message, result.detail);
+        ctx.failure(result.code, result.message, result.detail);
         return;
       }
-      // (8) Output. Echo collected ids for shell scripting.
+      // Output. Echo collected ids for shell scripting.
       const reqIds = result.snapshot.requirements.map((r) => r.id);
       const scenIds = result.snapshot.scenarios.map((s) => s.id);
       const visIds = result.snapshot.visual_contracts.map((v) => v.id);
@@ -3580,13 +3595,11 @@ export async function main(argv: string[] = process.argv): Promise<number> {
         vis_ids: visIds,
         sub_state: result.snapshot.state?.sub_state,
       };
-      if (useJson) {
-        process.stdout.write(JSON.stringify(out) + "\n");
-      } else {
-        process.stdout.write(
+      ctx.success(
+        out,
+        () =>
           `spec submitted v${out.spec_version}: ${reqIds.length} req / ${scenIds.length} scen / ${visIds.length} vis\n`,
-        );
-      }
+      );
     });
 
   // ── loaf spec add-req / add-scenario / add-visual ────────────────────
@@ -3777,39 +3790,35 @@ export async function main(argv: string[] = process.argv): Promise<number> {
     specCmd
       .command(`add-${cfg.name}`)
       .description(`Add ${cfg.name} entries via id_namespace stamping (CLI allocates ${cfg.name.toUpperCase()} ids)`)
-      .requiredOption("--input <file>", `JSON file with SpecAdd${cfg.name[0]!.toUpperCase()}${cfg.name.slice(1)}Input shape (item or array)`)
+      .requiredOption(
+        "--input <src>",
+        `JSON source for SpecAdd${cfg.name[0]!.toUpperCase()}${cfg.name.slice(1)}Input (item or array): \`-\` (stdin), inline JSON, or file path (protocol §10.7)`,
+      )
       .requiredOption("--feature <name>", `Feature whose spec to extend`)
       .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
       .action(async (opts: { input: string; feature: string; featureDir?: string }) => {
-        // (1) Read --input.
-        let content: string;
-        try {
-          content = await fsP.readFile(opts.input, "utf8");
-        } catch (err) {
-          const code = (err as { code?: string }).code;
-          emitFailure(
-            "INPUT_FILE_NOT_FOUND",
-            code === "ENOENT"
-              ? `input file does not exist: ${opts.input}`
-              : `cannot read input file ${opts.input}: ${String(err)}`,
-            { path: opts.input },
+        // Phase 16 SC-4a — unified --input modality. TTY no-hang guard
+        // per codex r212 PATCH 2 (protocol §10.1:1505) covers the stdin
+        // case before any read.
+        const source = parseInputSource(opts.input);
+        if (source.kind === "stdin" && isStdinTty()) {
+          ctx.failure(
+            "USAGE",
+            `stdin is TTY — \`loaf spec add-${cfg.name} --input -\` expects piped input. ` +
+              `Pipe JSON via \`... | loaf spec add-${cfg.name} --input -\`, OR pass ` +
+              `inline JSON / file path. Run --help for examples.`,
           );
           return;
         }
-        // (2) Parse JSON + CLI boundary schema validation.
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(content);
-        } catch (err) {
-          emitFailure(
-            "SCHEMA_VALIDATION_FAILED",
-            `input is not valid JSON: ${(err as Error).message}`,
-          );
+        const read = await readJsonInput(source, { readStdin });
+        if (!read.ok) {
+          ctx.failure(read.code, read.message, read.detail);
           return;
         }
+        const parsed = read.value;
         const inputParse = cfg.inputSchema.safeParse(parsed);
         if (!inputParse.success) {
-          emitFailure(
+          ctx.failure(
             "SCHEMA_VALIDATION_FAILED",
             `spec add-${cfg.name} input failed schema validation`,
             { issues: inputParse.error.issues },
@@ -3818,11 +3827,11 @@ export async function main(argv: string[] = process.argv): Promise<number> {
         }
         const items: ReadonlyArray<{ id_namespace: string; [k: string]: unknown }> =
           Array.isArray(inputParse.data) ? inputParse.data : [inputParse.data];
-        // (3) Load session.
+        // Load session via ctx (caches; captures sub_state for crash context).
         const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-        const session = await loadSession(featureDir);
+        const session = await ctx.resolveSession(featureDir);
         if (!session.snapshot.state) {
-          emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+          ctx.failure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
           return;
         }
         // (4) Per-namespace allocator. Track counter across the batch so
@@ -3873,24 +3882,20 @@ export async function main(argv: string[] = process.argv): Promise<number> {
           meta: session.meta,
         });
         if (!result.ok) {
-          emitFailure(result.code, result.message, result.detail);
+          ctx.failure(result.code, result.message, result.detail);
           return;
         }
-        if (useJson) {
-          process.stdout.write(
-            JSON.stringify({
-              ok: true,
-              feature: opts.feature,
-              spec_version: result.snapshot.state?.spec_version,
-              ids: allocatedIds,
-              sub_state: result.snapshot.state?.sub_state,
-            }) + "\n",
-          );
-        } else {
-          process.stdout.write(
+        ctx.success(
+          {
+            ok: true,
+            feature: opts.feature,
+            spec_version: result.snapshot.state?.spec_version,
+            ids: allocatedIds,
+            sub_state: result.snapshot.state?.sub_state,
+          },
+          () =>
             `spec add-${cfg.name} v${result.snapshot.state?.spec_version}: ${allocatedIds.join(", ")}\n`,
-          );
-        }
+        );
       });
   }
 
