@@ -1160,7 +1160,7 @@
       <tr><td class="k">loaf spec add-scenario</td><td class="k">event:spec_scenario_added</td><td>SPEC.spec / .plan / .design</td><td>Gherkin SCEN</td></tr>
       <tr><td class="k">loaf spec add-visual</td><td class="k">event:spec_visual_added</td><td>SPEC.spec / .plan / .design</td><td>Visual contract VIS</td></tr>
       <tr><td class="k">loaf tasks add</td><td class="k">event:tasks_amended<br>(SPEC.design: event:tasks_planned)</td><td>SPEC.design / EXECUTE.plan(via amend-tasks)</td><td>batch atomic id range</td></tr>
-      <tr><td class="k">loaf evidence add</td><td class="k">evidence:added</td><td>EXECUTE.* / VERIFY.*</td><td>attachments <code>[{path}]</code> → CLI 算 sha256/mime/bytes</td></tr>
+      <tr><td class="k">loaf evidence add</td><td class="k">evidence:added</td><td>EXECUTE.* / VERIFY.*</td><td>Phase 16 SC-4c:<code>--input &lt;src&gt;</code> + batch(single/array)。attachments 当前要求完整 <code>[{path,sha256,mime,bytes?}]</code>;<code>[{path}]</code> + 自动 sha256/mime/bytes 是 ADR-0004 A6 future scope,未在 SC-4c 接入</td></tr>
     </tbody>
   </table>
 

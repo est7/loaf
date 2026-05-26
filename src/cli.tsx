@@ -59,6 +59,7 @@ import {
   type TaskFullProjection,
 } from "./core/task-schema.js";
 import { FindingId } from "./core/finding-schema.js";
+import { EvidenceAddInput } from "./core/evidence-schema.js";
 import {
   SpecAddReqInput,
   SpecAddScenarioInput,
@@ -2855,148 +2856,172 @@ export async function main(
       }
     });
 
-  // ── loaf evidence add --input <file> ──────────────────────────────────
-  // Slice 3 SC2 — minimal single-entry evidence add over the existing
-  // EvidenceFullPayload schema (src/core/evidence-schema.ts).
+  // ── loaf evidence add --input <src> ───────────────────────────────────
+  // Phase 16 SC-4c (closes SC-4 series; codex r229 → r236 amend cycles):
+  // unified --input source modality + batch (array) input. Slice 3 SC2
+  // shipped the single-entry file-only minimum; SC-4c extends to all 6
+  // source-resolution consumers' shared contract.
   //
-  // Scope per codex r62 → r66 sign-off:
-  //   - Single-entry --input only; array → USAGE deterministic reject
-  //     (no silent first-element processing).
-  //   - Caller-supplied `id` → USAGE exit 2 BEFORE mutate/append; CLI is
-  //     the single-source EV-id allocator (max-serial+1, zero-padded to
-  //     ≥6 digits per docs/schemas.ts EvidenceIdPayload regex).
-  //   - Attachments are PRE-HASHED PASSTHROUGH ONLY: input.attachments
-  //     must match runtime AttachmentPayload {path, sha256(64 lowercase
-  //     hex), mime, bytes?}. CLI does NOT stat / hash / copy / verify
-  //     files — the rev 4.3 / ADR-0004 A6 auto-hash transaction lands
-  //     in SC2b.
+  // Scope per codex r236 GO (after r230 → r234 patches absorbed):
+  //   - `--input <src>` source-discriminated: `-` (stdin via deps.readStdin
+  //     with TTY no-hang guard) / inline JSON / file path (protocol §10.7).
+  //   - Single object OR non-empty array; array enables batch input via
+  //     EvidenceAddInputBatched. One mutateBatch atomic per invocation;
+  //     EV-ids allocated sequentially max+1..max+N from a single
+  //     max-serial scan.
+  //   - Caller-supplied `id` / `evidence_id` / `schema_version` / `at` →
+  //     SCHEMA_VALIDATION_FAILED (codex r230 PATCH D — input-schema
+  //     violations consistently use SCHEMA_VALIDATION_FAILED; USAGE
+  //     reserved for CLI shape/TTY/flag misuse). Per-item failures
+  //     include detail.index identifying the failing array element.
+  //   - EvidenceAddInput (src/core/evidence-schema.ts) = EvidenceFullShape
+  //     .omit({id:true}).strict() — caller-owned id rejection at the
+  //     schema layer, not silently stripped. EvidenceFullPayload refines
+  //     (manual/waiver actor=human:* + reason≥10; visual-review ≥1
+  //     attachment) run later in mutateBatch preflight AFTER id injection.
+  //   - Attachments still require full AttachmentPayload {path, sha256,
+  //     mime, bytes?} in SC-4c. ADR-0004 A6 auto-hash materialization
+  //     (path → full Attachment) is DEFERRED to a future SC; runtime +
+  //     docs/schemas.ts INPUT_SCHEMAS["evidence:add"] machine schema +
+  //     this CLI handler all match on the full-metadata requirement.
   //   - No `--external-ref` CLI flag; `external_ref` is allowed only
   //     as an --input field (passthrough via EvidenceFullPayload).
-  //   - EvidenceFullPayload refines already enforce: manual/waiver actor
-  //     must start with `human:` and reason ≥10; visual-review requires
-  //     ≥1 attachment. CLI does not duplicate these checks.
   const evidenceCmd = program
     .command("evidence")
     .description("Evidence ledger commands (Slice 3 SC2 MVP: add)");
 
   evidenceCmd
     .command("add")
-    .description("Append an evidence entry from --input JSON (CLI allocates EV-id)")
-    .requiredOption("--input <file>", "Path to JSON file holding the EvidenceFullPayload minus id")
+    .description("Append evidence entry/entries from --input <src> JSON (CLI allocates EV-id; single object or non-empty array for batch)")
+    .requiredOption(
+      "--input <src>",
+      "JSON source for EvidenceAddInput (single object OR non-empty array for batch): `-` (stdin), inline JSON, or file path (protocol §10.7)",
+    )
     .requiredOption("--feature <name>", "Feature whose ledger to append to")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { input: string; feature: string; featureDir?: string }) => {
-      // (1) Read --input file.
-      let content: string;
-      try {
-        content = await fsP.readFile(opts.input, "utf8");
-      } catch (err) {
-        if ((err as { code?: string }).code === "ENOENT") {
-          emitFailure(
-            "INPUT_FILE_NOT_FOUND",
-            `input file does not exist: ${opts.input}`,
-            { path: opts.input },
-          );
-        } else {
-          emitFailure(
-            "INPUT_FILE_NOT_FOUND",
-            `cannot read input file ${opts.input}: ${String(err)}`,
-            { path: opts.input },
-          );
-        }
+      // Phase 16 SC-4c — unified --input modality (protocol §10.7) +
+      // array (batch) input enabled (was USAGE reject).
+      const source = parseInputSource(opts.input);
+      if (source.kind === "stdin" && isStdinTty()) {
+        ctx.failure(
+          "USAGE",
+          "stdin is TTY — `loaf evidence add --input -` expects piped input. " +
+            "Pipe JSON via `... | loaf evidence add --input -`, OR pass inline " +
+            "JSON / file path. Run --help for examples.",
+        );
         return;
       }
+      const read = await readJsonInput(source, { readStdin });
+      if (!read.ok) {
+        ctx.failure(read.code, read.message, read.detail);
+        return;
+      }
+      const parsed = read.value;
 
-      // (2) Parse JSON.
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(content);
-      } catch (err) {
-        emitFailure(
+      // Normalize to array; reject empty (codex r230 Q3 + r236 PATCH E).
+      const rawItems: unknown[] = Array.isArray(parsed) ? parsed : [parsed];
+      if (rawItems.length === 0) {
+        ctx.failure(
           "SCHEMA_VALIDATION_FAILED",
-          `input is not valid JSON: ${(err as Error).message}`,
+          "evidence add input is an empty array (non-empty array required)",
         );
         return;
       }
 
-      // (3) Boundary guards (codex r66 Q2 + Q4): single-entry shape;
-      // caller MUST NOT supply id (CLI is single-source allocator).
-      if (Array.isArray(parsed)) {
-        emitFailure(
-          "USAGE",
-          "evidence add --input expects a single object; arrays are not supported in this slice",
-        );
-        return;
-      }
-      if (parsed === null || typeof parsed !== "object") {
-        emitFailure(
-          "USAGE",
-          `evidence add --input must be a JSON object, got ${parsed === null ? "null" : typeof parsed}`,
-        );
-        return;
-      }
-      const inputObj = parsed as Record<string, unknown>;
-      if ("id" in inputObj) {
-        emitFailure(
-          "USAGE",
-          "do not include `id` in --input — CLI is the single-source EV-id allocator",
-        );
-        return;
+      // Per-item strict parse — caller-supplied `id` rejected via
+      // .strict() in EvidenceAddInput (codex r230 PATCH D:
+      // SCHEMA_VALIDATION_FAILED, not USAGE, for input-schema violations
+      // — matches tasks add strict rejection pattern). detail.index
+      // identifies the failing item in batch input.
+      const validatedInputs: EvidenceAddInput[] = [];
+      for (let i = 0; i < rawItems.length; i++) {
+        const raw = rawItems[i];
+        const p = EvidenceAddInput.safeParse(raw);
+        if (!p.success) {
+          ctx.failure(
+            "SCHEMA_VALIDATION_FAILED",
+            `evidence add input[${i}] failed schema validation: ${p.error.issues.map((iss: { message: string }) => iss.message).join("; ")}`,
+            { index: i, issues: p.error.issues },
+          );
+          return;
+        }
+        validatedInputs.push(p.data);
       }
 
-      // (4) Load session.
+      // Load session via ctx.
       const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-      const session = await loadSession(featureDir);
+      const session = await ctx.resolveSession(featureDir);
       if (!session.snapshot.state) {
-        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        ctx.failure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
         return;
       }
 
-      // (5) Allocate EV-NNNNNN: scan numeric EV ids (`EV-\d+`) in
-      // projection, take max numeric part, +1, zero-pad to ≥6 digits per
-      // EvidenceIdPayload. Non-numeric / non-EV ids (legacy / drift) are
-      // skipped — by construction only CLI-allocated ids enter, and the
-      // next allocation always emits canonical 6-digit padded form.
+      // Allocate EV-ids sequentially: max-serial + 1 .. max-serial + N
+      // (codex r230 Q1 GO: atomic across batch via mutateBatch sharing
+      // batch_id; r236 GO: single max-serial scan, sequential).
       const maxSerial = session.snapshot.evidence.reduce((max, e) => {
         const m = /^EV-(\d+)$/.exec(e.id);
         if (!m) return max;
         return Math.max(max, Number.parseInt(m[1]!, 10));
       }, 0);
-      const id = `EV-${String(maxSerial + 1).padStart(6, "0")}`;
+      const evIds: string[] = validatedInputs.map((_, i) =>
+        `EV-${String(maxSerial + 1 + i).padStart(6, "0")}`,
+      );
 
-      // (6) Merge id into payload, hand to mutate(). Preflight will run
-      // EvidenceFullPayload strict + refines (manual/waiver actor +
-      // reason, visual-review attachments) at PER_KIND_PAYLOAD; sub_state
-      // authority gate is also preflight's job. CLI does not duplicate.
-      const fullPayload = { ...inputObj, id };
-      const result = await mutate(
-        {
-          at: new Date().toISOString(),
+      // Materialize full payloads (inject CLI-allocated EV-id; refines
+      // in EvidenceFullPayload run during mutateBatch preflight).
+      const now = new Date().toISOString();
+      const entries: Parameters<typeof mutateBatch>[0] = validatedInputs.map(
+        (input, i) => ({
+          at: now,
           actor,
           entry_schema_version: 1,
           kind: "evidence:added",
-          payload: fullPayload,
-        },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta },
+          payload: { ...input, id: evIds[i] },
+        }),
       );
+
+      const result = await mutateBatch(entries, {
+        feature_dir: featureDir,
+        snapshot: session.snapshot,
+        tail_seq: session.tail_seq,
+        entries: session.entries,
+        meta: session.meta,
+      });
       if (!result.ok) {
-        emitFailure(result.code, result.message, result.detail);
+        ctx.failure(result.code, result.message, result.detail);
         return;
       }
 
-      // (7) Output. Bare EV-id in text mode (scriptable); {ok, feature,
-      // id, kind} in JSON mode — same shape rhythm as pending raise.
-      if (useJson) {
-        process.stdout.write(
-          JSON.stringify({
+      // Output preserves single-input bare-EV-id text (back-compat per
+      // codex r230 Q6 + r236) and adds {ok, feature, ev_ids, count,
+      // sub_state} JSON for batch (matches tasks add shape).
+      const isBatch = Array.isArray(parsed);
+      if (isBatch) {
+        ctx.success(
+          {
             ok: true,
             feature: opts.feature,
-            id,
-            kind: inputObj["kind"],
-          }) + "\n",
+            ev_ids: evIds,
+            count: evIds.length,
+            sub_state: result.snapshot.state?.sub_state,
+          },
+          () =>
+            `added ${evIds.length} evidence: ${evIds.join(", ")}\n`,
         );
       } else {
-        process.stdout.write(id + "\n");
+        // Single-input back-compat: bare EV-id in text mode; {ok,
+        // feature, id, kind} in JSON mode (pre-SC-4c shape preserved).
+        ctx.success(
+          {
+            ok: true,
+            feature: opts.feature,
+            id: evIds[0],
+            kind: validatedInputs[0]!.kind,
+          },
+          () => `${evIds[0]}\n`,
+        );
       }
     });
 

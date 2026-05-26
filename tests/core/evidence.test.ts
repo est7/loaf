@@ -1,25 +1,27 @@
-// Slice 3 SC2 — `loaf evidence add` minimal --input surface.
-// RED first: every new-behavior assertion below fails on pre-SC2 main
-// (no `loaf evidence` command tree; EV-id allocator + USAGE guards absent).
+// Slice 3 SC2 + Phase 16 SC-4c — `loaf evidence add --input <src>` surface.
 //
-// Scope per codex r62 → r64 → r65 → r66 sign-off (thread review/cli-lifecycle-plan):
-//   - Single-entry --input only; array input -> USAGE deterministic reject.
-//   - Caller-supplied `id` -> USAGE exit 2, NO journal-change.
-//   - Source schema is enforced via CLI boundary guards (no `id` in
-//     input + reject arrays) + reuse of EvidenceFullPayload at
-//     mutate() / preflight — no separate Omit schema in this slice.
-//     EvidenceFullPayload already enforces manual/waiver actor=human:*
-//     + reason ≥10, visual-review attachments ≥1 (per docs §5.4 +
-//     §16:1695-1700).
-//   - Attachments are PRE-HASHED passthrough only: input attachments must
-//     match runtime AttachmentPayload {path, sha256(64 lowercase hex),
-//     mime, bytes?}. CLI does NOT stat / hash / copy / verify files in
-//     this slice — file existence + canonical path bucketing land in SC2b
-//     (protocol rev 4.3 / ADR-0004 A6 auto-hash workflow).
-//   - No `--external-ref` flag; `external_ref` allowed only via --input
-//     (passthrough in EvidenceFullPayload).
-//   - EV-id allocator: scan snapshot.evidence[] for canonical `^EV-\d+$`,
-//     take max numeric part, +1, zero-pad to ≥6 digits.
+// Original Slice 3 SC2 (codex r62 → r66) shipped the single-entry file-
+// only minimum. Phase 16 SC-4c (codex r229 → r236) flipped 4 of these
+// assertions to match the unified --input modality + batch contract:
+//   - array input now ACCEPTED (was USAGE-reject) — batch via
+//     EvidenceAddInputBatched, one mutateBatch atomic per invocation
+//   - caller `id` → SCHEMA_VALIDATION_FAILED (was USAGE) — codex r230
+//     PATCH D: input-schema violations consistently use SVF
+//   - missing required field → SCHEMA_VALIDATION_FAILED at CLI parse
+//     (was INVALID_PAYLOAD at mutateBatch preflight)
+//   - non-hex sha256 → SCHEMA_VALIDATION_FAILED at CLI parse (was
+//     INVALID_PAYLOAD); strict EvidenceAddInput mirror catches
+//     AttachmentPayload format upstream of preflight
+//
+// Unchanged from SC2:
+//   - EV-id allocator (max-serial+1, zero-pad ≥6)
+//   - EvidenceFullPayload refines run later in mutateBatch preflight
+//     (manual/waiver actor=human:* + reason ≥10; visual-review ≥1
+//     attachment) — these still surface as INVALID_PAYLOAD because
+//     they're semantic refines, not pure shape violations
+//   - Attachments require full AttachmentPayload metadata
+//     (ADR-0004 A6 auto-hash materialization deferred to future SC)
+//   - No `--external-ref` CLI flag; `external_ref` passthrough only
 
 import { describe, expect, test } from "vitest";
 import { promises as fs } from "node:fs";
@@ -287,7 +289,7 @@ describe("loaf evidence add — SC2 schema refines (EvidenceFullPayload)", () =>
     expect(r.stderr).toMatch(/INVALID_PAYLOAD/);
   });
 
-  test("attachment with non-hex sha256 → INVALID_PAYLOAD", async () => {
+  test("attachment with non-hex sha256 → SCHEMA_VALIDATION_FAILED (Phase 16 SC-4c: was INVALID_PAYLOAD; flipped because the runtime EvidenceAddInput mirror catches AttachmentPayload format violations at CLI parse before mutateBatch preflight)", async () => {
     const { dir, feature } = await seedQuickAtExecuteWork();
     const input = await writeInput(dir, {
       ...baseInput("visual-review"),
@@ -300,7 +302,7 @@ describe("loaf evidence add — SC2 schema refines (EvidenceFullPayload)", () =>
       "--feature", feature, "--feature-dir", dir,
     ]);
     expect(r.exit).not.toBe(0);
-    expect(r.stderr).toMatch(/INVALID_PAYLOAD/);
+    expect(r.stderr).toMatch(/SCHEMA_VALIDATION_FAILED/);
   });
 });
 
@@ -330,7 +332,7 @@ describe("loaf evidence add — SC2 input boundary guards", () => {
     expect(r.stderr).toMatch(/SCHEMA_VALIDATION_FAILED/);
   });
 
-  test("input includes id → USAGE exit 2, journal unchanged (codex r66 Q2)", async () => {
+  test("input includes id → SCHEMA_VALIDATION_FAILED, journal unchanged (Phase 16 SC-4c: was USAGE; flipped per codex r230 PATCH D — input-schema violations consistently use SCHEMA_VALIDATION_FAILED)", async () => {
     const { dir, feature } = await seedQuickAtExecuteWork();
     const before = await readJournalLines(dir);
     const input = await writeInput(dir, { ...baseInput("local-check"), id: "EV-999999" });
@@ -339,13 +341,16 @@ describe("loaf evidence add — SC2 input boundary guards", () => {
       "--feature", feature, "--feature-dir", dir,
     ]);
     expect(r.exit).toBe(2);
-    expect(r.stderr).toMatch(/USAGE/);
+    expect(r.stderr).toMatch(/SCHEMA_VALIDATION_FAILED/);
     expect(r.stderr).toMatch(/id/i);
     const after = await readJournalLines(dir);
     expect(after).toEqual(before);
   });
 
-  test("input is JSON array → USAGE exit 2, journal unchanged (codex r66 Q4)", async () => {
+  test("input is JSON array → ACCEPTED (Phase 16 SC-4c batch-capable; was USAGE pre-SC-4c)", async () => {
+    // Codex r229 → r236 enabled batch input per EvidenceAddInputBatched.
+    // Single-item array exercises the batch lane minimally; full batch
+    // semantics covered by tests/core/evidence-input-modality.test.ts.
     const { dir, feature } = await seedQuickAtExecuteWork();
     const before = await readJournalLines(dir);
     const input = await writeInput(dir, [baseInput("local-check")]);
@@ -353,13 +358,12 @@ describe("loaf evidence add — SC2 input boundary guards", () => {
       "evidence", "add", "--input", input,
       "--feature", feature, "--feature-dir", dir,
     ]);
-    expect(r.exit).toBe(2);
-    expect(r.stderr).toMatch(/USAGE/);
+    expect(r.exit).toBe(0);
     const after = await readJournalLines(dir);
-    expect(after).toEqual(before);
+    expect(after.length).toBeGreaterThan(before.length);
   });
 
-  test("--input missing required field (no `kind`) → INVALID_PAYLOAD", async () => {
+  test("--input missing required field (no `kind`) → SCHEMA_VALIDATION_FAILED (Phase 16 SC-4c: was INVALID_PAYLOAD; flipped because strict EvidenceAddInput catches missing keys at CLI parse before mutateBatch preflight)", async () => {
     const { dir, feature } = await seedQuickAtExecuteWork();
     const { kind: _kind, ...without } = baseInput("local-check") as any;
     const input = await writeInput(dir, without);
@@ -368,7 +372,7 @@ describe("loaf evidence add — SC2 input boundary guards", () => {
       "--feature", feature, "--feature-dir", dir,
     ]);
     expect(r.exit).not.toBe(0);
-    expect(r.stderr).toMatch(/INVALID_PAYLOAD/);
+    expect(r.stderr).toMatch(/SCHEMA_VALIDATION_FAILED/);
   });
 });
 

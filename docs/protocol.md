@@ -754,9 +754,10 @@ CLI 分配流程(每次 add-\* / batch invocation):
 
 #### Attachment 自动处理(rev 4.3,ADR-0004 A6)
 
-`loaf evidence add --input` 时,`attachments[]` 是**简化输入形态** `[{ path }]`,**不**携 sha256 / mime / bytes。CLI 在 lock 内 transactionally 完成 shape transformation:
+`loaf evidence add --input <src>` 的 `attachments[]` 当前**要求完整 Attachment 形态** `[{ path, sha256, mime, bytes? }]`(Phase 16 SC-4c:auto-hash materialization 尚未接入)。下方简化输入形态 `[{ path }]` + transformation 7 步是 **ADR-0004 A6 / 未来 SC 的目标契约**,**当前 SC-4c 不生效**;runtime + `docs/schemas.ts §40 INPUT_SCHEMAS["evidence:add"]` machine schema 都仍要求 caller 提供完整 metadata(详 §10.7)。
 
 ```
+(ADR-0004 A6 future / deferred — NOT active in SC-4c)
 1. 验证 path 存在(否则 ATTACHMENT_NOT_FOUND exit 2)
 2. 验证 path 是 regular file(目录 / socket / FIFO / 符号链接到非文件 → ATTACHMENT_NOT_FILE exit 2)
 3. 拷贝到 `.loaf/<feature>/attachments/<entry_id>/<basename>`(**rev 5.0**:目录按发出该 evidence 的 journal entry_id (JE-NNNNNN) 分桶,非 EV-id;basename 冲突时 suffix `-2` / `-3` ...)
@@ -766,9 +767,9 @@ CLI 分配流程(每次 add-\* / batch invocation):
 7. 写完整 Attachment 对象(`{ path, sha256, mime, bytes }`)到 evidence.jsonl;落盘后 attachments[].path 是规范化后的相对路径(repo-relative)
 ```
 
-理由:LLM 在 shell 调 `sha256sum` 或推断 mime 几乎必错,这是经典 **shape transformation**(path → canonical entry with hash/mime/bytes),归 CLI 完美。机器表达见 `schemas.ts` §15 `EvidenceAddInput.attachments`(`Array<{ path }>`)vs 落盘的 `EvidenceEntry.attachments`(完整 `Attachment` 对象)。
+理由:LLM 在 shell 调 `sha256sum` 或推断 mime 几乎必错,这是经典 **shape transformation**(path → canonical entry with hash/mime/bytes),归 CLI 完美。这一 transformation 是 ADR-0004 A6 auto-hash transaction 的核心,但 v0.1.0 / Phase 16 SC-4c 仅完成 source modality + batch 接入,**materialization 由后续 SC 落地**;在那之前 callers 仍需自己提供 `sha256`(`shasum -a 256 path | cut -d' ' -f1`)+ `mime`(`file --mime-type -b path`)+ 可选 `bytes`(`stat -f%z path` / `stat -c%s path`)。机器表达见 `schemas.ts §40 INPUT_SCHEMAS["evidence:add"]`(SC-4c 已 patched 为 full Attachment[] + `.strict()`)。
 
-**ID 分配**(rev 4.3,ADR-0004 A5):`evidence add --input` input JSON **不**携 `evidence_id` / `at` 字段 — `EV-id`(`^EV-\d{6,}$`)与 timestamp 由 CLI 单调分配并 stdout 回打;batch 输入 N 条原子分配 N 个连续 id(append-only / spec_version 不变)。
+**ID 分配**(rev 4.3,ADR-0004 A5):`evidence add --input <src>` input JSON **不**携 `id` / `evidence_id` / `schema_version` / `at` 字段 — `EV-id`(`^EV-\d{6,}$`)/ envelope timestamp / schema version 由 CLI 单调分配/stamp,batch 输入 N 条原子分配 N 个连续 id(append-only / spec_version 不变,Phase 16 SC-4c 接入 single object **或** non-empty array,见 §10.7)。caller 显式传任一上述字段 → `SCHEMA_VALIDATION_FAILED`(Phase 16 SC-4c / codex r230 PATCH D / r234)。
 
 ### 4.5 findings.jsonl(6 category × 6 action + EV-id refs)
 
@@ -1806,7 +1807,7 @@ CLI **唯一** enforce 的 pending 阻塞规则(state-machine integrity):
 
 **两层契约严格分开**(Phase 16 SC-4b 后明确):
 
-1. **Source-resolution consumers**(`--input <src>` 三选一通用)—— 8 个命令(Phase 16 SC-4a/SC-4b 接入):`spec:submit` + `spec:add-req` / `spec:add-scenario` / `spec:add-visual` + `tasks:submit` + `tasks:add` + `tasks:amend --input` + `evidence:add`(SC-4c 待接)。所有 8 个共享 `parseInputSource` + `readJsonInput` 的 source 三选一。
+1. **Source-resolution consumers**(`--input <src>` 三选一通用)—— 8 个命令(Phase 16 SC-4a/SC-4b/SC-4c **全接入**):`spec:submit` + `spec:add-req` / `spec:add-scenario` / `spec:add-visual` + `tasks:submit` + `tasks:add` + `tasks:amend --input` + `evidence:add`。所有 8 个共享 `parseInputSource` + `readJsonInput` 的 source 三选一。
 2. **Batch-capable input schemas**(在 `INPUT_SCHEMAS` 注册)—— 5 个命令:`spec:add-req` / `spec:add-scenario` / `spec:add-visual` + `tasks:add` + `evidence:add`。这 5 个的 input schema 接 single object **或** 非空数组(batch 三纪律见 §11.2)。
 3. **不在 batch list 但在 source list 的 3 个命令**:`spec:submit`(whole-replacement,single object 含 N 嵌入 array)+ `tasks:submit`(whole-graph,single object 含 tasks 数组,但 caller 不传顶层数组)+ `tasks:amend --input`(sponsored single id-less task replacement)。**这 3 个 caller 永远不传顶层 array**。
 
@@ -1891,7 +1892,7 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 | `loaf tasks check` <!-- inventory:future reason="SC-9a projection-read commands" --> | `snapshots/tasks.json` 的 `execution.<step>.status` 与 `snapshots/evidence.json` 一致性校验(rev 5.0:两个 derived projection 是 reducer 同一次重建产物,理论无 drift;mismatch → 触发 §10.15 snapshot-seq-mismatch / 提示 `loaf doctor --rebuild`);rename from `loaf check tasks` (rev 4.0) | 0 / 2 |
 | `loaf tasks step start --task T-N --step <s>` | 开始一个 step(运行时校验 step ∈ kind 合法集) | 0 / 2 |
 | `loaf tasks step done --task T-N --step <s>` | 完成一个 step。**rev 5.0** 行为(等价于原 rev 4.1 contract):走 §11.2 10-step journal transaction,**同一 batch 内 emit** `event:task_step_done` + 可选 `evidence:added`(若 `--evidence-*` flag);step 5 final-validate 通过后整批 append,reducer 派生到 `snapshots/tasks.json`(`execution.<step>.status`)与 `snapshots/evidence.json`,绝不分两次 `loaf <cmd>` 调用。无对应 evidence proof 时 step 3 preflight 报 `TASK_STATUS_WITHOUT_PROOF` exit 2 | 0 / 2 |
-| `loaf evidence add --input <src>` | **rev 5.0**:走 §11.2 transaction,**emit `evidence:added`**(单条或 batch,batch markers N≥2);reducer 派生到 `snapshots/evidence.json`(含 covers[] / check / actor / result)。**rev 4.1**:不接受 `--id` flag,EV-id 由 CLI 单调分配在 payload 内并 stdout 回打;支持 `external_ref` 字段留调用方 correlation。**rev 4.3**(ADR-0004 A3 / A6 / A10):走 `--input` JSON 形态,`attachments` 接受简化 `[{ path }]` — CLI 自动 sha256 + mime infer + canonical path 拷到 `.loaf/<feature>/attachments/<entry_id>/`(**rev 5.0**:按 journal entry_id 分桶,非 EV-id)+ stat bytes(见 §4.4);path 不存在 → `ATTACHMENT_NOT_FOUND` exit 2,非常规文件 → `ATTACHMENT_NOT_FILE` | 0 / 2 |
+| `loaf evidence add --input <src>` | **rev 5.0**:走 §11.2 transaction,**emit `evidence:added`**(单条或 batch,batch markers N≥2);reducer 派生到 `snapshots/evidence.json`(含 covers[] / check / actor / result)。**rev 4.1**:不接受 `--id` flag,EV-id 由 CLI 单调分配在 payload 内并 stdout 回打;支持 `external_ref` 字段留调用方 correlation。**rev 4.3**(ADR-0004 A3 / A10):走统一 `--input <src>` modality(`-` stdin / inline JSON / file path,§10.7),**Phase 16 SC-4c** 接入 + 启用 batch(single object 或 non-empty array)。**ADR-0004 A6 deferred(NOT in SC-4c)**:`attachments` 简化形态 `[{path}]` + CLI 自动 sha256/mime/bytes materialization 留给后续 SC;**当前** runtime + `INPUT_SCHEMAS["evidence:add"]` machine schema 都要求 caller 提供完整 `Attachment` 形态 `[{path, sha256, mime, bytes?}]`(见 §4.4 命令行 sha256/mime 计算示例)。caller 显式传 envelope 字段(`id`/`evidence_id`/`schema_version`/`at`)→ `SCHEMA_VALIDATION_FAILED`(codex r230 PATCH D / r234)。当 A6 落地时,简化形态会在 schema 切换前先做 materialization → `ATTACHMENT_NOT_FOUND` / `ATTACHMENT_NOT_FILE` 路径才会重新激活 | 0 / 2 |
 | `loaf evidence schema --json` <!-- inventory:future reason="SC-10 schema emitters" --> | dump evidence JSON Schema | 0 |
 | `loaf waive <obligation-id> --reason "..."` <!-- inventory:future reason="SC-11 wrapper mutator (evidence:added kind=waiver)" --> | **rev 5.0**:emit `evidence:added`(payload `kind=waiver`);reducer 派生到 `snapshots/evidence.json` 的 waiver view。actor 必须 `human:*`;reason ≥10 字符 | 0 / 2 |
 | `loaf finding raise --category X --action Y --summary "..."` | **rev 5.0**:emit `finding:raised`;若 action 触发 back-edge,同 batch 加 emit `event:phase_advanced`(`amend-spec` → SPEC.spec;`amend-tasks` → EXECUTE.work);`fix-impl` / `fix-test`(Phase 11 Item 3 SC2-SC3)再额外 emit `event:task_step_reset`(把目标 step 重置为 `pending`),整批 `[finding:raised, event:task_step_reset, event:phase_advanced]`;reducer 派生到 `snapshots/findings.json` | 0 / 2 |

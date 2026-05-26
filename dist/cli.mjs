@@ -874,6 +874,8 @@ const EvidenceFullPayload = EvidenceFullShape.refine((e) => {
 	}
 	return true;
 }, { message: "evidence kind=visual-review requires ≥1 attachment (per §5.4 + §1695-1700)" });
+const EvidenceAddInput = EvidenceFullShape.omit({ id: true }).strict();
+z.union([EvidenceAddInput, z.array(EvidenceAddInput).nonempty()]);
 //#endregion
 //#region src/core/finding-schema.ts
 const FindingId = z.string().regex(/^FND-\d{3,}$/);
@@ -7359,39 +7361,40 @@ async function main(argv = process.argv, deps = {}) {
 		}) + "\n");
 		else process.stdout.write(`resolved ${head.id} (kind=${head.kind})\n`);
 	});
-	program.command("evidence").description("Evidence ledger commands (Slice 3 SC2 MVP: add)").command("add").description("Append an evidence entry from --input JSON (CLI allocates EV-id)").requiredOption("--input <file>", "Path to JSON file holding the EvidenceFullPayload minus id").requiredOption("--feature <name>", "Feature whose ledger to append to").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
-		let content;
-		try {
-			content = await promises.readFile(opts.input, "utf8");
-		} catch (err) {
-			if (err.code === "ENOENT") emitFailure("INPUT_FILE_NOT_FOUND", `input file does not exist: ${opts.input}`, { path: opts.input });
-			else emitFailure("INPUT_FILE_NOT_FOUND", `cannot read input file ${opts.input}: ${String(err)}`, { path: opts.input });
+	program.command("evidence").description("Evidence ledger commands (Slice 3 SC2 MVP: add)").command("add").description("Append evidence entry/entries from --input <src> JSON (CLI allocates EV-id; single object or non-empty array for batch)").requiredOption("--input <src>", "JSON source for EvidenceAddInput (single object OR non-empty array for batch): `-` (stdin), inline JSON, or file path (protocol §10.7)").requiredOption("--feature <name>", "Feature whose ledger to append to").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+		const source = parseInputSource(opts.input);
+		if (source.kind === "stdin" && isStdinTty()) {
+			ctx.failure("USAGE", "stdin is TTY — `loaf evidence add --input -` expects piped input. Pipe JSON via `... | loaf evidence add --input -`, OR pass inline JSON / file path. Run --help for examples.");
 			return;
 		}
-		let parsed;
-		try {
-			parsed = JSON.parse(content);
-		} catch (err) {
-			emitFailure("SCHEMA_VALIDATION_FAILED", `input is not valid JSON: ${err.message}`);
+		const read = await readJsonInput(source, { readStdin });
+		if (!read.ok) {
+			ctx.failure(read.code, read.message, read.detail);
 			return;
 		}
-		if (Array.isArray(parsed)) {
-			emitFailure("USAGE", "evidence add --input expects a single object; arrays are not supported in this slice");
+		const parsed = read.value;
+		const rawItems = Array.isArray(parsed) ? parsed : [parsed];
+		if (rawItems.length === 0) {
+			ctx.failure("SCHEMA_VALIDATION_FAILED", "evidence add input is an empty array (non-empty array required)");
 			return;
 		}
-		if (parsed === null || typeof parsed !== "object") {
-			emitFailure("USAGE", `evidence add --input must be a JSON object, got ${parsed === null ? "null" : typeof parsed}`);
-			return;
-		}
-		const inputObj = parsed;
-		if ("id" in inputObj) {
-			emitFailure("USAGE", "do not include `id` in --input — CLI is the single-source EV-id allocator");
-			return;
+		const validatedInputs = [];
+		for (let i = 0; i < rawItems.length; i++) {
+			const raw = rawItems[i];
+			const p = EvidenceAddInput.safeParse(raw);
+			if (!p.success) {
+				ctx.failure("SCHEMA_VALIDATION_FAILED", `evidence add input[${i}] failed schema validation: ${p.error.issues.map((iss) => iss.message).join("; ")}`, {
+					index: i,
+					issues: p.error.issues
+				});
+				return;
+			}
+			validatedInputs.push(p.data);
 		}
 		const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-		const session = await loadSession(featureDir);
+		const session = await ctx.resolveSession(featureDir);
 		if (!session.snapshot.state) {
-			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+			ctx.failure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
 			return;
 		}
 		const maxSerial = session.snapshot.evidence.reduce((max, e) => {
@@ -7399,18 +7402,18 @@ async function main(argv = process.argv, deps = {}) {
 			if (!m) return max;
 			return Math.max(max, Number.parseInt(m[1], 10));
 		}, 0);
-		const id = `EV-${String(maxSerial + 1).padStart(6, "0")}`;
-		const fullPayload = {
-			...inputObj,
-			id
-		};
-		const result = await mutate({
-			at: (/* @__PURE__ */ new Date()).toISOString(),
+		const evIds = validatedInputs.map((_, i) => `EV-${String(maxSerial + 1 + i).padStart(6, "0")}`);
+		const now = (/* @__PURE__ */ new Date()).toISOString();
+		const result = await mutateBatch(validatedInputs.map((input, i) => ({
+			at: now,
 			actor,
 			entry_schema_version: 1,
 			kind: "evidence:added",
-			payload: fullPayload
-		}, {
+			payload: {
+				...input,
+				id: evIds[i]
+			}
+		})), {
 			feature_dir: featureDir,
 			snapshot: session.snapshot,
 			tail_seq: session.tail_seq,
@@ -7418,16 +7421,22 @@ async function main(argv = process.argv, deps = {}) {
 			meta: session.meta
 		});
 		if (!result.ok) {
-			emitFailure(result.code, result.message, result.detail);
+			ctx.failure(result.code, result.message, result.detail);
 			return;
 		}
-		if (useJson) process.stdout.write(JSON.stringify({
+		if (Array.isArray(parsed)) ctx.success({
 			ok: true,
 			feature: opts.feature,
-			id,
-			kind: inputObj["kind"]
-		}) + "\n");
-		else process.stdout.write(id + "\n");
+			ev_ids: evIds,
+			count: evIds.length,
+			sub_state: result.snapshot.state?.sub_state
+		}, () => `added ${evIds.length} evidence: ${evIds.join(", ")}\n`);
+		else ctx.success({
+			ok: true,
+			feature: opts.feature,
+			id: evIds[0],
+			kind: validatedInputs[0].kind
+		}, () => `${evIds[0]}\n`);
 	});
 	const findingCmd = program.command("finding").description("Finding ledger commands (Slice 3 SC3 MVP: raise / list / close)");
 	findingCmd.command("raise").description("Raise a new finding (CLI allocates FND-id)").requiredOption("--category <category>", "Finding category (spec-gap | spec-defect | impl-defect | test-defect | new-scope | risk-escalation)").requiredOption("--action <action>", "Finding action (amend-spec | amend-tasks | fix-impl | fix-test | defer | backlog)").option("--summary <text>", "One-line finding summary (passthrough)").option("--reason <text>", "Justification (required ≥20 chars on unusual cells)").option("--target-task <task-id>", "Target task for fix-impl / fix-test / amend-tasks").option("--target-step <step>", "Target step (must equal action's canonical step)").requiredOption("--feature <name>", "Feature whose ledger to append to").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {

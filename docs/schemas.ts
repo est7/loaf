@@ -1824,30 +1824,33 @@ export const EvidenceEntry = z.object({
 });
 export type EvidenceEntry = z.infer<typeof EvidenceEntry>;
 
-// rev 4.1: EvidenceAddInput — the shape accepted by `loaf evidence add`.
-// CLI assigns `evidence_id` (monotonic per feature) and stamps `at`
-// during the per-session-lock transaction. Callers MUST NOT supply
-// either field; CLI MUST reject any `--id` flag with exit 2. This
-// prevents EV-id collision under sub-agent fan-out and keeps the
-// monotonic ordering invariant. See protocol.md §10.8 + §11.2.
+// rev 4.1 + Phase 16 SC-4c: EvidenceAddInput — the shape accepted by
+// `loaf evidence add --input <src>`. CLI assigns `evidence_id` (monotonic
+// per feature; runtime field `id`) and stamps `at`/`schema_version`
+// during the per-session-lock transaction. ALL THREE are envelope-/
+// CLI-owned and MUST NOT appear in caller input. Strict() rejects them
+// at the contract layer (NOT silently strips).
 //
-// rev 4.3 (ADR-0004 A6): `attachments` collapses to the input shape
-// `Array<{ path }>`. CLI computes sha256, infers mime, stat()s bytes,
-// canonicalizes the path under `.loaf/<feature>/attachments/<entry_id>/`
-// (rev 5.0, ADR-0005 §3.1: directory key is the journal entry_id
-// JE-NNNNNN of the emitted `evidence:added` entry, NOT the EV-id; EV-id
-// remains in the evidence payload as the projection's stable identifier),
-// and materializes the full Attachment object before append. LLM never
-// hashes or guesses mime — that is shape transformation owned by CLI.
+// Phase 16 SC-4c (codex r230 → r236): also accepts non-empty array for
+// batch via INPUT_SCHEMAS["evidence:add"] (which wraps this in
+// EvidenceAddInputBatched). One mutateBatch atomic per invocation;
+// EV-ids allocated sequentially max+1..max+N.
+//
+// rev 4.3 (ADR-0004 A6) — DEFERRED to a future SC: `attachments` will
+// simplify to `Array<{ path }>` once CLI gains auto-hash materialization
+// (stat + sha256 + mime-infer + canonical-path bucketing). NOT active
+// in SC-4c: runtime + this docs machine contract both require full
+// Attachment metadata `{path, sha256, mime, bytes?}` as enforced by
+// `EvidenceEntry.attachments` (`EvidenceFullShape` mirror in
+// `src/core/evidence-schema.ts`). When A6 lands, the materialization
+// transform runs BEFORE schema validation — the input schema below
+// will update + INPUT_SCHEMAS swap; the A6 simplification annotation
+// here is the future-shape spec, NOT current public contract.
 export const EvidenceAddInput = EvidenceEntry.omit({
-  evidence_id: true,
-  at: true,
-  attachments: true,
-}).extend({
-  attachments: z
-    .array(z.object({ path: z.string().min(1) }))
-    .optional(),
-});
+  schema_version: true,  // envelope-owned (codex r234)
+  evidence_id: true,     // CLI-allocated (renamed `id` at runtime)
+  at: true,              // CLI-stamped during per-session-lock txn
+}).strict();             // rejects caller-supplied id / evidence_id / unknown keys
 export type EvidenceAddInput = z.infer<typeof EvidenceAddInput>;
 
 // ─────────────────────────────────────────────────────────────────

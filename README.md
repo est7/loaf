@@ -38,11 +38,12 @@ The executable name is `loaf`.
 ```bash
 loaf start <feature> --ceremony <quick|light|standard|deep>
 loaf status --feature <feature>
-loaf spec init|submit|add-req|add-scenario|add-visual --feature <feature> [--input <file>]
-loaf tasks submit|claim|list|next
+loaf spec init|submit|add-req|add-scenario|add-visual --feature <feature> [--input <src>]
+loaf tasks submit|add|amend [<T-N>] --input <src> [--finding <FND-N>]
+loaf tasks claim|list|next
 loaf tasks step start|done
 loaf pending raise|list|status|resolve
-loaf evidence add --input <file>
+loaf evidence add --input <src>  # single object OR non-empty array (batch); `<src>` = `-` stdin / inline JSON / file path
 loaf finding raise|list|close
 loaf gate decide <gate-name> --approve|--reject --reason <…>
 loaf deliver

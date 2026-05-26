@@ -204,3 +204,30 @@ export const EvidenceFullPayload = EvidenceFullShape.refine(
 );
 
 export type EvidenceFull = z.infer<typeof EvidenceFullPayload>;
+
+// ── EvidenceAddInput[Batched] — Phase 16 SC-4c runtime mirror ───────
+//
+// Mirror of docs/schemas.ts §40 INPUT_SCHEMAS["evidence:add"]. Used by
+// `loaf evidence add --input <src>` to validate caller payload BEFORE
+// CLI allocates EV-id. After id injection, the full payload is re-
+// validated through EvidenceFullPayload so the kind-specific refines
+// (manual/waiver actor=human:* + reason≥10, visual-review ≥1 attachment)
+// still run.
+//
+// Built from EvidenceFullShape (NOT EvidenceFullPayload) because the
+// latter is .refine()'d and Zod can't .omit() a ZodEffects. .strict()
+// rejects caller-supplied `id` / unknown keys at the contract layer.
+// Attachments require full metadata (path/sha256/mime/bytes?) until
+// ADR-0004 A6 auto-hash materialization lands in a future SC.
+export const EvidenceAddInput = EvidenceFullShape.omit({ id: true }).strict();
+export type EvidenceAddInput = z.infer<typeof EvidenceAddInput>;
+
+// Batch wrapper per protocol §10.7 INPUT_SCHEMAS contract (codex r230
+// PATCH B + r236 GO): callers may submit single object or non-empty
+// array. mutateBatch atomically emits N event:evidence_added entries
+// sharing one batch_id.
+export const EvidenceAddInputBatched = z.union([
+  EvidenceAddInput,
+  z.array(EvidenceAddInput).nonempty(),
+]);
+export type EvidenceAddInputBatched = z.infer<typeof EvidenceAddInputBatched>;
