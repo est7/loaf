@@ -202,7 +202,7 @@ describe("loaf doctor --rebuild — Phase 14 SC2", () => {
         "doctor", "--rebuild", "--feature", "auth-refresh", "--feature-dir", dir,
       ]);
       expect(r.exit).toBe(0);
-      expect(r.stderr).toBe("");
+      expect(r.stderr).toContain("doctor rebuild: rebuilt");
       const snapDir = path.join(dir, "snapshots");
       for (const f of ["state.json", "evidence.json", "findings.json", "pending.json", "_meta.json"]) {
         expect((await fs.stat(path.join(snapDir, f))).isFile()).toBe(true);
@@ -221,7 +221,7 @@ describe("loaf doctor --rebuild — Phase 14 SC2", () => {
         "doctor", "--rebuild", "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
       ]);
       expect(r.exit).toBe(0);
-      expect(r.stderr).toBe("");
+      expect(r.stderr).toContain("doctor rebuild: rebuilt");
       const out = JSON.parse(r.stdout);
       expect(out.ok).toBe(true);
       expect(out.feature).toBe("auth-refresh");

@@ -771,6 +771,8 @@ CLI 分配流程(每次 add-\* / batch invocation):
 
 **ID 分配**(rev 4.3,ADR-0004 A5):`evidence add --input <src>` input JSON **不**携 `id` / `evidence_id` / `schema_version` / `at` 字段 — `EV-id`(`^EV-\d{6,}$`)/ envelope timestamp / schema version 由 CLI 单调分配/stamp,batch 输入 N 条原子分配 N 个连续 id(append-only / spec_version 不变,Phase 16 SC-4c 接入 single object **或** non-empty array,见 §10.7)。caller 显式传任一上述字段 → `SCHEMA_VALIDATION_FAILED`(Phase 16 SC-4c / codex r230 PATCH D / r234)。
 
+**Waiver recording**(rev 5.x):the canonical flow is `loaf tasks step done --result waived --evidence-kind waiver --evidence-reason '<≥10 chars>'`. A top-level `loaf waive` wrapper command is reserved for a future SC. See above for `evidence_kind=waiver` rules(`actor` 必须 `human:*`,`reason` ≥10 字符)。
+
 ### 4.5 findings.jsonl(6 category × 6 action + EV-id refs)
 
 > **Authority**: 派生投影(reducer 从 `finding:raised` / `finding:closed` entries 重建,落 `snapshots/findings.json`)。
@@ -1736,11 +1738,11 @@ error: input does not satisfy schema for spec:add-req: /measurable/threshold: ex
 | `--help` | `-h` | bool | — | 每命令都有,top-level + 每 subcommand |
 | `--version` | — | bool | — | `loaf --version` 打印 semver + commit + schema_version |
 | `--format <fmt>` | — | `json\|text` | TTY 时 `text`,pipe 时 `text`(line-oriented) | 见 §10.2 |
-| `--plain` <!-- inventory:future reason="SC-5b1 ships mechanism + loaf start pilot; SC-5b2 closes 40-site migration" --> | — | bool | false | 等价 `--format text`(明确 line-oriented),clig.dev 习惯 alias |
-| `--no-color` <!-- inventory:future reason="SC-5b1 ships mechanism + loaf start pilot; SC-5b2 closes 40-site migration" --> | — | bool | TTY/env 派生 | 见 §10.2 |
+| `--plain` | — | bool | false | 等价 `--format text`(明确 line-oriented),clig.dev 习惯 alias |
+| `--no-color` | — | bool | TTY/env 派生 | 见 §10.2 |
 | `--no-input` <!-- inventory:future reason="SC-6a non-interactive mode" --> | — | bool | false | **关键**:skill / hook / CI 用,禁用所有 prompt,缺必要输入直接 exit 2 |
-| `--quiet` <!-- inventory:future reason="SC-5b1 ships mechanism + loaf start pilot; SC-5b2 closes 40-site migration" --> | `-q` | bool | false | 抑制非错误输出(stderr 仍出错误) |
-| `--verbose` <!-- inventory:future reason="SC-5b1 ships mechanism + loaf start pilot; SC-5b2 closes 40-site migration" --> | `-v` | counter | 0 | `-v` / `-vv` 递增 stderr 信息密度;独立于 `--debug` |
+| `--quiet` | `-q` | bool | false | 抑制非错误输出(stderr 仍出错误) |
+| `--verbose` | `-v` | counter | 0 | `-v` / `-vv` 递增 stderr 信息密度;独立于 `--debug` |
 | `--debug` <!-- inventory:future reason="SC-6b debug observability" --> | — | bool | false | 写 `trace.jsonl`(`LOAF_DEBUG=1` / `DEBUG=1` 等价);**不**改变 stderr 密度(用 `-v`) |
 | `--dry-run` <!-- inventory:future reason="SC-6c mutate pipeline dry-run" --> | `-n` | bool | false | **rev 4.1**:mutating 命令只校验不落盘(见下方 dry-run 契约);read-only 命令 reject + exit 2 |
 | `--session <UUID>` <!-- inventory:future reason="SC-7+SC-8 registry-based session routing" --> | — | string | `$LOAF_SESSION` env or auto-pick | **rev 4.1**:dispatch 单次覆盖,见 §10.3 precedence;接受 ≥8 字符 prefix |
@@ -2012,28 +2014,32 @@ next: <suggested next command>            # 可选,仅在有强自然下一步�
 | 命令 | state-change line | next hint(若适用) |
 |---|---|---|
 | `loaf start` | `start: '<feature>' created → TRIAGE.score` | `next: loaf advance` |
-| `loaf advance` | `advance: <prev sub-state> → <new sub-state> (iter=N)` | `next: <prompt_inject 第一行>` |
+| `loaf advance` | `advance: <prev sub-state> → <new sub-state>` | — |
 | `loaf spec submit` | `spec submit: spec_version=N, locked=false` | `next: loaf gate decide spec-lock` |
-| `loaf spec add-req` | `spec add-req: +K REQ (spec_version=N → N+1; allocated REQ-AUTH-007..009)` | `next: loaf spec add-scenario --input ...`(若 scenario 缺)或 `next: loaf spec submit`(若覆盖足够)|
-| `loaf spec add-scenario` | `spec add-scenario: +K SCEN (spec_version=N → N+1; allocated SCEN-LOGIN-001..003)` | — |
-| `loaf spec add-visual` | `spec add-visual: +K VIS (spec_version=N → N+1; allocated VIS-DASH-001)` | — |
-| `loaf tasks submit` | `tasks submit: N tasks (tasks_version=M)` | `next: loaf advance` |
-| `loaf tasks add` | `tasks add: +K tasks (tasks_version=M → M+1; allocated T-008..010)` | `next: loaf advance`(若 SPEC.design 已完成全量加入)|
+| `loaf spec add-req` | `spec add-req: +K REQ (spec_version=N; allocated REQ-AUTH-007,008,009)` | — |
+| `loaf spec add-scenario` | `spec add-scenario: +K SCEN (spec_version=N; allocated SCEN-LOGIN-001,002,003)` | — |
+| `loaf spec add-visual` | `spec add-visual: +K VIS (spec_version=N; allocated VIS-DASH-001)` | — |
+| `loaf tasks submit` | `tasks submit: N tasks` | `next: loaf advance` |
+| `loaf tasks add` | `tasks add: +K tasks (allocated T-008,009,010)` | — |
 | `loaf tasks step start` | `step start: T-007 implement (running)` | — |
-| `loaf tasks step done` | `step done: T-007 implement (passed)` | `next: loaf tasks step start --task T-007 --step refactor`(若 task 还有 step;全部 must step 完成 → `next: loaf tasks complete T-007`) |
-| `loaf tasks complete` | `tasks complete: T-007 → status=done (3/3 must steps passed)` | `next: loaf advance`(若该 task 是当前 sub_state 最后一个 must task) |
-| `loaf evidence add` | `evidence add: +K evidence (EV-000125..000127; kind=verify-review, covers=REQ-AUTH-007)` — single 输入时退化为 `EV-000125` 单条形态 | — |
-| `loaf finding raise` | `finding raise: FND-002 (category=spec-gap, action=amend-spec) — back-edge to SPEC.spec` | — |
-| `loaf finding close` | `finding close: FND-002 → resolved (drift_index=0)` | — |
-| `loaf gate decide` | `gate decide: spec-lock approved by human:est9` | `next: loaf advance` |
-| `loaf settle` | `settle: snapshots/reconcile.json rebuilt (drift=0, iter_stats=...)` | `next: loaf deliver` |
+| `loaf tasks step done` | `step done: T-007 implement (passed)` | — |
+| `loaf evidence add` | Single: `evidence add: EV-000125 kind=verify-review, covers=REQ-AUTH-007`. Batch homogeneous: `evidence add: +K evidence (EV-000125,000126,000127; kind=verify-review, covers=REQ-AUTH-007)`. Batch heterogeneous: `evidence add: +K evidence (EV-000125,000126,000127)` (kind/covers dropped). | — |
+| `loaf finding raise` | `finding raise: FND-002 (category=spec-gap, action=amend-spec) — back-edge to SPEC.spec` (back-edge clause appears only when action ∈ {amend-spec, amend-tasks, fix-impl, fix-test}) | — |
+| `loaf finding close` | `finding close: FND-002 → closed` | — |
+| `loaf gate decide spec-lock` (approve) | `gate decide: spec-lock approved by <actor>` | — (cursor already advanced; no next-hint) |
+| `loaf gate decide verify-accept` (approve) | `gate decide: verify-accept approved by <actor>` | `next: loaf settle` (settle_phase=true) / `next: loaf deliver` (settle_phase=false) |
+| `loaf gate decide <G>` (reject) | `gate decide: <gate> rejected by <actor>` | — |
+| `loaf settle` | `settle: <from> → SETTLE.reconcile` | `next: loaf deliver` |
 | `loaf deliver` | `deliver: DONE.delivered (advisory only)` + 见 §10.12 advisory 段 | — |
-| `loaf archive` / `loaf abandon` | `archive: DONE.archived` / `abandon: DONE.abandoned (reason='...')` | — |
-| `loaf amend` | `amend: tasks_version=N (pre-lock edit)` | `next: loaf advance` |
-| `loaf waive` | `waive: EV-000130 (kind=waiver, obligation=REQ-AUTH-008)` | — |
-| `loaf pending resolve` | `pending resolve: '<answer>' → cleared` | `next: <prompt_inject>` |
+| `loaf archive` / `loaf abandon` | `archive: <feature> — <from> → DONE.archived by <actor>` / `abandon: <feature> — <from> → DONE.abandoned by <actor> (reason='...')` | — |
+| `loaf amend` | `amend: <task_id>` | — |
+| `loaf pending resolve` | `pending resolve: <PEND-id> cleared` | — |
+| `loaf profile escalate` | `profile escalate: ceremony updated, <PEND-id> resolved` | — |
+| `loaf spike convert` | `spike convert: <feature> → <to_feature> — <from> → DONE.archived by <actor>` | — |
+| `loaf tasks register-red` | `tasks register-red: <task_id>` | — |
+| `loaf doctor --rebuild` | `doctor rebuild: rebuilt N projection file(s) for <feature>` | — |
 
-**read-only 命令**(`loaf status` / `loaf tasks list` / `loaf finding list` / `loaf verify status` / `loaf sessions list` / `loaf doctor` / `loaf evidence schema` / `loaf <artifact> schema --format=json` / `loaf context pack`(rev 4.3)/ 任何 `--schema --format=json` modifier 调用)**不出 state-change line**(它们就是查询)。
+**read-only 命令**(`loaf status` / `loaf tasks list` / `loaf tasks complete` / `loaf finding list` / `loaf verify status` / `loaf sessions list` / `loaf doctor` / `loaf evidence schema` / `loaf <artifact> schema --format=json` / `loaf context pack`(rev 4.3)/ 任何 `--schema --format=json` modifier 调用)**不出 state-change line**(它们就是查询)。
 
 **`--quiet` 行为**:抑制 state-change + next hint 行;主输出(stdout)正常;错误仍出。
 

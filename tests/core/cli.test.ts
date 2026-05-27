@@ -442,7 +442,11 @@ describe("loaf gate decide spec-lock — Slice 1.B sub-cycle 4 (MVP)", () => {
     );
 
     expect(result.exit).toBe(0);
-    expect(result.stderr).toBe("");
+    expect(result.stderr).toContain("gate decide: spec-lock approved by");
+    // SC-5b2 P25: spec-lock approve cursor already advanced
+    // SPEC.design → EXECUTE.plan in the same batch; no next-hint
+    // emitted (codex r261 P25 + r262 GO).
+    expect(result.stderr).not.toContain("next:");
     const out = JSON.parse(result.stdout);
     expect(out.ok).toBe(true);
     expect(out.gate).toBe("spec-lock");
@@ -480,7 +484,7 @@ describe("loaf gate decide spec-lock — Slice 1.B sub-cycle 4 (MVP)", () => {
     );
 
     expect(result.exit).toBe(0);
-    expect(result.stderr).toBe("");
+    expect(result.stderr).toContain("gate decide: spec-lock rejected by");
     const out = JSON.parse(result.stdout);
     expect(out.ok).toBe(true);
     expect(out.decision).toBe("rejected");
@@ -830,8 +834,11 @@ async function seedCompleteTask(
   return { snapshot, tailSeq, entries, meta };
 }
 
-async function seedFeatureAtVerifyAccept(dir: string): Promise<void> {
-  await seedFeatureAtSpecDesign(dir);
+async function seedFeatureAtVerifyAccept(
+  dir: string,
+  ceremony: Ceremony = STANDARD_CEREMONY,
+): Promise<void> {
+  await seedFeatureAtSpecDesign(dir, ceremony);
   // Read current state — seedFeatureAtSpecDesign leaves cursor at SPEC.design
   // with tasks_planned emitted (tasks_based_on=1). spec_locked is still
   // false (no gate decided yet). For verify-accept we don't need spec_locked
@@ -893,7 +900,13 @@ describe("loaf gate decide verify-accept — Slice 1.C sub-cycle 6 (MVP)", () =>
     );
 
     expect(result.exit).toBe(0);
-    expect(result.stderr).toBe("");
+    expect(result.stderr).toContain("gate decide: verify-accept approved by");
+    // SC-5b2 P28: verify-accept next-hint derives from ceremony.settle_phase.
+    // The default `seedFeatureAtVerifyAccept` uses standard ceremony
+    // (settle_phase=false → next: loaf deliver). A separate test below
+    // covers deep ceremony (settle_phase=true → next: loaf settle).
+    expect(result.stderr).toContain("next: loaf deliver");
+    expect(result.stderr).not.toContain("next: loaf settle");
     const out = JSON.parse(result.stdout);
     expect(out.ok).toBe(true);
     expect(out.gate).toBe("verify-accept");
@@ -907,6 +920,29 @@ describe("loaf gate decide verify-accept — Slice 1.C sub-cycle 6 (MVP)", () =>
     const lines = journal.trim().split("\n").map((l) => JSON.parse(l));
     expect(lines[lines.length - 1].kind).toBe("gate:decided");
     expect(lines[lines.length - 1].payload.gate_kind).toBe("verify-accept");
+  });
+
+  test("SC-5b2 P28: approve under deep ceremony (settle_phase=true) → next: loaf settle", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtVerifyAccept(dir, DEEP_NO_STRICT_REVIEW_CEREMONY);
+
+    const result = await runCli(
+      [
+        "gate", "decide", "verify-accept",
+        "--approve",
+        "--reason", "all 5 checks pass",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--format", "json",
+      ],
+      { env: { LOAF_USER: "tester@example.invalid" } },
+    );
+
+    expect(result.exit).toBe(0);
+    expect(result.stderr).toContain("gate decide: verify-accept approved by");
+    // settle_phase=true → next: loaf settle (per protocol §10.12 + r262 P28)
+    expect(result.stderr).toContain("next: loaf settle");
+    expect(result.stderr).not.toContain("next: loaf deliver");
   });
 
   test("reject happy path: single entry, verify_accepted stays false", async () => {
@@ -926,7 +962,7 @@ describe("loaf gate decide verify-accept — Slice 1.C sub-cycle 6 (MVP)", () =>
     );
 
     expect(result.exit).toBe(0);
-    expect(result.stderr).toBe("");
+    expect(result.stderr).toContain("gate decide: verify-accept rejected by");
     const out = JSON.parse(result.stdout);
     expect(out.ok).toBe(true);
     expect(out.gate).toBe("verify-accept");
@@ -951,10 +987,11 @@ describe("loaf gate decide verify-accept — Slice 1.C sub-cycle 6 (MVP)", () =>
     );
 
     expect(result.exit).toBe(0);
-    expect(result.stderr).toBe("");
-    expect(result.stdout).toMatch(/gate verify-accept approved/);
-    expect(result.stdout).toMatch(/verify_accepted=true/);
-    expect(result.stdout).toMatch(/cursor stays at VERIFY.accept/);
+    // SC-5b2: state-change + next hint emit on stderr; stdout is empty
+    // (text renderer returns "") for state-changing commands.
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toMatch(/gate decide: verify-accept approved/);
+    expect(result.stderr).toMatch(/next: loaf (deliver|settle)/);
   });
 
   test("approve fails when spec.md missing — JSON failure to stderr, stdout empty", async () => {
@@ -1419,7 +1456,7 @@ describe("loaf deliver — Slice 1.D sub-cycle 2 (MVP)", () => {
     );
 
     expect(result.exit).toBe(0);
-    expect(result.stderr).toBe("");
+    expect(result.stderr).toContain("deliver: auth-refresh");
     const out = JSON.parse(result.stdout);
     expect(out.ok).toBe(true);
     expect(out.feature).toBe("auth-refresh");
@@ -1454,7 +1491,7 @@ describe("loaf deliver — Slice 1.D sub-cycle 2 (MVP)", () => {
     );
 
     expect(result.exit).toBe(0);
-    expect(result.stderr).toBe("");
+    expect(result.stderr).toContain("deliver: auth-refresh");
     const out = JSON.parse(result.stdout);
     expect(out.ok).toBe(true);
     expect(out.from).toBe("SETTLE.lessons");
@@ -1476,10 +1513,12 @@ describe("loaf deliver — Slice 1.D sub-cycle 2 (MVP)", () => {
     );
 
     expect(result.exit).toBe(0);
-    expect(result.stderr).toBe("");
-    expect(result.stdout).toMatch(/delivered auth-refresh/);
-    expect(result.stdout).toMatch(/DONE\.delivered/);
-    expect(result.stdout).toMatch(/^next: /m);
+    // SC-5b2: state-change + next hint now route to stderr; stdout is
+    // empty for state-changing commands whose text renderer returns "".
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toMatch(/deliver: auth-refresh/);
+    expect(result.stderr).toMatch(/DONE\.delivered/);
+    expect(result.stderr).toMatch(/^next: /m);
   });
 
   test("fail: VERIFY.accept + verify_accepted=false → DELIVER_NOT_ACCEPTED", async () => {
@@ -1773,7 +1812,7 @@ describe("loaf settle — Slice 1.D sub-cycle 3 (MVP)", () => {
     );
 
     expect(result.exit).toBe(0);
-    expect(result.stderr).toBe("");
+    expect(result.stderr).toContain("settle: VERIFY.accept → SETTLE.reconcile");
     const out = JSON.parse(result.stdout);
     expect(out.ok).toBe(true);
     expect(out.feature).toBe("auth-refresh");
@@ -1807,12 +1846,13 @@ describe("loaf settle — Slice 1.D sub-cycle 3 (MVP)", () => {
     );
 
     expect(result.exit).toBe(0);
-    expect(result.stderr).toBe("");
-    expect(result.stdout).toMatch(/settled auth-refresh/);
-    expect(result.stdout).toMatch(/VERIFY\.accept → SETTLE\.reconcile/);
-    expect(result.stdout).toMatch(/^next: /m);
+    // SC-5b2: state-change + next now route to stderr; stdout empty.
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toMatch(/settle: VERIFY\.accept → SETTLE\.reconcile/);
+    expect(result.stderr).toMatch(/^next: /m);
     // codex r49 Q4: must NOT claim reconcile.json rebuilt — deferred slice.
     expect(result.stdout).not.toMatch(/reconcile\.json/);
+    expect(result.stderr).not.toMatch(/reconcile\.json/);
   });
 
   test("fail: standard ceremony (settle_phase=false) → SETTLE_PHASE_DISABLED", async () => {
@@ -2328,7 +2368,7 @@ needs_clarification: []
     );
 
     expect(result.exit).toBe(0);
-    expect(result.stderr).toBe("");
+    expect(result.stderr).toContain("tasks submit: 1 tasks");
     const out = JSON.parse(result.stdout);
     expect(out.ok).toBe(true);
     expect(out.feature).toBe("auth-refresh");
@@ -2360,7 +2400,7 @@ needs_clarification: []
     );
 
     expect(result.exit).toBe(0);
-    expect(result.stderr).toBe("");
+    expect(result.stderr).toContain("tasks submit: 1 tasks");
     expect(result.stdout).toMatch(/submitted 1 task: T-001/);
   });
 
@@ -2775,7 +2815,7 @@ describe("loaf tasks abandon — Item 1", () => {
       "--format", "json",
     ]);
     expect(r.exit).toBe(0);
-    expect(r.stderr).toBe("");
+    expect(r.stderr).toContain("tasks abandon: T-001 (status=abandoned)");
     const out = JSON.parse(r.stdout);
     expect(out.ok).toBe(true);
     expect(out.task_id).toBe("T-001");
@@ -3290,7 +3330,7 @@ describe("loaf tasks submit at EXECUTE.plan — replan path (r59 P2.3 closure)",
       ],
     );
     expect(r.exit).toBe(0);
-    expect(r.stderr).toBe("");
+    expect(r.stderr).toContain("tasks submit: 2 tasks");
     const out = JSON.parse(r.stdout);
     expect(out.tasks_count).toBe(2);
     expect(out.task_ids).toEqual(["T-001", "T-002"]);
@@ -4942,7 +4982,8 @@ describe("loaf archive — Item 2", () => {
       { env: { LOAF_USER: "tester@example.invalid" } },
     );
     expect(r.exit).toBe(0);
-    expect(r.stderr).toBe("");
+    expect(r.stderr).toContain("archive: auth-refresh");
+    expect(r.stderr).toContain("DONE.archived");
     const out = JSON.parse(r.stdout);
     expect(out.ok).toBe(true);
     expect(out.feature).toBe("auth-refresh");
@@ -4969,9 +5010,11 @@ describe("loaf archive — Item 2", () => {
       { env: { LOAF_USER: "tester@example.invalid" } },
     );
     expect(r.exit).toBe(0);
-    expect(r.stdout).toContain("archived auth-refresh");
-    expect(r.stdout).toContain("DONE.archived");
-    expect(() => JSON.parse(r.stdout)).toThrow();
+    // SC-5b2: text renderer returns "" for state-changing commands;
+    // state-change text routes to stderr.
+    expect(r.stdout).toBe("");
+    expect(r.stderr).toContain("archive: auth-refresh");
+    expect(r.stderr).toContain("DONE.archived");
   });
 
   test("missing --reason → exit 2 (commander)", async () => {
@@ -5036,7 +5079,8 @@ describe("loaf abandon — Item 2", () => {
       { env: { LOAF_USER: "tester@example.invalid" } },
     );
     expect(r.exit).toBe(0);
-    expect(r.stderr).toBe("");
+    expect(r.stderr).toContain("abandon: auth-refresh");
+    expect(r.stderr).toContain("DONE.abandoned");
     const out = JSON.parse(r.stdout);
     expect(out.ok).toBe(true);
     expect(out.feature).toBe("auth-refresh");
@@ -5063,9 +5107,11 @@ describe("loaf abandon — Item 2", () => {
       { env: { LOAF_USER: "tester@example.invalid" } },
     );
     expect(r.exit).toBe(0);
-    expect(r.stdout).toContain("abandoned auth-refresh");
-    expect(r.stdout).toContain("DONE.abandoned");
-    expect(() => JSON.parse(r.stdout)).toThrow();
+    // SC-5b2: text renderer returns "" for state-changing commands;
+    // state-change text routes to stderr.
+    expect(r.stdout).toBe("");
+    expect(r.stderr).toContain("abandon: auth-refresh");
+    expect(r.stderr).toContain("DONE.abandoned");
   });
 
   test("missing --reason → exit 2 (commander)", async () => {
@@ -5243,7 +5289,7 @@ describe("loaf profile escalate — Phase 13", () => {
       { env: { LOAF_USER: "tester@example.invalid" } },
     );
     expect(r.exit).toBe(0);
-    expect(r.stderr).toBe("");
+    expect(r.stderr).toContain("profile escalate: ceremony updated");
     const out = JSON.parse(r.stdout);
     expect(out.ok).toBe(true);
     expect(out.actor).toBe("human:tester@example.invalid");

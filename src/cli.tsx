@@ -73,6 +73,39 @@ import {
   nextSerialInNamespace,
 } from "./core/spec-schema.js";
 
+// Phase 16 SC-5b2 — evidence add stateChange helper per protocol §10.12.
+// Set-semantics covers: sort + dedupe before compare AND render
+// (codex r262 OQ7). Heterogeneous batches drop kind/covers (codex
+// r261 P26 + r262 nit absorption).
+
+function normalizedCovers(covers: readonly string[] | undefined): string {
+  if (!covers || covers.length === 0) return "";
+  return [...new Set(covers)].sort().join(",");
+}
+
+function formatCovers(covers: readonly string[] | undefined): string {
+  if (!covers || covers.length === 0) return "<none>";
+  return [...new Set(covers)].sort().join(",");
+}
+
+function evidenceAddStateChange(
+  items: Array<{ id: string; kind: string; covers?: readonly string[] | undefined }>,
+): string {
+  if (items.length === 1) {
+    const it = items[0]!;
+    return `evidence add: ${it.id} kind=${it.kind}, covers=${formatCovers(it.covers)}`;
+  }
+  const kinds = new Set(items.map((it) => it.kind));
+  const coversNorm = new Set(items.map((it) => normalizedCovers(it.covers)));
+  const idsList = items.map((it) => it.id).join(",");
+  if (kinds.size === 1 && coversNorm.size === 1) {
+    const kind = [...kinds][0]!;
+    const coversForRender = formatCovers(items[0]!.covers);
+    return `evidence add: +${items.length} evidence (${idsList}; kind=${kind}, covers=${coversForRender})`;
+  }
+  return `evidence add: +${items.length} evidence (${idsList})`;
+}
+
 const PRESETS: Record<string, Ceremony> = {
   quick: {
     spec_phase: false,
@@ -216,28 +249,12 @@ export async function main(
       "--format <fmt>",
       `Output format: ${FORMAT_MODES_HUMAN} (default: text)`,
     )
-    // SC-5b1 presentation flags. Registered globally so they parse on
-    // any subcommand; only `loaf start` honors the new semantics in
-    // SC-5b1 (pilot). SC-5b2 closes the 40-site migration and removes
-    // the pilot caveats.
-    .option(
-      "--plain",
-      "Alias for --format text (mechanism live; presentation migration in SC-5b2)",
-    )
-    .option(
-      "--no-color",
-      "Disable color where implemented (reserved; no color output in v0.1)",
-    )
-    .option(
-      "-q, --quiet",
-      "Suppress advisory stderr where implemented (SC-5b1: loaf start only)",
-    )
-    .option(
-      "-v, --verbose",
-      "Increase advisory detail where implemented (reserved until SC-5b2)",
-      (_value: string, prior: number | undefined): number => (prior ?? 0) + 1,
-      0,
-    )
+    // SC-5b2 presentation flags. Registered globally so they parse on
+    // any subcommand; advisory routing per protocol §10.12.
+    .option("--plain", "Alias for --format text (clig.dev convention)")
+    .option("--no-color", "Disable color (NO_COLOR/LOAF_NO_COLOR/TERM=dumb equivalents)")
+    .option("-q, --quiet", "Suppress advisory stderr (state-change + next hint; errors still emit)")
+    .option("-v, --verbose", "Increase advisory detail; counter — repeat for more (-v, -vv)", (_v: string, prior: number | undefined): number => (prior ?? 0) + 1, 0)
     .addHelpText("after", helpFooter())
     .showHelpAfterError()
     .exitOverride();
@@ -258,11 +275,9 @@ export async function main(
     loadSession,
     loadProjections,
   });
-  // SC-5a: legacy local `useJson` now derives from ctx.output so all
-  // existing `if (useJson)` blocks (~27 sites) continue to work
-  // unchanged through SC-5b's presentation migration. Single source
-  // of truth = parseFormatFromArgv via ctx, not duplicate argv-scan.
-  const useJson = ctx.output === "json";
+  // SC-5b2 closed the legacy presentation shim — all sites now route
+  // through ctx.success / ctx.failure. Single source of truth =
+  // ctx.output (parsePresentation via createCommandContext).
   const fail = (code: string, message: string): void => {
     ctx.failure(code, message);
   };
@@ -418,7 +433,7 @@ export async function main(
         return;
       }
       const out = { ok: true, from, to, sub_state: result.snapshot.state?.sub_state };
-      process.stdout.write(useJson ? JSON.stringify(out) + "\n" : `advanced ${from} → ${to}\n`);
+      ctx.success(out, () => "", { stateChange: `advance: ${from} → ${to}` });
     });
 
   // ── loaf status ─────────────────────────────────────────────────────
@@ -467,18 +482,16 @@ export async function main(
         findings_count: findings.findings.length,
         pending_count: pending.pending.length,
       };
-      if (useJson) {
-        process.stdout.write(JSON.stringify(out) + "\n");
-      } else {
-        process.stdout.write(
+      ctx.success(
+        out,
+        () =>
           `feature: ${opts.feature}\n` +
           `phase:   ${state.phase}.${state.sub_state.split(".")[1]}\n` +
           `cursor:  ${state.sub_state}\n` +
           `tail:    seq=${out.tail_seq}\n` +
           `tasks=${out.tasks_count} evidence=${out.evidence_count} findings=${out.findings_count} pending=${out.pending_count}\n` +
           `# snapshot as-of seq=${out.tail_seq} (projection-loader, Phase 15 SC3)\n`,
-        );
-      }
+      );
     });
 
   // ── loaf gate decide <gate-name> ────────────────────────────────────
@@ -561,7 +574,7 @@ export async function main(
         return;
       }
       // (5) build entries + execute per-gate
-      const ctx = {
+      const mctx = {
         feature_dir: featureDir,
         snapshot: session.snapshot,
         tail_seq: session.tail_seq,
@@ -611,7 +624,7 @@ export async function main(
             kind: "event:phase_advanced",
             payload: { from, to: "EXECUTE.plan" },
           });
-          const result = await mutateBatch(entries, ctx);
+          const result = await mutateBatch(entries, mctx);
           if (!result.ok) {
             emitFailure(result.code, result.message, result.detail);
             return;
@@ -626,10 +639,10 @@ export async function main(
             sub_state: result.snapshot.state?.sub_state,
             spec_locked: result.snapshot.state?.spec_locked,
           };
-          process.stdout.write(
-            useJson
-              ? JSON.stringify(out) + "\n"
-              : `gate spec-lock approved by ${humanActor} — ${from} → EXECUTE.plan\n`,
+          ctx.success(
+            out,
+            () => "",
+            { stateChange: `gate decide: spec-lock approved by ${humanActor}` },
           );
           return;
         }
@@ -658,7 +671,7 @@ export async function main(
                 payload: { id: pendingHead.id, answer: "gate-decide:verify-accept:approved" },
               },
             ],
-            ctx,
+            mctx,
           )
           : await mutate(
             {
@@ -668,7 +681,7 @@ export async function main(
               kind: "gate:decided",
               payload: { gate_kind: "verify-accept", decision: "approved", reason: opts.reason },
             },
-            ctx,
+            mctx,
           );
         if (!result.ok) {
           emitFailure(result.code, result.message, result.detail);
@@ -683,10 +696,17 @@ export async function main(
           sub_state: result.snapshot.state?.sub_state,
           verify_accepted: result.snapshot.state?.verify_accepted,
         };
-        process.stdout.write(
-          useJson
-            ? JSON.stringify(out) + "\n"
-            : `gate verify-accept approved by ${humanActor} — verify_accepted=true, cursor stays at ${from} (advance via \`loaf deliver\` / \`loaf settle\`)\n`,
+        const nextCmd =
+          result.snapshot.state?.ceremony?.settle_phase === true
+            ? "loaf settle"
+            : "loaf deliver";
+        ctx.success(
+          out,
+          () => "",
+          {
+            stateChange: `gate decide: verify-accept approved by ${humanActor}`,
+            next: nextCmd,
+          },
         );
         return;
       }
@@ -700,7 +720,7 @@ export async function main(
           kind: "gate:decided",
           payload: { gate_kind: gateName, decision: "rejected", reason: opts.reason },
         },
-        ctx,
+        mctx,
       );
       if (!result.ok) {
         emitFailure(result.code, result.message, result.detail);
@@ -716,10 +736,10 @@ export async function main(
         spec_locked: result.snapshot.state?.spec_locked,
         verify_accepted: result.snapshot.state?.verify_accepted,
       };
-      process.stdout.write(
-        useJson
-          ? JSON.stringify(out) + "\n"
-          : `gate ${gateName} rejected by ${humanActor} — cursor stays at ${from}\n`,
+      ctx.success(
+        out,
+        () => "",
+        { stateChange: `gate decide: ${gateName} rejected by ${humanActor}` },
       );
     });
 
@@ -797,9 +817,9 @@ export async function main(
         return;
       }
 
-      // (5) Success output via ctx.success — single payload, lazy text
-      //     renderer (only invoked in text mode). Output bytes identical
-      //     to pre-SC-3 (asserted in tests).
+      // (5) Success output via ctx.success — stateChange + next routed to
+      //     stderr per protocol §10.12 (SC-5b2). The advisory string
+      //     remains in the JSON payload for back-compat.
       const advisory = [
         `session complete — \`loaf start <feature>\` to begin another`,
       ];
@@ -814,9 +834,11 @@ export async function main(
       };
       ctx.success(
         out,
-        () =>
-          `delivered ${opts.feature} (advisory only) — ${from} → DONE.delivered by ${humanActor}\n` +
-          `next: ${advisory[0]}\n`,
+        () => "",
+        {
+          stateChange: `deliver: ${opts.feature} — ${from} → DONE.delivered by ${humanActor}`,
+          next: advisory[0]!,
+        },
       );
     });
 
@@ -885,13 +907,13 @@ export async function main(
         actor: humanActor,
         sub_state: result.snapshot.state?.sub_state,
       };
-      if (useJson) {
-        process.stdout.write(JSON.stringify(out) + "\n");
-      } else {
-        process.stdout.write(
-          `archived ${opts.feature} — ${from} → DONE.archived by ${humanActor}\n`,
-        );
-      }
+      ctx.success(
+        out,
+        () => "",
+        {
+          stateChange: `archive: ${opts.feature} — ${from} → DONE.archived by ${humanActor}`,
+        },
+      );
     });
 
   program
@@ -948,13 +970,13 @@ export async function main(
         actor: humanActor,
         sub_state: result.snapshot.state?.sub_state,
       };
-      if (useJson) {
-        process.stdout.write(JSON.stringify(out) + "\n");
-      } else {
-        process.stdout.write(
-          `abandoned ${opts.feature} — ${from} → DONE.abandoned by ${humanActor}\n`,
-        );
-      }
+      ctx.success(
+        out,
+        () => "",
+        {
+          stateChange: `abandon: ${opts.feature} — ${from} → DONE.abandoned by ${humanActor} (reason='${opts.reason}')`,
+        },
+      );
     });
 
   // ── loaf spike <subcommand> ─────────────────────────────────────────
@@ -1049,13 +1071,13 @@ export async function main(
           actor: humanActor,
           sub_state: result.snapshot.state?.sub_state,
         };
-        if (useJson) {
-          process.stdout.write(JSON.stringify(out) + "\n");
-        } else {
-          process.stdout.write(
-            `converted ${opts.feature} → ${opts.toFeature} — ${from} → DONE.archived by ${humanActor}\n`,
-          );
-        }
+        ctx.success(
+          out,
+          () => "",
+          {
+            stateChange: `spike convert: ${opts.feature} → ${opts.toFeature} — ${from} → DONE.archived by ${humanActor}`,
+          },
+        );
       },
     );
 
@@ -1188,13 +1210,13 @@ export async function main(
           sub_state: result.snapshot.state?.sub_state,
           actor: humanActor,
         };
-        if (useJson) {
-          process.stdout.write(JSON.stringify(out) + "\n");
-        } else {
-          process.stdout.write(
-            `escalated ${opts.feature} — ceremony updated, pending ${head.id} resolved (cursor ${out.sub_state})\n`,
-          );
-        }
+        ctx.success(
+          out,
+          () => "",
+          {
+            stateChange: `profile escalate: ceremony updated, ${head.id} resolved`,
+          },
+        );
       },
     );
 
@@ -1302,15 +1324,16 @@ export async function main(
         tail_seq: replay.meta.last_applied_seq,
         rebuilt,
       };
-      if (useJson) {
-        process.stdout.write(JSON.stringify(out) + "\n");
-      } else {
-        process.stdout.write(
+      ctx.success(
+        out,
+        () =>
           `rebuilt ${rebuilt.length} projection file(s) for ${opts.feature}:\n` +
           rebuilt.map((f) => `  snapshots/${f}\n`).join("") +
           `# snapshot as-of seq=${replay.meta.last_applied_seq}\n`,
-        );
-      }
+        {
+          stateChange: `doctor rebuild: rebuilt ${rebuilt.length} projection file(s) for ${opts.feature}`,
+        },
+      );
     });
 
   // ── loaf tasks <subcommand> ─────────────────────────────────────────
@@ -1414,6 +1437,10 @@ export async function main(
         out,
         () =>
           `submitted ${tasks.length} task${tasks.length === 1 ? "" : "s"}: ${taskIds.join(", ")}\n`,
+        {
+          stateChange: `tasks submit: ${tasks.length} tasks`,
+          next: "loaf advance",
+        },
       );
     });
 
@@ -1592,6 +1619,9 @@ export async function main(
           out,
           () =>
             `added ${newIds.length} task${newIds.length === 1 ? "" : "s"} (sponsored by ${opts.finding}): ${newIds.join(", ")}\n`,
+          {
+            stateChange: `tasks add: +${newIds.length} tasks (allocated ${newIds.join(",")})`,
+          },
         );
         return;
       }
@@ -1646,6 +1676,9 @@ export async function main(
         out,
         () =>
           `added ${newIds.length} task${newIds.length === 1 ? "" : "s"}: ${newIds.join(", ")}\n`,
+        {
+          stateChange: `tasks add: +${newIds.length} tasks (allocated ${newIds.join(",")})`,
+        },
       );
     });
 
@@ -1704,11 +1737,11 @@ export async function main(
         status,
         sub_state: result.snapshot.state?.sub_state,
       };
-      if (useJson) {
-        process.stdout.write(JSON.stringify(out) + "\n");
-      } else {
-        process.stdout.write(`claimed ${taskId} (status=${status})\n`);
-      }
+      ctx.success(
+        out,
+        () => "",
+        { stateChange: `tasks claim: ${taskId} (status=${status})` },
+      );
     });
 
   // ── loaf tasks abandon <task-id> --reason "..." ─────────────────────
@@ -1769,11 +1802,11 @@ export async function main(
           status,
           sub_state: result.snapshot.state?.sub_state,
         };
-        if (useJson) {
-          process.stdout.write(JSON.stringify(out) + "\n");
-        } else {
-          process.stdout.write(`abandoned ${taskId} (status=${status})\n`);
-        }
+        ctx.success(
+          out,
+          () => "",
+          { stateChange: `tasks abandon: ${taskId} (status=${status})` },
+        );
       },
     );
 
@@ -1842,29 +1875,24 @@ export async function main(
         return t.status === opts.status;
       });
 
-      if (useJson) {
-        process.stdout.write(
-          JSON.stringify({
-            ok: true,
-            feature: opts.feature,
-            count: filtered.length,
-            tasks: filtered,
-          }) + "\n",
-        );
-      } else {
-        if (filtered.length === 0) {
-          process.stdout.write(
-            opts.status
+      ctx.success(
+        {
+          ok: true,
+          feature: opts.feature,
+          count: filtered.length,
+          tasks: filtered,
+        },
+        () => {
+          if (filtered.length === 0) {
+            return opts.status
               ? `no tasks match --status=${opts.status}\n`
-              : `no tasks in projection (run \`loaf tasks submit\` first)\n`,
-          );
-        } else {
-          for (const t of filtered) {
-            const ready = t.ready ? " [ready]" : "";
-            process.stdout.write(`${t.id} ${t.kind} ${t.status}${ready}\n`);
+              : `no tasks in projection (run \`loaf tasks submit\` first)\n`;
           }
-        }
-      }
+          return filtered
+            .map((t) => `${t.id} ${t.kind} ${t.status}${t.ready ? " [ready]" : ""}\n`)
+            .join("");
+        },
+      );
     });
 
   // ── loaf tasks next ─────────────────────────────────────────────────
@@ -1893,18 +1921,15 @@ export async function main(
           t.depends_on.every((d) => tasksById.get(d)?.status === "done")
         );
       });
-      if (useJson) {
-        process.stdout.write(
-          JSON.stringify({
-            ok: true,
-            feature: opts.feature,
-            task_id: ready?.id ?? null,
-            kind: ready?.kind ?? null,
-          }) + "\n",
-        );
-      } else {
-        process.stdout.write(ready ? `${ready.id}\n` : "");
-      }
+      ctx.success(
+        {
+          ok: true,
+          feature: opts.feature,
+          task_id: ready?.id ?? null,
+          kind: ready?.kind ?? null,
+        },
+        () => (ready ? `${ready.id}\n` : ""),
+      );
     });
 
   // ── loaf tasks complete <task-id> ───────────────────────────────────
@@ -1963,11 +1988,7 @@ export async function main(
         task_id: taskId,
         status: task.status,
       };
-      if (useJson) {
-        process.stdout.write(JSON.stringify(out) + "\n");
-      } else {
-        process.stdout.write(`${taskId} complete (status=done)\n`);
-      }
+      ctx.success(out, () => `${taskId} complete (status=done)\n`);
     });
 
   // ── loaf tasks amend <task-id> (--policy ... | --input <src> --finding) ──
@@ -2185,7 +2206,11 @@ export async function main(
             sponsored_by_finding_id: findingId,
             sub_state: sResult.snapshot.state?.sub_state,
           };
-          ctx.success(sOut, () => `amended ${taskId} (sponsored by ${findingId})\n`);
+          ctx.success(
+            sOut,
+            () => `amended ${taskId} (sponsored by ${findingId})\n`,
+            { stateChange: `amend: ${taskId}` },
+          );
           return;
         }
 
@@ -2301,11 +2326,11 @@ export async function main(
           policy: Object.fromEntries(policyMap),
           sub_state: result.snapshot.state?.sub_state,
         };
-        if (useJson) {
-          process.stdout.write(JSON.stringify(out) + "\n");
-        } else {
-          process.stdout.write(`amended ${taskId} (${applied})\n`);
-        }
+        ctx.success(
+          out,
+          () => `amended ${taskId} (${applied})\n`,
+          { stateChange: `amend: ${taskId}` },
+        );
       },
     );
 
@@ -2353,11 +2378,11 @@ export async function main(
         red_test_registered: true,
         sub_state: result.snapshot.state?.sub_state,
       };
-      if (useJson) {
-        process.stdout.write(JSON.stringify(out) + "\n");
-      } else {
-        process.stdout.write(`registered RED for ${taskId}\n`);
-      }
+      ctx.success(
+        out,
+        () => "",
+        { stateChange: `tasks register-red: ${taskId}` },
+      );
     });
 
   // ── loaf tasks step <subcommand> ────────────────────────────────────
@@ -2434,11 +2459,11 @@ export async function main(
         step_status: stepInfo.status,
         sub_state: result.snapshot.state?.sub_state,
       };
-      if (useJson) {
-        process.stdout.write(JSON.stringify(out) + "\n");
-      } else {
-        process.stdout.write(`started ${opts.task} step=${opts.step} (status=running)\n`);
-      }
+      ctx.success(
+        out,
+        () => "",
+        { stateChange: `step start: ${opts.task} ${opts.step} (running)` },
+      );
     });
 
   // ── loaf tasks step done --task T-N --step <s> [--result <r>] ───────
@@ -2531,7 +2556,7 @@ export async function main(
         kind: "event:task_step_done" as const,
         payload: { task_id: opts.task, step: opts.step, result: opts.result },
       };
-      const ctx = {
+      const mctx = {
         feature_dir: featureDir,
         snapshot: session.snapshot,
         tail_seq: session.tail_seq,
@@ -2589,10 +2614,10 @@ export async function main(
               payload: evidencePayload,
             },
           ],
-          ctx,
+          mctx,
         );
       } else {
-        result = await mutate(stepDoneEntry, ctx);
+        result = await mutate(stepDoneEntry, mctx);
       }
       if (!result.ok) {
         emitFailure(result.code, result.message, result.detail);
@@ -2626,15 +2651,15 @@ export async function main(
         sub_state: result.snapshot.state?.sub_state,
       };
       if (evidenceId !== undefined) out["evidence_id"] = evidenceId;
-      if (useJson) {
-        process.stdout.write(JSON.stringify(out) + "\n");
-      } else {
-        const promote = updated.status === "done" ? " (task auto-promoted to done)" : "";
-        const evidenceSuffix = evidenceId !== undefined ? ` evidence=${evidenceId}` : "";
-        process.stdout.write(
-          `done ${opts.task} step=${opts.step} result=${opts.result}${evidenceSuffix}${promote}\n`,
-        );
-      }
+      ctx.success(
+        out,
+        () => {
+          const promote = updated.status === "done" ? " (task auto-promoted to done)" : "";
+          const evidenceSuffix = evidenceId !== undefined ? ` evidence=${evidenceId}` : "";
+          return `done ${opts.task} step=${opts.step} result=${opts.result}${evidenceSuffix}${promote}\n`;
+        },
+        { stateChange: `step done: ${opts.task} ${opts.step} (${opts.result})` },
+      );
     });
 
   // ── loaf settle ─────────────────────────────────────────────────────
@@ -2701,14 +2726,14 @@ export async function main(
         sub_state: result.snapshot.state?.sub_state,
         advisory,
       };
-      if (useJson) {
-        process.stdout.write(JSON.stringify(out) + "\n");
-      } else {
-        process.stdout.write(
-          `settled ${opts.feature} — ${from} → SETTLE.reconcile\n` +
-          `next: ${advisory[0]}\n`,
-        );
-      }
+      ctx.success(
+        out,
+        () => "",
+        {
+          stateChange: `settle: ${from} → SETTLE.reconcile`,
+          next: "loaf deliver",
+        },
+      );
     });
 
   // ── loaf pending raise / list / status / resolve ─────────────────────
@@ -2803,13 +2828,11 @@ export async function main(
         emitFailure(result.code, result.message, result.detail);
         return;
       }
-      if (useJson) {
-        process.stdout.write(
-          JSON.stringify({ ok: true, feature: opts.feature, id, kind: opts.kind }) + "\n",
-        );
-      } else {
-        process.stdout.write(id + "\n");
-      }
+      ctx.success(
+        { ok: true, feature: opts.feature, id, kind: opts.kind },
+        () => id + "\n",
+        { stateChange: `pending raise: ${id} (kind=${opts.kind})` },
+      );
     });
 
   pendingCmd
@@ -2836,22 +2859,21 @@ export async function main(
         resolved: p.resolved,
         head: i === headIdx,
       }));
-      if (useJson) {
-        process.stdout.write(
-          JSON.stringify({
-            ok: true,
-            feature: opts.feature,
-            count: rows.length,
-            pending: rows,
-          }) + "\n",
-        );
-      } else {
-        for (const r of rows) {
-          process.stdout.write(
-            `${r.id} ${r.kind} ${r.resolved ? "resolved" : "open"} ${r.head ? "head" : "-"}\n`,
-          );
-        }
-      }
+      ctx.success(
+        {
+          ok: true,
+          feature: opts.feature,
+          count: rows.length,
+          pending: rows,
+        },
+        () =>
+          rows
+            .map(
+              (r) =>
+                `${r.id} ${r.kind} ${r.resolved ? "resolved" : "open"} ${r.head ? "head" : "-"}\n`,
+            )
+            .join(""),
+      );
     });
 
   pendingCmd
@@ -2888,23 +2910,17 @@ export async function main(
             ? null
             : { ...session.snapshot.pending[headIdx]!, head: true };
       }
-      if (useJson) {
-        process.stdout.write(
-          JSON.stringify({
-            ok: true,
-            feature: opts.feature,
-            pending: target,
-          }) + "\n",
-        );
-      } else {
-        if (target === null) {
-          process.stdout.write("no open pending\n");
-        } else {
-          process.stdout.write(
-            `${target.id} ${target.kind} ${target.resolved ? "resolved" : "open"} ${target.head ? "head" : "-"}\n`,
-          );
-        }
-      }
+      ctx.success(
+        {
+          ok: true,
+          feature: opts.feature,
+          pending: target,
+        },
+        () => {
+          if (target === null) return "no open pending\n";
+          return `${target.id} ${target.kind} ${target.resolved ? "resolved" : "open"} ${target.head ? "head" : "-"}\n`;
+        },
+      );
     });
 
   pendingCmd
@@ -2942,18 +2958,16 @@ export async function main(
         emitFailure(result.code, result.message, result.detail);
         return;
       }
-      if (useJson) {
-        process.stdout.write(
-          JSON.stringify({
-            ok: true,
-            feature: opts.feature,
-            resolved_id: head.id,
-            kind: head.kind,
-          }) + "\n",
-        );
-      } else {
-        process.stdout.write(`resolved ${head.id} (kind=${head.kind})\n`);
-      }
+      ctx.success(
+        {
+          ok: true,
+          feature: opts.feature,
+          resolved_id: head.id,
+          kind: head.kind,
+        },
+        () => `resolved ${head.id} (kind=${head.kind})\n`,
+        { stateChange: `pending resolve: ${head.id} cleared` },
+      );
     });
 
   // ── loaf evidence add --input <src> ───────────────────────────────────
@@ -3097,7 +3111,16 @@ export async function main(
       // Output preserves single-input bare-EV-id text (back-compat per
       // codex r230 Q6 + r236) and adds {ok, feature, ev_ids, count,
       // sub_state} JSON for batch (matches tasks add shape).
+      // SC-5b2: stateChange via evidenceAddStateChange helper per
+      // protocol §10.12 (set-semantics covers; heterogeneous batches
+      // drop kind/covers).
       const isBatch = Array.isArray(parsed);
+      const evidenceItems = validatedInputs.map((input, i) => ({
+        id: evIds[i]!,
+        kind: input.kind,
+        covers: input.covers,
+      }));
+      const stateChange = evidenceAddStateChange(evidenceItems);
       if (isBatch) {
         ctx.success(
           {
@@ -3107,8 +3130,8 @@ export async function main(
             count: evIds.length,
             sub_state: result.snapshot.state?.sub_state,
           },
-          () =>
-            `added ${evIds.length} evidence: ${evIds.join(", ")}\n`,
+          () => evIds.join("\n") + "\n",
+          { stateChange },
         );
       } else {
         // Single-input back-compat: bare EV-id in text mode; {ok,
@@ -3121,6 +3144,7 @@ export async function main(
             kind: validatedInputs[0]!.kind,
           },
           () => `${evIds[0]}\n`,
+          { stateChange },
         );
       }
     });
@@ -3284,20 +3308,21 @@ export async function main(
           emitFailure(batchResult.code, batchResult.message, batchResult.detail);
           return;
         }
-        if (useJson) {
-          process.stdout.write(
-            JSON.stringify({
-              ok: true,
-              feature: opts.feature,
-              id,
-              category: opts.category,
-              action: opts.action,
-              back_edge: { from: currentSubState, to: "EXECUTE.work" },
-            }) + "\n",
-          );
-        } else {
-          process.stdout.write(id + "\n");
-        }
+        ctx.success(
+          {
+            ok: true,
+            feature: opts.feature,
+            id,
+            category: opts.category,
+            action: opts.action,
+            back_edge: { from: currentSubState, to: "EXECUTE.work" },
+          },
+          () => id + "\n",
+          {
+            stateChange:
+              `finding raise: ${id} (category=${opts.category}, action=${opts.action}) — back-edge to EXECUTE.work`,
+          },
+        );
         return;
       }
 
@@ -3339,26 +3364,27 @@ export async function main(
           emitFailure(batchResult.code, batchResult.message, batchResult.detail);
           return;
         }
-        if (useJson) {
-          process.stdout.write(
-            JSON.stringify({
-              ok: true,
-              feature: opts.feature,
-              id,
-              category: opts.category,
-              action: opts.action,
-              back_edge: { from: currentSubState, to: backEdgeTarget },
-            }) + "\n",
-          );
-        } else {
+        ctx.success(
+          {
+            ok: true,
+            feature: opts.feature,
+            id,
+            category: opts.category,
+            action: opts.action,
+            back_edge: { from: currentSubState, to: backEdgeTarget },
+          },
           // codex r98 §1: keep text-mode stdout bare (matches every
           // other `loaf finding raise` action). Callers script
           // `FND=$(loaf finding raise ...)` and feed the id straight
           // into `loaf finding close`; a decorated string would
           // break that pipeline contract. The back_edge sponsorship
           // is observable from the journal tail + JSON mode.
-          process.stdout.write(id + "\n");
-        }
+          () => id + "\n",
+          {
+            stateChange:
+              `finding raise: ${id} (category=${opts.category}, action=${opts.action}) — back-edge to ${backEdgeTarget}`,
+          },
+        );
         return;
       }
 
@@ -3376,19 +3402,20 @@ export async function main(
         emitFailure(result.code, result.message, result.detail);
         return;
       }
-      if (useJson) {
-        process.stdout.write(
-          JSON.stringify({
-            ok: true,
-            feature: opts.feature,
-            id,
-            category: opts.category,
-            action: opts.action,
-          }) + "\n",
-        );
-      } else {
-        process.stdout.write(id + "\n");
-      }
+      ctx.success(
+        {
+          ok: true,
+          feature: opts.feature,
+          id,
+          category: opts.category,
+          action: opts.action,
+        },
+        () => id + "\n",
+        {
+          stateChange:
+            `finding raise: ${id} (category=${opts.category}, action=${opts.action})`,
+        },
+      );
     });
 
   findingCmd
@@ -3417,20 +3444,18 @@ export async function main(
       const rows = opts.status
         ? all.filter((f) => f.status === opts.status)
         : all;
-      if (useJson) {
-        process.stdout.write(
-          JSON.stringify({
-            ok: true,
-            feature: opts.feature,
-            count: rows.length,
-            findings: rows,
-          }) + "\n",
-        );
-      } else {
-        for (const r of rows) {
-          process.stdout.write(`${r.id} ${r.category} ${r.action} ${r.status}\n`);
-        }
-      }
+      ctx.success(
+        {
+          ok: true,
+          feature: opts.feature,
+          count: rows.length,
+          findings: rows,
+        },
+        () =>
+          rows
+            .map((r) => `${r.id} ${r.category} ${r.action} ${r.status}\n`)
+            .join(""),
+      );
     });
 
   findingCmd
@@ -3494,13 +3519,11 @@ export async function main(
         emitFailure(result.code, result.message, result.detail);
         return;
       }
-      if (useJson) {
-        process.stdout.write(
-          JSON.stringify({ ok: true, feature: opts.feature, id: fndId, status: "closed" }) + "\n",
-        );
-      } else {
-        process.stdout.write(`closed ${fndId}\n`);
-      }
+      ctx.success(
+        { ok: true, feature: opts.feature, id: fndId, status: "closed" },
+        () => `closed ${fndId}\n`,
+        { stateChange: `finding close: ${fndId} → closed` },
+      );
     });
 
   // ── loaf spec submit --input <file> ──────────────────────────────────
@@ -3681,6 +3704,10 @@ export async function main(
         out,
         () =>
           `spec submitted v${out.spec_version}: ${reqIds.length} req / ${scenIds.length} scen / ${visIds.length} vis\n`,
+        {
+          stateChange: `spec submit: spec_version=${out.spec_version}, locked=false`,
+          next: "loaf gate decide spec-lock",
+        },
       );
     });
 
@@ -3857,15 +3884,14 @@ export async function main(
         `---\n` +
         `\n## Why\n\nTODO: describe motivation and scope. Edit this section, then run \`loaf spec submit --input <json>\` to record the canonical spec.\n`;
       await fsP.writeFile(specMdPath, md);
-      if (useJson) {
-        process.stdout.write(
-          JSON.stringify({ ok: true, feature: opts.feature, spec_md_path: specMdPath }) + "\n",
-        );
-      } else {
-        process.stdout.write(
-          `spec init: wrote scaffold to ${specMdPath}\nnext: edit, then \`loaf spec submit --input <json> --feature ${opts.feature}\`\n`,
-        );
-      }
+      ctx.success(
+        { ok: true, feature: opts.feature, spec_md_path: specMdPath },
+        () => `${specMdPath}\n`,
+        {
+          stateChange: `spec init: wrote scaffold to ${specMdPath}`,
+          next: "edit, then `loaf spec submit`",
+        },
+      );
     });
 
   for (const cfg of REGISTER_SPEC_ADD) {
@@ -3967,16 +3993,21 @@ export async function main(
           ctx.failure(result.code, result.message, result.detail);
           return;
         }
+        const specVersion = result.snapshot.state?.spec_version;
         ctx.success(
           {
             ok: true,
             feature: opts.feature,
-            spec_version: result.snapshot.state?.spec_version,
+            spec_version: specVersion,
             ids: allocatedIds,
             sub_state: result.snapshot.state?.sub_state,
           },
           () =>
-            `spec add-${cfg.name} v${result.snapshot.state?.spec_version}: ${allocatedIds.join(", ")}\n`,
+            `spec add-${cfg.name} v${specVersion}: ${allocatedIds.join(", ")}\n`,
+          {
+            stateChange:
+              `spec add-${cfg.name}: +${allocatedIds.length} ${cfg.name.toUpperCase()} (spec_version=${specVersion}; allocated ${allocatedIds.join(",")})`,
+          },
         );
       });
   }
@@ -4016,7 +4047,7 @@ export async function main(
       argv,
       crash_log_path: crashLog,
     });
-    if (useJson) {
+    if (ctx.output === "json") {
       const payload: Record<string, unknown> = {
         ok: false,
         code: UNEXPECTED_ERROR,

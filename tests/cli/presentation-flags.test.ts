@@ -319,32 +319,6 @@ describe("Phase 16 SC-5b1 — RED #16-#20: loaf start pilot ctx.success advisory
 });
 
 // ───────────────────────────────────────────────────────────────────
-// RED #21 — partial boundary: loaf advance --quiet accepts flag (no effect yet, SC-5b2 closes)
-// ───────────────────────────────────────────────────────────────────
-
-describe("Phase 16 SC-5b1 — RED #21: pilot boundary surface", () => {
-  test("loaf advance --quiet (unmigrated) accepts flag without crash; SC-5b2 closes", async () => {
-    const dir = await tmpFeatureDir();
-    // Start session first so advance has something to operate on
-    await runCli([
-      "start", "auth-refresh",
-      "--ceremony", "quick",
-      "--feature-dir", dir,
-    ]);
-    const result = await runCli([
-      "advance", "TRIAGE.confirm",
-      "--feature", "auth-refresh",
-      "--feature-dir", dir,
-      "--quiet",
-    ]);
-    // Either succeeds (exit 0) or fails for unrelated reasons — but
-    // MUST NOT exit 2 due to unknown-option on --quiet.
-    expect(result.stderr).not.toContain("unknown option");
-    expect(result.stderr).not.toContain("--quiet");
-  });
-});
-
-// ───────────────────────────────────────────────────────────────────
 // RED #22 — read-only --quiet (status) still emits primary stdout
 // ───────────────────────────────────────────────────────────────────
 
@@ -428,38 +402,61 @@ describe("Phase 16 SC-5b1 — RED #25: FLAG_EXCLUSIONS.output_format normalizati
 });
 
 // ───────────────────────────────────────────────────────────────────
-// RED #26 — protocol §10.7 inventory annotations stay future
+// RED #26 (INVERTED for SC-5b2) — protocol §10.7 annotations flipped
+// to current. The 4 partial flags are no longer inventory:future after
+// SC-5b2 closed the 40-site migration. Regression guard against an
+// accidental re-introduction of the future annotation.
 // ───────────────────────────────────────────────────────────────────
 
-describe("Phase 16 SC-5b1 — RED #26: protocol inventory:future annotations retained", () => {
-  test("docs/protocol.md still has inventory:future on --plain/--no-color/--quiet/--verbose rows", async () => {
+describe("Phase 16 SC-5b2 — RED #26: protocol inventory:future annotations REMOVED from 4 flag rows", () => {
+  test("docs/protocol.md no longer has inventory:future on --plain/--no-color/--quiet/--verbose rows", async () => {
     const text = await fs.readFile(path.join(import.meta.dirname ?? __dirname, "../../docs/protocol.md"), "utf8");
     const flags = ["--plain", "--no-color", "--quiet", "--verbose"];
     for (const flag of flags) {
-      // Build a regex that finds the table row for the flag and asserts
-      // it carries inventory:future annotation.
+      // SC-5b2 flipped these to current: the flag row must NOT carry
+      // an `inventory:future` HTML comment anymore.
       const re = new RegExp(`\\| \`${flag.replace("-", "\\-")}\` <!-- inventory:future`);
-      expect(text).toMatch(re);
+      expect(text).not.toMatch(re);
     }
   });
 });
 
 // ───────────────────────────────────────────────────────────────────
-// RED #27 — --help output contains pilot caveat substrings (regression
-// guard during partial state; SC-5b2 removes these substrings)
+// SC-5b2 — quiet suppression for migrated mutators
 // ───────────────────────────────────────────────────────────────────
 
-describe("Phase 16 SC-5b1 — RED #27: --help output carries pilot caveats", () => {
-  test("loaf --help mentions pilot/reserved caveats for 4 partial flags", async () => {
-    const result = await runCli(["--help"]);
+describe("Phase 16 SC-5b2 — quiet suppression on migrated mutators", () => {
+  test("loaf advance (no quiet) → stateChange 'advance: <from> → <to>' on stderr", async () => {
+    const dir = await tmpFeatureDir();
+    await runCli(["start", "auth-refresh", "--ceremony", "quick", "--feature-dir", dir]);
+    const result = await runCli([
+      "advance", "TRIAGE.confirm",
+      "--feature", "auth-refresh",
+      "--feature-dir", dir,
+    ]);
     expect(result.exit).toBe(0);
-    // Commander wraps help text at the terminal width; normalize all
-    // whitespace runs to single spaces before substring matching so
-    // wrapped phrases still match.
-    const normalized = result.stdout.replace(/\s+/g, " ");
-    expect(normalized).toContain("presentation migration in SC-5b2");
-    expect(normalized).toContain("no color output in v0.1");
-    expect(normalized).toContain("SC-5b1: loaf start only");
-    expect(normalized).toContain("reserved until SC-5b2");
+    expect(result.stderr).toContain("advance: TRIAGE.score → TRIAGE.confirm");
   });
+
+  test("loaf advance --quiet → stateChange suppressed; exit 0", async () => {
+    const dir = await tmpFeatureDir();
+    await runCli(["start", "auth-refresh", "--ceremony", "quick", "--feature-dir", dir]);
+    const result = await runCli([
+      "advance", "TRIAGE.confirm",
+      "--feature", "auth-refresh",
+      "--feature-dir", dir,
+      "--quiet",
+    ]);
+    expect(result.exit).toBe(0);
+    // No stateChange / no next on stderr under --quiet.
+    expect(result.stderr).not.toContain("advance:");
+    expect(result.stderr).not.toContain("next:");
+  });
+
+  // Note: archive/abandon quiet semantics covered indirectly through
+  // tests/core/cli.test.ts (which were cascaded from stdout→stderr
+  // assertions in SC-5b2). Setting up an archive-able session needs
+  // more state than a fresh start; the advance tests above already
+  // prove the --quiet/non-quiet stateChange routing mechanic.
 });
+

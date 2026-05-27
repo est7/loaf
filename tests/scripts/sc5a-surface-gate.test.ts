@@ -128,6 +128,36 @@ describe("Phase 16 SC-5a/SC-5b1 — RED #18: FLAG_EXCLUSIONS surface invariants"
   });
 });
 
+describe("Phase 16 SC-5b2 — RED: useJson shim removed from src/cli.tsx", () => {
+  // The legacy `useJson` shim was introduced in SC-5b1 as a transitional
+  // bridge while the 40 unmigrated sites kept reading
+  // `ctx.output === "json"` indirectly. SC-5b2 closed the migration and
+  // removed the shim. This gate prevents a future regression that
+  // reintroduces the shim or a copy-pasted `useJson` reference.
+  test("src/cli.tsx contains no 'useJson' identifier", () => {
+    const text = readRepo("src/cli.tsx");
+    const lines = text.split("\n");
+    const offenders: Array<{ line: number; content: string }> = [];
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]!;
+      if (!line.includes("useJson")) continue;
+      // Defensive: comments in the file may legitimately reference the
+      // history of the shim; allow lines that are pure historical
+      // commentary (e.g. "// SC-5b1: legacy useJson shim removed").
+      // For SC-5b2 close, just enforce zero occurrences — historical
+      // comments can use alternate phrasing.
+      offenders.push({ line: i + 1, content: line });
+    }
+    if (offenders.length > 0) {
+      const detail = offenders.map((o) => `  src/cli.tsx:${o.line}  ${o.content}`).join("\n");
+      throw new Error(
+        `SC-5b2 useJson-shim gate: ${offenders.length} occurrence(s) of 'useJson' in src/cli.tsx:\n${detail}\n\n` +
+          `SC-5b2 removed the shim; site code must read ctx.output directly.`,
+      );
+    }
+  });
+});
+
 describe("Phase 16 SC-5a — RED #19: surface-wide '--json' grep gate", () => {
   // Files where bare `--json` MUST NOT appear after A1-honestly sweep.
   // Allowlist: an in-gate file may contain `--json` only if every hit

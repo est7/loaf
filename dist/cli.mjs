@@ -5910,6 +5910,29 @@ async function _loadProjectionsImpl(input, hooks) {
 }
 //#endregion
 //#region src/cli.tsx
+function normalizedCovers(covers) {
+	if (!covers || covers.length === 0) return "";
+	return [...new Set(covers)].sort().join(",");
+}
+function formatCovers(covers) {
+	if (!covers || covers.length === 0) return "<none>";
+	return [...new Set(covers)].sort().join(",");
+}
+function evidenceAddStateChange(items) {
+	if (items.length === 1) {
+		const it = items[0];
+		return `evidence add: ${it.id} kind=${it.kind}, covers=${formatCovers(it.covers)}`;
+	}
+	const kinds = new Set(items.map((it) => it.kind));
+	const coversNorm = new Set(items.map((it) => normalizedCovers(it.covers)));
+	const idsList = items.map((it) => it.id).join(",");
+	if (kinds.size === 1 && coversNorm.size === 1) {
+		const kind = [...kinds][0];
+		const coversForRender = formatCovers(items[0].covers);
+		return `evidence add: +${items.length} evidence (${idsList}; kind=${kind}, covers=${coversForRender})`;
+	}
+	return `evidence add: +${items.length} evidence (${idsList})`;
+}
 const PRESETS = {
 	quick: {
 		spec_phase: false,
@@ -5977,7 +6000,7 @@ async function main(argv = process.argv, deps = {}) {
 	const readStdin = deps.readStdin ?? defaultReadStdin;
 	const isStdinTty = deps.isStdinTty ?? defaultIsStdinTty;
 	const program = new Command();
-	program.name("loaf").description("Spec-driven development protocol CLI").version(version).option("--format <fmt>", `Output format: ${FORMAT_MODES_HUMAN} (default: text)`).option("--plain", "Alias for --format text (mechanism live; presentation migration in SC-5b2)").option("--no-color", "Disable color where implemented (reserved; no color output in v0.1)").option("-q, --quiet", "Suppress advisory stderr where implemented (SC-5b1: loaf start only)").option("-v, --verbose", "Increase advisory detail where implemented (reserved until SC-5b2)", (_value, prior) => (prior ?? 0) + 1, 0).addHelpText("after", helpFooter()).showHelpAfterError().exitOverride();
+	program.name("loaf").description("Spec-driven development protocol CLI").version(version).option("--format <fmt>", `Output format: ${FORMAT_MODES_HUMAN} (default: text)`).option("--plain", "Alias for --format text (clig.dev convention)").option("--no-color", "Disable color (NO_COLOR/LOAF_NO_COLOR/TERM=dumb equivalents)").option("-q, --quiet", "Suppress advisory stderr (state-change + next hint; errors still emit)").option("-v, --verbose", "Increase advisory detail; counter — repeat for more (-v, -vv)", (_v, prior) => (prior ?? 0) + 1, 0).addHelpText("after", helpFooter()).showHelpAfterError().exitOverride();
 	const actor = `cli:loaf@${process.env["USER"] ?? "unknown"}`;
 	const ctx = createCommandContext(argv, {
 		writeStdout: (s) => process.stdout.write(s),
@@ -5985,7 +6008,6 @@ async function main(argv = process.argv, deps = {}) {
 		loadSession,
 		loadProjections
 	});
-	const useJson = ctx.output === "json";
 	const fail = (code, message) => {
 		ctx.failure(code, message);
 	};
@@ -6100,7 +6122,7 @@ async function main(argv = process.argv, deps = {}) {
 			to,
 			sub_state: result.snapshot.state?.sub_state
 		};
-		process.stdout.write(useJson ? JSON.stringify(out) + "\n" : `advanced ${from} → ${to}\n`);
+		ctx.success(out, () => "", { stateChange: `advance: ${from} → ${to}` });
 	});
 	program.command("status").description("Show the current session snapshot (read-only)").requiredOption("--feature <name>", "Feature whose status to show").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
@@ -6135,8 +6157,7 @@ async function main(argv = process.argv, deps = {}) {
 			findings_count: findings.findings.length,
 			pending_count: pending.pending.length
 		};
-		if (useJson) process.stdout.write(JSON.stringify(out) + "\n");
-		else process.stdout.write(`feature: ${opts.feature}\nphase:   ${state.phase}.${state.sub_state.split(".")[1]}\ncursor:  ${state.sub_state}\ntail:    seq=${out.tail_seq}\ntasks=${out.tasks_count} evidence=${out.evidence_count} findings=${out.findings_count} pending=${out.pending_count}\n# snapshot as-of seq=${out.tail_seq} (projection-loader, Phase 15 SC3)\n`);
+		ctx.success(out, () => `feature: ${opts.feature}\nphase:   ${state.phase}.${state.sub_state.split(".")[1]}\ncursor:  ${state.sub_state}\ntail:    seq=${out.tail_seq}\ntasks=${out.tasks_count} evidence=${out.evidence_count} findings=${out.findings_count} pending=${out.pending_count}\n# snapshot as-of seq=${out.tail_seq} (projection-loader, Phase 15 SC3)\n`);
 	});
 	program.command("gate").description("Gate decision commands (spec-lock + verify-accept)").command("decide <gate-name>").description("Decide a gate (emits gate:decided; spec-lock approve also advances cursor)").option("--approve", "Approve the gate").option("--reject", "Reject the gate").requiredOption("--reason <text>", "Decision rationale (passed through to GateDecidedPayload)").requiredOption("--feature <name>", "Feature whose session to gate").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (gateName, opts) => {
 		const approve = opts.approve === true;
@@ -6165,7 +6186,7 @@ async function main(argv = process.argv, deps = {}) {
 			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
 			return;
 		}
-		const ctx = {
+		const mctx = {
 			feature_dir: featureDir,
 			snapshot: session.snapshot,
 			tail_seq: session.tail_seq,
@@ -6208,7 +6229,7 @@ async function main(argv = process.argv, deps = {}) {
 						to: "EXECUTE.plan"
 					}
 				});
-				const result = await mutateBatch(entries, ctx);
+				const result = await mutateBatch(entries, mctx);
 				if (!result.ok) {
 					emitFailure(result.code, result.message, result.detail);
 					return;
@@ -6223,7 +6244,7 @@ async function main(argv = process.argv, deps = {}) {
 					sub_state: result.snapshot.state?.sub_state,
 					spec_locked: result.snapshot.state?.spec_locked
 				};
-				process.stdout.write(useJson ? JSON.stringify(out) + "\n" : `gate spec-lock approved by ${humanActor} — ${from} → EXECUTE.plan\n`);
+				ctx.success(out, () => "", { stateChange: `gate decide: spec-lock approved by ${humanActor}` });
 				return;
 			}
 			const result = coEmitPendingResolved && pendingHead ? await mutateBatch([{
@@ -6245,7 +6266,7 @@ async function main(argv = process.argv, deps = {}) {
 					id: pendingHead.id,
 					answer: "gate-decide:verify-accept:approved"
 				}
-			}], ctx) : await mutate({
+			}], mctx) : await mutate({
 				at: now,
 				actor: humanActor,
 				entry_schema_version: 1,
@@ -6255,7 +6276,7 @@ async function main(argv = process.argv, deps = {}) {
 					decision: "approved",
 					reason: opts.reason
 				}
-			}, ctx);
+			}, mctx);
 			if (!result.ok) {
 				emitFailure(result.code, result.message, result.detail);
 				return;
@@ -6269,7 +6290,11 @@ async function main(argv = process.argv, deps = {}) {
 				sub_state: result.snapshot.state?.sub_state,
 				verify_accepted: result.snapshot.state?.verify_accepted
 			};
-			process.stdout.write(useJson ? JSON.stringify(out) + "\n" : `gate verify-accept approved by ${humanActor} — verify_accepted=true, cursor stays at ${from} (advance via \`loaf deliver\` / \`loaf settle\`)\n`);
+			const nextCmd = result.snapshot.state?.ceremony?.settle_phase === true ? "loaf settle" : "loaf deliver";
+			ctx.success(out, () => "", {
+				stateChange: `gate decide: verify-accept approved by ${humanActor}`,
+				next: nextCmd
+			});
 			return;
 		}
 		const result = await mutate({
@@ -6282,7 +6307,7 @@ async function main(argv = process.argv, deps = {}) {
 				decision: "rejected",
 				reason: opts.reason
 			}
-		}, ctx);
+		}, mctx);
 		if (!result.ok) {
 			emitFailure(result.code, result.message, result.detail);
 			return;
@@ -6297,7 +6322,7 @@ async function main(argv = process.argv, deps = {}) {
 			spec_locked: result.snapshot.state?.spec_locked,
 			verify_accepted: result.snapshot.state?.verify_accepted
 		};
-		process.stdout.write(useJson ? JSON.stringify(out) + "\n" : `gate ${gateName} rejected by ${humanActor} — cursor stays at ${from}\n`);
+		ctx.success(out, () => "", { stateChange: `gate decide: ${gateName} rejected by ${humanActor}` });
 	});
 	program.command("deliver").description("Deliver the feature session (emits session:delivered → DONE.delivered)").requiredOption("--feature <name>", "Feature whose session to deliver").option("--feature-dir <path>", "Override default .loaf/<feature> directory").option("--reason <text>", "Optional rationale to record on the session:delivered entry").action(async (opts) => {
 		const resolution = resolveHumanActor({
@@ -6346,7 +6371,10 @@ async function main(argv = process.argv, deps = {}) {
 			sub_state: result.snapshot.state?.sub_state,
 			advisory
 		};
-		ctx.success(out, () => `delivered ${opts.feature} (advisory only) — ${from} → DONE.delivered by ${humanActor}\nnext: ${advisory[0]}\n`);
+		ctx.success(out, () => "", {
+			stateChange: `deliver: ${opts.feature} — ${from} → DONE.delivered by ${humanActor}`,
+			next: advisory[0]
+		});
 	});
 	program.command("archive").description("Close the feature session without delivering (emits session:archived → DONE.archived)").requiredOption("--feature <name>", "Feature whose session to archive").requiredOption("--reason <text>", "Rationale recorded on the session:archived entry").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		const resolution = resolveHumanActor({
@@ -6391,8 +6419,7 @@ async function main(argv = process.argv, deps = {}) {
 			actor: humanActor,
 			sub_state: result.snapshot.state?.sub_state
 		};
-		if (useJson) process.stdout.write(JSON.stringify(out) + "\n");
-		else process.stdout.write(`archived ${opts.feature} — ${from} → DONE.archived by ${humanActor}\n`);
+		ctx.success(out, () => "", { stateChange: `archive: ${opts.feature} — ${from} → DONE.archived by ${humanActor}` });
 	});
 	program.command("abandon").description("Abandon the feature session (emits session:abandoned → DONE.abandoned)").requiredOption("--feature <name>", "Feature whose session to abandon").requiredOption("--reason <text>", "Rationale recorded on the session:abandoned entry").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		const resolution = resolveHumanActor({
@@ -6437,8 +6464,7 @@ async function main(argv = process.argv, deps = {}) {
 			actor: humanActor,
 			sub_state: result.snapshot.state?.sub_state
 		};
-		if (useJson) process.stdout.write(JSON.stringify(out) + "\n");
-		else process.stdout.write(`abandoned ${opts.feature} — ${from} → DONE.abandoned by ${humanActor}\n`);
+		ctx.success(out, () => "", { stateChange: `abandon: ${opts.feature} — ${from} → DONE.abandoned by ${humanActor} (reason='${opts.reason}')` });
 	});
 	program.command("spike").description("Spike-task exits (protocol §8.3)").command("convert").description("Convert a spike session — emits spike:converted then archives to DONE.archived").requiredOption("--feature <name>", "Feature whose spike session to convert").requiredOption("--to-feature <id>", "Target feature id (F-NNN) the spike learnings carry into").requiredOption("--reason <text>", "Rationale recorded on the spike:converted entry").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		const resolution = resolveHumanActor({
@@ -6494,8 +6520,7 @@ async function main(argv = process.argv, deps = {}) {
 			actor: humanActor,
 			sub_state: result.snapshot.state?.sub_state
 		};
-		if (useJson) process.stdout.write(JSON.stringify(out) + "\n");
-		else process.stdout.write(`converted ${opts.feature} → ${opts.toFeature} — ${from} → DONE.archived by ${humanActor}\n`);
+		ctx.success(out, () => "", { stateChange: `spike convert: ${opts.feature} → ${opts.toFeature} — ${from} → DONE.archived by ${humanActor}` });
 	});
 	program.command("profile").description("Ceremony profile commands (protocol §10.8)").command("escalate").description("Apply a ceremony escalation — resolve the profile_escalation pending + emit event:ceremony_set").requiredOption("--confirm", "Human acceptance of the escalation (required)").requiredOption("--input <path>", "JSON file with the escalated 6-flag Ceremony object").requiredOption("--feature <name>", "Feature whose session to escalate").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		const resolution = resolveHumanActor({
@@ -6565,8 +6590,7 @@ async function main(argv = process.argv, deps = {}) {
 			sub_state: result.snapshot.state?.sub_state,
 			actor: humanActor
 		};
-		if (useJson) process.stdout.write(JSON.stringify(out) + "\n");
-		else process.stdout.write(`escalated ${opts.feature} — ceremony updated, pending ${head.id} resolved (cursor ${out.sub_state})\n`);
+		ctx.success(out, () => "", { stateChange: `profile escalate: ceremony updated, ${head.id} resolved` });
 	});
 	program.command("doctor").description("Repository self-check. This release implements --rebuild only").option("--rebuild", "Full journal replay → rebuild snapshots/*.json + _meta.json").option("--feature <name>", "Feature whose snapshots to rebuild (required with --rebuild)").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		if (!opts.rebuild) {
@@ -6614,8 +6638,7 @@ async function main(argv = process.argv, deps = {}) {
 			tail_seq: replay.meta.last_applied_seq,
 			rebuilt
 		};
-		if (useJson) process.stdout.write(JSON.stringify(out) + "\n");
-		else process.stdout.write(`rebuilt ${rebuilt.length} projection file(s) for ${opts.feature}:\n` + rebuilt.map((f) => `  snapshots/${f}\n`).join("") + `# snapshot as-of seq=${replay.meta.last_applied_seq}\n`);
+		ctx.success(out, () => `rebuilt ${rebuilt.length} projection file(s) for ${opts.feature}:\n` + rebuilt.map((f) => `  snapshots/${f}\n`).join("") + `# snapshot as-of seq=${replay.meta.last_applied_seq}\n`, { stateChange: `doctor rebuild: rebuilt ${rebuilt.length} projection file(s) for ${opts.feature}` });
 	});
 	const tasksCmd = program.command("tasks").description("Task lifecycle commands (Slice 2 MVP: submit / claim / step)");
 	tasksCmd.command("submit").description("Submit a complete task graph from --input <src> (stdin / inline JSON / file path; whole-graph single object)").requiredOption("--input <src>", "JSON source: `-` (stdin), inline JSON literal, or file path (protocol §10.7). Whole-graph single object only.").requiredOption("--feature <name>", "Feature whose task graph to submit").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
@@ -6663,7 +6686,10 @@ async function main(argv = process.argv, deps = {}) {
 			task_ids: taskIds,
 			tasks_based_on: result.snapshot.tasks_based_on
 		};
-		ctx.success(out, () => `submitted ${tasks.length} task${tasks.length === 1 ? "" : "s"}: ${taskIds.join(", ")}\n`);
+		ctx.success(out, () => `submitted ${tasks.length} task${tasks.length === 1 ? "" : "s"}: ${taskIds.join(", ")}\n`, {
+			stateChange: `tasks submit: ${tasks.length} tasks`,
+			next: "loaf advance"
+		});
 	});
 	tasksCmd.command("add").description("Append id-less task(s) to the graph — --input <src> with single object or array (batch); SPEC.design whole-graph, or EXECUTE.work sponsored via --finding").requiredOption("--input <src>", "JSON source for TaskInput (single object or array): `-` (stdin), inline JSON, or file path (protocol §10.7)").requiredOption("--feature <name>", "Feature whose task graph to extend").option("--feature-dir <path>", "Override default .loaf/<feature> directory").option("--finding <FND-N>", "Sponsoring amend-tasks finding (sponsored add at EXECUTE.work)").action(async (opts) => {
 		const source = parseInputSource(opts.input);
@@ -6749,7 +6775,7 @@ async function main(argv = process.argv, deps = {}) {
 				tasks_count: result.snapshot.tasks.length,
 				sub_state: result.snapshot.state?.sub_state
 			};
-			ctx.success(out, () => `added ${newIds.length} task${newIds.length === 1 ? "" : "s"} (sponsored by ${opts.finding}): ${newIds.join(", ")}\n`);
+			ctx.success(out, () => `added ${newIds.length} task${newIds.length === 1 ? "" : "s"} (sponsored by ${opts.finding}): ${newIds.join(", ")}\n`, { stateChange: `tasks add: +${newIds.length} tasks (allocated ${newIds.join(",")})` });
 			return;
 		}
 		const existingFull = [];
@@ -6792,7 +6818,7 @@ async function main(argv = process.argv, deps = {}) {
 			tasks_count: result.snapshot.tasks.length,
 			sub_state: result.snapshot.state?.sub_state
 		};
-		ctx.success(out, () => `added ${newIds.length} task${newIds.length === 1 ? "" : "s"}: ${newIds.join(", ")}\n`);
+		ctx.success(out, () => `added ${newIds.length} task${newIds.length === 1 ? "" : "s"}: ${newIds.join(", ")}\n`, { stateChange: `tasks add: +${newIds.length} tasks (allocated ${newIds.join(",")})` });
 	});
 	tasksCmd.command("claim <task-id>").description("Claim a ready task (pending → in_progress) at EXECUTE.work").requiredOption("--feature <name>", "Feature whose task to claim").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (taskId, opts) => {
 		const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
@@ -6831,8 +6857,7 @@ async function main(argv = process.argv, deps = {}) {
 			status,
 			sub_state: result.snapshot.state?.sub_state
 		};
-		if (useJson) process.stdout.write(JSON.stringify(out) + "\n");
-		else process.stdout.write(`claimed ${taskId} (status=${status})\n`);
+		ctx.success(out, () => "", { stateChange: `tasks claim: ${taskId} (status=${status})` });
 	});
 	tasksCmd.command("abandon <task-id>").description("Abandon a non-terminal task (→ abandoned) at EXECUTE.work").requiredOption("--reason <text>", "Why the task is being abandoned (required)").requiredOption("--feature <name>", "Feature whose task to abandon").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (taskId, opts) => {
 		const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
@@ -6874,8 +6899,7 @@ async function main(argv = process.argv, deps = {}) {
 			status,
 			sub_state: result.snapshot.state?.sub_state
 		};
-		if (useJson) process.stdout.write(JSON.stringify(out) + "\n");
-		else process.stdout.write(`abandoned ${taskId} (status=${status})\n`);
+		ctx.success(out, () => "", { stateChange: `tasks abandon: ${taskId} (status=${status})` });
 	});
 	tasksCmd.command("list").description("List tasks (read-only); shows derived `ready` column").requiredOption("--feature <name>", "Feature whose tasks to list").option("--feature-dir <path>", "Override default .loaf/<feature> directory").option("--status <s>", "Filter by task status (pending|ready|in_progress|done|abandoned)").action(async (opts) => {
 		const loaded = await loadProjectionsOrFail(opts.featureDir ?? defaultFeatureDir(opts.feature), ["state", "tasks"], opts.feature);
@@ -6905,17 +6929,15 @@ async function main(argv = process.argv, deps = {}) {
 			if (opts.status === "ready") return t.ready;
 			return t.status === opts.status;
 		});
-		if (useJson) process.stdout.write(JSON.stringify({
+		ctx.success({
 			ok: true,
 			feature: opts.feature,
 			count: filtered.length,
 			tasks: filtered
-		}) + "\n");
-		else if (filtered.length === 0) process.stdout.write(opts.status ? `no tasks match --status=${opts.status}\n` : `no tasks in projection (run \`loaf tasks submit\` first)\n`);
-		else for (const t of filtered) {
-			const ready = t.ready ? " [ready]" : "";
-			process.stdout.write(`${t.id} ${t.kind} ${t.status}${ready}\n`);
-		}
+		}, () => {
+			if (filtered.length === 0) return opts.status ? `no tasks match --status=${opts.status}\n` : `no tasks in projection (run \`loaf tasks submit\` first)\n`;
+			return filtered.map((t) => `${t.id} ${t.kind} ${t.status}${t.ready ? " [ready]" : ""}\n`).join("");
+		});
 	});
 	tasksCmd.command("next").description("Print the next ready task id (or empty if none); read-only").requiredOption("--feature <name>", "Feature whose ready task to compute").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		const session = await loadSession(opts.featureDir ?? defaultFeatureDir(opts.feature));
@@ -6929,13 +6951,12 @@ async function main(argv = process.argv, deps = {}) {
 			if (t.status !== "pending") return false;
 			return t.depends_on.length === 0 || t.depends_on.every((d) => tasksById.get(d)?.status === "done");
 		});
-		if (useJson) process.stdout.write(JSON.stringify({
+		ctx.success({
 			ok: true,
 			feature: opts.feature,
 			task_id: ready?.id ?? null,
 			kind: ready?.kind ?? null
-		}) + "\n");
-		else process.stdout.write(ready ? `${ready.id}\n` : "");
+		}, () => ready ? `${ready.id}\n` : "");
 	});
 	tasksCmd.command("complete <task-id>").description("Confirm a task has reached status=done (read-only; emits nothing)").requiredOption("--feature <name>", "Feature whose task to confirm").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (taskId, opts) => {
 		const session = await loadSession(opts.featureDir ?? defaultFeatureDir(opts.feature));
@@ -6968,8 +6989,7 @@ async function main(argv = process.argv, deps = {}) {
 			task_id: taskId,
 			status: task.status
 		};
-		if (useJson) process.stdout.write(JSON.stringify(out) + "\n");
-		else process.stdout.write(`${taskId} complete (status=done)\n`);
+		ctx.success(out, () => `${taskId} complete (status=done)\n`);
 	});
 	tasksCmd.command("amend <task-id>").description("Amend a task: --policy <step>=<applicability> (EXECUTE.plan) or --input <file> --finding <FND-N> (sponsored, EXECUTE.work)").requiredOption("--feature <name>", "Feature whose task to amend").option("--feature-dir <path>", "Override default .loaf/<feature> directory").option("--policy <step=applicability>", "Step applicability override (must|optional|na); repeatable", (val, acc) => [...acc, val], []).option("--input <file>", "New id-less task definition for a sponsored graph replacement (JSON file or '-')").option("--finding <FND-N>", "Sponsoring amend-tasks finding (required with --input)").action(async (taskId, opts) => {
 		const policies = opts.policy ?? [];
@@ -7069,7 +7089,7 @@ async function main(argv = process.argv, deps = {}) {
 				sponsored_by_finding_id: findingId,
 				sub_state: sResult.snapshot.state?.sub_state
 			};
-			ctx.success(sOut, () => `amended ${taskId} (sponsored by ${findingId})\n`);
+			ctx.success(sOut, () => `amended ${taskId} (sponsored by ${findingId})\n`, { stateChange: `amend: ${taskId}` });
 			return;
 		}
 		const APPLICABILITY = [
@@ -7156,8 +7176,7 @@ async function main(argv = process.argv, deps = {}) {
 			policy: Object.fromEntries(policyMap),
 			sub_state: result.snapshot.state?.sub_state
 		};
-		if (useJson) process.stdout.write(JSON.stringify(out) + "\n");
-		else process.stdout.write(`amended ${taskId} (${applied})\n`);
+		ctx.success(out, () => `amended ${taskId} (${applied})\n`, { stateChange: `amend: ${taskId}` });
 	});
 	tasksCmd.command("register-red <task-id>").description("Register the RED test for a claimed behavioral bug task (EXECUTE.work)").requiredOption("--feature <name>", "Feature whose task to register").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (taskId, opts) => {
 		const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
@@ -7195,8 +7214,7 @@ async function main(argv = process.argv, deps = {}) {
 			red_test_registered: true,
 			sub_state: result.snapshot.state?.sub_state
 		};
-		if (useJson) process.stdout.write(JSON.stringify(out) + "\n");
-		else process.stdout.write(`registered RED for ${taskId}\n`);
+		ctx.success(out, () => "", { stateChange: `tasks register-red: ${taskId}` });
 	});
 	const stepCmd = tasksCmd.command("step").description("Task step lifecycle (start / done)");
 	stepCmd.command("start").description("Mark a task step as running (task must be claimed)").requiredOption("--task <task-id>", "Task whose step to start").requiredOption("--step <step-name>", "Step name (kind-specific; see spec)").requiredOption("--feature <name>", "Feature whose task lifecycle to advance").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
@@ -7244,8 +7262,7 @@ async function main(argv = process.argv, deps = {}) {
 			step_status: stepInfo.status,
 			sub_state: result.snapshot.state?.sub_state
 		};
-		if (useJson) process.stdout.write(JSON.stringify(out) + "\n");
-		else process.stdout.write(`started ${opts.task} step=${opts.step} (status=running)\n`);
+		ctx.success(out, () => "", { stateChange: `step start: ${opts.task} ${opts.step} (running)` });
 	});
 	stepCmd.command("done").description("Mark a task step as done (--result passed|failed|waived|na; default passed)").requiredOption("--task <task-id>", "Task whose step to mark done").requiredOption("--step <step-name>", "Step name (kind-specific)").option("--result <r>", "Step result: passed (default) | failed | waived | na", "passed").option("--evidence-kind <kind>", "Evidence kind (closed EvidenceKind enum)").option("--evidence-result <r>", "Evidence result (passed | failed | approved | rejected | waived)").option("--evidence-summary <text>", "Evidence summary (≥3 chars)").option("--evidence-covers <csv>", "Comma-separated REQ/SCEN/VIS/Task ids covered by this evidence").option("--evidence-check <kind>", "Verify-check kind (run | review | acceptance | visual)").option("--evidence-reason <text>", "Evidence reason (manual/waiver require ≥10 chars)").option("--evidence-actor <actor>", "Override evidence actor (default: cli:loaf; required human:* for manual/waiver)").requiredOption("--feature <name>", "Feature whose task lifecycle to advance").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		if (![
@@ -7282,7 +7299,7 @@ async function main(argv = process.argv, deps = {}) {
 				result: opts.result
 			}
 		};
-		const ctx = {
+		const mctx = {
 			feature_dir: featureDir,
 			snapshot: session.snapshot,
 			tail_seq: session.tail_seq,
@@ -7318,8 +7335,8 @@ async function main(argv = process.argv, deps = {}) {
 				entry_schema_version: 1,
 				kind: "evidence:added",
 				payload: evidencePayload
-			}], ctx);
-		} else result = await mutate(stepDoneEntry, ctx);
+			}], mctx);
+		} else result = await mutate(stepDoneEntry, mctx);
 		if (!result.ok) {
 			emitFailure(result.code, result.message, result.detail);
 			return;
@@ -7344,12 +7361,11 @@ async function main(argv = process.argv, deps = {}) {
 			sub_state: result.snapshot.state?.sub_state
 		};
 		if (evidenceId !== void 0) out["evidence_id"] = evidenceId;
-		if (useJson) process.stdout.write(JSON.stringify(out) + "\n");
-		else {
+		ctx.success(out, () => {
 			const promote = updated.status === "done" ? " (task auto-promoted to done)" : "";
 			const evidenceSuffix = evidenceId !== void 0 ? ` evidence=${evidenceId}` : "";
-			process.stdout.write(`done ${opts.task} step=${opts.step} result=${opts.result}${evidenceSuffix}${promote}\n`);
-		}
+			return `done ${opts.task} step=${opts.step} result=${opts.result}${evidenceSuffix}${promote}\n`;
+		}, { stateChange: `step done: ${opts.task} ${opts.step} (${opts.result})` });
 	});
 	program.command("settle").description("Advance VERIFY.accept → SETTLE.reconcile (deep ceremony only)").requiredOption("--feature <name>", "Feature whose session to settle").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
@@ -7379,17 +7395,18 @@ async function main(argv = process.argv, deps = {}) {
 			emitFailure(result.code, result.message, result.detail);
 			return;
 		}
-		const advisory = ["complete SETTLE.* phase (loaf advance SETTLE.lessons) then `loaf deliver`"];
 		const out = {
 			ok: true,
 			feature: opts.feature,
 			from,
 			to: "SETTLE.reconcile",
 			sub_state: result.snapshot.state?.sub_state,
-			advisory
+			advisory: ["complete SETTLE.* phase (loaf advance SETTLE.lessons) then `loaf deliver`"]
 		};
-		if (useJson) process.stdout.write(JSON.stringify(out) + "\n");
-		else process.stdout.write(`settled ${opts.feature} — ${from} → SETTLE.reconcile\nnext: ${advisory[0]}\n`);
+		ctx.success(out, () => "", {
+			stateChange: `settle: ${from} → SETTLE.reconcile`,
+			next: "loaf deliver"
+		});
 	});
 	const pendingCmd = program.command("pending").description("Pending queue commands (raise / list / status / resolve)");
 	pendingCmd.command("raise").description("Raise a new pending entry (CLI allocates PEND-id)").requiredOption("--kind <kind>", "Pending kind (ask_user_question | gate_decision | spec_clarification | finding_decision | profile_escalation)").requiredOption("--question <text>", "Question / rationale shown to whoever resolves it (required for ALL kinds)").option("--options <csv>", "Comma-separated answer options (passthrough)").option("--task-id <id>", "Optional task association (passthrough)").requiredOption("--feature <name>", "Feature whose session to raise pending against").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
@@ -7429,13 +7446,12 @@ async function main(argv = process.argv, deps = {}) {
 			emitFailure(result.code, result.message, result.detail);
 			return;
 		}
-		if (useJson) process.stdout.write(JSON.stringify({
+		ctx.success({
 			ok: true,
 			feature: opts.feature,
 			id,
 			kind: opts.kind
-		}) + "\n");
-		else process.stdout.write(id + "\n");
+		}, () => id + "\n", { stateChange: `pending raise: ${id} (kind=${opts.kind})` });
 	});
 	pendingCmd.command("list").description("List pending entries (FIFO; first unresolved is head)").requiredOption("--feature <name>", "Feature whose pending to list").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		const loaded = await loadProjectionsOrFail(opts.featureDir ?? defaultFeatureDir(opts.feature), ["pending"], opts.feature);
@@ -7448,13 +7464,12 @@ async function main(argv = process.argv, deps = {}) {
 			resolved: p.resolved,
 			head: i === headIdx
 		}));
-		if (useJson) process.stdout.write(JSON.stringify({
+		ctx.success({
 			ok: true,
 			feature: opts.feature,
 			count: rows.length,
 			pending: rows
-		}) + "\n");
-		else for (const r of rows) process.stdout.write(`${r.id} ${r.kind} ${r.resolved ? "resolved" : "open"} ${r.head ? "head" : "-"}\n`);
+		}, () => rows.map((r) => `${r.id} ${r.kind} ${r.resolved ? "resolved" : "open"} ${r.head ? "head" : "-"}\n`).join(""));
 	});
 	pendingCmd.command("status").description("Status of head pending entry (default) or specific entry by --id").requiredOption("--feature <name>", "Feature whose pending to inspect").option("--id <id>", "Lookup a specific PEND-id (default: head)").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		const session = await loadSession(opts.featureDir ?? defaultFeatureDir(opts.feature));
@@ -7478,13 +7493,14 @@ async function main(argv = process.argv, deps = {}) {
 			...session.snapshot.pending[headIdx],
 			head: true
 		};
-		if (useJson) process.stdout.write(JSON.stringify({
+		ctx.success({
 			ok: true,
 			feature: opts.feature,
 			pending: target
-		}) + "\n");
-		else if (target === null) process.stdout.write("no open pending\n");
-		else process.stdout.write(`${target.id} ${target.kind} ${target.resolved ? "resolved" : "open"} ${target.head ? "head" : "-"}\n`);
+		}, () => {
+			if (target === null) return "no open pending\n";
+			return `${target.id} ${target.kind} ${target.resolved ? "resolved" : "open"} ${target.head ? "head" : "-"}\n`;
+		});
 	});
 	pendingCmd.command("resolve").description("Resolve the head pending entry (strict FIFO; no --id flag)").requiredOption("--answer <text>", "Resolution answer (passthrough into pending:resolved payload)").requiredOption("--feature <name>", "Feature whose pending to resolve").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
@@ -7518,13 +7534,12 @@ async function main(argv = process.argv, deps = {}) {
 			emitFailure(result.code, result.message, result.detail);
 			return;
 		}
-		if (useJson) process.stdout.write(JSON.stringify({
+		ctx.success({
 			ok: true,
 			feature: opts.feature,
 			resolved_id: head.id,
 			kind: head.kind
-		}) + "\n");
-		else process.stdout.write(`resolved ${head.id} (kind=${head.kind})\n`);
+		}, () => `resolved ${head.id} (kind=${head.kind})\n`, { stateChange: `pending resolve: ${head.id} cleared` });
 	});
 	program.command("evidence").description("Evidence ledger commands (Slice 3 SC2 MVP: add)").command("add").description("Append evidence entry/entries from --input <src> JSON (CLI allocates EV-id; single object or non-empty array for batch)").requiredOption("--input <src>", "JSON source for EvidenceAddInput (single object OR non-empty array for batch): `-` (stdin), inline JSON, or file path (protocol §10.7)").requiredOption("--feature <name>", "Feature whose ledger to append to").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		const source = parseInputSource(opts.input);
@@ -7589,19 +7604,25 @@ async function main(argv = process.argv, deps = {}) {
 			ctx.failure(result.code, result.message, result.detail);
 			return;
 		}
-		if (Array.isArray(parsed)) ctx.success({
+		const isBatch = Array.isArray(parsed);
+		const stateChange = evidenceAddStateChange(validatedInputs.map((input, i) => ({
+			id: evIds[i],
+			kind: input.kind,
+			covers: input.covers
+		})));
+		if (isBatch) ctx.success({
 			ok: true,
 			feature: opts.feature,
 			ev_ids: evIds,
 			count: evIds.length,
 			sub_state: result.snapshot.state?.sub_state
-		}, () => `added ${evIds.length} evidence: ${evIds.join(", ")}\n`);
+		}, () => evIds.join("\n") + "\n", { stateChange });
 		else ctx.success({
 			ok: true,
 			feature: opts.feature,
 			id: evIds[0],
 			kind: validatedInputs[0].kind
-		}, () => `${evIds[0]}\n`);
+		}, () => `${evIds[0]}\n`, { stateChange });
 	});
 	const findingCmd = program.command("finding").description("Finding ledger commands (Slice 3 SC3 MVP: raise / list / close)");
 	findingCmd.command("raise").description("Raise a new finding (CLI allocates FND-id)").requiredOption("--category <category>", "Finding category (spec-gap | spec-defect | impl-defect | test-defect | new-scope | risk-escalation)").requiredOption("--action <action>", "Finding action (amend-spec | amend-tasks | fix-impl | fix-test | defer | backlog)").option("--summary <text>", "One-line finding summary (passthrough)").option("--reason <text>", "Justification (required ≥20 chars on unusual cells)").option("--target-task <task-id>", "Target task for fix-impl / fix-test / amend-tasks").option("--target-step <step>", "Target step (must equal action's canonical step)").requiredOption("--feature <name>", "Feature whose ledger to append to").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
@@ -7685,7 +7706,7 @@ async function main(argv = process.argv, deps = {}) {
 				emitFailure(batchResult.code, batchResult.message, batchResult.detail);
 				return;
 			}
-			if (useJson) process.stdout.write(JSON.stringify({
+			ctx.success({
 				ok: true,
 				feature: opts.feature,
 				id,
@@ -7695,8 +7716,7 @@ async function main(argv = process.argv, deps = {}) {
 					from: currentSubState,
 					to: "EXECUTE.work"
 				}
-			}) + "\n");
-			else process.stdout.write(id + "\n");
+			}, () => id + "\n", { stateChange: `finding raise: ${id} (category=${opts.category}, action=${opts.action}) — back-edge to EXECUTE.work` });
 			return;
 		}
 		const backEdgeTarget = {
@@ -7735,7 +7755,7 @@ async function main(argv = process.argv, deps = {}) {
 				emitFailure(batchResult.code, batchResult.message, batchResult.detail);
 				return;
 			}
-			if (useJson) process.stdout.write(JSON.stringify({
+			ctx.success({
 				ok: true,
 				feature: opts.feature,
 				id,
@@ -7745,8 +7765,7 @@ async function main(argv = process.argv, deps = {}) {
 					from: currentSubState,
 					to: backEdgeTarget
 				}
-			}) + "\n");
-			else process.stdout.write(id + "\n");
+			}, () => id + "\n", { stateChange: `finding raise: ${id} (category=${opts.category}, action=${opts.action}) — back-edge to ${backEdgeTarget}` });
 			return;
 		}
 		const result = await mutate({
@@ -7766,14 +7785,13 @@ async function main(argv = process.argv, deps = {}) {
 			emitFailure(result.code, result.message, result.detail);
 			return;
 		}
-		if (useJson) process.stdout.write(JSON.stringify({
+		ctx.success({
 			ok: true,
 			feature: opts.feature,
 			id,
 			category: opts.category,
 			action: opts.action
-		}) + "\n");
-		else process.stdout.write(id + "\n");
+		}, () => id + "\n", { stateChange: `finding raise: ${id} (category=${opts.category}, action=${opts.action})` });
 	});
 	findingCmd.command("list").description("List findings (read-only; --status filters open|closed)").requiredOption("--feature <name>", "Feature whose findings to list").option("--status <s>", "Filter by status (open | closed)").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		if (opts.status !== void 0 && opts.status !== "open" && opts.status !== "closed") {
@@ -7784,13 +7802,12 @@ async function main(argv = process.argv, deps = {}) {
 		if (loaded === null) return;
 		const all = loaded.findings.findings;
 		const rows = opts.status ? all.filter((f) => f.status === opts.status) : all;
-		if (useJson) process.stdout.write(JSON.stringify({
+		ctx.success({
 			ok: true,
 			feature: opts.feature,
 			count: rows.length,
 			findings: rows
-		}) + "\n");
-		else for (const r of rows) process.stdout.write(`${r.id} ${r.category} ${r.action} ${r.status}\n`);
+		}, () => rows.map((r) => `${r.id} ${r.category} ${r.action} ${r.status}\n`).join(""));
 	});
 	findingCmd.command("close <fnd-id>").description("Close a finding (emits finding:closed)").requiredOption("--feature <name>", "Feature whose ledger to close against").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (fndId, opts) => {
 		const idParse = FindingId.safeParse(fndId);
@@ -7839,13 +7856,12 @@ async function main(argv = process.argv, deps = {}) {
 			emitFailure(result.code, result.message, result.detail);
 			return;
 		}
-		if (useJson) process.stdout.write(JSON.stringify({
+		ctx.success({
 			ok: true,
 			feature: opts.feature,
 			id: fndId,
 			status: "closed"
-		}) + "\n");
-		else process.stdout.write(`closed ${fndId}\n`);
+		}, () => `closed ${fndId}\n`, { stateChange: `finding close: ${fndId} → closed` });
 	});
 	const specCmd = program.command("spec").description("SPEC content commands (submit / add-req / add-scenario / add-visual; init in SC4)");
 	specCmd.command("submit").description("Whole-replacement spec submit from JSON --input (CLI fills spec_version)").requiredOption("--input <src>", "JSON source: `-` (stdin), inline JSON literal, or file path (protocol §10.7)").requiredOption("--feature <name>", "Feature whose spec to submit").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
@@ -7949,7 +7965,10 @@ async function main(argv = process.argv, deps = {}) {
 			vis_ids: visIds,
 			sub_state: result.snapshot.state?.sub_state
 		};
-		ctx.success(out, () => `spec submitted v${out.spec_version}: ${reqIds.length} req / ${scenIds.length} scen / ${visIds.length} vis\n`);
+		ctx.success(out, () => `spec submitted v${out.spec_version}: ${reqIds.length} req / ${scenIds.length} scen / ${visIds.length} vis\n`, {
+			stateChange: `spec submit: spec_version=${out.spec_version}, locked=false`,
+			next: "loaf gate decide spec-lock"
+		});
 	});
 	const REGISTER_SPEC_ADD = [
 		{
@@ -8011,12 +8030,14 @@ spec_version: 1
 feature:
   id: ${JSON.stringify(featureId)}\n  name: ${JSON.stringify(featureName)}\nintent: ${JSON.stringify(intent)}\nadr_refs: []\nrequirements: []\nscenarios: []\nneeds_clarification: []\n---\n\n## Why\n\nTODO: describe motivation and scope. Edit this section, then run \`loaf spec submit --input <json>\` to record the canonical spec.\n`;
 		await promises.writeFile(specMdPath, md);
-		if (useJson) process.stdout.write(JSON.stringify({
+		ctx.success({
 			ok: true,
 			feature: opts.feature,
 			spec_md_path: specMdPath
-		}) + "\n");
-		else process.stdout.write(`spec init: wrote scaffold to ${specMdPath}\nnext: edit, then \`loaf spec submit --input <json> --feature ${opts.feature}\`\n`);
+		}, () => `${specMdPath}\n`, {
+			stateChange: `spec init: wrote scaffold to ${specMdPath}`,
+			next: "edit, then `loaf spec submit`"
+		});
 	});
 	for (const cfg of REGISTER_SPEC_ADD) specCmd.command(`add-${cfg.name}`).description(`Add ${cfg.name} entries via id_namespace stamping (CLI allocates ${cfg.name.toUpperCase()} ids)`).requiredOption("--input <src>", `JSON source for SpecAdd${cfg.name[0].toUpperCase()}${cfg.name.slice(1)}Input (item or array): \`-\` (stdin), inline JSON, or file path (protocol §10.7)`).requiredOption("--feature <name>", `Feature whose spec to extend`).option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		const source = parseInputSource(opts.input);
@@ -8084,13 +8105,14 @@ feature:
 			ctx.failure(result.code, result.message, result.detail);
 			return;
 		}
+		const specVersion = result.snapshot.state?.spec_version;
 		ctx.success({
 			ok: true,
 			feature: opts.feature,
-			spec_version: result.snapshot.state?.spec_version,
+			spec_version: specVersion,
 			ids: allocatedIds,
 			sub_state: result.snapshot.state?.sub_state
-		}, () => `spec add-${cfg.name} v${result.snapshot.state?.spec_version}: ${allocatedIds.join(", ")}\n`);
+		}, () => `spec add-${cfg.name} v${specVersion}: ${allocatedIds.join(", ")}\n`, { stateChange: `spec add-${cfg.name}: +${allocatedIds.length} ${cfg.name.toUpperCase()} (spec_version=${specVersion}; allocated ${allocatedIds.join(",")})` });
 	});
 	try {
 		await program.parseAsync(argv);
@@ -8122,7 +8144,7 @@ feature:
 			argv,
 			crash_log_path: crashLog
 		});
-		if (useJson) {
+		if (ctx.output === "json") {
 			const payload = {
 				ok: false,
 				code: UNEXPECTED_ERROR,
