@@ -150,6 +150,43 @@ describe("Phase 16 SC-5b1 — RED #4-#11: MUTUALLY_EXCLUSIVE_FLAGS rendering", (
     expect(result.stderr).toContain("yaml");
     expect(result.stderr).not.toContain("MUTUALLY_EXCLUSIVE_FLAGS");
   });
+
+  // Codex r258 F1 regression — INVALID_FORMAT must win when an
+  // invalid `--format` value APPEARS AFTER an earlier valid one.
+  // Pre-fix bug: parseFormatFromArgv returned on first valid hit;
+  // later invalid never seen.
+
+  test("RED #11a (r258 F1): --format text --format yaml → INVALID_FORMAT (valid-then-invalid)", async () => {
+    const result = await runCli(["status", "--format", "text", "--format", "yaml"]);
+    expect(result.exit).toBe(2);
+    expect(result.stderr).toContain("INVALID_FORMAT");
+    expect(result.stderr).toContain("yaml");
+    expect(result.stderr).not.toContain("MUTUALLY_EXCLUSIVE_FLAGS");
+  });
+
+  test("RED #11b (r258 F1): --format=json --format=yaml → INVALID_FORMAT (equals form)", async () => {
+    const result = await runCli(["status", "--format=json", "--format=yaml"]);
+    expect(result.exit).toBe(2);
+    expect(result.stderr).toContain("INVALID_FORMAT");
+    expect(result.stderr).toContain("yaml");
+    expect(result.stderr).not.toContain("MUTUALLY_EXCLUSIVE_FLAGS");
+  });
+
+  test("RED #11c (r258 F1): --format text --format=yaml → INVALID_FORMAT (mixed spelling)", async () => {
+    const result = await runCli(["status", "--format", "text", "--format=yaml"]);
+    expect(result.exit).toBe(2);
+    expect(result.stderr).toContain("INVALID_FORMAT");
+    expect(result.stderr).toContain("yaml");
+  });
+
+  test("RED #11d (r258 F1): unit — findFirstInvalidFormat scans all occurrences", async () => {
+    const { findFirstInvalidFormat } = await import("../../src/cli/command-context.js");
+    expect(findFirstInvalidFormat(["--format", "text", "--format", "yaml"])).toEqual({ rawValue: "yaml" });
+    expect(findFirstInvalidFormat(["--format=json", "--format=yaml"])).toEqual({ rawValue: "yaml" });
+    expect(findFirstInvalidFormat(["--format=yaml", "--format=text"])).toEqual({ rawValue: "yaml" });
+    expect(findFirstInvalidFormat(["--format", "text", "--format", "json"])).toBeNull();
+    expect(findFirstInvalidFormat([])).toBeNull();
+  });
 });
 
 // ───────────────────────────────────────────────────────────────────

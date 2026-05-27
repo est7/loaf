@@ -110,50 +110,28 @@ const FORMAT_MODES = ["text", "json"];
 *  catalog/i18n/runtime placeholder symmetry deterministic
 *  (per RED #12 in tests/scripts/sc5a-surface-gate.test.ts). */
 const FORMAT_MODES_HUMAN = FORMAT_MODES.join("|");
-/** Parse `--format <v>` or `--format=<v>` from argv. Returns OK 'text'
-*  on absent. Bare `--format` (no value, or followed by another flag)
-*  is intentionally OK-text — Commander's mandatory-arg path catches
-*  the missing value during `program.parseAsync(argv)` and reports a
-*  USAGE error (per RED #13).
-*
-*  Used both by `createCommandContext` (to derive `ctx.output`) and by
-*  `cli.tsx main()`'s pre-parse guard. Both readers MUST share this
-*  function to guarantee a single source of truth (no Commander
-*  default; argv-scan owns the decision). */
-function parseFormatFromArgv(argv) {
+/** Scan EVERY `--format <v>` and `--format=<v>` occurrence and return
+*  the first one with a value outside FORMAT_MODES. Returns null when
+*  all occurrences are valid (or absent). Used by parsePresentation
+*  to honor INVALID_FORMAT precedence over mutex regardless of
+*  position (codex r258 F1: an invalid value AFTER a valid one must
+*  still raise INVALID_FORMAT). */
+function findFirstInvalidFormat(argv) {
 	for (let i = 0; i < argv.length; i++) {
 		const arg = argv[i];
 		if (arg === "--format") {
 			const v = argv[i + 1];
-			if (v === void 0 || v.startsWith("--")) return {
-				ok: true,
-				format: "text"
-			};
-			if (FORMAT_MODES.includes(v)) return {
-				ok: true,
-				format: v
-			};
-			return {
-				ok: false,
-				rawValue: v
-			};
+			if (v === void 0 || v.startsWith("--")) continue;
+			if (!FORMAT_MODES.includes(v)) return { rawValue: v };
+			i++;
+			continue;
 		}
 		if (arg.startsWith("--format=")) {
 			const v = arg.slice(9);
-			if (FORMAT_MODES.includes(v)) return {
-				ok: true,
-				format: v
-			};
-			return {
-				ok: false,
-				rawValue: v
-			};
+			if (!FORMAT_MODES.includes(v)) return { rawValue: v };
 		}
 	}
-	return {
-		ok: true,
-		format: "text"
-	};
+	return null;
 }
 /** Returns true if `--plain` flag appears in argv. */
 function parsePlainFromArgv(argv) {
@@ -225,11 +203,11 @@ function collectOutputFormatEntries(argv) {
 	return out;
 }
 function parsePresentation(argv, env = process.env) {
-	const fmt = parseFormatFromArgv(argv);
-	if (!fmt.ok) return {
+	const invalid = findFirstInvalidFormat(argv);
+	if (invalid) return {
 		ok: false,
 		kind: "INVALID_FORMAT",
-		rawValue: fmt.rawValue
+		rawValue: invalid.rawValue
 	};
 	const entries = collectOutputFormatEntries(argv);
 	if (new Set(entries.map((e) => e.canonical)).size > 1) {
@@ -243,7 +221,7 @@ function parsePresentation(argv, env = process.env) {
 	}
 	return {
 		ok: true,
-		format: entries.length > 0 ? entries[0].canonical : fmt.format,
+		format: entries.length > 0 ? entries[0].canonical : "text",
 		plain: parsePlainFromArgv(argv),
 		quiet: parseQuietFromArgv(argv),
 		verbose: parseVerboseFromArgv(argv),

@@ -87,6 +87,39 @@ export function parseFormatFromArgv(argv: readonly string[]): FormatParseResult 
 // because createCommandContext runs BEFORE program.parseAsync(argv).
 // ─────────────────────────────────────────────────────────────────
 
+/** Scan EVERY `--format <v>` and `--format=<v>` occurrence and return
+ *  the first one with a value outside FORMAT_MODES. Returns null when
+ *  all occurrences are valid (or absent). Used by parsePresentation
+ *  to honor INVALID_FORMAT precedence over mutex regardless of
+ *  position (codex r258 F1: an invalid value AFTER a valid one must
+ *  still raise INVALID_FORMAT). */
+export function findFirstInvalidFormat(
+  argv: readonly string[],
+): { rawValue: string } | null {
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]!;
+    if (arg === "--format") {
+      const v = argv[i + 1];
+      // Bare or trailing flag-like value: SC-5a defers to Commander's
+      // mandatory-arg USAGE path. Don't treat it as INVALID_FORMAT.
+      if (v === undefined || v.startsWith("--")) continue;
+      if (!(FORMAT_MODES as readonly string[]).includes(v)) {
+        return { rawValue: v };
+      }
+      // Valid: skip both arg and the consumed value.
+      i++;
+      continue;
+    }
+    if (arg.startsWith("--format=")) {
+      const v = arg.slice("--format=".length);
+      if (!(FORMAT_MODES as readonly string[]).includes(v)) {
+        return { rawValue: v };
+      }
+    }
+  }
+  return null;
+}
+
 /** Returns true if `--plain` flag appears in argv. */
 export function parsePlainFromArgv(argv: readonly string[]): boolean {
   return argv.includes("--plain");
@@ -195,12 +228,12 @@ export function parsePresentation(
   argv: readonly string[],
   env: { NO_COLOR?: string | undefined; LOAF_NO_COLOR?: string | undefined; TERM?: string | undefined } = process.env as never,
 ): PresentationResult {
-  // Pass 1: INVALID_FORMAT precedence — scan for `--format` with a
-  // value that isn't in FORMAT_MODES. parseFormatFromArgv returns
-  // the FIRST INVALID_FORMAT it finds.
-  const fmt = parseFormatFromArgv(argv);
-  if (!fmt.ok) {
-    return { ok: false, kind: "INVALID_FORMAT", rawValue: fmt.rawValue };
+  // Pass 1: INVALID_FORMAT precedence — scan EVERY `--format` /
+  // `--format=` occurrence (not just the first) so a later invalid
+  // value isn't masked by an earlier valid one (codex r258 F1 fix).
+  const invalid = findFirstInvalidFormat(argv);
+  if (invalid) {
+    return { ok: false, kind: "INVALID_FORMAT", rawValue: invalid.rawValue };
   }
 
   // Pass 2: multi-entry mutex check on output_format normalization.
@@ -221,7 +254,7 @@ export function parsePresentation(
   // Resolve final format: --plain alias maps to text; explicit
   // --format wins. With no conflict, the single canonical is the
   // result. If no output_format entry at all, default text.
-  const format: OutputMode = entries.length > 0 ? entries[0]!.canonical : fmt.format;
+  const format: OutputMode = entries.length > 0 ? entries[0]!.canonical : "text";
   return {
     ok: true,
     format,
