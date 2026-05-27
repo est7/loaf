@@ -133,12 +133,12 @@ mkdir -p "$workdir"
 feature="ga-smoke"
 
 start_out=""
-if ! start_out=$("$loaf_bin" start "$feature" --ceremony quick --feature-dir "$workdir" --json 2>&1); then
+if ! start_out=$("$loaf_bin" start "$feature" --ceremony quick --feature-dir "$workdir" --format json 2>&1); then
   fail "START_FAILED" "loaf start errored: $start_out"
 fi
 
 status_out=""
-if ! status_out=$("$loaf_bin" status --feature "$feature" --feature-dir "$workdir" --json 2>&1); then
+if ! status_out=$("$loaf_bin" status --feature "$feature" --feature-dir "$workdir" --format json 2>&1); then
   fail "STATUS_FAILED" "loaf status errored: $status_out"
 fi
 

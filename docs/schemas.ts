@@ -360,8 +360,10 @@
 //                          clig.dev §8)。impl 阶段 command enum 用 complete。
 //                        - 新 §35 FLAG_EXCLUSIONS const (output_format
 //                          mutually exclusive set + 未来扩展槽):
-//                          `--json`/`--plain`/`--format=<v>` 归一化 +
-//                          冲突值 exit 2 MUTUALLY_EXCLUSIVE_FLAGS。
+//                          `--format=<v>` 归一化 + 冲突值 exit 2
+//                          MUTUALLY_EXCLUSIVE_FLAGS(SC-5a A1 后,
+//                          output_format 为 reserved-empty;SC-5b
+//                          引入 `--plain` 时再 populate)。
 //                        - stderr color TTY gate 独立 isatty (protocol.md
 //                          §10.2;clig.dev §4)。
 //                        - Help footer 加 LOAF_ISSUE_URL (protocol.md
@@ -3019,7 +3021,7 @@ export const TASK_CACHE_CONSISTENCY_CHECKS = [
 // Lang resolution: LOAF_LANG env > loaf.config.json locale.default_lang
 //                  > $LANG > "en"
 //
-// JSON output (`--json`) NEVER renders i18n. Stable IDs only.
+// JSON output (`--format json`) NEVER renders i18n. Stable IDs only.
 
 export const I18N_BUNDLE_CATEGORIES = [
   "evidence_kind",
@@ -3463,26 +3465,27 @@ export const CONCURRENCY_INVARIANTS = {
   registry_authority: "best-effort projection; never gate authority",
 } as const;
 
-// §35 FLAG_EXCLUSIONS (rev 4.2)
+// §35 FLAG_EXCLUSIONS (rev 4.2; Phase 16 SC-5a A1-honestly cleanup)
 // ─────────────────────────────────────────────────────────────────
 //
 // Mutually exclusive flag pairs/sets. Parser MUST detect conflicts
 // before dispatch and exit 2 with MUTUALLY_EXCLUSIVE_FLAGS, listing
 // the conflicting flag names in the error body for scripting.
 //
-// Format flags are normalized to a single `format` value:
-//   --json  ⇒ format=json
-//   --plain ⇒ format=text
-//   --format=<fmt> ⇒ explicit
-// Same-value combinations are NOT conflicts (--json --format=json
-// is fine). Cross-value combinations exit 2.
+// Format flag normalization (post-SC-5a):
+//   `--format=<fmt>` is the sole current-contract format flag.
+//   Future `--plain` alias is scheduled for SC-5b and will normalize
+//   to `format=text`. No other current flag participates in
+//   `output_format` exclusion; the set is reserved-empty in v0.1.0
+//   because there is exactly one current-format flag and self-
+//   conflict is impossible.
 //
 // Precedence inside one invocation (after exclusion check):
-//   explicit flag > $LOAF_FORMAT env (v1.0; protocol.md §10.3) >
-//   TTY default
+//   explicit `--format` flag > $LOAF_FORMAT env (future,
+//   protocol.md §10.3) > default `text`
 //
-// LOAF_FORMAT value MUST be in the same enum as --format=<v>
-// ("json" | "text"). Out-of-enum value → exit 2 INVALID_ENV_VALUE
+// LOAF_FORMAT value MUST be in the same enum as `--format=<v>`
+// ("text" | "json"). Out-of-enum value → exit 2 INVALID_ENV_VALUE
 // at startup with the offending env var name + accepted enum.
 //
 // See protocol.md §10.5 + §10.7 "Format flag 归一化与互斥".
@@ -3496,28 +3499,14 @@ export const FLAG_EXCLUSIONS = {
   // the same set with a non-equivalent value.
   sets: [
     {
+      // SC-5a A1 cleanup: `output_format` is reserved-empty in v0.1.0
+      // (only `--format` is current; future `--plain` lands in SC-5b
+      // and re-populates this entry). Static invariant enforced by
+      // tests/scripts/sc5a-surface-gate.test.ts RED #18.
       name: "output_format",
-      // Normalization map: flag spelling → canonical value.
-      // Multiple flags MAY map to the same canonical value (no
-      // conflict); conflict arises only when they map to different
-      // canonical values.
-      normalization: {
-        "--json": "json",
-        "--plain": "text",
-        "--format=json": "json",
-        "--format=text": "text",
-      } as Record<string, "json" | "text">,
-      // Examples of conflicting combinations (exit 2):
-      conflict_examples: [
-        ["--json", "--plain"],            // json vs text
-        ["--json", "--format=text"],      // json vs text
-        ["--plain", "--format=json"],     // text vs json
-      ],
-      // Examples that are NOT conflicts (same canonical value):
-      ok_examples: [
-        ["--json", "--format=json"],
-        ["--plain", "--format=text"],
-      ],
+      normalization: {} as Record<string, "json" | "text">,
+      conflict_examples: [] as ReadonlyArray<readonly string[]>,
+      ok_examples: [] as ReadonlyArray<readonly string[]>,
     },
     {
       // Reserved entry for future verbosity exclusion (e.g., --quiet
@@ -3888,6 +3877,7 @@ export const DiagnosticCode = z.enum([
   // ── pre-rev-4.3 codes already referenced from schemas.ts ──
   "MUTUALLY_EXCLUSIVE_FLAGS",              // §35 FLAG_EXCLUSIONS
   "INVALID_ENV_VALUE",                     // §35 commentary
+  "INVALID_FORMAT",                        // Phase 16 SC-5a — --format <text|json> validation
   "TASK_STATUS_WITHOUT_PROOF",             // rev 4.1 evidence proof rule
   // ── rev 4.3 refactor C drift sweep — protocol.md §10.5 migration ──
   "MISSING_VERIFIABILITY",                 // spec-lock §4.2 three-way check
@@ -4064,7 +4054,7 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
       "pass --input with one of: a JSON file path, '-' for stdin (with " +
       "valid piped JSON), or inline JSON; for stdin failures, verify the " +
       "pipe is intact (e.g. `echo '{...}' | loaf <cmd> --input -`); run " +
-      "`loaf <cmd> --schema --json` to view the schema",
+      "`loaf <cmd> --schema --format=json` to view the schema",
     doc_anchor: "protocol.md#§10.7",
   },
   SCHEMA_VALIDATION_FAILED: {
@@ -4072,7 +4062,7 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
     message_template:
       "input does not satisfy schema for {command}: {zod_path}: {zod_message}",
     fix_template:
-      "run `loaf {command} --schema --json` to dump the JSON Schema, " +
+      "run `loaf {command} --schema --format=json` to dump the JSON Schema, " +
       "fix the offending field, and retry",
     doc_anchor: "protocol.md#§10.5",
   },
@@ -4216,6 +4206,25 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
     fix_template:
       "unset {env_name} or set it to one of: {accepted}",
     doc_anchor: "protocol.md#§10.3",
+  },
+  INVALID_FORMAT: {
+    // Phase 16 SC-5a — pre-parse guard rejects invalid --format <value>
+    // before Commander parse / actor init / loadSession / loadProjections
+    // fire (r249 RED #10). Two template placeholders, machine + human:
+    //   detail.value           = raw flag value (e.g. "yaml")
+    //   detail.allowed_values  = ["text", "json"]  (JS array, machine)
+    //   template var value                = same as detail.value
+    //   template var allowed_values_human = "text|json"  (pipe-joined; never
+    //                                                     Array.toString())
+    // Catalog ↔ i18n placeholder symmetry is enforced by
+    // tests/scripts/sc5a-surface-gate.test.ts RED #12.
+    exit_code: 2,
+    message_template:
+      "invalid --format value '{value}'; allowed: {allowed_values_human}",
+    fix_template:
+      "pass --format text or --format json (the only allowed values " +
+      "for this release); --format=<value> equals form is accepted",
+    doc_anchor: "protocol.md#§10.7",
   },
   MISSING_VERIFIABILITY: {
     exit_code: 2,
@@ -5268,7 +5277,7 @@ export type MutatorCommand = z.infer<typeof MutatorCommand>;
 // ── INPUT_SCHEMAS: command → batched input Zod schema. CLI looks up
 // the schema for the invoked command, parses --input (after resolving
 // stdin / inline / path via InputSourceResolver), and either accepts a
-// single record or a non-empty array. `loaf <cmd> --schema --json`
+// single record or a non-empty array. `loaf <cmd> --schema --format=json`
 // dumps the JSON Schema derived from this entry (clig.dev §5).
 export const INPUT_SCHEMAS: Record<MutatorCommand, z.ZodTypeAny> = {
   "spec:add-req":      SpecReqInputBatched,

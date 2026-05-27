@@ -52,7 +52,7 @@ async function startFresh(): Promise<{ dir: string; feature: string }> {
   const r = await runCli([
     "start", feature,
     "--ceremony", "quick",
-    "--feature-dir", dir, "--json",
+    "--feature-dir", dir, "--format", "json",
   ]);
   if (r.exit !== 0) throw new Error(`start failed: exit=${r.exit} stderr=${r.stderr}`);
   return { dir, feature };
@@ -107,7 +107,7 @@ describe("loaf pending — SC1 raise/list", () => {
     expect(raised.stdout.trim()).toBe("PEND-0001");
 
     const listed = await runCli([
-      "pending", "list", "--json",
+      "pending", "list", "--format", "json",
       "--feature", feature, "--feature-dir", dir,
     ]);
     expect(listed.exit).toBe(0);
@@ -141,7 +141,7 @@ describe("loaf pending — SC1 raise/list", () => {
     expect(r2.stdout.trim()).toBe("PEND-0002");
 
     const listed = await runCli([
-      "pending", "list", "--json",
+      "pending", "list", "--format", "json",
       "--feature", feature, "--feature-dir", dir,
     ]);
     const parsed = JSON.parse(listed.stdout);
@@ -240,7 +240,7 @@ describe("loaf pending — SC1 resolve (strict FIFO)", () => {
 
     // List reflects projection: PEND-0001 resolved, PEND-0002 new head.
     const listed = await runCli([
-      "pending", "list", "--json",
+      "pending", "list", "--format", "json",
       "--feature", feature, "--feature-dir", dir,
     ]);
     const parsed = JSON.parse(listed.stdout);
@@ -281,7 +281,7 @@ describe("loaf pending — SC1 status", () => {
       "--question", "stub question for test", "--feature", feature, "--feature-dir", dir,
     ]);
     const r = await runCli([
-      "pending", "status", "--json",
+      "pending", "status", "--format", "json",
       "--feature", feature, "--feature-dir", dir,
     ]);
     expect(r.exit).toBe(0);
@@ -306,7 +306,7 @@ describe("loaf pending — SC1 status", () => {
       "--question", "stub gate question", "--feature", feature, "--feature-dir", dir,
     ]);
     const r = await runCli([
-      "pending", "status", "--id", "PEND-0002", "--json",
+      "pending", "status", "--id", "PEND-0002", "--format", "json",
       "--feature", feature, "--feature-dir", dir,
     ]);
     expect(r.exit).toBe(0);
@@ -335,7 +335,7 @@ describe("loaf pending — SC1 status", () => {
   test("status default on empty queue → null head (script-friendly)", async () => {
     const { dir, feature } = await startFresh();
     const r = await runCli([
-      "pending", "status", "--json",
+      "pending", "status", "--format", "json",
       "--feature", feature, "--feature-dir", dir,
     ]);
     expect(r.exit).toBe(0);

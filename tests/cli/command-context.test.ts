@@ -40,7 +40,7 @@ function makeCtx(
 }
 
 describe("Phase 16 SC-3 — CommandContext: construction + output mode", () => {
-  test("argv without --json → output mode = 'text'; success writes the text renderer output to stdout", () => {
+  test("argv without --format → output mode = 'text' (default); success writes the text renderer output to stdout", () => {
     const { ctx, stdout, stderr } = makeCtx(["loaf", "status"]);
     expect(ctx.output).toBe("text");
     ctx.success({ ok: true, foo: 1 }, () => "human line\n");
@@ -48,15 +48,15 @@ describe("Phase 16 SC-3 — CommandContext: construction + output mode", () => {
     expect(stderr.join("")).toBe("");
   });
 
-  test("argv with --json → output mode = 'json'; success writes JSON.stringify(payload) + \\n", () => {
-    const { ctx, stdout } = makeCtx(["loaf", "status", "--json"]);
+  test("argv with --format json → output mode = 'json'; success writes JSON.stringify(payload) + \\n", () => {
+    const { ctx, stdout } = makeCtx(["loaf", "status", "--format", "json"]);
     expect(ctx.output).toBe("json");
     ctx.success({ ok: true, foo: 1 }, () => "this should not appear");
     expect(stdout.join("")).toBe('{"ok":true,"foo":1}\n');
   });
 
   test("text renderer is LAZY — not invoked in JSON mode", () => {
-    const { ctx } = makeCtx(["loaf", "status", "--json"]);
+    const { ctx } = makeCtx(["loaf", "status", "--format", "json"]);
     let called = false;
     ctx.success({ ok: true }, () => {
       called = true;
@@ -71,7 +71,7 @@ describe("Phase 16 SC-3 — CommandContext: construction + output mode", () => {
   });
 
   test("JSON mode + missing textRenderer → OK (lazy contract preserved; renderer optional in JSON)", () => {
-    const { ctx, stdout } = makeCtx(["loaf", "status", "--json"]);
+    const { ctx, stdout } = makeCtx(["loaf", "status", "--format", "json"]);
     ctx.success({ ok: true, foo: 1 } as never);
     expect(stdout.join("")).toBe('{"ok":true,"foo":1}\n');
   });
@@ -87,7 +87,7 @@ describe("Phase 16 SC-3 — CommandContext: failure routing + exitCode", () => {
   });
 
   test("failure() in JSON mode writes single-line JSON to stderr", () => {
-    const { ctx, stderr } = makeCtx(["loaf", "tasks", "claim", "--json"]);
+    const { ctx, stderr } = makeCtx(["loaf", "tasks", "claim", "--format", "json"]);
     ctx.failure("USAGE", "missing --task", { foo: "bar" });
     const lines = stderr.join("").split("\n").filter((l) => l.length > 0);
     expect(lines.length).toBe(1);

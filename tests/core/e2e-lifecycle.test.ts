@@ -64,13 +64,13 @@ async function runCli(
   }
 }
 
-// Per-feature CLI driver. `step` runs a `loaf` command (always --json, env
+// Per-feature CLI driver. `step` runs a `loaf` command (always --format json, env
 // injected) and throws a labelled error on non-zero exit so the failing
 // scenario step is unambiguous; it returns parsed JSON stdout (or null).
 // `writeInput` writes a JSON input file into the feature dir.
 function makeCli(dir: string, env: Record<string, string | undefined>) {
   const step = async (label: string, argv: string[]): Promise<any> => {
-    const r = await runCli([...argv, "--feature-dir", dir, "--json"], { env });
+    const r = await runCli([...argv, "--feature-dir", dir, "--format", "json"], { env });
     if (r.exit !== 0) {
       throw new Error(
         `STEP FAILED [${label}]: exit ${r.exit}\n` +
@@ -705,7 +705,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
 
     // ── deep deliver routing — SCEN-008: deliver cannot bypass settle ────
     const bypass = await runCli(
-      ["deliver", "--feature", F, "--feature-dir", dir, "--json"],
+      ["deliver", "--feature", F, "--feature-dir", dir, "--format", "json"],
       { env: ENV },
     );
     expect(bypass.exit).toBe(2);
@@ -883,7 +883,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     expect(afterReject.state.verify_accepted).toBe(false);
 
     const blocked = await runCli(
-      ["deliver", "--feature", F, "--feature-dir", dir, "--json"],
+      ["deliver", "--feature", F, "--feature-dir", dir, "--format", "json"],
       { env: ENV },
     );
     expect(blocked.exit).toBe(2);
@@ -961,7 +961,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     // ── implement is blocked until RED is registered ────────────────────
     const gated = await runCli(
       ["tasks", "step", "start", "--task", "T-001", "--step", "implement",
-        "--feature", F, "--feature-dir", dir, "--json"],
+        "--feature", F, "--feature-dir", dir, "--format", "json"],
       { env: ENV },
     );
     expect(gated.exit).toBe(2);
@@ -1071,7 +1071,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
 
     // ── deliver is hard-blocked while a non-abandoned spike task exists ──
     const blocked = await runCli(
-      ["deliver", "--feature", F, "--feature-dir", dir, "--json"],
+      ["deliver", "--feature", F, "--feature-dir", dir, "--format", "json"],
       { env: ENV },
     );
     expect(blocked.exit).toBe(2);
@@ -1090,7 +1090,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
 
     // standard ceremony has settle_phase=false → settle is rejected.
     const rejected = await runCli(
-      ["settle", "--feature", F, "--feature-dir", dir, "--json"],
+      ["settle", "--feature", F, "--feature-dir", dir, "--format", "json"],
       { env: ENV },
     );
     expect(rejected.exit).toBe(2);
@@ -1339,7 +1339,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     expect(pe.id).toMatch(/^PEND-\d{4,}$/);
 
     const blocked = await runCli(
-      ["advance", "TRIAGE.confirm", "--feature", F, "--feature-dir", dir, "--json"],
+      ["advance", "TRIAGE.confirm", "--feature", F, "--feature-dir", dir, "--format", "json"],
       { env: ENV },
     );
     expect(blocked.exit).toBe(2);
@@ -1464,7 +1464,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     // verify-min check, so deliver from EXECUTE.done is fail-closed rather
     // than silently shipping an unverified feature.
     const blocked = await runCli(
-      ["deliver", "--feature", F, "--feature-dir", dir, "--json"],
+      ["deliver", "--feature", F, "--feature-dir", dir, "--format", "json"],
       { env: ENV },
     );
     expect(blocked.exit).toBe(2);
@@ -1543,7 +1543,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     // light skips VERIFY (verify_phase=false); deliver from EXECUTE.done is
     // fail-closed until the verify-min check lands.
     const blocked = await runCli(
-      ["deliver", "--feature", F, "--feature-dir", dir, "--json"],
+      ["deliver", "--feature", F, "--feature-dir", dir, "--format", "json"],
       { env: ENV },
     );
     expect(blocked.exit).toBe(2);
@@ -1621,7 +1621,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
       acceptance_na_reason: "this requirement is never recorded; the append is expected to fail",
     });
     const rejected = await runCli(
-      ["spec", "add-req", "--input", lateReq, "--feature", F, "--feature-dir", dir, "--json"],
+      ["spec", "add-req", "--input", lateReq, "--feature", F, "--feature-dir", dir, "--format", "json"],
       { env: ENV },
     );
     expect(rejected.exit).toBe(2);
@@ -1651,7 +1651,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     const blocked = await runCli(
       ["gate", "decide", "verify-accept", "--approve",
         "--reason", "attempting approval while an open finding is present",
-        "--feature", F, "--feature-dir", dir, "--json"],
+        "--feature", F, "--feature-dir", dir, "--format", "json"],
       { env: ENV },
     );
     expect(blocked.exit).toBe(2);
@@ -1744,7 +1744,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     const blocked = await runCli(
       ["gate", "decide", "verify-accept", "--approve",
         "--reason", "attempting approval while the fix-impl finding is open",
-        "--feature", F, "--feature-dir", dir, "--json"],
+        "--feature", F, "--feature-dir", dir, "--format", "json"],
       { env: ENV },
     );
     expect(blocked.exit).toBe(2);
@@ -1964,7 +1964,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     // EXECUTE.done is legal only after every task is terminal (F-016) —
     // with both tasks still in_progress, `advance EXECUTE.done` is rejected.
     const blockedDone = await runCli(
-      ["advance", "EXECUTE.done", "--feature", F, "--feature-dir", dir, "--json"],
+      ["advance", "EXECUTE.done", "--feature", F, "--feature-dir", dir, "--format", "json"],
       { env: ENV },
     );
     expect(blockedDone.exit).toBe(2);
@@ -2148,7 +2148,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     const noActor = await runCli(
       ["gate", "decide", "spec-lock", "--approve", "--reason",
         "attempting the gate with no resolvable human actor",
-        "--feature", F, "--feature-dir", dir, "--json"],
+        "--feature", F, "--feature-dir", dir, "--format", "json"],
       { env: { LOAF_USER: undefined } },
     );
     expect(noActor.exit).toBe(2);
@@ -2158,7 +2158,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     const withActor = await runCli(
       ["gate", "decide", "spec-lock", "--approve", "--reason",
         "spec and task graph complete; human actor resolved from LOAF_USER",
-        "--feature", F, "--feature-dir", dir, "--json"],
+        "--feature", F, "--feature-dir", dir, "--format", "json"],
       { env: { LOAF_USER: "reviewer@test.invalid" } },
     );
     expect(withActor.exit).toBe(0);

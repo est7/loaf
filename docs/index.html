@@ -1204,7 +1204,7 @@
 
   <h3>Read-only commands(走 Gate #5 fast check)</h3>
   <p>
-    <code>loaf status</code> · <code>tasks list</code> · <code>tasks next</code> · <code>tasks check</code> · <code>verify status</code> · <code>finding list</code> · <code>pending list</code> · <code>pending status</code> · <code>sessions list</code> · <code>&lt;artifact&gt; schema --json</code> · <code>check &lt;path&gt;</code> · <code>tui</code> · <code>handoff</code> · <code>context pack</code> · <code>doctor</code>(no <code>--fix</code>) · <code>hook --list-events</code>
+    <code>loaf status</code> · <code>tasks list</code> · <code>tasks next</code> · <code>tasks check</code> · <code>verify status</code> · <code>finding list</code> · <code>pending list</code> · <code>pending status</code> · <code>sessions list</code> · <code>&lt;artifact&gt; schema --format=json</code> · <code>check &lt;path&gt;</code> · <code>tui</code> · <code>handoff</code> · <code>context pack</code> · <code>doctor</code>(no <code>--fix</code>) · <code>hook --list-events</code>
   </p>
 </section>
 
@@ -1249,7 +1249,7 @@
       <tr><td class="k">--scope cwd</td><td>iterate all .loaf/&lt;feat&gt;/ under cwd;mixed-version-cwd 拒</td></tr>
       <tr><td class="k">--verify-checksum</td><td>full chain rolling_checksum 重算(O(N));报中段 corruption</td></tr>
       <tr><td class="k">--rebuild-registry</td><td>等价 --fix 但只跑 registry-* 三项</td></tr>
-      <tr><td class="k">--json</td><td>结构化输出,CI / TUI 消费</td></tr>
+      <tr><td class="k">--format json</td><td>结构化输出,CI / TUI 消费</td></tr>
     </tbody>
   </table>
 </section>

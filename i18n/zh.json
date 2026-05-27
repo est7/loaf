@@ -187,7 +187,8 @@
     "DOCTOR_FEATURE_REQUIRED":    "loaf doctor --rebuild 必须带 --feature <name>",
     "DOCTOR_REBUILD_FAILED":      "doctor --rebuild 失败",
     "DOCTOR_REBUILD_MIGRATED_UNSUPPORTED": "当前发布版本的 doctor --rebuild 不支持 v0.0.x-migrated journal",
-    "REDUCER_ERROR":              "reducer 内部不变量失败"
+    "REDUCER_ERROR":              "reducer 内部不变量失败",
+    "INVALID_FORMAT":             "无效的 --format 值 '{value}';合法值:{allowed_values_human}"
   },
 
   "help": {

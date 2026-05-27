@@ -218,7 +218,7 @@ describe("loaf doctor --rebuild — Phase 14 SC2", () => {
     try {
       await seedJournal(dir, { withPlan: false });
       const r = await runCli([
-        "doctor", "--rebuild", "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+        "doctor", "--rebuild", "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
       ]);
       expect(r.exit).toBe(0);
       expect(r.stderr).toBe("");
@@ -240,7 +240,7 @@ describe("loaf doctor --rebuild — Phase 14 SC2", () => {
     try {
       await seedJournal(dir, { withPlan: true });
       const r = await runCli([
-        "doctor", "--rebuild", "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+        "doctor", "--rebuild", "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
       ]);
       expect(r.exit).toBe(0);
       const out = JSON.parse(r.stdout);
@@ -258,7 +258,7 @@ describe("loaf doctor --rebuild — Phase 14 SC2", () => {
     try {
       await seedJournal(dir, { withPlan: true });
       const r = await runCli([
-        "doctor", "--rebuild", "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+        "doctor", "--rebuild", "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
       ]);
       expect(r.exit).toBe(0);
       const out = JSON.parse(r.stdout);
@@ -300,7 +300,7 @@ describe("loaf doctor --rebuild — Phase 14 SC2", () => {
       ]);
       expect(s.exit).toBe(0);
       const r = await runCli([
-        "doctor", "--rebuild", "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+        "doctor", "--rebuild", "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
       ]);
       expect(r.exit).toBe(0);
       const state = JSON.parse(

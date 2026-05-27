@@ -25,7 +25,7 @@
 >
 > **rev 4.2 — clig.dev 三轮 review polish**(2026-05-12,Profile/Ceremony refactor 之上叠加):
 > - `loaf tasks done` → **`loaf tasks complete`** rename(消 `tasks step done` 同名异级歧义,clig.dev §8)。改动:§10.8 命令表 + §10.12 state-change line + protocol.html 命令表
-> - **`--json` / `--plain` / `--format` 互斥契约**:同值无冲突(`--json --format=json` OK),不同值 exit 2 `MUTUALLY_EXCLUSIVE_FLAGS`。§10.7 加归一化段 + §10.5 错误表加行 + schemas.ts 新 `FLAG_EXCLUSIONS` 常量
+> - **`--plain` / `--format` 互斥契约**(SC-5b 激活):同值无冲突(`--format=json` 单独 OK),不同值 exit 2 `MUTUALLY_EXCLUSIVE_FLAGS`。§10.7 加归一化段 + §10.5 错误表加行 + schemas.ts 新 `FLAG_EXCLUSIONS` 常量
 > - **stderr color TTY gate** 独立 `isatty()`(§10.2):`loaf x 2>err.log` 时 stderr 走文件不染色,stdout TTY 仍染色
 > - Help 文案 footer 加 **`$LOAF_ISSUE_URL`**(§10.1;clig.dev §2 support path);build-time stamping 已在 §10.11
 > - **`-h` / `--help` 任意位置工作**(§10.1;clig.dev §2):parser 必须 short-circuit `-h` 在 subcommand context resolved 后
@@ -143,7 +143,7 @@
 | # | 原则 | 落实 |
 |---|---|---|
 | 1 | Protocol over implementation | 本文档 + `schemas.ts` 是协议;bun 实现只是协议的一个 binding |
-| 2 | Single source of truth = Zod | `schemas.ts` 定义一次,JSON Schema auto-derive;`loaf <artifact> schema --json` 自描述;**禁止手维护 .schema.json** |
+| 2 | Single source of truth = Zod | `schemas.ts` 定义一次,JSON Schema auto-derive;`loaf <artifact> schema --format=json` 自描述;**禁止手维护 .schema.json** |
 | 3 | Schema IS the contract | schemas.ts 里的 enum / 形状 / refine 就是契约;skills 必须产出符合 schema 的 artifact;loaf-cli 严格 reject 非合规输入 |
 | 4 | Stable Core vs Observability 分层 | 协议正确性硬依赖默认产出;观测细节走 `--debug` |
 | 5 | 2 human gate | spec-lock + verify-accept;其余全 machine |
@@ -1513,7 +1513,7 @@ skill / hook 把 loaf 输出 pipe 时依赖这条约定:
 - **Color force-enabled when**(rev 4.1)`FORCE_COLOR` env 非空 — 覆盖 "stdout 非 TTY → no color" 规则(CI 系统 pipe 仍想要彩色 log);但 `--no-color` flag / `NO_COLOR` env 仍 win(disable wins over force,clig.dev §13 conv)
 - **不在 stdout 非 TTY 时**显示 spinner / 进度条 / 动画(`FORCE_COLOR` **不** override 这条 — 动画在非 TTY 是 garbage)
 - 颜色只用于 error(红)/ warning(黄)/ success(绿) — 不全文本染色
-- 长输出(`loaf <artifact> schema --json` / `loaf sessions list` 在 100+ session 时)通过 `$PAGER`(默认 `less -FIRX`,仅 stdout 是 TTY)
+- 长输出(`loaf <artifact> schema --format=json` / `loaf sessions list` 在 100+ session 时)通过 `$PAGER`(默认 `less -FIRX`,仅 stdout 是 TTY)
 
 ### 10.3 Environment variables + Config precedence
 
@@ -1539,7 +1539,7 @@ skill / hook 把 loaf 输出 pipe 时依赖这条约定:
 | `LOAF_CONFIG` | 覆盖 `loaf.config.json` path | ✅ |
 | `LOAF_SESSION` | **rev 4.1**:per-shell-session sticky session_id(UUID);CLI 默认 dispatch key,被 `--session` 覆盖 | ✅ |
 | `LOAF_FEATURE` | **rev 4.1**:per-shell-session sticky feature 名(`.loaf/<name>/` dir basename);`LOAF_SESSION` 缺失时 fallback,被 `--feature` 覆盖 | ✅ |
-| `LOAF_FORMAT` | **rev 4.2**:`json` / `text` 二选一,等价 `--format=<v>` flag 默认;CI / 脚本环境一次 export 不用每命令带 flag。precedence:显式 `--json`/`--plain`/`--format` flag > `LOAF_FORMAT` > TTY-derived default。值不在 enum 内 → exit 2 `INVALID_ENV_VALUE` + 提示合法值 | ✅ |
+| `LOAF_FORMAT` <!-- inventory:future reason="env-layer follow-up after SC-5b" --> | **rev 4.2**:`json` / `text` 二选一,等价 `--format=<v>` flag 默认;CI / 脚本环境一次 export 不用每命令带 flag。precedence:显式 `--format` flag > `LOAF_FORMAT` > TTY-derived default(`--plain` alias 走 SC-5b)。值不在 enum 内 → exit 2 `INVALID_ENV_VALUE` + 提示合法值 | ✅ |
 | `NO_COLOR` | 通用,respect(非空即禁色)| 通用 |
 | `FORCE_COLOR` | 通用,respect(非空即强制启色,**rev 4.1**)— 用于 CI pipe 仍要彩色 log;`--no-color` / `NO_COLOR` 仍 win | 通用 |
 | `DEBUG` | 通用,respect(非空 = 等价 `LOAF_DEBUG=1`,**rev 4.1**)— 跨工具统一开 trace 时方便;`LOAF_DEBUG` 仍 win | 通用 |
@@ -1601,11 +1601,11 @@ bridge 路径 `~/.loaf/claude-bridge/` 是 **client 协议约定**,不是 loaf-c
 | 错误类型 | 行为 |
 |---|---|
 | **Expected**(schema fail / illegal transition / 缺必要 flag) | stderr 一行 human readable + 指向 `.loaf/<feature>/snapshots/gate-diagnostic.json`(rev 5.0;若适用;读者先走 §10.15 Gate #5 fast check) / `loaf doctor` 给修复建议;exit 2 |
-| **Unexpected**(panic / unknown 异常) | stderr 三行(text 模式):`error: UNEXPECTED_ERROR — <msg>` + `  crash log: ~/.loaf/crashes/<ts>.json` + `  report at $LOAF_ISSUE_URL?<prefilled-query>`。JSON 模式(`--json`)stderr 单行 sentinel `{ok:false, code:"UNEXPECTED_ERROR", message, crash_log, report_url}`,stdout 留空;exit 1。Crash log envelope:`CrashLogEnvelope` Zod schema in `src/core/crash-log.ts`(`{iso, version, argv, cwd, feature, phase, sub_state, exitCode:1, error:{name,message,stack}}`,文件扩展 `.json`,目录 mode 0700,文件 mode 0600;Phase 16 SC-2 立 framework,SC-3 扩 phase/sub_state)。`$LOAF_ISSUE_URL` 由 build 时注入(见 §10.11),query string 预填(Phase 16 SC-3,`src/cli/url-prefill.ts`):`loaf_version` / `schema_version` / `phase` / `sub_state` / `last_command`(sanitized — 命令 + 子命令 + flag 名 + 公共枚举值如 `--ceremony/--format/--feature`;默认 redact 所有 option 值,**强制 redact**:`--input/--reason/--answer/--summary/--label` + inline JSON + path-like 值)/ `crash_log_path`。Crash log 内的 envelope.argv 保留完整原始 argv;只有 URL query 的 last_command 走 sanitize。 |
+| **Unexpected**(panic / unknown 异常) | stderr 三行(text 模式):`error: UNEXPECTED_ERROR — <msg>` + `  crash log: ~/.loaf/crashes/<ts>.json` + `  report at $LOAF_ISSUE_URL?<prefilled-query>`。JSON 模式(`--format json`)stderr 单行 sentinel `{ok:false, code:"UNEXPECTED_ERROR", message, crash_log, report_url}`,stdout 留空;exit 1。Crash log envelope:`CrashLogEnvelope` Zod schema in `src/core/crash-log.ts`(`{iso, version, argv, cwd, feature, phase, sub_state, exitCode:1, error:{name,message,stack}}`,文件扩展 `.json`,目录 mode 0700,文件 mode 0600;Phase 16 SC-2 立 framework,SC-3 扩 phase/sub_state)。`$LOAF_ISSUE_URL` 由 build 时注入(见 §10.11),query string 预填(Phase 16 SC-3,`src/cli/url-prefill.ts`):`loaf_version` / `schema_version` / `phase` / `sub_state` / `last_command`(sanitized — 命令 + 子命令 + flag 名 + 公共枚举值如 `--ceremony/--format/--feature`;默认 redact 所有 option 值,**强制 redact**:`--input/--reason/--answer/--summary/--label` + inline JSON + path-like 值)/ `crash_log_path`。Crash log 内的 envelope.argv 保留完整原始 argv;只有 URL query 的 last_command 走 sanitize。 |
 | **Diff guard violation**(`loaf advance`) | exit 2 + stderr 列出违反 path + 引用 `STEP_WRITE_PATHS_BY_KIND` rule 来源 |
 | **Session dispatch**(rev 4.1)| 4 个 diagnostic code:`FEATURE_NOT_FOUND`(cwd 0 个 feature)/ `FEATURE_AMBIGUOUS`(cwd 2+ feature 且无 dispatch 上下文)/ `SESSION_CWD_MISMATCH`(`--session <UUID>` 指定的 UUID 注册 cwd ≠ 当前 cwd)/ `SESSION_SHORT_AMBIGUOUS`(短 UUID prefix 在 registry 多匹配)。全部 exit 2,stderr 列候选 + did-you-mean。详见 §10.3 dispatch precedence 段 |
 | **Pending head invariant**(rev 4.1 Q3 minimal)| 3 个 diagnostic code:`PENDING_BLOCKS_ADVANCE`(`loaf advance` 时 head ∈ {gate_decision, profile_escalation})/ `GATE_NOT_PENDING`(`loaf gate decide <G>` 但 head 不是 `gate_decision(<G>)`)/ `ESCALATION_NOT_PENDING`(`loaf profile escalate --confirm --input <ceremony.json>` 但 head 不是 `profile_escalation`)。全部 exit 2,stderr 列 head 的 `pending_id` + `question`,提示先 resolve 或换合适命令 |
-| **Flag mutual exclusion**(rev 4.2,clig.dev §6)| `MUTUALLY_EXCLUSIVE_FLAGS`:format flag 冲突(`--json --plain` / `--json --format=text` / `--plain --format=json`)+ 未来其它互斥对。exit 2,stderr 列冲突 flag 对 + `--format` 归一化提示。详见 §10.7 「Format flag 归一化与互斥」段 |
+| **Flag mutual exclusion**(rev 4.2,clig.dev §6)| `MUTUALLY_EXCLUSIVE_FLAGS`:format flag 冲突 prose 见 §10.7(SC-5b 引入 `--plain` 后激活)+ 未来其它互斥对。exit 2,stderr 列冲突 flag 对 + `--format` 归一化提示。详见 §10.7 「Format flag 归一化与互斥」段 |
 
 **信号到噪音**:类似错误**合并展示**(N 个 REQ 缺 measurable → 一条总结 + 详情写文件,不是 N 行 stderr)。最重要的信息**放在 stderr 末尾**(用户视线落点)。
 
@@ -1702,7 +1702,7 @@ error: <one-line human description>
 
 ```
 error: input does not satisfy schema for spec:add-req: /measurable/threshold: expected number, got string
-       fix: run `loaf spec add-req --schema --json` to dump the JSON Schema, fix the offending field, and retry
+       fix: run `loaf spec add-req --schema --format=json` to dump the JSON Schema, fix the offending field, and retry
        see: protocol.md#§10.5
 ```
 
@@ -1735,8 +1735,7 @@ error: input does not satisfy schema for spec:add-req: /measurable/threshold: ex
 |---|---|---|---|---|
 | `--help` | `-h` | bool | — | 每命令都有,top-level + 每 subcommand |
 | `--version` | — | bool | — | `loaf --version` 打印 semver + commit + schema_version |
-| `--format <fmt>` <!-- inventory:future reason="SC-5a OutputContext format normalization" --> | — | `json\|text` | TTY 时 `text`,pipe 时 `text`(line-oriented) | 见 §10.2 |
-| `--json` | — | bool | false | 等价 `--format json`,clig.dev 习惯 alias |
+| `--format <fmt>` | — | `json\|text` | TTY 时 `text`,pipe 时 `text`(line-oriented) | 见 §10.2 |
 | `--plain` <!-- inventory:future reason="SC-5b presentation flags" --> | — | bool | false | 等价 `--format text`(明确 line-oriented),clig.dev 习惯 alias |
 | `--no-color` <!-- inventory:future reason="SC-5b presentation flags" --> | — | bool | TTY/env 派生 | 见 §10.2 |
 | `--no-input` <!-- inventory:future reason="SC-6a non-interactive mode" --> | — | bool | false | **关键**:skill / hook / CI 用,禁用所有 prompt,缺必要输入直接 exit 2 |
@@ -1748,17 +1747,17 @@ error: input does not satisfy schema for spec:add-req: /measurable/threshold: ex
 | `--feature <name>` <!-- inventory:placeholder reason="per-command flag documented in global section; runtime parity TBD via SC-3 CLI runtime extraction" --> | — | string | `$LOAF_FEATURE` env or auto-pick | **rev 4.1**:dispatch via feature 名(cwd-local alias),见 §10.3 |
 | `--lang <en\|zh>` <!-- inventory:future reason="SC-6 routing+meta flag layer (i18n bundle selector)" --> | — | enum | `LOAF_LANG` env or `en` | i18n bundle 选择,见 §10.3 env 表 + §18 |
 | `--input <src>` <!-- inventory:placeholder reason="per-command flag documented in global section; SC-3 InputSourceResolver + SC-4a/b/c unify modality across mutators" --> | — | `-\|<json>\|<path>` | — | **rev 4.3**(ADR-0004 A3/A11)+ **Phase 16 SC-3/SC-4a**:Tier 1 mutator 命令的统一 JSON 输入 source(本行只规定 source 解析,不规定 payload shape — shape 由每个命令自己的 input schema 决定)。`-` ⇒ stdin;首字符 `{` 或 `[` ⇒ inline JSON;其余 ⇒ 文件路径(不存在 → exit 2 `INPUT_FILE_NOT_FOUND`)。**Payload shape per 命令**:`spec submit` 仅接 single object(whole-replacement);5 个 batch-capable mutator(`spec add-req` / `spec add-scenario` / `spec add-visual` / `tasks add` / `evidence add`)接 single object 或非空数组(batch,A10)。判别细节见下方「`--input` source 判别」 |
-| `--schema` <!-- inventory:future reason="SC-6 routing+meta flag layer (per-command schema introspection)" --> | — | bool | false | **rev 4.3** modifier:与 `--json` 联用(`loaf <cmd> --schema --json`)dump 该命令 input Zod schema 派生的 JSON Schema(查 `schemas.ts` §40 `INPUT_SCHEMAS`)。用于 LLM 自描述 / fixture 生成 / `SCHEMA_VALIDATION_FAILED` 修复提示 |
+| `--schema` <!-- inventory:future reason="SC-6 routing+meta flag layer (per-command schema introspection)" --> | — | bool | false | **rev 4.3** modifier:与 `--format=json` 联用(`loaf <cmd> --schema --format=json`)dump 该命令 input Zod schema 派生的 JSON Schema(查 `schemas.ts` §40 `INPUT_SCHEMAS`)。用于 LLM 自描述 / fixture 生成 / `SCHEMA_VALIDATION_FAILED` 修复提示 |
 
 <!-- inventory:current-end -->
 
 
 **Format flag 归一化与互斥**(rev 4.2,clig.dev §6):
-- 内部归一到 single `format`:`--json` ⇒ `format=json`,`--plain` ⇒ `format=text`,`--format=<fmt>` 显式赋值
+- 内部归一到 single `format`:`--plain` ⇒ `format=text`(future SC-5b),`--format=<fmt>` 显式赋值
 - precedence(high → low):显式 flag > `$LOAF_FORMAT` env(v1.0,见 §10.3)> TTY-derived default(stdout TTY → text;pipe → text line-oriented)
-- **同值无冲突**:`--json --format=json`、`--plain --format=text` 都 OK
-- **冲突值** → exit 2 `MUTUALLY_EXCLUSIVE_FLAGS`,stderr 列冲突 flag 对:`--json --plain`、`--json --format=text`、`--plain --format=json`
-- 同一 conflict code 复用于未来其它 flag 互斥(如 `--quiet -v` 同 invocation),错误体载 `{conflicting: ["--json", "--plain"]}` 给 scripting
+- **同值无冲突**(future,SC-5b 引入 `--plain` 后激活):`--plain --format=text` OK
+- **冲突值**(future,SC-5b 引入 `--plain` 后激活)→ exit 2 `MUTUALLY_EXCLUSIVE_FLAGS`,stderr 列冲突 flag 对:`--plain --format=json`
+- 同一 conflict code 复用于未来其它 flag 互斥(如 `--quiet -v` 同 invocation),错误体载 `{conflicting: ["--plain", "--format=json"]}` 给 scripting
 
 **Prompt 行为**(扩展 `--no-input` 那一行):
 - `loaf pending resolve` 在 **stdin 非 TTY** 或 **`--no-input`** 时缺 `--answer` → exit 2「pass --answer via flag」
@@ -1813,7 +1812,7 @@ CLI **唯一** enforce 的 pending 阻塞规则(state-machine integrity):
 
 TTY no-hang 守卫见 §10.1(stdin TTY + `--input -` → USAGE exit 2,不 hang)。`MISSING_INPUT` 覆盖 stdin 读失败 + 缺 flag 两种(Phase 16 SC-4b 扩,见 §10.5 / `schemas.ts` ERROR_CATALOG)。
 
-**`--help` 顶部约定**(clig.dev §5):每个接受 `--input` 的命令 `--help` 顶部带 2-3 个工作 JSON 示例(覆盖典型 shape),flag 表在示例下方。`loaf <cmd> --schema --json` 一并 dump JSON Schema 供 LLM / fixture 自描述。
+**`--help` 顶部约定**(clig.dev §5):每个接受 `--input` 的命令 `--help` 顶部带 2-3 个工作 JSON 示例(覆盖典型 shape),flag 表在示例下方。`loaf <cmd> --schema --format=json` 一并 dump JSON Schema 供 LLM / fixture 自描述。
 
 #### `--dry-run` 契约(rev 4.1,v1.0)
 
@@ -1824,7 +1823,7 @@ TTY no-hang 守卫见 §10.1(stdin TTY + `--input -` → USAGE exit 2,不 hang)�
 | 命令类别 | `--dry-run` 行为 |
 |---|---|
 | **Mutating 命令**(`advance` / `spec submit` / `tasks submit` / `tasks step start/done` / `tasks amend` / `evidence add` / `finding raise/close` / `gate decide` / `waive` / `settle` / `amend` / `archive` / `abandon` / `spike convert` / `pending resolve` / `profile escalate` / `lessons add` / `start`) | **rev 5.0**:走 §11.2 10-step transaction 步 1-5(acquire .lock → read tail + `_meta` fast-check → preflight validate → prepare sidecar files into short-lived `.tmp-*`(不 rename)→ final validate against embedded refs),然后 **跳过 step 6 journal append + step 7 post-apply assert + step 8 snapshot rebuild + step 9 registry refresh**,改为:**unlink sidecar `.tmp-*` + release .lock**(即 step 10 cleanup-only 分支)。stdout 打"would do"摘要(JSON / text 按 `--format`)。**不分配 EV/PEND/T/REQ/SCEN/VIS id**(避免单调计数器空跳);若校验过则 stdout 列将分配的 next-id 范围。**不写 journal entry、不 rebuild snapshots、不 refresh registry**。exit 0 = 校验通过,exit 2 = 会失败(schema / transition / actor authority / lock 抢占等)。机器表达见 schemas.ts §34 `dry_run_transaction_order` |
-| **Read-only 命令**(`status` / `tasks list` / `tasks next` / `tasks check` / `finding list` / `verify status` / `check <path>` / `<artifact> schema --json` / `evidence schema` / `resume` / `sessions list` / `tui` / `doctor`(no `--fix`)/ `--version` / `--help`)| **reject** `--dry-run`:exit 2 + stderr `error: --dry-run not applicable to read-only command` |
+| **Read-only 命令**(`status` / `tasks list` / `tasks next` / `tasks check` / `finding list` / `verify status` / `check <path>` / `<artifact> schema --format=json` / `evidence schema` / `resume` / `sessions list` / `tui` / `doctor`(no `--fix`)/ `--version` / `--help`)| **reject** `--dry-run`:exit 2 + stderr `error: --dry-run not applicable to read-only command` |
 | **Wrapping 命令**(`spec edit` / `tui`)| reject `--dry-run`(无 mutation 意图直接落到 wrap 程序)|
 | **Hook 入口**(`hook <event>`)| 透传给被 hook 的 mutator;`PreToolUse` hook 接 `--dry-run` 时只跑 write-guard 校验不写 reconcile 缓存 |
 
@@ -1861,7 +1860,7 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 - `spec submit` + 5 个结构化 mutator(`spec add-req` / `spec add-scenario` / `spec add-visual` / `tasks add` / `evidence add`)走统一 `--input <-|json|path>` modality(§10.7);positional id / per-field flag 已砍。**`spec submit` 仅接 single object**(whole-replacement);其余 5 个支持 single 或 array(batch)。`spec submit` 接入时点见 §10.7 + Phase 16 SC-4a。
 - **`spec submit` 仅接 single object**(whole-replacement);其余 5 个结构化 mutator(`spec add-req` / `spec add-scenario` / `spec add-visual` / `tasks add` / `evidence add`)的 input schema 接受单条对象**或**非空数组(batch);batch 三纪律(all-or-nothing / `spec_version += 1` per invocation / atomic id allocation)由 §11.2 transaction 落实(只适用于支持 batch 的 5 个)。
 - `id` 由 CLI 在 per-session lock 内单调分配:REQ / SCEN / VIS 输入只携 `id_namespace`(stem),CLI 扫该 namespace 下 max serial → 拼完整 id 落 spec.md(input regex vs output regex 见 §4.2 ID 分配段 + `schemas.ts` §40)。T / EV / FND / PEND 完全 CLI 自动分配,input **不**传 namespace 字段。
-- `--schema` 全局 modifier 跟 `--json` 联用(`loaf <cmd> --schema --json`)dump 该 input 的 JSON Schema(派生自 `schemas.ts` §40 `INPUT_SCHEMAS`)。
+- `--schema` 全局 modifier 跟 `--format=json` 联用(`loaf <cmd> --schema --format=json`)dump 该 input 的 JSON Schema(派生自 `schemas.ts` §40 `INPUT_SCHEMAS`)。
 - shape enforcement 全在 CLI:三选一可验证 / 6×6 finding grid / attachment hash+mime / id 唯一性 — workflow content 留给 loaf-skill,见 §19。
 
 <!-- inventory:current-begin v0.1.0 commands -->
@@ -1877,7 +1876,7 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 | `loaf spec submit --input <src>` | 提交 spec.md,严格 schema 校验。**Slice 1.B sub-cycle 1**:emit atomic batch `[spec_submitted(reset), spec_req_added × N, spec_scenario_added × M, spec_visual_added × K]`(共享 batch_id + spec_version,reducer 在头 entry 重置 projection 三数组并 bump `state.spec_version`,companion entries 同 batch 内重填)。**Phase 16 SC-4a**:`--input <src>` 接统一 modality(`-` stdin / inline JSON / file path,§10.7);whole-replacement,**仅接 single object**(不接 array)。TTY no-hang guard 见 §10.1。 | 0 / 2 |
 | `loaf spec init` | 生成 spec.md 模板,适合 `$EDITOR` 跟进 | 0 |
 | `loaf spec edit` <!-- inventory:future reason="SC-12a/b typed spec edit kinds + CLI" --> | 编辑当前 spec.md + 再次 schema check | 0 / 2 |
-| `loaf spec add-req --input <src>` | **rev 4.3**(ADR-0004 A1 / A4 / A5):增量加单条或 batch EARS REQ。Input 含 `id_namespace`(`^REQ-[A-Z][A-Z0-9]*$`)+ EARS 字段;CLI 在 lock 内拼完整 `id`(`REQ-<NS>-<NNN>`)落 `spec.md`,`spec_version += 1`(per invocation,A10)。pre-lock(SPEC.spec/plan/design)合法;post-lock 拒 → `SPEC_LOCKED_NO_DIRECT_EDIT` exit 2,走 `amend-spec` finding。`--schema --json` dump input JSON Schema | 0 / 2 |
+| `loaf spec add-req --input <src>` | **rev 4.3**(ADR-0004 A1 / A4 / A5):增量加单条或 batch EARS REQ。Input 含 `id_namespace`(`^REQ-[A-Z][A-Z0-9]*$`)+ EARS 字段;CLI 在 lock 内拼完整 `id`(`REQ-<NS>-<NNN>`)落 `spec.md`,`spec_version += 1`(per invocation,A10)。pre-lock(SPEC.spec/plan/design)合法;post-lock 拒 → `SPEC_LOCKED_NO_DIRECT_EDIT` exit 2,走 `amend-spec` finding。`--schema --format=json` dump input JSON Schema | 0 / 2 |
 | `loaf spec add-scenario --input <src>` | **rev 4.3**(ADR-0004 A1 / A4 / A5):增量加 Gherkin scenario,id_namespace 模式 `^SCEN-[A-Z][A-Z0-9-]*$`。其余规约同 `spec add-req` | 0 / 2 |
 | `loaf spec add-visual --input <src>` | **rev 4.3**(ADR-0004 A1 / A4 / A5):增量加 visual contract,id_namespace 模式 `^VIS-[A-Z][A-Z0-9-]*$`。其余规约同 `spec add-req` | 0 / 2 |
 | `loaf tasks submit --input <src>` | 提交完整 task graph(SPEC.design 阶段)。**rev 5.0**:走 §11.2 transaction,emit `event:tasks_planned`(payload 含完整 task array);reducer 派生 `snapshots/tasks.json`。**Phase 16 SC-4b**:`--input <src>` 接统一 modality(`-` stdin / inline JSON / file path,§10.7);whole-graph **single object** only(payload.tasks 内是 array,但 caller 不传顶层 array)。原 positional `<file>` + `-` magic 已砍。 | 0 / 2 |
@@ -1893,7 +1892,7 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 | `loaf tasks step start --task T-N --step <s>` | 开始一个 step(运行时校验 step ∈ kind 合法集) | 0 / 2 |
 | `loaf tasks step done --task T-N --step <s>` | 完成一个 step。**rev 5.0** 行为(等价于原 rev 4.1 contract):走 §11.2 10-step journal transaction,**同一 batch 内 emit** `event:task_step_done` + 可选 `evidence:added`(若 `--evidence-*` flag);step 5 final-validate 通过后整批 append,reducer 派生到 `snapshots/tasks.json`(`execution.<step>.status`)与 `snapshots/evidence.json`,绝不分两次 `loaf <cmd>` 调用。无对应 evidence proof 时 step 3 preflight 报 `TASK_STATUS_WITHOUT_PROOF` exit 2 | 0 / 2 |
 | `loaf evidence add --input <src>` | **rev 5.0**:走 §11.2 transaction,**emit `evidence:added`**(单条或 batch,batch markers N≥2);reducer 派生到 `snapshots/evidence.json`(含 covers[] / check / actor / result)。**rev 4.1**:不接受 `--id` flag,EV-id 由 CLI 单调分配在 payload 内并 stdout 回打;支持 `external_ref` 字段留调用方 correlation。**rev 4.3**(ADR-0004 A3 / A10):走统一 `--input <src>` modality(`-` stdin / inline JSON / file path,§10.7),**Phase 16 SC-4c** 接入 + 启用 batch(single object 或 non-empty array)。**ADR-0004 A6 deferred(NOT in SC-4c)**:`attachments` 简化形态 `[{path}]` + CLI 自动 sha256/mime/bytes materialization 留给后续 SC;**当前** runtime + `INPUT_SCHEMAS["evidence:add"]` machine schema 都要求 caller 提供完整 `Attachment` 形态 `[{path, sha256, mime, bytes?}]`(见 §4.4 命令行 sha256/mime 计算示例)。caller 显式传 envelope 字段(`id`/`evidence_id`/`schema_version`/`at`)→ `SCHEMA_VALIDATION_FAILED`(codex r230 PATCH D / r234)。当 A6 落地时,简化形态会在 schema 切换前先做 materialization → `ATTACHMENT_NOT_FOUND` / `ATTACHMENT_NOT_FILE` 路径才会重新激活 | 0 / 2 |
-| `loaf evidence schema --json` <!-- inventory:future reason="SC-10 schema emitters" --> | dump evidence JSON Schema | 0 |
+| `loaf evidence schema --format=json` <!-- inventory:future reason="SC-10 schema emitters" --> | dump evidence JSON Schema | 0 |
 | `loaf waive <obligation-id> --reason "..."` <!-- inventory:future reason="SC-11 wrapper mutator (evidence:added kind=waiver)" --> | **rev 5.0**:emit `evidence:added`(payload `kind=waiver`);reducer 派生到 `snapshots/evidence.json` 的 waiver view。actor 必须 `human:*`;reason ≥10 字符 | 0 / 2 |
 | `loaf finding raise --category X --action Y --summary "..."` | **rev 5.0**:emit `finding:raised`;若 action 触发 back-edge,同 batch 加 emit `event:phase_advanced`(`amend-spec` → SPEC.spec;`amend-tasks` → EXECUTE.work);`fix-impl` / `fix-test`(Phase 11 Item 3 SC2-SC3)再额外 emit `event:task_step_reset`(把目标 step 重置为 `pending`),整批 `[finding:raised, event:task_step_reset, event:phase_advanced]`;reducer 派生到 `snapshots/findings.json` | 0 / 2 |
 | `loaf finding list [--status open\|closed]` | 列 findings | 0 |
@@ -1902,7 +1901,7 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 | `loaf gate decide <G>` | gate 决策 → **rev 5.0**:走 §11.2 transaction,**同一 batch 内 emit** `gate:decided` + `pending:resolved`(消 head pending kind=gate_decision)+ `event:phase_advanced`(target 由 §3.5 复用的 LEGAL_TRANSITIONS 给出)。reducer 派生 evidence projection 中 `kind=gate-decision` 视图。head 不匹配 → step 3 preflight 报 `GATE_NOT_PENDING` exit 2 | 0 / 2 |
 | `loaf settle` | **rev 5.0 + 5.x + Slice 1.D sub-cycle 3**:走 §11.2 transaction 进入 SETTLE.reconcile,emit `event:phase_advanced`(`cli:` actor — settle 是机器 cursor 推进,不需要 human:* 决定;chaos deviation 仅是单 verb 命名);transition validator 检查 `ceremony.settle_phase=true`(否则 `SETTLE_PHASE_DISABLED`)+ `verify_accepted=true`(否则 `SETTLE_NOT_ACCEPTED`)。reducer 计算 drift + 派生到 `snapshots/reconcile.json`(**rev 5.x:deep only**;quick / light / standard 不产 reconcile snapshot;**Slice 1.D MVP**:reconcile snapshot 后置,`loaf settle` 仅推 cursor,reconcile.json 等延后 slice;CLI advisory 输出**不**声称 `reconcile.json rebuilt`)| 0 / 2 |
 | `loaf check <path>` <!-- inventory:future reason="SC-9c file/schema validation" --> | 纯 schema check(CI 用,任意 artifact 文件) | 0 / 2 |
-| `loaf <artifact> schema --json` <!-- inventory:placeholder reason="generic artifact placeholder; SC-10 implements concrete spec/tasks/evidence/finding/state schema emitters" --> | 自描述命令,dump JSON Schema(spec/tasks/evidence/finding/state,**限定 5 个 enum**,非 catch-all) | 0 |
+| `loaf <artifact> schema --format=json` <!-- inventory:placeholder reason="generic artifact placeholder; SC-10 implements concrete spec/tasks/evidence/finding/state schema emitters" --> | 自描述命令,dump JSON Schema(spec/tasks/evidence/finding/state,**限定 5 个 enum**,非 catch-all) | 0 |
 | `loaf amend --target spec\|tasks` <!-- inventory:future reason="SC-16 docs sweep — drop stale row; `tasks amend` + `finding raise --action amend-*` already cover the capability" --> | spec-lock 前编辑回退;**post-lock 拒绝执行,提示走 finding** | 0 / 2 |
 | `loaf profile escalate --confirm --input <ceremony.json>` | 接受 auto-escalation prompt。`--input` 是 skill 算好的 6-flag Ceremony。emit 2-entry batch `[event:ceremony_set, pending:resolved]`(answers the `profile_escalation` head)。**rev 4.1 Q3**:本身就是答 `pending(kind=profile_escalation)` head 的方式,head 缺失 / 不匹配 → `ESCALATION_NOT_PENDING` exit 2 | 0 / 2 |
 | `loaf spike convert --to-feature F-N --reason "..."` | emit `spike:converted`(payload `{to_feature, reason}`)+ archive 当前 session 到 `DONE.archived`;**不** scaffold F-N(由后续独立 `loaf start F-N` 另开) | 0 / 2 |
@@ -2034,7 +2033,7 @@ next: <suggested next command>            # 可选,仅在有强自然下一步�
 | `loaf waive` | `waive: EV-000130 (kind=waiver, obligation=REQ-AUTH-008)` | — |
 | `loaf pending resolve` | `pending resolve: '<answer>' → cleared` | `next: <prompt_inject>` |
 
-**read-only 命令**(`loaf status` / `loaf tasks list` / `loaf finding list` / `loaf verify status` / `loaf sessions list` / `loaf doctor` / `loaf evidence schema` / `loaf <artifact> schema --json` / `loaf context pack`(rev 4.3)/ 任何 `--schema --json` modifier 调用)**不出 state-change line**(它们就是查询)。
+**read-only 命令**(`loaf status` / `loaf tasks list` / `loaf finding list` / `loaf verify status` / `loaf sessions list` / `loaf doctor` / `loaf evidence schema` / `loaf <artifact> schema --format=json` / `loaf context pack`(rev 4.3)/ 任何 `--schema --format=json` modifier 调用)**不出 state-change line**(它们就是查询)。
 
 **`--quiet` 行为**:抑制 state-change + next hint 行;主输出(stdout)正常;错误仍出。
 
@@ -2105,7 +2104,7 @@ loaf doctor --rebuild --feature <X> [--feature-dir <path>]   # full replay 重�
 loaf doctor              # 跑全部 check,read-only,exit 0 = 全过,exit 1 = 任一失败
 loaf doctor --fix        # 跑全部 check,可 fix 的尝试 fix,exit 0 = 全清,exit 1 = 仍有未修
 loaf doctor --rebuild-registry   # 等价 --fix 但只跑 registry-* 三 check
-loaf doctor --json       # 结构化输出,CI / TUI 消费
+loaf doctor --format json       # 结构化输出,CI / TUI 消费
 ```
 
 **启动期内嵌**:`loaf <any-cmd>` 启动时静默跑 `stale-lock` + `orphan-tmp` 两个 check 的 fix 路径(crash-only invariant 落地);其它 check 仅在显式 `loaf doctor` 时跑(避免每次 CLI 调用都扫全 registry)。
@@ -2585,7 +2584,7 @@ loaf-cli v1 是 **legacy Python 原型** 的 successor,from scratch —— 实�
 schemas.ts 里的 enum / ID / 字段名 → 稳定英文 ID,永不本地化
 i18n/<lang>.json bundle           → 人类可读 label + diagnostic 模板
 TUI / CLI 人类输出                → 通过 bundle 渲染
-JSON 输出(`--json`)             → 永远是 stable ID,不走 i18n
+JSON 输出(`--format json`)       → 永远是 stable ID,不走 i18n
 ```
 
 ### 18.2 Bundle 结构
@@ -2663,13 +2662,13 @@ loaf-skill     (1st-cc-plugin 里的 plugin)
 
 **职责边界明示**(rev 4.3,ADR-0004 A2):**shape enforcement = CLI 责任,workflow content = skill 责任**。Tier 1 mutator 的所有 shape 校验(id 分配 / 三选一可验证 / 6 evidence kind 字段矩阵 / 6×6 finding 合法性 / attachment hash+mime+canonicalization)集中在 loaf-cli;若放 skill,每个 3rd-party workflow skill(Wang / GSD / openspec / 内部 ad-hoc)都要重复实现 `schemas.ts` 子集,且 skill 改文件与 `loaf check` 之间引入 race window。CLI 做一次,所有 skill 共享 — 这是 ADR-0001「shape 在协议,content 在 skill」原则的直接 corollary。
 
-### 19.2 集成契约 = CLI --help + schema --json
+### 19.2 集成契约 = CLI --help + schema --format=json
 
 外部 skill 集成 loaf-cli 的方式:
 
 ```bash
 # 1. 读 schema(自描述)
-loaf evidence schema --json | jq        # 拿到 JSON Schema
+loaf evidence schema --format=json | jq        # 拿到 JSON Schema
 loaf spec submit --help                 # 拿到提交语义说明
 
 # 2. 产 strict 数据后提交(三种路径,SC-4a 后统一 --input <src>)

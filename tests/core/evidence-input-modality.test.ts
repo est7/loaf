@@ -75,7 +75,7 @@ async function loadSnapshot(
 async function seedQuickAtExecuteWork(): Promise<{ dir: string; feature: string }> {
   const dir = await tmpFeatureDir();
   const feature = "F1";
-  await runCli(["start", feature, "--ceremony", "quick", "--feature-dir", dir, "--json"]);
+  await runCli(["start", feature, "--ceremony", "quick", "--feature-dir", dir, "--format", "json"]);
   const edges: Array<[SubState, SubState]> = [
     ["TRIAGE.score", "TRIAGE.confirm"],
     ["TRIAGE.confirm", "EXECUTE.plan"],
@@ -151,7 +151,7 @@ describe("Phase 16 SC-4c — `loaf evidence add` batch (array) input", () => {
           { ...baseInput(), summary: "first batch entry" },
           { ...baseInput(), summary: "second batch entry" },
         ]),
-        "--feature", feature, "--feature-dir", dir, "--json",
+        "--feature", feature, "--feature-dir", dir, "--format", "json",
       ],
     );
     expect(r.exit).toBe(0);
@@ -163,7 +163,7 @@ describe("Phase 16 SC-4c — `loaf evidence add` batch (array) input", () => {
   test("stdin array happy (3 items) → 3 EV-ids allocated sequentially", async () => {
     const { dir, feature } = await seedQuickAtExecuteWork();
     const r = await runCli(
-      ["evidence", "add", "--input", "-", "--feature", feature, "--feature-dir", dir, "--json"],
+      ["evidence", "add", "--input", "-", "--feature", feature, "--feature-dir", dir, "--format", "json"],
       {
         stdin: JSON.stringify([
           { ...baseInput(), summary: "stdin batch #1" },
@@ -218,7 +218,7 @@ describe("Phase 16 SC-4c — `loaf evidence add` error paths", () => {
           baseInput(),
           { ...baseInput(), id: "EV-DEADBEEF" }, // caller-supplied id at index 1
         ]),
-        "--feature", feature, "--feature-dir", dir, "--json",
+        "--feature", feature, "--feature-dir", dir, "--format", "json",
       ],
     );
     expect(r.exit).toBe(2);

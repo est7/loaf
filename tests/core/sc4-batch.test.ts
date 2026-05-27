@@ -135,7 +135,7 @@ SC4 fixture body.
   );
   const startRes = await runCli([
     "start", feature, "--ceremony", "standard",
-    "--feature-dir", dir, "--json",
+    "--feature-dir", dir, "--format", "json",
   ]);
   if (startRes.exit !== 0) throw new Error(`start failed: ${startRes.stderr}`);
   const edges: Array<[SubState, SubState]> = [
@@ -340,7 +340,7 @@ describe("loaf tasks step done — SC4 --evidence-* batch", () => {
     const r = await runCli([
       "tasks", "step", "done",
       "--task", "T-001", "--step", "red", "--result", "passed",
-      "--feature", feature, "--feature-dir", dir, "--json",
+      "--feature", feature, "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(0);
     const after = await readJournalLines(dir);
@@ -358,7 +358,7 @@ describe("loaf tasks step done — SC4 --evidence-* batch", () => {
       "--task", "T-001", "--step", "red", "--result", "passed",
       "--evidence-kind", "local-check",
       "--evidence-summary", "red test failed as expected for T-001",
-      "--feature", feature, "--feature-dir", dir, "--json",
+      "--feature", feature, "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(0);
     const after = await readJournalLines(dir);
@@ -387,7 +387,7 @@ describe("loaf tasks step done — SC4 --evidence-* batch", () => {
       "--task", "T-001", "--step", "red",
       "--evidence-kind", "local-check",
       "--evidence-summary", "T-001 red step pass",
-      "--feature", feature, "--feature-dir", dir, "--json",
+      "--feature", feature, "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(0);
     const out = JSON.parse(r.stdout);
@@ -446,7 +446,7 @@ describe("loaf tasks step done — SC4 --evidence-* batch", () => {
       "--evidence-actor", "human:reviewer@invalid.example",
       "--evidence-reason", "manual review passed per QA checklist",
       "--evidence-summary", "T-001 red verified manually",
-      "--feature", feature, "--feature-dir", dir, "--json",
+      "--feature", feature, "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(0);
     // Payload actor (snapshot projection) is the human override.
@@ -478,7 +478,7 @@ describe("loaf gate decide — SC4 soft pending:resolved co-emission", () => {
       [
         "gate", "decide", "spec-lock",
         "--approve", "--reason", "sc4-approve: no pending head",
-        "--feature", feature, "--feature-dir", dir, "--json",
+        "--feature", feature, "--feature-dir", dir, "--format", "json",
       ],
       { env: HUMAN_ENV },
     );
@@ -496,7 +496,7 @@ describe("loaf gate decide — SC4 soft pending:resolved co-emission", () => {
     const r = await runCli([
       "gate", "decide", "spec-lock",
       "--approve", "--reason", "sc4-approve: with pending head co-emit",
-      "--feature", feature, "--feature-dir", dir, "--json",
+      "--feature", feature, "--feature-dir", dir, "--format", "json",
     ], { env: HUMAN_ENV });
     expect(r.exit).toBe(0);
     const after = await readJournalLines(dir);
@@ -576,7 +576,7 @@ describe("loaf gate decide — SC4 soft pending:resolved co-emission", () => {
     const r = await runCli([
       "gate", "decide", "verify-accept",
       "--approve", "--reason", "sc4 verify-accept with pending",
-      "--feature", feature, "--feature-dir", dir, "--json",
+      "--feature", feature, "--feature-dir", dir, "--format", "json",
     ], { env: HUMAN_ENV });
     expect(r.exit).toBe(0);
     const after = await readJournalLines(dir);
@@ -593,7 +593,7 @@ describe("loaf gate decide — SC4 soft pending:resolved co-emission", () => {
     const r = await runCli([
       "gate", "decide", "spec-lock",
       "--reject", "--reason", "spec needs more work",
-      "--feature", feature, "--feature-dir", dir, "--json",
+      "--feature", feature, "--feature-dir", dir, "--format", "json",
     ], { env: HUMAN_ENV });
     expect(r.exit).toBe(0);
     const after = await readJournalLines(dir);
@@ -609,7 +609,7 @@ describe("loaf gate decide — SC4 soft pending:resolved co-emission", () => {
     const r = await runCli([
       "gate", "decide", "spec-lock",
       "--approve", "--reason", "sc4: non-matching head must block",
-      "--feature", feature, "--feature-dir", dir, "--json",
+      "--feature", feature, "--feature-dir", dir, "--format", "json",
     ], { env: HUMAN_ENV });
     expect(r.exit).toBe(2);
     expect(r.stderr).toMatch(/GATE_NOT_PENDING/);
@@ -637,7 +637,7 @@ describe("loaf gate decide — SC4 soft pending:resolved co-emission", () => {
     const r = await runCli([
       "gate", "decide", "spec-lock",
       "--approve", "--reason", "approve after stale head",
-      "--feature", feature, "--feature-dir", dir, "--json",
+      "--feature", feature, "--feature-dir", dir, "--format", "json",
     ], { env: HUMAN_ENV });
     expect(r.exit).toBe(0);
     expect((await readJournalLines(dir)).length - before.length).toBe(2);

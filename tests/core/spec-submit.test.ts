@@ -81,7 +81,7 @@ async function seedAtSpecProposal(): Promise<{ dir: string; feature: string }> {
   const feature = "F1";
   const startRes = await runCli([
     "start", feature, "--ceremony", "standard",
-    "--feature-dir", dir, "--json",
+    "--feature-dir", dir, "--format", "json",
   ]);
   if (startRes.exit !== 0) throw new Error(`start failed: ${startRes.stderr}`);
   const edges: Array<[SubState, SubState]> = [
@@ -150,7 +150,7 @@ describe("loaf spec submit — SC1 happy paths", () => {
     const input = await writeInput(dir, baseHeader());
     const r = await runCli([
       "spec", "submit", "--input", input,
-      "--feature", feature, "--feature-dir", dir, "--json",
+      "--feature", feature, "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(0);
     const after = await readJournalLines(dir);
@@ -172,7 +172,7 @@ describe("loaf spec submit — SC1 happy paths", () => {
     }));
     const r = await runCli([
       "spec", "submit", "--input", input,
-      "--feature", feature, "--feature-dir", dir, "--json",
+      "--feature", feature, "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(0);
     const after = await readJournalLines(dir);
@@ -195,7 +195,7 @@ describe("loaf spec submit — SC1 happy paths", () => {
     const input = await writeInput(dir, baseHeader()); // no spec_version field
     const r = await runCli([
       "spec", "submit", "--input", input,
-      "--feature", feature, "--feature-dir", dir, "--json",
+      "--feature", feature, "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(0);
     const s = await loadSnapshot(dir);
@@ -223,7 +223,7 @@ describe("loaf spec submit — SC1 happy paths", () => {
     }));
     const r = await runCli([
       "spec", "submit", "--input", input,
-      "--feature", feature, "--feature-dir", dir, "--json",
+      "--feature", feature, "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(0);
     const out = JSON.parse(r.stdout);
@@ -267,7 +267,7 @@ describe("loaf spec submit — DUPLICATE_*_ID preflight promotion (SC1)", () => 
       "spec", "submit", "--input", await writeInput(dir, baseHeader({
         requirements: [VALID_REQ],
       })),
-      "--feature", feature, "--feature-dir", dir, "--json",
+      "--feature", feature, "--feature-dir", dir, "--format", "json",
     ]);
     // Raw mutate: emit a second spec_req_added with the same id, sharing
     // the existing spec_version=1 (would be a standalone add-req
@@ -365,7 +365,7 @@ describe("loaf spec submit — input + sub_state boundary", () => {
     const feature = "F1";
     await runCli([
       "start", feature, "--ceremony", "standard",
-      "--feature-dir", dir, "--json",
+      "--feature-dir", dir, "--format", "json",
     ]);
     const input = await writeInput(dir, baseHeader());
     const r = await runCli([

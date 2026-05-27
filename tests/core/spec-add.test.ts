@@ -88,7 +88,7 @@ async function seedAtSpecPostSubmit(): Promise<{ dir: string; feature: string }>
   const feature = "F1";
   await runCli([
     "start", feature, "--ceremony", "standard",
-    "--feature-dir", dir, "--json",
+    "--feature-dir", dir, "--format", "json",
   ]);
   for (const [from, to] of [
     ["TRIAGE.score", "TRIAGE.confirm"],
@@ -117,7 +117,7 @@ async function seedAtSpecPostSubmit(): Promise<{ dir: string; feature: string }>
   }, "submit.json");
   const submit = await runCli([
     "spec", "submit", "--input", submitInput,
-    "--feature", feature, "--feature-dir", dir, "--json",
+    "--feature", feature, "--feature-dir", dir, "--format", "json",
   ]);
   if (submit.exit !== 0) throw new Error(`seed submit fail: ${submit.stderr}`);
   return { dir, feature };
@@ -148,7 +148,7 @@ describe("loaf spec add-req — SC2", () => {
     });
     const r = await runCli([
       "spec", "add-req", "--input", input,
-      "--feature", feature, "--feature-dir", dir, "--json",
+      "--feature", feature, "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(0);
     const out = JSON.parse(r.stdout);
@@ -173,14 +173,14 @@ describe("loaf spec add-req — SC2", () => {
     };
     const r1 = await runCli([
       "spec", "add-req", "--input", await writeInput(dir, item, "r1.json"),
-      "--feature", feature, "--feature-dir", dir, "--json",
+      "--feature", feature, "--feature-dir", dir, "--format", "json",
     ]);
     expect(JSON.parse(r1.stdout).ids).toEqual(["REQ-AUTH-001"]);
     const r2 = await runCli([
       "spec", "add-req", "--input", await writeInput(dir, {
         ...item, response: "the system shall do thing two",
       }, "r2.json"),
-      "--feature", feature, "--feature-dir", dir, "--json",
+      "--feature", feature, "--feature-dir", dir, "--format", "json",
     ]);
     expect(JSON.parse(r2.stdout)).toMatchObject({
       spec_version: 3,
@@ -199,7 +199,7 @@ describe("loaf spec add-req — SC2", () => {
         response: "the system shall authenticate",
         ...REQ_VERIFIABLE_TAIL,
       }, "auth.json"),
-      "--feature", feature, "--feature-dir", dir, "--json",
+      "--feature", feature, "--feature-dir", dir, "--format", "json",
     ]);
     const r = await runCli([
       "spec", "add-req", "--input", await writeInput(dir, {
@@ -208,7 +208,7 @@ describe("loaf spec add-req — SC2", () => {
         response: "the system shall manage user profiles",
         ...REQ_VERIFIABLE_TAIL,
       }, "user.json"),
-      "--feature", feature, "--feature-dir", dir, "--json",
+      "--feature", feature, "--feature-dir", dir, "--format", "json",
     ]);
     expect(JSON.parse(r.stdout).ids).toEqual(["REQ-USER-001"]);
   });
@@ -238,7 +238,7 @@ describe("loaf spec add-req — SC2", () => {
     const before = await readJournalLines(dir);
     const r = await runCli([
       "spec", "add-req", "--input", input,
-      "--feature", feature, "--feature-dir", dir, "--json",
+      "--feature", feature, "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(0);
     const out = JSON.parse(r.stdout);
@@ -333,7 +333,7 @@ describe("loaf spec add-scenario — SC2", () => {
     });
     const r = await runCli([
       "spec", "add-scenario", "--input", input,
-      "--feature", feature, "--feature-dir", dir, "--json",
+      "--feature", feature, "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(0);
     expect(JSON.parse(r.stdout)).toMatchObject({
@@ -390,7 +390,7 @@ describe("loaf spec add-visual — SC2", () => {
     });
     const r = await runCli([
       "spec", "add-visual", "--input", input,
-      "--feature", feature, "--feature-dir", dir, "--json",
+      "--feature", feature, "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(0);
     expect(JSON.parse(r.stdout)).toMatchObject({
@@ -428,7 +428,7 @@ describe("loaf spec add-visual — SC2", () => {
         response: "the system shall authenticate",
         ...REQ_VERIFIABLE_TAIL,
       }, "r.json"),
-      "--feature", feature, "--feature-dir", dir, "--json",
+      "--feature", feature, "--feature-dir", dir, "--format", "json",
     ]);
     await runCli([
       "spec", "add-scenario", "--input", await writeInput(dir, {
@@ -436,7 +436,7 @@ describe("loaf spec add-visual — SC2", () => {
         name: "happy login",
         ...SCEN_VERIFIABLE_TAIL,
       }, "s.json"),
-      "--feature", feature, "--feature-dir", dir, "--json",
+      "--feature", feature, "--feature-dir", dir, "--format", "json",
     ]);
     const r = await runCli([
       "spec", "add-visual", "--input", await writeInput(dir, {
@@ -445,7 +445,7 @@ describe("loaf spec add-visual — SC2", () => {
         checks: ["header text matches brand"],
         visual_na: "skipped per fixture (no visual review yet)",
       }, "v.json"),
-      "--feature", feature, "--feature-dir", dir, "--json",
+      "--feature", feature, "--feature-dir", dir, "--format", "json",
     ]);
     expect(JSON.parse(r.stdout).ids).toEqual(["VIS-DASH-001"]);
     const s = await loadSnapshot(dir);

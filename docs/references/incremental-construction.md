@@ -88,10 +88,9 @@ referencing it, CI piping through stdin, human running an ad-hoc
 inline command) onto one resolver. Documentation × 1, fixtures
 × 1, error paths × 1.
 
-Naming note: it is `--input`, not `--json`. The latter conflicts
-with the global `--format` flag (`--json` already means "format the
-output as JSON"; overloading it for input direction violates
-clig.dev §6).
+Naming note: it is `--input`, not `--format`. The latter denotes
+output format direction, not input source; reusing it would
+violate clig.dev §6 (one flag, one direction).
 
 ## 4. Principle: CLI allocates ids, LLM supplies namespaces
 
@@ -189,15 +188,15 @@ the existing edge.
 `tasks add` likewise mirrors the rule on the `tasks` side:
 EXECUTE-phase calls reject and nudge toward `amend-tasks` finding.
 
-## 8. Principle: self-description via `--schema --json`
+## 8. Principle: self-description via `--schema --format=json`
 
 (ADR-0004 A2 surface.)
 
 Every command that consumes `--input` also accepts the global
-modifier pair `--schema --json`:
+modifier pair `--schema --format=json`:
 
 ```bash
-loaf spec add-req --schema --json
+loaf spec add-req --schema --format=json
 ```
 
 This dumps the JSON Schema derived from the command's entry in

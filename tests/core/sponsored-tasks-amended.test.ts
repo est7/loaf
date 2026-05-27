@@ -64,7 +64,7 @@ async function runCli(
 // Per-feature CLI driver — see e2e-lifecycle.test.ts:makeCli.
 function makeCli(dir: string, env: Record<string, string | undefined>) {
   const step = async (label: string, argv: string[]): Promise<any> => {
-    const r = await runCli([...argv, "--feature-dir", dir, "--json"], { env });
+    const r = await runCli([...argv, "--feature-dir", dir, "--format", "json"], { env });
     if (r.exit !== 0) {
       throw new Error(
         `STEP FAILED [${label}]: exit ${r.exit}\n` +
@@ -77,7 +77,7 @@ function makeCli(dir: string, env: Record<string, string | undefined>) {
   // `expectFail` runs a command expected to exit 2 and returns the parsed
   // failure JSON.
   const expectFail = async (argv: string[]): Promise<any> => {
-    const r = await runCli([...argv, "--feature-dir", dir, "--json"], { env });
+    const r = await runCli([...argv, "--feature-dir", dir, "--format", "json"], { env });
     expect(r.exit).not.toBe(0);
     return JSON.parse(r.stdout || r.stderr);
   };

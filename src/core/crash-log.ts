@@ -27,10 +27,11 @@ import path from "node:path";
 import os from "node:os";
 import { z } from "zod";
 
-/** Sentinel code stamped into the JSON envelope and (when `--json` is
- *  set) onto the boundary stderr payload. Lives here, not in
- *  src/cli.tsx, so the SC-0 inventory regex (`code: "CODE"` scan over
- *  cli.tsx) does NOT pick it up as an uncataloged DiagnosticCode emit. */
+/** Sentinel code stamped into the JSON envelope and (when
+ *  `--format json` is set) onto the boundary stderr payload. Lives
+ *  here, not in src/cli.tsx, so the SC-0 inventory regex
+ *  (`code: "CODE"` scan over cli.tsx) does NOT pick it up as an
+ *  uncataloged DiagnosticCode emit. */
 export const UNEXPECTED_ERROR = "UNEXPECTED_ERROR" as const;
 
 export const CrashLogEnvelope = z.object({

@@ -85,7 +85,7 @@ async function seedQuickAtExecuteWork(): Promise<{ dir: string; feature: string 
   const feature = "F1";
   const startRes = await runCli([
     "start", feature, "--ceremony", "quick",
-    "--feature-dir", dir, "--json",
+    "--feature-dir", dir, "--format", "json",
   ]);
   if (startRes.exit !== 0) throw new Error(`start failed: ${startRes.stderr}`);
   const edges: Array<[SubState, SubState]> = [
@@ -156,7 +156,7 @@ describe("loaf evidence add — SC2 happy paths", () => {
     const input = await writeInput(dir, baseInput("task-summary"));
     const r = await runCli([
       "evidence", "add", "--input", input,
-      "--feature", feature, "--feature-dir", dir, "--json",
+      "--feature", feature, "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(0);
     const parsed = JSON.parse(r.stdout);
@@ -382,7 +382,7 @@ describe("loaf evidence add — SC2 sub_state authority", () => {
     const feature = "F1";
     await runCli([
       "start", feature, "--ceremony", "quick",
-      "--feature-dir", dir, "--json",
+      "--feature-dir", dir, "--format", "json",
     ]);
     const input = await writeInput(dir, baseInput("local-check"));
     const r = await runCli([
@@ -398,7 +398,7 @@ describe("loaf evidence add — SC2 sub_state authority", () => {
     const feature = "F1";
     await runCli([
       "start", feature, "--ceremony", "quick",
-      "--feature-dir", dir, "--json",
+      "--feature-dir", dir, "--format", "json",
     ]);
     for (const [from, to] of [
       ["TRIAGE.score", "TRIAGE.confirm"],

@@ -89,7 +89,7 @@ async function seedQuickAtExecutePlan(): Promise<{ dir: string; feature: string 
   const feature = "F1";
   const startRes = await runCli([
     "start", feature, "--ceremony", "quick",
-    "--feature-dir", dir, "--json",
+    "--feature-dir", dir, "--format", "json",
   ]);
   if (startRes.exit !== 0) throw new Error(`start failed: ${startRes.stderr}`);
   const edges: Array<[SubState, SubState]> = [
@@ -152,7 +152,7 @@ async function seedLightAtExecuteWorkWithTask(): Promise<{ dir: string; feature:
   const feature = "F1";
   const startRes = await runCli([
     "start", feature, "--ceremony", "light",
-    "--feature-dir", dir, "--json",
+    "--feature-dir", dir, "--format", "json",
   ]);
   if (startRes.exit !== 0) throw new Error(`start failed: ${startRes.stderr}`);
   const edges: Array<[SubState, SubState]> = [
@@ -311,7 +311,7 @@ describe("loaf finding raise — SC3 happy paths + schema tighten", () => {
     const r = await runCli([
       "finding", "raise",
       "--category", "spec-gap", "--action", "defer",
-      "--feature", feature, "--feature-dir", dir, "--json",
+      "--feature", feature, "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(0);
     expect(JSON.parse(r.stdout)).toEqual({
@@ -347,7 +347,7 @@ describe("loaf finding raise — SC3 happy paths + schema tighten", () => {
     const feature = "F1";
     await runCli([
       "start", feature, "--ceremony", "quick",
-      "--feature-dir", dir, "--json",
+      "--feature-dir", dir, "--format", "json",
     ]);
     const r = await runCli([
       "finding", "raise",
@@ -632,7 +632,7 @@ describe("loaf finding list", () => {
       "--feature", feature, "--feature-dir", dir,
     ]);
     const r = await runCli([
-      "finding", "list", "--json",
+      "finding", "list", "--format", "json",
       "--feature", feature, "--feature-dir", dir,
     ]);
     expect(r.exit).toBe(0);
@@ -688,7 +688,7 @@ describe("loaf finding close", () => {
     ]);
     const r = await runCli([
       "finding", "close", "FND-001",
-      "--feature", feature, "--feature-dir", dir, "--json",
+      "--feature", feature, "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).not.toBe(0);
     const err = r.stderr;

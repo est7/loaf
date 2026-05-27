@@ -66,7 +66,7 @@ describe("loaf CLI — Blocker #7 MVP surface", () => {
       "start", "auth-refresh",
       "--ceremony", "standard",
       "--feature-dir", dir,
-      "--json",
+      "--format", "json",
     ]);
     expect(result.exit).toBe(0);
     const parsed = JSON.parse(result.stdout) as { ok: boolean; ceremony_label: string; sub_state: string };
@@ -85,7 +85,7 @@ describe("loaf CLI — Blocker #7 MVP surface", () => {
       "start", "auth-refresh",
       "--ceremony", "standard",
       "--feature-dir", dir,
-      "--json",
+      "--format", "json",
     ]);
     expect(startRes.exit).toBe(0);
 
@@ -93,7 +93,7 @@ describe("loaf CLI — Blocker #7 MVP surface", () => {
       "advance", "TRIAGE.confirm",
       "--feature", "auth-refresh",
       "--feature-dir", dir,
-      "--json",
+      "--format", "json",
     ]);
     expect(adv.exit).toBe(0);
     const parsed = JSON.parse(adv.stdout) as { sub_state: string };
@@ -106,14 +106,14 @@ describe("loaf CLI — Blocker #7 MVP surface", () => {
       "start", "auth-refresh",
       "--ceremony", "standard",
       "--feature-dir", dir,
-      "--json",
+      "--format", "json",
     ]);
 
     const adv = await runCli([
       "advance", "DONE.delivered",
       "--feature", "auth-refresh",
       "--feature-dir", dir,
-      "--json",
+      "--format", "json",
     ]);
     expect(adv.exit).toBe(2);
     expect(adv.stderr).toMatch(/TRANSITION_ILLEGAL/);
@@ -130,7 +130,7 @@ describe("loaf CLI — Blocker #7 MVP surface", () => {
       "start", "auth-refresh",
       "--ceremony", "standard",
       "--feature-dir", dir,
-      "--json",
+      "--format", "json",
     ]);
     const journalPath = path.join(dir, "journal.jsonl");
     const before = await fs.readFile(journalPath, "utf8");
@@ -139,7 +139,7 @@ describe("loaf CLI — Blocker #7 MVP surface", () => {
       "advance", "DONE.archived",
       "--feature", "auth-refresh",
       "--feature-dir", dir,
-      "--json",
+      "--format", "json",
     ]);
     expect(adv.exit).toBe(2);
     expect(adv.stderr).toMatch(/TRANSITION_ILLEGAL/);
@@ -154,7 +154,7 @@ describe("loaf CLI — Blocker #7 MVP surface", () => {
       "start", "auth-refresh",
       "--ceremony", "standard",
       "--feature-dir", dir,
-      "--json",
+      "--format", "json",
     ]);
     const journalPath = path.join(dir, "journal.jsonl");
     const before = await fs.readFile(journalPath, "utf8");
@@ -163,7 +163,7 @@ describe("loaf CLI — Blocker #7 MVP surface", () => {
       "advance", "DONE.abandoned",
       "--feature", "auth-refresh",
       "--feature-dir", dir,
-      "--json",
+      "--format", "json",
     ]);
     expect(adv.exit).toBe(2);
     expect(adv.stderr).toMatch(/TRANSITION_ILLEGAL/);
@@ -178,14 +178,14 @@ describe("loaf CLI — Blocker #7 MVP surface", () => {
       "start", "auth-refresh",
       "--ceremony", "standard",
       "--feature-dir", dir,
-      "--json",
+      "--format", "json",
     ]);
 
     const status = await runCli([
       "status",
       "--feature", "auth-refresh",
       "--feature-dir", dir,
-      "--json",
+      "--format", "json",
     ]);
     expect(status.exit).toBe(0);
     const parsed = JSON.parse(status.stdout) as { state: { sub_state: string }; tail_seq: number };
@@ -415,7 +415,7 @@ prose body here
       "tasks", "submit", "--input", tasksFile,
       "--feature", "auth-refresh",
       "--feature-dir", dir,
-      "--json",
+      "--format", "json",
     ],
   );
   if (submitResult.exit !== 0) {
@@ -436,7 +436,7 @@ describe("loaf gate decide spec-lock — Slice 1.B sub-cycle 4 (MVP)", () => {
         "--reason", "ready to execute",
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
       { env: { LOAF_USER: "tester@example.invalid" } },
     );
@@ -474,7 +474,7 @@ describe("loaf gate decide spec-lock — Slice 1.B sub-cycle 4 (MVP)", () => {
         "--reason", "needs more clarification",
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
       { env: { LOAF_USER: "tester@example.invalid" } },
     );
@@ -581,7 +581,7 @@ describe("loaf gate decide spec-lock — Slice 1.B sub-cycle 4 (MVP)", () => {
         "--reason", "trying",
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
       { env: { LOAF_USER: "tester@example.invalid" } },
     );
@@ -614,7 +614,7 @@ describe("loaf gate decide spec-lock — Slice 1.B sub-cycle 4 (MVP)", () => {
         "--reason", "x",
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
       { env: { LOAF_USER: "tester@example.invalid" } },
     );
@@ -639,7 +639,7 @@ describe("loaf gate decide spec-lock — Slice 1.B sub-cycle 4 (MVP)", () => {
         "--reason", "x",
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
       { env: { LOAF_USER: undefined } },
     );
@@ -887,7 +887,7 @@ describe("loaf gate decide verify-accept — Slice 1.C sub-cycle 6 (MVP)", () =>
         "--reason", "all 5 checks pass",
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
       { env: { LOAF_USER: "tester@example.invalid" } },
     );
@@ -920,7 +920,7 @@ describe("loaf gate decide verify-accept — Slice 1.C sub-cycle 6 (MVP)", () =>
         "--reason", "open finding pending resolution",
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
       { env: { LOAF_USER: "tester@example.invalid" } },
     );
@@ -970,7 +970,7 @@ describe("loaf gate decide verify-accept — Slice 1.C sub-cycle 6 (MVP)", () =>
         "--reason", "trying without spec",
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
       { env: { LOAF_USER: "tester@example.invalid" } },
     );
@@ -1037,7 +1037,7 @@ describe("loaf gate decide verify-accept — Slice 1.C sub-cycle 6 (MVP)", () =>
         "--reason", "x",
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
       { env: { LOAF_USER: undefined } },
     );
@@ -1273,7 +1273,7 @@ prose body here
       "tasks", "submit", "--input", settleTasksFile,
       "--feature", "auth-refresh",
       "--feature-dir", dir,
-      "--json",
+      "--format", "json",
     ],
   );
   if (planSubmit.exit !== 0) {
@@ -1379,7 +1379,7 @@ async function seedFeatureAtSettleLessons(dir: string): Promise<void> {
       "settle",
       "--feature", "auth-refresh",
       "--feature-dir", dir,
-      "--json",
+      "--format", "json",
     ],
   );
   if (settleResult.exit !== 0) {
@@ -1394,7 +1394,7 @@ async function seedFeatureAtSettleLessons(dir: string): Promise<void> {
       "advance", "SETTLE.lessons",
       "--feature", "auth-refresh",
       "--feature-dir", dir,
-      "--json",
+      "--format", "json",
     ],
   );
   if (advanceResult.exit !== 0) {
@@ -1413,7 +1413,7 @@ describe("loaf deliver — Slice 1.D sub-cycle 2 (MVP)", () => {
         "--feature", "auth-refresh",
         "--feature-dir", dir,
         "--reason", "ready to ship",
-        "--json",
+        "--format", "json",
       ],
       { env: { LOAF_USER: "tester@example.invalid" } },
     );
@@ -1448,7 +1448,7 @@ describe("loaf deliver — Slice 1.D sub-cycle 2 (MVP)", () => {
         "deliver",
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
       { env: { LOAF_USER: "tester@example.invalid" } },
     );
@@ -1491,7 +1491,7 @@ describe("loaf deliver — Slice 1.D sub-cycle 2 (MVP)", () => {
         "deliver",
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
       { env: { LOAF_USER: "tester@example.invalid" } },
     );
@@ -1568,7 +1568,7 @@ describe("loaf deliver — Slice 1.D sub-cycle 2 (MVP)", () => {
         "deliver",
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
       { env: { LOAF_USER: "tester@example.invalid" } },
     );
@@ -1632,7 +1632,7 @@ describe("loaf deliver — Slice 1.D sub-cycle 2 (MVP)", () => {
         "tasks", "submit", "--input", replanFile,
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
     );
     if (replanSubmit.exit !== 0) {
@@ -1716,7 +1716,7 @@ describe("loaf deliver — Slice 1.D sub-cycle 2 (MVP)", () => {
         "deliver",
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
       { env: { LOAF_USER: "tester@example.invalid" } },
     );
@@ -1737,7 +1737,7 @@ describe("loaf deliver — Slice 1.D sub-cycle 2 (MVP)", () => {
         "deliver",
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
       { env: { LOAF_USER: undefined } },
     );
@@ -1768,7 +1768,7 @@ describe("loaf settle — Slice 1.D sub-cycle 3 (MVP)", () => {
         "settle",
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
     );
 
@@ -1824,7 +1824,7 @@ describe("loaf settle — Slice 1.D sub-cycle 3 (MVP)", () => {
         "settle",
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
     );
 
@@ -1996,7 +1996,7 @@ needs_clarification: []
         "tasks", "submit", "--input", noApproveTasksFile,
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
     );
     if (planSubmit.exit !== 0) {
@@ -2070,7 +2070,7 @@ needs_clarification: []
         "settle",
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
     );
 
@@ -2089,7 +2089,7 @@ needs_clarification: []
         "settle",
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
     );
 
@@ -2108,7 +2108,7 @@ needs_clarification: []
         "settle",
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
     );
 
@@ -2323,7 +2323,7 @@ needs_clarification: []
         "tasks", "submit", "--input", tasksFile,
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
     );
 
@@ -2373,7 +2373,7 @@ needs_clarification: []
         "tasks", "submit", "--input", path.join(dir, "nonexistent.json"),
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
     );
 
@@ -2395,7 +2395,7 @@ needs_clarification: []
         "tasks", "submit", "--input", tasksFile,
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
     );
 
@@ -2420,7 +2420,7 @@ needs_clarification: []
         "tasks", "submit", "--input", tasksFile,
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
     );
 
@@ -2457,7 +2457,7 @@ needs_clarification: []
         "tasks", "submit", "--input", tasksFile,
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
     );
 
@@ -2484,7 +2484,7 @@ needs_clarification: []
         "tasks", "submit", "--input", tasksFile,
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
     );
 
@@ -2509,7 +2509,7 @@ needs_clarification: []
         "tasks", "submit", "--input", tasksFile,
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
     );
 
@@ -2538,7 +2538,7 @@ async function seedFeatureAtExecuteWork(dir: string): Promise<void> {
       "--approve", "--reason", "sc3-seed: spec ready",
       "--feature", "auth-refresh",
       "--feature-dir", dir,
-      "--json",
+      "--format", "json",
     ],
     { env: { LOAF_USER: "sc3-seed@test.invalid" } },
   );
@@ -2551,7 +2551,7 @@ async function seedFeatureAtExecuteWork(dir: string): Promise<void> {
       "advance", "EXECUTE.work",
       "--feature", "auth-refresh",
       "--feature-dir", dir,
-      "--json",
+      "--format", "json",
     ],
   );
   if (advResult.exit !== 0) {
@@ -2570,7 +2570,7 @@ describe("loaf tasks claim + step start + step done — Slice 2 SC3 (MVP)", () =
         "tasks", "claim", "T-001",
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
     );
     expect(r.exit).toBe(0);
@@ -2585,7 +2585,7 @@ describe("loaf tasks claim + step start + step done — Slice 2 SC3 (MVP)", () =
         "--task", "T-001", "--step", "red",
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
     );
     expect(r.exit).toBe(0);
@@ -2601,7 +2601,7 @@ describe("loaf tasks claim + step start + step done — Slice 2 SC3 (MVP)", () =
         "--task", "T-001", "--step", "red", "--result", "passed",
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
     );
     expect(r.exit).toBe(0);
@@ -2627,7 +2627,7 @@ describe("loaf tasks claim + step start + step done — Slice 2 SC3 (MVP)", () =
         "tasks", "step", "done",
         "--task", "T-001", "--step", step, "--result", "passed",
         "--feature", "auth-refresh", "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ]);
       const out = JSON.parse(r.stdout);
       if (step === "implement") {
@@ -2675,7 +2675,7 @@ describe("loaf tasks claim + step start + step done — Slice 2 SC3 (MVP)", () =
         "tasks", "claim", "T-999",
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
     );
     expect(r.exit).toBe(2);
@@ -2693,7 +2693,7 @@ describe("loaf tasks claim + step start + step done — Slice 2 SC3 (MVP)", () =
         "tasks", "claim", "T-001",
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
     );
     expect(r.exit).toBe(2);
@@ -2711,7 +2711,7 @@ describe("loaf tasks claim + step start + step done — Slice 2 SC3 (MVP)", () =
         "--task", "T-001", "--step", "red",
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
     );
     expect(r.exit).toBe(2);
@@ -2728,7 +2728,7 @@ describe("loaf tasks claim + step start + step done — Slice 2 SC3 (MVP)", () =
         "--task", "T-001", "--step", "red", "--result", "BOGUS",
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
     );
     expect(r.exit).toBe(2);
@@ -2744,7 +2744,7 @@ describe("loaf tasks claim + step start + step done — Slice 2 SC3 (MVP)", () =
         "--task", "T-001", "--step", "red",
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
     );
     expect(r.exit).toBe(2);
@@ -2772,7 +2772,7 @@ describe("loaf tasks abandon — Item 1", () => {
       "--reason", "out of scope after re-planning",
       "--feature", "auth-refresh",
       "--feature-dir", dir,
-      "--json",
+      "--format", "json",
     ]);
     expect(r.exit).toBe(0);
     expect(r.stderr).toBe("");
@@ -2792,7 +2792,7 @@ describe("loaf tasks abandon — Item 1", () => {
       "tasks", "abandon", "T-001",
       "--feature", "auth-refresh",
       "--feature-dir", dir,
-      "--json",
+      "--format", "json",
     ]);
     expect(r.exit).toBe(2);
   });
@@ -2806,7 +2806,7 @@ describe("loaf tasks abandon — Item 1", () => {
       "--reason", "out of scope",
       "--feature", "auth-refresh",
       "--feature-dir", dir,
-      "--json",
+      "--format", "json",
     ]);
     expect(first.exit).toBe(0);
 
@@ -2815,7 +2815,7 @@ describe("loaf tasks abandon — Item 1", () => {
       "--reason", "out of scope again",
       "--feature", "auth-refresh",
       "--feature-dir", dir,
-      "--json",
+      "--format", "json",
     ]);
     expect(second.exit).toBe(2);
     const errJson = JSON.parse(second.stderr.trim());
@@ -2832,7 +2832,7 @@ describe("loaf tasks abandon — Item 1", () => {
       "advance", "EXECUTE.done",
       "--feature", "auth-refresh",
       "--feature-dir", dir,
-      "--json",
+      "--format", "json",
     ]);
     expect(blocked.exit).toBe(2);
     // `advance` failure path emits text (`fail()`), not JSON.
@@ -2844,7 +2844,7 @@ describe("loaf tasks abandon — Item 1", () => {
       "--reason", "descoped from this feature",
       "--feature", "auth-refresh",
       "--feature-dir", dir,
-      "--json",
+      "--format", "json",
     ]);
     expect(abandon.exit).toBe(0);
 
@@ -2853,7 +2853,7 @@ describe("loaf tasks abandon — Item 1", () => {
       "advance", "EXECUTE.done",
       "--feature", "auth-refresh",
       "--feature-dir", dir,
-      "--json",
+      "--format", "json",
     ]);
     expect(advance.exit).toBe(0);
   });
@@ -2899,7 +2899,7 @@ describe("loaf tasks list — Slice 2 SC4 (MVP)", () => {
         "tasks", "list",
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
     );
     expect(r.exit).toBe(0);
@@ -2919,7 +2919,7 @@ describe("loaf tasks list — Slice 2 SC4 (MVP)", () => {
         "tasks", "list",
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
     );
     expect(r.exit).toBe(0);
@@ -2952,7 +2952,7 @@ describe("loaf tasks list — Slice 2 SC4 (MVP)", () => {
     const rPending = await runCli(
       [
         "tasks", "list", "--status", "pending",
-        "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+        "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
       ],
     );
     expect(JSON.parse(rPending.stdout).count).toBe(1);
@@ -2961,7 +2961,7 @@ describe("loaf tasks list — Slice 2 SC4 (MVP)", () => {
     const rReady = await runCli(
       [
         "tasks", "list", "--status", "ready",
-        "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+        "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
       ],
     );
     expect(JSON.parse(rReady.stdout).count).toBe(1);
@@ -2970,7 +2970,7 @@ describe("loaf tasks list — Slice 2 SC4 (MVP)", () => {
     const rDone = await runCli(
       [
         "tasks", "list", "--status", "done",
-        "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+        "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
       ],
     );
     expect(JSON.parse(rDone.stdout).count).toBe(0);
@@ -2982,7 +2982,7 @@ describe("loaf tasks list — Slice 2 SC4 (MVP)", () => {
     const r = await runCli(
       [
         "tasks", "list", "--status", "BOGUS",
-        "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+        "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
       ],
     );
     expect(r.exit).toBe(2);
@@ -3032,14 +3032,14 @@ describe("loaf tasks list — Slice 2 SC4 (MVP)", () => {
     );
     const submit = await runCli([
       "tasks", "submit", "--input", tasksFile,
-      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
     ]);
     expect(submit.exit).toBe(0);
 
     const r = await runCli(
       [
         "tasks", "list",
-        "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+        "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
       ],
     );
     const out = JSON.parse(r.stdout);
@@ -3188,7 +3188,7 @@ describe("loaf tasks next — Slice 2 SC4 (MVP)", () => {
     const r = await runCli(
       [
         "tasks", "next",
-        "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+        "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
       ],
     );
     expect(r.exit).toBe(0);
@@ -3218,7 +3218,7 @@ describe("loaf tasks next — Slice 2 SC4 (MVP)", () => {
     const r = await runCli(
       [
         "tasks", "next",
-        "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+        "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
       ],
     );
     expect(r.exit).toBe(0);
@@ -3237,7 +3237,7 @@ describe("loaf tasks submit at EXECUTE.plan — replan path (r59 P2.3 closure)",
       [
         "gate", "decide", "spec-lock",
         "--approve", "--reason", "re-plan path test",
-        "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+        "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
       ],
       { env: { LOAF_USER: "replan@test.invalid" } },
     );
@@ -3286,7 +3286,7 @@ describe("loaf tasks submit at EXECUTE.plan — replan path (r59 P2.3 closure)",
     const r = await runCli(
       [
         "tasks", "submit", "--input", replanFile,
-        "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+        "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
       ],
     );
     expect(r.exit).toBe(0);
@@ -3309,7 +3309,7 @@ describe("loaf tasks step start idempotency — Slice 2 SC4 (r60 P2.3 closure)",
     const r1 = await runCli([
       "tasks", "step", "start",
       "--task", "T-001", "--step", "red",
-      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
     ]);
     expect(r1.exit).toBe(0);
     expect(JSON.parse(r1.stdout).step_status).toBe("running");
@@ -3319,7 +3319,7 @@ describe("loaf tasks step start idempotency — Slice 2 SC4 (r60 P2.3 closure)",
     const r2 = await runCli([
       "tasks", "step", "start",
       "--task", "T-001", "--step", "red",
-      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
     ]);
     expect(r2.exit).toBe(0);
     expect(JSON.parse(r2.stdout).step_status).toBe("running");
@@ -3360,7 +3360,7 @@ describe("End-to-end lifecycle CLI — Slice 1.D sub-cycle 4", () => {
         "--approve", "--reason", "e2e: spec ready",
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
       { env },
     );
@@ -3378,7 +3378,7 @@ describe("End-to-end lifecycle CLI — Slice 1.D sub-cycle 4", () => {
           "advance", target,
           "--feature", "auth-refresh",
           "--feature-dir", dir,
-          "--json",
+          "--format", "json",
         ],
       );
       expect(r.exit, `advance to ${target} failed: ${r.stderr}`).toBe(0);
@@ -3399,7 +3399,7 @@ describe("End-to-end lifecycle CLI — Slice 1.D sub-cycle 4", () => {
         "--approve", "--reason", "e2e: all checks pass",
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
       { env },
     );
@@ -3413,7 +3413,7 @@ describe("End-to-end lifecycle CLI — Slice 1.D sub-cycle 4", () => {
         "--feature", "auth-refresh",
         "--feature-dir", dir,
         "--reason", "e2e standard lifecycle complete",
-        "--json",
+        "--format", "json",
       ],
       { env },
     );
@@ -3440,7 +3440,7 @@ describe("End-to-end lifecycle CLI — Slice 1.D sub-cycle 4", () => {
         "--approve", "--reason", "e2e deep: spec ready",
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
       { env },
     );
@@ -3457,7 +3457,7 @@ describe("End-to-end lifecycle CLI — Slice 1.D sub-cycle 4", () => {
           "advance", target,
           "--feature", "auth-refresh",
           "--feature-dir", dir,
-          "--json",
+          "--format", "json",
         ],
       );
       expect(r.exit, `deep advance to ${target} failed: ${r.stderr}`).toBe(0);
@@ -3478,7 +3478,7 @@ describe("End-to-end lifecycle CLI — Slice 1.D sub-cycle 4", () => {
         "--approve", "--reason", "e2e deep: all checks pass",
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
       { env },
     );
@@ -3491,7 +3491,7 @@ describe("End-to-end lifecycle CLI — Slice 1.D sub-cycle 4", () => {
         "settle",
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
     );
     expect(r.exit).toBe(0);
@@ -3503,7 +3503,7 @@ describe("End-to-end lifecycle CLI — Slice 1.D sub-cycle 4", () => {
         "advance", "SETTLE.lessons",
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
     );
     expect(r.exit).toBe(0);
@@ -3515,7 +3515,7 @@ describe("End-to-end lifecycle CLI — Slice 1.D sub-cycle 4", () => {
         "--feature", "auth-refresh",
         "--feature-dir", dir,
         "--reason", "e2e deep lifecycle complete",
-        "--json",
+        "--format", "json",
       ],
       { env },
     );
@@ -3580,12 +3580,12 @@ describe("End-to-end task lifecycle CLI — Slice 2 SC4", () => {
         ],
       }),
     );
-    let r = await cli(["tasks", "submit", "--input", tasksFile, "--json"]);
+    let r = await cli(["tasks", "submit", "--input", tasksFile, "--format", "json"]);
     expect(r.exit).toBe(0);
     expect(JSON.parse(r.stdout).task_ids).toEqual(["T-001"]);
 
     // CLI 2: tasks next at SPEC.design → T-001 (ready, no deps).
-    r = await cli(["tasks", "next", "--json"]);
+    r = await cli(["tasks", "next", "--format", "json"]);
     expect(JSON.parse(r.stdout).task_id).toBe("T-001");
 
     // CLI 3: spec-lock approve → EXECUTE.plan.
@@ -3600,38 +3600,38 @@ describe("End-to-end task lifecycle CLI — Slice 2 SC4", () => {
     expect(r.exit).toBe(0);
 
     // CLI 5: tasks claim T-001 → in_progress.
-    r = await cli(["tasks", "claim", "T-001", "--json"]);
+    r = await cli(["tasks", "claim", "T-001", "--format", "json"]);
     expect(r.exit).toBe(0);
     expect(JSON.parse(r.stdout).status).toBe("in_progress");
 
     // CLI 6: tasks list (T-001 in_progress, ready=false since no longer pending).
-    r = await cli(["tasks", "list", "--json"]);
+    r = await cli(["tasks", "list", "--format", "json"]);
     let listOut = JSON.parse(r.stdout);
     expect(listOut.tasks[0].status).toBe("in_progress");
     expect(listOut.tasks[0].ready).toBe(false);
 
     // CLI 7: tasks next at this point → null (no pending tasks).
-    r = await cli(["tasks", "next", "--json"]);
+    r = await cli(["tasks", "next", "--format", "json"]);
     expect(JSON.parse(r.stdout).task_id).toBeNull();
 
     // CLI 8: run red step (start + done passed).
     r = await cli(["tasks", "step", "start", "--task", "T-001", "--step", "red"]);
     expect(r.exit).toBe(0);
-    r = await cli(["tasks", "step", "done", "--task", "T-001", "--step", "red", "--result", "passed", "--json"]);
+    r = await cli(["tasks", "step", "done", "--task", "T-001", "--step", "red", "--result", "passed", "--format", "json"]);
     expect(r.exit).toBe(0);
     expect(JSON.parse(r.stdout).task_status).toBe("in_progress"); // implement still pending
 
     // CLI 9: run implement step (start + done passed → auto-promote).
     r = await cli(["tasks", "step", "start", "--task", "T-001", "--step", "implement"]);
     expect(r.exit).toBe(0);
-    r = await cli(["tasks", "step", "done", "--task", "T-001", "--step", "implement", "--result", "passed", "--json"]);
+    r = await cli(["tasks", "step", "done", "--task", "T-001", "--step", "implement", "--result", "passed", "--format", "json"]);
     expect(r.exit).toBe(0);
     const doneOut = JSON.parse(r.stdout);
     expect(doneOut.step_status).toBe("passed");
     expect(doneOut.task_status).toBe("done"); // auto-promote fired
 
     // CLI 10: tasks list (T-001 done now).
-    r = await cli(["tasks", "list", "--json"]);
+    r = await cli(["tasks", "list", "--format", "json"]);
     listOut = JSON.parse(r.stdout);
     expect(listOut.tasks[0].status).toBe("done");
 
@@ -3780,7 +3780,7 @@ describe("End-to-end SPEC content → spec-lock approve (Slice A SC-A2)", () => 
         ],
       }),
     );
-    r = await cli(["tasks", "submit", "--input", tasksFile, "--json"]);
+    r = await cli(["tasks", "submit", "--input", tasksFile, "--format", "json"]);
     expect(r.exit).toBe(0);
 
     // 8. THE UNLOCK — gate decide spec-lock --approve walks through.
@@ -3796,7 +3796,7 @@ describe("End-to-end SPEC content → spec-lock approve (Slice A SC-A2)", () => 
     // (spec add-req); evaluateSpecLock now reads what those writes
     // produced.
     r = await cli(
-      ["gate", "decide", "spec-lock", "--approve", "--reason", "e2e unlock SC-A2", "--json"],
+      ["gate", "decide", "spec-lock", "--approve", "--reason", "e2e unlock SC-A2", "--format", "json"],
       { LOAF_USER: "e2e@test.invalid" },
     );
     expect(r.exit).toBe(0);
@@ -3804,7 +3804,7 @@ describe("End-to-end SPEC content → spec-lock approve (Slice A SC-A2)", () => 
     expect(gateOut.ok).toBe(true);
 
     // 9. Verify final state via status.
-    r = await cli(["status", "--json"]);
+    r = await cli(["status", "--format", "json"]);
     expect(r.exit).toBe(0);
     const status = JSON.parse(r.stdout);
     expect(status.state.sub_state).toBe("EXECUTE.plan");
@@ -3887,7 +3887,7 @@ describe("loaf finding raise --action amend-spec — Slice B CLI shell", () => {
     expect(tail[1]!.actor).toBe("cli:loaf");
 
     // Assertion 4: status snapshot post-back-edge.
-    r = await cli(["status", "--json"]);
+    r = await cli(["status", "--format", "json"]);
     expect(r.exit).toBe(0);
     const status = JSON.parse(r.stdout);
     expect(status.state.sub_state).toBe("SPEC.spec");
@@ -3911,7 +3911,7 @@ describe("loaf finding raise --action amend-spec — Slice B CLI shell", () => {
     expect(r.exit).toBe(0);
     r = await cli(
       ["finding", "raise", "--category", "spec-gap", "--action", "amend-spec",
-       "--json"],
+       "--format", "json"],
       { LOAF_USER: "engineer@test.invalid" },
     );
     expect(r.exit).toBe(0);
@@ -3995,7 +3995,7 @@ describe("loaf finding raise --action amend-tasks — Item 3 SC1 CLI shell", () 
     // preserved (amend-tasks does not clear it), iteration bumped +1.
     // A freshly-started session begins at iteration=1 (reducer.ts);
     // the back-edge SC0 bump takes it to 2.
-    r = await cli(["status", "--json"]);
+    r = await cli(["status", "--format", "json"]);
     expect(r.exit).toBe(0);
     const status = JSON.parse(r.stdout);
     expect(status.state.sub_state).toBe("EXECUTE.work");
@@ -4003,7 +4003,7 @@ describe("loaf finding raise --action amend-tasks — Item 3 SC1 CLI shell", () 
     expect(status.state.iteration).toBe(2);
 
     // Assertion 5: SC1 is back-edge-only — the finding stays open.
-    r = await cli(["finding", "list", "--json"]);
+    r = await cli(["finding", "list", "--format", "json"]);
     expect(r.exit).toBe(0);
     const findings = JSON.parse(r.stdout);
     const fnd = findings.findings.find((f: { id: string }) => f.id === "FND-001");
@@ -4027,7 +4027,7 @@ describe("loaf finding raise --action amend-tasks — Item 3 SC1 CLI shell", () 
     expect(r.exit).toBe(0);
     r = await cli(
       ["finding", "raise", "--category", "new-scope", "--action", "amend-tasks",
-       "--json"],
+       "--format", "json"],
       { LOAF_USER: "engineer@test.invalid" },
     );
     expect(r.exit).toBe(0);
@@ -4070,11 +4070,11 @@ describe("loaf finding raise --action fix-impl — Item 3 SC2 CLI shell", () => 
         "tasks", "step", "done", "--task", "T-001", "--step", stepName, "--result", "passed",
       ]);
     }
-    let r = await cli(["tasks", "list", "--json"]);
+    let r = await cli(["tasks", "list", "--format", "json"]);
     expect(JSON.parse(r.stdout).tasks.find((t: { id: string }) => t.id === "T-001").status)
       .toBe("done");
 
-    const iterBefore = JSON.parse((await cli(["status", "--json"])).stdout).state.iteration;
+    const iterBefore = JSON.parse((await cli(["status", "--format", "json"])).stdout).state.iteration;
 
     // SUT: fix-impl back-edge in text mode.
     r = await cli(
@@ -4112,13 +4112,13 @@ describe("loaf finding raise --action fix-impl — Item 3 SC2 CLI shell", () => 
     expect(tail.every((e) => e.batch_count === 3)).toBe(true);
 
     // Assertion: cursor → EXECUTE.work, iteration +1.
-    const status = JSON.parse((await cli(["status", "--json"])).stdout);
+    const status = JSON.parse((await cli(["status", "--format", "json"])).stdout);
     expect(status.state.sub_state).toBe("EXECUTE.work");
     expect(status.state.iteration).toBe(iterBefore + 1);
 
     // Assertion: the target task reopened to in_progress, implement step
     // back to pending.
-    const tasks = JSON.parse((await cli(["tasks", "list", "--json"])).stdout).tasks;
+    const tasks = JSON.parse((await cli(["tasks", "list", "--format", "json"])).stdout).tasks;
     const t = tasks.find((x: { id: string }) => x.id === "T-001");
     expect(t.status).toBe("in_progress");
     expect(t.steps.implement.status).toBe("pending");
@@ -4126,7 +4126,7 @@ describe("loaf finding raise --action fix-impl — Item 3 SC2 CLI shell", () => 
     expect(t.steps.red.status).toBe("passed");
 
     // Assertion: the fix-impl finding stays open (it is a repair loop).
-    const findings = JSON.parse((await cli(["finding", "list", "--json"])).stdout).findings;
+    const findings = JSON.parse((await cli(["finding", "list", "--format", "json"])).stdout).findings;
     expect(findings.find((f: { id: string }) => f.id === "FND-001").status).toBe("open");
   });
 
@@ -4161,7 +4161,7 @@ describe("loaf finding raise --action fix-impl — Item 3 SC2 CLI shell", () => 
     const r = await cli(
       ["finding", "raise", "--category", "impl-defect", "--action", "fix-impl",
        "--target-task", "T-001", "--target-step", "implement",
-       "--summary", "impl regressed", "--json"],
+       "--summary", "impl regressed", "--format", "json"],
       { LOAF_USER: "engineer@test.invalid" },
     );
     expect(r.exit).toBe(0);
@@ -4205,11 +4205,11 @@ describe("loaf finding raise --action fix-test — Item 3 SC3 CLI shell", () => 
         "tasks", "step", "done", "--task", "T-001", "--step", stepName, "--result", "passed",
       ]);
     }
-    let r = await cli(["tasks", "list", "--json"]);
+    let r = await cli(["tasks", "list", "--format", "json"]);
     expect(JSON.parse(r.stdout).tasks.find((t: { id: string }) => t.id === "T-001").status)
       .toBe("done");
 
-    const iterBefore = JSON.parse((await cli(["status", "--json"])).stdout).state.iteration;
+    const iterBefore = JSON.parse((await cli(["status", "--format", "json"])).stdout).state.iteration;
 
     // SUT: fix-test back-edge in text mode.
     r = await cli(
@@ -4247,13 +4247,13 @@ describe("loaf finding raise --action fix-test — Item 3 SC3 CLI shell", () => 
     expect(tail.every((e) => e.batch_count === 3)).toBe(true);
 
     // Assertion: cursor → EXECUTE.work, iteration +1.
-    const status = JSON.parse((await cli(["status", "--json"])).stdout);
+    const status = JSON.parse((await cli(["status", "--format", "json"])).stdout);
     expect(status.state.sub_state).toBe("EXECUTE.work");
     expect(status.state.iteration).toBe(iterBefore + 1);
 
     // Assertion: the target task reopened to in_progress, red step back to
     // pending.
-    const tasks = JSON.parse((await cli(["tasks", "list", "--json"])).stdout).tasks;
+    const tasks = JSON.parse((await cli(["tasks", "list", "--format", "json"])).stdout).tasks;
     const t = tasks.find((x: { id: string }) => x.id === "T-001");
     expect(t.status).toBe("in_progress");
     expect(t.steps.red.status).toBe("pending");
@@ -4261,7 +4261,7 @@ describe("loaf finding raise --action fix-test — Item 3 SC3 CLI shell", () => 
     expect(t.steps.implement.status).toBe("passed");
 
     // Assertion: the fix-test finding stays open (it is a repair loop).
-    const findings = JSON.parse((await cli(["finding", "list", "--json"])).stdout).findings;
+    const findings = JSON.parse((await cli(["finding", "list", "--format", "json"])).stdout).findings;
     expect(findings.find((f: { id: string }) => f.id === "FND-001").status).toBe("open");
   });
 
@@ -4296,7 +4296,7 @@ describe("loaf finding raise --action fix-test — Item 3 SC3 CLI shell", () => 
     const r = await cli(
       ["finding", "raise", "--category", "test-defect", "--action", "fix-test",
        "--target-task", "T-001", "--target-step", "red",
-       "--summary", "red test wrong", "--json"],
+       "--summary", "red test wrong", "--format", "json"],
       { LOAF_USER: "engineer@test.invalid" },
     );
     expect(r.exit).toBe(0);
@@ -4345,7 +4345,7 @@ describe("loaf tasks complete — Slice C SC-C1 (NO-OP confirmation)", () => {
 
     const r = await runCli([
       "tasks", "complete", "T-001",
-      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(0);
     expect(JSON.parse(r.stdout)).toEqual({
@@ -4380,7 +4380,7 @@ describe("loaf tasks complete — Slice C SC-C1 (NO-OP confirmation)", () => {
     const before = (await fs.readFile(journalPath, "utf8")).trimEnd().split("\n").length;
     const r = await runCli([
       "tasks", "complete", "T-001",
-      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(0);
     const after = (await fs.readFile(journalPath, "utf8")).trimEnd().split("\n").length;
@@ -4403,7 +4403,7 @@ describe("loaf tasks complete — Slice C SC-C1 (NO-OP confirmation)", () => {
 
     const r = await runCli([
       "tasks", "complete", "T-001",
-      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(2);
     expect(r.stdout).toBe("");
@@ -4420,7 +4420,7 @@ describe("loaf tasks complete — Slice C SC-C1 (NO-OP confirmation)", () => {
 
     const r = await runCli([
       "tasks", "complete", "T-001",
-      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(2);
     const err = JSON.parse(r.stderr.trim());
@@ -4436,7 +4436,7 @@ describe("loaf tasks complete — Slice C SC-C1 (NO-OP confirmation)", () => {
 
     const r = await runCli([
       "tasks", "complete", "T-999",
-      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(2);
     expect(r.stdout).toBe("");
@@ -4476,7 +4476,7 @@ describe("loaf tasks amend — Slice C SC-C2c (--policy applicability mutation)"
       [
         "gate", "decide", "spec-lock", "--approve",
         "--reason", "sc2c-seed: spec ready",
-        "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+        "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
       ],
       { env: { LOAF_USER: "sc2c-seed@test.invalid" } },
     );
@@ -4489,7 +4489,7 @@ describe("loaf tasks amend — Slice C SC-C2c (--policy applicability mutation)"
 
     const r = await runCli([
       "tasks", "amend", "T-001", "--policy", "refactor=na",
-      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(0);
     const out = JSON.parse(r.stdout);
@@ -4497,7 +4497,7 @@ describe("loaf tasks amend — Slice C SC-C2c (--policy applicability mutation)"
     expect(out.task_id).toBe("T-001");
 
     const list = await runCli([
-      "tasks", "list", "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      "tasks", "list", "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
     ]);
     const listed = JSON.parse(list.stdout);
     const t001 = listed.tasks.find((t: { id: string }) => t.id === "T-001");
@@ -4511,12 +4511,12 @@ describe("loaf tasks amend — Slice C SC-C2c (--policy applicability mutation)"
     const r = await runCli([
       "tasks", "amend", "T-001",
       "--policy", "refactor=na", "--policy", "red=optional",
-      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(0);
 
     const list = await runCli([
-      "tasks", "list", "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      "tasks", "list", "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
     ]);
     const t001 = JSON.parse(list.stdout).tasks.find((t: { id: string }) => t.id === "T-001");
     expect(t001.steps.refactor.applicability).toBe("na");
@@ -4528,7 +4528,7 @@ describe("loaf tasks amend — Slice C SC-C2c (--policy applicability mutation)"
     await seedFeatureAtExecutePlan(dir);
     await runCli([
       "tasks", "amend", "T-001", "--policy", "refactor=na",
-      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
     ]);
     // The emitted event:tasks_amended must carry the canonical `tests`
     // field — materializeTaskForAmend recovers it from the journal body.
@@ -4547,7 +4547,7 @@ describe("loaf tasks amend — Slice C SC-C2c (--policy applicability mutation)"
     await seedFeatureAtExecutePlan(dir);
     const r = await runCli([
       "tasks", "amend", "T-404", "--policy", "refactor=na",
-      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(2);
     expect(JSON.parse(r.stderr.trim()).code).toBe("TASK_NOT_FOUND");
@@ -4558,7 +4558,7 @@ describe("loaf tasks amend — Slice C SC-C2c (--policy applicability mutation)"
     await seedFeatureAtExecutePlan(dir);
     const r = await runCli([
       "tasks", "amend", "T-001", "--policy", "bogus=na",
-      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(2);
     expect(JSON.parse(r.stderr.trim()).code).toBe("TASK_STEP_NOT_FOUND");
@@ -4569,7 +4569,7 @@ describe("loaf tasks amend — Slice C SC-C2c (--policy applicability mutation)"
     await seedFeatureAtExecutePlan(dir);
     const r = await runCli([
       "tasks", "amend", "T-001", "--policy", "refactor=sometimes",
-      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(2);
     expect(JSON.parse(r.stderr.trim()).code).toBe("SCHEMA_VALIDATION_FAILED");
@@ -4580,7 +4580,7 @@ describe("loaf tasks amend — Slice C SC-C2c (--policy applicability mutation)"
     await seedFeatureAtExecutePlan(dir);
     const r = await runCli([
       "tasks", "amend", "T-001", "--policy", "refactor",
-      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(2);
     expect(JSON.parse(r.stderr.trim()).code).toBe("SCHEMA_VALIDATION_FAILED");
@@ -4595,7 +4595,7 @@ describe("loaf tasks amend — Slice C SC-C2c (--policy applicability mutation)"
     await seedFeatureAtExecutePlan(dir);
     const r = await runCli([
       "tasks", "amend", "T-001",
-      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(2);
     expect(JSON.parse(r.stderr.trim()).code).toBe("USAGE");
@@ -4607,7 +4607,7 @@ describe("loaf tasks amend — Slice C SC-C2c (--policy applicability mutation)"
     const r = await runCli([
       "tasks", "amend", "T-001",
       "--policy", "refactor=na", "--policy", "refactor=optional",
-      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(2);
     expect(JSON.parse(r.stderr.trim()).code).toBe("SCHEMA_VALIDATION_FAILED");
@@ -4618,7 +4618,7 @@ describe("loaf tasks amend — Slice C SC-C2c (--policy applicability mutation)"
     await seedFeatureAtExecuteWork(dir); // cursor at EXECUTE.work
     const r = await runCli([
       "tasks", "amend", "T-001", "--policy", "refactor=na",
-      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(2);
     expect(JSON.parse(r.stderr.trim()).code).toBe("MUTATION_OUT_OF_RIGHTS");
@@ -4664,7 +4664,7 @@ describe("loaf tasks add — Slice C SC-C3 (SPEC.design append)", () => {
 
     const r = await runCli([
       "tasks", "add", "--input", input,
-      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(0);
     const out = JSON.parse(r.stdout);
@@ -4672,7 +4672,7 @@ describe("loaf tasks add — Slice C SC-C3 (SPEC.design append)", () => {
     expect(out.task_ids).toEqual(["T-002"]);
 
     const list = await runCli([
-      "tasks", "list", "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      "tasks", "list", "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
     ]);
     const listed = JSON.parse(list.stdout).tasks;
     expect(listed.map((t: { id: string }) => t.id)).toEqual(["T-001", "T-002"]);
@@ -4690,7 +4690,7 @@ describe("loaf tasks add — Slice C SC-C3 (SPEC.design append)", () => {
 
     const r = await runCli([
       "tasks", "add", "--input", input,
-      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(0);
     expect(JSON.parse(r.stdout).task_ids).toEqual(["T-002", "T-003"]);
@@ -4702,7 +4702,7 @@ describe("loaf tasks add — Slice C SC-C3 (SPEC.design append)", () => {
     const input = await writeInput(dir, taskInput());
     await runCli([
       "tasks", "add", "--input", input,
-      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
     ]);
     // The emitted tasks_planned must carry T-001 with its canonical body.
     const journal = await fsP.readFile(path.join(dir, "journal.jsonl"), "utf8");
@@ -4724,7 +4724,7 @@ describe("loaf tasks add — Slice C SC-C3 (SPEC.design append)", () => {
 
     const r = await runCli([
       "tasks", "add", "--input", input,
-      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(2);
     expect(JSON.parse(r.stderr.trim()).code).toBe("SCHEMA_VALIDATION_FAILED");
@@ -4746,7 +4746,7 @@ describe("loaf tasks add — Slice C SC-C3 (SPEC.design append)", () => {
 
     const r = await runCli([
       "tasks", "add", "--input", input,
-      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(2);
     expect(JSON.parse(r.stderr.trim()).code).toBe("SCHEMA_VALIDATION_FAILED");
@@ -4759,7 +4759,7 @@ describe("loaf tasks add — Slice C SC-C3 (SPEC.design append)", () => {
 
     const r = await runCli([
       "tasks", "add", "--input", input,
-      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(2);
     expect(JSON.parse(r.stderr.trim()).code).toBe("SCHEMA_VALIDATION_FAILED");
@@ -4773,7 +4773,7 @@ describe("loaf tasks add — Slice C SC-C3 (SPEC.design append)", () => {
 
     const r = await runCli([
       "tasks", "add", "--input", p,
-      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(2);
     expect(JSON.parse(r.stderr.trim()).code).toBe("SCHEMA_VALIDATION_FAILED");
@@ -4785,7 +4785,7 @@ describe("loaf tasks add — Slice C SC-C3 (SPEC.design append)", () => {
 
     const r = await runCli([
       "tasks", "add", "--input", path.join(dir, "nonexistent.json"),
-      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(2);
     expect(JSON.parse(r.stderr.trim()).code).toBe("INPUT_FILE_NOT_FOUND");
@@ -4798,7 +4798,7 @@ describe("loaf tasks add — Slice C SC-C3 (SPEC.design append)", () => {
 
     const r = await runCli([
       "tasks", "add", "--input", input,
-      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(2);
     expect(JSON.parse(r.stderr.trim()).code).toBe("SUB_STATE_AUTHORITY_VIOLATION");
@@ -4826,11 +4826,11 @@ describe("loaf tasks register-red — Slice C SC-C4 (R2)", () => {
       JSON.stringify({ kind: "behavioral", drives: ["REQ-AUTH-001"], tests: ["Bug.repro"], labels: ["bug"] }),
     );
     let r = await runCli([
-      "tasks", "add", "--input", input, "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      "tasks", "add", "--input", input, "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
     ]);
     if (r.exit !== 0) throw new Error(`seed tasks add failed: ${r.stderr}`);
     r = await runCli(
-      ["gate", "decide", "spec-lock", "--approve", "--reason", "sc4-seed", "--feature", "auth-refresh", "--feature-dir", dir, "--json"],
+      ["gate", "decide", "spec-lock", "--approve", "--reason", "sc4-seed", "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json"],
       { env: { LOAF_USER: "sc4-seed@test.invalid" } },
     );
     if (r.exit !== 0) throw new Error(`seed spec-lock failed: ${r.stderr}`);
@@ -4845,7 +4845,7 @@ describe("loaf tasks register-red — Slice C SC-C4 (R2)", () => {
     await seedClaimedBugTask(dir);
     const r = await runCli([
       "tasks", "register-red", "T-002",
-      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(0);
     expect(JSON.parse(r.stdout).task_id).toBe("T-002");
@@ -4858,7 +4858,7 @@ describe("loaf tasks register-red — Slice C SC-C4 (R2)", () => {
     // Before register-red — implement is gated.
     let r = await runCli([
       "tasks", "step", "start", "--task", "T-002", "--step", "implement",
-      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(2);
     expect(JSON.parse(r.stderr.trim()).code).toBe("BUG_TASK_REQUIRES_RED");
@@ -4871,7 +4871,7 @@ describe("loaf tasks register-red — Slice C SC-C4 (R2)", () => {
     expect(r.exit).toBe(0);
     r = await runCli([
       "tasks", "step", "start", "--task", "T-002", "--step", "implement",
-      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(0);
   });
@@ -4882,7 +4882,7 @@ describe("loaf tasks register-red — Slice C SC-C4 (R2)", () => {
     await runCli(["tasks", "claim", "T-001", "--feature", "auth-refresh", "--feature-dir", dir]);
     const r = await runCli([
       "tasks", "register-red", "T-001",
-      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(2);
     expect(JSON.parse(r.stderr.trim()).code).toBe("BUG_TASK_FLAG_MISUSE");
@@ -4893,7 +4893,7 @@ describe("loaf tasks register-red — Slice C SC-C4 (R2)", () => {
     await seedClaimedBugTask(dir);
     const r = await runCli([
       "tasks", "register-red", "T-404",
-      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(2);
     expect(JSON.parse(r.stderr.trim()).code).toBe("TASK_NOT_FOUND");
@@ -4905,7 +4905,7 @@ describe("loaf tasks register-red — Slice C SC-C4 (R2)", () => {
     // T-001 (from seedFeatureAtSpecDesign) was never claimed.
     const r = await runCli([
       "tasks", "register-red", "T-001",
-      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(2);
     expect(JSON.parse(r.stderr.trim()).code).toBe("TASK_NOT_CLAIMED");
@@ -4927,7 +4927,7 @@ describe("loaf archive — Item 2", () => {
     const dir = await tmpFeatureDir();
     const started = await runCli([
       "start", "auth-refresh", "--ceremony", "standard",
-      "--feature-dir", dir, "--json",
+      "--feature-dir", dir, "--format", "json",
     ]);
     expect(started.exit).toBe(0);
 
@@ -4937,7 +4937,7 @@ describe("loaf archive — Item 2", () => {
         "--reason", "spike concluded; kept the worktree for reference",
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
       { env: { LOAF_USER: "tester@example.invalid" } },
     );
@@ -4956,7 +4956,7 @@ describe("loaf archive — Item 2", () => {
     const dir = await tmpFeatureDir();
     await runCli([
       "start", "auth-refresh", "--ceremony", "standard",
-      "--feature-dir", dir, "--json",
+      "--feature-dir", dir, "--format", "json",
     ]);
 
     const r = await runCli(
@@ -4978,11 +4978,11 @@ describe("loaf archive — Item 2", () => {
     const dir = await tmpFeatureDir();
     await runCli([
       "start", "auth-refresh", "--ceremony", "standard",
-      "--feature-dir", dir, "--json",
+      "--feature-dir", dir, "--format", "json",
     ]);
 
     const r = await runCli(
-      ["archive", "--feature", "auth-refresh", "--feature-dir", dir, "--json"],
+      ["archive", "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json"],
       { env: { LOAF_USER: "tester@example.invalid" } },
     );
     expect(r.exit).toBe(2);
@@ -4992,7 +4992,7 @@ describe("loaf archive — Item 2", () => {
     const dir = await tmpFeatureDir();
     await runCli([
       "start", "auth-refresh", "--ceremony", "standard",
-      "--feature-dir", dir, "--json",
+      "--feature-dir", dir, "--format", "json",
     ]);
 
     const r = await runCli(
@@ -5001,7 +5001,7 @@ describe("loaf archive — Item 2", () => {
         "--reason", "descoped during triage",
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
       { env: { LOAF_USER: "alice@example.invalid" } },
     );
@@ -5021,7 +5021,7 @@ describe("loaf abandon — Item 2", () => {
     const dir = await tmpFeatureDir();
     const started = await runCli([
       "start", "auth-refresh", "--ceremony", "standard",
-      "--feature-dir", dir, "--json",
+      "--feature-dir", dir, "--format", "json",
     ]);
     expect(started.exit).toBe(0);
 
@@ -5031,7 +5031,7 @@ describe("loaf abandon — Item 2", () => {
         "--reason", "no value, dropping the feature",
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
       { env: { LOAF_USER: "tester@example.invalid" } },
     );
@@ -5050,7 +5050,7 @@ describe("loaf abandon — Item 2", () => {
     const dir = await tmpFeatureDir();
     await runCli([
       "start", "auth-refresh", "--ceremony", "standard",
-      "--feature-dir", dir, "--json",
+      "--feature-dir", dir, "--format", "json",
     ]);
 
     const r = await runCli(
@@ -5072,11 +5072,11 @@ describe("loaf abandon — Item 2", () => {
     const dir = await tmpFeatureDir();
     await runCli([
       "start", "auth-refresh", "--ceremony", "standard",
-      "--feature-dir", dir, "--json",
+      "--feature-dir", dir, "--format", "json",
     ]);
 
     const r = await runCli(
-      ["abandon", "--feature", "auth-refresh", "--feature-dir", dir, "--json"],
+      ["abandon", "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json"],
       { env: { LOAF_USER: "tester@example.invalid" } },
     );
     expect(r.exit).toBe(2);
@@ -5086,7 +5086,7 @@ describe("loaf abandon — Item 2", () => {
     const dir = await tmpFeatureDir();
     await runCli([
       "start", "auth-refresh", "--ceremony", "standard",
-      "--feature-dir", dir, "--json",
+      "--feature-dir", dir, "--format", "json",
     ]);
 
     const r = await runCli(
@@ -5095,7 +5095,7 @@ describe("loaf abandon — Item 2", () => {
         "--reason", "blocked by an upstream decision",
         "--feature", "auth-refresh",
         "--feature-dir", dir,
-        "--json",
+        "--format", "json",
       ],
       { env: { LOAF_USER: "bob@example.invalid" } },
     );
@@ -5115,7 +5115,7 @@ describe("loaf spike convert — Phase 12", () => {
     const dir = await tmpFeatureDir();
     await runCli([
       "start", "auth-refresh", "--ceremony", "standard",
-      "--feature-dir", dir, "--json",
+      "--feature-dir", dir, "--format", "json",
     ]);
     const r = await runCli(
       [
@@ -5123,7 +5123,7 @@ describe("loaf spike convert — Phase 12", () => {
         "--to-feature", "F-002",
         "--reason", "spike learnings carry forward",
         "--feature", "auth-refresh",
-        "--feature-dir", dir, "--json",
+        "--feature-dir", dir, "--format", "json",
       ],
       { env: { LOAF_USER: "tester@example.invalid" } },
     );
@@ -5135,12 +5135,12 @@ describe("loaf spike convert — Phase 12", () => {
     const dir = await tmpFeatureDir();
     await runCli([
       "start", "auth-refresh", "--ceremony", "standard",
-      "--feature-dir", dir, "--json",
+      "--feature-dir", dir, "--format", "json",
     ]);
     const r = await runCli(
       [
         "spike", "convert", "--reason", "x",
-        "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+        "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
       ],
       { env: { LOAF_USER: "tester@example.invalid" } },
     );
@@ -5151,12 +5151,12 @@ describe("loaf spike convert — Phase 12", () => {
     const dir = await tmpFeatureDir();
     await runCli([
       "start", "auth-refresh", "--ceremony", "standard",
-      "--feature-dir", dir, "--json",
+      "--feature-dir", dir, "--format", "json",
     ]);
     const r = await runCli(
       [
         "spike", "convert", "--to-feature", "F-002",
-        "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+        "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
       ],
       { env: { LOAF_USER: "tester@example.invalid" } },
     );
@@ -5167,7 +5167,7 @@ describe("loaf spike convert — Phase 12", () => {
     const dir = await tmpFeatureDir();
     await runCli([
       "start", "auth-refresh", "--ceremony", "standard",
-      "--feature-dir", dir, "--json",
+      "--feature-dir", dir, "--format", "json",
     ]);
     const r = await runCli(
       [
@@ -5175,7 +5175,7 @@ describe("loaf spike convert — Phase 12", () => {
         "--to-feature", "not-a-feature-id",
         "--reason", "x",
         "--feature", "auth-refresh",
-        "--feature-dir", dir, "--json",
+        "--feature-dir", dir, "--format", "json",
       ],
       { env: { LOAF_USER: "tester@example.invalid" } },
     );
@@ -5190,7 +5190,7 @@ describe("loaf spike convert — Phase 12", () => {
         "--to-feature", "F-002",
         "--reason", "x",
         "--feature", "ghost",
-        "--feature-dir", dir, "--json",
+        "--feature-dir", dir, "--format", "json",
       ],
       { env: { LOAF_USER: "tester@example.invalid" } },
     );
@@ -5205,15 +5205,15 @@ describe("loaf profile escalate — Phase 13", () => {
   async function seedAtSpecProposal(dir: string): Promise<void> {
     await runCli([
       "start", "auth-refresh", "--ceremony", "standard",
-      "--feature-dir", dir, "--json",
+      "--feature-dir", dir, "--format", "json",
     ]);
     await runCli([
       "advance", "TRIAGE.confirm", "--feature", "auth-refresh",
-      "--feature-dir", dir, "--json",
+      "--feature-dir", dir, "--format", "json",
     ]);
     await runCli([
       "advance", "SPEC.proposal", "--feature", "auth-refresh",
-      "--feature-dir", dir, "--json",
+      "--feature-dir", dir, "--format", "json",
     ]);
   }
   async function writeCeremony(dir: string): Promise<string> {
@@ -5231,14 +5231,14 @@ describe("loaf profile escalate — Phase 13", () => {
     await runCli([
       "pending", "raise", "--kind", "profile_escalation",
       "--question", "scope expanded; escalate ceremony",
-      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
     ]);
     const ceremonyFile = await writeCeremony(dir);
 
     const r = await runCli(
       [
         "profile", "escalate", "--confirm", "--input", ceremonyFile,
-        "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+        "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
       ],
       { env: { LOAF_USER: "tester@example.invalid" } },
     );
@@ -5260,7 +5260,7 @@ describe("loaf profile escalate — Phase 13", () => {
 
     // The profile_escalation pending head is now resolved.
     const plist = await runCli([
-      "pending", "list", "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      "pending", "list", "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
     ]);
     const pj = JSON.parse(plist.stdout);
     expect(pj.pending.every((p: { resolved: boolean }) => p.resolved)).toBe(true);
@@ -5273,7 +5273,7 @@ describe("loaf profile escalate — Phase 13", () => {
     const r = await runCli(
       [
         "profile", "escalate", "--confirm", "--input", ceremonyFile,
-        "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+        "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
       ],
       { env: { LOAF_USER: "tester@example.invalid" } },
     );
@@ -5287,13 +5287,13 @@ describe("loaf profile escalate — Phase 13", () => {
     await runCli([
       "pending", "raise", "--kind", "ask_user_question",
       "--question", "which approach do you prefer",
-      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
     ]);
     const ceremonyFile = await writeCeremony(dir);
     const r = await runCli(
       [
         "profile", "escalate", "--confirm", "--input", ceremonyFile,
-        "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+        "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
       ],
       { env: { LOAF_USER: "tester@example.invalid" } },
     );
@@ -5308,7 +5308,7 @@ describe("loaf profile escalate — Phase 13", () => {
     const r = await runCli(
       [
         "profile", "escalate", "--input", ceremonyFile,
-        "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+        "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
       ],
       { env: { LOAF_USER: "tester@example.invalid" } },
     );
@@ -5321,7 +5321,7 @@ describe("loaf profile escalate — Phase 13", () => {
     const r = await runCli(
       [
         "profile", "escalate", "--confirm",
-        "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+        "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
       ],
       { env: { LOAF_USER: "tester@example.invalid" } },
     );
@@ -5334,14 +5334,14 @@ describe("loaf profile escalate — Phase 13", () => {
     await runCli([
       "pending", "raise", "--kind", "profile_escalation",
       "--question", "escalate the ceremony",
-      "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+      "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
     ]);
     const badFile = path.join(dir, "bad-ceremony.json");
     await fs.writeFile(badFile, JSON.stringify({ spec_phase: true })); // 5 flags missing
     const r = await runCli(
       [
         "profile", "escalate", "--confirm", "--input", badFile,
-        "--feature", "auth-refresh", "--feature-dir", dir, "--json",
+        "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
       ],
       { env: { LOAF_USER: "tester@example.invalid" } },
     );
@@ -5354,7 +5354,7 @@ describe("loaf profile escalate — Phase 13", () => {
     const r = await runCli(
       [
         "profile", "escalate", "--confirm", "--input", ceremonyFile,
-        "--feature", "ghost", "--feature-dir", dir, "--json",
+        "--feature", "ghost", "--feature-dir", dir, "--format", "json",
       ],
       { env: { LOAF_USER: "tester@example.invalid" } },
     );

@@ -14,10 +14,11 @@ import { parse, stringify } from "yaml";
 var version = "0.1.0";
 //#endregion
 //#region src/core/crash-log.ts
-/** Sentinel code stamped into the JSON envelope and (when `--json` is
-*  set) onto the boundary stderr payload. Lives here, not in
-*  src/cli.tsx, so the SC-0 inventory regex (`code: "CODE"` scan over
-*  cli.tsx) does NOT pick it up as an uncataloged DiagnosticCode emit. */
+/** Sentinel code stamped into the JSON envelope and (when
+*  `--format json` is set) onto the boundary stderr payload. Lives
+*  here, not in src/cli.tsx, so the SC-0 inventory regex
+*  (`code: "CODE"` scan over cli.tsx) does NOT pick it up as an
+*  uncataloged DiagnosticCode emit. */
 const UNEXPECTED_ERROR = "UNEXPECTED_ERROR";
 z.object({
 	iso: z.string(),
@@ -99,6 +100,61 @@ async function writeCrashLog(input, depsPartial) {
 }
 //#endregion
 //#region src/cli/command-context.ts
+/** Closed value set for `--format`. Single source of truth for both the
+*  argv parser and the human-readable error template. Order is
+*  intentional: matches the `text|json` rendering in user-facing
+*  diagnostics. */
+const FORMAT_MODES = ["text", "json"];
+/** Pipe-joined human form for INVALID_FORMAT i18n templates.
+*  Derived explicitly — never `Array.toString()` — to keep the
+*  catalog/i18n/runtime placeholder symmetry deterministic
+*  (per RED #12 in tests/scripts/sc5a-surface-gate.test.ts). */
+const FORMAT_MODES_HUMAN = FORMAT_MODES.join("|");
+/** Parse `--format <v>` or `--format=<v>` from argv. Returns OK 'text'
+*  on absent. Bare `--format` (no value, or followed by another flag)
+*  is intentionally OK-text — Commander's mandatory-arg path catches
+*  the missing value during `program.parseAsync(argv)` and reports a
+*  USAGE error (per RED #13).
+*
+*  Used both by `createCommandContext` (to derive `ctx.output`) and by
+*  `cli.tsx main()`'s pre-parse guard. Both readers MUST share this
+*  function to guarantee a single source of truth (no Commander
+*  default; argv-scan owns the decision). */
+function parseFormatFromArgv(argv) {
+	for (let i = 0; i < argv.length; i++) {
+		const arg = argv[i];
+		if (arg === "--format") {
+			const v = argv[i + 1];
+			if (v === void 0 || v.startsWith("--")) return {
+				ok: true,
+				format: "text"
+			};
+			if (FORMAT_MODES.includes(v)) return {
+				ok: true,
+				format: v
+			};
+			return {
+				ok: false,
+				rawValue: v
+			};
+		}
+		if (arg.startsWith("--format=")) {
+			const v = arg.slice(9);
+			if (FORMAT_MODES.includes(v)) return {
+				ok: true,
+				format: v
+			};
+			return {
+				ok: false,
+				rawValue: v
+			};
+		}
+	}
+	return {
+		ok: true,
+		format: "text"
+	};
+}
 /** Pre-resolve `--feature <NAME>` from argv. Best-effort; null on miss.
 *  Lifted here (was duplicated in src/core/crash-log.ts) so ctx and
 *  crash-log can agree on what "feature" means for a given invocation. */
@@ -116,7 +172,8 @@ function phaseOf(subState) {
 	return i < 0 ? null : subState.slice(0, i);
 }
 function createCommandContext(argv, deps) {
-	const output = argv.includes("--json") ? "json" : "text";
+	const parsed = parseFormatFromArgv(argv);
+	const output = parsed.ok ? parsed.format : "text";
 	let exitCode = 0;
 	const sessionCache = /* @__PURE__ */ new Map();
 	const projectionCache = /* @__PURE__ */ new Map();
@@ -5812,11 +5869,17 @@ function installSigintHandler(deps) {
 	return handler;
 }
 async function main(argv = process.argv, deps = {}) {
+	if (!argv.some((a) => a === "--help" || a === "-h" || a === "--version" || a === "-V")) {
+		const formatParse = parseFormatFromArgv(argv);
+		if (!formatParse.ok) {
+			process.stderr.write(`error: INVALID_FORMAT — invalid --format value '${formatParse.rawValue}'; allowed: ${FORMAT_MODES_HUMAN}\n`);
+			return 2;
+		}
+	}
 	const readStdin = deps.readStdin ?? defaultReadStdin;
 	const isStdinTty = deps.isStdinTty ?? defaultIsStdinTty;
 	const program = new Command();
-	program.name("loaf").description("Spec-driven development protocol CLI").version(version).option("--json", "Emit JSON output on stdout").addHelpText("after", helpFooter()).showHelpAfterError().exitOverride();
-	const useJson = argv.includes("--json");
+	program.name("loaf").description("Spec-driven development protocol CLI").version(version).option("--format <fmt>", `Output format: ${FORMAT_MODES_HUMAN} (default: text)`).addHelpText("after", helpFooter()).showHelpAfterError().exitOverride();
 	const actor = `cli:loaf@${process.env["USER"] ?? "unknown"}`;
 	const ctx = createCommandContext(argv, {
 		writeStdout: (s) => process.stdout.write(s),
@@ -5824,6 +5887,7 @@ async function main(argv = process.argv, deps = {}) {
 		loadSession,
 		loadProjections
 	});
+	const useJson = ctx.output === "json";
 	const fail = (code, message) => {
 		ctx.failure(code, message);
 	};

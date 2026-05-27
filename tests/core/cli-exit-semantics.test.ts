@@ -117,7 +117,7 @@ describe("Phase 16 SC-2 — top-level boundary: exit 1 on unhandled throw", () =
           "X",
           "--feature-dir",
           featureDir,
-          "--json",
+          "--format", "json",
         ],
         home,
       );

@@ -3,7 +3,7 @@
 // Encapsulates the cross-cutting concerns shared by ~29 action handlers
 // in src/cli.tsx:
 //
-//   - Output channel resolution (--json now; later --format)
+//   - Output channel resolution via `--format <text|json>` (SC-5a)
 //   - Lazy session/projection load with per-(featureDir, method) cache
 //   - Success / failure stderr+stdout routing
 //   - Crash context snapshot for the SC-2 boundary enrichment
@@ -27,6 +27,59 @@ import type { ProjectionKind, LoadResult } from "../core/projection-loader.js";
 import type { SessionLoad } from "../core/cli-runtime.js";
 
 export type OutputMode = "json" | "text";
+
+/** Closed value set for `--format`. Single source of truth for both the
+ *  argv parser and the human-readable error template. Order is
+ *  intentional: matches the `text|json` rendering in user-facing
+ *  diagnostics. */
+export const FORMAT_MODES: readonly OutputMode[] = ["text", "json"] as const;
+
+/** Pipe-joined human form for INVALID_FORMAT i18n templates.
+ *  Derived explicitly — never `Array.toString()` — to keep the
+ *  catalog/i18n/runtime placeholder symmetry deterministic
+ *  (per RED #12 in tests/scripts/sc5a-surface-gate.test.ts). */
+export const FORMAT_MODES_HUMAN: string = FORMAT_MODES.join("|");
+
+export type FormatParseResult =
+  | { ok: true; format: OutputMode }
+  | { ok: false; rawValue: string };
+
+/** Parse `--format <v>` or `--format=<v>` from argv. Returns OK 'text'
+ *  on absent. Bare `--format` (no value, or followed by another flag)
+ *  is intentionally OK-text — Commander's mandatory-arg path catches
+ *  the missing value during `program.parseAsync(argv)` and reports a
+ *  USAGE error (per RED #13).
+ *
+ *  Used both by `createCommandContext` (to derive `ctx.output`) and by
+ *  `cli.tsx main()`'s pre-parse guard. Both readers MUST share this
+ *  function to guarantee a single source of truth (no Commander
+ *  default; argv-scan owns the decision). */
+export function parseFormatFromArgv(argv: readonly string[]): FormatParseResult {
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]!;
+    if (arg === "--format") {
+      const v = argv[i + 1];
+      // Bare or trailing flag-like value: defer to Commander's
+      // missing-argument USAGE path. Return text default so ctx.output
+      // is well-defined if main() forgot to bail.
+      if (v === undefined || v.startsWith("--")) {
+        return { ok: true, format: "text" };
+      }
+      if ((FORMAT_MODES as readonly string[]).includes(v)) {
+        return { ok: true, format: v as OutputMode };
+      }
+      return { ok: false, rawValue: v };
+    }
+    if (arg.startsWith("--format=")) {
+      const v = arg.slice("--format=".length);
+      if ((FORMAT_MODES as readonly string[]).includes(v)) {
+        return { ok: true, format: v as OutputMode };
+      }
+      return { ok: false, rawValue: v };
+    }
+  }
+  return { ok: true, format: "text" };
+}
 
 export type CrashContext = {
   phase: string | null;
@@ -91,7 +144,14 @@ export function createCommandContext(
   argv: readonly string[],
   deps: CommandContextDeps,
 ): CommandContext {
-  const output: OutputMode = argv.includes("--json") ? "json" : "text";
+  // SC-5a: format derivation goes through the shared `parseFormatFromArgv`
+  // helper so the pre-parse guard in cli.tsx main() and CommandContext
+  // never disagree on output mode. On parse failure here we fall back to
+  // "text" silently; main()'s pre-parse guard is the canonical rejector
+  // and is responsible for emitting INVALID_FORMAT + short-circuiting
+  // before this code path runs.
+  const parsed = parseFormatFromArgv(argv);
+  const output: OutputMode = parsed.ok ? parsed.format : "text";
   let exitCode = 0;
 
   // Caches: separate per resolution method per codex r206 PATCH D. Same

@@ -105,7 +105,8 @@ export interface FindingState {
   action: string;
   status: "open" | "closed";
   // Slice 3 SC3 — payload-derived fields projected so `finding list` /
-  // `status --json` surface user-input without re-replaying the journal.
+  // `status --format json` surface user-input without re-replaying the
+  // journal.
   summary?: string;
   reason?: string;
   target?: { task_id: string; step: string };

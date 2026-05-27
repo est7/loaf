@@ -116,16 +116,16 @@ async function seedAtSpecDesign(): Promise<{ dir: string; feature: string }> {
   const env = ENV;
   // Need LOAF_USER for human-only entries
   process.env["LOAF_USER"] = env.LOAF_USER;
-  await runCli(["start", feature, "--ceremony", "standard", "--feature-dir", dir, "--json"]);
-  await runCli(["advance", "TRIAGE.confirm", "--feature", feature, "--feature-dir", dir, "--json"]);
-  await runCli(["advance", "SPEC.proposal", "--feature", feature, "--feature-dir", dir, "--json"]);
+  await runCli(["start", feature, "--ceremony", "standard", "--feature-dir", dir, "--format", "json"]);
+  await runCli(["advance", "TRIAGE.confirm", "--feature", feature, "--feature-dir", dir, "--format", "json"]);
+  await runCli(["advance", "SPEC.proposal", "--feature", feature, "--feature-dir", dir, "--format", "json"]);
   const submitPath = await writeJson(dir, "submit.json", {
     feature: { id: "F-001", name: "SC-4b seed" },
     intent: "exercise SC-4b tasks input modality wiring",
     adr_refs: [],
     needs_clarification: [],
   });
-  await runCli(["spec", "submit", "--input", submitPath, "--feature", feature, "--feature-dir", dir, "--json"]);
+  await runCli(["spec", "submit", "--input", submitPath, "--feature", feature, "--feature-dir", dir, "--format", "json"]);
   const reqPath = await writeJson(dir, "req1.json", {
     id_namespace: "REQ-CORE",
     type: "ubiquitous",
@@ -133,10 +133,10 @@ async function seedAtSpecDesign(): Promise<{ dir: string; feature: string }> {
     acceptance_na: true,
     acceptance_na_reason: "exercised by this SC-4b integration test",
   });
-  await runCli(["spec", "add-req", "--input", reqPath, "--feature", feature, "--feature-dir", dir, "--json"]);
-  await runCli(["advance", "SPEC.spec", "--feature", feature, "--feature-dir", dir, "--json"]);
-  await runCli(["advance", "SPEC.plan", "--feature", feature, "--feature-dir", dir, "--json"]);
-  await runCli(["advance", "SPEC.design", "--feature", feature, "--feature-dir", dir, "--json"]);
+  await runCli(["spec", "add-req", "--input", reqPath, "--feature", feature, "--feature-dir", dir, "--format", "json"]);
+  await runCli(["advance", "SPEC.spec", "--feature", feature, "--feature-dir", dir, "--format", "json"]);
+  await runCli(["advance", "SPEC.plan", "--feature", feature, "--feature-dir", dir, "--format", "json"]);
+  await runCli(["advance", "SPEC.design", "--feature", feature, "--feature-dir", dir, "--format", "json"]);
   return { dir, feature };
 }
 
@@ -144,15 +144,15 @@ async function seedAtSpecDesign(): Promise<{ dir: string; feature: string }> {
 async function seedAtExecuteWorkWithFinding(): Promise<{ dir: string; feature: string; findingId: string }> {
   const { dir, feature } = await seedAtSpecDesign();
   const tasksPath = await writeJson(dir, "tasks.json", TASKS_GRAPH_SEED);
-  const submitR = await runCli(["tasks", "submit", "--input", tasksPath, "--feature", feature, "--feature-dir", dir, "--json"]);
+  const submitR = await runCli(["tasks", "submit", "--input", tasksPath, "--feature", feature, "--feature-dir", dir, "--format", "json"]);
   if (submitR.exit !== 0) throw new Error(`seed tasks submit failed: ${submitR.stderr}`);
-  const gateR = await runCli(["gate", "decide", "spec-lock", "--approve", "--reason", "seed for SC-4b sponsored amend lane", "--feature", feature, "--feature-dir", dir, "--json"]);
+  const gateR = await runCli(["gate", "decide", "spec-lock", "--approve", "--reason", "seed for SC-4b sponsored amend lane", "--feature", feature, "--feature-dir", dir, "--format", "json"]);
   if (gateR.exit !== 0) throw new Error(`seed gate decide failed: ${gateR.stderr}`);
-  const advR = await runCli(["advance", "EXECUTE.work", "--feature", feature, "--feature-dir", dir, "--json"]);
+  const advR = await runCli(["advance", "EXECUTE.work", "--feature", feature, "--feature-dir", dir, "--format", "json"]);
   if (advR.exit !== 0) throw new Error(`seed advance EXECUTE.work failed: ${advR.stderr}`);
   const r = await runCli([
     "finding", "raise", "--category", "new-scope", "--action", "amend-tasks",
-    "--summary", "SC-4b sponsored amend lane smoke", "--feature", feature, "--feature-dir", dir, "--json",
+    "--summary", "SC-4b sponsored amend lane smoke", "--feature", feature, "--feature-dir", dir, "--format", "json",
   ]);
   if (r.exit !== 0) throw new Error(`seed finding raise failed: ${r.stderr}`);
   const findingId = JSON.parse(r.stdout).id as string;
@@ -163,7 +163,7 @@ describe("Phase 16 SC-4b — `loaf tasks submit` --input lanes", () => {
   test("stdin happy → exit 0", async () => {
     const { dir, feature } = await seedAtSpecDesign();
     const r = await runCli(
-      ["tasks", "submit", "--input", "-", "--feature", feature, "--feature-dir", dir, "--json"],
+      ["tasks", "submit", "--input", "-", "--feature", feature, "--feature-dir", dir, "--format", "json"],
       { stdin: JSON.stringify(TASKS_GRAPH_SEED) },
     );
     expect(r.exit).toBe(0);
@@ -174,7 +174,7 @@ describe("Phase 16 SC-4b — `loaf tasks submit` --input lanes", () => {
     const { dir, feature } = await seedAtSpecDesign();
     const r = await runCli([
       "tasks", "submit", "--input", JSON.stringify(TASKS_GRAPH_SEED),
-      "--feature", feature, "--feature-dir", dir, "--json",
+      "--feature", feature, "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(0);
     expect(JSON.parse(r.stdout)).toMatchObject({ ok: true });
@@ -195,7 +195,7 @@ describe("Phase 16 SC-4b — `loaf tasks add` --input lanes", () => {
   test("stdin happy (single object) → exit 0", async () => {
     const { dir, feature } = await seedAtSpecDesign();
     const r = await runCli(
-      ["tasks", "add", "--input", "-", "--feature", feature, "--feature-dir", dir, "--json"],
+      ["tasks", "add", "--input", "-", "--feature", feature, "--feature-dir", dir, "--format", "json"],
       { stdin: JSON.stringify(ADD_TASK_INPUT_ONE) },
     );
     expect(r.exit).toBe(0);
@@ -206,7 +206,7 @@ describe("Phase 16 SC-4b — `loaf tasks add` --input lanes", () => {
     const r = await runCli([
       "tasks", "add", "--input",
       JSON.stringify([ADD_TASK_INPUT_ONE, { ...ADD_TASK_INPUT_ONE, tests: ["sc4b.add.2"] }]),
-      "--feature", feature, "--feature-dir", dir, "--json",
+      "--feature", feature, "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(0);
   });
@@ -228,7 +228,7 @@ describe("Phase 16 SC-4b — `loaf tasks amend --input` sponsored lanes", () => 
     const r = await runCli(
       [
         "tasks", "amend", "T-001", "--input", "-", "--finding", findingId,
-        "--feature", feature, "--feature-dir", dir, "--json",
+        "--feature", feature, "--feature-dir", dir, "--format", "json",
       ],
       { stdin: JSON.stringify(ADD_TASK_INPUT_ONE) },
     );
@@ -240,7 +240,7 @@ describe("Phase 16 SC-4b — `loaf tasks amend --input` sponsored lanes", () => 
     const r = await runCli([
       "tasks", "amend", "T-001", "--input", JSON.stringify(ADD_TASK_INPUT_ONE),
       "--finding", findingId,
-      "--feature", feature, "--feature-dir", dir, "--json",
+      "--feature", feature, "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(0);
   });

@@ -187,7 +187,8 @@
     "DOCTOR_FEATURE_REQUIRED":    "loaf doctor --rebuild requires --feature <name>",
     "DOCTOR_REBUILD_FAILED":      "doctor --rebuild failed",
     "DOCTOR_REBUILD_MIGRATED_UNSUPPORTED": "doctor --rebuild does not support v0.0.x-migrated journals in this release",
-    "REDUCER_ERROR":              "internal reducer invariant failed"
+    "REDUCER_ERROR":              "internal reducer invariant failed",
+    "INVALID_FORMAT":             "invalid --format value '{value}'; allowed: {allowed_values_human}"
   },
 
   "help": {

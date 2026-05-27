@@ -466,7 +466,7 @@ elsewhere. Recorded so the boundary is explicit, not forgotten.
 - **Journal tail corruption, checksum, migration sidecars, crash recovery** —
   storage / doctor integration tests.
 - **Text-mode formatting snapshots** for list / status / next — E2E uses
-  `--json`; formatting tests stay narrow.
+  `--format json`; formatting tests stay narrow.
 
 ---
 

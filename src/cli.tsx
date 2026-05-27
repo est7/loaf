@@ -20,7 +20,11 @@ import path from "node:path";
 import packageJson from "../package.json" with { type: "json" };
 
 import { UNEXPECTED_ERROR, writeCrashLog } from "./core/crash-log.js";
-import { createCommandContext } from "./cli/command-context.js";
+import {
+  createCommandContext,
+  parseFormatFromArgv,
+  FORMAT_MODES_HUMAN,
+} from "./cli/command-context.js";
 import { buildReportUrl } from "./cli/url-prefill.js";
 import { parseInputSource } from "./cli/input-source.js";
 import { readJsonInput } from "./cli/input-read.js";
@@ -147,6 +151,37 @@ export async function main(
   argv: string[] = process.argv,
   deps: MainDeps = {},
 ): Promise<number> {
+  // Phase 16 SC-5a — pre-parse `--format` guard.
+  //
+  // Runs BEFORE Commander setup, BEFORE actor/env init, BEFORE
+  // `program.parseAsync(argv)`. On invalid `--format <value>` or
+  // `--format=<value>`, emits text-mode INVALID_FORMAT to stderr and
+  // returns exit 2 — no Commander parse, no action, no deps invocation.
+  //
+  // Bypass on `--help` / `-h` / `--version` / `-V` so e.g.
+  // `loaf --help --format yaml` still prints help (Commander owns
+  // help/version output).
+  //
+  // Tests: tests/cli/format-flag.test.ts RED #4/#10/#11/#16/#17.
+  const wantsHelpOrVersion = argv.some(
+    (a) => a === "--help" || a === "-h" || a === "--version" || a === "-V",
+  );
+  if (!wantsHelpOrVersion) {
+    const formatParse = parseFormatFromArgv(argv);
+    if (!formatParse.ok) {
+      // Text-mode emit only: no output mode established yet, so we
+      // honor the protocol's "stdout = artifact, stderr = diagnostic"
+      // contract and write a single-line text error. JSON consumers
+      // who passed `--format=yaml` typo'd — they get a clear text
+      // diagnostic with the same fields the typed catalog provides.
+      process.stderr.write(
+        `error: INVALID_FORMAT — invalid --format value '${formatParse.rawValue}'; ` +
+          `allowed: ${FORMAT_MODES_HUMAN}\n`,
+      );
+      return 2;
+    }
+  }
+
   const readStdin = deps.readStdin ?? defaultReadStdin;
   const isStdinTty = deps.isStdinTty ?? defaultIsStdinTty;
   const program = new Command();
@@ -155,12 +190,16 @@ export async function main(
     .name("loaf")
     .description("Spec-driven development protocol CLI")
     .version(packageJson.version)
-    .option("--json", "Emit JSON output on stdout")
+    .option(
+      "--format <fmt>",
+      `Output format: ${FORMAT_MODES_HUMAN} (default: text)`,
+    )
     .addHelpText("after", helpFooter())
     .showHelpAfterError()
     .exitOverride();
 
-  const useJson = argv.includes("--json");
+  // SC-5a: actor init now lives BELOW the pre-parse guard (r243 P2) —
+  // an invalid `--format` must reject before any env reads.
   const actor = `cli:loaf@${process.env["USER"] ?? "unknown"}`;
 
   // Phase 16 SC-3 — CommandContext is the presentation-layer plumbing
@@ -175,6 +214,11 @@ export async function main(
     loadSession,
     loadProjections,
   });
+  // SC-5a: legacy local `useJson` now derives from ctx.output so all
+  // existing `if (useJson)` blocks (~27 sites) continue to work
+  // unchanged through SC-5b's presentation migration. Single source
+  // of truth = parseFormatFromArgv via ctx, not duplicate argv-scan.
+  const useJson = ctx.output === "json";
   const fail = (code: string, message: string): void => {
     ctx.failure(code, message);
   };
@@ -1677,7 +1721,7 @@ export async function main(
       },
     );
 
-  // ── loaf tasks list [--status <s>] [--json] ─────────────────────────
+  // ── loaf tasks list [--status <s>] [--format json] ──────────────────
   // Slice 2 SC4. Read-only snapshot dump of `snapshot.tasks`. Computes
   // the derived `ready: boolean` column per Option C arch (codex r57):
   //   ready = status === "pending" && depends_on.every(dep_done)
@@ -2616,11 +2660,11 @@ export async function main(
   //   raise   --kind <K> --question <Q> [--options <csv>] [--task-id <tid>]
   //              CLI allocates PEND-N (max-serial+1); emits pending:added.
   //              stdout in text mode = bare PEND-id (scriptable; codex r62).
-  //   list    [--json]
+  //   list    [--format json]
   //              snapshot.pending projection + derived `head: boolean`
   //              flag = first unresolved entry. Text mode = 4 fixed
   //              columns `<PEND-id> <kind> <open|resolved> <head|->`.
-  //   status  [--id <id>] [--json]
+  //   status  [--id <id>] [--format json]
   //              default = head (or null if queue has no unresolved entry);
   //              --id = specific entry; miss → PENDING_NOT_FOUND.
   //   resolve --answer <ans>

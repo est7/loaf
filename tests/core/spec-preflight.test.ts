@@ -86,7 +86,7 @@ async function seedAtSpecProposalNoSubmit(): Promise<{ dir: string; feature: str
   const feature = "F1";
   await runCli([
     "start", feature, "--ceremony", "standard",
-    "--feature-dir", dir, "--json",
+    "--feature-dir", dir, "--format", "json",
   ]);
   for (const [from, to] of [
     ["TRIAGE.score", "TRIAGE.confirm"],
@@ -173,7 +173,7 @@ describe("SPEC_NOT_INITIALIZED — state.spec_version === 0 blocks spec_*_added"
     });
     const r = await runCli([
       "spec", "submit", "--input", input,
-      "--feature", feature, "--feature-dir", dir, "--json",
+      "--feature", feature, "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(0);
     const s = await loadSnapshot(dir);
@@ -190,7 +190,7 @@ describe("SPEC_NOT_INITIALIZED — state.spec_version === 0 blocks spec_*_added"
         adr_refs: [],
         needs_clarification: [],
       }, "submit.json"),
-      "--feature", feature, "--feature-dir", dir, "--json",
+      "--feature", feature, "--feature-dir", dir, "--format", "json",
     ]);
     // Now add-req should pass (spec_version=1, SPEC_NOT_INITIALIZED doesn't fire).
     const r = await runCli([
@@ -201,7 +201,7 @@ describe("SPEC_NOT_INITIALIZED — state.spec_version === 0 blocks spec_*_added"
         acceptance_na: true,
         acceptance_na_reason: "subjective UX validated via manual testing scope",
       }, "add.json"),
-      "--feature", feature, "--feature-dir", dir, "--json",
+      "--feature", feature, "--feature-dir", dir, "--format", "json",
     ]);
     expect(r.exit).toBe(0);
   });

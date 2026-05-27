@@ -183,7 +183,10 @@ describe("protocol-parser: name extraction", () => {
 describe("help-collector: snapshots current cli.tsx surface", () => {
   test("captures top-level global flags", () => {
     const names = inventory.globalFlags.map((f) => f.name);
-    expect(names).toContain("--json");
+    // Phase 16 SC-5a: --json removed under A1-honestly; --format is the
+    // sole current-contract format flag.
+    expect(names).toContain("--format");
+    expect(names).not.toContain("--json");
     expect(names).toContain("--help");
     expect(names).toContain("--version");
   });
