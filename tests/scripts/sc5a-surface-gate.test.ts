@@ -68,43 +68,62 @@ describe("Phase 16 SC-5a — RED #8: INVALID_FORMAT catalog + i18n registration"
   });
 });
 
-describe("Phase 16 SC-5a — RED #12: placeholder symmetry across catalog ↔ i18n", () => {
-  test("INVALID_FORMAT placeholders match across docs/schemas.ts + i18n/en + i18n/zh", () => {
-    const catalogTemplate = ERROR_CATALOG.INVALID_FORMAT.message_template;
-    const en = JSON.parse(readRepo("i18n/en.json")) as { diagnostic: Record<string, string> };
-    const zh = JSON.parse(readRepo("i18n/zh.json")) as { diagnostic: Record<string, string> };
-    const enTemplate = en.diagnostic["INVALID_FORMAT"]!;
-    const zhTemplate = zh.diagnostic["INVALID_FORMAT"]!;
+describe("Phase 16 SC-5a/SC-5b1 — RED #12: placeholder symmetry across catalog ↔ i18n", () => {
+  // SC-5b1 generalizes the symmetry harness to walk any set of
+  // DiagnosticCodes and assert catalog ↔ en ↔ zh placeholder-set
+  // equality. Add new codes to this list as they get cataloged.
+  const SYMMETRY_CODES: ReadonlyArray<{ code: keyof typeof ERROR_CATALOG; canonical: Set<string> }> = [
+    { code: "INVALID_FORMAT", canonical: new Set(["value", "allowed_values_human"]) },
+    { code: "MUTUALLY_EXCLUSIVE_FLAGS", canonical: new Set(["flags"]) },
+  ];
 
-    const catalogPlaceholders = extractPlaceholders(catalogTemplate);
-    const enPlaceholders = extractPlaceholders(enTemplate);
-    const zhPlaceholders = extractPlaceholders(zhTemplate);
+  for (const { code, canonical } of SYMMETRY_CODES) {
+    test(`${code}: placeholders match across docs/schemas.ts + i18n/en + i18n/zh`, () => {
+      const catalogTemplate = ERROR_CATALOG[code].message_template;
+      const en = JSON.parse(readRepo("i18n/en.json")) as { diagnostic: Record<string, string> };
+      const zh = JSON.parse(readRepo("i18n/zh.json")) as { diagnostic: Record<string, string> };
+      const enTemplate = en.diagnostic[code]!;
+      const zhTemplate = zh.diagnostic[code]!;
+      expect(typeof enTemplate).toBe("string");
+      expect(typeof zhTemplate).toBe("string");
 
-    // All three must agree on the placeholder set; runtime emit site must
-    // pass exactly these template vars. Drift fails the test (r80 pattern).
-    expect(enPlaceholders).toEqual(catalogPlaceholders);
-    expect(zhPlaceholders).toEqual(catalogPlaceholders);
-  });
+      const catalogPlaceholders = extractPlaceholders(catalogTemplate);
+      const enPlaceholders = extractPlaceholders(enTemplate);
+      const zhPlaceholders = extractPlaceholders(zhTemplate);
 
-  test("INVALID_FORMAT canonical placeholders are {value} and {allowed_values_human}", () => {
-    const catalogTemplate = ERROR_CATALOG.INVALID_FORMAT.message_template;
-    const placeholders = extractPlaceholders(catalogTemplate);
-    expect(placeholders).toEqual(new Set(["value", "allowed_values_human"]));
-  });
+      expect(enPlaceholders).toEqual(catalogPlaceholders);
+      expect(zhPlaceholders).toEqual(catalogPlaceholders);
+    });
+
+    test(`${code}: canonical placeholders are ${[...canonical].join(", ")}`, () => {
+      const placeholders = extractPlaceholders(ERROR_CATALOG[code].message_template);
+      expect(placeholders).toEqual(canonical);
+    });
+  }
 });
 
-describe("Phase 16 SC-5a — RED #18: FLAG_EXCLUSIONS contains no '--json' after A1", () => {
-  test("FLAG_EXCLUSIONS JSON-stringified does not contain '--json'", () => {
+describe("Phase 16 SC-5a/SC-5b1 — RED #18: FLAG_EXCLUSIONS surface invariants", () => {
+  test("FLAG_EXCLUSIONS JSON-stringified does NOT contain '--json' (A1 removal holds)", () => {
     const serialized = JSON.stringify(FLAG_EXCLUSIONS);
     expect(serialized).not.toContain("--json");
   });
 
-  test("FLAG_EXCLUSIONS.sets[output_format] normalization keys all start with '--format' (or set is reserved-empty)", () => {
+  test("SC-5b1: FLAG_EXCLUSIONS.output_format.normalization contains '--plain' + format=text + format=json", () => {
+    const outputFormat = FLAG_EXCLUSIONS.sets.find((s) => s.name === "output_format");
+    expect(outputFormat).toBeDefined();
+    const keys = Object.keys(outputFormat!.normalization);
+    expect(keys).toContain("--plain");
+    expect(keys).toContain("--format=text");
+    expect(keys).toContain("--format=json");
+  });
+
+  test("FLAG_EXCLUSIONS.output_format normalization keys are all valid post-A1 spellings (no --json)", () => {
     const outputFormat = FLAG_EXCLUSIONS.sets.find((s) => s.name === "output_format");
     expect(outputFormat).toBeDefined();
     const keys = Object.keys(outputFormat!.normalization);
     for (const k of keys) {
-      expect(k.startsWith("--format")).toBe(true);
+      expect(k === "--plain" || k.startsWith("--format")).toBe(true);
+      expect(k).not.toBe("--json");
     }
   });
 });

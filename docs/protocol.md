@@ -1736,11 +1736,11 @@ error: input does not satisfy schema for spec:add-req: /measurable/threshold: ex
 | `--help` | `-h` | bool | — | 每命令都有,top-level + 每 subcommand |
 | `--version` | — | bool | — | `loaf --version` 打印 semver + commit + schema_version |
 | `--format <fmt>` | — | `json\|text` | TTY 时 `text`,pipe 时 `text`(line-oriented) | 见 §10.2 |
-| `--plain` <!-- inventory:future reason="SC-5b presentation flags" --> | — | bool | false | 等价 `--format text`(明确 line-oriented),clig.dev 习惯 alias |
-| `--no-color` <!-- inventory:future reason="SC-5b presentation flags" --> | — | bool | TTY/env 派生 | 见 §10.2 |
+| `--plain` <!-- inventory:future reason="SC-5b1 ships mechanism + loaf start pilot; SC-5b2 closes 40-site migration" --> | — | bool | false | 等价 `--format text`(明确 line-oriented),clig.dev 习惯 alias |
+| `--no-color` <!-- inventory:future reason="SC-5b1 ships mechanism + loaf start pilot; SC-5b2 closes 40-site migration" --> | — | bool | TTY/env 派生 | 见 §10.2 |
 | `--no-input` <!-- inventory:future reason="SC-6a non-interactive mode" --> | — | bool | false | **关键**:skill / hook / CI 用,禁用所有 prompt,缺必要输入直接 exit 2 |
-| `--quiet` <!-- inventory:future reason="SC-5b presentation flags" --> | `-q` | bool | false | 抑制非错误输出(stderr 仍出错误) |
-| `--verbose` <!-- inventory:future reason="SC-5b presentation flags" --> | `-v` | counter | 0 | `-v` / `-vv` 递增 stderr 信息密度;独立于 `--debug` |
+| `--quiet` <!-- inventory:future reason="SC-5b1 ships mechanism + loaf start pilot; SC-5b2 closes 40-site migration" --> | `-q` | bool | false | 抑制非错误输出(stderr 仍出错误) |
+| `--verbose` <!-- inventory:future reason="SC-5b1 ships mechanism + loaf start pilot; SC-5b2 closes 40-site migration" --> | `-v` | counter | 0 | `-v` / `-vv` 递增 stderr 信息密度;独立于 `--debug` |
 | `--debug` <!-- inventory:future reason="SC-6b debug observability" --> | — | bool | false | 写 `trace.jsonl`(`LOAF_DEBUG=1` / `DEBUG=1` 等价);**不**改变 stderr 密度(用 `-v`) |
 | `--dry-run` <!-- inventory:future reason="SC-6c mutate pipeline dry-run" --> | `-n` | bool | false | **rev 4.1**:mutating 命令只校验不落盘(见下方 dry-run 契约);read-only 命令 reject + exit 2 |
 | `--session <UUID>` <!-- inventory:future reason="SC-7+SC-8 registry-based session routing" --> | — | string | `$LOAF_SESSION` env or auto-pick | **rev 4.1**:dispatch 单次覆盖,见 §10.3 precedence;接受 ≥8 字符 prefix |
@@ -2011,7 +2011,7 @@ next: <suggested next command>            # 可选,仅在有强自然下一步�
 
 | 命令 | state-change line | next hint(若适用) |
 |---|---|---|
-| `loaf start` | `start: F-001 'auth-refresh' created → TRIAGE.score` | `next: loaf advance` |
+| `loaf start` | `start: '<feature>' created → TRIAGE.score` | `next: loaf advance` |
 | `loaf advance` | `advance: <prev sub-state> → <new sub-state> (iter=N)` | `next: <prompt_inject 第一行>` |
 | `loaf spec submit` | `spec submit: spec_version=N, locked=false` | `next: loaf gate decide spec-lock` |
 | `loaf spec add-req` | `spec add-req: +K REQ (spec_version=N → N+1; allocated REQ-AUTH-007..009)` | `next: loaf spec add-scenario --input ...`(若 scenario 缺)或 `next: loaf spec submit`(若覆盖足够)|

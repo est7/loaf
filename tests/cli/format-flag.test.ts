@@ -130,8 +130,10 @@ describe("Phase 16 SC-5a — RED #1-#3: --format integration happy paths", () =>
       "--format", "text",
     ]);
     expect(result.exit).toBe(0);
-    expect(result.stdout).toContain("started");
-    // Must NOT be JSON.
+    // SC-5b1 pilot: `loaf start` text-mode stdout is `<UUID>\n` (just
+    // the session id). stateChange + next emitted to stderr per
+    // protocol §10.12. Not JSON, just a bare UUID.
+    expect(result.stdout).toMatch(/^[0-9a-f-]{36}\n$/i);
     expect(() => JSON.parse(result.stdout)).toThrow();
   });
 

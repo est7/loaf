@@ -3499,14 +3499,28 @@ export const FLAG_EXCLUSIONS = {
   // the same set with a non-equivalent value.
   sets: [
     {
-      // SC-5a A1 cleanup: `output_format` is reserved-empty in v0.1.0
-      // (only `--format` is current; future `--plain` lands in SC-5b
-      // and re-populates this entry). Static invariant enforced by
-      // tests/scripts/sc5a-surface-gate.test.ts RED #18.
+      // SC-5b1: --plain ships as alias for --format text. The set
+      // re-populates with --plain + --format=text + --format=json
+      // normalization. Repeated --format with non-equivalent canonical
+      // values also conflicts (e.g. --format text --format json).
+      // Same-canonical pairs are NOT conflicts (--plain --format=text,
+      // --format text --format text). RED gate at
+      // tests/scripts/sc5a-surface-gate.test.ts RED #18 asserts the
+      // set has --plain and no removed-alias entries.
       name: "output_format",
-      normalization: {} as Record<string, "json" | "text">,
-      conflict_examples: [] as ReadonlyArray<readonly string[]>,
-      ok_examples: [] as ReadonlyArray<readonly string[]>,
+      normalization: {
+        "--plain": "text",
+        "--format=text": "text",
+        "--format=json": "json",
+      } as Record<string, "json" | "text">,
+      conflict_examples: [
+        ["--plain", "--format=json"],
+        ["--format=text", "--format=json"],
+      ] as ReadonlyArray<readonly string[]>,
+      ok_examples: [
+        ["--plain", "--format=text"],
+        ["--format=text", "--format=text"],
+      ] as ReadonlyArray<readonly string[]>,
     },
     {
       // Reserved entry for future verbosity exclusion (e.g., --quiet

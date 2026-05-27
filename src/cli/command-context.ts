@@ -81,6 +81,157 @@ export function parseFormatFromArgv(argv: readonly string[]): FormatParseResult 
   return { ok: true, format: "text" };
 }
 
+// ─────────────────────────────────────────────────────────────────
+// Phase 16 SC-5b1 — presentation flag helpers + parsePresentation
+// unified guard. Each helper is raw-argv-only (NOT Commander opts)
+// because createCommandContext runs BEFORE program.parseAsync(argv).
+// ─────────────────────────────────────────────────────────────────
+
+/** Returns true if `--plain` flag appears in argv. */
+export function parsePlainFromArgv(argv: readonly string[]): boolean {
+  return argv.includes("--plain");
+}
+
+/** Returns true if `--quiet` OR `-q` flag appears in argv. */
+export function parseQuietFromArgv(argv: readonly string[]): boolean {
+  return argv.includes("--quiet") || argv.includes("-q");
+}
+
+/** Returns cumulative verbose count: `-v` = 1, `-vv` = 2,
+ *  `--verbose` = 1, and multiple occurrences sum. E.g.
+ *  `-v --verbose` = 2, `-vv --verbose` = 3. Per protocol §10.7 +
+ *  codex r254 OQ3 verdict. */
+export function parseVerboseFromArgv(argv: readonly string[]): number {
+  let count = 0;
+  for (const arg of argv) {
+    if (arg === "--verbose") {
+      count += 1;
+      continue;
+    }
+    // `-v`, `-vv`, `-vvv`, ... — N v's = N. Reject mixed
+    // short-form (e.g. `-vq`); only pure v-runs count.
+    if (/^-v+$/.test(arg)) {
+      count += arg.length - 1;
+    }
+  }
+  return count;
+}
+
+/** Returns true if any of these is true:
+ *  - `--no-color` in argv
+ *  - `env.NO_COLOR` non-empty
+ *  - `env.LOAF_NO_COLOR` non-empty
+ *  - `env.TERM === "dumb"`
+ *  Per protocol §10.2 (`docs/protocol.md:1512-1513`). */
+export function parseNoColorFromArgv(
+  argv: readonly string[],
+  env: { NO_COLOR?: string | undefined; LOAF_NO_COLOR?: string | undefined; TERM?: string | undefined } = process.env as never,
+): boolean {
+  if (argv.includes("--no-color")) return true;
+  if (env.NO_COLOR && env.NO_COLOR.length > 0) return true;
+  if (env.LOAF_NO_COLOR && env.LOAF_NO_COLOR.length > 0) return true;
+  if (env.TERM === "dumb") return true;
+  return false;
+}
+
+/** parsePresentation — unified pre-parse guard for SC-5a INVALID_FORMAT
+ *  + SC-5b1 MUTUALLY_EXCLUSIVE_FLAGS. Runs BEFORE Commander parse.
+ *
+ *  Precedence:
+ *  - INVALID_FORMAT wins over MUTUALLY_EXCLUSIVE_FLAGS (no canonical
+ *    value computable from invalid input — per codex r252 Q3 verdict).
+ *
+ *  Mutex rule (codex r255 P17): a conflict exists if 2+ entries from
+ *  the output_format normalization set appear in argv with non-
+ *  equivalent canonical values. The error renders as JSON if ANY
+ *  `--format json` / `--format=json` appears in argv (renderAsJson),
+ *  else text. Order- and spelling-independent.
+ */
+export type PresentationOk = {
+  ok: true;
+  format: OutputMode;
+  plain: boolean;
+  quiet: boolean;
+  verbose: number;
+  noColor: boolean;
+};
+export type PresentationFail =
+  | { ok: false; kind: "INVALID_FORMAT"; rawValue: string }
+  | { ok: false; kind: "MUTUALLY_EXCLUSIVE_FLAGS"; conflicting: string[]; renderAsJson: boolean };
+export type PresentationResult = PresentationOk | PresentationFail;
+
+/** Internal: collect every (entry, canonicalValue) pair from argv
+ *  using the FLAG_EXCLUSIONS.output_format normalization. Used to
+ *  detect non-equivalent multi-flag conflicts. */
+function collectOutputFormatEntries(argv: readonly string[]): Array<{ entry: string; canonical: OutputMode }> {
+  const out: Array<{ entry: string; canonical: OutputMode }> = [];
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]!;
+    if (arg === "--plain") {
+      out.push({ entry: "--plain", canonical: "text" });
+      continue;
+    }
+    if (arg === "--format") {
+      const v = argv[i + 1];
+      if (v && !v.startsWith("--") && (FORMAT_MODES as readonly string[]).includes(v)) {
+        out.push({ entry: `--format ${v}`, canonical: v as OutputMode });
+      }
+      // bare --format or invalid value: not a normalization entry
+      // (Commander or INVALID_FORMAT handles it elsewhere)
+      continue;
+    }
+    if (arg.startsWith("--format=")) {
+      const v = arg.slice("--format=".length);
+      if ((FORMAT_MODES as readonly string[]).includes(v)) {
+        out.push({ entry: arg, canonical: v as OutputMode });
+      }
+      continue;
+    }
+  }
+  return out;
+}
+
+export function parsePresentation(
+  argv: readonly string[],
+  env: { NO_COLOR?: string | undefined; LOAF_NO_COLOR?: string | undefined; TERM?: string | undefined } = process.env as never,
+): PresentationResult {
+  // Pass 1: INVALID_FORMAT precedence — scan for `--format` with a
+  // value that isn't in FORMAT_MODES. parseFormatFromArgv returns
+  // the FIRST INVALID_FORMAT it finds.
+  const fmt = parseFormatFromArgv(argv);
+  if (!fmt.ok) {
+    return { ok: false, kind: "INVALID_FORMAT", rawValue: fmt.rawValue };
+  }
+
+  // Pass 2: multi-entry mutex check on output_format normalization.
+  // Build the unique canonical-value set; if size > 1, conflict.
+  const entries = collectOutputFormatEntries(argv);
+  const canonicals = new Set(entries.map((e) => e.canonical));
+  if (canonicals.size > 1) {
+    // Mutex: render shape per renderAsJson rule (any --format json
+    // / --format=json present in argv → JSON shape).
+    const renderAsJson = entries.some((e) => e.canonical === "json");
+    // Collect the offending entries (those NOT matching the
+    // first canonical) for the diagnostic payload. Use stable
+    // dedup of spellings to keep error scripting predictable.
+    const conflicting = Array.from(new Set(entries.map((e) => e.entry)));
+    return { ok: false, kind: "MUTUALLY_EXCLUSIVE_FLAGS", conflicting, renderAsJson };
+  }
+
+  // Resolve final format: --plain alias maps to text; explicit
+  // --format wins. With no conflict, the single canonical is the
+  // result. If no output_format entry at all, default text.
+  const format: OutputMode = entries.length > 0 ? entries[0]!.canonical : fmt.format;
+  return {
+    ok: true,
+    format,
+    plain: parsePlainFromArgv(argv),
+    quiet: parseQuietFromArgv(argv),
+    verbose: parseVerboseFromArgv(argv),
+    noColor: parseNoColorFromArgv(argv, env),
+  };
+}
+
 export type CrashContext = {
   phase: string | null;
   sub_state: string | null;
@@ -100,9 +251,28 @@ export type CommandContextDeps = {
   loadProjections?: LoadProjectionsFn;
 };
 
+/** Phase 16 SC-5b1 — advisory metadata for state-change + next hint.
+ *  Both fields emit to stderr in BOTH text and JSON mode (pipe-safe
+ *  separation per protocol §10.2), suppressed only by `ctx.quiet`
+ *  (per protocol §10.12). */
+export type SuccessAdvisories = {
+  /** Single state-change line per protocol §10.12 (`<action>: <changed>`
+   *  shape). Newline appended by ctx. */
+  stateChange?: string;
+  /** Next-step hint(s). Each line prefixed with `next: ` and
+   *  newline-terminated. May be a single string or array of strings
+   *  for multi-line hints. */
+  next?: string | string[];
+};
+
 export type CommandContext = {
   readonly argv: readonly string[];
   readonly output: OutputMode;
+  /** Phase 16 SC-5b1 — derived from `parsePresentation`. */
+  readonly plain: boolean;
+  readonly quiet: boolean;
+  readonly verbose: number;
+  readonly noColor: boolean;
   exitCode: number;
   resolveSession: (featureDir: string) => Promise<SessionLoad>;
   resolveProjections: <K extends ProjectionKind>(
@@ -112,8 +282,15 @@ export type CommandContext = {
   /** `textRenderer` is **required** when the command emits text — it's
    *  optional only because JSON mode lazily skips it. In text mode an
    *  omitted renderer throws (codex r208 PATCH 1: no silent JSON
-   *  fallback for migrated commands). */
-  success: (payload: object, textRenderer?: () => string) => void;
+   *  fallback for migrated commands).
+   *
+   *  Phase 16 SC-5b1: `advisories` are OPTIONAL stateChange + next
+   *  emitted to stderr in BOTH modes, suppressed only by `ctx.quiet`. */
+  success: (
+    payload: object,
+    textRenderer?: () => string,
+    advisories?: SuccessAdvisories,
+  ) => void;
   failure: (
     code: string,
     message: string,
@@ -144,14 +321,19 @@ export function createCommandContext(
   argv: readonly string[],
   deps: CommandContextDeps,
 ): CommandContext {
-  // SC-5a: format derivation goes through the shared `parseFormatFromArgv`
-  // helper so the pre-parse guard in cli.tsx main() and CommandContext
-  // never disagree on output mode. On parse failure here we fall back to
-  // "text" silently; main()'s pre-parse guard is the canonical rejector
-  // and is responsible for emitting INVALID_FORMAT + short-circuiting
-  // before this code path runs.
-  const parsed = parseFormatFromArgv(argv);
-  const output: OutputMode = parsed.ok ? parsed.format : "text";
+  // SC-5a/SC-5b1: presentation derivation goes through the shared
+  // `parsePresentation` helper so the pre-parse guard in cli.tsx
+  // main() and CommandContext never disagree on output mode + flags.
+  // On parse failure here we fall back to safe defaults; main()'s
+  // pre-parse guard is the canonical rejector and is responsible for
+  // emitting INVALID_FORMAT / MUTUALLY_EXCLUSIVE_FLAGS +
+  // short-circuiting before this code path runs.
+  const presentation = parsePresentation(argv);
+  const output: OutputMode = presentation.ok ? presentation.format : "text";
+  const plain: boolean = presentation.ok ? presentation.plain : false;
+  const quiet: boolean = presentation.ok ? presentation.quiet : false;
+  const verbose: number = presentation.ok ? presentation.verbose : 0;
+  const noColor: boolean = presentation.ok ? presentation.noColor : false;
   let exitCode = 0;
 
   // Caches: separate per resolution method per codex r206 PATCH D. Same
@@ -167,6 +349,10 @@ export function createCommandContext(
   const ctx: CommandContext = {
     argv,
     output,
+    plain,
+    quiet,
+    verbose,
+    noColor,
     get exitCode() {
       return exitCode;
     },
@@ -208,21 +394,38 @@ export function createCommandContext(
       return p;
     },
 
-    success(payload, textRenderer) {
+    success(payload, textRenderer, advisories) {
+      // Primary stdout (channel A): mode-dependent.
       if (output === "json") {
         deps.writeStdout(JSON.stringify(payload) + "\n");
-        return;
+      } else {
+        if (!textRenderer) {
+          // Codex r208 PATCH 1: no silent JSON fallback in text mode.
+          // A migration that omits the renderer would silently change
+          // the line-oriented text contract. Fail fast so the bug
+          // surfaces in tests instead of in production.
+          throw new Error(
+            "ctx.success: text renderer required in text mode (a migrated command must always pass a text renderer; JSON mode skips it lazily)",
+          );
+        }
+        deps.writeStdout(textRenderer());
       }
-      if (!textRenderer) {
-        // Codex r208 PATCH 1: no silent JSON fallback in text mode. A
-        // future migration that omits the renderer would silently change
-        // the line-oriented text contract. Fail fast so the bug surfaces
-        // in tests instead of in production.
-        throw new Error(
-          "ctx.success: text renderer required in text mode (a migrated command must always pass a text renderer; JSON mode skips it lazily)",
-        );
+      // Advisory stderr (channels B + C): mode-independent. Both text
+      // and JSON modes emit advisories to stderr — pipe-safe per
+      // protocol §10.2. Suppressed by --quiet per protocol §10.12.
+      // SC-5b1 only `loaf start` passes advisories; SC-5b2 migrates
+      // the remaining 40 sites.
+      if (!quiet && advisories) {
+        if (advisories.stateChange) {
+          deps.writeStderr(advisories.stateChange + "\n");
+        }
+        if (advisories.next !== undefined) {
+          const lines = Array.isArray(advisories.next) ? advisories.next : [advisories.next];
+          for (const line of lines) {
+            deps.writeStderr(`next: ${line}\n`);
+          }
+        }
       }
-      deps.writeStdout(textRenderer());
     },
 
     failure(code, message, detail) {

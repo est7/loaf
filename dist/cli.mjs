@@ -155,6 +155,101 @@ function parseFormatFromArgv(argv) {
 		format: "text"
 	};
 }
+/** Returns true if `--plain` flag appears in argv. */
+function parsePlainFromArgv(argv) {
+	return argv.includes("--plain");
+}
+/** Returns true if `--quiet` OR `-q` flag appears in argv. */
+function parseQuietFromArgv(argv) {
+	return argv.includes("--quiet") || argv.includes("-q");
+}
+/** Returns cumulative verbose count: `-v` = 1, `-vv` = 2,
+*  `--verbose` = 1, and multiple occurrences sum. E.g.
+*  `-v --verbose` = 2, `-vv --verbose` = 3. Per protocol §10.7 +
+*  codex r254 OQ3 verdict. */
+function parseVerboseFromArgv(argv) {
+	let count = 0;
+	for (const arg of argv) {
+		if (arg === "--verbose") {
+			count += 1;
+			continue;
+		}
+		if (/^-v+$/.test(arg)) count += arg.length - 1;
+	}
+	return count;
+}
+/** Returns true if any of these is true:
+*  - `--no-color` in argv
+*  - `env.NO_COLOR` non-empty
+*  - `env.LOAF_NO_COLOR` non-empty
+*  - `env.TERM === "dumb"`
+*  Per protocol §10.2 (`docs/protocol.md:1512-1513`). */
+function parseNoColorFromArgv(argv, env = process.env) {
+	if (argv.includes("--no-color")) return true;
+	if (env.NO_COLOR && env.NO_COLOR.length > 0) return true;
+	if (env.LOAF_NO_COLOR && env.LOAF_NO_COLOR.length > 0) return true;
+	if (env.TERM === "dumb") return true;
+	return false;
+}
+/** Internal: collect every (entry, canonicalValue) pair from argv
+*  using the FLAG_EXCLUSIONS.output_format normalization. Used to
+*  detect non-equivalent multi-flag conflicts. */
+function collectOutputFormatEntries(argv) {
+	const out = [];
+	for (let i = 0; i < argv.length; i++) {
+		const arg = argv[i];
+		if (arg === "--plain") {
+			out.push({
+				entry: "--plain",
+				canonical: "text"
+			});
+			continue;
+		}
+		if (arg === "--format") {
+			const v = argv[i + 1];
+			if (v && !v.startsWith("--") && FORMAT_MODES.includes(v)) out.push({
+				entry: `--format ${v}`,
+				canonical: v
+			});
+			continue;
+		}
+		if (arg.startsWith("--format=")) {
+			const v = arg.slice(9);
+			if (FORMAT_MODES.includes(v)) out.push({
+				entry: arg,
+				canonical: v
+			});
+			continue;
+		}
+	}
+	return out;
+}
+function parsePresentation(argv, env = process.env) {
+	const fmt = parseFormatFromArgv(argv);
+	if (!fmt.ok) return {
+		ok: false,
+		kind: "INVALID_FORMAT",
+		rawValue: fmt.rawValue
+	};
+	const entries = collectOutputFormatEntries(argv);
+	if (new Set(entries.map((e) => e.canonical)).size > 1) {
+		const renderAsJson = entries.some((e) => e.canonical === "json");
+		return {
+			ok: false,
+			kind: "MUTUALLY_EXCLUSIVE_FLAGS",
+			conflicting: Array.from(new Set(entries.map((e) => e.entry))),
+			renderAsJson
+		};
+	}
+	return {
+		ok: true,
+		format: entries.length > 0 ? entries[0].canonical : fmt.format,
+		plain: parsePlainFromArgv(argv),
+		quiet: parseQuietFromArgv(argv),
+		verbose: parseVerboseFromArgv(argv),
+		noColor: parseNoColorFromArgv(argv, env)
+	};
+}
 /** Pre-resolve `--feature <NAME>` from argv. Best-effort; null on miss.
 *  Lifted here (was duplicated in src/core/crash-log.ts) so ctx and
 *  crash-log can agree on what "feature" means for a given invocation. */
@@ -172,8 +267,12 @@ function phaseOf(subState) {
 	return i < 0 ? null : subState.slice(0, i);
 }
 function createCommandContext(argv, deps) {
-	const parsed = parseFormatFromArgv(argv);
-	const output = parsed.ok ? parsed.format : "text";
+	const presentation = parsePresentation(argv);
+	const output = presentation.ok ? presentation.format : "text";
+	const plain = presentation.ok ? presentation.plain : false;
+	const quiet = presentation.ok ? presentation.quiet : false;
+	const verbose = presentation.ok ? presentation.verbose : 0;
+	const noColor = presentation.ok ? presentation.noColor : false;
 	let exitCode = 0;
 	const sessionCache = /* @__PURE__ */ new Map();
 	const projectionCache = /* @__PURE__ */ new Map();
@@ -181,6 +280,10 @@ function createCommandContext(argv, deps) {
 	return {
 		argv,
 		output,
+		plain,
+		quiet,
+		verbose,
+		noColor,
 		get exitCode() {
 			return exitCode;
 		},
@@ -211,13 +314,19 @@ function createCommandContext(argv, deps) {
 			projectionCache.set(key, p);
 			return p;
 		},
-		success(payload, textRenderer) {
-			if (output === "json") {
-				deps.writeStdout(JSON.stringify(payload) + "\n");
-				return;
+		success(payload, textRenderer, advisories) {
+			if (output === "json") deps.writeStdout(JSON.stringify(payload) + "\n");
+			else {
+				if (!textRenderer) throw new Error("ctx.success: text renderer required in text mode (a migrated command must always pass a text renderer; JSON mode skips it lazily)");
+				deps.writeStdout(textRenderer());
 			}
-			if (!textRenderer) throw new Error("ctx.success: text renderer required in text mode (a migrated command must always pass a text renderer; JSON mode skips it lazily)");
-			deps.writeStdout(textRenderer());
+			if (!quiet && advisories) {
+				if (advisories.stateChange) deps.writeStderr(advisories.stateChange + "\n");
+				if (advisories.next !== void 0) {
+					const lines = Array.isArray(advisories.next) ? advisories.next : [advisories.next];
+					for (const line of lines) deps.writeStderr(`next: ${line}\n`);
+				}
+			}
 		},
 		failure(code, message, detail) {
 			if (output === "json") {
@@ -5870,16 +5979,27 @@ function installSigintHandler(deps) {
 }
 async function main(argv = process.argv, deps = {}) {
 	if (!argv.some((a) => a === "--help" || a === "-h" || a === "--version" || a === "-V")) {
-		const formatParse = parseFormatFromArgv(argv);
-		if (!formatParse.ok) {
-			process.stderr.write(`error: INVALID_FORMAT — invalid --format value '${formatParse.rawValue}'; allowed: ${FORMAT_MODES_HUMAN}\n`);
+		const presentation = parsePresentation(argv);
+		if (!presentation.ok) {
+			if (presentation.kind === "INVALID_FORMAT") process.stderr.write(`error: INVALID_FORMAT — invalid --format value '${presentation.rawValue}'; allowed: ${FORMAT_MODES_HUMAN}\n`);
+			else {
+				const { conflicting, renderAsJson } = presentation;
+				const message = `mutually exclusive flags in the same invocation: ${conflicting.join(", ")}`;
+				if (renderAsJson) process.stderr.write(JSON.stringify({
+					ok: false,
+					code: "MUTUALLY_EXCLUSIVE_FLAGS",
+					message,
+					detail: { conflicting }
+				}) + "\n");
+				else process.stderr.write(`error: MUTUALLY_EXCLUSIVE_FLAGS — ${message}\n`);
+			}
 			return 2;
 		}
 	}
 	const readStdin = deps.readStdin ?? defaultReadStdin;
 	const isStdinTty = deps.isStdinTty ?? defaultIsStdinTty;
 	const program = new Command();
-	program.name("loaf").description("Spec-driven development protocol CLI").version(version).option("--format <fmt>", `Output format: ${FORMAT_MODES_HUMAN} (default: text)`).addHelpText("after", helpFooter()).showHelpAfterError().exitOverride();
+	program.name("loaf").description("Spec-driven development protocol CLI").version(version).option("--format <fmt>", `Output format: ${FORMAT_MODES_HUMAN} (default: text)`).option("--plain", "Alias for --format text (mechanism live; presentation migration in SC-5b2)").option("--no-color", "Disable color where implemented (reserved; no color output in v0.1)").option("-q, --quiet", "Suppress advisory stderr where implemented (SC-5b1: loaf start only)").option("-v, --verbose", "Increase advisory detail where implemented (reserved until SC-5b2)", (_value, prior) => (prior ?? 0) + 1, 0).addHelpText("after", helpFooter()).showHelpAfterError().exitOverride();
 	const actor = `cli:loaf@${process.env["USER"] ?? "unknown"}`;
 	const ctx = createCommandContext(argv, {
 		writeStdout: (s) => process.stdout.write(s),
@@ -5963,7 +6083,10 @@ async function main(argv = process.argv, deps = {}) {
 			feature_dir: featureDir,
 			sub_state: result.snapshot.state?.sub_state
 		};
-		process.stdout.write(useJson ? JSON.stringify(out) + "\n" : `started ${feature} (${opts.ceremony}) — session ${sessionId}\n`);
+		ctx.success(out, () => `${sessionId}\n`, {
+			stateChange: `start: '${feature}' created → TRIAGE.score`,
+			next: "loaf advance"
+		});
 	});
 	program.command("advance <to>").description("Advance the session cursor (emits event:phase_advanced)").requiredOption("--feature <name>", "Feature whose session to advance").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (to, opts) => {
 		const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);

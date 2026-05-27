@@ -22,7 +22,7 @@ import packageJson from "../package.json" with { type: "json" };
 import { UNEXPECTED_ERROR, writeCrashLog } from "./core/crash-log.js";
 import {
   createCommandContext,
-  parseFormatFromArgv,
+  parsePresentation,
   FORMAT_MODES_HUMAN,
 } from "./cli/command-context.js";
 import { buildReportUrl } from "./cli/url-prefill.js";
@@ -151,33 +151,55 @@ export async function main(
   argv: string[] = process.argv,
   deps: MainDeps = {},
 ): Promise<number> {
-  // Phase 16 SC-5a — pre-parse `--format` guard.
+  // Phase 16 SC-5a/SC-5b1 — pre-parse presentation guard.
   //
   // Runs BEFORE Commander setup, BEFORE actor/env init, BEFORE
   // `program.parseAsync(argv)`. On invalid `--format <value>` or
-  // `--format=<value>`, emits text-mode INVALID_FORMAT to stderr and
-  // returns exit 2 — no Commander parse, no action, no deps invocation.
+  // a multi-flag mutex (e.g. `--plain --format=json`), emits a typed
+  // diagnostic to stderr and returns exit 2 — no Commander parse,
+  // no action, no deps invocation.
+  //
+  // Precedence: INVALID_FORMAT > MUTUALLY_EXCLUSIVE_FLAGS (no canonical
+  // conflict computable from an invalid value).
+  //
+  // Mutex render shape: JSON body iff any valid `--format json` /
+  // `--format=json` appears in argv (renderAsJson). Otherwise text.
   //
   // Bypass on `--help` / `-h` / `--version` / `-V` so e.g.
   // `loaf --help --format yaml` still prints help (Commander owns
   // help/version output).
   //
-  // Tests: tests/cli/format-flag.test.ts RED #4/#10/#11/#16/#17.
+  // Tests: tests/cli/format-flag.test.ts + tests/cli/presentation-flags.test.ts.
   const wantsHelpOrVersion = argv.some(
     (a) => a === "--help" || a === "-h" || a === "--version" || a === "-V",
   );
   if (!wantsHelpOrVersion) {
-    const formatParse = parseFormatFromArgv(argv);
-    if (!formatParse.ok) {
-      // Text-mode emit only: no output mode established yet, so we
-      // honor the protocol's "stdout = artifact, stderr = diagnostic"
-      // contract and write a single-line text error. JSON consumers
-      // who passed `--format=yaml` typo'd — they get a clear text
-      // diagnostic with the same fields the typed catalog provides.
-      process.stderr.write(
-        `error: INVALID_FORMAT — invalid --format value '${formatParse.rawValue}'; ` +
-          `allowed: ${FORMAT_MODES_HUMAN}\n`,
-      );
+    const presentation = parsePresentation(argv);
+    if (!presentation.ok) {
+      if (presentation.kind === "INVALID_FORMAT") {
+        // Text-mode emit only: no output mode established yet.
+        process.stderr.write(
+          `error: INVALID_FORMAT — invalid --format value '${presentation.rawValue}'; ` +
+            `allowed: ${FORMAT_MODES_HUMAN}\n`,
+        );
+      } else {
+        // MUTUALLY_EXCLUSIVE_FLAGS. renderAsJson honors protocol §10.7
+        // scripting promise: any --format=json present → JSON body.
+        const { conflicting, renderAsJson } = presentation;
+        const message = `mutually exclusive flags in the same invocation: ${conflicting.join(", ")}`;
+        if (renderAsJson) {
+          process.stderr.write(
+            JSON.stringify({
+              ok: false,
+              code: "MUTUALLY_EXCLUSIVE_FLAGS",
+              message,
+              detail: { conflicting },
+            }) + "\n",
+          );
+        } else {
+          process.stderr.write(`error: MUTUALLY_EXCLUSIVE_FLAGS — ${message}\n`);
+        }
+      }
       return 2;
     }
   }
@@ -193,6 +215,28 @@ export async function main(
     .option(
       "--format <fmt>",
       `Output format: ${FORMAT_MODES_HUMAN} (default: text)`,
+    )
+    // SC-5b1 presentation flags. Registered globally so they parse on
+    // any subcommand; only `loaf start` honors the new semantics in
+    // SC-5b1 (pilot). SC-5b2 closes the 40-site migration and removes
+    // the pilot caveats.
+    .option(
+      "--plain",
+      "Alias for --format text (mechanism live; presentation migration in SC-5b2)",
+    )
+    .option(
+      "--no-color",
+      "Disable color where implemented (reserved; no color output in v0.1)",
+    )
+    .option(
+      "-q, --quiet",
+      "Suppress advisory stderr where implemented (SC-5b1: loaf start only)",
+    )
+    .option(
+      "-v, --verbose",
+      "Increase advisory detail where implemented (reserved until SC-5b2)",
+      (_value: string, prior: number | undefined): number => (prior ?? 0) + 1,
+      0,
     )
     .addHelpText("after", helpFooter())
     .showHelpAfterError()
@@ -330,7 +374,19 @@ export async function main(
         feature_dir: featureDir,
         sub_state: result.snapshot.state?.sub_state,
       };
-      process.stdout.write(useJson ? JSON.stringify(out) + "\n" : `started ${feature} (${opts.ceremony}) — session ${sessionId}\n`);
+      // Phase 16 SC-5b1 pilot — `loaf start` is the first command
+      // migrated to ctx.success(payload, textRenderer, advisories).
+      // Text mode stdout = bare session_id (UUID) for pipeable use;
+      // stderr stateChange + next advisory per protocol §10.12
+      // (`docs/protocol.md:2014` — aligned to runtime data, no F-NNN).
+      ctx.success(
+        out,
+        () => `${sessionId}\n`,
+        {
+          stateChange: `start: '${feature}' created → TRIAGE.score`,
+          next: "loaf advance",
+        },
+      );
     });
 
   // ── loaf advance <to> ───────────────────────────────────────────────

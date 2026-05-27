@@ -185,7 +185,14 @@ describe("help-collector: snapshots current cli.tsx surface", () => {
     const names = inventory.globalFlags.map((f) => f.name);
     // Phase 16 SC-5a: --json removed under A1-honestly; --format is the
     // sole current-contract format flag.
+    // Phase 16 SC-5b1: 4 presentation flags registered globally (pilot;
+    // `loaf start` is the only command honoring them in full per
+    // protocol §10.12 until SC-5b2 closes the 40-site migration).
     expect(names).toContain("--format");
+    expect(names).toContain("--plain");
+    expect(names).toContain("--no-color");
+    expect(names).toContain("--quiet");
+    expect(names).toContain("--verbose");
     expect(names).not.toContain("--json");
     expect(names).toContain("--help");
     expect(names).toContain("--version");
