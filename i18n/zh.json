@@ -190,7 +190,12 @@
     "REDUCER_ERROR":              "reducer 内部不变量失败",
     "INVALID_FORMAT":             "无效的 --format 值 '{value}';合法值:{allowed_values_human}",
     "MUTUALLY_EXCLUSIVE_FLAGS":   "同一次调用使用了互斥的 flags:{flags}",
-    "DRY_RUN_NOT_APPLICABLE":     "--dry-run 不适用于{command_type}命令 `{command}`"
+    "DRY_RUN_NOT_APPLICABLE":     "--dry-run 不适用于{command_type}命令 `{command}`",
+    "FEATURE_NOT_FOUND":          "当前 cwd 找不到 feature(.loaf/ 为空或缺失,或所有 projection 已 DONE)",
+    "FEATURE_AMBIGUOUS":          "当前 cwd 有 {count} 个 active feature 但无 dispatch 上下文:{feature_list}",
+    "SESSION_CWD_MISMATCH":       "--session {uuid} 注册的 cwd={registered_cwd},当前 cwd 是 {current_cwd}",
+    "SESSION_SHORT_AMBIGUOUS":    "--session {prefix} 在 registry 匹配 {match_count} 个 session:{candidate_list}",
+    "SESSION_NOT_FOUND":          "--session {uuid_or_prefix} 在 registry 找不到任何匹配"
   },
 
   "help": {

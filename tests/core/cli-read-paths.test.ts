@@ -165,7 +165,9 @@ describe("SC3 NO_SESSION — fresh dir for all 4 commands", () => {
     expect(r.exit).toBe(2);
     expect(r.stderr).toBeTruthy();
     const err = JSON.parse(r.stderr);
-    expect(err).toMatchObject({ ok: false, code: "NO_SESSION" });
+    // SC-8: dispatch resolver maps NoSessionError → FEATURE_NOT_FOUND
+    // (the dispatch-layer code for "no session in this feature dir").
+    expect(err).toMatchObject({ ok: false, code: "FEATURE_NOT_FOUND" });
   });
 
   test("tasks list on empty dir → exit 2 NO_SESSION", async () => {
@@ -175,7 +177,9 @@ describe("SC3 NO_SESSION — fresh dir for all 4 commands", () => {
     ]);
     expect(r.exit).toBe(2);
     const err = JSON.parse(r.stderr);
-    expect(err).toMatchObject({ ok: false, code: "NO_SESSION" });
+    // SC-8: dispatch resolver maps NoSessionError → FEATURE_NOT_FOUND
+    // (the dispatch-layer code for "no session in this feature dir").
+    expect(err).toMatchObject({ ok: false, code: "FEATURE_NOT_FOUND" });
   });
 
   test("pending list on empty dir → exit 2 NO_SESSION", async () => {
@@ -185,7 +189,9 @@ describe("SC3 NO_SESSION — fresh dir for all 4 commands", () => {
     ]);
     expect(r.exit).toBe(2);
     const err = JSON.parse(r.stderr);
-    expect(err).toMatchObject({ ok: false, code: "NO_SESSION" });
+    // SC-8: dispatch resolver maps NoSessionError → FEATURE_NOT_FOUND
+    // (the dispatch-layer code for "no session in this feature dir").
+    expect(err).toMatchObject({ ok: false, code: "FEATURE_NOT_FOUND" });
   });
 
   test("finding list on empty dir → exit 2 NO_SESSION", async () => {
@@ -195,7 +201,9 @@ describe("SC3 NO_SESSION — fresh dir for all 4 commands", () => {
     ]);
     expect(r.exit).toBe(2);
     const err = JSON.parse(r.stderr);
-    expect(err).toMatchObject({ ok: false, code: "NO_SESSION" });
+    // SC-8: dispatch resolver maps NoSessionError → FEATURE_NOT_FOUND
+    // (the dispatch-layer code for "no session in this feature dir").
+    expect(err).toMatchObject({ ok: false, code: "FEATURE_NOT_FOUND" });
   });
 });
 

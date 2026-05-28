@@ -25,6 +25,10 @@
 
 import type { ProjectionKind, LoadResult } from "../core/projection-loader.js";
 import type { SessionLoad } from "../core/cli-runtime.js";
+import {
+  resolveDispatch as realResolveDispatch,
+  type DispatchResult,
+} from "../core/session-dispatch.js";
 
 export type OutputMode = "json" | "text";
 
@@ -345,6 +349,10 @@ export type CommandContextDeps = {
     opts?: { ensureDir?: boolean },
   ) => Promise<SessionLoad>;
   loadProjections?: LoadProjectionsFn;
+  /** Phase 16 SC-8: per-call registry dir override. Production omits
+   *  (registry-writer's defaultRegistryDir() honors LOAF_REGISTRY_DIR
+   *  env). Tests inject a tmp dir for isolation. */
+  registryDir?: string;
 };
 
 /** Phase 16 SC-5b1 — advisory metadata for state-change + next hint.
@@ -396,6 +404,16 @@ export type CommandContext = {
    *  fired (e.g. `loaf --version`, `loaf --help`, bare `loaf doctor`)
    *  or before the action body's top line ran. */
   readonly traceTarget: { feature: string; featureDir: string } | null;
+  /** Phase 16 SC-8 — cached dispatch resolution. Called by feature-
+   *  addressed action handlers at body top. Per-invocation cache;
+   *  resolves the 5-level §10.3 precedence once + reuses on
+   *  subsequent calls. */
+  resolveDispatch: () => Promise<DispatchResult>;
+  /** Phase 16 SC-8 — auto-pick advisory line writer (e.g.
+   *  "auto-picked 'auth-refresh'"). Suppressed by `quiet`. Single
+   *  source of truth for stderr advisory routing per codex r285
+   *  P-impl-1. */
+  advisory: (line: string) => void;
   /** Phase 16 SC-6b — called as the first line of each feature-
    *  addressed action body, BEFORE any action-internal validation.
    *  Idempotent; last call wins. Commander-level USAGE failures
@@ -480,6 +498,9 @@ export function createCommandContext(
   // SC-6b: also captures `session_id` for the trace.jsonl row.
   let lastResolvedSubState: string | null = null;
   let lastResolvedSessionId: string | null = null;
+  // SC-8: per-invocation dispatch cache. Resolved once on first call;
+  // reused on subsequent ctx.resolveDispatch() calls.
+  let cachedDispatch: Promise<DispatchResult> | null = null;
 
   const ctx: CommandContext = {
     argv,
@@ -611,6 +632,22 @@ export function createCommandContext(
         session_id: lastResolvedSessionId,
         last_command: [...argv].join(" "),
       };
+    },
+
+    async resolveDispatch() {
+      if (cachedDispatch) return cachedDispatch;
+      cachedDispatch = realResolveDispatch({
+        argv,
+        env: process.env,
+        cwd: process.cwd(),
+        ...(deps.registryDir !== undefined && { registryDir: deps.registryDir }),
+      });
+      return cachedDispatch;
+    },
+
+    advisory(line: string): void {
+      if (quiet) return;
+      deps.writeStderr(`loaf: ${line}\n`);
     },
   };
   return ctx;

@@ -190,7 +190,12 @@
     "REDUCER_ERROR":              "internal reducer invariant failed",
     "INVALID_FORMAT":             "invalid --format value '{value}'; allowed: {allowed_values_human}",
     "MUTUALLY_EXCLUSIVE_FLAGS":   "mutually exclusive flags in the same invocation: {flags}",
-    "DRY_RUN_NOT_APPLICABLE":     "--dry-run not applicable to {command_type} command `{command}`"
+    "DRY_RUN_NOT_APPLICABLE":     "--dry-run not applicable to {command_type} command `{command}`",
+    "FEATURE_NOT_FOUND":          "no feature found in cwd (.loaf/ is empty or missing, or no projection has phase != DONE)",
+    "FEATURE_AMBIGUOUS":          "current working directory has {count} active features and no dispatch context: {feature_list}",
+    "SESSION_CWD_MISMATCH":       "--session {uuid} is registered against cwd={registered_cwd}, but the current cwd is {current_cwd}",
+    "SESSION_SHORT_AMBIGUOUS":    "--session {prefix} matches {match_count} sessions in the registry: {candidate_list}",
+    "SESSION_NOT_FOUND":          "--session {uuid_or_prefix} matches no entry in the registry"
   },
 
   "help": {

@@ -267,6 +267,98 @@ export async function main(
     }
   }
 
+  // Phase 16 SC-8 — dispatch USAGE pre-parse.
+  //
+  // Two cases caught BEFORE Commander parses argv:
+  //   (a) `--session + --feature-dir` (and env variants) — mutex
+  //       (session identity comes from registry; manual featureDir
+  //       is contradictory).
+  //   (b) Bare global `--feature-dir` with no feature source. If
+  //       passed at the per-command position Commander accepts it
+  //       and ctx.resolveDispatch catches the conflict at action time;
+  //       at the global position Commander rejects with its own
+  //       "unknown option" error first, so we need the pre-parse
+  //       to catch it with the typed SC-8 USAGE diagnostic instead.
+  //
+  // `loaf start <feature> --feature-dir <path>` is exempt because
+  // start's positional `<feature>` IS the feature source. We detect
+  // this by checking whether argv[2] === "start" (subcommand position).
+  //
+  // Render shape mirrors the presentation guard: JSON envelope when
+  // any `--format json` / `--format=json` appears, else text-mode
+  // `error: USAGE — <message>` (codex r287 P1).
+  if (!wantsHelpOrVersion) {
+    const hasSession = argv.includes("--session") || argv.some((a) => a.startsWith("--session="));
+    const hasFeatureDir = argv.includes("--feature-dir") || argv.some((a) => a.startsWith("--feature-dir="));
+    const hasFeature = argv.includes("--feature") || argv.some((a) => a.startsWith("--feature="));
+    const hasLoafSession = process.env["LOAF_SESSION"] !== undefined && process.env["LOAF_SESSION"].length > 0;
+    const hasLoafFeature = process.env["LOAF_FEATURE"] !== undefined && process.env["LOAF_FEATURE"].length > 0;
+    // Detect the subcommand: walk argv[2:] and pick the first non-flag
+    // (and non-flag-value) token. Global flags like `--dry-run`,
+    // `--debug`, `--no-input`, `--quiet` can appear BEFORE the
+    // subcommand (`loaf --dry-run start auth-refresh`), so we can't
+    // simply use argv[2]. Track flags that take values so we skip
+    // their value too.
+    const FLAGS_WITH_VALUES = new Set([
+      "--format", "--session", "--feature", "--feature-dir",
+      "--ceremony", "--label", "--workspace",
+    ]);
+    let subcommand: string | undefined;
+    for (let i = 2; i < argv.length; i++) {
+      const a = argv[i]!;
+      if (a.startsWith("--")) {
+        const flagName = a.includes("=") ? a.slice(0, a.indexOf("=")) : a;
+        // Skip the value of value-taking flags (when not using = form)
+        if (FLAGS_WITH_VALUES.has(flagName) && !a.includes("=")) i++;
+        continue;
+      }
+      if (a.startsWith("-") && a.length > 1) continue; // short flags like -v / -n
+      subcommand = a;
+      break;
+    }
+    const isStartCommand = subcommand === "start";
+
+    if (hasFeatureDir && !isStartCommand) {
+      const sessionConflict: string[] = [];
+      if (hasSession) sessionConflict.push("--session");
+      if (hasLoafSession) sessionConflict.push("$LOAF_SESSION");
+
+      let usageMessage: string | null = null;
+      let conflictingList: readonly string[] = [];
+
+      if (sessionConflict.length > 0) {
+        usageMessage = `${sessionConflict.join(" + ")} cannot be combined with --feature-dir (session identity comes from registry; manual featureDir is contradictory)`;
+        conflictingList = [...sessionConflict, "--feature-dir"];
+      } else if (!hasFeature && !hasLoafFeature) {
+        usageMessage = "--feature-dir requires --feature <name> or $LOAF_FEATURE to name the feature";
+        conflictingList = ["--feature-dir"];
+      }
+
+      if (usageMessage !== null) {
+        // Render shape per protocol §10.2: text vs JSON based on
+        // --format. Reuse the parsePresentation result that already
+        // resolved the output mode (safe because the presentation
+        // guard above bailed for INVALID_FORMAT etc.).
+        const renderAsJson = argv.some(
+          (a) => a === "--format=json" || (a === "--format" && argv[argv.indexOf(a) + 1] === "json"),
+        );
+        if (renderAsJson) {
+          process.stderr.write(
+            JSON.stringify({
+              ok: false,
+              code: "USAGE",
+              message: usageMessage,
+              detail: { conflicting: conflictingList },
+            }) + "\n",
+          );
+        } else {
+          process.stderr.write(`error: USAGE — ${usageMessage}\n`);
+        }
+        return 2;
+      }
+    }
+  }
+
   const readStdin = deps.readStdin ?? defaultReadStdin;
   const isStdinTty = deps.isStdinTty ?? defaultIsStdinTty;
   // SC-6b — trace-writer DI seams. Production defaults wire the real
@@ -322,6 +414,14 @@ export async function main(
     // read-only commands reject with DRY_RUN_NOT_APPLICABLE. Orthogonal
     // to all other flags. Per §10.7 invariant: dry-run persists NO state.
     .option("-n, --dry-run", "Validate without writing (mutating commands only); read-only commands exit 2")
+    // SC-8 — session dispatch. Resolves a registry-tracked session by
+    // UUID or ≥8-char prefix. Per protocol §10.3, precedence is
+    // --session > --feature > $LOAF_SESSION > $LOAF_FEATURE > auto-pick.
+    // Combined with --feature-dir → USAGE (enforced pre-parse — see
+    // `enforceDispatchUsagePreParse` below). --feature / --feature-dir
+    // stay per-command registrations because making them global
+    // conflicts with the per-command opts during Commander parse.
+    .option("--session <uuid-or-prefix>", "Resolve session by UUID or ≥8-char prefix (registry lookup; see §10.3)")
     .addHelpText("after", helpFooter())
     .showHelpAfterError()
     .exitOverride();
@@ -341,6 +441,11 @@ export async function main(
     writeStderr: (s) => process.stderr.write(s),
     loadSession,
     loadProjections,
+    // Phase 16 SC-8: thread MainDeps.registryDir through to the
+    // CommandContext so ctx.resolveDispatch() uses the tmp dir in
+    // CLI e2e tests. Production omits → defaultRegistryDir() honors
+    // LOAF_REGISTRY_DIR env (set by vitest setup file).
+    ...(deps.registryDir !== undefined && { registryDir: deps.registryDir }),
   });
   // SC-5b2 closed the legacy presentation shim — all sites now route
   // through ctx.success / ctx.failure. Single source of truth =
@@ -365,6 +470,29 @@ export async function main(
   const isInteractiveHumanForActor = (): boolean =>
     (deps.isInteractiveHuman?.() ?? process.stdin.isTTY === true) && !ctx.noInput;
   const readGitConfigForActor: () => string | null = deps.readGitConfig ?? getGitEmail;
+
+  // Phase 16 SC-8 — dispatch resolution wrapper. Each feature-addressed
+  // action handler calls this at the top instead of the SC-6b
+  // `featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature)` +
+  // `ctx.recordTraceTarget(...)` pattern. Resolves protocol §10.3
+  // 5-level precedence; on failure emits the dispatch diagnostic and
+  // returns null (caller early-returns). On success mutates `opts` so
+  // downstream `opts.feature` / `opts.featureDir` references resolve to
+  // the dispatched values (existing code path stays valid).
+  const dispatchOrFail = async (
+    opts: { feature?: string; featureDir?: string },
+  ): Promise<string | null> => {
+    const dispatch = await ctx.resolveDispatch();
+    if (!dispatch.ok) {
+      emitFailure(dispatch.code, dispatch.message, dispatch.detail);
+      return null;
+    }
+    if (dispatch.autoPickAdvisory) ctx.advisory(dispatch.autoPickAdvisory);
+    opts.feature = dispatch.feature;
+    opts.featureDir = dispatch.featureDir;
+    ctx.recordTraceTarget(dispatch.feature, dispatch.featureDir);
+    return dispatch.featureDir;
+  };
 
   // Phase 16 SC-7 — registry-writer DI bundle for MutateContext literals.
   // Built once at main() entry; threaded into every mutate ctx so the
@@ -541,11 +669,11 @@ export async function main(
   program
     .command("advance <to>")
     .description("Advance the session cursor (emits event:phase_advanced)")
-    .requiredOption("--feature <name>", "Feature whose session to advance")
+    .option("--feature <name>", "Feature whose session to advance")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (to: string, opts: { feature: string; featureDir?: string }) => {
-      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-      ctx.recordTraceTarget(opts.feature, featureDir);
+      const featureDir = await dispatchOrFail(opts);
+      if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       const from = session.snapshot.state?.sub_state;
       if (!from) {
@@ -582,12 +710,12 @@ export async function main(
   program
     .command("status")
     .description("Show the current session snapshot (read-only)")
-    .requiredOption("--feature <name>", "Feature whose status to show")
+    .option("--feature <name>", "Feature whose status to show")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { feature: string; featureDir?: string }) => {
       if (rejectIfDryRun("status")) return;
-      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-      ctx.recordTraceTarget(opts.feature, featureDir);
+      const featureDir = await dispatchOrFail(opts);
+      if (featureDir === null) return;
       const loaded = await loadProjectionsOrFail(
         featureDir,
         ["state", "tasks", "evidence", "findings", "pending"] as const,
@@ -663,7 +791,7 @@ export async function main(
     .option("--approve", "Approve the gate")
     .option("--reject", "Reject the gate")
     .requiredOption("--reason <text>", "Decision rationale (passed through to GateDecidedPayload)")
-    .requiredOption("--feature <name>", "Feature whose session to gate")
+    .option("--feature <name>", "Feature whose session to gate")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (
       gateName: string,
@@ -706,8 +834,8 @@ export async function main(
       }
       const humanActor = resolution.actor;
       // (4) load session
-      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-      ctx.recordTraceTarget(opts.feature, featureDir);
+      const featureDir = await dispatchOrFail(opts);
+      if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       const from = session.snapshot.state?.sub_state;
       if (!from) {
@@ -919,7 +1047,7 @@ export async function main(
   program
     .command("deliver")
     .description("Deliver the feature session (emits session:delivered → DONE.delivered)")
-    .requiredOption("--feature <name>", "Feature whose session to deliver")
+    .option("--feature <name>", "Feature whose session to deliver")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .option("--reason <text>", "Optional rationale to record on the session:delivered entry")
     .action(async (opts: { feature: string; featureDir?: string; reason?: string }) => {
@@ -943,8 +1071,8 @@ export async function main(
 
       // (2) Load session via ctx (caches per featureDir; ctx also captures
       //     the resolved sub_state for snapshotCrashContext enrichment).
-      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-      ctx.recordTraceTarget(opts.feature, featureDir);
+      const featureDir = await dispatchOrFail(opts);
+      if (featureDir === null) return;
       const session = await ctx.resolveSession(featureDir);
       const from = session.snapshot.state?.sub_state;
       if (!from) {
@@ -1016,7 +1144,7 @@ export async function main(
   program
     .command("archive")
     .description("Close the feature session without delivering (emits session:archived → DONE.archived)")
-    .requiredOption("--feature <name>", "Feature whose session to archive")
+    .option("--feature <name>", "Feature whose session to archive")
     .requiredOption("--reason <text>", "Rationale recorded on the session:archived entry")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { feature: string; reason: string; featureDir?: string }) => {
@@ -1033,8 +1161,8 @@ export async function main(
       const humanActor = resolution.actor;
 
       // (2) Load session.
-      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-      ctx.recordTraceTarget(opts.feature, featureDir);
+      const featureDir = await dispatchOrFail(opts);
+      if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       const from = session.snapshot.state?.sub_state;
       if (!from) {
@@ -1084,7 +1212,7 @@ export async function main(
   program
     .command("abandon")
     .description("Abandon the feature session (emits session:abandoned → DONE.abandoned)")
-    .requiredOption("--feature <name>", "Feature whose session to abandon")
+    .option("--feature <name>", "Feature whose session to abandon")
     .requiredOption("--reason <text>", "Rationale recorded on the session:abandoned entry")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { feature: string; reason: string; featureDir?: string }) => {
@@ -1101,8 +1229,8 @@ export async function main(
       const humanActor = resolution.actor;
 
       // (2) Load session.
-      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-      ctx.recordTraceTarget(opts.feature, featureDir);
+      const featureDir = await dispatchOrFail(opts);
+      if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       const from = session.snapshot.state?.sub_state;
       if (!from) {
@@ -1167,7 +1295,7 @@ export async function main(
     .description(
       "Convert a spike session — emits spike:converted then archives to DONE.archived",
     )
-    .requiredOption("--feature <name>", "Feature whose spike session to convert")
+    .option("--feature <name>", "Feature whose spike session to convert")
     .requiredOption(
       "--to-feature <id>",
       "Target feature id (F-NNN) the spike learnings carry into",
@@ -1194,8 +1322,8 @@ export async function main(
         const humanActor = resolution.actor;
 
         // (2) Load session.
-        const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-        ctx.recordTraceTarget(opts.feature, featureDir);
+        const featureDir = await dispatchOrFail(opts);
+        if (featureDir === null) return;
         const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
         const from = session.snapshot.state?.sub_state;
         if (!from) {
@@ -1276,7 +1404,7 @@ export async function main(
     )
     .requiredOption("--confirm", "Human acceptance of the escalation (required)")
     .requiredOption("--input <path>", "JSON file with the escalated 6-flag Ceremony object")
-    .requiredOption("--feature <name>", "Feature whose session to escalate")
+    .option("--feature <name>", "Feature whose session to escalate")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(
       async (opts: {
@@ -1286,8 +1414,11 @@ export async function main(
         featureDir?: string;
       }) => {
         // SC-6b — record trace target at action entry so input-read /
-        // schema-parse failures still trace.
-        ctx.recordTraceTarget(opts.feature, opts.featureDir ?? defaultFeatureDir(opts.feature));
+        // schema-parse failures still trace. SC-8: dispatchOrFail
+        // resolves §10.3 precedence + mutates opts.feature/featureDir
+        // + records traceTarget (replaces the SC-6b raw recordTraceTarget).
+        const earlyFeatureDir = await dispatchOrFail(opts);
+        if (earlyFeatureDir === null) return;
         // (1) Human-only acceptance — escalation is a human decision.
         const resolution = resolveHumanActor({
           env: process.env,
@@ -1331,8 +1462,8 @@ export async function main(
         }
 
         // (3) Load session.
-        const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-        ctx.recordTraceTarget(opts.feature, featureDir);
+        const featureDir = await dispatchOrFail(opts);
+        if (featureDir === null) return;
         const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
         const from = session.snapshot.state?.sub_state;
         if (!from) {
@@ -1457,6 +1588,13 @@ export async function main(
         return;
       }
 
+      // SC-8: doctor --rebuild bypasses ctx.resolveDispatch because the
+      // whole point of `doctor --rebuild` is to recover from corrupt
+      // state projections. Going through dispatch would prematurely
+      // surface NoSession/SnapshotStale before the rebuild logic gets
+      // a chance to read the raw journal and re-derive projections.
+      // Compute featureDir directly + record trace target manually.
+      // no-dispatch (sc8-dispatch-gate exception marker)
       const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
       ctx.recordTraceTarget(opts.feature, featureDir);
       const journalPath = path.join(featureDir, "journal.jsonl");
@@ -1566,7 +1704,7 @@ export async function main(
       "--input <src>",
       "JSON source: `-` (stdin), inline JSON literal, or file path (protocol §10.7). Whole-graph single object only.",
     )
-    .requiredOption("--feature <name>", "Feature whose task graph to submit")
+    .option("--feature <name>", "Feature whose task graph to submit")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { input: string; feature: string; featureDir?: string }) => {
       // Phase 16 SC-4b — unified --input modality (protocol §10.7).
@@ -1587,8 +1725,8 @@ export async function main(
       }
       const payload = read.value;
 
-      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-      ctx.recordTraceTarget(opts.feature, featureDir);
+      const featureDir = await dispatchOrFail(opts);
+      if (featureDir === null) return;
       const session = await ctx.resolveSession(featureDir);
       if (!session.snapshot.state) {
         ctx.failure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
@@ -1675,7 +1813,7 @@ export async function main(
       "--input <src>",
       "JSON source for TaskInput (single object or array): `-` (stdin), inline JSON, or file path (protocol §10.7)",
     )
-    .requiredOption("--feature <name>", "Feature whose task graph to extend")
+    .option("--feature <name>", "Feature whose task graph to extend")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .option("--finding <FND-N>", "Sponsoring amend-tasks finding (sponsored add at EXECUTE.work)")
     .action(async (opts: { input: string; feature: string; featureDir?: string; finding?: string }) => {
@@ -1721,8 +1859,8 @@ export async function main(
       }
 
       // Load session; resolve the surface (unsponsored vs sponsored).
-      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-      ctx.recordTraceTarget(opts.feature, featureDir);
+      const featureDir = await dispatchOrFail(opts);
+      if (featureDir === null) return;
       const session = await ctx.resolveSession(featureDir);
       if (!session.snapshot.state) {
         ctx.failure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
@@ -1899,11 +2037,11 @@ export async function main(
   tasksCmd
     .command("claim <task-id>")
     .description("Claim a ready task (pending → in_progress) at EXECUTE.work")
-    .requiredOption("--feature <name>", "Feature whose task to claim")
+    .option("--feature <name>", "Feature whose task to claim")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (taskId: string, opts: { feature: string; featureDir?: string }) => {
-      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-      ctx.recordTraceTarget(opts.feature, featureDir);
+      const featureDir = await dispatchOrFail(opts);
+      if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       if (!session.snapshot.state) {
         emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
@@ -1968,15 +2106,15 @@ export async function main(
     .command("abandon <task-id>")
     .description("Abandon a non-terminal task (→ abandoned) at EXECUTE.work")
     .requiredOption("--reason <text>", "Why the task is being abandoned (required)")
-    .requiredOption("--feature <name>", "Feature whose task to abandon")
+    .option("--feature <name>", "Feature whose task to abandon")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(
       async (
         taskId: string,
         opts: { reason: string; feature: string; featureDir?: string },
       ) => {
-        const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-        ctx.recordTraceTarget(opts.feature, featureDir);
+        const featureDir = await dispatchOrFail(opts);
+        if (featureDir === null) return;
         const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
         if (!session.snapshot.state) {
           emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
@@ -2039,7 +2177,7 @@ export async function main(
   tasksCmd
     .command("list")
     .description("List tasks (read-only); shows derived `ready` column")
-    .requiredOption("--feature <name>", "Feature whose tasks to list")
+    .option("--feature <name>", "Feature whose tasks to list")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .option(
       "--status <s>",
@@ -2047,8 +2185,8 @@ export async function main(
     )
     .action(async (opts: { feature: string; featureDir?: string; status?: string }) => {
       if (rejectIfDryRun("tasks list")) return;
-      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-      ctx.recordTraceTarget(opts.feature, featureDir);
+      const featureDir = await dispatchOrFail(opts);
+      if (featureDir === null) return;
       // Phase 15 SC3 — projection-loader read-path. Adapter: TasksJson
       // (TaskFullPayload[]) → slim TaskState via the same `extractTaskSlim`
       // the reducer uses, preserving byte-equal output with the prior
@@ -2122,12 +2260,12 @@ export async function main(
   tasksCmd
     .command("next")
     .description("Print the next ready task id (or empty if none); read-only")
-    .requiredOption("--feature <name>", "Feature whose ready task to compute")
+    .option("--feature <name>", "Feature whose ready task to compute")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { feature: string; featureDir?: string }) => {
       if (rejectIfDryRun("tasks next")) return;
-      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-      ctx.recordTraceTarget(opts.feature, featureDir);
+      const featureDir = await dispatchOrFail(opts);
+      if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       if (!session.snapshot.state) {
         emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
@@ -2169,12 +2307,12 @@ export async function main(
   tasksCmd
     .command("complete <task-id>")
     .description("Confirm a task has reached status=done (read-only; emits nothing)")
-    .requiredOption("--feature <name>", "Feature whose task to confirm")
+    .option("--feature <name>", "Feature whose task to confirm")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (taskId: string, opts: { feature: string; featureDir?: string }) => {
       if (rejectIfDryRun("tasks complete")) return;
-      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-      ctx.recordTraceTarget(opts.feature, featureDir);
+      const featureDir = await dispatchOrFail(opts);
+      if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       if (!session.snapshot.state) {
         emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
@@ -2250,7 +2388,7 @@ export async function main(
   tasksCmd
     .command("amend <task-id>")
     .description("Amend a task: --policy <step>=<applicability> (EXECUTE.plan) or --input <file> --finding <FND-N> (sponsored, EXECUTE.work)")
-    .requiredOption("--feature <name>", "Feature whose task to amend")
+    .option("--feature <name>", "Feature whose task to amend")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .option(
       "--policy <step=applicability>",
@@ -2273,7 +2411,9 @@ export async function main(
       ) => {
         // SC-6b — record trace target at action entry so long pre-validation
         // failures (input parse, policy/finding mutex) still trace.
-        ctx.recordTraceTarget(opts.feature, opts.featureDir ?? defaultFeatureDir(opts.feature));
+        // SC-8: dispatchOrFail resolves §10.3 + records traceTarget.
+        const earlyFeatureDir = await dispatchOrFail(opts);
+        if (earlyFeatureDir === null) return;
         // (0) Resolve the surface — --policy and --input are mutually
         // exclusive; --finding pairs with --input.
         const policies = opts.policy ?? [];
@@ -2477,8 +2617,8 @@ export async function main(
         }
 
         // (2) Load session.
-        const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-        ctx.recordTraceTarget(opts.feature, featureDir);
+        const featureDir = await dispatchOrFail(opts);
+        if (featureDir === null) return;
         const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
         if (!session.snapshot.state) {
           emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
@@ -2583,11 +2723,11 @@ export async function main(
   tasksCmd
     .command("register-red <task-id>")
     .description("Register the RED test for a claimed behavioral bug task (EXECUTE.work)")
-    .requiredOption("--feature <name>", "Feature whose task to register")
+    .option("--feature <name>", "Feature whose task to register")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (taskId: string, opts: { feature: string; featureDir?: string }) => {
-      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-      ctx.recordTraceTarget(opts.feature, featureDir);
+      const featureDir = await dispatchOrFail(opts);
+      if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       if (!session.snapshot.state) {
         emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
@@ -2649,11 +2789,11 @@ export async function main(
     .description("Mark a task step as running (task must be claimed)")
     .requiredOption("--task <task-id>", "Task whose step to start")
     .requiredOption("--step <step-name>", "Step name (kind-specific; see spec)")
-    .requiredOption("--feature <name>", "Feature whose task lifecycle to advance")
+    .option("--feature <name>", "Feature whose task lifecycle to advance")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { task: string; step: string; feature: string; featureDir?: string }) => {
-      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-      ctx.recordTraceTarget(opts.feature, featureDir);
+      const featureDir = await dispatchOrFail(opts);
+      if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       if (!session.snapshot.state) {
         emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
@@ -2741,7 +2881,7 @@ export async function main(
     .option("--evidence-check <kind>", "Verify-check kind (run | review | acceptance | visual)")
     .option("--evidence-reason <text>", "Evidence reason (manual/waiver require ≥10 chars)")
     .option("--evidence-actor <actor>", "Override evidence actor (default: cli:loaf; required human:* for manual/waiver)")
-    .requiredOption("--feature <name>", "Feature whose task lifecycle to advance")
+    .option("--feature <name>", "Feature whose task lifecycle to advance")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: {
       task: string;
@@ -2785,8 +2925,8 @@ export async function main(
           return;
         }
       }
-      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-      ctx.recordTraceTarget(opts.feature, featureDir);
+      const featureDir = await dispatchOrFail(opts);
+      if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       if (!session.snapshot.state) {
         emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
@@ -2939,11 +3079,11 @@ export async function main(
   program
     .command("settle")
     .description("Advance VERIFY.accept → SETTLE.reconcile (deep ceremony only)")
-    .requiredOption("--feature <name>", "Feature whose session to settle")
+    .option("--feature <name>", "Feature whose session to settle")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { feature: string; featureDir?: string }) => {
-      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-      ctx.recordTraceTarget(opts.feature, featureDir);
+      const featureDir = await dispatchOrFail(opts);
+      if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       const from = session.snapshot.state?.sub_state;
       if (!from) {
@@ -3032,7 +3172,7 @@ export async function main(
     )
     .option("--options <csv>", "Comma-separated answer options (passthrough)")
     .option("--task-id <id>", "Optional task association (passthrough)")
-    .requiredOption("--feature <name>", "Feature whose session to raise pending against")
+    .option("--feature <name>", "Feature whose session to raise pending against")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: {
       kind: string;
@@ -3042,8 +3182,8 @@ export async function main(
       feature: string;
       featureDir?: string;
     }) => {
-      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-      ctx.recordTraceTarget(opts.feature, featureDir);
+      const featureDir = await dispatchOrFail(opts);
+      if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       if (!session.snapshot.state) {
         emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
@@ -3100,12 +3240,12 @@ export async function main(
   pendingCmd
     .command("list")
     .description("List pending entries (FIFO; first unresolved is head)")
-    .requiredOption("--feature <name>", "Feature whose pending to list")
+    .option("--feature <name>", "Feature whose pending to list")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { feature: string; featureDir?: string }) => {
       if (rejectIfDryRun("pending list")) return;
-      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-      ctx.recordTraceTarget(opts.feature, featureDir);
+      const featureDir = await dispatchOrFail(opts);
+      if (featureDir === null) return;
       // Phase 15 SC3 — projection-loader. Adapter: PendingProjectionEntry
       // (pending.json native — pending_id + rich fields) → slim row
       // {id, kind, resolved, head} matching the prior PendingState shape.
@@ -3143,13 +3283,13 @@ export async function main(
   pendingCmd
     .command("status")
     .description("Status of head pending entry (default) or specific entry by --id")
-    .requiredOption("--feature <name>", "Feature whose pending to inspect")
+    .option("--feature <name>", "Feature whose pending to inspect")
     .option("--id <id>", "Lookup a specific PEND-id (default: head)")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { feature: string; id?: string; featureDir?: string }) => {
       if (rejectIfDryRun("pending status")) return;
-      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-      ctx.recordTraceTarget(opts.feature, featureDir);
+      const featureDir = await dispatchOrFail(opts);
+      if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       if (!session.snapshot.state) {
         emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
@@ -3193,11 +3333,11 @@ export async function main(
     .command("resolve")
     .description("Resolve the head pending entry (strict FIFO; no --id flag)")
     .requiredOption("--answer <text>", "Resolution answer (passthrough into pending:resolved payload)")
-    .requiredOption("--feature <name>", "Feature whose pending to resolve")
+    .option("--feature <name>", "Feature whose pending to resolve")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { answer: string; feature: string; featureDir?: string }) => {
-      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-      ctx.recordTraceTarget(opts.feature, featureDir);
+      const featureDir = await dispatchOrFail(opts);
+      if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       if (!session.snapshot.state) {
         emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
@@ -3282,12 +3422,14 @@ export async function main(
       "--input <src>",
       "JSON source for EvidenceAddInput (single object OR non-empty array for batch): `-` (stdin), inline JSON, or file path (protocol §10.7)",
     )
-    .requiredOption("--feature <name>", "Feature whose ledger to append to")
+    .option("--feature <name>", "Feature whose ledger to append to")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { input: string; feature: string; featureDir?: string }) => {
       // SC-6b — record trace target at action entry so long input-validation
-      // failures still trace.
-      ctx.recordTraceTarget(opts.feature, opts.featureDir ?? defaultFeatureDir(opts.feature));
+      // failures still trace. SC-8: dispatchOrFail handles §10.3 precedence
+      // + traceTarget in one call.
+      const earlyFeatureDir = await dispatchOrFail(opts);
+      if (earlyFeatureDir === null) return;
       // Phase 16 SC-4c — unified --input modality (protocol §10.7) +
       // array (batch) input enabled (was USAGE reject).
       const source = parseInputSource(opts.input);
@@ -3338,8 +3480,8 @@ export async function main(
       }
 
       // Load session via ctx.
-      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-      ctx.recordTraceTarget(opts.feature, featureDir);
+      const featureDir = await dispatchOrFail(opts);
+      if (featureDir === null) return;
       const session = await ctx.resolveSession(featureDir);
       if (!session.snapshot.state) {
         ctx.failure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
@@ -3474,7 +3616,7 @@ export async function main(
     .option("--reason <text>", "Justification (required ≥20 chars on unusual cells)")
     .option("--target-task <task-id>", "Target task for fix-impl / fix-test / amend-tasks")
     .option("--target-step <step>", "Target step (must equal action's canonical step)")
-    .requiredOption("--feature <name>", "Feature whose ledger to append to")
+    .option("--feature <name>", "Feature whose ledger to append to")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: {
       category: string;
@@ -3496,8 +3638,8 @@ export async function main(
         );
         return;
       }
-      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-      ctx.recordTraceTarget(opts.feature, featureDir);
+      const featureDir = await dispatchOrFail(opts);
+      if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       if (!session.snapshot.state) {
         emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
@@ -3715,7 +3857,7 @@ export async function main(
   findingCmd
     .command("list")
     .description("List findings (read-only; --status filters open|closed)")
-    .requiredOption("--feature <name>", "Feature whose findings to list")
+    .option("--feature <name>", "Feature whose findings to list")
     .option("--status <s>", "Filter by status (open | closed)")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { feature: string; status?: string; featureDir?: string }) => {
@@ -3724,8 +3866,8 @@ export async function main(
         emitFailure("USAGE", `--status must be one of: open | closed (got ${opts.status})`);
         return;
       }
-      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-      ctx.recordTraceTarget(opts.feature, featureDir);
+      const featureDir = await dispatchOrFail(opts);
+      if (featureDir === null) return;
       // Phase 15 SC3 — projection-loader. findings.json's FindingStateShape
       // is already byte-equal to the reducer's FindingState slim shape (id,
       // category, action, status, summary?, reason?, target?) — no adapter
@@ -3757,7 +3899,7 @@ export async function main(
   findingCmd
     .command("close <fnd-id>")
     .description("Close a finding (emits finding:closed)")
-    .requiredOption("--feature <name>", "Feature whose ledger to close against")
+    .option("--feature <name>", "Feature whose ledger to close against")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (fndId: string, opts: { feature: string; featureDir?: string }) => {
       // CLI-side id format check fires before projection lookup so a
@@ -3773,8 +3915,8 @@ export async function main(
         );
         return;
       }
-      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-      ctx.recordTraceTarget(opts.feature, featureDir);
+      const featureDir = await dispatchOrFail(opts);
+      if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       if (!session.snapshot.state) {
         emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
@@ -3867,12 +4009,14 @@ export async function main(
       "--input <src>",
       "JSON source: `-` (stdin), inline JSON literal, or file path (protocol §10.7)",
     )
-    .requiredOption("--feature <name>", "Feature whose spec to submit")
+    .option("--feature <name>", "Feature whose spec to submit")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { input: string; feature: string; featureDir?: string }) => {
       // SC-6b — record trace target at action entry so long input-validation
-      // failures still trace.
-      ctx.recordTraceTarget(opts.feature, opts.featureDir ?? defaultFeatureDir(opts.feature));
+      // failures still trace. SC-8: dispatchOrFail handles §10.3 precedence
+      // + traceTarget in one call.
+      const earlyFeatureDir = await dispatchOrFail(opts);
+      if (earlyFeatureDir === null) return;
       // Phase 16 SC-4a — unified --input modality (protocol §10.7 +
       // ADR-0004 A11): parseInputSource discriminates stdin / inline /
       // file; readJsonInput handles IO + JSON parse + error mapping;
@@ -3917,8 +4061,8 @@ export async function main(
       }
       const input = inputParse.data;
       // Load session via ctx (caches; captures sub_state for crash context).
-      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-      ctx.recordTraceTarget(opts.feature, featureDir);
+      const featureDir = await dispatchOrFail(opts);
+      if (featureDir === null) return;
       const session = await ctx.resolveSession(featureDir);
       if (!session.snapshot.state) {
         ctx.failure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
@@ -4089,7 +4233,7 @@ export async function main(
   specCmd
     .command("init")
     .description("Write a parser-valid minimal spec.md scaffold (no journal entry)")
-    .requiredOption("--feature <name>", "Feature whose spec.md to scaffold")
+    .option("--feature <name>", "Feature whose spec.md to scaffold")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .option("--feature-id <id>", "Override feature.id in scaffold (default: F-XXX placeholder)")
     .option("--feature-name <text>", "Override feature.name in scaffold (default: --feature value)")
@@ -4104,8 +4248,8 @@ export async function main(
       featureName?: string;
       intent?: string;
     }) => {
-      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-      ctx.recordTraceTarget(opts.feature, featureDir);
+      const featureDir = await dispatchOrFail(opts);
+      if (featureDir === null) return;
       const specMdPath = path.join(featureDir, "spec.md");
       // SPEC_ALREADY_INITIALIZED guard: refuse to overwrite. Check
       // before any I/O so the error surface is the file's existence,
@@ -4214,7 +4358,7 @@ export async function main(
         "--input <src>",
         `JSON source for SpecAdd${cfg.name[0]!.toUpperCase()}${cfg.name.slice(1)}Input (item or array): \`-\` (stdin), inline JSON, or file path (protocol §10.7)`,
       )
-      .requiredOption("--feature <name>", `Feature whose spec to extend`)
+      .option("--feature <name>", `Feature whose spec to extend`)
       .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
       .action(async (opts: { input: string; feature: string; featureDir?: string }) => {
         // Phase 16 SC-4a — unified --input modality. TTY no-hang guard
@@ -4248,8 +4392,8 @@ export async function main(
         const items: ReadonlyArray<{ id_namespace: string; [k: string]: unknown }> =
           Array.isArray(inputParse.data) ? inputParse.data : [inputParse.data];
         // Load session via ctx (caches; captures sub_state for crash context).
-        const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-        ctx.recordTraceTarget(opts.feature, featureDir);
+        const featureDir = await dispatchOrFail(opts);
+        if (featureDir === null) return;
         const session = await ctx.resolveSession(featureDir);
         if (!session.snapshot.state) {
           ctx.failure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);

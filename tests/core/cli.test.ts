@@ -2155,7 +2155,7 @@ needs_clarification: []
     expect(result.exit).toBe(2);
     expect(result.stdout).toBe("");
     const errJson = JSON.parse(result.stderr.trim());
-    expect(errJson.code).toBe("NO_SESSION");
+    expect(errJson.code).toBe("FEATURE_NOT_FOUND");
   });
 });
 
@@ -2556,7 +2556,7 @@ needs_clarification: []
     expect(result.exit).toBe(2);
     expect(result.stdout).toBe("");
     const errJson = JSON.parse(result.stderr.trim());
-    expect(errJson.code).toBe("NO_SESSION");
+    expect(errJson.code).toBe("FEATURE_NOT_FOUND");
   });
 });
 
@@ -5241,7 +5241,7 @@ describe("loaf spike convert — Phase 12", () => {
       { env: { LOAF_USER: "tester@example.invalid" } },
     );
     expect(r.exit).not.toBe(0);
-    expect(r.stderr + r.stdout).toContain("NO_SESSION");
+    expect(r.stderr + r.stdout).toContain("FEATURE_NOT_FOUND");
   });
 });
 
@@ -5405,6 +5405,6 @@ describe("loaf profile escalate — Phase 13", () => {
       { env: { LOAF_USER: "tester@example.invalid" } },
     );
     expect(r.exit).not.toBe(0);
-    expect(r.stderr + r.stdout).toContain("NO_SESSION");
+    expect(r.stderr + r.stdout).toContain("FEATURE_NOT_FOUND");
   });
 });

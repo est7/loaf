@@ -3917,6 +3917,7 @@ export const DiagnosticCode = z.enum([
   "FEATURE_AMBIGUOUS",                     // §10.3 session dispatch — cwd has 2+ features w/o ctx
   "SESSION_CWD_MISMATCH",                  // §10.3 session dispatch — --session UUID cwd mismatch
   "SESSION_SHORT_AMBIGUOUS",               // §10.3 session dispatch — short UUID prefix collision
+  "SESSION_NOT_FOUND",                     // §10.3 session dispatch — Phase 16 SC-8 — UUID/prefix matches no registry entry
   "PENDING_BLOCKS_ADVANCE",                // §10.7 pending head ∈ {gate_decision, profile_escalation}
   "GATE_NOT_PENDING",                      // §10.7 `loaf gate decide <G>` but head isn't gate_decision(<G>)
   "ESCALATION_NOT_PENDING",                // §10.7 `loaf profile escalate --confirm --input <ceremony.json>` but head isn't profile_escalation
@@ -4387,6 +4388,20 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
     fix_template:
       "pass a longer UUID prefix (≥8 chars are required; use more " +
       "to disambiguate) or pass the full UUID",
+    doc_anchor: "protocol.md#§10.3",
+  },
+  SESSION_NOT_FOUND: {
+    // Phase 16 SC-8 (codex r285-r286): --session <UUID> or
+    // $LOAF_SESSION specified a UUID/prefix that matches NO entry in
+    // ~/.loaf/registry/. Distinct from SESSION_CWD_MISMATCH (entry
+    // exists, cwd field differs) and SESSION_SHORT_AMBIGUOUS (prefix
+    // matches 2+ entries).
+    exit_code: 2,
+    message_template:
+      "--session {uuid_or_prefix} matches no entry in the registry",
+    fix_template:
+      "run `loaf sessions list --in-cwd` to see registered sessions " +
+      "(future SC-9b), or run `loaf start <name>` to create one",
     doc_anchor: "protocol.md#§10.3",
   },
   PENDING_BLOCKS_ADVANCE: {

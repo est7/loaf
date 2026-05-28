@@ -45,8 +45,13 @@ describe("SC-6b — static guard: every .action( records trace target", () => {
     const misses: string[] = [];
     for (const block of actionLines) {
       const slice = lines.slice(block.index, block.index + 60).join("\n");
+      // SC-8: `dispatchOrFail(opts)` records traceTarget internally
+      // (resolves §10.3 dispatch + mutates opts + calls
+      // ctx.recordTraceTarget). Action handlers that call dispatchOrFail
+      // are SC-6b-compliant via the helper.
       const hasMarker =
         /ctx\.recordTraceTarget\(/.test(slice) ||
+        /dispatchOrFail\(/.test(slice) ||
         /\/\/\s*no-feature/.test(slice);
       if (!hasMarker) {
         misses.push(`line ${block.index + 1}: ${block.line.trim()}`);
