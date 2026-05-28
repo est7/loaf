@@ -189,7 +189,8 @@
     "DOCTOR_REBUILD_MIGRATED_UNSUPPORTED": "当前发布版本的 doctor --rebuild 不支持 v0.0.x-migrated journal",
     "REDUCER_ERROR":              "reducer 内部不变量失败",
     "INVALID_FORMAT":             "无效的 --format 值 '{value}';合法值:{allowed_values_human}",
-    "MUTUALLY_EXCLUSIVE_FLAGS":   "同一次调用使用了互斥的 flags:{flags}"
+    "MUTUALLY_EXCLUSIVE_FLAGS":   "同一次调用使用了互斥的 flags:{flags}",
+    "DRY_RUN_NOT_APPLICABLE":     "--dry-run 不适用于{command_type}命令 `{command}`"
   },
 
   "help": {

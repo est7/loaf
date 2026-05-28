@@ -160,6 +160,13 @@ function parseDebugFromArgv(argv, env = process.env) {
 	if (env.DEBUG && env.DEBUG.length > 0) return true;
 	return false;
 }
+/** Phase 16 SC-6c — returns true if `--dry-run` or `-n` appears in argv.
+*  Orthogonal to all other presentation flags (no mutex). When true,
+*  mutating commands short-circuit before journal append + projection
+*  refresh; read-only commands reject with DRY_RUN_NOT_APPLICABLE. */
+function parseDryRunFromArgv(argv) {
+	return argv.includes("--dry-run") || argv.includes("-n");
+}
 /** Returns cumulative verbose count: `-v` = 1, `-vv` = 2,
 *  `--verbose` = 1, and multiple occurrences sum. E.g.
 *  `-v --verbose` = 2, `-vv --verbose` = 3. Per protocol §10.7 +
@@ -246,7 +253,8 @@ function parsePresentation(argv, env = process.env) {
 		verbose: parseVerboseFromArgv(argv),
 		noColor: parseNoColorFromArgv(argv, env),
 		noInput: parseNoInputFromArgv(argv),
-		debug: parseDebugFromArgv(argv, env)
+		debug: parseDebugFromArgv(argv, env),
+		dryRun: parseDryRunFromArgv(argv)
 	};
 }
 /** Pre-resolve `--feature <NAME>` from argv. Best-effort; null on miss.
@@ -274,6 +282,7 @@ function createCommandContext(argv, deps) {
 	const noColor = presentation.ok ? presentation.noColor : false;
 	const noInput = presentation.ok ? presentation.noInput : false;
 	const debug = presentation.ok ? presentation.debug : false;
+	const dryRun = presentation.ok ? presentation.dryRun : false;
 	let exitCode = 0;
 	let traceTarget = null;
 	const sessionCache = /* @__PURE__ */ new Map();
@@ -289,6 +298,7 @@ function createCommandContext(argv, deps) {
 		noColor,
 		noInput,
 		debug,
+		dryRun,
 		get traceTarget() {
 			return traceTarget;
 		},
@@ -308,7 +318,7 @@ function createCommandContext(argv, deps) {
 			const cached = sessionCache.get(featureDir);
 			if (cached) return cached;
 			if (!deps.loadSession) throw new Error("CommandContext: loadSession dep not provided; cannot resolveSession");
-			const p = deps.loadSession(featureDir).then((sess) => {
+			const p = deps.loadSession(featureDir, { ensureDir: !dryRun }).then((sess) => {
 				const sub = sess.snapshot.state?.sub_state ?? null;
 				if (sub) lastResolvedSubState = sub;
 				const sid = sess.snapshot.state?.session_id ?? null;
@@ -4382,8 +4392,8 @@ const LOAF_ISSUE_URL = "https://issues.loaf.invalid";
 function helpFooter() {
 	return `\ndocs:       ${LOAF_DOCS_URL}\nreport bug: ${LOAF_ISSUE_URL}\n`;
 }
-async function loadSession(featureDir) {
-	await promises.mkdir(featureDir, { recursive: true });
+async function loadSession(featureDir, opts = {}) {
+	if (opts.ensureDir ?? true) await promises.mkdir(featureDir, { recursive: true });
 	const replay = await replayJournal(path.join(featureDir, "journal.jsonl"), {
 		feature_dir: featureDir,
 		collect_entries: true
@@ -5633,6 +5643,25 @@ async function mutateBatch(partials, ctx) {
 			};
 		}
 	}
+	const ctxEntriesTailSeq = ctx.entries[ctx.entries.length - 1]?.seq ?? -1;
+	const emptyPrefixMetaBad = ctx.tail_seq === -1 && !isEmptyMeta(ctx.meta);
+	if (ctxEntriesTailSeq !== ctx.tail_seq || ctx.meta.last_applied_seq !== ctx.tail_seq || emptyPrefixMetaBad) return {
+		ok: false,
+		code: "INVALID_BATCH",
+		message: `MutateContext is internally inconsistent: tail_seq=${ctx.tail_seq} but entries tail seq=${ctxEntriesTailSeq}, meta.last_applied_seq=${ctx.meta.last_applied_seq}` + (emptyPrefixMetaBad ? ", and meta is not the empty sentinel for an empty prefix" : "") + `; entries + meta must describe the same journal prefix as tail_seq`,
+		detail: {
+			tail_seq: ctx.tail_seq,
+			entries_tail_seq: ctxEntriesTailSeq,
+			meta_last_applied_seq: ctx.meta.last_applied_seq,
+			empty_prefix_meta_bad: emptyPrefixMetaBad
+		}
+	};
+	if (ctx.dryRun) return {
+		ok: true,
+		snapshot: snapshotAcc,
+		entries: candidates,
+		meta: ctx.meta
+	};
 	const promoted = [];
 	for (let i = 0; i < candidates.length; i++) try {
 		const p = await promoteSidecars(candidates[i], ctx.feature_dir, { fsync: ctx.fsync ?? true });
@@ -5667,19 +5696,6 @@ async function mutateBatch(partials, ctx) {
 		code: "REDUCER_ERROR",
 		message: "snapshot drift between unpromoted and promoted dry-runs — a reducer is reading LongTextField content; the batch is unsafe to append",
 		detail: { phase: "drift-check" }
-	};
-	const ctxEntriesTailSeq = ctx.entries[ctx.entries.length - 1]?.seq ?? -1;
-	const emptyPrefixMetaBad = ctx.tail_seq === -1 && !isEmptyMeta(ctx.meta);
-	if (ctxEntriesTailSeq !== ctx.tail_seq || ctx.meta.last_applied_seq !== ctx.tail_seq || emptyPrefixMetaBad) return {
-		ok: false,
-		code: "INVALID_BATCH",
-		message: `MutateContext is internally inconsistent: tail_seq=${ctx.tail_seq} but entries tail seq=${ctxEntriesTailSeq}, meta.last_applied_seq=${ctx.meta.last_applied_seq}` + (emptyPrefixMetaBad ? ", and meta is not the empty sentinel for an empty prefix" : "") + `; entries + meta must describe the same journal prefix as tail_seq`,
-		detail: {
-			tail_seq: ctx.tail_seq,
-			entries_tail_seq: ctxEntriesTailSeq,
-			meta_last_applied_seq: ctx.meta.last_applied_seq,
-			empty_prefix_meta_bad: emptyPrefixMetaBad
-		}
 	};
 	const journalPath = path.join(ctx.feature_dir, "journal.jsonl");
 	let appendMeta;
@@ -6142,7 +6158,7 @@ async function main(argv = process.argv, deps = {}) {
 		process.stdout.write(s);
 	};
 	const program = new Command();
-	program.name("loaf").description("Spec-driven development protocol CLI").version(version).option("--format <fmt>", `Output format: ${FORMAT_MODES_HUMAN} (default: text)`).option("--plain", "Alias for --format text (clig.dev convention)").option("--no-color", "Disable color (NO_COLOR/LOAF_NO_COLOR/TERM=dumb equivalents)").option("-q, --quiet", "Suppress advisory stderr (state-change + next hint; errors still emit)").option("-v, --verbose", "Increase advisory detail; counter — repeat for more (-v, -vv)", (_v, prior) => (prior ?? 0) + 1, 0).option("--no-input", "Non-interactive mode: refuse git-config actor fallback; forward-compat with future prompts (skill / hook / CI)").option("--debug", "Write per-invocation trace.jsonl (LOAF_DEBUG=1 / DEBUG=1 equivalents)").addHelpText("after", helpFooter()).showHelpAfterError().exitOverride();
+	program.name("loaf").description("Spec-driven development protocol CLI").version(version).option("--format <fmt>", `Output format: ${FORMAT_MODES_HUMAN} (default: text)`).option("--plain", "Alias for --format text (clig.dev convention)").option("--no-color", "Disable color (NO_COLOR/LOAF_NO_COLOR/TERM=dumb equivalents)").option("-q, --quiet", "Suppress advisory stderr (state-change + next hint; errors still emit)").option("-v, --verbose", "Increase advisory detail; counter — repeat for more (-v, -vv)", (_v, prior) => (prior ?? 0) + 1, 0).option("--no-input", "Non-interactive mode: refuse git-config actor fallback; forward-compat with future prompts (skill / hook / CI)").option("--debug", "Write per-invocation trace.jsonl (LOAF_DEBUG=1 / DEBUG=1 equivalents)").option("-n, --dry-run", "Validate without writing (mutating commands only); read-only commands exit 2").addHelpText("after", helpFooter()).showHelpAfterError().exitOverride();
 	const actor = `cli:loaf@${process.env["USER"] ?? "unknown"}`;
 	const ctx = createCommandContext(argv, {
 		writeStdout: writeStdoutCaptured,
@@ -6158,6 +6174,24 @@ async function main(argv = process.argv, deps = {}) {
 	};
 	const isInteractiveHumanForActor = () => (deps.isInteractiveHuman?.() ?? process.stdin.isTTY === true) && !ctx.noInput;
 	const readGitConfigForActor = deps.readGitConfig ?? getGitEmail;
+	const emitDryRunSuccess = (result) => {
+		const kind = "entry" in result ? result.entry.kind : result.entries[0]?.kind ?? "(empty)";
+		ctx.success({
+			ok: true,
+			dry_run: true,
+			would: { kind }
+		}, () => `dry-run: would ${kind}\n`);
+	};
+	const rejectIfDryRun = (command, commandType = "read-only") => {
+		if (ctx.dryRun) {
+			emitFailure("DRY_RUN_NOT_APPLICABLE", `--dry-run not applicable to ${commandType} command \`${command}\``, {
+				command,
+				command_type: commandType
+			});
+			return true;
+		}
+		return false;
+	};
 	const loadProjectionsOrFail = async (featureDir, kinds, feature) => {
 		try {
 			return await loadProjections({
@@ -6192,7 +6226,7 @@ async function main(argv = process.argv, deps = {}) {
 		}
 		const featureDir = opts.featureDir ?? defaultFeatureDir(feature);
 		ctx.recordTraceTarget(feature, featureDir);
-		const session = await loadSession(featureDir);
+		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		const sessionId = crypto.randomUUID();
 		const result = await mutate({
 			at: (/* @__PURE__ */ new Date()).toISOString(),
@@ -6213,10 +6247,15 @@ async function main(argv = process.argv, deps = {}) {
 			snapshot: session.snapshot,
 			tail_seq: session.tail_seq,
 			entries: session.entries,
-			meta: session.meta
+			meta: session.meta,
+			dryRun: ctx.dryRun
 		});
 		if (!result.ok) {
 			fail(result.code, result.message);
+			return;
+		}
+		if (ctx.dryRun) {
+			emitDryRunSuccess(result);
 			return;
 		}
 		const out = {
@@ -6236,7 +6275,7 @@ async function main(argv = process.argv, deps = {}) {
 	program.command("advance <to>").description("Advance the session cursor (emits event:phase_advanced)").requiredOption("--feature <name>", "Feature whose session to advance").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (to, opts) => {
 		const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
 		ctx.recordTraceTarget(opts.feature, featureDir);
-		const session = await loadSession(featureDir);
+		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		const from = session.snapshot.state?.sub_state;
 		if (!from) {
 			fail("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
@@ -6256,10 +6295,15 @@ async function main(argv = process.argv, deps = {}) {
 			snapshot: session.snapshot,
 			tail_seq: session.tail_seq,
 			entries: session.entries,
-			meta: session.meta
+			meta: session.meta,
+			dryRun: ctx.dryRun
 		});
 		if (!result.ok) {
 			fail(result.code, result.message);
+			return;
+		}
+		if (ctx.dryRun) {
+			emitDryRunSuccess(result);
 			return;
 		}
 		const out = {
@@ -6271,6 +6315,7 @@ async function main(argv = process.argv, deps = {}) {
 		ctx.success(out, () => "", { stateChange: `advance: ${from} → ${to}` });
 	});
 	program.command("status").description("Show the current session snapshot (read-only)").requiredOption("--feature <name>", "Feature whose status to show").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+		if (rejectIfDryRun("status")) return;
 		const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
 		ctx.recordTraceTarget(opts.feature, featureDir);
 		const loaded = await loadProjectionsOrFail(featureDir, [
@@ -6328,7 +6373,7 @@ async function main(argv = process.argv, deps = {}) {
 		const humanActor = resolution.actor;
 		const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
 		ctx.recordTraceTarget(opts.feature, featureDir);
-		const session = await loadSession(featureDir);
+		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		const from = session.snapshot.state?.sub_state;
 		if (!from) {
 			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
@@ -6339,7 +6384,8 @@ async function main(argv = process.argv, deps = {}) {
 			snapshot: session.snapshot,
 			tail_seq: session.tail_seq,
 			entries: session.entries,
-			meta: session.meta
+			meta: session.meta,
+			dryRun: ctx.dryRun
 		};
 		const now = (/* @__PURE__ */ new Date()).toISOString();
 		const pendingHead = session.snapshot.pending.find((p) => !p.resolved);
@@ -6380,6 +6426,10 @@ async function main(argv = process.argv, deps = {}) {
 				const result = await mutateBatch(entries, mctx);
 				if (!result.ok) {
 					emitFailure(result.code, result.message, result.detail);
+					return;
+				}
+				if (ctx.dryRun) {
+					emitDryRunSuccess(result);
 					return;
 				}
 				const out = {
@@ -6429,6 +6479,10 @@ async function main(argv = process.argv, deps = {}) {
 				emitFailure(result.code, result.message, result.detail);
 				return;
 			}
+			if (ctx.dryRun) {
+				emitDryRunSuccess(result);
+				return;
+			}
 			const out = {
 				ok: true,
 				gate: "verify-accept",
@@ -6458,6 +6512,10 @@ async function main(argv = process.argv, deps = {}) {
 		}, mctx);
 		if (!result.ok) {
 			emitFailure(result.code, result.message, result.detail);
+			return;
+		}
+		if (ctx.dryRun) {
+			emitDryRunSuccess(result);
 			return;
 		}
 		const out = {
@@ -6504,10 +6562,15 @@ async function main(argv = process.argv, deps = {}) {
 			snapshot: session.snapshot,
 			tail_seq: session.tail_seq,
 			entries: session.entries,
-			meta: session.meta
+			meta: session.meta,
+			dryRun: ctx.dryRun
 		});
 		if (!result.ok) {
 			ctx.failure(result.code, result.message, result.detail);
+			return;
+		}
+		if (ctx.dryRun) {
+			emitDryRunSuccess(result);
 			return;
 		}
 		const advisory = [`session complete — \`loaf start <feature>\` to begin another`];
@@ -6538,7 +6601,7 @@ async function main(argv = process.argv, deps = {}) {
 		const humanActor = resolution.actor;
 		const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
 		ctx.recordTraceTarget(opts.feature, featureDir);
-		const session = await loadSession(featureDir);
+		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		const from = session.snapshot.state?.sub_state;
 		if (!from) {
 			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
@@ -6555,10 +6618,15 @@ async function main(argv = process.argv, deps = {}) {
 			snapshot: session.snapshot,
 			tail_seq: session.tail_seq,
 			entries: session.entries,
-			meta: session.meta
+			meta: session.meta,
+			dryRun: ctx.dryRun
 		});
 		if (!result.ok) {
 			emitFailure(result.code, result.message, result.detail);
+			return;
+		}
+		if (ctx.dryRun) {
+			emitDryRunSuccess(result);
 			return;
 		}
 		const out = {
@@ -6584,7 +6652,7 @@ async function main(argv = process.argv, deps = {}) {
 		const humanActor = resolution.actor;
 		const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
 		ctx.recordTraceTarget(opts.feature, featureDir);
-		const session = await loadSession(featureDir);
+		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		const from = session.snapshot.state?.sub_state;
 		if (!from) {
 			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
@@ -6601,10 +6669,15 @@ async function main(argv = process.argv, deps = {}) {
 			snapshot: session.snapshot,
 			tail_seq: session.tail_seq,
 			entries: session.entries,
-			meta: session.meta
+			meta: session.meta,
+			dryRun: ctx.dryRun
 		});
 		if (!result.ok) {
 			emitFailure(result.code, result.message, result.detail);
+			return;
+		}
+		if (ctx.dryRun) {
+			emitDryRunSuccess(result);
 			return;
 		}
 		const out = {
@@ -6630,7 +6703,7 @@ async function main(argv = process.argv, deps = {}) {
 		const humanActor = resolution.actor;
 		const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
 		ctx.recordTraceTarget(opts.feature, featureDir);
-		const session = await loadSession(featureDir);
+		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		const from = session.snapshot.state?.sub_state;
 		if (!from) {
 			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
@@ -6657,10 +6730,15 @@ async function main(argv = process.argv, deps = {}) {
 			snapshot: session.snapshot,
 			tail_seq: session.tail_seq,
 			entries: session.entries,
-			meta: session.meta
+			meta: session.meta,
+			dryRun: ctx.dryRun
 		});
 		if (!result.ok) {
 			emitFailure(result.code, result.message, result.detail);
+			return;
+		}
+		if (ctx.dryRun) {
+			emitDryRunSuccess(result);
 			return;
 		}
 		const out = {
@@ -6703,7 +6781,7 @@ async function main(argv = process.argv, deps = {}) {
 		}
 		const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
 		ctx.recordTraceTarget(opts.feature, featureDir);
-		const session = await loadSession(featureDir);
+		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state?.sub_state) {
 			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
 			return;
@@ -6731,10 +6809,15 @@ async function main(argv = process.argv, deps = {}) {
 			snapshot: session.snapshot,
 			tail_seq: session.tail_seq,
 			entries: session.entries,
-			meta: session.meta
+			meta: session.meta,
+			dryRun: ctx.dryRun
 		});
 		if (!result.ok) {
 			emitFailure(result.code, result.message, result.detail);
+			return;
+		}
+		if (ctx.dryRun) {
+			emitDryRunSuccess(result);
 			return;
 		}
 		const out = {
@@ -6747,6 +6830,7 @@ async function main(argv = process.argv, deps = {}) {
 		ctx.success(out, () => "", { stateChange: `profile escalate: ceremony updated, ${head.id} resolved` });
 	});
 	program.command("doctor").description("Repository self-check. This release implements --rebuild only").option("--rebuild", "Full journal replay → rebuild snapshots/*.json + _meta.json").option("--feature <name>", "Feature whose snapshots to rebuild (required with --rebuild)").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+		if (rejectIfDryRun(opts.rebuild ? "doctor --rebuild" : "doctor")) return;
 		if (!opts.rebuild) {
 			emitFailure("DOCTOR_MODE_NOT_IMPLEMENTED", "only --rebuild is implemented for loaf doctor in this release");
 			return;
@@ -6826,10 +6910,15 @@ async function main(argv = process.argv, deps = {}) {
 			snapshot: session.snapshot,
 			tail_seq: session.tail_seq,
 			entries: session.entries,
-			meta: session.meta
+			meta: session.meta,
+			dryRun: ctx.dryRun
 		});
 		if (!result.ok) {
 			ctx.failure(result.code, result.message, result.detail);
+			return;
+		}
+		if (ctx.dryRun) {
+			emitDryRunSuccess(result);
 			return;
 		}
 		const tasks = result.snapshot.tasks;
@@ -6918,10 +7007,15 @@ async function main(argv = process.argv, deps = {}) {
 				snapshot: session.snapshot,
 				tail_seq: session.tail_seq,
 				entries: session.entries,
-				meta: session.meta
+				meta: session.meta,
+				dryRun: ctx.dryRun
 			});
 			if (!result.ok) {
 				ctx.failure(result.code, result.message, result.detail);
+				return;
+			}
+			if (ctx.dryRun) {
+				emitDryRunSuccess(result);
 				return;
 			}
 			const out = {
@@ -6962,10 +7056,15 @@ async function main(argv = process.argv, deps = {}) {
 			snapshot: session.snapshot,
 			tail_seq: session.tail_seq,
 			entries: session.entries,
-			meta: session.meta
+			meta: session.meta,
+			dryRun: ctx.dryRun
 		});
 		if (!result.ok) {
 			ctx.failure(result.code, result.message, result.detail);
+			return;
+		}
+		if (ctx.dryRun) {
+			emitDryRunSuccess(result);
 			return;
 		}
 		const out = {
@@ -6980,7 +7079,7 @@ async function main(argv = process.argv, deps = {}) {
 	tasksCmd.command("claim <task-id>").description("Claim a ready task (pending → in_progress) at EXECUTE.work").requiredOption("--feature <name>", "Feature whose task to claim").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (taskId, opts) => {
 		const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
 		ctx.recordTraceTarget(opts.feature, featureDir);
-		const session = await loadSession(featureDir);
+		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state) {
 			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
 			return;
@@ -6996,10 +7095,15 @@ async function main(argv = process.argv, deps = {}) {
 			snapshot: session.snapshot,
 			tail_seq: session.tail_seq,
 			entries: session.entries,
-			meta: session.meta
+			meta: session.meta,
+			dryRun: ctx.dryRun
 		});
 		if (!result.ok) {
 			emitFailure(result.code, result.message, result.detail);
+			return;
+		}
+		if (ctx.dryRun) {
+			emitDryRunSuccess(result);
 			return;
 		}
 		const claimed = result.snapshot.tasks.find((t) => t.id === taskId);
@@ -7020,7 +7124,7 @@ async function main(argv = process.argv, deps = {}) {
 	tasksCmd.command("abandon <task-id>").description("Abandon a non-terminal task (→ abandoned) at EXECUTE.work").requiredOption("--reason <text>", "Why the task is being abandoned (required)").requiredOption("--feature <name>", "Feature whose task to abandon").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (taskId, opts) => {
 		const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
 		ctx.recordTraceTarget(opts.feature, featureDir);
-		const session = await loadSession(featureDir);
+		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state) {
 			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
 			return;
@@ -7039,10 +7143,15 @@ async function main(argv = process.argv, deps = {}) {
 			snapshot: session.snapshot,
 			tail_seq: session.tail_seq,
 			entries: session.entries,
-			meta: session.meta
+			meta: session.meta,
+			dryRun: ctx.dryRun
 		});
 		if (!result.ok) {
 			emitFailure(result.code, result.message, result.detail);
+			return;
+		}
+		if (ctx.dryRun) {
+			emitDryRunSuccess(result);
 			return;
 		}
 		const abandoned = result.snapshot.tasks.find((t) => t.id === taskId);
@@ -7061,6 +7170,7 @@ async function main(argv = process.argv, deps = {}) {
 		ctx.success(out, () => "", { stateChange: `tasks abandon: ${taskId} (status=${status})` });
 	});
 	tasksCmd.command("list").description("List tasks (read-only); shows derived `ready` column").requiredOption("--feature <name>", "Feature whose tasks to list").option("--feature-dir <path>", "Override default .loaf/<feature> directory").option("--status <s>", "Filter by task status (pending|ready|in_progress|done|abandoned)").action(async (opts) => {
+		if (rejectIfDryRun("tasks list")) return;
 		const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
 		ctx.recordTraceTarget(opts.feature, featureDir);
 		const loaded = await loadProjectionsOrFail(featureDir, ["state", "tasks"], opts.feature);
@@ -7101,9 +7211,10 @@ async function main(argv = process.argv, deps = {}) {
 		});
 	});
 	tasksCmd.command("next").description("Print the next ready task id (or empty if none); read-only").requiredOption("--feature <name>", "Feature whose ready task to compute").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+		if (rejectIfDryRun("tasks next")) return;
 		const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
 		ctx.recordTraceTarget(opts.feature, featureDir);
-		const session = await loadSession(featureDir);
+		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state) {
 			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
 			return;
@@ -7122,9 +7233,10 @@ async function main(argv = process.argv, deps = {}) {
 		}, () => ready ? `${ready.id}\n` : "");
 	});
 	tasksCmd.command("complete <task-id>").description("Confirm a task has reached status=done (read-only; emits nothing)").requiredOption("--feature <name>", "Feature whose task to confirm").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (taskId, opts) => {
+		if (rejectIfDryRun("tasks complete")) return;
 		const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
 		ctx.recordTraceTarget(opts.feature, featureDir);
-		const session = await loadSession(featureDir);
+		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state) {
 			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
 			return;
@@ -7242,10 +7354,15 @@ async function main(argv = process.argv, deps = {}) {
 				snapshot: sSession.snapshot,
 				tail_seq: sSession.tail_seq,
 				entries: sSession.entries,
-				meta: sSession.meta
+				meta: sSession.meta,
+				dryRun: ctx.dryRun
 			});
 			if (!sResult.ok) {
 				ctx.failure(sResult.code, sResult.message, sResult.detail);
+				return;
+			}
+			if (ctx.dryRun) {
+				emitDryRunSuccess(sResult);
 				return;
 			}
 			const sOut = {
@@ -7284,7 +7401,7 @@ async function main(argv = process.argv, deps = {}) {
 		}
 		const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
 		ctx.recordTraceTarget(opts.feature, featureDir);
-		const session = await loadSession(featureDir);
+		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state) {
 			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
 			return;
@@ -7329,10 +7446,15 @@ async function main(argv = process.argv, deps = {}) {
 			snapshot: session.snapshot,
 			tail_seq: session.tail_seq,
 			entries: session.entries,
-			meta: session.meta
+			meta: session.meta,
+			dryRun: ctx.dryRun
 		});
 		if (!result.ok) {
 			emitFailure(result.code, result.message, result.detail);
+			return;
+		}
+		if (ctx.dryRun) {
+			emitDryRunSuccess(result);
 			return;
 		}
 		const applied = [...policyMap].map(([s, a]) => `${s}=${a}`).join(", ");
@@ -7348,7 +7470,7 @@ async function main(argv = process.argv, deps = {}) {
 	tasksCmd.command("register-red <task-id>").description("Register the RED test for a claimed behavioral bug task (EXECUTE.work)").requiredOption("--feature <name>", "Feature whose task to register").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (taskId, opts) => {
 		const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
 		ctx.recordTraceTarget(opts.feature, featureDir);
-		const session = await loadSession(featureDir);
+		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state) {
 			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
 			return;
@@ -7369,10 +7491,15 @@ async function main(argv = process.argv, deps = {}) {
 			snapshot: session.snapshot,
 			tail_seq: session.tail_seq,
 			entries: session.entries,
-			meta: session.meta
+			meta: session.meta,
+			dryRun: ctx.dryRun
 		});
 		if (!result.ok) {
 			emitFailure(result.code, result.message, result.detail);
+			return;
+		}
+		if (ctx.dryRun) {
+			emitDryRunSuccess(result);
 			return;
 		}
 		const out = {
@@ -7388,7 +7515,7 @@ async function main(argv = process.argv, deps = {}) {
 	stepCmd.command("start").description("Mark a task step as running (task must be claimed)").requiredOption("--task <task-id>", "Task whose step to start").requiredOption("--step <step-name>", "Step name (kind-specific; see spec)").requiredOption("--feature <name>", "Feature whose task lifecycle to advance").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
 		ctx.recordTraceTarget(opts.feature, featureDir);
-		const session = await loadSession(featureDir);
+		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state) {
 			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
 			return;
@@ -7407,10 +7534,15 @@ async function main(argv = process.argv, deps = {}) {
 			snapshot: session.snapshot,
 			tail_seq: session.tail_seq,
 			entries: session.entries,
-			meta: session.meta
+			meta: session.meta,
+			dryRun: ctx.dryRun
 		});
 		if (!result.ok) {
 			emitFailure(result.code, result.message, result.detail);
+			return;
+		}
+		if (ctx.dryRun) {
+			emitDryRunSuccess(result);
 			return;
 		}
 		const updated = result.snapshot.tasks.find((t) => t.id === opts.task);
@@ -7452,7 +7584,7 @@ async function main(argv = process.argv, deps = {}) {
 		}
 		const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
 		ctx.recordTraceTarget(opts.feature, featureDir);
-		const session = await loadSession(featureDir);
+		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state) {
 			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
 			return;
@@ -7474,7 +7606,8 @@ async function main(argv = process.argv, deps = {}) {
 			snapshot: session.snapshot,
 			tail_seq: session.tail_seq,
 			entries: session.entries,
-			meta: session.meta
+			meta: session.meta,
+			dryRun: ctx.dryRun
 		};
 		let result;
 		let evidenceId;
@@ -7511,6 +7644,10 @@ async function main(argv = process.argv, deps = {}) {
 			emitFailure(result.code, result.message, result.detail);
 			return;
 		}
+		if (ctx.dryRun) {
+			emitDryRunSuccess(result);
+			return;
+		}
 		const updated = result.snapshot.tasks.find((t) => t.id === opts.task);
 		if (!updated) {
 			emitFailure("REDUCER_ERROR", `internal: task ${opts.task} missing from snapshot after successful step_done apply`);
@@ -7540,7 +7677,7 @@ async function main(argv = process.argv, deps = {}) {
 	program.command("settle").description("Advance VERIFY.accept → SETTLE.reconcile (deep ceremony only)").requiredOption("--feature <name>", "Feature whose session to settle").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
 		ctx.recordTraceTarget(opts.feature, featureDir);
-		const session = await loadSession(featureDir);
+		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		const from = session.snapshot.state?.sub_state;
 		if (!from) {
 			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
@@ -7560,10 +7697,15 @@ async function main(argv = process.argv, deps = {}) {
 			snapshot: session.snapshot,
 			tail_seq: session.tail_seq,
 			entries: session.entries,
-			meta: session.meta
+			meta: session.meta,
+			dryRun: ctx.dryRun
 		});
 		if (!result.ok) {
 			emitFailure(result.code, result.message, result.detail);
+			return;
+		}
+		if (ctx.dryRun) {
+			emitDryRunSuccess(result);
 			return;
 		}
 		const out = {
@@ -7583,7 +7725,7 @@ async function main(argv = process.argv, deps = {}) {
 	pendingCmd.command("raise").description("Raise a new pending entry (CLI allocates PEND-id)").requiredOption("--kind <kind>", "Pending kind (ask_user_question | gate_decision | spec_clarification | finding_decision | profile_escalation)").requiredOption("--question <text>", "Question / rationale shown to whoever resolves it (required for ALL kinds)").option("--options <csv>", "Comma-separated answer options (passthrough)").option("--task-id <id>", "Optional task association (passthrough)").requiredOption("--feature <name>", "Feature whose session to raise pending against").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
 		ctx.recordTraceTarget(opts.feature, featureDir);
-		const session = await loadSession(featureDir);
+		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state) {
 			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
 			return;
@@ -7612,10 +7754,15 @@ async function main(argv = process.argv, deps = {}) {
 			snapshot: session.snapshot,
 			tail_seq: session.tail_seq,
 			entries: session.entries,
-			meta: session.meta
+			meta: session.meta,
+			dryRun: ctx.dryRun
 		});
 		if (!result.ok) {
 			emitFailure(result.code, result.message, result.detail);
+			return;
+		}
+		if (ctx.dryRun) {
+			emitDryRunSuccess(result);
 			return;
 		}
 		ctx.success({
@@ -7626,6 +7773,7 @@ async function main(argv = process.argv, deps = {}) {
 		}, () => id + "\n", { stateChange: `pending raise: ${id} (kind=${opts.kind})` });
 	});
 	pendingCmd.command("list").description("List pending entries (FIFO; first unresolved is head)").requiredOption("--feature <name>", "Feature whose pending to list").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+		if (rejectIfDryRun("pending list")) return;
 		const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
 		ctx.recordTraceTarget(opts.feature, featureDir);
 		const loaded = await loadProjectionsOrFail(featureDir, ["pending"], opts.feature);
@@ -7646,9 +7794,10 @@ async function main(argv = process.argv, deps = {}) {
 		}, () => rows.map((r) => `${r.id} ${r.kind} ${r.resolved ? "resolved" : "open"} ${r.head ? "head" : "-"}\n`).join(""));
 	});
 	pendingCmd.command("status").description("Status of head pending entry (default) or specific entry by --id").requiredOption("--feature <name>", "Feature whose pending to inspect").option("--id <id>", "Lookup a specific PEND-id (default: head)").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+		if (rejectIfDryRun("pending status")) return;
 		const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
 		ctx.recordTraceTarget(opts.feature, featureDir);
-		const session = await loadSession(featureDir);
+		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state) {
 			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
 			return;
@@ -7681,7 +7830,7 @@ async function main(argv = process.argv, deps = {}) {
 	pendingCmd.command("resolve").description("Resolve the head pending entry (strict FIFO; no --id flag)").requiredOption("--answer <text>", "Resolution answer (passthrough into pending:resolved payload)").requiredOption("--feature <name>", "Feature whose pending to resolve").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
 		ctx.recordTraceTarget(opts.feature, featureDir);
-		const session = await loadSession(featureDir);
+		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state) {
 			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
 			return;
@@ -7705,10 +7854,15 @@ async function main(argv = process.argv, deps = {}) {
 			snapshot: session.snapshot,
 			tail_seq: session.tail_seq,
 			entries: session.entries,
-			meta: session.meta
+			meta: session.meta,
+			dryRun: ctx.dryRun
 		});
 		if (!result.ok) {
 			emitFailure(result.code, result.message, result.detail);
+			return;
+		}
+		if (ctx.dryRun) {
+			emitDryRunSuccess(result);
 			return;
 		}
 		ctx.success({
@@ -7777,10 +7931,15 @@ async function main(argv = process.argv, deps = {}) {
 			snapshot: session.snapshot,
 			tail_seq: session.tail_seq,
 			entries: session.entries,
-			meta: session.meta
+			meta: session.meta,
+			dryRun: ctx.dryRun
 		});
 		if (!result.ok) {
 			ctx.failure(result.code, result.message, result.detail);
+			return;
+		}
+		if (ctx.dryRun) {
+			emitDryRunSuccess(result);
 			return;
 		}
 		const isBatch = Array.isArray(parsed);
@@ -7813,7 +7972,7 @@ async function main(argv = process.argv, deps = {}) {
 		}
 		const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
 		ctx.recordTraceTarget(opts.feature, featureDir);
-		const session = await loadSession(featureDir);
+		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state) {
 			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
 			return;
@@ -7880,10 +8039,15 @@ async function main(argv = process.argv, deps = {}) {
 				snapshot: session.snapshot,
 				tail_seq: session.tail_seq,
 				entries: session.entries,
-				meta: session.meta
+				meta: session.meta,
+				dryRun: ctx.dryRun
 			});
 			if (!batchResult.ok) {
 				emitFailure(batchResult.code, batchResult.message, batchResult.detail);
+				return;
+			}
+			if (ctx.dryRun) {
+				emitDryRunSuccess(batchResult);
 				return;
 			}
 			ctx.success({
@@ -7929,10 +8093,15 @@ async function main(argv = process.argv, deps = {}) {
 				snapshot: session.snapshot,
 				tail_seq: session.tail_seq,
 				entries: session.entries,
-				meta: session.meta
+				meta: session.meta,
+				dryRun: ctx.dryRun
 			});
 			if (!batchResult.ok) {
 				emitFailure(batchResult.code, batchResult.message, batchResult.detail);
+				return;
+			}
+			if (ctx.dryRun) {
+				emitDryRunSuccess(batchResult);
 				return;
 			}
 			ctx.success({
@@ -7959,10 +8128,15 @@ async function main(argv = process.argv, deps = {}) {
 			snapshot: session.snapshot,
 			tail_seq: session.tail_seq,
 			entries: session.entries,
-			meta: session.meta
+			meta: session.meta,
+			dryRun: ctx.dryRun
 		});
 		if (!result.ok) {
 			emitFailure(result.code, result.message, result.detail);
+			return;
+		}
+		if (ctx.dryRun) {
+			emitDryRunSuccess(result);
 			return;
 		}
 		ctx.success({
@@ -7974,6 +8148,7 @@ async function main(argv = process.argv, deps = {}) {
 		}, () => id + "\n", { stateChange: `finding raise: ${id} (category=${opts.category}, action=${opts.action})` });
 	});
 	findingCmd.command("list").description("List findings (read-only; --status filters open|closed)").requiredOption("--feature <name>", "Feature whose findings to list").option("--status <s>", "Filter by status (open | closed)").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+		if (rejectIfDryRun("finding list")) return;
 		if (opts.status !== void 0 && opts.status !== "open" && opts.status !== "closed") {
 			emitFailure("USAGE", `--status must be one of: open | closed (got ${opts.status})`);
 			return;
@@ -8002,7 +8177,7 @@ async function main(argv = process.argv, deps = {}) {
 		}
 		const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
 		ctx.recordTraceTarget(opts.feature, featureDir);
-		const session = await loadSession(featureDir);
+		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state) {
 			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
 			return;
@@ -8033,10 +8208,15 @@ async function main(argv = process.argv, deps = {}) {
 			snapshot: session.snapshot,
 			tail_seq: session.tail_seq,
 			entries: session.entries,
-			meta: session.meta
+			meta: session.meta,
+			dryRun: ctx.dryRun
 		});
 		if (!result.ok) {
 			emitFailure(result.code, result.message, result.detail);
+			return;
+		}
+		if (ctx.dryRun) {
+			emitDryRunSuccess(result);
 			return;
 		}
 		ctx.success({
@@ -8132,10 +8312,15 @@ async function main(argv = process.argv, deps = {}) {
 			snapshot: session.snapshot,
 			tail_seq: session.tail_seq,
 			entries: session.entries,
-			meta: session.meta
+			meta: session.meta,
+			dryRun: ctx.dryRun
 		});
 		if (!result.ok) {
 			ctx.failure(result.code, result.message, result.detail);
+			return;
+		}
+		if (ctx.dryRun) {
+			emitDryRunSuccess(result);
 			return;
 		}
 		const reqIds = result.snapshot.requirements.map((r) => r.id);
@@ -8286,10 +8471,15 @@ feature:
 			snapshot: session.snapshot,
 			tail_seq: session.tail_seq,
 			entries: session.entries,
-			meta: session.meta
+			meta: session.meta,
+			dryRun: ctx.dryRun
 		});
 		if (!result.ok) {
 			ctx.failure(result.code, result.message, result.detail);
+			return;
+		}
+		if (ctx.dryRun) {
+			emitDryRunSuccess(result);
 			return;
 		}
 		const specVersion = result.snapshot.state?.spec_version;
@@ -8357,7 +8547,7 @@ feature:
 			return 1;
 		}
 	} finally {
-		if (ctx.debug && ctx.traceTarget) try {
+		if (ctx.debug && ctx.traceTarget && !ctx.dryRun) try {
 			const wallMs = Math.round(monotonicNow() - t0);
 			const crashContext = ctx.snapshotCrashContext();
 			const entry = buildTraceEntry({

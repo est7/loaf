@@ -93,6 +93,16 @@ export interface MutateContext {
   meta: SnapshotMeta;
   /** Disable fsync for tests */
   fsync?: boolean;
+  /** Phase 16 SC-6c — when true, run preflight (Pass 0/1/1.5) + the
+   *  MutateContext integrity check (Pass A), then SHORT-CIRCUIT before
+   *  Pass 2 (sidecar promote), Pass 3 (final reducer + drift), Pass 4
+   *  (`appendMany`), Pass 5 (spec.md projection), and step 8 (snapshots).
+   *  No disk write. Returns the same ok-shape with the would-be snapshot
+   *  + stamped (but unpromoted) candidates + unchanged ctx.meta. v0.1.0
+   *  inherits the MVP mutator's lack of §11.2 step 1/10 lock acquire/
+   *  release; future versions may also stage sidecars to `.tmp-*` per
+   *  protocol §10.7. */
+  dryRun?: boolean;
 }
 
 export type MutateFailureCode =
@@ -326,6 +336,61 @@ export async function mutateBatch(
     }
   }
 
+  // Pass A: fail-fast context-integrity invariant (Phase 15 SC2; moved
+  // here from after Pass 3 in SC-6c per codex r275 P3 + r276 P7). step 8
+  // writes `_meta.json` from the post-append meta, which is only
+  // authoritative if `ctx.entries` / `ctx.meta` describe the SAME journal
+  // prefix as `ctx.tail_seq`. A stale or hand-built context (entries
+  // tail seq or meta.last_applied_seq drifted from tail_seq) must be
+  // rejected BEFORE the append makes the projection writes authoritative
+  // for the wrong prefix. An empty prefix (tail_seq -1) additionally
+  // requires the empty-sentinel meta — seq -1 alone does not rule out
+  // a corrupt rolling_checksum that `appendMany` would fold into the
+  // post-append meta (codex r171 BLOCK 2).
+  //
+  // Placement: AFTER Pass 1.5 (gate eval) so preflight + gate errors keep
+  // their existing priority; IMMEDIATELY BEFORE the dry-run early-return
+  // so both dry-run and real-append paths share the same guard (codex
+  // r276 priority constraint).
+  const ctxEntriesTailSeq = ctx.entries[ctx.entries.length - 1]?.seq ?? -1;
+  const emptyPrefixMetaBad = ctx.tail_seq === -1 && !isEmptyMeta(ctx.meta);
+  if (
+    ctxEntriesTailSeq !== ctx.tail_seq ||
+    ctx.meta.last_applied_seq !== ctx.tail_seq ||
+    emptyPrefixMetaBad
+  ) {
+    return {
+      ok: false,
+      code: "INVALID_BATCH",
+      message:
+        `MutateContext is internally inconsistent: tail_seq=${ctx.tail_seq} but ` +
+        `entries tail seq=${ctxEntriesTailSeq}, meta.last_applied_seq=${ctx.meta.last_applied_seq}` +
+        (emptyPrefixMetaBad ? ", and meta is not the empty sentinel for an empty prefix" : "") +
+        `; entries + meta must describe the same journal prefix as tail_seq`,
+      detail: {
+        tail_seq: ctx.tail_seq,
+        entries_tail_seq: ctxEntriesTailSeq,
+        meta_last_applied_seq: ctx.meta.last_applied_seq,
+        empty_prefix_meta_bad: emptyPrefixMetaBad,
+      },
+    };
+  }
+
+  // SC-6c dry-run early-return: skip remaining disk-touching passes
+  // (sidecar promote, final reducer + drift, journal append, spec.md +
+  // snapshots projection). Returns the would-be snapshot from Pass 1's
+  // accumulator + the stamped (but unpromoted) candidates + unchanged
+  // ctx.meta. The caller knows from `ctx.dryRun` whether to format
+  // success as a "would do" summary.
+  if (ctx.dryRun) {
+    return {
+      ok: true,
+      snapshot: snapshotAcc,
+      entries: candidates,
+      meta: ctx.meta,
+    };
+  }
+
   // Pass 2: sidecar promotion. All entries validated; from here we accept
   // that any failure may leave on-disk residue (sidecar attachments) that
   // `loaf doctor --orphan-attachment` will GC. Planned validation failures
@@ -376,39 +441,6 @@ export async function mutateBatch(
       message:
         "snapshot drift between unpromoted and promoted dry-runs — a reducer is reading LongTextField content; the batch is unsafe to append",
       detail: { phase: "drift-check" },
-    };
-  }
-
-  // Fail-fast context-integrity invariant (Phase 15 SC2). step 8 writes
-  // `_meta.json` from the post-append meta, which is only authoritative if
-  // `ctx.entries` / `ctx.meta` describe the SAME journal prefix as
-  // `ctx.tail_seq`. A stale or hand-built context (entries tail seq or
-  // meta.last_applied_seq drifted from tail_seq) must be rejected BEFORE the
-  // append makes the projection writes authoritative for the wrong prefix.
-  // An empty prefix (tail_seq -1) additionally requires the empty-sentinel
-  // meta — seq -1 alone does not rule out a corrupt rolling_checksum that
-  // `appendMany` would fold into the post-append meta (codex r171 BLOCK 2).
-  const ctxEntriesTailSeq = ctx.entries[ctx.entries.length - 1]?.seq ?? -1;
-  const emptyPrefixMetaBad = ctx.tail_seq === -1 && !isEmptyMeta(ctx.meta);
-  if (
-    ctxEntriesTailSeq !== ctx.tail_seq ||
-    ctx.meta.last_applied_seq !== ctx.tail_seq ||
-    emptyPrefixMetaBad
-  ) {
-    return {
-      ok: false,
-      code: "INVALID_BATCH",
-      message:
-        `MutateContext is internally inconsistent: tail_seq=${ctx.tail_seq} but ` +
-        `entries tail seq=${ctxEntriesTailSeq}, meta.last_applied_seq=${ctx.meta.last_applied_seq}` +
-        (emptyPrefixMetaBad ? ", and meta is not the empty sentinel for an empty prefix" : "") +
-        `; entries + meta must describe the same journal prefix as tail_seq`,
-      detail: {
-        tail_seq: ctx.tail_seq,
-        entries_tail_seq: ctxEntriesTailSeq,
-        meta_last_applied_seq: ctx.meta.last_applied_seq,
-        empty_prefix_meta_bad: emptyPrefixMetaBad,
-      },
     };
   }
 

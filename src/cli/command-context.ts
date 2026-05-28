@@ -154,6 +154,14 @@ export function parseDebugFromArgv(
   return false;
 }
 
+/** Phase 16 SC-6c — returns true if `--dry-run` or `-n` appears in argv.
+ *  Orthogonal to all other presentation flags (no mutex). When true,
+ *  mutating commands short-circuit before journal append + projection
+ *  refresh; read-only commands reject with DRY_RUN_NOT_APPLICABLE. */
+export function parseDryRunFromArgv(argv: readonly string[]): boolean {
+  return argv.includes("--dry-run") || argv.includes("-n");
+}
+
 /** Returns cumulative verbose count: `-v` = 1, `-vv` = 2,
  *  `--verbose` = 1, and multiple occurrences sum. E.g.
  *  `-v --verbose` = 2, `-vv --verbose` = 3. Per protocol §10.7 +
@@ -219,6 +227,10 @@ export type PresentationOk = {
    *  flags; does not participate in MUTUALLY_EXCLUSIVE_FLAGS. See
    *  `parseDebugFromArgv` (env-aware). */
   debug: boolean;
+  /** Phase 16 SC-6c — dry-run mode. Orthogonal to all other flags.
+   *  When true: mutating commands short-circuit before disk writes;
+   *  read-only commands reject. See `parseDryRunFromArgv`. */
+  dryRun: boolean;
 };
 export type PresentationFail =
   | { ok: false; kind: "INVALID_FORMAT"; rawValue: string }
@@ -302,6 +314,7 @@ export function parsePresentation(
     noColor: parseNoColorFromArgv(argv, env),
     noInput: parseNoInputFromArgv(argv),
     debug: parseDebugFromArgv(argv, env),
+    dryRun: parseDryRunFromArgv(argv),
   };
 }
 
@@ -324,7 +337,13 @@ export type LoadProjectionsFn = <K extends ProjectionKind>(opts: {
 export type CommandContextDeps = {
   writeStdout: (s: string) => void;
   writeStderr: (s: string) => void;
-  loadSession?: (featureDir: string) => Promise<SessionLoad>;
+  /** Phase 16 SC-6c: `loadSession` accepts an `ensureDir` option.
+   *  Production wires `cli-runtime.ts` `loadSession` (which honors
+   *  the option); tests inject synthetic loaders. */
+  loadSession?: (
+    featureDir: string,
+    opts?: { ensureDir?: boolean },
+  ) => Promise<SessionLoad>;
   loadProjections?: LoadProjectionsFn;
 };
 
@@ -359,8 +378,19 @@ export type CommandContext = {
   /** Phase 16 SC-6b — debug-trace mode. When true, `main()`'s finally
    *  block writes one `kind:"cli"` row to
    *  `<feature-dir>/trace.jsonl` IFF `traceTarget` was recorded by
-   *  the action handler. See `recordTraceTarget`. */
+   *  the action handler. See `recordTraceTarget`. Suppressed when
+   *  `dryRun` is true (codex r275 P1). */
   readonly debug: boolean;
+  /** Phase 16 SC-6c — dry-run mode. When true:
+   *  - mutating commands pass `dryRun: true` into `MutateContext`,
+   *    short-circuiting before sidecar promote + journal append +
+   *    projection refresh.
+   *  - read-only commands reject with DRY_RUN_NOT_APPLICABLE.
+   *  - trace.jsonl write is suppressed (P1).
+   *  - `ctx.resolveSession` passes `ensureDir: false` to skip the
+   *    feature-dir mkdir side-effect (P6).
+   */
+  readonly dryRun: boolean;
   /** Phase 16 SC-6b — trace target set by action handlers via
    *  `recordTraceTarget`. `null` when no feature-addressed action
    *  fired (e.g. `loaf --version`, `loaf --help`, bare `loaf doctor`)
@@ -435,6 +465,7 @@ export function createCommandContext(
   const noColor: boolean = presentation.ok ? presentation.noColor : false;
   const noInput: boolean = presentation.ok ? presentation.noInput : false;
   const debug: boolean = presentation.ok ? presentation.debug : false;
+  const dryRun: boolean = presentation.ok ? presentation.dryRun : false;
   let exitCode = 0;
   let traceTarget: { feature: string; featureDir: string } | null = null;
 
@@ -459,6 +490,7 @@ export function createCommandContext(
     noColor,
     noInput,
     debug,
+    dryRun,
     get traceTarget() {
       return traceTarget;
     },
@@ -480,7 +512,12 @@ export function createCommandContext(
           "CommandContext: loadSession dep not provided; cannot resolveSession",
         );
       }
-      const p = deps.loadSession(featureDir).then((sess) => {
+      // SC-6c: dry-run suppresses the mkdir side-effect by passing
+      // `ensureDir: false` so a `loaf --dry-run start new-feature` does
+      // not leave behind a `.loaf/new-feature/` directory (codex r275 P6
+      // + r276 constraint 2 — ensureDir is derived from ctx.dryRun, not
+      // a per-call option, so the cache key stays `featureDir`).
+      const p = deps.loadSession(featureDir, { ensureDir: !dryRun }).then((sess) => {
         const sub = sess.snapshot.state?.sub_state ?? null;
         if (sub) lastResolvedSubState = sub;
         const sid = sess.snapshot.state?.session_id ?? null;

@@ -52,8 +52,20 @@ export interface SessionLoad {
   meta: SnapshotMeta;
 }
 
-export async function loadSession(featureDir: string): Promise<SessionLoad> {
-  await fs.mkdir(featureDir, { recursive: true });
+export async function loadSession(
+  featureDir: string,
+  opts: { ensureDir?: boolean } = {},
+): Promise<SessionLoad> {
+  // SC-6c: ensureDir defaults true (existing behavior). Dry-run sets it
+  // false so a `loaf --dry-run start new-feature` doesn't leave behind
+  // an empty `.loaf/new-feature/` directory (codex r275 P1 / r276 P6).
+  // `replayJournal` returns ok with empty snapshot on ENOENT, so a
+  // skipped mkdir against a missing feature dir yields the same shape
+  // (empty SessionLoad) without the directory side-effect.
+  const ensureDir = opts.ensureDir ?? true;
+  if (ensureDir) {
+    await fs.mkdir(featureDir, { recursive: true });
+  }
   const journalPath = path.join(featureDir, "journal.jsonl");
   const replay = await replayJournal(journalPath, {
     feature_dir: featureDir,
