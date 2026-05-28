@@ -139,6 +139,21 @@ export function parseNoInputFromArgv(argv: readonly string[]): boolean {
   return argv.includes("--no-input");
 }
 
+/** Phase 16 SC-6b — returns true if `--debug` flag OR a non-empty
+ *  `LOAF_DEBUG` / `DEBUG` env var triggers debug mode. Precedence:
+ *  `--debug` flag > `LOAF_DEBUG` > `DEBUG` (any non-empty value
+ *  is truthy per protocol §1547; no `0`/`false` magic). Orthogonal
+ *  to all other presentation flags. */
+export function parseDebugFromArgv(
+  argv: readonly string[],
+  env: { LOAF_DEBUG?: string | undefined; DEBUG?: string | undefined } = process.env as never,
+): boolean {
+  if (argv.includes("--debug")) return true;
+  if (env.LOAF_DEBUG && env.LOAF_DEBUG.length > 0) return true;
+  if (env.DEBUG && env.DEBUG.length > 0) return true;
+  return false;
+}
+
 /** Returns cumulative verbose count: `-v` = 1, `-vv` = 2,
  *  `--verbose` = 1, and multiple occurrences sum. E.g.
  *  `-v --verbose` = 2, `-vv --verbose` = 3. Per protocol §10.7 +
@@ -200,6 +215,10 @@ export type PresentationOk = {
    *  output_format normalization; does not participate in the
    *  MUTUALLY_EXCLUSIVE_FLAGS check. See `parseNoInputFromArgv`. */
   noInput: boolean;
+  /** Phase 16 SC-6b — debug observability. Orthogonal to all other
+   *  flags; does not participate in MUTUALLY_EXCLUSIVE_FLAGS. See
+   *  `parseDebugFromArgv` (env-aware). */
+  debug: boolean;
 };
 export type PresentationFail =
   | { ok: false; kind: "INVALID_FORMAT"; rawValue: string }
@@ -239,7 +258,13 @@ function collectOutputFormatEntries(argv: readonly string[]): Array<{ entry: str
 
 export function parsePresentation(
   argv: readonly string[],
-  env: { NO_COLOR?: string | undefined; LOAF_NO_COLOR?: string | undefined; TERM?: string | undefined } = process.env as never,
+  env: {
+    NO_COLOR?: string | undefined;
+    LOAF_NO_COLOR?: string | undefined;
+    TERM?: string | undefined;
+    LOAF_DEBUG?: string | undefined;
+    DEBUG?: string | undefined;
+  } = process.env as never,
 ): PresentationResult {
   // Pass 1: INVALID_FORMAT precedence — scan EVERY `--format` /
   // `--format=` occurrence (not just the first) so a later invalid
@@ -276,6 +301,7 @@ export function parsePresentation(
     verbose: parseVerboseFromArgv(argv),
     noColor: parseNoColorFromArgv(argv, env),
     noInput: parseNoInputFromArgv(argv),
+    debug: parseDebugFromArgv(argv, env),
   };
 }
 
@@ -283,6 +309,10 @@ export type CrashContext = {
   phase: string | null;
   sub_state: string | null;
   feature: string | null;
+  /** Phase 16 SC-6b — `session_id` is also captured by resolveSession
+   *  and exposed here so the trace.jsonl finalize step has a single
+   *  read site for derived state. Null if no session was resolved. */
+  session_id: string | null;
   last_command: string;
 };
 
@@ -326,6 +356,22 @@ export type CommandContext = {
    *  git-config fallback (CI / skill / hook safety). Explicit
    *  `$LOAF_USER` is NOT affected. */
   readonly noInput: boolean;
+  /** Phase 16 SC-6b — debug-trace mode. When true, `main()`'s finally
+   *  block writes one `kind:"cli"` row to
+   *  `<feature-dir>/trace.jsonl` IFF `traceTarget` was recorded by
+   *  the action handler. See `recordTraceTarget`. */
+  readonly debug: boolean;
+  /** Phase 16 SC-6b — trace target set by action handlers via
+   *  `recordTraceTarget`. `null` when no feature-addressed action
+   *  fired (e.g. `loaf --version`, `loaf --help`, bare `loaf doctor`)
+   *  or before the action body's top line ran. */
+  readonly traceTarget: { feature: string; featureDir: string } | null;
+  /** Phase 16 SC-6b — called as the first line of each feature-
+   *  addressed action body, BEFORE any action-internal validation.
+   *  Idempotent; last call wins. Commander-level USAGE failures
+   *  never reach the action callback and therefore never set this
+   *  (no trace row written) — see docs/protocol.md §4.10. */
+  recordTraceTarget: (feature: string, featureDir: string) => void;
   exitCode: number;
   resolveSession: (featureDir: string) => Promise<SessionLoad>;
   resolveProjections: <K extends ProjectionKind>(
@@ -388,7 +434,9 @@ export function createCommandContext(
   const verbose: number = presentation.ok ? presentation.verbose : 0;
   const noColor: boolean = presentation.ok ? presentation.noColor : false;
   const noInput: boolean = presentation.ok ? presentation.noInput : false;
+  const debug: boolean = presentation.ok ? presentation.debug : false;
   let exitCode = 0;
+  let traceTarget: { feature: string; featureDir: string } | null = null;
 
   // Caches: separate per resolution method per codex r206 PATCH D. Same
   // featureDir hitting both resolveSession and resolveProjections runs
@@ -398,7 +446,9 @@ export function createCommandContext(
 
   // Cached session for snapshotCrashContext — last resolved session
   // becomes the source for phase/sub_state in the crash log envelope.
+  // SC-6b: also captures `session_id` for the trace.jsonl row.
   let lastResolvedSubState: string | null = null;
+  let lastResolvedSessionId: string | null = null;
 
   const ctx: CommandContext = {
     argv,
@@ -408,6 +458,13 @@ export function createCommandContext(
     verbose,
     noColor,
     noInput,
+    debug,
+    get traceTarget() {
+      return traceTarget;
+    },
+    recordTraceTarget(feature: string, featureDir: string): void {
+      traceTarget = { feature, featureDir };
+    },
     get exitCode() {
       return exitCode;
     },
@@ -426,6 +483,8 @@ export function createCommandContext(
       const p = deps.loadSession(featureDir).then((sess) => {
         const sub = sess.snapshot.state?.sub_state ?? null;
         if (sub) lastResolvedSubState = sub;
+        const sid = sess.snapshot.state?.session_id ?? null;
+        if (sid) lastResolvedSessionId = sid;
         return sess;
       });
       sessionCache.set(featureDir, p);
@@ -512,6 +571,7 @@ export function createCommandContext(
         phase: phaseOf(lastResolvedSubState),
         sub_state: lastResolvedSubState,
         feature: extractFeature(argv),
+        session_id: lastResolvedSessionId,
         last_command: [...argv].join(" "),
       };
     },

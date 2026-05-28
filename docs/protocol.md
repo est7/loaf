@@ -928,13 +928,30 @@ gate / submit / transition / diff-guard 失败时**覆写**到 `.loaf/<feature>/
 
 ### 4.10 trace.jsonl(`--debug` only)
 
-> **Authority**: Debug-trace(仅 `--debug` 写;git 永不污染;crash log 永不自动 upload,§10.11)。不是 journal entry,不进 reducer。
+> **Authority**: Debug-trace(仅 `--debug` 写;git 永不污染;crash log 永不自动 upload,§10.11)。不是 journal entry,不进 reducer。**v0.1.0**:仅写 CLI-invocation 一行(per loaf 调用);external-command 行 future(需 `kind` discriminator,见 §13.2 future 部分)。
+
+**v0.1.0 CLI-invocation row schema**(每次 `loaf …` 调用结束 best-effort append 一行):
 
 ```jsonl
-{"schema_version":2,"at":"...","session_id":"...","iteration":1,"sub_state":"EXECUTE.work","cmd":"bun test","argv":["auth.test.ts"],"exit":0,"wall_ms":3450,"stdout_summary":"4 passed"}
+{"schema_version":2,"kind":"cli","at":"2026-05-28T03:00:00.123Z","feature":"auth-refresh","session_id":"550e8400-e29b-41d4-a716-446655440000","sub_state":"EXECUTE.work","cmd":"loaf advance EXECUTE.done","argv":["advance","EXECUTE.done","--feature","auth-refresh","--feature-dir","<feature-dir>"],"exit":0,"wall_ms":42,"stdout_summary":"{\"ok\":true,\"sub_state\":\"EXECUTE.done\"}"}
 ```
 
-git 默认 `.gitignore` 排除。
+字段含义(reader 视为 best-effort,缺字段 `null` 兼容):
+
+- `kind: "cli"` — discriminator;`"external"` reserved for future external-command tracing
+- `feature: string` — `.loaf/<feature>/` dir basename
+- `session_id: string | null` — null 当 session 不存在(post-start 之前)
+- `sub_state: string | null` — 最后 resolved 的 sub_state
+- `cmd: string` — `"loaf"` + 前 3 个非-flag argv tokens(覆盖 `loaf X` / `loaf X Y` / `loaf X Y Z`)
+- `argv: string[]` — post-redaction argv;以下 14 flag 的 value 替换为占位符(local debug 文件含命令输出,见 §10.7 隐私段):`--feature-dir` / `--input` / `--reason` / `--answer` / `--question` / `--options` / `--label` / `--summary` / `--evidence-summary` / `--evidence-reason` / `--feature-name` / `--intent` / `--workspace` / `--evidence-actor`
+- `wall_ms: number` — `performance.now()` 差,从 `main()` entry 到 finally
+- `stdout_summary: string` — stdout 头 256 字符;json 模式优先 `JSON.parse` + re-stringify
+
+**v0.1.0 写入条件**(narrow):trace 行只在 action handler 已进入并 resolve 出 feature target 后写;Commander-level USAGE 错误(缺 required flag、unknown subcommand)+ no-feature 命令(`loaf --version` / `--help` / bare `loaf doctor`)不产生 trace 行(crash-log 仍写,见 §10.5)。Trace write 失败永不影响 exit code(`fs.appendFile` best-effort;Debug-trace 是 non-authoritative)。
+
+**移除字段**:v0.0.x 样例中的 `iteration` 字段从 v0.1.0 schema 移除 —— reducer 不维护 per-CLI-invocation 计数(§5 iteration 是 verify-cycle 计数,与此无关)。
+
+git 默认 `.gitignore` 排除(`**/.loaf/*/trace.jsonl`)。
 
 ### 4.11 loaf.config.json(rev 3.1 合并配置,project-level)
 
@@ -1743,7 +1760,7 @@ error: input does not satisfy schema for spec:add-req: /measurable/threshold: ex
 | `--no-input` | — | bool | false | **关键**:skill / hook / CI 用 — 声明 non-interactive context。**v0.1.0 当前实现**:actor resolver 拒绝 git-config fallback(同 stdin 非 TTY 等价);`$LOAF_USER` 显式 actor 入口**不**受影响。**未来 prompt 入口落地后**:禁用所有 prompt,缺必要输入直接 exit 2(见下方 §10.7 prompt 行为) |
 | `--quiet` | `-q` | bool | false | 抑制非错误输出(stderr 仍出错误) |
 | `--verbose` | `-v` | counter | 0 | `-v` / `-vv` 递增 stderr 信息密度;独立于 `--debug` |
-| `--debug` <!-- inventory:future reason="SC-6b debug observability" --> | — | bool | false | 写 `trace.jsonl`(`LOAF_DEBUG=1` / `DEBUG=1` 等价);**不**改变 stderr 密度(用 `-v`) |
+| `--debug` | — | bool | false | 写 `trace.jsonl`(precedence:`--debug` flag > `LOAF_DEBUG` > 通用 `DEBUG`,非空即真);**不**改变 stderr 密度(用 `-v`)。**v0.1.0 当前实现**:`.loaf/<feature>/trace.jsonl` 写 CLI-invocation 一行(含 wall_ms / exit / stdout_summary,见 §4.10);no-feature 命令(`--version` / `--help` / bare `doctor`)+ Commander USAGE 失败不写 trace。**未来扩展**:gate-chain stderr 详情 / SessionStart hook detail / external-command 行(均 SC 待定) |
 | `--dry-run` <!-- inventory:future reason="SC-6c mutate pipeline dry-run" --> | `-n` | bool | false | **rev 4.1**:mutating 命令只校验不落盘(见下方 dry-run 契约);read-only 命令 reject + exit 2 |
 | `--session <UUID>` <!-- inventory:future reason="SC-7+SC-8 registry-based session routing" --> | — | string | `$LOAF_SESSION` env or auto-pick | **rev 4.1**:dispatch 单次覆盖,见 §10.3 precedence;接受 ≥8 字符 prefix |
 | `--feature <name>` <!-- inventory:placeholder reason="per-command flag documented in global section; runtime parity TBD via SC-3 CLI runtime extraction" --> | — | string | `$LOAF_FEATURE` env or auto-pick | **rev 4.1**:dispatch via feature 名(cwd-local alias),见 §10.3 |
@@ -2306,18 +2323,21 @@ v1 的核心目标是 protocol 可靠,不是知识复利自动化。手工 grep 
 ### 13.2 `--debug` 触发
 
 ```bash
-loaf --debug start "..."     # 本次 session 全程 debug
+loaf --debug start "..."     # 本次调用 debug
 loaf --debug advance         # 单次 debug
 ```
 
-或环境变量 `LOAF_DEBUG=1`。
+或环境变量 `LOAF_DEBUG=1`(precedence:`--debug` flag > `LOAF_DEBUG` > 通用 `DEBUG`,非空即真)。
 
-`state.debug=true` 时额外产出:
-- `.loaf/<feature>/trace.jsonl`:每次 CLI 调用 + 每次外部命令调用一行
+**v0.1.0 当前实现**:`--debug` 是 per-invocation flag,**不**在 journal / state 内 carry。每次 CLI 调用结束 best-effort 追加一行 CLI-invocation 行到 `.loaf/<feature>/trace.jsonl`(schema 见 §4.10)。no-feature 命令(`loaf --version` / `--help` / bare `loaf doctor`)+ Commander USAGE 失败不写 trace。Trace write 失败永不影响 exit code。
+
+**未来扩展**(`--debug` 行所述,SC 待定):
 - stderr 增加 verbose 解释(gate 失败时打印完整检查链)
 - SessionStart hook 注入更详细的状态摘要
+- external-command 行(每次 spawn 一行,kind=`"external"`,argv carry spawn 的 program + 参数)
+- `state.debug=true` 持久化(若需 cross-invocation 默认 debug,journal 加 entry)
 
-`debug=false`(默认):上述全无,git 不污染。
+`debug=false`(默认):上述全无,git 不污染(`.gitignore` 默认排除 `**/.loaf/*/trace.jsonl`)。
 
 ---
 

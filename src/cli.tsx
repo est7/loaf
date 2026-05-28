@@ -25,6 +25,11 @@ import {
   parsePresentation,
   FORMAT_MODES_HUMAN,
 } from "./cli/command-context.js";
+import {
+  buildTraceEntry,
+  defaultAppendTraceLine,
+  type TraceEntry,
+} from "./cli/trace-writer.js";
 import { buildReportUrl } from "./cli/url-prefill.js";
 import { parseInputSource } from "./cli/input-source.js";
 import { readJsonInput } from "./cli/input-read.js";
@@ -187,6 +192,14 @@ export type MainDeps = {
   // without `--no-input`).
   isInteractiveHuman?: () => boolean;
   readGitConfig?: () => string | null;
+  // Phase 16 SC-6b — test-injectable trace-writer primitives. Production
+  // omits all three; defaults wire `defaultAppendTraceLine`, `new Date()`,
+  // and `performance.now()`. Tests inject throwing `appendTraceLine` to
+  // assert write-failure does NOT flip exit code (T22), and inject canned
+  // `now` / `monotonicNow` to assert deterministic `at` / `wall_ms`.
+  appendTraceLine?: (featureDir: string, entry: TraceEntry) => Promise<void>;
+  now?: () => Date;
+  monotonicNow?: () => number;
 };
 
 export async function main(
@@ -248,6 +261,28 @@ export async function main(
 
   const readStdin = deps.readStdin ?? defaultReadStdin;
   const isStdinTty = deps.isStdinTty ?? defaultIsStdinTty;
+  // SC-6b — trace-writer DI seams. Production defaults wire the real
+  // append + clocks; tests inject canned values (deterministic `at` /
+  // `wall_ms`) or throwing append (assert write-failure does NOT flip
+  // exit code).
+  const appendTraceLine = deps.appendTraceLine ?? defaultAppendTraceLine;
+  const now = deps.now ?? ((): Date => new Date());
+  const monotonicNow = deps.monotonicNow ?? ((): number => performance.now());
+  // Always-on stdout capture (capped) so the trace.jsonl `stdout_summary`
+  // field can be populated lazily in the finally block. Capacity is
+  // 16× the 256-char summary slice — JS string length is UTF-16 code
+  // units; cap is approximate for non-ASCII (over-cap drops more than
+  // 256 chars of summary, fine for debug observability).
+  const STDOUT_CAPTURE_CHAR_CAP = 4096;
+  const stdoutCapture: string[] = [];
+  let stdoutCaptureChars = 0;
+  const writeStdoutCaptured = (s: string): void => {
+    if (stdoutCaptureChars < STDOUT_CAPTURE_CHAR_CAP) {
+      stdoutCapture.push(s.slice(0, STDOUT_CAPTURE_CHAR_CAP - stdoutCaptureChars));
+      stdoutCaptureChars += s.length;
+    }
+    process.stdout.write(s);
+  };
   const program = new Command();
 
   program
@@ -269,6 +304,11 @@ export async function main(
     // fallback (`isInteractiveHuman` AND-folded with !ctx.noInput). Future
     // prompt entry points must short-circuit to exit 2 when set.
     .option("--no-input", "Non-interactive mode: refuse git-config actor fallback; forward-compat with future prompts (skill / hook / CI)")
+    // SC-6b — debug observability. Writes one `kind:"cli"` row to
+    // `.loaf/<feature>/trace.jsonl` at invocation end. Orthogonal to
+    // `-v/--verbose` (which owns stderr advisory density). Env equivalents
+    // `LOAF_DEBUG` / `DEBUG` (any non-empty value); flag wins.
+    .option("--debug", "Write per-invocation trace.jsonl (LOAF_DEBUG=1 / DEBUG=1 equivalents)")
     .addHelpText("after", helpFooter())
     .showHelpAfterError()
     .exitOverride();
@@ -284,7 +324,7 @@ export async function main(
   // ctx without per-call-site changes (codex r206 axis G: 1 representative
   // command migrated; rest follow in SC-4..SC-15 as each is touched).
   const ctx = createCommandContext(argv, {
-    writeStdout: (s) => process.stdout.write(s),
+    writeStdout: writeStdoutCaptured,
     writeStderr: (s) => process.stderr.write(s),
     loadSession,
     loadProjections,
@@ -378,6 +418,7 @@ export async function main(
         return;
       }
       const featureDir = opts.featureDir ?? defaultFeatureDir(feature);
+      ctx.recordTraceTarget(feature, featureDir);
       const session = await loadSession(featureDir);
       const sessionId = crypto.randomUUID();
       const result = await mutate(
@@ -436,6 +477,7 @@ export async function main(
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (to: string, opts: { feature: string; featureDir?: string }) => {
       const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      ctx.recordTraceTarget(opts.feature, featureDir);
       const session = await loadSession(featureDir);
       const from = session.snapshot.state?.sub_state;
       if (!from) {
@@ -472,6 +514,7 @@ export async function main(
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { feature: string; featureDir?: string }) => {
       const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      ctx.recordTraceTarget(opts.feature, featureDir);
       const loaded = await loadProjectionsOrFail(
         featureDir,
         ["state", "tasks", "evidence", "findings", "pending"] as const,
@@ -591,6 +634,7 @@ export async function main(
       const humanActor = resolution.actor;
       // (4) load session
       const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      ctx.recordTraceTarget(opts.feature, featureDir);
       const session = await loadSession(featureDir);
       const from = session.snapshot.state?.sub_state;
       if (!from) {
@@ -813,6 +857,7 @@ export async function main(
       // (2) Load session via ctx (caches per featureDir; ctx also captures
       //     the resolved sub_state for snapshotCrashContext enrichment).
       const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      ctx.recordTraceTarget(opts.feature, featureDir);
       const session = await ctx.resolveSession(featureDir);
       const from = session.snapshot.state?.sub_state;
       if (!from) {
@@ -898,6 +943,7 @@ export async function main(
 
       // (2) Load session.
       const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      ctx.recordTraceTarget(opts.feature, featureDir);
       const session = await loadSession(featureDir);
       const from = session.snapshot.state?.sub_state;
       if (!from) {
@@ -961,6 +1007,7 @@ export async function main(
 
       // (2) Load session.
       const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      ctx.recordTraceTarget(opts.feature, featureDir);
       const session = await loadSession(featureDir);
       const from = session.snapshot.state?.sub_state;
       if (!from) {
@@ -1049,6 +1096,7 @@ export async function main(
 
         // (2) Load session.
         const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+        ctx.recordTraceTarget(opts.feature, featureDir);
         const session = await loadSession(featureDir);
         const from = session.snapshot.state?.sub_state;
         if (!from) {
@@ -1134,6 +1182,9 @@ export async function main(
         feature: string;
         featureDir?: string;
       }) => {
+        // SC-6b — record trace target at action entry so input-read /
+        // schema-parse failures still trace.
+        ctx.recordTraceTarget(opts.feature, opts.featureDir ?? defaultFeatureDir(opts.feature));
         // (1) Human-only acceptance — escalation is a human decision.
         const resolution = resolveHumanActor({
           env: process.env,
@@ -1178,6 +1229,7 @@ export async function main(
 
         // (3) Load session.
         const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+        ctx.recordTraceTarget(opts.feature, featureDir);
         const session = await loadSession(featureDir);
         const from = session.snapshot.state?.sub_state;
         if (!from) {
@@ -1292,6 +1344,7 @@ export async function main(
       }
 
       const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      ctx.recordTraceTarget(opts.feature, featureDir);
       const journalPath = path.join(featureDir, "journal.jsonl");
       const replay = await replayJournal(journalPath, {
         collect_entries: true,
@@ -1421,6 +1474,7 @@ export async function main(
       const payload = read.value;
 
       const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      ctx.recordTraceTarget(opts.feature, featureDir);
       const session = await ctx.resolveSession(featureDir);
       if (!session.snapshot.state) {
         ctx.failure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
@@ -1550,6 +1604,7 @@ export async function main(
 
       // Load session; resolve the surface (unsponsored vs sponsored).
       const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      ctx.recordTraceTarget(opts.feature, featureDir);
       const session = await ctx.resolveSession(featureDir);
       if (!session.snapshot.state) {
         ctx.failure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
@@ -1720,6 +1775,7 @@ export async function main(
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (taskId: string, opts: { feature: string; featureDir?: string }) => {
       const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      ctx.recordTraceTarget(opts.feature, featureDir);
       const session = await loadSession(featureDir);
       if (!session.snapshot.state) {
         emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
@@ -1788,6 +1844,7 @@ export async function main(
         opts: { reason: string; feature: string; featureDir?: string },
       ) => {
         const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+        ctx.recordTraceTarget(opts.feature, featureDir);
         const session = await loadSession(featureDir);
         if (!session.snapshot.state) {
           emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
@@ -1854,6 +1911,7 @@ export async function main(
     )
     .action(async (opts: { feature: string; featureDir?: string; status?: string }) => {
       const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      ctx.recordTraceTarget(opts.feature, featureDir);
       // Phase 15 SC3 — projection-loader read-path. Adapter: TasksJson
       // (TaskFullPayload[]) → slim TaskState via the same `extractTaskSlim`
       // the reducer uses, preserving byte-equal output with the prior
@@ -1931,6 +1989,7 @@ export async function main(
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { feature: string; featureDir?: string }) => {
       const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      ctx.recordTraceTarget(opts.feature, featureDir);
       const session = await loadSession(featureDir);
       if (!session.snapshot.state) {
         emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
@@ -1976,6 +2035,7 @@ export async function main(
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (taskId: string, opts: { feature: string; featureDir?: string }) => {
       const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      ctx.recordTraceTarget(opts.feature, featureDir);
       const session = await loadSession(featureDir);
       if (!session.snapshot.state) {
         emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
@@ -2072,6 +2132,9 @@ export async function main(
           finding?: string;
         },
       ) => {
+        // SC-6b — record trace target at action entry so long pre-validation
+        // failures (input parse, policy/finding mutex) still trace.
+        ctx.recordTraceTarget(opts.feature, opts.featureDir ?? defaultFeatureDir(opts.feature));
         // (0) Resolve the surface — --policy and --input are mutually
         // exclusive; --finding pairs with --input.
         const policies = opts.policy ?? [];
@@ -2272,6 +2335,7 @@ export async function main(
 
         // (2) Load session.
         const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+        ctx.recordTraceTarget(opts.feature, featureDir);
         const session = await loadSession(featureDir);
         if (!session.snapshot.state) {
           emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
@@ -2376,6 +2440,7 @@ export async function main(
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (taskId: string, opts: { feature: string; featureDir?: string }) => {
       const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      ctx.recordTraceTarget(opts.feature, featureDir);
       const session = await loadSession(featureDir);
       if (!session.snapshot.state) {
         emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
@@ -2437,6 +2502,7 @@ export async function main(
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { task: string; step: string; feature: string; featureDir?: string }) => {
       const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      ctx.recordTraceTarget(opts.feature, featureDir);
       const session = await loadSession(featureDir);
       if (!session.snapshot.state) {
         emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
@@ -2565,6 +2631,7 @@ export async function main(
         }
       }
       const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      ctx.recordTraceTarget(opts.feature, featureDir);
       const session = await loadSession(featureDir);
       if (!session.snapshot.state) {
         emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
@@ -2715,6 +2782,7 @@ export async function main(
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { feature: string; featureDir?: string }) => {
       const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      ctx.recordTraceTarget(opts.feature, featureDir);
       const session = await loadSession(featureDir);
       const from = session.snapshot.state?.sub_state;
       if (!from) {
@@ -2810,6 +2878,7 @@ export async function main(
       featureDir?: string;
     }) => {
       const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      ctx.recordTraceTarget(opts.feature, featureDir);
       const session = await loadSession(featureDir);
       if (!session.snapshot.state) {
         emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
@@ -2866,6 +2935,7 @@ export async function main(
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { feature: string; featureDir?: string }) => {
       const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      ctx.recordTraceTarget(opts.feature, featureDir);
       // Phase 15 SC3 — projection-loader. Adapter: PendingProjectionEntry
       // (pending.json native — pending_id + rich fields) → slim row
       // {id, kind, resolved, head} matching the prior PendingState shape.
@@ -2908,6 +2978,7 @@ export async function main(
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { feature: string; id?: string; featureDir?: string }) => {
       const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      ctx.recordTraceTarget(opts.feature, featureDir);
       const session = await loadSession(featureDir);
       if (!session.snapshot.state) {
         emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
@@ -2955,6 +3026,7 @@ export async function main(
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { answer: string; feature: string; featureDir?: string }) => {
       const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      ctx.recordTraceTarget(opts.feature, featureDir);
       const session = await loadSession(featureDir);
       if (!session.snapshot.state) {
         emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
@@ -3038,6 +3110,9 @@ export async function main(
     .requiredOption("--feature <name>", "Feature whose ledger to append to")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { input: string; feature: string; featureDir?: string }) => {
+      // SC-6b — record trace target at action entry so long input-validation
+      // failures still trace.
+      ctx.recordTraceTarget(opts.feature, opts.featureDir ?? defaultFeatureDir(opts.feature));
       // Phase 16 SC-4c — unified --input modality (protocol §10.7) +
       // array (batch) input enabled (was USAGE reject).
       const source = parseInputSource(opts.input);
@@ -3089,6 +3164,7 @@ export async function main(
 
       // Load session via ctx.
       const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      ctx.recordTraceTarget(opts.feature, featureDir);
       const session = await ctx.resolveSession(featureDir);
       if (!session.snapshot.state) {
         ctx.failure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
@@ -3240,6 +3316,7 @@ export async function main(
         return;
       }
       const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      ctx.recordTraceTarget(opts.feature, featureDir);
       const session = await loadSession(featureDir);
       if (!session.snapshot.state) {
         emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
@@ -3454,6 +3531,7 @@ export async function main(
         return;
       }
       const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      ctx.recordTraceTarget(opts.feature, featureDir);
       // Phase 15 SC3 — projection-loader. findings.json's FindingStateShape
       // is already byte-equal to the reducer's FindingState slim shape (id,
       // category, action, status, summary?, reason?, target?) — no adapter
@@ -3502,6 +3580,7 @@ export async function main(
         return;
       }
       const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      ctx.recordTraceTarget(opts.feature, featureDir);
       const session = await loadSession(featureDir);
       if (!session.snapshot.state) {
         emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
@@ -3593,6 +3672,9 @@ export async function main(
     .requiredOption("--feature <name>", "Feature whose spec to submit")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { input: string; feature: string; featureDir?: string }) => {
+      // SC-6b — record trace target at action entry so long input-validation
+      // failures still trace.
+      ctx.recordTraceTarget(opts.feature, opts.featureDir ?? defaultFeatureDir(opts.feature));
       // Phase 16 SC-4a — unified --input modality (protocol §10.7 +
       // ADR-0004 A11): parseInputSource discriminates stdin / inline /
       // file; readJsonInput handles IO + JSON parse + error mapping;
@@ -3638,6 +3720,7 @@ export async function main(
       const input = inputParse.data;
       // Load session via ctx (caches; captures sub_state for crash context).
       const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      ctx.recordTraceTarget(opts.feature, featureDir);
       const session = await ctx.resolveSession(featureDir);
       if (!session.snapshot.state) {
         ctx.failure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
@@ -3818,6 +3901,7 @@ export async function main(
       intent?: string;
     }) => {
       const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+      ctx.recordTraceTarget(opts.feature, featureDir);
       const specMdPath = path.join(featureDir, "spec.md");
       // SPEC_ALREADY_INITIALIZED guard: refuse to overwrite. Check
       // before any I/O so the error surface is the file's existence,
@@ -3961,6 +4045,7 @@ export async function main(
           Array.isArray(inputParse.data) ? inputParse.data : [inputParse.data];
         // Load session via ctx (caches; captures sub_state for crash context).
         const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+        ctx.recordTraceTarget(opts.feature, featureDir);
         const session = await ctx.resolveSession(featureDir);
         if (!session.snapshot.state) {
           ctx.failure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
@@ -4036,59 +4121,119 @@ export async function main(
       });
   }
 
+  // SC-6b — monotonic clock for `wall_ms`. Captured before parseAsync
+  // so a Commander-internal throw + the unhandled-error branch both
+  // see the same baseline.
+  const t0 = monotonicNow();
+  let resolvedExit: number = 0;
   try {
-    await program.parseAsync(argv);
-    return ctx.exitCode;
-  } catch (err) {
-    if (err instanceof CommanderError) {
-      if (err.exitCode === 0) return 0;
-      process.stderr.write(`error: ${err.code ?? "USAGE"} — ${err.message}\n`);
-      return err.exitCode === 1 ? 2 : err.exitCode;
-    }
-    // Phase 16 SC-2/SC-3 — unhandled error boundary (protocol §10.5 / §10.9).
-    // Any non-Commander error reaching here is "Error escaped the action
-    // handler" (codex r196 PATCH A wording): the discriminator is escape,
-    // not whether exitCode was set. Crash log + UNEXPECTED_ERROR sentinel
-    // + exit 1. SC-3 enriches the envelope with phase/sub_state from the
-    // ctx cache (NO journal load inside catch — codex r196 PATCH B) and
-    // includes a prefilled report URL (sanitized last_command per codex
-    // r206 PATCH H) on both stderr and the JSON sentinel.
-    const error = err instanceof Error ? err : new Error(String(err));
-    const crashContext = ctx.snapshotCrashContext();
-    const crashLog = await writeCrashLog({
-      argv,
-      cwd: process.cwd(),
-      version: packageJson.version,
-      error,
-      context: { phase: crashContext.phase, sub_state: crashContext.sub_state },
-    });
-    const reportUrl = buildReportUrl({
-      base: LOAF_ISSUE_URL,
-      loaf_version: packageJson.version,
-      schema_version: "2",
-      phase: crashContext.phase,
-      sub_state: crashContext.sub_state,
-      argv,
-      crash_log_path: crashLog,
-    });
-    if (ctx.output === "json") {
-      const payload: Record<string, unknown> = {
-        ok: false,
-        code: UNEXPECTED_ERROR,
-        message: "unexpected internal error",
-        report_url: reportUrl,
-      };
-      if (crashLog !== null) payload["crash_log"] = crashLog;
-      process.stderr.write(JSON.stringify(payload) + "\n");
-    } else {
-      process.stderr.write(`error: ${UNEXPECTED_ERROR} — ${error.message}\n`);
-      if (crashLog !== null) {
-        process.stderr.write(`  crash log: ${crashLog}\n`);
+    try {
+      await program.parseAsync(argv);
+      resolvedExit = ctx.exitCode;
+      return ctx.exitCode;
+    } catch (err) {
+      if (err instanceof CommanderError) {
+        if (err.exitCode === 0) {
+          resolvedExit = 0;
+          return 0;
+        }
+        process.stderr.write(`error: ${err.code ?? "USAGE"} — ${err.message}\n`);
+        resolvedExit = err.exitCode === 1 ? 2 : err.exitCode;
+        return resolvedExit;
       }
-      process.stderr.write(`  report at ${reportUrl}\n`);
+      // Phase 16 SC-2/SC-3 — unhandled error boundary (protocol §10.5 / §10.9).
+      // Any non-Commander error reaching here is "Error escaped the action
+      // handler" (codex r196 PATCH A wording): the discriminator is escape,
+      // not whether exitCode was set. Crash log + UNEXPECTED_ERROR sentinel
+      // + exit 1. SC-3 enriches the envelope with phase/sub_state from the
+      // ctx cache (NO journal load inside catch — codex r196 PATCH B) and
+      // includes a prefilled report URL (sanitized last_command per codex
+      // r206 PATCH H) on both stderr and the JSON sentinel.
+      const error = err instanceof Error ? err : new Error(String(err));
+      const crashContext = ctx.snapshotCrashContext();
+      const crashLog = await writeCrashLog({
+        argv,
+        cwd: process.cwd(),
+        version: packageJson.version,
+        error,
+        context: { phase: crashContext.phase, sub_state: crashContext.sub_state },
+      });
+      const reportUrl = buildReportUrl({
+        base: LOAF_ISSUE_URL,
+        loaf_version: packageJson.version,
+        schema_version: "2",
+        phase: crashContext.phase,
+        sub_state: crashContext.sub_state,
+        argv,
+        crash_log_path: crashLog,
+      });
+      if (ctx.output === "json") {
+        const payload: Record<string, unknown> = {
+          ok: false,
+          code: UNEXPECTED_ERROR,
+          message: "unexpected internal error",
+          report_url: reportUrl,
+        };
+        if (crashLog !== null) payload["crash_log"] = crashLog;
+        process.stderr.write(JSON.stringify(payload) + "\n");
+      } else {
+        process.stderr.write(`error: ${UNEXPECTED_ERROR} — ${error.message}\n`);
+        if (crashLog !== null) {
+          process.stderr.write(`  crash log: ${crashLog}\n`);
+        }
+        process.stderr.write(`  report at ${reportUrl}\n`);
+      }
+      resolvedExit = 1;
+      return 1;
     }
-    return 1;
+  } finally {
+    // SC-6b — trace.jsonl write happens here. Best-effort, silent on
+    // failure (observability must not poison exit code). Skipped when
+    // `ctx.debug` is false OR no action handler recorded a feature
+    // target (e.g. Commander USAGE failures, `loaf --help`, bare
+    // `loaf doctor`). See docs/protocol.md §4.10.
+    if (ctx.debug && ctx.traceTarget) {
+      try {
+        const wallMs = Math.round(monotonicNow() - t0);
+        const crashContext = ctx.snapshotCrashContext();
+        const entry = buildTraceEntry({
+          now: now(),
+          feature: ctx.traceTarget.feature,
+          sessionId: crashContext.session_id,
+          subState: crashContext.sub_state,
+          cmd: deriveCmdFromArgv(argv),
+          // Strip launcher tokens (`node` + `loaf`) so the trace entry's
+          // argv matches §4.10's documented shape and doesn't duplicate
+          // the chain already carried by `cmd`. Codex r272 contract
+          // drift fix.
+          argv: argv.slice(2),
+          exit: resolvedExit,
+          wallMs,
+          rawStdout: stdoutCapture.join(""),
+          outputMode: ctx.output,
+        });
+        await appendTraceLine(ctx.traceTarget.featureDir, entry);
+      } catch {
+        // Silent best-effort — Debug-trace is non-authoritative per §13.1.
+      }
+    }
   }
+}
+
+/** Derive `cmd` (subcommand chain) from argv for trace.jsonl. Walks
+ *  argv[2:], collects up to 3 leading non-flag tokens, stopping at
+ *  the first `--<flag>` token. Catches `loaf advance EXECUTE.done`,
+ *  `loaf start auth-refresh`, and 3-level chains like `loaf tasks
+ *  step start`. Flag values (e.g. `standard` after `--ceremony`)
+ *  are excluded because the walk stops at the first `--<flag>`. */
+function deriveCmdFromArgv(argv: readonly string[]): string {
+  const chain: string[] = [];
+  for (const t of argv.slice(2)) {
+    if (t.startsWith("--")) break;
+    chain.push(t);
+    if (chain.length >= 3) break;
+  }
+  return ["loaf", ...chain].join(" ");
 }
 
 // Stamping marker — never read in production but visible to CI grep so

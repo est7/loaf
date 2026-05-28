@@ -43,3 +43,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .agent-mail/
 .amqrc
 implementation-notes.md
+
+# Phase 16 SC-6b — `--debug` observability trace files (Debug-trace per
+# protocol §13.1; local debug data, never committed).
+**/.loaf/*/trace.jsonl
