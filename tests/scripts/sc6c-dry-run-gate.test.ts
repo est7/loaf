@@ -35,6 +35,7 @@ const READ_ONLY_COMMANDS: readonly string[] = [
   "pending status",
   "finding list",
   "doctor",            // bare + --rebuild both go through the same handler
+  "sessions list",     // Phase 16 SC-9b
 ];
 
 describe("SC-6c — positive table: every read-only command has rejectIfDryRun marker", () => {

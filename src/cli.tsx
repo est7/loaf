@@ -30,6 +30,8 @@ import {
   defaultAppendTraceLine,
   type TraceEntry,
 } from "./cli/trace-writer.js";
+import { listSessions, formatAtRelative } from "./cli/sessions-list.js";
+import { promises as fsPromises } from "node:fs";
 import { buildReportUrl } from "./cli/url-prefill.js";
 import { parseInputSource } from "./cli/input-source.js";
 import { readJsonInput } from "./cli/input-read.js";
@@ -264,6 +266,78 @@ export async function main(
         }
       }
       return 2;
+    }
+  }
+
+  // Phase 16 SC-9b — `sessions list` selector misuse pre-parse.
+  //
+  // Runs BEFORE the SC-8 dispatch USAGE block so `sessions list --feature-dir`
+  // gets the right diagnostic ("sessions list does not accept selectors")
+  // instead of SC-8's generic "requires --feature" message (codex r292
+  // ordering fix).
+  //
+  // `sessions list` walks the whole registry — passing dispatch selectors
+  // is contract misuse. Detect any of:
+  //   --session / --feature / --feature-dir (any argv position)
+  //   $LOAF_SESSION / $LOAF_FEATURE (env)
+  // and emit typed USAGE with `detail.conflicting` listing ONLY the
+  // actually-present selectors (codex r290 nit).
+  if (!wantsHelpOrVersion) {
+    const SUBCOMMAND_VALUE_FLAGS = new Set([
+      "--format", "--session", "--feature", "--feature-dir",
+      "--ceremony", "--label", "--workspace",
+    ]);
+    const collectNonFlagTokens = (startIdx: number, max: number): string[] => {
+      const out: string[] = [];
+      for (let i = startIdx; i < argv.length; i++) {
+        const a = argv[i]!;
+        if (a.startsWith("--")) {
+          const flagName = a.includes("=") ? a.slice(0, a.indexOf("=")) : a;
+          if (SUBCOMMAND_VALUE_FLAGS.has(flagName) && !a.includes("=")) i++;
+          continue;
+        }
+        if (a.startsWith("-") && a.length > 1) continue;
+        out.push(a);
+        if (out.length >= max) break;
+      }
+      return out;
+    };
+    const cmdTokens = collectNonFlagTokens(2, 2);
+    const isSessionsList = cmdTokens[0] === "sessions" && cmdTokens[1] === "list";
+    if (isSessionsList) {
+      const presentSelectors: string[] = [];
+      if (argv.includes("--session") || argv.some((a) => a.startsWith("--session="))) {
+        presentSelectors.push("--session");
+      }
+      if (argv.includes("--feature") || argv.some((a) => a.startsWith("--feature="))) {
+        presentSelectors.push("--feature");
+      }
+      if (argv.includes("--feature-dir") || argv.some((a) => a.startsWith("--feature-dir="))) {
+        presentSelectors.push("--feature-dir");
+      }
+      if (process.env["LOAF_SESSION"] !== undefined && process.env["LOAF_SESSION"].length > 0) {
+        presentSelectors.push("$LOAF_SESSION");
+      }
+      if (process.env["LOAF_FEATURE"] !== undefined && process.env["LOAF_FEATURE"].length > 0) {
+        presentSelectors.push("$LOAF_FEATURE");
+      }
+      if (presentSelectors.length > 0) {
+        const usageMessage = `sessions list does not accept ${presentSelectors.join(" / ")} — it lists across all sessions; use --in-cwd to filter`;
+        const renderAsJson = argv.some(
+          (a) => a === "--format=json" || (a === "--format" && argv[argv.indexOf(a) + 1] === "json"),
+        );
+        if (renderAsJson) {
+          process.stderr.write(JSON.stringify({
+            ok: false,
+            code: "USAGE",
+            message: usageMessage,
+            detail: { conflicting: presentSelectors },
+          }) + "\n");
+        } else {
+          process.stderr.write(`error: USAGE — ${usageMessage}\n`);
+        }
+        return 2;
+      }
     }
   }
 
@@ -3570,6 +3644,81 @@ export async function main(
           { stateChange },
         );
       }
+    });
+
+  // ── loaf sessions list — Phase 16 SC-9b ──────────────────────────────
+  // Read-only: walks ~/.loaf/registry/*.json (via defaultRegistryDir
+  // which honors LOAF_REGISTRY_DIR env from SC-7), formats for terminal
+  // UUID recovery (§1588). --in-cwd filters by canonical cwd match.
+  // Corrupt entries and orphan-cwd registry rows are surfaced via
+  // warnings (codex r290 P2 + P3). Dispatch selectors rejected via
+  // pre-parse guard in main() (codex r292 P1 v3 ordering).
+  const sessionsCmd = program
+    .command("sessions")
+    .description("Session registry commands (list)");
+
+  sessionsCmd
+    .command("list")
+    .description("List session registry entries (read-only; --in-cwd filters by current cwd)")
+    .option("--in-cwd", "Only list sessions whose registered cwd matches the current cwd")
+    .action(async (opts: { inCwd?: boolean }) => {
+      // no-feature — sessions list walks across all features
+      if (rejectIfDryRun("sessions list")) return;
+
+      const filterCwd = opts.inCwd
+        ? await fsPromises.realpath(process.cwd()).catch(() => process.cwd())
+        : undefined;
+
+      const result = await listSessions({
+        ...(deps.registryDir !== undefined && { registryDir: deps.registryDir }),
+        ...(filterCwd !== undefined && { filterCwd }),
+      });
+
+      // Warnings → stderr via ctx.advisory (respects --quiet).
+      // Wording differs by reason because orphan-cwd rows ARE listed
+      // (when no --in-cwd filter); saying "skipped" would contradict
+      // the visible row (codex r293 finding).
+      for (const w of result.warnings) {
+        const action =
+          w.reason === "orphan-cwd"
+            ? (opts.inCwd ? "filtered out" : "has orphan cwd")
+            : "skipped";
+        ctx.advisory(
+          `registry entry ${w.file} ${action} (${w.reason}${w.detail ? `: ${w.detail}` : ""})`,
+        );
+      }
+
+      const nowDate = deps.now?.() ?? new Date();
+
+      ctx.success(
+        {
+          ok: true,
+          count: result.rows.length,
+          sessions: result.rows,
+          warnings: result.warnings,
+        },
+        () => {
+          if (result.rows.length === 0) return "(no sessions found)\n";
+          // 4-column aligned: <short8> <feature> <phase.sub_state> <at>
+          const lines: string[] = [];
+          // Column widths
+          const featureWidth = Math.max(
+            ...result.rows.map((r) => r.feature.length),
+            7,
+          );
+          const stateWidth = Math.max(
+            ...result.rows.map((r) => r.sub_state.length),
+            12,
+          );
+          for (const row of result.rows) {
+            const at = formatAtRelative(row.at, nowDate);
+            lines.push(
+              `${row.session_id_short}  ${row.feature.padEnd(featureWidth)}  ${row.sub_state.padEnd(stateWidth)}  ${at}\n`,
+            );
+          }
+          return lines.join("");
+        },
+      );
     });
 
   // ── loaf finding raise / list / close ────────────────────────────────

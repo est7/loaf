@@ -2497,6 +2497,123 @@ async function defaultAppendTraceLine(featureDir, entry) {
 	await promises.appendFile(path.join(featureDir, "trace.jsonl"), line, "utf8");
 }
 //#endregion
+//#region src/cli/sessions-list.ts
+/** Canonicalize a path via fs.realpath. Returns null on any error
+*  (ENOENT, permissions, etc.) so the caller can treat unresolvable
+*  paths as orphan candidates. */
+async function tryRealpath(p) {
+	try {
+		return await promises.realpath(p);
+	} catch {
+		return null;
+	}
+}
+async function listSessions(input) {
+	const registryDir = input.registryDir ?? defaultRegistryDir();
+	const rows = [];
+	const warnings = [];
+	let entries;
+	try {
+		entries = await promises.readdir(registryDir);
+	} catch (err) {
+		if (err.code === "ENOENT") return {
+			ok: true,
+			rows: [],
+			warnings: []
+		};
+		return {
+			ok: true,
+			rows: [],
+			warnings: [{
+				file: registryDir,
+				reason: "io-error",
+				detail: err.message
+			}]
+		};
+	}
+	for (const entry of entries) {
+		if (!entry.endsWith(".json")) continue;
+		const filePath = path.join(registryDir, entry);
+		let raw;
+		try {
+			raw = await promises.readFile(filePath, "utf8");
+		} catch (err) {
+			warnings.push({
+				file: entry,
+				reason: "io-error",
+				detail: err.message
+			});
+			continue;
+		}
+		let parsed;
+		try {
+			parsed = JSON.parse(raw);
+		} catch (err) {
+			warnings.push({
+				file: entry,
+				reason: "corrupt-json",
+				detail: err.message
+			});
+			continue;
+		}
+		const result = RegistryFile.safeParse(parsed);
+		if (!result.success) {
+			warnings.push({
+				file: entry,
+				reason: "schema-invalid",
+				detail: result.error.issues.map((i) => i.message).join("; ")
+			});
+			continue;
+		}
+		const reg = result.data;
+		const canonicalRegCwd = await tryRealpath(reg.cwd);
+		if (canonicalRegCwd === null) {
+			warnings.push({
+				file: entry,
+				reason: "orphan-cwd",
+				detail: `registered cwd '${reg.cwd}' no longer exists`
+			});
+			if (input.filterCwd !== void 0) continue;
+		} else if (input.filterCwd !== void 0 && canonicalRegCwd !== input.filterCwd) continue;
+		rows.push({
+			session_id: reg.session_id,
+			session_id_short: reg.session_id.slice(0, 8),
+			feature: reg.feature,
+			phase: reg.phase,
+			sub_state: reg.sub_state,
+			at: reg.at,
+			cwd: reg.cwd,
+			workspace: reg.workspace,
+			iteration: reg.iteration,
+			pending_queue_depth: reg.pending_queue_depth,
+			ceremony_label: reg.ceremony_label
+		});
+	}
+	rows.sort((a, b) => a.at < b.at ? 1 : a.at > b.at ? -1 : 0);
+	return {
+		ok: true,
+		rows,
+		warnings
+	};
+}
+/** Presentation helper — relative-time rendering for text mode. Returns
+*  "N minutes/hours/days ago" for ≤7 days, ISO otherwise. Future
+*  timestamps fall back to ISO (defensive — clock skew). */
+function formatAtRelative(iso, now) {
+	const at = new Date(iso);
+	if (Number.isNaN(at.getTime())) return iso;
+	const diffMs = now.getTime() - at.getTime();
+	if (diffMs < 0) return iso;
+	if (diffMs >= 7 * 864e5) return iso;
+	const minutes = Math.floor(diffMs / 6e4);
+	if (minutes < 1) return "just now";
+	if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+	const hours = Math.floor(minutes / 60);
+	if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+	const days = Math.floor(hours / 24);
+	return `${days} day${days === 1 ? "" : "s"} ago`;
+}
+//#endregion
 //#region src/cli/url-prefill.ts
 const COMMAND_WORDS = new Set([
 	"loaf",
@@ -6529,6 +6646,52 @@ async function main(argv = process.argv, deps = {}) {
 		}
 	}
 	if (!wantsHelpOrVersion) {
+		const SUBCOMMAND_VALUE_FLAGS = new Set([
+			"--format",
+			"--session",
+			"--feature",
+			"--feature-dir",
+			"--ceremony",
+			"--label",
+			"--workspace"
+		]);
+		const collectNonFlagTokens = (startIdx, max) => {
+			const out = [];
+			for (let i = startIdx; i < argv.length; i++) {
+				const a = argv[i];
+				if (a.startsWith("--")) {
+					const flagName = a.includes("=") ? a.slice(0, a.indexOf("=")) : a;
+					if (SUBCOMMAND_VALUE_FLAGS.has(flagName) && !a.includes("=")) i++;
+					continue;
+				}
+				if (a.startsWith("-") && a.length > 1) continue;
+				out.push(a);
+				if (out.length >= max) break;
+			}
+			return out;
+		};
+		const cmdTokens = collectNonFlagTokens(2, 2);
+		if (cmdTokens[0] === "sessions" && cmdTokens[1] === "list") {
+			const presentSelectors = [];
+			if (argv.includes("--session") || argv.some((a) => a.startsWith("--session="))) presentSelectors.push("--session");
+			if (argv.includes("--feature") || argv.some((a) => a.startsWith("--feature="))) presentSelectors.push("--feature");
+			if (argv.includes("--feature-dir") || argv.some((a) => a.startsWith("--feature-dir="))) presentSelectors.push("--feature-dir");
+			if (process.env["LOAF_SESSION"] !== void 0 && process.env["LOAF_SESSION"].length > 0) presentSelectors.push("$LOAF_SESSION");
+			if (process.env["LOAF_FEATURE"] !== void 0 && process.env["LOAF_FEATURE"].length > 0) presentSelectors.push("$LOAF_FEATURE");
+			if (presentSelectors.length > 0) {
+				const usageMessage = `sessions list does not accept ${presentSelectors.join(" / ")} — it lists across all sessions; use --in-cwd to filter`;
+				if (argv.some((a) => a === "--format=json" || a === "--format" && argv[argv.indexOf(a) + 1] === "json")) process.stderr.write(JSON.stringify({
+					ok: false,
+					code: "USAGE",
+					message: usageMessage,
+					detail: { conflicting: presentSelectors }
+				}) + "\n");
+				else process.stderr.write(`error: USAGE — ${usageMessage}\n`);
+				return 2;
+			}
+		}
+	}
+	if (!wantsHelpOrVersion) {
 		const hasSession = argv.includes("--session") || argv.some((a) => a.startsWith("--session="));
 		const hasFeatureDir = argv.includes("--feature-dir") || argv.some((a) => a.startsWith("--feature-dir="));
 		const hasFeature = argv.includes("--feature") || argv.some((a) => a.startsWith("--feature="));
@@ -8439,6 +8602,35 @@ async function main(argv = process.argv, deps = {}) {
 			id: evIds[0],
 			kind: validatedInputs[0].kind
 		}, () => `${evIds[0]}\n`, { stateChange });
+	});
+	program.command("sessions").description("Session registry commands (list)").command("list").description("List session registry entries (read-only; --in-cwd filters by current cwd)").option("--in-cwd", "Only list sessions whose registered cwd matches the current cwd").action(async (opts) => {
+		if (rejectIfDryRun("sessions list")) return;
+		const filterCwd = opts.inCwd ? await promises.realpath(process.cwd()).catch(() => process.cwd()) : void 0;
+		const result = await listSessions({
+			...deps.registryDir !== void 0 && { registryDir: deps.registryDir },
+			...filterCwd !== void 0 && { filterCwd }
+		});
+		for (const w of result.warnings) {
+			const action = w.reason === "orphan-cwd" ? opts.inCwd ? "filtered out" : "has orphan cwd" : "skipped";
+			ctx.advisory(`registry entry ${w.file} ${action} (${w.reason}${w.detail ? `: ${w.detail}` : ""})`);
+		}
+		const nowDate = deps.now?.() ?? /* @__PURE__ */ new Date();
+		ctx.success({
+			ok: true,
+			count: result.rows.length,
+			sessions: result.rows,
+			warnings: result.warnings
+		}, () => {
+			if (result.rows.length === 0) return "(no sessions found)\n";
+			const lines = [];
+			const featureWidth = Math.max(...result.rows.map((r) => r.feature.length), 7);
+			const stateWidth = Math.max(...result.rows.map((r) => r.sub_state.length), 12);
+			for (const row of result.rows) {
+				const at = formatAtRelative(row.at, nowDate);
+				lines.push(`${row.session_id_short}  ${row.feature.padEnd(featureWidth)}  ${row.sub_state.padEnd(stateWidth)}  ${at}\n`);
+			}
+			return lines.join("");
+		});
 	});
 	const findingCmd = program.command("finding").description("Finding ledger commands (Slice 3 SC3 MVP: raise / list / close)");
 	findingCmd.command("raise").description("Raise a new finding (CLI allocates FND-id)").requiredOption("--category <category>", "Finding category (spec-gap | spec-defect | impl-defect | test-defect | new-scope | risk-escalation)").requiredOption("--action <action>", "Finding action (amend-spec | amend-tasks | fix-impl | fix-test | defer | backlog)").option("--summary <text>", "One-line finding summary (passthrough)").option("--reason <text>", "Justification (required ≥20 chars on unusual cells)").option("--target-task <task-id>", "Target task for fix-impl / fix-test / amend-tasks").option("--target-step <step>", "Target step (must equal action's canonical step)").option("--feature <name>", "Feature whose ledger to append to").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
