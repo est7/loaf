@@ -130,6 +130,15 @@ export function parseQuietFromArgv(argv: readonly string[]): boolean {
   return argv.includes("--quiet") || argv.includes("-q");
 }
 
+/** Phase 16 SC-6a — returns true if `--no-input` appears in argv.
+ *  Orthogonal to output_format / quiet / verbose / color (no mutex).
+ *  Declares non-interactive context — actor resolver refuses git-config
+ *  fallback; any future prompt entry must exit 2. Explicit actor input
+ *  via `$LOAF_USER` is NOT disabled by this flag. */
+export function parseNoInputFromArgv(argv: readonly string[]): boolean {
+  return argv.includes("--no-input");
+}
+
 /** Returns cumulative verbose count: `-v` = 1, `-vv` = 2,
  *  `--verbose` = 1, and multiple occurrences sum. E.g.
  *  `-v --verbose` = 2, `-vv --verbose` = 3. Per protocol §10.7 +
@@ -187,6 +196,10 @@ export type PresentationOk = {
   quiet: boolean;
   verbose: number;
   noColor: boolean;
+  /** Phase 16 SC-6a — non-interactive mode declaration. Orthogonal to
+   *  output_format normalization; does not participate in the
+   *  MUTUALLY_EXCLUSIVE_FLAGS check. See `parseNoInputFromArgv`. */
+  noInput: boolean;
 };
 export type PresentationFail =
   | { ok: false; kind: "INVALID_FORMAT"; rawValue: string }
@@ -262,6 +275,7 @@ export function parsePresentation(
     quiet: parseQuietFromArgv(argv),
     verbose: parseVerboseFromArgv(argv),
     noColor: parseNoColorFromArgv(argv, env),
+    noInput: parseNoInputFromArgv(argv),
   };
 }
 
@@ -306,6 +320,12 @@ export type CommandContext = {
   readonly quiet: boolean;
   readonly verbose: number;
   readonly noColor: boolean;
+  /** Phase 16 SC-6a — non-interactive mode. When true, `main()`'s
+   *  `isInteractiveHumanForActor` helper downgrades the TTY-derived
+   *  signal to false, forcing `resolveHumanActor` to refuse the
+   *  git-config fallback (CI / skill / hook safety). Explicit
+   *  `$LOAF_USER` is NOT affected. */
+  readonly noInput: boolean;
   exitCode: number;
   resolveSession: (featureDir: string) => Promise<SessionLoad>;
   resolveProjections: <K extends ProjectionKind>(
@@ -367,6 +387,7 @@ export function createCommandContext(
   const quiet: boolean = presentation.ok ? presentation.quiet : false;
   const verbose: number = presentation.ok ? presentation.verbose : 0;
   const noColor: boolean = presentation.ok ? presentation.noColor : false;
+  const noInput: boolean = presentation.ok ? presentation.noInput : false;
   let exitCode = 0;
 
   // Caches: separate per resolution method per codex r206 PATCH D. Same
@@ -386,6 +407,7 @@ export function createCommandContext(
     quiet,
     verbose,
     noColor,
+    noInput,
     get exitCode() {
       return exitCode;
     },

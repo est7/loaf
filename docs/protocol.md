@@ -1740,7 +1740,7 @@ error: input does not satisfy schema for spec:add-req: /measurable/threshold: ex
 | `--format <fmt>` | — | `json\|text` | TTY 时 `text`,pipe 时 `text`(line-oriented) | 见 §10.2 |
 | `--plain` | — | bool | false | 等价 `--format text`(明确 line-oriented),clig.dev 习惯 alias |
 | `--no-color` | — | bool | TTY/env 派生 | 见 §10.2 |
-| `--no-input` <!-- inventory:future reason="SC-6a non-interactive mode" --> | — | bool | false | **关键**:skill / hook / CI 用,禁用所有 prompt,缺必要输入直接 exit 2 |
+| `--no-input` | — | bool | false | **关键**:skill / hook / CI 用 — 声明 non-interactive context。**v0.1.0 当前实现**:actor resolver 拒绝 git-config fallback(同 stdin 非 TTY 等价);`$LOAF_USER` 显式 actor 入口**不**受影响。**未来 prompt 入口落地后**:禁用所有 prompt,缺必要输入直接 exit 2(见下方 §10.7 prompt 行为) |
 | `--quiet` | `-q` | bool | false | 抑制非错误输出(stderr 仍出错误) |
 | `--verbose` | `-v` | counter | 0 | `-v` / `-vv` 递增 stderr 信息密度;独立于 `--debug` |
 | `--debug` <!-- inventory:future reason="SC-6b debug observability" --> | — | bool | false | 写 `trace.jsonl`(`LOAF_DEBUG=1` / `DEBUG=1` 等价);**不**改变 stderr 密度(用 `-v`) |
@@ -1762,9 +1762,9 @@ error: input does not satisfy schema for spec:add-req: /measurable/threshold: ex
 - 同一 conflict code 复用于未来其它 flag 互斥(如 `--quiet -v` 同 invocation),错误体载 `{conflicting: ["--plain", "--format=json"]}` 给 scripting
 
 **Prompt 行为**(扩展 `--no-input` 那一行):
-- `loaf pending resolve` 在 **stdin 非 TTY** 或 **`--no-input`** 时缺 `--answer` → exit 2「pass --answer via flag」
-- TTY + 无 `--no-input` 时,`loaf pending resolve` 漏 `--answer` → prompt 用户(展示 head 的 `question` + `options`)
-- `loaf abandon` 漏 `--reason` 等隐式 prompt 仍走原 §10.4 规则
+- **v0.1.0 当前实现**:`loaf pending resolve` 的 `--answer` 是 Commander `requiredOption`,缺 flag 任何 stdin/TTY 状态都走 Commander USAGE exit 2(`--no-input` 不改变这条 — Commander 优先);v0.1.0 binary 不内含 interactive prompt 入口。
+- **未来 prompt 入口(SC ≥ 12)落地后**:`stdin 非 TTY` 或 `--no-input` → 维持 exit 2「pass --answer via flag」;TTY + 无 `--no-input` → prompt 用户(展示 head 的 `question` + `options`)。`--no-input` 是该 prompt 入口的契约总开关。
+- `loaf abandon` 漏 `--reason` 等隐式 prompt 仍走原 §10.4 规则(v0.1.0 同样 Commander `requiredOption` 优先)
 
 #### Pending head 阻塞 — protocol-level invariant(rev 4.1 minimal,Q3 决策)
 
@@ -1917,7 +1917,7 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 | `loaf pending raise --kind <K> --question "..." [--options "a,b,c"] [--task-id T-N]` | **rev 4.1**:append 新 pending 到队列尾(skill / hook / sub-agent 内部调用,user 通常不直接敲);CLI 分配 PEND-id 并 stdout 回打;5 种 kind 任选(`ask_user_question` / `gate_decision` / `spec_clarification` / `finding_decision` / `profile_escalation`)。**不接受 `--id` flag**(同 `evidence add` 纪律,见 §11.2 + schemas.ts §34) | 0 / 2 |
 | `loaf pending list` | 列 state.pending FIFO 队列全部 entry(**rev 4.1**:含 head + 排队的;head 标 `*`)| 0 |
 | `loaf pending status [--id PEND-N]` | 查 single entry 详情(**rev 4.1**:default 看 head;`--id` 看队列其它位置 — 只读不动队列)| 0 / 2 |
-| `loaf pending resolve [--answer <a>]` | 回答 pending head(**rev 4.1**:FIFO 严格 — 永远 pop `pending[0]`,**不接受 `--id`**;v1.0 不支持跳序);`--no-input` 时必须 `--answer` flag。resolve 成功后队列若仍非空,新 head 自动 promote 为 blocker | 0 / 2 |
+| `loaf pending resolve --answer <a>` | 回答 pending head(**rev 4.1**:FIFO 严格 — 永远 pop `pending[0]`,**不接受 `--id`**;v1.0 不支持跳序)。**v0.1.0**:`--answer` 是 Commander `requiredOption`,任何 stdin/TTY 状态缺 flag → USAGE exit 2;未来 prompt 入口落地后,`--no-input` 强制 fail-closed,TTY + 无 `--no-input` 展示 head 的 `question` + `options` 走 prompt(见 §10.7)。resolve 成功后队列若仍非空,新 head 自动 promote 为 blocker | 0 / 2 |
 | `loaf doctor` | 版本 / 装机 / 仓库结构自检 + 修复建议。**rev 5.0** 加 5 sub-flag:`--rebuild`(full replay 重建 snapshots/)/ `--check-tail`(只跑 batch-aware tail recovery)/ `--migrate-v2`(v0.0.x → v0.1.0 sidecar import,§5.2)/ `--scope cwd`(对 cwd 下所有 `.loaf/<feature>/` 跑 mixed-version check)/ `--verify-checksum`(full chain rolling_checksum recompute,O(N))。**实现状态(Phase 14 / `1d6e1d1`)**:当前 binary 仅 ship `loaf doctor --rebuild --feature <X> [--feature-dir <path>]`(full replay 重建 snapshots/);bare `loaf doctor` 与其余 4 sub-flag 未实现 → exit 2 `DOCTOR_MODE_NOT_IMPLEMENTED`。详 §10.15 + ADR-0005 §5.4 | 0 / 1 / 2 |
 
 <!-- inventory:current-end -->

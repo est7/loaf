@@ -141,6 +141,14 @@ function parsePlainFromArgv(argv) {
 function parseQuietFromArgv(argv) {
 	return argv.includes("--quiet") || argv.includes("-q");
 }
+/** Phase 16 SC-6a — returns true if `--no-input` appears in argv.
+*  Orthogonal to output_format / quiet / verbose / color (no mutex).
+*  Declares non-interactive context — actor resolver refuses git-config
+*  fallback; any future prompt entry must exit 2. Explicit actor input
+*  via `$LOAF_USER` is NOT disabled by this flag. */
+function parseNoInputFromArgv(argv) {
+	return argv.includes("--no-input");
+}
 /** Returns cumulative verbose count: `-v` = 1, `-vv` = 2,
 *  `--verbose` = 1, and multiple occurrences sum. E.g.
 *  `-v --verbose` = 2, `-vv --verbose` = 3. Per protocol §10.7 +
@@ -225,7 +233,8 @@ function parsePresentation(argv, env = process.env) {
 		plain: parsePlainFromArgv(argv),
 		quiet: parseQuietFromArgv(argv),
 		verbose: parseVerboseFromArgv(argv),
-		noColor: parseNoColorFromArgv(argv, env)
+		noColor: parseNoColorFromArgv(argv, env),
+		noInput: parseNoInputFromArgv(argv)
 	};
 }
 /** Pre-resolve `--feature <NAME>` from argv. Best-effort; null on miss.
@@ -251,6 +260,7 @@ function createCommandContext(argv, deps) {
 	const quiet = presentation.ok ? presentation.quiet : false;
 	const verbose = presentation.ok ? presentation.verbose : 0;
 	const noColor = presentation.ok ? presentation.noColor : false;
+	const noInput = presentation.ok ? presentation.noInput : false;
 	let exitCode = 0;
 	const sessionCache = /* @__PURE__ */ new Map();
 	const projectionCache = /* @__PURE__ */ new Map();
@@ -262,6 +272,7 @@ function createCommandContext(argv, deps) {
 		quiet,
 		verbose,
 		noColor,
+		noInput,
 		get exitCode() {
 			return exitCode;
 		},
@@ -6000,7 +6011,7 @@ async function main(argv = process.argv, deps = {}) {
 	const readStdin = deps.readStdin ?? defaultReadStdin;
 	const isStdinTty = deps.isStdinTty ?? defaultIsStdinTty;
 	const program = new Command();
-	program.name("loaf").description("Spec-driven development protocol CLI").version(version).option("--format <fmt>", `Output format: ${FORMAT_MODES_HUMAN} (default: text)`).option("--plain", "Alias for --format text (clig.dev convention)").option("--no-color", "Disable color (NO_COLOR/LOAF_NO_COLOR/TERM=dumb equivalents)").option("-q, --quiet", "Suppress advisory stderr (state-change + next hint; errors still emit)").option("-v, --verbose", "Increase advisory detail; counter — repeat for more (-v, -vv)", (_v, prior) => (prior ?? 0) + 1, 0).addHelpText("after", helpFooter()).showHelpAfterError().exitOverride();
+	program.name("loaf").description("Spec-driven development protocol CLI").version(version).option("--format <fmt>", `Output format: ${FORMAT_MODES_HUMAN} (default: text)`).option("--plain", "Alias for --format text (clig.dev convention)").option("--no-color", "Disable color (NO_COLOR/LOAF_NO_COLOR/TERM=dumb equivalents)").option("-q, --quiet", "Suppress advisory stderr (state-change + next hint; errors still emit)").option("-v, --verbose", "Increase advisory detail; counter — repeat for more (-v, -vv)", (_v, prior) => (prior ?? 0) + 1, 0).option("--no-input", "Non-interactive mode: refuse git-config actor fallback; forward-compat with future prompts (skill / hook / CI)").addHelpText("after", helpFooter()).showHelpAfterError().exitOverride();
 	const actor = `cli:loaf@${process.env["USER"] ?? "unknown"}`;
 	const ctx = createCommandContext(argv, {
 		writeStdout: (s) => process.stdout.write(s),
@@ -6014,6 +6025,8 @@ async function main(argv = process.argv, deps = {}) {
 	const emitFailure = (code, message, detail) => {
 		ctx.failure(code, message, detail);
 	};
+	const isInteractiveHumanForActor = () => (deps.isInteractiveHuman?.() ?? process.stdin.isTTY === true) && !ctx.noInput;
+	const readGitConfigForActor = deps.readGitConfig ?? getGitEmail;
 	const loadProjectionsOrFail = async (featureDir, kinds, feature) => {
 		try {
 			return await loadProjections({
@@ -6171,8 +6184,8 @@ async function main(argv = process.argv, deps = {}) {
 		}
 		const resolution = resolveHumanActor({
 			env: process.env,
-			readGitConfig: getGitEmail,
-			isInteractiveHuman: process.stdin.isTTY === true
+			readGitConfig: readGitConfigForActor,
+			isInteractiveHuman: isInteractiveHumanForActor()
 		});
 		if (!resolution.ok) {
 			emitFailure(resolution.code, resolution.message);
@@ -6327,8 +6340,8 @@ async function main(argv = process.argv, deps = {}) {
 	program.command("deliver").description("Deliver the feature session (emits session:delivered → DONE.delivered)").requiredOption("--feature <name>", "Feature whose session to deliver").option("--feature-dir <path>", "Override default .loaf/<feature> directory").option("--reason <text>", "Optional rationale to record on the session:delivered entry").action(async (opts) => {
 		const resolution = resolveHumanActor({
 			env: process.env,
-			readGitConfig: getGitEmail,
-			isInteractiveHuman: process.stdin.isTTY === true
+			readGitConfig: readGitConfigForActor,
+			isInteractiveHuman: isInteractiveHumanForActor()
 		});
 		if (!resolution.ok) {
 			ctx.failure(resolution.code, resolution.message);
@@ -6379,8 +6392,8 @@ async function main(argv = process.argv, deps = {}) {
 	program.command("archive").description("Close the feature session without delivering (emits session:archived → DONE.archived)").requiredOption("--feature <name>", "Feature whose session to archive").requiredOption("--reason <text>", "Rationale recorded on the session:archived entry").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		const resolution = resolveHumanActor({
 			env: process.env,
-			readGitConfig: getGitEmail,
-			isInteractiveHuman: process.stdin.isTTY === true
+			readGitConfig: readGitConfigForActor,
+			isInteractiveHuman: isInteractiveHumanForActor()
 		});
 		if (!resolution.ok) {
 			emitFailure(resolution.code, resolution.message);
@@ -6424,8 +6437,8 @@ async function main(argv = process.argv, deps = {}) {
 	program.command("abandon").description("Abandon the feature session (emits session:abandoned → DONE.abandoned)").requiredOption("--feature <name>", "Feature whose session to abandon").requiredOption("--reason <text>", "Rationale recorded on the session:abandoned entry").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		const resolution = resolveHumanActor({
 			env: process.env,
-			readGitConfig: getGitEmail,
-			isInteractiveHuman: process.stdin.isTTY === true
+			readGitConfig: readGitConfigForActor,
+			isInteractiveHuman: isInteractiveHumanForActor()
 		});
 		if (!resolution.ok) {
 			emitFailure(resolution.code, resolution.message);
@@ -6469,8 +6482,8 @@ async function main(argv = process.argv, deps = {}) {
 	program.command("spike").description("Spike-task exits (protocol §8.3)").command("convert").description("Convert a spike session — emits spike:converted then archives to DONE.archived").requiredOption("--feature <name>", "Feature whose spike session to convert").requiredOption("--to-feature <id>", "Target feature id (F-NNN) the spike learnings carry into").requiredOption("--reason <text>", "Rationale recorded on the spike:converted entry").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		const resolution = resolveHumanActor({
 			env: process.env,
-			readGitConfig: getGitEmail,
-			isInteractiveHuman: process.stdin.isTTY === true
+			readGitConfig: readGitConfigForActor,
+			isInteractiveHuman: isInteractiveHumanForActor()
 		});
 		if (!resolution.ok) {
 			emitFailure(resolution.code, resolution.message);
@@ -6525,8 +6538,8 @@ async function main(argv = process.argv, deps = {}) {
 	program.command("profile").description("Ceremony profile commands (protocol §10.8)").command("escalate").description("Apply a ceremony escalation — resolve the profile_escalation pending + emit event:ceremony_set").requiredOption("--confirm", "Human acceptance of the escalation (required)").requiredOption("--input <path>", "JSON file with the escalated 6-flag Ceremony object").requiredOption("--feature <name>", "Feature whose session to escalate").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		const resolution = resolveHumanActor({
 			env: process.env,
-			readGitConfig: getGitEmail,
-			isInteractiveHuman: process.stdin.isTTY === true
+			readGitConfig: readGitConfigForActor,
+			isInteractiveHuman: isInteractiveHumanForActor()
 		});
 		if (!resolution.ok) {
 			emitFailure(resolution.code, resolution.message);

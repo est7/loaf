@@ -178,6 +178,15 @@ export function installSigintHandler(deps: SigintHandlerDeps): () => void {
 export type MainDeps = {
   readStdin?: () => Promise<string>;
   isStdinTty?: () => boolean;
+  // Phase 16 SC-6a — test-injectable actor-resolution primitives. Both
+  // default to the production sources at the 6 human-actor sites
+  // (`process.stdin.isTTY === true` and `getGitEmail`); tests inject
+  // synthetic values so the `--no-input` TTY-downgrade contract can be
+  // asserted deterministically (Vitest runs with non-interactive stdin,
+  // so the inline literal defaults would not differentiate with-vs-
+  // without `--no-input`).
+  isInteractiveHuman?: () => boolean;
+  readGitConfig?: () => string | null;
 };
 
 export async function main(
@@ -255,6 +264,11 @@ export async function main(
     .option("--no-color", "Disable color (NO_COLOR/LOAF_NO_COLOR/TERM=dumb equivalents)")
     .option("-q, --quiet", "Suppress advisory stderr (state-change + next hint; errors still emit)")
     .option("-v, --verbose", "Increase advisory detail; counter — repeat for more (-v, -vv)", (_v: string, prior: number | undefined): number => (prior ?? 0) + 1, 0)
+    // SC-6a — non-interactive mode declaration. Required for skill / hook /
+    // CI runners on a TTY: forces actor resolver to refuse the git-config
+    // fallback (`isInteractiveHuman` AND-folded with !ctx.noInput). Future
+    // prompt entry points must short-circuit to exit 2 when set.
+    .option("--no-input", "Non-interactive mode: refuse git-config actor fallback; forward-compat with future prompts (skill / hook / CI)")
     .addHelpText("after", helpFooter())
     .showHelpAfterError()
     .exitOverride();
@@ -288,6 +302,16 @@ export async function main(
   ): void => {
     ctx.failure(code, message, detail);
   };
+
+  // Phase 16 SC-6a — actor-resolution boundary helpers. Both injection
+  // points live in MainDeps so tests can drive deterministic TTY-up /
+  // git-config values; production omits both and falls back to the
+  // pre-SC-6a literals (process.stdin.isTTY === true, getGitEmail).
+  // The closure re-evaluates `ctx.noInput` on every invocation so a
+  // shared helper works for sub-commands resolved later in main().
+  const isInteractiveHumanForActor = (): boolean =>
+    (deps.isInteractiveHuman?.() ?? process.stdin.isTTY === true) && !ctx.noInput;
+  const readGitConfigForActor: () => string | null = deps.readGitConfig ?? getGitEmail;
 
   // loadProjectionsOrFail — projection-loader wrapper for the four
   // SC3-wired read-only commands (status / tasks list / pending list /
@@ -557,8 +581,8 @@ export async function main(
       // (3) resolve human actor (gate is human-only per per-kind actor policy)
       const resolution = resolveHumanActor({
         env: process.env,
-        readGitConfig: getGitEmail,
-        isInteractiveHuman: process.stdin.isTTY === true,
+        readGitConfig: readGitConfigForActor,
+        isInteractiveHuman: isInteractiveHumanForActor(),
       });
       if (!resolution.ok) {
         emitFailure(resolution.code, resolution.message);
@@ -777,8 +801,8 @@ export async function main(
       // (1) Human-only actor — `session:delivered` is HUMAN_ONLY per PER_KIND_ACTOR.
       const resolution = resolveHumanActor({
         env: process.env,
-        readGitConfig: getGitEmail,
-        isInteractiveHuman: process.stdin.isTTY === true,
+        readGitConfig: readGitConfigForActor,
+        isInteractiveHuman: isInteractiveHumanForActor(),
       });
       if (!resolution.ok) {
         ctx.failure(resolution.code, resolution.message);
@@ -863,8 +887,8 @@ export async function main(
       // (1) Human-only actor — `session:archived` is HUMAN_ONLY per PER_KIND_ACTOR.
       const resolution = resolveHumanActor({
         env: process.env,
-        readGitConfig: getGitEmail,
-        isInteractiveHuman: process.stdin.isTTY === true,
+        readGitConfig: readGitConfigForActor,
+        isInteractiveHuman: isInteractiveHumanForActor(),
       });
       if (!resolution.ok) {
         emitFailure(resolution.code, resolution.message);
@@ -926,8 +950,8 @@ export async function main(
       // (1) Human-only actor — `session:abandoned` is HUMAN_ONLY per PER_KIND_ACTOR.
       const resolution = resolveHumanActor({
         env: process.env,
-        readGitConfig: getGitEmail,
-        isInteractiveHuman: process.stdin.isTTY === true,
+        readGitConfig: readGitConfigForActor,
+        isInteractiveHuman: isInteractiveHumanForActor(),
       });
       if (!resolution.ok) {
         emitFailure(resolution.code, resolution.message);
@@ -1014,8 +1038,8 @@ export async function main(
         // (1) Human-only actor — `spike:converted` is HUMAN_ONLY per PER_KIND_ACTOR.
         const resolution = resolveHumanActor({
           env: process.env,
-          readGitConfig: getGitEmail,
-          isInteractiveHuman: process.stdin.isTTY === true,
+          readGitConfig: readGitConfigForActor,
+          isInteractiveHuman: isInteractiveHumanForActor(),
         });
         if (!resolution.ok) {
           emitFailure(resolution.code, resolution.message);
@@ -1113,8 +1137,8 @@ export async function main(
         // (1) Human-only acceptance — escalation is a human decision.
         const resolution = resolveHumanActor({
           env: process.env,
-          readGitConfig: getGitEmail,
-          isInteractiveHuman: process.stdin.isTTY === true,
+          readGitConfig: readGitConfigForActor,
+          isInteractiveHuman: isInteractiveHumanForActor(),
         });
         if (!resolution.ok) {
           emitFailure(resolution.code, resolution.message);
