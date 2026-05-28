@@ -240,6 +240,61 @@ export const StateProjection = z
   });
 export type StateProjection = z.infer<typeof StateProjection>;
 
+// ── ~/.loaf/registry/<session_id>.json — RegistryFile (Phase 16 SC-7) ──
+//
+// Per-session TUI projection (protocol §4.12 + schemas.ts §RegistryFile
+// canonical). Atomic temp+rename write at `~/.loaf/registry/<id>.json`,
+// mode 0o600. Best-effort derived projection — NEVER gate authority;
+// readers (TUI / sessions list) tolerate stale, doctor --rebuild-registry
+// reconstructs from canonical artifacts (future SC).
+//
+// Runtime mirror of docs/schemas.ts §RegistryFile. Lives here to keep the
+// runtime ↔ docs boundary clean (no src/ imports from docs/, enforced by
+// tests/scripts/sc7-runtime-import-gate.test.ts per codex r280 P1).
+//
+// Field derivation contract (mirrors composeStateProjection from
+// projection-writer.ts):
+//   - session_label = SessionStartedPayload.session_label ?? ""
+//     (NOT nullable per docs/schemas.ts:1552-1557 — empty-string fallback
+//     is the narrowest schema-valid choice; codex r280 P2)
+//   - workspace = SessionStartedPayload.workspace ?? "default"
+//   - ceremony_label = SessionStartedPayload.ceremony_label ?? ""
+//   - feature = SessionStartedPayload.feature (canonical journal source;
+//     NOT path.basename(featureDir) — tmp featureDir paths in tests
+//     don't carry the canonical name)
+//   - active_tasks = snapshot.tasks.filter(t => t.status === "in_progress")
+//   - pending = composePendingJson(entries).pending.filter(!resolved)
+//     [0] with `resolved` stripped (head), null when empty
+//   - pending_queue_depth = unresolved.length (NOT snapshot.pending.length
+//     which includes resolved historical entries; codex r280 P3)
+//   - cwd = process.cwd() at write time (best-effort; refresh overwrites)
+export const RegistryFile = z
+  .object({
+    schema_version: SchemaVersionLiteral,
+    at: z.string().datetime(),
+    session_id: z.string().uuid(),
+    // Non-nullable string with empty-string fallback (codex r280 P2).
+    session_label: z.string(),
+    // Phase 16 SC-7 (codex r281 P2 — runtime + docs/schemas.ts in lockstep):
+    // `.min(1)` matches `SessionStartedPayload.feature`. Kebab-case is
+    // convention for production users but not enforced at journal level,
+    // so the registry projection accepts whatever the journal carries.
+    feature: z.string().min(1),
+    cwd: z.string(),
+    workspace: z.string().min(1),
+    phase: StateProjectionPhase,
+    sub_state: SubState,
+    iteration: z.number().int().positive(),
+    active_tasks: z.array(z.string().regex(/^T-\d{3,}$/)).default([]),
+    // Rich `PendingPromptEntry` (NOT slim Snapshot.pending shape) per
+    // codex r280 P3. Head = unresolved[0]; null when queue is empty.
+    pending: PendingQueueEntry.nullable(),
+    pending_queue_depth: z.number().int().nonnegative().default(0),
+    ceremony_label: z.string().default(""),
+  })
+  .strict();
+export type RegistryFile = z.infer<typeof RegistryFile>;
+
 // Re-export the enum types used by the schema, so a consumer of the
 // container types does not have to also reach into evidence-schema.
 export type { EvidenceKind, EvidenceResult };

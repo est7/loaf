@@ -5119,6 +5119,22 @@ const StateProjection = z.object({
 	created_at: z.string().datetime(),
 	updated_at: z.string().datetime()
 }).strict().refine((s) => s.sub_state.startsWith(s.phase + "."), { message: "sub_state must start with phase + '.'" }).refine((s) => !s.phase.startsWith("DONE") || s.pending.length === 0, { message: "DONE.* requires pending = [] (live queue empty at terminal)" });
+const RegistryFile = z.object({
+	schema_version: SchemaVersionLiteral,
+	at: z.string().datetime(),
+	session_id: z.string().uuid(),
+	session_label: z.string(),
+	feature: z.string().min(1),
+	cwd: z.string(),
+	workspace: z.string().min(1),
+	phase: StateProjectionPhase,
+	sub_state: SubState,
+	iteration: z.number().int().positive(),
+	active_tasks: z.array(z.string().regex(/^T-\d{3,}$/)).default([]),
+	pending: PendingQueueEntry.nullable(),
+	pending_queue_depth: z.number().int().nonnegative().default(0),
+	ceremony_label: z.string().default("")
+}).strict();
 //#endregion
 //#region src/core/projection-writer.ts
 /**
@@ -5440,6 +5456,86 @@ function isLongTextFieldShape(v) {
 	return obj["mode"] === "inline" || obj["mode"] === "sidecar";
 }
 //#endregion
+//#region src/core/registry-writer.ts
+/** Default registry directory: `~/.loaf/registry/`.
+*
+*  Test isolation (codex r281 P1): when `process.env.LOAF_REGISTRY_DIR`
+*  is set (vitest setup file populates it with a tmp dir), it wins
+*  over the home-dir default. Tests can also override per-call via
+*  `writeRegistryFile`'s `registryDir` option. Production users do
+*  NOT set the env var; they get the canonical `~/.loaf/registry/`. */
+function defaultRegistryDir() {
+	const envOverride = process.env["LOAF_REGISTRY_DIR"];
+	if (envOverride && envOverride.length > 0) return envOverride;
+	return path.join(os.homedir(), ".loaf", "registry");
+}
+/** Pure: derive RegistryFile from a journal-applied snapshot + the
+*  entries that produced it. Returns null when the snapshot carries no
+*  session state (pre-session:started edge case).
+*
+*  Throws on Zod parse failure — schema mismatch means a code defect,
+*  not a stale projection (codex r280 P4). Caller in `mutateBatch`
+*  step 9 catches + converts to a mutate failure result. */
+function buildRegistryFile(input) {
+	const { snapshot, entries, now, cwd } = input;
+	const state = snapshot.state;
+	if (!state || !state.session_id) return null;
+	const startEntry = entries.find((e) => e.kind === "session:started");
+	if (!startEntry) throw new Error("buildRegistryFile: snapshot has state.session_id but entries lacks session:started — projection corruption");
+	const startPayload = SessionStartedPayload.parse(startEntry.payload);
+	const sessionLabel = startPayload.session_label ?? "";
+	const workspace = startPayload.workspace ?? "default";
+	const ceremonyLabel = startPayload.ceremony_label ?? "";
+	const unresolved = composePendingJson(entries).pending.filter((p) => !p.resolved).map(({ resolved: _resolved, ...rest }) => rest);
+	const pendingHead = unresolved[0] ?? null;
+	const pendingQueueDepth = unresolved.length;
+	const activeTasks = snapshot.tasks.filter((t) => t.status === "in_progress").map((t) => t.id);
+	const feature = startPayload.feature;
+	return RegistryFile.parse({
+		schema_version: 2,
+		at: now.toISOString(),
+		session_id: state.session_id,
+		session_label: sessionLabel,
+		feature,
+		cwd,
+		workspace,
+		phase: state.phase,
+		sub_state: state.sub_state,
+		iteration: state.iteration,
+		active_tasks: activeTasks,
+		pending: pendingHead,
+		pending_queue_depth: pendingQueueDepth,
+		ceremony_label: ceremonyLabel
+	});
+}
+/** Atomic temp+rename write to `<registryDir>/<sessionId>.json`.
+*
+*  Writes with mode 0o600 (per §4.12) so other users on the same host
+*  cannot read cwd / session_label. Creates `<registryDir>` recursively
+*  on first write (parent-dir mode is intentionally not constrained by
+*  protocol — codex r280 non-blocking).
+*
+*  Atomicity: writes to `<registryDir>/<sessionId>.json.tmp-<random>`,
+*  then renames over the target. POSIX rename(2) is atomic — readers
+*  see either the old file or the new file, never a torn write.
+*
+*  Best-effort: throws on IO failure; the mutateBatch step 9 caller
+*  catches + silences per §4.12 (registry is stale-tolerant; doctor
+*  --rebuild-registry recovers). */
+async function writeRegistryFile(sessionId, file, opts = {}) {
+	const registryDir = opts.registryDir ?? defaultRegistryDir();
+	await promises.mkdir(registryDir, { recursive: true });
+	const target = path.join(registryDir, `${sessionId}.json`);
+	const tmp = `${target}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+	try {
+		await promises.writeFile(tmp, JSON.stringify(file), { mode: 384 });
+		await promises.rename(tmp, target);
+	} catch (err) {
+		await promises.unlink(tmp).catch(() => void 0);
+		throw err;
+	}
+}
+//#endregion
 //#region src/core/spec-projection.ts
 /**
 * Composes the spec.md content (frontmatter + preserved body) from a
@@ -5757,6 +5853,32 @@ async function mutateBatch(partials, ctx) {
 				error: err.message
 			}
 		};
+	}
+	if (finalSnapshot.state?.session_id) {
+		let registryFile;
+		try {
+			registryFile = buildRegistryFile({
+				snapshot: finalSnapshot,
+				entries: ctx.entries.concat(promoted),
+				now: ctx.registryWriter?.now?.() ?? /* @__PURE__ */ new Date(),
+				cwd: ctx.registryWriter?.cwd?.() ?? process.cwd()
+			});
+		} catch (err) {
+			return {
+				ok: false,
+				code: "PROJECTION_WRITE_FAILED",
+				message: `registry derivation failed after journal append; journal is authoritative — run 'loaf doctor --rebuild-registry' (future). Cause: ${err.message}`,
+				detail: {
+					projection: "registry",
+					phase: "derivation",
+					journal_appended: true,
+					error: err.message
+				}
+			};
+		}
+		if (registryFile) try {
+			await writeRegistryFile(registryFile.session_id, registryFile, { ...ctx.registryWriter?.registryDir !== void 0 && { registryDir: ctx.registryWriter.registryDir } });
+		} catch {}
 	}
 	return {
 		ok: true,
@@ -6174,6 +6296,11 @@ async function main(argv = process.argv, deps = {}) {
 	};
 	const isInteractiveHumanForActor = () => (deps.isInteractiveHuman?.() ?? process.stdin.isTTY === true) && !ctx.noInput;
 	const readGitConfigForActor = deps.readGitConfig ?? getGitEmail;
+	const registryWriterDeps = deps.registryDir !== void 0 || deps.registryNow !== void 0 || deps.registryCwd !== void 0 ? {
+		...deps.registryDir !== void 0 && { registryDir: deps.registryDir },
+		...deps.registryNow !== void 0 && { now: deps.registryNow },
+		...deps.registryCwd !== void 0 && { cwd: deps.registryCwd }
+	} : void 0;
 	const emitDryRunSuccess = (result) => {
 		const kind = "entry" in result ? result.entry.kind : result.entries[0]?.kind ?? "(empty)";
 		ctx.success({
@@ -6248,7 +6375,8 @@ async function main(argv = process.argv, deps = {}) {
 			tail_seq: session.tail_seq,
 			entries: session.entries,
 			meta: session.meta,
-			dryRun: ctx.dryRun
+			dryRun: ctx.dryRun,
+			registryWriter: registryWriterDeps
 		});
 		if (!result.ok) {
 			fail(result.code, result.message);
@@ -6296,7 +6424,8 @@ async function main(argv = process.argv, deps = {}) {
 			tail_seq: session.tail_seq,
 			entries: session.entries,
 			meta: session.meta,
-			dryRun: ctx.dryRun
+			dryRun: ctx.dryRun,
+			registryWriter: registryWriterDeps
 		});
 		if (!result.ok) {
 			fail(result.code, result.message);
@@ -6385,7 +6514,8 @@ async function main(argv = process.argv, deps = {}) {
 			tail_seq: session.tail_seq,
 			entries: session.entries,
 			meta: session.meta,
-			dryRun: ctx.dryRun
+			dryRun: ctx.dryRun,
+			registryWriter: registryWriterDeps
 		};
 		const now = (/* @__PURE__ */ new Date()).toISOString();
 		const pendingHead = session.snapshot.pending.find((p) => !p.resolved);
@@ -6563,7 +6693,8 @@ async function main(argv = process.argv, deps = {}) {
 			tail_seq: session.tail_seq,
 			entries: session.entries,
 			meta: session.meta,
-			dryRun: ctx.dryRun
+			dryRun: ctx.dryRun,
+			registryWriter: registryWriterDeps
 		});
 		if (!result.ok) {
 			ctx.failure(result.code, result.message, result.detail);
@@ -6619,7 +6750,8 @@ async function main(argv = process.argv, deps = {}) {
 			tail_seq: session.tail_seq,
 			entries: session.entries,
 			meta: session.meta,
-			dryRun: ctx.dryRun
+			dryRun: ctx.dryRun,
+			registryWriter: registryWriterDeps
 		});
 		if (!result.ok) {
 			emitFailure(result.code, result.message, result.detail);
@@ -6670,7 +6802,8 @@ async function main(argv = process.argv, deps = {}) {
 			tail_seq: session.tail_seq,
 			entries: session.entries,
 			meta: session.meta,
-			dryRun: ctx.dryRun
+			dryRun: ctx.dryRun,
+			registryWriter: registryWriterDeps
 		});
 		if (!result.ok) {
 			emitFailure(result.code, result.message, result.detail);
@@ -6731,7 +6864,8 @@ async function main(argv = process.argv, deps = {}) {
 			tail_seq: session.tail_seq,
 			entries: session.entries,
 			meta: session.meta,
-			dryRun: ctx.dryRun
+			dryRun: ctx.dryRun,
+			registryWriter: registryWriterDeps
 		});
 		if (!result.ok) {
 			emitFailure(result.code, result.message, result.detail);
@@ -6810,7 +6944,8 @@ async function main(argv = process.argv, deps = {}) {
 			tail_seq: session.tail_seq,
 			entries: session.entries,
 			meta: session.meta,
-			dryRun: ctx.dryRun
+			dryRun: ctx.dryRun,
+			registryWriter: registryWriterDeps
 		});
 		if (!result.ok) {
 			emitFailure(result.code, result.message, result.detail);
@@ -6911,7 +7046,8 @@ async function main(argv = process.argv, deps = {}) {
 			tail_seq: session.tail_seq,
 			entries: session.entries,
 			meta: session.meta,
-			dryRun: ctx.dryRun
+			dryRun: ctx.dryRun,
+			registryWriter: registryWriterDeps
 		});
 		if (!result.ok) {
 			ctx.failure(result.code, result.message, result.detail);
@@ -7008,7 +7144,8 @@ async function main(argv = process.argv, deps = {}) {
 				tail_seq: session.tail_seq,
 				entries: session.entries,
 				meta: session.meta,
-				dryRun: ctx.dryRun
+				dryRun: ctx.dryRun,
+				registryWriter: registryWriterDeps
 			});
 			if (!result.ok) {
 				ctx.failure(result.code, result.message, result.detail);
@@ -7057,7 +7194,8 @@ async function main(argv = process.argv, deps = {}) {
 			tail_seq: session.tail_seq,
 			entries: session.entries,
 			meta: session.meta,
-			dryRun: ctx.dryRun
+			dryRun: ctx.dryRun,
+			registryWriter: registryWriterDeps
 		});
 		if (!result.ok) {
 			ctx.failure(result.code, result.message, result.detail);
@@ -7096,7 +7234,8 @@ async function main(argv = process.argv, deps = {}) {
 			tail_seq: session.tail_seq,
 			entries: session.entries,
 			meta: session.meta,
-			dryRun: ctx.dryRun
+			dryRun: ctx.dryRun,
+			registryWriter: registryWriterDeps
 		});
 		if (!result.ok) {
 			emitFailure(result.code, result.message, result.detail);
@@ -7144,7 +7283,8 @@ async function main(argv = process.argv, deps = {}) {
 			tail_seq: session.tail_seq,
 			entries: session.entries,
 			meta: session.meta,
-			dryRun: ctx.dryRun
+			dryRun: ctx.dryRun,
+			registryWriter: registryWriterDeps
 		});
 		if (!result.ok) {
 			emitFailure(result.code, result.message, result.detail);
@@ -7355,7 +7495,8 @@ async function main(argv = process.argv, deps = {}) {
 				tail_seq: sSession.tail_seq,
 				entries: sSession.entries,
 				meta: sSession.meta,
-				dryRun: ctx.dryRun
+				dryRun: ctx.dryRun,
+				registryWriter: registryWriterDeps
 			});
 			if (!sResult.ok) {
 				ctx.failure(sResult.code, sResult.message, sResult.detail);
@@ -7447,7 +7588,8 @@ async function main(argv = process.argv, deps = {}) {
 			tail_seq: session.tail_seq,
 			entries: session.entries,
 			meta: session.meta,
-			dryRun: ctx.dryRun
+			dryRun: ctx.dryRun,
+			registryWriter: registryWriterDeps
 		});
 		if (!result.ok) {
 			emitFailure(result.code, result.message, result.detail);
@@ -7492,7 +7634,8 @@ async function main(argv = process.argv, deps = {}) {
 			tail_seq: session.tail_seq,
 			entries: session.entries,
 			meta: session.meta,
-			dryRun: ctx.dryRun
+			dryRun: ctx.dryRun,
+			registryWriter: registryWriterDeps
 		});
 		if (!result.ok) {
 			emitFailure(result.code, result.message, result.detail);
@@ -7535,7 +7678,8 @@ async function main(argv = process.argv, deps = {}) {
 			tail_seq: session.tail_seq,
 			entries: session.entries,
 			meta: session.meta,
-			dryRun: ctx.dryRun
+			dryRun: ctx.dryRun,
+			registryWriter: registryWriterDeps
 		});
 		if (!result.ok) {
 			emitFailure(result.code, result.message, result.detail);
@@ -7607,7 +7751,8 @@ async function main(argv = process.argv, deps = {}) {
 			tail_seq: session.tail_seq,
 			entries: session.entries,
 			meta: session.meta,
-			dryRun: ctx.dryRun
+			dryRun: ctx.dryRun,
+			registryWriter: registryWriterDeps
 		};
 		let result;
 		let evidenceId;
@@ -7698,7 +7843,8 @@ async function main(argv = process.argv, deps = {}) {
 			tail_seq: session.tail_seq,
 			entries: session.entries,
 			meta: session.meta,
-			dryRun: ctx.dryRun
+			dryRun: ctx.dryRun,
+			registryWriter: registryWriterDeps
 		});
 		if (!result.ok) {
 			emitFailure(result.code, result.message, result.detail);
@@ -7755,7 +7901,8 @@ async function main(argv = process.argv, deps = {}) {
 			tail_seq: session.tail_seq,
 			entries: session.entries,
 			meta: session.meta,
-			dryRun: ctx.dryRun
+			dryRun: ctx.dryRun,
+			registryWriter: registryWriterDeps
 		});
 		if (!result.ok) {
 			emitFailure(result.code, result.message, result.detail);
@@ -7855,7 +8002,8 @@ async function main(argv = process.argv, deps = {}) {
 			tail_seq: session.tail_seq,
 			entries: session.entries,
 			meta: session.meta,
-			dryRun: ctx.dryRun
+			dryRun: ctx.dryRun,
+			registryWriter: registryWriterDeps
 		});
 		if (!result.ok) {
 			emitFailure(result.code, result.message, result.detail);
@@ -7932,7 +8080,8 @@ async function main(argv = process.argv, deps = {}) {
 			tail_seq: session.tail_seq,
 			entries: session.entries,
 			meta: session.meta,
-			dryRun: ctx.dryRun
+			dryRun: ctx.dryRun,
+			registryWriter: registryWriterDeps
 		});
 		if (!result.ok) {
 			ctx.failure(result.code, result.message, result.detail);
@@ -8040,7 +8189,8 @@ async function main(argv = process.argv, deps = {}) {
 				tail_seq: session.tail_seq,
 				entries: session.entries,
 				meta: session.meta,
-				dryRun: ctx.dryRun
+				dryRun: ctx.dryRun,
+				registryWriter: registryWriterDeps
 			});
 			if (!batchResult.ok) {
 				emitFailure(batchResult.code, batchResult.message, batchResult.detail);
@@ -8094,7 +8244,8 @@ async function main(argv = process.argv, deps = {}) {
 				tail_seq: session.tail_seq,
 				entries: session.entries,
 				meta: session.meta,
-				dryRun: ctx.dryRun
+				dryRun: ctx.dryRun,
+				registryWriter: registryWriterDeps
 			});
 			if (!batchResult.ok) {
 				emitFailure(batchResult.code, batchResult.message, batchResult.detail);
@@ -8129,7 +8280,8 @@ async function main(argv = process.argv, deps = {}) {
 			tail_seq: session.tail_seq,
 			entries: session.entries,
 			meta: session.meta,
-			dryRun: ctx.dryRun
+			dryRun: ctx.dryRun,
+			registryWriter: registryWriterDeps
 		});
 		if (!result.ok) {
 			emitFailure(result.code, result.message, result.detail);
@@ -8209,7 +8361,8 @@ async function main(argv = process.argv, deps = {}) {
 			tail_seq: session.tail_seq,
 			entries: session.entries,
 			meta: session.meta,
-			dryRun: ctx.dryRun
+			dryRun: ctx.dryRun,
+			registryWriter: registryWriterDeps
 		});
 		if (!result.ok) {
 			emitFailure(result.code, result.message, result.detail);
@@ -8313,7 +8466,8 @@ async function main(argv = process.argv, deps = {}) {
 			tail_seq: session.tail_seq,
 			entries: session.entries,
 			meta: session.meta,
-			dryRun: ctx.dryRun
+			dryRun: ctx.dryRun,
+			registryWriter: registryWriterDeps
 		});
 		if (!result.ok) {
 			ctx.failure(result.code, result.message, result.detail);
@@ -8472,7 +8626,8 @@ feature:
 			tail_seq: session.tail_seq,
 			entries: session.entries,
 			meta: session.meta,
-			dryRun: ctx.dryRun
+			dryRun: ctx.dryRun,
+			registryWriter: registryWriterDeps
 		});
 		if (!result.ok) {
 			ctx.failure(result.code, result.message, result.detail);

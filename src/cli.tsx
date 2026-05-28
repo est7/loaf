@@ -44,7 +44,7 @@ import {
   helpFooter,
   loadSession,
 } from "./core/cli-runtime.js";
-import { mutate, mutateBatch } from "./core/journal-mutate.js";
+import { mutate, mutateBatch, type MutateContext } from "./core/journal-mutate.js";
 import { replayJournal } from "./core/journal-bootstrap.js";
 import { writeProjections } from "./core/projection-writer.js";
 import {
@@ -200,6 +200,14 @@ export type MainDeps = {
   appendTraceLine?: (featureDir: string, entry: TraceEntry) => Promise<void>;
   now?: () => Date;
   monotonicNow?: () => number;
+  // Phase 16 SC-7 — test-injectable registry-writer primitives. Production
+  // omits all three; defaults to `~/.loaf/registry/` + `new Date()` +
+  // `process.cwd()`. CLI e2e tests inject a tmp dir to avoid touching the
+  // real user registry (codex r280 P5). Threaded through every
+  // MutateContext literal in cli.tsx via the `registryWriter` field.
+  registryDir?: string;
+  registryNow?: () => Date;
+  registryCwd?: () => string;
 };
 
 export async function main(
@@ -358,6 +366,22 @@ export async function main(
     (deps.isInteractiveHuman?.() ?? process.stdin.isTTY === true) && !ctx.noInput;
   const readGitConfigForActor: () => string | null = deps.readGitConfig ?? getGitEmail;
 
+  // Phase 16 SC-7 — registry-writer DI bundle for MutateContext literals.
+  // Built once at main() entry; threaded into every mutate ctx so the
+  // CLI never reaches into ~/.loaf/registry/ when a test injects an
+  // override (codex r280 P5). `undefined` when no override given so
+  // production stays on the defaults inside the writer module.
+  const registryWriterDeps: MutateContext["registryWriter"] | undefined =
+    deps.registryDir !== undefined ||
+    deps.registryNow !== undefined ||
+    deps.registryCwd !== undefined
+      ? {
+          ...(deps.registryDir !== undefined && { registryDir: deps.registryDir }),
+          ...(deps.registryNow !== undefined && { now: deps.registryNow }),
+          ...(deps.registryCwd !== undefined && { cwd: deps.registryCwd }),
+        }
+      : undefined;
+
   // Phase 16 SC-6c — `--dry-run` helpers. `emitDryRunSuccess` formats
   // the "would do" summary after a mutator returns ok:true under
   // `ctx.dryRun`. `rejectIfDryRun` short-circuits read-only / wrapping
@@ -479,7 +503,7 @@ export async function main(
             ...(opts.label !== undefined ? { session_label: opts.label } : {}),
           },
         },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun, registryWriter: registryWriterDeps },
       );
       if (!result.ok) {
         fail(result.code, result.message);
@@ -536,7 +560,7 @@ export async function main(
           kind: "event:phase_advanced",
           payload: { from, to },
         },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun, registryWriter: registryWriterDeps },
       );
       if (!result.ok) {
         fail(result.code, result.message);
@@ -698,6 +722,7 @@ export async function main(
         entries: session.entries,
         meta: session.meta,
         dryRun: ctx.dryRun,
+        registryWriter: registryWriterDeps,
       };
       const now = new Date().toISOString();
       // SC4 soft pending co-emission: if the unresolved head is a
@@ -941,7 +966,7 @@ export async function main(
           kind: "session:delivered",
           payload,
         },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun, registryWriter: registryWriterDeps },
       );
       if (!result.ok) {
         ctx.failure(result.code, result.message, result.detail);
@@ -1027,7 +1052,7 @@ export async function main(
           kind: "session:archived",
           payload: { reason: opts.reason },
         },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun, registryWriter: registryWriterDeps },
       );
       if (!result.ok) {
         emitFailure(result.code, result.message, result.detail);
@@ -1095,7 +1120,7 @@ export async function main(
           kind: "session:abandoned",
           payload: { reason: opts.reason },
         },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun, registryWriter: registryWriterDeps },
       );
       if (!result.ok) {
         emitFailure(result.code, result.message, result.detail);
@@ -1200,7 +1225,7 @@ export async function main(
               payload: { reason: opts.reason },
             },
           ],
-          { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun },
+          { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun, registryWriter: registryWriterDeps },
         );
         if (!result.ok) {
           emitFailure(result.code, result.message, result.detail);
@@ -1349,7 +1374,7 @@ export async function main(
               payload: { id: head.id },
             },
           ],
-          { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun },
+          { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun, registryWriter: registryWriterDeps },
         );
         if (!result.ok) {
           emitFailure(result.code, result.message, result.detail);
@@ -1581,7 +1606,7 @@ export async function main(
           kind: "event:tasks_planned",
           payload: payload as Record<string, unknown>,
         },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun, registryWriter: registryWriterDeps },
       );
       if (!result.ok) {
         ctx.failure(result.code, result.message, result.detail);
@@ -1775,6 +1800,7 @@ export async function main(
           entries: session.entries,
           meta: session.meta,
           dryRun: ctx.dryRun,
+          registryWriter: registryWriterDeps,
         });
         if (!result.ok) {
           ctx.failure(result.code, result.message, result.detail);
@@ -1834,7 +1860,7 @@ export async function main(
           kind: "event:tasks_planned",
           payload: { based_on, tasks: [...existingFull, ...seededNew] },
         },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun, registryWriter: registryWriterDeps },
       );
       if (!result.ok) {
         ctx.failure(result.code, result.message, result.detail);
@@ -1891,7 +1917,7 @@ export async function main(
           kind: "event:task_claimed",
           payload: { task_id: taskId },
         },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun, registryWriter: registryWriterDeps },
       );
       if (!result.ok) {
         emitFailure(result.code, result.message, result.detail);
@@ -1964,7 +1990,7 @@ export async function main(
             kind: "event:task_abandoned",
             payload: { task_id: taskId, reason: opts.reason },
           },
-          { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun },
+          { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun, registryWriter: registryWriterDeps },
         );
         if (!result.ok) {
           emitFailure(result.code, result.message, result.detail);
@@ -2393,7 +2419,7 @@ export async function main(
                 sponsored_by_finding_id: findingId,
               },
             },
-            { feature_dir: sFeatureDir, snapshot: sSession.snapshot, tail_seq: sSession.tail_seq, entries: sSession.entries, meta: sSession.meta, dryRun: ctx.dryRun },
+            { feature_dir: sFeatureDir, snapshot: sSession.snapshot, tail_seq: sSession.tail_seq, entries: sSession.entries, meta: sSession.meta, dryRun: ctx.dryRun, registryWriter: registryWriterDeps },
           );
           if (!sResult.ok) {
             ctx.failure(sResult.code, sResult.message, sResult.detail);
@@ -2515,7 +2541,7 @@ export async function main(
             kind: "event:tasks_amended",
             payload: { mode: "replace", task: materialized },
           },
-          { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun },
+          { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun, registryWriter: registryWriterDeps },
         );
         if (!result.ok) {
           emitFailure(result.code, result.message, result.detail);
@@ -2575,7 +2601,7 @@ export async function main(
           kind: "event:task_step_done",
           payload: { task_id: taskId, step: "red", result: "passed", red_test_registered: true },
         },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun, registryWriter: registryWriterDeps },
       );
       if (!result.ok) {
         emitFailure(result.code, result.message, result.detail);
@@ -2641,7 +2667,7 @@ export async function main(
           kind: "event:task_step_started",
           payload: { task_id: opts.task, step: opts.step },
         },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun, registryWriter: registryWriterDeps },
       );
       if (!result.ok) {
         emitFailure(result.code, result.message, result.detail);
@@ -2783,6 +2809,7 @@ export async function main(
         entries: session.entries,
         meta: session.meta,
         dryRun: ctx.dryRun,
+        registryWriter: registryWriterDeps,
       };
       let result:
         | Awaited<ReturnType<typeof mutate>>
@@ -2934,7 +2961,7 @@ export async function main(
           kind: "event:phase_advanced",
           payload: { from, to: "SETTLE.reconcile" },
         },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun, registryWriter: registryWriterDeps },
       );
       if (!result.ok) {
         emitFailure(result.code, result.message, result.detail);
@@ -3053,7 +3080,7 @@ export async function main(
           kind: "pending:added",
           payload,
         },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun, registryWriter: registryWriterDeps },
       );
       if (!result.ok) {
         emitFailure(result.code, result.message, result.detail);
@@ -3192,7 +3219,7 @@ export async function main(
           kind: "pending:resolved",
           payload: { id: head.id, answer: opts.answer },
         },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun, registryWriter: registryWriterDeps },
       );
       if (!result.ok) {
         emitFailure(result.code, result.message, result.detail);
@@ -3351,6 +3378,7 @@ export async function main(
         entries: session.entries,
         meta: session.meta,
         dryRun: ctx.dryRun,
+        registryWriter: registryWriterDeps,
       });
       if (!result.ok) {
         ctx.failure(result.code, result.message, result.detail);
@@ -3556,7 +3584,7 @@ export async function main(
               },
             },
           ],
-          { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun },
+          { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun, registryWriter: registryWriterDeps },
         );
         if (!batchResult.ok) {
           emitFailure(batchResult.code, batchResult.message, batchResult.detail);
@@ -3616,7 +3644,7 @@ export async function main(
               },
             },
           ],
-          { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun },
+          { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun, registryWriter: registryWriterDeps },
         );
         if (!batchResult.ok) {
           emitFailure(batchResult.code, batchResult.message, batchResult.detail);
@@ -3658,7 +3686,7 @@ export async function main(
           kind: "finding:raised",
           payload,
         },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun, registryWriter: registryWriterDeps },
       );
       if (!result.ok) {
         emitFailure(result.code, result.message, result.detail);
@@ -3782,7 +3810,7 @@ export async function main(
           kind: "finding:closed",
           payload: { id: fndId },
         },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun },
+        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun, registryWriter: registryWriterDeps },
       );
       if (!result.ok) {
         emitFailure(result.code, result.message, result.detail);
@@ -3960,6 +3988,7 @@ export async function main(
         entries: session.entries,
         meta: session.meta,
         dryRun: ctx.dryRun,
+        registryWriter: registryWriterDeps,
       });
       if (!result.ok) {
         ctx.failure(result.code, result.message, result.detail);
@@ -4273,6 +4302,7 @@ export async function main(
           entries: session.entries,
           meta: session.meta,
           dryRun: ctx.dryRun,
+          registryWriter: registryWriterDeps,
         });
         if (!result.ok) {
           ctx.failure(result.code, result.message, result.detail);

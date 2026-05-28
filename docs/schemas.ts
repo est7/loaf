@@ -108,13 +108,17 @@
 //                                  VERIFY.visual). Intent now in sub_state,
 //                                  not in current_check field. 17 → 20.
 //                        - C9'   : RegistryFile gains `feature: string`
-//                                  (kebab-case derived projection of
-//                                  .loaf/<feature>/ dir name). Rationale:
-//                                  RegistryFile lives at ~/.loaf/registry/
-//                                  <session_id>.json — path has no feature
-//                                  context — so TUI needs the field for
-//                                  single-file-read display. StateJson
-//                                  does NOT carry `feature` (its path
+//                                  (`SessionStartedPayload.feature`,
+//                                  z.string().min(1); kebab-case is a
+//                                  convention for production users but
+//                                  not enforced at journal level — see
+//                                  Phase 16 SC-7 / codex r281 P2 widen).
+//                                  Rationale: RegistryFile lives at
+//                                  ~/.loaf/registry/<session_id>.json —
+//                                  path has no feature context — so TUI
+//                                  needs the field for single-file-read
+//                                  display. StateJson does NOT carry
+//                                  `feature` (its path
 //                                  already contains the dir name; reader
 //                                  derives via path.basename).
 //                        - CLI hardening (protocol.md §10 整段重写): per
@@ -1555,11 +1559,19 @@ export const RegistryFile = z.object({
   session_id: z.string().uuid(),
   session_label: z.string(),               // human display (e.g. "popposhell · 添加登录方式")
   // rev 4.0 C9': feature scope machine identifier. Derived projection
-  // of basename(.loaf/<feature>/) dir at write time. Used by TUI for
-  // single-file-read display of "which feature is this session doing".
-  // Invariant (cross-file, enforced by transitions.ts): equals
-  // path.basename(dirname(corresponding state.json file)).
-  feature: z.string().regex(/^[a-z][a-z0-9-]+$/).min(2),
+  // of `SessionStartedPayload.feature` at write time (was: basename of
+  // `.loaf/<feature>/` dir — replaced for Phase 16 SC-7 because the
+  // payload is the canonical source and basename can't be trusted in
+  // test contexts where featureDir is a tmpdir path).
+  //
+  // Phase 16 SC-7 (codex r281 P2): widened from the original
+  // `regex(/^[a-z][a-z0-9-]+$/).min(2)` aspirational kebab-case form
+  // to `.min(1)` so this matches what the journal actually accepts
+  // (`SessionStartedPayload.feature` is also `.min(1)`). Kebab-case
+  // remains the convention for production users; the CLI does NOT
+  // currently validate it at `loaf start <name>` boundary, so the
+  // registry projection must accept whatever the journal carries.
+  feature: z.string().min(1),
   cwd: z.string(),
   workspace: z.string(),
   phase: Phase,

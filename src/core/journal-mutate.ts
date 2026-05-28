@@ -30,7 +30,14 @@
 //                               post-append SnapshotMeta which _meta.json
 //                               records. Every mutation refreshes all five
 //                               projections (no affected-file filter).
-//   step 9 (registry refresh) — deferred
+//   step 9 (registry refresh) — IMPLEMENTED (Phase 16 SC-7): after step 8,
+//                               build + write `~/.loaf/registry/<id>.json`
+//                               per protocol §4.12. Best-effort IO write
+//                               (silenced on failure — registry is a
+//                               TUI projection, not gate authority);
+//                               schema-derivation failure surfaces as a
+//                               mutate failure (NOT silent ok, NOT CLI
+//                               crash — codex r280 P4 split).
 //   step 10 (lock release)    — deferred with step 1
 //
 // Atomicity (preserves audit r1-r5 invariants):
@@ -59,6 +66,8 @@ import { apply, type Snapshot } from "./reducer.js";
 import { preflight, type PreflightFailureCode } from "./reducer/preflight.js";
 import { promoteSidecars } from "./sidecar.js";
 import { isEmptyMeta, type SnapshotMeta } from "./snapshot.js";
+import { buildRegistryFile, writeRegistryFile } from "./registry-writer.js";
+import type { RegistryFile } from "./projection-schema.js";
 import { writeDerivedSpecMd } from "./spec-projection.js";
 
 // Slice A SC-A2: kinds that drive the spec.md projection writer at Pass 5
@@ -103,6 +112,17 @@ export interface MutateContext {
    *  release; future versions may also stage sidecars to `.tmp-*` per
    *  protocol §10.7. */
   dryRun?: boolean;
+  /** Phase 16 SC-7 — registry-writer DI seam. Production omits; defaults
+   *  to `defaultRegistryDir()` (~/.loaf/registry/) + `new Date()` +
+   *  `process.cwd()`. Tests inject a tmp dir + canned now/cwd so they
+   *  never touch the real user registry. `| undefined` is explicit so
+   *  CLI sites can spread a precomputed `undefined` from MainDeps under
+   *  `exactOptionalPropertyTypes`. */
+  registryWriter?: {
+    registryDir?: string;
+    now?: () => Date;
+    cwd?: () => string;
+  } | undefined;
 }
 
 export type MutateFailureCode =
@@ -552,6 +572,62 @@ export async function mutateBatch(
         error: (err as Error).message,
       },
     };
+  }
+
+  // Step 9 — Phase 16 SC-7 registry refresh (~/.loaf/registry/<id>.json).
+  //
+  // Two-layer guard per codex r280 P4:
+  //   - buildRegistryFile() can throw on schema-derivation failure
+  //     (corrupt session:started payload, etc.). NOT silenced — surfaces
+  //     as a mutate failure result so the bug is visible (not laundered
+  //     as "registry stale").
+  //   - writeRegistryFile() IO failure is best-effort per §4.12 —
+  //     swallowed silently; `loaf doctor --rebuild-registry` (future SC)
+  //     recovers from canonical artifacts.
+  //
+  // Skipped when snapshot.state.session_id is null (pre-session:started
+  // edge case — shouldn't happen post-MVP but defensive).
+  if (finalSnapshot.state?.session_id) {
+    let registryFile: RegistryFile | null;
+    try {
+      registryFile = buildRegistryFile({
+        snapshot: finalSnapshot,
+        entries: ctx.entries.concat(promoted),
+        now: ctx.registryWriter?.now?.() ?? new Date(),
+        cwd: ctx.registryWriter?.cwd?.() ?? process.cwd(),
+      });
+    } catch (err) {
+      // Pure derivation failure — code defect, NOT silent. Surfaces as
+      // a mutate failure with the parse cause (codex r280 P4).
+      return {
+        ok: false,
+        code: "PROJECTION_WRITE_FAILED",
+        message:
+          `registry derivation failed after journal append; ` +
+          `journal is authoritative — run 'loaf doctor --rebuild-registry' (future). ` +
+          `Cause: ${(err as Error).message}`,
+        detail: {
+          projection: "registry",
+          phase: "derivation",
+          journal_appended: true,
+          error: (err as Error).message,
+        },
+      };
+    }
+
+    if (registryFile) {
+      try {
+        await writeRegistryFile(registryFile.session_id, registryFile, {
+          ...(ctx.registryWriter?.registryDir !== undefined && {
+            registryDir: ctx.registryWriter.registryDir,
+          }),
+        });
+      } catch {
+        // Silent — §4.12 best-effort IO. Registry is a TUI projection,
+        // not gate authority; readers tolerate stale; doctor --rebuild-
+        // registry recovers from canonical artifacts.
+      }
+    }
   }
 
   return { ok: true, snapshot: finalSnapshot, entries: promoted, meta: appendMeta };
