@@ -2378,6 +2378,14 @@ function createCommandContext(argv, deps) {
 				deps.writeStderr(`error: ${code} — ${message}\n`);
 				const checks = detail?.["checks"];
 				if (Array.isArray(checks)) for (const c of checks) deps.writeStderr(`  [check ${c.check ?? "?"}] ${c.code ?? "UNKNOWN"}: ${c.message ?? ""}\n`);
+				const errors = detail?.["errors"];
+				if (Array.isArray(errors)) {
+					for (const e of errors) deps.writeStderr(`  [${e.path ?? "?"}] ${e.code ?? "UNKNOWN"}: ${e.message ?? ""}\n`);
+					if (detail?.["truncated"] === true) {
+						const total = detail?.["error_count"];
+						deps.writeStderr(`  ... (${typeof total === "number" ? total : "?"} errors total; first ${errors.length} shown)\n`);
+					}
+				}
 			}
 			exitCode = 2;
 		},
@@ -3155,6 +3163,189 @@ async function evaluateVerifyAcceptDiagnostic(snapshot, featureDir) {
 		ok: true,
 		checks: evaluateAllChecks(snapshot, read.frontmatter)
 	};
+}
+const CHECK_KINDS = [
+	"spec",
+	"tasks",
+	"evidence",
+	"finding",
+	"pending",
+	"state"
+];
+/** External --kind ↔ internal projection mapping (codex r309 N1). */
+const KIND_DISPATCH = {
+	spec: {
+		basename: "spec.md",
+		parse: "yaml-frontmatter",
+		schema: SpecFrontmatter
+	},
+	tasks: {
+		basename: "tasks.json",
+		parse: "json",
+		schema: TasksJson
+	},
+	evidence: {
+		basename: "evidence.json",
+		parse: "json",
+		schema: EvidenceJson
+	},
+	finding: {
+		basename: "findings.json",
+		parse: "json",
+		schema: FindingsJson
+	},
+	pending: {
+		basename: "pending.json",
+		parse: "json",
+		schema: PendingJson
+	},
+	state: {
+		basename: "state.json",
+		parse: "json",
+		schema: StateProjection
+	}
+};
+/** Reverse basename → kind for auto-detection. */
+const BASENAME_TO_KIND = new Map(CHECK_KINDS.map((k) => [KIND_DISPATCH[k].basename, k]));
+/** Map Zod issues with codex r309 B2 cap. `error_count` is total; `errors`
+*  may be sliced to `MAX_CHECK_ERRORS`. */
+function mapZodIssues(err) {
+	const total = err.issues.length;
+	const truncated = total > 20;
+	return {
+		errors: (truncated ? err.issues.slice(0, 20) : err.issues).map((i) => ({
+			path: i.path.map(String).join("."),
+			message: i.message,
+			code: i.code
+		})),
+		truncated,
+		error_count: total
+	};
+}
+/** Resolve --kind > basename inference. Returns null when neither
+*  resolves — caller emits USAGE specify --kind. */
+function resolveKind(filePath, explicit) {
+	if (explicit !== void 0) return explicit;
+	const basename = path.basename(filePath).toLowerCase();
+	return BASENAME_TO_KIND.get(basename) ?? null;
+}
+/** Detect the "loaf check tasks" mistake — literal `tasks` arg + no file.
+*  Trigger conditions (both required per codex r309 N2):
+*   - rawArg === "tasks" (NOT "./tasks", NOT "tasks.json")
+*   - file does not exist at resolved absolute path
+*/
+async function isDidYouMeanTasks(rawArg, absPath) {
+	if (rawArg !== "tasks") return false;
+	try {
+		await promises.stat(absPath);
+		return false;
+	} catch {
+		return true;
+	}
+}
+async function checkFile(opts) {
+	const cwd = opts.cwd ?? process.cwd();
+	const absPath = path.isAbsolute(opts.path) ? opts.path : path.resolve(cwd, opts.path);
+	if (await isDidYouMeanTasks(opts.path, absPath)) return {
+		ok: false,
+		code: "USAGE",
+		message: "did you mean 'loaf tasks check'?",
+		detail: {
+			suggestion: "loaf tasks check",
+			argument: opts.path
+		}
+	};
+	let raw;
+	try {
+		raw = await promises.readFile(absPath, "utf8");
+	} catch (err) {
+		if (err.code === "ENOENT") return {
+			ok: false,
+			code: "INPUT_FILE_NOT_FOUND",
+			message: `file not found: ${absPath}`,
+			detail: { path: absPath }
+		};
+		throw err;
+	}
+	const kind = resolveKind(opts.path, opts.kind);
+	if (kind === null) return {
+		ok: false,
+		code: "USAGE",
+		message: `cannot infer artifact kind from basename '${path.basename(opts.path)}' — specify --kind ${CHECK_KINDS.join("|")}`,
+		detail: {
+			hint: "specify --kind",
+			path: absPath,
+			basename: path.basename(opts.path)
+		}
+	};
+	const entry = KIND_DISPATCH[kind];
+	let parsed;
+	if (entry.parse === "yaml-frontmatter") {
+		const { frontmatter } = splitFrontmatter(raw);
+		if (frontmatter === null) return {
+			ok: false,
+			code: "SCHEMA_VALIDATION_FAILED",
+			message: `${kind} at ${absPath} is missing a YAML frontmatter block fenced by \`---\` on the first line`,
+			detail: {
+				kind,
+				path: absPath,
+				subcode: "missing-frontmatter"
+			}
+		};
+		try {
+			parsed = parse(frontmatter);
+		} catch (err) {
+			return {
+				ok: false,
+				code: "SCHEMA_VALIDATION_FAILED",
+				message: `${kind} at ${absPath} frontmatter YAML failed to parse: ${err.message}`,
+				detail: {
+					kind,
+					path: absPath,
+					subcode: "invalid-yaml"
+				}
+			};
+		}
+	} else try {
+		parsed = JSON.parse(raw);
+	} catch (err) {
+		return {
+			ok: false,
+			code: "SCHEMA_VALIDATION_FAILED",
+			message: `${kind} at ${absPath} JSON failed to parse: ${err.message}`,
+			detail: {
+				kind,
+				path: absPath,
+				subcode: "invalid-json"
+			}
+		};
+	}
+	const result = entry.schema.safeParse(parsed);
+	if (!result.success) {
+		const issues = mapZodIssues(result.error);
+		return {
+			ok: false,
+			code: "SCHEMA_VALIDATION_FAILED",
+			message: `${kind} at ${absPath} failed schema validation (${issues.error_count} ${issues.error_count === 1 ? "error" : "errors"})`,
+			detail: {
+				kind,
+				path: absPath,
+				subcode: "zod",
+				errors: issues.errors,
+				truncated: issues.truncated,
+				error_count: issues.error_count
+			}
+		};
+	}
+	return {
+		ok: true,
+		kind,
+		path: absPath
+	};
+}
+/** Text-mode success line. */
+function renderSuccessText(result) {
+	return `ok: ${result.kind} at ${result.path}\n`;
 }
 //#endregion
 //#region src/cli/url-prefill.ts
@@ -6832,6 +7023,25 @@ async function main(argv = process.argv, deps = {}) {
 				return 2;
 			}
 		}
+		if (cmdTokens[0] === "check") {
+			const presentSelectors = [];
+			if (argv.includes("--session") || argv.some((a) => a.startsWith("--session="))) presentSelectors.push("--session");
+			if (argv.includes("--feature") || argv.some((a) => a.startsWith("--feature="))) presentSelectors.push("--feature");
+			if (argv.includes("--feature-dir") || argv.some((a) => a.startsWith("--feature-dir="))) presentSelectors.push("--feature-dir");
+			if (process.env["LOAF_SESSION"] !== void 0 && process.env["LOAF_SESSION"].length > 0) presentSelectors.push("$LOAF_SESSION");
+			if (process.env["LOAF_FEATURE"] !== void 0 && process.env["LOAF_FEATURE"].length > 0) presentSelectors.push("$LOAF_FEATURE");
+			if (presentSelectors.length > 0) {
+				const usageMessage = `check does not accept ${presentSelectors.join(" / ")} — it validates a file by path, independent of any feature session`;
+				if (argv.some((a) => a === "--format=json" || a === "--format" && argv[argv.indexOf(a) + 1] === "json")) process.stderr.write(JSON.stringify({
+					ok: false,
+					code: "USAGE",
+					message: usageMessage,
+					detail: { conflicting: presentSelectors }
+				}) + "\n");
+				else process.stderr.write(`error: USAGE — ${usageMessage}\n`);
+				return 2;
+			}
+		}
 	}
 	if (!wantsHelpOrVersion) {
 		const hasSession = argv.includes("--session") || argv.some((a) => a.startsWith("--session="));
@@ -8773,6 +8983,29 @@ async function main(argv = process.argv, deps = {}) {
 			}
 			return lines.join("");
 		});
+	});
+	program.command("check <path>").description("Validate an artifact file against its schema (read-only; CI-friendly)").option("--kind <kind>", `Artifact kind (one of ${CHECK_KINDS.join("|")}); auto-detected from basename when omitted`).action(async (filePath, opts) => {
+		if (rejectIfDryRun("check")) return;
+		let kind;
+		if (opts.kind !== void 0) {
+			if (!CHECK_KINDS.includes(opts.kind)) {
+				emitFailure("USAGE", `--kind '${opts.kind}' is not recognized; expected one of ${CHECK_KINDS.join("|")}`, {
+					provided: opts.kind,
+					allowed: CHECK_KINDS
+				});
+				return;
+			}
+			kind = opts.kind;
+		}
+		const result = await checkFile(kind === void 0 ? { path: filePath } : {
+			path: filePath,
+			kind
+		});
+		if (result.ok) {
+			ctx.success(result, () => renderSuccessText(result));
+			return;
+		}
+		emitFailure(result.code, result.message, result.detail);
 	});
 	program.command("verify").description("Verify-accept gate read commands (status)").command("status").description("Show per-check verify-accept diagnostic (read-only)").option("--feature <name>", "Feature whose verify status to show").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		if (rejectIfDryRun("verify status")) return;

@@ -33,6 +33,7 @@ import {
 import { listSessions, formatAtRelative } from "./cli/sessions-list.js";
 import { buildEnvelope as buildVerifyStatusEnvelope, renderText as renderVerifyStatusText } from "./cli/verify-status.js";
 import { evaluateVerifyAcceptDiagnostic } from "./core/gates/verify-accept-eval.js";
+import { CHECK_KINDS, checkFile, renderSuccessText as renderCheckSuccess, type CheckKind } from "./cli/check-file.js";
 import { promises as fsPromises } from "node:fs";
 import { buildReportUrl } from "./cli/url-prefill.js";
 import { parseInputSource } from "./cli/input-source.js";
@@ -325,6 +326,49 @@ export async function main(
       }
       if (presentSelectors.length > 0) {
         const usageMessage = `sessions list does not accept ${presentSelectors.join(" / ")} — it lists across all sessions; use --in-cwd to filter`;
+        const renderAsJson = argv.some(
+          (a) => a === "--format=json" || (a === "--format" && argv[argv.indexOf(a) + 1] === "json"),
+        );
+        if (renderAsJson) {
+          process.stderr.write(JSON.stringify({
+            ok: false,
+            code: "USAGE",
+            message: usageMessage,
+            detail: { conflicting: presentSelectors },
+          }) + "\n");
+        } else {
+          process.stderr.write(`error: USAGE — ${usageMessage}\n`);
+        }
+        return 2;
+      }
+    }
+
+    // Phase 16 SC-9c — `check <path>` selector misuse pre-parse.
+    //
+    // `loaf check <path>` is feature-agnostic schema validation (CI tool).
+    // Passing dispatch selectors is contract misuse — emit typed USAGE
+    // BEFORE SC-8's "requires --feature" / "--feature-dir requires --feature"
+    // generic messages would fire. Mirrors SC-9b sessions-list ordering.
+    const isCheck = cmdTokens[0] === "check";
+    if (isCheck) {
+      const presentSelectors: string[] = [];
+      if (argv.includes("--session") || argv.some((a) => a.startsWith("--session="))) {
+        presentSelectors.push("--session");
+      }
+      if (argv.includes("--feature") || argv.some((a) => a.startsWith("--feature="))) {
+        presentSelectors.push("--feature");
+      }
+      if (argv.includes("--feature-dir") || argv.some((a) => a.startsWith("--feature-dir="))) {
+        presentSelectors.push("--feature-dir");
+      }
+      if (process.env["LOAF_SESSION"] !== undefined && process.env["LOAF_SESSION"].length > 0) {
+        presentSelectors.push("$LOAF_SESSION");
+      }
+      if (process.env["LOAF_FEATURE"] !== undefined && process.env["LOAF_FEATURE"].length > 0) {
+        presentSelectors.push("$LOAF_FEATURE");
+      }
+      if (presentSelectors.length > 0) {
+        const usageMessage = `check does not accept ${presentSelectors.join(" / ")} — it validates a file by path, independent of any feature session`;
         const renderAsJson = argv.some(
           (a) => a === "--format=json" || (a === "--format" && argv[argv.indexOf(a) + 1] === "json"),
         );
@@ -3721,6 +3765,48 @@ export async function main(
           return lines.join("");
         },
       );
+    });
+
+  // ── loaf check <path> ────────────────────────────────────────────────
+  // Phase 16 SC-9c — pure schema validation entry. Feature-agnostic;
+  // no session resolution. Read-only — rejects --dry-run. Pre-parse
+  // guard above already rejected --session/--feature/--feature-dir.
+  // Delegates to src/cli/check-file.ts which handles per-kind dispatch
+  // (KIND_DISPATCH table), did-you-mean for `tasks` (codex r309 N2),
+  // Zod issue cap (MAX_CHECK_ERRORS = 20), shared failure envelope
+  // (codex r308 B1). 6 artifact kinds for v0.1.0: spec / tasks /
+  // evidence / finding / pending / state.
+  program
+    .command("check <path>")
+    .description("Validate an artifact file against its schema (read-only; CI-friendly)")
+    .option(
+      "--kind <kind>",
+      `Artifact kind (one of ${CHECK_KINDS.join("|")}); auto-detected from basename when omitted`,
+    )
+    .action(async (filePath: string, opts: { kind?: string }) => {
+      // no-feature — check is feature-agnostic per protocol §1891
+      if (rejectIfDryRun("check")) return;
+
+      // --kind validation
+      let kind: CheckKind | undefined;
+      if (opts.kind !== undefined) {
+        if (!(CHECK_KINDS as readonly string[]).includes(opts.kind)) {
+          emitFailure(
+            "USAGE",
+            `--kind '${opts.kind}' is not recognized; expected one of ${CHECK_KINDS.join("|")}`,
+            { provided: opts.kind, allowed: CHECK_KINDS },
+          );
+          return;
+        }
+        kind = opts.kind as CheckKind;
+      }
+
+      const result = await checkFile(kind === undefined ? { path: filePath } : { path: filePath, kind });
+      if (result.ok) {
+        ctx.success(result, () => renderCheckSuccess(result));
+        return;
+      }
+      emitFailure(result.code, result.message, result.detail);
     });
 
   // ── loaf verify status ───────────────────────────────────────────────

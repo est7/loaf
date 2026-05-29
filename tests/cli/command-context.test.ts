@@ -99,6 +99,66 @@ describe("Phase 16 SC-3 — CommandContext: failure routing + exitCode", () => {
       detail: { foo: "bar" },
     });
   });
+
+  // Phase 16 SC-9c — detail.errors[] rendering for schema validation
+  // failures (codex r309 B1). Shared renderer mirrors detail.checks[]
+  // pattern but uses `[path] CODE: message` row shape.
+  test("failure() text mode renders detail.errors[] as nested rows", () => {
+    const { ctx, stderr } = makeCtx(["loaf", "check", "tasks.json"]);
+    ctx.failure("SCHEMA_VALIDATION_FAILED", "tasks failed (2 errors)", {
+      kind: "tasks",
+      path: "/tmp/tasks.json",
+      subcode: "zod",
+      errors: [
+        { path: "version", code: "invalid_type", message: "expected number" },
+        { path: "tasks.0.id", code: "invalid_string", message: "must match /T-/" },
+      ],
+      truncated: false,
+      error_count: 2,
+    });
+    const out = stderr.join("");
+    expect(out).toContain("error: SCHEMA_VALIDATION_FAILED — tasks failed (2 errors)");
+    expect(out).toContain("  [version] invalid_type: expected number");
+    expect(out).toContain("  [tasks.0.id] invalid_string: must match /T-/");
+    // No truncation suffix when truncated=false
+    expect(out).not.toContain("errors total; first");
+  });
+
+  test("failure() JSON mode preserves detail.errors[] verbatim", () => {
+    const { ctx, stderr } = makeCtx(["loaf", "check", "tasks.json", "--format", "json"]);
+    ctx.failure("SCHEMA_VALIDATION_FAILED", "tasks failed", {
+      errors: [{ path: "version", code: "invalid_type", message: "expected number" }],
+      error_count: 1,
+      truncated: false,
+    });
+    const lines = stderr.join("").split("\n").filter((l) => l.length > 0);
+    expect(lines.length).toBe(1);
+    const obj = JSON.parse(lines[0]!);
+    expect(obj.detail.errors).toEqual([
+      { path: "version", code: "invalid_type", message: "expected number" },
+    ]);
+    expect(obj.detail.error_count).toBe(1);
+    expect(obj.detail.truncated).toBe(false);
+  });
+
+  test("failure() text mode renders truncation suffix when truncated=true", () => {
+    const { ctx, stderr } = makeCtx(["loaf", "check", "spec.md"]);
+    const fakeErrors = Array.from({ length: 20 }, (_, i) => ({
+      path: `requirements.${i}.id`,
+      code: "invalid_string",
+      message: "must match REQ regex",
+    }));
+    ctx.failure("SCHEMA_VALIDATION_FAILED", "spec failed (50 errors)", {
+      kind: "spec",
+      path: "/tmp/spec.md",
+      subcode: "zod",
+      errors: fakeErrors,
+      truncated: true,
+      error_count: 50,
+    });
+    const out = stderr.join("");
+    expect(out).toContain("... (50 errors total; first 20 shown)");
+  });
 });
 
 describe("Phase 16 SC-3 — CommandContext: lazy session cache by (featureDir, method)", () => {

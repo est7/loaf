@@ -620,6 +620,28 @@ export function createCommandContext(
             );
           }
         }
+        // Phase 16 SC-9c — schema validation issue list (codex r309 B1).
+        // Renderer is generic but narrow to `{path?, code?, message?}` elements
+        // emitted by `mapZodIssues` (src/cli/check-file.ts). JSON mode is
+        // untouched — payload still rides one shared envelope line.
+        const errors = detail?.["errors"];
+        if (Array.isArray(errors)) {
+          for (const e of errors as Array<{
+            path?: string;
+            code?: string;
+            message?: string;
+          }>) {
+            deps.writeStderr(
+              `  [${e.path ?? "?"}] ${e.code ?? "UNKNOWN"}: ${e.message ?? ""}\n`,
+            );
+          }
+          if (detail?.["truncated"] === true) {
+            const total = detail?.["error_count"];
+            deps.writeStderr(
+              `  ... (${typeof total === "number" ? total : "?"} errors total; first ${errors.length} shown)\n`,
+            );
+          }
+        }
       }
       exitCode = 2;
     },
