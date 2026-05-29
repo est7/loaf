@@ -52,6 +52,7 @@ const READ_ONLY_COMMANDS: readonly string[] = [
   "state schema",
   "spec edit",         // Phase 16 SC-12a-2 (wrapping mutator)
   "handoff",           // Phase 16 SC-13a (projection-writer)
+  "tui",               // Phase 16 SC-14 (read-only)
 ];
 
 /** Escape regex metacharacters in a literal label. */
@@ -118,6 +119,28 @@ describe("SC-13b — §10.7 dry-run classification ↔ runtime/SC-6c drift gate 
       protocolText.includes("Projection-writer"),
       "docs/protocol.md §10.7 must include a Projection-writer category covering `handoff`",
     ).toBe(true);
+  });
+
+  test("`tui` is NOT in the §10.7 dry-run Wrapping row (Phase 16 SC-14 — TUI is read-only for dry-run, not wrapping)", async () => {
+    const protocolText = await readRepo("docs/protocol.md");
+    // Target the §10.7 dry-run table row specifically — it's a table
+    // row (starts with `|`) AND mentions reject `--dry-run`. The
+    // signal-handling prose at §10.4 also uses "Wrapping 命令" but for
+    // signal handling, not dry-run classification. Filter to table
+    // rows only.
+    const wrappingDryRunRow = protocolText
+      .split("\n")
+      .find((line) =>
+        line.startsWith("|") &&
+        line.includes("Wrapping 命令") &&
+        line.includes("reject `--dry-run`"),
+      );
+    expect(wrappingDryRunRow, "expected to find §10.7 Wrapping dry-run table row").toBeDefined();
+    const hasTui = /[\s/(`]tui[\s/),`*]/.test(wrappingDryRunRow!);
+    expect(
+      hasTui,
+      "docs/protocol.md §10.7 Wrapping dry-run row still mentions `tui` — but tui is read-only (Phase 16 SC-14); remove from Wrapping",
+    ).toBe(false);
   });
 });
 

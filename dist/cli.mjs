@@ -8,6 +8,9 @@ import { z } from "zod";
 import { createHash, randomBytes } from "node:crypto";
 import * as fsp from "node:fs/promises";
 import { parse, stringify } from "yaml";
+import { createElement, useCallback, useState } from "react";
+import { Box, Text, useApp, useInput } from "ink";
+import { Fragment, jsx, jsxs } from "react/jsx-runtime";
 import { execFileSync, spawn } from "node:child_process";
 import { O_APPEND, O_CREAT, O_WRONLY } from "node:constants";
 //#region package.json
@@ -2591,6 +2594,7 @@ async function listSessions(input) {
 		rows.push({
 			session_id: reg.session_id,
 			session_id_short: reg.session_id.slice(0, 8),
+			session_label: reg.session_label,
 			feature: reg.feature,
 			phase: reg.phase,
 			sub_state: reg.sub_state,
@@ -2599,6 +2603,7 @@ async function listSessions(input) {
 			workspace: reg.workspace,
 			iteration: reg.iteration,
 			pending_queue_depth: reg.pending_queue_depth,
+			active_tasks: reg.active_tasks,
 			ceremony_label: reg.ceremony_label
 		});
 	}
@@ -4616,6 +4621,157 @@ function buildResumePack(args) {
 		open_pending: openPending,
 		...args.notes !== void 0 && { notes: args.notes }
 	};
+}
+//#endregion
+//#region src/cli/tui/format-row.ts
+/** Minimum widths per column (header width floors). */
+const COLUMN_MIN_WIDTHS = {
+	label: 12,
+	phase_sub: 12,
+	iter: 4,
+	status: 12
+};
+/** Choose the LABEL column source: session_label if set, else feature. */
+function chooseLabelSource(row) {
+	return row.session_label.trim().length > 0 ? row.session_label : row.feature;
+}
+/** Truncate with ellipsis when source > maxWidth. */
+function formatLabel(row, maxWidth) {
+	const raw = chooseLabelSource(row);
+	if (raw.length <= maxWidth) return raw;
+	if (maxWidth < 2) return raw.slice(0, maxWidth);
+	return raw.slice(0, maxWidth - 1) + "…";
+}
+/** PHASE.SUB column — just the sub_state literal. */
+function formatPhaseSub(row) {
+	return row.sub_state;
+}
+/** ITER column — iteration as decimal string. */
+function formatIteration(row) {
+	return String(row.iteration);
+}
+/** STATUS column — precedence-ordered text badge per r354 P2. */
+function formatStatus(row) {
+	if (row.sub_state.startsWith("DONE.")) return "✓ done";
+	if (row.pending_queue_depth >= 2) return `⏸ ask [×${row.pending_queue_depth}]`;
+	if (row.pending_queue_depth === 1) return "⏸ ask";
+	if (row.active_tasks.length >= 2) return `▶ run [×${row.active_tasks.length}]`;
+	if (row.active_tasks.length === 1) return "▶ run";
+	return row.sub_state;
+}
+function computeColumnWidths(rows, maxLabelWidth = 40) {
+	let label = COLUMN_MIN_WIDTHS.label;
+	let phase_sub = COLUMN_MIN_WIDTHS.phase_sub;
+	let iter = COLUMN_MIN_WIDTHS.iter;
+	let status = COLUMN_MIN_WIDTHS.status;
+	for (const row of rows) {
+		label = Math.max(label, Math.min(maxLabelWidth, chooseLabelSource(row).length));
+		phase_sub = Math.max(phase_sub, formatPhaseSub(row).length);
+		iter = Math.max(iter, formatIteration(row).length);
+		status = Math.max(status, formatStatus(row).length);
+	}
+	return {
+		label,
+		phase_sub,
+		iter,
+		status
+	};
+}
+//#endregion
+//#region src/cli/tui/app.tsx
+function App({ initialRows, loadRows }) {
+	const { exit } = useApp();
+	const [rows, setRows] = useState(initialRows);
+	const [reloading, setReloading] = useState(false);
+	const handleReload = useCallback(async () => {
+		if (reloading) return;
+		setReloading(true);
+		try {
+			setRows(await loadRows());
+		} finally {
+			setReloading(false);
+		}
+	}, [loadRows, reloading]);
+	useInput((input, key) => {
+		if (input === "q" || key.ctrl && input === "c" || key.escape) {
+			exit();
+			return;
+		}
+		if (input === "r") handleReload();
+	});
+	const widths = computeColumnWidths(rows);
+	return /* @__PURE__ */ jsxs(Box, {
+		flexDirection: "column",
+		padding: 1,
+		children: [
+			/* @__PURE__ */ jsxs(Box, {
+				marginBottom: 1,
+				children: [/* @__PURE__ */ jsxs(Text, {
+					bold: true,
+					children: [
+						"loaf sessions (",
+						rows.length,
+						")"
+					]
+				}), reloading && /* @__PURE__ */ jsx(Text, {
+					dimColor: true,
+					children: " · reloading…"
+				})]
+			}),
+			rows.length === 0 ? /* @__PURE__ */ jsx(Text, {
+				dimColor: true,
+				children: "(no sessions found)"
+			}) : /* @__PURE__ */ jsxs(Fragment, { children: [/* @__PURE__ */ jsxs(Box, { children: [
+				/* @__PURE__ */ jsx(Text, {
+					bold: true,
+					children: padCell("LABEL", widths.label)
+				}),
+				/* @__PURE__ */ jsx(Text, { children: "  " }),
+				/* @__PURE__ */ jsx(Text, {
+					bold: true,
+					children: padCell("PHASE.SUB", widths.phase_sub)
+				}),
+				/* @__PURE__ */ jsx(Text, { children: "  " }),
+				/* @__PURE__ */ jsx(Text, {
+					bold: true,
+					children: padCell("ITER", widths.iter)
+				}),
+				/* @__PURE__ */ jsx(Text, { children: "  " }),
+				/* @__PURE__ */ jsx(Text, {
+					bold: true,
+					children: "STATUS"
+				})
+			] }), rows.map((row) => /* @__PURE__ */ jsxs(Box, { children: [
+				/* @__PURE__ */ jsx(Text, { children: padCell(formatLabel(row, widths.label), widths.label) }),
+				/* @__PURE__ */ jsx(Text, { children: "  " }),
+				/* @__PURE__ */ jsx(Text, { children: padCell(formatPhaseSub(row), widths.phase_sub) }),
+				/* @__PURE__ */ jsx(Text, { children: "  " }),
+				/* @__PURE__ */ jsx(Text, { children: padCell(formatIteration(row), widths.iter) }),
+				/* @__PURE__ */ jsx(Text, { children: "  " }),
+				/* @__PURE__ */ jsx(Text, { children: formatStatus(row) })
+			] }, row.session_id))] }),
+			/* @__PURE__ */ jsx(Box, {
+				marginTop: 1,
+				children: /* @__PURE__ */ jsx(Text, {
+					dimColor: true,
+					children: "[q] quit · [r] refresh"
+				})
+			})
+		]
+	});
+}
+/** Right-pad a column cell with spaces. Truncation handled by
+*  formatLabel; PHASE.SUB / ITER / STATUS use computed widths so the
+*  raw content always fits (no truncation needed). */
+function padCell(text, width) {
+	if (text.length >= width) return text;
+	return text + " ".repeat(width - text.length);
+}
+//#endregion
+//#region src/cli/tui/render.ts
+async function defaultRenderTui(app) {
+	const { render } = await import("ink");
+	await render(app).waitUntilExit();
 }
 //#endregion
 //#region src/cli/run-editor.ts
@@ -8393,6 +8549,38 @@ async function main(argv = process.argv, deps = {}) {
 				return 2;
 			}
 		}
+		if (cmdTokens[0] === "tui") {
+			const presentSelectors = [];
+			if (argv.includes("--session") || argv.some((a) => a.startsWith("--session="))) presentSelectors.push("--session");
+			if (argv.includes("--feature") || argv.some((a) => a.startsWith("--feature="))) presentSelectors.push("--feature");
+			if (argv.includes("--feature-dir") || argv.some((a) => a.startsWith("--feature-dir="))) presentSelectors.push("--feature-dir");
+			if (process.env["LOAF_SESSION"] !== void 0 && process.env["LOAF_SESSION"].length > 0) presentSelectors.push("$LOAF_SESSION");
+			if (process.env["LOAF_FEATURE"] !== void 0 && process.env["LOAF_FEATURE"].length > 0) presentSelectors.push("$LOAF_FEATURE");
+			const hasFormat = argv.some((a) => a === "--format" || a.startsWith("--format="));
+			const renderAsJson = argv.some((a) => a === "--format=json" || a === "--format" && argv[argv.indexOf(a) + 1] === "json");
+			if (presentSelectors.length > 0) {
+				const usageMessage = `tui does not accept ${presentSelectors.join(" / ")} — it lists across all sessions; selectors are nonsensical for an interactive UI`;
+				if (renderAsJson) process.stderr.write(JSON.stringify({
+					ok: false,
+					code: "USAGE",
+					message: usageMessage,
+					detail: { conflicting: presentSelectors }
+				}) + "\n");
+				else process.stderr.write(`error: USAGE — ${usageMessage}\n`);
+				return 2;
+			}
+			if (hasFormat) {
+				const usageMessage = `tui is interactive-only; use \`loaf sessions list --format json\` for scriptable session output`;
+				if (renderAsJson) process.stderr.write(JSON.stringify({
+					ok: false,
+					code: "USAGE",
+					message: usageMessage,
+					detail: { reason: "tui-interactive-only" }
+				}) + "\n");
+				else process.stderr.write(`error: USAGE — ${usageMessage}\n`);
+				return 2;
+			}
+		}
 		if (cmdTokens[0] === "check") {
 			const presentSelectors = [];
 			if (argv.includes("--session") || argv.some((a) => a.startsWith("--session="))) presentSelectors.push("--session");
@@ -10652,6 +10840,27 @@ async function main(argv = process.argv, deps = {}) {
 			id: evidenceId,
 			kind: "manual"
 		}, () => `${evidenceId}\n`, { stateChange: `lessons add: ${evidenceId} recorded (kind=manual; lessons.md projection writer deferred)` });
+	});
+	const renderTuiImpl = deps.renderTui ?? defaultRenderTui;
+	const isStdoutTtyForTui = deps.isStdoutTty ?? (() => process.stdout.isTTY === true);
+	program.command("tui").description("Interactive session manager TUI (Ink; read-only, MVP)").action(async () => {
+		if (rejectIfDryRun("tui")) return;
+		const stdinTty = isStdinTty();
+		const stdoutTty = isStdoutTtyForTui();
+		if (!stdinTty || !stdoutTty) {
+			emitFailure("USAGE", "TUI requires an interactive terminal (stdin/stdout TTY)", {
+				stdin_tty: stdinTty,
+				stdout_tty: stdoutTty
+			});
+			return;
+		}
+		const loadRows = async () => {
+			return (await listSessions(deps.registryDir !== void 0 ? { registryDir: deps.registryDir } : {})).rows;
+		};
+		await renderTuiImpl(createElement(App, {
+			initialRows: await loadRows(),
+			loadRows
+		}));
 	});
 	program.command("sessions").description("Session registry commands (list)").command("list").description("List session registry entries (read-only; --in-cwd filters by current cwd)").option("--in-cwd", "Only list sessions whose registered cwd matches the current cwd").action(async (opts) => {
 		if (rejectIfDryRun("sessions list")) return;

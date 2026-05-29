@@ -51,6 +51,9 @@ import { buildLessonsEvidencePayload } from "./cli/lessons-add.js";
 import { buildSpecSubmitBatch } from "./cli/spec-submit-batch.js";
 import { buildResumePack } from "./cli/build-resume-pack.js";
 import { ResumePack as RuntimeResumePack } from "./core/resume-pack-schema.js";
+import { App as TuiApp } from "./cli/tui/app.js";
+import { defaultRenderTui, type RenderTui } from "./cli/tui/render.js";
+import { createElement } from "react";
 import { runEditor as defaultRunEditor, type RunEditor } from "./cli/run-editor.js";
 import { splitFrontmatter } from "./core/spec-frontmatter.js";
 import { parse as parseYaml } from "yaml";
@@ -241,6 +244,16 @@ export type MainDeps = {
   // deterministic stubs to assert the work-copy / no-op / signal split
   // semantics without spawning a real editor (codex r331 P3).
   runEditor?: RunEditor;
+  // Phase 16 SC-14 — test-injectable TTY suitability check for
+  // `loaf tui`. Defaults to `() => process.stdout.isTTY === true`.
+  // Kept separate from isInteractiveHuman (which is actor / no-input
+  // semantics per SC-6a) per codex r355 ack 1.
+  isStdoutTty?: () => boolean;
+  // Phase 16 SC-14 — test-injectable Ink render hook. Defaults to a
+  // dynamic-import wrapper around Ink's render() + waitUntilExit().
+  // Tests inject a stub that asserts the App was constructed with the
+  // right rows then resolves immediately (codex r355 Q3 / r356 ack 2).
+  renderTui?: RenderTui;
 };
 
 export async function main(
@@ -363,6 +376,66 @@ export async function main(
             code: "USAGE",
             message: usageMessage,
             detail: { conflicting: presentSelectors },
+          }) + "\n");
+        } else {
+          process.stderr.write(`error: USAGE — ${usageMessage}\n`);
+        }
+        return 2;
+      }
+    }
+
+    // Phase 16 SC-14 — `tui` selector + --format misuse pre-parse.
+    //
+    // `loaf tui` walks the registry like `sessions list`. Selectors are
+    // contract misuse; --format is meaningless for an interactive UI
+    // (use `sessions list --format json` for scriptable output). Mirrors
+    // SC-9b ordering — fires BEFORE SC-8 dispatch guard.
+    const isTui = cmdTokens[0] === "tui";
+    if (isTui) {
+      const presentSelectors: string[] = [];
+      if (argv.includes("--session") || argv.some((a) => a.startsWith("--session="))) {
+        presentSelectors.push("--session");
+      }
+      if (argv.includes("--feature") || argv.some((a) => a.startsWith("--feature="))) {
+        presentSelectors.push("--feature");
+      }
+      if (argv.includes("--feature-dir") || argv.some((a) => a.startsWith("--feature-dir="))) {
+        presentSelectors.push("--feature-dir");
+      }
+      if (process.env["LOAF_SESSION"] !== undefined && process.env["LOAF_SESSION"].length > 0) {
+        presentSelectors.push("$LOAF_SESSION");
+      }
+      if (process.env["LOAF_FEATURE"] !== undefined && process.env["LOAF_FEATURE"].length > 0) {
+        presentSelectors.push("$LOAF_FEATURE");
+      }
+      const hasFormat = argv.some(
+        (a) => a === "--format" || a.startsWith("--format="),
+      );
+      const renderAsJson = argv.some(
+        (a) => a === "--format=json" || (a === "--format" && argv[argv.indexOf(a) + 1] === "json"),
+      );
+      if (presentSelectors.length > 0) {
+        const usageMessage = `tui does not accept ${presentSelectors.join(" / ")} — it lists across all sessions; selectors are nonsensical for an interactive UI`;
+        if (renderAsJson) {
+          process.stderr.write(JSON.stringify({
+            ok: false,
+            code: "USAGE",
+            message: usageMessage,
+            detail: { conflicting: presentSelectors },
+          }) + "\n");
+        } else {
+          process.stderr.write(`error: USAGE — ${usageMessage}\n`);
+        }
+        return 2;
+      }
+      if (hasFormat) {
+        const usageMessage = `tui is interactive-only; use \`loaf sessions list --format json\` for scriptable session output`;
+        if (renderAsJson) {
+          process.stderr.write(JSON.stringify({
+            ok: false,
+            code: "USAGE",
+            message: usageMessage,
+            detail: { reason: "tui-interactive-only" },
           }) + "\n");
         } else {
           process.stderr.write(`error: USAGE — ${usageMessage}\n`);
@@ -4207,6 +4280,53 @@ export async function main(
   // Corrupt entries and orphan-cwd registry rows are surfaced via
   // warnings (codex r290 P2 + P3). Dispatch selectors rejected via
   // pre-parse guard in main() (codex r292 P1 v3 ordering).
+  // ── loaf tui — Phase 16 SC-14 ────────────────────────────────────────
+  // Read-only Ink-based session manager (MVP). Walks the registry
+  // (same source as `sessions list`) and renders a 4-column table:
+  // LABEL / PHASE.SUB / ITER / STATUS. Hotkeys [q] quit / [r] reload.
+  //
+  // MVP scope per codex r353-r357 lock:
+  //   IN — table render with active_tasks + pending_queue_depth badges,
+  //        manual [r] refresh, [q]/Ctrl-C quit, TTY guard
+  //   OUT (deferred to F-026) — [Enter] open / [d] details / [p] pending /
+  //        [a] archive interactions; ⚠ stale marker (needs heartbeat_at);
+  //        auto-refresh polling; ⏸ gate differentiation
+  //
+  // Pre-parse guard above rejects --session / --feature / --feature-dir /
+  // $LOAF_SESSION / $LOAF_FEATURE / --format.
+  const renderTuiImpl: RenderTui = deps.renderTui ?? defaultRenderTui;
+  const isStdoutTtyForTui = deps.isStdoutTty ?? (() => process.stdout.isTTY === true);
+  program
+    .command("tui")
+    .description("Interactive session manager TUI (Ink; read-only, MVP)")
+    .action(async () => {
+      // no-feature — tui walks across all sessions
+      if (rejectIfDryRun("tui")) return;
+      // TTY guard — BOTH stdin and stdout must be TTY (codex r355 P4).
+      const stdinTty = isStdinTty();
+      const stdoutTty = isStdoutTtyForTui();
+      if (!stdinTty || !stdoutTty) {
+        emitFailure(
+          "USAGE",
+          "TUI requires an interactive terminal (stdin/stdout TTY)",
+          { stdin_tty: stdinTty, stdout_tty: stdoutTty },
+        );
+        return;
+      }
+      // loadRows closure: preserves deps.registryDir / LOAF_REGISTRY_DIR
+      // behavior across initial load AND [r] refresh (codex r357
+      // guardrail 2). Does NOT silently fall back to real user registry.
+      const loadRows = async () => {
+        const result = await listSessions(
+          deps.registryDir !== undefined ? { registryDir: deps.registryDir } : {},
+        );
+        return result.rows;
+      };
+      const initialRows = await loadRows();
+      const app = createElement(TuiApp, { initialRows, loadRows });
+      await renderTuiImpl(app);
+    });
+
   const sessionsCmd = program
     .command("sessions")
     .description("Session registry commands (list)");

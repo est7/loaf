@@ -23,6 +23,11 @@ export interface SessionRow {
   /** First 8 chars of session_id — what users type for short-form
    *  `--session` (≥8 chars per protocol §1586). */
   session_id_short: string;
+  /** Phase 16 SC-14 (codex r355 P1): human-friendly session label from
+   *  `loaf start --label`; empty string when not set (per registry
+   *  schema `z.string()` with empty-string fallback). TUI LABEL column
+   *  falls back to `feature` when this is empty. */
+  session_label: string;
   feature: string;
   phase: string;
   sub_state: string;
@@ -32,6 +37,10 @@ export interface SessionRow {
   workspace: string;
   iteration: number;
   pending_queue_depth: number;
+  /** Phase 16 SC-14 (codex r353 P1): in-progress task ids from
+   *  `registry.active_tasks` (default [] when no worker is mid-task).
+   *  TUI STATUS column renders `▶ run [×N]` from this. */
+  active_tasks: string[];
   ceremony_label: string;
 }
 
@@ -152,6 +161,7 @@ export async function listSessions(
     rows.push({
       session_id: reg.session_id,
       session_id_short: reg.session_id.slice(0, 8),
+      session_label: reg.session_label,
       feature: reg.feature,
       phase: reg.phase,
       sub_state: reg.sub_state,
@@ -160,6 +170,7 @@ export async function listSessions(
       workspace: reg.workspace,
       iteration: reg.iteration,
       pending_queue_depth: reg.pending_queue_depth,
+      active_tasks: reg.active_tasks,
       ceremony_label: reg.ceremony_label,
     });
   }
