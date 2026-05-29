@@ -49,6 +49,8 @@ import {
 import { buildWaiveEvidencePayload } from "./cli/waive.js";
 import { buildLessonsEvidencePayload } from "./cli/lessons-add.js";
 import { buildSpecSubmitBatch } from "./cli/spec-submit-batch.js";
+import { buildResumePack } from "./cli/build-resume-pack.js";
+import { ResumePack as RuntimeResumePack } from "./core/resume-pack-schema.js";
 import { runEditor as defaultRunEditor, type RunEditor } from "./cli/run-editor.js";
 import { splitFrontmatter } from "./core/spec-frontmatter.js";
 import { parse as parseYaml } from "yaml";
@@ -739,7 +741,7 @@ export async function main(
   };
   const rejectIfDryRun = (
     command: string,
-    commandType: "read-only" | "wrapping" = "read-only",
+    commandType: "read-only" | "wrapping" | "projection-writer" = "read-only",
   ): boolean => {
     if (ctx.dryRun) {
       emitFailure(
@@ -3361,6 +3363,71 @@ export async function main(
           stateChange: `settle: ${from} → SETTLE.reconcile`,
           next: "loaf deliver",
         },
+      );
+    });
+
+  // ── loaf handoff — Phase 16 SC-13a ───────────────────────────────────
+  // Read-side projection writer. Composes a `ResumePack` from current
+  // snapshot + journal tail IDs, writes atomically to
+  // `<feature-dir>/snapshots/resume-pack.json`. Does NOT emit a journal
+  // entry. Reject `--dry-run` with new `command_type: "projection-writer"`
+  // category (writes a file but no journal mutation — neither read-only
+  // nor wrapping).
+  program
+    .command("handoff")
+    .description("Compose and persist snapshots/resume-pack.json (read-side projection writer; no journal entry)")
+    .requiredOption("--reason <text>", "Why this handoff is being taken (≥5 chars; mandatory per ResumePack.reason)")
+    .option("--notes <text>", "Optional free-form notes attached to the pack")
+    .option("--feature <name>", "Feature whose handoff to take")
+    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
+    .action(async (opts: { reason: string; notes?: string; feature: string; featureDir?: string }) => {
+      if (rejectIfDryRun("handoff", "projection-writer")) return;
+      if (opts.reason.length < 5) {
+        emitFailure("USAGE", `--reason must be ≥5 chars (got ${opts.reason.length})`, { reason_length: opts.reason.length });
+        return;
+      }
+      // Handoff is a deliberate human decision (codex r345 P4 — actor is
+      // a gate not persisted in the pack, per ResumePack having no actor
+      // field; documented residual).
+      const resolution = resolveHumanActor({
+        env: process.env,
+        readGitConfig: readGitConfigForActor,
+        isInteractiveHuman: isInteractiveHumanForActor(),
+      });
+      if (!resolution.ok) { emitFailure(resolution.code, resolution.message); return; }
+      const featureDir = await dispatchOrFail(opts);
+      if (featureDir === null) return;
+      const session = await loadSession(featureDir, { ensureDir: false });
+      if (!session.snapshot.state) {
+        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        return;
+      }
+      const pack = buildResumePack({
+        snapshot: session.snapshot,
+        entries: session.entries,
+        at: new Date().toISOString(),
+        reason: opts.reason,
+        ...(opts.notes !== undefined && { notes: opts.notes }),
+      });
+      // Defense-in-depth: validate against runtime schema before write.
+      const parse = RuntimeResumePack.safeParse(pack);
+      if (!parse.success) {
+        emitFailure("SCHEMA_VALIDATION_FAILED",
+          `ResumePack failed runtime validation (builder bug or schema drift)`,
+          { subcode: "zod", issues: parse.error.issues });
+        return;
+      }
+      // Atomic write to <feature-dir>/snapshots/resume-pack.json
+      const snapshotsDir = path.join(featureDir, "snapshots");
+      await fsP.mkdir(snapshotsDir, { recursive: true });
+      const packPath = path.join(snapshotsDir, "resume-pack.json");
+      const tmpPath = packPath + ".tmp";
+      await fsP.writeFile(tmpPath, JSON.stringify(pack, null, 2) + "\n");
+      await fsP.rename(tmpPath, packPath);
+      ctx.success(
+        { ok: true, feature: opts.feature, pack_path: packPath, session_id: pack.session_id },
+        () => `${packPath}\n`,
+        { stateChange: `handoff: resume-pack.json written by ${resolution.actor}` },
       );
     });
 

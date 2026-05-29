@@ -3673,7 +3673,7 @@ const PendingPromptKind = z.enum([
 	"finding_decision",
 	"profile_escalation"
 ]);
-const PendingPrompt = z.object({
+const PendingPromptEntry = z.object({
 	kind: PendingPromptKind,
 	question: z.string().min(3),
 	options: z.array(z.string()).optional(),
@@ -3685,8 +3685,7 @@ const PendingPrompt = z.object({
 	]).default("advance"),
 	raised_at: z.string().datetime(),
 	raised_by: z.string().min(1)
-});
-const PendingPromptEntry = PendingPrompt.extend({
+}).extend({
 	pending_id: PendingId,
 	at: z.string().datetime(),
 	raised_by_task_id: z.string().regex(/^T-\d{3,}$/).optional()
@@ -4005,7 +4004,7 @@ z.object({
 		suggestion: z.string().optional()
 	}))
 });
-const TasksActiveSummary = z.object({
+const TasksActiveSummary$1 = z.object({
 	task_id: z.string().regex(/^T-\d{3,}$/),
 	status: z.enum([
 		"pending",
@@ -4022,10 +4021,10 @@ z.object({
 	session_id: z.string().uuid(),
 	reason: z.string().min(5),
 	state_snapshot: StateProjection,
-	tasks_active_summary: z.array(TasksActiveSummary).default([]),
-	recent_evidence: z.array(z.string().regex(/^EV-\d{6,}$/)),
-	recent_findings: z.array(z.string().regex(/^FND-\d{3,}$/)),
-	open_pending: PendingPrompt.nullable(),
+	tasks_active_summary: z.array(TasksActiveSummary$1).default([]),
+	recent_evidence: z.array(z.string().regex(/^EV-\d{6,}$/)).max(10),
+	recent_findings: z.array(z.string().regex(/^FND-\d{3,}$/)).max(10),
+	open_pending: PendingPromptEntry.nullable(),
 	notes: z.string().optional()
 });
 z.object({
@@ -4548,6 +4547,70 @@ function buildSpecSubmitBatch(args) {
 		}
 	});
 	return entries;
+}
+/** TasksActiveSummary — mirror of docs/schemas.ts §20.
+*  current_step is null when no step on the in_progress/ready task is
+*  currently running (i.e. between steps or paused). */
+const TasksActiveSummary = z.object({
+	task_id: z.string().regex(/^T-\d{3,}$/),
+	status: z.enum([
+		"pending",
+		"ready",
+		"in_progress",
+		"done",
+		"abandoned"
+	]),
+	current_step: z.string().nullable()
+}).strict();
+const ResumePack = z.object({
+	schema_version: z.literal(2),
+	at: z.string().datetime(),
+	session_id: z.string().uuid(),
+	reason: z.string().min(5),
+	state_snapshot: StateProjection$1,
+	tasks_active_summary: z.array(TasksActiveSummary).default([]),
+	recent_evidence: z.array(z.string().regex(/^EV-\d{6,}$/)).max(10),
+	recent_findings: z.array(z.string().regex(/^FND-\d{3,}$/)).max(10),
+	open_pending: PendingQueueEntry.nullable(),
+	notes: z.string().optional()
+}).strict();
+//#endregion
+//#region src/cli/build-resume-pack.ts
+function buildResumePack(args) {
+	const { snapshot, at, reason } = args;
+	const state = snapshot.state;
+	if (!state) throw new Error("buildResumePack: snapshot.state is null (no session started)");
+	const tasksActive = [];
+	for (const task of snapshot.tasks) {
+		if (task.status !== "ready" && task.status !== "in_progress") continue;
+		let currentStep = null;
+		for (const [stepName, step] of Object.entries(task.steps ?? {})) if (step.status === "running") {
+			currentStep = stepName;
+			break;
+		}
+		tasksActive.push({
+			task_id: task.id,
+			status: task.status,
+			current_step: currentStep
+		});
+	}
+	const recentEvidenceIds = snapshot.evidence.map((e) => e.id).slice(-10);
+	const recentFindingIds = snapshot.findings.map((f) => f.id).slice(-10);
+	const stateProjection = composeStateProjection(snapshot, args.entries);
+	if (stateProjection === null) throw new Error("buildResumePack: composeStateProjection returned null (state should be non-null at this point)");
+	const openPending = stateProjection.pending.length > 0 ? stateProjection.pending[0] : null;
+	return {
+		schema_version: 2,
+		at,
+		session_id: state.session_id,
+		reason,
+		state_snapshot: stateProjection,
+		tasks_active_summary: tasksActive,
+		recent_evidence: recentEvidenceIds,
+		recent_findings: recentFindingIds,
+		open_pending: openPending,
+		...args.notes !== void 0 && { notes: args.notes }
+	};
 }
 //#endregion
 //#region src/cli/run-editor.ts
@@ -10057,6 +10120,56 @@ async function main(argv = process.argv, deps = {}) {
 			stateChange: `settle: ${from} → SETTLE.reconcile`,
 			next: "loaf deliver"
 		});
+	});
+	program.command("handoff").description("Compose and persist snapshots/resume-pack.json (read-side projection writer; no journal entry)").requiredOption("--reason <text>", "Why this handoff is being taken (≥5 chars; mandatory per ResumePack.reason)").option("--notes <text>", "Optional free-form notes attached to the pack").option("--feature <name>", "Feature whose handoff to take").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+		if (rejectIfDryRun("handoff", "projection-writer")) return;
+		if (opts.reason.length < 5) {
+			emitFailure("USAGE", `--reason must be ≥5 chars (got ${opts.reason.length})`, { reason_length: opts.reason.length });
+			return;
+		}
+		const resolution = resolveHumanActor({
+			env: process.env,
+			readGitConfig: readGitConfigForActor,
+			isInteractiveHuman: isInteractiveHumanForActor()
+		});
+		if (!resolution.ok) {
+			emitFailure(resolution.code, resolution.message);
+			return;
+		}
+		const featureDir = await dispatchOrFail(opts);
+		if (featureDir === null) return;
+		const session = await loadSession(featureDir, { ensureDir: false });
+		if (!session.snapshot.state) {
+			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+			return;
+		}
+		const pack = buildResumePack({
+			snapshot: session.snapshot,
+			entries: session.entries,
+			at: (/* @__PURE__ */ new Date()).toISOString(),
+			reason: opts.reason,
+			...opts.notes !== void 0 && { notes: opts.notes }
+		});
+		const parse = ResumePack.safeParse(pack);
+		if (!parse.success) {
+			emitFailure("SCHEMA_VALIDATION_FAILED", `ResumePack failed runtime validation (builder bug or schema drift)`, {
+				subcode: "zod",
+				issues: parse.error.issues
+			});
+			return;
+		}
+		const snapshotsDir = path.join(featureDir, "snapshots");
+		await promises.mkdir(snapshotsDir, { recursive: true });
+		const packPath = path.join(snapshotsDir, "resume-pack.json");
+		const tmpPath = packPath + ".tmp";
+		await promises.writeFile(tmpPath, JSON.stringify(pack, null, 2) + "\n");
+		await promises.rename(tmpPath, packPath);
+		ctx.success({
+			ok: true,
+			feature: opts.feature,
+			pack_path: packPath,
+			session_id: pack.session_id
+		}, () => `${packPath}\n`, { stateChange: `handoff: resume-pack.json written by ${resolution.actor}` });
 	});
 	const pendingCmd = program.command("pending").description("Pending queue commands (raise / list / status / resolve)");
 	pendingCmd.command("raise").description("Raise a new pending entry (CLI allocates PEND-id)").requiredOption("--kind <kind>", "Pending kind (ask_user_question | gate_decision | spec_clarification | finding_decision | profile_escalation)").requiredOption("--question <text>", "Question / rationale shown to whoever resolves it (required for ALL kinds)").option("--options <csv>", "Comma-separated answer options (passthrough)").option("--task-id <id>", "Optional task association (passthrough)").option("--feature <name>", "Feature whose session to raise pending against").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {

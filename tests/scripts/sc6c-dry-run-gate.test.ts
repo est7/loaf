@@ -51,6 +51,7 @@ const READ_ONLY_COMMANDS: readonly string[] = [
   "finding schema",
   "state schema",
   "spec edit",         // Phase 16 SC-12a-2 (wrapping mutator)
+  "handoff",           // Phase 16 SC-13a (projection-writer)
 ];
 
 /** Escape regex metacharacters in a literal label. */

@@ -2178,6 +2178,13 @@ export const TasksActiveSummary = z.object({
 });
 export type TasksActiveSummary = z.infer<typeof TasksActiveSummary>;
 
+// Phase 16 SC-13a — recent ID cap mirrored in runtime
+// `src/core/resume-pack-schema.ts:RESUME_PACK_RECENT_CAP`. Drift gate at
+// tests/cli/resume-pack-runtime-lockstep.test.ts enforces lockstep on the
+// 4 fields most likely to skew: schema_version, tasks_active_summary,
+// recent_* caps, open_pending.
+export const RESUME_PACK_RECENT_CAP = 10;
+
 export const ResumePack = z.object({
   schema_version: SchemaVersion,
   at: z.string().datetime(),
@@ -2187,9 +2194,13 @@ export const ResumePack = z.object({
   // rev 4.0: active-set snapshot, since state_snapshot no longer carries
   // current_task/current_step. Empty array when no task is in_progress.
   tasks_active_summary: z.array(TasksActiveSummary).default([]),
-  recent_evidence: z.array(z.string().regex(/^EV-\d{6,}$/)),  // last N evidence_ids
-  recent_findings: z.array(z.string().regex(/^FND-\d{3,}$/)),
-  open_pending: PendingPrompt.nullable(),
+  recent_evidence: z.array(z.string().regex(/^EV-\d{6,}$/)).max(RESUME_PACK_RECENT_CAP),
+  recent_findings: z.array(z.string().regex(/^FND-\d{3,}$/)).max(RESUME_PACK_RECENT_CAP),
+  // Phase 16 SC-13a (codex r345 P1 / r347 P1): docs uses PendingPromptEntry
+  // (full live queue entry with pending_id + at + raised_by); runtime mirror
+  // uses PendingQueueEntry from src/core/projection-schema.ts (same JSON
+  // shape, different symbol name per project naming convention).
+  open_pending: PendingPromptEntry.nullable(),
   notes: z.string().optional(),
 });
 export type ResumePack = z.infer<typeof ResumePack>;
