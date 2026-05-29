@@ -8,7 +8,7 @@ import { z } from "zod";
 import { createHash, randomBytes } from "node:crypto";
 import * as fsp from "node:fs/promises";
 import { parse, stringify } from "yaml";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { O_APPEND, O_CREAT, O_WRONLY } from "node:constants";
 //#region package.json
 var version = "0.1.0";
@@ -4548,6 +4548,102 @@ function buildSpecSubmitBatch(args) {
 		}
 	});
 	return entries;
+}
+//#endregion
+//#region src/cli/run-editor.ts
+var EditorTokenizeError = class extends Error {
+	editor;
+	code = "EDITOR_TOKENIZE_ERROR";
+	constructor(message, editor) {
+		super(message);
+		this.editor = editor;
+		this.name = "EditorTokenizeError";
+	}
+};
+/** Shell-style word split with single + double quote grouping. NOT a
+*  full shell parser — does NOT expand $VARS, ~, globs, or backticks.
+*  Filepath is appended by the caller (NOT injected via shell). Codex
+*  r336 P2 lock. */
+function tokenizeEditor(editor) {
+	const tokens = [];
+	let current = "";
+	let quoteChar = null;
+	let inToken = false;
+	for (let i = 0; i < editor.length; i++) {
+		const ch = editor[i];
+		if (quoteChar !== null) {
+			if (ch === quoteChar) quoteChar = null;
+			else current += ch;
+			continue;
+		}
+		if (ch === "\"" || ch === "'") {
+			quoteChar = ch;
+			inToken = true;
+			continue;
+		}
+		if (ch === " " || ch === "	") {
+			if (inToken) {
+				tokens.push(current);
+				current = "";
+				inToken = false;
+			}
+			continue;
+		}
+		current += ch;
+		inToken = true;
+	}
+	if (quoteChar !== null) throw new EditorTokenizeError(`EDITOR has unmatched ${quoteChar === "\"" ? "double" : "single"} quote: ${editor}`, editor);
+	if (inToken) tokens.push(current);
+	return tokens;
+}
+/** Production runEditor — spawn the user's editor and resolve with the
+*  outcome. Always resolves; never throws — tokenize errors become
+*  `error: "EDITOR_TOKENIZE_ERROR"` (codex r339 P1), spawn errors
+*  become typed error strings (ENOENT etc.). */
+async function runEditor(args) {
+	let tokens;
+	try {
+		tokens = tokenizeEditor(args.editor);
+	} catch (err) {
+		if (err instanceof EditorTokenizeError) return {
+			code: 127,
+			signal: null,
+			error: "EDITOR_TOKENIZE_ERROR"
+		};
+		throw err;
+	}
+	if (tokens.length === 0) return {
+		code: 127,
+		signal: null,
+		error: "EDITOR_EMPTY"
+	};
+	const [bin, ...rest] = tokens;
+	return new Promise((resolve) => {
+		let settled = false;
+		const finish = (result) => {
+			if (settled) return;
+			settled = true;
+			resolve(result);
+		};
+		const child = spawn(bin, [...rest, args.filePath], {
+			stdio: "inherit",
+			cwd: args.cwd,
+			env: args.env
+		});
+		child.once("error", (err) => {
+			finish({
+				code: 127,
+				signal: null,
+				error: err.code ?? err.message
+			});
+		});
+		child.once("close", (code, signal) => {
+			finish({
+				code: code ?? 0,
+				signal: signal ?? null
+			});
+		});
+	});
 }
 //#endregion
 //#region src/cli/url-prefill.ts
@@ -10833,6 +10929,168 @@ feature:
 			stateChange: `spec init: wrote scaffold to ${specMdPath}`,
 			next: "edit, then `loaf spec submit`"
 		});
+	});
+	const runEditorImpl = deps.runEditor ?? runEditor;
+	specCmd.command("edit").description("Launch $EDITOR on spec.md, validate, then emit event:spec_submitted (wrapping mutator; --dry-run rejected)").option("--feature <name>", "Feature whose spec.md to edit").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+		if (rejectIfDryRun("spec edit", "wrapping")) return;
+		const featureDir = await dispatchOrFail(opts);
+		if (featureDir === null) return;
+		const resolution = resolveHumanActor({
+			env: process.env,
+			readGitConfig: readGitConfigForActor,
+			isInteractiveHuman: isInteractiveHumanForActor()
+		});
+		if (!resolution.ok) {
+			emitFailure(resolution.code, resolution.message);
+			return;
+		}
+		const actor = resolution.actor;
+		const session = await loadSession(featureDir, { ensureDir: false });
+		if (!session.snapshot.state) {
+			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+			return;
+		}
+		if (session.snapshot.state.spec_locked === true) {
+			emitFailure("SPEC_LOCKED_NO_DIRECT_EDIT", `spec is locked; direct edits via \`loaf spec edit\` are rejected post-lock — use \`loaf finding raise --category spec-gap --action amend-spec --summary "..."\` to roll back to SPEC.spec and amend through the finding flow`, { kind: "event:spec_submitted" });
+			return;
+		}
+		const specMdPath = path.join(featureDir, "spec.md");
+		let beforeContent;
+		try {
+			beforeContent = await promises.readFile(specMdPath, "utf8");
+		} catch (err) {
+			if (err.code === "ENOENT") {
+				emitFailure("SCHEMA_VALIDATION_FAILED", `spec.md not found at ${specMdPath}; run \`loaf spec init\` to scaffold one first`, {
+					subcode: "spec-not-found",
+					path: specMdPath
+				});
+				return;
+			}
+			throw err;
+		}
+		const editor = (process.env["EDITOR"] ?? "").trim() || "vi";
+		const result = await runEditorImpl({
+			filePath: specMdPath,
+			editor,
+			cwd: process.cwd(),
+			env: process.env
+		});
+		if (result.error !== void 0) {
+			emitFailure("USAGE", `editor '${editor}' could not be launched (${result.error})`, {
+				editor,
+				spawn_error: result.error
+			});
+			return;
+		}
+		if (result.signal !== null) {
+			ctx.exitCode = 130;
+			return;
+		}
+		if (result.code !== 0) {
+			emitFailure("USAGE", `editor exited with code=${result.code}`, {
+				editor,
+				editor_exit: result.code
+			});
+			return;
+		}
+		let afterContent;
+		try {
+			afterContent = await promises.readFile(specMdPath, "utf8");
+		} catch (err) {
+			if (err.code === "ENOENT") {
+				emitFailure("SCHEMA_VALIDATION_FAILED", `spec.md was deleted during edit at ${specMdPath}`, {
+					subcode: "spec-not-found",
+					path: specMdPath
+				});
+				return;
+			}
+			throw err;
+		}
+		if (beforeContent === afterContent) {
+			ctx.success({
+				ok: true,
+				feature: opts.feature,
+				no_op: true,
+				spec_md_path: specMdPath
+			}, () => "spec.md unchanged (no-op)\n");
+			return;
+		}
+		const { frontmatter } = splitFrontmatter(afterContent);
+		if (frontmatter === null) {
+			emitFailure("SCHEMA_VALIDATION_FAILED", `spec.md is missing a YAML frontmatter block fenced by \`---\` on the first line; work copy preserved at ${specMdPath} for you to fix and re-run \`loaf spec edit\``, {
+				subcode: "missing-frontmatter",
+				path: specMdPath
+			});
+			return;
+		}
+		let parsedYaml;
+		try {
+			parsedYaml = parse(frontmatter);
+		} catch (err) {
+			emitFailure("SCHEMA_VALIDATION_FAILED", `spec.md frontmatter YAML failed to parse: ${err.message}; work copy preserved at ${specMdPath} for you to fix and re-run \`loaf spec edit\``, {
+				subcode: "invalid-yaml",
+				path: specMdPath
+			});
+			return;
+		}
+		const zodResult = SpecFrontmatter$1.safeParse(parsedYaml);
+		if (!zodResult.success) {
+			const issues = mapZodIssues(zodResult.error);
+			emitFailure("SCHEMA_VALIDATION_FAILED", `spec.md frontmatter failed schema validation (${issues.error_count} errors); work copy preserved at ${specMdPath} for you to fix and re-run \`loaf spec edit\``, {
+				subcode: "zod",
+				path: specMdPath,
+				errors: issues.errors,
+				truncated: issues.truncated,
+				error_count: issues.error_count
+			});
+			return;
+		}
+		const fm = zodResult.data;
+		const submitParse = SpecSubmitInput.safeParse({
+			spec_version: void 0,
+			feature: fm.feature,
+			intent: fm.intent,
+			adr_refs: fm.adr_refs,
+			requirements: fm.requirements,
+			scenarios: fm.scenarios,
+			visual_contracts: fm.visual_contracts ?? [],
+			needs_clarification: fm.needs_clarification
+		});
+		if (!submitParse.success) {
+			emitFailure("SCHEMA_VALIDATION_FAILED", `spec.md frontmatter passed SpecFrontmatter but failed SpecSubmitInput shape (unusual cross-schema drift); work copy preserved at ${specMdPath}`, {
+				subcode: "zod",
+				path: specMdPath,
+				issues: submitParse.error.issues
+			});
+			return;
+		}
+		const now = (/* @__PURE__ */ new Date()).toISOString();
+		const entries = buildSpecSubmitBatch({
+			input: submitParse.data,
+			snapshot: session.snapshot,
+			actor,
+			now
+		});
+		const mutateResult = await mutateBatch(entries, {
+			feature_dir: featureDir,
+			snapshot: session.snapshot,
+			tail_seq: session.tail_seq,
+			entries: session.entries,
+			meta: session.meta,
+			dryRun: ctx.dryRun,
+			registryWriter: registryWriterDeps
+		});
+		if (!mutateResult.ok) {
+			emitFailure(mutateResult.code, mutateResult.message, mutateResult.detail);
+			return;
+		}
+		const newSpecVersion = entries[0].payload.spec_version;
+		ctx.success({
+			ok: true,
+			feature: opts.feature,
+			spec_version: newSpecVersion,
+			sub_state: mutateResult.snapshot.state?.sub_state
+		}, () => `spec edit: spec_version=${newSpecVersion}\n`, { stateChange: `spec edit: spec_version=${newSpecVersion} via $EDITOR` });
 	});
 	for (const cfg of REGISTER_SPEC_ADD) {
 		const mutatorKey = cfg.name === "req" ? "spec:add-req" : cfg.name === "scenario" ? "spec:add-scenario" : "spec:add-visual";

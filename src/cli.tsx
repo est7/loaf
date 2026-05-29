@@ -49,6 +49,10 @@ import {
 import { buildWaiveEvidencePayload } from "./cli/waive.js";
 import { buildLessonsEvidencePayload } from "./cli/lessons-add.js";
 import { buildSpecSubmitBatch } from "./cli/spec-submit-batch.js";
+import { runEditor as defaultRunEditor, type RunEditor } from "./cli/run-editor.js";
+import { splitFrontmatter } from "./core/spec-frontmatter.js";
+import { parse as parseYaml } from "yaml";
+import { mapZodIssues } from "./cli/check-file.js";
 import { CoversRefPayload } from "./core/evidence-schema.js";
 import { promises as fsPromises } from "node:fs";
 import { buildReportUrl } from "./cli/url-prefill.js";
@@ -229,6 +233,12 @@ export type MainDeps = {
   registryDir?: string;
   registryNow?: () => Date;
   registryCwd?: () => string;
+  // Phase 16 SC-12a-2 — test-injectable editor runner for `loaf spec
+  // edit`. Production omits (defaults to runEditor from
+  // ./cli/run-editor.js which spawns $EDITOR or vi). Tests inject
+  // deterministic stubs to assert the work-copy / no-op / signal split
+  // semantics without spawning a real editor (codex r331 P3).
+  runEditor?: RunEditor;
 };
 
 export async function main(
@@ -4911,6 +4921,218 @@ export async function main(
           stateChange: `spec init: wrote scaffold to ${specMdPath}`,
           next: "edit, then `loaf spec submit`",
         },
+      );
+    });
+
+  // ── loaf spec edit — Phase 16 SC-12a-2 ─────────────────────────────
+  // Wrapping mutator: spawn $EDITOR on <feature-dir>/spec.md, wait for
+  // save, validate post-edit frontmatter, emit `event:spec_submitted`
+  // batch (re-using SC-12a-1 shared builder). No-op detection skips
+  // journal append. Failure paths preserve the edited work copy on
+  // disk for the human to fix + re-run.
+  //
+  // Codex r331 / r333 / r335 / r336 GO. See:
+  //   - r336 P1: spawn error handler (runEditor.ts owns this)
+  //   - r336 P2: tokenizer quote contract (runEditor.ts owns this)
+  //   - r336 P3: SCHEMA_VALIDATION_FAILED + subcode parity with SC-9c
+  //   - r336 P4: SC-6c scanner regex update (tests/scripts/sc6c-...)
+  //   - r333 P3: signal !== null → exit 130, code !== 0 → exit 2 USAGE
+  const runEditorImpl: RunEditor = deps.runEditor ?? defaultRunEditor;
+  specCmd
+    .command("edit")
+    .description("Launch $EDITOR on spec.md, validate, then emit event:spec_submitted (wrapping mutator; --dry-run rejected)")
+    .option("--feature <name>", "Feature whose spec.md to edit")
+    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
+    .action(async (opts: { feature: string; featureDir?: string }) => {
+      if (rejectIfDryRun("spec edit", "wrapping")) return;
+      const featureDir = await dispatchOrFail(opts);
+      if (featureDir === null) return;
+      // (1) actor — `event:spec_submitted` is human:* per PER_KIND_AUTHORITY
+      const resolution = resolveHumanActor({
+        env: process.env,
+        readGitConfig: readGitConfigForActor,
+        isInteractiveHuman: isInteractiveHumanForActor(),
+      });
+      if (!resolution.ok) { emitFailure(resolution.code, resolution.message); return; }
+      const actor = resolution.actor;
+      const session = await loadSession(featureDir, { ensureDir: false });
+      if (!session.snapshot.state) {
+        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        return;
+      }
+      // (1.5) pre-editor lock gate (codex r339 P2): post-lock direct
+      // spec edits must go through `loaf finding raise --action
+      // amend-spec` so the spec_lock invariant + iteration counter
+      // stay coherent. Reject BEFORE spawning $EDITOR so the user is
+      // not deceived by an open editor whose contents will be discarded.
+      if (session.snapshot.state.spec_locked === true) {
+        emitFailure(
+          "SPEC_LOCKED_NO_DIRECT_EDIT",
+          `spec is locked; direct edits via \`loaf spec edit\` are rejected post-lock — use \`loaf finding raise --category spec-gap --action amend-spec --summary "..."\` to roll back to SPEC.spec and amend through the finding flow`,
+          { kind: "event:spec_submitted" },
+        );
+        return;
+      }
+      const specMdPath = path.join(featureDir, "spec.md");
+      // (2) capture before-content for no-op detection (codex r332 P6)
+      let beforeContent: string;
+      try {
+        beforeContent = await fsP.readFile(specMdPath, "utf8");
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+          emitFailure(
+            "SCHEMA_VALIDATION_FAILED",
+            `spec.md not found at ${specMdPath}; run \`loaf spec init\` to scaffold one first`,
+            { subcode: "spec-not-found", path: specMdPath },
+          );
+          return;
+        }
+        throw err;
+      }
+      // (3) spawn editor
+      const editor = (process.env["EDITOR"] ?? "").trim() || "vi";
+      const result = await runEditorImpl({
+        filePath: specMdPath,
+        editor,
+        cwd: process.cwd(),
+        env: process.env,
+      });
+      // (4a) spawn error → USAGE (codex r335 P1)
+      if (result.error !== undefined) {
+        emitFailure(
+          "USAGE",
+          `editor '${editor}' could not be launched (${result.error})`,
+          { editor, spawn_error: result.error },
+        );
+        return;
+      }
+      // (4b) signal abort → exit 130, no journal write (codex r333 P3)
+      if (result.signal !== null) {
+        ctx.exitCode = 130;
+        return;
+      }
+      // (4c) non-zero exit → USAGE (user aborted via :q! or similar)
+      if (result.code !== 0) {
+        emitFailure(
+          "USAGE",
+          `editor exited with code=${result.code}`,
+          { editor, editor_exit: result.code },
+        );
+        return;
+      }
+      // (5) re-read post-edit content; no-op skip (codex r332 P6)
+      let afterContent: string;
+      try {
+        afterContent = await fsP.readFile(specMdPath, "utf8");
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+          emitFailure(
+            "SCHEMA_VALIDATION_FAILED",
+            `spec.md was deleted during edit at ${specMdPath}`,
+            { subcode: "spec-not-found", path: specMdPath },
+          );
+          return;
+        }
+        throw err;
+      }
+      if (beforeContent === afterContent) {
+        ctx.success(
+          { ok: true, feature: opts.feature, no_op: true, spec_md_path: specMdPath },
+          () => "spec.md unchanged (no-op)\n",
+        );
+        return;
+      }
+      // (6) frontmatter validation — direct splitFrontmatter +
+      //     parseYaml + SpecFrontmatter.safeParse mirrors SC-9c check
+      //     subcode taxonomy (codex r336 P3)
+      const { frontmatter } = splitFrontmatter(afterContent);
+      if (frontmatter === null) {
+        emitFailure(
+          "SCHEMA_VALIDATION_FAILED",
+          `spec.md is missing a YAML frontmatter block fenced by \`---\` on the first line; work copy preserved at ${specMdPath} for you to fix and re-run \`loaf spec edit\``,
+          { subcode: "missing-frontmatter", path: specMdPath },
+        );
+        return;
+      }
+      let parsedYaml: unknown;
+      try {
+        parsedYaml = parseYaml(frontmatter);
+      } catch (err) {
+        emitFailure(
+          "SCHEMA_VALIDATION_FAILED",
+          `spec.md frontmatter YAML failed to parse: ${(err as Error).message}; work copy preserved at ${specMdPath} for you to fix and re-run \`loaf spec edit\``,
+          { subcode: "invalid-yaml", path: specMdPath },
+        );
+        return;
+      }
+      const zodResult = SpecFrontmatter.safeParse(parsedYaml);
+      if (!zodResult.success) {
+        const issues = mapZodIssues(zodResult.error);
+        emitFailure(
+          "SCHEMA_VALIDATION_FAILED",
+          `spec.md frontmatter failed schema validation (${issues.error_count} errors); work copy preserved at ${specMdPath} for you to fix and re-run \`loaf spec edit\``,
+          {
+            subcode: "zod",
+            path: specMdPath,
+            errors: issues.errors,
+            truncated: issues.truncated,
+            error_count: issues.error_count,
+          },
+        );
+        return;
+      }
+      // (7) Build SpecSubmitInput (CLI stamps spec_version = current+1
+      //     even if user edited the frontmatter value; codex r331 P1)
+      const fm = zodResult.data;
+      const submitParse = SpecSubmitInput.safeParse({
+        spec_version: undefined, // builder defaults to snapshot+1
+        feature: fm.feature,
+        intent: fm.intent,
+        adr_refs: fm.adr_refs,
+        requirements: fm.requirements,
+        scenarios: fm.scenarios,
+        visual_contracts: fm.visual_contracts ?? [],
+        needs_clarification: fm.needs_clarification,
+      });
+      if (!submitParse.success) {
+        emitFailure(
+          "SCHEMA_VALIDATION_FAILED",
+          `spec.md frontmatter passed SpecFrontmatter but failed SpecSubmitInput shape (unusual cross-schema drift); work copy preserved at ${specMdPath}`,
+          { subcode: "zod", path: specMdPath, issues: submitParse.error.issues },
+        );
+        return;
+      }
+      // (8) Build batch via shared SC-12a-1 helper + mutate
+      const now = new Date().toISOString();
+      const entries: Parameters<typeof mutateBatch>[0] = buildSpecSubmitBatch({
+        input: submitParse.data,
+        snapshot: session.snapshot,
+        actor,
+        now,
+      });
+      const mutateResult = await mutateBatch(entries, {
+        feature_dir: featureDir,
+        snapshot: session.snapshot,
+        tail_seq: session.tail_seq,
+        entries: session.entries,
+        meta: session.meta,
+        dryRun: ctx.dryRun,
+        registryWriter: registryWriterDeps,
+      });
+      if (!mutateResult.ok) {
+        emitFailure(mutateResult.code, mutateResult.message, mutateResult.detail);
+        return;
+      }
+      const newSpecVersion = (entries[0]!.payload as { spec_version: number }).spec_version;
+      ctx.success(
+        {
+          ok: true,
+          feature: opts.feature,
+          spec_version: newSpecVersion,
+          sub_state: mutateResult.snapshot.state?.sub_state,
+        },
+        () => `spec edit: spec_version=${newSpecVersion}\n`,
+        { stateChange: `spec edit: spec_version=${newSpecVersion} via $EDITOR` },
       );
     });
 

@@ -50,21 +50,32 @@ const READ_ONLY_COMMANDS: readonly string[] = [
   "evidence schema",
   "finding schema",
   "state schema",
+  "spec edit",         // Phase 16 SC-12a-2 (wrapping mutator)
 ];
 
+/** Escape regex metacharacters in a literal label. */
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 describe("SC-6c — positive table: every read-only command has rejectIfDryRun marker", () => {
-  test("static: each table entry has rejectIfDryRun(\"<label>\") in src/cli.tsx", async () => {
+  test("static: each table entry has rejectIfDryRun(\"<label>\"...) in src/cli.tsx", async () => {
     const source = await readRepo("src/cli.tsx");
     const misses: string[] = [];
     for (const label of READ_ONLY_COMMANDS) {
-      // The doctor handler uses a ternary; allow either literal
-      const variants =
-        label === "doctor"
-          ? [`rejectIfDryRun(opts.rebuild ? "doctor --rebuild" : "doctor"`]
-          : [`rejectIfDryRun("${label}")`];
-      const found = variants.some((v) => source.includes(v));
+      // Codex r336 P4: strict regex boundary check. The label must be
+      // followed by `)` (1-arg form) OR `,` (2-arg form like wrapping
+      // mutator `rejectIfDryRun("spec edit", "wrapping")`). Doctor
+      // handler uses a ternary; allow its literal as a special case.
+      let found: boolean;
+      if (label === "doctor") {
+        found = source.includes(`rejectIfDryRun(opts.rebuild ? "doctor --rebuild" : "doctor"`);
+      } else {
+        const re = new RegExp(`rejectIfDryRun\\("${escapeRegex(label)}"\\s*(?:,|\\))`);
+        found = re.test(source);
+      }
       if (!found) {
-        misses.push(`'${label}': expected one of ${JSON.stringify(variants)}`);
+        misses.push(`'${label}': no matching rejectIfDryRun("<label>"...) call in src/cli.tsx`);
       }
     }
     expect(misses).toEqual([]);
