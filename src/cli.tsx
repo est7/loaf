@@ -48,6 +48,7 @@ import {
 } from "./cli/evidence-id-allocator.js";
 import { buildWaiveEvidencePayload } from "./cli/waive.js";
 import { buildLessonsEvidencePayload } from "./cli/lessons-add.js";
+import { buildSpecSubmitBatch } from "./cli/spec-submit-batch.js";
 import { CoversRefPayload } from "./core/evidence-schema.js";
 import { promises as fsPromises } from "node:fs";
 import { buildReportUrl } from "./cli/url-prefill.js";
@@ -4675,62 +4676,18 @@ export async function main(
         ctx.failure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
         return;
       }
-      const currentVersion = session.snapshot.state.spec_version;
-      // (4) spec_version handling: CLI fills with current+1 when absent;
-      // when caller supplies, defer to reducer's monotonic check (codex
-      // r74 — both paths must reach the same SPEC_VERSION_NOT_MONOTONIC
-      // surface when mismatch, so we let preflight/reducer enforce
-      // instead of duplicating the check here).
-      const specVersion = input.spec_version ?? currentVersion + 1;
-      // (5) Extract companion arrays (already defaulted to [] by schema).
-      const reqs = input.requirements;
-      const scens = input.scenarios;
-      const viss = input.visual_contracts;
-      // (6) Build batch entries.
-      const headPayload: Record<string, unknown> = {
-        spec_version: specVersion,
-        feature: input.feature,
-        intent: input.intent,
-        adr_refs: input.adr_refs,
-        needs_clarification: input.needs_clarification,
-      };
+      // (4-6) Build the spec-submit batch via shared SC-12a-1 helper.
+      // CLI owns spec_version stamping; reducer enforces monotonic at
+      // append. See `src/cli/spec-submit-batch.ts` for the canonical
+      // shape (1 head + N req + M scen + K vis entries sharing at /
+      // actor / spec_version).
       const now = new Date().toISOString();
-      const entries: Parameters<typeof mutateBatch>[0] = [
-        {
-          at: now,
-          actor,
-          entry_schema_version: 1,
-          kind: "event:spec_submitted",
-          payload: headPayload,
-        },
-      ];
-      for (const req of reqs) {
-        entries.push({
-          at: now,
-          actor,
-          entry_schema_version: 1,
-          kind: "event:spec_req_added",
-          payload: { spec_version: specVersion, req },
-        });
-      }
-      for (const scen of scens) {
-        entries.push({
-          at: now,
-          actor,
-          entry_schema_version: 1,
-          kind: "event:spec_scenario_added",
-          payload: { spec_version: specVersion, scenario: scen },
-        });
-      }
-      for (const vis of viss) {
-        entries.push({
-          at: now,
-          actor,
-          entry_schema_version: 1,
-          kind: "event:spec_visual_added",
-          payload: { spec_version: specVersion, visual: vis },
-        });
-      }
+      const entries: Parameters<typeof mutateBatch>[0] = buildSpecSubmitBatch({
+        input,
+        snapshot: session.snapshot,
+        actor,
+        now,
+      });
       // (7) Mutate.
       const result = await mutateBatch(entries, {
         feature_dir: featureDir,

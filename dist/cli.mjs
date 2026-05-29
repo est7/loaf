@@ -4495,6 +4495,61 @@ function buildLessonsEvidencePayload(args) {
 	};
 }
 //#endregion
+//#region src/cli/spec-submit-batch.ts
+/** Build the canonical spec-submit batch: 1 head `event:spec_submitted`
+*  + N `event:spec_req_added` + M `event:spec_scenario_added` + K
+*  `event:spec_visual_added`. All entries share `at` / `actor` /
+*  `entry_schema_version` / payload's `spec_version`. */
+function buildSpecSubmitBatch(args) {
+	const { input, snapshot, actor, now } = args;
+	const currentVersion = snapshot.state?.spec_version ?? 0;
+	const specVersion = input.spec_version ?? currentVersion + 1;
+	const entries = [{
+		at: now,
+		actor,
+		entry_schema_version: 1,
+		kind: "event:spec_submitted",
+		payload: {
+			spec_version: specVersion,
+			feature: input.feature,
+			intent: input.intent,
+			adr_refs: input.adr_refs,
+			needs_clarification: input.needs_clarification
+		}
+	}];
+	for (const req of input.requirements) entries.push({
+		at: now,
+		actor,
+		entry_schema_version: 1,
+		kind: "event:spec_req_added",
+		payload: {
+			spec_version: specVersion,
+			req
+		}
+	});
+	for (const scen of input.scenarios) entries.push({
+		at: now,
+		actor,
+		entry_schema_version: 1,
+		kind: "event:spec_scenario_added",
+		payload: {
+			spec_version: specVersion,
+			scenario: scen
+		}
+	});
+	for (const vis of input.visual_contracts) entries.push({
+		at: now,
+		actor,
+		entry_schema_version: 1,
+		kind: "event:spec_visual_added",
+		payload: {
+			spec_version: specVersion,
+			visual: vis
+		}
+	});
+	return entries;
+}
+//#endregion
 //#region src/cli/url-prefill.ts
 const COMMAND_WORDS = new Set([
 	"loaf",
@@ -10669,57 +10724,13 @@ async function main(argv = process.argv, deps = {}) {
 			ctx.failure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
 			return;
 		}
-		const currentVersion = session.snapshot.state.spec_version;
-		const specVersion = input.spec_version ?? currentVersion + 1;
-		const reqs = input.requirements;
-		const scens = input.scenarios;
-		const viss = input.visual_contracts;
-		const headPayload = {
-			spec_version: specVersion,
-			feature: input.feature,
-			intent: input.intent,
-			adr_refs: input.adr_refs,
-			needs_clarification: input.needs_clarification
-		};
 		const now = (/* @__PURE__ */ new Date()).toISOString();
-		const entries = [{
-			at: now,
+		const result = await mutateBatch(buildSpecSubmitBatch({
+			input,
+			snapshot: session.snapshot,
 			actor,
-			entry_schema_version: 1,
-			kind: "event:spec_submitted",
-			payload: headPayload
-		}];
-		for (const req of reqs) entries.push({
-			at: now,
-			actor,
-			entry_schema_version: 1,
-			kind: "event:spec_req_added",
-			payload: {
-				spec_version: specVersion,
-				req
-			}
-		});
-		for (const scen of scens) entries.push({
-			at: now,
-			actor,
-			entry_schema_version: 1,
-			kind: "event:spec_scenario_added",
-			payload: {
-				spec_version: specVersion,
-				scenario: scen
-			}
-		});
-		for (const vis of viss) entries.push({
-			at: now,
-			actor,
-			entry_schema_version: 1,
-			kind: "event:spec_visual_added",
-			payload: {
-				spec_version: specVersion,
-				visual: vis
-			}
-		});
-		const result = await mutateBatch(entries, {
+			now
+		}), {
 			feature_dir: featureDir,
 			snapshot: session.snapshot,
 			tail_seq: session.tail_seq,
