@@ -31,6 +31,8 @@ import {
   type TraceEntry,
 } from "./cli/trace-writer.js";
 import { listSessions, formatAtRelative } from "./cli/sessions-list.js";
+import { buildEnvelope as buildVerifyStatusEnvelope, renderText as renderVerifyStatusText } from "./cli/verify-status.js";
+import { evaluateVerifyAcceptDiagnostic } from "./core/gates/verify-accept-eval.js";
 import { promises as fsPromises } from "node:fs";
 import { buildReportUrl } from "./cli/url-prefill.js";
 import { parseInputSource } from "./cli/input-source.js";
@@ -3719,6 +3721,47 @@ export async function main(
           return lines.join("");
         },
       );
+    });
+
+  // ── loaf verify status ───────────────────────────────────────────────
+  // Phase 16 SC-9a-1 — read-only diagnostic view of the verify-accept gate
+  // (codex r304 lock). 5-row PerCheckResult summary per VerifyCheckId,
+  // failures: FailedCheck[]. SPEC_FRONTMATTER_INVALID stays at the IO
+  // boundary (exit 2 stderr envelope), NOT injected as a synthetic check
+  // 1 row — divergence from evaluateVerifyAccept by design (gate decision
+  // path is unchanged).
+  //
+  // Uses loadSession (full replay) because evaluateAllChecks needs the
+  // reducer-domain Snapshot (5 fields: state/tasks/evidence/findings/
+  // tasks_based_on). loadProjectionsOrFail returns slim projections; the
+  // reconstruction-to-Snapshot synthesis is non-trivial. Read-only diag
+  // is the right place to pay the full-replay cost for v0.1.0.
+  // SnapshotStaleError doesn't apply here (loadSession reads journal
+  // directly, not the snapshot file).
+  const verifyCmd = program
+    .command("verify")
+    .description("Verify-accept gate read commands (status)");
+
+  verifyCmd
+    .command("status")
+    .description("Show per-check verify-accept diagnostic (read-only)")
+    .option("--feature <name>", "Feature whose verify status to show")
+    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
+    .action(async (opts: { feature?: string; featureDir?: string }) => {
+      if (rejectIfDryRun("verify status")) return;
+      const featureDir = await dispatchOrFail(opts);
+      if (featureDir === null) return;
+      const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
+      const diag = await evaluateVerifyAcceptDiagnostic(session.snapshot, featureDir);
+      if (!diag.ok) {
+        // IO-boundary divergence: frontmatter unreadable → exit 2,
+        // structured envelope on stderr. Does NOT synthesize a check-1
+        // row (codex r302 lock).
+        emitFailure(diag.code, diag.message, diag.detail);
+        return;
+      }
+      const env = buildVerifyStatusEnvelope(diag.checks);
+      ctx.success(env, () => renderVerifyStatusText(env));
     });
 
   // ── loaf finding raise / list / close ────────────────────────────────

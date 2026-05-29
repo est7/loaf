@@ -1282,20 +1282,44 @@ na         不适用(计算结果,不参与 gate)
 
 ### 7.4 `loaf verify status` 输出示例
 
+**rev 5.0 / Phase 16 SC-9a-1**:契约从 lane-oriented 改为 5-row diagnostic summary。read-only 命令,exit 0 即"诊断完成",`all_pass` 字段单独承载"是否全过"的语义;失败信息按 `VerifyCheckId` 五行汇总,每行 `failures: FailedCheck[]` 复数(单 check 可多 failure,如多条 lane 缺失 / 多个 REQ 未覆盖)。lane enum 退到 `failures[].detail.lane`(仅 check `lane_status` 失败时出现),不再做顶层 key。
+
+NA 规则按 `VerifyCheckId` 决定:`lane_status` ∅ → na;`open_findings` 始终 applicable;`coverage` 0 obligation → na;`task_evidence` 在 `tasks_based_on` 已 plan 但 0 done task 时 → na(unplanned 还会跑 precondition,emit `TASKS_NOT_PLANNED`);`spec_review` 在 `strict_spec_review !== true` 时 → na。
+
+`SPEC_FRONTMATTER_INVALID` 留在 IO boundary(stderr exit 2),**不**注入合成 check-1 row —— 与 `evaluateVerifyAccept`(gate 决策路径)在 IO 边界故意分叉。
+
 ```json
 {
-  "phase": "VERIFY",
-  "iteration": 2,
-  "checks": {
-    "run":        { "applicability": "must", "status": "passed",  "reason": "source code changed", "evidence_refs": ["EV-000124"] },
-    "review":     { "applicability": "must", "status": "passed",  "reason": "standard profile",     "evidence_refs": ["EV-000125"] },
-    "acceptance": { "applicability": "must", "status": "passed",  "reason": "SCEN tag=e2e",          "evidence_refs": ["EV-000131"] },
-    "visual":     { "applicability": "na",   "status": "na",      "reason": "no visual contract" }
-  },
-  "blocking": [],
-  "open_findings": []
+  "ok": true,
+  "all_pass": false,
+  "checks": [
+    {
+      "check": "lane_status",
+      "status": "fail",
+      "failures": [
+        { "check": 1, "code": "VERIFY_LANE_NOT_PASSED",
+          "message": "applicable VERIFY lane=run has no evidence with passing/approved/waived result; add evidence with check=run or a matching kind",
+          "detail": { "lane": "run" } }
+      ]
+    },
+    { "check": "open_findings", "status": "pass", "failures": [] },
+    { "check": "coverage", "status": "pass", "failures": [] },
+    {
+      "check": "task_evidence",
+      "status": "fail",
+      "failures": [
+        { "check": 4, "code": "TASK_DONE_NO_EVIDENCE",
+          "message": "task T-002 is status=done but has no evidence (kind ∈ {task-summary, local-check, manual, waiver}) covering it",
+          "detail": { "task_id": "T-002" } }
+      ]
+    },
+    { "check": "spec_review", "status": "na", "failures": [] }
+  ]
 }
 ```
+
+invariant(锁在 `tests/cli/verify-status.test.ts` "byte-equal" case):
+`verifyAcceptCheck(snap, fm).checks` ⇔ `evaluateAllChecks(snap, fm).flatMap(r => r.failures)` 字节相等,覆盖 10 个 per-check code。`SPEC_FRONTMATTER_INVALID` 不参与该 invariant —— 它只在 IO boundary 露面。
 
 ---
 
@@ -1916,7 +1940,7 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 | `loaf finding raise --category X --action Y --summary "..."` | **rev 5.0**:emit `finding:raised`;若 action 触发 back-edge,同 batch 加 emit `event:phase_advanced`(`amend-spec` → SPEC.spec;`amend-tasks` → EXECUTE.work);`fix-impl` / `fix-test`(Phase 11 Item 3 SC2-SC3)再额外 emit `event:task_step_reset`(把目标 step 重置为 `pending`),整批 `[finding:raised, event:task_step_reset, event:phase_advanced]`;reducer 派生到 `snapshots/findings.json` | 0 / 2 |
 | `loaf finding list [--status open\|closed]` | 列 findings | 0 |
 | `loaf finding close <FND-id>` | **rev 5.0**:emit `finding:closed`;reducer 派生到 `snapshots/findings.json` | 0 / 2 |
-| `loaf verify status` <!-- inventory:future reason="SC-9a projection-read commands" --> | 实时算各 check 状态 | 0 |
+| `loaf verify status` | **rev 5.0 / Phase 16 SC-9a-1**:read-only verify-accept 诊断,返回 5 行 `PerCheckResult` 汇总(`lane_status` / `open_findings` / `coverage` / `task_evidence` / `spec_review`),每行 `status: pass\|fail\|na` + `failures: FailedCheck[]`(单 check 多 failure 支持,如多 lane 缺 / 多 REQ 未覆盖)。lane enum 退到 `failures[].detail.lane`(仅 check 1 失败时出现)。NA 规则:`lane_status` ∅ derive、`coverage` 0 obligation、`task_evidence` 有 plan + 0 done、`spec_review` strict=false 各自走 na;`open_findings` 始终 applicable。SPEC_FRONTMATTER_INVALID 在 IO boundary exit 2(不注入合成 check-1 row,与 `evaluateVerifyAccept` 故意分叉)。`--dry-run` reject `DRY_RUN_NOT_APPLICABLE`。10 个 per-check code 完整复用 `verifyAcceptCheck` 既有 surface,无新 code 引入 | 0 / 2 |
 | `loaf gate decide <G>` | gate 决策 → **rev 5.0**:走 §11.2 transaction,**同一 batch 内 emit** `gate:decided` + `pending:resolved`(消 head pending kind=gate_decision)+ `event:phase_advanced`(target 由 §3.5 复用的 LEGAL_TRANSITIONS 给出)。reducer 派生 evidence projection 中 `kind=gate-decision` 视图。head 不匹配 → step 3 preflight 报 `GATE_NOT_PENDING` exit 2 | 0 / 2 |
 | `loaf settle` | **rev 5.0 + 5.x + Slice 1.D sub-cycle 3**:走 §11.2 transaction 进入 SETTLE.reconcile,emit `event:phase_advanced`(`cli:` actor — settle 是机器 cursor 推进,不需要 human:* 决定;chaos deviation 仅是单 verb 命名);transition validator 检查 `ceremony.settle_phase=true`(否则 `SETTLE_PHASE_DISABLED`)+ `verify_accepted=true`(否则 `SETTLE_NOT_ACCEPTED`)。reducer 计算 drift + 派生到 `snapshots/reconcile.json`(**rev 5.x:deep only**;quick / light / standard 不产 reconcile snapshot;**Slice 1.D MVP**:reconcile snapshot 后置,`loaf settle` 仅推 cursor,reconcile.json 等延后 slice;CLI advisory 输出**不**声称 `reconcile.json rebuilt`)| 0 / 2 |
 | `loaf check <path>` <!-- inventory:future reason="SC-9c file/schema validation" --> | 纯 schema check(CI 用,任意 artifact 文件) | 0 / 2 |

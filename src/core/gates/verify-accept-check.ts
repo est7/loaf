@@ -73,6 +73,31 @@ export type VerifyAcceptResult =
   | { ok: true }
   | { ok: false; checks: FailedCheck[] };
 
+// SC-9a-1: named per-check axis exposed by `loaf verify status`. Kept
+// separate from VerifyCheckKind (the lane enum) because checks 2/3/4/5 are
+// not lanes. Numeric 1..5 stays on FailedCheck.check for byte-equivalence
+// with verifyAcceptCheck output; the named id rides PerCheckResult.check.
+export type VerifyCheckId =
+  | "lane_status"   // check 1
+  | "open_findings" // check 2
+  | "coverage"      // check 3
+  | "task_evidence" // check 4 (multi-code: TASKS_NOT_PLANNED / TASKS_BASED_ON_STALE / TASK_DONE_NO_EVIDENCE / BUG_TASK_RED_NOT_REGISTERED)
+  | "spec_review";  // check 5 (multi-code: SPEC_REVIEW_MISSING / SPEC_REVIEW_IMPLEMENTER_CONFLICT / SPEC_REVIEW_IMPLEMENTER_UNKNOWN)
+
+export const VERIFY_CHECK_IDS = [
+  "lane_status",
+  "open_findings",
+  "coverage",
+  "task_evidence",
+  "spec_review",
+] as const satisfies ReadonlyArray<VerifyCheckId>;
+
+export type PerCheckResult = {
+  check: VerifyCheckId;
+  status: "pass" | "fail" | "na";
+  failures: FailedCheck[]; // empty iff status ∈ {pass, na}
+};
+
 // Narrow kind → lane fallback per codex r33 Q1(b). Used only when an
 // evidence entry omits the `check` field (legacy or new without explicit
 // lane tag). Strict mapping — task-summary maps to RUN here even though
@@ -191,13 +216,14 @@ const TASK_ALLOWED_EVIDENCE_KINDS: ReadonlyArray<EvidenceState["kind"]> = [
   "waiver",
 ];
 
-export function verifyAcceptCheck(
-  snapshot: Snapshot,
-  frontmatter: SpecFrontmatter,
-): VerifyAcceptResult {
-  const failures: FailedCheck[] = [];
+// SC-9a-1: per-check failure walks, extracted from the original
+// verifyAcceptCheck body. Each returns the FailedCheck rows the check
+// would push when applicable (empty when applicable + no failure). NA
+// gating happens at the evaluateAllChecks layer via
+// `deriveCheckApplicability`; these walkers do NOT re-check applicability.
 
-  // ── check 1: per-lane status ─────────────────────────────────────────
+function evalLaneStatus(snapshot: Snapshot, frontmatter: SpecFrontmatter): FailedCheck[] {
+  const failures: FailedCheck[] = [];
   const applicableLanes = deriveVerifyApplicability(snapshot, frontmatter);
   for (const lane of applicableLanes) {
     if (!laneIsPassed(lane, snapshot.evidence)) {
@@ -209,30 +235,24 @@ export function verifyAcceptCheck(
       });
     }
   }
+  return failures;
+}
 
-  // ── check 2: no open findings ────────────────────────────────────────
+function evalOpenFindings(snapshot: Snapshot): FailedCheck[] {
   const open = snapshot.findings.filter((f) => f.status === "open");
-  if (open.length > 0) {
-    failures.push({
-      check: 2,
-      code: "OPEN_FINDINGS_PRESENT",
-      message: `${open.length} finding(s) still open; resolve or close before verify-accept`,
-      // codex r45 fix: count was previously only in the human message,
-      // not in structured detail. ERROR_CATALOG OPEN_FINDINGS_PRESENT
-      // template uses {count} placeholder, which now resolves correctly.
-      detail: { count: open.length, open_ids: open.map((f) => f.id) },
-    });
-  }
+  if (open.length === 0) return [];
+  return [{
+    check: 2,
+    code: "OPEN_FINDINGS_PRESENT",
+    message: `${open.length} finding(s) still open; resolve or close before verify-accept`,
+    detail: { count: open.length, open_ids: open.map((f) => f.id) },
+  }];
+}
 
-  // ── check 3: REQ/SCEN/VIS canSatisfy coverage ───────────────────────
-  // Per protocol §1035: evidence MUST also have result ∈ {passed, approved,
-  // waived}. canSatisfy is compatibility-only (kind/actor/attachments
-  // shape); the result-filter is part of the gate aggregation layer (codex
-  // r37 scope split + r38 BLOCK 1 fix). isPassingResult predicate is
-  // shared with check 1 + check 5 for consistency.
+function evalCoverage(snapshot: Snapshot, frontmatter: SpecFrontmatter): FailedCheck[] {
   const satisfiesCoverage = (ev: EvidenceState, id: string): boolean =>
     isPassingResult(ev.result) && ev.covers.includes(id) && canSatisfy(ev, id);
-
+  const failures: FailedCheck[] = [];
   for (const req of frontmatter.requirements) {
     if (req.acceptance_na === true) continue;
     if (!snapshot.evidence.some((ev) => satisfiesCoverage(ev, req.id))) {
@@ -267,17 +287,20 @@ export function verifyAcceptCheck(
       });
     }
   }
+  return failures;
+}
 
-  // ── check 4: done-task evidence + stale tasks_based_on precondition ─
-  let check4PreconditionFailed = false;
+function evalTaskEvidence(snapshot: Snapshot, frontmatter: SpecFrontmatter): FailedCheck[] {
+  const failures: FailedCheck[] = [];
   if (snapshot.tasks_based_on === null) {
     failures.push({
       check: 4,
       code: "TASKS_NOT_PLANNED",
       message: `tasks have not been planned yet; verify-accept check 4 requires a task graph (tasks_based_on=null in snapshot)`,
     });
-    check4PreconditionFailed = true;
-  } else if (snapshot.tasks_based_on.spec !== frontmatter.spec_version) {
+    return failures;
+  }
+  if (snapshot.tasks_based_on.spec !== frontmatter.spec_version) {
     failures.push({
       check: 4,
       code: "TASKS_BASED_ON_STALE",
@@ -287,97 +310,170 @@ export function verifyAcceptCheck(
         current_spec_version: frontmatter.spec_version,
       },
     });
-    check4PreconditionFailed = true;
+    return failures;
   }
-
-  if (!check4PreconditionFailed) {
-    for (const task of snapshot.tasks) {
-      if (task.status !== "done") continue;
-      const satisfied = snapshot.evidence.some(
-        (ev) =>
-          ev.covers.includes(task.id) &&
-          TASK_ALLOWED_EVIDENCE_KINDS.includes(ev.kind),
-      );
-      if (!satisfied) {
-        failures.push({
-          check: 4,
-          code: "TASK_DONE_NO_EVIDENCE",
-          message: `task ${task.id} is status=done but has no evidence (kind ∈ {task-summary, local-check, manual, waiver}) covering it`,
-          detail: { task_id: task.id },
-        });
-      }
-      // Slice C SC-C4 (R2) — defense-in-depth for the bug-RED invariant.
-      // Preflight's BUG_TASK_REQUIRES_RED gates new implement writes, but
-      // a migration-imported / raw-API / pre-guard journal could carry a
-      // done behavioral bug task that never registered RED. verify-accept
-      // is the final boundary that catches it.
-      if (
-        task.kind === "behavioral" &&
-        task.labels.includes("bug") &&
-        task.red_test_registered !== true
-      ) {
-        failures.push({
-          check: 4,
-          code: "BUG_TASK_RED_NOT_REGISTERED",
-          message: `behavioral bug task ${task.id} is status=done but never registered its RED test (red_test_registered≠true)`,
-          detail: { task_id: task.id },
-        });
-      }
-    }
-  }
-
-  // ── check 5: deep spec-review (ceremony.strict_spec_review only) ─────
-  if (snapshot.state?.ceremony.strict_spec_review === true) {
-    // codex r38 BLOCK 2 + r40 BLOCK refine: spec-review sign-off requires
-    // explicit positive result (`passed` or `approved`) — NOT `waived`.
-    //
-    // Rationale (codex r40): EvidenceFullPayload's actor=human:* + reason ≥10
-    // refine is keyed on `kind ∈ {manual, waiver}`, NOT `result === waived`.
-    // So a `kind=spec-review, result=waived, actor=skill:reviewer, no reason`
-    // payload is schema-valid but would be a non-human "waived" sign-off
-    // with no rationale — clearly not the intent of strict_spec_review.
-    // Conservative choice: spec-review must be a real positive sign-off,
-    // not a waiver. Lane status (check 1) keeps waived because lane-level
-    // waiver is a coarser approval signal; spec-review is the stricter
-    // independent-reviewer requirement.
-    const isPassingSpecReview = (r?: EvidenceState["result"]): boolean =>
-      r === "passed" || r === "approved";
-    const specReviews = snapshot.evidence.filter(
-      (ev) => ev.kind === "spec-review" && isPassingSpecReview(ev.result),
+  for (const task of snapshot.tasks) {
+    if (task.status !== "done") continue;
+    const satisfied = snapshot.evidence.some(
+      (ev) =>
+        ev.covers.includes(task.id) &&
+        TASK_ALLOWED_EVIDENCE_KINDS.includes(ev.kind),
     );
-    if (specReviews.length === 0) {
+    if (!satisfied) {
       failures.push({
-        check: 5,
-        code: "SPEC_REVIEW_MISSING",
-        message: `ceremony.strict_spec_review=true requires ≥1 evidence kind=spec-review from an actor ≠ implementer; none found`,
+        check: 4,
+        code: "TASK_DONE_NO_EVIDENCE",
+        message: `task ${task.id} is status=done but has no evidence (kind ∈ {task-summary, local-check, manual, waiver}) covering it`,
+        detail: { task_id: task.id },
       });
-    } else {
-      const implementers = deriveImplementers(snapshot);
-      if (implementers.size === 0) {
-        failures.push({
-          check: 5,
-          code: "SPEC_REVIEW_IMPLEMENTER_UNKNOWN",
-          message: `ceremony.strict_spec_review=true requires actor ≠ implementer comparison, but no implementer actor can be established (done-task evidence actors all cli:*); fail-closed`,
-        });
-      } else {
-        const conflicts = specReviews.filter((ev) => implementers.has(ev.actor));
-        if (conflicts.length > 0 && conflicts.length === specReviews.length) {
-          // Every spec-review came from an implementer — no independent
-          // reviewer signed off.
-          failures.push({
-            check: 5,
-            code: "SPEC_REVIEW_IMPLEMENTER_CONFLICT",
-            message: `every spec-review evidence has actor ∈ implementer set; require ≥1 spec-review from an actor that did not implement done tasks`,
-            detail: {
-              spec_review_actors: specReviews.map((ev) => ev.actor),
-              implementers: [...implementers],
-            },
-          });
-        }
-      }
+    }
+    // Slice C SC-C4 (R2) — defense-in-depth for bug-RED invariant.
+    if (
+      task.kind === "behavioral" &&
+      task.labels.includes("bug") &&
+      task.red_test_registered !== true
+    ) {
+      failures.push({
+        check: 4,
+        code: "BUG_TASK_RED_NOT_REGISTERED",
+        message: `behavioral bug task ${task.id} is status=done but never registered its RED test (red_test_registered≠true)`,
+        detail: { task_id: task.id },
+      });
     }
   }
+  return failures;
+}
 
+function evalSpecReview(snapshot: Snapshot): FailedCheck[] {
+  // codex r38 BLOCK 2 + r40 BLOCK refine: spec-review sign-off requires
+  // explicit positive result (`passed` or `approved`) — NOT `waived`.
+  const isPassingSpecReview = (r?: EvidenceState["result"]): boolean =>
+    r === "passed" || r === "approved";
+  const specReviews = snapshot.evidence.filter(
+    (ev) => ev.kind === "spec-review" && isPassingSpecReview(ev.result),
+  );
+  if (specReviews.length === 0) {
+    return [{
+      check: 5,
+      code: "SPEC_REVIEW_MISSING",
+      message: `ceremony.strict_spec_review=true requires ≥1 evidence kind=spec-review from an actor ≠ implementer; none found`,
+    }];
+  }
+  const implementers = deriveImplementers(snapshot);
+  if (implementers.size === 0) {
+    return [{
+      check: 5,
+      code: "SPEC_REVIEW_IMPLEMENTER_UNKNOWN",
+      message: `ceremony.strict_spec_review=true requires actor ≠ implementer comparison, but no implementer actor can be established (done-task evidence actors all cli:*); fail-closed`,
+    }];
+  }
+  const conflicts = specReviews.filter((ev) => implementers.has(ev.actor));
+  if (conflicts.length > 0 && conflicts.length === specReviews.length) {
+    return [{
+      check: 5,
+      code: "SPEC_REVIEW_IMPLEMENTER_CONFLICT",
+      message: `every spec-review evidence has actor ∈ implementer set; require ≥1 spec-review from an actor that did not implement done tasks`,
+      detail: {
+        spec_review_actors: specReviews.map((ev) => ev.actor),
+        implementers: [...implementers],
+      },
+    }];
+  }
+  return [];
+}
+
+/**
+ * SC-9a-1: deterministic NA applicability rules per VerifyCheckId.
+ * Result feeds `evaluateAllChecks` to set PerCheckResult.status. Pure +
+ * fixture-friendly; same inputs as the per-check walkers above.
+ *
+ * Rules (codex r303 lock):
+ *   - lane_status:   na iff deriveVerifyApplicability returns ∅
+ *   - open_findings: ALWAYS applicable (never na)
+ *   - coverage:      na iff 0 non-NA REQ/SCEN/VIS obligations
+ *   - task_evidence: precondition runs when graph is unplanned (so
+ *                    `tasks_based_on === null` is still applicable, fires
+ *                    TASKS_NOT_PLANNED). When graph present, na iff no
+ *                    done task exists.
+ *   - spec_review:   na iff ceremony.strict_spec_review !== true
+ */
+export function deriveCheckApplicability(
+  snapshot: Snapshot,
+  frontmatter: SpecFrontmatter,
+): Record<VerifyCheckId, boolean> {
+  const laneStatusApplicable = deriveVerifyApplicability(snapshot, frontmatter).size > 0;
+
+  const coverageObligationCount =
+    frontmatter.requirements.filter((r) => r.acceptance_na !== true).length +
+    frontmatter.scenarios.filter((s) => s.acceptance_na === undefined && s.tag === "e2e").length +
+    (frontmatter.visual_contracts ?? []).filter((v) => v.visual_na === undefined).length;
+  const coverageApplicable = coverageObligationCount > 0;
+
+  // task_evidence: graph unplanned ⇒ applicable (precondition fires).
+  // graph planned ⇒ applicable iff ≥1 done task. Empty planned graph or
+  // graph with no done tasks ⇒ na, no precondition / per-task walk.
+  let taskEvidenceApplicable: boolean;
+  if (snapshot.tasks_based_on === null) {
+    taskEvidenceApplicable = true;
+  } else {
+    taskEvidenceApplicable = snapshot.tasks.some((t) => t.status === "done");
+  }
+
+  const specReviewApplicable = snapshot.state?.ceremony.strict_spec_review === true;
+
+  return {
+    lane_status: laneStatusApplicable,
+    open_findings: true,
+    coverage: coverageApplicable,
+    task_evidence: taskEvidenceApplicable,
+    spec_review: specReviewApplicable,
+  };
+}
+
+/**
+ * SC-9a-1: walk all 5 checks independently, return one PerCheckResult per
+ * VerifyCheckId in the canonical VERIFY_CHECK_IDS order. NA rows have
+ * empty `failures`. Behavior-preserving invariant:
+ *
+ *   verifyAcceptCheck(snap, fm).checks  // when ok=false
+ *     deep-equal to
+ *   evaluateAllChecks(snap, fm).flatMap(r => r.failures)
+ *
+ * — covers all 10 per-check codes. SPEC_FRONTMATTER_INVALID stays at the
+ * IO boundary (see verify-accept-eval.ts).
+ */
+export function evaluateAllChecks(
+  snapshot: Snapshot,
+  frontmatter: SpecFrontmatter,
+): PerCheckResult[] {
+  const applicable = deriveCheckApplicability(snapshot, frontmatter);
+
+  const walkers: Record<VerifyCheckId, () => FailedCheck[]> = {
+    lane_status: () => evalLaneStatus(snapshot, frontmatter),
+    open_findings: () => evalOpenFindings(snapshot),
+    coverage: () => evalCoverage(snapshot, frontmatter),
+    task_evidence: () => evalTaskEvidence(snapshot, frontmatter),
+    spec_review: () => evalSpecReview(snapshot),
+  };
+
+  return VERIFY_CHECK_IDS.map((id) => {
+    if (!applicable[id]) {
+      return { check: id, status: "na" as const, failures: [] };
+    }
+    const failures = walkers[id]();
+    return {
+      check: id,
+      status: failures.length > 0 ? ("fail" as const) : ("pass" as const),
+      failures,
+    };
+  });
+}
+
+export function verifyAcceptCheck(
+  snapshot: Snapshot,
+  frontmatter: SpecFrontmatter,
+): VerifyAcceptResult {
+  const failures = evaluateAllChecks(snapshot, frontmatter).flatMap((r) => r.failures);
   if (failures.length === 0) return { ok: true };
   return { ok: false, checks: failures };
 }

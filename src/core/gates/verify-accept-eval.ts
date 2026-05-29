@@ -23,8 +23,8 @@
 
 import { readSpecFrontmatter } from "../spec-frontmatter.js";
 import type { Snapshot } from "../reducer.js";
-import { verifyAcceptCheck } from "./verify-accept-check.js";
-import type { VerifyAcceptResult } from "./verify-accept-check.js";
+import { evaluateAllChecks, verifyAcceptCheck } from "./verify-accept-check.js";
+import type { PerCheckResult, VerifyAcceptResult } from "./verify-accept-check.js";
 
 /** Alias for downstream readability — same shape as VerifyAcceptResult. */
 export type FullVerifyAcceptResult = VerifyAcceptResult;
@@ -52,4 +52,40 @@ export async function evaluateVerifyAccept(
     };
   }
   return verifyAcceptCheck(snapshot, read.frontmatter);
+}
+
+// SC-9a-1: diagnostic eval entry for `loaf verify status` (read-only).
+//
+// Intentional divergence from evaluateVerifyAccept above (codex r302 lock):
+// when spec.md frontmatter is unreadable, return a structured error at the
+// IO boundary instead of synthesizing a check-1 row. The diagnostic
+// command should not pretend to have evaluated 5 checks when 0 checks
+// could actually run.
+//
+// On success: returns the 5-row PerCheckResult[] from evaluateAllChecks.
+// On frontmatter failure: returns `{ok:false, code:"SPEC_FRONTMATTER_INVALID", detail}` —
+// caller (src/cli/verify-status.ts) renders exit-2 stderr envelope.
+export type VerifyDiagnosticResult =
+  | { ok: true; checks: PerCheckResult[] }
+  | {
+      ok: false;
+      code: "SPEC_FRONTMATTER_INVALID";
+      message: string;
+      detail: Record<string, unknown>;
+    };
+
+export async function evaluateVerifyAcceptDiagnostic(
+  snapshot: Snapshot,
+  featureDir: string,
+): Promise<VerifyDiagnosticResult> {
+  const read = await readSpecFrontmatter(featureDir);
+  if (!read.ok) {
+    return {
+      ok: false,
+      code: "SPEC_FRONTMATTER_INVALID",
+      message: read.message,
+      detail: { subcode: read.code, ...(read.detail ?? {}) },
+    };
+  }
+  return { ok: true, checks: evaluateAllChecks(snapshot, read.frontmatter) };
 }

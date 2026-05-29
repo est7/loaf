@@ -7,9 +7,9 @@ import os from "node:os";
 import { z } from "zod";
 import { createHash, randomBytes } from "node:crypto";
 import * as fsp from "node:fs/promises";
+import { parse, stringify } from "yaml";
 import { execFileSync } from "node:child_process";
 import { O_APPEND, O_CREAT, O_WRONLY } from "node:constants";
-import { parse, stringify } from "yaml";
 //#region package.json
 var version = "0.1.0";
 //#endregion
@@ -2612,6 +2612,549 @@ function formatAtRelative(iso, now) {
 	if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
 	const days = Math.floor(hours / 24);
 	return `${days} day${days === 1 ? "" : "s"} ago`;
+}
+//#endregion
+//#region src/cli/verify-status.ts
+/** Build the JSON envelope from evaluateAllChecks output. */
+function buildEnvelope(checks) {
+	return {
+		ok: true,
+		all_pass: checks.every((r) => r.status !== "fail"),
+		checks
+	};
+}
+/** Presentation — fixed column widths per the §7.4 example shape. */
+const CHECK_LABEL = {
+	lane_status: "lane_status",
+	open_findings: "open_findings",
+	coverage: "coverage",
+	task_evidence: "task_evidence",
+	spec_review: "spec_review"
+};
+function statusGlyph(status) {
+	return status;
+}
+function failureSummary(failures) {
+	if (failures.length === 0) return "";
+	if (failures.length === 1) {
+		const f = failures[0];
+		return f ? ` ${f.code}` : "";
+	}
+	const head = failures[0];
+	return ` ${failures.length} failures (${head?.code ?? "?"}, …)`;
+}
+function renderText(env) {
+	const labelWidth = Math.max(...Object.values(CHECK_LABEL).map((l) => l.length));
+	const lines = [];
+	for (const row of env.checks) {
+		const label = CHECK_LABEL[row.check].padEnd(labelWidth);
+		const status = statusGlyph(row.status).padEnd(4);
+		lines.push(`${label}  ${status}${failureSummary(row.failures)}`);
+		if (row.status === "fail" && row.failures.length > 1) for (const f of row.failures) lines.push(`    - ${f.code}: ${f.message}`);
+	}
+	lines.push(env.all_pass ? "" : "(diagnostic only — gate verdict not implied)");
+	return lines.join("\n") + "\n";
+}
+//#endregion
+//#region src/core/spec-frontmatter.ts
+const FRONTMATTER_RE = /^---\s*\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n|$)/;
+/**
+* Splits a spec.md raw string into (frontmatter_yaml, body) using the
+* shared FRONTMATTER_RE grammar. `body` is everything AFTER the closing
+* `---\n` (preserves trailing content verbatim). If no frontmatter block
+* is present, frontmatter is null and body is the whole input.
+*
+* Symmetric companion to readSpecFrontmatter() that returns ONLY the
+* structural split — caller validates YAML / SpecFrontmatter separately.
+*/
+function splitFrontmatter(raw) {
+	const match = FRONTMATTER_RE.exec(raw);
+	if (!match) return {
+		frontmatter: null,
+		body: raw
+	};
+	const body = raw.slice(match[0].length);
+	return {
+		frontmatter: match[1],
+		body
+	};
+}
+async function readSpecFrontmatter(featureDir) {
+	const specPath = path$1.join(featureDir, "spec.md");
+	let raw;
+	try {
+		raw = await fsp.readFile(specPath, "utf8");
+	} catch (err) {
+		if (err.code === "ENOENT") return {
+			ok: false,
+			code: "SPEC_NOT_FOUND",
+			message: `spec.md not found at ${specPath}`,
+			detail: { path: specPath }
+		};
+		throw err;
+	}
+	const match = FRONTMATTER_RE.exec(raw);
+	if (!match) return {
+		ok: false,
+		code: "SPEC_YAML_INVALID",
+		message: "spec.md is missing a YAML frontmatter block fenced by `---` on the first line",
+		detail: { path: specPath }
+	};
+	let parsed;
+	try {
+		parsed = parse(match[1]);
+	} catch (err) {
+		return {
+			ok: false,
+			code: "SPEC_YAML_INVALID",
+			message: `spec.md frontmatter YAML failed to parse: ${err.message}`,
+			detail: {
+				path: specPath,
+				error: err.message
+			}
+		};
+	}
+	const validated = SpecFrontmatter.safeParse(parsed);
+	if (!validated.success) return {
+		ok: false,
+		code: "SPEC_FRONTMATTER_INVALID",
+		message: "spec.md frontmatter failed SpecFrontmatter schema validation",
+		detail: {
+			path: specPath,
+			issues: validated.error.issues
+		}
+	};
+	return {
+		ok: true,
+		frontmatter: validated.data
+	};
+}
+//#endregion
+//#region src/core/evidence-compat.ts
+const EVIDENCE_COMPAT = {
+	REQ: {
+		allowed: [
+			"task-summary",
+			"verify-review",
+			"spec-review",
+			"manual",
+			"waiver"
+		],
+		manual_requires_reason: true
+	},
+	SCEN: {
+		allowed: [
+			"acceptance",
+			"manual",
+			"waiver"
+		],
+		manual_requires_reason: true
+	},
+	VIS: {
+		allowed: [
+			"visual-review",
+			"manual",
+			"waiver"
+		],
+		manual_requires_reason: true,
+		requires_attachment_for_visual_review: true
+	},
+	T: {
+		allowed: [
+			"task-summary",
+			"local-check",
+			"manual",
+			"waiver"
+		],
+		manual_requires_reason: false
+	},
+	GATE: {
+		allowed: ["gate-decision"],
+		manual_requires_reason: false
+	}
+};
+/**
+* Recognize a coverage-id string and map to its IdKind. Returns null for
+* malformed or unknown shapes. Strict — uses the documented regexes
+* from spec-schema / task-schema, so "REQ-bad" returns null (not "REQ").
+*/
+function parseIdKind(coveredId) {
+	if (coveredId === "GATE") return "GATE";
+	if (ReqIdPayload.safeParse(coveredId).success) return "REQ";
+	if (ScenIdPayload.safeParse(coveredId).success) return "SCEN";
+	if (VisIdPayload.safeParse(coveredId).success) return "VIS";
+	if (TaskIdPayload.safeParse(coveredId).success) return "T";
+	return null;
+}
+/**
+* Returns true iff the evidence can satisfy the given coverage id per
+* protocol §5.4. Pure function over EvidenceState projection — no IO.
+*
+* Note: EvidenceState may be loosely-populated (legacy migration entries
+* lack reason/attachments). canSatisfy double-checks the projection-level
+* shape even though EvidenceFullPayload enforces it at journal append —
+* defense-in-depth for any caller path that bypasses the schema gate.
+*/
+function canSatisfy(evidence, coveredId) {
+	const idKind = parseIdKind(coveredId);
+	if (idKind === null) return false;
+	const rule = EVIDENCE_COMPAT[idKind];
+	if (!rule.allowed.includes(evidence.kind)) return false;
+	if (evidence.kind === "manual" || evidence.kind === "waiver") {
+		if (rule.manual_requires_reason) {
+			if (!evidence.actor.startsWith("human:")) return false;
+			if (!evidence.reason || evidence.reason.length < 10) return false;
+		}
+	}
+	if (idKind === "VIS" && evidence.kind === "visual-review") {
+		if (!evidence.attachments || evidence.attachments.length === 0) return false;
+	}
+	return true;
+}
+//#endregion
+//#region src/core/gates/verify-accept-check.ts
+const VERIFY_CHECK_IDS = [
+	"lane_status",
+	"open_findings",
+	"coverage",
+	"task_evidence",
+	"spec_review"
+];
+const KIND_TO_LANE_FALLBACK = {
+	"local-check": "run",
+	"task-summary": "run",
+	"verify-review": "review",
+	"spec-review": "review",
+	acceptance: "acceptance",
+	"visual-review": "visual"
+};
+const PASSING_RESULTS = new Set([
+	"passed",
+	"approved",
+	"waived"
+]);
+/** Lanes that pass an evidence result-check filter. */
+function isPassingResult(result) {
+	return result !== void 0 && PASSING_RESULTS.has(result);
+}
+/**
+* Derive the set of "must" lanes from the snapshot + frontmatter.
+*
+* Policy (codex r33 Q1(a)) — protocol does NOT cite a literal lane
+* derivation table, so this is explicit policy made by reading §5.2 +
+* §7 + §1196-1199:
+*   - any non-acceptance_na SCEN.tag=e2e ⇒ ACCEPTANCE lane is must
+*   - any non-visual_na VIS ⇒ VISUAL lane is must
+*   - any done task ⇒ RUN + REVIEW lanes are must (default lanes for
+*     any implementation)
+*   - any non-acceptance_na REQ ⇒ REVIEW lane is must (reviewer signs off
+*     on REQ-level spec_fit + quality_fit)
+*
+* Future protocol clarification may move some of these into spec.frontmatter
+* directly (e.g. per-feature opt-out of REVIEW lane); for now the policy
+* is conservative.
+*/
+function deriveVerifyApplicability(snapshot, frontmatter) {
+	const lanes = /* @__PURE__ */ new Set();
+	for (const req of frontmatter.requirements) {
+		if (req.acceptance_na === true) continue;
+		lanes.add("review");
+	}
+	for (const scen of frontmatter.scenarios) {
+		if (scen.tag !== "e2e") continue;
+		if (scen.acceptance_na !== void 0) continue;
+		lanes.add("acceptance");
+	}
+	for (const vis of frontmatter.visual_contracts ?? []) {
+		if (vis.visual_na !== void 0) continue;
+		lanes.add("visual");
+	}
+	for (const task of snapshot.tasks) if (task.status === "done") {
+		lanes.add("run");
+		lanes.add("review");
+	}
+	return lanes;
+}
+/**
+* Map an EvidenceState to its lane. Primary linkage = `evidence.check`
+* (per codex r33 Q1(b)); fallback = narrow kind → lane map. Returns
+* undefined if the evidence isn't relevant to any lane.
+*/
+function evidenceLane(ev) {
+	if (ev.check !== void 0) return ev.check;
+	return KIND_TO_LANE_FALLBACK[ev.kind];
+}
+/**
+* Lane status: returns true iff any evidence is on this lane with a
+* passing/waived/approved result.
+*/
+function laneIsPassed(lane, evidence) {
+	for (const ev of evidence) {
+		if (evidenceLane(ev) !== lane) continue;
+		if (isPassingResult(ev.result)) return true;
+	}
+	return false;
+}
+/**
+* Implementer set for check 5: actors on done-task task-summary /
+* local-check evidence, EXCLUDING cli:* prefix (codex r33 Q4: cli:loaf
+* local-check is not implementer). Returns empty set if no human / non-cli
+* implementer can be established — caller must fail-closed.
+*/
+function deriveImplementers(snapshot) {
+	const doneTaskIds = new Set(snapshot.tasks.filter((t) => t.status === "done").map((t) => t.id));
+	const implementers = /* @__PURE__ */ new Set();
+	for (const ev of snapshot.evidence) {
+		if (ev.kind !== "task-summary" && ev.kind !== "local-check") continue;
+		if (!ev.covers.some((c) => doneTaskIds.has(c))) continue;
+		if (ev.actor.startsWith("cli:")) continue;
+		implementers.add(ev.actor);
+	}
+	return implementers;
+}
+const TASK_ALLOWED_EVIDENCE_KINDS = [
+	"task-summary",
+	"local-check",
+	"manual",
+	"waiver"
+];
+function evalLaneStatus(snapshot, frontmatter) {
+	const failures = [];
+	const applicableLanes = deriveVerifyApplicability(snapshot, frontmatter);
+	for (const lane of applicableLanes) if (!laneIsPassed(lane, snapshot.evidence)) failures.push({
+		check: 1,
+		code: "VERIFY_LANE_NOT_PASSED",
+		message: `applicable VERIFY lane=${lane} has no evidence with passing/approved/waived result; add evidence with check=${lane} or a matching kind`,
+		detail: { lane }
+	});
+	return failures;
+}
+function evalOpenFindings(snapshot) {
+	const open = snapshot.findings.filter((f) => f.status === "open");
+	if (open.length === 0) return [];
+	return [{
+		check: 2,
+		code: "OPEN_FINDINGS_PRESENT",
+		message: `${open.length} finding(s) still open; resolve or close before verify-accept`,
+		detail: {
+			count: open.length,
+			open_ids: open.map((f) => f.id)
+		}
+	}];
+}
+function evalCoverage(snapshot, frontmatter) {
+	const satisfiesCoverage = (ev, id) => isPassingResult(ev.result) && ev.covers.includes(id) && canSatisfy(ev, id);
+	const failures = [];
+	for (const req of frontmatter.requirements) {
+		if (req.acceptance_na === true) continue;
+		if (!snapshot.evidence.some((ev) => satisfiesCoverage(ev, req.id))) failures.push({
+			check: 3,
+			code: "COVERAGE_NOT_SATISFIED",
+			message: `${req.id} has no evidence passing canSatisfy() + result ∈ {passed, approved, waived} — add evidence with kind in REQ-allowed list (task-summary/verify-review/spec-review/manual/waiver) covering this id`,
+			detail: {
+				covered_id: req.id,
+				covered_kind: "REQ"
+			}
+		});
+	}
+	for (const scen of frontmatter.scenarios) {
+		if (scen.acceptance_na !== void 0) continue;
+		if (scen.tag !== "e2e") continue;
+		if (!snapshot.evidence.some((ev) => satisfiesCoverage(ev, scen.id))) failures.push({
+			check: 3,
+			code: "COVERAGE_NOT_SATISFIED",
+			message: `${scen.id} has no evidence passing canSatisfy() + result ∈ {passed, approved, waived} — add evidence with kind=acceptance / manual+reason / waiver+reason covering this id`,
+			detail: {
+				covered_id: scen.id,
+				covered_kind: "SCEN"
+			}
+		});
+	}
+	for (const vis of frontmatter.visual_contracts ?? []) {
+		if (vis.visual_na !== void 0) continue;
+		if (!snapshot.evidence.some((ev) => satisfiesCoverage(ev, vis.id))) failures.push({
+			check: 3,
+			code: "COVERAGE_NOT_SATISFIED",
+			message: `${vis.id} has no evidence passing canSatisfy() + result ∈ {passed, approved, waived} — add evidence with kind=visual-review+attachment / manual+reason / waiver+reason covering this id`,
+			detail: {
+				covered_id: vis.id,
+				covered_kind: "VIS"
+			}
+		});
+	}
+	return failures;
+}
+function evalTaskEvidence(snapshot, frontmatter) {
+	const failures = [];
+	if (snapshot.tasks_based_on === null) {
+		failures.push({
+			check: 4,
+			code: "TASKS_NOT_PLANNED",
+			message: `tasks have not been planned yet; verify-accept check 4 requires a task graph (tasks_based_on=null in snapshot)`
+		});
+		return failures;
+	}
+	if (snapshot.tasks_based_on.spec !== frontmatter.spec_version) {
+		failures.push({
+			check: 4,
+			code: "TASKS_BASED_ON_STALE",
+			message: `tasks_based_on.spec=${snapshot.tasks_based_on.spec} does not match frontmatter.spec_version=${frontmatter.spec_version}; verify-accept check 4 cannot evaluate a stale task graph`,
+			detail: {
+				tasks_based_on_spec: snapshot.tasks_based_on.spec,
+				current_spec_version: frontmatter.spec_version
+			}
+		});
+		return failures;
+	}
+	for (const task of snapshot.tasks) {
+		if (task.status !== "done") continue;
+		if (!snapshot.evidence.some((ev) => ev.covers.includes(task.id) && TASK_ALLOWED_EVIDENCE_KINDS.includes(ev.kind))) failures.push({
+			check: 4,
+			code: "TASK_DONE_NO_EVIDENCE",
+			message: `task ${task.id} is status=done but has no evidence (kind ∈ {task-summary, local-check, manual, waiver}) covering it`,
+			detail: { task_id: task.id }
+		});
+		if (task.kind === "behavioral" && task.labels.includes("bug") && task.red_test_registered !== true) failures.push({
+			check: 4,
+			code: "BUG_TASK_RED_NOT_REGISTERED",
+			message: `behavioral bug task ${task.id} is status=done but never registered its RED test (red_test_registered≠true)`,
+			detail: { task_id: task.id }
+		});
+	}
+	return failures;
+}
+function evalSpecReview(snapshot) {
+	const isPassingSpecReview = (r) => r === "passed" || r === "approved";
+	const specReviews = snapshot.evidence.filter((ev) => ev.kind === "spec-review" && isPassingSpecReview(ev.result));
+	if (specReviews.length === 0) return [{
+		check: 5,
+		code: "SPEC_REVIEW_MISSING",
+		message: `ceremony.strict_spec_review=true requires ≥1 evidence kind=spec-review from an actor ≠ implementer; none found`
+	}];
+	const implementers = deriveImplementers(snapshot);
+	if (implementers.size === 0) return [{
+		check: 5,
+		code: "SPEC_REVIEW_IMPLEMENTER_UNKNOWN",
+		message: `ceremony.strict_spec_review=true requires actor ≠ implementer comparison, but no implementer actor can be established (done-task evidence actors all cli:*); fail-closed`
+	}];
+	const conflicts = specReviews.filter((ev) => implementers.has(ev.actor));
+	if (conflicts.length > 0 && conflicts.length === specReviews.length) return [{
+		check: 5,
+		code: "SPEC_REVIEW_IMPLEMENTER_CONFLICT",
+		message: `every spec-review evidence has actor ∈ implementer set; require ≥1 spec-review from an actor that did not implement done tasks`,
+		detail: {
+			spec_review_actors: specReviews.map((ev) => ev.actor),
+			implementers: [...implementers]
+		}
+	}];
+	return [];
+}
+/**
+* SC-9a-1: deterministic NA applicability rules per VerifyCheckId.
+* Result feeds `evaluateAllChecks` to set PerCheckResult.status. Pure +
+* fixture-friendly; same inputs as the per-check walkers above.
+*
+* Rules (codex r303 lock):
+*   - lane_status:   na iff deriveVerifyApplicability returns ∅
+*   - open_findings: ALWAYS applicable (never na)
+*   - coverage:      na iff 0 non-NA REQ/SCEN/VIS obligations
+*   - task_evidence: precondition runs when graph is unplanned (so
+*                    `tasks_based_on === null` is still applicable, fires
+*                    TASKS_NOT_PLANNED). When graph present, na iff no
+*                    done task exists.
+*   - spec_review:   na iff ceremony.strict_spec_review !== true
+*/
+function deriveCheckApplicability(snapshot, frontmatter) {
+	const laneStatusApplicable = deriveVerifyApplicability(snapshot, frontmatter).size > 0;
+	const coverageApplicable = frontmatter.requirements.filter((r) => r.acceptance_na !== true).length + frontmatter.scenarios.filter((s) => s.acceptance_na === void 0 && s.tag === "e2e").length + (frontmatter.visual_contracts ?? []).filter((v) => v.visual_na === void 0).length > 0;
+	let taskEvidenceApplicable;
+	if (snapshot.tasks_based_on === null) taskEvidenceApplicable = true;
+	else taskEvidenceApplicable = snapshot.tasks.some((t) => t.status === "done");
+	const specReviewApplicable = snapshot.state?.ceremony.strict_spec_review === true;
+	return {
+		lane_status: laneStatusApplicable,
+		open_findings: true,
+		coverage: coverageApplicable,
+		task_evidence: taskEvidenceApplicable,
+		spec_review: specReviewApplicable
+	};
+}
+/**
+* SC-9a-1: walk all 5 checks independently, return one PerCheckResult per
+* VerifyCheckId in the canonical VERIFY_CHECK_IDS order. NA rows have
+* empty `failures`. Behavior-preserving invariant:
+*
+*   verifyAcceptCheck(snap, fm).checks  // when ok=false
+*     deep-equal to
+*   evaluateAllChecks(snap, fm).flatMap(r => r.failures)
+*
+* — covers all 10 per-check codes. SPEC_FRONTMATTER_INVALID stays at the
+* IO boundary (see verify-accept-eval.ts).
+*/
+function evaluateAllChecks(snapshot, frontmatter) {
+	const applicable = deriveCheckApplicability(snapshot, frontmatter);
+	const walkers = {
+		lane_status: () => evalLaneStatus(snapshot, frontmatter),
+		open_findings: () => evalOpenFindings(snapshot),
+		coverage: () => evalCoverage(snapshot, frontmatter),
+		task_evidence: () => evalTaskEvidence(snapshot, frontmatter),
+		spec_review: () => evalSpecReview(snapshot)
+	};
+	return VERIFY_CHECK_IDS.map((id) => {
+		if (!applicable[id]) return {
+			check: id,
+			status: "na",
+			failures: []
+		};
+		const failures = walkers[id]();
+		return {
+			check: id,
+			status: failures.length > 0 ? "fail" : "pass",
+			failures
+		};
+	});
+}
+function verifyAcceptCheck(snapshot, frontmatter) {
+	const failures = evaluateAllChecks(snapshot, frontmatter).flatMap((r) => r.failures);
+	if (failures.length === 0) return { ok: true };
+	return {
+		ok: false,
+		checks: failures
+	};
+}
+//#endregion
+//#region src/core/gates/verify-accept-eval.ts
+async function evaluateVerifyAccept(snapshot, featureDir) {
+	const read = await readSpecFrontmatter(featureDir);
+	if (!read.ok) return {
+		ok: false,
+		checks: [{
+			check: 1,
+			code: "SPEC_FRONTMATTER_INVALID",
+			message: read.message,
+			detail: {
+				subcode: read.code,
+				...read.detail ?? {}
+			}
+		}]
+	};
+	return verifyAcceptCheck(snapshot, read.frontmatter);
+}
+async function evaluateVerifyAcceptDiagnostic(snapshot, featureDir) {
+	const read = await readSpecFrontmatter(featureDir);
+	if (!read.ok) return {
+		ok: false,
+		code: "SPEC_FRONTMATTER_INVALID",
+		message: read.message,
+		detail: {
+			subcode: read.code,
+			...read.detail ?? {}
+		}
+	};
+	return {
+		ok: true,
+		checks: evaluateAllChecks(snapshot, read.frontmatter)
+	};
 }
 //#endregion
 //#region src/cli/url-prefill.ts
@@ -5602,80 +6145,6 @@ function getGitEmail() {
 	}
 }
 //#endregion
-//#region src/core/spec-frontmatter.ts
-const FRONTMATTER_RE = /^---\s*\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n|$)/;
-/**
-* Splits a spec.md raw string into (frontmatter_yaml, body) using the
-* shared FRONTMATTER_RE grammar. `body` is everything AFTER the closing
-* `---\n` (preserves trailing content verbatim). If no frontmatter block
-* is present, frontmatter is null and body is the whole input.
-*
-* Symmetric companion to readSpecFrontmatter() that returns ONLY the
-* structural split — caller validates YAML / SpecFrontmatter separately.
-*/
-function splitFrontmatter(raw) {
-	const match = FRONTMATTER_RE.exec(raw);
-	if (!match) return {
-		frontmatter: null,
-		body: raw
-	};
-	const body = raw.slice(match[0].length);
-	return {
-		frontmatter: match[1],
-		body
-	};
-}
-async function readSpecFrontmatter(featureDir) {
-	const specPath = path$1.join(featureDir, "spec.md");
-	let raw;
-	try {
-		raw = await fsp.readFile(specPath, "utf8");
-	} catch (err) {
-		if (err.code === "ENOENT") return {
-			ok: false,
-			code: "SPEC_NOT_FOUND",
-			message: `spec.md not found at ${specPath}`,
-			detail: { path: specPath }
-		};
-		throw err;
-	}
-	const match = FRONTMATTER_RE.exec(raw);
-	if (!match) return {
-		ok: false,
-		code: "SPEC_YAML_INVALID",
-		message: "spec.md is missing a YAML frontmatter block fenced by `---` on the first line",
-		detail: { path: specPath }
-	};
-	let parsed;
-	try {
-		parsed = parse(match[1]);
-	} catch (err) {
-		return {
-			ok: false,
-			code: "SPEC_YAML_INVALID",
-			message: `spec.md frontmatter YAML failed to parse: ${err.message}`,
-			detail: {
-				path: specPath,
-				error: err.message
-			}
-		};
-	}
-	const validated = SpecFrontmatter.safeParse(parsed);
-	if (!validated.success) return {
-		ok: false,
-		code: "SPEC_FRONTMATTER_INVALID",
-		message: "spec.md frontmatter failed SpecFrontmatter schema validation",
-		detail: {
-			path: specPath,
-			issues: validated.error.issues
-		}
-	};
-	return {
-		ok: true,
-		frontmatter: validated.data
-	};
-}
-//#endregion
 //#region src/core/gates/spec-lock-check.ts
 const KINDS_REQUIRING_RATIONALE = [
 	"structural",
@@ -5788,333 +6257,6 @@ async function evaluateSpecLock(snapshot, featureDir) {
 		}]
 	};
 	return specLockCheck(snapshot, read.frontmatter);
-}
-//#endregion
-//#region src/core/evidence-compat.ts
-const EVIDENCE_COMPAT = {
-	REQ: {
-		allowed: [
-			"task-summary",
-			"verify-review",
-			"spec-review",
-			"manual",
-			"waiver"
-		],
-		manual_requires_reason: true
-	},
-	SCEN: {
-		allowed: [
-			"acceptance",
-			"manual",
-			"waiver"
-		],
-		manual_requires_reason: true
-	},
-	VIS: {
-		allowed: [
-			"visual-review",
-			"manual",
-			"waiver"
-		],
-		manual_requires_reason: true,
-		requires_attachment_for_visual_review: true
-	},
-	T: {
-		allowed: [
-			"task-summary",
-			"local-check",
-			"manual",
-			"waiver"
-		],
-		manual_requires_reason: false
-	},
-	GATE: {
-		allowed: ["gate-decision"],
-		manual_requires_reason: false
-	}
-};
-/**
-* Recognize a coverage-id string and map to its IdKind. Returns null for
-* malformed or unknown shapes. Strict — uses the documented regexes
-* from spec-schema / task-schema, so "REQ-bad" returns null (not "REQ").
-*/
-function parseIdKind(coveredId) {
-	if (coveredId === "GATE") return "GATE";
-	if (ReqIdPayload.safeParse(coveredId).success) return "REQ";
-	if (ScenIdPayload.safeParse(coveredId).success) return "SCEN";
-	if (VisIdPayload.safeParse(coveredId).success) return "VIS";
-	if (TaskIdPayload.safeParse(coveredId).success) return "T";
-	return null;
-}
-/**
-* Returns true iff the evidence can satisfy the given coverage id per
-* protocol §5.4. Pure function over EvidenceState projection — no IO.
-*
-* Note: EvidenceState may be loosely-populated (legacy migration entries
-* lack reason/attachments). canSatisfy double-checks the projection-level
-* shape even though EvidenceFullPayload enforces it at journal append —
-* defense-in-depth for any caller path that bypasses the schema gate.
-*/
-function canSatisfy(evidence, coveredId) {
-	const idKind = parseIdKind(coveredId);
-	if (idKind === null) return false;
-	const rule = EVIDENCE_COMPAT[idKind];
-	if (!rule.allowed.includes(evidence.kind)) return false;
-	if (evidence.kind === "manual" || evidence.kind === "waiver") {
-		if (rule.manual_requires_reason) {
-			if (!evidence.actor.startsWith("human:")) return false;
-			if (!evidence.reason || evidence.reason.length < 10) return false;
-		}
-	}
-	if (idKind === "VIS" && evidence.kind === "visual-review") {
-		if (!evidence.attachments || evidence.attachments.length === 0) return false;
-	}
-	return true;
-}
-//#endregion
-//#region src/core/gates/verify-accept-check.ts
-const KIND_TO_LANE_FALLBACK = {
-	"local-check": "run",
-	"task-summary": "run",
-	"verify-review": "review",
-	"spec-review": "review",
-	acceptance: "acceptance",
-	"visual-review": "visual"
-};
-const PASSING_RESULTS = new Set([
-	"passed",
-	"approved",
-	"waived"
-]);
-/** Lanes that pass an evidence result-check filter. */
-function isPassingResult(result) {
-	return result !== void 0 && PASSING_RESULTS.has(result);
-}
-/**
-* Derive the set of "must" lanes from the snapshot + frontmatter.
-*
-* Policy (codex r33 Q1(a)) — protocol does NOT cite a literal lane
-* derivation table, so this is explicit policy made by reading §5.2 +
-* §7 + §1196-1199:
-*   - any non-acceptance_na SCEN.tag=e2e ⇒ ACCEPTANCE lane is must
-*   - any non-visual_na VIS ⇒ VISUAL lane is must
-*   - any done task ⇒ RUN + REVIEW lanes are must (default lanes for
-*     any implementation)
-*   - any non-acceptance_na REQ ⇒ REVIEW lane is must (reviewer signs off
-*     on REQ-level spec_fit + quality_fit)
-*
-* Future protocol clarification may move some of these into spec.frontmatter
-* directly (e.g. per-feature opt-out of REVIEW lane); for now the policy
-* is conservative.
-*/
-function deriveVerifyApplicability(snapshot, frontmatter) {
-	const lanes = /* @__PURE__ */ new Set();
-	for (const req of frontmatter.requirements) {
-		if (req.acceptance_na === true) continue;
-		lanes.add("review");
-	}
-	for (const scen of frontmatter.scenarios) {
-		if (scen.tag !== "e2e") continue;
-		if (scen.acceptance_na !== void 0) continue;
-		lanes.add("acceptance");
-	}
-	for (const vis of frontmatter.visual_contracts ?? []) {
-		if (vis.visual_na !== void 0) continue;
-		lanes.add("visual");
-	}
-	for (const task of snapshot.tasks) if (task.status === "done") {
-		lanes.add("run");
-		lanes.add("review");
-	}
-	return lanes;
-}
-/**
-* Map an EvidenceState to its lane. Primary linkage = `evidence.check`
-* (per codex r33 Q1(b)); fallback = narrow kind → lane map. Returns
-* undefined if the evidence isn't relevant to any lane.
-*/
-function evidenceLane(ev) {
-	if (ev.check !== void 0) return ev.check;
-	return KIND_TO_LANE_FALLBACK[ev.kind];
-}
-/**
-* Lane status: returns true iff any evidence is on this lane with a
-* passing/waived/approved result.
-*/
-function laneIsPassed(lane, evidence) {
-	for (const ev of evidence) {
-		if (evidenceLane(ev) !== lane) continue;
-		if (isPassingResult(ev.result)) return true;
-	}
-	return false;
-}
-/**
-* Implementer set for check 5: actors on done-task task-summary /
-* local-check evidence, EXCLUDING cli:* prefix (codex r33 Q4: cli:loaf
-* local-check is not implementer). Returns empty set if no human / non-cli
-* implementer can be established — caller must fail-closed.
-*/
-function deriveImplementers(snapshot) {
-	const doneTaskIds = new Set(snapshot.tasks.filter((t) => t.status === "done").map((t) => t.id));
-	const implementers = /* @__PURE__ */ new Set();
-	for (const ev of snapshot.evidence) {
-		if (ev.kind !== "task-summary" && ev.kind !== "local-check") continue;
-		if (!ev.covers.some((c) => doneTaskIds.has(c))) continue;
-		if (ev.actor.startsWith("cli:")) continue;
-		implementers.add(ev.actor);
-	}
-	return implementers;
-}
-const TASK_ALLOWED_EVIDENCE_KINDS = [
-	"task-summary",
-	"local-check",
-	"manual",
-	"waiver"
-];
-function verifyAcceptCheck(snapshot, frontmatter) {
-	const failures = [];
-	const applicableLanes = deriveVerifyApplicability(snapshot, frontmatter);
-	for (const lane of applicableLanes) if (!laneIsPassed(lane, snapshot.evidence)) failures.push({
-		check: 1,
-		code: "VERIFY_LANE_NOT_PASSED",
-		message: `applicable VERIFY lane=${lane} has no evidence with passing/approved/waived result; add evidence with check=${lane} or a matching kind`,
-		detail: { lane }
-	});
-	const open = snapshot.findings.filter((f) => f.status === "open");
-	if (open.length > 0) failures.push({
-		check: 2,
-		code: "OPEN_FINDINGS_PRESENT",
-		message: `${open.length} finding(s) still open; resolve or close before verify-accept`,
-		detail: {
-			count: open.length,
-			open_ids: open.map((f) => f.id)
-		}
-	});
-	const satisfiesCoverage = (ev, id) => isPassingResult(ev.result) && ev.covers.includes(id) && canSatisfy(ev, id);
-	for (const req of frontmatter.requirements) {
-		if (req.acceptance_na === true) continue;
-		if (!snapshot.evidence.some((ev) => satisfiesCoverage(ev, req.id))) failures.push({
-			check: 3,
-			code: "COVERAGE_NOT_SATISFIED",
-			message: `${req.id} has no evidence passing canSatisfy() + result ∈ {passed, approved, waived} — add evidence with kind in REQ-allowed list (task-summary/verify-review/spec-review/manual/waiver) covering this id`,
-			detail: {
-				covered_id: req.id,
-				covered_kind: "REQ"
-			}
-		});
-	}
-	for (const scen of frontmatter.scenarios) {
-		if (scen.acceptance_na !== void 0) continue;
-		if (scen.tag !== "e2e") continue;
-		if (!snapshot.evidence.some((ev) => satisfiesCoverage(ev, scen.id))) failures.push({
-			check: 3,
-			code: "COVERAGE_NOT_SATISFIED",
-			message: `${scen.id} has no evidence passing canSatisfy() + result ∈ {passed, approved, waived} — add evidence with kind=acceptance / manual+reason / waiver+reason covering this id`,
-			detail: {
-				covered_id: scen.id,
-				covered_kind: "SCEN"
-			}
-		});
-	}
-	for (const vis of frontmatter.visual_contracts ?? []) {
-		if (vis.visual_na !== void 0) continue;
-		if (!snapshot.evidence.some((ev) => satisfiesCoverage(ev, vis.id))) failures.push({
-			check: 3,
-			code: "COVERAGE_NOT_SATISFIED",
-			message: `${vis.id} has no evidence passing canSatisfy() + result ∈ {passed, approved, waived} — add evidence with kind=visual-review+attachment / manual+reason / waiver+reason covering this id`,
-			detail: {
-				covered_id: vis.id,
-				covered_kind: "VIS"
-			}
-		});
-	}
-	let check4PreconditionFailed = false;
-	if (snapshot.tasks_based_on === null) {
-		failures.push({
-			check: 4,
-			code: "TASKS_NOT_PLANNED",
-			message: `tasks have not been planned yet; verify-accept check 4 requires a task graph (tasks_based_on=null in snapshot)`
-		});
-		check4PreconditionFailed = true;
-	} else if (snapshot.tasks_based_on.spec !== frontmatter.spec_version) {
-		failures.push({
-			check: 4,
-			code: "TASKS_BASED_ON_STALE",
-			message: `tasks_based_on.spec=${snapshot.tasks_based_on.spec} does not match frontmatter.spec_version=${frontmatter.spec_version}; verify-accept check 4 cannot evaluate a stale task graph`,
-			detail: {
-				tasks_based_on_spec: snapshot.tasks_based_on.spec,
-				current_spec_version: frontmatter.spec_version
-			}
-		});
-		check4PreconditionFailed = true;
-	}
-	if (!check4PreconditionFailed) for (const task of snapshot.tasks) {
-		if (task.status !== "done") continue;
-		if (!snapshot.evidence.some((ev) => ev.covers.includes(task.id) && TASK_ALLOWED_EVIDENCE_KINDS.includes(ev.kind))) failures.push({
-			check: 4,
-			code: "TASK_DONE_NO_EVIDENCE",
-			message: `task ${task.id} is status=done but has no evidence (kind ∈ {task-summary, local-check, manual, waiver}) covering it`,
-			detail: { task_id: task.id }
-		});
-		if (task.kind === "behavioral" && task.labels.includes("bug") && task.red_test_registered !== true) failures.push({
-			check: 4,
-			code: "BUG_TASK_RED_NOT_REGISTERED",
-			message: `behavioral bug task ${task.id} is status=done but never registered its RED test (red_test_registered≠true)`,
-			detail: { task_id: task.id }
-		});
-	}
-	if (snapshot.state?.ceremony.strict_spec_review === true) {
-		const isPassingSpecReview = (r) => r === "passed" || r === "approved";
-		const specReviews = snapshot.evidence.filter((ev) => ev.kind === "spec-review" && isPassingSpecReview(ev.result));
-		if (specReviews.length === 0) failures.push({
-			check: 5,
-			code: "SPEC_REVIEW_MISSING",
-			message: `ceremony.strict_spec_review=true requires ≥1 evidence kind=spec-review from an actor ≠ implementer; none found`
-		});
-		else {
-			const implementers = deriveImplementers(snapshot);
-			if (implementers.size === 0) failures.push({
-				check: 5,
-				code: "SPEC_REVIEW_IMPLEMENTER_UNKNOWN",
-				message: `ceremony.strict_spec_review=true requires actor ≠ implementer comparison, but no implementer actor can be established (done-task evidence actors all cli:*); fail-closed`
-			});
-			else {
-				const conflicts = specReviews.filter((ev) => implementers.has(ev.actor));
-				if (conflicts.length > 0 && conflicts.length === specReviews.length) failures.push({
-					check: 5,
-					code: "SPEC_REVIEW_IMPLEMENTER_CONFLICT",
-					message: `every spec-review evidence has actor ∈ implementer set; require ≥1 spec-review from an actor that did not implement done tasks`,
-					detail: {
-						spec_review_actors: specReviews.map((ev) => ev.actor),
-						implementers: [...implementers]
-					}
-				});
-			}
-		}
-	}
-	if (failures.length === 0) return { ok: true };
-	return {
-		ok: false,
-		checks: failures
-	};
-}
-//#endregion
-//#region src/core/gates/verify-accept-eval.ts
-async function evaluateVerifyAccept(snapshot, featureDir) {
-	const read = await readSpecFrontmatter(featureDir);
-	if (!read.ok) return {
-		ok: false,
-		checks: [{
-			check: 1,
-			code: "SPEC_FRONTMATTER_INVALID",
-			message: read.message,
-			detail: {
-				subcode: read.code,
-				...read.detail ?? {}
-			}
-		}]
-	};
-	return verifyAcceptCheck(snapshot, read.frontmatter);
 }
 //#endregion
 //#region src/core/sidecar.ts
@@ -8631,6 +8773,18 @@ async function main(argv = process.argv, deps = {}) {
 			}
 			return lines.join("");
 		});
+	});
+	program.command("verify").description("Verify-accept gate read commands (status)").command("status").description("Show per-check verify-accept diagnostic (read-only)").option("--feature <name>", "Feature whose verify status to show").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+		if (rejectIfDryRun("verify status")) return;
+		const featureDir = await dispatchOrFail(opts);
+		if (featureDir === null) return;
+		const diag = await evaluateVerifyAcceptDiagnostic((await loadSession(featureDir, { ensureDir: !ctx.dryRun })).snapshot, featureDir);
+		if (!diag.ok) {
+			emitFailure(diag.code, diag.message, diag.detail);
+			return;
+		}
+		const env = buildEnvelope(diag.checks);
+		ctx.success(env, () => renderText(env));
 	});
 	const findingCmd = program.command("finding").description("Finding ledger commands (Slice 3 SC3 MVP: raise / list / close)");
 	findingCmd.command("raise").description("Raise a new finding (CLI allocates FND-id)").requiredOption("--category <category>", "Finding category (spec-gap | spec-defect | impl-defect | test-defect | new-scope | risk-escalation)").requiredOption("--action <action>", "Finding action (amend-spec | amend-tasks | fix-impl | fix-test | defer | backlog)").option("--summary <text>", "One-line finding summary (passthrough)").option("--reason <text>", "Justification (required ≥20 chars on unusual cells)").option("--target-task <task-id>", "Target task for fix-impl / fix-test / amend-tasks").option("--target-step <step>", "Target step (must equal action's canonical step)").option("--feature <name>", "Feature whose ledger to append to").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
