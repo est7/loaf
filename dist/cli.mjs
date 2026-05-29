@@ -114,7 +114,7 @@ const MeasurablePayload = z.object({
 		"eq"
 	]).default("lte")
 }).passthrough();
-const VerifiabilityFields = z.object({
+const VerifiabilityFields$1 = z.object({
 	measurable: MeasurablePayload.optional(),
 	verified_by_scenarios: z.array(ScenIdPayload).optional(),
 	acceptance_na: z.literal(true).optional(),
@@ -126,31 +126,31 @@ function hasVerifiability(req) {
 	const hasNa = req.acceptance_na === true && (req.acceptance_na_reason?.length ?? 0) >= 10;
 	return hasMeasurable || hasScenarios || hasNa;
 }
-const ReqBase = z.object({ id: ReqIdPayload });
-const RequirementUbiquitousShape = ReqBase.extend({
+const ReqBase$1 = z.object({ id: ReqIdPayload });
+const RequirementUbiquitousShape = ReqBase$1.extend({
 	type: z.literal("ubiquitous"),
 	response: z.string().min(10)
-}).and(VerifiabilityFields);
-const RequirementEventDrivenShape = ReqBase.extend({
+}).and(VerifiabilityFields$1);
+const RequirementEventDrivenShape = ReqBase$1.extend({
 	type: z.literal("event-driven"),
 	trigger: z.string().min(5),
 	response: z.string().min(10)
-}).and(VerifiabilityFields);
-const RequirementStateDrivenShape = ReqBase.extend({
+}).and(VerifiabilityFields$1);
+const RequirementStateDrivenShape = ReqBase$1.extend({
 	type: z.literal("state-driven"),
 	while_: z.string().min(5),
 	behavior: z.string().min(10)
-}).and(VerifiabilityFields);
-const RequirementOptionalShape = ReqBase.extend({
+}).and(VerifiabilityFields$1);
+const RequirementOptionalShape = ReqBase$1.extend({
 	type: z.literal("optional"),
 	feature: z.string().min(5),
 	response: z.string().min(10)
-}).and(VerifiabilityFields);
-const RequirementUnwantedShape = ReqBase.extend({
+}).and(VerifiabilityFields$1);
+const RequirementUnwantedShape = ReqBase$1.extend({
 	type: z.literal("unwanted"),
 	condition: z.string().min(5),
 	response: z.string().min(10)
-}).and(VerifiabilityFields);
+}).and(VerifiabilityFields$1);
 const RequirementEarsShape = z.union([
 	RequirementUbiquitousShape,
 	RequirementEventDrivenShape,
@@ -159,7 +159,7 @@ const RequirementEarsShape = z.union([
 	RequirementUnwantedShape
 ]);
 const RequirementEarsVerifiable = RequirementEarsShape.refine(hasVerifiability, { message: "REQ must declare measurable, verified_by_scenarios[], or acceptance_na+reason (≥10 chars)" });
-const ScenarioGherkin = z.object({
+const ScenarioGherkin$1 = z.object({
 	id: ScenIdPayload,
 	name: z.string().min(3),
 	tag: z.enum([
@@ -174,20 +174,20 @@ const ScenarioGherkin = z.object({
 	when: z.array(z.string().min(3)).min(1),
 	then: z.array(z.string().min(3)).min(1)
 }).refine((s) => !(s.tag === "e2e" && s.acceptance_na !== void 0 && s.requires_acceptance), { message: "cannot set both requires_acceptance and acceptance_na" });
-const VisualContract = z.object({
+const VisualContract$1 = z.object({
 	id: VisIdPayload,
 	target: z.string().min(3),
 	checks: z.array(z.string().min(3)).min(1),
 	requires_visual: z.boolean().optional(),
 	visual_na: z.string().min(5).optional()
 }).passthrough();
-const NeedsClarification = z.object({
+const NeedsClarification$1 = z.object({
 	id: NcIdPayload,
 	question: z.string().min(5),
 	context: z.string().optional(),
 	options: z.array(z.string()).optional()
 }).passthrough();
-const SpecFrontmatter = z.object({
+const SpecFrontmatter$1 = z.object({
 	schema_version: SchemaVersionPayload,
 	spec_version: z.number().int().positive(),
 	feature: z.object({
@@ -197,9 +197,9 @@ const SpecFrontmatter = z.object({
 	intent: z.string().min(20),
 	adr_refs: z.array(z.string()),
 	requirements: z.array(RequirementEarsShape),
-	scenarios: z.array(ScenarioGherkin),
-	visual_contracts: z.array(VisualContract).optional(),
-	needs_clarification: z.array(NeedsClarification)
+	scenarios: z.array(ScenarioGherkin$1),
+	visual_contracts: z.array(VisualContract$1).optional(),
+	needs_clarification: z.array(NeedsClarification$1)
 });
 const SpecSubmitInput = z.object({
 	spec_version: z.number().int().positive().optional(),
@@ -210,17 +210,17 @@ const SpecSubmitInput = z.object({
 	intent: z.string().min(20),
 	adr_refs: z.array(z.string()).default([]),
 	requirements: z.array(RequirementEarsVerifiable).default([]),
-	scenarios: z.array(ScenarioGherkin).default([]),
-	visual_contracts: z.array(VisualContract).default([]),
-	needs_clarification: z.array(NeedsClarification).default([])
+	scenarios: z.array(ScenarioGherkin$1).default([]),
+	visual_contracts: z.array(VisualContract$1).default([]),
+	needs_clarification: z.array(NeedsClarification$1).default([])
 }).passthrough();
-const ReqIdNamespace = z.string().regex(/^REQ-[A-Z][A-Z0-9]*$/);
-const ScenIdNamespace = z.string().regex(/^SCEN-[A-Z][A-Z0-9-]*$/);
-const VisIdNamespace = z.string().regex(/^VIS-[A-Z][A-Z0-9-]*$/);
+const ReqIdNamespace$1 = z.string().regex(/^REQ-[A-Z][A-Z0-9]*$/);
+const ScenIdNamespace$1 = z.string().regex(/^SCEN-[A-Z][A-Z0-9-]*$/);
+const VisIdNamespace$1 = z.string().regex(/^VIS-[A-Z][A-Z0-9-]*$/);
 const rejectCallerSuppliedId = (v) => !("id" in v);
 const ID_REJECTION_MESSAGE = "id_namespace expected; full id is CLI-allocated and must not be supplied in input";
 const SpecAddReqInputItemShape = z.object({
-	id_namespace: ReqIdNamespace,
+	id_namespace: ReqIdNamespace$1,
 	type: z.enum([
 		"ubiquitous",
 		"event-driven",
@@ -231,12 +231,12 @@ const SpecAddReqInputItemShape = z.object({
 }).passthrough().refine(rejectCallerSuppliedId, { message: ID_REJECTION_MESSAGE });
 const SpecAddReqInput = z.union([SpecAddReqInputItemShape, z.array(SpecAddReqInputItemShape).min(1)]);
 const SpecAddScenarioInputItemShape = z.object({
-	id_namespace: ScenIdNamespace,
+	id_namespace: ScenIdNamespace$1,
 	name: z.string().min(3)
 }).passthrough().refine(rejectCallerSuppliedId, { message: ID_REJECTION_MESSAGE });
 const SpecAddScenarioInput = z.union([SpecAddScenarioInputItemShape, z.array(SpecAddScenarioInputItemShape).min(1)]);
 const SpecAddVisualInputItemShape = z.object({
-	id_namespace: VisIdNamespace,
+	id_namespace: VisIdNamespace$1,
 	target: z.string().min(3)
 }).passthrough().refine(rejectCallerSuppliedId, { message: ID_REJECTION_MESSAGE });
 const SpecAddVisualInput = z.union([SpecAddVisualInputItemShape, z.array(SpecAddVisualInputItemShape).min(1)]);
@@ -318,13 +318,13 @@ const TaskStatusPayload = z.enum([
 	"done",
 	"abandoned"
 ]);
-const TaskBase = z.object({
+const TaskBase$1 = z.object({
 	id: TaskIdPayload,
 	depends_on: z.array(TaskIdPayload).default([]),
 	labels: z.array(z.string()).default([]),
 	status: TaskStatusPayload
 });
-const TaskBehavioralPayload = TaskBase.extend({
+const TaskBehavioralPayload = TaskBase$1.extend({
 	kind: z.literal("behavioral"),
 	drives: z.array(RawDrivesRef).min(1),
 	tests: z.array(z.string().min(3)).min(1),
@@ -338,32 +338,32 @@ const TaskBehavioralPayload = TaskBase.extend({
 	requires_acceptance: z.boolean().optional(),
 	requires_visual: z.boolean().optional()
 });
-const TaskStructuralPayload = TaskBase.extend({
+const TaskStructuralPayload = TaskBase$1.extend({
 	kind: z.literal("structural"),
 	drives: z.array(RawDrivesRef).optional(),
 	no_test_rationale: z.string().min(10),
 	execution: StructuralExecutionPayload
 });
-const TaskVisualUiPayload = TaskBase.extend({
+const TaskVisualUiPayload = TaskBase$1.extend({
 	kind: z.literal("visual-ui"),
 	drives: z.array(RawDrivesRef).optional(),
 	visual_contract_refs: z.array(VisIdPayload).min(1),
 	no_test_rationale: z.string().min(10).optional(),
 	execution: VisualUiExecutionPayload
 });
-const TaskDocsPayload = TaskBase.extend({
+const TaskDocsPayload = TaskBase$1.extend({
 	kind: z.literal("docs"),
 	drives: z.array(RawDrivesRef).optional(),
 	no_test_rationale: z.string().min(10),
 	execution: DocsExecutionPayload
 });
-const TaskSpikePayload = TaskBase.extend({
+const TaskSpikePayload = TaskBase$1.extend({
 	kind: z.literal("spike"),
 	drives: z.array(RawDrivesRef).optional(),
 	no_test_rationale: z.string().min(10),
 	execution: SpikeExecutionPayload
 });
-const TaskChorePayload = TaskBase.extend({
+const TaskChorePayload = TaskBase$1.extend({
 	kind: z.literal("chore"),
 	drives: z.array(RawDrivesRef).optional(),
 	no_test_rationale: z.string().min(10),
@@ -423,7 +423,7 @@ const TaskInputBaseShape = {
 	depends_on: z.array(TaskIdPayload).default([]),
 	labels: z.array(z.string()).default([])
 };
-const TaskBehavioralInput = z.object({
+const TaskBehavioralInput$1 = z.object({
 	...TaskInputBaseShape,
 	kind: z.literal("behavioral"),
 	drives: z.array(RawDrivesRef).min(1),
@@ -436,39 +436,39 @@ const TaskBehavioralInput = z.object({
 	requires_acceptance: z.boolean().optional(),
 	requires_visual: z.boolean().optional()
 }).strict();
-const TaskStructuralInput = z.object({
+const TaskStructuralInput$1 = z.object({
 	...TaskInputBaseShape,
 	kind: z.literal("structural"),
 	no_test_rationale: z.string().min(10)
 }).strict();
-const TaskVisualUiInput = z.object({
+const TaskVisualUiInput$1 = z.object({
 	...TaskInputBaseShape,
 	kind: z.literal("visual-ui"),
 	visual_contract_refs: z.array(VisIdPayload).min(1),
 	no_test_rationale: z.string().min(10).optional()
 }).strict();
-const TaskDocsInput = z.object({
+const TaskDocsInput$1 = z.object({
 	...TaskInputBaseShape,
 	kind: z.literal("docs"),
 	no_test_rationale: z.string().min(10)
 }).strict();
-const TaskSpikeInput = z.object({
+const TaskSpikeInput$1 = z.object({
 	...TaskInputBaseShape,
 	kind: z.literal("spike"),
 	no_test_rationale: z.string().min(10)
 }).strict();
-const TaskChoreInput = z.object({
+const TaskChoreInput$1 = z.object({
 	...TaskInputBaseShape,
 	kind: z.literal("chore"),
 	no_test_rationale: z.string().min(10)
 }).strict();
-const TaskInput = z.union([
-	TaskBehavioralInput,
-	TaskStructuralInput,
-	TaskVisualUiInput,
-	TaskDocsInput,
-	TaskSpikeInput,
-	TaskChoreInput
+const TaskInput$1 = z.union([
+	TaskBehavioralInput$1,
+	TaskStructuralInput$1,
+	TaskVisualUiInput$1,
+	TaskDocsInput$1,
+	TaskSpikeInput$1,
+	TaskChoreInput$1
 ]);
 const KIND_EXECUTION_STEPS = {
 	behavioral: Object.keys(BehavioralExecutionPayload.shape),
@@ -501,7 +501,7 @@ function materializeTaskInput(input, id) {
 }
 //#endregion
 //#region src/core/evidence-schema.ts
-const EvidenceKind = z.enum([
+const EvidenceKind$1 = z.enum([
 	"task-summary",
 	"verify-review",
 	"spec-review",
@@ -513,14 +513,14 @@ const EvidenceKind = z.enum([
 	"waiver",
 	"spike-finding"
 ]);
-const EvidenceResult = z.enum([
+const EvidenceResult$1 = z.enum([
 	"passed",
 	"failed",
 	"approved",
 	"rejected",
 	"waived"
 ]);
-const VerifyCheckKind = z.enum([
+const VerifyCheckKind$1 = z.enum([
 	"run",
 	"review",
 	"acceptance",
@@ -555,14 +555,14 @@ const CoversRefPayload = z.union([
 ]);
 const EvidenceFullShape = z.object({
 	id: EvidenceIdPayload,
-	kind: EvidenceKind,
+	kind: EvidenceKind$1,
 	iteration: z.number().int().positive(),
 	actor: z.string().min(1),
-	result: EvidenceResult,
+	result: EvidenceResult$1,
 	summary: SummaryField,
 	covers: z.array(CoversRefPayload).default([]),
 	task_id: TaskIdPayload.optional(),
-	check: VerifyCheckKind.optional(),
+	check: VerifyCheckKind$1.optional(),
 	cmd: z.string().optional(),
 	exit: z.number().int().optional(),
 	wall_ms: z.number().int().optional(),
@@ -589,12 +589,12 @@ const EvidenceFullPayload = EvidenceFullShape.refine((e) => {
 	}
 	return true;
 }, { message: "evidence kind=visual-review requires ≥1 attachment (per §5.4 + §1695-1700)" });
-const EvidenceAddInput = EvidenceFullShape.omit({ id: true }).strict();
-z.union([EvidenceAddInput, z.array(EvidenceAddInput).nonempty()]);
+const EvidenceAddInput$1 = EvidenceFullShape.omit({ id: true }).strict();
+z.union([EvidenceAddInput$1, z.array(EvidenceAddInput$1).nonempty()]);
 //#endregion
 //#region src/core/finding-schema.ts
 const FindingId = z.string().regex(/^FND-\d{3,}$/);
-const FindingCategory = z.enum([
+const FindingCategory$1 = z.enum([
 	"spec-gap",
 	"spec-defect",
 	"impl-defect",
@@ -602,7 +602,7 @@ const FindingCategory = z.enum([
 	"new-scope",
 	"risk-escalation"
 ]);
-const FindingAction = z.enum([
+const FindingAction$1 = z.enum([
 	"amend-spec",
 	"amend-tasks",
 	"fix-impl",
@@ -700,33 +700,33 @@ const FindingTarget = z.object({
 //#endregion
 //#region src/core/journal-entry.ts
 const ENTRY_BYTE_LIMIT = 64e3;
-const EntryId = z.string().regex(/^JE-\d{6,}$/, { message: "entry_id must match /^JE-\\d{6,}$/ (e.g. JE-000123)" });
-const ActorString = z.string().regex(/^(human|skill|ci|cli|migration):[^\s].*$/, { message: "actor must be of form '<prefix>:<id>' where prefix ∈ {human, skill, ci, cli, migration}" });
-const AttachmentRef = z.object({
+const EntryId$1 = z.string().regex(/^JE-\d{6,}$/, { message: "entry_id must match /^JE-\\d{6,}$/ (e.g. JE-000123)" });
+const ActorString$1 = z.string().regex(/^(human|skill|ci|cli|migration):[^\s].*$/, { message: "actor must be of form '<prefix>:<id>' where prefix ∈ {human, skill, ci, cli, migration}" });
+const AttachmentRef$1 = z.object({
 	path: z.string().min(1),
 	sha256: z.string().regex(/^[a-f0-9]{64}$/),
 	size: z.number().int().nonnegative()
 }).strict();
-const LongTextField = z.discriminatedUnion("mode", [z.object({
+const LongTextField$1 = z.discriminatedUnion("mode", [z.object({
 	mode: z.literal("inline"),
 	text: z.string()
 }).strict(), z.object({
 	mode: z.literal("sidecar"),
-	ref: AttachmentRef
+	ref: AttachmentRef$1
 }).strict()]);
 const MigrationSnapshotImportedPayload = z.object({
 	source_schema_version: z.number().int().positive(),
 	migrated_at: z.string().datetime(),
 	artifacts: z.object({
-		state: AttachmentRef,
-		tasks: AttachmentRef,
-		spec_md: AttachmentRef,
-		evidence: AttachmentRef,
-		findings: AttachmentRef,
-		pending: AttachmentRef
+		state: AttachmentRef$1,
+		tasks: AttachmentRef$1,
+		spec_md: AttachmentRef$1,
+		evidence: AttachmentRef$1,
+		findings: AttachmentRef$1,
+		pending: AttachmentRef$1
 	}).strict()
 }).strict();
-const SubState = z.enum([
+const SubState$1 = z.enum([
 	"TRIAGE.score",
 	"TRIAGE.confirm",
 	"SPEC.proposal",
@@ -748,7 +748,7 @@ const SubState = z.enum([
 	"DONE.archived",
 	"DONE.abandoned"
 ]);
-const Ceremony = z.object({
+const Ceremony$1 = z.object({
 	spec_phase: z.boolean(),
 	verify_phase: z.boolean(),
 	settle_phase: z.boolean(),
@@ -760,8 +760,8 @@ const Ceremony = z.object({
 	]),
 	strict_drift_check: z.boolean()
 }).refine((c) => !c.settle_phase || c.verify_phase, { message: "settle_phase=true requires verify_phase=true" }).refine((c) => !c.strict_spec_review || c.spec_phase, { message: "strict_spec_review=true requires spec_phase=true" }).refine((c) => c.lessons_required === "skip" || c.settle_phase, { message: "lessons_required!=skip requires settle_phase=true" }).refine((c) => !c.strict_drift_check || c.settle_phase, { message: "strict_drift_check=true requires settle_phase=true" });
-const GateName = z.enum(["spec-lock", "verify-accept"]);
-const EntryKind = z.enum([
+const GateName$1 = z.enum(["spec-lock", "verify-accept"]);
+const EntryKind$1 = z.enum([
 	"event:phase_advanced",
 	"event:ceremony_set",
 	"event:tasks_planned",
@@ -789,13 +789,13 @@ const EntryKind = z.enum([
 	"spike:converted",
 	"migration:snapshot_imported"
 ]);
-const JournalEntry = z.object({
+const JournalEntry$1 = z.object({
 	seq: z.number().int().nonnegative(),
-	entry_id: EntryId,
+	entry_id: EntryId$1,
 	at: z.string().datetime(),
-	actor: ActorString,
+	actor: ActorString$1,
 	entry_schema_version: z.number().int().positive(),
-	kind: EntryKind,
+	kind: EntryKind$1,
 	payload: z.unknown(),
 	batch_id: z.string().uuid().optional(),
 	batch_index: z.number().int().nonnegative().optional(),
@@ -853,8 +853,8 @@ const BackEdge = z.discriminatedUnion("action", [
 	BackEdgeFixTest
 ]);
 const PhaseAdvancedPayload = z.object({
-	from: SubState,
-	to: SubState,
+	from: SubState$1,
+	to: SubState$1,
 	/**
 	* Back-edge sponsorship (Slice B / Phase 11 Item 3). When set, `to`
 	* MUST be the target dictated by `action` (amend-spec → SPEC.spec;
@@ -866,7 +866,7 @@ const PhaseAdvancedPayload = z.object({
 	back_edge: BackEdge.optional()
 }).passthrough();
 const GateDecidedPayload = z.object({
-	gate_kind: GateName,
+	gate_kind: GateName$1,
 	decision: z.enum(["approved", "rejected"]),
 	reason: z.string().min(1)
 }).passthrough();
@@ -908,15 +908,15 @@ const TasksAmendedPayload = z.object({
 const EvidenceAddedPayload = EvidenceFullPayload;
 const FindingRaisedPayload = z.object({
 	id: FindingId,
-	category: FindingCategory,
-	action: FindingAction,
+	category: FindingCategory$1,
+	action: FindingAction$1,
 	summary: z.string().min(3).optional(),
 	reason: z.string().optional(),
 	target: FindingTarget.optional()
 }).passthrough();
 const FindingClosedPayload = z.object({ id: FindingId }).passthrough();
-const PendingId = z.string().regex(/^PEND-\d{4,}$/);
-const PendingPromptKind = z.enum([
+const PendingId$1 = z.string().regex(/^PEND-\d{4,}$/);
+const PendingPromptKind$1 = z.enum([
 	"ask_user_question",
 	"gate_decision",
 	"spec_clarification",
@@ -924,11 +924,11 @@ const PendingPromptKind = z.enum([
 	"profile_escalation"
 ]);
 const PendingAddedPayload = z.object({
-	id: PendingId,
-	kind: PendingPromptKind,
+	id: PendingId$1,
+	kind: PendingPromptKind$1,
 	question: z.string().min(3)
 }).passthrough();
-const PendingResolvedPayload = z.object({ id: PendingId }).passthrough();
+const PendingResolvedPayload = z.object({ id: PendingId$1 }).passthrough();
 const SessionReasonPayload = z.object({ reason: z.string().min(1).optional() }).passthrough();
 const SpikeConvertedPayload = z.object({
 	to_feature: FeatureIdPayload,
@@ -943,7 +943,7 @@ const SpecSubmittedPayload = z.object({
 	}).passthrough(),
 	intent: z.string().min(20),
 	adr_refs: z.array(z.string()),
-	needs_clarification: z.array(NeedsClarification)
+	needs_clarification: z.array(NeedsClarification$1)
 }).passthrough();
 const PER_KIND_PAYLOAD = {
 	"event:phase_advanced": PhaseAdvancedPayload,
@@ -961,11 +961,11 @@ const PER_KIND_PAYLOAD = {
 	}).passthrough(),
 	"event:spec_scenario_added": z.object({
 		spec_version: BatchSpecVersion,
-		scenario: ScenarioGherkin
+		scenario: ScenarioGherkin$1
 	}).passthrough(),
 	"event:spec_visual_added": z.object({
 		spec_version: BatchSpecVersion,
-		visual: VisualContract
+		visual: VisualContract$1
 	}).passthrough(),
 	"event:spec_submitted": SpecSubmittedPayload,
 	"evidence:added": EvidenceAddedPayload,
@@ -1010,24 +1010,24 @@ const REDUCER_IMPLEMENTED_KINDS = new Set([
 	"spike:converted"
 ]);
 const SchemaVersionLiteral = z.literal(2);
-const TasksJson = z.object({
+const TasksJson$1 = z.object({
 	schema_version: SchemaVersionLiteral,
 	version: z.number().int().positive(),
 	based_on: z.object({ spec: z.number().int().positive() }),
 	tasks: z.array(TaskFullPayload)
 }).strict();
-const EvidenceEntry = EvidenceFullShape.extend({
+const EvidenceEntry$1 = EvidenceFullShape.extend({
 	schema_version: SchemaVersionLiteral,
 	at: z.string().datetime()
 }).strict();
-const EvidenceJson = z.object({
+const EvidenceJson$1 = z.object({
 	schema_version: SchemaVersionLiteral,
-	evidence: z.array(EvidenceEntry)
+	evidence: z.array(EvidenceEntry$1)
 }).strict();
 const FindingStateShape = z.object({
 	id: z.string().regex(/^FND-\d{3,}$/),
-	category: FindingCategory,
-	action: FindingAction,
+	category: FindingCategory$1,
+	action: FindingAction$1,
 	status: z.enum(["open", "closed"]),
 	summary: z.string().optional(),
 	reason: z.string().optional(),
@@ -1036,13 +1036,13 @@ const FindingStateShape = z.object({
 		step: z.string().min(1)
 	}).strict().optional()
 }).strict();
-const FindingsJson = z.object({
+const FindingsJson$1 = z.object({
 	schema_version: SchemaVersionLiteral,
 	findings: z.array(FindingStateShape)
 }).strict();
 const PendingQueueEntry = z.object({
-	pending_id: PendingId,
-	kind: PendingPromptKind,
+	pending_id: PendingId$1,
+	kind: PendingPromptKind$1,
 	question: z.string().min(3),
 	options: z.array(z.string()).optional(),
 	blocks: z.enum([
@@ -1056,10 +1056,10 @@ const PendingQueueEntry = z.object({
 	at: z.string().datetime(),
 	raised_by_task_id: z.string().regex(/^T-\d{3,}$/).optional()
 }).strict();
-const PendingProjectionEntry = PendingQueueEntry.extend({ resolved: z.boolean() }).strict();
-const PendingJson = z.object({
+const PendingProjectionEntry$1 = PendingQueueEntry.extend({ resolved: z.boolean() }).strict();
+const PendingJson$1 = z.object({
 	schema_version: SchemaVersionLiteral,
-	pending: z.array(PendingProjectionEntry)
+	pending: z.array(PendingProjectionEntry$1)
 }).strict();
 const StateProjectionPhase = z.enum([
 	"TRIAGE",
@@ -1069,19 +1069,19 @@ const StateProjectionPhase = z.enum([
 	"SETTLE",
 	"DONE"
 ]);
-const StateProjection = z.object({
+const StateProjection$1 = z.object({
 	schema_version: SchemaVersionLiteral,
 	session_id: z.string().min(1),
 	session_label: z.string().min(3).nullable(),
 	workspace: z.string().min(1),
 	loaf_version_required: z.string().regex(/^[\^~]?\d+\.\d+(\.\d+)?(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/).nullable(),
 	phase: StateProjectionPhase,
-	sub_state: SubState,
+	sub_state: SubState$1,
 	iteration: z.number().int().positive(),
 	spec_locked: z.boolean(),
 	verify_accepted: z.boolean(),
 	pending: z.array(PendingQueueEntry),
-	ceremony: Ceremony,
+	ceremony: Ceremony$1,
 	ceremony_label: z.string(),
 	complexity_score: z.number().int().min(0).max(100).nullable(),
 	based_on: z.object({
@@ -1092,7 +1092,7 @@ const StateProjection = z.object({
 	created_at: z.string().datetime(),
 	updated_at: z.string().datetime()
 }).strict().refine((s) => s.sub_state.startsWith(s.phase + "."), { message: "sub_state must start with phase + '.'" }).refine((s) => !s.phase.startsWith("DONE") || s.pending.length === 0, { message: "DONE.* requires pending = [] (live queue empty at terminal)" });
-const RegistryFile = z.object({
+const RegistryFile$1 = z.object({
 	schema_version: SchemaVersionLiteral,
 	at: z.string().datetime(),
 	session_id: z.string().uuid(),
@@ -1101,7 +1101,7 @@ const RegistryFile = z.object({
 	cwd: z.string(),
 	workspace: z.string().min(1),
 	phase: StateProjectionPhase,
-	sub_state: SubState,
+	sub_state: SubState$1,
 	iteration: z.number().int().positive(),
 	active_tasks: z.array(z.string().regex(/^T-\d{3,}$/)).default([]),
 	pending: PendingQueueEntry.nullable(),
@@ -1112,7 +1112,7 @@ const RegistryFile = z.object({
 //#region src/core/snapshot.ts
 const HEX64 = /^[a-f0-9]{64}$/;
 const ZERO_HASH = "0".repeat(64);
-const SnapshotMeta = z.object({
+const SnapshotMeta$1 = z.object({
 	last_applied_seq: z.number().int().gte(-1),
 	last_entry_offset: z.number().int().nonnegative(),
 	last_entry_line_hash: z.string().regex(HEX64),
@@ -1299,7 +1299,7 @@ function composeStateProjection(snapshot, entries) {
 	const workspace = startPayload.workspace ?? "default";
 	const loafVersionRequired = startPayload.loaf_version_required ?? null;
 	const tasksVersion = entries.filter((e) => e.kind === "event:tasks_planned" || e.kind === "event:tasks_amended").length;
-	return StateProjection.parse({
+	return StateProjection$1.parse({
 		schema_version: 2,
 		session_id: state.session_id,
 		session_label: sessionLabel,
@@ -1351,7 +1351,7 @@ function composeTasksJson(snapshot, entries) {
 		if (body === void 0) throw new Error(`composeTasksJson: task ${t.id} is in the snapshot projection but has no canonical journal body — projection corruption (a rebuild must not invent a body)`);
 		return materializeTaskForAmend(body, t);
 	});
-	return TasksJson.parse({
+	return TasksJson$1.parse({
 		schema_version: 2,
 		version,
 		based_on: { spec: snapshot.tasks_based_on.spec },
@@ -1376,7 +1376,7 @@ function composeEvidenceJson(entries) {
 		schema_version: 2,
 		at: e.at
 	}));
-	return EvidenceJson.parse({
+	return EvidenceJson$1.parse({
 		schema_version: 2,
 		evidence
 	});
@@ -1390,7 +1390,7 @@ function composeEvidenceJson(entries) {
 * `FindingsEvent` jsonl event schema. Validated against `FindingsJson`.
 */
 function composeFindingsJson(snapshot) {
-	return FindingsJson.parse({
+	return FindingsJson$1.parse({
 		schema_version: 2,
 		findings: snapshot.findings
 	});
@@ -1430,7 +1430,7 @@ function composePendingJson(entries) {
 		if (p.task_id !== void 0) item.raised_by_task_id = p.task_id;
 		pending.push(item);
 	}
-	return PendingJson.parse({
+	return PendingJson$1.parse({
 		schema_version: 2,
 		pending
 	});
@@ -1552,7 +1552,7 @@ function buildRegistryFile(input) {
 	const pendingQueueDepth = unresolved.length;
 	const activeTasks = snapshot.tasks.filter((t) => t.status === "in_progress").map((t) => t.id);
 	const feature = startPayload.feature;
-	return RegistryFile.parse({
+	return RegistryFile$1.parse({
 		schema_version: 2,
 		at: now.toISOString(),
 		session_id: state.session_id,
@@ -1698,11 +1698,11 @@ var NoSessionError = class extends Error {
 	}
 };
 const LEAF_SCHEMA = {
-	state: StateProjection,
-	tasks: TasksJson,
-	evidence: EvidenceJson,
-	findings: FindingsJson,
-	pending: PendingJson
+	state: StateProjection$1,
+	tasks: TasksJson$1,
+	evidence: EvidenceJson$1,
+	findings: FindingsJson$1,
+	pending: PendingJson$1
 };
 function fixForFeatureDir(featureDir) {
 	return `run \`loaf doctor --rebuild --feature ${path.basename(featureDir)}\``;
@@ -1733,7 +1733,7 @@ async function readMetaOrThrow(metaPath, featureDir) {
 			cause: "json_parse"
 		});
 	}
-	const result = SnapshotMeta.safeParse(parsed);
+	const result = SnapshotMeta$1.safeParse(parsed);
 	if (!result.success) throw new SnapshotStaleError("meta_invalid", {
 		feature_dir: featureDir,
 		fix: fixForFeatureDir(featureDir),
@@ -1957,7 +1957,7 @@ async function resolveBySessionId(uuidOrPrefix, input, source) {
 	let registryFile;
 	try {
 		const raw = await promises.readFile(path.join(registryDir, `${sessionId}.json`), "utf8");
-		registryFile = RegistryFile.parse(JSON.parse(raw));
+		registryFile = RegistryFile$1.parse(JSON.parse(raw));
 	} catch (err) {
 		return {
 			ok: false,
@@ -2564,7 +2564,7 @@ async function listSessions(input) {
 			});
 			continue;
 		}
-		const result = RegistryFile.safeParse(parsed);
+		const result = RegistryFile$1.safeParse(parsed);
 		if (!result.success) {
 			warnings.push({
 				file: entry,
@@ -2722,7 +2722,7 @@ async function readSpecFrontmatter(featureDir) {
 			}
 		};
 	}
-	const validated = SpecFrontmatter.safeParse(parsed);
+	const validated = SpecFrontmatter$1.safeParse(parsed);
 	if (!validated.success) return {
 		ok: false,
 		code: "SPEC_FRONTMATTER_INVALID",
@@ -3177,32 +3177,32 @@ const KIND_DISPATCH = {
 	spec: {
 		basename: "spec.md",
 		parse: "yaml-frontmatter",
-		schema: SpecFrontmatter
+		schema: SpecFrontmatter$1
 	},
 	tasks: {
 		basename: "tasks.json",
 		parse: "json",
-		schema: TasksJson
+		schema: TasksJson$1
 	},
 	evidence: {
 		basename: "evidence.json",
 		parse: "json",
-		schema: EvidenceJson
+		schema: EvidenceJson$1
 	},
 	finding: {
 		basename: "findings.json",
 		parse: "json",
-		schema: FindingsJson
+		schema: FindingsJson$1
 	},
 	pending: {
 		basename: "pending.json",
 		parse: "json",
-		schema: PendingJson
+		schema: PendingJson$1
 	},
 	state: {
 		basename: "state.json",
 		parse: "json",
-		schema: StateProjection
+		schema: StateProjection$1
 	}
 };
 /** Reverse basename → kind for auto-detection. */
@@ -3346,6 +3346,1102 @@ async function checkFile(opts) {
 /** Text-mode success line. */
 function renderSuccessText(result) {
 	return `ok: ${result.kind} at ${result.path}\n`;
+}
+//#endregion
+//#region docs/schemas.ts
+const SCHEMA_VERSION = 2;
+const SchemaVersion = z.literal(SCHEMA_VERSION);
+const EntryId = z.string().regex(/^JE-\d{6,}$/, { message: "entry_id must match /^JE-\\d{6,}$/ (e.g. JE-000123)" });
+const BatchId = z.string().uuid();
+const ActorString = z.string().regex(/^(human|skill|ci|cli|migration):[^\s].*$/, { message: "actor must be of form '<prefix>:<id>' where prefix ∈ {human, skill, ci, cli, migration}" });
+const AttachmentRef = z.object({
+	path: z.string().min(1),
+	sha256: z.string().regex(/^[a-f0-9]{64}$/, { message: "sha256 must be 64 lowercase hex chars" }),
+	size: z.number().int().nonnegative()
+}).strict();
+z.discriminatedUnion("mode", [z.object({
+	mode: z.literal("inline"),
+	text: z.string()
+}).strict(), z.object({
+	mode: z.literal("sidecar"),
+	ref: AttachmentRef
+}).strict()]);
+const SignatureEnvelope = z.object({
+	alg: z.string().min(1),
+	key_id: z.string().min(1),
+	sig: z.string().min(1),
+	signed_at: z.string().datetime()
+}).strict();
+const EntryKind = z.enum([
+	"event:phase_advanced",
+	"event:ceremony_set",
+	"event:tasks_planned",
+	"event:tasks_amended",
+	"event:task_claimed",
+	"event:task_step_started",
+	"event:task_step_done",
+	"event:task_step_reset",
+	"event:task_abandoned",
+	"event:spec_req_added",
+	"event:spec_scenario_added",
+	"event:spec_visual_added",
+	"event:spec_submitted",
+	"evidence:added",
+	"finding:raised",
+	"finding:closed",
+	"pending:added",
+	"pending:resolved",
+	"gate:decided",
+	"session:started",
+	"session:resumed",
+	"session:delivered",
+	"session:archived",
+	"session:abandoned",
+	"spike:converted",
+	"migration:snapshot_imported"
+]);
+z.object({
+	seq: z.number().int().nonnegative(),
+	entry_id: EntryId,
+	at: z.string().datetime(),
+	actor: ActorString,
+	entry_schema_version: z.number().int().positive(),
+	kind: EntryKind,
+	payload: z.unknown(),
+	batch_id: BatchId.optional(),
+	batch_index: z.number().int().nonnegative().optional(),
+	batch_count: z.number().int().positive().optional(),
+	signature: SignatureEnvelope.optional()
+}).strict().refine((e) => {
+	const present = [
+		e.batch_id,
+		e.batch_index,
+		e.batch_count
+	].filter((v) => v !== void 0).length;
+	return present === 0 || present === 3;
+}, { message: "batch_id, batch_index, batch_count must be all-present or all-absent" }).refine((e) => e.batch_index === void 0 || e.batch_count === void 0 || e.batch_index < e.batch_count, { message: "batch_index must be < batch_count" });
+z.object({
+	last_applied_seq: z.number().int().gte(-1),
+	last_entry_offset: z.number().int().nonnegative(),
+	last_entry_line_hash: z.string().regex(/^[a-f0-9]{64}$/, { message: "last_entry_line_hash must be 64 lowercase hex chars" }),
+	rolling_checksum: z.string().regex(/^[a-f0-9]{64}$/, { message: "rolling_checksum must be 64 lowercase hex chars" }),
+	feature_schema_version: z.number().int().positive(),
+	written_at: z.string().datetime()
+}).strict().refine((m) => m.last_applied_seq !== -1 || m.last_entry_offset === 0 && m.last_entry_line_hash === "0".repeat(64) && m.rolling_checksum === "0".repeat(64) && m.feature_schema_version === SCHEMA_VERSION, { message: "last_applied_seq=-1 (empty sentinel) requires last_entry_offset=0 + line_hash/rolling_checksum=ZERO_HASH + feature_schema_version=current (mirrors runtime isEmptyMeta — codex r176 BLOCK 2)" });
+const Phase = z.enum([
+	"TRIAGE",
+	"SPEC",
+	"EXECUTE",
+	"VERIFY",
+	"SETTLE",
+	"DONE"
+]);
+const SubState = z.enum([
+	"TRIAGE.score",
+	"TRIAGE.confirm",
+	"SPEC.proposal",
+	"SPEC.spec",
+	"SPEC.plan",
+	"SPEC.design",
+	"EXECUTE.plan",
+	"EXECUTE.work",
+	"EXECUTE.done",
+	"VERIFY.plan",
+	"VERIFY.run",
+	"VERIFY.review",
+	"VERIFY.acceptance",
+	"VERIFY.visual",
+	"VERIFY.accept",
+	"SETTLE.reconcile",
+	"SETTLE.lessons",
+	"DONE.delivered",
+	"DONE.archived",
+	"DONE.abandoned"
+]);
+const Ceremony = z.object({
+	spec_phase: z.boolean().default(false),
+	verify_phase: z.boolean().default(false),
+	settle_phase: z.boolean().default(false),
+	strict_spec_review: z.boolean().default(false),
+	lessons_required: z.enum([
+		"must",
+		"may",
+		"skip"
+	]).default("skip"),
+	strict_drift_check: z.boolean().default(false)
+}).refine((c) => !c.settle_phase || c.verify_phase, { message: "ceremony.settle_phase=true requires verify_phase=true (SETTLE.reconcile entry 需要 verify-accept passed)" }).refine((c) => !c.strict_spec_review || c.spec_phase, { message: "ceremony.strict_spec_review=true requires spec_phase=true (no spec, no reviewer)" }).refine((c) => c.lessons_required === "skip" || c.settle_phase, { message: "ceremony.lessons_required ≠ 'skip' requires settle_phase=true (SETTLE.lessons 才能 append)" }).refine((c) => !c.strict_drift_check || c.settle_phase, { message: "ceremony.strict_drift_check=true requires settle_phase=true (SETTLE.reconcile 才能 drift check)" });
+const CeremonyLabel = z.string();
+z.enum([
+	"behavioral",
+	"structural",
+	"visual-ui",
+	"docs",
+	"spike",
+	"chore"
+]);
+const BehavioralStep = z.enum([
+	"red",
+	"implement",
+	"refactor"
+]);
+const StructuralStep = z.enum(["implement", "refactor"]);
+const VisualUiStep = z.enum([
+	"mockup",
+	"implement",
+	"screenshot-compare"
+]);
+const DocsStep = z.enum(["draft", "review"]);
+const SpikeStep = z.enum([
+	"explore",
+	"prototype",
+	"record"
+]);
+const ChoreStep = z.enum(["execute"]);
+z.union([
+	BehavioralStep,
+	StructuralStep,
+	VisualUiStep,
+	DocsStep,
+	SpikeStep,
+	ChoreStep
+]);
+const VerifyCheckKind = z.enum([
+	"run",
+	"review",
+	"acceptance",
+	"visual"
+]);
+const Applicability = z.enum([
+	"must",
+	"optional",
+	"na"
+]);
+const StepStatus = z.enum([
+	"na",
+	"pending",
+	"running",
+	"passed",
+	"failed",
+	"waived"
+]);
+const GateName = z.enum(["spec-lock", "verify-accept"]);
+const FindingCategory = z.enum([
+	"spec-gap",
+	"spec-defect",
+	"impl-defect",
+	"test-defect",
+	"new-scope",
+	"risk-escalation"
+]);
+const FindingAction = z.enum([
+	"amend-spec",
+	"amend-tasks",
+	"fix-impl",
+	"fix-test",
+	"defer",
+	"backlog"
+]);
+const EvidenceKind = z.enum([
+	"task-summary",
+	"verify-review",
+	"spec-review",
+	"acceptance",
+	"visual-review",
+	"gate-decision",
+	"local-check",
+	"manual",
+	"waiver",
+	"spike-finding"
+]);
+const EvidenceResult = z.enum([
+	"passed",
+	"failed",
+	"approved",
+	"rejected",
+	"waived"
+]);
+const ReqId = z.string().regex(/^REQ-[A-Z][A-Z0-9]*-\d{3,}$/);
+const ScenId = z.string().regex(/^SCEN-[A-Z][A-Z0-9-]*-\d{3,}$/);
+const VisId = z.string().regex(/^VIS-[A-Z][A-Z0-9-]*-\d{3,}$/);
+const Measurable = z.object({
+	metric: z.string().min(3),
+	threshold: z.union([z.string(), z.number()]),
+	unit: z.string().optional(),
+	direction: z.enum([
+		"lte",
+		"gte",
+		"eq"
+	]).default("lte")
+});
+const VerifiabilityFields = z.object({
+	measurable: Measurable.optional(),
+	verified_by_scenarios: z.array(ScenId).optional(),
+	acceptance_na: z.literal(true).optional(),
+	acceptance_na_reason: z.string().min(10).optional()
+}).refine((v) => {
+	const hasMeasurable = v.measurable !== void 0;
+	const hasScenarios = v.verified_by_scenarios && v.verified_by_scenarios.length > 0;
+	const hasNa = v.acceptance_na === true && (v.acceptance_na_reason?.length ?? 0) >= 10;
+	return hasMeasurable || hasScenarios || hasNa;
+}, { message: "every REQ must declare measurable, verified_by_scenarios[], or acceptance_na+reason" });
+const ReqBase = z.object({ id: ReqId });
+const RequirementUbiquitous = ReqBase.extend({
+	type: z.literal("ubiquitous"),
+	response: z.string().min(10)
+}).and(VerifiabilityFields);
+const RequirementEventDriven = ReqBase.extend({
+	type: z.literal("event-driven"),
+	trigger: z.string().min(5),
+	response: z.string().min(10)
+}).and(VerifiabilityFields);
+const RequirementStateDriven = ReqBase.extend({
+	type: z.literal("state-driven"),
+	while_: z.string().min(5),
+	behavior: z.string().min(10)
+}).and(VerifiabilityFields);
+const RequirementOptional = ReqBase.extend({
+	type: z.literal("optional"),
+	feature: z.string().min(5),
+	response: z.string().min(10)
+}).and(VerifiabilityFields);
+const RequirementUnwanted = ReqBase.extend({
+	type: z.literal("unwanted"),
+	condition: z.string().min(5),
+	response: z.string().min(10)
+}).and(VerifiabilityFields);
+z.enum([
+	"ubiquitous",
+	"event-driven",
+	"state-driven",
+	"optional",
+	"unwanted"
+]);
+const RequirementEars = z.union([
+	RequirementUbiquitous,
+	RequirementEventDriven,
+	RequirementStateDriven,
+	RequirementOptional,
+	RequirementUnwanted
+]);
+const ScenarioGherkin = z.object({
+	id: ScenId,
+	name: z.string().min(3),
+	tag: z.enum([
+		"happy",
+		"edge",
+		"error",
+		"e2e"
+	]).optional(),
+	requires_acceptance: z.boolean().optional(),
+	acceptance_na: z.string().min(5).optional(),
+	given: z.array(z.string().min(3)).min(1),
+	when: z.array(z.string().min(3)).min(1),
+	then: z.array(z.string().min(3)).min(1)
+}).refine((s) => !(s.tag === "e2e" && s.acceptance_na && s.requires_acceptance), { message: "cannot set both requires_acceptance and acceptance_na" });
+const VisualContract = z.object({
+	id: VisId,
+	target: z.string().min(3),
+	checks: z.array(z.string().min(3)).min(1),
+	requires_visual: z.boolean().optional(),
+	visual_na: z.string().min(5).optional()
+});
+const NeedsClarification = z.object({
+	id: z.string().regex(/^NC-\d{3,}$/),
+	question: z.string().min(5),
+	context: z.string().optional(),
+	options: z.array(z.string()).optional()
+});
+z.object({
+	schema_version: SchemaVersion,
+	spec_version: z.number().int().positive(),
+	feature: z.object({
+		id: z.string().regex(/^F-\d{3,}$/),
+		name: z.string().min(3)
+	}),
+	intent: z.string().min(20),
+	adr_refs: z.array(z.string()).default([]),
+	requirements: z.array(RequirementEars),
+	scenarios: z.array(ScenarioGherkin),
+	visual_contracts: z.array(VisualContract).optional(),
+	needs_clarification: z.array(NeedsClarification)
+});
+const PendingId = z.string().regex(/^PEND-\d{4,}$/);
+const PendingPromptKind = z.enum([
+	"ask_user_question",
+	"gate_decision",
+	"spec_clarification",
+	"finding_decision",
+	"profile_escalation"
+]);
+const PendingPrompt = z.object({
+	kind: PendingPromptKind,
+	question: z.string().min(3),
+	options: z.array(z.string()).optional(),
+	blocks: z.enum([
+		"advance",
+		"gate",
+		"deliver",
+		"all"
+	]).default("advance"),
+	raised_at: z.string().datetime(),
+	raised_by: z.string().min(1)
+});
+const PendingPromptEntry = PendingPrompt.extend({
+	pending_id: PendingId,
+	at: z.string().datetime(),
+	raised_by_task_id: z.string().regex(/^T-\d{3,}$/).optional()
+});
+const StateProjection = z.object({
+	schema_version: SchemaVersion,
+	loaf_version_required: z.string().regex(/^[\^~]?\d+\.\d+(\.\d+)?(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/).nullable(),
+	session_id: z.string().min(1),
+	session_label: z.string().min(3).nullable(),
+	workspace: z.string().default("default"),
+	phase: Phase,
+	sub_state: SubState,
+	iteration: z.number().int().positive(),
+	spec_locked: z.boolean(),
+	verify_accepted: z.boolean(),
+	pending: z.array(PendingPromptEntry).default([]),
+	ceremony: Ceremony,
+	ceremony_label: CeremonyLabel.default(""),
+	complexity_score: z.number().int().min(0).max(100).nullable(),
+	based_on: z.object({
+		spec: z.number().int().nonnegative(),
+		tasks: z.number().int().nonnegative()
+	}),
+	spec_version: z.number().int().nonnegative().default(0),
+	created_at: z.string().datetime(),
+	updated_at: z.string().datetime()
+}).refine((s) => s.sub_state.startsWith(s.phase + "."), { message: "sub_state must start with phase + '.'" }).refine((s) => {
+	if (!s.phase.startsWith("DONE")) return true;
+	return s.pending.length === 0;
+}, { message: "DONE.* requires pending = [] (active-set invariant enforced cross-file by transitions.ts)" });
+z.object({
+	schema_version: SchemaVersion,
+	session_id: z.string().min(1),
+	cwd: z.string(),
+	debug: z.boolean(),
+	heartbeat_at: z.string().datetime()
+}).strict();
+z.object({
+	schema_version: SchemaVersion,
+	at: z.string().datetime(),
+	session_id: z.string().uuid(),
+	session_label: z.string(),
+	feature: z.string().min(1),
+	cwd: z.string(),
+	workspace: z.string(),
+	phase: Phase,
+	sub_state: SubState,
+	iteration: z.number().int().positive(),
+	active_tasks: z.array(z.string().regex(/^T-\d{3,}$/)).default([]),
+	pending: PendingPromptEntry.nullable(),
+	pending_queue_depth: z.number().int().nonnegative().default(0),
+	ceremony_label: CeremonyLabel.default("")
+});
+const TaskExecutionStep = z.object({
+	applicability: Applicability,
+	status: StepStatus,
+	reason: z.string().optional(),
+	evidence_refs: z.array(z.string().regex(/^EV-\d{6,}$/)).default([]),
+	started_at: z.string().datetime().optional()
+});
+const BehavioralExecution = z.object({
+	red: TaskExecutionStep,
+	implement: TaskExecutionStep,
+	refactor: TaskExecutionStep
+});
+const StructuralExecution = z.object({
+	implement: TaskExecutionStep,
+	refactor: TaskExecutionStep
+});
+const VisualUiExecution = z.object({
+	mockup: TaskExecutionStep,
+	implement: TaskExecutionStep,
+	"screenshot-compare": TaskExecutionStep
+});
+const DocsExecution = z.object({
+	draft: TaskExecutionStep,
+	review: TaskExecutionStep
+});
+const SpikeExecution = z.object({
+	explore: TaskExecutionStep,
+	prototype: TaskExecutionStep,
+	record: TaskExecutionStep
+});
+const ChoreExecution = z.object({ execute: TaskExecutionStep });
+const TaskId = z.string().regex(/^T-\d{3,}$/);
+const DrivesRef = z.string().regex(/^(REQ|SCEN|VIS)-[A-Z][A-Z0-9-]*-\d{3,}$/);
+const TaskBase = z.object({
+	id: TaskId,
+	drives: z.array(DrivesRef).optional(),
+	depends_on: z.array(TaskId).default([]),
+	labels: z.array(z.string()).default([]),
+	status: z.enum([
+		"pending",
+		"ready",
+		"in_progress",
+		"done",
+		"abandoned"
+	])
+});
+const TaskBehavioral = TaskBase.extend({
+	kind: z.literal("behavioral"),
+	drives: z.array(DrivesRef).min(1),
+	tests: z.array(z.string().min(3)).min(1),
+	test_layer: z.enum([
+		"unit",
+		"integration",
+		"e2e"
+	]).optional(),
+	red_test_registered: z.boolean().optional(),
+	execution: BehavioralExecution,
+	requires_acceptance: z.boolean().optional(),
+	requires_visual: z.boolean().optional()
+});
+const TaskStructural = TaskBase.extend({
+	kind: z.literal("structural"),
+	no_test_rationale: z.string().min(10),
+	execution: StructuralExecution
+});
+const TaskVisualUi = TaskBase.extend({
+	kind: z.literal("visual-ui"),
+	visual_contract_refs: z.array(VisId).min(1),
+	no_test_rationale: z.string().min(10).optional(),
+	execution: VisualUiExecution
+});
+const TaskDocs = TaskBase.extend({
+	kind: z.literal("docs"),
+	no_test_rationale: z.string().min(10),
+	execution: DocsExecution
+});
+const TaskSpike = TaskBase.extend({
+	kind: z.literal("spike"),
+	no_test_rationale: z.string().min(10),
+	execution: SpikeExecution
+});
+const TaskChore = TaskBase.extend({
+	kind: z.literal("chore"),
+	no_test_rationale: z.string().min(10),
+	execution: ChoreExecution
+});
+const Task = z.discriminatedUnion("kind", [
+	TaskBehavioral,
+	TaskStructural,
+	TaskVisualUi,
+	TaskDocs,
+	TaskSpike,
+	TaskChore
+]);
+z.object({
+	schema_version: SchemaVersion,
+	version: z.number().int().positive(),
+	based_on: z.object({ spec: z.number().int().positive() }),
+	tasks: z.array(Task)
+});
+const FeatureId = z.string().regex(/^F-\d{3,}$/);
+const CoversRef = z.union([
+	ReqId,
+	ScenId,
+	VisId,
+	TaskId
+]);
+const Attachment = z.object({
+	path: z.string().min(3),
+	sha256: z.string().regex(/^[a-f0-9]{64}$/),
+	mime: z.string().min(3),
+	bytes: z.number().int().positive().optional()
+});
+const EvidenceEntry = z.object({
+	schema_version: SchemaVersion,
+	evidence_id: z.string().regex(/^EV-\d{6,}$/),
+	at: z.string().datetime(),
+	kind: EvidenceKind,
+	iteration: z.number().int().positive(),
+	actor: z.string().min(1),
+	result: EvidenceResult,
+	summary: z.string().min(3),
+	covers: z.array(CoversRef).default([]),
+	task_id: z.string().regex(/^T-\d{3,}$/).optional(),
+	check: VerifyCheckKind.optional(),
+	cmd: z.string().optional(),
+	exit: z.number().int().optional(),
+	wall_ms: z.number().int().optional(),
+	gate: GateName.optional(),
+	decided_by: z.string().optional(),
+	reason: z.string().optional(),
+	based_on: z.object({
+		spec: z.number().int().nonnegative(),
+		tasks: z.number().int().nonnegative()
+	}).optional(),
+	attachments: z.array(Attachment).optional(),
+	waiver_obligation_id: z.string().optional(),
+	external_ref: z.string().optional()
+});
+const EvidenceAddInput = EvidenceEntry.omit({
+	schema_version: true,
+	evidence_id: true,
+	at: true
+}).strict();
+z.discriminatedUnion("event", [z.object({
+	schema_version: SchemaVersion,
+	id: z.string().regex(/^FND-\d{3,}$/),
+	event: z.literal("opened"),
+	at: z.string().datetime(),
+	raised_in: SubState,
+	raised_by: z.string(),
+	iteration: z.number().int().positive(),
+	category: FindingCategory,
+	action: FindingAction,
+	summary: z.string().min(5),
+	refs: z.array(z.union([
+		ReqId,
+		ScenId,
+		VisId,
+		TaskId,
+		FeatureId
+	])).default([]),
+	evidence_refs: z.array(z.string().regex(/^EV-\d{6,}$/)).default([]),
+	cause: z.string().optional()
+}).refine((f) => f.raised_in.startsWith("VERIFY.") || f.raised_in.startsWith("EXECUTE."), { message: "findings only in VERIFY.* or post-lock EXECUTE.*" }), z.object({
+	schema_version: SchemaVersion,
+	id: z.string().regex(/^FND-\d{3,}$/),
+	event: z.literal("closed"),
+	at: z.string().datetime(),
+	iteration: z.number().int().positive(),
+	resolution: z.string().min(3),
+	drift_index: z.number().int().nonnegative().optional(),
+	evidence_refs: z.array(z.string().regex(/^EV-\d{6,}$/)).default([])
+})]);
+z.object({
+	schema_version: SchemaVersion,
+	evidence: z.array(EvidenceEntry)
+});
+const FindingStateProjection = z.object({
+	id: z.string().regex(/^FND-\d{3,}$/),
+	category: FindingCategory,
+	action: FindingAction,
+	status: z.enum(["open", "closed"]),
+	summary: z.string().optional(),
+	reason: z.string().optional(),
+	target: z.object({
+		task_id: z.string().regex(/^T-\d{3,}$/),
+		step: z.string().min(1)
+	}).optional()
+});
+z.object({
+	schema_version: SchemaVersion,
+	findings: z.array(FindingStateProjection)
+});
+const PendingProjectionEntry = PendingPromptEntry.extend({ resolved: z.boolean() });
+z.object({
+	schema_version: SchemaVersion,
+	pending: z.array(PendingProjectionEntry)
+});
+const VerifyCheckSnapshot = z.object({
+	applicability: Applicability,
+	status: StepStatus,
+	reason: z.string().optional(),
+	evidence_refs: z.array(z.string().regex(/^EV-\d{6,}$/)).default([])
+});
+const IterationStats = z.object({
+	total: z.number().int().positive(),
+	findings_total: z.number().int().nonnegative(),
+	findings_by_action: z.record(FindingAction, z.number().int().nonnegative()),
+	findings_by_category: z.record(FindingCategory, z.number().int().nonnegative())
+});
+const Drift = z.object({
+	path: z.string(),
+	category: z.enum(["out_of_planned", "planned_not_touched"]),
+	reason: z.string().min(5),
+	resolution: z.enum([
+		"spec_amended",
+		"carried_forward",
+		"abandoned",
+		"deferred"
+	]),
+	finding_id: z.string().regex(/^FND-\d{3,}$/).optional()
+});
+const AcCoverage = z.object({
+	ac_id: z.string().regex(/^(REQ|SCEN|VIS)-[A-Z][A-Z0-9-]*-\d{3,}$/),
+	evidence_refs: z.array(z.string().regex(/^EV-\d{6,}$/)),
+	status: z.enum([
+		"passed",
+		"failed",
+		"waived",
+		"na"
+	])
+});
+z.object({
+	schema_version: SchemaVersion,
+	based_on: z.object({
+		spec: z.number().int().positive(),
+		tasks: z.number().int().positive()
+	}),
+	planned_scope: z.array(z.string()),
+	actual_scope: z.array(z.string()),
+	drift: z.array(Drift),
+	ac_coverage: z.array(AcCoverage),
+	verify_checks_status: z.record(VerifyCheckKind, VerifyCheckSnapshot),
+	iteration_stats: IterationStats,
+	unusual_findings_count: z.number().int().nonnegative().default(0)
+});
+z.object({
+	schema_version: SchemaVersion,
+	at: z.string().datetime(),
+	gate: z.union([
+		GateName,
+		z.literal("submit"),
+		z.literal("transition"),
+		z.literal("diff-guard")
+	]),
+	failures: z.array(z.object({
+		code: z.lazy(() => DiagnosticCode),
+		severity: z.enum(["block", "warn"]),
+		ref: z.string().optional(),
+		line: z.number().int().optional(),
+		vars: z.record(z.string(), z.union([z.string(), z.number()])).default({}),
+		suggestion: z.string().optional()
+	}))
+});
+const TasksActiveSummary = z.object({
+	task_id: z.string().regex(/^T-\d{3,}$/),
+	status: z.enum([
+		"pending",
+		"ready",
+		"in_progress",
+		"done",
+		"abandoned"
+	]),
+	current_step: z.string().nullable()
+});
+z.object({
+	schema_version: SchemaVersion,
+	at: z.string().datetime(),
+	session_id: z.string().uuid(),
+	reason: z.string().min(5),
+	state_snapshot: StateProjection,
+	tasks_active_summary: z.array(TasksActiveSummary).default([]),
+	recent_evidence: z.array(z.string().regex(/^EV-\d{6,}$/)),
+	recent_findings: z.array(z.string().regex(/^FND-\d{3,}$/)),
+	open_pending: PendingPrompt.nullable(),
+	notes: z.string().optional()
+});
+z.object({
+	schema_version: SchemaVersion,
+	protected_files: z.array(z.string()).default([]),
+	stable_core: z.array(z.string()).default([]),
+	paths: z.object({
+		source: z.array(z.string()).default(["src/**"]),
+		tests: z.array(z.string()).default(["**/test/**", "tests/**"]),
+		docs: z.array(z.string()).default(["docs/**", "**/*.md"]),
+		ui: z.array(z.string()).default([]),
+		public_api: z.array(z.string()).default([]),
+		schema: z.array(z.string()).default([]),
+		security: z.array(z.string()).default([])
+	}).prefault({}),
+	commands: z.object({
+		run: z.array(z.string()).default([]),
+		lint: z.array(z.string()).default([]),
+		typecheck: z.array(z.string()).default([]),
+		visual: z.array(z.string()).default([]),
+		acceptance: z.array(z.string()).default([]),
+		build: z.array(z.string()).default([])
+	}).prefault({}),
+	constitution: z.object({
+		tdd_strictness: z.enum([
+			"strict",
+			"preferred",
+			"advisory"
+		]).default("preferred"),
+		default_ceremony_label: z.string().default("standard"),
+		default_ceremony: Ceremony.optional(),
+		require_red_for_behavioral: z.boolean().default(true),
+		allow_manual_for_requirement: z.boolean().default(true),
+		require_attachment_for_visual: z.boolean().default(true)
+	}).prefault({}),
+	locale: z.object({ default_lang: z.enum(["en", "zh"]).default("en") }).prefault({})
+});
+z.object({
+	schema_version: SchemaVersion,
+	at: z.string().datetime(),
+	session_id: z.string().uuid(),
+	iteration: z.number().int().positive(),
+	sub_state: SubState,
+	cmd: z.string(),
+	argv: z.array(z.string()),
+	exit: z.number().int(),
+	wall_ms: z.number().int().nonnegative(),
+	stdout_summary: z.string().optional(),
+	stderr_summary: z.string().optional()
+});
+const EscalationTrigger = z.enum([
+	"scope_expansion",
+	"public_api_touched",
+	"schema_change",
+	"concurrency_touched",
+	"security_touched"
+]);
+z.object({
+	triggers: z.array(EscalationTrigger).min(1),
+	recommend_enable: z.array(z.enum([
+		"spec_phase",
+		"verify_phase",
+		"settle_phase",
+		"strict_spec_review",
+		"strict_drift_check"
+	])).default([])
+});
+z.object({
+	task_id: z.string().regex(/^T-\d{3,}$/),
+	step: z.string().min(1)
+});
+z.object({
+	action: FindingAction,
+	next_sub_state: SubState.nullable(),
+	iteration_delta: z.union([z.literal(0), z.literal(1)]),
+	spec_version_delta: z.union([z.literal(0), z.literal(1)]),
+	tasks_version_delta: z.union([z.literal(0), z.literal(1)]),
+	resets_spec_locked: z.boolean(),
+	may_trigger_relock: z.boolean(),
+	requires_target_payload: z.enum([
+		"task_id_step",
+		"task_id_optional",
+		"none"
+	])
+});
+const MutationRights = z.object({
+	writable_fields: z.array(z.string()).default([]),
+	forbidden_fields: z.array(z.string()).default([])
+});
+z.object({
+	sub_state: SubState,
+	entry: z.string(),
+	exit: z.string(),
+	write_paths: z.array(z.string()),
+	mutation_rights: MutationRights.optional(),
+	next: z.array(SubState),
+	prompt_inject: z.string()
+});
+z.object({
+	path: z.string(),
+	status: z.enum([
+		"added",
+		"modified",
+		"deleted",
+		"renamed",
+		"untracked",
+		"submodule"
+	]),
+	source: z.enum([
+		"worktree",
+		"index",
+		"untracked"
+	])
+});
+z.enum([
+	"session-start",
+	"write-guard",
+	"scope-track",
+	"closure-check"
+]);
+z.enum([
+	"typical",
+	"unusual",
+	"incoherent"
+]);
+z.object({
+	description: z.string().min(3),
+	include: z.array(z.string().min(1)),
+	exclude: z.array(z.string().min(1)).default([])
+});
+const DiagnosticCode = z.enum([
+	"INPUT_FILE_NOT_FOUND",
+	"MISSING_INPUT",
+	"SCHEMA_VALIDATION_FAILED",
+	"SPEC_LOCKED_NO_DIRECT_EDIT",
+	"SPEC_NOT_INITIALIZED",
+	"SPEC_ALREADY_INITIALIZED",
+	"ATTACHMENT_NOT_FOUND",
+	"ATTACHMENT_NOT_FILE",
+	"FINDING_ACTION_UNUSUAL_REASON_REQUIRED",
+	"FINDING_ACTION_INCOHERENT",
+	"FINDING_TARGET_REQUIRED",
+	"MUTUALLY_EXCLUSIVE_FLAGS",
+	"INVALID_ENV_VALUE",
+	"INVALID_FORMAT",
+	"DRY_RUN_NOT_APPLICABLE",
+	"TASK_STATUS_WITHOUT_PROOF",
+	"MISSING_VERIFIABILITY",
+	"VAGUE_NO_SCENARIO",
+	"DRIVES_NOT_BOUND",
+	"MUTATION_OUT_OF_RIGHTS",
+	"LOCK_TIMEOUT",
+	"LOCK_HELD_BY",
+	"FEATURE_NOT_FOUND",
+	"FEATURE_AMBIGUOUS",
+	"SESSION_CWD_MISMATCH",
+	"SESSION_SHORT_AMBIGUOUS",
+	"SESSION_NOT_FOUND",
+	"PENDING_BLOCKS_ADVANCE",
+	"GATE_NOT_PENDING",
+	"ESCALATION_NOT_PENDING",
+	"ACTOR_AUTHORITY_VIOLATION",
+	"FROM_CURSOR_MISMATCH",
+	"INVALID_ENVELOPE",
+	"INVALID_PAYLOAD",
+	"SEQ_NOT_MONOTONIC",
+	"SETTLE_PHASE_BYPASS",
+	"SETTLE_PHASE_DISABLED",
+	"SPEC_PHASE_FORK_VIOLATION",
+	"SUB_STATE_AUTHORITY_VIOLATION",
+	"TRANSITION_ILLEGAL",
+	"VERIFY_PHASE_FORK_VIOLATION",
+	"EXECUTE_DONE_TASKS_NOT_FINAL",
+	"ALREADY_STARTED",
+	"FINDING_NOT_FOUND",
+	"NO_SESSION",
+	"PENDING_NOT_FOUND",
+	"REDUCER_NOT_IMPLEMENTED",
+	"ENTRY_OVERSIZE",
+	"SHORT_WRITE",
+	"TAIL_CORRUPTION",
+	"MIGRATION_BACKUP_MISSING",
+	"MIGRATION_INCOMPLETE",
+	"MIGRATION_REPLAY_ATTEMPT",
+	"MIGRATION_SIDECAR_MISSING",
+	"INVALID_ACTOR_FORMAT",
+	"NO_HUMAN_ACTOR",
+	"DUPLICATE_REQ_ID",
+	"DUPLICATE_SCEN_ID",
+	"DUPLICATE_VIS_ID",
+	"SPEC_FRONTMATTER_INVALID",
+	"SPEC_HAS_UNCLARIFIED",
+	"TASK_NOT_FOUND",
+	"TASK_STEP_NOT_FOUND",
+	"DUPLICATE_TASK_ID",
+	"TASKS_NOT_PLANNED",
+	"TASKS_BASED_ON_STALE",
+	"REQ_NOT_DRIVEN",
+	"E2E_SCENARIO_UNBOUND",
+	"VISUAL_CONTRACT_UNBOUND",
+	"TASK_KIND_SCHEMA_VIOLATION",
+	"GATE_PRECONDITION_VIOLATION",
+	"MULTIPLE_GATE_DECISIONS",
+	"GATE_NOT_IMPLEMENTED",
+	"VERIFY_LANE_NOT_PASSED",
+	"OPEN_FINDINGS_PRESENT",
+	"COVERAGE_NOT_SATISFIED",
+	"TASK_DONE_NO_EVIDENCE",
+	"SPEC_REVIEW_MISSING",
+	"SPEC_REVIEW_IMPLEMENTER_CONFLICT",
+	"SPEC_REVIEW_IMPLEMENTER_UNKNOWN",
+	"DELIVER_NOT_ACCEPTED",
+	"DELIVER_SETTLE_PHASE_BYPASS",
+	"DELIVER_VERIFY_MIN_UNAVAILABLE",
+	"DELIVER_SPIKE_TASKS",
+	"SETTLE_NOT_ACCEPTED",
+	"TASK_NOT_CLAIMABLE",
+	"TASK_ALREADY_CLAIMED",
+	"TASK_DEPS_NOT_SATISFIED",
+	"TASK_NOT_CLAIMED",
+	"TASK_NOT_ABANDONABLE",
+	"TASK_ABANDON_BLOCKED_DEPENDENTS",
+	"SESSION_REASON_REQUIRED",
+	"PROJECTION_WRITE_FAILED",
+	"FINDING_AMEND_SPEC_NOT_LOCKED",
+	"SPEC_VERSION_NOT_MONOTONIC",
+	"SPEC_VERSION_BATCH_MISMATCH",
+	"TASK_COMPLETE_PRECONDITION_VIOLATED",
+	"CANONICAL_TASK_BODY_UNAVAILABLE",
+	"BUG_TASK_REQUIRES_RED",
+	"BUG_TASK_FLAG_MISUSE",
+	"BUG_TASK_RED_NOT_REGISTERED",
+	"SPIKE_CONVERT_NO_SPIKE_TASK",
+	"SNAPSHOT_STALE_REBUILD_REQUIRED",
+	"INVALID_PRESET",
+	"USAGE",
+	"DOCTOR_MODE_NOT_IMPLEMENTED",
+	"DOCTOR_FEATURE_REQUIRED",
+	"DOCTOR_REBUILD_FAILED",
+	"DOCTOR_REBUILD_MIGRATED_UNSUPPORTED",
+	"REDUCER_ERROR"
+]);
+z.object({
+	exit_code: z.literal(2),
+	message_template: z.string().min(3),
+	fix_template: z.string().min(3).optional(),
+	doc_anchor: z.string().min(3).optional()
+});
+const ReqIdNamespace = z.string().regex(/^REQ-[A-Z][A-Z0-9]*$/);
+const ScenIdNamespace = z.string().regex(/^SCEN-[A-Z][A-Z0-9-]*$/);
+const VisIdNamespace = z.string().regex(/^VIS-[A-Z][A-Z0-9-]*$/);
+const SpecReqInputUbiquitous = z.object({
+	id_namespace: ReqIdNamespace,
+	type: z.literal("ubiquitous"),
+	response: z.string().min(10)
+}).and(VerifiabilityFields);
+const SpecReqInputEventDriven = z.object({
+	id_namespace: ReqIdNamespace,
+	type: z.literal("event-driven"),
+	trigger: z.string().min(5),
+	response: z.string().min(10)
+}).and(VerifiabilityFields);
+const SpecReqInputStateDriven = z.object({
+	id_namespace: ReqIdNamespace,
+	type: z.literal("state-driven"),
+	while_: z.string().min(5),
+	behavior: z.string().min(10)
+}).and(VerifiabilityFields);
+const SpecReqInputOptional = z.object({
+	id_namespace: ReqIdNamespace,
+	type: z.literal("optional"),
+	feature: z.string().min(5),
+	response: z.string().min(10)
+}).and(VerifiabilityFields);
+const SpecReqInputUnwanted = z.object({
+	id_namespace: ReqIdNamespace,
+	type: z.literal("unwanted"),
+	condition: z.string().min(5),
+	response: z.string().min(10)
+}).and(VerifiabilityFields);
+const SpecReqInput = z.union([
+	SpecReqInputUbiquitous,
+	SpecReqInputEventDriven,
+	SpecReqInputStateDriven,
+	SpecReqInputOptional,
+	SpecReqInputUnwanted
+]);
+const SpecScenarioInput = z.object({
+	id_namespace: ScenIdNamespace,
+	name: z.string().min(3),
+	tag: z.enum([
+		"happy",
+		"edge",
+		"error",
+		"e2e"
+	]).optional(),
+	requires_acceptance: z.boolean().optional(),
+	acceptance_na: z.string().min(5).optional(),
+	given: z.array(z.string().min(3)).min(1),
+	when: z.array(z.string().min(3)).min(1),
+	then: z.array(z.string().min(3)).min(1)
+}).refine((s) => !(s.tag === "e2e" && s.acceptance_na && s.requires_acceptance), { message: "cannot set both requires_acceptance and acceptance_na" });
+const SpecVisualInput = z.object({
+	id_namespace: VisIdNamespace,
+	target: z.string().min(3),
+	checks: z.array(z.string().min(3)).min(1),
+	requires_visual: z.boolean().optional(),
+	visual_na: z.string().min(5).optional()
+});
+const TaskInputBase = z.object({
+	drives: z.array(DrivesRef).optional(),
+	depends_on: z.array(TaskId).default([]),
+	labels: z.array(z.string()).default([])
+});
+const TaskBehavioralInput = TaskInputBase.extend({
+	kind: z.literal("behavioral"),
+	drives: z.array(DrivesRef).min(1),
+	tests: z.array(z.string().min(3)).min(1),
+	test_layer: z.enum([
+		"unit",
+		"integration",
+		"e2e"
+	]).optional(),
+	requires_acceptance: z.boolean().optional(),
+	requires_visual: z.boolean().optional()
+}).strict();
+const TaskStructuralInput = TaskInputBase.extend({
+	kind: z.literal("structural"),
+	no_test_rationale: z.string().min(10)
+}).strict();
+const TaskVisualUiInput = TaskInputBase.extend({
+	kind: z.literal("visual-ui"),
+	visual_contract_refs: z.array(VisId).min(1),
+	no_test_rationale: z.string().min(10).optional()
+}).strict();
+const TaskDocsInput = TaskInputBase.extend({
+	kind: z.literal("docs"),
+	no_test_rationale: z.string().min(10)
+}).strict();
+const TaskSpikeInput = TaskInputBase.extend({
+	kind: z.literal("spike"),
+	no_test_rationale: z.string().min(10)
+}).strict();
+const TaskChoreInput = TaskInputBase.extend({
+	kind: z.literal("chore"),
+	no_test_rationale: z.string().min(10)
+}).strict();
+const TaskInput = z.discriminatedUnion("kind", [
+	TaskBehavioralInput,
+	TaskStructuralInput,
+	TaskVisualUiInput,
+	TaskDocsInput,
+	TaskSpikeInput,
+	TaskChoreInput
+]);
+const batchOrSingle = (schema) => z.union([schema, z.array(schema).nonempty()]);
+const SpecReqInputBatched = batchOrSingle(SpecReqInput);
+const SpecScenarioInputBatched = batchOrSingle(SpecScenarioInput);
+const SpecVisualInputBatched = batchOrSingle(SpecVisualInput);
+const TaskInputBatched = batchOrSingle(TaskInput);
+const EvidenceAddInputBatched = batchOrSingle(EvidenceAddInput);
+z.enum([
+	"spec:add-req",
+	"spec:add-scenario",
+	"spec:add-visual",
+	"tasks:add",
+	"evidence:add"
+]);
+const INPUT_SCHEMAS = {
+	"spec:add-req": SpecReqInputBatched,
+	"spec:add-scenario": SpecScenarioInputBatched,
+	"spec:add-visual": SpecVisualInputBatched,
+	"tasks:add": TaskInputBatched,
+	"evidence:add": EvidenceAddInputBatched
+};
+z.discriminatedUnion("source", [
+	z.object({ source: z.literal("stdin") }),
+	z.object({
+		source: z.literal("inline"),
+		raw: z.string().min(1)
+	}),
+	z.object({
+		source: z.literal("path"),
+		path: z.string().min(1)
+	})
+]);
+//#endregion
+//#region src/cli/schema-emit.ts
+const ARTIFACT_SCHEMA_KINDS = [
+	"spec",
+	"tasks",
+	"evidence",
+	"finding",
+	"state"
+];
+/** Artifact kind → Zod schema. `finding` (singular CLI noun) maps to
+*  `FindingsJson` (plural file name) — same singular/plural mismatch as
+*  SC-9c check. */
+const ARTIFACT_SCHEMAS = {
+	spec: SpecFrontmatter$1,
+	tasks: TasksJson$1,
+	evidence: EvidenceJson$1,
+	finding: FindingsJson$1,
+	state: StateProjection$1
+};
+/** Emit JSON Schema for one of the 5 batch-capable mutators. */
+function emitInputSchema(commandKey) {
+	return z.toJSONSchema(INPUT_SCHEMAS[commandKey], { target: "draft-2020-12" });
+}
+/** Emit JSON Schema for one of the 5 artifact projection kinds. */
+function emitArtifactSchema(kind) {
+	return z.toJSONSchema(ARTIFACT_SCHEMAS[kind], { target: "draft-2020-12" });
+}
+/** Pretty-print a JSON Schema document for stdout. */
+function formatSchema(schema) {
+	return JSON.stringify(schema, null, 2) + "\n";
 }
 //#endregion
 //#region src/cli/url-prefill.ts
@@ -3573,7 +4669,7 @@ function buildHumanActor(rawValue) {
 		message: "actor value starts with a reserved namespace prefix (human: / skill: / ci: / cli: / migration:); pass the raw identifier without prefix"
 	};
 	const candidate = `human:${rawValue}`;
-	if (!ActorString.safeParse(candidate).success) return {
+	if (!ActorString$1.safeParse(candidate).success) return {
 		ok: false,
 		code: "INVALID_ACTOR_FORMAT",
 		message: "actor candidate does not satisfy ActorString format"
@@ -4136,7 +5232,7 @@ function preflight(rawEntry, ctx) {
 	const sub_state = ctx.snapshot.state?.sub_state ?? DEFAULT_SUB_STATE;
 	const ceremony = ctx.snapshot.state?.ceremony ?? DEFAULT_CEREMONY;
 	const verify_accepted = ctx.snapshot.state?.verify_accepted ?? false;
-	const parsed = JournalEntry.safeParse(rawEntry);
+	const parsed = JournalEntry$1.safeParse(rawEntry);
 	if (!parsed.success) return {
 		ok: false,
 		code: "INVALID_ENVELOPE",
@@ -5769,7 +6865,7 @@ async function appendMany(filePath, entries, priorMeta, opts = {}) {
 	const lineBuffers = [];
 	const lineStrings = [];
 	for (const entry of entries) {
-		const parsed = JournalEntry.safeParse(entry);
+		const parsed = JournalEntry$1.safeParse(entry);
 		if (!parsed.success) throw new AppendError("INVALID_ENVELOPE", "JournalEntry failed envelope schema validation", { issues: parsed.error.issues });
 		const payloadParsed = PER_KIND_PAYLOAD[parsed.data.kind].safeParse(parsed.data.payload);
 		if (!payloadParsed.success) throw new AppendError("INVALID_PAYLOAD", `payload schema validation failed for kind=${parsed.data.kind}`, {
@@ -5883,7 +6979,7 @@ const LegacyPendingSchema = z.object({ pending: z.array(LegacyPendingItemSchema)
 const LegacyEvidenceSchema = z.object({
 	id: z.string().min(1),
 	kind: z.string().min(1),
-	result: EvidenceResult.optional(),
+	result: EvidenceResult$1.optional(),
 	covers: z.array(z.string()).optional(),
 	actor: z.string().optional()
 }).passthrough();
@@ -6212,7 +7308,7 @@ async function replayJournal(filePath, opts = {}) {
 		const lineBytes = Buffer.byteLength(line + "\n", "utf8");
 		let entry;
 		try {
-			const parsed = JournalEntry.safeParse(JSON.parse(line));
+			const parsed = JournalEntry$1.safeParse(JSON.parse(line));
 			if (!parsed.success) return {
 				ok: false,
 				code: "INVALID_ENTRY",
@@ -6470,7 +7566,7 @@ async function promoteSidecars(entry, attachmentRoot, opts = {}) {
 	let mutated = false;
 	for (const [fieldName, value] of Object.entries(payload)) {
 		if (!isLongTextFieldShape(value)) continue;
-		const parsed = LongTextField.safeParse(value);
+		const parsed = LongTextField$1.safeParse(value);
 		if (!parsed.success) continue;
 		const field = parsed.data;
 		if (field.mode === "sidecar") continue;
@@ -6540,7 +7636,7 @@ function composeSpecMdFrontmatter(snapshot, existingBody = "") {
 		visual_contracts: snapshot.visual_contracts,
 		needs_clarification: snapshot.spec_header.needs_clarification
 	};
-	SpecFrontmatter.parse(fm);
+	SpecFrontmatter$1.parse(fm);
 	return `---\n${stringify(fm)}---\n${existingBody}`;
 }
 /**
@@ -7042,6 +8138,41 @@ async function main(argv = process.argv, deps = {}) {
 				return 2;
 			}
 		}
+		const MUTATOR_SCHEMA_LABELS = new Map([
+			["spec/add-req", "spec add-req --schema"],
+			["spec/add-scenario", "spec add-scenario --schema"],
+			["spec/add-visual", "spec add-visual --schema"],
+			["tasks/add", "tasks add --schema"],
+			["evidence/add", "evidence add --schema"]
+		]);
+		const ARTIFACT_KINDS = new Set([
+			"spec",
+			"tasks",
+			"evidence",
+			"finding",
+			"state"
+		]);
+		const isArtifactSchema = cmdTokens[1] === "schema" && cmdTokens[0] !== void 0 && ARTIFACT_KINDS.has(cmdTokens[0]);
+		const mutatorSchemaLabel = cmdTokens[0] !== void 0 && cmdTokens[1] !== void 0 && argv.includes("--schema") ? MUTATOR_SCHEMA_LABELS.get(`${cmdTokens[0]}/${cmdTokens[1]}`) : void 0;
+		if (isArtifactSchema || mutatorSchemaLabel !== void 0) {
+			const presentSelectors = [];
+			if (argv.includes("--session") || argv.some((a) => a.startsWith("--session="))) presentSelectors.push("--session");
+			if (argv.includes("--feature") || argv.some((a) => a.startsWith("--feature="))) presentSelectors.push("--feature");
+			if (argv.includes("--feature-dir") || argv.some((a) => a.startsWith("--feature-dir="))) presentSelectors.push("--feature-dir");
+			if (process.env["LOAF_SESSION"] !== void 0 && process.env["LOAF_SESSION"].length > 0) presentSelectors.push("$LOAF_SESSION");
+			if (process.env["LOAF_FEATURE"] !== void 0 && process.env["LOAF_FEATURE"].length > 0) presentSelectors.push("$LOAF_FEATURE");
+			if (presentSelectors.length > 0) {
+				const usageMessage = `${mutatorSchemaLabel ?? `${cmdTokens[0]} schema`} does not accept ${presentSelectors.join(" / ")} — schema dumps are feature-agnostic`;
+				if (argv.some((a) => a === "--format=json" || a === "--format" && argv[argv.indexOf(a) + 1] === "json")) process.stderr.write(JSON.stringify({
+					ok: false,
+					code: "USAGE",
+					message: usageMessage,
+					detail: { conflicting: presentSelectors }
+				}) + "\n");
+				else process.stderr.write(`error: USAGE — ${usageMessage}\n`);
+				return 2;
+			}
+		}
 	}
 	if (!wantsHelpOrVersion) {
 		const hasSession = argv.includes("--session") || argv.some((a) => a.startsWith("--session="));
@@ -7162,6 +8293,10 @@ async function main(argv = process.argv, deps = {}) {
 			return true;
 		}
 		return false;
+	};
+	const emitMutatorSchemaAndExit = (commandKey) => {
+		const schema = emitInputSchema(commandKey);
+		ctx.success(schema, () => formatSchema(schema));
 	};
 	const loadProjectionsOrFail = async (featureDir, kinds, feature) => {
 		try {
@@ -7916,7 +9051,17 @@ async function main(argv = process.argv, deps = {}) {
 			next: "loaf advance"
 		});
 	});
-	tasksCmd.command("add").description("Append id-less task(s) to the graph — --input <src> with single object or array (batch); SPEC.design whole-graph, or EXECUTE.work sponsored via --finding").requiredOption("--input <src>", "JSON source for TaskInput (single object or array): `-` (stdin), inline JSON, or file path (protocol §10.7)").option("--feature <name>", "Feature whose task graph to extend").option("--feature-dir <path>", "Override default .loaf/<feature> directory").option("--finding <FND-N>", "Sponsoring amend-tasks finding (sponsored add at EXECUTE.work)").action(async (opts) => {
+	tasksCmd.command("add").description("Append id-less task(s) to the graph — --input <src> with single object or array (batch); SPEC.design whole-graph, or EXECUTE.work sponsored via --finding").option("--input <src>", "JSON source for TaskInput (single object or array): `-` (stdin), inline JSON, or file path (protocol §10.7)").option("--schema", "Dump the input JSON Schema instead of mutating (Phase 16 SC-10)").option("--feature <name>", "Feature whose task graph to extend").option("--feature-dir <path>", "Override default .loaf/<feature> directory").option("--finding <FND-N>", "Sponsoring amend-tasks finding (sponsored add at EXECUTE.work)").action(async (rawOpts) => {
+		if (rawOpts.schema === true) {
+			if (rejectIfDryRun("tasks add --schema")) return;
+			emitMutatorSchemaAndExit("tasks:add");
+			return;
+		}
+		if (rawOpts.input === void 0) {
+			emitFailure("MISSING_INPUT", "loaf tasks add requires --input <src> (or pass --schema to dump the input JSON Schema)");
+			return;
+		}
+		const opts = rawOpts;
 		const source = parseInputSource(opts.input);
 		if (source.kind === "stdin" && isStdinTty()) {
 			ctx.failure("USAGE", "stdin is TTY — `loaf tasks add --input -` expects piped input. Pipe JSON via `... | loaf tasks add --input -`, OR pass inline JSON / file path. Run --help for examples.");
@@ -7935,7 +9080,7 @@ async function main(argv = process.argv, deps = {}) {
 		}
 		const validatedInputs = [];
 		for (const raw of rawTasks) {
-			const p = TaskInput.safeParse(raw);
+			const p = TaskInput$1.safeParse(raw);
 			if (!p.success) {
 				ctx.failure("SCHEMA_VALIDATION_FAILED", `tasks add input is not a valid id-less task (omit id / status / execution): ${p.error.issues.map((i) => i.message).join("; ")}`, { issues: p.error.issues });
 				return;
@@ -8284,7 +9429,7 @@ async function main(argv = process.argv, deps = {}) {
 				return;
 			}
 			const inParsed = read.value;
-			const inTask = TaskInput.safeParse(inParsed);
+			const inTask = TaskInput$1.safeParse(inParsed);
 			if (!inTask.success) {
 				ctx.failure("SCHEMA_VALIDATION_FAILED", `tasks amend --input is not a valid id-less task (omit id / status / execution): ${inTask.error.issues.map((i) => i.message).join("; ")}`, { issues: inTask.error.issues });
 				return;
@@ -8864,7 +10009,18 @@ async function main(argv = process.argv, deps = {}) {
 			kind: head.kind
 		}, () => `resolved ${head.id} (kind=${head.kind})\n`, { stateChange: `pending resolve: ${head.id} cleared` });
 	});
-	program.command("evidence").description("Evidence ledger commands (Slice 3 SC2 MVP: add)").command("add").description("Append evidence entry/entries from --input <src> JSON (CLI allocates EV-id; single object or non-empty array for batch)").requiredOption("--input <src>", "JSON source for EvidenceAddInput (single object OR non-empty array for batch): `-` (stdin), inline JSON, or file path (protocol §10.7)").option("--feature <name>", "Feature whose ledger to append to").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+	const evidenceCmd = program.command("evidence").description("Evidence ledger commands (Slice 3 SC2 MVP: add)");
+	evidenceCmd.command("add").description("Append evidence entry/entries from --input <src> JSON (CLI allocates EV-id; single object or non-empty array for batch)").option("--input <src>", "JSON source for EvidenceAddInput (single object OR non-empty array for batch): `-` (stdin), inline JSON, or file path (protocol §10.7)").option("--schema", "Dump the input JSON Schema instead of mutating (Phase 16 SC-10)").option("--feature <name>", "Feature whose ledger to append to").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (rawOpts) => {
+		if (rawOpts.schema === true) {
+			if (rejectIfDryRun("evidence add --schema")) return;
+			emitMutatorSchemaAndExit("evidence:add");
+			return;
+		}
+		if (rawOpts.input === void 0) {
+			emitFailure("MISSING_INPUT", "loaf evidence add requires --input <src> (or pass --schema to dump the input JSON Schema)");
+			return;
+		}
+		const opts = rawOpts;
 		if (await dispatchOrFail(opts) === null) return;
 		const source = parseInputSource(opts.input);
 		if (source.kind === "stdin" && isStdinTty()) {
@@ -8885,7 +10041,7 @@ async function main(argv = process.argv, deps = {}) {
 		const validatedInputs = [];
 		for (let i = 0; i < rawItems.length; i++) {
 			const raw = rawItems[i];
-			const p = EvidenceAddInput.safeParse(raw);
+			const p = EvidenceAddInput$1.safeParse(raw);
 			if (!p.success) {
 				ctx.failure("SCHEMA_VALIDATION_FAILED", `evidence add input[${i}] failed schema validation: ${p.error.issues.map((iss) => iss.message).join("; ")}`, {
 					index: i,
@@ -9452,7 +10608,7 @@ async function main(argv = process.argv, deps = {}) {
 			visual_contracts: [],
 			needs_clarification: []
 		};
-		const scaffoldParse = SpecFrontmatter.safeParse(scaffoldObj);
+		const scaffoldParse = SpecFrontmatter$1.safeParse(scaffoldObj);
 		if (!scaffoldParse.success) {
 			emitFailure("SCHEMA_VALIDATION_FAILED", "spec init scaffold failed SpecFrontmatter validation; check --feature-id (/^F-\\d{3,}$/), --feature-name (≥3 chars), --intent (≥20 chars)", { issues: scaffoldParse.error.issues });
 			return;
@@ -9472,87 +10628,122 @@ feature:
 			next: "edit, then `loaf spec submit`"
 		});
 	});
-	for (const cfg of REGISTER_SPEC_ADD) specCmd.command(`add-${cfg.name}`).description(`Add ${cfg.name} entries via id_namespace stamping (CLI allocates ${cfg.name.toUpperCase()} ids)`).requiredOption("--input <src>", `JSON source for SpecAdd${cfg.name[0].toUpperCase()}${cfg.name.slice(1)}Input (item or array): \`-\` (stdin), inline JSON, or file path (protocol §10.7)`).option("--feature <name>", `Feature whose spec to extend`).option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
-		const source = parseInputSource(opts.input);
-		if (source.kind === "stdin" && isStdinTty()) {
-			ctx.failure("USAGE", `stdin is TTY — \`loaf spec add-${cfg.name} --input -\` expects piped input. Pipe JSON via \`... | loaf spec add-${cfg.name} --input -\`, OR pass inline JSON / file path. Run --help for examples.`);
-			return;
-		}
-		const read = await readJsonInput(source, { readStdin });
-		if (!read.ok) {
-			ctx.failure(read.code, read.message, read.detail);
-			return;
-		}
-		const parsed = read.value;
-		const inputParse = cfg.inputSchema.safeParse(parsed);
-		if (!inputParse.success) {
-			ctx.failure("SCHEMA_VALIDATION_FAILED", `spec add-${cfg.name} input failed schema validation`, { issues: inputParse.error.issues });
-			return;
-		}
-		const items = Array.isArray(inputParse.data) ? inputParse.data : [inputParse.data];
-		const featureDir = await dispatchOrFail(opts);
-		if (featureDir === null) return;
-		const session = await ctx.resolveSession(featureDir);
-		if (!session.snapshot.state) {
-			ctx.failure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
-			return;
-		}
-		const existingIds = session.snapshot[cfg.snapshotKey].map((p) => p.id);
-		const counters = /* @__PURE__ */ new Map();
-		const allocatedIds = [];
-		const transformedItems = [];
-		for (const raw of items) {
-			const ns = raw.id_namespace;
-			let next = counters.get(ns);
-			if (next === void 0) next = nextSerialInNamespace(existingIds, ns);
-			const fullId = `${ns}-${String(next).padStart(3, "0")}`;
-			counters.set(ns, next + 1);
-			allocatedIds.push(fullId);
-			const { id_namespace: _ns, ...rest } = raw;
-			transformedItems.push({
-				id: fullId,
-				rest
-			});
-		}
-		const targetVersion = session.snapshot.state.spec_version + 1;
-		const now = (/* @__PURE__ */ new Date()).toISOString();
-		const result = await mutateBatch(transformedItems.map(({ id, rest }, _idx) => ({
-			at: now,
-			actor,
-			entry_schema_version: 1,
-			kind: cfg.entryKind,
-			payload: {
-				spec_version: targetVersion,
-				[cfg.payloadField]: {
-					id,
-					...rest
-				}
+	for (const cfg of REGISTER_SPEC_ADD) {
+		const mutatorKey = cfg.name === "req" ? "spec:add-req" : cfg.name === "scenario" ? "spec:add-scenario" : "spec:add-visual";
+		specCmd.command(`add-${cfg.name}`).description(`Add ${cfg.name} entries via id_namespace stamping (CLI allocates ${cfg.name.toUpperCase()} ids)`).option("--input <src>", `JSON source for SpecAdd${cfg.name[0].toUpperCase()}${cfg.name.slice(1)}Input (item or array): \`-\` (stdin), inline JSON, or file path (protocol §10.7)`).option("--schema", "Dump the input JSON Schema instead of mutating (Phase 16 SC-10)").option("--feature <name>", `Feature whose spec to extend`).option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (rawOpts) => {
+			if (rawOpts.schema === true) {
+				let rejected = false;
+				if (cfg.name === "req") rejected = rejectIfDryRun("spec add-req --schema");
+				else if (cfg.name === "scenario") rejected = rejectIfDryRun("spec add-scenario --schema");
+				else rejected = rejectIfDryRun("spec add-visual --schema");
+				if (rejected) return;
+				emitMutatorSchemaAndExit(mutatorKey);
+				return;
 			}
-		})), {
-			feature_dir: featureDir,
-			snapshot: session.snapshot,
-			tail_seq: session.tail_seq,
-			entries: session.entries,
-			meta: session.meta,
-			dryRun: ctx.dryRun,
-			registryWriter: registryWriterDeps
+			if (rawOpts.input === void 0) {
+				emitFailure("MISSING_INPUT", `loaf spec add-${cfg.name} requires --input <src> (or pass --schema to dump the input JSON Schema)`);
+				return;
+			}
+			const opts = rawOpts;
+			const source = parseInputSource(opts.input);
+			if (source.kind === "stdin" && isStdinTty()) {
+				ctx.failure("USAGE", `stdin is TTY — \`loaf spec add-${cfg.name} --input -\` expects piped input. Pipe JSON via \`... | loaf spec add-${cfg.name} --input -\`, OR pass inline JSON / file path. Run --help for examples.`);
+				return;
+			}
+			const read = await readJsonInput(source, { readStdin });
+			if (!read.ok) {
+				ctx.failure(read.code, read.message, read.detail);
+				return;
+			}
+			const parsed = read.value;
+			const inputParse = cfg.inputSchema.safeParse(parsed);
+			if (!inputParse.success) {
+				ctx.failure("SCHEMA_VALIDATION_FAILED", `spec add-${cfg.name} input failed schema validation`, { issues: inputParse.error.issues });
+				return;
+			}
+			const items = Array.isArray(inputParse.data) ? inputParse.data : [inputParse.data];
+			const featureDir = await dispatchOrFail(opts);
+			if (featureDir === null) return;
+			const session = await ctx.resolveSession(featureDir);
+			if (!session.snapshot.state) {
+				ctx.failure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+				return;
+			}
+			const existingIds = session.snapshot[cfg.snapshotKey].map((p) => p.id);
+			const counters = /* @__PURE__ */ new Map();
+			const allocatedIds = [];
+			const transformedItems = [];
+			for (const raw of items) {
+				const ns = raw.id_namespace;
+				let next = counters.get(ns);
+				if (next === void 0) next = nextSerialInNamespace(existingIds, ns);
+				const fullId = `${ns}-${String(next).padStart(3, "0")}`;
+				counters.set(ns, next + 1);
+				allocatedIds.push(fullId);
+				const { id_namespace: _ns, ...rest } = raw;
+				transformedItems.push({
+					id: fullId,
+					rest
+				});
+			}
+			const targetVersion = session.snapshot.state.spec_version + 1;
+			const now = (/* @__PURE__ */ new Date()).toISOString();
+			const result = await mutateBatch(transformedItems.map(({ id, rest }, _idx) => ({
+				at: now,
+				actor,
+				entry_schema_version: 1,
+				kind: cfg.entryKind,
+				payload: {
+					spec_version: targetVersion,
+					[cfg.payloadField]: {
+						id,
+						...rest
+					}
+				}
+			})), {
+				feature_dir: featureDir,
+				snapshot: session.snapshot,
+				tail_seq: session.tail_seq,
+				entries: session.entries,
+				meta: session.meta,
+				dryRun: ctx.dryRun,
+				registryWriter: registryWriterDeps
+			});
+			if (!result.ok) {
+				ctx.failure(result.code, result.message, result.detail);
+				return;
+			}
+			if (ctx.dryRun) {
+				emitDryRunSuccess(result);
+				return;
+			}
+			const specVersion = result.snapshot.state?.spec_version;
+			ctx.success({
+				ok: true,
+				feature: opts.feature,
+				spec_version: specVersion,
+				ids: allocatedIds,
+				sub_state: result.snapshot.state?.sub_state
+			}, () => `spec add-${cfg.name} v${specVersion}: ${allocatedIds.join(", ")}\n`, { stateChange: `spec add-${cfg.name}: +${allocatedIds.length} ${cfg.name.toUpperCase()} (spec_version=${specVersion}; allocated ${allocatedIds.join(",")})` });
 		});
-		if (!result.ok) {
-			ctx.failure(result.code, result.message, result.detail);
-			return;
-		}
-		if (ctx.dryRun) {
-			emitDryRunSuccess(result);
-			return;
-		}
-		const specVersion = result.snapshot.state?.spec_version;
-		ctx.success({
-			ok: true,
-			feature: opts.feature,
-			spec_version: specVersion,
-			ids: allocatedIds,
-			sub_state: result.snapshot.state?.sub_state
-		}, () => `spec add-${cfg.name} v${specVersion}: ${allocatedIds.join(", ")}\n`, { stateChange: `spec add-${cfg.name}: +${allocatedIds.length} ${cfg.name.toUpperCase()} (spec_version=${specVersion}; allocated ${allocatedIds.join(",")})` });
+	}
+	const ARTIFACT_PARENTS = {
+		spec: specCmd,
+		tasks: tasksCmd,
+		evidence: evidenceCmd,
+		finding: findingCmd,
+		state: program.command("state").description("Session state schema dump (SC-10)")
+	};
+	for (const kind of ARTIFACT_SCHEMA_KINDS) ARTIFACT_PARENTS[kind].command("schema").description(`Dump the ${kind} artifact JSON Schema (Phase 16 SC-10; read-only)`).action(async () => {
+		let rejected = false;
+		if (kind === "spec") rejected = rejectIfDryRun("spec schema");
+		else if (kind === "tasks") rejected = rejectIfDryRun("tasks schema");
+		else if (kind === "evidence") rejected = rejectIfDryRun("evidence schema");
+		else if (kind === "finding") rejected = rejectIfDryRun("finding schema");
+		else rejected = rejectIfDryRun("state schema");
+		if (rejected) return;
+		const schema = emitArtifactSchema(kind);
+		ctx.success(schema, () => formatSchema(schema));
 	});
 	const t0 = monotonicNow();
 	let resolvedExit = 0;

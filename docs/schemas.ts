@@ -1,9 +1,14 @@
 // loaf-cli Protocol Schemas — v1 (rev 5.0)
 //
 // Single source of truth for all artifact contracts.
-// JSON Schema is derived via `zod-to-json-schema`; never hand-written.
+// JSON Schema is derived at runtime via Zod v4 built-in `z.toJSONSchema()`
+// (no external dependency); never hand-written. Phase 16 SC-10.
 //
-// Run: bun run gen-schemas.ts → dist/schemas/*.schema.json
+// Public path: `loaf <mutator> --schema --format=json` dumps input schemas
+// from INPUT_SCHEMAS (5 batch-capable mutators); `loaf <kind> schema
+// --format=json` dumps artifact projection schemas (5 closed kinds:
+// spec / tasks / evidence / finding / state). No standalone generator
+// script — schemas emit on-demand from runtime.
 //
 // All comments in this file are normative — they document the contract,
 // not the implementation. Implementation rules live in protocol.md.
@@ -4081,8 +4086,11 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
     fix_template:
       "pass --input with one of: a JSON file path, '-' for stdin (with " +
       "valid piped JSON), or inline JSON; for stdin failures, verify the " +
-      "pipe is intact (e.g. `echo '{...}' | loaf <cmd> --input -`); run " +
-      "`loaf <cmd> --schema --format=json` to view the schema",
+      "pipe is intact (e.g. `echo '{...}' | loaf <cmd> --input -`); when " +
+      "supported by the command (Phase 16 SC-10: the 5 batch-capable mutators " +
+      "spec add-req / spec add-scenario / spec add-visual / tasks add / " +
+      "evidence add), run `loaf <cmd> --schema --format=json` to view the " +
+      "input schema",
     doc_anchor: "protocol.md#§10.7",
   },
   SCHEMA_VALIDATION_FAILED: {
@@ -4090,8 +4098,12 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
     message_template:
       "input does not satisfy schema for {command}: {zod_path}: {zod_message}",
     fix_template:
-      "run `loaf {command} --schema --format=json` to dump the JSON Schema, " +
-      "fix the offending field, and retry",
+      "for the 5 batch-capable mutators (spec add-req / spec add-scenario / " +
+      "spec add-visual / tasks add / evidence add), run `loaf {command} " +
+      "--schema --format=json` to dump the input JSON Schema; for artifact " +
+      "projection files, run `loaf <kind> schema --format=json` (kind ∈ " +
+      "spec / tasks / evidence / finding / state). Fix the offending field " +
+      "and retry",
     doc_anchor: "protocol.md#§10.5",
   },
   SPEC_LOCKED_NO_DIRECT_EDIT: {
@@ -4674,7 +4686,7 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
     message_template:
       "spec.md frontmatter failed gate check 1 (subcode={subcode})",
     fix_template:
-      "subcode=SPEC_NOT_FOUND: run `loaf spec init` then `loaf spec submit` to seed spec.md; subcode=SPEC_YAML_INVALID: check the `---`-fenced YAML block at the top of spec.md for syntax errors; subcode=SPEC_FRONTMATTER_INVALID: run `loaf spec submit --schema` to dump the SpecFrontmatter schema and fix the offending field. Both spec-lock and verify-accept require a valid spec.md at check 1.",
+      "subcode=SPEC_NOT_FOUND: run `loaf spec init` then `loaf spec submit` to seed spec.md; subcode=SPEC_YAML_INVALID: check the `---`-fenced YAML block at the top of spec.md for syntax errors; subcode=SPEC_FRONTMATTER_INVALID: run `loaf spec schema --format=json` to dump the SpecFrontmatter JSON Schema (Phase 16 SC-10) and fix the offending field. Both spec-lock and verify-accept require a valid spec.md at check 1.",
     doc_anchor: "protocol.md#§5.1",
   },
   SPEC_HAS_UNCLARIFIED: {

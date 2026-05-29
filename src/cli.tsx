@@ -34,6 +34,14 @@ import { listSessions, formatAtRelative } from "./cli/sessions-list.js";
 import { buildEnvelope as buildVerifyStatusEnvelope, renderText as renderVerifyStatusText } from "./cli/verify-status.js";
 import { evaluateVerifyAcceptDiagnostic } from "./core/gates/verify-accept-eval.js";
 import { CHECK_KINDS, checkFile, renderSuccessText as renderCheckSuccess, type CheckKind } from "./cli/check-file.js";
+import {
+  ARTIFACT_SCHEMA_KINDS,
+  emitArtifactSchema,
+  emitInputSchema,
+  formatSchema,
+  type ArtifactSchemaKind,
+} from "./cli/schema-emit.js";
+import type { MutatorCommand } from "../docs/schemas.js";
 import { promises as fsPromises } from "node:fs";
 import { buildReportUrl } from "./cli/url-prefill.js";
 import { parseInputSource } from "./cli/input-source.js";
@@ -385,6 +393,67 @@ export async function main(
         return 2;
       }
     }
+
+    // Phase 16 SC-10 — `--schema` modifier + `<kind> schema` subs both
+    // reject feature/session dispatch selectors pre-parse. Two patterns:
+    //
+    //   Pattern 1 (mutator --schema): cmd is one of 5 batch-capable
+    //     mutators AND argv includes `--schema`.
+    //   Pattern 2 (artifact schema sub): cmd is `<kind> schema` where
+    //     kind ∈ {spec, tasks, evidence, finding, state}.
+    //
+    // Both reject the same 5 selectors as SC-9b/SC-9c (--session /
+    // --feature / --feature-dir / $LOAF_SESSION / $LOAF_FEATURE).
+    const MUTATOR_SCHEMA_LABELS = new Map<string, string>([
+      ["spec/add-req",      "spec add-req --schema"],
+      ["spec/add-scenario", "spec add-scenario --schema"],
+      ["spec/add-visual",   "spec add-visual --schema"],
+      ["tasks/add",         "tasks add --schema"],
+      ["evidence/add",      "evidence add --schema"],
+    ]);
+    const ARTIFACT_KINDS = new Set(["spec", "tasks", "evidence", "finding", "state"]);
+    const isArtifactSchema =
+      cmdTokens[1] === "schema" && cmdTokens[0] !== undefined && ARTIFACT_KINDS.has(cmdTokens[0]);
+    const mutatorSchemaLabel =
+      cmdTokens[0] !== undefined && cmdTokens[1] !== undefined && argv.includes("--schema")
+        ? MUTATOR_SCHEMA_LABELS.get(`${cmdTokens[0]}/${cmdTokens[1]}`)
+        : undefined;
+    if (isArtifactSchema || mutatorSchemaLabel !== undefined) {
+      const presentSelectors: string[] = [];
+      if (argv.includes("--session") || argv.some((a) => a.startsWith("--session="))) {
+        presentSelectors.push("--session");
+      }
+      if (argv.includes("--feature") || argv.some((a) => a.startsWith("--feature="))) {
+        presentSelectors.push("--feature");
+      }
+      if (argv.includes("--feature-dir") || argv.some((a) => a.startsWith("--feature-dir="))) {
+        presentSelectors.push("--feature-dir");
+      }
+      if (process.env["LOAF_SESSION"] !== undefined && process.env["LOAF_SESSION"].length > 0) {
+        presentSelectors.push("$LOAF_SESSION");
+      }
+      if (process.env["LOAF_FEATURE"] !== undefined && process.env["LOAF_FEATURE"].length > 0) {
+        presentSelectors.push("$LOAF_FEATURE");
+      }
+      if (presentSelectors.length > 0) {
+        const subj = mutatorSchemaLabel ?? `${cmdTokens[0]} schema`;
+        const usageMessage = `${subj} does not accept ${presentSelectors.join(" / ")} — schema dumps are feature-agnostic`;
+        const renderAsJson = argv.some(
+          (a) => a === "--format=json" || (a === "--format" && argv[argv.indexOf(a) + 1] === "json"),
+        );
+        if (renderAsJson) {
+          process.stderr.write(JSON.stringify({
+            ok: false,
+            code: "USAGE",
+            message: usageMessage,
+            detail: { conflicting: presentSelectors },
+          }) + "\n");
+        } else {
+          process.stderr.write(`error: USAGE — ${usageMessage}\n`);
+        }
+        return 2;
+      }
+    }
   }
 
   // Phase 16 SC-8 — dispatch USAGE pre-parse.
@@ -663,6 +732,16 @@ export async function main(
       return true;
     }
     return false;
+  };
+
+  // Phase 16 SC-10 — `--schema` bypass emitter for the 5 batch-capable
+  // mutator commands (codex r316 lock). Caller pre-checks opts.schema
+  // and rejectIfDryRun(<literal label>) at the action site so the
+  // SC-6c static guard can scan the literal strings; this helper only
+  // emits the schema once those gates have passed.
+  const emitMutatorSchemaAndExit = (commandKey: MutatorCommand): void => {
+    const schema = emitInputSchema(commandKey) as Record<string, unknown>;
+    ctx.success(schema, () => formatSchema(schema));
   };
 
   // loadProjectionsOrFail — projection-loader wrapper for the four
@@ -1929,14 +2008,28 @@ export async function main(
   tasksCmd
     .command("add")
     .description("Append id-less task(s) to the graph — --input <src> with single object or array (batch); SPEC.design whole-graph, or EXECUTE.work sponsored via --finding")
-    .requiredOption(
+    .option(
       "--input <src>",
       "JSON source for TaskInput (single object or array): `-` (stdin), inline JSON, or file path (protocol §10.7)",
     )
+    .option("--schema", "Dump the input JSON Schema instead of mutating (Phase 16 SC-10)")
     .option("--feature <name>", "Feature whose task graph to extend")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .option("--finding <FND-N>", "Sponsoring amend-tasks finding (sponsored add at EXECUTE.work)")
-    .action(async (opts: { input: string; feature: string; featureDir?: string; finding?: string }) => {
+    .action(async (rawOpts: { input?: string; schema?: boolean; feature: string; featureDir?: string; finding?: string }) => {
+      if (rawOpts.schema === true) {
+        if (rejectIfDryRun("tasks add --schema")) return;
+        emitMutatorSchemaAndExit("tasks:add");
+        return;
+      }
+      if (rawOpts.input === undefined) {
+        emitFailure(
+          "MISSING_INPUT",
+          "loaf tasks add requires --input <src> (or pass --schema to dump the input JSON Schema)",
+        );
+        return;
+      }
+      const opts = rawOpts as { input: string; feature: string; featureDir?: string; finding?: string };
       // Phase 16 SC-4b — unified --input modality (protocol §10.7).
       const source = parseInputSource(opts.input);
       if (source.kind === "stdin" && isStdinTty()) {
@@ -3538,13 +3631,27 @@ export async function main(
   evidenceCmd
     .command("add")
     .description("Append evidence entry/entries from --input <src> JSON (CLI allocates EV-id; single object or non-empty array for batch)")
-    .requiredOption(
+    .option(
       "--input <src>",
       "JSON source for EvidenceAddInput (single object OR non-empty array for batch): `-` (stdin), inline JSON, or file path (protocol §10.7)",
     )
+    .option("--schema", "Dump the input JSON Schema instead of mutating (Phase 16 SC-10)")
     .option("--feature <name>", "Feature whose ledger to append to")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-    .action(async (opts: { input: string; feature: string; featureDir?: string }) => {
+    .action(async (rawOpts: { input?: string; schema?: boolean; feature: string; featureDir?: string }) => {
+      if (rawOpts.schema === true) {
+        if (rejectIfDryRun("evidence add --schema")) return;
+        emitMutatorSchemaAndExit("evidence:add");
+        return;
+      }
+      if (rawOpts.input === undefined) {
+        emitFailure(
+          "MISSING_INPUT",
+          "loaf evidence add requires --input <src> (or pass --schema to dump the input JSON Schema)",
+        );
+        return;
+      }
+      const opts = rawOpts as { input: string; feature: string; featureDir?: string };
       // SC-6b — record trace target at action entry so long input-validation
       // failures still trace. SC-8: dispatchOrFail handles §10.3 precedence
       // + traceTarget in one call.
@@ -4629,16 +4736,42 @@ export async function main(
     });
 
   for (const cfg of REGISTER_SPEC_ADD) {
+    const mutatorKey: MutatorCommand =
+      cfg.name === "req" ? "spec:add-req"
+      : cfg.name === "scenario" ? "spec:add-scenario"
+      : "spec:add-visual";
     specCmd
       .command(`add-${cfg.name}`)
       .description(`Add ${cfg.name} entries via id_namespace stamping (CLI allocates ${cfg.name.toUpperCase()} ids)`)
-      .requiredOption(
+      .option(
         "--input <src>",
         `JSON source for SpecAdd${cfg.name[0]!.toUpperCase()}${cfg.name.slice(1)}Input (item or array): \`-\` (stdin), inline JSON, or file path (protocol §10.7)`,
       )
+      .option("--schema", "Dump the input JSON Schema instead of mutating (Phase 16 SC-10)")
       .option("--feature <name>", `Feature whose spec to extend`)
       .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-      .action(async (opts: { input: string; feature: string; featureDir?: string }) => {
+      .action(async (rawOpts: { input?: string; schema?: boolean; feature: string; featureDir?: string }) => {
+        // Phase 16 SC-10 — --schema bypass MUST be first (no input read,
+        // no session resolve). Pre-parse guard already rejected selectors
+        // when --schema is present. Literal labels per cfg.name so the
+        // SC-6c static guard can scan rejectIfDryRun("<label>") strings.
+        if (rawOpts.schema === true) {
+          let rejected = false;
+          if (cfg.name === "req")            rejected = rejectIfDryRun("spec add-req --schema");
+          else if (cfg.name === "scenario")  rejected = rejectIfDryRun("spec add-scenario --schema");
+          else                                rejected = rejectIfDryRun("spec add-visual --schema");
+          if (rejected) return;
+          emitMutatorSchemaAndExit(mutatorKey);
+          return;
+        }
+        if (rawOpts.input === undefined) {
+          emitFailure(
+            "MISSING_INPUT",
+            `loaf spec add-${cfg.name} requires --input <src> (or pass --schema to dump the input JSON Schema)`,
+          );
+          return;
+        }
+        const opts = rawOpts as { input: string; feature: string; featureDir?: string };
         // Phase 16 SC-4a — unified --input modality. TTY no-hang guard
         // per codex r212 PATCH 2 (protocol §10.1:1505) covers the stdin
         // case before any read.
@@ -4750,6 +4883,46 @@ export async function main(
               `spec add-${cfg.name}: +${allocatedIds.length} ${cfg.name.toUpperCase()} (spec_version=${specVersion}; allocated ${allocatedIds.join(",")})`,
           },
         );
+      });
+  }
+
+  // ── Phase 16 SC-10 — `loaf <kind> schema` artifact subs ──────────────
+  //
+  // 5 closed-enum kinds per protocol §1947 (excludes pending):
+  //   spec / tasks / evidence / finding / state
+  //
+  // 4 attach under existing parents (specCmd / tasksCmd / evidenceCmd /
+  // findingCmd); `state` is a NEW top-level parent (no other v0.1.0
+  // state subs). Feature-agnostic — pre-parse guard already rejected
+  // --feature / --feature-dir / --session / $LOAF_*. Read-only —
+  // `--dry-run` rejected via rejectIfDryRun(<label>).
+  const stateCmd = program
+    .command("state")
+    .description("Session state schema dump (SC-10)");
+
+  const ARTIFACT_PARENTS: Record<ArtifactSchemaKind, ReturnType<typeof program.command>> = {
+    spec:     specCmd,
+    tasks:    tasksCmd,
+    evidence: evidenceCmd,
+    finding:  findingCmd,
+    state:    stateCmd,
+  };
+  for (const kind of ARTIFACT_SCHEMA_KINDS) {
+    ARTIFACT_PARENTS[kind]
+      .command("schema")
+      .description(`Dump the ${kind} artifact JSON Schema (Phase 16 SC-10; read-only)`)
+      .action(async () => {
+        // no-feature — schema dump is feature-agnostic. Literal label
+        // per kind so the SC-6c static guard finds rejectIfDryRun("<kind> schema").
+        let rejected = false;
+        if (kind === "spec")          rejected = rejectIfDryRun("spec schema");
+        else if (kind === "tasks")    rejected = rejectIfDryRun("tasks schema");
+        else if (kind === "evidence") rejected = rejectIfDryRun("evidence schema");
+        else if (kind === "finding")  rejected = rejectIfDryRun("finding schema");
+        else                          rejected = rejectIfDryRun("state schema");
+        if (rejected) return;
+        const schema = emitArtifactSchema(kind) as Record<string, unknown>;
+        ctx.success(schema, () => formatSchema(schema));
       });
   }
 
