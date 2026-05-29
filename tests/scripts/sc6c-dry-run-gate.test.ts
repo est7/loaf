@@ -83,6 +83,44 @@ describe("SC-6c — positive table: every read-only command has rejectIfDryRun m
   });
 });
 
+describe("SC-13b — §10.7 dry-run classification ↔ runtime/SC-6c drift gate (codex r349)", () => {
+  test("`resume` is NOT in the §10.7 Read-only list (it's a mutator)", async () => {
+    const protocolText = await readRepo("docs/protocol.md");
+    // Find the Read-only command list line (single line listing in §10.7)
+    const readOnlyLine = protocolText
+      .split("\n")
+      .find((line) => line.includes("Read-only 命令") && line.includes("status"));
+    expect(readOnlyLine, "expected to find §10.7 Read-only commands row").toBeDefined();
+    // Match a word-boundary `resume` (not "resumes" / "resumed" / "session:resumed")
+    const hasResume = /[\s/(]resume[\s/),]/.test(readOnlyLine!);
+    expect(
+      hasResume,
+      "docs/protocol.md §10.7 Read-only list still mentions `resume` — but resume is a mutator (Phase 16 SC-13b); move it to the Mutating list",
+    ).toBe(false);
+  });
+
+  test("`resume` IS in the §10.7 Mutating list (Phase 16 SC-13b)", async () => {
+    const protocolText = await readRepo("docs/protocol.md");
+    const mutatingLine = protocolText
+      .split("\n")
+      .find((line) => line.includes("Mutating 命令") && line.includes("advance"));
+    expect(mutatingLine, "expected to find §10.7 Mutating commands row").toBeDefined();
+    const hasResume = /[\s/(`]resume[\s/),`*]/.test(mutatingLine!);
+    expect(
+      hasResume,
+      "docs/protocol.md §10.7 Mutating list must include `resume` (Phase 16 SC-13b mutator)",
+    ).toBe(true);
+  });
+
+  test("§10.7 has a `Projection-writer` category for `handoff` (Phase 16 SC-13a)", async () => {
+    const protocolText = await readRepo("docs/protocol.md");
+    expect(
+      protocolText.includes("Projection-writer"),
+      "docs/protocol.md §10.7 must include a Projection-writer category covering `handoff`",
+    ).toBe(true);
+  });
+});
+
 describe("SC-6c — every mutator call carries dryRun in MutateContext", () => {
   test("static: each await mutate(Batch) site's ctx arg contains dryRun: ctx.dryRun", async () => {
     const source = await readRepo("src/cli.tsx");
