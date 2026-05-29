@@ -42,6 +42,13 @@ import {
   type ArtifactSchemaKind,
 } from "./cli/schema-emit.js";
 import type { MutatorCommand } from "../docs/schemas.js";
+import {
+  allocateNextEvidenceId,
+  allocateNextEvidenceIds,
+} from "./cli/evidence-id-allocator.js";
+import { buildWaiveEvidencePayload } from "./cli/waive.js";
+import { buildLessonsEvidencePayload } from "./cli/lessons-add.js";
+import { CoversRefPayload } from "./core/evidence-schema.js";
 import { promises as fsPromises } from "node:fs";
 import { buildReportUrl } from "./cli/url-prefill.js";
 import { parseInputSource } from "./cli/input-source.js";
@@ -3715,17 +3722,11 @@ export async function main(
         return;
       }
 
-      // Allocate EV-ids sequentially: max-serial + 1 .. max-serial + N
-      // (codex r230 Q1 GO: atomic across batch via mutateBatch sharing
-      // batch_id; r236 GO: single max-serial scan, sequential).
-      const maxSerial = session.snapshot.evidence.reduce((max, e) => {
-        const m = /^EV-(\d+)$/.exec(e.id);
-        if (!m) return max;
-        return Math.max(max, Number.parseInt(m[1]!, 10));
-      }, 0);
-      const evIds: string[] = validatedInputs.map((_, i) =>
-        `EV-${String(maxSerial + 1 + i).padStart(6, "0")}`,
-      );
+      // Allocate EV-ids sequentially via shared allocator (Phase 16
+      // SC-11 lock — single source for `evidence add` / `waive` /
+      // `lessons add`). Atomic across batch via mutateBatch sharing
+      // batch_id (codex r230 Q1 / r236 GO).
+      const evIds: string[] = allocateNextEvidenceIds(session.snapshot, validatedInputs.length);
 
       // Materialize full payloads (inject CLI-allocated EV-id; refines
       // in EvidenceFullPayload run during mutateBatch preflight).
@@ -3797,6 +3798,227 @@ export async function main(
           { stateChange },
         );
       }
+    });
+
+  // ── loaf waive <obligation-id> — Phase 16 SC-11 ──────────────────────
+  // Sugar wrapper over `evidence:added` payload.kind=waiver. Records a
+  // human:* waiver against a specific obligation id (REQ-/SCEN-/VIS-/T-)
+  // with a required ≥10-char reason. Single-shot — emits one
+  // evidence:added entry (no batch). Uses the shared SC-11 EV-id
+  // allocator so monotonic ordering matches `evidence add` /
+  // `lessons add`.
+  program
+    .command("waive <obligation-id>")
+    .description("Record a waiver evidence (kind=waiver) against an obligation id (REQ-/SCEN-/VIS-/T-)")
+    .requiredOption("--reason <text>", "Waiver rationale (≥10 chars; mandatory per evidence schema refine)")
+    .option("--feature <name>", "Feature whose ledger to append to")
+    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
+    .action(async (
+      obligationId: string,
+      opts: { reason: string; feature: string; featureDir?: string },
+    ) => {
+      // (1) obligation id validation via shared CoversRefPayload regex
+      //     (no parallel local regex; codex r322 P5 lock)
+      const idCheck = CoversRefPayload.safeParse(obligationId);
+      if (!idCheck.success) {
+        emitFailure(
+          "USAGE",
+          `invalid obligation id '${obligationId}' — expected REQ-NS-NNN / SCEN-NS-NNN / VIS-NS-NNN / T-NNN form`,
+          { argument: obligationId },
+        );
+        return;
+      }
+      // (2) reason length is enforced by EvidenceFullPayload refine
+      //     downstream; surface the friendlier USAGE here too
+      if (opts.reason.length < 10) {
+        emitFailure(
+          "USAGE",
+          `--reason must be ≥10 chars (got ${opts.reason.length})`,
+          { reason_length: opts.reason.length },
+        );
+        return;
+      }
+      // (3) resolve human actor (waiver requires human:* per refine)
+      const resolution = resolveHumanActor({
+        env: process.env,
+        readGitConfig: readGitConfigForActor,
+        isInteractiveHuman: isInteractiveHumanForActor(),
+      });
+      if (!resolution.ok) {
+        emitFailure(resolution.code, resolution.message);
+        return;
+      }
+      const actor = resolution.actor;
+      const featureDir = await dispatchOrFail(opts);
+      if (featureDir === null) return;
+      const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
+      if (!session.snapshot.state) {
+        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        return;
+      }
+      // (4) allocate EV-id + build payload (pure builder, payload only)
+      const evidenceId = allocateNextEvidenceId(session.snapshot);
+      const payload = buildWaiveEvidencePayload({
+        evidenceId,
+        obligationId,
+        reason: opts.reason,
+        actor,
+        iteration: session.snapshot.state.iteration,
+      });
+      // (5) wrap in journal envelope (codex r325 P1 Option A boundary)
+      const result = await mutate(
+        {
+          at: new Date().toISOString(),
+          actor,
+          entry_schema_version: 1,
+          kind: "evidence:added",
+          payload,
+        },
+        {
+          feature_dir: featureDir,
+          snapshot: session.snapshot,
+          tail_seq: session.tail_seq,
+          entries: session.entries,
+          meta: session.meta,
+          dryRun: ctx.dryRun,
+          registryWriter: registryWriterDeps,
+        },
+      );
+      if (!result.ok) {
+        emitFailure(result.code, result.message, result.detail);
+        return;
+      }
+      if (ctx.dryRun) {
+        emitDryRunSuccess(result);
+        return;
+      }
+      ctx.success(
+        {
+          ok: true,
+          feature: opts.feature,
+          id: evidenceId,
+          kind: "waiver" as const,
+          obligation_id: obligationId,
+        },
+        () => `${evidenceId}\n`,
+        { stateChange: `waive: ${evidenceId} obligation=${obligationId}` },
+      );
+    });
+
+  // ── loaf lessons add — Phase 16 SC-11 ────────────────────────────────
+  // Sugar wrapper over `evidence:added` payload.kind=manual. Records a
+  // human:* manual evidence entry whose summary holds the lesson body.
+  // v0.1.0 scope: evidence ledger only — `lessons.md` projection writer
+  // is deferred (F-024; advisory stderr does NOT claim lessons.md
+  // updated). LongTextField sidecar promotion fires when lesson body
+  // bytes > SIDECAR_THRESHOLD_BYTES (Pass 2 sidecar promote).
+  const lessonsCmd = program
+    .command("lessons")
+    .description("Lessons-learned evidence commands (Phase 16 SC-11: add)");
+
+  lessonsCmd
+    .command("add")
+    .description("Record a lessons-learned evidence entry (kind=manual; --text inline OR --file <path>)")
+    .option("--text <inline>", "Lesson body text (inline). Mutex with --file.")
+    .option("--file <path>", "Read lesson body from file. Mutex with --text.")
+    .requiredOption("--reason <text>", "Why this lesson matters (≥10 chars; mandatory per evidence schema refine)")
+    .option("--feature <name>", "Feature whose ledger to append to")
+    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
+    .action(async (opts: { text?: string; file?: string; reason: string; feature: string; featureDir?: string }) => {
+      // (1) --text / --file mutex (codex r322 P1 lock)
+      const hasText = opts.text !== undefined;
+      const hasFile = opts.file !== undefined;
+      if (hasText === hasFile) {
+        emitFailure("USAGE",
+          hasText ? "exactly one of --text or --file required (both provided)"
+                  : "exactly one of --text or --file required (neither provided)",
+          { text_provided: hasText, file_provided: hasFile });
+        return;
+      }
+      // (2) Read lesson body
+      let lessonText: string;
+      if (hasText) lessonText = opts.text!;
+      else {
+        try { lessonText = await fsPromises.readFile(opts.file!, "utf8"); }
+        catch (err) {
+          if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+            emitFailure("INPUT_FILE_NOT_FOUND", `lesson file not found: ${opts.file}`, { path: opts.file! });
+            return;
+          }
+          throw err;
+        }
+      }
+      if (lessonText.length < 3) {
+        emitFailure("USAGE", `lesson text must be ≥3 chars (got ${lessonText.length})`, { lesson_text_length: lessonText.length });
+        return;
+      }
+      if (opts.reason.length < 10) {
+        emitFailure("USAGE", `--reason must be ≥10 chars (got ${opts.reason.length})`, { reason_length: opts.reason.length });
+        return;
+      }
+      // (3) resolve human actor (manual requires human:* per refine)
+      const resolution = resolveHumanActor({
+        env: process.env,
+        readGitConfig: readGitConfigForActor,
+        isInteractiveHuman: isInteractiveHumanForActor(),
+      });
+      if (!resolution.ok) { emitFailure(resolution.code, resolution.message); return; }
+      const actor = resolution.actor;
+      const featureDir = await dispatchOrFail(opts);
+      if (featureDir === null) return;
+      const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
+      if (!session.snapshot.state) {
+        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        return;
+      }
+      // (5) allocate EV-id + build payload
+      const evidenceId = allocateNextEvidenceId(session.snapshot);
+      const payload = buildLessonsEvidencePayload({
+        evidenceId,
+        lessonText,
+        reason: opts.reason,
+        actor,
+        iteration: session.snapshot.state.iteration,
+      });
+      const result = await mutate(
+        {
+          at: new Date().toISOString(),
+          actor,
+          entry_schema_version: 1,
+          kind: "evidence:added",
+          payload,
+        },
+        {
+          feature_dir: featureDir,
+          snapshot: session.snapshot,
+          tail_seq: session.tail_seq,
+          entries: session.entries,
+          meta: session.meta,
+          dryRun: ctx.dryRun,
+          registryWriter: registryWriterDeps,
+        },
+      );
+      if (!result.ok) {
+        emitFailure(result.code, result.message, result.detail);
+        return;
+      }
+      if (ctx.dryRun) {
+        emitDryRunSuccess(result);
+        return;
+      }
+      // v0.1.0: stateChange mentions evidence ledger only — lessons.md
+      // projection writer is F-024 deferred. Advisory must NOT claim
+      // lessons.md was updated (codex r323 P2 contract).
+      ctx.success(
+        {
+          ok: true,
+          feature: opts.feature,
+          id: evidenceId,
+          kind: "manual" as const,
+        },
+        () => `${evidenceId}\n`,
+        { stateChange: `lessons add: ${evidenceId} recorded (kind=manual; lessons.md projection writer deferred)` },
+      );
     });
 
   // ── loaf sessions list — Phase 16 SC-9b ──────────────────────────────

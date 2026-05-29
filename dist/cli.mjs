@@ -4444,6 +4444,57 @@ function formatSchema(schema) {
 	return JSON.stringify(schema, null, 2) + "\n";
 }
 //#endregion
+//#region src/cli/evidence-id-allocator.ts
+/** Allocate the next `count` evidence ids (≥6-digit zero-padded). */
+function allocateNextEvidenceIds(snapshot, count) {
+	if (count < 1) return [];
+	const maxSerial = snapshot.evidence.reduce((max, e) => {
+		const m = /^EV-(\d+)$/.exec(e.id);
+		if (!m) return max;
+		return Math.max(max, Number.parseInt(m[1], 10));
+	}, 0);
+	return Array.from({ length: count }, (_, i) => `EV-${String(maxSerial + 1 + i).padStart(6, "0")}`);
+}
+/** Single-id convenience for SC-11 wrappers (waive / lessons add). */
+function allocateNextEvidenceId(snapshot) {
+	return allocateNextEvidenceIds(snapshot, 1)[0];
+}
+//#endregion
+//#region src/cli/waive.ts
+function buildWaiveEvidencePayload(args) {
+	return {
+		id: args.evidenceId,
+		kind: "waiver",
+		iteration: args.iteration,
+		actor: args.actor,
+		result: "waived",
+		reason: args.reason,
+		summary: `waiver: ${args.obligationId}`,
+		covers: [args.obligationId],
+		waiver_obligation_id: args.obligationId
+	};
+}
+//#endregion
+//#region src/cli/lessons-add.ts
+function chooseSummary(lessonText) {
+	return Buffer.byteLength(lessonText, "utf8") > 8192 ? {
+		mode: "inline",
+		text: lessonText
+	} : lessonText;
+}
+function buildLessonsEvidencePayload(args) {
+	return {
+		id: args.evidenceId,
+		kind: "manual",
+		iteration: args.iteration,
+		actor: args.actor,
+		result: "passed",
+		reason: args.reason,
+		summary: chooseSummary(args.lessonText),
+		covers: []
+	};
+}
+//#endregion
 //#region src/cli/url-prefill.ts
 const COMMAND_WORDS = new Set([
 	"loaf",
@@ -10058,12 +10109,7 @@ async function main(argv = process.argv, deps = {}) {
 			ctx.failure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
 			return;
 		}
-		const maxSerial = session.snapshot.evidence.reduce((max, e) => {
-			const m = /^EV-(\d+)$/.exec(e.id);
-			if (!m) return max;
-			return Math.max(max, Number.parseInt(m[1], 10));
-		}, 0);
-		const evIds = validatedInputs.map((_, i) => `EV-${String(maxSerial + 1 + i).padStart(6, "0")}`);
+		const evIds = allocateNextEvidenceIds(session.snapshot, validatedInputs.length);
 		const now = (/* @__PURE__ */ new Date()).toISOString();
 		const result = await mutateBatch(validatedInputs.map((input, i) => ({
 			at: now,
@@ -10110,6 +10156,155 @@ async function main(argv = process.argv, deps = {}) {
 			id: evIds[0],
 			kind: validatedInputs[0].kind
 		}, () => `${evIds[0]}\n`, { stateChange });
+	});
+	program.command("waive <obligation-id>").description("Record a waiver evidence (kind=waiver) against an obligation id (REQ-/SCEN-/VIS-/T-)").requiredOption("--reason <text>", "Waiver rationale (≥10 chars; mandatory per evidence schema refine)").option("--feature <name>", "Feature whose ledger to append to").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (obligationId, opts) => {
+		if (!CoversRefPayload.safeParse(obligationId).success) {
+			emitFailure("USAGE", `invalid obligation id '${obligationId}' — expected REQ-NS-NNN / SCEN-NS-NNN / VIS-NS-NNN / T-NNN form`, { argument: obligationId });
+			return;
+		}
+		if (opts.reason.length < 10) {
+			emitFailure("USAGE", `--reason must be ≥10 chars (got ${opts.reason.length})`, { reason_length: opts.reason.length });
+			return;
+		}
+		const resolution = resolveHumanActor({
+			env: process.env,
+			readGitConfig: readGitConfigForActor,
+			isInteractiveHuman: isInteractiveHumanForActor()
+		});
+		if (!resolution.ok) {
+			emitFailure(resolution.code, resolution.message);
+			return;
+		}
+		const actor = resolution.actor;
+		const featureDir = await dispatchOrFail(opts);
+		if (featureDir === null) return;
+		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
+		if (!session.snapshot.state) {
+			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+			return;
+		}
+		const evidenceId = allocateNextEvidenceId(session.snapshot);
+		const payload = buildWaiveEvidencePayload({
+			evidenceId,
+			obligationId,
+			reason: opts.reason,
+			actor,
+			iteration: session.snapshot.state.iteration
+		});
+		const result = await mutate({
+			at: (/* @__PURE__ */ new Date()).toISOString(),
+			actor,
+			entry_schema_version: 1,
+			kind: "evidence:added",
+			payload
+		}, {
+			feature_dir: featureDir,
+			snapshot: session.snapshot,
+			tail_seq: session.tail_seq,
+			entries: session.entries,
+			meta: session.meta,
+			dryRun: ctx.dryRun,
+			registryWriter: registryWriterDeps
+		});
+		if (!result.ok) {
+			emitFailure(result.code, result.message, result.detail);
+			return;
+		}
+		if (ctx.dryRun) {
+			emitDryRunSuccess(result);
+			return;
+		}
+		ctx.success({
+			ok: true,
+			feature: opts.feature,
+			id: evidenceId,
+			kind: "waiver",
+			obligation_id: obligationId
+		}, () => `${evidenceId}\n`, { stateChange: `waive: ${evidenceId} obligation=${obligationId}` });
+	});
+	program.command("lessons").description("Lessons-learned evidence commands (Phase 16 SC-11: add)").command("add").description("Record a lessons-learned evidence entry (kind=manual; --text inline OR --file <path>)").option("--text <inline>", "Lesson body text (inline). Mutex with --file.").option("--file <path>", "Read lesson body from file. Mutex with --text.").requiredOption("--reason <text>", "Why this lesson matters (≥10 chars; mandatory per evidence schema refine)").option("--feature <name>", "Feature whose ledger to append to").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+		const hasText = opts.text !== void 0;
+		const hasFile = opts.file !== void 0;
+		if (hasText === hasFile) {
+			emitFailure("USAGE", hasText ? "exactly one of --text or --file required (both provided)" : "exactly one of --text or --file required (neither provided)", {
+				text_provided: hasText,
+				file_provided: hasFile
+			});
+			return;
+		}
+		let lessonText;
+		if (hasText) lessonText = opts.text;
+		else try {
+			lessonText = await promises.readFile(opts.file, "utf8");
+		} catch (err) {
+			if (err.code === "ENOENT") {
+				emitFailure("INPUT_FILE_NOT_FOUND", `lesson file not found: ${opts.file}`, { path: opts.file });
+				return;
+			}
+			throw err;
+		}
+		if (lessonText.length < 3) {
+			emitFailure("USAGE", `lesson text must be ≥3 chars (got ${lessonText.length})`, { lesson_text_length: lessonText.length });
+			return;
+		}
+		if (opts.reason.length < 10) {
+			emitFailure("USAGE", `--reason must be ≥10 chars (got ${opts.reason.length})`, { reason_length: opts.reason.length });
+			return;
+		}
+		const resolution = resolveHumanActor({
+			env: process.env,
+			readGitConfig: readGitConfigForActor,
+			isInteractiveHuman: isInteractiveHumanForActor()
+		});
+		if (!resolution.ok) {
+			emitFailure(resolution.code, resolution.message);
+			return;
+		}
+		const actor = resolution.actor;
+		const featureDir = await dispatchOrFail(opts);
+		if (featureDir === null) return;
+		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
+		if (!session.snapshot.state) {
+			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+			return;
+		}
+		const evidenceId = allocateNextEvidenceId(session.snapshot);
+		const payload = buildLessonsEvidencePayload({
+			evidenceId,
+			lessonText,
+			reason: opts.reason,
+			actor,
+			iteration: session.snapshot.state.iteration
+		});
+		const result = await mutate({
+			at: (/* @__PURE__ */ new Date()).toISOString(),
+			actor,
+			entry_schema_version: 1,
+			kind: "evidence:added",
+			payload
+		}, {
+			feature_dir: featureDir,
+			snapshot: session.snapshot,
+			tail_seq: session.tail_seq,
+			entries: session.entries,
+			meta: session.meta,
+			dryRun: ctx.dryRun,
+			registryWriter: registryWriterDeps
+		});
+		if (!result.ok) {
+			emitFailure(result.code, result.message, result.detail);
+			return;
+		}
+		if (ctx.dryRun) {
+			emitDryRunSuccess(result);
+			return;
+		}
+		ctx.success({
+			ok: true,
+			feature: opts.feature,
+			id: evidenceId,
+			kind: "manual"
+		}, () => `${evidenceId}\n`, { stateChange: `lessons add: ${evidenceId} recorded (kind=manual; lessons.md projection writer deferred)` });
 	});
 	program.command("sessions").description("Session registry commands (list)").command("list").description("List session registry entries (read-only; --in-cwd filters by current cwd)").option("--in-cwd", "Only list sessions whose registered cwd matches the current cwd").action(async (opts) => {
 		if (rejectIfDryRun("sessions list")) return;
