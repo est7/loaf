@@ -910,6 +910,16 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
       };
     }
 
+    case "session:resumed": {
+      // Phase 16 SC-13b — transparent no-op marker. `loaf resume`
+      // records that a fresh session is continuing from a resume-pack
+      // (typed payload `resumed_from_pack: {at, reason, session_id}`),
+      // but the cursor / projection state stays exactly where it was.
+      // Per codex r343 P3, an explicit case keeps the switch honest
+      // with REDUCER_IMPLEMENTED_KINDS.
+      return { ok: true, snapshot: prev };
+    }
+
     case "spike:converted": {
       // Record-only audit entry (protocol §8.3, Phase 12). The terminal
       // cursor flip to DONE.archived rides the sponsored `session:archived`

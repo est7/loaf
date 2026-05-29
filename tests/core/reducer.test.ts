@@ -311,11 +311,10 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
     expect(snap.state!.verify_accepted).toBe(true);
   });
 
-  // Audit r1 Blocker #5: kinds without an apply handler must fail-fast,
-  // not no-op silently. `session:resumed` is one of the still-unimplemented
-  // kinds (in PER_KIND_PAYLOAD but not REDUCER_IMPLEMENTED_KINDS), allowed
-  // at ANY_SUB_STATE — exercise the new contract without phase walking.
-  test("unimplemented EntryKind returns REDUCER_NOT_IMPLEMENTED (fail-fast default)", () => {
+  // Phase 16 SC-13b — `session:resumed` is now a typed reducer no-op
+  // (codex r343 P3 + r345 P2 lock). Replaces the previous "still
+  // unimplemented" test that used session:resumed as the placeholder.
+  test("session:resumed reducer no-op: snapshot unchanged after apply", () => {
     let snap = initialSnapshot();
     snap = mustOk(
       apply(snap, {
@@ -333,6 +332,7 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
       }),
     );
 
+    const before = JSON.stringify(snap);
     const result = apply(snap, {
       seq: 1,
       entry_id: "JE-000002",
@@ -340,59 +340,28 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
       actor: "cli:loaf",
       entry_schema_version: 1,
       kind: "session:resumed",
-      payload: { resumed_by: "human:ffoisx@gmail.com" },
+      payload: {
+        resumed_from_pack: {
+          at: "2026-05-15T09:00:00.000Z",
+          reason: "context overflow approaching at SPEC.spec",
+          session_id: "550e8400-e29b-41d4-a716-446655440000",
+        },
+      },
     });
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.code).toBe("REDUCER_NOT_IMPLEMENTED");
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("unreachable");
+    expect(JSON.stringify(result.snapshot)).toBe(before);
   });
 
-  // Audit r4 Medium reverse — EntryKind enum members NOT in
-  // REDUCER_IMPLEMENTED_KINDS must return REDUCER_NOT_IMPLEMENTED.
-  // Catches the case where a reducer handler is added but the
-  // REDUCER_IMPLEMENTED_KINDS set forgot to gain the new kind (or vice
-  // versa). One-way set→switch is in the next test below.
-  test("EntryKind not in REDUCER_IMPLEMENTED_KINDS must fail-fast with REDUCER_NOT_IMPLEMENTED", async () => {
+  // Phase 16 SC-13b — after `session:resumed` lands, REDUCER_IMPLEMENTED_KINDS
+  // covers every EntryKind. Codex r343 P2: positive invariant replaces
+  // the previous "non-empty unimplemented set" guard. Future EntryKind
+  // additions must implement reducer support to keep this invariant.
+  test("REDUCER_IMPLEMENTED_KINDS covers every EntryKind (Phase 16 SC-13b lock)", async () => {
     const { REDUCER_IMPLEMENTED_KINDS, EntryKind } = await import("../../src/core/journal-entry.js");
-    // Build an initial snapshot with state populated (so NO_SESSION isn't
-    // the rejection reason for unimplemented kinds).
-    let snapshot = mustOk(
-      apply(initialSnapshot(), {
-        seq: 0,
-        entry_id: "JE-000001",
-        at: "2026-05-15T10:00:00.000Z",
-        actor: "cli:loaf",
-        entry_schema_version: 1,
-        kind: "session:started",
-        payload: {
-          session_id: "550e8400-e29b-41d4-a716-446655440000",
-          feature: "f",
-          ceremony: STANDARD_CEREMONY,
-        },
-      }),
-    );
-
     const allKinds = EntryKind.options as readonly string[];
-    const unimplemented = allKinds.filter((k) => !REDUCER_IMPLEMENTED_KINDS.has(k as never));
-    expect(unimplemented.length).toBeGreaterThan(0); // sanity: not all kinds implemented
-
-    // Weak invariant: unimplemented kinds MUST NOT return ok=true. The
-    // exact failure code may vary (preflight sub_state authority may fire
-    // before the apply default), but the kind cannot succeed.
-    for (const kind of unimplemented) {
-      const result = apply(snapshot, {
-        seq: 1,
-        entry_id: "JE-000002",
-        at: "2026-05-15T10:00:01.000Z",
-        actor: "cli:loaf",
-        entry_schema_version: 1,
-        kind: kind as never,
-        payload: { stub: true },
-      });
-      expect(
-        result.ok,
-        `${kind} is not in REDUCER_IMPLEMENTED_KINDS but apply() returned ok — reducer switch silently handles it; sets are out of sync`,
-      ).toBe(false);
-    }
+    const missing = allKinds.filter((k) => !REDUCER_IMPLEMENTED_KINDS.has(k as never));
+    expect(missing, `unimplemented kinds: ${missing.join(", ")}`).toEqual([]);
   });
 
   // Audit r3 Medium — REDUCER_IMPLEMENTED_KINDS in journal-entry.ts is

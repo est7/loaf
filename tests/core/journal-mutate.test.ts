@@ -288,11 +288,18 @@ describe("mutate — transactional journal write (audit r1 Blocker #3)", () => {
 
   // Audit r2 Blocker — mutate must NOT pollute the journal when reducer
   // can't apply the kind. Before this fix, mutate appended first then ran
-  // reducer apply; an unimplemented kind would return ok=false WHILE the
-  // journal had already grown by one line.
-  test("mutate refuses to append unimplemented kinds (atomic fail)", async () => {
+  // reducer apply; an entry that fails reducer dry-run (e.g. invalid
+  // payload shape) would return ok=false WHILE the journal had already
+  // grown by one line.
+  //
+  // Phase 16 SC-13b: previously this used `session:resumed` as a
+  // "still-unimplemented" placeholder; SC-13b implements it (as a
+  // typed no-op), so the test rewires to exercise the same atomic-fail
+  // invariant via an INVALID_PAYLOAD failure on `session:resumed`
+  // (malformed `resumed_from_pack` field) — reducer-side schema refine
+  // fails Pass 1 → no append.
+  test("mutate refuses to append payload-invalid entries (atomic fail)", async () => {
     const dir = await tmpFeatureDir();
-    // Bootstrap session first.
     const boot = await mutate(
       {
         at: "2026-05-15T10:00:00.000Z",
@@ -310,19 +317,18 @@ describe("mutate — transactional journal write (audit r1 Blocker #3)", () => {
     expect(boot.ok).toBe(true);
     if (!boot.ok) return;
 
-    // Use `session:resumed` — still unimplemented in REDUCER_IMPLEMENTED_KINDS,
-    // allowed at ANY_SUB_STATE so no phase walking needed.
     const snapshot = boot.snapshot;
     const tailSeq = 0;
     const entries: JournalEntry[] = [boot.entry];
     const meta = boot.meta;
 
-    // Pre-condition: journal has 1 entry (boot session:started).
     const journalBefore = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
     expect(journalBefore.trim().split("\n")).toHaveLength(1);
 
-    // event:spec_req_added was preflight-legal but unimplemented; Slice 1.B
-    // implemented it, so we now use session:resumed which remains unimplemented.
+    // `session:resumed` is typed via SessionResumedPayload — caller
+    // passing a bogus payload shape (`resumed_by` instead of
+    // `resumed_from_pack`) fails per-kind payload validation in Pass 1
+    // and must NOT pollute the journal.
     const bad = await mutate(
       {
         at: "2026-05-15T11:00:00.000Z",
@@ -334,9 +340,8 @@ describe("mutate — transactional journal write (audit r1 Blocker #3)", () => {
       { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
     );
     expect(bad.ok).toBe(false);
-    if (!bad.ok) expect(bad.code).toBe("REDUCER_ERROR");
 
-    // Journal MUST still have exactly 1 entry — the unimplemented kind
+    // Journal MUST still have exactly 1 entry — payload-invalid entry
     // was not appended.
     const journalAfter = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
     expect(journalAfter.trim().split("\n")).toHaveLength(1);
@@ -1121,10 +1126,14 @@ prose body here
     }
   });
 
-  // ── F: REDUCER_IMPLEMENTED gate also fires in batch path ─────────────────
-  test("F. mid-batch unimplemented kind (session:resumed) → REDUCER_ERROR failed_index, no append", async () => {
+  // ── F: session:resumed mutate-batch happy path (Phase 16 SC-13b) ─────────
+  // Replaces the previous "unimplemented kind" exercise. After SC-13b,
+  // session:resumed is a typed reducer no-op kind; mutate appends one
+  // entry + snapshot stays unchanged. The REDUCER_IMPLEMENTED gate is
+  // still exercised by `tests/core/reducer.test.ts` via the
+  // "REDUCER_IMPLEMENTED_KINDS covers every EntryKind" invariant.
+  test("F. session:resumed mid-batch: appends entry + sub_state unchanged", async () => {
     const dir = await tmpFeatureDir();
-    // session:resumed is ANY_SUB_STATE — boot is enough.
     const boot = await mutate(
       {
         at: "2026-05-15T10:00:00.000Z",
@@ -1142,13 +1151,12 @@ prose body here
     expect(boot.ok).toBe(true);
     if (!boot.ok) return;
     const snapshot = boot.snapshot;
+    const subStateBefore = snapshot.state!.sub_state;
     const tailSeq = 0;
     const entries: JournalEntry[] = [boot.entry];
     const meta = boot.meta;
     const journalBefore = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
 
-    // event:spec_req_added was previously the unimplemented kind exercised
-    // here; Slice 1.B implemented it. session:resumed remains unimplemented.
     const batch = await mutateBatch(
       [
         {
@@ -1156,19 +1164,23 @@ prose body here
           actor: "cli:loaf",
           entry_schema_version: 1,
           kind: "session:resumed",
-          payload: { resumed_by: "human:ffoisx@gmail.com" },
+          payload: {
+            resumed_from_pack: {
+              at: "2026-05-15T09:30:00.000Z",
+              reason: "context overflow approaching mid-session",
+              session_id: "550e8400-e29b-41d4-a716-446655440000",
+            },
+          },
         },
       ],
       { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
     );
 
-    expect(batch.ok).toBe(false);
-    if (!batch.ok) {
-      expect(batch.code).toBe("REDUCER_ERROR");
-      expect(batch.failed_index).toBe(0);
-    }
+    expect(batch.ok).toBe(true);
+    if (!batch.ok) throw new Error(`expected ok, got ${batch.code}: ${batch.message}`);
+    expect(batch.snapshot.state!.sub_state).toBe(subStateBefore);
     const journalAfter = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
-    expect(journalAfter).toBe(journalBefore);
+    expect(journalAfter.length).toBeGreaterThan(journalBefore.length);
   });
 });
 

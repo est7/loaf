@@ -219,7 +219,22 @@ export type JournalEntry = z.infer<typeof JournalEntry>;
 // Generic record fallback for kinds whose payload shape is not yet pinned —
 // rejects literal strings / arrays / scalars (which is what Gate #3 needs)
 // but accepts any nested object structure.
-const RecordPayload = z.record(z.string(), z.unknown());
+// Phase 16 SC-13b — typed session:resumed payload (codex r343/r345 lock).
+// Replaces the loose RecordPayload mapping for `session:resumed`. CLI
+// `loaf resume` constructs this from the loaded ResumePack header
+// fields; reducer treats it as a transparent no-op marker.
+export const SessionResumedPayload = z
+  .object({
+    resumed_from_pack: z
+      .object({
+        at: z.string().datetime(),
+        reason: z.string().min(5),
+        session_id: z.string().uuid(),
+      })
+      .strict(),
+  })
+  .strict();
+export type SessionResumedPayload = z.infer<typeof SessionResumedPayload>;
 
 const CeremonyPayload = z
   .object({
@@ -606,7 +621,7 @@ export const PER_KIND_PAYLOAD: Record<EntryKind, z.ZodTypeAny> = {
 
   // Session lifecycle
   "session:started": SessionStartedPayload,
-  "session:resumed": RecordPayload,
+  "session:resumed": SessionResumedPayload,
   "session:delivered": SessionReasonPayload,
   "session:archived": SessionReasonPayload,
   "session:abandoned": SessionReasonPayload,
@@ -644,6 +659,7 @@ export const REDUCER_IMPLEMENTED_KINDS: ReadonlySet<EntryKind> = new Set([
   "pending:resolved",
   "gate:decided",
   "session:delivered",
+  "session:resumed",
   "session:archived",
   "session:abandoned",
   "spike:converted",

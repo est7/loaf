@@ -808,7 +808,11 @@ const JournalEntry$1 = z.object({
 	].filter((v) => v !== void 0).length;
 	return present === 0 || present === 3;
 }, { message: "batch_id, batch_index, batch_count must be all-present or all-absent" }).refine((e) => e.batch_index === void 0 || e.batch_count === void 0 || e.batch_index < e.batch_count, { message: "batch_index must be < batch_count" });
-const RecordPayload = z.record(z.string(), z.unknown());
+const SessionResumedPayload = z.object({ resumed_from_pack: z.object({
+	at: z.string().datetime(),
+	reason: z.string().min(5),
+	session_id: z.string().uuid()
+}).strict() }).strict();
 const CeremonyPayload = z.object({
 	spec_phase: z.boolean(),
 	verify_phase: z.boolean(),
@@ -975,7 +979,7 @@ const PER_KIND_PAYLOAD = {
 	"pending:resolved": PendingResolvedPayload,
 	"gate:decided": GateDecidedPayload,
 	"session:started": SessionStartedPayload,
-	"session:resumed": RecordPayload,
+	"session:resumed": SessionResumedPayload,
 	"session:delivered": SessionReasonPayload,
 	"session:archived": SessionReasonPayload,
 	"session:abandoned": SessionReasonPayload,
@@ -1005,6 +1009,7 @@ const REDUCER_IMPLEMENTED_KINDS = new Set([
 	"pending:resolved",
 	"gate:decided",
 	"session:delivered",
+	"session:resumed",
 	"session:archived",
 	"session:abandoned",
 	"spike:converted"
@@ -6974,6 +6979,10 @@ function apply(prev, entry) {
 				}
 			}
 		};
+		case "session:resumed": return {
+			ok: true,
+			snapshot: prev
+		};
 		case "spike:converted": return {
 			ok: true,
 			snapshot: prev
@@ -10120,6 +10129,80 @@ async function main(argv = process.argv, deps = {}) {
 			stateChange: `settle: ${from} → SETTLE.reconcile`,
 			next: "loaf deliver"
 		});
+	});
+	program.command("resume").description("Resume session from snapshots/resume-pack.json (emits session:resumed journal entry)").option("--feature <name>", "Feature whose resume pack to consume").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+		const featureDir = await dispatchOrFail(opts);
+		if (featureDir === null) return;
+		const session = await loadSession(featureDir, { ensureDir: false });
+		if (!session.snapshot.state) {
+			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+			return;
+		}
+		const packPath = path.join(featureDir, "snapshots", "resume-pack.json");
+		let raw;
+		try {
+			raw = await promises.readFile(packPath, "utf8");
+		} catch (err) {
+			if (err.code === "ENOENT") {
+				emitFailure("INPUT_FILE_NOT_FOUND", `resume pack not found at ${packPath}; run \`loaf handoff --reason "..."\` first to create one`, { path: packPath });
+				return;
+			}
+			throw err;
+		}
+		let parsedPack;
+		try {
+			parsedPack = JSON.parse(raw);
+		} catch (err) {
+			emitFailure("SCHEMA_VALIDATION_FAILED", `resume pack at ${packPath} is not valid JSON: ${err.message}`, {
+				subcode: "invalid-json",
+				path: packPath
+			});
+			return;
+		}
+		const packParse = ResumePack.safeParse(parsedPack);
+		if (!packParse.success) {
+			emitFailure("SCHEMA_VALIDATION_FAILED", `resume pack at ${packPath} failed ResumePack schema validation`, {
+				subcode: "zod",
+				path: packPath,
+				issues: packParse.error.issues
+			});
+			return;
+		}
+		const pack = packParse.data;
+		const actor = `cli:loaf@${process.env["USER"] ?? "unknown"}`;
+		const result = await mutate({
+			at: (/* @__PURE__ */ new Date()).toISOString(),
+			actor,
+			entry_schema_version: 1,
+			kind: "session:resumed",
+			payload: { resumed_from_pack: {
+				at: pack.at,
+				reason: pack.reason,
+				session_id: pack.session_id
+			} }
+		}, {
+			feature_dir: featureDir,
+			snapshot: session.snapshot,
+			tail_seq: session.tail_seq,
+			entries: session.entries,
+			meta: session.meta,
+			dryRun: ctx.dryRun,
+			registryWriter: registryWriterDeps
+		});
+		if (!result.ok) {
+			emitFailure(result.code, result.message, result.detail);
+			return;
+		}
+		if (ctx.dryRun) {
+			emitDryRunSuccess(result);
+			return;
+		}
+		ctx.success({
+			ok: true,
+			feature: opts.feature,
+			session_id: pack.session_id,
+			sub_state: result.snapshot.state?.sub_state
+		}, () => `${pack.session_id}\n`, { stateChange: `resume: session ${pack.session_id} (sub_state=${result.snapshot.state?.sub_state} unchanged)` });
 	});
 	program.command("handoff").description("Compose and persist snapshots/resume-pack.json (read-side projection writer; no journal entry)").requiredOption("--reason <text>", "Why this handoff is being taken (≥5 chars; mandatory per ResumePack.reason)").option("--notes <text>", "Optional free-form notes attached to the pack").option("--feature <name>", "Feature whose handoff to take").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		if (rejectIfDryRun("handoff", "projection-writer")) return;

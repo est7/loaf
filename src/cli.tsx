@@ -3366,6 +3366,107 @@ export async function main(
       );
     });
 
+  // ── loaf resume — Phase 16 SC-13b ────────────────────────────────────
+  // Mutator: reads `<feature-dir>/snapshots/resume-pack.json`, validates
+  // via runtime ResumePack, emits a typed `session:resumed` journal
+  // entry. Cursor / projection state UNCHANGED — the entry is a
+  // transparent marker (codex r343 P3). Default cli actor
+  // (`cli:loaf@<USER>`) is allowed per PER_KIND_ACTOR; no human gate.
+  // `--dry-run` honored through standard mutate dry-run path.
+  program
+    .command("resume")
+    .description("Resume session from snapshots/resume-pack.json (emits session:resumed journal entry)")
+    .option("--feature <name>", "Feature whose resume pack to consume")
+    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
+    .action(async (opts: { feature: string; featureDir?: string }) => {
+      const featureDir = await dispatchOrFail(opts);
+      if (featureDir === null) return;
+      const session = await loadSession(featureDir, { ensureDir: false });
+      if (!session.snapshot.state) {
+        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        return;
+      }
+      const packPath = path.join(featureDir, "snapshots", "resume-pack.json");
+      let raw: string;
+      try {
+        raw = await fsP.readFile(packPath, "utf8");
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+          emitFailure(
+            "INPUT_FILE_NOT_FOUND",
+            `resume pack not found at ${packPath}; run \`loaf handoff --reason "..."\` first to create one`,
+            { path: packPath },
+          );
+          return;
+        }
+        throw err;
+      }
+      let parsedPack: unknown;
+      try { parsedPack = JSON.parse(raw); }
+      catch (err) {
+        emitFailure(
+          "SCHEMA_VALIDATION_FAILED",
+          `resume pack at ${packPath} is not valid JSON: ${(err as Error).message}`,
+          { subcode: "invalid-json", path: packPath },
+        );
+        return;
+      }
+      const packParse = RuntimeResumePack.safeParse(parsedPack);
+      if (!packParse.success) {
+        emitFailure(
+          "SCHEMA_VALIDATION_FAILED",
+          `resume pack at ${packPath} failed ResumePack schema validation`,
+          { subcode: "zod", path: packPath, issues: packParse.error.issues },
+        );
+        return;
+      }
+      const pack = packParse.data;
+      // Default cli actor — PER_KIND_ACTOR allows human|skill|ci|cli.
+      const actor = `cli:loaf@${process.env["USER"] ?? "unknown"}`;
+      const result = await mutate(
+        {
+          at: new Date().toISOString(),
+          actor,
+          entry_schema_version: 1,
+          kind: "session:resumed",
+          payload: {
+            resumed_from_pack: {
+              at: pack.at,
+              reason: pack.reason,
+              session_id: pack.session_id,
+            },
+          },
+        },
+        {
+          feature_dir: featureDir,
+          snapshot: session.snapshot,
+          tail_seq: session.tail_seq,
+          entries: session.entries,
+          meta: session.meta,
+          dryRun: ctx.dryRun,
+          registryWriter: registryWriterDeps,
+        },
+      );
+      if (!result.ok) {
+        emitFailure(result.code, result.message, result.detail);
+        return;
+      }
+      if (ctx.dryRun) {
+        emitDryRunSuccess(result);
+        return;
+      }
+      ctx.success(
+        {
+          ok: true,
+          feature: opts.feature,
+          session_id: pack.session_id,
+          sub_state: result.snapshot.state?.sub_state,
+        },
+        () => `${pack.session_id}\n`,
+        { stateChange: `resume: session ${pack.session_id} (sub_state=${result.snapshot.state?.sub_state} unchanged)` },
+      );
+    });
+
   // ── loaf handoff — Phase 16 SC-13a ───────────────────────────────────
   // Read-side projection writer. Composes a `ResumePack` from current
   // snapshot + journal tail IDs, writes atomically to
