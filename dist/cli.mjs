@@ -4181,6 +4181,7 @@ const DiagnosticCode = z.enum([
 	"INVALID_ENV_VALUE",
 	"INVALID_FORMAT",
 	"DRY_RUN_NOT_APPLICABLE",
+	"HOOK_EVENT_NOT_IMPLEMENTED",
 	"TASK_STATUS_WITHOUT_PROOF",
 	"MISSING_VERIFIABILITY",
 	"VAGUE_NO_SCENARIO",
@@ -4773,6 +4774,22 @@ async function defaultRenderTui(app) {
 	const { render } = await import("ink");
 	await render(app).waitUntilExit();
 }
+/** Canonical event list — frozen order for stable `--list-events` output
+*  and unknown-event did-you-mean ranking. */
+const HOOK_EVENTS = z.enum([
+	"session-start",
+	"write-guard",
+	"scope-track",
+	"closure-check"
+]).options;
+/** Map each hook event to its Claude Code wire-protocol event name.
+*  Mirror of `docs/schemas.ts:HOOK_EVENT_TO_CLAUDE_CODE`. */
+const HOOK_EVENT_TO_CLAUDE_CODE = {
+	"session-start": "SessionStart",
+	"write-guard": "PreToolUse(Write,Edit)",
+	"scope-track": "PostToolUse(Write,Edit)",
+	"closure-check": "Stop"
+};
 //#endregion
 //#region src/cli/run-editor.ts
 var EditorTokenizeError = class extends Error {
@@ -8581,6 +8598,49 @@ async function main(argv = process.argv, deps = {}) {
 				return 2;
 			}
 		}
+		if (cmdTokens[0] === "hook") {
+			const renderAsJson = argv.some((a) => a === "--format=json" || a === "--format" && argv[argv.indexOf(a) + 1] === "json");
+			if (argv.includes("--list-events")) {
+				if (renderAsJson) process.stdout.write(JSON.stringify({
+					ok: true,
+					count: HOOK_EVENTS.length,
+					events: HOOK_EVENTS.map((e) => ({
+						event: e,
+						claude_code: HOOK_EVENT_TO_CLAUDE_CODE[e]
+					}))
+				}) + "\n");
+				else for (const e of HOOK_EVENTS) process.stdout.write(`${e}\t${HOOK_EVENT_TO_CLAUDE_CODE[e]}\n`);
+				return 0;
+			}
+			if (cmdTokens[1] === void 0) {
+				const usageMessage = `loaf hook requires an event token; one of: ${HOOK_EVENTS.join(", ")}. Run \`loaf hook --list-events\` for the full enum`;
+				if (renderAsJson) process.stderr.write(JSON.stringify({
+					ok: false,
+					code: "USAGE",
+					message: usageMessage,
+					detail: { events: HOOK_EVENTS }
+				}) + "\n");
+				else process.stderr.write(`error: USAGE — ${usageMessage}\n`);
+				return 2;
+			}
+			if (!HOOK_EVENTS.includes(cmdTokens[1])) {
+				const got = cmdTokens[1];
+				const suggestion = HOOK_EVENTS.find((e) => e.startsWith(got.slice(0, 4))) ?? HOOK_EVENTS[0];
+				const usageMessage = `unknown hook event '${got}'; expected one of: ${HOOK_EVENTS.join(", ")}. Did you mean '${suggestion}'?`;
+				if (renderAsJson) process.stderr.write(JSON.stringify({
+					ok: false,
+					code: "USAGE",
+					message: usageMessage,
+					detail: {
+						event: got,
+						allowed: HOOK_EVENTS,
+						suggestion
+					}
+				}) + "\n");
+				else process.stderr.write(`error: USAGE — ${usageMessage}\n`);
+				return 2;
+			}
+		}
 		if (cmdTokens[0] === "check") {
 			const presentSelectors = [];
 			if (argv.includes("--session") || argv.some((a) => a.startsWith("--session="))) presentSelectors.push("--session");
@@ -10840,6 +10900,14 @@ async function main(argv = process.argv, deps = {}) {
 			id: evidenceId,
 			kind: "manual"
 		}, () => `${evidenceId}\n`, { stateChange: `lessons add: ${evidenceId} recorded (kind=manual; lessons.md projection writer deferred)` });
+	});
+	program.command("hook <event>").description("Claude Code hook entry point (Phase 16 SC-15a framework; SC-15b/c wire handlers)").option("--list-events", "Dump the canonical 4-event enum (handled by pre-parse guard)").option("--path <text>", "Tool target path (for write-guard / scope-track; SC-15c)").action(async (event) => {
+		const subCycle = event === "session-start" || event === "closure-check" ? "b" : "c";
+		emitFailure("HOOK_EVENT_NOT_IMPLEMENTED", `hook event \`${event}\` is not implemented in this loaf version (Phase 16 SC-15${subCycle} pending; see protocol §11)`, {
+			event,
+			sub_cycle: subCycle,
+			claude_code: HOOK_EVENT_TO_CLAUDE_CODE[event]
+		});
 	});
 	const renderTuiImpl = deps.renderTui ?? defaultRenderTui;
 	const isStdoutTtyForTui = deps.isStdoutTty ?? (() => process.stdout.isTTY === true);

@@ -54,6 +54,7 @@ import { ResumePack as RuntimeResumePack } from "./core/resume-pack-schema.js";
 import { App as TuiApp } from "./cli/tui/app.js";
 import { defaultRenderTui, type RenderTui } from "./cli/tui/render.js";
 import { createElement } from "react";
+import { HOOK_EVENTS, HOOK_EVENT_TO_CLAUDE_CODE, type HookEvent } from "./core/hook-events.js";
 import { runEditor as defaultRunEditor, type RunEditor } from "./cli/run-editor.js";
 import { splitFrontmatter } from "./core/spec-frontmatter.js";
 import { parse as parseYaml } from "yaml";
@@ -436,6 +437,69 @@ export async function main(
             code: "USAGE",
             message: usageMessage,
             detail: { reason: "tui-interactive-only" },
+          }) + "\n");
+        } else {
+          process.stderr.write(`error: USAGE — ${usageMessage}\n`);
+        }
+        return 2;
+      }
+    }
+
+    // Phase 16 SC-15a — `loaf hook <event>` pre-parse (codex r363 P1 / r364 P1):
+    //   1. `--list-events` FIRST (cmdTokens[1] would be undefined when
+    //      only --list-events is given; ordering matters)
+    //   2. Bare `loaf hook` (no event) → USAGE listing enum
+    //   3. Unknown event → USAGE + did-you-mean
+    //   Known event passes through to Commander; SC-15a action returns
+    //   HOOK_EVENT_NOT_IMPLEMENTED for all 4. SC-15b/c wire real handlers.
+    if (cmdTokens[0] === "hook") {
+      const renderAsJson = argv.some(
+        (a) => a === "--format=json" || (a === "--format" && argv[argv.indexOf(a) + 1] === "json"),
+      );
+      // (1) --list-events takes precedence
+      if (argv.includes("--list-events")) {
+        if (renderAsJson) {
+          process.stdout.write(JSON.stringify({
+            ok: true,
+            count: HOOK_EVENTS.length,
+            events: HOOK_EVENTS.map((e) => ({
+              event: e,
+              claude_code: HOOK_EVENT_TO_CLAUDE_CODE[e],
+            })),
+          }) + "\n");
+        } else {
+          for (const e of HOOK_EVENTS) {
+            process.stdout.write(`${e}\t${HOOK_EVENT_TO_CLAUDE_CODE[e]}\n`);
+          }
+        }
+        return 0;
+      }
+      // (2) Bare `loaf hook` → USAGE listing enum
+      if (cmdTokens[1] === undefined) {
+        const usageMessage = `loaf hook requires an event token; one of: ${HOOK_EVENTS.join(", ")}. Run \`loaf hook --list-events\` for the full enum`;
+        if (renderAsJson) {
+          process.stderr.write(JSON.stringify({
+            ok: false,
+            code: "USAGE",
+            message: usageMessage,
+            detail: { events: HOOK_EVENTS },
+          }) + "\n");
+        } else {
+          process.stderr.write(`error: USAGE — ${usageMessage}\n`);
+        }
+        return 2;
+      }
+      // (3) Unknown event → USAGE + did-you-mean
+      if (!(HOOK_EVENTS as readonly string[]).includes(cmdTokens[1]!)) {
+        const got = cmdTokens[1]!;
+        const suggestion = HOOK_EVENTS.find((e) => e.startsWith(got.slice(0, 4))) ?? HOOK_EVENTS[0];
+        const usageMessage = `unknown hook event '${got}'; expected one of: ${HOOK_EVENTS.join(", ")}. Did you mean '${suggestion}'?`;
+        if (renderAsJson) {
+          process.stderr.write(JSON.stringify({
+            ok: false,
+            code: "USAGE",
+            message: usageMessage,
+            detail: { event: got, allowed: HOOK_EVENTS, suggestion },
           }) + "\n");
         } else {
           process.stderr.write(`error: USAGE — ${usageMessage}\n`);
@@ -4280,6 +4344,31 @@ export async function main(
   // Corrupt entries and orphan-cwd registry rows are surfaced via
   // warnings (codex r290 P2 + P3). Dispatch selectors rejected via
   // pre-parse guard in main() (codex r292 P1 v3 ordering).
+  // ── loaf hook <event> — Phase 16 SC-15a (framework only) ────────────
+  // Parent command. Pre-parse guard above already handled:
+  //   - --list-events
+  //   - bare `loaf hook` (no event)
+  //   - unknown event (USAGE + did-you-mean)
+  // Action handler runs ONLY for known events. SC-15a returns
+  // HOOK_EVENT_NOT_IMPLEMENTED for all 4 (real handlers land SC-15b/c).
+  // Per codex r361 P2 lock: explicit "not implemented" beats silent
+  // exit 0 (especially for write-guard — false-positive "protection
+  // active" would be dangerous).
+  program
+    .command("hook <event>")
+    .description("Claude Code hook entry point (Phase 16 SC-15a framework; SC-15b/c wire handlers)")
+    .option("--list-events", "Dump the canonical 4-event enum (handled by pre-parse guard)")
+    .option("--path <text>", "Tool target path (for write-guard / scope-track; SC-15c)")
+    .action(async (event: string) => {
+      // The pre-parse guard already validated `event ∈ HOOK_EVENTS`.
+      const subCycle = (event === "session-start" || event === "closure-check") ? "b" : "c";
+      emitFailure(
+        "HOOK_EVENT_NOT_IMPLEMENTED",
+        `hook event \`${event}\` is not implemented in this loaf version (Phase 16 SC-15${subCycle} pending; see protocol §11)`,
+        { event, sub_cycle: subCycle, claude_code: HOOK_EVENT_TO_CLAUDE_CODE[event as HookEvent] },
+      );
+    });
+
   // ── loaf tui — Phase 16 SC-14 ────────────────────────────────────────
   // Read-only Ink-based session manager (MVP). Walks the registry
   // (same source as `sessions list`) and renders a 4-column table:

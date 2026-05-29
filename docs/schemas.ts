@@ -3921,6 +3921,7 @@ export const DiagnosticCode = z.enum([
   "INVALID_ENV_VALUE",                     // §35 commentary
   "INVALID_FORMAT",                        // Phase 16 SC-5a — --format <text|json> validation
   "DRY_RUN_NOT_APPLICABLE",                // Phase 16 SC-6c — --dry-run on read-only / wrapping commands
+  "HOOK_EVENT_NOT_IMPLEMENTED",            // Phase 16 SC-15a — known hook event recognized but handler not yet wired (SC-15b/c land the real handlers; this code becomes reserved-for-future-events at SC-15c close, similar to TASK_STATUS_WITHOUT_PROOF pattern)
   "TASK_STATUS_WITHOUT_PROOF",             // rev 4.1 evidence proof rule
   // ── rev 4.3 refactor C drift sweep — protocol.md §10.5 migration ──
   "MISSING_VERIFIABILITY",                 // spec-lock §4.2 three-way check
@@ -4291,6 +4292,24 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
       "--dry-run only applies to mutating commands; re-run without " +
       "--dry-run (or -n) to invoke the {command_type} command",
     doc_anchor: "protocol.md#§10.7-dry-run",
+  },
+  HOOK_EVENT_NOT_IMPLEMENTED: {
+    // Phase 16 SC-15a — known hook event recognized by HookEvent enum
+    // but the handler hasn't been wired yet (SC-15b lands session-start
+    // + closure-check; SC-15c lands write-guard + scope-track). After
+    // SC-15c, no runtime path emits this code; it stays in the catalog
+    // as reserved-for-future-events (mirror of TASK_STATUS_WITHOUT_PROOF
+    // pattern). The dedicated code (vs. generic USAGE) lets skill /
+    // CI consumers tell "event not implemented" from "unknown event".
+    exit_code: 2,
+    message_template:
+      "hook event `{event}` is not implemented in this loaf version " +
+      "(Phase 16 SC-15{sub_cycle} pending; see protocol §11)",
+    fix_template:
+      "upgrade to a loaf release that implements this hook event, OR " +
+      "skip this hook surface for now — `loaf hook --list-events` " +
+      "shows the canonical 4-event enum",
+    doc_anchor: "protocol.md#§11",
   },
   MISSING_VERIFIABILITY: {
     exit_code: 2,

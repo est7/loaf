@@ -121,6 +121,41 @@ describe("SC-13b — §10.7 dry-run classification ↔ runtime/SC-6c drift gate 
     ).toBe(true);
   });
 
+  test("§10.7 Hook category row exists (Phase 16 SC-15a)", async () => {
+    const protocolText = await readRepo("docs/protocol.md");
+    const hookLine = protocolText.split("\n").find((line) =>
+      line.startsWith("|") &&
+      line.includes("Hook 入口") &&
+      line.includes("hook"),
+    );
+    expect(hookLine, "expected §10.7 Hook 入口 row").toBeDefined();
+  });
+
+  test("`hook` is NOT in non-Hook §10.7 rows (Phase 16 SC-15a — codex r364 P2)", async () => {
+    const protocolText = await readRepo("docs/protocol.md");
+    const lines = protocolText.split("\n");
+    const CATEGORIES = [
+      "Mutating 命令",
+      "Read-only 命令",
+      "Wrapping 命令",
+      "Projection-writer 命令",
+    ] as const;
+    for (const category of CATEGORIES) {
+      const row = lines.find((l) => {
+        if (!l.startsWith("|") || !l.includes(category)) return false;
+        if (category === "Mutating 命令") return l.includes("走 §11.2 10-step transaction");
+        // Other categories use either `reject` or `**reject**` (markdown bold).
+        return /reject\*?\*?\s*`--dry-run`/.test(l);
+      });
+      expect(row, `expected §10.7 ${category} dry-run row to exist`).toBeDefined();
+      const hasHook = /[\s/(`]hook[\s/),`*]/.test(row!);
+      expect(
+        hasHook,
+        `§10.7 ${category} row mentions \`hook\` — but hooks have their own dedicated category; remove from ${category}`,
+      ).toBe(false);
+    }
+  });
+
   test("`tui` is NOT in the §10.7 dry-run Wrapping row (Phase 16 SC-14 — TUI is read-only for dry-run, not wrapping)", async () => {
     const protocolText = await readRepo("docs/protocol.md");
     // Target the §10.7 dry-run table row specifically — it's a table
