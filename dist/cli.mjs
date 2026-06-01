@@ -4366,6 +4366,7 @@ const DiagnosticCode = z.enum([
 	"DELIVER_NOT_ACCEPTED",
 	"DELIVER_SETTLE_PHASE_BYPASS",
 	"DELIVER_VERIFY_MIN_UNAVAILABLE",
+	"DELIVER_VERIFY_MIN_INCOMPLETE",
 	"DELIVER_SPIKE_TASKS",
 	"SETTLE_NOT_ACCEPTED",
 	"TASK_NOT_CLAIMABLE",
@@ -6527,15 +6528,56 @@ function preflight(rawEntry, ctx) {
 				status: activeSpike.status
 			}
 		};
-		if (sub_state === "EXECUTE.done") return {
-			ok: false,
-			code: "DELIVER_VERIFY_MIN_UNAVAILABLE",
-			message: "quick / light deliver from EXECUTE.done requires verify-min, which is not yet implemented in this build",
-			detail: {
-				sub_state,
-				ceremony_label: deriveCeremonyLabel(ceremony)
+		if (sub_state === "EXECUTE.done") {
+			if (ceremony.verify_phase) return {
+				ok: false,
+				code: "DELIVER_NOT_ACCEPTED",
+				message: "cannot deliver from EXECUTE.done: verify_phase=true (standard/deep) must complete VERIFY and deliver from VERIFY.accept; EXECUTE.done deliver is the quick/light verify-min path",
+				detail: {
+					sub_state,
+					ceremony_label: deriveCeremonyLabel(ceremony),
+					verify_phase: true
+				}
+			};
+			const VERIFY_MIN_REQUIRED_KINDS = {
+				behavioral: ["local-check"],
+				structural: ["local-check"],
+				"visual-ui": ["visual-review", "manual"],
+				docs: ["task-summary", "manual"],
+				chore: [
+					"local-check",
+					"manual",
+					"task-summary"
+				]
+			};
+			const missing = [];
+			for (const task of ctx.snapshot.tasks) {
+				if (task.status !== "done") continue;
+				if (task.kind === "behavioral" && task.labels.includes("bug") && task.red_test_registered !== true) return {
+					ok: false,
+					code: "BUG_TASK_RED_NOT_REGISTERED",
+					message: `behavioral bug task ${task.id} is status=done but never registered its RED test (red_test_registered≠true); cannot verify-min deliver`,
+					detail: { task_id: task.id }
+				};
+				const required = VERIFY_MIN_REQUIRED_KINDS[task.kind] ?? [];
+				if (!ctx.snapshot.evidence.some((ev) => ev.covers.includes(task.id) && (required.includes(ev.kind) || ev.kind === "waiver"))) missing.push({
+					task_id: task.id,
+					kind: task.kind,
+					required_kinds: required
+				});
 			}
-		};
+			if (missing.length > 0) return {
+				ok: false,
+				code: "DELIVER_VERIFY_MIN_INCOMPLETE",
+				message: `verify-min: ${missing.length} done task(s) lack the required evidence to deliver (${missing.map((m) => `${m.task_id} needs ${m.required_kinds.join("/")}`).join("; ")}). Add evidence (e.g. \`loaf evidence add\`) or waive, then re-deliver`,
+				detail: {
+					sub_state,
+					ceremony_label: deriveCeremonyLabel(ceremony),
+					count: missing.length,
+					tasks: missing
+				}
+			};
+		}
 		if (sub_state === "VERIFY.accept") {
 			if (ceremony.settle_phase) return {
 				ok: false,

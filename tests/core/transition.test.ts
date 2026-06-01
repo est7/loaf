@@ -221,7 +221,8 @@ describe("validateTransition — Gate #1", () => {
   test("2A.5. EXECUTE.done → DONE.delivered always TRANSITION_ILLEGAL (Slice 1.D — `loaf deliver` territory)", () => {
     // pre-Slice-1.D this returned VERIFY_PHASE_FORK_VIOLATION for verify_phase=true.
     // The edge was removed so loaf deliver owns EXECUTE.done → DONE.delivered
-    // (gated by DELIVER_VERIFY_MIN_UNAVAILABLE in preflight step 5c).
+    // (gated by the v0.1.1 verify-min check in preflight step 5c —
+    // DELIVER_VERIFY_MIN_INCOMPLETE on missing evidence).
     const result = validateTransition("EXECUTE.done", "DONE.delivered", {
       ceremony: STANDARD_CEREMONY,
       actor: ACTOR,

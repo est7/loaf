@@ -377,7 +377,7 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
     if (!r.ok) expect(r.code).toBe("DELIVER_NOT_ACCEPTED");
   });
 
-  test("session:delivered @ EXECUTE.done (quick) → DELIVER_VERIFY_MIN_UNAVAILABLE", () => {
+  test("session:delivered @ EXECUTE.done (quick) done task lacking evidence → DELIVER_VERIFY_MIN_INCOMPLETE", () => {
     const QUICK_CEREMONY: Ceremony = {
       spec_phase: false,
       verify_phase: false,
@@ -386,12 +386,19 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
       lessons_required: "skip",
       strict_drift_check: false,
     };
+    // v0.1.1: verify-min landed. A quick deliver with a done code task that
+    // lacks build/test evidence now fails DELIVER_VERIFY_MIN_INCOMPLETE
+    // (was the DELIVER_VERIFY_MIN_UNAVAILABLE fail-closed stub).
     const r = preflight(deliverEntry(), {
-      snapshot: mkSnapshot("EXECUTE.done", QUICK_CEREMONY),
+      snapshot: mkSnapshot("EXECUTE.done", QUICK_CEREMONY, {
+        tasks: [
+          { id: "T-001", kind: "behavioral", status: "done", steps: {}, drives: [], depends_on: [], labels: [] },
+        ],
+      }),
       tail_seq: -1,
     });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.code).toBe("DELIVER_VERIFY_MIN_UNAVAILABLE");
+    if (!r.ok) expect(r.code).toBe("DELIVER_VERIFY_MIN_INCOMPLETE");
   });
 
   test("session:delivered @ VERIFY.accept with non-abandoned spike task → DELIVER_SPIKE_TASKS", () => {

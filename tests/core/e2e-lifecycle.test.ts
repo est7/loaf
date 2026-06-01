@@ -1445,7 +1445,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
   });
 
   // SCEN-E2E-005 — see docs/e2e-scenarios.md
-  test("SCEN-E2E-005 — quick ceremony deliver from EXECUTE.done is fail-closed", async () => {
+  test("SCEN-E2E-005 — quick ceremony deliver from EXECUTE.done passes verify-min (no tracked tasks → vacuous)", async () => {
     const dir = await tmpFeatureDir();
     const F = "e2e-quick";
     const ENV = { LOAF_USER: "e2e@test.invalid" };
@@ -1460,19 +1460,21 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     await step("advance EXECUTE.work", ["advance", "EXECUTE.work", "--feature", F]);
     await step("advance EXECUTE.done", ["advance", "EXECUTE.done", "--feature", F]);
 
-    // quick also skips VERIFY (verify_phase=false). The MVP has no
-    // verify-min check, so deliver from EXECUTE.done is fail-closed rather
-    // than silently shipping an unverified feature.
-    const blocked = await runCli(
+    // quick also skips VERIFY (verify_phase=false). v0.1.1: verify-min runs
+    // at deliver from EXECUTE.done. A quick session has no SPEC.design → no
+    // task graph → zero done tasks → verify-min is a vacuous pass, so the
+    // feature delivers to DONE.delivered.
+    const delivered = await runCli(
       ["deliver", "--feature", F, "--feature-dir", dir, "--format", "json"],
       { env: ENV },
     );
-    expect(blocked.exit).toBe(2);
-    expect(blocked.stderr + blocked.stdout).toContain("DELIVER_VERIFY_MIN_UNAVAILABLE");
+    expect(delivered.exit).toBe(0);
+    const after = await step("status post-deliver", ["status", "--feature", F]);
+    expect(after.state?.sub_state ?? after.sub_state).toBe("DONE.delivered");
   });
 
   // SCEN-E2E-006 — see docs/e2e-scenarios.md
-  test("SCEN-E2E-006 — light ceremony deliver from EXECUTE.done is fail-closed", async () => {
+  test("SCEN-E2E-006 — light ceremony deliver from EXECUTE.done blocked by verify-min (done task lacks build/test evidence)", async () => {
     const dir = await tmpFeatureDir();
     const F = "e2e-light";
     const ENV = { LOAF_USER: "e2e@test.invalid" };
@@ -1486,7 +1488,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     await step("spec init", ["spec", "init", "--feature", F]);
     const submitInput = await writeInput("submit.json", {
       feature: { id: "F-001", name: "E2E light ceremony" },
-      intent: "exercise the light-ceremony fail-closed deliver boundary",
+      intent: "exercise the light-ceremony verify-min deliver boundary",
       adr_refs: [],
       needs_clarification: [],
     });
@@ -1540,14 +1542,17 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     }
     await step("advance EXECUTE.done", ["advance", "EXECUTE.done", "--feature", F]);
 
-    // light skips VERIFY (verify_phase=false); deliver from EXECUTE.done is
-    // fail-closed until the verify-min check lands.
+    // light skips VERIFY (verify_phase=false); deliver from EXECUTE.done
+    // runs verify-min (v0.1.1). T-001 is a done behavioral task with no
+    // `local-check` build/test evidence → verify-min blocks delivery with
+    // DELIVER_VERIFY_MIN_INCOMPLETE (the full pass-with-evidence matrix is
+    // covered in tests/core/verify-min.test.ts).
     const blocked = await runCli(
       ["deliver", "--feature", F, "--feature-dir", dir, "--format", "json"],
       { env: ENV },
     );
     expect(blocked.exit).toBe(2);
-    expect(blocked.stderr + blocked.stdout).toContain("DELIVER_VERIFY_MIN_UNAVAILABLE");
+    expect(blocked.stderr + blocked.stdout).toContain("DELIVER_VERIFY_MIN_INCOMPLETE");
   });
 
   // SCEN-E2E-016 — see docs/e2e-scenarios.md

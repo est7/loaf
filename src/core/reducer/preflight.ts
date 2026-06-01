@@ -93,6 +93,12 @@ export type PreflightFailureCode =
   | "DELIVER_NOT_ACCEPTED"
   | "DELIVER_SETTLE_PHASE_BYPASS"
   | "DELIVER_VERIFY_MIN_UNAVAILABLE"
+  // v0.1.1 — verify-min check landed; quick/light deliver from EXECUTE.done
+  // now runs the §3.2 per-task evidence gate instead of fail-closing.
+  | "DELIVER_VERIFY_MIN_INCOMPLETE"
+  // v0.1.1 — verify-min mirrors verify-accept check 4's bug-RED defense
+  // (reuses the existing code; already in docs DiagnosticCode enum).
+  | "BUG_TASK_RED_NOT_REGISTERED"
   | "DELIVER_SPIKE_TASKS"
   // Slice 2 SC1 — task lifecycle preflight refines (step 5e). TASK_NOT_FOUND
   // is reused (already in DiagnosticCode for the reducer-side path) so no
@@ -706,19 +712,78 @@ export function preflight(
       };
     }
     if (sub_state === "EXECUTE.done") {
-      // Quick / light deliver path requires verify-min (protocol §3) —
-      // evidence checks not yet implemented in v0.1.0. Fail-closed per
-      // codex r49 BLOCK 2 (do not ship cursor movement without evidence
-      // proof). Code is "UNAVAILABLE" not "NOT_IMPLEMENTED" per codex r50
-      // residual A — describes the current surface without baking
-      // implementation status into the protocol.
-      return {
-        ok: false,
-        code: "DELIVER_VERIFY_MIN_UNAVAILABLE",
-        message:
-          "quick / light deliver from EXECUTE.done requires verify-min, which is not yet implemented in this build",
-        detail: { sub_state, ceremony_label: deriveCeremonyLabel(ceremony) },
+      // EXECUTE.done deliver is DEFINITIONALLY the quick/light path
+      // (§10.8 deliver row: verify_phase=false delivers from EXECUTE.done;
+      // standard delivers from VERIFY.accept, deep from SETTLE.lessons).
+      // A verify_phase=true (standard/deep) session attempting deliver here
+      // has not completed VERIFY → not verify-accepted. (impl-surfaced
+      // edge: the v0.1.0 stub lump-rejected ALL EXECUTE.done delivers; with
+      // verify-min now quick/light-specific, standard/deep needs its own
+      // rejection — DELIVER_NOT_ACCEPTED fits the "haven't been accepted
+      // yet" semantics.)
+      if (ceremony.verify_phase) {
+        return {
+          ok: false,
+          code: "DELIVER_NOT_ACCEPTED",
+          message:
+            "cannot deliver from EXECUTE.done: verify_phase=true (standard/deep) must complete VERIFY and deliver from VERIFY.accept; EXECUTE.done deliver is the quick/light verify-min path",
+          detail: { sub_state, ceremony_label: deriveCeremonyLabel(ceremony), verify_phase: true },
+        };
+      }
+      // verify-min (protocol §3.2) — quick / light deliver gate (v0.1.1;
+      // replaces the v0.1.0 DELIVER_VERIFY_MIN_UNAVAILABLE fail-closed stub).
+      // Per `status=done` task, require the per-kind evidence covering it
+      // (codex v0.1.1 Q2 lock): code-touching tasks need `local-check`
+      // build/test proof — `task-summary` alone does NOT satisfy (that would
+      // weaken to verify-accept check 4); `waiver` always satisfies (human
+      // escape). Evidence must cover the task (`covers` includes task.id);
+      // session-wide evidence never satisfies an unrelated task. spike tasks
+      // are hard-blocked above (DELIVER_SPIKE_TASKS) so never reach here.
+      const VERIFY_MIN_REQUIRED_KINDS: Record<string, readonly string[]> = {
+        behavioral: ["local-check"],
+        structural: ["local-check"],
+        "visual-ui": ["visual-review", "manual"],
+        docs: ["task-summary", "manual"],
+        chore: ["local-check", "manual", "task-summary"],
       };
+      const missing: Array<{ task_id: string; kind: string; required_kinds: readonly string[] }> = [];
+      for (const task of ctx.snapshot.tasks) {
+        if (task.status !== "done") continue;
+        // bug-RED defense (codex Q4): mirror verify-accept check 4 — a done
+        // behavioral bug task that never registered its RED test fails with
+        // its own dedicated code, not hidden behind generic missing-evidence.
+        if (
+          task.kind === "behavioral" &&
+          task.labels.includes("bug") &&
+          task.red_test_registered !== true
+        ) {
+          return {
+            ok: false,
+            code: "BUG_TASK_RED_NOT_REGISTERED",
+            message: `behavioral bug task ${task.id} is status=done but never registered its RED test (red_test_registered≠true); cannot verify-min deliver`,
+            detail: { task_id: task.id },
+          };
+        }
+        const required = VERIFY_MIN_REQUIRED_KINDS[task.kind] ?? [];
+        const satisfied = ctx.snapshot.evidence.some(
+          (ev) => ev.covers.includes(task.id) && (required.includes(ev.kind) || ev.kind === "waiver"),
+        );
+        if (!satisfied) {
+          missing.push({ task_id: task.id, kind: task.kind, required_kinds: required });
+        }
+      }
+      if (missing.length > 0) {
+        return {
+          ok: false,
+          code: "DELIVER_VERIFY_MIN_INCOMPLETE",
+          message:
+            `verify-min: ${missing.length} done task(s) lack the required evidence to deliver ` +
+            `(${missing.map((m) => `${m.task_id} needs ${m.required_kinds.join("/")}`).join("; ")}). ` +
+            `Add evidence (e.g. \`loaf evidence add\`) or waive, then re-deliver`,
+          detail: { sub_state, ceremony_label: deriveCeremonyLabel(ceremony), count: missing.length, tasks: missing },
+        };
+      }
+      // verify-min passed — fall through; session:delivered proceeds.
     }
     if (sub_state === "VERIFY.accept") {
       if (ceremony.settle_phase) {

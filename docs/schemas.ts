@@ -2748,10 +2748,12 @@ export const SUB_STATE_CONTRACTS: Array<z.infer<typeof SubStateContract>> = [
     // Slice 1.D (sub-cycle 1): the `event:phase_advanced` edge from
     // EXECUTE.done to DONE.delivered has been removed from LEGAL_TRANSITIONS
     // (transition.ts:31). DONE.delivered is reached only via
-    // `session:delivered`, owned by `loaf deliver`. Until verify-min check
-    // infrastructure lands (protocol §3 / §3.2), the EXECUTE.done deliver
-    // path is fail-closed by preflight step 5c with
-    // DELIVER_VERIFY_MIN_UNAVAILABLE. `next` below still lists
+    // `session:delivered`, owned by `loaf deliver`. v0.1.1: the EXECUTE.done
+    // deliver path runs the §3.2 verify-min per-task evidence gate in
+    // preflight step 5c (quick/light only) — on missing evidence it returns
+    // DELIVER_VERIFY_MIN_INCOMPLETE, on pass it reaches DONE.delivered
+    // (verify_phase=true/standard-deep at EXECUTE.done → DELIVER_NOT_ACCEPTED,
+    // must deliver from VERIFY.accept). `next` below still lists
     // DONE.delivered because this table documents prompt / hook flow
     // (the user-action chain skills should suggest), NOT
     // `event:phase_advanced` edge legality (that lives in
@@ -4087,7 +4089,8 @@ export const DiagnosticCode = z.enum([
   // ── Slice 1.D sub-cycle 1 — loaf deliver / loaf settle preflight refines (codex r49/r50/r51) ──
   "DELIVER_NOT_ACCEPTED",                  // src/core/reducer/preflight.ts step 5c — `session:delivered` at VERIFY.accept or SETTLE.lessons but snapshot.state.verify_accepted=false
   "DELIVER_SETTLE_PHASE_BYPASS",           // src/core/reducer/preflight.ts step 5c — `session:delivered` at VERIFY.accept but ceremony.settle_phase=true (deep must run `loaf settle` first)
-  "DELIVER_VERIFY_MIN_UNAVAILABLE",        // src/core/reducer/preflight.ts step 5c — `session:delivered` at EXECUTE.done; quick/light path requires verify-min (§3) which is not yet implemented in v0.1.0
+  "DELIVER_VERIFY_MIN_UNAVAILABLE",        // src/core/reducer/preflight.ts step 5c — v0.1.0 fail-closed stub; SUPERSEDED at v0.1.1 by DELIVER_VERIFY_MIN_INCOMPLETE (verify-min landed). Reserved-for-history; no longer emitted at runtime.
+  "DELIVER_VERIFY_MIN_INCOMPLETE",         // src/core/reducer/preflight.ts step 5c — v0.1.1: `session:delivered` at EXECUTE.done (quick/light) but ≥1 done task lacks the §3.2 per-kind verify-min evidence (code→local-check / visual-ui→visual-review|manual / docs→task-summary|manual / chore→local-check|manual|task-summary; waiver always satisfies)
   "DELIVER_SPIKE_TASKS",                   // src/core/reducer/preflight.ts step 5c — snapshot.tasks contains a non-abandoned spike task (protocol §703 + §1298 hard block)
   "SETTLE_NOT_ACCEPTED",                   // src/core/reducer/transition.ts — `event:phase_advanced` VERIFY.accept→SETTLE.reconcile but snapshot.state.verify_accepted=false (gate must approve before settle)
   // ── Slice 2 SC1 — task lifecycle preflight (codex r56/r57) ──
@@ -5018,12 +5021,33 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
     doc_anchor: "protocol.md#§5.2",
   },
   DELIVER_VERIFY_MIN_UNAVAILABLE: {
+    // v0.1.0 fail-closed stub — SUPERSEDED at v0.1.1 by
+    // DELIVER_VERIFY_MIN_INCOMPLETE (verify-min landed). No longer emitted
+    // at runtime; retained reserved-for-history so old logs/tooling resolve.
     exit_code: 2,
     message_template:
-      "quick / light deliver from EXECUTE.done requires verify-min, which is not yet implemented in this build (ceremony_label={ceremony_label})",
+      "verify-min was unavailable in this build (ceremony_label={ceremony_label}) — superseded at v0.1.1 by DELIVER_VERIFY_MIN_INCOMPLETE; this code is no longer emitted",
     fix_template:
-      "use ceremony=standard or deep to traverse VERIFY.* before delivery; quick / light direct-delivery via verify-min is a follow-up slice (verify-min check infrastructure pending)",
-    doc_anchor: "protocol.md#§3",
+      "upgrade to v0.1.1+ where quick / light deliver runs the verify-min per-task evidence check; on failure see DELIVER_VERIFY_MIN_INCOMPLETE",
+    doc_anchor: "protocol.md#§3.2",
+  },
+  DELIVER_VERIFY_MIN_INCOMPLETE: {
+    // v0.1.1 — verify-min landed. quick/light `loaf deliver` from
+    // EXECUTE.done runs the §3.2 per-task evidence gate; ≥1 done task
+    // lacks its required-kind evidence (code→local-check / visual-ui→
+    // visual-review|manual / docs→task-summary|manual / chore→local-check|
+    // manual|task-summary; waiver always satisfies). detail.tasks lists
+    // each missing task + its required kinds.
+    exit_code: 2,
+    message_template:
+      "verify-min: {count} done task(s) lack required evidence to deliver " +
+      "(ceremony_label={ceremony_label}); add evidence or waive, then re-deliver",
+    fix_template:
+      "for each listed task add evidence covering it — code tasks need a " +
+      "`local-check` (test/lint/typecheck) run, visual-ui needs " +
+      "visual-review or manual, docs needs task-summary or manual — or " +
+      "`loaf waive` it; then `loaf deliver` again",
+    doc_anchor: "protocol.md#§3.2",
   },
   DELIVER_SPIKE_TASKS: {
     exit_code: 2,

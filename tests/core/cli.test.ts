@@ -1541,10 +1541,11 @@ describe("loaf deliver — Slice 1.D sub-cycle 2 (MVP)", () => {
     expect(errJson.code).toBe("DELIVER_NOT_ACCEPTED");
   });
 
-  test("fail: EXECUTE.done attempt (quick path) → DELIVER_VERIFY_MIN_UNAVAILABLE", async () => {
+  test("fail: standard deliver from EXECUTE.done → DELIVER_NOT_ACCEPTED", async () => {
     // Build a custom seed that ends at EXECUTE.done (no VERIFY.* walk).
-    // Use STANDARD ceremony for simplicity — preflight rejects EXECUTE.done
-    // deliver regardless of ceremony per Slice 1.D fail-closed gate.
+    // STANDARD ceremony (verify_phase=true): v0.1.1 — EXECUTE.done deliver
+    // is the quick/light verify-min path; standard/deep must complete VERIFY
+    // and deliver from VERIFY.accept, so EXECUTE.done deliver → not accepted.
     const dir = await tmpFeatureDir();
     await seedFeatureAtSpecDesign(dir);
 
@@ -1615,7 +1616,7 @@ describe("loaf deliver — Slice 1.D sub-cycle 2 (MVP)", () => {
     expect(result.exit).toBe(2);
     expect(result.stdout).toBe("");
     const errJson = JSON.parse(result.stderr.trim());
-    expect(errJson.code).toBe("DELIVER_VERIFY_MIN_UNAVAILABLE");
+    expect(errJson.code).toBe("DELIVER_NOT_ACCEPTED");
   });
 
   test("fail: non-abandoned spike task present → DELIVER_SPIKE_TASKS", async () => {

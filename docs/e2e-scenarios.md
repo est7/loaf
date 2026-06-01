@@ -87,21 +87,23 @@ Source: codex independent enumeration r119 (AMQ thread
 
 ## Ceremony / phase-skip
 
-### SCEN-E2E-005 — Quick direct-deliver fail-closed
-- **Tier** inventory · **Status** green · **Impl** assert fail-closed now;
-  upgrade to a happy path when verify-min lands.
-- **Given** a quick-ceremony feature (quick skips SPEC / VERIFY / SETTLE).
+### SCEN-E2E-005 — Quick direct-deliver passes verify-min (vacuous)
+- **Tier** inventory · **Status** green · **Impl** v0.1.1 — verify-min landed.
+- **Given** a quick-ceremony feature (quick skips SPEC / VERIFY / SETTLE, so
+  it has no task graph).
 - **When** execution reaches EXECUTE.done and `deliver` is called.
-- **Then** the MVP returns `DELIVER_VERIFY_MIN_UNAVAILABLE`.
-- **Covers** the quick fork and the current verify-min deferred boundary.
+- **Then** verify-min finds no done tasks → vacuous pass → the feature
+  reaches `DONE.delivered` (exit 0).
+- **Covers** the quick fork and the v0.1.1 verify-min vacuous-pass boundary.
 
-### SCEN-E2E-006 — Light direct-deliver fail-closed
-- **Tier** inventory · **Status** green · **Impl** assert fail-closed now;
-  later assert the light warning once verify-min exists.
-- **Given** a light-ceremony feature (light runs SPEC, skips VERIFY/SETTLE).
+### SCEN-E2E-006 — Light direct-deliver blocked by verify-min
+- **Tier** inventory · **Status** green · **Impl** v0.1.1 — verify-min landed.
+- **Given** a light-ceremony feature (light runs SPEC, skips VERIFY/SETTLE)
+  with a done behavioral task T-001 lacking `local-check` build/test evidence.
 - **When** execution reaches EXECUTE.done and `deliver` is called.
-- **Then** the MVP returns `DELIVER_VERIFY_MIN_UNAVAILABLE`.
-- **Covers** light's "intent-anchored but not closed" contract.
+- **Then** verify-min returns `DELIVER_VERIFY_MIN_INCOMPLETE` (T-001 needs
+  local-check). Adding the evidence or waiving then re-delivering passes.
+- **Covers** light's verify-min per-task evidence gate (§3.2).
 
 ### SCEN-E2E-007 — Standard settle disabled
 - **Tier** inventory · **Status** green

@@ -1507,8 +1507,9 @@ export async function main(
   // PER_KIND_SUB_STATE: EXECUTE.done, VERIFY.accept, SETTLE.lessons.
   // Preflight step 5c enforces the ceremony / verify_accepted / spike-
   // tasks preconditions per protocol §5.2 / §10.8 / §1824:
-  //   * EXECUTE.done    → DELIVER_VERIFY_MIN_UNAVAILABLE (deferred —
-  //                       verify-min check infra not yet wired).
+  //   * EXECUTE.done    → v0.1.1 verify-min (quick/light): per-task evidence
+  //                       gate; missing → DELIVER_VERIFY_MIN_INCOMPLETE,
+  //                       standard/deep here → DELIVER_NOT_ACCEPTED.
   //   * VERIFY.accept   → ceremony.settle_phase=false + verify_accepted=true
   //                       (DELIVER_SETTLE_PHASE_BYPASS / DELIVER_NOT_ACCEPTED).
   //   * SETTLE.lessons  → verify_accepted=true (defensive; legal
