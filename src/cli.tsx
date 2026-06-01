@@ -4341,10 +4341,12 @@ export async function main(
   // ── loaf lessons add — Phase 16 SC-11 ────────────────────────────────
   // Sugar wrapper over `evidence:added` payload.kind=manual. Records a
   // human:* manual evidence entry whose summary holds the lesson body.
-  // v0.1.0 scope: evidence ledger only — `lessons.md` projection writer
-  // is deferred (F-024; advisory stderr does NOT claim lessons.md
-  // updated). LongTextField sidecar promotion fires when lesson body
-  // bytes > SIDECAR_THRESHOLD_BYTES (Pass 2 sidecar promote).
+  // v0.1.1 (F-024): the `lessons.md` projection writer landed — every
+  // mutate rebuilds `.loaf/<feature>/lessons.md` from the lesson entries
+  // (writeProjections), so the advisory now claims lessons.md updated.
+  // LongTextField sidecar promotion fires when lesson body bytes >
+  // SIDECAR_THRESHOLD_BYTES (Pass 2 sidecar promote); the lessons.md
+  // writer resolves those sidecars back inline.
   const lessonsCmd = program
     .command("lessons")
     .description("Lessons-learned evidence commands (Phase 16 SC-11: add)");
@@ -4439,9 +4441,10 @@ export async function main(
         emitDryRunSuccess(result);
         return;
       }
-      // v0.1.0: stateChange mentions evidence ledger only — lessons.md
-      // projection writer is F-024 deferred. Advisory must NOT claim
-      // lessons.md was updated (codex r323 P2 contract).
+      // v0.1.1 (F-024): the lessons.md projection writer landed — every
+      // mutate rebuilds `.loaf/<feature>/lessons.md` from the lesson
+      // entries (writeProjections), so the advisory now states it was
+      // updated. (Was: "projection writer deferred" through v0.1.0.)
       ctx.success(
         {
           ok: true,
@@ -4450,7 +4453,7 @@ export async function main(
           kind: "manual" as const,
         },
         () => `${evidenceId}\n`,
-        { stateChange: `lessons add: ${evidenceId} recorded (kind=manual; lessons.md projection writer deferred)` },
+        { stateChange: `lessons add: ${evidenceId} recorded (kind=manual; lessons.md updated)` },
       );
     });
 

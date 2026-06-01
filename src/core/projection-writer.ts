@@ -49,6 +49,12 @@ import {
   type PendingQueueEntry,
 } from "./projection-schema.js";
 import { EvidenceFullPayload } from "./evidence-schema.js";
+import {
+  selectLessonEntries,
+  resolveLessonBodies,
+  composeLessonsProjection,
+  deriveLessonsHeader,
+} from "./lessons-projection.js";
 
 // ── Pure compose functions ──────────────────────────────────────────────
 
@@ -302,7 +308,16 @@ async function writeJsonAtomic(
   value: unknown,
   fsync: boolean,
 ): Promise<void> {
-  const body = JSON.stringify(value, null, 2);
+  await writeTextAtomic(filePath, JSON.stringify(value, null, 2), fsync);
+}
+
+/** Atomic raw-text write — the markdown projection (lessons.md, F-024)
+ *  shares the exact tmp+fsync+rename boundary as the JSON leaves. */
+async function writeTextAtomic(
+  filePath: string,
+  body: string,
+  fsync: boolean,
+): Promise<void> {
   const tmp = `${filePath}.tmp-${randomBytes(6).toString("hex")}`;
   await fsp.writeFile(tmp, body, { mode: 0o644 });
 
@@ -426,6 +441,22 @@ export async function writeProjections(
     fsync,
   );
   written.push("pending.json");
+
+  // lessons.md — top-level user-facing markdown projection (F-024), NOT a
+  // snapshots/*.json leaf. Written when ≥1 lesson entry exists, else a stale
+  // top-level lessons.md is removed (mirrors state.json/tasks.json absence).
+  // Sidecar body resolution failures THROW → surfaced as
+  // PROJECTION_WRITE_FAILED at the mutate boundary (mirrors spec.md).
+  const lessonsPath = path.join(featureDir, "lessons.md");
+  const lessonEntries = selectLessonEntries(entries);
+  if (lessonEntries.length > 0) {
+    const resolved = await resolveLessonBodies(featureDir, lessonEntries);
+    const md = composeLessonsProjection(resolved, deriveLessonsHeader(snapshot, entries));
+    await writeTextAtomic(lessonsPath, md, fsync);
+    written.push("lessons.md");
+  } else {
+    await fsp.rm(lessonsPath, { force: true });
+  }
 
   // Metadata strictly after data — a reader must never see a fresh _meta
   // pointing at stale projection files.

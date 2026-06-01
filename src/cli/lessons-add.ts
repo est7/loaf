@@ -11,9 +11,10 @@
 //     single-source consistency per codex r325 P2)
 //   - covers = [] (lessons aren't tied to specific obligations)
 //
-// v0.1.0 scope: evidence ledger only. `lessons.md` projection writer is
-// deferred (codex r323 Q5b + r325 §4.7 sweep); CLI advisory must NOT
-// claim `lessons.md` was updated. See F-024.
+// v0.1.1 (F-024): the `lessons.md` projection writer landed — this builder
+// still only produces the evidence payload, but writeProjections rebuilds
+// `.loaf/<feature>/lessons.md` from the lesson entries on every mutate, so
+// the CLI advisory now claims `lessons.md updated`. See F-024 (CLOSED).
 //
 // PURE payload builder (codex r325 P1 Option A): returns payload object;
 // caller wraps in journal envelope before mutate().

@@ -1269,6 +1269,102 @@ function carryForwardStepProgress(replacement, canonical) {
 	return out;
 }
 //#endregion
+//#region src/core/lessons-projection.ts
+/**
+* Lesson selector (codex F-024 r2): NOT every kind=manual evidence is a
+* lesson — `loaf evidence add --kind manual` is a legitimate verification
+* path that covers REQ/SCEN/VIS/T. A lesson (from `loaf lessons add`,
+* `buildLessonsEvidencePayload`) is shaped EXACTLY as: kind=manual,
+* result=passed, empty covers, no task_id / check / gate linkage, human
+* actor. The shape heuristic is exact for the current emitter; an explicit
+* payload marker is future hardening (needs an evidence-schema rev).
+*/
+function isLesson(payload) {
+	return payload.kind === "manual" && payload.result === "passed" && (payload.covers?.length ?? 0) === 0 && payload.task_id === void 0 && payload.check === void 0 && payload.gate === void 0 && payload.actor.startsWith("human:");
+}
+/**
+* Select lesson entries from the journal stream (journal order = seq order).
+* Operates on the FULL journal payloads (codex F-024 r2: NOT the slim
+* `Snapshot.evidence`, which drops summary / task_id / gate).
+*/
+function selectLessonEntries(entries) {
+	const lessons = [];
+	for (const e of entries) {
+		if (e.kind !== "evidence:added") continue;
+		const payload = EvidenceFullPayload.parse(e.payload);
+		if (!isLesson(payload)) continue;
+		lessons.push({
+			entry_id: e.entry_id,
+			at: e.at,
+			summary: payload.summary
+		});
+	}
+	return lessons;
+}
+/**
+* IO resolver — inline `summary` strings / inline LongTextFields pass through;
+* sidecar LongTextFields are read from `<featureDir>/<ref.path>` and verified
+* against `ref.sha256` + `ref.size`. A missing file or hash/size mismatch
+* THROWS — surfaced as PROJECTION_WRITE_FAILED at the writer boundary.
+*/
+async function resolveLessonBodies(featureDir, lessons) {
+	const resolved = [];
+	for (const lesson of lessons) {
+		const { summary } = lesson;
+		let body;
+		if (typeof summary === "string") body = summary;
+		else if (summary.mode === "inline") body = summary.text;
+		else {
+			const ref = summary.ref;
+			const abs = path.join(featureDir, ref.path);
+			const buf = await promises.readFile(abs);
+			const sha256 = createHash("sha256").update(buf).digest("hex");
+			if (sha256 !== ref.sha256 || buf.byteLength !== ref.size) throw new Error(`lesson sidecar ${ref.path} integrity mismatch (sha256 ${sha256 === ref.sha256 ? "ok" : "MISMATCH"}, size ${buf.byteLength}≟${ref.size})`);
+			body = buf.toString("utf8");
+		}
+		resolved.push({
+			body,
+			at: lesson.at
+		});
+	}
+	return resolved;
+}
+/**
+* Header identity (codex F-024 Q3): prefer the spec header (id + name from
+* spec.md), with a required fallback for legal no-spec / quick paths — id =
+* state.feature, name = session_label (off session:started) ?? state.feature.
+* Date = session:started.at date; iterations = current snapshot iteration.
+* Does NOT depend on spec_header being non-null.
+*/
+function deriveLessonsHeader(snapshot, entries) {
+	const started = entries.find((e) => e.kind === "session:started");
+	const sessionLabel = started && typeof started.payload.session_label === "string" ? started.payload.session_label : void 0;
+	const feature = snapshot.state?.feature ?? "(unknown)";
+	return {
+		id: snapshot.spec_header?.feature.id ?? feature,
+		name: snapshot.spec_header?.feature.name ?? sessionLabel ?? feature,
+		date: started ? started.at.slice(0, 10) : "",
+		iterations: snapshot.state?.iteration ?? 1
+	};
+}
+/**
+* Pure markdown render (§4.7): one flat section per feature.
+*
+* ```markdown
+* ## <id> <name> · <date> (iterations=N)
+*
+* - lesson one
+* - lesson two
+* ```
+*
+* Multi-line lesson bodies indent continuation lines under the bullet.
+* Caller decides write-vs-skip when `resolved` is empty.
+*/
+function composeLessonsProjection(resolved, header) {
+	const bullets = resolved.map((r) => `- ${r.body.trim().replace(/\n/g, "\n  ")}`).join("\n");
+	return `## ${header.id} ${header.name} · ${header.date} (iterations=${header.iterations})\n\n${bullets}\n`;
+}
+//#endregion
 //#region src/core/projection-writer.ts
 /**
 * Compose `snapshots/state.json` from a replayed snapshot + journal entries.
@@ -1453,7 +1549,11 @@ function composePendingJson(entries) {
 *   4. best-effort fsync parent dir (durability across power loss)
 */
 async function writeJsonAtomic(filePath, value, fsync) {
-	const body = JSON.stringify(value, null, 2);
+	await writeTextAtomic(filePath, JSON.stringify(value, null, 2), fsync);
+}
+/** Atomic raw-text write — the markdown projection (lessons.md, F-024)
+*  shares the exact tmp+fsync+rename boundary as the JSON leaves. */
+async function writeTextAtomic(filePath, body, fsync) {
 	const tmp = `${filePath}.tmp-${randomBytes(6).toString("hex")}`;
 	await fsp.writeFile(tmp, body, { mode: 420 });
 	if (fsync) {
@@ -1521,6 +1621,12 @@ async function writeProjections(featureDir, input) {
 	written.push("findings.json");
 	await writeJsonAtomic(path$1.join(snapshotsDir, "pending.json"), composePendingJson(entries), fsync);
 	written.push("pending.json");
+	const lessonsPath = path$1.join(featureDir, "lessons.md");
+	const lessonEntries = selectLessonEntries(entries);
+	if (lessonEntries.length > 0) {
+		await writeTextAtomic(lessonsPath, composeLessonsProjection(await resolveLessonBodies(featureDir, lessonEntries), deriveLessonsHeader(snapshot, entries)), fsync);
+		written.push("lessons.md");
+	} else await fsp.rm(lessonsPath, { force: true });
 	await writeMeta(path$1.join(snapshotsDir, "_meta.json"), meta, fsync);
 	written.push("_meta.json");
 	return written;
@@ -11537,7 +11643,7 @@ async function main(argv = process.argv, deps = {}) {
 			feature: opts.feature,
 			id: evidenceId,
 			kind: "manual"
-		}, () => `${evidenceId}\n`, { stateChange: `lessons add: ${evidenceId} recorded (kind=manual; lessons.md projection writer deferred)` });
+		}, () => `${evidenceId}\n`, { stateChange: `lessons add: ${evidenceId} recorded (kind=manual; lessons.md updated)` });
 	});
 	program.command("hook <event>").description("Claude Code hook entry point (session-start + closure-check read-side; write-guard + scope-track land SC-15c)").option("--list-events", "Dump the canonical 4-event enum (handled by pre-parse guard)").option("--feature <name>", "Feature whose session to read (read-side events)").option("--feature-dir <path>", "Override default .loaf/<feature> directory").option("--session <uuid>", "Resolve session by registry UUID (read-side events)").option("--path <text>", "Tool target path (for write-guard / scope-track; SC-15c)").action(async (event, opts) => {
 		if (event === "session-start") {

@@ -310,6 +310,49 @@ describe("SC-11 — loaf lessons add (happy)", () => {
     expect(typeof lesson.payload.summary).toBe("string");
   });
 
+  // ── F-024 (v0.1.1): lessons.md projection writer ──
+  test("F-024: writes .loaf/<feature>/lessons.md with the lesson; advisory says updated, not deferred", async () => {
+    const { featureDir } = await seedAtExecuteWork();
+    const result = await runCli(
+      ["lessons", "add",
+       "--text", "single-flight refresh requires global lock",
+       "--reason", "diagnosed during retry storm post-mortem",
+       "--feature", "auth-refresh", "--feature-dir", featureDir],
+      { env: SEED_ENV },
+    );
+    expect(result.exit).toBe(0);
+    const md = await fs.readFile(path.join(featureDir, "lessons.md"), "utf8");
+    expect(md).toMatch(/^## /);
+    expect(md).toContain("- single-flight refresh requires global lock");
+    // advisory wording flipped (F-024): no longer "deferred"
+    const advisory = result.stdout + result.stderr;
+    expect(advisory).toContain("lessons.md updated");
+    expect(advisory).not.toContain("projection writer deferred");
+  });
+
+  test("F-024: >8KB sidecar lesson → lessons.md inlines the resolved sidecar body", async () => {
+    const { featureDir } = await seedAtExecuteWork();
+    const tmp = await tmpDir();
+    const filePath = path.join(tmp, "big-lesson.md");
+    const body = "SENTINEL_BODY " + "y".repeat(9 * 1024);
+    await fs.writeFile(filePath, body);
+    const result = await runCli(
+      ["lessons", "add", "--file", filePath,
+       "--reason", "deep retro of refresh storm",
+       "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      { env: SEED_ENV },
+    );
+    expect(result.exit).toBe(0);
+    const md = await fs.readFile(path.join(featureDir, "lessons.md"), "utf8");
+    expect(md).toContain("SENTINEL_BODY"); // sidecar body resolved + inlined
+  });
+
+  test("F-024: no lesson entries → lessons.md is absent (not written empty)", async () => {
+    const { featureDir } = await seedAtExecuteWork();
+    // seed has task-step evidence but no kind=manual lesson → file must not exist
+    await expect(fs.access(path.join(featureDir, "lessons.md"))).rejects.toThrow();
+  });
+
   test("--file <8KB → reads file, journal stores plain string summary", async () => {
     const { featureDir } = await seedAtExecuteWork();
     const tmp = await tmpDir();
