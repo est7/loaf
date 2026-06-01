@@ -5,6 +5,36 @@ All notable changes to `loaf-cli` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] — 2026-06-01
+
+Post-v0.1.0 follow-up closing the two "do" items from the F-028 grill-me
+review of the v0.1.0 deferrals. The remaining deferrals (single-writer
+lock, `loaf context pack`, `loaf tui` interactions, scope-track writer)
+stay deferred with owners and do NOT re-open v0.1.0.
+
+### Added
+
+- **`lessons.md` projection writer** (F-024) — `loaf lessons add` now produces a user-facing top-level `.loaf/<feature>/lessons.md` markdown projection (rebuilt from the journal on every mutate; skipped/removed when no lessons), not just the evidence ledger. A lesson selector (kind=manual + empty covers + no task/check/gate + human actor) excludes `loaf evidence add --kind manual` verification evidence; sidecar lesson bodies are read + sha256/size-verified (mismatch → `PROJECTION_WRITE_FAILED`). See commit `951b89c`.
+- **verify-min deliver gate** (protocol §3.2) — quick/light `loaf deliver` from `EXECUTE.done` now runs a per-task evidence check instead of fail-closing, unblocking the quick/light ceremonies end-to-end. Code tasks require `local-check` build/test evidence, visual-ui require visual-review/manual, docs require task-summary/manual, chore require any; `waiver` always satisfies; a done bug task without a registered RED test fails with `BUG_TASK_RED_NOT_REGISTERED`. Missing evidence → `DELIVER_VERIFY_MIN_INCOMPLETE`; standard/deep that attempt deliver from `EXECUTE.done` → `DELIVER_NOT_ACCEPTED` (must traverse VERIFY). See commit `1e49a7a`.
+
+### Changed
+
+- `DELIVER_VERIFY_MIN_UNAVAILABLE` reframed reserved/history — the v0.1.0 fail-closed stub is no longer emitted; superseded by `DELIVER_VERIFY_MIN_INCOMPLETE`.
+- `loaf lessons add` advisory now states `lessons.md updated` (was "projection writer deferred").
+
+### Verification
+
+- `bun run typecheck` clean; `bun run check` (Vitest): full suite green (1958 tests; modulo the pre-existing `tests/spike/perf.test.ts:124` F-005 perf flake).
+- `bun run ga:check` passes against the release commit.
+- `dist/cli.mjs --version` → `0.1.1`.
+
+### codex review trace (thread `review/cli-lifecycle-plan`)
+
+- F-024 — plan-first → 1 PATCH (lesson selector vs `kind=manual`; IO/pure sidecar split) → SIGN-OFF.
+- verify-min — plan-first → GO (Q2 locked stricter: `task-summary` alone does not satisfy code tasks) → 1 PATCH (stale doc/catalog wording) → SIGN-OFF.
+
+[0.1.1]: https://github.com/est7/loaf/releases/tag/v0.1.1
+
 ## [0.1.0] — 2026-05-25
 
 First general-availability release of the loaf protocol kernel
@@ -14,6 +44,21 @@ condensed — codex r183 explicitly acknowledged "no real downstream
 consumers or external integrations yet", so longer bake collects
 hypothetical confidence not signal. Real-workflow exercise begins
 post-tag via `loaf-skill` integration.
+
+> **Tag scope note** (backfilled): this entry's 2026-05-25 date is the
+> GA-cut. The `v0.1.0` tag was deferred (per `task_plan.md`) to the close
+> of **Phase 16 — Complete CLI surface alignment** and points at commit
+> `42455e5` (2026-05-31), so v0.1.0 ships the full Phase 16 surface, not
+> just the GA-cut mechanics below: the complete worker-workflow CLI
+> (TRIAGE→SPEC→EXECUTE→VERIFY→DONE), the DiagnosticCode catalog +
+> presentation/behavior flags, the `--session`/registry dispatch layer,
+> the projection-read commands + `<artifact> schema` emitters, `loaf
+> check`, `spec edit`, the lifecycle commands (`resume` / `handoff`), the
+> `loaf tui` read-only session manager, and the 4-event Claude Code hook
+> surface (`session-start` / `closure-check` read-side; `write-guard` /
+> `scope-track` write-side). Per-SC detail lives in the commit bodies
+> (SC-0 … SC-17) and `task_plan.md`; this note corrects the GA-cut entry
+> below, which predated that work.
 
 ### Added
 

@@ -15,7 +15,7 @@ import picomatch from "picomatch";
 import { execFileSync, spawn } from "node:child_process";
 import { O_APPEND, O_CREAT, O_WRONLY } from "node:constants";
 //#region package.json
-var version = "0.1.0";
+var version = "0.1.1";
 //#endregion
 //#region src/core/crash-log.ts
 /** Sentinel code stamped into the JSON envelope and (when

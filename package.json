@@ -1,6 +1,6 @@
 {
   "name": "loaf-cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Protocol kernel for the loaf feature-lifecycle workflow — single typed journal + in-memory projections.",
   "type": "module",
   "bin": {
