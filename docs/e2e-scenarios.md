@@ -423,8 +423,11 @@ Source: codex independent enumeration r119 (AMQ thread
 - **Covers** the non-delivered abandon exit.
 
 ### SCEN-E2E-037 — spike convert
-- **Tier** future · **Status** todo · **Impl** `loaf spike convert` is absent
-  from `src/cli.tsx` (protocol-only).
+- **Tier** future · **Status** todo · **Impl** `loaf spike convert` IS
+  implemented in `src/cli.tsx` (emits `spike:converted`). Tier/Status stay
+  future/todo: SC-16 corrects only the prior "absent" factual error;
+  promoting this to a real e2e (test.todo → green) is deferred to a
+  dedicated cycle.
 - **Given** a session with a non-abandoned spike task.
 - **When** `spike convert --to-feature F-N --reason "..."` runs.
 - **Then** the old session reaches `DONE.archived` and a `spike:converted`

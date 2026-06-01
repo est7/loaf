@@ -105,8 +105,9 @@ const STATE_CHANGE_FIXTURES: ReadonlyArray<{
   // separately per audit; check whichever the rendered table has.
   { commandKey: "loaf archive", mustContain: ["archive:", "DONE.archived"] },
   { commandKey: "loaf abandon", mustContain: ["abandon:", "DONE.abandoned", "reason="] },
-  // amend — narrow
-  { commandKey: "loaf amend", mustContain: ["amend:", "<task_id>"] },
+  // tasks amend — narrow (state-change line `amend: <task_id>` is emitted by
+  // `loaf tasks amend`; the retired standalone `loaf amend` never shipped)
+  { commandKey: "loaf tasks amend", mustContain: ["amend:", "<task_id>"] },
   // pending resolve — narrow
   { commandKey: "loaf pending resolve", mustContain: ["pending resolve:", "<PEND-id>", "cleared"] },
   // 4 new rows (P23)

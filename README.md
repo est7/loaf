@@ -46,8 +46,12 @@ loaf pending raise|list|status|resolve
 loaf evidence add --input <src>  # single object OR non-empty array (batch); `<src>` = `-` stdin / inline JSON / file path
 loaf finding raise|list|close
 loaf gate decide <gate-name> --approve|--reject --reason <…>
+loaf advance <sub_state> --feature <feature>
 loaf deliver
 loaf settle
+loaf resume | handoff --reason <…>                                   # session lifecycle (resume marker / handoff pack)
+loaf tui | sessions list [--in-cwd] | check <path>                   # session manager (Ink TUI / list) + standalone schema check (CI)
+loaf hook <session-start|write-guard|scope-track|closure-check>      # Claude Code hook entry points
 loaf doctor [--rebuild]
 ```
 
