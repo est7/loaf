@@ -55,6 +55,11 @@ import { App as TuiApp } from "./cli/tui/app.js";
 import { defaultRenderTui, type RenderTui } from "./cli/tui/render.js";
 import { createElement } from "react";
 import { HOOK_EVENTS, HOOK_EVENT_TO_CLAUDE_CODE, type HookEvent } from "./core/hook-events.js";
+import {
+  composeSessionStartContext,
+  runClosureWarnings,
+  sessionStartHookOutput,
+} from "./core/hook-read.js";
 import { runEditor as defaultRunEditor, type RunEditor } from "./cli/run-editor.js";
 import { splitFrontmatter } from "./core/spec-frontmatter.js";
 import { parse as parseYaml } from "yaml";
@@ -838,6 +843,47 @@ export async function main(
     opts.featureDir = dispatch.featureDir;
     ctx.recordTraceTarget(dispatch.feature, dispatch.featureDir);
     return dispatch.featureDir;
+  };
+
+  // Phase 16 SC-15b — hook-optional dispatch for the read-side handlers
+  // (session-start / closure-check). Unlike dispatchOrFail (fail-closed:
+  // emits a diagnostic + exit 2 on no-session), hooks fire in non-loaf
+  // projects too, so ABSENCE must be a SILENT exit 0 — never a failure.
+  //
+  // Codex GO nuance: silent skip is ONLY for absence (FEATURE_NOT_FOUND /
+  // FEATURE_AMBIGUOUS / no .loaf). A SNAPSHOT_STALE result means a feature
+  // IS selected but its projection is stale — do NOT silently swallow it;
+  // surface `stale` so closure-check can warn (session-start stays silent
+  // to avoid emitting misleading context). All other dispatch failures
+  // (explicit bad --session etc.) also skip silently — a hook must never
+  // break the host tool's lifecycle.
+  const dispatchForHookOptional = async (
+    opts: { feature?: string; featureDir?: string },
+  ): Promise<
+    | { featureDir: string }
+    | { skip: true; stale?: { code: string; message: string } }
+  > => {
+    let dispatch: Awaited<ReturnType<typeof ctx.resolveDispatch>>;
+    try {
+      dispatch = await ctx.resolveDispatch();
+    } catch {
+      // Unexpected resolution failure (IO error outside the dispatch
+      // taxonomy). A hook must never break the host tool, so degrade to
+      // "no active session" rather than escaping to the UNEXPECTED_ERROR
+      // boundary (codex SC-15b PATCH — same contract as the closure-check
+      // load guard).
+      return { skip: true };
+    }
+    if (dispatch.ok) {
+      opts.feature = dispatch.feature;
+      opts.featureDir = dispatch.featureDir;
+      ctx.recordTraceTarget(dispatch.feature, dispatch.featureDir);
+      return { featureDir: dispatch.featureDir };
+    }
+    if (dispatch.code === "SNAPSHOT_STALE_REBUILD_REQUIRED") {
+      return { skip: true, stale: { code: dispatch.code, message: dispatch.message } };
+    }
+    return { skip: true };
   };
 
   // Phase 16 SC-7 — registry-writer DI bundle for MutateContext literals.
@@ -4349,19 +4395,99 @@ export async function main(
   //   - --list-events
   //   - bare `loaf hook` (no event)
   //   - unknown event (USAGE + did-you-mean)
-  // Action handler runs ONLY for known events. SC-15a returns
-  // HOOK_EVENT_NOT_IMPLEMENTED for all 4 (real handlers land SC-15b/c).
-  // Per codex r361 P2 lock: explicit "not implemented" beats silent
-  // exit 0 (especially for write-guard — false-positive "protection
-  // active" would be dangerous).
+  // Action handler runs ONLY for known events.
+  //   SC-15b: session-start + closure-check are real read-side handlers.
+  //   SC-15c: write-guard + scope-track still return
+  //           HOOK_EVENT_NOT_IMPLEMENTED (explicit "not implemented" beats
+  //           silent exit 0 — a false-positive "write protection active"
+  //           would be dangerous; codex r361 P2 lock).
   program
     .command("hook <event>")
-    .description("Claude Code hook entry point (Phase 16 SC-15a framework; SC-15b/c wire handlers)")
+    .description("Claude Code hook entry point (session-start + closure-check read-side; write-guard + scope-track land SC-15c)")
     .option("--list-events", "Dump the canonical 4-event enum (handled by pre-parse guard)")
+    .option("--feature <name>", "Feature whose session to read (read-side events)")
+    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
+    .option("--session <uuid>", "Resolve session by registry UUID (read-side events)")
     .option("--path <text>", "Tool target path (for write-guard / scope-track; SC-15c)")
-    .action(async (event: string) => {
+    .action(async (event: string, opts: { feature?: string; featureDir?: string }) => {
       // The pre-parse guard already validated `event ∈ HOOK_EVENTS`.
-      const subCycle = (event === "session-start" || event === "closure-check") ? "b" : "c";
+
+      // ── session-start (SC-15b) — inject sub_state context into the
+      //    Claude Code SessionStart hook. No active session (non-loaf
+      //    project / empty .loaf / stale) → silent exit 0, empty output. ──
+      if (event === "session-start") {
+        const d = await dispatchForHookOptional(opts);
+        if ("skip" in d) return; // absence OR stale → silent (avoid misleading context)
+        let loaded: LoadResult<"state" | "findings" | "pending">;
+        try {
+          loaded = await loadProjections({
+            feature_dir: d.featureDir,
+            kinds: ["state", "findings", "pending"] as const,
+          });
+        } catch {
+          // NoSession race / stale / corrupt → stay silent for SessionStart.
+          return;
+        }
+        const additionalContext = composeSessionStartContext({
+          sub_state: loaded.state.sub_state,
+          iteration: loaded.state.iteration,
+          open_findings: loaded.findings.findings.filter((f) => f.status === "open"),
+          pending: loaded.state.pending,
+        });
+        // Claude Code SessionStart hook wire shape — NOT the loaf {ok}
+        // envelope (codex GO Q-A lock).
+        process.stdout.write(
+          JSON.stringify(sessionStartHookOutput(additionalContext)) + "\n",
+        );
+        return;
+      }
+
+      // ── closure-check (SC-15b) — read-only consistency warnings on the
+      //    Claude Code Stop event. ALWAYS exit 0 (warnings to stderr);
+      //    blocking Stop is a regression. ──
+      if (event === "closure-check") {
+        const d = await dispatchForHookOptional(opts);
+        if ("skip" in d) {
+          if (d.stale) {
+            process.stderr.write(`warning: closure-check skipped — ${d.stale.message}\n`);
+          }
+          return;
+        }
+        let loaded: LoadResult<"state" | "tasks" | "evidence" | "findings">;
+        try {
+          loaded = await loadProjections({
+            feature_dir: d.featureDir,
+            kinds: ["state", "tasks", "evidence", "findings"] as const,
+          });
+        } catch (err) {
+          if (err instanceof SnapshotStaleError) {
+            // Q-B check 1: projection freshness — warn, never block.
+            process.stderr.write(`warning: closure-check skipped — ${err.message}\n`);
+            return;
+          }
+          if (err instanceof NoSessionError) return; // absence → silent
+          // Contract: closure-check must NEVER block the Claude Code Stop
+          // event. Any other failure (EACCES / read error outside the stale
+          // taxonomy) degrades to a stderr warning + exit 0 — it must not
+          // escape to the UNEXPECTED_ERROR boundary (exit 1) (codex SC-15b
+          // PATCH: blocking Stop is a regression).
+          process.stderr.write(
+            `warning: closure-check skipped — ${(err as Error).message}\n`,
+          );
+          return;
+        }
+        const warnings = runClosureWarnings({
+          state: loaded.state,
+          tasks: loaded.tasks,
+          evidence: loaded.evidence,
+          findings: loaded.findings,
+        });
+        for (const w of warnings) process.stderr.write(`warning: ${w}\n`);
+        return;
+      }
+
+      // ── write-guard + scope-track — still stub (SC-15c) ──
+      const subCycle = "c";
       emitFailure(
         "HOOK_EVENT_NOT_IMPLEMENTED",
         `hook event \`${event}\` is not implemented in this loaf version (Phase 16 SC-15${subCycle} pending; see protocol §11)`,

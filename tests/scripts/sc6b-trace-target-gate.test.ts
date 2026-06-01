@@ -49,9 +49,13 @@ describe("SC-6b — static guard: every .action( records trace target", () => {
       // (resolves §10.3 dispatch + mutates opts + calls
       // ctx.recordTraceTarget). Action handlers that call dispatchOrFail
       // are SC-6b-compliant via the helper.
+      // SC-15b: `dispatchForHookOptional(opts)` is the hook read-side
+      // sibling — same §10.3 resolution + ctx.recordTraceTarget on the
+      // success path (silent skip on absence), so it is equally compliant.
       const hasMarker =
         /ctx\.recordTraceTarget\(/.test(slice) ||
         /dispatchOrFail\(/.test(slice) ||
+        /dispatchForHookOptional\(/.test(slice) ||
         /\/\/\s*no-feature/.test(slice);
       if (!hasMarker) {
         misses.push(`line ${block.index + 1}: ${block.line.trim()}`);

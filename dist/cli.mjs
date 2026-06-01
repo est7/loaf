@@ -4120,7 +4120,7 @@ z.object({
 		"none"
 	])
 });
-const MutationRights = z.object({
+const MutationRights$1 = z.object({
 	writable_fields: z.array(z.string()).default([]),
 	forbidden_fields: z.array(z.string()).default([])
 });
@@ -4129,7 +4129,7 @@ z.object({
 	entry: z.string(),
 	exit: z.string(),
 	write_paths: z.array(z.string()),
-	mutation_rights: MutationRights.optional(),
+	mutation_rights: MutationRights$1.optional(),
 	next: z.array(SubState),
 	prompt_inject: z.string()
 });
@@ -4790,6 +4790,330 @@ const HOOK_EVENT_TO_CLAUDE_CODE = {
 	"scope-track": "PostToolUse(Write,Edit)",
 	"closure-check": "Stop"
 };
+//#endregion
+//#region src/core/sub-state-contracts.ts
+const MutationRights = z.object({
+	writable_fields: z.array(z.string()).default([]),
+	forbidden_fields: z.array(z.string()).default([])
+});
+z.object({
+	sub_state: SubState$1,
+	entry: z.string(),
+	exit: z.string(),
+	write_paths: z.array(z.string()),
+	mutation_rights: MutationRights.optional(),
+	next: z.array(SubState$1),
+	prompt_inject: z.string()
+});
+/** sub_state → contract lookup (built once; the contract list is frozen). */
+const SUB_STATE_CONTRACT_BY_STATE = Object.fromEntries([
+	{
+		sub_state: "TRIAGE.score",
+		entry: "loaf start <desc> invoked",
+		exit: "complexity_score computed (0-100)",
+		write_paths: [".loaf/<feature>/state.json"],
+		next: ["TRIAGE.confirm"],
+		prompt_inject: "Score 0-100 across files/api/schema/concurrency/security. Suggest profile."
+	},
+	{
+		sub_state: "TRIAGE.confirm",
+		entry: "score computed",
+		exit: "user accepts or overrides profile",
+		write_paths: [".loaf/<feature>/state.json"],
+		next: ["SPEC.proposal", "EXECUTE.plan"],
+		prompt_inject: "Confirm proposed profile (quick/light/standard/deep — see skill PRESETS) or override."
+	},
+	{
+		sub_state: "SPEC.proposal",
+		entry: "ceremony.spec_phase=true && TRIAGE.confirm done; OR Q9 escalation backfill (ceremony.spec_phase 由 false 改 true)",
+		exit: "spec.md body has Proposal section",
+		write_paths: [".loaf/<feature>/spec.md", ".loaf/<feature>/spec-draft-context.md"],
+		next: ["SPEC.spec"],
+		prompt_inject: "Write Proposal: why / scope / anti-scope. If backfill, read spec-draft-context.md."
+	},
+	{
+		sub_state: "SPEC.spec",
+		entry: "proposal section exists OR amend-spec back-edge",
+		exit: "frontmatter has requirements (each with three-way verifiability) + scenarios (+visual_contracts if UI); needs_clarification empty",
+		write_paths: [".loaf/<feature>/spec.md"],
+		next: ["SPEC.plan"],
+		prompt_inject: "Author EARS REQ-* with measurable / verified_by_scenarios / acceptance_na+reason. Add Gherkin SCEN-* and VIS-* as needed."
+	},
+	{
+		sub_state: "SPEC.plan",
+		entry: "spec section complete && needs_clarification empty",
+		exit: "spec.md body has Plan section",
+		write_paths: [".loaf/<feature>/spec.md"],
+		mutation_rights: {
+			writable_fields: ["spec.md:body.plan"],
+			forbidden_fields: [
+				"spec.md:frontmatter.requirements",
+				"spec.md:frontmatter.scenarios",
+				"spec.md:frontmatter.visual_contracts",
+				"tasks.json:*"
+			]
+		},
+		next: ["SPEC.design"],
+		prompt_inject: "Plan: risks / dependencies / milestones."
+	},
+	{
+		sub_state: "SPEC.design",
+		entry: "plan section complete",
+		exit: "design section + tasks.json generated; every REQ/SCEN/VIS bound to ≥1 task",
+		write_paths: [".loaf/<feature>/spec.md", ".loaf/<feature>/tasks.json"],
+		mutation_rights: {
+			writable_fields: ["spec.md:body.design", "tasks.json:*"],
+			forbidden_fields: [
+				"spec.md:frontmatter.requirements",
+				"spec.md:frontmatter.scenarios",
+				"spec.md:frontmatter.visual_contracts"
+			]
+		},
+		next: ["EXECUTE.plan"],
+		prompt_inject: "Design + decompose into tasks bound to REQ/SCEN/VIS via task.drives[]. Use labels[] for bug/security/etc."
+	},
+	{
+		sub_state: "EXECUTE.plan",
+		entry: "spec-lock passed (or quick: TRIAGE.confirm done)",
+		exit: "every task has execution policy populated per its kind",
+		write_paths: [".loaf/<feature>/tasks.json"],
+		mutation_rights: {
+			writable_fields: ["tasks.json:tasks[].execution[].applicability", "tasks.json:tasks[].status"],
+			forbidden_fields: [
+				"tasks.json:tasks[].id",
+				"tasks.json:tasks[].kind",
+				"tasks.json:tasks[].drives",
+				"tasks.json:tasks[].depends_on",
+				"tasks.json:tasks[].labels",
+				"spec.md:*"
+			]
+		},
+		next: ["EXECUTE.work"],
+		prompt_inject: "Derive execution policy for each task from kind × profile. Set step.applicability accordingly."
+	},
+	{
+		sub_state: "EXECUTE.work",
+		entry: "EXECUTE.plan done OR fix-impl/fix-test/amend-tasks back-edge",
+		exit: "every task.status = done OR abandoned, with all required steps passed/waived/na",
+		write_paths: [
+			".loaf/<feature>/tasks.json",
+			".loaf/<feature>/evidence.jsonl",
+			".loaf/<feature>/findings.jsonl"
+		],
+		mutation_rights: {
+			writable_fields: [
+				"tasks.json:tasks[].execution[].status",
+				"tasks.json:tasks[].execution[].evidence_refs",
+				"tasks.json:tasks[].status",
+				"evidence.jsonl:*",
+				"findings.jsonl:*"
+			],
+			forbidden_fields: [
+				"tasks.json:tasks[].id",
+				"tasks.json:tasks[].kind",
+				"tasks.json:tasks[].drives",
+				"tasks.json:tasks[].depends_on",
+				"tasks.json:tasks[].labels",
+				"spec.md:*"
+			]
+		},
+		next: ["EXECUTE.work", "EXECUTE.done"],
+		prompt_inject: "Execute each in-progress task at its currently-running step. Append evidence with covers[]."
+	},
+	{
+		sub_state: "EXECUTE.done",
+		entry: "all tasks status ∈ {done, abandoned}",
+		exit: "advance to VERIFY.plan (verify_phase=true); OR DONE.delivered (verify_phase=false: quick / light non-spike via `loaf deliver`: verify-min runs at this boundary, on pass transition direct to DONE.delivered, on fail exit 2 — see protocol.md §3.2 + §10.14)",
+		write_paths: [],
+		next: ["VERIFY.plan", "DONE.delivered"],
+		prompt_inject: "All tasks complete. verify_phase=true → advance to VERIFY.plan. verify_phase=false non-spike → run `loaf deliver` (verify-min then DONE.delivered). spike (any profile) → deliver blocked; pick archive / spike convert / abandon per §8.3."
+	},
+	{
+		sub_state: "VERIFY.plan",
+		entry: "EXECUTE.done && ceremony.verify_phase=true",
+		exit: "applicability computed for each VerifyCheckKind (must/optional/na with reasons)",
+		write_paths: [".loaf/<feature>/state.json"],
+		next: [
+			"VERIFY.run",
+			"VERIFY.review",
+			"VERIFY.acceptance",
+			"VERIFY.visual",
+			"VERIFY.accept"
+		],
+		prompt_inject: "Compute which verify checks apply: run/review/acceptance/visual. Output reasoning + N/A justifications."
+	},
+	{
+		sub_state: "VERIFY.run",
+		entry: "VERIFY.plan done with run applicability ∈ {must, optional-elected}; OR amend back-edge",
+		exit: "run check passed or explicitly waived",
+		write_paths: [".loaf/<feature>/evidence.jsonl", ".loaf/<feature>/findings.jsonl"],
+		next: [
+			"VERIFY.review",
+			"VERIFY.acceptance",
+			"VERIFY.visual",
+			"VERIFY.accept"
+		],
+		prompt_inject: "Run the `run` check (test + lint + typecheck). Append evidence with kind=local-check or task-summary. Raise findings as needed."
+	},
+	{
+		sub_state: "VERIFY.review",
+		entry: "VERIFY.plan or prior check done with review applicability ∈ {must, optional-elected}",
+		exit: "review check passed or explicitly waived",
+		write_paths: [".loaf/<feature>/evidence.jsonl", ".loaf/<feature>/findings.jsonl"],
+		next: [
+			"VERIFY.run",
+			"VERIFY.acceptance",
+			"VERIFY.visual",
+			"VERIFY.accept"
+		],
+		prompt_inject: "Run quality review (spec_fit + quality_fit). Append evidence with kind=verify-review. Raise findings as needed."
+	},
+	{
+		sub_state: "VERIFY.acceptance",
+		entry: "VERIFY.plan or prior check done with acceptance applicability ∈ {must, optional-elected}",
+		exit: "acceptance check passed or explicitly waived",
+		write_paths: [".loaf/<feature>/evidence.jsonl", ".loaf/<feature>/findings.jsonl"],
+		next: [
+			"VERIFY.run",
+			"VERIFY.review",
+			"VERIFY.visual",
+			"VERIFY.accept"
+		],
+		prompt_inject: "Run selected Gherkin acceptance scenarios. Append evidence with kind=acceptance. Raise findings as needed."
+	},
+	{
+		sub_state: "VERIFY.visual",
+		entry: "VERIFY.plan or prior check done with visual applicability ∈ {must, optional-elected}",
+		exit: "visual check passed or explicitly waived",
+		write_paths: [".loaf/<feature>/evidence.jsonl", ".loaf/<feature>/findings.jsonl"],
+		next: [
+			"VERIFY.run",
+			"VERIFY.review",
+			"VERIFY.acceptance",
+			"VERIFY.accept"
+		],
+		prompt_inject: "Run visual contract verification. Append evidence with kind=visual-review (attachments required). Raise findings as needed."
+	},
+	{
+		sub_state: "VERIFY.accept",
+		entry: "all applicable checks passed/waived + no open findings",
+		exit: "verify-accept gate approved. settle_phase=true (deep) → SETTLE.reconcile via `loaf settle`; settle_phase=false (standard) → DONE.delivered via `loaf deliver`",
+		write_paths: [".loaf/<feature>/evidence.jsonl"],
+		next: ["SETTLE.reconcile", "DONE.delivered"],
+		prompt_inject: "Verify-accept gate. Review check status + open findings. Approve or reject. On approve: settle_phase=true → `loaf settle` enters SETTLE.reconcile; settle_phase=false → `loaf deliver` enters DONE.delivered."
+	},
+	{
+		sub_state: "SETTLE.reconcile",
+		entry: "verify-accept passed && ceremony.settle_phase=true (deep only after rev 5.x; quick/light/standard skip SETTLE)",
+		exit: "reconcile.json valid",
+		write_paths: [".loaf/<feature>/reconcile.json"],
+		next: ["SETTLE.lessons"],
+		prompt_inject: "Compare planned_scope vs actual_scope. Resolve every drift. Snapshot verify_checks_status."
+	},
+	{
+		sub_state: "SETTLE.lessons",
+		entry: "reconcile valid (deep only after rev 5.x; quick/light/standard skip SETTLE)",
+		exit: "lessons.md appended (deep: lessons_required=must)",
+		write_paths: [".loaf/<feature>/lessons.md"],
+		next: [
+			"DONE.delivered",
+			"DONE.archived",
+			"DONE.abandoned"
+		],
+		prompt_inject: "Append lessons (deep: MUST). User then runs `loaf deliver` / `loaf archive` / `loaf abandon`."
+	},
+	{
+		sub_state: "DONE.delivered",
+		entry: "loaf deliver succeeded (Q4: advisory only — no git/gh side effects)",
+		exit: "terminal",
+		write_paths: [],
+		next: [],
+		prompt_inject: ""
+	},
+	{
+		sub_state: "DONE.archived",
+		entry: "loaf archive --reason '...'",
+		exit: "terminal",
+		write_paths: [],
+		next: [],
+		prompt_inject: ""
+	},
+	{
+		sub_state: "DONE.abandoned",
+		entry: "loaf abandon --reason '...' (reason required)",
+		exit: "terminal",
+		write_paths: [],
+		next: [],
+		prompt_inject: ""
+	}
+].map((c) => [c.sub_state, c]));
+/**
+* prompt_inject text for a sub_state. Returns `undefined` for an unknown
+* sub_state (caller decides: session-start treats unknown as no-context).
+* Terminal DONE.* states carry an empty-string prompt_inject by design.
+*/
+function promptInjectFor(subState) {
+	return SUB_STATE_CONTRACT_BY_STATE[subState]?.prompt_inject;
+}
+//#endregion
+//#region src/core/hook-read.ts
+/**
+* Compose the `additionalContext` string injected into a Claude Code
+* SessionStart hook. Always returns a non-empty banner line; the
+* prompt_inject / findings / pending sections append only when present.
+*
+* Terminal DONE.* sub_states have an empty prompt_inject by design — the
+* banner still renders so the agent knows the session is terminal.
+*/
+function composeSessionStartContext(input) {
+	const lines = [];
+	lines.push(`loaf session — ${input.sub_state} (iteration ${input.iteration})`);
+	const inject = promptInjectFor(input.sub_state);
+	if (inject !== void 0 && inject.length > 0) lines.push(`Next action: ${inject}`);
+	if (input.open_findings.length > 0) {
+		const rendered = input.open_findings.map((f) => {
+			const label = `${f.id} [${f.category}/${f.action}]`;
+			return f.summary ? `${label} ${f.summary}` : label;
+		}).join("; ");
+		lines.push(`Open findings (${input.open_findings.length}): ${rendered}`);
+	}
+	const head = input.pending[0];
+	if (head !== void 0) lines.push(`Pending: ${head.pending_id} [${head.kind}] ${head.question}`);
+	return lines.join("\n");
+}
+function sessionStartHookOutput(additionalContext) {
+	return { hookSpecificOutput: {
+		hookEventName: "SessionStart",
+		additionalContext
+	} };
+}
+/**
+* Read-only closure consistency warnings (codex GO Q-B lock, MVP set).
+* NEVER throws; the caller always exits 0 (warnings must not block the
+* Claude Code Stop event).
+*
+* MVP checks:
+*   1. orphan evidence — `covers[]` task-id (T-NNN) targets absent from
+*      tasks.json (cheap, read-only). REQ/SCEN/VIS-target orphans are
+*      DEFERRED — they require the spec.md projection, which is not in the
+*      loadProjections kind set.
+*   2. open findings summary — count + ids (the narrow "findings reasonable"
+*      signal).
+*
+* Projection freshness/schema consistency (Q-B check 1) is enforced upstream
+* by the loadProjections fast-check path in the caller (SnapshotStaleError),
+* not duplicated here.
+*/
+function runClosureWarnings(input) {
+	const warnings = [];
+	const knownTaskIds = new Set((input.tasks?.tasks ?? []).map((t) => t.id));
+	const orphanPairs = [];
+	for (const ev of input.evidence.evidence) for (const ref of ev.covers) if (ref.startsWith("T-") && !knownTaskIds.has(ref)) orphanPairs.push(`${ev.id}→${ref}`);
+	if (orphanPairs.length > 0) warnings.push(`orphan evidence: ${orphanPairs.length} covers[] task target(s) absent from tasks.json: ${orphanPairs.join(", ")}`);
+	const open = input.findings.findings.filter((f) => f.status === "open");
+	if (open.length > 0) warnings.push(`open findings (${open.length}): ${open.map((f) => f.id).join(", ")}`);
+	return warnings;
+}
 //#endregion
 //#region src/cli/run-editor.ts
 var EditorTokenizeError = class extends Error {
@@ -8793,6 +9117,28 @@ async function main(argv = process.argv, deps = {}) {
 		ctx.recordTraceTarget(dispatch.feature, dispatch.featureDir);
 		return dispatch.featureDir;
 	};
+	const dispatchForHookOptional = async (opts) => {
+		let dispatch;
+		try {
+			dispatch = await ctx.resolveDispatch();
+		} catch {
+			return { skip: true };
+		}
+		if (dispatch.ok) {
+			opts.feature = dispatch.feature;
+			opts.featureDir = dispatch.featureDir;
+			ctx.recordTraceTarget(dispatch.feature, dispatch.featureDir);
+			return { featureDir: dispatch.featureDir };
+		}
+		if (dispatch.code === "SNAPSHOT_STALE_REBUILD_REQUIRED") return {
+			skip: true,
+			stale: {
+				code: dispatch.code,
+				message: dispatch.message
+			}
+		};
+		return { skip: true };
+	};
 	const registryWriterDeps = deps.registryDir !== void 0 || deps.registryNow !== void 0 || deps.registryCwd !== void 0 ? {
 		...deps.registryDir !== void 0 && { registryDir: deps.registryDir },
 		...deps.registryNow !== void 0 && { now: deps.registryNow },
@@ -10901,8 +11247,68 @@ async function main(argv = process.argv, deps = {}) {
 			kind: "manual"
 		}, () => `${evidenceId}\n`, { stateChange: `lessons add: ${evidenceId} recorded (kind=manual; lessons.md projection writer deferred)` });
 	});
-	program.command("hook <event>").description("Claude Code hook entry point (Phase 16 SC-15a framework; SC-15b/c wire handlers)").option("--list-events", "Dump the canonical 4-event enum (handled by pre-parse guard)").option("--path <text>", "Tool target path (for write-guard / scope-track; SC-15c)").action(async (event) => {
-		const subCycle = event === "session-start" || event === "closure-check" ? "b" : "c";
+	program.command("hook <event>").description("Claude Code hook entry point (session-start + closure-check read-side; write-guard + scope-track land SC-15c)").option("--list-events", "Dump the canonical 4-event enum (handled by pre-parse guard)").option("--feature <name>", "Feature whose session to read (read-side events)").option("--feature-dir <path>", "Override default .loaf/<feature> directory").option("--session <uuid>", "Resolve session by registry UUID (read-side events)").option("--path <text>", "Tool target path (for write-guard / scope-track; SC-15c)").action(async (event, opts) => {
+		if (event === "session-start") {
+			const d = await dispatchForHookOptional(opts);
+			if ("skip" in d) return;
+			let loaded;
+			try {
+				loaded = await loadProjections({
+					feature_dir: d.featureDir,
+					kinds: [
+						"state",
+						"findings",
+						"pending"
+					]
+				});
+			} catch {
+				return;
+			}
+			const additionalContext = composeSessionStartContext({
+				sub_state: loaded.state.sub_state,
+				iteration: loaded.state.iteration,
+				open_findings: loaded.findings.findings.filter((f) => f.status === "open"),
+				pending: loaded.state.pending
+			});
+			process.stdout.write(JSON.stringify(sessionStartHookOutput(additionalContext)) + "\n");
+			return;
+		}
+		if (event === "closure-check") {
+			const d = await dispatchForHookOptional(opts);
+			if ("skip" in d) {
+				if (d.stale) process.stderr.write(`warning: closure-check skipped — ${d.stale.message}\n`);
+				return;
+			}
+			let loaded;
+			try {
+				loaded = await loadProjections({
+					feature_dir: d.featureDir,
+					kinds: [
+						"state",
+						"tasks",
+						"evidence",
+						"findings"
+					]
+				});
+			} catch (err) {
+				if (err instanceof SnapshotStaleError) {
+					process.stderr.write(`warning: closure-check skipped — ${err.message}\n`);
+					return;
+				}
+				if (err instanceof NoSessionError) return;
+				process.stderr.write(`warning: closure-check skipped — ${err.message}\n`);
+				return;
+			}
+			const warnings = runClosureWarnings({
+				state: loaded.state,
+				tasks: loaded.tasks,
+				evidence: loaded.evidence,
+				findings: loaded.findings
+			});
+			for (const w of warnings) process.stderr.write(`warning: ${w}\n`);
+			return;
+		}
+		const subCycle = "c";
 		emitFailure("HOOK_EVENT_NOT_IMPLEMENTED", `hook event \`${event}\` is not implemented in this loaf version (Phase 16 SC-15${subCycle} pending; see protocol §11)`, {
 			event,
 			sub_cycle: subCycle,

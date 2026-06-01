@@ -124,32 +124,30 @@ describe("SC-15a — unknown hook event", () => {
 });
 
 // ───────────────────────────────────────────────────────────────────────
-// Known event → HOOK_EVENT_NOT_IMPLEMENTED (SC-15a framework stub)
+// Known write-side event → HOOK_EVENT_NOT_IMPLEMENTED (SC-15c stub).
+// SC-15b wired session-start + closure-check (real read-side handlers —
+// see hook-read-side-end-to-end.test.ts), so only write-guard + scope-track
+// remain stubbed.
 // ───────────────────────────────────────────────────────────────────────
-describe("SC-15a — known events return HOOK_EVENT_NOT_IMPLEMENTED", () => {
-  for (const event of ["session-start", "write-guard", "scope-track", "closure-check"] as const) {
+describe("SC-15b — write-side events still return HOOK_EVENT_NOT_IMPLEMENTED", () => {
+  for (const event of ["write-guard", "scope-track"] as const) {
     test(`${event} → exit 2 HOOK_EVENT_NOT_IMPLEMENTED with detail.{event, sub_cycle, claude_code}`, async () => {
       const result = await runCli(["hook", event, "--format", "json"]);
       expect(result.exit).toBe(2);
       const err = JSON.parse(result.stderr);
       expect(err.code).toBe("HOOK_EVENT_NOT_IMPLEMENTED");
       expect(err.detail.event).toBe(event);
-      expect(["b", "c"]).toContain(err.detail.sub_cycle);
+      expect(err.detail.sub_cycle).toBe("c");
       expect(typeof err.detail.claude_code).toBe("string");
     });
   }
 
-  test("session-start + closure-check → sub_cycle='b' (SC-15b)", async () => {
+  test("session-start + closure-check no longer stubbed (no HOOK_EVENT_NOT_IMPLEMENTED)", async () => {
+    // Bare cwd has no .loaf → read-side handlers silent-skip with exit 0,
+    // never the stub diagnostic.
     const r1 = await runCli(["hook", "session-start", "--format", "json"]);
     const r2 = await runCli(["hook", "closure-check", "--format", "json"]);
-    expect(JSON.parse(r1.stderr).detail.sub_cycle).toBe("b");
-    expect(JSON.parse(r2.stderr).detail.sub_cycle).toBe("b");
-  });
-
-  test("write-guard + scope-track → sub_cycle='c' (SC-15c)", async () => {
-    const r1 = await runCli(["hook", "write-guard", "--format", "json"]);
-    const r2 = await runCli(["hook", "scope-track", "--format", "json"]);
-    expect(JSON.parse(r1.stderr).detail.sub_cycle).toBe("c");
-    expect(JSON.parse(r2.stderr).detail.sub_cycle).toBe("c");
+    expect(r1.stderr).not.toContain("HOOK_EVENT_NOT_IMPLEMENTED");
+    expect(r2.stderr).not.toContain("HOOK_EVENT_NOT_IMPLEMENTED");
   });
 });
