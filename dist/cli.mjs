@@ -11,6 +11,7 @@ import { parse, stringify } from "yaml";
 import { createElement, useCallback, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { Fragment, jsx, jsxs } from "react/jsx-runtime";
+import picomatch from "picomatch";
 import { execFileSync, spawn } from "node:child_process";
 import { O_APPEND, O_CREAT, O_WRONLY } from "node:constants";
 //#region package.json
@@ -4133,6 +4134,15 @@ z.object({
 	next: z.array(SubState),
 	prompt_inject: z.string()
 });
+z.enum([
+	"source",
+	"tests",
+	"docs",
+	"ui",
+	"public_api",
+	"schema",
+	"security"
+]);
 z.object({
 	path: z.string(),
 	status: z.enum([
@@ -4276,7 +4286,9 @@ const DiagnosticCode = z.enum([
 	"DOCTOR_FEATURE_REQUIRED",
 	"DOCTOR_REBUILD_FAILED",
 	"DOCTOR_REBUILD_MIGRATED_UNSUPPORTED",
-	"REDUCER_ERROR"
+	"REDUCER_ERROR",
+	"WRITE_PATH_VIOLATION",
+	"PROTECTED_FILE_WRITE"
 ]);
 z.object({
 	exit_code: z.literal(2),
@@ -5113,6 +5125,249 @@ function runClosureWarnings(input) {
 	const open = input.findings.findings.filter((f) => f.status === "open");
 	if (open.length > 0) warnings.push(`open findings (${open.length}): ${open.map((f) => f.id).join(", ")}`);
 	return warnings;
+}
+z.enum([
+	"source",
+	"tests",
+	"docs",
+	"ui",
+	"public_api",
+	"schema",
+	"security"
+]);
+const STEP_WRITE_PATHS_BY_KIND = {
+	behavioral: {
+		red: [
+			"**/test/**",
+			"tests/**",
+			"src/**/__tests__/**"
+		],
+		implement: ["src/**", "lib/**"],
+		refactor: [
+			"src/**",
+			"lib/**",
+			"**/test/**"
+		]
+	},
+	structural: {
+		implement: ["src/**", "lib/**"],
+		refactor: ["src/**", "lib/**"]
+	},
+	"visual-ui": {
+		mockup: ["docs/mockups/**", ".loaf/<feature>/attachments/**"],
+		implement: [
+			"src/**",
+			"res/**",
+			"**/ui/**"
+		],
+		"screenshot-compare": [".loaf/<feature>/attachments/**"]
+	},
+	docs: {
+		draft: [
+			"docs/**",
+			"**/*.md",
+			"README*"
+		],
+		review: []
+	},
+	spike: {
+		explore: [],
+		prototype: ["**/*"],
+		record: [".loaf/<feature>/evidence.jsonl"]
+	},
+	chore: { execute: ["**/*"] }
+};
+const VERIFY_CHECK_WRITE_PATHS = {
+	run: [],
+	review: [],
+	acceptance: [],
+	visual: [".loaf/<feature>/attachments/**"]
+};
+const STEP_WRITE_CATEGORIES_BY_KIND = {
+	behavioral: {
+		red: ["tests"],
+		implement: ["source"],
+		refactor: ["source", "tests"]
+	},
+	structural: {
+		implement: ["source"],
+		refactor: ["source"]
+	},
+	"visual-ui": {
+		mockup: ["docs"],
+		implement: ["source", "ui"],
+		"screenshot-compare": []
+	},
+	docs: {
+		draft: ["docs"],
+		review: []
+	},
+	spike: {
+		explore: [],
+		prototype: [],
+		record: []
+	},
+	chore: { execute: [] }
+};
+const VERIFY_CHECK_WRITE_CATEGORIES = {
+	run: [],
+	review: [],
+	acceptance: [],
+	visual: []
+};
+/**
+* Built-in write globs for a (kind, step) pair. Returns `[]` for an unknown
+* kind/step combination (caller treats absence as "no built-in grant").
+*/
+function stepWritePaths(kind, step) {
+	return STEP_WRITE_PATHS_BY_KIND[kind]?.[step] ?? [];
+}
+/**
+* Config-widenable semantic categories for a (kind, step) pair. Returns `[]`
+* for an unknown combination or a step that writes only loaf-internal
+* artifacts.
+*/
+function stepWriteCategories(kind, step) {
+	return STEP_WRITE_CATEGORIES_BY_KIND[kind]?.[step] ?? [];
+}
+//#endregion
+//#region src/core/write-guard.ts
+const MATCH_OPTS = { dot: true };
+function substituteFeature(glob, feature) {
+	return glob.replace(/<feature>/g, feature);
+}
+/** Normalize a target path to a repo-root-relative POSIX path. */
+function normalizeToRepoRoot(targetPath, repoRoot) {
+	const abs = path.isAbsolute(targetPath) ? targetPath : path.resolve(repoRoot, targetPath);
+	return path.relative(repoRoot, abs).split(path.sep).join("/");
+}
+function anyMatch(normalized, globs) {
+	if (globs.length === 0) return false;
+	return picomatch(globs, MATCH_OPTS)(normalized);
+}
+function firstMatch(normalized, globs) {
+	for (const g of globs) if (picomatch(g, MATCH_OPTS)(normalized)) return g;
+	return null;
+}
+/**
+* Decide whether `targetPath` may be written in the current sub_state +
+* active task/step context.
+*
+* Order (codex Q1/Q7 lock):
+*   1. normalize to repo-root-relative POSIX path
+*   2. protected_files HARD-DENY (config) — wins over any allow
+*   3. allow-set = built-in globs (<feature>-substituted) ∪ config.paths[cat]
+*      for cat ∈ activeCategories only (category-aware widening, NOT a flat
+*      union — `paths.tests` cannot authorize a source write in implement)
+*   4. match → allowed; else WRITE_PATH_VIOLATION
+*/
+function evaluateWritePath(input) {
+	const normalized = normalizeToRepoRoot(input.targetPath, input.repoRoot);
+	if (input.config) {
+		const matchedDeny = firstMatch(normalized, input.config.protected_files.map((g) => substituteFeature(g, input.feature)));
+		if (matchedDeny !== null) return {
+			allowed: false,
+			code: "PROTECTED_FILE_WRITE",
+			normalizedPath: normalized,
+			matchedDeny
+		};
+	}
+	const allowSet = input.builtinGlobs.map((g) => substituteFeature(g, input.feature));
+	if (input.config) for (const cat of input.activeCategories) for (const g of input.config.paths[cat]) allowSet.push(substituteFeature(g, input.feature));
+	if (anyMatch(normalized, allowSet)) return {
+		allowed: true,
+		normalizedPath: normalized
+	};
+	return {
+		allowed: false,
+		code: "WRITE_PATH_VIOLATION",
+		normalizedPath: normalized,
+		allowSet
+	};
+}
+const HookToolInputEnvelope = z.object({ tool_input: z.object({ file_path: z.string().min(1) }) });
+/** Parse `tool_input.file_path` from a Claude Code hook stdin JSON payload. */
+function parseHookStdinPath(raw) {
+	let parsed;
+	try {
+		parsed = JSON.parse(raw);
+	} catch {
+		return {
+			ok: false,
+			reason: "hook stdin is not valid JSON"
+		};
+	}
+	const result = HookToolInputEnvelope.safeParse(parsed);
+	if (!result.success) return {
+		ok: false,
+		reason: "hook stdin JSON missing non-empty tool_input.file_path"
+	};
+	return {
+		ok: true,
+		path: result.data.tool_input.file_path
+	};
+}
+//#endregion
+//#region src/core/loaf-config.ts
+const WriteGuardConfigPaths = z.object({
+	source: z.array(z.string()).default(["src/**"]),
+	tests: z.array(z.string()).default(["**/test/**", "tests/**"]),
+	docs: z.array(z.string()).default(["docs/**", "**/*.md"]),
+	ui: z.array(z.string()).default([]),
+	public_api: z.array(z.string()).default([]),
+	schema: z.array(z.string()).default([]),
+	security: z.array(z.string()).default([])
+});
+const WriteGuardConfig = z.object({
+	schema_version: z.literal(2),
+	protected_files: z.array(z.string()).default([]),
+	stable_core: z.array(z.string()).default([]),
+	paths: WriteGuardConfigPaths.prefault({})
+});
+/** Canonical project-level config path under a repo root. */
+function loafConfigPath(repoRoot) {
+	return path.join(repoRoot, ".loaf", ".config", "loaf.config.json");
+}
+/**
+* Read + validate the write-guard slice of loaf.config.json.
+*
+* - file absent (ENOENT)           → { status: "absent" }   (no overlay)
+* - unreadable / malformed / bad   → { status: "invalid" }  (fail closed)
+* - valid                          → { status: "ok", config }
+*
+* The caller (write-guard) treats "invalid" as a hard exit-2: an untrusted
+* config must never silently relax the write boundary.
+*/
+async function readLoafConfig(repoRoot) {
+	const configPath = loafConfigPath(repoRoot);
+	let raw;
+	try {
+		raw = await promises.readFile(configPath, "utf8");
+	} catch (err) {
+		if (err.code === "ENOENT") return { status: "absent" };
+		return {
+			status: "invalid",
+			reason: `cannot read ${configPath}: ${err.message}`
+		};
+	}
+	let parsed;
+	try {
+		parsed = JSON.parse(raw);
+	} catch {
+		return {
+			status: "invalid",
+			reason: `malformed JSON in ${configPath}`
+		};
+	}
+	const result = WriteGuardConfig.safeParse(parsed);
+	if (!result.success) return {
+		status: "invalid",
+		reason: `schema validation failed for ${configPath}`
+	};
+	return {
+		status: "ok",
+		config: result.data
+	};
 }
 //#endregion
 //#region src/cli/run-editor.ts
@@ -9139,6 +9394,43 @@ async function main(argv = process.argv, deps = {}) {
 		};
 		return { skip: true };
 	};
+	const resolveHookPath = async (opts) => {
+		if (opts.path !== void 0 && opts.path.length > 0) return opts.path;
+		if (!isStdinTty()) {
+			const parsed = parseHookStdinPath(await readStdin());
+			if (!parsed.ok) {
+				emitFailure("SCHEMA_VALIDATION_FAILED", parsed.reason, { source: "hook-stdin" });
+				return null;
+			}
+			return parsed.path;
+		}
+		emitFailure("USAGE", "write-side hook requires --path <P> or a non-TTY stdin hook payload (tool_input.file_path)", {});
+		return null;
+	};
+	const resolveDispatchForWriteGuard = async (opts) => {
+		let dispatch;
+		try {
+			dispatch = await ctx.resolveDispatch();
+		} catch (err) {
+			return {
+				failClosed: true,
+				code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
+				message: `write-guard cannot resolve the session: ${err.message}`
+			};
+		}
+		if (dispatch.ok) {
+			opts.feature = dispatch.feature;
+			opts.featureDir = dispatch.featureDir;
+			ctx.recordTraceTarget(dispatch.feature, dispatch.featureDir);
+			return { featureDir: dispatch.featureDir };
+		}
+		if (dispatch.code === "FEATURE_NOT_FOUND") return { allow: true };
+		return {
+			failClosed: true,
+			code: dispatch.code,
+			message: dispatch.message
+		};
+	};
 	const registryWriterDeps = deps.registryDir !== void 0 || deps.registryNow !== void 0 || deps.registryCwd !== void 0 ? {
 		...deps.registryDir !== void 0 && { registryDir: deps.registryDir },
 		...deps.registryNow !== void 0 && { now: deps.registryNow },
@@ -11308,11 +11600,84 @@ async function main(argv = process.argv, deps = {}) {
 			for (const w of warnings) process.stderr.write(`warning: ${w}\n`);
 			return;
 		}
-		const subCycle = "c";
-		emitFailure("HOOK_EVENT_NOT_IMPLEMENTED", `hook event \`${event}\` is not implemented in this loaf version (Phase 16 SC-15${subCycle} pending; see protocol §11)`, {
-			event,
-			sub_cycle: subCycle,
-			claude_code: HOOK_EVENT_TO_CLAUDE_CODE[event]
+		if (event === "scope-track") {
+			if (await resolveHookPath(opts) === null) return;
+			return;
+		}
+		const target = await resolveHookPath(opts);
+		if (target === null) return;
+		const wd = await resolveDispatchForWriteGuard(opts);
+		if ("allow" in wd) return;
+		if ("failClosed" in wd) {
+			emitFailure(wd.code, `write-guard blocked: ${wd.message}`, { reason: wd.message });
+			return;
+		}
+		const repoRoot = path.dirname(path.dirname(wd.featureDir));
+		const feature = opts.feature;
+		const cfg = await readLoafConfig(repoRoot);
+		if (cfg.status === "invalid") {
+			emitFailure("SCHEMA_VALIDATION_FAILED", `write-guard blocked: ${cfg.reason}`, {
+				source: "loaf.config.json",
+				reason: cfg.reason
+			});
+			return;
+		}
+		const config = cfg.status === "ok" ? cfg.config : null;
+		let loaded;
+		try {
+			loaded = await loadProjections({
+				feature_dir: wd.featureDir,
+				kinds: ["state", "tasks"]
+			});
+		} catch (err) {
+			emitFailure(err instanceof SnapshotStaleError ? err.code : "SNAPSHOT_STALE_REBUILD_REQUIRED", `write-guard blocked: ${err.message}`, { reason: err.message });
+			return;
+		}
+		const { state, tasks } = loaded;
+		const builtinGlobs = [...SUB_STATE_CONTRACT_BY_STATE[state.sub_state]?.write_paths ?? []];
+		const activeCategories = /* @__PURE__ */ new Set();
+		for (const task of tasks?.tasks ?? []) {
+			if (task.status !== "in_progress") continue;
+			const execution = task.execution ?? {};
+			for (const [step, st] of Object.entries(execution)) if (st?.status === "running") {
+				for (const g of stepWritePaths(task.kind, step)) builtinGlobs.push(g);
+				for (const c of stepWriteCategories(task.kind, step)) activeCategories.add(c);
+			}
+		}
+		const [phase, sub] = state.sub_state.split(".");
+		if (phase === "VERIFY" && [
+			"run",
+			"review",
+			"acceptance",
+			"visual"
+		].includes(sub)) {
+			const check = sub;
+			for (const g of VERIFY_CHECK_WRITE_PATHS[check]) builtinGlobs.push(g);
+			for (const c of VERIFY_CHECK_WRITE_CATEGORIES[check]) activeCategories.add(c);
+		}
+		const decision = evaluateWritePath({
+			targetPath: target,
+			repoRoot,
+			feature,
+			subState: state.sub_state,
+			builtinGlobs,
+			activeCategories: [...activeCategories],
+			config
+		});
+		if (decision.allowed) return;
+		if (decision.code === "PROTECTED_FILE_WRITE") {
+			emitFailure("PROTECTED_FILE_WRITE", `write blocked: \`${decision.normalizedPath}\` matches protected_files entry \`${decision.matchedDeny}\` — protected files are never writable`, {
+				path: target,
+				normalized_path: decision.normalizedPath,
+				matched_deny: decision.matchedDeny
+			});
+			return;
+		}
+		emitFailure("WRITE_PATH_VIOLATION", `write blocked: \`${decision.normalizedPath}\` is outside the allowed write paths for sub_state \`${state.sub_state}\``, {
+			path: target,
+			normalized_path: decision.normalizedPath,
+			sub_state: state.sub_state,
+			allow_set: decision.allowSet.slice(0, 30)
 		});
 	});
 	const renderTuiImpl = deps.renderTui ?? defaultRenderTui;

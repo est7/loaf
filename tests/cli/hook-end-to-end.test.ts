@@ -124,30 +124,20 @@ describe("SC-15a — unknown hook event", () => {
 });
 
 // ───────────────────────────────────────────────────────────────────────
-// Known write-side event → HOOK_EVENT_NOT_IMPLEMENTED (SC-15c stub).
-// SC-15b wired session-start + closure-check (real read-side handlers —
-// see hook-read-side-end-to-end.test.ts), so only write-guard + scope-track
-// remain stubbed.
+// All 4 events are now implemented (SC-15b read-side, SC-15c write-side).
+// HOOK_EVENT_NOT_IMPLEMENTED is runtime-dead; the code stays in the catalog
+// as reserved-for-future-events. Behavior detail lives in the read-side /
+// write-side e2e suites; here we just assert no event is stubbed.
 // ───────────────────────────────────────────────────────────────────────
-describe("SC-15b — write-side events still return HOOK_EVENT_NOT_IMPLEMENTED", () => {
-  for (const event of ["write-guard", "scope-track"] as const) {
-    test(`${event} → exit 2 HOOK_EVENT_NOT_IMPLEMENTED with detail.{event, sub_cycle, claude_code}`, async () => {
-      const result = await runCli(["hook", event, "--format", "json"]);
-      expect(result.exit).toBe(2);
-      const err = JSON.parse(result.stderr);
-      expect(err.code).toBe("HOOK_EVENT_NOT_IMPLEMENTED");
-      expect(err.detail.event).toBe(event);
-      expect(err.detail.sub_cycle).toBe("c");
-      expect(typeof err.detail.claude_code).toBe("string");
+describe("SC-15c — no hook event returns HOOK_EVENT_NOT_IMPLEMENTED", () => {
+  for (const event of ["session-start", "closure-check", "write-guard", "scope-track"] as const) {
+    test(`${event} is wired (no HOOK_EVENT_NOT_IMPLEMENTED)`, async () => {
+      // TTY + no --path → write-side returns USAGE, read-side silent-skips;
+      // never the not-implemented stub.
+      const result = await runCli(["hook", event, "--format", "json"], {
+        deps: { isStdinTty: () => true },
+      });
+      expect(result.stderr).not.toContain("HOOK_EVENT_NOT_IMPLEMENTED");
     });
   }
-
-  test("session-start + closure-check no longer stubbed (no HOOK_EVENT_NOT_IMPLEMENTED)", async () => {
-    // Bare cwd has no .loaf → read-side handlers silent-skip with exit 0,
-    // never the stub diagnostic.
-    const r1 = await runCli(["hook", "session-start", "--format", "json"]);
-    const r2 = await runCli(["hook", "closure-check", "--format", "json"]);
-    expect(r1.stderr).not.toContain("HOOK_EVENT_NOT_IMPLEMENTED");
-    expect(r2.stderr).not.toContain("HOOK_EVENT_NOT_IMPLEMENTED");
-  });
 });

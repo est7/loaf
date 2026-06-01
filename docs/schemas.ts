@@ -2954,6 +2954,81 @@ export const VERIFY_CHECK_WRITE_PATHS: Record<VerifyCheckKind, string[]> = {
 };
 
 // ─────────────────────────────────────────────────────────────────
+// 27b. Write-guard semantic categories — per (task_kind, step)
+// ─────────────────────────────────────────────────────────────────
+//
+// Phase 16 SC-15c — write-guard (`loaf hook write-guard`) allow-set is the
+// built-in globs (STEP_WRITE_PATHS_BY_KIND[kind][step] ∪
+// VERIFY_CHECK_WRITE_PATHS[check] ∪ SUB_STATE_CONTRACTS[sub_state].write_paths)
+// WIDENED, per active step, by `loaf.config.json paths.<category>` — but ONLY
+// for the semantic categories the step's built-in write contract already
+// covers. This table is the canonical (kind, step) → category[] map that
+// authorizes which `paths.*` keys may widen a given step.
+//
+// SECURITY BOUNDARY: this is NOT an implementation detail. `paths.tests` must
+// NOT authorize source writes during an implement step, and `paths.source`
+// must NOT authorize test writes during a red step — the per-step category
+// set enforces that isolation. A flat global union would make write-guard
+// over-permissive.
+//
+// `<category>` ∈ WriteCategory (= the `loaf.config.json paths.*` keys).
+// `[]` = the step writes only loaf-internal artifacts (attachments /
+// evidence) or already grants the whole worktree (`**/*`); no repo-code
+// category is config-widenable. public_api / schema / security stay dormant
+// in v0.1.0 — no built-in step tags itself with them yet.
+
+export const WriteCategory = z.enum([
+  "source",
+  "tests",
+  "docs",
+  "ui",
+  "public_api",
+  "schema",
+  "security",
+]);
+export type WriteCategory = z.infer<typeof WriteCategory>;
+
+export const STEP_WRITE_CATEGORIES_BY_KIND: {
+  [K in keyof typeof STEP_WRITE_PATHS_BY_KIND]: {
+    [S in keyof (typeof STEP_WRITE_PATHS_BY_KIND)[K]]: WriteCategory[];
+  };
+} = {
+  behavioral: {
+    red: ["tests"],
+    implement: ["source"],
+    refactor: ["source", "tests"],
+  },
+  structural: {
+    implement: ["source"],
+    refactor: ["source"],
+  },
+  "visual-ui": {
+    mockup: ["docs"],
+    implement: ["source", "ui"],
+    "screenshot-compare": [],          // attachments only — not config-widenable
+  },
+  docs: {
+    draft: ["docs"],
+    review: [],
+  },
+  spike: {
+    explore: [],
+    prototype: [],                     // already **/* — config adds nothing
+    record: [],                        // .loaf evidence — internal
+  },
+  chore: {
+    execute: [],                       // already **/*
+  },
+};
+
+export const VERIFY_CHECK_WRITE_CATEGORIES: Record<VerifyCheckKind, WriteCategory[]> = {
+  run: [],
+  review: [],
+  acceptance: [],
+  visual: [],                          // attachments only — not config-widenable
+};
+
+// ─────────────────────────────────────────────────────────────────
 // 28. Spec-lock machine checks (Q12 update)
 // ─────────────────────────────────────────────────────────────────
 //
@@ -4061,6 +4136,8 @@ export const DiagnosticCode = z.enum([
   "DOCTOR_REBUILD_FAILED",                 // src/cli.tsx — `loaf doctor --rebuild` rebuild loop or projection write failed (protocol §10.15)
   "DOCTOR_REBUILD_MIGRATED_UNSUPPORTED",   // src/cli.tsx — `loaf doctor --rebuild` invoked on a v0.0.x-migrated journal (protocol §10.15)
   "REDUCER_ERROR",                         // src/cli.tsx + src/core/journal-mutate.ts — wraps reducer-thrown invariant failures surfaced through multiple mutator paths (protocol §10.5)
+  "WRITE_PATH_VIOLATION",                   // Phase 16 SC-15c — `loaf hook write-guard`: target path outside the current sub_state/task/step allow-set (protocol §11.1)
+  "PROTECTED_FILE_WRITE",                   // Phase 16 SC-15c — `loaf hook write-guard`: target path matched loaf.config.json protected_files hard-deny (protocol §11.1)
 ]);
 export type DiagnosticCode = z.infer<typeof DiagnosticCode>;
 
@@ -4310,6 +4387,36 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
       "skip this hook surface for now — `loaf hook --list-events` " +
       "shows the canonical 4-event enum",
     doc_anchor: "protocol.md#§11",
+  },
+  WRITE_PATH_VIOLATION: {
+    // Phase 16 SC-15c — `loaf hook write-guard`: the tool's target path is
+    // outside the allow-set for the current sub_state + active task/step +
+    // config-widened categories. Distinct from PROTECTED_FILE_WRITE (a
+    // hard-deny) so skill/CI can tell "wrong phase/step/path-config" from
+    // "never write here".
+    exit_code: 2,
+    message_template:
+      "write blocked: `{normalized_path}` is outside the allowed write " +
+      "paths for sub_state `{sub_state}`",
+    fix_template:
+      "write within the current step's contract, advance to the right " +
+      "sub_state/step first, or widen the matching `paths.*` category in " +
+      ".loaf/.config/loaf.config.json",
+    doc_anchor: "protocol.md#§11.1",
+  },
+  PROTECTED_FILE_WRITE: {
+    // Phase 16 SC-15c — `loaf hook write-guard`: the target path matched a
+    // loaf.config.json protected_files entry (hard-deny, evaluated after
+    // path normalization, regardless of sub_state/step).
+    exit_code: 2,
+    message_template:
+      "write blocked: `{normalized_path}` matches protected_files entry " +
+      "`{matched_deny}` — protected files are never writable",
+    fix_template:
+      "remove the entry from protected_files in " +
+      ".loaf/.config/loaf.config.json if the protection is wrong, " +
+      "otherwise write a different file",
+    doc_anchor: "protocol.md#§11.1",
   },
   MISSING_VERIFIABILITY: {
     exit_code: 2,

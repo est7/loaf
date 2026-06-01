@@ -192,6 +192,8 @@
     "MUTUALLY_EXCLUSIVE_FLAGS":   "mutually exclusive flags in the same invocation: {flags}",
     "DRY_RUN_NOT_APPLICABLE":     "--dry-run not applicable to {command_type} command `{command}`",
     "HOOK_EVENT_NOT_IMPLEMENTED": "hook event `{event}` is not implemented in this loaf version (Phase 16 SC-15{sub_cycle} pending; see protocol §11)",
+    "WRITE_PATH_VIOLATION":       "write blocked: `{normalized_path}` is outside the allowed write paths for sub_state `{sub_state}`",
+    "PROTECTED_FILE_WRITE":       "write blocked: `{normalized_path}` matches protected_files entry `{matched_deny}` — protected files are never writable",
     "FEATURE_NOT_FOUND":          "no feature found in cwd (.loaf/ is empty or missing, or no projection has phase != DONE)",
     "FEATURE_AMBIGUOUS":          "current working directory has {count} active features and no dispatch context: {feature_list}",
     "SESSION_CWD_MISMATCH":       "--session {uuid} is registered against cwd={registered_cwd}, but the current cwd is {current_cwd}",

@@ -54,12 +54,23 @@ import { ResumePack as RuntimeResumePack } from "./core/resume-pack-schema.js";
 import { App as TuiApp } from "./cli/tui/app.js";
 import { defaultRenderTui, type RenderTui } from "./cli/tui/render.js";
 import { createElement } from "react";
-import { HOOK_EVENTS, HOOK_EVENT_TO_CLAUDE_CODE, type HookEvent } from "./core/hook-events.js";
+import { HOOK_EVENTS, HOOK_EVENT_TO_CLAUDE_CODE } from "./core/hook-events.js";
 import {
   composeSessionStartContext,
   runClosureWarnings,
   sessionStartHookOutput,
 } from "./core/hook-read.js";
+import { SUB_STATE_CONTRACT_BY_STATE } from "./core/sub-state-contracts.js";
+import {
+  stepWritePaths,
+  stepWriteCategories,
+  VERIFY_CHECK_WRITE_PATHS,
+  VERIFY_CHECK_WRITE_CATEGORIES,
+  type WriteCategory,
+  type VerifyCheckKind,
+} from "./core/step-write-paths.js";
+import { evaluateWritePath, parseHookStdinPath } from "./core/write-guard.js";
+import { readLoafConfig } from "./core/loaf-config.js";
 import { runEditor as defaultRunEditor, type RunEditor } from "./cli/run-editor.js";
 import { splitFrontmatter } from "./core/spec-frontmatter.js";
 import { parse as parseYaml } from "yaml";
@@ -884,6 +895,66 @@ export async function main(
       return { skip: true, stale: { code: dispatch.code, message: dispatch.message } };
     }
     return { skip: true };
+  };
+
+  // Phase 16 SC-15c — strict path resolution for the write-side hooks
+  // (write-guard / scope-track). --path explicit wins; else a non-TTY stdin
+  // must parse as the Claude Code hook JSON envelope (tool_input.file_path);
+  // else (TTY + no --path) → USAGE. Fail closed (codex Q4): missing /
+  // malformed input is exit 2, never a guessed path. On failure the helper
+  // emits the diagnostic and returns null.
+  const resolveHookPath = async (opts: { path?: string }): Promise<string | null> => {
+    if (opts.path !== undefined && opts.path.length > 0) return opts.path;
+    if (!isStdinTty()) {
+      const raw = await readStdin();
+      const parsed = parseHookStdinPath(raw);
+      if (!parsed.ok) {
+        emitFailure("SCHEMA_VALIDATION_FAILED", parsed.reason, { source: "hook-stdin" });
+        return null;
+      }
+      return parsed.path;
+    }
+    emitFailure(
+      "USAGE",
+      "write-side hook requires --path <P> or a non-TTY stdin hook payload (tool_input.file_path)",
+      {},
+    );
+    return null;
+  };
+
+  // Phase 16 SC-15c — fail-closed dispatch for write-guard. Unlike the
+  // read-side dispatchForHookOptional (absence → silent allow), the write
+  // boundary inverts the safety polarity (codex Q5): only a genuine
+  // FEATURE_NOT_FOUND (no .loaf / no active feature / non-loaf project)
+  // means "no session to guard" → allow. ANY other resolution outcome
+  // (ambiguous / stale / explicit-selector miss / unexpected throw) is a
+  // session context we cannot cleanly resolve → fail closed (exit 2),
+  // never authorize blindly.
+  const resolveDispatchForWriteGuard = async (
+    opts: { feature?: string; featureDir?: string },
+  ): Promise<
+    | { featureDir: string }
+    | { allow: true }
+    | { failClosed: true; code: string; message: string }
+  > => {
+    let dispatch: Awaited<ReturnType<typeof ctx.resolveDispatch>>;
+    try {
+      dispatch = await ctx.resolveDispatch();
+    } catch (err) {
+      return {
+        failClosed: true,
+        code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
+        message: `write-guard cannot resolve the session: ${(err as Error).message}`,
+      };
+    }
+    if (dispatch.ok) {
+      opts.feature = dispatch.feature;
+      opts.featureDir = dispatch.featureDir;
+      ctx.recordTraceTarget(dispatch.feature, dispatch.featureDir);
+      return { featureDir: dispatch.featureDir };
+    }
+    if (dispatch.code === "FEATURE_NOT_FOUND") return { allow: true };
+    return { failClosed: true, code: dispatch.code, message: dispatch.message };
   };
 
   // Phase 16 SC-7 — registry-writer DI bundle for MutateContext literals.
@@ -4409,7 +4480,7 @@ export async function main(
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .option("--session <uuid>", "Resolve session by registry UUID (read-side events)")
     .option("--path <text>", "Tool target path (for write-guard / scope-track; SC-15c)")
-    .action(async (event: string, opts: { feature?: string; featureDir?: string }) => {
+    .action(async (event: string, opts: { feature?: string; featureDir?: string; path?: string }) => {
       // The pre-parse guard already validated `event ∈ HOOK_EVENTS`.
 
       // ── session-start (SC-15b) — inject sub_state context into the
@@ -4486,12 +4557,123 @@ export async function main(
         return;
       }
 
-      // ── write-guard + scope-track — still stub (SC-15c) ──
-      const subCycle = "c";
+      // ── scope-track (SC-15c) — PostToolUse(Write,Edit) STUB ──
+      // Accepts the write-side path surface (so its CLI shape matches
+      // write-guard) but writes NOTHING — no heartbeat, no reconcile cache,
+      // no journal, no side-file. The actual_scope / heartbeat writer is
+      // F-027's (codex Q3 lock). exit 0.
+      if (event === "scope-track") {
+        const target = await resolveHookPath(opts);
+        if (target === null) return; // USAGE / SCHEMA_VALIDATION_FAILED exit 2
+        return; // stub — accept + exit 0, write nothing
+      }
+
+      // ── write-guard (SC-15c) — PreToolUse(Write,Edit) ──
+      // Block a tool write whose target path is outside the allowed write
+      // set for the current sub_state + active task/step + config-widened
+      // categories. SAFETY BOUNDARY: fail closed on any ambiguity/error;
+      // allow only when there is genuinely no loaf session to guard
+      // (codex Q5). exit 0 = allowed; exit 2 = denied.
+      const target = await resolveHookPath(opts);
+      if (target === null) return; // USAGE / SCHEMA exit 2 (already emitted)
+
+      const wd = await resolveDispatchForWriteGuard(opts);
+      if ("allow" in wd) return; // no loaf session here → allow, exit 0
+      if ("failClosed" in wd) {
+        emitFailure(wd.code, `write-guard blocked: ${wd.message}`, { reason: wd.message });
+        return;
+      }
+
+      const repoRoot = path.dirname(path.dirname(wd.featureDir)); // <repoRoot>/.loaf/<feature>
+      const feature = opts.feature!;
+
+      // Config overlay — fail closed on an invalid (untrusted) config.
+      const cfg = await readLoafConfig(repoRoot);
+      if (cfg.status === "invalid") {
+        emitFailure("SCHEMA_VALIDATION_FAILED", `write-guard blocked: ${cfg.reason}`, {
+          source: "loaf.config.json",
+          reason: cfg.reason,
+        });
+        return;
+      }
+      const config = cfg.status === "ok" ? cfg.config : null;
+
+      // Projections — fail closed (stale/corrupt selected session must not
+      // relax the write boundary; codex Q5 reversed polarity vs read-side).
+      let loaded: LoadResult<"state" | "tasks">;
+      try {
+        loaded = await loadProjections({
+          feature_dir: wd.featureDir,
+          kinds: ["state", "tasks"] as const,
+        });
+      } catch (err) {
+        const code =
+          err instanceof SnapshotStaleError ? err.code : "SNAPSHOT_STALE_REBUILD_REQUIRED";
+        emitFailure(code, `write-guard blocked: ${(err as Error).message}`, {
+          reason: (err as Error).message,
+        });
+        return;
+      }
+      const { state, tasks } = loaded;
+
+      // Assemble built-in globs (sub_state ∪ active task/step ∪ verify check)
+      // + the config-widenable semantic categories for the active steps.
+      const builtinGlobs: string[] = [
+        ...(SUB_STATE_CONTRACT_BY_STATE[state.sub_state]?.write_paths ?? []),
+      ];
+      const activeCategories = new Set<WriteCategory>();
+      for (const task of tasks?.tasks ?? []) {
+        if (task.status !== "in_progress") continue;
+        const execution =
+          (task as { execution?: Record<string, { status?: string }> }).execution ?? {};
+        for (const [step, st] of Object.entries(execution)) {
+          if (st?.status === "running") {
+            for (const g of stepWritePaths(task.kind, step)) builtinGlobs.push(g);
+            for (const c of stepWriteCategories(task.kind, step)) activeCategories.add(c);
+          }
+        }
+      }
+      const [phase, sub] = state.sub_state.split(".");
+      const VERIFY_CHECKS: readonly VerifyCheckKind[] = ["run", "review", "acceptance", "visual"];
+      if (phase === "VERIFY" && VERIFY_CHECKS.includes(sub as VerifyCheckKind)) {
+        const check = sub as VerifyCheckKind;
+        for (const g of VERIFY_CHECK_WRITE_PATHS[check]) builtinGlobs.push(g);
+        for (const c of VERIFY_CHECK_WRITE_CATEGORIES[check]) activeCategories.add(c);
+      }
+
+      const decision = evaluateWritePath({
+        targetPath: target,
+        repoRoot,
+        feature,
+        subState: state.sub_state,
+        builtinGlobs,
+        activeCategories: [...activeCategories],
+        config,
+      });
+
+      if (decision.allowed) return; // exit 0 — write permitted
+      if (decision.code === "PROTECTED_FILE_WRITE") {
+        emitFailure(
+          "PROTECTED_FILE_WRITE",
+          `write blocked: \`${decision.normalizedPath}\` matches protected_files entry \`${decision.matchedDeny}\` — protected files are never writable`,
+          {
+            path: target,
+            normalized_path: decision.normalizedPath,
+            matched_deny: decision.matchedDeny,
+          },
+        );
+        return;
+      }
+      // WRITE_PATH_VIOLATION — bound the allow_set for the detail envelope.
       emitFailure(
-        "HOOK_EVENT_NOT_IMPLEMENTED",
-        `hook event \`${event}\` is not implemented in this loaf version (Phase 16 SC-15${subCycle} pending; see protocol §11)`,
-        { event, sub_cycle: subCycle, claude_code: HOOK_EVENT_TO_CLAUDE_CODE[event as HookEvent] },
+        "WRITE_PATH_VIOLATION",
+        `write blocked: \`${decision.normalizedPath}\` is outside the allowed write paths for sub_state \`${state.sub_state}\``,
+        {
+          path: target,
+          normalized_path: decision.normalizedPath,
+          sub_state: state.sub_state,
+          allow_set: decision.allowSet.slice(0, 30),
+        },
       );
     });
 
