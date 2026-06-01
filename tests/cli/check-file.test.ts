@@ -257,8 +257,11 @@ describe("checkFile — did-you-mean for `loaf check tasks`", () => {
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("unreachable");
     expect(result.code).toBe("USAGE");
-    expect(result.message).toContain("'loaf tasks check'");
-    expect(result.detail["suggestion"]).toBe("loaf tasks check");
+    // SC-17: suggestion points at the v0.1.0-real path-based check, not the
+    // inventory:future noun-first `loaf tasks check`.
+    expect(result.message).toContain("--kind tasks");
+    expect(result.message).not.toContain("did you mean 'loaf tasks check'?");
+    expect(result.detail["suggestion"]).toBe("loaf check <path>/tasks.json --kind tasks");
   });
 
   test("`./tasks` (no file) → INPUT_FILE_NOT_FOUND (not USAGE — codex r311)", async () => {

@@ -176,8 +176,10 @@ describe("SC-9c — did-you-mean for `loaf check tasks` (§1899)", () => {
     expect(result.exit).toBe(2);
     const err = JSON.parse(result.stderr);
     expect(err.code).toBe("USAGE");
-    expect(err.message).toContain("'loaf tasks check'");
-    expect(err.detail.suggestion).toBe("loaf tasks check");
+    // SC-17: suggestion now points at the v0.1.0-real path-based check.
+    expect(err.message).toContain("--kind tasks");
+    expect(err.message).not.toContain("did you mean 'loaf tasks check'?");
+    expect(err.detail.suggestion).toBe("loaf check <path>/tasks.json --kind tasks");
   });
 
   test("negative `evidence` (no file) → INPUT_FILE_NOT_FOUND, NO did-you-mean (codex r311)", async () => {

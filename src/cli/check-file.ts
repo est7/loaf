@@ -152,13 +152,19 @@ export async function checkFile(opts: CheckFileOptions): Promise<CheckResult> {
   const cwd = opts.cwd ?? process.cwd();
   const absPath = path.isAbsolute(opts.path) ? opts.path : path.resolve(cwd, opts.path);
 
-  // did-you-mean guard (codex r309 N2)
+  // did-you-mean guard (codex r309 N2; Phase 16 SC-17 — point at the
+  // v0.1.0-real path-based validation, NOT the inventory:future noun-first
+  // `loaf tasks check` which exits unknown-command and would dead-end the
+  // user).
   if (await isDidYouMeanTasks(opts.path, absPath)) {
     return {
       ok: false,
       code: "USAGE",
-      message: "did you mean 'loaf tasks check'?",
-      detail: { suggestion: "loaf tasks check", argument: opts.path },
+      message:
+        "`tasks` is not a file path. To validate a tasks artifact, pass its " +
+        "path: `loaf check <path>/tasks.json --kind tasks` (noun-first " +
+        "`loaf tasks check` is reserved for a future release)",
+      detail: { suggestion: "loaf check <path>/tasks.json --kind tasks", argument: opts.path },
     };
   }
 

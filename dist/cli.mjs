@@ -3260,9 +3260,9 @@ async function checkFile(opts) {
 	if (await isDidYouMeanTasks(opts.path, absPath)) return {
 		ok: false,
 		code: "USAGE",
-		message: "did you mean 'loaf tasks check'?",
+		message: "`tasks` is not a file path. To validate a tasks artifact, pass its path: `loaf check <path>/tasks.json --kind tasks` (noun-first `loaf tasks check` is reserved for a future release)",
 		detail: {
-			suggestion: "loaf tasks check",
+			suggestion: "loaf check <path>/tasks.json --kind tasks",
 			argument: opts.path
 		}
 	};
