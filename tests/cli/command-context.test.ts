@@ -276,6 +276,65 @@ describe("Phase 16 SC-3 — CommandContext: failure routing + exitCode", () => {
       detail: { feature: "auth-refresh", feature_dir: ".loaf/auth-refresh" },
     });
   });
+
+  test("failureKeyed() keeps P2c broad site JSON messages byte-stable under zh", () => {
+    const cases = [
+      {
+        code: "SCHEMA_VALIDATION_FAILED",
+        key: FAILURE_SITE_KEYS.hookStdinParseFailed,
+        vars: { reason: "hook stdin is not valid JSON" },
+        detail: { source: "hook-stdin" },
+      },
+      {
+        code: "INPUT_FILE_NOT_FOUND",
+        key: FAILURE_SITE_KEYS.profileInputFileMissing,
+        vars: { path: "/tmp/missing.json" },
+        detail: { path: "/tmp/missing.json" },
+      },
+      {
+        code: "SCHEMA_VALIDATION_FAILED",
+        key: FAILURE_SITE_KEYS.tasksAddEmptyArray,
+        vars: {},
+        detail: {},
+      },
+      {
+        code: "SCHEMA_VALIDATION_FAILED",
+        key: FAILURE_SITE_KEYS.handoffPackValidationFailed,
+        vars: {},
+        detail: { subcode: "zod" },
+      },
+      {
+        code: "USAGE",
+        key: FAILURE_SITE_KEYS.lessonsTextFileMutex,
+        vars: { provided_state: "both provided" },
+        detail: { text_provided: true, file_provided: true },
+      },
+      {
+        code: "INPUT_FILE_NOT_FOUND",
+        key: FAILURE_SITE_KEYS.lessonsFileMissing,
+        vars: { path: "/tmp/missing-lesson.md" },
+        detail: { path: "/tmp/missing-lesson.md" },
+      },
+      {
+        code: "SCHEMA_VALIDATION_FAILED",
+        key: FAILURE_SITE_KEYS.writeGuardConfigInvalid,
+        vars: { reason: "invalid json" },
+        detail: { source: "loaf.config.json", reason: "invalid json" },
+      },
+    ] as const;
+
+    for (const c of cases) {
+      const en = makeCtx(["loaf", "status", "--format", "json"], {
+        i18n: createI18n("en", BUILTIN_BUNDLES),
+      });
+      const zh = makeCtx(["loaf", "status", "--format", "json"], {
+        i18n: createI18n("zh", BUILTIN_BUNDLES),
+      });
+      en.ctx.failureKeyed(c.code, c.key, c.vars, c.detail);
+      zh.ctx.failureKeyed(c.code, c.key, c.vars, c.detail);
+      expect(zh.stderr.join(""), c.key).toBe(en.stderr.join(""));
+    }
+  });
 });
 
 describe("Phase 16 SC-3 — CommandContext: lazy session cache by (featureDir, method)", () => {

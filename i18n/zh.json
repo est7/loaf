@@ -229,6 +229,7 @@
     "hook": {
       "missing_event": "loaf hook 需要 event token;可选值:{events}. 运行 `loaf hook --list-events` 查看完整枚举",
       "unknown_event": "未知 hook event '{event}';期望值:{allowed}. 你是不是想输入 '{suggestion}'?",
+      "stdin_parse_failed": "hook stdin payload 解析失败:{reason}",
       "write_path_missing": "write-side hook 需要 --path <P> 或非 TTY stdin hook payload(tool_input.file_path)"
     },
     "check": {
@@ -250,14 +251,27 @@
       "workspace_empty": "--workspace 不能为空"
     },
     "handoff": {
-      "reason_too_short": "--reason 必须 ≥{min_length} 字符(当前 {reason_length})"
+      "reason_too_short": "--reason 必须 ≥{min_length} 字符(当前 {reason_length})",
+      "pack_validation_failed": "ResumePack 运行时校验失败(builder bug 或 schema drift)"
+    },
+    "profile": {
+      "input_file_missing": "input file 不存在:{path}",
+      "input_file_unreadable": "无法读取 input file {path}:{error}"
+    },
+    "tasks_add": {
+      "empty_array": "tasks add 输入不能为空数组"
     },
     "lessons": {
       "text_too_short": "lesson text 必须 ≥{min_length} 字符(当前 {lesson_text_length})",
-      "reason_too_short": "--reason 必须 ≥{min_length} 字符(当前 {reason_length})"
+      "reason_too_short": "--reason 必须 ≥{min_length} 字符(当前 {reason_length})",
+      "text_file_mutex": "--text 和 --file 必须二选一({provided_state})",
+      "file_missing": "lesson file 不存在:{path}"
     },
     "finding": {
       "status_invalid": "--status 必须是:{allowed_statuses_human}(当前 {value})"
+    },
+    "write_guard": {
+      "config_invalid": "write-guard 被拦截:{reason}"
     },
     "no_session": {
       "status": "先跑 `loaf start {feature}`",

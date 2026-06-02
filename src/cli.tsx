@@ -1082,7 +1082,12 @@ export async function main(
       const raw = await readStdin();
       const parsed = parseHookStdinPath(raw);
       if (!parsed.ok) {
-        emitFailure("SCHEMA_VALIDATION_FAILED", parsed.reason, { source: "hook-stdin" });
+        ctx.failureKeyed(
+          "SCHEMA_VALIDATION_FAILED",
+          FAILURE_SITE_KEYS.hookStdinParseFailed,
+          { reason: parsed.reason },
+          { source: "hook-stdin" },
+        );
         return null;
       }
       return parsed.path;
@@ -2089,13 +2094,17 @@ export async function main(
           content = await fsP.readFile(opts.input, "utf8");
         } catch (err) {
           if ((err as { code?: string }).code === "ENOENT") {
-            emitFailure("INPUT_FILE_NOT_FOUND", `input file does not exist: ${opts.input}`, {
-              path: opts.input,
-            });
-          } else {
-            emitFailure(
+            ctx.failureKeyed(
               "INPUT_FILE_NOT_FOUND",
-              `cannot read input file ${opts.input}: ${String(err)}`,
+              FAILURE_SITE_KEYS.profileInputFileMissing,
+              { path: opts.input },
+              { path: opts.input },
+            );
+          } else {
+            ctx.failureKeyed(
+              "INPUT_FILE_NOT_FOUND",
+              FAILURE_SITE_KEYS.profileInputFileUnreadable,
+              { path: opts.input, error: String(err) },
               { path: opts.input },
             );
           }
@@ -2469,6 +2478,7 @@ export async function main(
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .option("--finding <FND-N>", "Sponsoring amend-tasks finding (sponsored add at EXECUTE.work)")
     .action(async (rawOpts: { input?: string; schema?: boolean; feature: string; featureDir?: string; finding?: string }) => {
+      // dispatchOrFail(opts) below records the trace target after input pre-validation.
       if (rawOpts.schema === true) {
         if (rejectIfDryRun("tasks add --schema")) return;
         emitMutatorSchemaAndExit("tasks:add");
@@ -2506,7 +2516,12 @@ export async function main(
       // shape-enforcement point of ADR-0004 (codex r113).
       const rawTasks: unknown[] = Array.isArray(parsed) ? parsed : [parsed];
       if (rawTasks.length === 0) {
-        ctx.failure("SCHEMA_VALIDATION_FAILED", "tasks add input is an empty array");
+        ctx.failureKeyed(
+          "SCHEMA_VALIDATION_FAILED",
+          FAILURE_SITE_KEYS.tasksAddEmptyArray,
+          {},
+          {},
+        );
         return;
       }
       const validatedInputs: TaskInput[] = [];
@@ -3951,9 +3966,12 @@ export async function main(
       // Defense-in-depth: validate against runtime schema before write.
       const parse = RuntimeResumePack.safeParse(pack);
       if (!parse.success) {
-        emitFailure("SCHEMA_VALIDATION_FAILED",
-          `ResumePack failed runtime validation (builder bug or schema drift)`,
-          { subcode: "zod", issues: parse.error.issues });
+        ctx.failureKeyed(
+          "SCHEMA_VALIDATION_FAILED",
+          FAILURE_SITE_KEYS.handoffPackValidationFailed,
+          {},
+          { subcode: "zod", issues: parse.error.issues },
+        );
         return;
       }
       // Atomic write to <feature-dir>/snapshots/resume-pack.json
@@ -4550,10 +4568,12 @@ export async function main(
       const hasText = opts.text !== undefined;
       const hasFile = opts.file !== undefined;
       if (hasText === hasFile) {
-        emitFailure("USAGE",
-          hasText ? "exactly one of --text or --file required (both provided)"
-                  : "exactly one of --text or --file required (neither provided)",
-          { text_provided: hasText, file_provided: hasFile });
+        ctx.failureKeyed(
+          "USAGE",
+          FAILURE_SITE_KEYS.lessonsTextFileMutex,
+          { provided_state: hasText ? "both provided" : "neither provided" },
+          { text_provided: hasText, file_provided: hasFile },
+        );
         return;
       }
       // (2) Read lesson body
@@ -4563,7 +4583,12 @@ export async function main(
         try { lessonText = await fsPromises.readFile(opts.file!, "utf8"); }
         catch (err) {
           if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-            emitFailure("INPUT_FILE_NOT_FOUND", `lesson file not found: ${opts.file}`, { path: opts.file! });
+            ctx.failureKeyed(
+              "INPUT_FILE_NOT_FOUND",
+              FAILURE_SITE_KEYS.lessonsFileMissing,
+              { path: opts.file! },
+              { path: opts.file! },
+            );
             return;
           }
           throw err;
@@ -4789,10 +4814,15 @@ export async function main(
       // Config overlay — fail closed on an invalid (untrusted) config.
       const cfg = await readLoafConfig(repoRoot);
       if (cfg.status === "invalid") {
-        emitFailure("SCHEMA_VALIDATION_FAILED", `write-guard blocked: ${cfg.reason}`, {
-          source: "loaf.config.json",
-          reason: cfg.reason,
-        });
+        ctx.failureKeyed(
+          "SCHEMA_VALIDATION_FAILED",
+          FAILURE_SITE_KEYS.writeGuardConfigInvalid,
+          { reason: cfg.reason },
+          {
+            source: "loaf.config.json",
+            reason: cfg.reason,
+          },
+        );
         return;
       }
       const config = cfg.status === "ok" ? cfg.config : null;
