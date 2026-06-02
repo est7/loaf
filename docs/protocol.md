@@ -47,7 +47,7 @@
 > - **3 条真实 correctness 缺口**(fan-out 上线前必修):
 >   - §1 + §11.2 + schemas §34 加 **single-writer + per-session lock** invariant — 协议级声明 skill / sub-agent 不得直写 `.loaf/<feature>/`,所有 mutation 经 `loaf <cmd>` 在 `.loaf/<feature>/.lock` 保护下走 atomic transaction
 >   - §10.8 + schemas `EvidenceAddInput` — `loaf evidence add` **不接受 `--id` flag**,CLI 单调分配 EV-id 并 stdout 回打;支持 `--external-ref` 留调用方 correlation
->   - §10.8 + §8 + schemas — `loaf tasks step done` 是**单 transaction**(execution.status 改 + evidence 追加同 lock 内,不能分两次调用);`loaf tasks check` 发现 status 无 evidence proof → 报 `TASK_STATUS_WITHOUT_PROOF`,evidence 是 ground truth status 必须回滚
+>   - §10.8 + §8 + schemas — `loaf tasks step done` 在提供 `--evidence-*` 时可在**单 transaction**内完成 execution.status 改 + evidence 追加;不提供 evidence 时仍可单条 append。缺 task passing evidence 今日由 verify-min / verify-accept 阻断;`TASK_STATUS_WITHOUT_PROOF` 保留给未来 `loaf tasks check`(F-023) 做 execution↔evidence 一致性诊断。
 > - **2 条真协议缺口**:
 >   - §8.6 新加 **mutation rights matrix**(SPEC.plan / SPEC.design / EXECUTE.plan / EXECUTE.work 四行):per-sub_state 可写 artifact + 不可写,光靠 sub_state 名字两个"plan"后面 skill prompt 一定混
 >   - §4.1 加 **`pending` 反向定义**:single blocking interaction,**不是** unfinished work / queue / derived obligation list,防 contributor 当 todo list 用
@@ -306,8 +306,8 @@ skill `loaf start` 流程:算 complexity_score → 推 preset label → user 接
 **v0.1.1**:verify-min 在 `src/core/reducer/preflight.ts` step 5c 实装(`session:delivered` @ EXECUTE.done,仅 `verify_phase=false`);缺证据 → `DELIVER_VERIFY_MIN_INCOMPLETE`,bug-RED 缺失 → `BUG_TASK_RED_NOT_REGISTERED`(镜像 verify-accept check 4);通过则 deliver 进 `DONE.delivered`。下述规则即实装契约:
 
 当 `ceremony.verify_phase=false` 时跳过完整 VERIFY;verify-min 机器检查在 `loaf deliver` 入口跑(`EXECUTE.done → DONE.delivered` 边界):
-- 若 task 触代码 → 必须有 build/test 类 evidence 至少一条
-- 若 task 是 visual-ui → 必须有 manual/visual-review evidence 至少一条
+- 若 task 触代码 → 必须有 result ∈ {passed, approved, waived} 的 build/test 类 evidence 至少一条
+- 若 task 是 visual-ui → 必须有 result ∈ {passed, approved, waived} 的 manual/visual-review evidence 至少一条
 - 若任一 task 是 spike → **deliver hard block**(同 §10.8);stderr 提示用户**显式**走 §8.3 三出口之一:`loaf archive --reason "..."` / `loaf spike convert --to-feature F-N --reason "..."` / `loaf abandon --reason "..."`。**不 auto-archive**(§8.3 三出口全部要求用户显式动作 + 都需 `--reason`,protocol 不替用户编造 reason)
 - **混跑 spike + 非 spike task**(rev 4.1 显式):session 内同时有 spike 和 deliverable task 是边缘 case — spike block 是 **session-level**,任一 spike 触发整 session deliver hard block。**默认推荐**:`loaf advance` 进 `EXECUTE.plan` 时检测到混跑 → stderr warning,建议拆(spike 独立起一个 quick session)。**用户坚持混跑**:只能整 session 走 §8.3 三出口(non-spike 工作由 `loaf spike convert --to-feature F-N --reason "..."` 记录 `to_feature` 后,经后续独立的 `loaf start F-N` 在新 feature 里继承;`spike convert` 本身只 archive 旧 session 到 DONE.archived,不创建新 feature)
 - 若都没有 → 阻塞,要求显式 `loaf evidence add --kind manual --reason "..."`
@@ -1078,7 +1078,7 @@ async function updateRegistry(sessionId: string, snapshot: RegistryFile) {
    - **rev 3.1**:`skipped` 已 deprecated;只能是 `passed` 或 `waived(actor=human:* + reason)`
 2. `findings.jsonl` 无 status === open
 3. **每个 REQ/SCEN/VIS(非 `*_na`)有 ≥1 evidence 通过 `canSatisfy()` 检查**(详见 §5.4),且 result ∈ {passed, approved, waived}
-4. 每个 status=done 的 task 有 ≥1 evidence(kind ∈ {task-summary, local-check, manual, waiver})
+4. 每个 status=done 的 task 有 ≥1 result ∈ {passed, approved, waived} 的 evidence(kind ∈ {task-summary, local-check, manual, waiver})
 5. deep profile:存在 `kind=spec-review` 且 `actor ≠ implementer` 的 evidence(`ceremony.strict_spec_review=true`)
 
 **Human**:`loaf gate decide verify-accept --approve --reason "..."`。
@@ -1937,7 +1937,7 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 | `loaf tasks next` | CLI 算下一个 ready task | 0 |
 | `loaf tasks check` <!-- inventory:future reason="SC-9a projection-read commands" --> | `snapshots/tasks.json` 的 `execution.<step>.status` 与 `snapshots/evidence.json` 一致性校验(rev 5.0:两个 derived projection 是 reducer 同一次重建产物,理论无 drift;mismatch → 触发 §10.15 snapshot-seq-mismatch / 提示 `loaf doctor --rebuild`);rename from `loaf check tasks` (rev 4.0) | 0 / 2 |
 | `loaf tasks step start --task T-N --step <s>` | 开始一个 step(运行时校验 step ∈ kind 合法集) | 0 / 2 |
-| `loaf tasks step done --task T-N --step <s>` | 完成一个 step。**rev 5.0** 行为(等价于原 rev 4.1 contract):走 §11.2 10-step journal transaction,**同一 batch 内 emit** `event:task_step_done` + 可选 `evidence:added`(若 `--evidence-*` flag);step 5 final-validate 通过后整批 append,reducer 派生到 `snapshots/tasks.json`(`execution.<step>.status`)与 `snapshots/evidence.json`,绝不分两次 `loaf <cmd>` 调用。无对应 evidence proof 时 step 3 preflight 报 `TASK_STATUS_WITHOUT_PROOF` exit 2 | 0 / 2 |
+| `loaf tasks step done --task T-N --step <s>` | 完成一个 step。**rev 5.0** 行为(等价于原 rev 4.1 contract):走 §11.2 10-step journal transaction,**同一 batch 内 emit** `event:task_step_done` + 可选 `evidence:added`(若 `--evidence-*` flag);step 5 final-validate 通过后整批 append,reducer 派生到 `snapshots/tasks.json`(`execution.<step>.status`)与 `snapshots/evidence.json`。无 `--evidence-*` 时仍可单条 append;缺 task passing evidence 不在 step-done preflight 拦截,后续由 quick/light `loaf deliver` 的 verify-min 或 standard/deep `verify-accept` 拦截;未来 `loaf tasks check`(F-023) 才使用 `TASK_STATUS_WITHOUT_PROOF` 做 execution↔evidence 一致性诊断 | 0 / 2 |
 | `loaf evidence add --input <src>` | **rev 5.0**:走 §11.2 transaction,**emit `evidence:added`**(单条或 batch,batch markers N≥2);reducer 派生到 `snapshots/evidence.json`(含 covers[] / check / actor / result)。**rev 4.1**:不接受 `--id` flag,EV-id 由 CLI 单调分配在 payload 内并 stdout 回打;支持 `external_ref` 字段留调用方 correlation。**rev 4.3**(ADR-0004 A3 / A10):走统一 `--input <src>` modality(`-` stdin / inline JSON / file path,§10.7),**Phase 16 SC-4c** 接入 + 启用 batch(single object 或 non-empty array)。**ADR-0004 A6 deferred(NOT in SC-4c)**:`attachments` 简化形态 `[{path}]` + CLI 自动 sha256/mime/bytes materialization 留给后续 SC;**当前** runtime + `INPUT_SCHEMAS["evidence:add"]` machine schema 都要求 caller 提供完整 `Attachment` 形态 `[{path, sha256, mime, bytes?}]`(见 §4.4 命令行 sha256/mime 计算示例)。caller 显式传 envelope 字段(`id`/`evidence_id`/`schema_version`/`at`)→ `SCHEMA_VALIDATION_FAILED`(codex r230 PATCH D / r234)。当 A6 落地时,简化形态会在 schema 切换前先做 materialization → `ATTACHMENT_NOT_FOUND` / `ATTACHMENT_NOT_FILE` 路径才会重新激活 | 0 / 2 |
 | `loaf evidence schema --format=json` | **Phase 16 SC-10**:dump evidence projection JSON Schema(派生自 `EvidenceJson`,zod v4 内置 `z.toJSONSchema()`,JSON Schema draft-2020-12)。属于 5 个 `loaf <kind> schema` artifact 子命令家族之一(spec / tasks / evidence / finding / state — pending 不在范围,§1947 closed enum)。read-only,`--dry-run` reject。feature-agnostic:`--feature` / `--feature-dir` / `--session` / `$LOAF_*` 全 pre-parse 拒绝 | 0 / 2 |
 | `loaf waive <obligation-id> --reason "..."` | **rev 5.0 / Phase 16 SC-11**:sugar wrapper over `evidence:added` payload.kind=`waiver`。`<obligation-id>` 通过 `CoversRefPayload` 校验(REQ-/SCEN-/VIS-/T-),同时进 `covers=[id]` 和 `waiver_obligation_id=id`(双字段方案 Plan A)。`actor` 必须 `human:*`(行不通的非 human ctx 报 `NO_HUMAN_ACTOR`),`--reason` ≥10 字符(CLI 友好 USAGE 在 EvidenceFullPayload refine 之前预校验)。`result=waived` 强制。CLI 通过共享 `allocateNextEvidenceId(snapshot)` 分配 EV-id 并 stdout 回打;single-shot(非 batch);`--dry-run` 走标准 mutator 校验路径不写 journal | 0 / 2 |

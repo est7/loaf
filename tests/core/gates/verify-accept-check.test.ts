@@ -6,9 +6,9 @@
 //   - check 2: no open findings
 //   - check 3: every REQ/SCEN/VIS (non *_na) has ≥1 evidence passing
 //              canSatisfy (delegates evidence-compat.ts)
-//   - check 4: every done task has ≥1 evidence — WITH stale tasks_based_on
-//              precondition (TASKS_NOT_PLANNED/TASKS_BASED_ON_STALE before
-//              per-task scan, codex r33 Q1(d))
+//   - check 4: every done task has ≥1 passing evidence — WITH stale
+//              tasks_based_on precondition (TASKS_NOT_PLANNED/
+//              TASKS_BASED_ON_STALE before per-task scan, codex r33 Q1(d))
 //   - check 5: deep spec-review evidence actor ≠ implementer ONLY when
 //              ceremony.strict_spec_review === true (codex r33 Q4 NOT
 //              settle_phase). Implementer fail-closed: cli:* actors excluded;
@@ -562,6 +562,87 @@ describe("verifyAcceptCheck — check 4 task evidence + stale precondition", () 
     if (result.ok) throw new Error("unreachable");
     const fails = result.checks.filter(
       (c) => c.code === "TASK_DONE_NO_EVIDENCE" && c.detail?.task_id === "T-001",
+    );
+    expect(fails.length).toBe(1);
+  });
+
+  test("fails TASK_DONE_NO_EVIDENCE when multi-task lane evidence passes but one done task has only failed evidence", () => {
+    const fm = makeFrontmatter({ scenarios: [], visual_contracts: [] });
+    const snap = happySnapshot(fm);
+    snap.tasks = [
+      doneTask({ id: "T-001" }),
+      doneTask({ id: "T-002" }),
+    ];
+    snap.evidence = [
+      evidence({
+        id: "EV-000101",
+        kind: "local-check",
+        covers: ["T-001"],
+        check: "run",
+        result: "failed",
+      }),
+      evidence({
+        id: "EV-000102",
+        kind: "local-check",
+        covers: ["T-002"],
+        check: "run",
+        result: "passed",
+      }),
+      evidence({
+        id: "EV-000103",
+        kind: "verify-review",
+        covers: ["REQ-AUTH-001"],
+        check: "review",
+        result: "approved",
+      }),
+    ];
+
+    const result = verifyAcceptCheck(snap, fm);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("unreachable");
+    expect(
+      result.checks.filter((c) => c.code === "VERIFY_LANE_NOT_PASSED"),
+    ).toEqual([]);
+    const fails = result.checks.filter(
+      (c) =>
+        c.check === 4 &&
+        c.code === "TASK_DONE_NO_EVIDENCE" &&
+        c.detail?.task_id === "T-001",
+    );
+    expect(fails.length).toBe(1);
+  });
+
+  test("fails TASK_DONE_NO_EVIDENCE for single done task covered only by failed evidence", () => {
+    const fm = makeFrontmatter({ requirements: [], scenarios: [], visual_contracts: [] });
+    const snap = happySnapshot(fm);
+    snap.tasks = [doneTask({ id: "T-001", drives: [] })];
+    snap.evidence = [
+      evidence({
+        id: "EV-000101",
+        kind: "local-check",
+        covers: ["T-001"],
+        check: "run",
+        result: "failed",
+      }),
+      evidence({
+        id: "EV-000102",
+        kind: "verify-review",
+        covers: [],
+        check: "review",
+        result: "approved",
+      }),
+    ];
+
+    const result = verifyAcceptCheck(snap, fm);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("unreachable");
+    const fails = result.checks.filter(
+      (c) =>
+        c.check === 4 &&
+        c.code === "TASK_DONE_NO_EVIDENCE" &&
+        c.detail?.task_id === "T-001",
     );
     expect(fails.length).toBe(1);
   });

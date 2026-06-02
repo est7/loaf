@@ -3322,8 +3322,8 @@ export const CONCURRENCY_INVARIANTS = {
     {
       cmd: "loaf tasks step done",
       emits: ["event:task_step_done", "evidence:added (if --evidence-* flag)"],
-      why: "status change without evidence proof produces TASK_STATUS_WITHOUT_PROOF (§10);" +
-           " both entries land in the same batch so readers never see status=passed without proof",
+      why: "optional task evidence co-emits atomically when --evidence-* is supplied;" +
+           " plain step-done may remain single-entry, passing task evidence is enforced later at verify-min / verify-accept, and future loaf tasks check (F-023) owns TASK_STATUS_WITHOUT_PROOF consistency diagnostics",
     },
     {
       cmd: "loaf finding raise --action <X>",
@@ -4613,7 +4613,7 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
     exit_code: 2,
     message_template:
       "task {task_id} status change requires evidence: status={status} " +
-      "has no covering evidence entry in evidence.jsonl",
+      "has no PASSING covering evidence proof in evidence.jsonl",
     fix_template:
       "emit `loaf evidence add` covering task_id={task_id} before " +
       "advancing status (task-evidence is otherwise enforced later at " +

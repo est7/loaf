@@ -15,8 +15,8 @@
 //              contains the id AND canSatisfy(ev, id) is true. Delegates
 //              to evidence-compat.ts (sub-cycle 2).
 //
-//   - check 4: every task.status=done has ≥1 evidence with covers contains
-//              task.id AND ev.kind in T-allowed set. PRECONDITION:
+//   - check 4: every task.status=done has ≥1 evidence with a passing result,
+//              covers contains task.id, AND ev.kind in T-allowed set. PRECONDITION:
 //              snapshot.tasks_based_on must equal frontmatter.spec_version
 //              (TASKS_NOT_PLANNED if null, TASKS_BASED_ON_STALE if mismatch
 //              — same code as spec-lock-check; codex r33 Q1(d) lock).
@@ -316,6 +316,7 @@ function evalTaskEvidence(snapshot: Snapshot, frontmatter: SpecFrontmatter): Fai
     if (task.status !== "done") continue;
     const satisfied = snapshot.evidence.some(
       (ev) =>
+        isPassingResult(ev.result) &&
         ev.covers.includes(task.id) &&
         TASK_ALLOWED_EVIDENCE_KINDS.includes(ev.kind),
     );
@@ -323,7 +324,7 @@ function evalTaskEvidence(snapshot: Snapshot, frontmatter: SpecFrontmatter): Fai
       failures.push({
         check: 4,
         code: "TASK_DONE_NO_EVIDENCE",
-        message: `task ${task.id} is status=done but has no evidence (kind ∈ {task-summary, local-check, manual, waiver}) covering it`,
+        message: `task ${task.id} is status=done but has no PASSING evidence (result ∈ {passed, approved, waived}; kind ∈ {task-summary, local-check, manual, waiver}) covering it`,
         detail: { task_id: task.id },
       });
     }

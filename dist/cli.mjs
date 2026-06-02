@@ -3133,10 +3133,10 @@ function evalTaskEvidence(snapshot, frontmatter) {
 	}
 	for (const task of snapshot.tasks) {
 		if (task.status !== "done") continue;
-		if (!snapshot.evidence.some((ev) => ev.covers.includes(task.id) && TASK_ALLOWED_EVIDENCE_KINDS.includes(ev.kind))) failures.push({
+		if (!snapshot.evidence.some((ev) => isPassingResult(ev.result) && ev.covers.includes(task.id) && TASK_ALLOWED_EVIDENCE_KINDS.includes(ev.kind))) failures.push({
 			check: 4,
 			code: "TASK_DONE_NO_EVIDENCE",
-			message: `task ${task.id} is status=done but has no evidence (kind ∈ {task-summary, local-check, manual, waiver}) covering it`,
+			message: `task ${task.id} is status=done but has no PASSING evidence (result ∈ {passed, approved, waived}; kind ∈ {task-summary, local-check, manual, waiver}) covering it`,
 			detail: { task_id: task.id }
 		});
 		if (task.kind === "behavioral" && task.labels.includes("bug") && task.red_test_registered !== true) failures.push({
