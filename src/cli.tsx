@@ -17,6 +17,7 @@
 import { Command, CommanderError } from "commander";
 import { promises as fsP } from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import packageJson from "../package.json" with { type: "json" };
 
 import { UNEXPECTED_ERROR, writeCrashLog } from "./core/crash-log.js";
@@ -72,6 +73,12 @@ import {
 } from "./core/step-write-paths.js";
 import { evaluateWritePath, parseHookStdinPath } from "./core/write-guard.js";
 import { readLoafConfig } from "./core/loaf-config.js";
+import { readUserConfig } from "./core/user-config.js";
+import {
+  BUILTIN_BUNDLES,
+  createI18n,
+  resolveLocale,
+} from "./cli/i18n.js";
 import { runEditor as defaultRunEditor, type RunEditor } from "./cli/run-editor.js";
 import { splitFrontmatter } from "./core/spec-frontmatter.js";
 import { parse as parseYaml } from "yaml";
@@ -272,6 +279,9 @@ export type MainDeps = {
   // Tests inject a stub that asserts the App was constructed with the
   // right rows then resolves immediately (codex r355 Q3 / r356 ack 2).
   renderTui?: RenderTui;
+  // ADR-0006 P0 — test-injectable home for ~/.loaf/config.json so
+  // locale config tests never touch a real user's home directory.
+  userConfigHomeDir?: string;
 };
 
 export async function main(
@@ -722,6 +732,41 @@ export async function main(
     }
   }
 
+  const userConfigLoad = await readUserConfig(deps.userConfigHomeDir ?? os.homedir());
+  const localeResolution = resolveLocale({
+    // ADR-0006 defines --lang as the highest-precedence future flag.
+    // P0 keeps the live CLI surface unchanged, so runtime wiring does
+    // not consume argv --lang yet; pure resolver tests cover the future
+    // precedence slot.
+    argv: [],
+    env: process.env,
+    userConfig:
+      userConfigLoad.status === "ok"
+        ? { status: "ok", locale: userConfigLoad.config.locale.default_lang }
+        : userConfigLoad,
+    // ADR-0006: project locale fallback is deferred until dispatch/root
+    // is known. P0 wires user/env/ambient only; resolver supports
+    // projectConfig for the future root-aware call site.
+  });
+  if (!localeResolution.ok) {
+    const presentation = parsePresentation(argv);
+    const renderAsJson = presentation.ok && presentation.format === "json";
+    if (renderAsJson) {
+      process.stderr.write(
+        JSON.stringify({
+          ok: false,
+          code: localeResolution.code,
+          message: localeResolution.message,
+          detail: localeResolution.detail,
+        }) + "\n",
+      );
+    } else {
+      process.stderr.write(`error: ${localeResolution.code} — ${localeResolution.message}\n`);
+    }
+    return 2;
+  }
+  const i18n = createI18n(localeResolution.locale, BUILTIN_BUNDLES);
+
   const readStdin = deps.readStdin ?? defaultReadStdin;
   const isStdinTty = deps.isStdinTty ?? defaultIsStdinTty;
   // SC-6b — trace-writer DI seams. Production defaults wire the real
@@ -804,6 +849,7 @@ export async function main(
     writeStderr: (s) => process.stderr.write(s),
     loadSession,
     loadProjections,
+    i18n,
     // Phase 16 SC-8: thread MainDeps.registryDir through to the
     // CommandContext so ctx.resolveDispatch() uses the tmp dir in
     // CLI e2e tests. Production omits → defaultRegistryDir() honors

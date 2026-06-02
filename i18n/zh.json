@@ -190,6 +190,7 @@
     "DOCTOR_REBUILD_MIGRATED_UNSUPPORTED": "当前发布版本的 doctor --rebuild 不支持 v0.0.x-migrated journal",
     "REDUCER_ERROR":              "reducer 内部不变量失败",
     "INVALID_FORMAT":             "无效的 --format 值 '{value}';合法值:{allowed_values_human}",
+    "INVALID_LOCALE":             "locale 来源 {source} 的值无效:{value}(期望:{accepted})",
     "MUTUALLY_EXCLUSIVE_FLAGS":   "同一次调用使用了互斥的 flags:{flags}",
     "DRY_RUN_NOT_APPLICABLE":     "--dry-run 不适用于{command_type}命令 `{command}`",
     "HOOK_EVENT_NOT_IMPLEMENTED": "hook event `{event}` 在当前 loaf 版本未实装(Phase 16 SC-15{sub_cycle} 待实现;详 protocol §11)",

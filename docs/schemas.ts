@@ -3997,6 +3997,7 @@ export const DiagnosticCode = z.enum([
   "MUTUALLY_EXCLUSIVE_FLAGS",              // §35 FLAG_EXCLUSIONS
   "INVALID_ENV_VALUE",                     // §35 commentary
   "INVALID_FORMAT",                        // Phase 16 SC-5a — --format <text|json> validation
+  "INVALID_LOCALE",                        // ADR-0006 P0 — runtime locale resolution
   "DRY_RUN_NOT_APPLICABLE",                // Phase 16 SC-6c — --dry-run on read-only / wrapping commands
   "HOOK_EVENT_NOT_IMPLEMENTED",            // Phase 16 SC-15a — known hook event recognized but handler not yet wired (SC-15b/c land the real handlers; this code becomes reserved-for-future-events at SC-15c close, similar to TASK_STATUS_WITHOUT_PROOF pattern)
   "TASK_STATUS_WITHOUT_PROOF",             // rev 4.1 evidence proof rule
@@ -4357,6 +4358,19 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
       "pass --format text or --format json (the only allowed values " +
       "for this release); --format=<value> equals form is accepted",
     doc_anchor: "protocol.md#§10.7",
+  },
+  INVALID_LOCALE: {
+    // ADR-0006 P0 — explicit locale declarations are strict. Ambient
+    // LANG/LC_* values that are unsupported fall back to en silently;
+    // this diagnostic is only for explicit LOAF_LANG / user config /
+    // future --lang inputs.
+    exit_code: 2,
+    message_template:
+      "invalid locale from {source}: {value} (expected {accepted})",
+    fix_template:
+      "unset the locale override or set it to one of: {accepted}; user " +
+      "preferences live in ~/.loaf/config.json locale.default_lang",
+    doc_anchor: "docs/adr/0006-runtime-i18n-and-user-config.md",
   },
   DRY_RUN_NOT_APPLICABLE: {
     // Phase 16 SC-6c — `--dry-run` only applies to mutating commands.

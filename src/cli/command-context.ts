@@ -25,6 +25,7 @@
 
 import type { ProjectionKind, LoadResult } from "../core/projection-loader.js";
 import type { SessionLoad } from "../core/cli-runtime.js";
+import { DEFAULT_I18N, type I18n } from "./i18n.js";
 import {
   resolveDispatch as realResolveDispatch,
   type DispatchResult,
@@ -353,6 +354,9 @@ export type CommandContextDeps = {
    *  (registry-writer's defaultRegistryDir() honors LOAF_REGISTRY_DIR
    *  env). Tests inject a tmp dir for isolation. */
   registryDir?: string;
+  /** ADR-0006 P0 — selected presentation locale. Production wires the
+   *  resolved CLI i18n; tests may inject a tiny fake. */
+  i18n?: I18n;
 };
 
 /** Phase 16 SC-5b1 — advisory metadata for state-change + next hint.
@@ -368,6 +372,10 @@ export type SuccessAdvisories = {
    *  for multi-line hints. */
   next?: string | string[];
 };
+
+export type LazySuccessAdvisories =
+  | SuccessAdvisories
+  | ((i18n: I18n) => SuccessAdvisories);
 
 export type CommandContext = {
   readonly argv: readonly string[];
@@ -435,8 +443,8 @@ export type CommandContext = {
    *  emitted to stderr in BOTH modes, suppressed only by `ctx.quiet`. */
   success: (
     payload: object,
-    textRenderer?: () => string,
-    advisories?: SuccessAdvisories,
+    textRenderer?: (i18n: I18n) => string,
+    advisories?: LazySuccessAdvisories,
   ) => void;
   failure: (
     code: string,
@@ -477,6 +485,7 @@ export function createCommandContext(
   // short-circuiting before this code path runs.
   const presentation = parsePresentation(argv);
   const output: OutputMode = presentation.ok ? presentation.format : "text";
+  const i18n = deps.i18n ?? DEFAULT_I18N;
   const plain: boolean = presentation.ok ? presentation.plain : false;
   const quiet: boolean = presentation.ok ? presentation.quiet : false;
   const verbose: number = presentation.ok ? presentation.verbose : 0;
@@ -580,7 +589,7 @@ export function createCommandContext(
             "ctx.success: text renderer required in text mode (a migrated command must always pass a text renderer; JSON mode skips it lazily)",
           );
         }
-        deps.writeStdout(textRenderer());
+        deps.writeStdout(textRenderer(i18n));
       }
       // Advisory stderr (channels B + C): mode-independent. Both text
       // and JSON modes emit advisories to stderr — pipe-safe per
@@ -588,11 +597,15 @@ export function createCommandContext(
       // SC-5b1 only `loaf start` passes advisories; SC-5b2 migrates
       // the remaining 40 sites.
       if (!quiet && advisories) {
-        if (advisories.stateChange) {
-          deps.writeStderr(advisories.stateChange + "\n");
+        const renderedAdvisories =
+          typeof advisories === "function" ? advisories(i18n) : advisories;
+        if (renderedAdvisories.stateChange) {
+          deps.writeStderr(renderedAdvisories.stateChange + "\n");
         }
-        if (advisories.next !== undefined) {
-          const lines = Array.isArray(advisories.next) ? advisories.next : [advisories.next];
+        if (renderedAdvisories.next !== undefined) {
+          const lines = Array.isArray(renderedAdvisories.next)
+            ? renderedAdvisories.next
+            : [renderedAdvisories.next];
           for (const line of lines) {
             deps.writeStderr(`next: ${line}\n`);
           }

@@ -190,6 +190,7 @@
     "DOCTOR_REBUILD_MIGRATED_UNSUPPORTED": "doctor --rebuild does not support v0.0.x-migrated journals in this release",
     "REDUCER_ERROR":              "internal reducer invariant failed",
     "INVALID_FORMAT":             "invalid --format value '{value}'; allowed: {allowed_values_human}",
+    "INVALID_LOCALE":             "invalid locale from {source}: {value} (expected {accepted})",
     "MUTUALLY_EXCLUSIVE_FLAGS":   "mutually exclusive flags in the same invocation: {flags}",
     "DRY_RUN_NOT_APPLICABLE":     "--dry-run not applicable to {command_type} command `{command}`",
     "HOOK_EVENT_NOT_IMPLEMENTED": "hook event `{event}` is not implemented in this loaf version (Phase 16 SC-15{sub_cycle} pending; see protocol §11)",

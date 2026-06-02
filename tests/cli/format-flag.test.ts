@@ -24,11 +24,22 @@ async function tmpFeatureDir(): Promise<string> {
 
 async function runCli(
   argv: string[],
+  opts: {
+    env?: Record<string, string | undefined>;
+    deps?: Parameters<typeof main>[1];
+  } = {},
 ): Promise<{ exit: number; stdout: string; stderr: string }> {
   const stdoutChunks: string[] = [];
   const stderrChunks: string[] = [];
   const origStdout = process.stdout.write.bind(process.stdout);
   const origStderr = process.stderr.write.bind(process.stderr);
+  const oldEnv = new Map<string, string | undefined>();
+  for (const key of Object.keys(opts.env ?? {})) {
+    oldEnv.set(key, process.env[key]);
+    const value = opts.env![key];
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
   process.stdout.write = ((chunk: string | Uint8Array): boolean => {
     stdoutChunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
     return true;
@@ -38,11 +49,15 @@ async function runCli(
     return true;
   }) as typeof process.stderr.write;
   try {
-    const exit = await main(["node", "loaf", ...argv]);
+    const exit = await main(["node", "loaf", ...argv], opts.deps ?? {});
     return { exit, stdout: stdoutChunks.join(""), stderr: stderrChunks.join("") };
   } finally {
     process.stdout.write = origStdout;
     process.stderr.write = origStderr;
+    for (const [key, value] of oldEnv) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
   }
 }
 
@@ -245,6 +260,85 @@ describe("Phase 16 SC-5a — RED #10: pre-parse guard rejects before side effect
       if (original === undefined) delete process.env[sentinelKey];
       else process.env[sentinelKey] = original;
     }
+  });
+
+  test("invalid --format wins over invalid LOAF_LANG", async () => {
+    const result = await runCli(["status", "--format", "yaml"], {
+      env: { LOAF_LANG: "fr" },
+    });
+    expect(result.exit).toBe(2);
+    expect(result.stderr).toContain("INVALID_FORMAT");
+    expect(result.stderr).not.toContain("INVALID_LOCALE");
+  });
+});
+
+describe("ADR-0006 P0 — INVALID_LOCALE CLI guard", () => {
+  test("invalid LOAF_LANG in text mode → exit 2 INVALID_LOCALE", async () => {
+    const result = await runCli(["status"], {
+      env: { LOAF_LANG: "fr" },
+    });
+
+    expect(result.exit).toBe(2);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("INVALID_LOCALE");
+    expect(result.stderr).toContain("LOAF_LANG");
+    expect(result.stderr).toContain("fr");
+  });
+
+  test("invalid LOAF_LANG in JSON mode → exit 2 JSON failure with canonical English message", async () => {
+    const result = await runCli(["status", "--format", "json"], {
+      env: { LOAF_LANG: "fr" },
+    });
+
+    expect(result.exit).toBe(2);
+    expect(result.stdout).toBe("");
+    const parsed = JSON.parse(result.stderr);
+    expect(parsed).toEqual({
+      ok: false,
+      code: "INVALID_LOCALE",
+      message: "invalid locale from LOAF_LANG: fr (expected en or zh)",
+      detail: { source: "LOAF_LANG", value: "fr", accepted: ["en", "zh"] },
+    });
+  });
+
+  test("invalid injected user config in JSON mode → exit 2 INVALID_LOCALE without touching real home", async () => {
+    const homeDir = await tmpFeatureDir();
+    const configPath = path.join(homeDir, ".loaf", "config.json");
+    await fs.mkdir(path.dirname(configPath), { recursive: true });
+    await fs.writeFile(
+      configPath,
+      JSON.stringify({
+        schema_version: 1,
+        locale: { default_lang: "fr" },
+      }),
+      "utf8",
+    );
+
+    const result = await runCli(["status", "--format", "json"], {
+      deps: { userConfigHomeDir: homeDir },
+    });
+
+    expect(result.exit).toBe(2);
+    expect(result.stdout).toBe("");
+    const parsed = JSON.parse(result.stderr);
+    expect(parsed.code).toBe("INVALID_LOCALE");
+    expect(parsed.message).toContain(configPath);
+    expect(parsed.detail).toEqual({
+      source: "user-config",
+      path: configPath,
+      reason: `schema validation failed for ${configPath}`,
+    });
+  });
+
+  test("valid LOAF_LANG=zh does not localize JSON failure message in P0", async () => {
+    const result = await runCli(["status", "--format", "json"], {
+      env: { LOAF_LANG: "zh" },
+    });
+
+    expect(result.exit).toBe(2);
+    const parsed = JSON.parse(result.stderr);
+    expect(parsed.code).toBe("FEATURE_NOT_FOUND");
+    expect(parsed.message).toBe("no feature found in cwd (.loaf/ is empty or missing)");
   });
 });
 

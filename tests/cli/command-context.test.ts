@@ -65,6 +65,54 @@ describe("Phase 16 SC-3 — CommandContext: construction + output mode", () => {
     expect(called).toBe(false);
   });
 
+  test("text renderer receives i18n in text mode", () => {
+    const { ctx, stdout } = makeCtx(["loaf", "status"], {
+      i18n: {
+        locale: "en",
+        t: (key: string) => `translated:${key}`,
+      },
+    });
+    ctx.success({ ok: true }, (i18n) => i18n.t("status.ready"));
+    expect(stdout.join("")).toBe("translated:status.ready");
+  });
+
+  test("JSON mode does not invoke i18n text renderer", () => {
+    let called = false;
+    const { ctx, stdout } = makeCtx(["loaf", "status", "--format", "json"], {
+      i18n: {
+        locale: "en",
+        t: (key: string) => `translated:${key}`,
+      },
+    });
+    ctx.success({ ok: true }, (i18n) => {
+      called = true;
+      return i18n.t("status.ready");
+    });
+    expect(called).toBe(false);
+    expect(stdout.join("")).toBe('{"ok":true}\n');
+  });
+
+  test("lazy advisories receive i18n and still emit in JSON mode stderr", () => {
+    const { ctx, stdout, stderr } = makeCtx(["loaf", "start", "--format", "json"], {
+      i18n: {
+        locale: "en",
+        t: (key: string) => `translated:${key}`,
+      },
+    });
+
+    ctx.success(
+      { ok: true },
+      () => "not used",
+      (i18n) => ({
+        stateChange: i18n.t("advisory.state"),
+        next: i18n.t("advisory.next"),
+      }),
+    );
+
+    expect(stdout.join("")).toBe('{"ok":true}\n');
+    expect(stderr.join("")).toBe("translated:advisory.state\nnext: translated:advisory.next\n");
+  });
+
   test("text mode + missing textRenderer → THROWS (codex r208 PATCH 1 — no silent JSON fallback)", () => {
     const { ctx } = makeCtx(["loaf", "status"]);
     expect(() => ctx.success({ ok: true } as never)).toThrow(/text renderer required/i);
