@@ -5,6 +5,52 @@ All notable changes to `loaf-cli` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] — 2026-06-02
+
+Two feature surfaces land together: a master-detail `loaf tui` and a CLI-wide
+runtime i18n layer (en/zh). Both are presentation-layer additions — the typed
+journal, reducer, preflight, and JSON machine contract are untouched.
+
+### Added
+
+- **`loaf tui` master-detail** — the flat session table becomes a
+  project→feature→session grouped tree (rendered as a pure flat render plan)
+  with an active-only filter (`a` toggles DONE.* visibility), time/status sort
+  (`s`), fold (`space`), and an Enter/Esc full-screen per-session detail view
+  (lazy `loadProjections`, row-local on missing/stale/error). Status badge `⏸`
+  replaced with `‖` for terminal-font legibility.
+- **Runtime i18n (ADR-0006)** — `LOAF_LANG` / `~/.loaf/config.json`
+  `locale.default_lang` select `en`/`zh`; resolution order `--lang` (future) >
+  `$LOAF_LANG` > user config > project `loaf.config.json` locale > parsed
+  `$LANG`/`$LC_*` > `en`. Localized surfaces: TUI list/detail + chrome, enum
+  labels, diagnostics (1:1 `diagnostic.<CODE>` + broad `failure.<site>.<reason>`
+  site keys), action success/advisory text, and read-only command renderers
+  (`status` / `tasks list` / `pending` / `finding` / `sessions list`). New
+  `INVALID_LOCALE` diagnostic (exit 2 on explicit bad locale).
+
+### Invariants
+
+- **JSON never localized** — success payloads and failure JSON `message` stay
+  canonical English; `t()` runs only in text renderers / lazy advisories.
+  Localization missing at runtime degrades gracefully (locale → en → raw key);
+  test-time gates assert every runtime-emitted key exists in en+zh.
+- `en` fixed-column list cells keep raw single-token enums (scriptable);
+  `next:` / `error:` prefixes, diagnostic CODE values, IDs/paths, and the
+  `cursor` sub_state token stay English/raw. Stable core imports no i18n.
+
+### Changed
+
+- `protocol.md` §18.3 locale-resolution order revised to match ADR-0006
+  (supersedes the old `LOAF_LANG > loaf.config.json > $LANG > en` single layer).
+
+### Verification
+
+- `bun run test` (Vitest): full suite green — 2084 tests across 122 files.
+- `bun run typecheck` clean; `bun run build` regenerated `dist/cli.mjs`.
+- Manual: `LOAF_LANG=zh` renders Chinese across TUI + `status`/`tasks list`;
+  `--format json` payloads byte-identical to `en`.
+- `dist/cli.mjs --version` → `0.2.0`.
+
 ## [0.1.2] — 2026-06-01
 
 Two delivery-gate correctness fixes surfaced by an independent review of the
@@ -31,6 +77,7 @@ migration.
 - Both fixes RED→GREEN independently reproduced (revert only the predicate with the new tests present → exactly the new negative cases fail; restore → green).
 - `dist/cli.mjs --version` → `0.1.2`.
 
+[0.2.0]: https://github.com/est7/loaf/releases/tag/v0.2.0
 [0.1.2]: https://github.com/est7/loaf/releases/tag/v0.1.2
 
 ## [0.1.1] — 2026-06-01

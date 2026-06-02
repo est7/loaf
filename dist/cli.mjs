@@ -8,14 +8,14 @@ import { z } from "zod";
 import { createHash, randomBytes } from "node:crypto";
 import * as fsp from "node:fs/promises";
 import { parse, stringify } from "yaml";
-import { createElement, useCallback, useState } from "react";
+import { createElement, useCallback, useEffect, useMemo, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
-import { Fragment, jsx, jsxs } from "react/jsx-runtime";
+import { jsx, jsxs } from "react/jsx-runtime";
 import picomatch from "picomatch";
 import { execFileSync, spawn } from "node:child_process";
 import { O_APPEND, O_CREAT, O_WRONLY } from "node:constants";
 //#region package.json
-var version = "0.1.2";
+var version = "0.2.0";
 //#endregion
 //#region src/core/crash-log.ts
 /** Sentinel code stamped into the JSON envelope and (when
@@ -101,6 +101,1174 @@ async function writeCrashLog(input, depsPartial) {
 		deps.writeStderr(`loaf: crash log unwritable at ${file} — ${err.message}\n`);
 		return null;
 	}
+}
+//#endregion
+//#region i18n/en.json
+var en_default = {
+	_meta: {
+		"schema_version": 1,
+		"lang": "en",
+		"note": "All keys mirror schemas.ts stable IDs. Diagnostic templates use mustache-style {var} placeholders matched to gate-diagnostic.failures[].vars."
+	},
+	evidence_kind: {
+		"task-summary": "Task summary",
+		"verify-review": "Code review",
+		"spec-review": "Spec review",
+		"acceptance": "Acceptance check",
+		"visual-review": "Visual review",
+		"gate-decision": "Gate decision",
+		"local-check": "Local check",
+		"manual": "Manual verification",
+		"waiver": "Risk waiver",
+		"spike-finding": "Spike finding"
+	},
+	phase: {
+		"TRIAGE": "Triage",
+		"SPEC": "Spec",
+		"EXECUTE": "Execute",
+		"VERIFY": "Verify",
+		"SETTLE": "Settle",
+		"DONE": "Done"
+	},
+	sub_state: {
+		"TRIAGE": {
+			"score": "Triage / score",
+			"confirm": "Triage / confirm profile"
+		},
+		"SPEC": {
+			"proposal": "Spec / proposal",
+			"spec": "Spec / author EARS+Gherkin",
+			"plan": "Spec / plan",
+			"design": "Spec / design + tasks"
+		},
+		"EXECUTE": {
+			"plan": "Execute / plan policies",
+			"work": "Execute / running task",
+			"done": "Execute / all tasks final"
+		},
+		"VERIFY": {
+			"plan": "Verify / applicable checks",
+			"run": "Verify / running checks",
+			"review": "Verify / review",
+			"acceptance": "Verify / acceptance",
+			"visual": "Verify / visual",
+			"accept": "Verify / accept gate"
+		},
+		"SETTLE": {
+			"reconcile": "Settle / reconcile",
+			"lessons": "Settle / lessons"
+		},
+		"DONE": {
+			"delivered": "Done · delivered",
+			"archived": "Done · archived",
+			"abandoned": "Done · abandoned"
+		}
+	},
+	task_kind: {
+		"behavioral": "Behavioral",
+		"structural": "Structural",
+		"visual-ui": "Visual UI",
+		"docs": "Docs",
+		"spike": "Spike",
+		"chore": "Chore"
+	},
+	task_status: {
+		"pending": "pending",
+		"ready": "ready",
+		"in_progress": "in_progress",
+		"done": "done",
+		"abandoned": "abandoned"
+	},
+	step: {
+		"red": "Red (failing test)",
+		"implement": "Implement",
+		"refactor": "Refactor",
+		"mockup": "Mockup",
+		"screenshot-compare": "Screenshot compare",
+		"draft": "Draft",
+		"review": "Review",
+		"explore": "Explore",
+		"prototype": "Prototype",
+		"record": "Record",
+		"execute": "Execute"
+	},
+	verify_check_kind: {
+		"run": "Run (test + lint + typecheck)",
+		"review": "Review",
+		"acceptance": "Acceptance (E2E)",
+		"visual": "Visual"
+	},
+	applicability: {
+		"must": "Must",
+		"optional": "Optional",
+		"na": "Not applicable"
+	},
+	step_status: {
+		"na": "N/A",
+		"pending": "Pending",
+		"running": "Running",
+		"passed": "Passed",
+		"failed": "Failed",
+		"waived": "Waived"
+	},
+	finding_category: {
+		"spec-gap": "Spec gap",
+		"spec-defect": "Spec defect",
+		"impl-defect": "Implementation defect",
+		"test-defect": "Test defect",
+		"new-scope": "New scope",
+		"risk-escalation": "Risk escalation"
+	},
+	finding_action: {
+		"amend-spec": "Amend spec",
+		"amend-tasks": "Amend tasks",
+		"fix-impl": "Fix implementation",
+		"fix-test": "Fix test",
+		"defer": "Defer (this run)",
+		"backlog": "Backlog (next feature)"
+	},
+	finding_status: {
+		"open": "open",
+		"closed": "closed"
+	},
+	gate: {
+		"spec-lock": "Spec lock",
+		"verify-accept": "Verify accept"
+	},
+	profile: {
+		"quick": "Quick",
+		"standard": "Standard",
+		"deep": "Deep"
+	},
+	pending_kind: {
+		"ask_user_question": "User input requested",
+		"gate_decision": "Gate awaiting human decision",
+		"spec_clarification": "Spec clarification needed",
+		"finding_decision": "Finding awaiting action",
+		"profile_escalation": "Profile escalation pending confirm"
+	},
+	diagnostic: {
+		"MISSING_VERIFIABILITY": "REQ {req_id} must declare measurable, verified_by_scenarios[], or acceptance_na+reason",
+		"DRIVES_NOT_BOUND": "REQ {req_id} is not referenced by any task.drives[]",
+		"E2E_ACCEPTANCE_UNRESOLVED": "Scenario {scen_id} (tag=e2e) lacks acceptance binding or acceptance_na+reason",
+		"VISUAL_CONTRACT_UNRESOLVED": "Visual contract {vis_id} lacks visual-ui task binding or visual_na+reason",
+		"TASK_KIND_SCHEMA_INVALID": "Task {task_id} does not match its kind={kind} schema: {reason}",
+		"NO_OPEN_CLARIFICATIONS": "spec.md still has open clarifications: {ids}",
+		"TASKS_VERSION_MISMATCH": "tasks.based_on.spec ({tasks_ver}) ≠ spec.spec_version ({spec_ver})",
+		"EVIDENCE_INCOMPATIBLE": "Evidence {evidence_id} (kind={kind}) cannot satisfy {covered_id}",
+		"WAIVER_MISSING_REASON": "Waiver evidence {evidence_id} requires reason ≥10 characters",
+		"WAIVER_NOT_HUMAN": "Waiver evidence {evidence_id} actor must start with 'human:'; got {actor}",
+		"VISUAL_REVIEW_MISSING_ATTACHMENT": "visual-review evidence {evidence_id} requires at least one attachment with sha256",
+		"PATH_OUTSIDE_WRITE_GUARD": "Write to {path} not allowed in sub_state={sub_state} step={step}",
+		"PENDING_BLOCKS_ADVANCE": "pending head {pending_id} (kind={kind}) blocks `loaf advance` until resolved",
+		"GATE_NOT_PENDING": "`loaf gate decide {gate}` requires pending head kind=gate_decision; current head: {actual_head}",
+		"ESCALATION_NOT_PENDING": "`loaf profile escalate --confirm --input <ceremony.json>` requires pending head kind=profile_escalation; current head: {actual_head}",
+		"FINDING_TARGET_REQUIRED": "finding action={action} target validation failed ({reason}): task_id={task_id}, step={step}",
+		"SPEC_NOT_INITIALIZED": "{kind} blocked: spec_version=0; run `loaf spec submit` first to bump spec_version to 1",
+		"SPEC_ALREADY_INITIALIZED": "spec.md already exists at {spec_md_path}; refusing to overwrite",
+		"SPEC_LOCKED_NO_DIRECT_EDIT": "{kind} blocked: spec_locked=true; use `loaf finding raise --category spec-gap --action amend-spec` to back-edge into SPEC.spec",
+		"AMEND_REJECTED_POST_LOCK": "spec_locked=true; use `loaf finding raise` instead of `loaf amend`",
+		"DELIVER_FORBIDDEN_FOR_SPIKE": "spike tasks cannot be delivered; use `loaf archive`, `loaf spike convert`, or `loaf abandon`",
+		"DELIVER_NOT_ACCEPTED": "deliver requires verify_accepted=true at sub_state={sub_state}; run `loaf gate decide verify-accept --approve` first",
+		"DELIVER_SETTLE_PHASE_BYPASS": "deliver from VERIFY.accept requires ceremony.settle_phase=false (standard); deep ceremony must run `loaf settle` first",
+		"DELIVER_VERIFY_MIN_UNAVAILABLE": "verify-min was unavailable in this build (ceremony_label={ceremony_label}) — superseded at v0.1.1 by DELIVER_VERIFY_MIN_INCOMPLETE; no longer emitted",
+		"DELIVER_VERIFY_MIN_INCOMPLETE": "verify-min: {count} done task(s) lack required evidence to deliver (ceremony_label={ceremony_label}); add evidence or waive, then re-deliver",
+		"DELIVER_SPIKE_TASKS": "cannot deliver: task {task_id} is kind=spike (status={status}); spike tasks block delivery for the entire session",
+		"EXECUTE_DONE_TASKS_NOT_FINAL": "cannot advance EXECUTE.work → EXECUTE.done: {count} task(s) are not in a final status (done or abandoned); finish their remaining steps or abandon out-of-scope tasks with `loaf tasks abandon <T-N> --reason \"...\"`",
+		"SETTLE_NOT_ACCEPTED": "VERIFY.accept → SETTLE.reconcile requires verify_accepted=true; run `loaf gate decide verify-accept --approve` before `loaf settle`",
+		"TASK_NOT_CLAIMABLE": "task {task_id} cannot be claimed (status={status} — terminal state)",
+		"TASK_ALREADY_CLAIMED": "task {task_id} is already claimed (status=in_progress)",
+		"TASK_DEPS_NOT_SATISFIED": "task {task_id} cannot be claimed: dependency {blocking_dep} is not done (status={blocking_status})",
+		"TASK_NOT_CLAIMED": "task {task_id} step {step} mutation requires task.status=in_progress (got status={status}); claim the task first",
+		"TASK_NOT_ABANDONABLE": "task {task_id} cannot be abandoned (status={status} — already in a final status)",
+		"TASK_ABANDON_BLOCKED_DEPENDENTS": "task {task_id} cannot be abandoned: non-terminal task(s) {blocking_dependents} depend on it; abandon or complete the dependents first",
+		"SESSION_REASON_REQUIRED": "{kind}: --reason is required (the session-terminal entry must record why)",
+		"PROJECTION_WRITE_FAILED": "{projection} projection write failed after journal append at last_seq={last_seq} (spec_version={spec_version}): {error}",
+		"FINDING_AMEND_SPEC_NOT_LOCKED": "finding raise action=amend-spec requires state.spec_locked=true; spec is not locked at sub_state={current_sub_state}, edit directly via `loaf spec submit / add-*`",
+		"SPEC_VERSION_NOT_MONOTONIC": "{kind}: spec_version must be {expected_spec_version} (current+1), got {payload_spec_version}",
+		"SPEC_VERSION_BATCH_MISMATCH": "{kind}: spec_version must be {current_spec_version} at batch_index={batch_index}, got {payload_spec_version}",
+		"TASK_COMPLETE_PRECONDITION_VIOLATED": "task {task_id} is not complete (status={status}); must-applicable steps not terminal-positive: {blocking_steps}",
+		"MUTATION_OUT_OF_RIGHTS": "event:tasks_amended on task {task_id} is not permitted at sub_state {sub_state} — §8.6 grants no mutation right for this change",
+		"CANONICAL_TASK_BODY_UNAVAILABLE": "task {task_id} is in the projection but has no canonical body in the journal (migration-imported); a whole-task amend cannot be reconstructed",
+		"BUG_TASK_REQUIRES_RED": "behavioral bug task {task_id} cannot start or complete its implement step before its RED test is registered",
+		"BUG_TASK_FLAG_MISUSE": "task {task_id}: red_test_registered=true is valid only on a red-step task_step_done for a behavioral bug task (passed/waived result) — not on this entry",
+		"BUG_TASK_RED_NOT_REGISTERED": "behavioral bug task {task_id} is done but never registered its RED test (red_test_registered≠true)",
+		"SPIKE_CONVERT_NO_SPIKE_TASK": "cannot convert: the session has no non-abandoned spike task; `loaf spike convert` is a spike-task exit (protocol §8.3)",
+		"DONE_TERMINAL_INVARIANT": "DONE.* requires state.pending.length === 0 and no task with status=\"in_progress\" in tasks.json",
+		"ABANDON_REQUIRES_REASON": "loaf abandon requires --reason argument",
+		"TASKS_EXECUTION_DRIFT": "Task {task_id} step={step} status={status} disagrees with evidence.jsonl",
+		"COVERAGE_NOT_SATISFIED": "{covered_id} has no evidence that satisfies it (canSatisfy failed for all candidates)",
+		"NO_SESSION": "no session at {feature_dir} — run `loaf start <feature>` first",
+		"SNAPSHOT_STALE_REBUILD_REQUIRED": "snapshot stale (reason={reason}) at {feature_dir}; run `loaf doctor --rebuild --feature <feature>` to re-serialize from journal truth",
+		"INVALID_PRESET": "invalid ceremony preset",
+		"USAGE": "invalid CLI usage",
+		"DOCTOR_MODE_NOT_IMPLEMENTED": "requested loaf doctor mode is not implemented in this release",
+		"DOCTOR_FEATURE_REQUIRED": "loaf doctor --rebuild requires --feature <name>",
+		"DOCTOR_REBUILD_FAILED": "doctor --rebuild failed",
+		"DOCTOR_REBUILD_MIGRATED_UNSUPPORTED": "doctor --rebuild does not support v0.0.x-migrated journals in this release",
+		"REDUCER_ERROR": "internal reducer invariant failed",
+		"INVALID_FORMAT": "invalid --format value '{value}'; allowed: {allowed_values_human}",
+		"INVALID_LOCALE": "invalid locale from {source}: {value} (expected {accepted})",
+		"MUTUALLY_EXCLUSIVE_FLAGS": "mutually exclusive flags in the same invocation: {flags}",
+		"DRY_RUN_NOT_APPLICABLE": "--dry-run not applicable to {command_type} command `{command}`",
+		"HOOK_EVENT_NOT_IMPLEMENTED": "hook event `{event}` is not implemented in this loaf version (Phase 16 SC-15{sub_cycle} pending; see protocol §11)",
+		"WRITE_PATH_VIOLATION": "write blocked: `{normalized_path}` is outside the allowed write paths for sub_state `{sub_state}`",
+		"PROTECTED_FILE_WRITE": "write blocked: `{normalized_path}` matches protected_files entry `{matched_deny}` — protected files are never writable",
+		"FEATURE_NOT_FOUND": "no feature found in cwd (.loaf/ is empty or missing, or no projection has phase != DONE)",
+		"FEATURE_AMBIGUOUS": "current working directory has {count} active features and no dispatch context: {feature_list}",
+		"SESSION_CWD_MISMATCH": "--session {uuid} is registered against cwd={registered_cwd}, but the current cwd is {current_cwd}",
+		"SESSION_SHORT_AMBIGUOUS": "--session {prefix} matches {match_count} sessions in the registry: {candidate_list}",
+		"SESSION_NOT_FOUND": "--session {uuid_or_prefix} matches no entry in the registry"
+	},
+	failure: {
+		"sessions_list": { "selector_conflict": "sessions list does not accept {conflicting} — it lists across all sessions; use --in-cwd to filter" },
+		"tui": {
+			"selector_conflict": "tui does not accept {conflicting} — it lists across all sessions; selectors are nonsensical for an interactive UI",
+			"interactive_only": "tui is interactive-only; use `loaf sessions list --format json` for scriptable session output"
+		},
+		"hook": {
+			"missing_event": "loaf hook requires an event token; one of: {events}. Run `loaf hook --list-events` for the full enum",
+			"unknown_event": "unknown hook event '{event}'; expected one of: {allowed}. Did you mean '{suggestion}'?",
+			"stdin_parse_failed": "{reason}",
+			"write_path_missing": "write-side hook requires --path <P> or a non-TTY stdin hook payload (tool_input.file_path)"
+		},
+		"check": {
+			"selector_conflict": "check does not accept {conflicting} — it validates a file by path, independent of any feature session",
+			"kind_required": "`{subject}` is not a file path. To validate a {kind} artifact, pass its path: `{suggestion}` (noun-first `loaf {kind} check` is reserved for a future release)",
+			"path_missing": "file not found: {path}",
+			"kind_invalid": "--kind '{value}' is not recognized; expected one of {allowed_kinds_human}"
+		},
+		"schema": {
+			"selector_conflict": "{subject} does not accept {conflicting} — schema dumps are feature-agnostic",
+			"validation": "{kind} at {path} failed schema validation ({error_count} {error_word})"
+		},
+		"dispatch": {
+			"session_feature_dir_conflict": "{conflicting} cannot be combined with --feature-dir (session identity comes from registry; manual featureDir is contradictory)",
+			"feature_dir_requires_feature": "--feature-dir requires --feature <name> or $LOAF_FEATURE to name the feature"
+		},
+		"start": {
+			"label_too_short": "--label must be at least {min_length} characters",
+			"workspace_empty": "--workspace must not be empty"
+		},
+		"handoff": {
+			"reason_too_short": "--reason must be ≥{min_length} chars (got {reason_length})",
+			"pack_validation_failed": "ResumePack failed runtime validation (builder bug or schema drift)"
+		},
+		"profile": {
+			"input_file_missing": "input file does not exist: {path}",
+			"input_file_unreadable": "cannot read input file {path}: {error}"
+		},
+		"tasks_add": { "empty_array": "tasks add input is an empty array" },
+		"lessons": {
+			"text_too_short": "lesson text must be ≥{min_length} chars (got {lesson_text_length})",
+			"reason_too_short": "--reason must be ≥{min_length} chars (got {reason_length})",
+			"text_file_mutex": "exactly one of --text or --file required ({provided_state})",
+			"file_missing": "lesson file not found: {path}"
+		},
+		"finding": { "status_invalid": "--status must be one of: {allowed_statuses_human} (got {value})" },
+		"write_guard": { "config_invalid": "write-guard blocked: {reason}" },
+		"no_session": {
+			"status": "run `loaf start {feature}` first",
+			"advance": "run `loaf start {feature}` first",
+			"tasks": "run `loaf start {feature}` first",
+			"pending": "run `loaf start {feature}` first",
+			"finding": "run `loaf start {feature}` first",
+			"verify": "run `loaf start {feature}` first",
+			"generic": "run `loaf start {feature}` first"
+		}
+	},
+	success: {
+		"next": {
+			"advance": "loaf advance",
+			"deliver": "loaf deliver",
+			"settle": "loaf settle"
+		},
+		"start": { "state_change": "start: '{feature}' created → TRIAGE.score" },
+		"advance": { "state_change": "advance: {from} → {to}" },
+		"gate": {
+			"spec_lock_approved_state_change": "gate decide: spec-lock approved by {actor}",
+			"verify_accept_approved_state_change": "gate decide: verify-accept approved by {actor}",
+			"rejected_state_change": "gate decide: {gate} rejected by {actor}"
+		},
+		"deliver": {
+			"state_change": "deliver: {feature} — {from} → DONE.delivered by {actor}",
+			"next": "session complete — `loaf start <feature>` to begin another"
+		},
+		"archive": { "state_change": "archive: {feature} — {from} → DONE.archived by {actor}" },
+		"abandon": { "state_change": "abandon: {feature} — {from} → DONE.abandoned by {actor} (reason='{reason}')" },
+		"spike": { "convert_state_change": "spike convert: {feature} → {to_feature} — {from} → DONE.archived by {actor}" },
+		"profile": { "escalate_state_change": "profile escalate: ceremony updated, {pending_id} resolved" },
+		"tasks": {
+			"submit_text_one": "submitted {count} task: {task_ids}",
+			"submit_text_many": "submitted {count} tasks: {task_ids}",
+			"submit_state_change": "tasks submit: {count} tasks",
+			"add_text_one": "added {count} task: {task_ids}",
+			"add_text_many": "added {count} tasks: {task_ids}",
+			"add_sponsored_text_one": "added {count} task (sponsored by {finding}): {task_ids}",
+			"add_sponsored_text_many": "added {count} tasks (sponsored by {finding}): {task_ids}",
+			"add_state_change": "tasks add: +{count} tasks (allocated {task_ids})",
+			"claim_state_change": "tasks claim: {task_id} (status={status})",
+			"abandon_state_change": "tasks abandon: {task_id} (status={status})",
+			"register_red_state_change": "tasks register-red: {task_id}"
+		},
+		"doctor": {
+			"rebuild_text_one": "rebuilt {count} projection file for {feature}:",
+			"rebuild_text_many": "rebuilt {count} projection files for {feature}:",
+			"rebuild_state_change_one": "doctor rebuild: rebuilt {count} projection file for {feature}",
+			"rebuild_state_change_many": "doctor rebuild: rebuilt {count} projection files for {feature}"
+		},
+		"snapshot": { "as_of_seq": "# snapshot as-of seq={seq}" },
+		"amend": {
+			"sponsored_text": "amended {task_id} (sponsored by {finding_id})",
+			"policy_text": "amended {task_id} ({applied})",
+			"state_change": "amend: {task_id}"
+		},
+		"step": {
+			"start_state_change": "step start: {task_id} {step} (running)",
+			"done_text": "done {task_id} step={step} result={result}{evidence_suffix}{promote_suffix}",
+			"done_evidence_suffix": " evidence={evidence_id}",
+			"done_promote_suffix": " (task auto-promoted to done)",
+			"done_state_change": "step done: {task_id} {step} ({result})"
+		},
+		"settle": {
+			"text": "",
+			"state_change": "settle: {from} → SETTLE.reconcile"
+		},
+		"resume": { "state_change": "resume: session {session_id} (sub_state={sub_state} unchanged)" },
+		"handoff": { "state_change": "handoff: resume-pack.json written by {actor}" },
+		"pending": {
+			"raise_state_change": "pending raise: {pending_id} (kind={kind})",
+			"resolve_text": "resolved {pending_id} (kind={kind})",
+			"resolve_state_change": "pending resolve: {pending_id} cleared"
+		},
+		"waive": { "state_change": "waive: {evidence_id} obligation={obligation_id}" },
+		"lessons": { "add_state_change": "lessons add: {evidence_id} recorded (kind=manual; lessons.md updated)" },
+		"evidence": {
+			"covers_none": "<none>",
+			"add_state_change_single": "evidence add: {evidence_id} kind={kind}, covers={covers}",
+			"add_state_change_batch_homogeneous": "evidence add: +{count} evidence ({evidence_ids}; kind={kind}, covers={covers})",
+			"add_state_change_batch_mixed": "evidence add: +{count} evidence ({evidence_ids})"
+		},
+		"finding": {
+			"close_text": "closed {finding_id}",
+			"close_state_change": "finding close: {finding_id} → closed"
+		},
+		"spec": {
+			"submit_text": "spec submitted v{spec_version}: {req_count} req / {scen_count} scen / {vis_count} vis",
+			"submit_state_change": "spec submit: spec_version={spec_version}, locked=false",
+			"submit_next": "loaf gate decide spec-lock",
+			"init_state_change": "spec init: wrote scaffold to {path}",
+			"init_next": "edit, then `loaf spec submit`",
+			"edit_text": "spec edit: spec_version={spec_version}",
+			"edit_state_change": "spec edit: spec_version={spec_version} via $EDITOR",
+			"add_req_text_one": "spec add-req v{spec_version}: {ids}",
+			"add_req_text_many": "spec add-req v{spec_version}: {ids}",
+			"add_req_state_change_one": "spec add-req: +{count} REQ (spec_version={spec_version}; allocated {ids})",
+			"add_req_state_change_many": "spec add-req: +{count} REQ (spec_version={spec_version}; allocated {ids})",
+			"add_scenario_text_one": "spec add-scenario v{spec_version}: {ids}",
+			"add_scenario_text_many": "spec add-scenario v{spec_version}: {ids}",
+			"add_scenario_state_change_one": "spec add-scenario: +{count} SCENARIO (spec_version={spec_version}; allocated {ids})",
+			"add_scenario_state_change_many": "spec add-scenario: +{count} SCENARIO (spec_version={spec_version}; allocated {ids})",
+			"add_visual_text_one": "spec add-visual v{spec_version}: {ids}",
+			"add_visual_text_many": "spec add-visual v{spec_version}: {ids}",
+			"add_visual_state_change_one": "spec add-visual: +{count} VISUAL (spec_version={spec_version}; allocated {ids})",
+			"add_visual_state_change_many": "spec add-visual: +{count} VISUAL (spec_version={spec_version}; allocated {ids})"
+		}
+	},
+	chrome: {
+		"status": {
+			"feature": "feature: {feature}",
+			"phase": "phase:   {phase}",
+			"cursor": "cursor:  {cursor}",
+			"tail": "tail:    seq={seq}",
+			"counts": "tasks={tasks_count} evidence={evidence_count} findings={findings_count} pending={pending_count}",
+			"snapshot_as_of_projection_loader": "# snapshot as-of seq={seq} (projection-loader, Phase 15 SC3)"
+		},
+		"tasks": {
+			"list_empty_filtered": "no tasks match --status={status}",
+			"list_empty": "no tasks in projection (run `loaf tasks submit` first)",
+			"ready_marker": "ready",
+			"list_row": "{task_id} {kind} {status}",
+			"list_row_ready": "{task_id} {kind} {status} [{ready}]",
+			"complete_text": "{task_id} complete (status={status})"
+		},
+		"pending": {
+			"list_row": "{pending_id} {kind} {status} {head}",
+			"no_open": "no open pending",
+			"open": "open",
+			"resolved": "resolved",
+			"head": "head",
+			"non_head": "-"
+		},
+		"finding": { "list_row": "{finding_id} {category} {action} {status}" },
+		"sessions": {
+			"empty": "(no sessions found)",
+			"warning": "registry entry {file} {action} ({reason}{detail_suffix})",
+			"action_skipped": "skipped",
+			"action_filtered_out": "filtered out",
+			"action_orphan_cwd": "has orphan cwd"
+		},
+		"relative": {
+			"just_now": "just now",
+			"minute_one": "{count} minute ago",
+			"minute_many": "{count} minutes ago",
+			"hour_one": "{count} hour ago",
+			"hour_many": "{count} hours ago",
+			"day_one": "{count} day ago",
+			"day_many": "{count} days ago"
+		},
+		"check": { "ok": "ok: {kind} at {path}" },
+		"verify_status": {
+			"pass": "pass",
+			"fail": "fail",
+			"na": "na",
+			"check_lane_status": "lane_status",
+			"check_open_findings": "open_findings",
+			"check_coverage": "coverage",
+			"check_task_evidence": "task_evidence",
+			"check_spec_review": "spec_review",
+			"failure_summary_one": " {code}",
+			"failure_summary_many": " {count} failures ({code}, …)",
+			"diagnostic_only": "(diagnostic only — gate verdict not implied)"
+		},
+		"tui": {
+			"list": {
+				"title": "loaf sessions ({active_count} active / {total_count} total)",
+				"sort": "sort: {sort}",
+				"sort_time": "time",
+				"sort_status": "status",
+				"reloading": "reloading…",
+				"empty": "(no sessions found)",
+				"help": "[↑/↓] move · [space] fold · [a] active/all · [s] sort · [r] refresh · [q] quit",
+				"row_iteration": "iter {value}"
+			},
+			"detail": {
+				"title": "loaf detail",
+				"help": "[Esc] back · [q] quit",
+				"no_selected": "(no detail selected)",
+				"loading": "loading…",
+				"missing_title": "missing: {feature}",
+				"missing_message": "run `loaf start {feature}` first",
+				"stale_title": "stale: {feature}",
+				"stale_message": "snapshot stale (reason={reason})",
+				"error_title": "error: {feature}",
+				"none": "(none)",
+				"boolean_true": "true",
+				"boolean_false": "false",
+				"field_feature": "feature: {value}",
+				"field_session": "session: {value}",
+				"field_label": "label: {value}",
+				"field_workspace": "workspace: {value}",
+				"field_ceremony": "ceremony: {value}",
+				"field_phase": "phase: {value}",
+				"field_iteration": "iteration: {value}",
+				"field_complexity": "complexity: {value}",
+				"field_based_on": "based_on: spec {spec} / tasks {tasks}",
+				"field_created": "created: {value}",
+				"field_updated": "updated: {value}",
+				"field_spec_locked": "spec_locked: {value}",
+				"field_verify_accepted": "verify_accepted: {value}",
+				"field_spec_version": "spec_version: {value}",
+				"field_tail_seq": "tail_seq: {value}",
+				"section_tasks": "tasks ({count})",
+				"section_evidence": "evidence ({count})",
+				"section_open_findings": "open findings ({count})",
+				"section_pending": "pending ({count})",
+				"evidence_badge_pass": "pass",
+				"evidence_badge_fail": "fail",
+				"evidence_badge_waived": "waived",
+				"sidecar_summary": "sidecar:{path}",
+				"step_summary": "{done}/{total} done",
+				"row_steps": "steps {value}",
+				"row_iteration": "iter {value}",
+				"row_task": "task {value}",
+				"row_target": "target {value}",
+				"row_blocks": "blocks={value}",
+				"row_options": "options={value}"
+			}
+		}
+	},
+	help: {
+		"start": "Begin a new feature session in .loaf/<feature>/",
+		"status": "Print current state.json + artifact health summary",
+		"advance": "Run next transition + diff guard (git status + write_paths AND-merge)",
+		"resume": "Resume session; --fresh prints minimal context pack for next iteration",
+		"handoff": "Write resume-pack.json for context overflow handoff",
+		"spec_submit": "Validate spec.md against SpecFrontmatter schema and record (strict).",
+		"spec_init": "Scaffold a spec.md template ready for $EDITOR",
+		"spec_schema": "Dump SpecFrontmatter JSON Schema",
+		"tasks_submit": "Validate tasks.json against discriminated-union TaskKind schema",
+		"tasks_register_red": "Register failing test for a behavioral-bug task (required before implement)",
+		"evidence_add": "Append a new evidence entry; auto-assign EV-id",
+		"evidence_schema": "Dump EvidenceEntry JSON Schema",
+		"waive": "Record a waiver evidence; actor must start with human: and reason must be >=10 chars",
+		"finding_raise": "Raise a finding (VERIFY.* always, EXECUTE.* only post-spec-lock)",
+		"verify_status": "Compute current verify check applicability + status (real-time, never reads reconcile.json)",
+		"gate_decide": "Record human gate decision; writes evidence kind=gate-decision",
+		"settle": "Generate reconcile.json (standard+ profile)",
+		"amend": "Edit spec or tasks pre-lock (rejected post-lock; use findings instead)",
+		"profile_escalate": "Confirm pending profile escalation",
+		"deliver": "Close session as DONE.delivered (advisory only; no git/gh side effects)",
+		"archive": "Close session as DONE.archived",
+		"abandon": "Close session as DONE.abandoned (reason required)",
+		"tui": "Launch session manager TUI (reads ~/.loaf/registry/)",
+		"sessions_list": "List all sessions (non-TUI form)",
+		"check": "Schema-only check for a given artifact or path (CI usage)",
+		"check_tasks": "Reconcile tasks.execution.status (cache) with evidence.jsonl (proof)",
+		"hook": "Claude Code hook entrypoint",
+		"doctor": "Self-diagnose loaf-cli installation, repo layout, config"
+	},
+	status_indicator: {
+		"ask": "‖ ask",
+		"gate": "‖ gate",
+		"run": "▶ run",
+		"done": "✓ done",
+		"fail": "✗ fail",
+		"wait": "⏳ wait",
+		"idle": "idle"
+	}
+};
+//#endregion
+//#region i18n/zh.json
+var zh_default = {
+	_meta: {
+		"schema_version": 1,
+		"lang": "zh",
+		"note": "所有 key 对应 schemas.ts 稳定英文 ID。diagnostic 模板用 mustache 风格 {var} 占位,从 gate-diagnostic.failures[].vars 取值。"
+	},
+	evidence_kind: {
+		"task-summary": "任务总结",
+		"verify-review": "代码评审",
+		"spec-review": "规格评审",
+		"acceptance": "验收检查",
+		"visual-review": "视觉评审",
+		"gate-decision": "Gate 决策",
+		"local-check": "本地检查",
+		"manual": "人工验证",
+		"waiver": "风险豁免",
+		"spike-finding": "Spike 发现"
+	},
+	phase: {
+		"TRIAGE": "分诊",
+		"SPEC": "规格",
+		"EXECUTE": "执行",
+		"VERIFY": "验证",
+		"SETTLE": "结算",
+		"DONE": "完成"
+	},
+	sub_state: {
+		"TRIAGE": {
+			"score": "分诊 / 打分",
+			"confirm": "分诊 / 确认 profile"
+		},
+		"SPEC": {
+			"proposal": "规格 / 提案",
+			"spec": "规格 / 编写 EARS+Gherkin",
+			"plan": "规格 / 计划",
+			"design": "规格 / 设计 + tasks"
+		},
+		"EXECUTE": {
+			"plan": "执行 / 推导策略",
+			"work": "执行 / 任务进行中",
+			"done": "执行 / 所有任务终态"
+		},
+		"VERIFY": {
+			"plan": "验证 / 计算适用检查",
+			"run": "验证 / 检查进行中",
+			"review": "验证 / 评审",
+			"acceptance": "验证 / 验收",
+			"visual": "验证 / 视觉",
+			"accept": "验证 / 接收 gate"
+		},
+		"SETTLE": {
+			"reconcile": "结算 / 对账",
+			"lessons": "结算 / 经验沉淀"
+		},
+		"DONE": {
+			"delivered": "完成 · 已交付",
+			"archived": "完成 · 已归档",
+			"abandoned": "完成 · 已弃置"
+		}
+	},
+	task_kind: {
+		"behavioral": "行为",
+		"structural": "结构",
+		"visual-ui": "视觉 UI",
+		"docs": "文档",
+		"spike": "探索",
+		"chore": "杂务"
+	},
+	task_status: {
+		"pending": "待处理",
+		"ready": "就绪",
+		"in_progress": "进行中",
+		"done": "完成",
+		"abandoned": "已放弃"
+	},
+	step: {
+		"red": "红测(失败用例)",
+		"implement": "实现",
+		"refactor": "重构",
+		"mockup": "模拟图",
+		"screenshot-compare": "截图对比",
+		"draft": "草稿",
+		"review": "评审",
+		"explore": "探索",
+		"prototype": "原型",
+		"record": "记录",
+		"execute": "执行"
+	},
+	verify_check_kind: {
+		"run": "运行(测试 + lint + 类型检查)",
+		"review": "评审",
+		"acceptance": "验收(E2E)",
+		"visual": "视觉"
+	},
+	applicability: {
+		"must": "必须",
+		"optional": "可选",
+		"na": "不适用"
+	},
+	step_status: {
+		"na": "不适用",
+		"pending": "待处理",
+		"running": "进行中",
+		"passed": "通过",
+		"failed": "失败",
+		"waived": "已豁免"
+	},
+	finding_category: {
+		"spec-gap": "规格缺漏",
+		"spec-defect": "规格错误",
+		"impl-defect": "实现缺陷",
+		"test-defect": "测试缺陷",
+		"new-scope": "范围外新议",
+		"risk-escalation": "风险升级"
+	},
+	finding_action: {
+		"amend-spec": "修订规格",
+		"amend-tasks": "修订任务",
+		"fix-impl": "修实现",
+		"fix-test": "修测试",
+		"defer": "本轮延迟",
+		"backlog": "进 backlog(下个 feature)"
+	},
+	finding_status: {
+		"open": "开放",
+		"closed": "已关闭"
+	},
+	gate: {
+		"spec-lock": "规格锁定",
+		"verify-accept": "验证接收"
+	},
+	profile: {
+		"quick": "Quick(快速)",
+		"standard": "Standard(标准)",
+		"deep": "Deep(深度)"
+	},
+	pending_kind: {
+		"ask_user_question": "等待用户输入",
+		"gate_decision": "Gate 等待人工决策",
+		"spec_clarification": "规格待澄清",
+		"finding_decision": "Finding 等待 action",
+		"profile_escalation": "Profile 升级待确认"
+	},
+	diagnostic: {
+		"MISSING_VERIFIABILITY": "需求 {req_id} 必须声明 measurable、verified_by_scenarios[] 或 acceptance_na+reason 三选一",
+		"DRIVES_NOT_BOUND": "需求 {req_id} 没有被任何 task.drives[] 引用",
+		"E2E_ACCEPTANCE_UNRESOLVED": "场景 {scen_id}(tag=e2e)既没有 task 验收绑定,也没有 acceptance_na+reason",
+		"VISUAL_CONTRACT_UNRESOLVED": "视觉合约 {vis_id} 既没有 visual-ui task 引用,也没有 visual_na+reason",
+		"TASK_KIND_SCHEMA_INVALID": "任务 {task_id} 不符合 kind={kind} 的 schema:{reason}",
+		"NO_OPEN_CLARIFICATIONS": "spec.md 仍有未解决的 clarifications: {ids}",
+		"TASKS_VERSION_MISMATCH": "tasks.based_on.spec({tasks_ver})≠ spec.spec_version({spec_ver})",
+		"EVIDENCE_INCOMPATIBLE": "证据 {evidence_id}(kind={kind})不能满足 {covered_id} 的覆盖要求",
+		"WAIVER_MISSING_REASON": "豁免证据 {evidence_id} 必须有 reason(≥10 字符)",
+		"WAIVER_NOT_HUMAN": "豁免证据 {evidence_id} 的 actor 必须以 'human:' 开头,当前 {actor}",
+		"VISUAL_REVIEW_MISSING_ATTACHMENT": "visual-review 证据 {evidence_id} 必须带至少一个含 sha256 的 attachment",
+		"PATH_OUTSIDE_WRITE_GUARD": "在 sub_state={sub_state} step={step} 下,禁止写入 {path}",
+		"PENDING_BLOCKS_ADVANCE": "pending head {pending_id}(kind={kind})阻塞 `loaf advance`,需先 resolve",
+		"GATE_NOT_PENDING": "`loaf gate decide {gate}` 要求 pending head kind=gate_decision;当前 head:{actual_head}",
+		"ESCALATION_NOT_PENDING": "`loaf profile escalate --confirm --input <ceremony.json>` 要求 pending head kind=profile_escalation;当前 head:{actual_head}",
+		"FINDING_TARGET_REQUIRED": "finding action={action} target 校验失败({reason}):task_id={task_id}, step={step}",
+		"SPEC_NOT_INITIALIZED": "{kind} 被拒:spec_version=0;先跑 `loaf spec submit` 把 spec_version 升到 1",
+		"SPEC_ALREADY_INITIALIZED": "spec.md 已存在于 {spec_md_path};拒绝覆盖",
+		"SPEC_LOCKED_NO_DIRECT_EDIT": "{kind} 被拒:spec_locked=true;用 `loaf finding raise --category spec-gap --action amend-spec` 走 amend-spec 回退到 SPEC.spec",
+		"AMEND_REJECTED_POST_LOCK": "spec_locked=true;使用 `loaf finding raise` 替代 `loaf amend`",
+		"DELIVER_FORBIDDEN_FOR_SPIKE": "spike 任务不允许 deliver;使用 `loaf archive` / `loaf spike convert` / `loaf abandon`",
+		"DELIVER_NOT_ACCEPTED": "deliver 要求 verify_accepted=true(sub_state={sub_state});先运行 `loaf gate decide verify-accept --approve`",
+		"DELIVER_SETTLE_PHASE_BYPASS": "VERIFY.accept 直接 deliver 要求 ceremony.settle_phase=false(standard);deep ceremony 必须先运行 `loaf settle`",
+		"DELIVER_VERIFY_MIN_UNAVAILABLE": "verify-min 在此 build 不可用(ceremony_label={ceremony_label})—— v0.1.1 起由 DELIVER_VERIFY_MIN_INCOMPLETE 取代,已不再触发",
+		"DELIVER_VERIFY_MIN_INCOMPLETE": "verify-min:{count} 个 done task 缺少 deliver 所需 evidence(ceremony_label={ceremony_label});补 evidence 或 waive 后重试 deliver",
+		"DELIVER_SPIKE_TASKS": "无法 deliver:task {task_id} 是 kind=spike(status={status});spike 任务阻塞整 session 的交付",
+		"EXECUTE_DONE_TASKS_NOT_FINAL": "无法从 EXECUTE.work 推进到 EXECUTE.done:{count} 个 task 未处于终态(done 或 abandoned);跑完剩余 step,或用 `loaf tasks abandon <T-N> --reason \"...\"` 放弃超出范围的 task",
+		"SETTLE_NOT_ACCEPTED": "VERIFY.accept → SETTLE.reconcile 要求 verify_accepted=true;先运行 `loaf gate decide verify-accept --approve` 再 `loaf settle`",
+		"TASK_NOT_CLAIMABLE": "task {task_id} 无法 claim(status={status} — 终态)",
+		"TASK_ALREADY_CLAIMED": "task {task_id} 已被 claim(status=in_progress)",
+		"TASK_DEPS_NOT_SATISFIED": "task {task_id} 无法 claim:依赖 {blocking_dep} 未 done(status={blocking_status})",
+		"TASK_NOT_CLAIMED": "task {task_id} step {step} 变更要求 task.status=in_progress(实际 status={status});先 `loaf tasks claim`",
+		"TASK_NOT_ABANDONABLE": "task {task_id} 无法 abandon(status={status} — 已处于终态)",
+		"TASK_ABANDON_BLOCKED_DEPENDENTS": "task {task_id} 无法 abandon:非终态 task {blocking_dependents} 依赖它;先 abandon 或完成这些依赖方",
+		"SESSION_REASON_REQUIRED": "{kind}:必须提供 --reason(会话终态 entry 必须记录原因)",
+		"PROJECTION_WRITE_FAILED": "{projection} 派生投影在 journal append (last_seq={last_seq}, spec_version={spec_version}) 后写盘失败:{error}",
+		"FINDING_AMEND_SPEC_NOT_LOCKED": "finding raise action=amend-spec 要求 state.spec_locked=true;当前 sub_state={current_sub_state} 下 spec 未锁,请直接使用 `loaf spec submit / add-*`",
+		"SPEC_VERSION_NOT_MONOTONIC": "{kind}: spec_version 必须等于 {expected_spec_version}(current+1),实际为 {payload_spec_version}",
+		"SPEC_VERSION_BATCH_MISMATCH": "{kind}: batch_index={batch_index} 处 spec_version 必须等于 {current_spec_version},实际为 {payload_spec_version}",
+		"TASK_COMPLETE_PRECONDITION_VIOLATED": "task {task_id} 尚未完成(status={status});以下 must 级 step 未达 terminal-positive:{blocking_steps}",
+		"MUTATION_OUT_OF_RIGHTS": "task {task_id} 的 event:tasks_amended 在 sub_state {sub_state} 不被允许 —— §8.6 未授予该改动的 mutation right",
+		"CANONICAL_TASK_BODY_UNAVAILABLE": "task {task_id} 在投影中存在,但 journal 里没有 canonical body(migration 导入);无法重建整 task 的 amend",
+		"BUG_TASK_REQUIRES_RED": "behavioral bug task {task_id} 在注册 RED 测试前不能开始或完成 implement step",
+		"BUG_TASK_FLAG_MISUSE": "task {task_id}:red_test_registered=true 只在 behavioral bug task 的 red-step task_step_done(passed/waived)上有效 —— 不能用在本 entry",
+		"BUG_TASK_RED_NOT_REGISTERED": "behavioral bug task {task_id} 已 done 但从未注册 RED 测试(red_test_registered≠true)",
+		"SPIKE_CONVERT_NO_SPIKE_TASK": "无法 convert:session 没有非-abandoned 的 spike task;`loaf spike convert` 是 spike-task 出口(protocol §8.3)",
+		"DONE_TERMINAL_INVARIANT": "DONE.* 状态要求 state.pending.length === 0 且 tasks.json 中无 status=\"in_progress\" 的 task",
+		"ABANDON_REQUIRES_REASON": "loaf abandon 必须带 --reason 参数",
+		"TASKS_EXECUTION_DRIFT": "任务 {task_id} step={step} status={status} 与 evidence.jsonl 不一致",
+		"COVERAGE_NOT_SATISFIED": "{covered_id} 没有任何证据满足覆盖(canSatisfy 对所有候选 evidence 都失败)",
+		"NO_SESSION": "{feature_dir} 下没有 session — 先跑 `loaf start <feature>`",
+		"SNAPSHOT_STALE_REBUILD_REQUIRED": "snapshot 失效(reason={reason}) at {feature_dir};跑 `loaf doctor --rebuild --feature <feature>` 从 journal 重建",
+		"INVALID_PRESET": "ceremony preset 不合法",
+		"USAGE": "CLI 用法不合法",
+		"DOCTOR_MODE_NOT_IMPLEMENTED": "当前发布版本未实现该 loaf doctor 模式",
+		"DOCTOR_FEATURE_REQUIRED": "loaf doctor --rebuild 必须带 --feature <name>",
+		"DOCTOR_REBUILD_FAILED": "doctor --rebuild 失败",
+		"DOCTOR_REBUILD_MIGRATED_UNSUPPORTED": "当前发布版本的 doctor --rebuild 不支持 v0.0.x-migrated journal",
+		"REDUCER_ERROR": "reducer 内部不变量失败",
+		"INVALID_FORMAT": "无效的 --format 值 '{value}';合法值:{allowed_values_human}",
+		"INVALID_LOCALE": "locale 来源 {source} 的值无效:{value}(期望:{accepted})",
+		"MUTUALLY_EXCLUSIVE_FLAGS": "同一次调用使用了互斥的 flags:{flags}",
+		"DRY_RUN_NOT_APPLICABLE": "--dry-run 不适用于{command_type}命令 `{command}`",
+		"HOOK_EVENT_NOT_IMPLEMENTED": "hook event `{event}` 在当前 loaf 版本未实装(Phase 16 SC-15{sub_cycle} 待实现;详 protocol §11)",
+		"WRITE_PATH_VIOLATION": "写入被拦截:`{normalized_path}` 不在 sub_state `{sub_state}` 的允许写入路径内",
+		"PROTECTED_FILE_WRITE": "写入被拦截:`{normalized_path}` 命中 protected_files 条目 `{matched_deny}` —— 受保护文件永不可写",
+		"FEATURE_NOT_FOUND": "当前 cwd 找不到 feature(.loaf/ 为空或缺失,或所有 projection 已 DONE)",
+		"FEATURE_AMBIGUOUS": "当前 cwd 有 {count} 个 active feature 但无 dispatch 上下文:{feature_list}",
+		"SESSION_CWD_MISMATCH": "--session {uuid} 注册的 cwd={registered_cwd},当前 cwd 是 {current_cwd}",
+		"SESSION_SHORT_AMBIGUOUS": "--session {prefix} 在 registry 匹配 {match_count} 个 session:{candidate_list}",
+		"SESSION_NOT_FOUND": "--session {uuid_or_prefix} 在 registry 找不到任何匹配"
+	},
+	failure: {
+		"sessions_list": { "selector_conflict": "sessions list 不接受 {conflicting} —— 它会跨全部 session 列表;如需过滤当前 cwd,使用 --in-cwd" },
+		"tui": {
+			"selector_conflict": "tui 不接受 {conflicting} —— 它会跨全部 session 列表;selector 对交互 UI 没有意义",
+			"interactive_only": "tui 仅支持交互模式;脚本化 session 输出请使用 `loaf sessions list --format json`"
+		},
+		"hook": {
+			"missing_event": "loaf hook 需要 event token;可选值:{events}. 运行 `loaf hook --list-events` 查看完整枚举",
+			"unknown_event": "未知 hook event '{event}';期望值:{allowed}. 你是不是想输入 '{suggestion}'?",
+			"stdin_parse_failed": "hook stdin payload 解析失败:{reason}",
+			"write_path_missing": "write-side hook 需要 --path <P> 或非 TTY stdin hook payload(tool_input.file_path)"
+		},
+		"check": {
+			"selector_conflict": "check 不接受 {conflicting} —— 它按路径校验文件,独立于 feature session",
+			"kind_required": "`{subject}` 不是文件路径. 如需校验 {kind} artifact,需要显式路径: `{suggestion}`(noun-first `loaf {kind} check` 预留给未来版本)",
+			"path_missing": "input file 不存在:{path}",
+			"kind_invalid": "--kind 必须是 {allowed_kinds_human};当前为 '{value}'"
+		},
+		"schema": {
+			"selector_conflict": "{subject} 不接受 {conflicting} —— schema dump 与 feature 无关",
+			"validation": "{kind} at {path} 校验失败({error_count} {error_word})"
+		},
+		"dispatch": {
+			"session_feature_dir_conflict": "{conflicting} 不能与 --feature-dir 一起使用(session identity 来自 registry;手动 featureDir 会矛盾)",
+			"feature_dir_requires_feature": "--feature-dir 需要 --feature <name> 或 $LOAF_FEATURE 来命名 feature"
+		},
+		"start": {
+			"label_too_short": "--label 至少需要 {min_length} 个字符",
+			"workspace_empty": "--workspace 不能为空"
+		},
+		"handoff": {
+			"reason_too_short": "--reason 必须 ≥{min_length} 字符(当前 {reason_length})",
+			"pack_validation_failed": "ResumePack 运行时校验失败(builder bug 或 schema drift)"
+		},
+		"profile": {
+			"input_file_missing": "input file 不存在:{path}",
+			"input_file_unreadable": "无法读取 input file {path}:{error}"
+		},
+		"tasks_add": { "empty_array": "tasks add 输入不能为空数组" },
+		"lessons": {
+			"text_too_short": "lesson text 必须 ≥{min_length} 字符(当前 {lesson_text_length})",
+			"reason_too_short": "--reason 必须 ≥{min_length} 字符(当前 {reason_length})",
+			"text_file_mutex": "--text 和 --file 必须二选一({provided_state})",
+			"file_missing": "lesson file 不存在:{path}"
+		},
+		"finding": { "status_invalid": "--status 必须是:{allowed_statuses_human}(当前 {value})" },
+		"write_guard": { "config_invalid": "write-guard 被拦截:{reason}" },
+		"no_session": {
+			"status": "先跑 `loaf start {feature}`",
+			"advance": "先跑 `loaf start {feature}`",
+			"tasks": "先跑 `loaf start {feature}`",
+			"pending": "先跑 `loaf start {feature}`",
+			"finding": "先跑 `loaf start {feature}`",
+			"verify": "先跑 `loaf start {feature}`",
+			"generic": "先跑 `loaf start {feature}`"
+		}
+	},
+	success: {
+		"next": {
+			"advance": "loaf advance",
+			"deliver": "loaf deliver",
+			"settle": "loaf settle"
+		},
+		"start": { "state_change": "start: '{feature}' 已创建 → TRIAGE.score" },
+		"advance": { "state_change": "advance: {from} → {to}" },
+		"gate": {
+			"spec_lock_approved_state_change": "gate decide: spec-lock 已由 {actor} approve",
+			"verify_accept_approved_state_change": "gate decide: verify-accept 已由 {actor} approve",
+			"rejected_state_change": "gate decide: {gate} 已由 {actor} reject"
+		},
+		"deliver": {
+			"state_change": "deliver: {feature} — {from} → DONE.delivered by {actor}",
+			"next": "session complete — 运行 `loaf start <feature>` 开始下一个 feature"
+		},
+		"archive": { "state_change": "archive: {feature} — {from} → DONE.archived by {actor}" },
+		"abandon": { "state_change": "abandon: {feature} — {from} → DONE.abandoned by {actor}(reason='{reason}')" },
+		"spike": { "convert_state_change": "spike convert: {feature} → {to_feature} — {from} → DONE.archived by {actor}" },
+		"profile": { "escalate_state_change": "profile escalate: ceremony 已更新,{pending_id} 已 resolved" },
+		"tasks": {
+			"submit_text_one": "已提交 {count} 个 task:{task_ids}",
+			"submit_text_many": "已提交 {count} 个 task:{task_ids}",
+			"submit_state_change": "tasks submit: {count} tasks",
+			"add_text_one": "已添加 {count} 个 task:{task_ids}",
+			"add_text_many": "已添加 {count} 个 task:{task_ids}",
+			"add_sponsored_text_one": "已添加 {count} 个 task(由 {finding} sponsor):{task_ids}",
+			"add_sponsored_text_many": "已添加 {count} 个 task(由 {finding} sponsor):{task_ids}",
+			"add_state_change": "tasks add: +{count} tasks(allocated {task_ids})",
+			"claim_state_change": "tasks claim: {task_id}(status={status})",
+			"abandon_state_change": "tasks abandon: {task_id}(status={status})",
+			"register_red_state_change": "tasks register-red: {task_id}"
+		},
+		"doctor": {
+			"rebuild_text_one": "已为 {feature} 重建 {count} 个 projection file:",
+			"rebuild_text_many": "已为 {feature} 重建 {count} 个 projection file:",
+			"rebuild_state_change_one": "doctor rebuild: 已为 {feature} 重建 {count} 个 projection file",
+			"rebuild_state_change_many": "doctor rebuild: 已为 {feature} 重建 {count} 个 projection file"
+		},
+		"snapshot": { "as_of_seq": "# snapshot as-of seq={seq}" },
+		"amend": {
+			"sponsored_text": "已修订 {task_id}(由 {finding_id} sponsor)",
+			"policy_text": "已修订 {task_id}({applied})",
+			"state_change": "amend: {task_id}"
+		},
+		"step": {
+			"start_state_change": "step start: {task_id} {step}(running)",
+			"done_text": "done {task_id} step={step} result={result}{evidence_suffix}{promote_suffix}",
+			"done_evidence_suffix": " evidence={evidence_id}",
+			"done_promote_suffix": " (task auto-promoted to done)",
+			"done_state_change": "step done: {task_id} {step}({result})"
+		},
+		"settle": {
+			"text": "",
+			"state_change": "settle: {from} → SETTLE.reconcile"
+		},
+		"resume": { "state_change": "resume: session {session_id}(sub_state={sub_state} unchanged)" },
+		"handoff": { "state_change": "handoff: resume-pack.json written by {actor}" },
+		"pending": {
+			"raise_state_change": "pending raise: {pending_id}(kind={kind})",
+			"resolve_text": "已 resolve {pending_id}(kind={kind})",
+			"resolve_state_change": "pending resolve: {pending_id} cleared"
+		},
+		"waive": { "state_change": "waive: {evidence_id} obligation={obligation_id}" },
+		"lessons": { "add_state_change": "lessons add: {evidence_id} 已记录(kind=manual; lessons.md 已更新)" },
+		"evidence": {
+			"covers_none": "<none>",
+			"add_state_change_single": "evidence add: {evidence_id} kind={kind}, covers={covers}",
+			"add_state_change_batch_homogeneous": "evidence add: +{count} evidence({evidence_ids}; kind={kind}, covers={covers})",
+			"add_state_change_batch_mixed": "evidence add: +{count} evidence({evidence_ids})"
+		},
+		"finding": {
+			"close_text": "已关闭 {finding_id}",
+			"close_state_change": "finding close: {finding_id} → closed"
+		},
+		"spec": {
+			"submit_text": "spec submitted v{spec_version}: {req_count} req / {scen_count} scen / {vis_count} vis",
+			"submit_state_change": "spec submit: spec_version={spec_version}, locked=false",
+			"submit_next": "loaf gate decide spec-lock",
+			"init_state_change": "spec init: 已写 scaffold 到 {path}",
+			"init_next": "编辑后运行 `loaf spec submit`",
+			"edit_text": "spec edit: spec_version={spec_version}",
+			"edit_state_change": "spec edit: spec_version={spec_version} via $EDITOR",
+			"add_req_text_one": "spec add-req v{spec_version}: {ids}",
+			"add_req_text_many": "spec add-req v{spec_version}: {ids}",
+			"add_req_state_change_one": "spec add-req: +{count} REQ(spec_version={spec_version}; allocated {ids})",
+			"add_req_state_change_many": "spec add-req: +{count} REQ(spec_version={spec_version}; allocated {ids})",
+			"add_scenario_text_one": "spec add-scenario v{spec_version}: {ids}",
+			"add_scenario_text_many": "spec add-scenario v{spec_version}: {ids}",
+			"add_scenario_state_change_one": "spec add-scenario: +{count} SCENARIO(spec_version={spec_version}; allocated {ids})",
+			"add_scenario_state_change_many": "spec add-scenario: +{count} SCENARIO(spec_version={spec_version}; allocated {ids})",
+			"add_visual_text_one": "spec add-visual v{spec_version}: {ids}",
+			"add_visual_text_many": "spec add-visual v{spec_version}: {ids}",
+			"add_visual_state_change_one": "spec add-visual: +{count} VISUAL(spec_version={spec_version}; allocated {ids})",
+			"add_visual_state_change_many": "spec add-visual: +{count} VISUAL(spec_version={spec_version}; allocated {ids})"
+		}
+	},
+	chrome: {
+		"status": {
+			"feature": "功能: {feature}",
+			"phase": "阶段: {phase}",
+			"cursor": "游标: {cursor}",
+			"tail": "尾部: seq={seq}",
+			"counts": "任务={tasks_count} 证据={evidence_count} 发现={findings_count} 待决={pending_count}",
+			"snapshot_as_of_projection_loader": "# snapshot 当前 seq={seq}(projection-loader, Phase 15 SC3)"
+		},
+		"tasks": {
+			"list_empty_filtered": "没有任务匹配 --status={status}",
+			"list_empty": "projection 中没有任务(先运行 `loaf tasks submit`)",
+			"ready_marker": "就绪",
+			"list_row": "{task_id} {kind} {status}",
+			"list_row_ready": "{task_id} {kind} {status} [{ready}]",
+			"complete_text": "任务 {task_id} 已完成(status={status})"
+		},
+		"pending": {
+			"list_row": "{pending_id} {kind} {status} {head}",
+			"no_open": "没有未处理待决项",
+			"open": "未处理",
+			"resolved": "已解决",
+			"head": "队首",
+			"non_head": "-"
+		},
+		"finding": { "list_row": "{finding_id} {category} {action} {status}" },
+		"sessions": {
+			"empty": "(没有 session)",
+			"warning": "registry 条目 {file} {action}({reason}{detail_suffix})",
+			"action_skipped": "已跳过",
+			"action_filtered_out": "被过滤",
+			"action_orphan_cwd": "cwd 已孤立"
+		},
+		"relative": {
+			"just_now": "刚刚",
+			"minute_one": "{count} 分钟前",
+			"minute_many": "{count} 分钟前",
+			"hour_one": "{count} 小时前",
+			"hour_many": "{count} 小时前",
+			"day_one": "{count} 天前",
+			"day_many": "{count} 天前"
+		},
+		"check": { "ok": "通过: {kind} 于 {path}" },
+		"verify_status": {
+			"pass": "通过",
+			"fail": "失败",
+			"na": "不适用",
+			"check_lane_status": "泳道状态",
+			"check_open_findings": "未关闭发现",
+			"check_coverage": "覆盖",
+			"check_task_evidence": "任务证据",
+			"check_spec_review": "规格评审",
+			"failure_summary_one": " {code}",
+			"failure_summary_many": " {count} 个失败({code}, …)",
+			"diagnostic_only": "(仅诊断 —— 不代表 gate 结论)"
+		},
+		"tui": {
+			"list": {
+				"title": "loaf sessions ({active_count} 活跃 / {total_count} 总计)",
+				"sort": "排序: {sort}",
+				"sort_time": "时间",
+				"sort_status": "状态",
+				"reloading": "刷新中…",
+				"empty": "(没有会话)",
+				"help": "[↑/↓] 移动 · [space] 折叠 · [a] 活跃/全部 · [s] 排序 · [r] 刷新 · [q] 退出",
+				"row_iteration": "迭代 {value}"
+			},
+			"detail": {
+				"title": "loaf 详情",
+				"help": "[Esc] 返回 · [q] 退出",
+				"no_selected": "(未选择详情)",
+				"loading": "加载中…",
+				"missing_title": "缺失: {feature}",
+				"missing_message": "先运行 `loaf start {feature}`",
+				"stale_title": "过期: {feature}",
+				"stale_message": "快照过期(reason={reason})",
+				"error_title": "错误: {feature}",
+				"none": "(无)",
+				"boolean_true": "是",
+				"boolean_false": "否",
+				"field_feature": "功能: {value}",
+				"field_session": "会话: {value}",
+				"field_label": "标签: {value}",
+				"field_workspace": "工作区: {value}",
+				"field_ceremony": "仪式: {value}",
+				"field_phase": "阶段: {value}",
+				"field_iteration": "迭代: {value}",
+				"field_complexity": "复杂度: {value}",
+				"field_based_on": "基于: spec {spec} / tasks {tasks}",
+				"field_created": "创建: {value}",
+				"field_updated": "更新: {value}",
+				"field_spec_locked": "规格已锁定: {value}",
+				"field_verify_accepted": "验证已接收: {value}",
+				"field_spec_version": "规格版本: {value}",
+				"field_tail_seq": "尾部 seq: {value}",
+				"section_tasks": "任务 ({count})",
+				"section_evidence": "证据 ({count})",
+				"section_open_findings": "未关闭发现 ({count})",
+				"section_pending": "待决 ({count})",
+				"evidence_badge_pass": "通过",
+				"evidence_badge_fail": "失败",
+				"evidence_badge_waived": "已豁免",
+				"sidecar_summary": "旁载:{path}",
+				"step_summary": "{done}/{total} 已完成",
+				"row_steps": "步骤 {value}",
+				"row_iteration": "迭代 {value}",
+				"row_task": "任务 {value}",
+				"row_target": "目标 {value}",
+				"row_blocks": "阻塞={value}",
+				"row_options": "选项={value}"
+			}
+		}
+	},
+	help: {
+		"start": "在 .loaf/<feature>/ 开启新 feature session",
+		"status": "打印当前 state.json + artifact 健康摘要",
+		"advance": "执行下一 transition + diff-guard(git status 全口径 ∩ write_paths)",
+		"resume": "恢复 session;--fresh 输出本轮最小 context pack",
+		"handoff": "写 resume-pack.json,context overflow 接力",
+		"spec_submit": "严格按 SpecFrontmatter schema 校验并落 spec.md",
+		"spec_init": "生成 spec.md 模板(适合 $EDITOR 跟进)",
+		"spec_schema": "dump SpecFrontmatter JSON Schema",
+		"tasks_submit": "严格按 TaskKind discriminated union 校验 tasks.json",
+		"tasks_register_red": "为 behavioral+bug 任务登记失败测试(implement 之前必做)",
+		"evidence_add": "追加一条 evidence;自动分配 EV-id",
+		"evidence_schema": "dump EvidenceEntry JSON Schema",
+		"waive": "记录一条 waiver 证据;actor 必须 human:* 起始,reason ≥10 字符",
+		"finding_raise": "raise 一条 finding(VERIFY.* 始终允许,EXECUTE.* 仅 post-spec-lock 允许)",
+		"verify_status": "实时计算各 verify check 的 applicability + status(永不读 reconcile.json)",
+		"gate_decide": "记录人工 gate 决策;写 evidence kind=gate-decision",
+		"settle": "生成 reconcile.json(standard+ profile)",
+		"amend": "spec-lock 前编辑 spec / tasks(post-lock 拒绝,改走 finding)",
+		"profile_escalate": "确认 pending profile 升级",
+		"deliver": "标记 session 为 DONE.delivered(advisory only,不碰 git/gh)",
+		"archive": "关闭 session 为 DONE.archived",
+		"abandon": "关闭 session 为 DONE.abandoned(必须带 --reason)",
+		"tui": "启动 session manager TUI(读取 ~/.loaf/registry/)",
+		"sessions_list": "列出所有 session(非 TUI 形式)",
+		"check": "纯 schema 校验(CI 用)",
+		"check_tasks": "校验 tasks.execution.status(cache)与 evidence.jsonl(证据)一致性",
+		"hook": "Claude Code hook 入口",
+		"doctor": "自检 loaf-cli 安装、仓库结构、配置"
+	},
+	status_indicator: {
+		"ask": "‖ 询问",
+		"gate": "‖ Gate",
+		"run": "▶ 运行",
+		"done": "✓ 完成",
+		"fail": "✗ 失败",
+		"wait": "⏳ 等待",
+		"idle": "空闲"
+	}
+};
+//#endregion
+//#region src/cli/i18n.ts
+const LOCALES = ["en", "zh"];
+const BUILTIN_BUNDLES = {
+	en: en_default,
+	zh: zh_default
+};
+const DEFAULT_I18N = createI18n("en", BUILTIN_BUNDLES);
+function isLocale(value) {
+	return typeof value === "string" && LOCALES.includes(value);
+}
+function invalidLocale(source, value) {
+	return {
+		ok: false,
+		code: "INVALID_LOCALE",
+		message: `invalid locale from ${source}: ${String(value)} (expected en or zh)`,
+		detail: {
+			source,
+			value,
+			accepted: [...LOCALES]
+		}
+	};
+}
+function parseLangArg(argv) {
+	for (let i = 0; i < argv.length; i++) {
+		const arg = argv[i];
+		if (arg === "--lang") return argv[i + 1];
+		if (arg.startsWith("--lang=")) return arg.slice(7);
+	}
+}
+function parseAmbientLocale(env) {
+	const raw = env.LC_ALL ?? env.LC_MESSAGES ?? env.LANG;
+	if (!raw || raw === "C" || raw === "POSIX") return null;
+	const normalized = raw.toLowerCase();
+	if (normalized.startsWith("zh")) return "zh";
+	if (normalized.startsWith("en")) return "en";
+	return null;
+}
+function resolveLocale(input) {
+	const argvLocale = parseLangArg(input.argv);
+	if (argvLocale !== void 0) {
+		if (!isLocale(argvLocale)) return invalidLocale("--lang", argvLocale);
+		return {
+			ok: true,
+			locale: argvLocale,
+			source: "argv"
+		};
+	}
+	const envLocale = input.env.LOAF_LANG;
+	if (envLocale !== void 0) {
+		if (!isLocale(envLocale)) return invalidLocale("LOAF_LANG", envLocale);
+		return {
+			ok: true,
+			locale: envLocale,
+			source: "env"
+		};
+	}
+	if (input.userConfig?.status === "invalid") return {
+		ok: false,
+		code: "INVALID_LOCALE",
+		message: `invalid locale config at ${input.userConfig.path}: ${input.userConfig.reason}`,
+		detail: {
+			source: "user-config",
+			path: input.userConfig.path,
+			reason: input.userConfig.reason
+		}
+	};
+	if (input.userConfig?.status === "ok") {
+		if (!isLocale(input.userConfig.locale)) return invalidLocale("user-config", input.userConfig.locale);
+		return {
+			ok: true,
+			locale: input.userConfig.locale,
+			source: "user-config"
+		};
+	}
+	if (input.projectConfig?.locale !== void 0) return {
+		ok: true,
+		locale: input.projectConfig.locale,
+		source: "project-config"
+	};
+	const ambient = parseAmbientLocale(input.env);
+	if (ambient !== null) return {
+		ok: true,
+		locale: ambient,
+		source: "ambient"
+	};
+	return {
+		ok: true,
+		locale: "en",
+		source: "default"
+	};
+}
+function lookup(bundle, keyPath) {
+	let cur = bundle;
+	for (const part of keyPath.split(".")) {
+		if (typeof cur === "string") return void 0;
+		if (typeof cur !== "object" || cur === null) return void 0;
+		cur = cur[part];
+		if (cur === void 0) return void 0;
+	}
+	return typeof cur === "string" ? cur : void 0;
+}
+function interpolate(template, vars) {
+	return template.replace(/\{([A-Za-z0-9_]+)\}/g, (match, key) => {
+		const value = vars?.[key];
+		return value === void 0 ? match : String(value);
+	});
+}
+function createI18n(locale, bundles) {
+	return {
+		locale,
+		t(keyPath, vars) {
+			return interpolate(lookup(bundles[locale], keyPath) ?? lookup(bundles.en, keyPath) ?? keyPath, vars);
+		}
+	};
 }
 const SchemaVersionPayload = z.literal(2);
 const ReqIdPayload = z.string().regex(/^REQ-[A-Z][A-Z0-9]*-\d{3,}$/);
@@ -2401,6 +3569,7 @@ function phaseOf(subState) {
 function createCommandContext(argv, deps) {
 	const presentation = parsePresentation(argv);
 	const output = presentation.ok ? presentation.format : "text";
+	const i18n = deps.i18n ?? DEFAULT_I18N;
 	const plain = presentation.ok ? presentation.plain : false;
 	const quiet = presentation.ok ? presentation.quiet : false;
 	const verbose = presentation.ok ? presentation.verbose : 0;
@@ -2415,7 +3584,7 @@ function createCommandContext(argv, deps) {
 	let lastResolvedSubState = null;
 	let lastResolvedSessionId = null;
 	let cachedDispatch = null;
-	return {
+	const ctx = {
 		argv,
 		output,
 		plain,
@@ -2470,39 +3639,22 @@ function createCommandContext(argv, deps) {
 			if (output === "json") deps.writeStdout(JSON.stringify(payload) + "\n");
 			else {
 				if (!textRenderer) throw new Error("ctx.success: text renderer required in text mode (a migrated command must always pass a text renderer; JSON mode skips it lazily)");
-				deps.writeStdout(textRenderer());
+				deps.writeStdout(textRenderer(i18n));
 			}
 			if (!quiet && advisories) {
-				if (advisories.stateChange) deps.writeStderr(advisories.stateChange + "\n");
-				if (advisories.next !== void 0) {
-					const lines = Array.isArray(advisories.next) ? advisories.next : [advisories.next];
+				const renderedAdvisories = typeof advisories === "function" ? advisories(i18n) : advisories;
+				if (renderedAdvisories.stateChange) deps.writeStderr(renderedAdvisories.stateChange + "\n");
+				if (renderedAdvisories.next !== void 0) {
+					const lines = Array.isArray(renderedAdvisories.next) ? renderedAdvisories.next : [renderedAdvisories.next];
 					for (const line of lines) deps.writeStderr(`next: ${line}\n`);
 				}
 			}
 		},
 		failure(code, message, detail) {
-			if (output === "json") {
-				const out = {
-					ok: false,
-					code,
-					message
-				};
-				if (detail !== void 0) out["detail"] = detail;
-				deps.writeStderr(JSON.stringify(out) + "\n");
-			} else {
-				deps.writeStderr(`error: ${code} — ${message}\n`);
-				const checks = detail?.["checks"];
-				if (Array.isArray(checks)) for (const c of checks) deps.writeStderr(`  [check ${c.check ?? "?"}] ${c.code ?? "UNKNOWN"}: ${c.message ?? ""}\n`);
-				const errors = detail?.["errors"];
-				if (Array.isArray(errors)) {
-					for (const e of errors) deps.writeStderr(`  [${e.path ?? "?"}] ${e.code ?? "UNKNOWN"}: ${e.message ?? ""}\n`);
-					if (detail?.["truncated"] === true) {
-						const total = detail?.["error_count"];
-						deps.writeStderr(`  ... (${typeof total === "number" ? total : "?"} errors total; first ${errors.length} shown)\n`);
-					}
-				}
-			}
-			exitCode = 2;
+			writeFailure(code, message, detail);
+		},
+		failureKeyed(code, keyPath, vars, detail) {
+			writeFailure(code, output === "json" ? DEFAULT_I18N.t(keyPath, vars) : i18n.t(keyPath, vars), detail);
 		},
 		snapshotCrashContext() {
 			return {
@@ -2528,6 +3680,31 @@ function createCommandContext(argv, deps) {
 			deps.writeStderr(`loaf: ${line}\n`);
 		}
 	};
+	function writeFailure(code, message, detail) {
+		if (output === "json") {
+			const out = {
+				ok: false,
+				code,
+				message
+			};
+			if (detail !== void 0) out["detail"] = detail;
+			deps.writeStderr(JSON.stringify(out) + "\n");
+		} else {
+			deps.writeStderr(`error: ${code} — ${message}\n`);
+			const checks = detail?.["checks"];
+			if (Array.isArray(checks)) for (const c of checks) deps.writeStderr(`  [check ${c.check ?? "?"}] ${c.code ?? "UNKNOWN"}: ${c.message ?? ""}\n`);
+			const errors = detail?.["errors"];
+			if (Array.isArray(errors)) {
+				for (const e of errors) deps.writeStderr(`  [${e.path ?? "?"}] ${e.code ?? "UNKNOWN"}: ${e.message ?? ""}\n`);
+				if (detail?.["truncated"] === true) {
+					const total = detail?.["error_count"];
+					deps.writeStderr(`  ... (${typeof total === "number" ? total : "?"} errors total; first ${errors.length} shown)\n`);
+				}
+			}
+		}
+		exitCode = 2;
+	}
+	return ctx;
 }
 //#endregion
 //#region src/cli/trace-writer.ts
@@ -2618,6 +3795,364 @@ function buildTraceEntry(input) {
 async function defaultAppendTraceLine(featureDir, entry) {
 	const line = JSON.stringify(entry) + "\n";
 	await promises.appendFile(path.join(featureDir, "trace.jsonl"), line, "utf8");
+}
+//#endregion
+//#region src/cli/runtime-i18n-keys.ts
+const STATUS_INDICATOR_KEYS = {
+	done: "status_indicator.done",
+	blocked: "status_indicator.ask",
+	running: "status_indicator.run",
+	idle: "status_indicator.idle"
+};
+const TASK_KIND_KEYS = {
+	behavioral: "task_kind.behavioral",
+	structural: "task_kind.structural",
+	"visual-ui": "task_kind.visual-ui",
+	docs: "task_kind.docs",
+	spike: "task_kind.spike",
+	chore: "task_kind.chore"
+};
+const TASK_STATUS_KEYS = {
+	pending: "task_status.pending",
+	ready: "task_status.ready",
+	in_progress: "task_status.in_progress",
+	done: "task_status.done",
+	abandoned: "task_status.abandoned"
+};
+const EVIDENCE_KIND_KEYS = {
+	"task-summary": "evidence_kind.task-summary",
+	"verify-review": "evidence_kind.verify-review",
+	"spec-review": "evidence_kind.spec-review",
+	acceptance: "evidence_kind.acceptance",
+	"visual-review": "evidence_kind.visual-review",
+	"gate-decision": "evidence_kind.gate-decision",
+	"local-check": "evidence_kind.local-check",
+	manual: "evidence_kind.manual",
+	waiver: "evidence_kind.waiver",
+	"spike-finding": "evidence_kind.spike-finding"
+};
+const FINDING_CATEGORY_KEYS = {
+	"spec-gap": "finding_category.spec-gap",
+	"spec-defect": "finding_category.spec-defect",
+	"impl-defect": "finding_category.impl-defect",
+	"test-defect": "finding_category.test-defect",
+	"new-scope": "finding_category.new-scope",
+	"risk-escalation": "finding_category.risk-escalation"
+};
+const FINDING_ACTION_KEYS = {
+	"amend-spec": "finding_action.amend-spec",
+	"amend-tasks": "finding_action.amend-tasks",
+	"fix-impl": "finding_action.fix-impl",
+	"fix-test": "finding_action.fix-test",
+	defer: "finding_action.defer",
+	backlog: "finding_action.backlog"
+};
+const FINDING_STATUS_KEYS = {
+	open: "finding_status.open",
+	closed: "finding_status.closed"
+};
+const PENDING_KIND_KEYS = {
+	ask_user_question: "pending_kind.ask_user_question",
+	gate_decision: "pending_kind.gate_decision",
+	spec_clarification: "pending_kind.spec_clarification",
+	finding_decision: "pending_kind.finding_decision",
+	profile_escalation: "pending_kind.profile_escalation"
+};
+const PHASE_KEYS = {
+	TRIAGE: "phase.TRIAGE",
+	SPEC: "phase.SPEC",
+	EXECUTE: "phase.EXECUTE",
+	VERIFY: "phase.VERIFY",
+	SETTLE: "phase.SETTLE",
+	DONE: "phase.DONE"
+};
+const SUB_STATE_KEYS = {
+	"TRIAGE.score": "sub_state.TRIAGE.score",
+	"TRIAGE.confirm": "sub_state.TRIAGE.confirm",
+	"SPEC.proposal": "sub_state.SPEC.proposal",
+	"SPEC.spec": "sub_state.SPEC.spec",
+	"SPEC.plan": "sub_state.SPEC.plan",
+	"SPEC.design": "sub_state.SPEC.design",
+	"EXECUTE.plan": "sub_state.EXECUTE.plan",
+	"EXECUTE.work": "sub_state.EXECUTE.work",
+	"EXECUTE.done": "sub_state.EXECUTE.done",
+	"VERIFY.plan": "sub_state.VERIFY.plan",
+	"VERIFY.run": "sub_state.VERIFY.run",
+	"VERIFY.review": "sub_state.VERIFY.review",
+	"VERIFY.acceptance": "sub_state.VERIFY.acceptance",
+	"VERIFY.visual": "sub_state.VERIFY.visual",
+	"VERIFY.accept": "sub_state.VERIFY.accept",
+	"SETTLE.reconcile": "sub_state.SETTLE.reconcile",
+	"SETTLE.lessons": "sub_state.SETTLE.lessons",
+	"DONE.delivered": "sub_state.DONE.delivered",
+	"DONE.archived": "sub_state.DONE.archived",
+	"DONE.abandoned": "sub_state.DONE.abandoned"
+};
+const DIAGNOSTIC_KEYS = {
+	INVALID_FORMAT: "diagnostic.INVALID_FORMAT",
+	MUTUALLY_EXCLUSIVE_FLAGS: "diagnostic.MUTUALLY_EXCLUSIVE_FLAGS",
+	DRY_RUN_NOT_APPLICABLE: "diagnostic.DRY_RUN_NOT_APPLICABLE",
+	FEATURE_NOT_FOUND: "diagnostic.FEATURE_NOT_FOUND",
+	FEATURE_AMBIGUOUS: "diagnostic.FEATURE_AMBIGUOUS",
+	SESSION_CWD_MISMATCH: "diagnostic.SESSION_CWD_MISMATCH",
+	SESSION_SHORT_AMBIGUOUS: "diagnostic.SESSION_SHORT_AMBIGUOUS",
+	SESSION_NOT_FOUND: "diagnostic.SESSION_NOT_FOUND"
+};
+const FAILURE_SITE_KEYS = {
+	sessionsListSelectorConflict: "failure.sessions_list.selector_conflict",
+	tuiSelectorConflict: "failure.tui.selector_conflict",
+	tuiInteractiveOnly: "failure.tui.interactive_only",
+	hookMissingEvent: "failure.hook.missing_event",
+	hookUnknownEvent: "failure.hook.unknown_event",
+	hookStdinParseFailed: "failure.hook.stdin_parse_failed",
+	hookWritePathMissing: "failure.hook.write_path_missing",
+	checkSelectorConflict: "failure.check.selector_conflict",
+	checkKindRequired: "failure.check.kind_required",
+	checkPathMissing: "failure.check.path_missing",
+	checkKindInvalid: "failure.check.kind_invalid",
+	schemaSelectorConflict: "failure.schema.selector_conflict",
+	schemaValidation: "failure.schema.validation",
+	dispatchSessionFeatureDirConflict: "failure.dispatch.session_feature_dir_conflict",
+	dispatchFeatureDirRequiresFeature: "failure.dispatch.feature_dir_requires_feature",
+	startLabelTooShort: "failure.start.label_too_short",
+	startWorkspaceEmpty: "failure.start.workspace_empty",
+	handoffReasonTooShort: "failure.handoff.reason_too_short",
+	handoffPackValidationFailed: "failure.handoff.pack_validation_failed",
+	profileInputFileMissing: "failure.profile.input_file_missing",
+	profileInputFileUnreadable: "failure.profile.input_file_unreadable",
+	tasksAddEmptyArray: "failure.tasks_add.empty_array",
+	lessonsTextTooShort: "failure.lessons.text_too_short",
+	lessonsReasonTooShort: "failure.lessons.reason_too_short",
+	lessonsTextFileMutex: "failure.lessons.text_file_mutex",
+	lessonsFileMissing: "failure.lessons.file_missing",
+	findingStatusInvalid: "failure.finding.status_invalid",
+	writeGuardConfigInvalid: "failure.write_guard.config_invalid",
+	noSessionStatus: "failure.no_session.status",
+	noSessionAdvance: "failure.no_session.advance",
+	noSessionTasks: "failure.no_session.tasks",
+	noSessionPending: "failure.no_session.pending",
+	noSessionFinding: "failure.no_session.finding",
+	noSessionVerify: "failure.no_session.verify",
+	noSessionGeneric: "failure.no_session.generic"
+};
+FAILURE_SITE_KEYS.sessionsListSelectorConflict, FAILURE_SITE_KEYS.tuiSelectorConflict, FAILURE_SITE_KEYS.tuiInteractiveOnly, FAILURE_SITE_KEYS.hookMissingEvent, FAILURE_SITE_KEYS.hookUnknownEvent, FAILURE_SITE_KEYS.hookStdinParseFailed, FAILURE_SITE_KEYS.hookWritePathMissing, FAILURE_SITE_KEYS.checkSelectorConflict, FAILURE_SITE_KEYS.checkKindRequired, FAILURE_SITE_KEYS.checkPathMissing, FAILURE_SITE_KEYS.checkKindInvalid, FAILURE_SITE_KEYS.schemaSelectorConflict, FAILURE_SITE_KEYS.schemaValidation, FAILURE_SITE_KEYS.dispatchSessionFeatureDirConflict, FAILURE_SITE_KEYS.dispatchFeatureDirRequiresFeature, FAILURE_SITE_KEYS.startLabelTooShort, FAILURE_SITE_KEYS.startWorkspaceEmpty, FAILURE_SITE_KEYS.handoffReasonTooShort, FAILURE_SITE_KEYS.handoffPackValidationFailed, FAILURE_SITE_KEYS.profileInputFileMissing, FAILURE_SITE_KEYS.profileInputFileUnreadable, FAILURE_SITE_KEYS.tasksAddEmptyArray, FAILURE_SITE_KEYS.lessonsTextTooShort, FAILURE_SITE_KEYS.lessonsReasonTooShort, FAILURE_SITE_KEYS.lessonsTextFileMutex, FAILURE_SITE_KEYS.lessonsFileMissing, FAILURE_SITE_KEYS.findingStatusInvalid, FAILURE_SITE_KEYS.writeGuardConfigInvalid, FAILURE_SITE_KEYS.noSessionStatus, FAILURE_SITE_KEYS.noSessionAdvance, FAILURE_SITE_KEYS.noSessionTasks, FAILURE_SITE_KEYS.noSessionPending, FAILURE_SITE_KEYS.noSessionFinding, FAILURE_SITE_KEYS.noSessionVerify, FAILURE_SITE_KEYS.noSessionGeneric;
+const SUCCESS_KEYS = {
+	nextAdvance: "success.next.advance",
+	nextDeliver: "success.next.deliver",
+	nextSettle: "success.next.settle",
+	startStateChange: "success.start.state_change",
+	advanceStateChange: "success.advance.state_change",
+	gateSpecLockApprovedStateChange: "success.gate.spec_lock_approved_state_change",
+	gateVerifyAcceptApprovedStateChange: "success.gate.verify_accept_approved_state_change",
+	gateRejectedStateChange: "success.gate.rejected_state_change",
+	deliverStateChange: "success.deliver.state_change",
+	deliverNext: "success.deliver.next",
+	archiveStateChange: "success.archive.state_change",
+	abandonStateChange: "success.abandon.state_change",
+	spikeConvertStateChange: "success.spike.convert_state_change",
+	profileEscalateStateChange: "success.profile.escalate_state_change",
+	tasksSubmitTextOne: "success.tasks.submit_text_one",
+	tasksSubmitTextMany: "success.tasks.submit_text_many",
+	tasksSubmitStateChange: "success.tasks.submit_state_change",
+	tasksAddTextOne: "success.tasks.add_text_one",
+	tasksAddTextMany: "success.tasks.add_text_many",
+	tasksAddSponsoredTextOne: "success.tasks.add_sponsored_text_one",
+	tasksAddSponsoredTextMany: "success.tasks.add_sponsored_text_many",
+	tasksAddStateChange: "success.tasks.add_state_change",
+	tasksClaimStateChange: "success.tasks.claim_state_change",
+	tasksAbandonStateChange: "success.tasks.abandon_state_change",
+	doctorRebuildTextOne: "success.doctor.rebuild_text_one",
+	doctorRebuildTextMany: "success.doctor.rebuild_text_many",
+	doctorRebuildStateChangeOne: "success.doctor.rebuild_state_change_one",
+	doctorRebuildStateChangeMany: "success.doctor.rebuild_state_change_many",
+	snapshotAsOfSeq: "success.snapshot.as_of_seq",
+	amendSponsoredText: "success.amend.sponsored_text",
+	amendPolicyText: "success.amend.policy_text",
+	amendStateChange: "success.amend.state_change",
+	tasksRegisterRedStateChange: "success.tasks.register_red_state_change",
+	stepStartStateChange: "success.step.start_state_change",
+	stepDoneText: "success.step.done_text",
+	stepDoneEvidenceSuffix: "success.step.done_evidence_suffix",
+	stepDonePromoteSuffix: "success.step.done_promote_suffix",
+	stepDoneStateChange: "success.step.done_state_change",
+	settleStateChange: "success.settle.state_change",
+	settleText: "success.settle.text",
+	resumeStateChange: "success.resume.state_change",
+	handoffStateChange: "success.handoff.state_change",
+	pendingRaiseStateChange: "success.pending.raise_state_change",
+	pendingResolveText: "success.pending.resolve_text",
+	pendingResolveStateChange: "success.pending.resolve_state_change",
+	waiveStateChange: "success.waive.state_change",
+	lessonsAddStateChange: "success.lessons.add_state_change",
+	evidenceCoversNone: "success.evidence.covers_none",
+	evidenceAddStateChangeSingle: "success.evidence.add_state_change_single",
+	evidenceAddStateChangeBatchHomogeneous: "success.evidence.add_state_change_batch_homogeneous",
+	evidenceAddStateChangeBatchMixed: "success.evidence.add_state_change_batch_mixed",
+	findingCloseText: "success.finding.close_text",
+	findingCloseStateChange: "success.finding.close_state_change",
+	specSubmitText: "success.spec.submit_text",
+	specSubmitStateChange: "success.spec.submit_state_change",
+	specSubmitNext: "success.spec.submit_next",
+	specInitStateChange: "success.spec.init_state_change",
+	specInitNext: "success.spec.init_next",
+	specEditText: "success.spec.edit_text",
+	specEditStateChange: "success.spec.edit_state_change",
+	specAddReqTextOne: "success.spec.add_req_text_one",
+	specAddReqTextMany: "success.spec.add_req_text_many",
+	specAddReqStateChangeOne: "success.spec.add_req_state_change_one",
+	specAddReqStateChangeMany: "success.spec.add_req_state_change_many",
+	specAddScenarioTextOne: "success.spec.add_scenario_text_one",
+	specAddScenarioTextMany: "success.spec.add_scenario_text_many",
+	specAddScenarioStateChangeOne: "success.spec.add_scenario_state_change_one",
+	specAddScenarioStateChangeMany: "success.spec.add_scenario_state_change_many",
+	specAddVisualTextOne: "success.spec.add_visual_text_one",
+	specAddVisualTextMany: "success.spec.add_visual_text_many",
+	specAddVisualStateChangeOne: "success.spec.add_visual_state_change_one",
+	specAddVisualStateChangeMany: "success.spec.add_visual_state_change_many"
+};
+const CHROME_KEYS = {
+	statusFeature: "chrome.status.feature",
+	statusPhase: "chrome.status.phase",
+	statusCursor: "chrome.status.cursor",
+	statusTail: "chrome.status.tail",
+	statusCounts: "chrome.status.counts",
+	statusSnapshotAsOfProjectionLoader: "chrome.status.snapshot_as_of_projection_loader",
+	tasksListEmptyFiltered: "chrome.tasks.list_empty_filtered",
+	tasksListEmpty: "chrome.tasks.list_empty",
+	tasksListReadyMarker: "chrome.tasks.ready_marker",
+	tasksListRow: "chrome.tasks.list_row",
+	tasksListRowReady: "chrome.tasks.list_row_ready",
+	tasksCompleteText: "chrome.tasks.complete_text",
+	pendingListRow: "chrome.pending.list_row",
+	pendingStatusNoOpen: "chrome.pending.no_open",
+	pendingOpen: "chrome.pending.open",
+	pendingResolved: "chrome.pending.resolved",
+	pendingHead: "chrome.pending.head",
+	pendingNonHead: "chrome.pending.non_head",
+	findingListRow: "chrome.finding.list_row",
+	sessionsListEmpty: "chrome.sessions.empty",
+	sessionsWarning: "chrome.sessions.warning",
+	sessionsActionSkipped: "chrome.sessions.action_skipped",
+	sessionsActionFilteredOut: "chrome.sessions.action_filtered_out",
+	sessionsActionOrphanCwd: "chrome.sessions.action_orphan_cwd",
+	relativeJustNow: "chrome.relative.just_now",
+	relativeMinuteOne: "chrome.relative.minute_one",
+	relativeMinuteMany: "chrome.relative.minute_many",
+	relativeHourOne: "chrome.relative.hour_one",
+	relativeHourMany: "chrome.relative.hour_many",
+	relativeDayOne: "chrome.relative.day_one",
+	relativeDayMany: "chrome.relative.day_many",
+	checkOk: "chrome.check.ok",
+	verifyStatusPass: "chrome.verify_status.pass",
+	verifyStatusFail: "chrome.verify_status.fail",
+	verifyStatusNa: "chrome.verify_status.na",
+	verifyStatusCheckLaneStatus: "chrome.verify_status.check_lane_status",
+	verifyStatusCheckOpenFindings: "chrome.verify_status.check_open_findings",
+	verifyStatusCheckCoverage: "chrome.verify_status.check_coverage",
+	verifyStatusCheckTaskEvidence: "chrome.verify_status.check_task_evidence",
+	verifyStatusCheckSpecReview: "chrome.verify_status.check_spec_review",
+	verifyStatusFailureSummaryOne: "chrome.verify_status.failure_summary_one",
+	verifyStatusFailureSummaryMany: "chrome.verify_status.failure_summary_many",
+	verifyStatusDiagnosticOnly: "chrome.verify_status.diagnostic_only",
+	tuiListTitle: "chrome.tui.list.title",
+	tuiListSort: "chrome.tui.list.sort",
+	tuiListSortTime: "chrome.tui.list.sort_time",
+	tuiListSortStatus: "chrome.tui.list.sort_status",
+	tuiListReloading: "chrome.tui.list.reloading",
+	tuiListEmpty: "chrome.tui.list.empty",
+	tuiListHelp: "chrome.tui.list.help",
+	tuiListRowIteration: "chrome.tui.list.row_iteration",
+	tuiDetailTitle: "chrome.tui.detail.title",
+	tuiDetailHelp: "chrome.tui.detail.help",
+	tuiDetailNoSelected: "chrome.tui.detail.no_selected",
+	tuiDetailLoading: "chrome.tui.detail.loading",
+	tuiDetailMissingTitle: "chrome.tui.detail.missing_title",
+	tuiDetailMissingMessage: "chrome.tui.detail.missing_message",
+	tuiDetailStaleTitle: "chrome.tui.detail.stale_title",
+	tuiDetailStaleMessage: "chrome.tui.detail.stale_message",
+	tuiDetailErrorTitle: "chrome.tui.detail.error_title",
+	tuiDetailNone: "chrome.tui.detail.none",
+	tuiDetailBooleanTrue: "chrome.tui.detail.boolean_true",
+	tuiDetailBooleanFalse: "chrome.tui.detail.boolean_false",
+	tuiDetailFieldFeature: "chrome.tui.detail.field_feature",
+	tuiDetailFieldSession: "chrome.tui.detail.field_session",
+	tuiDetailFieldLabel: "chrome.tui.detail.field_label",
+	tuiDetailFieldWorkspace: "chrome.tui.detail.field_workspace",
+	tuiDetailFieldCeremony: "chrome.tui.detail.field_ceremony",
+	tuiDetailFieldPhase: "chrome.tui.detail.field_phase",
+	tuiDetailFieldIteration: "chrome.tui.detail.field_iteration",
+	tuiDetailFieldComplexity: "chrome.tui.detail.field_complexity",
+	tuiDetailFieldBasedOn: "chrome.tui.detail.field_based_on",
+	tuiDetailFieldCreated: "chrome.tui.detail.field_created",
+	tuiDetailFieldUpdated: "chrome.tui.detail.field_updated",
+	tuiDetailFieldSpecLocked: "chrome.tui.detail.field_spec_locked",
+	tuiDetailFieldVerifyAccepted: "chrome.tui.detail.field_verify_accepted",
+	tuiDetailFieldSpecVersion: "chrome.tui.detail.field_spec_version",
+	tuiDetailFieldTailSeq: "chrome.tui.detail.field_tail_seq",
+	tuiDetailSectionTasks: "chrome.tui.detail.section_tasks",
+	tuiDetailSectionEvidence: "chrome.tui.detail.section_evidence",
+	tuiDetailSectionOpenFindings: "chrome.tui.detail.section_open_findings",
+	tuiDetailSectionPending: "chrome.tui.detail.section_pending",
+	tuiDetailEvidenceBadgePass: "chrome.tui.detail.evidence_badge_pass",
+	tuiDetailEvidenceBadgeFail: "chrome.tui.detail.evidence_badge_fail",
+	tuiDetailEvidenceBadgeWaived: "chrome.tui.detail.evidence_badge_waived",
+	tuiDetailSidecarSummary: "chrome.tui.detail.sidecar_summary",
+	tuiDetailStepSummary: "chrome.tui.detail.step_summary",
+	tuiDetailRowSteps: "chrome.tui.detail.row_steps",
+	tuiDetailRowIteration: "chrome.tui.detail.row_iteration",
+	tuiDetailRowTask: "chrome.tui.detail.row_task",
+	tuiDetailRowTarget: "chrome.tui.detail.row_target",
+	tuiDetailRowBlocks: "chrome.tui.detail.row_blocks",
+	tuiDetailRowOptions: "chrome.tui.detail.row_options"
+};
+[
+	...Object.values(STATUS_INDICATOR_KEYS),
+	...Object.values(TASK_KIND_KEYS),
+	...Object.values(TASK_STATUS_KEYS),
+	...Object.values(EVIDENCE_KIND_KEYS),
+	...Object.values(FINDING_CATEGORY_KEYS),
+	...Object.values(FINDING_ACTION_KEYS),
+	...Object.values(FINDING_STATUS_KEYS),
+	...Object.values(PENDING_KIND_KEYS),
+	...Object.values(PHASE_KEYS),
+	...Object.values(SUB_STATE_KEYS),
+	...Object.values(DIAGNOSTIC_KEYS),
+	...Object.values(FAILURE_SITE_KEYS),
+	...Object.values(SUCCESS_KEYS),
+	...Object.values(CHROME_KEYS)
+];
+function statusIndicatorKey(bucket) {
+	return STATUS_INDICATOR_KEYS[bucket];
+}
+function taskKindKey(kind) {
+	return TASK_KIND_KEYS[kind];
+}
+function taskStatusKey(status) {
+	return TASK_STATUS_KEYS[status];
+}
+function evidenceKindKey(kind) {
+	return EVIDENCE_KIND_KEYS[kind];
+}
+function findingCategoryKey(category) {
+	return FINDING_CATEGORY_KEYS[category];
+}
+function findingActionKey(action) {
+	return FINDING_ACTION_KEYS[action];
+}
+function findingStatusKey(status) {
+	return FINDING_STATUS_KEYS[status];
+}
+function pendingKindKey(kind) {
+	return PENDING_KIND_KEYS[kind];
+}
+function phaseKey(phase) {
+	return PHASE_KEYS[phase];
+}
+function subStateKey(subState) {
+	return SUB_STATE_KEYS[subState];
+}
+function diagnosticKey(code) {
+	return DIAGNOSTIC_KEYS[code];
 }
 //#endregion
 //#region src/cli/sessions-list.ts
@@ -2724,19 +4259,19 @@ async function listSessions(input) {
 /** Presentation helper — relative-time rendering for text mode. Returns
 *  "N minutes/hours/days ago" for ≤7 days, ISO otherwise. Future
 *  timestamps fall back to ISO (defensive — clock skew). */
-function formatAtRelative(iso, now) {
+function formatAtRelative(iso, now, i18n = DEFAULT_I18N) {
 	const at = new Date(iso);
 	if (Number.isNaN(at.getTime())) return iso;
 	const diffMs = now.getTime() - at.getTime();
 	if (diffMs < 0) return iso;
 	if (diffMs >= 7 * 864e5) return iso;
 	const minutes = Math.floor(diffMs / 6e4);
-	if (minutes < 1) return "just now";
-	if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+	if (minutes < 1) return i18n.t(CHROME_KEYS.relativeJustNow);
+	if (minutes < 60) return i18n.t(minutes === 1 ? CHROME_KEYS.relativeMinuteOne : CHROME_KEYS.relativeMinuteMany, { count: minutes });
 	const hours = Math.floor(minutes / 60);
-	if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+	if (hours < 24) return i18n.t(hours === 1 ? CHROME_KEYS.relativeHourOne : CHROME_KEYS.relativeHourMany, { count: hours });
 	const days = Math.floor(hours / 24);
-	return `${days} day${days === 1 ? "" : "s"} ago`;
+	return i18n.t(days === 1 ? CHROME_KEYS.relativeDayOne : CHROME_KEYS.relativeDayMany, { count: days });
 }
 //#endregion
 //#region src/cli/verify-status.ts
@@ -2749,35 +4284,44 @@ function buildEnvelope(checks) {
 	};
 }
 /** Presentation — fixed column widths per the §7.4 example shape. */
-const CHECK_LABEL = {
-	lane_status: "lane_status",
-	open_findings: "open_findings",
-	coverage: "coverage",
-	task_evidence: "task_evidence",
-	spec_review: "spec_review"
+const CHECK_LABEL_KEYS = {
+	lane_status: CHROME_KEYS.verifyStatusCheckLaneStatus,
+	open_findings: CHROME_KEYS.verifyStatusCheckOpenFindings,
+	coverage: CHROME_KEYS.verifyStatusCheckCoverage,
+	task_evidence: CHROME_KEYS.verifyStatusCheckTaskEvidence,
+	spec_review: CHROME_KEYS.verifyStatusCheckSpecReview
 };
-function statusGlyph(status) {
-	return status;
+function checkLabel(check, i18n) {
+	return i18n.t(CHECK_LABEL_KEYS[check]);
 }
-function failureSummary(failures) {
+function statusGlyph(status, i18n) {
+	if (status === "pass") return i18n.t(CHROME_KEYS.verifyStatusPass);
+	if (status === "fail") return i18n.t(CHROME_KEYS.verifyStatusFail);
+	return i18n.t(CHROME_KEYS.verifyStatusNa);
+}
+function failureSummary(failures, i18n) {
 	if (failures.length === 0) return "";
 	if (failures.length === 1) {
 		const f = failures[0];
-		return f ? ` ${f.code}` : "";
+		return f ? i18n.t(CHROME_KEYS.verifyStatusFailureSummaryOne, { code: f.code }) : "";
 	}
 	const head = failures[0];
-	return ` ${failures.length} failures (${head?.code ?? "?"}, …)`;
+	return i18n.t(CHROME_KEYS.verifyStatusFailureSummaryMany, {
+		count: failures.length,
+		code: head?.code ?? "?"
+	});
 }
-function renderText(env) {
-	const labelWidth = Math.max(...Object.values(CHECK_LABEL).map((l) => l.length));
+function renderText(env, i18n = DEFAULT_I18N) {
+	const labels = Object.fromEntries(env.checks.map((row) => [row.check, checkLabel(row.check, i18n)]));
+	const labelWidth = Math.max(...Object.values(labels).map((l) => l.length));
 	const lines = [];
 	for (const row of env.checks) {
-		const label = CHECK_LABEL[row.check].padEnd(labelWidth);
-		const status = statusGlyph(row.status).padEnd(4);
-		lines.push(`${label}  ${status}${failureSummary(row.failures)}`);
+		const label = labels[row.check].padEnd(labelWidth);
+		const status = statusGlyph(row.status, i18n).padEnd(4);
+		lines.push(`${label}  ${status}${failureSummary(row.failures, i18n)}`);
 		if (row.status === "fail" && row.failures.length > 1) for (const f of row.failures) lines.push(`    - ${f.code}: ${f.message}`);
 	}
-	lines.push(env.all_pass ? "" : "(diagnostic only — gate verdict not implied)");
+	lines.push(env.all_pass ? "" : i18n.t(CHROME_KEYS.verifyStatusDiagnosticOnly));
 	return lines.join("\n") + "\n";
 }
 //#endregion
@@ -3461,8 +5005,11 @@ async function checkFile(opts) {
 	};
 }
 /** Text-mode success line. */
-function renderSuccessText(result) {
-	return `ok: ${result.kind} at ${result.path}\n`;
+function renderSuccessText(result, i18n = DEFAULT_I18N) {
+	return i18n.t(CHROME_KEYS.checkOk, {
+		kind: result.kind,
+		path: result.path
+	}) + "\n";
 }
 //#endregion
 //#region docs/schemas.ts
@@ -4296,6 +5843,7 @@ const DiagnosticCode = z.enum([
 	"MUTUALLY_EXCLUSIVE_FLAGS",
 	"INVALID_ENV_VALUE",
 	"INVALID_FORMAT",
+	"INVALID_LOCALE",
 	"DRY_RUN_NOT_APPLICABLE",
 	"HOOK_EVENT_NOT_IMPLEMENTED",
 	"TASK_STATUS_WITHOUT_PROOF",
@@ -4743,66 +6291,345 @@ function buildResumePack(args) {
 	};
 }
 //#endregion
+//#region src/cli/tui/list-model.ts
+function projectKey(cwd) {
+	return `project:${cwd}`;
+}
+function featureKey(cwd, feature) {
+	return `feature:${cwd}:${feature}`;
+}
+function sessionKey(sessionId) {
+	return `session:${sessionId}`;
+}
+function statusBucket(row) {
+	if (row.sub_state.startsWith("DONE.")) return "done";
+	if (row.pending_queue_depth > 0) return "blocked";
+	if (row.active_tasks.length > 0) return "running";
+	return "idle";
+}
+function filterActive(rows, showAll) {
+	if (showAll) return [...rows];
+	return rows.filter((row) => !row.sub_state.startsWith("DONE."));
+}
+function groupByProjectFeature(rows) {
+	const projects = /* @__PURE__ */ new Map();
+	const featureIndexes = /* @__PURE__ */ new Map();
+	for (const row of rows) {
+		let project = projects.get(row.cwd);
+		if (project === void 0) {
+			project = {
+				cwd: row.cwd,
+				visible_session_count: 0,
+				features: []
+			};
+			projects.set(row.cwd, project);
+			featureIndexes.set(row.cwd, /* @__PURE__ */ new Map());
+		}
+		const projectFeatures = featureIndexes.get(row.cwd);
+		let feature = projectFeatures.get(row.feature);
+		if (feature === void 0) {
+			feature = {
+				cwd: row.cwd,
+				feature: row.feature,
+				visible_session_count: 0,
+				sessions: []
+			};
+			projectFeatures.set(row.feature, feature);
+			project.features.push(feature);
+		}
+		feature.sessions.push(row);
+		feature.visible_session_count += 1;
+		project.visible_session_count += 1;
+	}
+	return Array.from(projects.values());
+}
+function nextSelectableIndex(plan, currentIndex, dir) {
+	if (plan.length === 0) return -1;
+	if (currentIndex < 0) return 0;
+	const next = currentIndex + dir;
+	if (next < 0) return 0;
+	if (next >= plan.length) return plan.length - 1;
+	return next;
+}
+function resolveSelectionAfterRebuild(plan, prevSelectedKey) {
+	if (plan.length === 0) return {
+		selectedKey: null,
+		index: -1
+	};
+	if (prevSelectedKey !== null) {
+		const index = plan.findIndex((item) => item.key === prevSelectedKey);
+		if (index >= 0) return {
+			selectedKey: prevSelectedKey,
+			index
+		};
+	}
+	return {
+		selectedKey: plan[0].key,
+		index: 0
+	};
+}
+function toggleCollapsed(collapsed, key) {
+	const next = new Set(collapsed);
+	if (next.has(key)) next.delete(key);
+	else next.add(key);
+	return next;
+}
+function buildRenderPlan(rows, options) {
+	const groups = sortProjectGroups(groupByProjectFeature(filterActive(rows, options.showAll)), options.sortMode);
+	const plan = [];
+	for (const project of groups) {
+		const pKey = projectKey(project.cwd);
+		const projectCollapsed = options.collapsed.has(pKey);
+		plan.push({
+			kind: "project",
+			key: pKey,
+			cwd: project.cwd,
+			visible_session_count: project.visible_session_count,
+			collapsed: projectCollapsed
+		});
+		if (projectCollapsed) continue;
+		for (const feature of project.features) {
+			const fKey = featureKey(feature.cwd, feature.feature);
+			const featureCollapsed = options.collapsed.has(fKey);
+			plan.push({
+				kind: "feature",
+				key: fKey,
+				cwd: feature.cwd,
+				feature: feature.feature,
+				visible_session_count: feature.visible_session_count,
+				collapsed: featureCollapsed
+			});
+			if (featureCollapsed) continue;
+			for (const row of feature.sessions) plan.push({
+				kind: "session",
+				key: sessionKey(row.session_id),
+				row,
+				detail_status: "unknown"
+			});
+		}
+	}
+	return plan;
+}
+function withTreePrefixes(plan) {
+	return plan.map((item, index) => {
+		switch (item.kind) {
+			case "project": return {
+				item,
+				prefix: ""
+			};
+			case "feature": return {
+				item,
+				prefix: `${isLastFeature(plan, index) ? "└─" : "├─"} `
+			};
+			case "session": {
+				const parentFeatureIndex = findParentFeatureIndex(plan, index);
+				return {
+					item,
+					prefix: `${(parentFeatureIndex < 0 ? true : isLastFeature(plan, parentFeatureIndex)) ? "  " : "│ "}${isLastSession(plan, index) ? "└─" : "├─"} `
+				};
+			}
+		}
+	});
+}
+function sortProjectGroups(groups, sortMode) {
+	for (const project of groups) {
+		for (const feature of project.features) feature.sessions = [...feature.sessions].sort(compareSessions(sortMode));
+		project.features = [...project.features].sort(compareFeatures);
+	}
+	return [...groups].sort(compareProjects);
+}
+function compareProjects(a, b) {
+	return compareIsoDesc(latestAtForProject(a), latestAtForProject(b)) || a.cwd.localeCompare(b.cwd);
+}
+function compareFeatures(a, b) {
+	return compareIsoDesc(latestAtForFeature(a), latestAtForFeature(b)) || a.feature.localeCompare(b.feature);
+}
+function compareSessions(sortMode) {
+	return (a, b) => {
+		if (sortMode === "status") {
+			const byStatus = statusBucketRank(statusBucket(a)) - statusBucketRank(statusBucket(b));
+			if (byStatus !== 0) return byStatus;
+		}
+		return compareIsoDesc(a.at, b.at) || a.session_id.localeCompare(b.session_id);
+	};
+}
+function latestAtForProject(project) {
+	let latest = "";
+	for (const feature of project.features) {
+		const candidate = latestAtForFeature(feature);
+		if (compareIsoDesc(candidate, latest) < 0) latest = candidate;
+	}
+	return latest;
+}
+function latestAtForFeature(feature) {
+	let latest = "";
+	for (const row of feature.sessions) if (compareIsoDesc(row.at, latest) < 0) latest = row.at;
+	return latest;
+}
+function compareIsoDesc(a, b) {
+	return a < b ? 1 : a > b ? -1 : 0;
+}
+function statusBucketRank(bucket) {
+	switch (bucket) {
+		case "blocked": return 0;
+		case "running": return 1;
+		case "idle": return 2;
+		case "done": return 3;
+	}
+}
+function isLastFeature(plan, index) {
+	if (plan[index]?.kind !== "feature") return true;
+	for (let cursor = index + 1; cursor < plan.length; cursor += 1) {
+		const next = plan[cursor];
+		if (next.kind === "project") return true;
+		if (next.kind === "feature") return false;
+	}
+	return true;
+}
+function isLastSession(plan, index) {
+	if (plan[index]?.kind !== "session") return true;
+	for (let cursor = index + 1; cursor < plan.length; cursor += 1) {
+		const next = plan[cursor];
+		if (next.kind === "project" || next.kind === "feature") return true;
+		if (next.kind === "session") return false;
+	}
+	return true;
+}
+function findParentFeatureIndex(plan, index) {
+	for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+		const item = plan[cursor];
+		if (item.kind === "feature") return cursor;
+		if (item.kind === "project") return -1;
+	}
+	return -1;
+}
+//#endregion
 //#region src/cli/tui/format-row.ts
-/** Minimum widths per column (header width floors). */
-const COLUMN_MIN_WIDTHS = {
-	label: 12,
-	phase_sub: 12,
-	iter: 4,
-	status: 12
-};
-/** Choose the LABEL column source: session_label if set, else feature. */
-function chooseLabelSource(row) {
-	return row.session_label.trim().length > 0 ? row.session_label : row.feature;
-}
-/** Truncate with ellipsis when source > maxWidth. */
-function formatLabel(row, maxWidth) {
-	const raw = chooseLabelSource(row);
-	if (raw.length <= maxWidth) return raw;
-	if (maxWidth < 2) return raw.slice(0, maxWidth);
-	return raw.slice(0, maxWidth - 1) + "…";
-}
-/** PHASE.SUB column — just the sub_state literal. */
-function formatPhaseSub(row) {
-	return row.sub_state;
+/** PHASE.SUB column — localized sub_state label. */
+function formatPhaseSub(row, i18n) {
+	return i18n.t(subStateKey(row.sub_state));
 }
 /** ITER column — iteration as decimal string. */
 function formatIteration(row) {
 	return String(row.iteration);
 }
 /** STATUS column — precedence-ordered text badge per r354 P2. */
-function formatStatus(row) {
-	if (row.sub_state.startsWith("DONE.")) return "✓ done";
-	if (row.pending_queue_depth >= 2) return `⏸ ask [×${row.pending_queue_depth}]`;
-	if (row.pending_queue_depth === 1) return "⏸ ask";
-	if (row.active_tasks.length >= 2) return `▶ run [×${row.active_tasks.length}]`;
-	if (row.active_tasks.length === 1) return "▶ run";
-	return row.sub_state;
+function formatStatus(row, i18n) {
+	if (row.sub_state.startsWith("DONE.")) return i18n.t(statusIndicatorKey("done"));
+	if (row.pending_queue_depth >= 2) return `${i18n.t(statusIndicatorKey("blocked"))} [×${row.pending_queue_depth}]`;
+	if (row.pending_queue_depth === 1) return i18n.t(statusIndicatorKey("blocked"));
+	if (row.active_tasks.length >= 2) return `${i18n.t(statusIndicatorKey("running"))} [×${row.active_tasks.length}]`;
+	if (row.active_tasks.length === 1) return i18n.t(statusIndicatorKey("running"));
+	return formatPhaseSub(row, i18n);
 }
-function computeColumnWidths(rows, maxLabelWidth = 40) {
-	let label = COLUMN_MIN_WIDTHS.label;
-	let phase_sub = COLUMN_MIN_WIDTHS.phase_sub;
-	let iter = COLUMN_MIN_WIDTHS.iter;
-	let status = COLUMN_MIN_WIDTHS.status;
-	for (const row of rows) {
-		label = Math.max(label, Math.min(maxLabelWidth, chooseLabelSource(row).length));
-		phase_sub = Math.max(phase_sub, formatPhaseSub(row).length);
-		iter = Math.max(iter, formatIteration(row).length);
-		status = Math.max(status, formatStatus(row).length);
-	}
-	return {
-		label,
-		phase_sub,
-		iter,
-		status
-	};
+/** STATUS badge for rows that already render sub_state elsewhere. */
+function formatStatusBadge(row, i18n) {
+	if (statusBucket(row) === "idle") return i18n.t(statusIndicatorKey("idle"));
+	return formatStatus(row, i18n);
+}
+//#endregion
+//#region src/cli/tui/chrome.ts
+const DETAIL_FIELD_KEYS = {
+	feature: CHROME_KEYS.tuiDetailFieldFeature,
+	session: CHROME_KEYS.tuiDetailFieldSession,
+	label: CHROME_KEYS.tuiDetailFieldLabel,
+	workspace: CHROME_KEYS.tuiDetailFieldWorkspace,
+	ceremony: CHROME_KEYS.tuiDetailFieldCeremony,
+	phase: CHROME_KEYS.tuiDetailFieldPhase,
+	iteration: CHROME_KEYS.tuiDetailFieldIteration,
+	complexity: CHROME_KEYS.tuiDetailFieldComplexity,
+	created: CHROME_KEYS.tuiDetailFieldCreated,
+	updated: CHROME_KEYS.tuiDetailFieldUpdated,
+	spec_locked: CHROME_KEYS.tuiDetailFieldSpecLocked,
+	verify_accepted: CHROME_KEYS.tuiDetailFieldVerifyAccepted,
+	spec_version: CHROME_KEYS.tuiDetailFieldSpecVersion,
+	tail_seq: CHROME_KEYS.tuiDetailFieldTailSeq
+};
+const DETAIL_SECTION_KEYS = {
+	tasks: CHROME_KEYS.tuiDetailSectionTasks,
+	evidence: CHROME_KEYS.tuiDetailSectionEvidence,
+	open_findings: CHROME_KEYS.tuiDetailSectionOpenFindings,
+	pending: CHROME_KEYS.tuiDetailSectionPending
+};
+const EVIDENCE_BADGE_KEYS = {
+	pass: CHROME_KEYS.tuiDetailEvidenceBadgePass,
+	fail: CHROME_KEYS.tuiDetailEvidenceBadgeFail,
+	waived: CHROME_KEYS.tuiDetailEvidenceBadgeWaived
+};
+function formatTuiListTitle(i18n, activeCount, totalCount) {
+	return i18n.t(CHROME_KEYS.tuiListTitle, {
+		active_count: activeCount,
+		total_count: totalCount
+	});
+}
+function formatTuiSortLabel(i18n, sortMode) {
+	const sort = i18n.t(sortMode === "time" ? CHROME_KEYS.tuiListSortTime : CHROME_KEYS.tuiListSortStatus);
+	return i18n.t(CHROME_KEYS.tuiListSort, { sort });
+}
+function formatTuiListHelp(i18n) {
+	return i18n.t(CHROME_KEYS.tuiListHelp);
+}
+function formatTuiListRowIteration(i18n, iteration) {
+	return i18n.t(CHROME_KEYS.tuiListRowIteration, { value: iteration });
+}
+function formatTuiDetailHelp(i18n) {
+	return i18n.t(CHROME_KEYS.tuiDetailHelp);
+}
+function formatTuiDetailNone(i18n) {
+	return i18n.t(CHROME_KEYS.tuiDetailNone);
+}
+function formatTuiBoolean(i18n, value) {
+	return i18n.t(value ? CHROME_KEYS.tuiDetailBooleanTrue : CHROME_KEYS.tuiDetailBooleanFalse);
+}
+function formatTuiDetailField(i18n, field, value) {
+	return i18n.t(DETAIL_FIELD_KEYS[field], { value });
+}
+function formatTuiDetailBasedOn(i18n, spec, tasks) {
+	return i18n.t(CHROME_KEYS.tuiDetailFieldBasedOn, {
+		spec,
+		tasks
+	});
+}
+function formatTuiDetailSectionTitle(i18n, section, count) {
+	return i18n.t(DETAIL_SECTION_KEYS[section], { count });
+}
+function formatTuiDetailEvidenceBadge(i18n, badge) {
+	return i18n.t(EVIDENCE_BADGE_KEYS[badge]);
+}
+function formatTuiDetailSidecarSummary(i18n, path) {
+	return i18n.t(CHROME_KEYS.tuiDetailSidecarSummary, { path });
+}
+function formatTuiDetailStepSummary(i18n, done, total) {
+	return i18n.t(CHROME_KEYS.tuiDetailStepSummary, {
+		done,
+		total
+	});
 }
 //#endregion
 //#region src/cli/tui/app.tsx
-function App({ initialRows, loadRows }) {
+function App({ initialRows, loadRows, loadDetail, i18n }) {
 	const { exit } = useApp();
 	const [rows, setRows] = useState(initialRows);
 	const [reloading, setReloading] = useState(false);
+	const [selectedKey, setSelectedKey] = useState(null);
+	const [showAll, setShowAll] = useState(false);
+	const [sortMode, setSortMode] = useState("time");
+	const [collapsed, setCollapsed] = useState(() => /* @__PURE__ */ new Set());
+	const [mode, setMode] = useState("list");
+	const [detail, setDetail] = useState(null);
+	const plan = useMemo(() => buildRenderPlan(rows, {
+		showAll,
+		sortMode,
+		collapsed
+	}), [
+		rows,
+		showAll,
+		sortMode,
+		collapsed
+	]);
+	const selection = useMemo(() => resolveSelectionAfterRebuild(plan, selectedKey), [plan, selectedKey]);
+	const treePlan = useMemo(() => withTreePrefixes(plan), [plan]);
+	const activeCount = useMemo(() => filterActive(rows, false).length, [rows]);
 	const handleReload = useCallback(async () => {
 		if (reloading) return;
 		setReloading(true);
@@ -4812,80 +6639,388 @@ function App({ initialRows, loadRows }) {
 			setReloading(false);
 		}
 	}, [loadRows, reloading]);
+	const handleOpenDetail = useCallback((row) => {
+		setMode("detail");
+		setDetail({
+			row,
+			result: null
+		});
+		loadDetail(row).then((result) => {
+			setDetail((current) => current?.row.session_id === row.session_id ? {
+				row,
+				result
+			} : current);
+		}).catch((error) => {
+			setDetail((current) => current?.row.session_id === row.session_id ? {
+				row,
+				result: unexpectedDetailError(error)
+			} : current);
+		});
+	}, [loadDetail]);
+	useEffect(() => {
+		if (selectedKey !== selection.selectedKey) setSelectedKey(selection.selectedKey);
+	}, [selectedKey, selection.selectedKey]);
 	useInput((input, key) => {
-		if (input === "q" || key.ctrl && input === "c" || key.escape) {
+		if (input === "q" || key.ctrl && input === "c") {
 			exit();
+			return;
+		}
+		if (key.escape) {
+			if (mode === "detail") {
+				setMode("list");
+				return;
+			}
+			exit();
+			return;
+		}
+		if (mode === "detail") return;
+		if (key.upArrow || key.downArrow) {
+			const nextIndex = nextSelectableIndex(plan, selection.index, key.downArrow ? 1 : -1);
+			setSelectedKey((nextIndex >= 0 ? plan[nextIndex] : void 0)?.key ?? null);
+			return;
+		}
+		if (input === " " || key.return) {
+			const selectedItem = selection.index >= 0 ? plan[selection.index] : void 0;
+			if (selectedItem?.kind === "project" || selectedItem?.kind === "feature") {
+				setCollapsed((prev) => toggleCollapsed(prev, selectedItem.key));
+				setSelectedKey(selectedItem.key);
+			}
+			if (key.return && selectedItem?.kind === "session") handleOpenDetail(selectedItem.row);
+			return;
+		}
+		if (input === "a") {
+			setShowAll((current) => !current);
+			return;
+		}
+		if (input === "s") {
+			setSortMode((current) => current === "time" ? "status" : "time");
 			return;
 		}
 		if (input === "r") handleReload();
 	});
-	const widths = computeColumnWidths(rows);
+	if (mode === "detail") return /* @__PURE__ */ jsxs(Box, {
+		flexDirection: "column",
+		padding: 1,
+		width: "100%",
+		children: [/* @__PURE__ */ jsxs(Box, {
+			borderStyle: "round",
+			flexDirection: "column",
+			paddingX: 1,
+			width: "100%",
+			children: [/* @__PURE__ */ jsx(Text, {
+				bold: true,
+				children: i18n.t(CHROME_KEYS.tuiDetailTitle)
+			}), renderDetail(detail, i18n)]
+		}), /* @__PURE__ */ jsx(Box, {
+			marginTop: 1,
+			paddingX: 1,
+			children: /* @__PURE__ */ jsx(Text, {
+				dimColor: true,
+				children: formatTuiDetailHelp(i18n)
+			})
+		})]
+	});
 	return /* @__PURE__ */ jsxs(Box, {
 		flexDirection: "column",
 		padding: 1,
-		children: [
-			/* @__PURE__ */ jsxs(Box, {
-				marginBottom: 1,
-				children: [/* @__PURE__ */ jsxs(Text, {
+		width: "100%",
+		children: [/* @__PURE__ */ jsxs(Box, {
+			borderStyle: "round",
+			flexDirection: "column",
+			paddingX: 1,
+			width: "100%",
+			children: [/* @__PURE__ */ jsxs(Box, { children: [
+				/* @__PURE__ */ jsx(Text, {
 					bold: true,
-					children: [
-						"loaf sessions (",
-						rows.length,
-						")"
-					]
-				}), reloading && /* @__PURE__ */ jsx(Text, {
+					children: formatTuiListTitle(i18n, activeCount, rows.length)
+				}),
+				/* @__PURE__ */ jsx(Text, {
 					dimColor: true,
-					children: " · reloading…"
-				})]
-			}),
-			rows.length === 0 ? /* @__PURE__ */ jsx(Text, {
+					children: ` · ${formatTuiSortLabel(i18n, sortMode)}`
+				}),
+				reloading && /* @__PURE__ */ jsx(Text, {
+					dimColor: true,
+					children: ` · ${i18n.t(CHROME_KEYS.tuiListReloading)}`
+				})
+			] }), plan.length === 0 ? /* @__PURE__ */ jsx(Text, {
 				dimColor: true,
-				children: "(no sessions found)"
-			}) : /* @__PURE__ */ jsxs(Fragment, { children: [/* @__PURE__ */ jsxs(Box, { children: [
+				children: i18n.t(CHROME_KEYS.tuiListEmpty)
+			}) : treePlan.map((treeItem) => renderItem(treeItem, treeItem.item.key === selection.selectedKey, i18n))]
+		}), /* @__PURE__ */ jsx(Box, {
+			marginTop: 1,
+			paddingX: 1,
+			children: /* @__PURE__ */ jsx(Text, {
+				dimColor: true,
+				children: formatTuiListHelp(i18n)
+			})
+		})]
+	});
+}
+function renderItem(treeItem, selected, i18n) {
+	const { item, prefix } = treeItem;
+	const marker = selected ? ">" : " ";
+	switch (item.kind) {
+		case "project": return /* @__PURE__ */ jsx(Box, { children: /* @__PURE__ */ jsx(Text, {
+			inverse: selected,
+			children: `${marker} ${caret(item.collapsed)} ${item.cwd} (${item.visible_session_count})`
+		}) }, item.key);
+		case "feature": return /* @__PURE__ */ jsx(Box, { children: /* @__PURE__ */ jsx(Text, {
+			inverse: selected,
+			children: `${marker} ${prefix}${caret(item.collapsed)} ${item.feature} (${item.visible_session_count})`
+		}) }, item.key);
+		case "session": return /* @__PURE__ */ jsx(Box, { children: /* @__PURE__ */ jsx(Text, {
+			inverse: selected,
+			children: `${marker} ${prefix}${formatPhaseSub(item.row, i18n)} · ${formatTuiListRowIteration(i18n, formatIteration(item.row))} · ${formatStatusBadge(item.row, i18n)}`
+		}) }, item.key);
+	}
+}
+function caret(collapsed) {
+	return collapsed ? "▸" : "▾";
+}
+function renderDetail(detail, i18n) {
+	if (detail === null) return /* @__PURE__ */ jsx(Text, {
+		dimColor: true,
+		children: i18n.t(CHROME_KEYS.tuiDetailNoSelected)
+	});
+	if (detail.result === null) return /* @__PURE__ */ jsxs(Box, {
+		flexDirection: "column",
+		children: [/* @__PURE__ */ jsx(Text, {
+			bold: true,
+			children: i18n.t(CHROME_KEYS.tuiDetailTitle)
+		}), /* @__PURE__ */ jsx(Text, {
+			dimColor: true,
+			children: i18n.t(CHROME_KEYS.tuiDetailLoading)
+		})]
+	});
+	switch (detail.result.status) {
+		case "ready": return renderReadyDetail(detail.result.vm, i18n);
+		case "missing": return /* @__PURE__ */ jsxs(Box, {
+			flexDirection: "column",
+			children: [
 				/* @__PURE__ */ jsx(Text, {
 					bold: true,
-					children: padCell("LABEL", widths.label)
+					children: i18n.t(CHROME_KEYS.tuiDetailMissingTitle, { feature: detail.row.feature })
 				}),
-				/* @__PURE__ */ jsx(Text, { children: "  " }),
-				/* @__PURE__ */ jsx(Text, {
-					bold: true,
-					children: padCell("PHASE.SUB", widths.phase_sub)
-				}),
-				/* @__PURE__ */ jsx(Text, { children: "  " }),
-				/* @__PURE__ */ jsx(Text, {
-					bold: true,
-					children: padCell("ITER", widths.iter)
-				}),
-				/* @__PURE__ */ jsx(Text, { children: "  " }),
-				/* @__PURE__ */ jsx(Text, {
-					bold: true,
-					children: "STATUS"
-				})
-			] }), rows.map((row) => /* @__PURE__ */ jsxs(Box, { children: [
-				/* @__PURE__ */ jsx(Text, { children: padCell(formatLabel(row, widths.label), widths.label) }),
-				/* @__PURE__ */ jsx(Text, { children: "  " }),
-				/* @__PURE__ */ jsx(Text, { children: padCell(formatPhaseSub(row), widths.phase_sub) }),
-				/* @__PURE__ */ jsx(Text, { children: "  " }),
-				/* @__PURE__ */ jsx(Text, { children: padCell(formatIteration(row), widths.iter) }),
-				/* @__PURE__ */ jsx(Text, { children: "  " }),
-				/* @__PURE__ */ jsx(Text, { children: formatStatus(row) })
-			] }, row.session_id))] }),
-			/* @__PURE__ */ jsx(Box, {
-				marginTop: 1,
-				children: /* @__PURE__ */ jsx(Text, {
+				/* @__PURE__ */ jsx(Text, { children: detail.result.message }),
+				detail.result.fix !== null && /* @__PURE__ */ jsx(Text, {
 					dimColor: true,
-					children: "[q] quit · [r] refresh"
+					children: detail.result.fix
 				})
+			]
+		});
+		case "stale": return /* @__PURE__ */ jsxs(Box, {
+			flexDirection: "column",
+			children: [
+				/* @__PURE__ */ jsx(Text, {
+					bold: true,
+					children: i18n.t(CHROME_KEYS.tuiDetailStaleTitle, { feature: detail.row.feature })
+				}),
+				/* @__PURE__ */ jsx(Text, { children: detail.result.message }),
+				detail.result.fix !== null && /* @__PURE__ */ jsx(Text, {
+					dimColor: true,
+					children: detail.result.fix
+				})
+			]
+		});
+		case "error": return /* @__PURE__ */ jsxs(Box, {
+			flexDirection: "column",
+			children: [/* @__PURE__ */ jsx(Text, {
+				bold: true,
+				children: i18n.t(CHROME_KEYS.tuiDetailErrorTitle, { feature: detail.row.feature })
+			}), /* @__PURE__ */ jsx(Text, { children: detail.result.message })]
+		});
+	}
+}
+function renderReadyDetail(vm, i18n) {
+	return /* @__PURE__ */ jsxs(Box, {
+		flexDirection: "column",
+		children: [
+			/* @__PURE__ */ jsx(Text, {
+				bold: true,
+				children: formatTuiDetailField(i18n, "feature", vm.feature)
+			}),
+			/* @__PURE__ */ jsx(Text, { children: formatTuiDetailField(i18n, "session", vm.session_id_short) }),
+			/* @__PURE__ */ jsx(Text, { children: formatTuiDetailField(i18n, "label", vm.session_label ?? "n/a") }),
+			/* @__PURE__ */ jsx(Text, { children: formatTuiDetailField(i18n, "workspace", vm.workspace) }),
+			/* @__PURE__ */ jsx(Text, { children: formatTuiDetailField(i18n, "ceremony", vm.ceremony_label) }),
+			/* @__PURE__ */ jsx(Text, { children: formatTuiDetailField(i18n, "phase", vm.sub_state) }),
+			/* @__PURE__ */ jsx(Text, { children: formatTuiDetailField(i18n, "iteration", vm.iteration) }),
+			/* @__PURE__ */ jsx(Text, { children: formatTuiDetailField(i18n, "complexity", vm.complexity_score) }),
+			/* @__PURE__ */ jsx(Text, { children: formatTuiDetailBasedOn(i18n, vm.based_on.spec, vm.based_on.tasks) }),
+			/* @__PURE__ */ jsx(Text, { children: formatTuiDetailField(i18n, "created", vm.created_at_relative) }),
+			/* @__PURE__ */ jsx(Text, { children: formatTuiDetailField(i18n, "updated", vm.updated_at_relative) }),
+			/* @__PURE__ */ jsx(Text, { children: formatTuiDetailField(i18n, "spec_locked", formatTuiBoolean(i18n, vm.spec_locked)) }),
+			/* @__PURE__ */ jsx(Text, { children: formatTuiDetailField(i18n, "verify_accepted", formatTuiBoolean(i18n, vm.verify_accepted)) }),
+			/* @__PURE__ */ jsx(Text, { children: formatTuiDetailField(i18n, "spec_version", vm.spec_version) }),
+			/* @__PURE__ */ jsx(Text, { children: formatTuiDetailField(i18n, "tail_seq", vm.tail_seq) }),
+			/* @__PURE__ */ jsxs(Box, {
+				marginTop: 1,
+				flexDirection: "column",
+				children: [/* @__PURE__ */ jsx(Text, {
+					bold: true,
+					children: formatTuiDetailSectionTitle(i18n, "tasks", vm.tasks.length)
+				}), vm.tasks.length === 0 ? /* @__PURE__ */ jsx(Text, {
+					dimColor: true,
+					children: `  ${formatTuiDetailNone(i18n)}`
+				}) : vm.tasks.map((task) => /* @__PURE__ */ jsx(Text, { children: `  ${task.id} ${task.status} ${task.kind}${task.title === null ? "" : ` ${task.title}`} · ${i18n.t(CHROME_KEYS.tuiDetailRowSteps, { value: task.step_summary })}` }, task.id))]
+			}),
+			/* @__PURE__ */ jsxs(Box, {
+				marginTop: 1,
+				flexDirection: "column",
+				children: [/* @__PURE__ */ jsx(Text, {
+					bold: true,
+					children: formatTuiDetailSectionTitle(i18n, "evidence", vm.evidence.length)
+				}), vm.evidence.length === 0 ? /* @__PURE__ */ jsx(Text, {
+					dimColor: true,
+					children: `  ${formatTuiDetailNone(i18n)}`
+				}) : vm.evidence.map((evidence) => /* @__PURE__ */ jsx(Text, { children: `  ${evidence.id} [${formatTuiDetailEvidenceBadge(i18n, evidence.result_badge)}] ${evidence.kind} ${i18n.t(CHROME_KEYS.tuiDetailRowIteration, { value: evidence.iteration })}${evidence.task_id === null ? "" : ` ${i18n.t(CHROME_KEYS.tuiDetailRowTask, { value: evidence.task_id })}`} · ${evidence.summary}` }, evidence.id))]
+			}),
+			/* @__PURE__ */ jsxs(Box, {
+				marginTop: 1,
+				flexDirection: "column",
+				children: [/* @__PURE__ */ jsx(Text, {
+					bold: true,
+					children: formatTuiDetailSectionTitle(i18n, "open_findings", vm.open_findings.length)
+				}), vm.open_findings.length === 0 ? /* @__PURE__ */ jsx(Text, {
+					dimColor: true,
+					children: `  ${formatTuiDetailNone(i18n)}`
+				}) : vm.open_findings.map((finding) => /* @__PURE__ */ jsx(Text, { children: `  ${finding.id} ${finding.category}/${finding.action}${finding.target === null ? "" : ` ${i18n.t(CHROME_KEYS.tuiDetailRowTarget, { value: finding.target })}`}${finding.reason ? ` · ${finding.reason}` : ""}${finding.summary ? ` · ${finding.summary}` : ""}` }, finding.id))]
+			}),
+			/* @__PURE__ */ jsxs(Box, {
+				marginTop: 1,
+				flexDirection: "column",
+				children: [/* @__PURE__ */ jsx(Text, {
+					bold: true,
+					children: formatTuiDetailSectionTitle(i18n, "pending", vm.pending.length)
+				}), vm.pending.length === 0 ? /* @__PURE__ */ jsx(Text, {
+					dimColor: true,
+					children: `  ${formatTuiDetailNone(i18n)}`
+				}) : vm.pending.map((pending) => /* @__PURE__ */ jsx(Text, { children: `  ${pending.pending_id} ${pending.kind} ${i18n.t(CHROME_KEYS.tuiDetailRowBlocks, { value: pending.blocks })}${pending.options.length === 0 ? "" : ` ${i18n.t(CHROME_KEYS.tuiDetailRowOptions, { value: pending.options.join(",") })}`} · ${pending.question}` }, pending.pending_id))]
 			})
 		]
 	});
 }
-/** Right-pad a column cell with spaces. Truncation handled by
-*  formatLabel; PHASE.SUB / ITER / STATUS use computed widths so the
-*  raw content always fits (no truncation needed). */
-function padCell(text, width) {
-	if (text.length >= width) return text;
-	return text + " ".repeat(width - text.length);
+function unexpectedDetailError(error) {
+	return {
+		status: "error",
+		message: error instanceof Error ? error.message : String(error)
+	};
+}
+//#endregion
+//#region src/cli/tui/detail-model.ts
+const DETAIL_PROJECTION_KINDS = [
+	"state",
+	"tasks",
+	"evidence",
+	"findings",
+	"pending"
+];
+function classifyDetailOutcome(row, input, now, i18n) {
+	if (input.ok) return {
+		status: "ready",
+		vm: shapeDetailViewModel(row, input.loaded, now, i18n)
+	};
+	const { error } = input;
+	if (error instanceof NoSessionError) return {
+		status: "missing",
+		message: i18n.t(CHROME_KEYS.tuiDetailMissingMessage, { feature: row.feature }),
+		fix: detailFix(error.detail)
+	};
+	if (error instanceof SnapshotStaleError) return {
+		status: "stale",
+		reason: error.reason,
+		message: i18n.t(CHROME_KEYS.tuiDetailStaleMessage, { reason: error.reason }),
+		fix: detailFix(error.detail)
+	};
+	return {
+		status: "error",
+		message: error instanceof Error ? error.message : String(error)
+	};
+}
+function shapeDetailViewModel(row, loaded, now, i18n) {
+	const { state, tasks, evidence, findings, pending, meta } = loaded;
+	return {
+		feature: row.feature,
+		session_id_short: row.session_id_short,
+		session_label: state.session_label,
+		workspace: state.workspace,
+		ceremony_label: state.ceremony_label,
+		phase: i18n.t(phaseKey(state.phase)),
+		sub_state: i18n.t(subStateKey(state.sub_state)),
+		iteration: state.iteration,
+		complexity_score: state.complexity_score === null ? "n/a" : String(state.complexity_score),
+		based_on: state.based_on,
+		created_at_relative: formatAtRelative(state.created_at, now, i18n),
+		updated_at_relative: formatAtRelative(state.updated_at, now, i18n),
+		spec_locked: state.spec_locked,
+		verify_accepted: state.verify_accepted,
+		spec_version: state.spec_version,
+		tail_seq: meta.last_applied_seq,
+		tasks: tasks === null ? [] : tasks.tasks.map((task) => ({
+			id: task.id,
+			kind: i18n.t(taskKindKey(task.kind)),
+			status: i18n.t(taskStatusKey(task.status)),
+			title: optionalStringField(task, "title"),
+			step_summary: formatStepSummary(task.execution, i18n)
+		})),
+		evidence: evidence.evidence.map((entry) => ({
+			id: entry.id,
+			kind: i18n.t(evidenceKindKey(entry.kind)),
+			result: entry.result,
+			result_badge: resultBadge(entry.result),
+			summary: truncateHighSignal(summaryText(entry.summary, i18n)),
+			iteration: entry.iteration,
+			task_id: entry.task_id ?? null
+		})),
+		open_findings: findings.findings.filter((finding) => finding.status === "open").map((finding) => ({
+			id: finding.id,
+			category: i18n.t(findingCategoryKey(finding.category)),
+			action: i18n.t(findingActionKey(finding.action)),
+			summary: truncateHighSignal(finding.summary ?? ""),
+			reason: truncateHighSignal(finding.reason ?? ""),
+			target: finding.target === void 0 ? null : `${finding.target.task_id}/${finding.target.step}`
+		})),
+		pending: pending.pending.filter((entry) => !entry.resolved).map((entry) => ({
+			pending_id: entry.pending_id,
+			kind: i18n.t(pendingKindKey(entry.kind)),
+			question: entry.question,
+			blocks: entry.blocks,
+			options: entry.options ?? []
+		}))
+	};
+}
+function detailFix(detail) {
+	return typeof detail["fix"] === "string" ? detail["fix"] : null;
+}
+function resultBadge(result) {
+	switch (result) {
+		case "passed":
+		case "approved": return "pass";
+		case "failed":
+		case "rejected": return "fail";
+		case "waived": return "waived";
+		default: throw new Error(`unexpected evidence result: ${result}`);
+	}
+}
+function summaryText(summary, i18n) {
+	if (typeof summary === "string") return summary;
+	if (summary.mode === "inline") return summary.text;
+	return formatTuiDetailSidecarSummary(i18n, summary.ref.path);
+}
+function truncateHighSignal(value) {
+	const limit = 75;
+	if (value.length <= limit) return value;
+	return `${value.slice(0, limit - 1)}…`;
+}
+function formatStepSummary(execution, i18n) {
+	const steps = Object.values(execution);
+	const done = steps.filter((step) => step.status === "passed" || step.status === "waived").length;
+	return formatTuiDetailStepSummary(i18n, done, steps.length);
+}
+function optionalStringField(value, field) {
+	if (typeof value !== "object" || value === null) return null;
+	const candidate = value[field];
+	return typeof candidate === "string" && candidate.length > 0 ? candidate : null;
 }
 //#endregion
 //#region src/cli/tui/render.ts
@@ -5469,6 +7604,57 @@ async function readLoafConfig(repoRoot) {
 	const result = WriteGuardConfig.safeParse(parsed);
 	if (!result.success) return {
 		status: "invalid",
+		reason: `schema validation failed for ${configPath}`
+	};
+	return {
+		status: "ok",
+		config: result.data
+	};
+}
+//#endregion
+//#region src/core/user-config.ts
+const UserConfig = z.object({
+	schema_version: z.literal(1),
+	locale: z.object({ default_lang: z.enum(["en", "zh"]) }).strict()
+}).strict();
+/** Canonical user-level config path under an injected home directory. */
+function userConfigPath(homeDir) {
+	return path.join(homeDir, ".loaf", "config.json");
+}
+/**
+* Read + strictly validate ~/.loaf/config.json.
+*
+* - file absent (ENOENT)         -> { status: "absent" }
+* - unreadable / malformed / bad -> { status: "invalid" }
+* - valid                        -> { status: "ok", config }
+*/
+async function readUserConfig(homeDir) {
+	const configPath = userConfigPath(homeDir);
+	let raw;
+	try {
+		raw = await promises.readFile(configPath, "utf8");
+	} catch (err) {
+		if (err.code === "ENOENT") return { status: "absent" };
+		return {
+			status: "invalid",
+			path: configPath,
+			reason: `cannot read ${configPath}: ${err.message}`
+		};
+	}
+	let parsed;
+	try {
+		parsed = JSON.parse(raw);
+	} catch {
+		return {
+			status: "invalid",
+			path: configPath,
+			reason: `malformed JSON in ${configPath}`
+		};
+	}
+	const result = UserConfig.safeParse(parsed);
+	if (!result.success) return {
+		status: "invalid",
+		path: configPath,
 		reason: `schema validation failed for ${configPath}`
 	};
 	return {
@@ -9164,24 +11350,61 @@ function normalizedCovers(covers) {
 	if (!covers || covers.length === 0) return "";
 	return [...new Set(covers)].sort().join(",");
 }
-function formatCovers(covers) {
-	if (!covers || covers.length === 0) return "<none>";
+function formatCovers(i18n, covers) {
+	if (!covers || covers.length === 0) return i18n.t(SUCCESS_KEYS.evidenceCoversNone);
 	return [...new Set(covers)].sort().join(",");
 }
-function evidenceAddStateChange(items) {
+function formatTaskListKind(i18n, kind) {
+	if (i18n.locale === "en") return kind;
+	return i18n.t(taskKindKey(kind));
+}
+function formatTaskStatus(i18n, status) {
+	return i18n.t(taskStatusKey(status));
+}
+function evidenceAddStateChange(i18n, items) {
 	if (items.length === 1) {
 		const it = items[0];
-		return `evidence add: ${it.id} kind=${it.kind}, covers=${formatCovers(it.covers)}`;
+		return i18n.t(SUCCESS_KEYS.evidenceAddStateChangeSingle, {
+			evidence_id: it.id,
+			kind: it.kind,
+			covers: formatCovers(i18n, it.covers)
+		});
 	}
 	const kinds = new Set(items.map((it) => it.kind));
 	const coversNorm = new Set(items.map((it) => normalizedCovers(it.covers)));
 	const idsList = items.map((it) => it.id).join(",");
 	if (kinds.size === 1 && coversNorm.size === 1) {
 		const kind = [...kinds][0];
-		const coversForRender = formatCovers(items[0].covers);
-		return `evidence add: +${items.length} evidence (${idsList}; kind=${kind}, covers=${coversForRender})`;
+		const coversForRender = formatCovers(i18n, items[0].covers);
+		return i18n.t(SUCCESS_KEYS.evidenceAddStateChangeBatchHomogeneous, {
+			count: items.length,
+			evidence_ids: idsList,
+			kind,
+			covers: coversForRender
+		});
 	}
-	return `evidence add: +${items.length} evidence (${idsList})`;
+	return i18n.t(SUCCESS_KEYS.evidenceAddStateChangeBatchMixed, {
+		count: items.length,
+		evidence_ids: idsList
+	});
+}
+function formatPendingKind(i18n, kind) {
+	if (i18n.locale === "en") return kind;
+	const parsed = PendingPromptKind$1.safeParse(kind);
+	return parsed.success ? i18n.t(pendingKindKey(parsed.data)) : kind;
+}
+function formatFindingCategory(i18n, category) {
+	if (i18n.locale === "en") return category;
+	const parsed = FindingCategory$1.safeParse(category);
+	return parsed.success ? i18n.t(findingCategoryKey(parsed.data)) : category;
+}
+function formatFindingAction(i18n, action) {
+	if (i18n.locale === "en") return action;
+	const parsed = FindingAction$1.safeParse(action);
+	return parsed.success ? i18n.t(findingActionKey(parsed.data)) : action;
+}
+function formatFindingStatus(i18n, status) {
+	return i18n.t(findingStatusKey(status));
 }
 const PRESETS = {
 	quick: {
@@ -9228,22 +11451,108 @@ function installSigintHandler(deps) {
 	process.on("SIGINT", handler);
 	return handler;
 }
+function preparseI18nFromEnv(env) {
+	const explicit = env["LOAF_LANG"];
+	if (explicit === "zh" || explicit === "en") return createI18n(explicit, BUILTIN_BUNDLES);
+	if (((env["LC_ALL"] ?? env["LC_MESSAGES"] ?? env["LANG"])?.toLowerCase())?.startsWith("zh")) return createI18n("zh", BUILTIN_BUNDLES);
+	return createI18n("en", BUILTIN_BUNDLES);
+}
+function writePreContextKeyedFailure(input) {
+	const keyPath = diagnosticKey(input.code);
+	const message = input.renderAsJson ? createI18n("en", BUILTIN_BUNDLES).t(keyPath, input.vars) : preparseI18nFromEnv(process.env).t(keyPath, input.vars);
+	if (input.renderAsJson) {
+		const out = {
+			ok: false,
+			code: input.code,
+			message
+		};
+		if (input.detail !== void 0) out["detail"] = input.detail;
+		process.stderr.write(JSON.stringify(out) + "\n");
+	} else process.stderr.write(`error: ${input.code} — ${message}\n`);
+}
+function writePreContextSiteFailure(input) {
+	const message = input.renderAsJson ? createI18n("en", BUILTIN_BUNDLES).t(input.keyPath, input.vars) : preparseI18nFromEnv(process.env).t(input.keyPath, input.vars);
+	if (input.renderAsJson) {
+		const out = {
+			ok: false,
+			code: input.code,
+			message
+		};
+		if (input.detail !== void 0) out["detail"] = input.detail;
+		process.stderr.write(JSON.stringify(out) + "\n");
+	} else process.stderr.write(`error: ${input.code} — ${message}\n`);
+}
+function diagnosticVarsFor(code, detail) {
+	switch (code) {
+		case "INVALID_FORMAT": return varsIfDefined({
+			value: stringVar(detail?.["value"]),
+			allowed_values_human: stringVar(detail?.["allowed_values_human"]) ?? FORMAT_MODES_HUMAN
+		});
+		case "MUTUALLY_EXCLUSIVE_FLAGS": return varsIfDefined({ flags: listVar(detail?.["conflicting"]) });
+		case "DRY_RUN_NOT_APPLICABLE": return varsIfDefined({
+			command_type: stringVar(detail?.["command_type"]),
+			command: stringVar(detail?.["command"])
+		});
+		case "FEATURE_NOT_FOUND": return {};
+		case "FEATURE_AMBIGUOUS": return varsIfDefined({
+			count: numberVar(detail?.["count"]),
+			feature_list: listVar(detail?.["feature_list"])
+		});
+		case "SESSION_CWD_MISMATCH": return varsIfDefined({
+			uuid: stringVar(detail?.["uuid"]),
+			registered_cwd: stringVar(detail?.["registered_cwd"]),
+			current_cwd: stringVar(detail?.["current_cwd"])
+		});
+		case "SESSION_SHORT_AMBIGUOUS": return varsIfDefined({
+			prefix: stringVar(detail?.["prefix"]),
+			match_count: numberVar(detail?.["match_count"]),
+			candidate_list: listVar(detail?.["candidate_list"])
+		});
+		case "SESSION_NOT_FOUND": return varsIfDefined({ uuid_or_prefix: stringVar(detail?.["uuid_or_prefix"]) });
+		default: return null;
+	}
+}
+function varsIfDefined(vars) {
+	for (const value of Object.values(vars)) if (value === null) return null;
+	return vars;
+}
+function stringVar(value) {
+	if (typeof value === "string") return value;
+	if (typeof value === "number" || typeof value === "boolean") return String(value);
+	return null;
+}
+function numberVar(value) {
+	return typeof value === "number" ? value : null;
+}
+function listVar(value) {
+	if (Array.isArray(value)) return value.map((item) => String(item)).join(", ");
+	return stringVar(value);
+}
 async function main(argv = process.argv, deps = {}) {
 	const wantsHelpOrVersion = argv.some((a) => a === "--help" || a === "-h" || a === "--version" || a === "-V");
 	if (!wantsHelpOrVersion) {
 		const presentation = parsePresentation(argv);
 		if (!presentation.ok) {
-			if (presentation.kind === "INVALID_FORMAT") process.stderr.write(`error: INVALID_FORMAT — invalid --format value '${presentation.rawValue}'; allowed: ${FORMAT_MODES_HUMAN}\n`);
+			if (presentation.kind === "INVALID_FORMAT") writePreContextKeyedFailure({
+				code: "INVALID_FORMAT",
+				vars: {
+					value: presentation.rawValue,
+					allowed_values_human: FORMAT_MODES_HUMAN
+				},
+				detail: {
+					value: presentation.rawValue,
+					allowed_values: FORMAT_MODES
+				},
+				renderAsJson: false
+			});
 			else {
 				const { conflicting, renderAsJson } = presentation;
-				const message = `mutually exclusive flags in the same invocation: ${conflicting.join(", ")}`;
-				if (renderAsJson) process.stderr.write(JSON.stringify({
-					ok: false,
+				writePreContextKeyedFailure({
 					code: "MUTUALLY_EXCLUSIVE_FLAGS",
-					message,
-					detail: { conflicting }
-				}) + "\n");
-				else process.stderr.write(`error: MUTUALLY_EXCLUSIVE_FLAGS — ${message}\n`);
+					vars: { flags: conflicting.join(", ") },
+					detail: { conflicting },
+					renderAsJson
+				});
 			}
 			return 2;
 		}
@@ -9282,14 +11591,14 @@ async function main(argv = process.argv, deps = {}) {
 			if (process.env["LOAF_SESSION"] !== void 0 && process.env["LOAF_SESSION"].length > 0) presentSelectors.push("$LOAF_SESSION");
 			if (process.env["LOAF_FEATURE"] !== void 0 && process.env["LOAF_FEATURE"].length > 0) presentSelectors.push("$LOAF_FEATURE");
 			if (presentSelectors.length > 0) {
-				const usageMessage = `sessions list does not accept ${presentSelectors.join(" / ")} — it lists across all sessions; use --in-cwd to filter`;
-				if (argv.some((a) => a === "--format=json" || a === "--format" && argv[argv.indexOf(a) + 1] === "json")) process.stderr.write(JSON.stringify({
-					ok: false,
+				const renderAsJson = argv.some((a) => a === "--format=json" || a === "--format" && argv[argv.indexOf(a) + 1] === "json");
+				writePreContextSiteFailure({
 					code: "USAGE",
-					message: usageMessage,
-					detail: { conflicting: presentSelectors }
-				}) + "\n");
-				else process.stderr.write(`error: USAGE — ${usageMessage}\n`);
+					keyPath: FAILURE_SITE_KEYS.sessionsListSelectorConflict,
+					vars: { conflicting: presentSelectors.join(" / ") },
+					detail: { conflicting: presentSelectors },
+					renderAsJson
+				});
 				return 2;
 			}
 		}
@@ -9303,25 +11612,23 @@ async function main(argv = process.argv, deps = {}) {
 			const hasFormat = argv.some((a) => a === "--format" || a.startsWith("--format="));
 			const renderAsJson = argv.some((a) => a === "--format=json" || a === "--format" && argv[argv.indexOf(a) + 1] === "json");
 			if (presentSelectors.length > 0) {
-				const usageMessage = `tui does not accept ${presentSelectors.join(" / ")} — it lists across all sessions; selectors are nonsensical for an interactive UI`;
-				if (renderAsJson) process.stderr.write(JSON.stringify({
-					ok: false,
+				writePreContextSiteFailure({
 					code: "USAGE",
-					message: usageMessage,
-					detail: { conflicting: presentSelectors }
-				}) + "\n");
-				else process.stderr.write(`error: USAGE — ${usageMessage}\n`);
+					keyPath: FAILURE_SITE_KEYS.tuiSelectorConflict,
+					vars: { conflicting: presentSelectors.join(" / ") },
+					detail: { conflicting: presentSelectors },
+					renderAsJson
+				});
 				return 2;
 			}
 			if (hasFormat) {
-				const usageMessage = `tui is interactive-only; use \`loaf sessions list --format json\` for scriptable session output`;
-				if (renderAsJson) process.stderr.write(JSON.stringify({
-					ok: false,
+				writePreContextSiteFailure({
 					code: "USAGE",
-					message: usageMessage,
-					detail: { reason: "tui-interactive-only" }
-				}) + "\n");
-				else process.stderr.write(`error: USAGE — ${usageMessage}\n`);
+					keyPath: FAILURE_SITE_KEYS.tuiInteractiveOnly,
+					vars: {},
+					detail: { reason: "tui-interactive-only" },
+					renderAsJson
+				});
 				return 2;
 			}
 		}
@@ -9340,31 +11647,33 @@ async function main(argv = process.argv, deps = {}) {
 				return 0;
 			}
 			if (cmdTokens[1] === void 0) {
-				const usageMessage = `loaf hook requires an event token; one of: ${HOOK_EVENTS.join(", ")}. Run \`loaf hook --list-events\` for the full enum`;
-				if (renderAsJson) process.stderr.write(JSON.stringify({
-					ok: false,
+				writePreContextSiteFailure({
 					code: "USAGE",
-					message: usageMessage,
-					detail: { events: HOOK_EVENTS }
-				}) + "\n");
-				else process.stderr.write(`error: USAGE — ${usageMessage}\n`);
+					keyPath: FAILURE_SITE_KEYS.hookMissingEvent,
+					vars: { events: HOOK_EVENTS.join(", ") },
+					detail: { events: HOOK_EVENTS },
+					renderAsJson
+				});
 				return 2;
 			}
 			if (!HOOK_EVENTS.includes(cmdTokens[1])) {
 				const got = cmdTokens[1];
 				const suggestion = HOOK_EVENTS.find((e) => e.startsWith(got.slice(0, 4))) ?? HOOK_EVENTS[0];
-				const usageMessage = `unknown hook event '${got}'; expected one of: ${HOOK_EVENTS.join(", ")}. Did you mean '${suggestion}'?`;
-				if (renderAsJson) process.stderr.write(JSON.stringify({
-					ok: false,
+				writePreContextSiteFailure({
 					code: "USAGE",
-					message: usageMessage,
+					keyPath: FAILURE_SITE_KEYS.hookUnknownEvent,
+					vars: {
+						event: got,
+						allowed: HOOK_EVENTS.join(", "),
+						suggestion
+					},
 					detail: {
 						event: got,
 						allowed: HOOK_EVENTS,
 						suggestion
-					}
-				}) + "\n");
-				else process.stderr.write(`error: USAGE — ${usageMessage}\n`);
+					},
+					renderAsJson
+				});
 				return 2;
 			}
 		}
@@ -9376,14 +11685,14 @@ async function main(argv = process.argv, deps = {}) {
 			if (process.env["LOAF_SESSION"] !== void 0 && process.env["LOAF_SESSION"].length > 0) presentSelectors.push("$LOAF_SESSION");
 			if (process.env["LOAF_FEATURE"] !== void 0 && process.env["LOAF_FEATURE"].length > 0) presentSelectors.push("$LOAF_FEATURE");
 			if (presentSelectors.length > 0) {
-				const usageMessage = `check does not accept ${presentSelectors.join(" / ")} — it validates a file by path, independent of any feature session`;
-				if (argv.some((a) => a === "--format=json" || a === "--format" && argv[argv.indexOf(a) + 1] === "json")) process.stderr.write(JSON.stringify({
-					ok: false,
+				const renderAsJson = argv.some((a) => a === "--format=json" || a === "--format" && argv[argv.indexOf(a) + 1] === "json");
+				writePreContextSiteFailure({
 					code: "USAGE",
-					message: usageMessage,
-					detail: { conflicting: presentSelectors }
-				}) + "\n");
-				else process.stderr.write(`error: USAGE — ${usageMessage}\n`);
+					keyPath: FAILURE_SITE_KEYS.checkSelectorConflict,
+					vars: { conflicting: presentSelectors.join(" / ") },
+					detail: { conflicting: presentSelectors },
+					renderAsJson
+				});
 				return 2;
 			}
 		}
@@ -9411,14 +11720,18 @@ async function main(argv = process.argv, deps = {}) {
 			if (process.env["LOAF_SESSION"] !== void 0 && process.env["LOAF_SESSION"].length > 0) presentSelectors.push("$LOAF_SESSION");
 			if (process.env["LOAF_FEATURE"] !== void 0 && process.env["LOAF_FEATURE"].length > 0) presentSelectors.push("$LOAF_FEATURE");
 			if (presentSelectors.length > 0) {
-				const usageMessage = `${mutatorSchemaLabel ?? `${cmdTokens[0]} schema`} does not accept ${presentSelectors.join(" / ")} — schema dumps are feature-agnostic`;
-				if (argv.some((a) => a === "--format=json" || a === "--format" && argv[argv.indexOf(a) + 1] === "json")) process.stderr.write(JSON.stringify({
-					ok: false,
+				const subj = mutatorSchemaLabel ?? `${cmdTokens[0]} schema`;
+				const renderAsJson = argv.some((a) => a === "--format=json" || a === "--format" && argv[argv.indexOf(a) + 1] === "json");
+				writePreContextSiteFailure({
 					code: "USAGE",
-					message: usageMessage,
-					detail: { conflicting: presentSelectors }
-				}) + "\n");
-				else process.stderr.write(`error: USAGE — ${usageMessage}\n`);
+					keyPath: FAILURE_SITE_KEYS.schemaSelectorConflict,
+					vars: {
+						subject: subj,
+						conflicting: presentSelectors.join(" / ")
+					},
+					detail: { conflicting: presentSelectors },
+					renderAsJson
+				});
 				return 2;
 			}
 		}
@@ -9454,27 +11767,52 @@ async function main(argv = process.argv, deps = {}) {
 			const sessionConflict = [];
 			if (hasSession) sessionConflict.push("--session");
 			if (hasLoafSession) sessionConflict.push("$LOAF_SESSION");
-			let usageMessage = null;
 			let conflictingList = [];
+			let usageKey = null;
+			let usageVars = {};
 			if (sessionConflict.length > 0) {
-				usageMessage = `${sessionConflict.join(" + ")} cannot be combined with --feature-dir (session identity comes from registry; manual featureDir is contradictory)`;
+				usageKey = FAILURE_SITE_KEYS.dispatchSessionFeatureDirConflict;
+				usageVars = { conflicting: sessionConflict.join(" + ") };
 				conflictingList = [...sessionConflict, "--feature-dir"];
 			} else if (!hasFeature && !hasLoafFeature) {
-				usageMessage = "--feature-dir requires --feature <name> or $LOAF_FEATURE to name the feature";
+				usageKey = FAILURE_SITE_KEYS.dispatchFeatureDirRequiresFeature;
+				usageVars = {};
 				conflictingList = ["--feature-dir"];
 			}
-			if (usageMessage !== null) {
-				if (argv.some((a) => a === "--format=json" || a === "--format" && argv[argv.indexOf(a) + 1] === "json")) process.stderr.write(JSON.stringify({
-					ok: false,
+			if (usageKey !== null) {
+				const renderAsJson = argv.some((a) => a === "--format=json" || a === "--format" && argv[argv.indexOf(a) + 1] === "json");
+				writePreContextSiteFailure({
 					code: "USAGE",
-					message: usageMessage,
-					detail: { conflicting: conflictingList }
-				}) + "\n");
-				else process.stderr.write(`error: USAGE — ${usageMessage}\n`);
+					keyPath: usageKey,
+					vars: usageVars,
+					detail: { conflicting: conflictingList },
+					renderAsJson
+				});
 				return 2;
 			}
 		}
 	}
+	const userConfigLoad = await readUserConfig(deps.userConfigHomeDir ?? os.homedir());
+	const localeResolution = resolveLocale({
+		argv: [],
+		env: process.env,
+		userConfig: userConfigLoad.status === "ok" ? {
+			status: "ok",
+			locale: userConfigLoad.config.locale.default_lang
+		} : userConfigLoad
+	});
+	if (!localeResolution.ok) {
+		const presentation = parsePresentation(argv);
+		if (presentation.ok && presentation.format === "json") process.stderr.write(JSON.stringify({
+			ok: false,
+			code: localeResolution.code,
+			message: localeResolution.message,
+			detail: localeResolution.detail
+		}) + "\n");
+		else process.stderr.write(`error: ${localeResolution.code} — ${localeResolution.message}\n`);
+		return 2;
+	}
+	const i18n = createI18n(localeResolution.locale, BUILTIN_BUNDLES);
 	const readStdin = deps.readStdin ?? defaultReadStdin;
 	const isStdinTty = deps.isStdinTty ?? defaultIsStdinTty;
 	const appendTraceLine = deps.appendTraceLine ?? defaultAppendTraceLine;
@@ -9498,13 +11836,23 @@ async function main(argv = process.argv, deps = {}) {
 		writeStderr: (s) => process.stderr.write(s),
 		loadSession,
 		loadProjections,
+		i18n,
 		...deps.registryDir !== void 0 && { registryDir: deps.registryDir }
 	});
+	function emitKeyedFailure(code, detail) {
+		const vars = diagnosticVarsFor(code, detail);
+		if (vars === null) return false;
+		ctx.failureKeyed(code, diagnosticKey(code), vars, detail);
+		return true;
+	}
 	const fail = (code, message) => {
-		ctx.failure(code, message);
+		if (!emitKeyedFailure(code, void 0)) ctx.failure(code, message);
 	};
 	const emitFailure = (code, message, detail) => {
-		ctx.failure(code, message, detail);
+		if (!emitKeyedFailure(code, detail)) ctx.failure(code, message, detail);
+	};
+	const emitNoSessionFailure = (keyPath, feature, detail) => {
+		ctx.failureKeyed("NO_SESSION", keyPath, { feature }, detail);
 	};
 	const isInteractiveHumanForActor = () => (deps.isInteractiveHuman?.() ?? process.stdin.isTTY === true) && !ctx.noInput;
 	const readGitConfigForActor = deps.readGitConfig ?? getGitEmail;
@@ -9547,12 +11895,12 @@ async function main(argv = process.argv, deps = {}) {
 		if (!isStdinTty()) {
 			const parsed = parseHookStdinPath(await readStdin());
 			if (!parsed.ok) {
-				emitFailure("SCHEMA_VALIDATION_FAILED", parsed.reason, { source: "hook-stdin" });
+				ctx.failureKeyed("SCHEMA_VALIDATION_FAILED", FAILURE_SITE_KEYS.hookStdinParseFailed, { reason: parsed.reason }, { source: "hook-stdin" });
 				return null;
 			}
 			return parsed.path;
 		}
-		emitFailure("USAGE", "write-side hook requires --path <P> or a non-TTY stdin hook payload (tool_input.file_path)", {});
+		ctx.failureKeyed("USAGE", FAILURE_SITE_KEYS.hookWritePathMissing, {}, {});
 		return null;
 	};
 	const resolveDispatchForWriteGuard = async (opts) => {
@@ -9606,7 +11954,7 @@ async function main(argv = process.argv, deps = {}) {
 		const schema = emitInputSchema(commandKey);
 		ctx.success(schema, () => formatSchema(schema));
 	};
-	const loadProjectionsOrFail = async (featureDir, kinds, feature) => {
+	const loadProjectionsOrFail = async (featureDir, kinds, feature, noSessionKey) => {
 		try {
 			return await loadProjections({
 				feature_dir: featureDir,
@@ -9614,7 +11962,7 @@ async function main(argv = process.argv, deps = {}) {
 			});
 		} catch (err) {
 			if (err instanceof NoSessionError) {
-				emitFailure("NO_SESSION", `run \`loaf start ${feature}\` first`, err.detail);
+				emitNoSessionFailure(noSessionKey, feature, err.detail);
 				return null;
 			}
 			if (err instanceof SnapshotStaleError) {
@@ -9631,11 +11979,14 @@ async function main(argv = process.argv, deps = {}) {
 			return;
 		}
 		if (opts.label !== void 0 && opts.label.length < 3) {
-			fail("USAGE", "--label must be at least 3 characters");
+			ctx.failureKeyed("USAGE", FAILURE_SITE_KEYS.startLabelTooShort, { min_length: 3 }, {
+				min_length: 3,
+				actual_length: opts.label.length
+			});
 			return;
 		}
 		if (opts.workspace.length < 1) {
-			fail("USAGE", "--workspace must not be empty");
+			ctx.failureKeyed("USAGE", FAILURE_SITE_KEYS.startWorkspaceEmpty, {}, {});
 			return;
 		}
 		const featureDir = opts.featureDir ?? defaultFeatureDir(feature);
@@ -9682,10 +12033,10 @@ async function main(argv = process.argv, deps = {}) {
 			feature_dir: featureDir,
 			sub_state: result.snapshot.state?.sub_state
 		};
-		ctx.success(out, () => `${sessionId}\n`, {
-			stateChange: `start: '${feature}' created → TRIAGE.score`,
-			next: "loaf advance"
-		});
+		ctx.success(out, () => `${sessionId}\n`, (i18n) => ({
+			stateChange: i18n.t(SUCCESS_KEYS.startStateChange, { feature }),
+			next: i18n.t(SUCCESS_KEYS.nextAdvance)
+		}));
 	});
 	program.command("advance <to>").description("Advance the session cursor (emits event:phase_advanced)").option("--feature <name>", "Feature whose session to advance").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (to, opts) => {
 		const featureDir = await dispatchOrFail(opts);
@@ -9693,7 +12044,7 @@ async function main(argv = process.argv, deps = {}) {
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		const from = session.snapshot.state?.sub_state;
 		if (!from) {
-			fail("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+			emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionAdvance, opts.feature);
 			return;
 		}
 		const result = await mutate({
@@ -9728,7 +12079,10 @@ async function main(argv = process.argv, deps = {}) {
 			to,
 			sub_state: result.snapshot.state?.sub_state
 		};
-		ctx.success(out, () => "", { stateChange: `advance: ${from} → ${to}` });
+		ctx.success(out, () => "", (i18n) => ({ stateChange: i18n.t(SUCCESS_KEYS.advanceStateChange, {
+			from,
+			to
+		}) }));
 	});
 	program.command("status").description("Show the current session snapshot (read-only)").option("--feature <name>", "Feature whose status to show").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		if (rejectIfDryRun("status")) return;
@@ -9740,7 +12094,7 @@ async function main(argv = process.argv, deps = {}) {
 			"evidence",
 			"findings",
 			"pending"
-		], opts.feature);
+		], opts.feature, FAILURE_SITE_KEYS.noSessionStatus);
 		if (loaded === null) return;
 		const { state, tasks, evidence, findings, pending, meta } = loaded;
 		const slimState = {
@@ -9765,7 +12119,12 @@ async function main(argv = process.argv, deps = {}) {
 			findings_count: findings.findings.length,
 			pending_count: pending.pending.length
 		};
-		ctx.success(out, () => `feature: ${opts.feature}\nphase:   ${state.phase}.${state.sub_state.split(".")[1]}\ncursor:  ${state.sub_state}\ntail:    seq=${out.tail_seq}\ntasks=${out.tasks_count} evidence=${out.evidence_count} findings=${out.findings_count} pending=${out.pending_count}\n# snapshot as-of seq=${out.tail_seq} (projection-loader, Phase 15 SC3)\n`);
+		ctx.success(out, (i18n) => i18n.t(CHROME_KEYS.statusFeature, { feature: opts.feature }) + "\n" + i18n.t(CHROME_KEYS.statusPhase, { phase: i18n.t(subStateKey(state.sub_state)) }) + "\n" + i18n.t(CHROME_KEYS.statusCursor, { cursor: state.sub_state }) + "\n" + i18n.t(CHROME_KEYS.statusTail, { seq: out.tail_seq }) + "\n" + i18n.t(CHROME_KEYS.statusCounts, {
+			tasks_count: out.tasks_count,
+			evidence_count: out.evidence_count,
+			findings_count: out.findings_count,
+			pending_count: out.pending_count
+		}) + "\n" + i18n.t(CHROME_KEYS.statusSnapshotAsOfProjectionLoader, { seq: out.tail_seq }) + "\n");
 	});
 	program.command("gate").description("Gate decision commands (spec-lock + verify-accept)").command("decide <gate-name>").description("Decide a gate (emits gate:decided; spec-lock approve also advances cursor)").option("--approve", "Approve the gate").option("--reject", "Reject the gate").requiredOption("--reason <text>", "Decision rationale (passed through to GateDecidedPayload)").option("--feature <name>", "Feature whose session to gate").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (gateName, opts) => {
 		const approve = opts.approve === true;
@@ -9792,7 +12151,7 @@ async function main(argv = process.argv, deps = {}) {
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		const from = session.snapshot.state?.sub_state;
 		if (!from) {
-			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+			emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
 			return;
 		}
 		const mctx = {
@@ -9859,7 +12218,7 @@ async function main(argv = process.argv, deps = {}) {
 					sub_state: result.snapshot.state?.sub_state,
 					spec_locked: result.snapshot.state?.spec_locked
 				};
-				ctx.success(out, () => "", { stateChange: `gate decide: spec-lock approved by ${humanActor}` });
+				ctx.success(out, () => "", (i18n) => ({ stateChange: i18n.t(SUCCESS_KEYS.gateSpecLockApprovedStateChange, { actor: humanActor }) }));
 				return;
 			}
 			const result = coEmitPendingResolved && pendingHead ? await mutateBatch([{
@@ -9910,10 +12269,10 @@ async function main(argv = process.argv, deps = {}) {
 				verify_accepted: result.snapshot.state?.verify_accepted
 			};
 			const nextCmd = result.snapshot.state?.ceremony?.settle_phase === true ? "loaf settle" : "loaf deliver";
-			ctx.success(out, () => "", {
-				stateChange: `gate decide: verify-accept approved by ${humanActor}`,
-				next: nextCmd
-			});
+			ctx.success(out, () => "", (i18n) => ({
+				stateChange: i18n.t(SUCCESS_KEYS.gateVerifyAcceptApprovedStateChange, { actor: humanActor }),
+				next: i18n.t(nextCmd === "loaf settle" ? SUCCESS_KEYS.nextSettle : SUCCESS_KEYS.nextDeliver)
+			}));
 			return;
 		}
 		const result = await mutate({
@@ -9945,7 +12304,10 @@ async function main(argv = process.argv, deps = {}) {
 			spec_locked: result.snapshot.state?.spec_locked,
 			verify_accepted: result.snapshot.state?.verify_accepted
 		};
-		ctx.success(out, () => "", { stateChange: `gate decide: ${gateName} rejected by ${humanActor}` });
+		ctx.success(out, () => "", (i18n) => ({ stateChange: i18n.t(SUCCESS_KEYS.gateRejectedStateChange, {
+			gate: gateName,
+			actor: humanActor
+		}) }));
 	});
 	program.command("deliver").description("Deliver the feature session (emits session:delivered → DONE.delivered)").option("--feature <name>", "Feature whose session to deliver").option("--feature-dir <path>", "Override default .loaf/<feature> directory").option("--reason <text>", "Optional rationale to record on the session:delivered entry").action(async (opts) => {
 		const resolution = resolveHumanActor({
@@ -9963,7 +12325,7 @@ async function main(argv = process.argv, deps = {}) {
 		const session = await ctx.resolveSession(featureDir);
 		const from = session.snapshot.state?.sub_state;
 		if (!from) {
-			ctx.failure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+			emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
 			return;
 		}
 		const payload = {};
@@ -9991,7 +12353,6 @@ async function main(argv = process.argv, deps = {}) {
 			emitDryRunSuccess(result);
 			return;
 		}
-		const advisory = [`session complete — \`loaf start <feature>\` to begin another`];
 		const out = {
 			ok: true,
 			feature: opts.feature,
@@ -9999,12 +12360,16 @@ async function main(argv = process.argv, deps = {}) {
 			to: "DONE.delivered",
 			actor: humanActor,
 			sub_state: result.snapshot.state?.sub_state,
-			advisory
+			advisory: [`session complete — \`loaf start <feature>\` to begin another`]
 		};
-		ctx.success(out, () => "", {
-			stateChange: `deliver: ${opts.feature} — ${from} → DONE.delivered by ${humanActor}`,
-			next: advisory[0]
-		});
+		ctx.success(out, () => "", (i18n) => ({
+			stateChange: i18n.t(SUCCESS_KEYS.deliverStateChange, {
+				feature: opts.feature,
+				from,
+				actor: humanActor
+			}),
+			next: i18n.t(SUCCESS_KEYS.deliverNext)
+		}));
 	});
 	program.command("archive").description("Close the feature session without delivering (emits session:archived → DONE.archived)").option("--feature <name>", "Feature whose session to archive").requiredOption("--reason <text>", "Rationale recorded on the session:archived entry").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		const resolution = resolveHumanActor({
@@ -10022,7 +12387,7 @@ async function main(argv = process.argv, deps = {}) {
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		const from = session.snapshot.state?.sub_state;
 		if (!from) {
-			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+			emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
 			return;
 		}
 		const result = await mutate({
@@ -10056,7 +12421,11 @@ async function main(argv = process.argv, deps = {}) {
 			actor: humanActor,
 			sub_state: result.snapshot.state?.sub_state
 		};
-		ctx.success(out, () => "", { stateChange: `archive: ${opts.feature} — ${from} → DONE.archived by ${humanActor}` });
+		ctx.success(out, () => "", (i18n) => ({ stateChange: i18n.t(SUCCESS_KEYS.archiveStateChange, {
+			feature: opts.feature,
+			from,
+			actor: humanActor
+		}) }));
 	});
 	program.command("abandon").description("Abandon the feature session (emits session:abandoned → DONE.abandoned)").option("--feature <name>", "Feature whose session to abandon").requiredOption("--reason <text>", "Rationale recorded on the session:abandoned entry").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		const resolution = resolveHumanActor({
@@ -10074,7 +12443,7 @@ async function main(argv = process.argv, deps = {}) {
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		const from = session.snapshot.state?.sub_state;
 		if (!from) {
-			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+			emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
 			return;
 		}
 		const result = await mutate({
@@ -10108,7 +12477,12 @@ async function main(argv = process.argv, deps = {}) {
 			actor: humanActor,
 			sub_state: result.snapshot.state?.sub_state
 		};
-		ctx.success(out, () => "", { stateChange: `abandon: ${opts.feature} — ${from} → DONE.abandoned by ${humanActor} (reason='${opts.reason}')` });
+		ctx.success(out, () => "", (i18n) => ({ stateChange: i18n.t(SUCCESS_KEYS.abandonStateChange, {
+			feature: opts.feature,
+			from,
+			actor: humanActor,
+			reason: opts.reason
+		}) }));
 	});
 	program.command("spike").description("Spike-task exits (protocol §8.3)").command("convert").description("Convert a spike session — emits spike:converted then archives to DONE.archived").option("--feature <name>", "Feature whose spike session to convert").requiredOption("--to-feature <id>", "Target feature id (F-NNN) the spike learnings carry into").requiredOption("--reason <text>", "Rationale recorded on the spike:converted entry").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		const resolution = resolveHumanActor({
@@ -10126,7 +12500,7 @@ async function main(argv = process.argv, deps = {}) {
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		const from = session.snapshot.state?.sub_state;
 		if (!from) {
-			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+			emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
 			return;
 		}
 		const now = (/* @__PURE__ */ new Date()).toISOString();
@@ -10171,7 +12545,12 @@ async function main(argv = process.argv, deps = {}) {
 			actor: humanActor,
 			sub_state: result.snapshot.state?.sub_state
 		};
-		ctx.success(out, () => "", { stateChange: `spike convert: ${opts.feature} → ${opts.toFeature} — ${from} → DONE.archived by ${humanActor}` });
+		ctx.success(out, () => "", (i18n) => ({ stateChange: i18n.t(SUCCESS_KEYS.spikeConvertStateChange, {
+			feature: opts.feature,
+			to_feature: opts.toFeature,
+			from,
+			actor: humanActor
+		}) }));
 	});
 	program.command("profile").description("Ceremony profile commands (protocol §10.8)").command("escalate").description("Apply a ceremony escalation — resolve the profile_escalation pending + emit event:ceremony_set").requiredOption("--confirm", "Human acceptance of the escalation (required)").requiredOption("--input <path>", "JSON file with the escalated 6-flag Ceremony object").option("--feature <name>", "Feature whose session to escalate").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		if (await dispatchOrFail(opts) === null) return;
@@ -10189,8 +12568,11 @@ async function main(argv = process.argv, deps = {}) {
 		try {
 			content = await promises.readFile(opts.input, "utf8");
 		} catch (err) {
-			if (err.code === "ENOENT") emitFailure("INPUT_FILE_NOT_FOUND", `input file does not exist: ${opts.input}`, { path: opts.input });
-			else emitFailure("INPUT_FILE_NOT_FOUND", `cannot read input file ${opts.input}: ${String(err)}`, { path: opts.input });
+			if (err.code === "ENOENT") ctx.failureKeyed("INPUT_FILE_NOT_FOUND", FAILURE_SITE_KEYS.profileInputFileMissing, { path: opts.input }, { path: opts.input });
+			else ctx.failureKeyed("INPUT_FILE_NOT_FOUND", FAILURE_SITE_KEYS.profileInputFileUnreadable, {
+				path: opts.input,
+				error: String(err)
+			}, { path: opts.input });
 			return;
 		}
 		let ceremony;
@@ -10204,7 +12586,7 @@ async function main(argv = process.argv, deps = {}) {
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state?.sub_state) {
-			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+			emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
 			return;
 		}
 		const head = session.snapshot.pending.find((p) => !p.resolved);
@@ -10249,7 +12631,7 @@ async function main(argv = process.argv, deps = {}) {
 			sub_state: result.snapshot.state?.sub_state,
 			actor: humanActor
 		};
-		ctx.success(out, () => "", { stateChange: `profile escalate: ceremony updated, ${head.id} resolved` });
+		ctx.success(out, () => "", (i18n) => ({ stateChange: i18n.t(SUCCESS_KEYS.profileEscalateStateChange, { pending_id: head.id }) }));
 	});
 	program.command("doctor").description("Repository self-check. This release implements --rebuild only").option("--rebuild", "Full journal replay → rebuild snapshots/*.json + _meta.json").option("--feature <name>", "Feature whose snapshots to rebuild (required with --rebuild)").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		if (rejectIfDryRun(opts.rebuild ? "doctor --rebuild" : "doctor")) return;
@@ -10299,7 +12681,13 @@ async function main(argv = process.argv, deps = {}) {
 			tail_seq: replay.meta.last_applied_seq,
 			rebuilt
 		};
-		ctx.success(out, () => `rebuilt ${rebuilt.length} projection file(s) for ${opts.feature}:\n` + rebuilt.map((f) => `  snapshots/${f}\n`).join("") + `# snapshot as-of seq=${replay.meta.last_applied_seq}\n`, { stateChange: `doctor rebuild: rebuilt ${rebuilt.length} projection file(s) for ${opts.feature}` });
+		ctx.success(out, (i18n) => i18n.t(rebuilt.length === 1 ? SUCCESS_KEYS.doctorRebuildTextOne : SUCCESS_KEYS.doctorRebuildTextMany, {
+			count: rebuilt.length,
+			feature: opts.feature
+		}) + "\n" + rebuilt.map((f) => `  snapshots/${f}\n`).join("") + i18n.t(SUCCESS_KEYS.snapshotAsOfSeq, { seq: replay.meta.last_applied_seq }) + "\n", (i18n) => ({ stateChange: i18n.t(rebuilt.length === 1 ? SUCCESS_KEYS.doctorRebuildStateChangeOne : SUCCESS_KEYS.doctorRebuildStateChangeMany, {
+			count: rebuilt.length,
+			feature: opts.feature
+		}) }));
 	});
 	const tasksCmd = program.command("tasks").description("Task lifecycle commands (Slice 2 MVP: submit / claim / step)");
 	tasksCmd.command("submit").description("Submit a complete task graph from --input <src> (stdin / inline JSON / file path; whole-graph single object)").requiredOption("--input <src>", "JSON source: `-` (stdin), inline JSON literal, or file path (protocol §10.7). Whole-graph single object only.").option("--feature <name>", "Feature whose task graph to submit").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
@@ -10318,7 +12706,7 @@ async function main(argv = process.argv, deps = {}) {
 		if (featureDir === null) return;
 		const session = await ctx.resolveSession(featureDir);
 		if (!session.snapshot.state) {
-			ctx.failure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+			emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
 			return;
 		}
 		const result = await mutate({
@@ -10354,10 +12742,13 @@ async function main(argv = process.argv, deps = {}) {
 			task_ids: taskIds,
 			tasks_based_on: result.snapshot.tasks_based_on
 		};
-		ctx.success(out, () => `submitted ${tasks.length} task${tasks.length === 1 ? "" : "s"}: ${taskIds.join(", ")}\n`, {
-			stateChange: `tasks submit: ${tasks.length} tasks`,
-			next: "loaf advance"
-		});
+		ctx.success(out, (i18n) => i18n.t(tasks.length === 1 ? SUCCESS_KEYS.tasksSubmitTextOne : SUCCESS_KEYS.tasksSubmitTextMany, {
+			count: tasks.length,
+			task_ids: taskIds.join(", ")
+		}) + "\n", (i18n) => ({
+			stateChange: i18n.t(SUCCESS_KEYS.tasksSubmitStateChange, { count: tasks.length }),
+			next: i18n.t(SUCCESS_KEYS.nextAdvance)
+		}));
 	});
 	tasksCmd.command("add").description("Append id-less task(s) to the graph — --input <src> with single object or array (batch); SPEC.design whole-graph, or EXECUTE.work sponsored via --finding").option("--input <src>", "JSON source for TaskInput (single object or array): `-` (stdin), inline JSON, or file path (protocol §10.7)").option("--schema", "Dump the input JSON Schema instead of mutating (Phase 16 SC-10)").option("--feature <name>", "Feature whose task graph to extend").option("--feature-dir <path>", "Override default .loaf/<feature> directory").option("--finding <FND-N>", "Sponsoring amend-tasks finding (sponsored add at EXECUTE.work)").action(async (rawOpts) => {
 		if (rawOpts.schema === true) {
@@ -10383,7 +12774,7 @@ async function main(argv = process.argv, deps = {}) {
 		const parsed = read.value;
 		const rawTasks = Array.isArray(parsed) ? parsed : [parsed];
 		if (rawTasks.length === 0) {
-			ctx.failure("SCHEMA_VALIDATION_FAILED", "tasks add input is an empty array");
+			ctx.failureKeyed("SCHEMA_VALIDATION_FAILED", FAILURE_SITE_KEYS.tasksAddEmptyArray, {}, {});
 			return;
 		}
 		const validatedInputs = [];
@@ -10399,7 +12790,7 @@ async function main(argv = process.argv, deps = {}) {
 		if (featureDir === null) return;
 		const session = await ctx.resolveSession(featureDir);
 		if (!session.snapshot.state) {
-			ctx.failure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+			emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
 			return;
 		}
 		const subState = session.snapshot.state.sub_state;
@@ -10460,7 +12851,14 @@ async function main(argv = process.argv, deps = {}) {
 				tasks_count: result.snapshot.tasks.length,
 				sub_state: result.snapshot.state?.sub_state
 			};
-			ctx.success(out, () => `added ${newIds.length} task${newIds.length === 1 ? "" : "s"} (sponsored by ${opts.finding}): ${newIds.join(", ")}\n`, { stateChange: `tasks add: +${newIds.length} tasks (allocated ${newIds.join(",")})` });
+			ctx.success(out, (i18n) => i18n.t(newIds.length === 1 ? SUCCESS_KEYS.tasksAddSponsoredTextOne : SUCCESS_KEYS.tasksAddSponsoredTextMany, {
+				count: newIds.length,
+				finding: opts.finding,
+				task_ids: newIds.join(", ")
+			}) + "\n", (i18n) => ({ stateChange: i18n.t(SUCCESS_KEYS.tasksAddStateChange, {
+				count: newIds.length,
+				task_ids: newIds.join(",")
+			}) }));
 			return;
 		}
 		const existingFull = [];
@@ -10509,14 +12907,20 @@ async function main(argv = process.argv, deps = {}) {
 			tasks_count: result.snapshot.tasks.length,
 			sub_state: result.snapshot.state?.sub_state
 		};
-		ctx.success(out, () => `added ${newIds.length} task${newIds.length === 1 ? "" : "s"}: ${newIds.join(", ")}\n`, { stateChange: `tasks add: +${newIds.length} tasks (allocated ${newIds.join(",")})` });
+		ctx.success(out, (i18n) => i18n.t(newIds.length === 1 ? SUCCESS_KEYS.tasksAddTextOne : SUCCESS_KEYS.tasksAddTextMany, {
+			count: newIds.length,
+			task_ids: newIds.join(", ")
+		}) + "\n", (i18n) => ({ stateChange: i18n.t(SUCCESS_KEYS.tasksAddStateChange, {
+			count: newIds.length,
+			task_ids: newIds.join(",")
+		}) }));
 	});
 	tasksCmd.command("claim <task-id>").description("Claim a ready task (pending → in_progress) at EXECUTE.work").option("--feature <name>", "Feature whose task to claim").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (taskId, opts) => {
 		const featureDir = await dispatchOrFail(opts);
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state) {
-			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+			emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
 			return;
 		}
 		const result = await mutate({
@@ -10555,14 +12959,17 @@ async function main(argv = process.argv, deps = {}) {
 			status,
 			sub_state: result.snapshot.state?.sub_state
 		};
-		ctx.success(out, () => "", { stateChange: `tasks claim: ${taskId} (status=${status})` });
+		ctx.success(out, () => "", (i18n) => ({ stateChange: i18n.t(SUCCESS_KEYS.tasksClaimStateChange, {
+			task_id: taskId,
+			status
+		}) }));
 	});
 	tasksCmd.command("abandon <task-id>").description("Abandon a non-terminal task (→ abandoned) at EXECUTE.work").requiredOption("--reason <text>", "Why the task is being abandoned (required)").option("--feature <name>", "Feature whose task to abandon").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (taskId, opts) => {
 		const featureDir = await dispatchOrFail(opts);
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state) {
-			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+			emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
 			return;
 		}
 		const result = await mutate({
@@ -10604,13 +13011,16 @@ async function main(argv = process.argv, deps = {}) {
 			status,
 			sub_state: result.snapshot.state?.sub_state
 		};
-		ctx.success(out, () => "", { stateChange: `tasks abandon: ${taskId} (status=${status})` });
+		ctx.success(out, () => "", (i18n) => ({ stateChange: i18n.t(SUCCESS_KEYS.tasksAbandonStateChange, {
+			task_id: taskId,
+			status
+		}) }));
 	});
 	tasksCmd.command("list").description("List tasks (read-only); shows derived `ready` column").option("--feature <name>", "Feature whose tasks to list").option("--feature-dir <path>", "Override default .loaf/<feature> directory").option("--status <s>", "Filter by task status (pending|ready|in_progress|done|abandoned)").action(async (opts) => {
 		if (rejectIfDryRun("tasks list")) return;
 		const featureDir = await dispatchOrFail(opts);
 		if (featureDir === null) return;
-		const loaded = await loadProjectionsOrFail(featureDir, ["state", "tasks"], opts.feature);
+		const loaded = await loadProjectionsOrFail(featureDir, ["state", "tasks"], opts.feature, FAILURE_SITE_KEYS.noSessionTasks);
 		if (loaded === null) return;
 		const slimTasks = loaded.tasks ? loaded.tasks.tasks.map((t) => extractTaskSlim(t)) : [];
 		const tasksById = new Map(slimTasks.map((t) => [t.id, t]));
@@ -10642,9 +13052,17 @@ async function main(argv = process.argv, deps = {}) {
 			feature: opts.feature,
 			count: filtered.length,
 			tasks: filtered
-		}, () => {
-			if (filtered.length === 0) return opts.status ? `no tasks match --status=${opts.status}\n` : `no tasks in projection (run \`loaf tasks submit\` first)\n`;
-			return filtered.map((t) => `${t.id} ${t.kind} ${t.status}${t.ready ? " [ready]" : ""}\n`).join("");
+		}, (i18n) => {
+			if (filtered.length === 0) return opts.status ? i18n.t(CHROME_KEYS.tasksListEmptyFiltered, { status: opts.status }) + "\n" : i18n.t(CHROME_KEYS.tasksListEmpty) + "\n";
+			return filtered.map((t) => {
+				const vars = {
+					task_id: t.id,
+					kind: formatTaskListKind(i18n, t.kind),
+					status: formatTaskStatus(i18n, t.status),
+					ready: i18n.t(CHROME_KEYS.tasksListReadyMarker)
+				};
+				return i18n.t(t.ready ? CHROME_KEYS.tasksListRowReady : CHROME_KEYS.tasksListRow, vars) + "\n";
+			}).join("");
 		});
 	});
 	tasksCmd.command("next").description("Print the next ready task id (or empty if none); read-only").option("--feature <name>", "Feature whose ready task to compute").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
@@ -10653,7 +13071,7 @@ async function main(argv = process.argv, deps = {}) {
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state) {
-			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+			emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
 			return;
 		}
 		const tasks = session.snapshot.tasks;
@@ -10675,7 +13093,7 @@ async function main(argv = process.argv, deps = {}) {
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state) {
-			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+			emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
 			return;
 		}
 		const task = session.snapshot.tasks.find((t) => t.id === taskId);
@@ -10703,7 +13121,10 @@ async function main(argv = process.argv, deps = {}) {
 			task_id: taskId,
 			status: task.status
 		};
-		ctx.success(out, () => `${taskId} complete (status=done)\n`);
+		ctx.success(out, (i18n) => i18n.t(CHROME_KEYS.tasksCompleteText, {
+			task_id: taskId,
+			status: formatTaskStatus(i18n, "done")
+		}) + "\n");
 	});
 	tasksCmd.command("amend <task-id>").description("Amend a task: --policy <step>=<applicability> (EXECUTE.plan) or --input <file> --finding <FND-N> (sponsored, EXECUTE.work)").option("--feature <name>", "Feature whose task to amend").option("--feature-dir <path>", "Override default .loaf/<feature> directory").option("--policy <step=applicability>", "Step applicability override (must|optional|na); repeatable", (val, acc) => [...acc, val], []).option("--input <file>", "New id-less task definition for a sponsored graph replacement (JSON file or '-')").option("--finding <FND-N>", "Sponsoring amend-tasks finding (required with --input)").action(async (taskId, opts) => {
 		if (await dispatchOrFail(opts) === null) return;
@@ -10745,7 +13166,7 @@ async function main(argv = process.argv, deps = {}) {
 			const sFeatureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
 			const sSession = await ctx.resolveSession(sFeatureDir);
 			if (!sSession.snapshot.state) {
-				ctx.failure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+				emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
 				return;
 			}
 			const sCurrent = sSession.snapshot.tasks.find((t) => t.id === taskId);
@@ -10810,7 +13231,10 @@ async function main(argv = process.argv, deps = {}) {
 				sponsored_by_finding_id: findingId,
 				sub_state: sResult.snapshot.state?.sub_state
 			};
-			ctx.success(sOut, () => `amended ${taskId} (sponsored by ${findingId})\n`, { stateChange: `amend: ${taskId}` });
+			ctx.success(sOut, (i18n) => i18n.t(SUCCESS_KEYS.amendSponsoredText, {
+				task_id: taskId,
+				finding_id: findingId
+			}) + "\n", (i18n) => ({ stateChange: i18n.t(SUCCESS_KEYS.amendStateChange, { task_id: taskId }) }));
 			return;
 		}
 		const APPLICABILITY = [
@@ -10841,7 +13265,7 @@ async function main(argv = process.argv, deps = {}) {
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state) {
-			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+			emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
 			return;
 		}
 		const current = session.snapshot.tasks.find((t) => t.id === taskId);
@@ -10904,14 +13328,17 @@ async function main(argv = process.argv, deps = {}) {
 			policy: Object.fromEntries(policyMap),
 			sub_state: result.snapshot.state?.sub_state
 		};
-		ctx.success(out, () => `amended ${taskId} (${applied})\n`, { stateChange: `amend: ${taskId}` });
+		ctx.success(out, (i18n) => i18n.t(SUCCESS_KEYS.amendPolicyText, {
+			task_id: taskId,
+			applied
+		}) + "\n", (i18n) => ({ stateChange: i18n.t(SUCCESS_KEYS.amendStateChange, { task_id: taskId }) }));
 	});
 	tasksCmd.command("register-red <task-id>").description("Register the RED test for a claimed behavioral bug task (EXECUTE.work)").option("--feature <name>", "Feature whose task to register").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (taskId, opts) => {
 		const featureDir = await dispatchOrFail(opts);
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state) {
-			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+			emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
 			return;
 		}
 		const result = await mutate({
@@ -10949,7 +13376,7 @@ async function main(argv = process.argv, deps = {}) {
 			red_test_registered: true,
 			sub_state: result.snapshot.state?.sub_state
 		};
-		ctx.success(out, () => "", { stateChange: `tasks register-red: ${taskId}` });
+		ctx.success(out, () => "", (i18n) => ({ stateChange: i18n.t(SUCCESS_KEYS.tasksRegisterRedStateChange, { task_id: taskId }) }));
 	});
 	const stepCmd = tasksCmd.command("step").description("Task step lifecycle (start / done)");
 	stepCmd.command("start").description("Mark a task step as running (task must be claimed)").requiredOption("--task <task-id>", "Task whose step to start").requiredOption("--step <step-name>", "Step name (kind-specific; see spec)").option("--feature <name>", "Feature whose task lifecycle to advance").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
@@ -10957,7 +13384,7 @@ async function main(argv = process.argv, deps = {}) {
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state) {
-			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+			emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
 			return;
 		}
 		const result = await mutate({
@@ -11004,7 +13431,10 @@ async function main(argv = process.argv, deps = {}) {
 			step_status: stepInfo.status,
 			sub_state: result.snapshot.state?.sub_state
 		};
-		ctx.success(out, () => "", { stateChange: `step start: ${opts.task} ${opts.step} (running)` });
+		ctx.success(out, () => "", (i18n) => ({ stateChange: i18n.t(SUCCESS_KEYS.stepStartStateChange, {
+			task_id: opts.task,
+			step: opts.step
+		}) }));
 	});
 	stepCmd.command("done").description("Mark a task step as done (--result passed|failed|waived|na; default passed)").requiredOption("--task <task-id>", "Task whose step to mark done").requiredOption("--step <step-name>", "Step name (kind-specific)").option("--result <r>", "Step result: passed (default) | failed | waived | na", "passed").option("--evidence-kind <kind>", "Evidence kind (closed EvidenceKind enum)").option("--evidence-result <r>", "Evidence result (passed | failed | approved | rejected | waived)").option("--evidence-summary <text>", "Evidence summary (≥3 chars)").option("--evidence-covers <csv>", "Comma-separated REQ/SCEN/VIS/Task ids covered by this evidence").option("--evidence-check <kind>", "Verify-check kind (run | review | acceptance | visual)").option("--evidence-reason <text>", "Evidence reason (manual/waiver require ≥10 chars)").option("--evidence-actor <actor>", "Override evidence actor (default: cli:loaf; required human:* for manual/waiver)").option("--feature <name>", "Feature whose task lifecycle to advance").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		if (![
@@ -11027,7 +13457,7 @@ async function main(argv = process.argv, deps = {}) {
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state) {
-			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+			emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
 			return;
 		}
 		const now = (/* @__PURE__ */ new Date()).toISOString();
@@ -11110,11 +13540,21 @@ async function main(argv = process.argv, deps = {}) {
 			sub_state: result.snapshot.state?.sub_state
 		};
 		if (evidenceId !== void 0) out["evidence_id"] = evidenceId;
-		ctx.success(out, () => {
-			const promote = updated.status === "done" ? " (task auto-promoted to done)" : "";
-			const evidenceSuffix = evidenceId !== void 0 ? ` evidence=${evidenceId}` : "";
-			return `done ${opts.task} step=${opts.step} result=${opts.result}${evidenceSuffix}${promote}\n`;
-		}, { stateChange: `step done: ${opts.task} ${opts.step} (${opts.result})` });
+		ctx.success(out, (i18n) => {
+			const promoteSuffix = updated.status === "done" ? i18n.t(SUCCESS_KEYS.stepDonePromoteSuffix) : "";
+			const evidenceSuffix = evidenceId !== void 0 ? i18n.t(SUCCESS_KEYS.stepDoneEvidenceSuffix, { evidence_id: evidenceId }) : "";
+			return i18n.t(SUCCESS_KEYS.stepDoneText, {
+				task_id: opts.task,
+				step: opts.step,
+				result: opts.result,
+				evidence_suffix: evidenceSuffix,
+				promote_suffix: promoteSuffix
+			}) + "\n";
+		}, (i18n) => ({ stateChange: i18n.t(SUCCESS_KEYS.stepDoneStateChange, {
+			task_id: opts.task,
+			step: opts.step,
+			result: opts.result
+		}) }));
 	});
 	program.command("settle").description("Advance VERIFY.accept → SETTLE.reconcile (deep ceremony only)").option("--feature <name>", "Feature whose session to settle").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		const featureDir = await dispatchOrFail(opts);
@@ -11122,7 +13562,7 @@ async function main(argv = process.argv, deps = {}) {
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		const from = session.snapshot.state?.sub_state;
 		if (!from) {
-			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+			emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
 			return;
 		}
 		const result = await mutate({
@@ -11159,17 +13599,17 @@ async function main(argv = process.argv, deps = {}) {
 			sub_state: result.snapshot.state?.sub_state,
 			advisory: ["complete SETTLE.* phase (loaf advance SETTLE.lessons) then `loaf deliver`"]
 		};
-		ctx.success(out, () => "", {
-			stateChange: `settle: ${from} → SETTLE.reconcile`,
-			next: "loaf deliver"
-		});
+		ctx.success(out, (i18n) => i18n.t(SUCCESS_KEYS.settleText), (i18n) => ({
+			stateChange: i18n.t(SUCCESS_KEYS.settleStateChange, { from }),
+			next: i18n.t(SUCCESS_KEYS.nextDeliver)
+		}));
 	});
 	program.command("resume").description("Resume session from snapshots/resume-pack.json (emits session:resumed journal entry)").option("--feature <name>", "Feature whose resume pack to consume").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		const featureDir = await dispatchOrFail(opts);
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: false });
 		if (!session.snapshot.state) {
-			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+			emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
 			return;
 		}
 		const packPath = path.join(featureDir, "snapshots", "resume-pack.json");
@@ -11236,12 +13676,21 @@ async function main(argv = process.argv, deps = {}) {
 			feature: opts.feature,
 			session_id: pack.session_id,
 			sub_state: result.snapshot.state?.sub_state
-		}, () => `${pack.session_id}\n`, { stateChange: `resume: session ${pack.session_id} (sub_state=${result.snapshot.state?.sub_state} unchanged)` });
+		}, () => `${pack.session_id}\n`, (i18n) => ({ stateChange: i18n.t(SUCCESS_KEYS.resumeStateChange, {
+			session_id: pack.session_id,
+			sub_state: result.snapshot.state?.sub_state
+		}) }));
 	});
 	program.command("handoff").description("Compose and persist snapshots/resume-pack.json (read-side projection writer; no journal entry)").requiredOption("--reason <text>", "Why this handoff is being taken (≥5 chars; mandatory per ResumePack.reason)").option("--notes <text>", "Optional free-form notes attached to the pack").option("--feature <name>", "Feature whose handoff to take").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		if (rejectIfDryRun("handoff", "projection-writer")) return;
 		if (opts.reason.length < 5) {
-			emitFailure("USAGE", `--reason must be ≥5 chars (got ${opts.reason.length})`, { reason_length: opts.reason.length });
+			ctx.failureKeyed("USAGE", FAILURE_SITE_KEYS.handoffReasonTooShort, {
+				min_length: 5,
+				reason_length: opts.reason.length
+			}, {
+				min_length: 5,
+				reason_length: opts.reason.length
+			});
 			return;
 		}
 		const resolution = resolveHumanActor({
@@ -11257,7 +13706,7 @@ async function main(argv = process.argv, deps = {}) {
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: false });
 		if (!session.snapshot.state) {
-			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+			emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
 			return;
 		}
 		const pack = buildResumePack({
@@ -11269,7 +13718,7 @@ async function main(argv = process.argv, deps = {}) {
 		});
 		const parse = ResumePack.safeParse(pack);
 		if (!parse.success) {
-			emitFailure("SCHEMA_VALIDATION_FAILED", `ResumePack failed runtime validation (builder bug or schema drift)`, {
+			ctx.failureKeyed("SCHEMA_VALIDATION_FAILED", FAILURE_SITE_KEYS.handoffPackValidationFailed, {}, {
 				subcode: "zod",
 				issues: parse.error.issues
 			});
@@ -11286,7 +13735,7 @@ async function main(argv = process.argv, deps = {}) {
 			feature: opts.feature,
 			pack_path: packPath,
 			session_id: pack.session_id
-		}, () => `${packPath}\n`, { stateChange: `handoff: resume-pack.json written by ${resolution.actor}` });
+		}, () => `${packPath}\n`, (i18n) => ({ stateChange: i18n.t(SUCCESS_KEYS.handoffStateChange, { actor: resolution.actor }) }));
 	});
 	const pendingCmd = program.command("pending").description("Pending queue commands (raise / list / status / resolve)");
 	pendingCmd.command("raise").description("Raise a new pending entry (CLI allocates PEND-id)").requiredOption("--kind <kind>", "Pending kind (ask_user_question | gate_decision | spec_clarification | finding_decision | profile_escalation)").requiredOption("--question <text>", "Question / rationale shown to whoever resolves it (required for ALL kinds)").option("--options <csv>", "Comma-separated answer options (passthrough)").option("--task-id <id>", "Optional task association (passthrough)").option("--feature <name>", "Feature whose session to raise pending against").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
@@ -11294,7 +13743,7 @@ async function main(argv = process.argv, deps = {}) {
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state) {
-			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+			emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionPending, opts.feature);
 			return;
 		}
 		const maxSerial = session.snapshot.pending.reduce((max, p) => {
@@ -11338,13 +13787,16 @@ async function main(argv = process.argv, deps = {}) {
 			feature: opts.feature,
 			id,
 			kind: opts.kind
-		}, () => id + "\n", { stateChange: `pending raise: ${id} (kind=${opts.kind})` });
+		}, () => id + "\n", (i18n) => ({ stateChange: i18n.t(SUCCESS_KEYS.pendingRaiseStateChange, {
+			pending_id: id,
+			kind: opts.kind
+		}) }));
 	});
 	pendingCmd.command("list").description("List pending entries (FIFO; first unresolved is head)").option("--feature <name>", "Feature whose pending to list").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		if (rejectIfDryRun("pending list")) return;
 		const featureDir = await dispatchOrFail(opts);
 		if (featureDir === null) return;
-		const loaded = await loadProjectionsOrFail(featureDir, ["pending"], opts.feature);
+		const loaded = await loadProjectionsOrFail(featureDir, ["pending"], opts.feature, FAILURE_SITE_KEYS.noSessionPending);
 		if (loaded === null) return;
 		const entries = loaded.pending.pending;
 		const headIdx = entries.findIndex((p) => !p.resolved);
@@ -11359,7 +13811,12 @@ async function main(argv = process.argv, deps = {}) {
 			feature: opts.feature,
 			count: rows.length,
 			pending: rows
-		}, () => rows.map((r) => `${r.id} ${r.kind} ${r.resolved ? "resolved" : "open"} ${r.head ? "head" : "-"}\n`).join(""));
+		}, (i18n) => rows.map((r) => i18n.t(CHROME_KEYS.pendingListRow, {
+			pending_id: r.id,
+			kind: formatPendingKind(i18n, r.kind),
+			status: i18n.t(r.resolved ? CHROME_KEYS.pendingResolved : CHROME_KEYS.pendingOpen),
+			head: i18n.t(r.head ? CHROME_KEYS.pendingHead : CHROME_KEYS.pendingNonHead)
+		}) + "\n").join(""));
 	});
 	pendingCmd.command("status").description("Status of head pending entry (default) or specific entry by --id").option("--feature <name>", "Feature whose pending to inspect").option("--id <id>", "Lookup a specific PEND-id (default: head)").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		if (rejectIfDryRun("pending status")) return;
@@ -11367,7 +13824,7 @@ async function main(argv = process.argv, deps = {}) {
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state) {
-			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+			emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionPending, opts.feature);
 			return;
 		}
 		const headIdx = session.snapshot.pending.findIndex((p) => !p.resolved);
@@ -11390,9 +13847,14 @@ async function main(argv = process.argv, deps = {}) {
 			ok: true,
 			feature: opts.feature,
 			pending: target
-		}, () => {
-			if (target === null) return "no open pending\n";
-			return `${target.id} ${target.kind} ${target.resolved ? "resolved" : "open"} ${target.head ? "head" : "-"}\n`;
+		}, (i18n) => {
+			if (target === null) return i18n.t(CHROME_KEYS.pendingStatusNoOpen) + "\n";
+			return i18n.t(CHROME_KEYS.pendingListRow, {
+				pending_id: target.id,
+				kind: formatPendingKind(i18n, target.kind),
+				status: i18n.t(target.resolved ? CHROME_KEYS.pendingResolved : CHROME_KEYS.pendingOpen),
+				head: i18n.t(target.head ? CHROME_KEYS.pendingHead : CHROME_KEYS.pendingNonHead)
+			}) + "\n";
 		});
 	});
 	pendingCmd.command("resolve").description("Resolve the head pending entry (strict FIFO; no --id flag)").requiredOption("--answer <text>", "Resolution answer (passthrough into pending:resolved payload)").option("--feature <name>", "Feature whose pending to resolve").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
@@ -11400,7 +13862,7 @@ async function main(argv = process.argv, deps = {}) {
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state) {
-			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+			emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionPending, opts.feature);
 			return;
 		}
 		const head = session.snapshot.pending.find((p) => !p.resolved);
@@ -11439,7 +13901,10 @@ async function main(argv = process.argv, deps = {}) {
 			feature: opts.feature,
 			resolved_id: head.id,
 			kind: head.kind
-		}, () => `resolved ${head.id} (kind=${head.kind})\n`, { stateChange: `pending resolve: ${head.id} cleared` });
+		}, (i18n) => i18n.t(SUCCESS_KEYS.pendingResolveText, {
+			pending_id: head.id,
+			kind: head.kind
+		}) + "\n", (i18n) => ({ stateChange: i18n.t(SUCCESS_KEYS.pendingResolveStateChange, { pending_id: head.id }) }));
 	});
 	const evidenceCmd = program.command("evidence").description("Evidence ledger commands (Slice 3 SC2 MVP: add)");
 	evidenceCmd.command("add").description("Append evidence entry/entries from --input <src> JSON (CLI allocates EV-id; single object or non-empty array for batch)").option("--input <src>", "JSON source for EvidenceAddInput (single object OR non-empty array for batch): `-` (stdin), inline JSON, or file path (protocol §10.7)").option("--schema", "Dump the input JSON Schema instead of mutating (Phase 16 SC-10)").option("--feature <name>", "Feature whose ledger to append to").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (rawOpts) => {
@@ -11487,7 +13952,7 @@ async function main(argv = process.argv, deps = {}) {
 		if (featureDir === null) return;
 		const session = await ctx.resolveSession(featureDir);
 		if (!session.snapshot.state) {
-			ctx.failure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+			emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
 			return;
 		}
 		const evIds = allocateNextEvidenceIds(session.snapshot, validatedInputs.length);
@@ -11519,24 +13984,24 @@ async function main(argv = process.argv, deps = {}) {
 			return;
 		}
 		const isBatch = Array.isArray(parsed);
-		const stateChange = evidenceAddStateChange(validatedInputs.map((input, i) => ({
+		const evidenceItems = validatedInputs.map((input, i) => ({
 			id: evIds[i],
 			kind: input.kind,
 			covers: input.covers
-		})));
+		}));
 		if (isBatch) ctx.success({
 			ok: true,
 			feature: opts.feature,
 			ev_ids: evIds,
 			count: evIds.length,
 			sub_state: result.snapshot.state?.sub_state
-		}, () => evIds.join("\n") + "\n", { stateChange });
+		}, () => evIds.join("\n") + "\n", (i18n) => ({ stateChange: evidenceAddStateChange(i18n, evidenceItems) }));
 		else ctx.success({
 			ok: true,
 			feature: opts.feature,
 			id: evIds[0],
 			kind: validatedInputs[0].kind
-		}, () => `${evIds[0]}\n`, { stateChange });
+		}, () => `${evIds[0]}\n`, (i18n) => ({ stateChange: evidenceAddStateChange(i18n, evidenceItems) }));
 	});
 	program.command("waive <obligation-id>").description("Record a waiver evidence (kind=waiver) against an obligation id (REQ-/SCEN-/VIS-/T-)").requiredOption("--reason <text>", "Waiver rationale (≥10 chars; mandatory per evidence schema refine)").option("--feature <name>", "Feature whose ledger to append to").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (obligationId, opts) => {
 		if (!CoversRefPayload.safeParse(obligationId).success) {
@@ -11544,7 +14009,13 @@ async function main(argv = process.argv, deps = {}) {
 			return;
 		}
 		if (opts.reason.length < 10) {
-			emitFailure("USAGE", `--reason must be ≥10 chars (got ${opts.reason.length})`, { reason_length: opts.reason.length });
+			ctx.failureKeyed("USAGE", FAILURE_SITE_KEYS.lessonsReasonTooShort, {
+				min_length: 10,
+				reason_length: opts.reason.length
+			}, {
+				min_length: 10,
+				reason_length: opts.reason.length
+			});
 			return;
 		}
 		const resolution = resolveHumanActor({
@@ -11561,7 +14032,7 @@ async function main(argv = process.argv, deps = {}) {
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state) {
-			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+			emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
 			return;
 		}
 		const evidenceId = allocateNextEvidenceId(session.snapshot);
@@ -11601,13 +14072,16 @@ async function main(argv = process.argv, deps = {}) {
 			id: evidenceId,
 			kind: "waiver",
 			obligation_id: obligationId
-		}, () => `${evidenceId}\n`, { stateChange: `waive: ${evidenceId} obligation=${obligationId}` });
+		}, () => `${evidenceId}\n`, (i18n) => ({ stateChange: i18n.t(SUCCESS_KEYS.waiveStateChange, {
+			evidence_id: evidenceId,
+			obligation_id: obligationId
+		}) }));
 	});
 	program.command("lessons").description("Lessons-learned evidence commands (Phase 16 SC-11: add)").command("add").description("Record a lessons-learned evidence entry (kind=manual; --text inline OR --file <path>)").option("--text <inline>", "Lesson body text (inline). Mutex with --file.").option("--file <path>", "Read lesson body from file. Mutex with --text.").requiredOption("--reason <text>", "Why this lesson matters (≥10 chars; mandatory per evidence schema refine)").option("--feature <name>", "Feature whose ledger to append to").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		const hasText = opts.text !== void 0;
 		const hasFile = opts.file !== void 0;
 		if (hasText === hasFile) {
-			emitFailure("USAGE", hasText ? "exactly one of --text or --file required (both provided)" : "exactly one of --text or --file required (neither provided)", {
+			ctx.failureKeyed("USAGE", FAILURE_SITE_KEYS.lessonsTextFileMutex, { provided_state: hasText ? "both provided" : "neither provided" }, {
 				text_provided: hasText,
 				file_provided: hasFile
 			});
@@ -11619,17 +14093,29 @@ async function main(argv = process.argv, deps = {}) {
 			lessonText = await promises.readFile(opts.file, "utf8");
 		} catch (err) {
 			if (err.code === "ENOENT") {
-				emitFailure("INPUT_FILE_NOT_FOUND", `lesson file not found: ${opts.file}`, { path: opts.file });
+				ctx.failureKeyed("INPUT_FILE_NOT_FOUND", FAILURE_SITE_KEYS.lessonsFileMissing, { path: opts.file }, { path: opts.file });
 				return;
 			}
 			throw err;
 		}
 		if (lessonText.length < 3) {
-			emitFailure("USAGE", `lesson text must be ≥3 chars (got ${lessonText.length})`, { lesson_text_length: lessonText.length });
+			ctx.failureKeyed("USAGE", FAILURE_SITE_KEYS.lessonsTextTooShort, {
+				min_length: 3,
+				lesson_text_length: lessonText.length
+			}, {
+				min_length: 3,
+				lesson_text_length: lessonText.length
+			});
 			return;
 		}
 		if (opts.reason.length < 10) {
-			emitFailure("USAGE", `--reason must be ≥10 chars (got ${opts.reason.length})`, { reason_length: opts.reason.length });
+			ctx.failureKeyed("USAGE", FAILURE_SITE_KEYS.lessonsReasonTooShort, {
+				min_length: 10,
+				reason_length: opts.reason.length
+			}, {
+				min_length: 10,
+				reason_length: opts.reason.length
+			});
 			return;
 		}
 		const resolution = resolveHumanActor({
@@ -11646,7 +14132,7 @@ async function main(argv = process.argv, deps = {}) {
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state) {
-			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+			emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
 			return;
 		}
 		const evidenceId = allocateNextEvidenceId(session.snapshot);
@@ -11685,7 +14171,7 @@ async function main(argv = process.argv, deps = {}) {
 			feature: opts.feature,
 			id: evidenceId,
 			kind: "manual"
-		}, () => `${evidenceId}\n`, { stateChange: `lessons add: ${evidenceId} recorded (kind=manual; lessons.md updated)` });
+		}, () => `${evidenceId}\n`, (i18n) => ({ stateChange: i18n.t(SUCCESS_KEYS.lessonsAddStateChange, { evidence_id: evidenceId }) }));
 	});
 	program.command("hook <event>").description("Claude Code hook entry point (session-start + closure-check read-side; write-guard + scope-track land SC-15c)").option("--list-events", "Dump the canonical 4-event enum (handled by pre-parse guard)").option("--feature <name>", "Feature whose session to read (read-side events)").option("--feature-dir <path>", "Override default .loaf/<feature> directory").option("--session <uuid>", "Resolve session by registry UUID (read-side events)").option("--path <text>", "Tool target path (for write-guard / scope-track; SC-15c)").action(async (event, opts) => {
 		if (event === "session-start") {
@@ -11764,7 +14250,7 @@ async function main(argv = process.argv, deps = {}) {
 		const feature = opts.feature;
 		const cfg = await readLoafConfig(repoRoot);
 		if (cfg.status === "invalid") {
-			emitFailure("SCHEMA_VALIDATION_FAILED", `write-guard blocked: ${cfg.reason}`, {
+			ctx.failureKeyed("SCHEMA_VALIDATION_FAILED", FAILURE_SITE_KEYS.writeGuardConfigInvalid, { reason: cfg.reason }, {
 				source: "loaf.config.json",
 				reason: cfg.reason
 			});
@@ -11844,9 +14330,28 @@ async function main(argv = process.argv, deps = {}) {
 		const loadRows = async () => {
 			return (await listSessions(deps.registryDir !== void 0 ? { registryDir: deps.registryDir } : {})).rows;
 		};
+		const loadDetail = async (row) => {
+			const featureDir = path.join(row.cwd, ".loaf", row.feature);
+			try {
+				return classifyDetailOutcome(row, {
+					ok: true,
+					loaded: await loadProjections({
+						feature_dir: featureDir,
+						kinds: DETAIL_PROJECTION_KINDS
+					})
+				}, /* @__PURE__ */ new Date(), i18n);
+			} catch (error) {
+				return classifyDetailOutcome(row, {
+					ok: false,
+					error
+				}, /* @__PURE__ */ new Date(), i18n);
+			}
+		};
 		await renderTuiImpl(createElement(App, {
 			initialRows: await loadRows(),
-			loadRows
+			loadRows,
+			loadDetail,
+			i18n
 		}));
 	});
 	program.command("sessions").description("Session registry commands (list)").command("list").description("List session registry entries (read-only; --in-cwd filters by current cwd)").option("--in-cwd", "Only list sessions whose registered cwd matches the current cwd").action(async (opts) => {
@@ -11857,8 +14362,13 @@ async function main(argv = process.argv, deps = {}) {
 			...filterCwd !== void 0 && { filterCwd }
 		});
 		for (const w of result.warnings) {
-			const action = w.reason === "orphan-cwd" ? opts.inCwd ? "filtered out" : "has orphan cwd" : "skipped";
-			ctx.advisory(`registry entry ${w.file} ${action} (${w.reason}${w.detail ? `: ${w.detail}` : ""})`);
+			const actionKey = w.reason === "orphan-cwd" ? opts.inCwd ? CHROME_KEYS.sessionsActionFilteredOut : CHROME_KEYS.sessionsActionOrphanCwd : CHROME_KEYS.sessionsActionSkipped;
+			ctx.advisory(i18n.t(CHROME_KEYS.sessionsWarning, {
+				file: w.file,
+				action: i18n.t(actionKey),
+				reason: w.reason,
+				detail_suffix: w.detail ? `: ${w.detail}` : ""
+			}));
 		}
 		const nowDate = deps.now?.() ?? /* @__PURE__ */ new Date();
 		ctx.success({
@@ -11866,14 +14376,15 @@ async function main(argv = process.argv, deps = {}) {
 			count: result.rows.length,
 			sessions: result.rows,
 			warnings: result.warnings
-		}, () => {
-			if (result.rows.length === 0) return "(no sessions found)\n";
+		}, (textI18n) => {
+			if (result.rows.length === 0) return textI18n.t(CHROME_KEYS.sessionsListEmpty) + "\n";
 			const lines = [];
 			const featureWidth = Math.max(...result.rows.map((r) => r.feature.length), 7);
-			const stateWidth = Math.max(...result.rows.map((r) => r.sub_state.length), 12);
+			const stateWidth = Math.max(...result.rows.map((r) => formatPhaseSub(r, textI18n).length), 12);
 			for (const row of result.rows) {
-				const at = formatAtRelative(row.at, nowDate);
-				lines.push(`${row.session_id_short}  ${row.feature.padEnd(featureWidth)}  ${row.sub_state.padEnd(stateWidth)}  ${at}\n`);
+				const at = formatAtRelative(row.at, nowDate, textI18n);
+				const state = formatPhaseSub(row, textI18n);
+				lines.push(`${row.session_id_short}  ${row.feature.padEnd(featureWidth)}  ${state.padEnd(stateWidth)}  ${at}\n`);
 			}
 			return lines.join("");
 		});
@@ -11883,8 +14394,12 @@ async function main(argv = process.argv, deps = {}) {
 		let kind;
 		if (opts.kind !== void 0) {
 			if (!CHECK_KINDS.includes(opts.kind)) {
-				emitFailure("USAGE", `--kind '${opts.kind}' is not recognized; expected one of ${CHECK_KINDS.join("|")}`, {
+				ctx.failureKeyed("USAGE", FAILURE_SITE_KEYS.checkKindInvalid, {
+					value: opts.kind,
+					allowed_kinds_human: CHECK_KINDS.join("|")
+				}, {
 					provided: opts.kind,
+					value: opts.kind,
 					allowed: CHECK_KINDS
 				});
 				return;
@@ -11896,7 +14411,28 @@ async function main(argv = process.argv, deps = {}) {
 			kind
 		});
 		if (result.ok) {
-			ctx.success(result, () => renderSuccessText(result));
+			ctx.success(result, (i18n) => renderSuccessText(result, i18n));
+			return;
+		}
+		if (result.code === "USAGE" && result.detail["suggestion"] !== void 0) {
+			ctx.failureKeyed("USAGE", FAILURE_SITE_KEYS.checkKindRequired, {
+				subject: String(result.detail["argument"] ?? filePath),
+				kind: "tasks",
+				suggestion: String(result.detail["suggestion"])
+			}, result.detail);
+			return;
+		}
+		if (result.code === "INPUT_FILE_NOT_FOUND") {
+			ctx.failureKeyed("INPUT_FILE_NOT_FOUND", FAILURE_SITE_KEYS.checkPathMissing, { path: String(result.detail["path"] ?? filePath) }, result.detail);
+			return;
+		}
+		if (result.code === "SCHEMA_VALIDATION_FAILED" && result.detail["kind"] !== void 0 && result.detail["path"] !== void 0 && result.detail["error_count"] !== void 0) {
+			ctx.failureKeyed("SCHEMA_VALIDATION_FAILED", FAILURE_SITE_KEYS.schemaValidation, {
+				kind: String(result.detail["kind"]),
+				path: String(result.detail["path"]),
+				error_count: String(result.detail["error_count"]),
+				error_word: Number(result.detail["error_count"]) === 1 ? "error" : "errors"
+			}, result.detail);
 			return;
 		}
 		emitFailure(result.code, result.message, result.detail);
@@ -11911,7 +14447,7 @@ async function main(argv = process.argv, deps = {}) {
 			return;
 		}
 		const env = buildEnvelope(diag.checks);
-		ctx.success(env, () => renderText(env));
+		ctx.success(env, (i18n) => renderText(env, i18n));
 	});
 	const findingCmd = program.command("finding").description("Finding ledger commands (Slice 3 SC3 MVP: raise / list / close)");
 	findingCmd.command("raise").description("Raise a new finding (CLI allocates FND-id)").requiredOption("--category <category>", "Finding category (spec-gap | spec-defect | impl-defect | test-defect | new-scope | risk-escalation)").requiredOption("--action <action>", "Finding action (amend-spec | amend-tasks | fix-impl | fix-test | defer | backlog)").option("--summary <text>", "One-line finding summary (passthrough)").option("--reason <text>", "Justification (required ≥20 chars on unusual cells)").option("--target-task <task-id>", "Target task for fix-impl / fix-test / amend-tasks").option("--target-step <step>", "Target step (must equal action's canonical step)").option("--feature <name>", "Feature whose ledger to append to").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
@@ -11925,7 +14461,7 @@ async function main(argv = process.argv, deps = {}) {
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state) {
-			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+			emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionFinding, opts.feature);
 			return;
 		}
 		const maxSerial = session.snapshot.findings.reduce((max, f) => {
@@ -12104,12 +14640,18 @@ async function main(argv = process.argv, deps = {}) {
 	findingCmd.command("list").description("List findings (read-only; --status filters open|closed)").option("--feature <name>", "Feature whose findings to list").option("--status <s>", "Filter by status (open | closed)").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		if (rejectIfDryRun("finding list")) return;
 		if (opts.status !== void 0 && opts.status !== "open" && opts.status !== "closed") {
-			emitFailure("USAGE", `--status must be one of: open | closed (got ${opts.status})`);
+			ctx.failureKeyed("USAGE", FAILURE_SITE_KEYS.findingStatusInvalid, {
+				allowed_statuses_human: "open | closed",
+				value: opts.status
+			}, {
+				allowed: ["open", "closed"],
+				value: opts.status
+			});
 			return;
 		}
 		const featureDir = await dispatchOrFail(opts);
 		if (featureDir === null) return;
-		const loaded = await loadProjectionsOrFail(featureDir, ["findings"], opts.feature);
+		const loaded = await loadProjectionsOrFail(featureDir, ["findings"], opts.feature, FAILURE_SITE_KEYS.noSessionFinding);
 		if (loaded === null) return;
 		const all = loaded.findings.findings;
 		const rows = opts.status ? all.filter((f) => f.status === opts.status) : all;
@@ -12118,7 +14660,12 @@ async function main(argv = process.argv, deps = {}) {
 			feature: opts.feature,
 			count: rows.length,
 			findings: rows
-		}, () => rows.map((r) => `${r.id} ${r.category} ${r.action} ${r.status}\n`).join(""));
+		}, (i18n) => rows.map((r) => i18n.t(CHROME_KEYS.findingListRow, {
+			finding_id: r.id,
+			category: formatFindingCategory(i18n, r.category),
+			action: formatFindingAction(i18n, r.action),
+			status: formatFindingStatus(i18n, r.status)
+		}) + "\n").join(""));
 	});
 	findingCmd.command("close <fnd-id>").description("Close a finding (emits finding:closed)").option("--feature <name>", "Feature whose ledger to close against").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (fndId, opts) => {
 		const idParse = FindingId.safeParse(fndId);
@@ -12133,7 +14680,7 @@ async function main(argv = process.argv, deps = {}) {
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state) {
-			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+			emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionFinding, opts.feature);
 			return;
 		}
 		const existing = session.snapshot.findings.find((f) => f.id === fndId);
@@ -12179,7 +14726,7 @@ async function main(argv = process.argv, deps = {}) {
 			feature: opts.feature,
 			id: fndId,
 			status: "closed"
-		}, () => `closed ${fndId}\n`, { stateChange: `finding close: ${fndId} → closed` });
+		}, (i18n) => i18n.t(SUCCESS_KEYS.findingCloseText, { finding_id: fndId }) + "\n", (i18n) => ({ stateChange: i18n.t(SUCCESS_KEYS.findingCloseStateChange, { finding_id: fndId }) }));
 	});
 	const specCmd = program.command("spec").description("SPEC content commands (submit / add-req / add-scenario / add-visual; init in SC4)");
 	specCmd.command("submit").description("Whole-replacement spec submit from JSON --input (CLI fills spec_version)").requiredOption("--input <src>", "JSON source: `-` (stdin), inline JSON literal, or file path (protocol §10.7)").option("--feature <name>", "Feature whose spec to submit").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
@@ -12209,7 +14756,7 @@ async function main(argv = process.argv, deps = {}) {
 		if (featureDir === null) return;
 		const session = await ctx.resolveSession(featureDir);
 		if (!session.snapshot.state) {
-			ctx.failure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+			emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
 			return;
 		}
 		const now = (/* @__PURE__ */ new Date()).toISOString();
@@ -12247,10 +14794,15 @@ async function main(argv = process.argv, deps = {}) {
 			vis_ids: visIds,
 			sub_state: result.snapshot.state?.sub_state
 		};
-		ctx.success(out, () => `spec submitted v${out.spec_version}: ${reqIds.length} req / ${scenIds.length} scen / ${visIds.length} vis\n`, {
-			stateChange: `spec submit: spec_version=${out.spec_version}, locked=false`,
-			next: "loaf gate decide spec-lock"
-		});
+		ctx.success(out, (i18n) => i18n.t(SUCCESS_KEYS.specSubmitText, {
+			spec_version: out.spec_version,
+			req_count: reqIds.length,
+			scen_count: scenIds.length,
+			vis_count: visIds.length
+		}) + "\n", (i18n) => ({
+			stateChange: i18n.t(SUCCESS_KEYS.specSubmitStateChange, { spec_version: out.spec_version }),
+			next: i18n.t(SUCCESS_KEYS.specSubmitNext)
+		}));
 	});
 	const REGISTER_SPEC_ADD = [
 		{
@@ -12275,6 +14827,16 @@ async function main(argv = process.argv, deps = {}) {
 			snapshotKey: "visual_contracts"
 		}
 	];
+	function specAddTextKey(name, count) {
+		if (name === "req") return count === 1 ? SUCCESS_KEYS.specAddReqTextOne : SUCCESS_KEYS.specAddReqTextMany;
+		if (name === "scenario") return count === 1 ? SUCCESS_KEYS.specAddScenarioTextOne : SUCCESS_KEYS.specAddScenarioTextMany;
+		return count === 1 ? SUCCESS_KEYS.specAddVisualTextOne : SUCCESS_KEYS.specAddVisualTextMany;
+	}
+	function specAddStateChangeKey(name, count) {
+		if (name === "req") return count === 1 ? SUCCESS_KEYS.specAddReqStateChangeOne : SUCCESS_KEYS.specAddReqStateChangeMany;
+		if (name === "scenario") return count === 1 ? SUCCESS_KEYS.specAddScenarioStateChangeOne : SUCCESS_KEYS.specAddScenarioStateChangeMany;
+		return count === 1 ? SUCCESS_KEYS.specAddVisualStateChangeOne : SUCCESS_KEYS.specAddVisualStateChangeMany;
+	}
 	specCmd.command("init").description("Write a parser-valid minimal spec.md scaffold (no journal entry)").option("--feature <name>", "Feature whose spec.md to scaffold").option("--feature-dir <path>", "Override default .loaf/<feature> directory").option("--feature-id <id>", "Override feature.id in scaffold (default: F-XXX placeholder)").option("--feature-name <text>", "Override feature.name in scaffold (default: --feature value)").option("--intent <text>", "Override intent line in scaffold (default: TODO placeholder ≥20 chars)").action(async (opts) => {
 		const featureDir = await dispatchOrFail(opts);
 		if (featureDir === null) return;
@@ -12317,10 +14879,10 @@ feature:
 			ok: true,
 			feature: opts.feature,
 			spec_md_path: specMdPath
-		}, () => `${specMdPath}\n`, {
-			stateChange: `spec init: wrote scaffold to ${specMdPath}`,
-			next: "edit, then `loaf spec submit`"
-		});
+		}, () => `${specMdPath}\n`, (i18n) => ({
+			stateChange: i18n.t(SUCCESS_KEYS.specInitStateChange, { path: specMdPath }),
+			next: i18n.t(SUCCESS_KEYS.specInitNext)
+		}));
 	});
 	const runEditorImpl = deps.runEditor ?? runEditor;
 	specCmd.command("edit").description("Launch $EDITOR on spec.md, validate, then emit event:spec_submitted (wrapping mutator; --dry-run rejected)").option("--feature <name>", "Feature whose spec.md to edit").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
@@ -12339,7 +14901,7 @@ feature:
 		const actor = resolution.actor;
 		const session = await loadSession(featureDir, { ensureDir: false });
 		if (!session.snapshot.state) {
-			emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+			emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
 			return;
 		}
 		if (session.snapshot.state.spec_locked === true) {
@@ -12482,7 +15044,7 @@ feature:
 			feature: opts.feature,
 			spec_version: newSpecVersion,
 			sub_state: mutateResult.snapshot.state?.sub_state
-		}, () => `spec edit: spec_version=${newSpecVersion}\n`, { stateChange: `spec edit: spec_version=${newSpecVersion} via $EDITOR` });
+		}, (i18n) => i18n.t(SUCCESS_KEYS.specEditText, { spec_version: newSpecVersion }) + "\n", (i18n) => ({ stateChange: i18n.t(SUCCESS_KEYS.specEditStateChange, { spec_version: newSpecVersion }) }));
 	});
 	for (const cfg of REGISTER_SPEC_ADD) {
 		const mutatorKey = cfg.name === "req" ? "spec:add-req" : cfg.name === "scenario" ? "spec:add-scenario" : "spec:add-visual";
@@ -12522,7 +15084,7 @@ feature:
 			if (featureDir === null) return;
 			const session = await ctx.resolveSession(featureDir);
 			if (!session.snapshot.state) {
-				ctx.failure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+				emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
 				return;
 			}
 			const existingIds = session.snapshot[cfg.snapshotKey].map((p) => p.id);
@@ -12580,7 +15142,14 @@ feature:
 				spec_version: specVersion,
 				ids: allocatedIds,
 				sub_state: result.snapshot.state?.sub_state
-			}, () => `spec add-${cfg.name} v${specVersion}: ${allocatedIds.join(", ")}\n`, { stateChange: `spec add-${cfg.name}: +${allocatedIds.length} ${cfg.name.toUpperCase()} (spec_version=${specVersion}; allocated ${allocatedIds.join(",")})` });
+			}, (i18n) => i18n.t(specAddTextKey(cfg.name, allocatedIds.length), {
+				spec_version: specVersion,
+				ids: allocatedIds.join(", ")
+			}) + "\n", (i18n) => ({ stateChange: i18n.t(specAddStateChangeKey(cfg.name, allocatedIds.length), {
+				count: allocatedIds.length,
+				spec_version: specVersion,
+				ids: allocatedIds.join(",")
+			}) }));
 		});
 	}
 	const ARTIFACT_PARENTS = {
