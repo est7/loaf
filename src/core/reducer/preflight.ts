@@ -35,6 +35,7 @@
 import { JournalEntry, PER_KIND_PAYLOAD } from "../journal-entry.js";
 import type { Ceremony, EntryKind, SubState } from "../journal-entry.js";
 import type { Snapshot, TaskState } from "../reducer.js";
+import { isPassingResult } from "../gates/verify-accept-check.js";
 import { extractTaskSlim, type TaskFullProjection } from "../task-schema.js";
 import {
   validateTransition,
@@ -735,10 +736,12 @@ export function preflight(
       // Per `status=done` task, require the per-kind evidence covering it
       // (codex v0.1.1 Q2 lock): code-touching tasks need `local-check`
       // build/test proof — `task-summary` alone does NOT satisfy (that would
-      // weaken to verify-accept check 4); `waiver` always satisfies (human
-      // escape). Evidence must cover the task (`covers` includes task.id);
-      // session-wide evidence never satisfies an unrelated task. spike tasks
-      // are hard-blocked above (DELIVER_SPIKE_TASKS) so never reach here.
+      // weaken to verify-accept check 4). The evidence result must be positive,
+      // matching verify-accept (`passed` / `approved` / `waived`); `waiver`
+      // satisfies only as a positive human escape. Evidence must cover the task
+      // (`covers` includes task.id); session-wide evidence never satisfies an
+      // unrelated task. spike tasks are hard-blocked above (DELIVER_SPIKE_TASKS)
+      // so never reach here.
       const VERIFY_MIN_REQUIRED_KINDS: Record<string, readonly string[]> = {
         behavioral: ["local-check"],
         structural: ["local-check"],
@@ -765,8 +768,10 @@ export function preflight(
           };
         }
         const required = VERIFY_MIN_REQUIRED_KINDS[task.kind] ?? [];
-        const satisfied = ctx.snapshot.evidence.some(
-          (ev) => ev.covers.includes(task.id) && (required.includes(ev.kind) || ev.kind === "waiver"),
+        const satisfied = ctx.snapshot.evidence.some((ev) =>
+          isPassingResult(ev.result) &&
+          ev.covers.includes(task.id) &&
+          (required.includes(ev.kind) || ev.kind === "waiver"),
         );
         if (!satisfied) {
           missing.push({ task_id: task.id, kind: task.kind, required_kinds: required });

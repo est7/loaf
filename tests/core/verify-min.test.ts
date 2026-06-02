@@ -27,8 +27,13 @@ function task(id: string, kind: TaskState["kind"], overrides: Partial<TaskState>
   return { id, kind, status: "done", steps: {}, drives: [], depends_on: [], labels: [], ...overrides };
 }
 
-function ev(id: string, kind: EvidenceState["kind"], covers: string[]): EvidenceState {
-  return { id, kind, covers, actor: "human:dev@test.invalid" };
+function ev(
+  id: string,
+  kind: EvidenceState["kind"],
+  covers: string[],
+  result: EvidenceState["result"] = "passed",
+): EvidenceState {
+  return { id, kind, covers, actor: "human:dev@test.invalid", result };
 }
 
 function snap(tasks: TaskState[], evidence: EvidenceState[]): Snapshot {
@@ -98,7 +103,77 @@ describe("verify-min — per-task required evidence (§3.2)", () => {
   });
 
   test("waiver covering any kind → pass (human escape)", () => {
-    expect(run(snap([task("T-001", "behavioral")], [ev("EV-1", "waiver", ["T-001"])])).ok).toBe(true);
+    expect(run(snap([task("T-001", "behavioral")], [ev("EV-1", "waiver", ["T-001"], "waived")])).ok).toBe(true);
+  });
+
+  test.each([
+    {
+      label: "behavioral local-check failed",
+      taskKind: "behavioral",
+      evidenceKind: "local-check",
+      result: "failed",
+    },
+    {
+      label: "behavioral local-check rejected",
+      taskKind: "behavioral",
+      evidenceKind: "local-check",
+      result: "rejected",
+    },
+    {
+      label: "visual-ui manual failed",
+      taskKind: "visual-ui",
+      evidenceKind: "manual",
+      result: "failed",
+    },
+    {
+      label: "visual-ui manual rejected",
+      taskKind: "visual-ui",
+      evidenceKind: "manual",
+      result: "rejected",
+    },
+    {
+      label: "visual-ui visual-review failed",
+      taskKind: "visual-ui",
+      evidenceKind: "visual-review",
+      result: "failed",
+    },
+    {
+      label: "visual-ui visual-review rejected",
+      taskKind: "visual-ui",
+      evidenceKind: "visual-review",
+      result: "rejected",
+    },
+    {
+      label: "behavioral waiver failed",
+      taskKind: "behavioral",
+      evidenceKind: "waiver",
+      result: "failed",
+    },
+    {
+      label: "behavioral waiver rejected",
+      taskKind: "behavioral",
+      evidenceKind: "waiver",
+      result: "rejected",
+    },
+  ] as const)(
+    "$label → DELIVER_VERIFY_MIN_INCOMPLETE",
+    ({ taskKind, evidenceKind, result }) => {
+      const r = run(snap(
+        [task("T-001", taskKind)],
+        [ev("EV-1", evidenceKind, ["T-001"], result)],
+      ));
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.code).toBe("DELIVER_VERIFY_MIN_INCOMPLETE");
+    },
+  );
+
+  test("unsupported na-like evidence result does not satisfy verify-min", () => {
+    const r = run(snap(
+      [task("T-001", "behavioral")],
+      [ev("EV-1", "local-check", ["T-001"], "na" as EvidenceState["result"])],
+    ));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe("DELIVER_VERIFY_MIN_INCOMPLETE");
   });
 
   test("evidence covering a DIFFERENT task does NOT satisfy → INCOMPLETE", () => {

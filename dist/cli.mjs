@@ -6560,7 +6560,7 @@ function preflight(rawEntry, ctx) {
 					detail: { task_id: task.id }
 				};
 				const required = VERIFY_MIN_REQUIRED_KINDS[task.kind] ?? [];
-				if (!ctx.snapshot.evidence.some((ev) => ev.covers.includes(task.id) && (required.includes(ev.kind) || ev.kind === "waiver"))) missing.push({
+				if (!ctx.snapshot.evidence.some((ev) => isPassingResult(ev.result) && ev.covers.includes(task.id) && (required.includes(ev.kind) || ev.kind === "waiver"))) missing.push({
 					task_id: task.id,
 					kind: task.kind,
 					required_kinds: required

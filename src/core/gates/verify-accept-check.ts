@@ -112,10 +112,10 @@ const KIND_TO_LANE_FALLBACK: Partial<Record<EvidenceState["kind"], VerifyCheckKi
   "visual-review": "visual",
 };
 
-const PASSING_RESULTS = new Set(["passed", "approved", "waived"]);
+export const PASSING_RESULTS = new Set(["passed", "approved", "waived"]);
 
 /** Lanes that pass an evidence result-check filter. */
-function isPassingResult(result?: EvidenceState["result"]): boolean {
+export function isPassingResult(result?: EvidenceState["result"]): boolean {
   return result !== undefined && PASSING_RESULTS.has(result);
 }
 
