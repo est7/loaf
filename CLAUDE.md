@@ -154,6 +154,20 @@ Commit message bodies are **thick** — each sub-cycle commit carries: design de
 - **i18n templates mirror ERROR_CATALOG**: when adding a `DiagnosticCode`, write the template in `en.json` + `zh.json` simultaneously and check that placeholder names match the `detail.*` keys actually emitted (codex r80 BLOCK pattern).
 - **Strict over Postel** at every CLI input boundary: `.strict()` Zod schemas, closed `z.enum` (no `.passthrough()` on closed-set fields like `EvidenceKind` / `FindingAction` / `PendingPromptKind`), reject caller-supplied ids, reject envelope fields.
 
+## Ship & distribution
+
+Not published to npm (`npm view loaf-cli` → 404). The CLI is distributed **straight from git** — GitHub repo is `est7/loaf` (repo name ≠ package name `loaf-cli`; remote `git@github.com:est7/loaf.git`).
+
+- **`dist/cli.mjs` is committed.** `.gitignore` is `dist/*` + `!dist/cli.mjs`, and `package.json` `files` includes `dist`. Git consumers run the committed binary directly — there is **no `prepare` script**, so nothing rebuilds on `pnpm add`. The committed `dist/cli.mjs` IS the shipped artifact.
+- **Release flow (`chore(release): vX.Y.Z`)**: bump `package.json` version → `bun run build` (regenerate `dist/cli.mjs`) → update CHANGELOG/README pins → commit **with the rebuilt dist staged** → `git tag vX.Y.Z` → push commit + tag. Skipping the rebuild ships a stale binary: git consumers get the old `--version` even though `package.json` bumped. Verify before commit: `git show HEAD:dist/cli.mjs | grep '"X.Y.Z"'`.
+- **Install / update the global binary** (consumer side, pnpm):
+  ```bash
+  pnpm add -g github:est7/loaf            # installs/updates from main HEAD
+  pnpm add -g github:est7/loaf#vX.Y.Z     # pin to a tag (reproducible)
+  loaf --version                          # verify
+  ```
+  Re-run the same command to update — pnpm re-resolves the ref. Do **not** suggest `pnpm update -g loaf-cli` (no npm upstream to pull). Installing from `$PWD` (`pnpm add -g $PWD`) is local-dev only; the canonical source is GitHub.
+
 ## Don'ts
 
 - Don't bypass `mutateBatch` — direct `appendEntry` / `appendMany` calls skip preflight + reducer dry-run + sidecar promote + REDUCER_IMPLEMENTED gate. Reserved for migration / doctor only.
