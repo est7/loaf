@@ -20,8 +20,8 @@ import {
   createCommandContext,
   type CommandContext,
 } from "../../src/cli/command-context.js";
-import { createI18n, BUILTIN_BUNDLES } from "../../src/cli/i18n.js";
-import { FAILURE_SITE_KEYS } from "../../src/cli/runtime-i18n-keys.js";
+import { createI18n, BUILTIN_BUNDLES, type I18n } from "../../src/cli/i18n.js";
+import { FAILURE_SITE_KEYS, SUCCESS_KEYS } from "../../src/cli/runtime-i18n-keys.js";
 
 function makeCtx(
   argv: string[],
@@ -113,6 +113,71 @@ describe("Phase 16 SC-3 — CommandContext: construction + output mode", () => {
 
     expect(stdout.join("")).toBe('{"ok":true}\n');
     expect(stderr.join("")).toBe("translated:advisory.state\nnext: translated:advisory.next\n");
+  });
+
+  test("success text/advisory renderers use P3a localized keys in zh text mode", () => {
+    const { ctx, stdout, stderr } = makeCtx(["loaf", "start"], {
+      i18n: createI18n("zh", BUILTIN_BUNDLES),
+    });
+
+    ctx.success(
+      { ok: true, session_id: "session-1" },
+      () => "session-1\n",
+      (i18n) => ({
+        stateChange: i18n.t(SUCCESS_KEYS.startStateChange, {
+          feature: "auth-refresh",
+        }),
+        next: i18n.t(SUCCESS_KEYS.nextAdvance),
+      }),
+    );
+
+    expect(stdout.join("")).toBe("session-1\n");
+    expect(stderr.join("")).toBe("start: 'auth-refresh' 已创建 → TRIAGE.score\nnext: loaf advance\n");
+  });
+
+  test("success text renderer uses P3a localized task-submit key", () => {
+    const { ctx, stdout, stderr } = makeCtx(["loaf", "tasks", "submit"], {
+      i18n: createI18n("zh", BUILTIN_BUNDLES),
+    });
+
+    ctx.success(
+      { ok: true, tasks_count: 2, task_ids: ["T-001", "T-002"] },
+      (i18n) => i18n.t(SUCCESS_KEYS.tasksSubmitTextMany, {
+        count: 2,
+        task_ids: "T-001, T-002",
+      }) + "\n",
+      (i18n) => ({
+        stateChange: i18n.t(SUCCESS_KEYS.tasksSubmitStateChange, { count: 2 }),
+        next: i18n.t(SUCCESS_KEYS.nextAdvance),
+      }),
+    );
+
+    expect(stdout.join("")).toBe("已提交 2 个 task:T-001, T-002\n");
+    expect(stderr.join("")).toBe("tasks submit: 2 tasks\nnext: loaf advance\n");
+  });
+
+  test("success JSON payload stays byte-stable under zh locale", () => {
+    const payload = { ok: true, feature: "auth-refresh", task_ids: ["T-001"], tasks_count: 1 };
+    const en = makeCtx(["loaf", "tasks", "submit", "--format", "json"], {
+      i18n: createI18n("en", BUILTIN_BUNDLES),
+    });
+    const zh = makeCtx(["loaf", "tasks", "submit", "--format", "json"], {
+      i18n: createI18n("zh", BUILTIN_BUNDLES),
+    });
+    const renderText = (i18n: I18n) =>
+      i18n.t(SUCCESS_KEYS.tasksSubmitTextOne, {
+        count: 1,
+        task_ids: "T-001",
+      }) + "\n";
+    const renderAdvisory = (i18n: I18n) => ({
+      stateChange: i18n.t(SUCCESS_KEYS.tasksSubmitStateChange, { count: 1 }),
+      next: i18n.t(SUCCESS_KEYS.nextAdvance),
+    });
+
+    en.ctx.success(payload, renderText, renderAdvisory);
+    zh.ctx.success(payload, renderText, renderAdvisory);
+
+    expect(zh.stdout.join("")).toBe(en.stdout.join(""));
   });
 
   test("text mode + missing textRenderer → THROWS (codex r208 PATCH 1 — no silent JSON fallback)", () => {

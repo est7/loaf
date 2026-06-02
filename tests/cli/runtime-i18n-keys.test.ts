@@ -13,6 +13,7 @@ import {
   diagnosticKey,
   FAILURE_SITE_KEYS,
   FAILURE_SITE_TEMPLATES,
+  SUCCESS_KEYS,
   statusIndicatorKey,
   subStateKey,
   taskKindKey,
@@ -57,6 +58,7 @@ describe("runtime i18n key gate", () => {
       ...SubState.options.map(subStateKey),
       ...MIGRATED_DIAGNOSTIC_CODES.map(diagnosticKey),
       ...Object.values(FAILURE_SITE_KEYS),
+      ...Object.values(SUCCESS_KEYS),
     ];
 
     expect(new Set(RUNTIME_I18N_KEYS)).toEqual(new Set(helperKeys));
@@ -91,6 +93,16 @@ describe("runtime i18n key gate", () => {
       expect(zh, `${key} zh`).toBeTypeOf("string");
       expect(placeholders(String(en)), `${key} zh placeholders`).toEqual(placeholders(String(zh)));
       expect(placeholders(String(en)), `${key} registry placeholders`).toEqual(placeholders(entry!.template));
+    }
+  });
+
+  test("success keys are explicit, localized, and placeholder-symmetric", () => {
+    for (const key of Object.values(SUCCESS_KEYS)) {
+      const en = lookup(BUILTIN_BUNDLES.en, key);
+      const zh = lookup(BUILTIN_BUNDLES.zh, key);
+      expect(en, `${key} en`).toBeTypeOf("string");
+      expect(zh, `${key} zh`).toBeTypeOf("string");
+      expect(placeholders(String(en)), `${key} zh placeholders`).toEqual(placeholders(String(zh)));
     }
   });
 

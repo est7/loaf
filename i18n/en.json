@@ -284,6 +284,53 @@
     }
   },
 
+  "success": {
+    "next": {
+      "advance": "loaf advance",
+      "deliver": "loaf deliver",
+      "settle": "loaf settle"
+    },
+    "start": {
+      "state_change": "start: '{feature}' created → TRIAGE.score"
+    },
+    "advance": {
+      "state_change": "advance: {from} → {to}"
+    },
+    "gate": {
+      "spec_lock_approved_state_change": "gate decide: spec-lock approved by {actor}",
+      "verify_accept_approved_state_change": "gate decide: verify-accept approved by {actor}",
+      "rejected_state_change": "gate decide: {gate} rejected by {actor}"
+    },
+    "deliver": {
+      "state_change": "deliver: {feature} — {from} → DONE.delivered by {actor}",
+      "next": "session complete — `loaf start <feature>` to begin another"
+    },
+    "archive": {
+      "state_change": "archive: {feature} — {from} → DONE.archived by {actor}"
+    },
+    "abandon": {
+      "state_change": "abandon: {feature} — {from} → DONE.abandoned by {actor} (reason='{reason}')"
+    },
+    "spike": {
+      "convert_state_change": "spike convert: {feature} → {to_feature} — {from} → DONE.archived by {actor}"
+    },
+    "profile": {
+      "escalate_state_change": "profile escalate: ceremony updated, {pending_id} resolved"
+    },
+    "tasks": {
+      "submit_text_one": "submitted {count} task: {task_ids}",
+      "submit_text_many": "submitted {count} tasks: {task_ids}",
+      "submit_state_change": "tasks submit: {count} tasks",
+      "add_text_one": "added {count} task: {task_ids}",
+      "add_text_many": "added {count} tasks: {task_ids}",
+      "add_sponsored_text_one": "added {count} task (sponsored by {finding}): {task_ids}",
+      "add_sponsored_text_many": "added {count} tasks (sponsored by {finding}): {task_ids}",
+      "add_state_change": "tasks add: +{count} tasks (allocated {task_ids})",
+      "claim_state_change": "tasks claim: {task_id} (status={status})",
+      "abandon_state_change": "tasks abandon: {task_id} (status={status})"
+    }
+  },
+
   "help": {
     "start":          "Begin a new feature session in .loaf/<feature>/",
     "status":         "Print current state.json + artifact health summary",

@@ -284,6 +284,53 @@
     }
   },
 
+  "success": {
+    "next": {
+      "advance": "loaf advance",
+      "deliver": "loaf deliver",
+      "settle": "loaf settle"
+    },
+    "start": {
+      "state_change": "start: '{feature}' 已创建 → TRIAGE.score"
+    },
+    "advance": {
+      "state_change": "advance: {from} → {to}"
+    },
+    "gate": {
+      "spec_lock_approved_state_change": "gate decide: spec-lock 已由 {actor} approve",
+      "verify_accept_approved_state_change": "gate decide: verify-accept 已由 {actor} approve",
+      "rejected_state_change": "gate decide: {gate} 已由 {actor} reject"
+    },
+    "deliver": {
+      "state_change": "deliver: {feature} — {from} → DONE.delivered by {actor}",
+      "next": "session complete — 运行 `loaf start <feature>` 开始下一个 feature"
+    },
+    "archive": {
+      "state_change": "archive: {feature} — {from} → DONE.archived by {actor}"
+    },
+    "abandon": {
+      "state_change": "abandon: {feature} — {from} → DONE.abandoned by {actor}(reason='{reason}')"
+    },
+    "spike": {
+      "convert_state_change": "spike convert: {feature} → {to_feature} — {from} → DONE.archived by {actor}"
+    },
+    "profile": {
+      "escalate_state_change": "profile escalate: ceremony 已更新,{pending_id} 已 resolved"
+    },
+    "tasks": {
+      "submit_text_one": "已提交 {count} 个 task:{task_ids}",
+      "submit_text_many": "已提交 {count} 个 task:{task_ids}",
+      "submit_state_change": "tasks submit: {count} tasks",
+      "add_text_one": "已添加 {count} 个 task:{task_ids}",
+      "add_text_many": "已添加 {count} 个 task:{task_ids}",
+      "add_sponsored_text_one": "已添加 {count} 个 task(由 {finding} sponsor):{task_ids}",
+      "add_sponsored_text_many": "已添加 {count} 个 task(由 {finding} sponsor):{task_ids}",
+      "add_state_change": "tasks add: +{count} tasks(allocated {task_ids})",
+      "claim_state_change": "tasks claim: {task_id}(status={status})",
+      "abandon_state_change": "tasks abandon: {task_id}(status={status})"
+    }
+  },
+
   "help": {
     "start":          "在 .loaf/<feature>/ 开启新 feature session",
     "status":         "打印当前 state.json + artifact 健康摘要",

@@ -368,6 +368,35 @@ export const FAILURE_SITE_TEMPLATES = {
   template: string;
 }>;
 
+export const SUCCESS_KEYS = {
+  nextAdvance: "success.next.advance",
+  nextDeliver: "success.next.deliver",
+  nextSettle: "success.next.settle",
+  startStateChange: "success.start.state_change",
+  advanceStateChange: "success.advance.state_change",
+  gateSpecLockApprovedStateChange: "success.gate.spec_lock_approved_state_change",
+  gateVerifyAcceptApprovedStateChange: "success.gate.verify_accept_approved_state_change",
+  gateRejectedStateChange: "success.gate.rejected_state_change",
+  deliverStateChange: "success.deliver.state_change",
+  deliverNext: "success.deliver.next",
+  archiveStateChange: "success.archive.state_change",
+  abandonStateChange: "success.abandon.state_change",
+  spikeConvertStateChange: "success.spike.convert_state_change",
+  profileEscalateStateChange: "success.profile.escalate_state_change",
+  tasksSubmitTextOne: "success.tasks.submit_text_one",
+  tasksSubmitTextMany: "success.tasks.submit_text_many",
+  tasksSubmitStateChange: "success.tasks.submit_state_change",
+  tasksAddTextOne: "success.tasks.add_text_one",
+  tasksAddTextMany: "success.tasks.add_text_many",
+  tasksAddSponsoredTextOne: "success.tasks.add_sponsored_text_one",
+  tasksAddSponsoredTextMany: "success.tasks.add_sponsored_text_many",
+  tasksAddStateChange: "success.tasks.add_state_change",
+  tasksClaimStateChange: "success.tasks.claim_state_change",
+  tasksAbandonStateChange: "success.tasks.abandon_state_change",
+} as const;
+
+export type SuccessKey = (typeof SUCCESS_KEYS)[keyof typeof SUCCESS_KEYS];
+
 export type RuntimeI18nKey =
   | (typeof STATUS_INDICATOR_KEYS)[keyof typeof STATUS_INDICATOR_KEYS]
   | (typeof TASK_KIND_KEYS)[keyof typeof TASK_KIND_KEYS]
@@ -378,7 +407,8 @@ export type RuntimeI18nKey =
   | (typeof PHASE_KEYS)[keyof typeof PHASE_KEYS]
   | (typeof SUB_STATE_KEYS)[keyof typeof SUB_STATE_KEYS]
   | (typeof DIAGNOSTIC_KEYS)[keyof typeof DIAGNOSTIC_KEYS]
-  | FailureSiteKey;
+  | FailureSiteKey
+  | SuccessKey;
 
 export const RUNTIME_I18N_KEYS: readonly RuntimeI18nKey[] = [
   ...Object.values(STATUS_INDICATOR_KEYS),
@@ -391,6 +421,7 @@ export const RUNTIME_I18N_KEYS: readonly RuntimeI18nKey[] = [
   ...Object.values(SUB_STATE_KEYS),
   ...Object.values(DIAGNOSTIC_KEYS),
   ...Object.values(FAILURE_SITE_KEYS),
+  ...Object.values(SUCCESS_KEYS),
 ];
 
 export function statusIndicatorKey(bucket: TuiStatusBucket): RuntimeI18nKey {

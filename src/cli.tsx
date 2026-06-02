@@ -85,6 +85,7 @@ import {
 import {
   diagnosticKey,
   FAILURE_SITE_KEYS,
+  SUCCESS_KEYS,
   type FailureSiteDiagnosticCode,
   type FailureSiteKey,
   type MigratedDiagnosticCode,
@@ -1312,10 +1313,10 @@ export async function main(
       ctx.success(
         out,
         () => `${sessionId}\n`,
-        {
-          stateChange: `start: '${feature}' created → TRIAGE.score`,
-          next: "loaf advance",
-        },
+        (i18n) => ({
+          stateChange: i18n.t(SUCCESS_KEYS.startStateChange, { feature }),
+          next: i18n.t(SUCCESS_KEYS.nextAdvance),
+        }),
       );
     });
 
@@ -1353,7 +1354,13 @@ export async function main(
         return;
       }
       const out = { ok: true, from, to, sub_state: result.snapshot.state?.sub_state };
-      ctx.success(out, () => "", { stateChange: `advance: ${from} → ${to}` });
+      ctx.success(
+        out,
+        () => "",
+        (i18n) => ({
+          stateChange: i18n.t(SUCCESS_KEYS.advanceStateChange, { from, to }),
+        }),
+      );
     });
 
   // ── loaf status ─────────────────────────────────────────────────────
@@ -1572,7 +1579,9 @@ export async function main(
           ctx.success(
             out,
             () => "",
-            { stateChange: `gate decide: spec-lock approved by ${humanActor}` },
+            (i18n) => ({
+              stateChange: i18n.t(SUCCESS_KEYS.gateSpecLockApprovedStateChange, { actor: humanActor }),
+            }),
           );
           return;
         }
@@ -1637,10 +1646,10 @@ export async function main(
         ctx.success(
           out,
           () => "",
-          {
-            stateChange: `gate decide: verify-accept approved by ${humanActor}`,
-            next: nextCmd,
-          },
+          (i18n) => ({
+            stateChange: i18n.t(SUCCESS_KEYS.gateVerifyAcceptApprovedStateChange, { actor: humanActor }),
+            next: i18n.t(nextCmd === "loaf settle" ? SUCCESS_KEYS.nextSettle : SUCCESS_KEYS.nextDeliver),
+          }),
         );
         return;
       }
@@ -1677,7 +1686,9 @@ export async function main(
       ctx.success(
         out,
         () => "",
-        { stateChange: `gate decide: ${gateName} rejected by ${humanActor}` },
+        (i18n) => ({
+          stateChange: i18n.t(SUCCESS_KEYS.gateRejectedStateChange, { gate: gateName, actor: humanActor }),
+        }),
       );
     });
 
@@ -1779,10 +1790,14 @@ export async function main(
       ctx.success(
         out,
         () => "",
-        {
-          stateChange: `deliver: ${opts.feature} — ${from} → DONE.delivered by ${humanActor}`,
-          next: advisory[0]!,
-        },
+        (i18n) => ({
+          stateChange: i18n.t(SUCCESS_KEYS.deliverStateChange, {
+            feature: opts.feature,
+            from,
+            actor: humanActor,
+          }),
+          next: i18n.t(SUCCESS_KEYS.deliverNext),
+        }),
       );
     });
 
@@ -1859,9 +1874,13 @@ export async function main(
       ctx.success(
         out,
         () => "",
-        {
-          stateChange: `archive: ${opts.feature} — ${from} → DONE.archived by ${humanActor}`,
-        },
+        (i18n) => ({
+          stateChange: i18n.t(SUCCESS_KEYS.archiveStateChange, {
+            feature: opts.feature,
+            from,
+            actor: humanActor,
+          }),
+        }),
       );
     });
 
@@ -1927,9 +1946,14 @@ export async function main(
       ctx.success(
         out,
         () => "",
-        {
-          stateChange: `abandon: ${opts.feature} — ${from} → DONE.abandoned by ${humanActor} (reason='${opts.reason}')`,
-        },
+        (i18n) => ({
+          stateChange: i18n.t(SUCCESS_KEYS.abandonStateChange, {
+            feature: opts.feature,
+            from,
+            actor: humanActor,
+            reason: opts.reason,
+          }),
+        }),
       );
     });
 
@@ -2033,9 +2057,14 @@ export async function main(
         ctx.success(
           out,
           () => "",
-          {
-            stateChange: `spike convert: ${opts.feature} → ${opts.toFeature} — ${from} → DONE.archived by ${humanActor}`,
-          },
+          (i18n) => ({
+            stateChange: i18n.t(SUCCESS_KEYS.spikeConvertStateChange, {
+              feature: opts.feature,
+              to_feature: opts.toFeature,
+              from,
+              actor: humanActor,
+            }),
+          }),
         );
       },
     );
@@ -2187,9 +2216,9 @@ export async function main(
         ctx.success(
           out,
           () => "",
-          {
-            stateChange: `profile escalate: ceremony updated, ${head.id} resolved`,
-          },
+          (i18n) => ({
+            stateChange: i18n.t(SUCCESS_KEYS.profileEscalateStateChange, { pending_id: head.id }),
+          }),
         );
       },
     );
@@ -2429,12 +2458,15 @@ export async function main(
       };
       ctx.success(
         out,
-        () =>
-          `submitted ${tasks.length} task${tasks.length === 1 ? "" : "s"}: ${taskIds.join(", ")}\n`,
-        {
-          stateChange: `tasks submit: ${tasks.length} tasks`,
-          next: "loaf advance",
-        },
+        (i18n) =>
+          i18n.t(tasks.length === 1 ? SUCCESS_KEYS.tasksSubmitTextOne : SUCCESS_KEYS.tasksSubmitTextMany, {
+            count: tasks.length,
+            task_ids: taskIds.join(", "),
+          }) + "\n",
+        (i18n) => ({
+          stateChange: i18n.t(SUCCESS_KEYS.tasksSubmitStateChange, { count: tasks.length }),
+          next: i18n.t(SUCCESS_KEYS.nextAdvance),
+        }),
       );
     });
 
@@ -2638,11 +2670,21 @@ export async function main(
         };
         ctx.success(
           out,
-          () =>
-            `added ${newIds.length} task${newIds.length === 1 ? "" : "s"} (sponsored by ${opts.finding}): ${newIds.join(", ")}\n`,
-          {
-            stateChange: `tasks add: +${newIds.length} tasks (allocated ${newIds.join(",")})`,
-          },
+          (i18n) =>
+            i18n.t(
+              newIds.length === 1 ? SUCCESS_KEYS.tasksAddSponsoredTextOne : SUCCESS_KEYS.tasksAddSponsoredTextMany,
+              {
+                count: newIds.length,
+                finding: opts.finding,
+                task_ids: newIds.join(", "),
+              },
+            ) + "\n",
+          (i18n) => ({
+            stateChange: i18n.t(SUCCESS_KEYS.tasksAddStateChange, {
+              count: newIds.length,
+              task_ids: newIds.join(","),
+            }),
+          }),
         );
         return;
       }
@@ -2699,11 +2741,17 @@ export async function main(
       };
       ctx.success(
         out,
-        () =>
-          `added ${newIds.length} task${newIds.length === 1 ? "" : "s"}: ${newIds.join(", ")}\n`,
-        {
-          stateChange: `tasks add: +${newIds.length} tasks (allocated ${newIds.join(",")})`,
-        },
+        (i18n) =>
+          i18n.t(newIds.length === 1 ? SUCCESS_KEYS.tasksAddTextOne : SUCCESS_KEYS.tasksAddTextMany, {
+            count: newIds.length,
+            task_ids: newIds.join(", "),
+          }) + "\n",
+        (i18n) => ({
+          stateChange: i18n.t(SUCCESS_KEYS.tasksAddStateChange, {
+            count: newIds.length,
+            task_ids: newIds.join(","),
+          }),
+        }),
       );
     });
 
@@ -2770,7 +2818,12 @@ export async function main(
       ctx.success(
         out,
         () => "",
-        { stateChange: `tasks claim: ${taskId} (status=${status})` },
+        (i18n) => ({
+          stateChange: i18n.t(SUCCESS_KEYS.tasksClaimStateChange, {
+            task_id: taskId,
+            status,
+          }),
+        }),
       );
     });
 
@@ -2840,7 +2893,12 @@ export async function main(
         ctx.success(
           out,
           () => "",
-          { stateChange: `tasks abandon: ${taskId} (status=${status})` },
+          (i18n) => ({
+            stateChange: i18n.t(SUCCESS_KEYS.tasksAbandonStateChange, {
+              task_id: taskId,
+              status,
+            }),
+          }),
         );
       },
     );
