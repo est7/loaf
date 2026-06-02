@@ -2681,11 +2681,31 @@ JSON 输出(`--format json`)       → 永远是 stable ID,不走 i18n
 
 ### 18.3 Lookup 优先级
 
-1. `~/.loaf/i18n/<lang>.local.json`(用户覆盖,可选)
-2. `loaf-cli/i18n/<lang>.json`(内置)
-3. `loaf-cli/i18n/en.json`(fallback)
+> **当前决策源:ADR-0006**(runtime i18n + user locale config）。本节以 ADR-0006
+> 为准;旧的单层序「`LOAF_LANG > loaf.config.json > $LANG > en`」已被取代。
 
-**Lang 解析顺序**:`LOAF_LANG` env > `loaf.config.json` `locale.default_lang` > `$LANG` > `"en"`
+Bundle lookup(运行时 `t(keyPath, vars)` 单 key 查找):
+
+1. `~/.loaf/i18n/<lang>.local.json`(用户覆盖,可选 — 未来实现)
+2. `loaf-cli/i18n/<lang>.json`(内置,运行时 source)
+3. `loaf-cli/i18n/en.json`(fallback)
+4. raw key path(末级 fallback;运行时绝不因缺 key abort）
+
+**Lang 解析顺序**(high → low,ADR-0006 §2):
+
+1. `--lang <en|zh>`(未来 flag)
+2. `$LOAF_LANG`
+3. `~/.loaf/config.json` 的 `locale.default_lang`（用户偏好；**有意放在 `~/.loaf/`
+   estate 而非 §10.3 的 XDG 通用用户配置 —— locale 是展示偏好,设一次记住**)
+4. project `loaf.config.json` 的 `locale.default_lang`（仅 repo 默认,**低于**用户偏好
+   —— ADR-0006 标注的「项目配置高于用户配置」通用序的例外）
+5. 解析 `$LANG` / `$LC_ALL` / `$LC_MESSAGES`（`zh_CN.UTF-8` → `zh`;`C` / `POSIX` /
+   不支持 → `en`)
+6. `"en"`
+
+显式非法 locale（`$LOAF_LANG` 或用户配置)→ `INVALID_LOCALE` exit 2;ambient `$LANG`
+不支持 → 静默回退 `en`。`LOAF_CONFIG` 只覆盖项目配置 path,**不**参与用户 locale 解析。
+JSON 输出(payload + failure `message`)**永不本地化**(机器契约)。
 
 ### 18.4 与 gate-diagnostic.json 的关系
 
