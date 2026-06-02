@@ -54,6 +54,7 @@ import { buildResumePack } from "./cli/build-resume-pack.js";
 import { ResumePack as RuntimeResumePack } from "./core/resume-pack-schema.js";
 import { App as TuiApp } from "./cli/tui/app.js";
 import { classifyDetailOutcome, DETAIL_PROJECTION_KINDS } from "./cli/tui/detail-model.js";
+import { formatPhaseSub } from "./cli/tui/format-row.js";
 import { defaultRenderTui, type RenderTui } from "./cli/tui/render.js";
 import { createElement } from "react";
 import { HOOK_EVENTS, HOOK_EVENT_TO_CLAUDE_CODE } from "./core/hook-events.js";
@@ -4777,13 +4778,13 @@ export async function main(
             feature_dir: featureDir,
             kinds: DETAIL_PROJECTION_KINDS,
           });
-          return classifyDetailOutcome(row, { ok: true, loaded }, new Date());
+          return classifyDetailOutcome(row, { ok: true, loaded }, new Date(), i18n);
         } catch (error) {
-          return classifyDetailOutcome(row, { ok: false, error });
+          return classifyDetailOutcome(row, { ok: false, error }, new Date(), i18n);
         }
       };
       const initialRows = await loadRows();
-      const app = createElement(TuiApp, { initialRows, loadRows, loadDetail });
+      const app = createElement(TuiApp, { initialRows, loadRows, loadDetail, i18n });
       await renderTuiImpl(app);
     });
 
@@ -4831,7 +4832,7 @@ export async function main(
           sessions: result.rows,
           warnings: result.warnings,
         },
-        () => {
+        (textI18n) => {
           if (result.rows.length === 0) return "(no sessions found)\n";
           // 4-column aligned: <short8> <feature> <phase.sub_state> <at>
           const lines: string[] = [];
@@ -4841,13 +4842,14 @@ export async function main(
             7,
           );
           const stateWidth = Math.max(
-            ...result.rows.map((r) => r.sub_state.length),
+            ...result.rows.map((r) => formatPhaseSub(r, textI18n).length),
             12,
           );
           for (const row of result.rows) {
             const at = formatAtRelative(row.at, nowDate);
+            const state = formatPhaseSub(row, textI18n);
             lines.push(
-              `${row.session_id_short}  ${row.feature.padEnd(featureWidth)}  ${row.sub_state.padEnd(stateWidth)}  ${at}\n`,
+              `${row.session_id_short}  ${row.feature.padEnd(featureWidth)}  ${state.padEnd(stateWidth)}  ${at}\n`,
             );
           }
           return lines.join("");

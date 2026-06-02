@@ -5,6 +5,16 @@
 
 import type { SessionRow } from "../sessions-list.js";
 import { formatAtRelative } from "../sessions-list.js";
+import type { I18n } from "../i18n.js";
+import {
+  evidenceKindKey,
+  findingActionKey,
+  findingCategoryKey,
+  pendingKindKey,
+  phaseKey,
+  subStateKey,
+  taskKindKey,
+} from "../runtime-i18n-keys.js";
 import {
   NoSessionError,
   SnapshotStaleError,
@@ -87,10 +97,11 @@ export type DetailOutcomeInput =
 export function classifyDetailOutcome(
   row: SessionRow,
   input: DetailOutcomeInput,
-  now: Date = new Date(),
+  now: Date,
+  i18n: I18n,
 ): DetailLoadResult {
   if (input.ok) {
-    return { status: "ready", vm: shapeDetailViewModel(row, input.loaded, now) };
+    return { status: "ready", vm: shapeDetailViewModel(row, input.loaded, now, i18n) };
   }
 
   const { error } = input;
@@ -121,6 +132,7 @@ export function shapeDetailViewModel(
   row: SessionRow,
   loaded: DetailProjectionLoad,
   now: Date,
+  i18n: I18n,
 ): DetailViewModel {
   const { state, tasks, evidence, findings, pending, meta } = loaded;
   return {
@@ -129,8 +141,8 @@ export function shapeDetailViewModel(
     session_label: state.session_label,
     workspace: state.workspace,
     ceremony_label: state.ceremony_label,
-    phase: state.phase,
-    sub_state: state.sub_state,
+    phase: i18n.t(phaseKey(state.phase)),
+    sub_state: i18n.t(subStateKey(state.sub_state)),
     iteration: state.iteration,
     complexity_score: state.complexity_score === null ? "n/a" : String(state.complexity_score),
     based_on: state.based_on,
@@ -144,14 +156,14 @@ export function shapeDetailViewModel(
       ? []
       : tasks.tasks.map((task) => ({
         id: task.id,
-        kind: task.kind,
+        kind: i18n.t(taskKindKey(task.kind)),
         status: task.status,
         title: optionalStringField(task, "title"),
         step_summary: formatStepSummary(task.execution),
       })),
     evidence: evidence.evidence.map((entry) => ({
       id: entry.id,
-      kind: entry.kind,
+      kind: i18n.t(evidenceKindKey(entry.kind)),
       result: entry.result,
       result_badge: resultBadge(entry.result),
       summary: truncateHighSignal(summaryText(entry.summary)),
@@ -162,8 +174,8 @@ export function shapeDetailViewModel(
       .filter((finding) => finding.status === "open")
       .map((finding) => ({
         id: finding.id,
-        category: finding.category,
-        action: finding.action,
+        category: i18n.t(findingCategoryKey(finding.category)),
+        action: i18n.t(findingActionKey(finding.action)),
         summary: truncateHighSignal(finding.summary ?? ""),
         reason: truncateHighSignal(finding.reason ?? ""),
         target: finding.target === undefined ? null : `${finding.target.task_id}/${finding.target.step}`,
@@ -172,7 +184,7 @@ export function shapeDetailViewModel(
       .filter((entry) => !entry.resolved)
       .map((entry) => ({
         pending_id: entry.pending_id,
-        kind: entry.kind,
+        kind: i18n.t(pendingKindKey(entry.kind)),
         question: entry.question,
         blocks: entry.blocks,
         options: entry.options ?? [],

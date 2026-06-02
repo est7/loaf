@@ -9,8 +9,10 @@ import {
   type DetailProjectionLoad,
 } from "../../src/cli/tui/detail-model.js";
 import { NoSessionError, SnapshotStaleError } from "../../src/core/projection-loader.js";
+import { BUILTIN_BUNDLES, createI18n, DEFAULT_I18N } from "../../src/cli/i18n.js";
 
 const FIXED_NOW = new Date("2026-06-01T11:00:00.000Z");
+const ZH_I18N = createI18n("zh", BUILTIN_BUNDLES);
 
 function makeRow(overrides: Partial<SessionRow> = {}): SessionRow {
   const sessionId = overrides.session_id ?? "550e8400-e29b-41d4-a716-446655440000";
@@ -175,14 +177,14 @@ function makeLoaded(): DetailProjectionLoad {
 describe("shapeDetailViewModel", () => {
   test("projects loaded state into the TUI detail view model", () => {
     const row = makeRow({ session_id_short: "550e8400", feature: "auth-refresh" });
-    expect(shapeDetailViewModel(row, makeLoaded(), FIXED_NOW)).toEqual({
+    expect(shapeDetailViewModel(row, makeLoaded(), FIXED_NOW, DEFAULT_I18N)).toEqual({
       feature: "auth-refresh",
       session_id_short: "550e8400",
       session_label: null,
       workspace: "default",
       ceremony_label: "standard",
-      phase: "EXECUTE",
-      sub_state: "EXECUTE.work",
+      phase: "Execute",
+      sub_state: "Execute / running task",
       iteration: 2,
       complexity_score: "n/a",
       based_on: { spec: 1, tasks: 1 },
@@ -193,13 +195,13 @@ describe("shapeDetailViewModel", () => {
       spec_version: 3,
       tail_seq: 7,
       tasks: [
-        { id: "T-001", kind: "behavioral", status: "in_progress", title: null, step_summary: "1/3 done" },
-        { id: "T-002", kind: "chore", status: "done", title: null, step_summary: "1/1 done" },
+        { id: "T-001", kind: "Behavioral", status: "in_progress", title: null, step_summary: "1/3 done" },
+        { id: "T-002", kind: "Chore", status: "done", title: null, step_summary: "1/1 done" },
       ],
       evidence: [
         {
           id: "EV-000001",
-          kind: "local-check",
+          kind: "Local check",
           result: "passed",
           result_badge: "pass",
           summary: "typecheck and vitest passed with a long enough summary that the TUI detail…",
@@ -208,7 +210,7 @@ describe("shapeDetailViewModel", () => {
         },
         {
           id: "EV-000002",
-          kind: "verify-review",
+          kind: "Code review",
           result: "failed",
           result_badge: "fail",
           summary: "review found a detail rendering regression",
@@ -219,8 +221,8 @@ describe("shapeDetailViewModel", () => {
       open_findings: [
         {
           id: "FND-001",
-          category: "impl-defect",
-          action: "fix-impl",
+          category: "Implementation defect",
+          action: "Fix implementation",
           summary: "needs repair",
           reason: "detail evidence projection was dropped before rendering",
           target: "T-001/implement",
@@ -229,7 +231,7 @@ describe("shapeDetailViewModel", () => {
       pending: [
         {
           pending_id: "PEND-0001",
-          kind: "gate_decision",
+          kind: "Gate awaiting human decision",
           question: "approve the gate?",
           blocks: "gate",
           options: ["approve", "reject"],
@@ -240,7 +242,7 @@ describe("shapeDetailViewModel", () => {
 
   test("handles absent tasks projection as an empty task list", () => {
     const loaded = { ...makeLoaded(), tasks: null };
-    expect(shapeDetailViewModel(makeRow(), loaded, FIXED_NOW).tasks).toEqual([]);
+    expect(shapeDetailViewModel(makeRow(), loaded, FIXED_NOW, DEFAULT_I18N).tasks).toEqual([]);
   });
 
   test("fills optional finding and pending display fields with explicit empty values", () => {
@@ -269,13 +271,13 @@ describe("shapeDetailViewModel", () => {
       },
     };
 
-    const vm = shapeDetailViewModel(makeRow(), loaded, FIXED_NOW);
+    const vm = shapeDetailViewModel(makeRow(), loaded, FIXED_NOW, DEFAULT_I18N);
 
     expect(vm.open_findings).toEqual([
       {
         id: "FND-003",
-        category: "spec-gap",
-        action: "amend-spec",
+        category: "Spec gap",
+        action: "Amend spec",
         summary: "",
         reason: "",
         target: null,
@@ -284,12 +286,23 @@ describe("shapeDetailViewModel", () => {
     expect(vm.pending).toEqual([
       {
         pending_id: "PEND-0003",
-        kind: "spec_clarification",
+        kind: "Spec clarification needed",
         question: "which behavior should the spec require?",
         blocks: "advance",
         options: [],
       },
     ]);
+  });
+
+  test("localizes enum labels in zh", () => {
+    const vm = shapeDetailViewModel(makeRow(), makeLoaded(), FIXED_NOW, ZH_I18N);
+    expect(vm.phase).toBe("执行");
+    expect(vm.sub_state).toBe("执行 / 任务进行中");
+    expect(vm.tasks[0]!.kind).toBe("行为");
+    expect(vm.evidence[0]!.kind).toBe("本地检查");
+    expect(vm.open_findings[0]!.category).toBe("实现缺陷");
+    expect(vm.open_findings[0]!.action).toBe("修实现");
+    expect(vm.pending[0]!.kind).toBe("Gate 等待人工决策");
   });
 });
 
@@ -297,7 +310,7 @@ describe("classifyDetailOutcome", () => {
   const row = makeRow();
 
   test("success maps to ready with a view model", () => {
-    const result = classifyDetailOutcome(row, { ok: true, loaded: makeLoaded() }, FIXED_NOW);
+    const result = classifyDetailOutcome(row, { ok: true, loaded: makeLoaded() }, FIXED_NOW, DEFAULT_I18N);
     expect(result.status).toBe("ready");
     expect(result.status === "ready" ? result.vm.tail_seq : null).toBe(7);
   });
@@ -306,7 +319,7 @@ describe("classifyDetailOutcome", () => {
     expect(classifyDetailOutcome(row, {
       ok: false,
       error: new NoSessionError({ feature_dir: "/repo/.loaf/auth-refresh", fix: "run `loaf start <feature>` first" }),
-    })).toEqual({
+    }, FIXED_NOW, DEFAULT_I18N)).toEqual({
       status: "missing",
       message: "run `loaf start auth-refresh` first",
       fix: "run `loaf start <feature>` first",
@@ -317,7 +330,7 @@ describe("classifyDetailOutcome", () => {
     expect(classifyDetailOutcome(row, {
       ok: false,
       error: new SnapshotStaleError("tail_offset_mismatch", { fix: "run `loaf doctor --rebuild --feature auth-refresh`" }),
-    })).toEqual({
+    }, FIXED_NOW, DEFAULT_I18N)).toEqual({
       status: "stale",
       reason: "tail_offset_mismatch",
       message: "snapshot stale (reason=tail_offset_mismatch)",
@@ -329,7 +342,7 @@ describe("classifyDetailOutcome", () => {
     expect(classifyDetailOutcome(row, {
       ok: false,
       error: new Error("boom"),
-    })).toEqual({
+    }, FIXED_NOW, DEFAULT_I18N)).toEqual({
       status: "error",
       message: "boom",
     });

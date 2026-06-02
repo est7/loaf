@@ -80,14 +80,16 @@ function makeRenderStub() {
     loadRowsCalled?: boolean;
     loadDetailPresent?: boolean;
     detailResult?: unknown;
+    locale?: string | undefined;
   } = {};
   const renderTui: MainDeps["renderTui"] = async (app) => {
-    const props = (app as { props: { initialRows?: unknown; loadRows?: () => Promise<unknown>; loadDetail?: (row: unknown) => Promise<unknown> } }).props;
+    const props = (app as { props: { initialRows?: unknown; loadRows?: () => Promise<unknown>; loadDetail?: (row: unknown) => Promise<unknown>; i18n?: { locale: string } } }).props;
     captured.initialRows = (props.initialRows as ReadonlyArray<unknown>) ?? undefined;
     if (typeof props.loadRows === "function") {
       captured.loadRowsCalled = true;
     }
     captured.loadDetailPresent = typeof props.loadDetail === "function";
+    captured.locale = props.i18n?.locale;
     if (captured.initialRows !== undefined && captured.initialRows.length > 0 && typeof props.loadDetail === "function") {
       captured.detailResult = await props.loadDetail(captured.initialRows[0]!);
     }
@@ -140,6 +142,18 @@ describe("SC-14 — loaf tui TTY guard", () => {
     expect(captured.loadRowsCalled).toBe(true);
     expect(captured.loadDetailPresent).toBe(true);
     expect(captured.detailResult).toMatchObject({ status: "ready" });
+  });
+
+  test("LOAF_LANG=zh reaches the TUI App i18n prop", async () => {
+    const registryDir = await tmpRegDir();
+    await seedSession(registryDir);
+    const { renderTui, captured } = makeRenderStub();
+    const result = await runCli(["tui"], {
+      env: { LOAF_LANG: "zh" },
+      deps: { ...BOTH_TTY, renderTui, registryDir },
+    });
+    expect(result.exit).toBe(0);
+    expect(captured.locale).toBe("zh");
   });
 });
 

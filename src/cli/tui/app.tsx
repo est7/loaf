@@ -17,8 +17,9 @@ import { useState, useCallback, useEffect, useMemo, type ReactElement } from "re
 import { Box, Text, useApp, useInput } from "ink";
 
 import type { SessionRow } from "../sessions-list.js";
+import type { I18n } from "../i18n.js";
 import type { DetailLoadResult, DetailViewModel } from "./detail-model.js";
-import { formatIteration, formatStatusBadge } from "./format-row.js";
+import { formatIteration, formatPhaseSub, formatStatusBadge } from "./format-row.js";
 import {
   buildRenderPlan,
   filterActive,
@@ -41,6 +42,8 @@ export interface AppProps {
   /** Lazy detail loader injected by cli.tsx. App never imports or calls
    *  loadProjections directly. */
   loadDetail: (row: SessionRow) => Promise<DetailLoadResult>;
+  /** Resolved CLI presentation locale. */
+  i18n: I18n;
 }
 
 type AppMode = "list" | "detail";
@@ -50,7 +53,7 @@ interface DetailState {
   result: DetailLoadResult | null;
 }
 
-export function App({ initialRows, loadRows, loadDetail }: AppProps): ReactElement {
+export function App({ initialRows, loadRows, loadDetail, i18n }: AppProps): ReactElement {
   const { exit } = useApp();
   const [rows, setRows] = useState<ReadonlyArray<SessionRow>>(initialRows);
   const [reloading, setReloading] = useState(false);
@@ -174,7 +177,7 @@ export function App({ initialRows, loadRows, loadDetail }: AppProps): ReactEleme
         {plan.length === 0 ? (
           <Text dimColor>(no sessions found)</Text>
         ) : (
-          treePlan.map((treeItem) => renderItem(treeItem, treeItem.item.key === selection.selectedKey))
+          treePlan.map((treeItem) => renderItem(treeItem, treeItem.item.key === selection.selectedKey, i18n))
         )}
       </Box>
       <Box marginTop={1} paddingX={1}>
@@ -184,7 +187,7 @@ export function App({ initialRows, loadRows, loadDetail }: AppProps): ReactEleme
   );
 }
 
-function renderItem(treeItem: TuiTreeListItem, selected: boolean): ReactElement {
+function renderItem(treeItem: TuiTreeListItem, selected: boolean, i18n: I18n): ReactElement {
   const { item, prefix } = treeItem;
   const marker = selected ? ">" : " ";
   switch (item.kind) {
@@ -203,7 +206,7 @@ function renderItem(treeItem: TuiTreeListItem, selected: boolean): ReactElement 
     case "session":
       return (
         <Box key={item.key}>
-          <Text inverse={selected}>{`${marker} ${prefix}${item.row.sub_state} · iter ${formatIteration(item.row)} · ${formatStatusBadge(item.row)}`}</Text>
+          <Text inverse={selected}>{`${marker} ${prefix}${formatPhaseSub(item.row, i18n)} · iter ${formatIteration(item.row)} · ${formatStatusBadge(item.row, i18n)}`}</Text>
         </Box>
       );
   }

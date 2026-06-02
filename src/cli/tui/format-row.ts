@@ -13,9 +13,11 @@
 //   3. pending_queue_depth == 1             → "‖ ask"
 //   4. active_tasks.length >= 2             → "▶ run [×N]"
 //   5. active_tasks.length == 1             → "▶ run"
-//   6. else                                  → raw sub_state literal
+//   6. else                                  → localized sub_state label
 
 import type { SessionRow } from "../sessions-list.js";
+import type { I18n } from "../i18n.js";
+import { statusIndicatorKey, subStateKey } from "../runtime-i18n-keys.js";
 import { statusBucket } from "./list-model.js";
 
 /** Minimum widths per column (header width floors). */
@@ -39,9 +41,9 @@ export function formatLabel(row: SessionRow, maxWidth: number): string {
   return raw.slice(0, maxWidth - 1) + "…";
 }
 
-/** PHASE.SUB column — just the sub_state literal. */
-export function formatPhaseSub(row: SessionRow): string {
-  return row.sub_state;
+/** PHASE.SUB column — localized sub_state label. */
+export function formatPhaseSub(row: SessionRow, i18n: I18n): string {
+  return i18n.t(subStateKey(row.sub_state));
 }
 
 /** ITER column — iteration as decimal string. */
@@ -50,31 +52,32 @@ export function formatIteration(row: SessionRow): string {
 }
 
 /** STATUS column — precedence-ordered text badge per r354 P2. */
-export function formatStatus(row: SessionRow): string {
+export function formatStatus(row: SessionRow, i18n: I18n): string {
   // 1. Terminal phase wins
-  if (row.sub_state.startsWith("DONE.")) return "✓ done";
+  if (row.sub_state.startsWith("DONE.")) return i18n.t(statusIndicatorKey("done"));
   // 2-3. Pending head (gate-blocking semantic wins over workers)
   if (row.pending_queue_depth >= 2) {
-    return `‖ ask [×${row.pending_queue_depth}]`;
+    return `${i18n.t(statusIndicatorKey("blocked"))} [×${row.pending_queue_depth}]`;
   }
   if (row.pending_queue_depth === 1) {
-    return "‖ ask";
+    return i18n.t(statusIndicatorKey("blocked"));
   }
   // 4-5. Active workers
   if (row.active_tasks.length >= 2) {
-    return `▶ run [×${row.active_tasks.length}]`;
+    return `${i18n.t(statusIndicatorKey("running"))} [×${row.active_tasks.length}]`;
   }
   if (row.active_tasks.length === 1) {
-    return "▶ run";
+    return i18n.t(statusIndicatorKey("running"));
   }
-  // 6. Idle / no workers / no pending — show sub_state as deterministic fallback
-  return row.sub_state;
+  // 6. Idle / no workers / no pending — show sub_state as deterministic fallback.
+  return formatPhaseSub(row, i18n);
 }
 
 /** STATUS badge for rows that already render sub_state elsewhere. */
-export function formatStatusBadge(row: SessionRow): string {
-  if (statusBucket(row) === "idle") return "idle";
-  return formatStatus(row);
+export function formatStatusBadge(row: SessionRow, i18n: I18n): string {
+  const bucket = statusBucket(row);
+  if (bucket === "idle") return i18n.t(statusIndicatorKey("idle"));
+  return formatStatus(row, i18n);
 }
 
 /** Compute the max content width per column across all rows. Used to
@@ -88,6 +91,7 @@ export interface ColumnWidths {
 
 export function computeColumnWidths(
   rows: ReadonlyArray<SessionRow>,
+  i18n: I18n,
   maxLabelWidth = 40,
 ): ColumnWidths {
   let label: number = COLUMN_MIN_WIDTHS.label;
@@ -96,9 +100,9 @@ export function computeColumnWidths(
   let status: number = COLUMN_MIN_WIDTHS.status;
   for (const row of rows) {
     label = Math.max(label, Math.min(maxLabelWidth, chooseLabelSource(row).length));
-    phase_sub = Math.max(phase_sub, formatPhaseSub(row).length);
+    phase_sub = Math.max(phase_sub, formatPhaseSub(row, i18n).length);
     iter = Math.max(iter, formatIteration(row).length);
-    status = Math.max(status, formatStatus(row).length);
+    status = Math.max(status, formatStatus(row, i18n).length);
   }
   return { label, phase_sub, iter, status };
 }

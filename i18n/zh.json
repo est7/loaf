@@ -28,23 +28,38 @@
   },
 
   "sub_state": {
-    "TRIAGE.score":     "分诊 / 打分",
-    "TRIAGE.confirm":   "分诊 / 确认 profile",
-    "SPEC.proposal":    "规格 / 提案",
-    "SPEC.spec":        "规格 / 编写 EARS+Gherkin",
-    "SPEC.plan":        "规格 / 计划",
-    "SPEC.design":      "规格 / 设计 + tasks",
-    "EXECUTE.plan":     "执行 / 推导策略",
-    "EXECUTE.task":     "执行 / 任务进行中",
-    "EXECUTE.done":     "执行 / 所有任务终态",
-    "VERIFY.plan":      "验证 / 计算适用检查",
-    "VERIFY.check":     "验证 / 检查进行中",
-    "VERIFY.accept":    "验证 / 接收 gate",
-    "SETTLE.reconcile": "结算 / 对账",
-    "SETTLE.lessons":   "结算 / 经验沉淀",
-    "DONE.delivered":   "完成 · 已交付",
-    "DONE.archived":    "完成 · 已归档",
-    "DONE.abandoned":   "完成 · 已弃置"
+    "TRIAGE": {
+      "score":   "分诊 / 打分",
+      "confirm": "分诊 / 确认 profile"
+    },
+    "SPEC": {
+      "proposal": "规格 / 提案",
+      "spec":     "规格 / 编写 EARS+Gherkin",
+      "plan":     "规格 / 计划",
+      "design":   "规格 / 设计 + tasks"
+    },
+    "EXECUTE": {
+      "plan": "执行 / 推导策略",
+      "work": "执行 / 任务进行中",
+      "done": "执行 / 所有任务终态"
+    },
+    "VERIFY": {
+      "plan":       "验证 / 计算适用检查",
+      "run":        "验证 / 检查进行中",
+      "review":     "验证 / 评审",
+      "acceptance": "验证 / 验收",
+      "visual":     "验证 / 视觉",
+      "accept":     "验证 / 接收 gate"
+    },
+    "SETTLE": {
+      "reconcile": "结算 / 对账",
+      "lessons":   "结算 / 经验沉淀"
+    },
+    "DONE": {
+      "delivered": "完成 · 已交付",
+      "archived":  "完成 · 已归档",
+      "abandoned": "完成 · 已弃置"
+    }
   },
 
   "task_kind": {
@@ -235,11 +250,12 @@
   },
 
   "status_indicator": {
-    "ask":  "⏸ 询问",
-    "gate": "⏸ Gate",
+    "ask":  "‖ 询问",
+    "gate": "‖ Gate",
     "run":  "▶ 运行",
     "done": "✓ 完成",
     "fail": "✗ 失败",
-    "wait": "⏳ 等待"
+    "wait": "⏳ 等待",
+    "idle": "空闲"
   }
 }

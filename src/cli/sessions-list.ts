@@ -16,6 +16,9 @@ import path from "node:path";
 
 import { defaultRegistryDir } from "../core/registry-writer.js";
 import { RegistryFile } from "../core/projection-schema.js";
+import type { SubState } from "../core/journal-entry.js";
+
+export type SessionPhase = "TRIAGE" | "SPEC" | "EXECUTE" | "VERIFY" | "SETTLE" | "DONE";
 
 export interface SessionRow {
   /** Full UUID (registry session_id). */
@@ -29,8 +32,8 @@ export interface SessionRow {
    *  falls back to `feature` when this is empty. */
   session_label: string;
   feature: string;
-  phase: string;
-  sub_state: string;
+  phase: SessionPhase;
+  sub_state: SubState;
   /** Registry refresh time (≈ last update; codex r290 nit-1). ISO-8601. */
   at: string;
   cwd: string;

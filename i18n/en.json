@@ -28,23 +28,38 @@
   },
 
   "sub_state": {
-    "TRIAGE.score":     "Triage / score",
-    "TRIAGE.confirm":   "Triage / confirm profile",
-    "SPEC.proposal":    "Spec / proposal",
-    "SPEC.spec":        "Spec / author EARS+Gherkin",
-    "SPEC.plan":        "Spec / plan",
-    "SPEC.design":      "Spec / design + tasks",
-    "EXECUTE.plan":     "Execute / plan policies",
-    "EXECUTE.task":     "Execute / running task",
-    "EXECUTE.done":     "Execute / all tasks final",
-    "VERIFY.plan":      "Verify / applicable checks",
-    "VERIFY.check":     "Verify / running check",
-    "VERIFY.accept":    "Verify / accept gate",
-    "SETTLE.reconcile": "Settle / reconcile",
-    "SETTLE.lessons":   "Settle / lessons",
-    "DONE.delivered":   "Done · delivered",
-    "DONE.archived":    "Done · archived",
-    "DONE.abandoned":   "Done · abandoned"
+    "TRIAGE": {
+      "score":   "Triage / score",
+      "confirm": "Triage / confirm profile"
+    },
+    "SPEC": {
+      "proposal": "Spec / proposal",
+      "spec":     "Spec / author EARS+Gherkin",
+      "plan":     "Spec / plan",
+      "design":   "Spec / design + tasks"
+    },
+    "EXECUTE": {
+      "plan": "Execute / plan policies",
+      "work": "Execute / running task",
+      "done": "Execute / all tasks final"
+    },
+    "VERIFY": {
+      "plan":       "Verify / applicable checks",
+      "run":        "Verify / running checks",
+      "review":     "Verify / review",
+      "acceptance": "Verify / acceptance",
+      "visual":     "Verify / visual",
+      "accept":     "Verify / accept gate"
+    },
+    "SETTLE": {
+      "reconcile": "Settle / reconcile",
+      "lessons":   "Settle / lessons"
+    },
+    "DONE": {
+      "delivered": "Done · delivered",
+      "archived":  "Done · archived",
+      "abandoned": "Done · abandoned"
+    }
   },
 
   "task_kind": {
@@ -235,11 +250,12 @@
   },
 
   "status_indicator": {
-    "ask":  "⏸ ask",
-    "gate": "⏸ gate",
+    "ask":  "‖ ask",
+    "gate": "‖ gate",
     "run":  "▶ run",
     "done": "✓ done",
     "fail": "✗ fail",
-    "wait": "⏳ wait"
+    "wait": "⏳ wait",
+    "idle": "idle"
   }
 }

@@ -106,8 +106,32 @@ describe("SC-9b — sessions list happy paths", () => {
     await tmpCwdAndSeed("auth-refresh", registryDir);
     const result = await runCli(["sessions", "list"], { deps: { registryDir } });
     expect(result.exit).toBe(0);
-    // Format: <short8>  <feature>  <sub_state>  <at>
-    expect(result.stdout).toMatch(/^[0-9a-f]{8}\s+auth-refresh\s+TRIAGE\.score\s+/);
+    // Format: <short8>  <feature>  <localized sub_state>  <at>
+    expect(result.stdout).toMatch(/^[0-9a-f]{8}\s+auth-refresh\s+Triage \/ score\s+/);
+  });
+
+  test("LOAF_LANG=zh localizes text mode labels", async () => {
+    const registryDir = await tmpRegDir();
+    await tmpCwdAndSeed("auth-refresh", registryDir);
+    const result = await runCli(["sessions", "list"], {
+      env: { LOAF_LANG: "zh" },
+      deps: { registryDir },
+    });
+    expect(result.exit).toBe(0);
+    expect(result.stdout).toMatch(/^[0-9a-f]{8}\s+auth-refresh\s+分诊 \/ 打分\s+/);
+  });
+
+  test("LOAF_LANG=zh leaves JSON output byte-stable", async () => {
+    const registryDir = await tmpRegDir();
+    await tmpCwdAndSeed("auth-refresh", registryDir);
+    const enResult = await runCli(["sessions", "list", "--format", "json"], { deps: { registryDir } });
+    const zhResult = await runCli(["sessions", "list", "--format", "json"], {
+      env: { LOAF_LANG: "zh" },
+      deps: { registryDir },
+    });
+    expect(enResult.exit).toBe(0);
+    expect(zhResult.exit).toBe(0);
+    expect(zhResult.stdout).toBe(enResult.stdout);
   });
 
   test("T12: empty registry → '(no sessions found)\\n'", async () => {
