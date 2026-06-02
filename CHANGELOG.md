@@ -5,6 +5,34 @@ All notable changes to `loaf-cli` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] — 2026-06-01
+
+Two delivery-gate correctness fixes surfaced by an independent review of the
+prototype e2e: the per-task evidence gates accepted non-passing evidence as
+completion proof. Both are behavior-tightening (the gates now reject what they
+formerly accepted) and run at decision time — no stored state affected, no
+migration.
+
+### Fixed
+
+- **verify-min required a passing result** (quick/light deliver gate) — `loaf deliver` from `EXECUTE.done` matched a done task's per-task evidence by kind + covers only, never `ev.result`, so a feature could ship with a `result:failed` `local-check` on record. Now requires `result ∈ {passed, approved, waived}`; `waiver` satisfies only when its own result is positive (failed/rejected waiver no longer escapes). Reproduced end-to-end. See commit `ff8a260`.
+- **verify-accept check 4 required a passing result** (standard/deep gate) — the sibling hole: check 4 matched per-task evidence by kind + covers only; the lane check (check 1) is result-aware but session-wide, so in a multi-task feature a done task whose only covering evidence was `failed` still passed as long as another task supplied the passing lane evidence. Now requires `result ∈ {passed, approved, waived}` per task, via the same exported `isPassingResult` (single source of truth with verify-min, so the two gates cannot drift again). See commit `64d0a45`.
+
+### Changed
+
+- `TASK_DONE_NO_EVIDENCE` message now reads "no PASSING evidence" (covers both absent and non-passing covering evidence). No new `DiagnosticCode` / `ERROR_CATALOG` / i18n key.
+- `protocol.md` §5.2 check 4 + verify-min contract (§3.2) now state covered evidence must be passing; the stale claim that plain `loaf tasks step done` without evidence fails preflight with `TASK_STATUS_WITHOUT_PROOF` is corrected — plain step-done may stay single-entry, missing task evidence is enforced by verify-min / verify-accept, and `TASK_STATUS_WITHOUT_PROOF` is reserved for the future `loaf tasks check` (F-023).
+- Stale `ERROR_CATALOG` remediations corrected: `TASK_STATUS_WITHOUT_PROOF` no longer points at the non-existent `loaf tasks set`; `DELIVER_SPIKE_TASKS` now points at `loaf tasks abandon` (was an invalid `tasks step done --result abandoned`). `CLAUDE.md` journal-envelope drift (`iso_ts`/`schema_version` → `at`/`entry_schema_version`; Pass 0 forbidden set) corrected.
+
+### Verification
+
+- `bun run test` (Vitest): full suite green — 1969 tests across 116 files (the pre-existing `tests/spike/perf.test.ts:124` F-005 perf flake did not fire this run).
+- `bun run typecheck` clean; `bun run build` ok.
+- Both fixes RED→GREEN independently reproduced (revert only the predicate with the new tests present → exactly the new negative cases fail; restore → green).
+- `dist/cli.mjs --version` → `0.1.2`.
+
+[0.1.2]: https://github.com/est7/loaf/releases/tag/v0.1.2
+
 ## [0.1.1] — 2026-06-01
 
 Post-v0.1.0 follow-up closing the two "do" items from the F-028 grill-me
