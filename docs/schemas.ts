@@ -4616,7 +4616,8 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
       "has no covering evidence entry in evidence.jsonl",
     fix_template:
       "emit `loaf evidence add` covering task_id={task_id} before " +
-      "advancing status, or roll back the status with `loaf tasks set`",
+      "advancing status (task-evidence is otherwise enforced later at " +
+      "verify-min / verify-accept)",
     doc_anchor: "protocol.md#§4.4",
   },
   // ── audit r1-r5 catch-up entries ──
@@ -5054,7 +5055,7 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
     message_template:
       "cannot deliver: task {task_id} is kind=spike (status={status}); spike tasks block delivery for the entire session",
     fix_template:
-      "abandon the spike task (`loaf tasks step done --task {task_id} --step ... --result abandoned`) or convert it to a feature (`loaf spike convert --to-feature F-N --reason \"...\"`); spike tasks must not remain in non-abandoned status when the session delivers",
+      "abandon the spike task (`loaf tasks abandon {task_id} --reason \"...\"`) or convert it to a feature (`loaf spike convert --to-feature F-N --reason \"...\"`); spike tasks must not remain in non-abandoned status when the session delivers",
     doc_anchor: "protocol.md#§703",
   },
   SETTLE_NOT_ACCEPTED: {

@@ -48,14 +48,14 @@ snapshots/_meta.json # derived projection (lazy; doctor --rebuild is a Slice 5 d
 spec.md             # derived projection of spec content (writer is current open work — slice A)
 ```
 
-`JournalEntry` envelope (see `src/core/journal-entry.ts`): `{seq, entry_id (JE-NNNNNN), actor (^(human|skill|ci|cli|migration):.+$), iso_ts, schema_version=2, kind, payload}`. Per-kind payload schemas live alongside (`PER_KIND_PAYLOAD`) and the reducer-implemented subset is gated by `REDUCER_IMPLEMENTED_KINDS`.
+`JournalEntry` envelope (see `src/core/journal-entry.ts`): `{seq, entry_id (JE-NNNNNN), at (ISO ts), actor (^(human|skill|ci|cli|migration):.+$), entry_schema_version=1, kind, payload}`. Per-kind payload schemas live alongside (`PER_KIND_PAYLOAD`) and the reducer-implemented subset is gated by `REDUCER_IMPLEMENTED_KINDS`.
 
 ### Mutator pipeline (`src/core/journal-mutate.ts`)
 
 `mutateBatch(partials[], ctx)` is the canonical transactional API. `mutate(partial, ctx)` is a 1-line wrapper. Pipeline:
 
 ```
-Pass 0  runtime reject forbidden fields (seq / iso_ts / entry_id) on caller input
+Pass 0  runtime reject forbidden fields (seq / entry_id / batch_id / batch_index / batch_count) on caller input
 Pass 1  per-entry preflight + REDUCER_IMPLEMENTED gate + reducer dry-run on UNPROMOTED
         (snapshot is structuredClone'd; chained kinds see incrementally-mutated state)
 Pass 1.5 gate eval (spec-lock / verify-accept) — IO boundary reads spec.md frontmatter
@@ -112,7 +112,7 @@ gate decide <gate-name> --approve|--reject --reason <…>
 deliver | settle
 ```
 
-Strict input boundaries: CLI rejects caller-supplied `id` on `add-*` / `evidence add` / `finding raise` / `pending raise` (allocators stamp the id via max-serial+1 zero-pad). Caller-supplied envelope fields (`seq` / `iso_ts` / `entry_id`) are rejected at Pass 0.
+Strict input boundaries: CLI rejects caller-supplied `id` on `add-*` / `evidence add` / `finding raise` / `pending raise` (allocators stamp the id via max-serial+1 zero-pad). Caller-supplied envelope fields (`seq` / `entry_id` / `batch_id` / `batch_index` / `batch_count`) are rejected at Pass 0.
 
 Id formats (closed):
 
