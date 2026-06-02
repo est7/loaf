@@ -7,6 +7,7 @@ import type { SessionRow } from "../sessions-list.js";
 import { formatAtRelative } from "../sessions-list.js";
 import type { I18n } from "../i18n.js";
 import {
+  CHROME_KEYS,
   evidenceKindKey,
   findingActionKey,
   findingCategoryKey,
@@ -14,7 +15,12 @@ import {
   phaseKey,
   subStateKey,
   taskKindKey,
+  taskStatusKey,
 } from "../runtime-i18n-keys.js";
+import {
+  formatTuiDetailSidecarSummary,
+  formatTuiDetailStepSummary,
+} from "./chrome.js";
 import {
   NoSessionError,
   SnapshotStaleError,
@@ -108,7 +114,7 @@ export function classifyDetailOutcome(
   if (error instanceof NoSessionError) {
     return {
       status: "missing",
-      message: `run \`loaf start ${row.feature}\` first`,
+      message: i18n.t(CHROME_KEYS.tuiDetailMissingMessage, { feature: row.feature }),
       fix: detailFix(error.detail),
     };
   }
@@ -117,7 +123,7 @@ export function classifyDetailOutcome(
     return {
       status: "stale",
       reason: error.reason,
-      message: `snapshot stale (reason=${error.reason})`,
+      message: i18n.t(CHROME_KEYS.tuiDetailStaleMessage, { reason: error.reason }),
       fix: detailFix(error.detail),
     };
   }
@@ -146,8 +152,8 @@ export function shapeDetailViewModel(
     iteration: state.iteration,
     complexity_score: state.complexity_score === null ? "n/a" : String(state.complexity_score),
     based_on: state.based_on,
-    created_at_relative: formatAtRelative(state.created_at, now),
-    updated_at_relative: formatAtRelative(state.updated_at, now),
+    created_at_relative: formatAtRelative(state.created_at, now, i18n),
+    updated_at_relative: formatAtRelative(state.updated_at, now, i18n),
     spec_locked: state.spec_locked,
     verify_accepted: state.verify_accepted,
     spec_version: state.spec_version,
@@ -157,16 +163,16 @@ export function shapeDetailViewModel(
       : tasks.tasks.map((task) => ({
         id: task.id,
         kind: i18n.t(taskKindKey(task.kind)),
-        status: task.status,
+        status: i18n.t(taskStatusKey(task.status)),
         title: optionalStringField(task, "title"),
-        step_summary: formatStepSummary(task.execution),
+        step_summary: formatStepSummary(task.execution, i18n),
       })),
     evidence: evidence.evidence.map((entry) => ({
       id: entry.id,
       kind: i18n.t(evidenceKindKey(entry.kind)),
       result: entry.result,
       result_badge: resultBadge(entry.result),
-      summary: truncateHighSignal(summaryText(entry.summary)),
+      summary: truncateHighSignal(summaryText(entry.summary, i18n)),
       iteration: entry.iteration,
       task_id: entry.task_id ?? null,
     })),
@@ -211,10 +217,10 @@ function resultBadge(result: string): DetailResultBadge {
   }
 }
 
-function summaryText(summary: DetailProjectionLoad["evidence"]["evidence"][number]["summary"]): string {
+function summaryText(summary: DetailProjectionLoad["evidence"]["evidence"][number]["summary"], i18n: I18n): string {
   if (typeof summary === "string") return summary;
   if (summary.mode === "inline") return summary.text;
-  return `sidecar:${summary.ref.path}`;
+  return formatTuiDetailSidecarSummary(i18n, summary.ref.path);
 }
 
 function truncateHighSignal(value: string): string {
@@ -223,10 +229,10 @@ function truncateHighSignal(value: string): string {
   return `${value.slice(0, limit - 1)}…`;
 }
 
-function formatStepSummary(execution: Record<string, { status: string }>): string {
+function formatStepSummary(execution: Record<string, { status: string }>, i18n: I18n): string {
   const steps = Object.values(execution);
   const done = steps.filter((step) => step.status === "passed" || step.status === "waived").length;
-  return `${done}/${steps.length} done`;
+  return formatTuiDetailStepSummary(i18n, done, steps.length);
 }
 
 function optionalStringField(value: unknown, field: string): string | null {

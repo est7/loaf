@@ -299,10 +299,25 @@ describe("shapeDetailViewModel", () => {
     expect(vm.phase).toBe("执行");
     expect(vm.sub_state).toBe("执行 / 任务进行中");
     expect(vm.tasks[0]!.kind).toBe("行为");
+    expect(vm.tasks[0]!.status).toBe("进行中");
+    expect(vm.tasks[0]!.step_summary).toBe("1/3 已完成");
+    expect(vm.created_at_relative).toBe("2 小时前");
+    expect(vm.updated_at_relative).toBe("1 小时前");
     expect(vm.evidence[0]!.kind).toBe("本地检查");
     expect(vm.open_findings[0]!.category).toBe("实现缺陷");
     expect(vm.open_findings[0]!.action).toBe("修实现");
     expect(vm.pending[0]!.kind).toBe("Gate 等待人工决策");
+  });
+
+  test("localizes sidecar summary prefix in zh", () => {
+    const loaded = makeLoaded();
+    loaded.evidence.evidence[0]!.summary = {
+      mode: "sidecar",
+      ref: { path: "evidence/local-check.txt", sha256: "a".repeat(64), size: 123 },
+    };
+
+    const vm = shapeDetailViewModel(makeRow(), loaded, FIXED_NOW, ZH_I18N);
+    expect(vm.evidence[0]!.summary).toBe("旁载:evidence/local-check.txt");
   });
 });
 
@@ -326,6 +341,17 @@ describe("classifyDetailOutcome", () => {
     });
   });
 
+  test("NoSessionError localizes missing message in zh", () => {
+    expect(classifyDetailOutcome(row, {
+      ok: false,
+      error: new NoSessionError({ feature_dir: "/repo/.loaf/auth-refresh", fix: "run `loaf start <feature>` first" }),
+    }, FIXED_NOW, ZH_I18N)).toEqual({
+      status: "missing",
+      message: "先运行 `loaf start auth-refresh`",
+      fix: "run `loaf start <feature>` first",
+    });
+  });
+
   test("SnapshotStaleError maps to stale", () => {
     expect(classifyDetailOutcome(row, {
       ok: false,
@@ -334,6 +360,18 @@ describe("classifyDetailOutcome", () => {
       status: "stale",
       reason: "tail_offset_mismatch",
       message: "snapshot stale (reason=tail_offset_mismatch)",
+      fix: "run `loaf doctor --rebuild --feature auth-refresh`",
+    });
+  });
+
+  test("SnapshotStaleError localizes stale message in zh", () => {
+    expect(classifyDetailOutcome(row, {
+      ok: false,
+      error: new SnapshotStaleError("tail_offset_mismatch", { fix: "run `loaf doctor --rebuild --feature auth-refresh`" }),
+    }, FIXED_NOW, ZH_I18N)).toEqual({
+      status: "stale",
+      reason: "tail_offset_mismatch",
+      message: "快照过期(reason=tail_offset_mismatch)",
       fix: "run `loaf doctor --rebuild --feature auth-refresh`",
     });
   });

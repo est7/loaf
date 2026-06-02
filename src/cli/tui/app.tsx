@@ -21,6 +21,19 @@ import type { I18n } from "../i18n.js";
 import type { DetailLoadResult, DetailViewModel } from "./detail-model.js";
 import { formatIteration, formatPhaseSub, formatStatusBadge } from "./format-row.js";
 import {
+  formatTuiBoolean,
+  formatTuiDetailBasedOn,
+  formatTuiDetailEvidenceBadge,
+  formatTuiDetailField,
+  formatTuiDetailHelp,
+  formatTuiDetailNone,
+  formatTuiDetailSectionTitle,
+  formatTuiListHelp,
+  formatTuiListRowIteration,
+  formatTuiListTitle,
+  formatTuiSortLabel,
+} from "./chrome.js";
+import {
   buildRenderPlan,
   filterActive,
   nextSelectableIndex,
@@ -156,11 +169,11 @@ export function App({ initialRows, loadRows, loadDetail, i18n }: AppProps): Reac
     return (
       <Box flexDirection="column" padding={1} width="100%">
         <Box borderStyle="round" flexDirection="column" paddingX={1} width="100%">
-          <Text bold>loaf detail</Text>
-          {renderDetail(detail)}
+          <Text bold>{i18n.t(CHROME_KEYS.tuiDetailTitle)}</Text>
+          {renderDetail(detail, i18n)}
         </Box>
         <Box marginTop={1} paddingX={1}>
-          <Text dimColor>[Esc] back · [q] quit</Text>
+          <Text dimColor>{formatTuiDetailHelp(i18n)}</Text>
         </Box>
       </Box>
     );
@@ -170,18 +183,18 @@ export function App({ initialRows, loadRows, loadDetail, i18n }: AppProps): Reac
     <Box flexDirection="column" padding={1} width="100%">
       <Box borderStyle="round" flexDirection="column" paddingX={1} width="100%">
         <Box>
-          <Text bold>{`loaf sessions (${activeCount} active / ${rows.length} total)`}</Text>
-          <Text dimColor>{` · sort: ${sortMode}`}</Text>
-          {reloading && <Text dimColor> · reloading…</Text>}
+          <Text bold>{formatTuiListTitle(i18n, activeCount, rows.length)}</Text>
+          <Text dimColor>{` · ${formatTuiSortLabel(i18n, sortMode)}`}</Text>
+          {reloading && <Text dimColor>{` · ${i18n.t(CHROME_KEYS.tuiListReloading)}`}</Text>}
         </Box>
         {plan.length === 0 ? (
-          <Text dimColor>(no sessions found)</Text>
+          <Text dimColor>{i18n.t(CHROME_KEYS.tuiListEmpty)}</Text>
         ) : (
           treePlan.map((treeItem) => renderItem(treeItem, treeItem.item.key === selection.selectedKey, i18n))
         )}
       </Box>
       <Box marginTop={1} paddingX={1}>
-        <Text dimColor>[↑/↓] move · [space] fold · [a] active/all · [s] sort · [r] refresh · [q] quit</Text>
+        <Text dimColor>{formatTuiListHelp(i18n)}</Text>
       </Box>
     </Box>
   );
@@ -206,7 +219,7 @@ function renderItem(treeItem: TuiTreeListItem, selected: boolean, i18n: I18n): R
     case "session":
       return (
         <Box key={item.key}>
-          <Text inverse={selected}>{`${marker} ${prefix}${formatPhaseSub(item.row, i18n)} · iter ${formatIteration(item.row)} · ${formatStatusBadge(item.row, i18n)}`}</Text>
+          <Text inverse={selected}>{`${marker} ${prefix}${formatPhaseSub(item.row, i18n)} · ${formatTuiListRowIteration(i18n, formatIteration(item.row))} · ${formatStatusBadge(item.row, i18n)}`}</Text>
         </Box>
       );
   }
@@ -216,27 +229,27 @@ function caret(collapsed: boolean): string {
   return collapsed ? "▸" : "▾";
 }
 
-function renderDetail(detail: DetailState | null): ReactElement {
+function renderDetail(detail: DetailState | null, i18n: I18n): ReactElement {
   if (detail === null) {
-    return <Text dimColor>(no detail selected)</Text>;
+    return <Text dimColor>{i18n.t(CHROME_KEYS.tuiDetailNoSelected)}</Text>;
   }
 
   if (detail.result === null) {
     return (
       <Box flexDirection="column">
-        <Text bold>{`detail: ${detail.row.feature}`}</Text>
-        <Text dimColor>loading…</Text>
+        <Text bold>{i18n.t(CHROME_KEYS.tuiDetailTitle)}</Text>
+        <Text dimColor>{i18n.t(CHROME_KEYS.tuiDetailLoading)}</Text>
       </Box>
     );
   }
 
   switch (detail.result.status) {
     case "ready":
-      return renderReadyDetail(detail.result.vm);
+      return renderReadyDetail(detail.result.vm, i18n);
     case "missing":
       return (
         <Box flexDirection="column">
-          <Text bold>{`missing: ${detail.row.feature}`}</Text>
+          <Text bold>{i18n.t(CHROME_KEYS.tuiDetailMissingTitle, { feature: detail.row.feature })}</Text>
           <Text>{detail.result.message}</Text>
           {detail.result.fix !== null && <Text dimColor>{detail.result.fix}</Text>}
         </Box>
@@ -244,7 +257,7 @@ function renderDetail(detail: DetailState | null): ReactElement {
     case "stale":
       return (
         <Box flexDirection="column">
-          <Text bold>{`stale: ${detail.row.feature}`}</Text>
+          <Text bold>{i18n.t(CHROME_KEYS.tuiDetailStaleTitle, { feature: detail.row.feature })}</Text>
           <Text>{detail.result.message}</Text>
           {detail.result.fix !== null && <Text dimColor>{detail.result.fix}</Text>}
         </Box>
@@ -252,68 +265,68 @@ function renderDetail(detail: DetailState | null): ReactElement {
     case "error":
       return (
         <Box flexDirection="column">
-          <Text bold>{`error: ${detail.row.feature}`}</Text>
+          <Text bold>{i18n.t(CHROME_KEYS.tuiDetailErrorTitle, { feature: detail.row.feature })}</Text>
           <Text>{detail.result.message}</Text>
         </Box>
       );
   }
 }
 
-function renderReadyDetail(vm: DetailViewModel): ReactElement {
+function renderReadyDetail(vm: DetailViewModel, i18n: I18n): ReactElement {
   return (
     <Box flexDirection="column">
-      <Text bold>{`feature: ${vm.feature}`}</Text>
-      <Text>{`session: ${vm.session_id_short}`}</Text>
-      <Text>{`label: ${vm.session_label ?? "n/a"}`}</Text>
-      <Text>{`workspace: ${vm.workspace}`}</Text>
-      <Text>{`ceremony: ${vm.ceremony_label}`}</Text>
-      <Text>{`phase: ${vm.sub_state}`}</Text>
-      <Text>{`iteration: ${vm.iteration}`}</Text>
-      <Text>{`complexity: ${vm.complexity_score}`}</Text>
-      <Text>{`based_on: spec ${vm.based_on.spec} / tasks ${vm.based_on.tasks}`}</Text>
-      <Text>{`created: ${vm.created_at_relative}`}</Text>
-      <Text>{`updated: ${vm.updated_at_relative}`}</Text>
-      <Text>{`spec_locked: ${String(vm.spec_locked)}`}</Text>
-      <Text>{`verify_accepted: ${String(vm.verify_accepted)}`}</Text>
-      <Text>{`spec_version: ${vm.spec_version}`}</Text>
-      <Text>{`tail_seq: ${vm.tail_seq}`}</Text>
+      <Text bold>{formatTuiDetailField(i18n, "feature", vm.feature)}</Text>
+      <Text>{formatTuiDetailField(i18n, "session", vm.session_id_short)}</Text>
+      <Text>{formatTuiDetailField(i18n, "label", vm.session_label ?? "n/a")}</Text>
+      <Text>{formatTuiDetailField(i18n, "workspace", vm.workspace)}</Text>
+      <Text>{formatTuiDetailField(i18n, "ceremony", vm.ceremony_label)}</Text>
+      <Text>{formatTuiDetailField(i18n, "phase", vm.sub_state)}</Text>
+      <Text>{formatTuiDetailField(i18n, "iteration", vm.iteration)}</Text>
+      <Text>{formatTuiDetailField(i18n, "complexity", vm.complexity_score)}</Text>
+      <Text>{formatTuiDetailBasedOn(i18n, vm.based_on.spec, vm.based_on.tasks)}</Text>
+      <Text>{formatTuiDetailField(i18n, "created", vm.created_at_relative)}</Text>
+      <Text>{formatTuiDetailField(i18n, "updated", vm.updated_at_relative)}</Text>
+      <Text>{formatTuiDetailField(i18n, "spec_locked", formatTuiBoolean(i18n, vm.spec_locked))}</Text>
+      <Text>{formatTuiDetailField(i18n, "verify_accepted", formatTuiBoolean(i18n, vm.verify_accepted))}</Text>
+      <Text>{formatTuiDetailField(i18n, "spec_version", vm.spec_version)}</Text>
+      <Text>{formatTuiDetailField(i18n, "tail_seq", vm.tail_seq)}</Text>
       <Box marginTop={1} flexDirection="column">
-        <Text bold>{`tasks (${vm.tasks.length})`}</Text>
+        <Text bold>{formatTuiDetailSectionTitle(i18n, "tasks", vm.tasks.length)}</Text>
         {vm.tasks.length === 0
-          ? <Text dimColor>  (none)</Text>
+          ? <Text dimColor>{`  ${formatTuiDetailNone(i18n)}`}</Text>
           : vm.tasks.map((task) => (
             <Text key={task.id}>
-              {`  ${task.id} ${task.status} ${task.kind}${task.title === null ? "" : ` ${task.title}`} · steps ${task.step_summary}`}
+              {`  ${task.id} ${task.status} ${task.kind}${task.title === null ? "" : ` ${task.title}`} · ${i18n.t(CHROME_KEYS.tuiDetailRowSteps, { value: task.step_summary })}`}
             </Text>
           ))}
       </Box>
       <Box marginTop={1} flexDirection="column">
-        <Text bold>{`evidence (${vm.evidence.length})`}</Text>
+        <Text bold>{formatTuiDetailSectionTitle(i18n, "evidence", vm.evidence.length)}</Text>
         {vm.evidence.length === 0
-          ? <Text dimColor>  (none)</Text>
+          ? <Text dimColor>{`  ${formatTuiDetailNone(i18n)}`}</Text>
           : vm.evidence.map((evidence) => (
             <Text key={evidence.id}>
-              {`  ${evidence.id} [${evidence.result_badge}] ${evidence.kind} iter ${evidence.iteration}${evidence.task_id === null ? "" : ` task ${evidence.task_id}`} · ${evidence.summary}`}
+              {`  ${evidence.id} [${formatTuiDetailEvidenceBadge(i18n, evidence.result_badge)}] ${evidence.kind} ${i18n.t(CHROME_KEYS.tuiDetailRowIteration, { value: evidence.iteration })}${evidence.task_id === null ? "" : ` ${i18n.t(CHROME_KEYS.tuiDetailRowTask, { value: evidence.task_id })}`} · ${evidence.summary}`}
             </Text>
           ))}
       </Box>
       <Box marginTop={1} flexDirection="column">
-        <Text bold>{`open findings (${vm.open_findings.length})`}</Text>
+        <Text bold>{formatTuiDetailSectionTitle(i18n, "open_findings", vm.open_findings.length)}</Text>
         {vm.open_findings.length === 0
-          ? <Text dimColor>  (none)</Text>
+          ? <Text dimColor>{`  ${formatTuiDetailNone(i18n)}`}</Text>
           : vm.open_findings.map((finding) => (
             <Text key={finding.id}>
-              {`  ${finding.id} ${finding.category}/${finding.action}${finding.target === null ? "" : ` target ${finding.target}`}${finding.reason ? ` · ${finding.reason}` : ""}${finding.summary ? ` · ${finding.summary}` : ""}`}
+              {`  ${finding.id} ${finding.category}/${finding.action}${finding.target === null ? "" : ` ${i18n.t(CHROME_KEYS.tuiDetailRowTarget, { value: finding.target })}`}${finding.reason ? ` · ${finding.reason}` : ""}${finding.summary ? ` · ${finding.summary}` : ""}`}
             </Text>
           ))}
       </Box>
       <Box marginTop={1} flexDirection="column">
-        <Text bold>{`pending (${vm.pending.length})`}</Text>
+        <Text bold>{formatTuiDetailSectionTitle(i18n, "pending", vm.pending.length)}</Text>
         {vm.pending.length === 0
-          ? <Text dimColor>  (none)</Text>
+          ? <Text dimColor>{`  ${formatTuiDetailNone(i18n)}`}</Text>
           : vm.pending.map((pending) => (
             <Text key={pending.pending_id}>
-              {`  ${pending.pending_id} ${pending.kind} blocks=${pending.blocks}${pending.options.length === 0 ? "" : ` options=${pending.options.join(",")}`} · ${pending.question}`}
+              {`  ${pending.pending_id} ${pending.kind} ${i18n.t(CHROME_KEYS.tuiDetailRowBlocks, { value: pending.blocks })}${pending.options.length === 0 ? "" : ` ${i18n.t(CHROME_KEYS.tuiDetailRowOptions, { value: pending.options.join(",") })}`} · ${pending.question}`}
             </Text>
           ))}
       </Box>
@@ -327,3 +340,4 @@ function unexpectedDetailError(error: unknown): DetailLoadResult {
     message: error instanceof Error ? error.message : String(error),
   };
 }
+import { CHROME_KEYS } from "../runtime-i18n-keys.js";
