@@ -193,6 +193,31 @@ describe("loaf CLI — Blocker #7 MVP surface", () => {
     expect(parsed.tail_seq).toBe(0);
   });
 
+  test("LOAF_LANG=zh localizes status chrome labels while keeping cursor raw", async () => {
+    const dir = await tmpFeatureDir();
+    await runCli([
+      "start", "auth-refresh",
+      "--ceremony", "standard",
+      "--feature-dir", dir,
+      "--format", "json",
+    ]);
+
+    const status = await runCli(
+      [
+        "status",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+      ],
+      { env: { LOAF_LANG: "zh" } },
+    );
+    expect(status.exit).toBe(0);
+    expect(status.stdout).toContain("功能: auth-refresh\n");
+    expect(status.stdout).toContain("阶段: 分诊 / 打分\n");
+    expect(status.stdout).toContain("游标: TRIAGE.score\n");
+    expect(status.stdout).toContain("尾部: seq=0\n");
+    expect(status.stdout).toContain("任务=0 证据=0 发现=0 待决=0\n");
+  });
+
   test("URL stamps are non-empty (build-time define applied or fallback sentinel)", () => {
     expect(LOAF_DOCS_URL.length).toBeGreaterThan(0);
     expect(LOAF_ISSUE_URL.length).toBeGreaterThan(0);
@@ -2983,6 +3008,21 @@ describe("loaf tasks list — Slice 2 SC4 (MVP)", () => {
     );
     expect(r.exit).toBe(0);
     expect(r.stdout).toMatch(/^T-001 behavioral pending \[ready\]$/m);
+  });
+
+  test("LOAF_LANG=zh localizes tasks list kind, status, and ready marker", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtSpecDesign(dir);
+    const r = await runCli(
+      [
+        "tasks", "list",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+      ],
+      { env: { LOAF_LANG: "zh" } },
+    );
+    expect(r.exit).toBe(0);
+    expect(r.stdout).toMatch(/^T-001 行为 待处理 \[就绪\]$/m);
   });
 
   test("--status filter: pending matches; --status ready matches derived", async () => {

@@ -84,12 +84,22 @@ import {
   type I18n,
 } from "./cli/i18n.js";
 import {
+  CHROME_KEYS,
   diagnosticKey,
   FAILURE_SITE_KEYS,
+  findingActionKey,
+  findingCategoryKey,
+  findingStatusKey,
+  pendingKindKey,
   SUCCESS_KEYS,
+  subStateKey,
+  taskKindKey,
+  taskStatusKey,
   type FailureSiteDiagnosticCode,
   type FailureSiteKey,
+  type FindingStatus,
   type MigratedDiagnosticCode,
+  type TaskStatus,
 } from "./cli/runtime-i18n-keys.js";
 import { runEditor as defaultRunEditor, type RunEditor } from "./cli/run-editor.js";
 import { splitFrontmatter } from "./core/spec-frontmatter.js";
@@ -121,7 +131,7 @@ import {
   type LoadResult,
   type ProjectionKind,
 } from "./core/projection-loader.js";
-import type { Ceremony, SubState } from "./core/journal-entry.js";
+import { PendingPromptKind, type Ceremony, type SubState } from "./core/journal-entry.js";
 import {
   carryForwardStepProgress,
   latestCanonicalTaskBody,
@@ -134,7 +144,7 @@ import {
   type TaskFullPayload,
   type TaskFullProjection,
 } from "./core/task-schema.js";
-import { FindingId } from "./core/finding-schema.js";
+import { FindingAction, FindingCategory, FindingId } from "./core/finding-schema.js";
 import { EvidenceAddInput } from "./core/evidence-schema.js";
 import {
   SpecAddReqInput,
@@ -158,6 +168,15 @@ function normalizedCovers(covers: readonly string[] | undefined): string {
 function formatCovers(i18n: I18n, covers: readonly string[] | undefined): string {
   if (!covers || covers.length === 0) return i18n.t(SUCCESS_KEYS.evidenceCoversNone);
   return [...new Set(covers)].sort().join(",");
+}
+
+function formatTaskListKind(i18n: I18n, kind: TaskFullProjection["kind"]): string {
+  if (i18n.locale === "en") return kind;
+  return i18n.t(taskKindKey(kind));
+}
+
+function formatTaskStatus(i18n: I18n, status: TaskStatus): string {
+  return i18n.t(taskStatusKey(status));
 }
 
 function evidenceAddStateChange(
@@ -189,6 +208,28 @@ function evidenceAddStateChange(
     count: items.length,
     evidence_ids: idsList,
   });
+}
+
+function formatPendingKind(i18n: I18n, kind: string): string {
+  if (i18n.locale === "en") return kind;
+  const parsed = PendingPromptKind.safeParse(kind);
+  return parsed.success ? i18n.t(pendingKindKey(parsed.data)) : kind;
+}
+
+function formatFindingCategory(i18n: I18n, category: string): string {
+  if (i18n.locale === "en") return category;
+  const parsed = FindingCategory.safeParse(category);
+  return parsed.success ? i18n.t(findingCategoryKey(parsed.data)) : category;
+}
+
+function formatFindingAction(i18n: I18n, action: string): string {
+  if (i18n.locale === "en") return action;
+  const parsed = FindingAction.safeParse(action);
+  return parsed.success ? i18n.t(findingActionKey(parsed.data)) : action;
+}
+
+function formatFindingStatus(i18n: I18n, status: FindingStatus): string {
+  return i18n.t(findingStatusKey(status));
 }
 
 const PRESETS: Record<string, Ceremony> = {
@@ -1428,13 +1469,18 @@ export async function main(
       };
       ctx.success(
         out,
-        () =>
-          `feature: ${opts.feature}\n` +
-          `phase:   ${state.phase}.${state.sub_state.split(".")[1]}\n` +
-          `cursor:  ${state.sub_state}\n` +
-          `tail:    seq=${out.tail_seq}\n` +
-          `tasks=${out.tasks_count} evidence=${out.evidence_count} findings=${out.findings_count} pending=${out.pending_count}\n` +
-          `# snapshot as-of seq=${out.tail_seq} (projection-loader, Phase 15 SC3)\n`,
+        (i18n) =>
+          i18n.t(CHROME_KEYS.statusFeature, { feature: opts.feature }) + "\n" +
+          i18n.t(CHROME_KEYS.statusPhase, { phase: i18n.t(subStateKey(state.sub_state)) }) + "\n" +
+          i18n.t(CHROME_KEYS.statusCursor, { cursor: state.sub_state }) + "\n" +
+          i18n.t(CHROME_KEYS.statusTail, { seq: out.tail_seq }) + "\n" +
+          i18n.t(CHROME_KEYS.statusCounts, {
+            tasks_count: out.tasks_count,
+            evidence_count: out.evidence_count,
+            findings_count: out.findings_count,
+            pending_count: out.pending_count,
+          }) + "\n" +
+          i18n.t(CHROME_KEYS.statusSnapshotAsOfProjectionLoader, { seq: out.tail_seq }) + "\n",
       );
     });
 
@@ -3000,14 +3046,22 @@ export async function main(
           count: filtered.length,
           tasks: filtered,
         },
-        () => {
+        (i18n) => {
           if (filtered.length === 0) {
             return opts.status
-              ? `no tasks match --status=${opts.status}\n`
-              : `no tasks in projection (run \`loaf tasks submit\` first)\n`;
+              ? i18n.t(CHROME_KEYS.tasksListEmptyFiltered, { status: opts.status }) + "\n"
+              : i18n.t(CHROME_KEYS.tasksListEmpty) + "\n";
           }
           return filtered
-            .map((t) => `${t.id} ${t.kind} ${t.status}${t.ready ? " [ready]" : ""}\n`)
+            .map((t) => {
+              const vars = {
+                task_id: t.id,
+                kind: formatTaskListKind(i18n, t.kind),
+                status: formatTaskStatus(i18n, t.status),
+                ready: i18n.t(CHROME_KEYS.tasksListReadyMarker),
+              };
+              return i18n.t(t.ready ? CHROME_KEYS.tasksListRowReady : CHROME_KEYS.tasksListRow, vars) + "\n";
+            })
             .join("");
         },
       );
@@ -3110,7 +3164,13 @@ export async function main(
         task_id: taskId,
         status: task.status,
       };
-      ctx.success(out, () => `${taskId} complete (status=done)\n`);
+      ctx.success(
+        out,
+        (i18n) => i18n.t(CHROME_KEYS.tasksCompleteText, {
+          task_id: taskId,
+          status: formatTaskStatus(i18n, "done"),
+        }) + "\n",
+      );
     });
 
   // ── loaf tasks amend <task-id> (--policy ... | --input <src> --finding) ──
@@ -4251,11 +4311,16 @@ export async function main(
           count: rows.length,
           pending: rows,
         },
-        () =>
+        (i18n) =>
           rows
             .map(
               (r) =>
-                `${r.id} ${r.kind} ${r.resolved ? "resolved" : "open"} ${r.head ? "head" : "-"}\n`,
+                i18n.t(CHROME_KEYS.pendingListRow, {
+                  pending_id: r.id,
+                  kind: formatPendingKind(i18n, r.kind),
+                  status: i18n.t(r.resolved ? CHROME_KEYS.pendingResolved : CHROME_KEYS.pendingOpen),
+                  head: i18n.t(r.head ? CHROME_KEYS.pendingHead : CHROME_KEYS.pendingNonHead),
+                }) + "\n",
             )
             .join(""),
       );
@@ -4303,9 +4368,14 @@ export async function main(
           feature: opts.feature,
           pending: target,
         },
-        () => {
-          if (target === null) return "no open pending\n";
-          return `${target.id} ${target.kind} ${target.resolved ? "resolved" : "open"} ${target.head ? "head" : "-"}\n`;
+        (i18n) => {
+          if (target === null) return i18n.t(CHROME_KEYS.pendingStatusNoOpen) + "\n";
+          return i18n.t(CHROME_KEYS.pendingListRow, {
+            pending_id: target.id,
+            kind: formatPendingKind(i18n, target.kind),
+            status: i18n.t(target.resolved ? CHROME_KEYS.pendingResolved : CHROME_KEYS.pendingOpen),
+            head: i18n.t(target.head ? CHROME_KEYS.pendingHead : CHROME_KEYS.pendingNonHead),
+          }) + "\n";
         },
       );
     });
@@ -5127,12 +5197,17 @@ export async function main(
       // (when no --in-cwd filter); saying "skipped" would contradict
       // the visible row (codex r293 finding).
       for (const w of result.warnings) {
-        const action =
+        const actionKey =
           w.reason === "orphan-cwd"
-            ? (opts.inCwd ? "filtered out" : "has orphan cwd")
-            : "skipped";
+            ? (opts.inCwd ? CHROME_KEYS.sessionsActionFilteredOut : CHROME_KEYS.sessionsActionOrphanCwd)
+            : CHROME_KEYS.sessionsActionSkipped;
         ctx.advisory(
-          `registry entry ${w.file} ${action} (${w.reason}${w.detail ? `: ${w.detail}` : ""})`,
+          i18n.t(CHROME_KEYS.sessionsWarning, {
+            file: w.file,
+            action: i18n.t(actionKey),
+            reason: w.reason,
+            detail_suffix: w.detail ? `: ${w.detail}` : "",
+          }),
         );
       }
 
@@ -5146,7 +5221,7 @@ export async function main(
           warnings: result.warnings,
         },
         (textI18n) => {
-          if (result.rows.length === 0) return "(no sessions found)\n";
+          if (result.rows.length === 0) return textI18n.t(CHROME_KEYS.sessionsListEmpty) + "\n";
           // 4-column aligned: <short8> <feature> <phase.sub_state> <at>
           const lines: string[] = [];
           // Column widths
@@ -5159,7 +5234,7 @@ export async function main(
             12,
           );
           for (const row of result.rows) {
-            const at = formatAtRelative(row.at, nowDate);
+            const at = formatAtRelative(row.at, nowDate, textI18n);
             const state = formatPhaseSub(row, textI18n);
             lines.push(
               `${row.session_id_short}  ${row.feature.padEnd(featureWidth)}  ${state.padEnd(stateWidth)}  ${at}\n`,
@@ -5207,7 +5282,7 @@ export async function main(
 
       const result = await checkFile(kind === undefined ? { path: filePath } : { path: filePath, kind });
       if (result.ok) {
-        ctx.success(result, () => renderCheckSuccess(result));
+        ctx.success(result, (i18n) => renderCheckSuccess(result, i18n));
         return;
       }
       if (result.code === "USAGE" && result.detail["suggestion"] !== undefined) {
@@ -5292,7 +5367,7 @@ export async function main(
         return;
       }
       const env = buildVerifyStatusEnvelope(diag.checks);
-      ctx.success(env, () => renderVerifyStatusText(env));
+      ctx.success(env, (i18n) => renderVerifyStatusText(env, i18n));
     });
 
   // ── loaf finding raise / list / close ────────────────────────────────
@@ -5618,9 +5693,14 @@ export async function main(
           count: rows.length,
           findings: rows,
         },
-        () =>
+        (i18n) =>
           rows
-            .map((r) => `${r.id} ${r.category} ${r.action} ${r.status}\n`)
+            .map((r) => i18n.t(CHROME_KEYS.findingListRow, {
+              finding_id: r.id,
+              category: formatFindingCategory(i18n, r.category),
+              action: formatFindingAction(i18n, r.action),
+              status: formatFindingStatus(i18n, r.status),
+            }) + "\n")
             .join(""),
       );
     });

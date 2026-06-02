@@ -11,13 +11,18 @@ import {
   phaseKey,
   RUNTIME_I18N_KEYS,
   diagnosticKey,
+  CHROME_KEYS,
+  findingStatusKey,
   FAILURE_SITE_KEYS,
   FAILURE_SITE_TEMPLATES,
   SUCCESS_KEYS,
   statusIndicatorKey,
   subStateKey,
   taskKindKey,
+  taskStatusKey,
   TASK_KIND_VALUES,
+  TASK_STATUS_VALUES,
+  FINDING_STATUS_VALUES,
   MIGRATED_DIAGNOSTIC_CODES,
 } from "../../src/cli/runtime-i18n-keys.js";
 import { EvidenceKind } from "../../src/core/evidence-schema.js";
@@ -50,15 +55,18 @@ describe("runtime i18n key gate", () => {
     const helperKeys = [
       ...STATUS_BUCKETS.map(statusIndicatorKey),
       ...TASK_KIND_VALUES.map(taskKindKey),
+      ...TASK_STATUS_VALUES.map(taskStatusKey),
       ...EvidenceKind.options.map(evidenceKindKey),
       ...FindingCategory.options.map(findingCategoryKey),
       ...FindingAction.options.map(findingActionKey),
+      ...FINDING_STATUS_VALUES.map(findingStatusKey),
       ...PendingPromptKind.options.map(pendingKindKey),
       ...PHASE_VALUES.map(phaseKey),
       ...SubState.options.map(subStateKey),
       ...MIGRATED_DIAGNOSTIC_CODES.map(diagnosticKey),
       ...Object.values(FAILURE_SITE_KEYS),
       ...Object.values(SUCCESS_KEYS),
+      ...Object.values(CHROME_KEYS),
     ];
 
     expect(new Set(RUNTIME_I18N_KEYS)).toEqual(new Set(helperKeys));
@@ -98,6 +106,16 @@ describe("runtime i18n key gate", () => {
 
   test("success keys are explicit, localized, and placeholder-symmetric", () => {
     for (const key of Object.values(SUCCESS_KEYS)) {
+      const en = lookup(BUILTIN_BUNDLES.en, key);
+      const zh = lookup(BUILTIN_BUNDLES.zh, key);
+      expect(en, `${key} en`).toBeTypeOf("string");
+      expect(zh, `${key} zh`).toBeTypeOf("string");
+      expect(placeholders(String(en)), `${key} zh placeholders`).toEqual(placeholders(String(zh)));
+    }
+  });
+
+  test("chrome keys are explicit, localized, and placeholder-symmetric", () => {
+    for (const key of Object.values(CHROME_KEYS)) {
       const en = lookup(BUILTIN_BUNDLES.en, key);
       const zh = lookup(BUILTIN_BUNDLES.zh, key);
       expect(en, `${key} en`).toBeTypeOf("string");

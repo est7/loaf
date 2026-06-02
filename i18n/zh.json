@@ -71,6 +71,14 @@
     "chore":      "杂务"
   },
 
+  "task_status": {
+    "pending":     "待处理",
+    "ready":       "就绪",
+    "in_progress": "进行中",
+    "done":        "完成",
+    "abandoned":   "已放弃"
+  },
+
   "step": {
     "red":                "红测(失败用例)",
     "implement":          "实现",
@@ -123,6 +131,11 @@
     "fix-test":    "修测试",
     "defer":       "本轮延迟",
     "backlog":     "进 backlog(下个 feature)"
+  },
+
+  "finding_status": {
+    "open":   "开放",
+    "closed": "已关闭"
   },
 
   "gate": {
@@ -402,6 +415,68 @@
       "add_visual_text_many": "spec add-visual v{spec_version}: {ids}",
       "add_visual_state_change_one": "spec add-visual: +{count} VISUAL(spec_version={spec_version}; allocated {ids})",
       "add_visual_state_change_many": "spec add-visual: +{count} VISUAL(spec_version={spec_version}; allocated {ids})"
+    }
+  },
+
+  "chrome": {
+    "status": {
+      "feature": "功能: {feature}",
+      "phase": "阶段: {phase}",
+      "cursor": "游标: {cursor}",
+      "tail": "尾部: seq={seq}",
+      "counts": "任务={tasks_count} 证据={evidence_count} 发现={findings_count} 待决={pending_count}",
+      "snapshot_as_of_projection_loader": "# snapshot 当前 seq={seq}(projection-loader, Phase 15 SC3)"
+    },
+    "tasks": {
+      "list_empty_filtered": "没有任务匹配 --status={status}",
+      "list_empty": "projection 中没有任务(先运行 `loaf tasks submit`)",
+      "ready_marker": "就绪",
+      "list_row": "{task_id} {kind} {status}",
+      "list_row_ready": "{task_id} {kind} {status} [{ready}]",
+      "complete_text": "任务 {task_id} 已完成(status={status})"
+    },
+    "pending": {
+      "list_row": "{pending_id} {kind} {status} {head}",
+      "no_open": "没有未处理待决项",
+      "open": "未处理",
+      "resolved": "已解决",
+      "head": "队首",
+      "non_head": "-"
+    },
+    "finding": {
+      "list_row": "{finding_id} {category} {action} {status}"
+    },
+    "sessions": {
+      "empty": "(没有 session)",
+      "warning": "registry 条目 {file} {action}({reason}{detail_suffix})",
+      "action_skipped": "已跳过",
+      "action_filtered_out": "被过滤",
+      "action_orphan_cwd": "cwd 已孤立"
+    },
+    "relative": {
+      "just_now": "刚刚",
+      "minute_one": "{count} 分钟前",
+      "minute_many": "{count} 分钟前",
+      "hour_one": "{count} 小时前",
+      "hour_many": "{count} 小时前",
+      "day_one": "{count} 天前",
+      "day_many": "{count} 天前"
+    },
+    "check": {
+      "ok": "通过: {kind} 于 {path}"
+    },
+    "verify_status": {
+      "pass": "通过",
+      "fail": "失败",
+      "na": "不适用",
+      "check_lane_status": "泳道状态",
+      "check_open_findings": "未关闭 findings",
+      "check_coverage": "覆盖",
+      "check_task_evidence": "任务证据",
+      "check_spec_review": "规格评审",
+      "failure_summary_one": " {code}",
+      "failure_summary_many": " {count} 个失败({code}, …)",
+      "diagnostic_only": "(仅诊断 —— 不代表 gate 结论)"
     }
   },
 

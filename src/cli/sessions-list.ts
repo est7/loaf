@@ -17,6 +17,8 @@ import path from "node:path";
 import { defaultRegistryDir } from "../core/registry-writer.js";
 import { RegistryFile } from "../core/projection-schema.js";
 import type { SubState } from "../core/journal-entry.js";
+import { DEFAULT_I18N, type I18n } from "./i18n.js";
+import { CHROME_KEYS } from "./runtime-i18n-keys.js";
 
 export type SessionPhase = "TRIAGE" | "SPEC" | "EXECUTE" | "VERIFY" | "SETTLE" | "DONE";
 
@@ -188,7 +190,7 @@ export async function listSessions(
 /** Presentation helper — relative-time rendering for text mode. Returns
  *  "N minutes/hours/days ago" for ≤7 days, ISO otherwise. Future
  *  timestamps fall back to ISO (defensive — clock skew). */
-export function formatAtRelative(iso: string, now: Date): string {
+export function formatAtRelative(iso: string, now: Date, i18n: I18n = DEFAULT_I18N): string {
   const at = new Date(iso);
   if (Number.isNaN(at.getTime())) return iso;
   const diffMs = now.getTime() - at.getTime();
@@ -196,10 +198,20 @@ export function formatAtRelative(iso: string, now: Date): string {
   const SEVEN_DAYS_MS = 7 * 86_400_000;
   if (diffMs >= SEVEN_DAYS_MS) return iso;
   const minutes = Math.floor(diffMs / 60_000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+  if (minutes < 1) return i18n.t(CHROME_KEYS.relativeJustNow);
+  if (minutes < 60) {
+    return i18n.t(minutes === 1 ? CHROME_KEYS.relativeMinuteOne : CHROME_KEYS.relativeMinuteMany, {
+      count: minutes,
+    });
+  }
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  if (hours < 24) {
+    return i18n.t(hours === 1 ? CHROME_KEYS.relativeHourOne : CHROME_KEYS.relativeHourMany, {
+      count: hours,
+    });
+  }
   const days = Math.floor(hours / 24);
-  return `${days} day${days === 1 ? "" : "s"} ago`;
+  return i18n.t(days === 1 ? CHROME_KEYS.relativeDayOne : CHROME_KEYS.relativeDayMany, {
+    count: days,
+  });
 }

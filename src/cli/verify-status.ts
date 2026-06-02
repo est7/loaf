@@ -23,6 +23,8 @@ import type {
   PerCheckResult,
   VerifyCheckId,
 } from "../core/gates/verify-accept-check.js";
+import { DEFAULT_I18N, type I18n } from "./i18n.js";
+import { CHROME_KEYS } from "./runtime-i18n-keys.js";
 
 export interface VerifyStatusEnvelope {
   ok: true;
@@ -37,39 +39,49 @@ export function buildEnvelope(checks: PerCheckResult[]): VerifyStatusEnvelope {
 }
 
 /** Presentation — fixed column widths per the §7.4 example shape. */
-const CHECK_LABEL: Record<VerifyCheckId, string> = {
-  lane_status: "lane_status",
-  open_findings: "open_findings",
-  coverage: "coverage",
-  task_evidence: "task_evidence",
-  spec_review: "spec_review",
+const CHECK_LABEL_KEYS = {
+  lane_status: CHROME_KEYS.verifyStatusCheckLaneStatus,
+  open_findings: CHROME_KEYS.verifyStatusCheckOpenFindings,
+  coverage: CHROME_KEYS.verifyStatusCheckCoverage,
+  task_evidence: CHROME_KEYS.verifyStatusCheckTaskEvidence,
+  spec_review: CHROME_KEYS.verifyStatusCheckSpecReview,
 };
 
-function statusGlyph(status: PerCheckResult["status"]): string {
-  return status; // already short — "pass" / "fail" / "na"
+function checkLabel(check: VerifyCheckId, i18n: I18n): string {
+  return i18n.t(CHECK_LABEL_KEYS[check]);
 }
 
-function failureSummary(failures: FailedCheck[]): string {
+function statusGlyph(status: PerCheckResult["status"], i18n: I18n): string {
+  if (status === "pass") return i18n.t(CHROME_KEYS.verifyStatusPass);
+  if (status === "fail") return i18n.t(CHROME_KEYS.verifyStatusFail);
+  return i18n.t(CHROME_KEYS.verifyStatusNa);
+}
+
+function failureSummary(failures: FailedCheck[], i18n: I18n): string {
   if (failures.length === 0) return "";
   if (failures.length === 1) {
     const f = failures[0];
-    return f ? ` ${f.code}` : "";
+    return f ? i18n.t(CHROME_KEYS.verifyStatusFailureSummaryOne, { code: f.code }) : "";
   }
   // Multi-fail row: render count + first code for the table line; full
   // failures rendered as nested lines (see renderText).
   const head = failures[0];
-  return ` ${failures.length} failures (${head?.code ?? "?"}, …)`;
+  return i18n.t(CHROME_KEYS.verifyStatusFailureSummaryMany, {
+    count: failures.length,
+    code: head?.code ?? "?",
+  });
 }
 
-export function renderText(env: VerifyStatusEnvelope): string {
-  const labelWidth = Math.max(
-    ...Object.values(CHECK_LABEL).map((l) => l.length),
-  );
+export function renderText(env: VerifyStatusEnvelope, i18n: I18n = DEFAULT_I18N): string {
+  const labels = Object.fromEntries(
+    env.checks.map((row) => [row.check, checkLabel(row.check, i18n)]),
+  ) as Record<VerifyCheckId, string>;
+  const labelWidth = Math.max(...Object.values(labels).map((l) => l.length));
   const lines: string[] = [];
   for (const row of env.checks) {
-    const label = CHECK_LABEL[row.check].padEnd(labelWidth);
-    const status = statusGlyph(row.status).padEnd(4);
-    lines.push(`${label}  ${status}${failureSummary(row.failures)}`);
+    const label = labels[row.check].padEnd(labelWidth);
+    const status = statusGlyph(row.status, i18n).padEnd(4);
+    lines.push(`${label}  ${status}${failureSummary(row.failures, i18n)}`);
     // Show nested failure detail under fail rows for multi-fail visibility.
     if (row.status === "fail" && row.failures.length > 1) {
       for (const f of row.failures) {
@@ -77,6 +89,6 @@ export function renderText(env: VerifyStatusEnvelope): string {
       }
     }
   }
-  lines.push(env.all_pass ? "" : "(diagnostic only — gate verdict not implied)");
+  lines.push(env.all_pass ? "" : i18n.t(CHROME_KEYS.verifyStatusDiagnosticOnly));
   return lines.join("\n") + "\n";
 }

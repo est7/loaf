@@ -31,6 +31,8 @@ import {
   StateProjection,
   TasksJson,
 } from "../core/projection-schema.js";
+import { DEFAULT_I18N, type I18n } from "./i18n.js";
+import { CHROME_KEYS } from "./runtime-i18n-keys.js";
 
 /** Codex r309 B2: cap Zod issue list at 20 to keep CI output bounded. */
 export const MAX_CHECK_ERRORS = 20;
@@ -258,6 +260,6 @@ export async function checkFile(opts: CheckFileOptions): Promise<CheckResult> {
 }
 
 /** Text-mode success line. */
-export function renderSuccessText(result: { ok: true; kind: CheckKind; path: string }): string {
-  return `ok: ${result.kind} at ${result.path}\n`;
+export function renderSuccessText(result: { ok: true; kind: CheckKind; path: string }, i18n: I18n = DEFAULT_I18N): string {
+  return i18n.t(CHROME_KEYS.checkOk, { kind: result.kind, path: result.path }) + "\n";
 }

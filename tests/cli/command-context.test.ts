@@ -21,7 +21,7 @@ import {
   type CommandContext,
 } from "../../src/cli/command-context.js";
 import { createI18n, BUILTIN_BUNDLES, type I18n } from "../../src/cli/i18n.js";
-import { FAILURE_SITE_KEYS, SUCCESS_KEYS } from "../../src/cli/runtime-i18n-keys.js";
+import { CHROME_KEYS, FAILURE_SITE_KEYS, SUCCESS_KEYS } from "../../src/cli/runtime-i18n-keys.js";
 
 function makeCtx(
   argv: string[],
@@ -229,6 +229,47 @@ describe("Phase 16 SC-3 — CommandContext: construction + output mode", () => {
 
     en.ctx.success(payload, renderText, renderAdvisory);
     zh.ctx.success(payload, renderText, renderAdvisory);
+
+    expect(zh.stdout.join("")).toBe(en.stdout.join(""));
+  });
+
+  test("P3c read-only chrome keys localize representative zh text", () => {
+    const { ctx, stdout } = makeCtx(["loaf", "status"], {
+      i18n: createI18n("zh", BUILTIN_BUNDLES),
+    });
+
+    ctx.success(
+      { ok: true, feature: "auth-refresh", phase: "EXECUTE", task_kind: "behavioral" },
+      (i18n) =>
+        i18n.t(CHROME_KEYS.statusFeature, { feature: "auth-refresh" }) + "\n" +
+        i18n.t(CHROME_KEYS.statusPhase, { phase: "执行 / 任务进行中" }) + "\n" +
+        i18n.t(CHROME_KEYS.tasksListRowReady, {
+          task_id: "T-001",
+          kind: "行为",
+          status: "待处理",
+          ready: "就绪",
+        }) + "\n",
+    );
+
+    expect(stdout.join("")).toBe(
+      "功能: auth-refresh\n" +
+      "阶段: 执行 / 任务进行中\n" +
+      "T-001 行为 待处理 [就绪]\n",
+    );
+  });
+
+  test("P3c read-only JSON payload stays byte-stable under zh locale", () => {
+    const payload = { ok: true, feature: "auth-refresh", tasks: [{ id: "T-001", kind: "behavioral" }] };
+    const en = makeCtx(["loaf", "tasks", "list", "--format", "json"], {
+      i18n: createI18n("en", BUILTIN_BUNDLES),
+    });
+    const zh = makeCtx(["loaf", "tasks", "list", "--format", "json"], {
+      i18n: createI18n("zh", BUILTIN_BUNDLES),
+    });
+    const renderText = (i18n: I18n) => i18n.t(CHROME_KEYS.tasksListEmpty) + "\n";
+
+    en.ctx.success(payload, renderText);
+    zh.ctx.success(payload, renderText);
 
     expect(zh.stdout.join("")).toBe(en.stdout.join(""));
   });

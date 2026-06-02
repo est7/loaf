@@ -5,6 +5,8 @@ import type { TaskFullProjection } from "../core/task-schema.js";
 import type { TuiStatusBucket } from "./tui/list-model.js";
 
 export type TaskKind = TaskFullProjection["kind"];
+export type TaskStatus = TaskFullProjection["status"];
+export type FindingStatus = "open" | "closed";
 export type Phase = "TRIAGE" | "SPEC" | "EXECUTE" | "VERIFY" | "SETTLE" | "DONE";
 export type PendingKind =
   | "ask_user_question"
@@ -37,6 +39,19 @@ export const TASK_KIND_VALUES = [
   "chore",
 ] as const satisfies readonly TaskKind[];
 
+export const TASK_STATUS_VALUES = [
+  "pending",
+  "ready",
+  "in_progress",
+  "done",
+  "abandoned",
+] as const satisfies readonly TaskStatus[];
+
+export const FINDING_STATUS_VALUES = [
+  "open",
+  "closed",
+] as const satisfies readonly FindingStatus[];
+
 const STATUS_INDICATOR_KEYS = {
   done: "status_indicator.done",
   blocked: "status_indicator.ask",
@@ -52,6 +67,14 @@ const TASK_KIND_KEYS = {
   spike: "task_kind.spike",
   chore: "task_kind.chore",
 } as const satisfies Record<TaskKind, string>;
+
+const TASK_STATUS_KEYS = {
+  pending: "task_status.pending",
+  ready: "task_status.ready",
+  in_progress: "task_status.in_progress",
+  done: "task_status.done",
+  abandoned: "task_status.abandoned",
+} as const satisfies Record<TaskStatus, string>;
 
 const EVIDENCE_KIND_KEYS = {
   "task-summary": "evidence_kind.task-summary",
@@ -83,6 +106,11 @@ const FINDING_ACTION_KEYS = {
   defer: "finding_action.defer",
   backlog: "finding_action.backlog",
 } as const satisfies Record<FindingAction, string>;
+
+const FINDING_STATUS_KEYS = {
+  open: "finding_status.open",
+  closed: "finding_status.closed",
+} as const satisfies Record<FindingStatus, string>;
 
 const PENDING_KIND_KEYS = {
   ask_user_question: "pending_kind.ask_user_question",
@@ -445,31 +473,85 @@ export const SUCCESS_KEYS = {
 
 export type SuccessKey = (typeof SUCCESS_KEYS)[keyof typeof SUCCESS_KEYS];
 
+export const CHROME_KEYS = {
+  statusFeature: "chrome.status.feature",
+  statusPhase: "chrome.status.phase",
+  statusCursor: "chrome.status.cursor",
+  statusTail: "chrome.status.tail",
+  statusCounts: "chrome.status.counts",
+  statusSnapshotAsOfProjectionLoader: "chrome.status.snapshot_as_of_projection_loader",
+  tasksListEmptyFiltered: "chrome.tasks.list_empty_filtered",
+  tasksListEmpty: "chrome.tasks.list_empty",
+  tasksListReadyMarker: "chrome.tasks.ready_marker",
+  tasksListRow: "chrome.tasks.list_row",
+  tasksListRowReady: "chrome.tasks.list_row_ready",
+  tasksCompleteText: "chrome.tasks.complete_text",
+  pendingListRow: "chrome.pending.list_row",
+  pendingStatusNoOpen: "chrome.pending.no_open",
+  pendingOpen: "chrome.pending.open",
+  pendingResolved: "chrome.pending.resolved",
+  pendingHead: "chrome.pending.head",
+  pendingNonHead: "chrome.pending.non_head",
+  findingListRow: "chrome.finding.list_row",
+  sessionsListEmpty: "chrome.sessions.empty",
+  sessionsWarning: "chrome.sessions.warning",
+  sessionsActionSkipped: "chrome.sessions.action_skipped",
+  sessionsActionFilteredOut: "chrome.sessions.action_filtered_out",
+  sessionsActionOrphanCwd: "chrome.sessions.action_orphan_cwd",
+  relativeJustNow: "chrome.relative.just_now",
+  relativeMinuteOne: "chrome.relative.minute_one",
+  relativeMinuteMany: "chrome.relative.minute_many",
+  relativeHourOne: "chrome.relative.hour_one",
+  relativeHourMany: "chrome.relative.hour_many",
+  relativeDayOne: "chrome.relative.day_one",
+  relativeDayMany: "chrome.relative.day_many",
+  checkOk: "chrome.check.ok",
+  verifyStatusPass: "chrome.verify_status.pass",
+  verifyStatusFail: "chrome.verify_status.fail",
+  verifyStatusNa: "chrome.verify_status.na",
+  verifyStatusCheckLaneStatus: "chrome.verify_status.check_lane_status",
+  verifyStatusCheckOpenFindings: "chrome.verify_status.check_open_findings",
+  verifyStatusCheckCoverage: "chrome.verify_status.check_coverage",
+  verifyStatusCheckTaskEvidence: "chrome.verify_status.check_task_evidence",
+  verifyStatusCheckSpecReview: "chrome.verify_status.check_spec_review",
+  verifyStatusFailureSummaryOne: "chrome.verify_status.failure_summary_one",
+  verifyStatusFailureSummaryMany: "chrome.verify_status.failure_summary_many",
+  verifyStatusDiagnosticOnly: "chrome.verify_status.diagnostic_only",
+} as const;
+
+export type ChromeKey = (typeof CHROME_KEYS)[keyof typeof CHROME_KEYS];
+
 export type RuntimeI18nKey =
   | (typeof STATUS_INDICATOR_KEYS)[keyof typeof STATUS_INDICATOR_KEYS]
   | (typeof TASK_KIND_KEYS)[keyof typeof TASK_KIND_KEYS]
+  | (typeof TASK_STATUS_KEYS)[keyof typeof TASK_STATUS_KEYS]
   | (typeof EVIDENCE_KIND_KEYS)[keyof typeof EVIDENCE_KIND_KEYS]
   | (typeof FINDING_CATEGORY_KEYS)[keyof typeof FINDING_CATEGORY_KEYS]
   | (typeof FINDING_ACTION_KEYS)[keyof typeof FINDING_ACTION_KEYS]
+  | (typeof FINDING_STATUS_KEYS)[keyof typeof FINDING_STATUS_KEYS]
   | (typeof PENDING_KIND_KEYS)[keyof typeof PENDING_KIND_KEYS]
   | (typeof PHASE_KEYS)[keyof typeof PHASE_KEYS]
   | (typeof SUB_STATE_KEYS)[keyof typeof SUB_STATE_KEYS]
   | (typeof DIAGNOSTIC_KEYS)[keyof typeof DIAGNOSTIC_KEYS]
   | FailureSiteKey
-  | SuccessKey;
+  | SuccessKey
+  | ChromeKey;
 
 export const RUNTIME_I18N_KEYS: readonly RuntimeI18nKey[] = [
   ...Object.values(STATUS_INDICATOR_KEYS),
   ...Object.values(TASK_KIND_KEYS),
+  ...Object.values(TASK_STATUS_KEYS),
   ...Object.values(EVIDENCE_KIND_KEYS),
   ...Object.values(FINDING_CATEGORY_KEYS),
   ...Object.values(FINDING_ACTION_KEYS),
+  ...Object.values(FINDING_STATUS_KEYS),
   ...Object.values(PENDING_KIND_KEYS),
   ...Object.values(PHASE_KEYS),
   ...Object.values(SUB_STATE_KEYS),
   ...Object.values(DIAGNOSTIC_KEYS),
   ...Object.values(FAILURE_SITE_KEYS),
   ...Object.values(SUCCESS_KEYS),
+  ...Object.values(CHROME_KEYS),
 ];
 
 export function statusIndicatorKey(bucket: TuiStatusBucket): RuntimeI18nKey {
@@ -478,6 +560,10 @@ export function statusIndicatorKey(bucket: TuiStatusBucket): RuntimeI18nKey {
 
 export function taskKindKey(kind: TaskKind): RuntimeI18nKey {
   return TASK_KIND_KEYS[kind];
+}
+
+export function taskStatusKey(status: TaskStatus): RuntimeI18nKey {
+  return TASK_STATUS_KEYS[status];
 }
 
 export function evidenceKindKey(kind: EvidenceKind): RuntimeI18nKey {
@@ -490,6 +576,10 @@ export function findingCategoryKey(category: FindingCategory): RuntimeI18nKey {
 
 export function findingActionKey(action: FindingAction): RuntimeI18nKey {
   return FINDING_ACTION_KEYS[action];
+}
+
+export function findingStatusKey(status: FindingStatus): RuntimeI18nKey {
+  return FINDING_STATUS_KEYS[status];
 }
 
 export function pendingKindKey(kind: PendingKind): RuntimeI18nKey {

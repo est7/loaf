@@ -71,6 +71,14 @@
     "chore":      "Chore"
   },
 
+  "task_status": {
+    "pending":     "pending",
+    "ready":       "ready",
+    "in_progress": "in_progress",
+    "done":        "done",
+    "abandoned":   "abandoned"
+  },
+
   "step": {
     "red":                "Red (failing test)",
     "implement":          "Implement",
@@ -123,6 +131,11 @@
     "fix-test":    "Fix test",
     "defer":       "Defer (this run)",
     "backlog":     "Backlog (next feature)"
+  },
+
+  "finding_status": {
+    "open":   "open",
+    "closed": "closed"
   },
 
   "gate": {
@@ -402,6 +415,68 @@
       "add_visual_text_many": "spec add-visual v{spec_version}: {ids}",
       "add_visual_state_change_one": "spec add-visual: +{count} VISUAL (spec_version={spec_version}; allocated {ids})",
       "add_visual_state_change_many": "spec add-visual: +{count} VISUAL (spec_version={spec_version}; allocated {ids})"
+    }
+  },
+
+  "chrome": {
+    "status": {
+      "feature": "feature: {feature}",
+      "phase": "phase:   {phase}",
+      "cursor": "cursor:  {cursor}",
+      "tail": "tail:    seq={seq}",
+      "counts": "tasks={tasks_count} evidence={evidence_count} findings={findings_count} pending={pending_count}",
+      "snapshot_as_of_projection_loader": "# snapshot as-of seq={seq} (projection-loader, Phase 15 SC3)"
+    },
+    "tasks": {
+      "list_empty_filtered": "no tasks match --status={status}",
+      "list_empty": "no tasks in projection (run `loaf tasks submit` first)",
+      "ready_marker": "ready",
+      "list_row": "{task_id} {kind} {status}",
+      "list_row_ready": "{task_id} {kind} {status} [{ready}]",
+      "complete_text": "{task_id} complete (status={status})"
+    },
+    "pending": {
+      "list_row": "{pending_id} {kind} {status} {head}",
+      "no_open": "no open pending",
+      "open": "open",
+      "resolved": "resolved",
+      "head": "head",
+      "non_head": "-"
+    },
+    "finding": {
+      "list_row": "{finding_id} {category} {action} {status}"
+    },
+    "sessions": {
+      "empty": "(no sessions found)",
+      "warning": "registry entry {file} {action} ({reason}{detail_suffix})",
+      "action_skipped": "skipped",
+      "action_filtered_out": "filtered out",
+      "action_orphan_cwd": "has orphan cwd"
+    },
+    "relative": {
+      "just_now": "just now",
+      "minute_one": "{count} minute ago",
+      "minute_many": "{count} minutes ago",
+      "hour_one": "{count} hour ago",
+      "hour_many": "{count} hours ago",
+      "day_one": "{count} day ago",
+      "day_many": "{count} days ago"
+    },
+    "check": {
+      "ok": "ok: {kind} at {path}"
+    },
+    "verify_status": {
+      "pass": "pass",
+      "fail": "fail",
+      "na": "na",
+      "check_lane_status": "lane_status",
+      "check_open_findings": "open_findings",
+      "check_coverage": "coverage",
+      "check_task_evidence": "task_evidence",
+      "check_spec_review": "spec_review",
+      "failure_summary_one": " {code}",
+      "failure_summary_many": " {count} failures ({code}, …)",
+      "diagnostic_only": "(diagnostic only — gate verdict not implied)"
     }
   },
 
