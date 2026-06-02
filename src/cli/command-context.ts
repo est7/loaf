@@ -32,6 +32,7 @@ import {
 } from "../core/session-dispatch.js";
 
 export type OutputMode = "json" | "text";
+export type I18nVars = Record<string, string | number | boolean | null | undefined>;
 
 /** Closed value set for `--format`. Single source of truth for both the
  *  argv parser and the human-readable error template. Order is
@@ -451,6 +452,12 @@ export type CommandContext = {
     message: string,
     detail?: Record<string, unknown>,
   ) => void;
+  failureKeyed: (
+    code: string,
+    keyPath: string,
+    vars: I18nVars,
+    detail?: Record<string, unknown>,
+  ) => void;
   snapshotCrashContext: () => CrashContext;
 };
 
@@ -614,6 +621,48 @@ export function createCommandContext(
     },
 
     failure(code, message, detail) {
+      writeFailure(code, message, detail);
+    },
+
+    failureKeyed(code, keyPath, vars, detail) {
+      const message = output === "json"
+        ? DEFAULT_I18N.t(keyPath, vars)
+        : i18n.t(keyPath, vars);
+      writeFailure(code, message, detail);
+    },
+
+    snapshotCrashContext(): CrashContext {
+      return {
+        phase: phaseOf(lastResolvedSubState),
+        sub_state: lastResolvedSubState,
+        feature: extractFeature(argv),
+        session_id: lastResolvedSessionId,
+        last_command: [...argv].join(" "),
+      };
+    },
+
+    async resolveDispatch() {
+      if (cachedDispatch) return cachedDispatch;
+      cachedDispatch = realResolveDispatch({
+        argv,
+        env: process.env,
+        cwd: process.cwd(),
+        ...(deps.registryDir !== undefined && { registryDir: deps.registryDir }),
+      });
+      return cachedDispatch;
+    },
+
+    advisory(line: string): void {
+      if (quiet) return;
+      deps.writeStderr(`loaf: ${line}\n`);
+    },
+  };
+
+  function writeFailure(
+    code: string,
+    message: string,
+    detail?: Record<string, unknown>,
+  ): void {
       if (output === "json") {
         const out: Record<string, unknown> = { ok: false, code, message };
         if (detail !== undefined) out["detail"] = detail;
@@ -657,33 +706,7 @@ export function createCommandContext(
         }
       }
       exitCode = 2;
-    },
+  }
 
-    snapshotCrashContext(): CrashContext {
-      return {
-        phase: phaseOf(lastResolvedSubState),
-        sub_state: lastResolvedSubState,
-        feature: extractFeature(argv),
-        session_id: lastResolvedSessionId,
-        last_command: [...argv].join(" "),
-      };
-    },
-
-    async resolveDispatch() {
-      if (cachedDispatch) return cachedDispatch;
-      cachedDispatch = realResolveDispatch({
-        argv,
-        env: process.env,
-        cwd: process.cwd(),
-        ...(deps.registryDir !== undefined && { registryDir: deps.registryDir }),
-      });
-      return cachedDispatch;
-    },
-
-    advisory(line: string): void {
-      if (quiet) return;
-      deps.writeStderr(`loaf: ${line}\n`);
-    },
-  };
   return ctx;
 }

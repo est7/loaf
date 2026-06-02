@@ -10,14 +10,17 @@ import {
   pendingKindKey,
   phaseKey,
   RUNTIME_I18N_KEYS,
+  diagnosticKey,
   statusIndicatorKey,
   subStateKey,
   taskKindKey,
   TASK_KIND_VALUES,
+  MIGRATED_DIAGNOSTIC_CODES,
 } from "../../src/cli/runtime-i18n-keys.js";
 import { EvidenceKind } from "../../src/core/evidence-schema.js";
 import { FindingAction, FindingCategory } from "../../src/core/finding-schema.js";
 import { PendingPromptKind, SubState } from "../../src/core/journal-entry.js";
+import { ERROR_CATALOG } from "../../docs/schemas.js";
 
 const PHASE_VALUES = ["TRIAGE", "SPEC", "EXECUTE", "VERIFY", "SETTLE", "DONE"] as const;
 const STATUS_BUCKETS = ["done", "blocked", "running", "idle"] as const;
@@ -50,9 +53,24 @@ describe("runtime i18n key gate", () => {
       ...PendingPromptKind.options.map(pendingKindKey),
       ...PHASE_VALUES.map(phaseKey),
       ...SubState.options.map(subStateKey),
+      ...MIGRATED_DIAGNOSTIC_CODES.map(diagnosticKey),
     ];
 
     expect(new Set(RUNTIME_I18N_KEYS)).toEqual(new Set(helperKeys));
+  });
+
+  test("migrated diagnostic placeholders match en, zh, and ERROR_CATALOG", () => {
+    for (const code of MIGRATED_DIAGNOSTIC_CODES) {
+      const key = diagnosticKey(code);
+      const en = lookup(BUILTIN_BUNDLES.en, key);
+      const zh = lookup(BUILTIN_BUNDLES.zh, key);
+      expect(en, `${key} en`).toBeTypeOf("string");
+      expect(zh, `${key} zh`).toBeTypeOf("string");
+      expect(placeholders(String(en)), `${key} zh placeholders`).toEqual(placeholders(String(zh)));
+      expect(placeholders(String(en)), `${key} ERROR_CATALOG placeholders`).toEqual(
+        placeholders(ERROR_CATALOG[code].message_template),
+      );
+    }
   });
 
   test("runtime i18n call sites do not build dynamic keys", async () => {
@@ -84,4 +102,8 @@ async function collectSources(dir: string): Promise<string[]> {
     }
   }
   return out;
+}
+
+function placeholders(template: string): string[] {
+  return Array.from(template.matchAll(/\{([A-Za-z0-9_]+)\}/g), (match) => match[1]!).sort();
 }

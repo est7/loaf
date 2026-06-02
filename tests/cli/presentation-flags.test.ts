@@ -29,11 +29,23 @@ async function tmpFeatureDir(): Promise<string> {
   return await fs.mkdtemp(path.join(os.tmpdir(), "loaf-sc5b1-test-"));
 }
 
-async function runCli(argv: string[]): Promise<{ exit: number; stdout: string; stderr: string }> {
+async function runCli(
+  argv: string[],
+  opts: { env?: Record<string, string | undefined> } = {},
+): Promise<{ exit: number; stdout: string; stderr: string }> {
   const stdoutChunks: string[] = [];
   const stderrChunks: string[] = [];
   const origStdout = process.stdout.write.bind(process.stdout);
   const origStderr = process.stderr.write.bind(process.stderr);
+  const envBackup: Record<string, string | undefined> = {};
+  if (opts.env) {
+    for (const k of Object.keys(opts.env)) {
+      envBackup[k] = process.env[k];
+      const v = opts.env[k];
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
   process.stdout.write = ((chunk: string | Uint8Array): boolean => {
     stdoutChunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
     return true;
@@ -48,6 +60,11 @@ async function runCli(argv: string[]): Promise<{ exit: number; stdout: string; s
   } finally {
     process.stdout.write = origStdout;
     process.stderr.write = origStderr;
+    for (const k of Object.keys(envBackup)) {
+      const prev = envBackup[k];
+      if (prev === undefined) delete process.env[k];
+      else process.env[k] = prev;
+    }
   }
 }
 
@@ -136,6 +153,19 @@ describe("Phase 16 SC-5b1 — RED #4-#11: MUTUALLY_EXCLUSIVE_FLAGS rendering", (
     expect(result.exit).toBe(2);
     const obj = JSON.parse(result.stderr.trim()) as { code: string };
     expect(obj.code).toBe("MUTUALLY_EXCLUSIVE_FLAGS");
+  });
+
+  test("LOAF_LANG=zh keeps MUTUALLY_EXCLUSIVE_FLAGS JSON message in English", async () => {
+    const defaultResult = await runCli(["status", "--plain", "--format=json"]);
+    const zhResult = await runCli(["status", "--plain", "--format=json"], {
+      env: { LOAF_LANG: "zh" },
+    });
+    expect(defaultResult.exit).toBe(2);
+    expect(zhResult.exit).toBe(2);
+    expect(zhResult.stderr).toBe(defaultResult.stderr);
+    const obj = JSON.parse(zhResult.stderr.trim()) as { code: string; message: string };
+    expect(obj.code).toBe("MUTUALLY_EXCLUSIVE_FLAGS");
+    expect(obj.message).toBe("mutually exclusive flags in the same invocation: --plain, --format=json");
   });
 
   test("RED #10: --format text --format text → OK (same canonical, no mutex)", () => {

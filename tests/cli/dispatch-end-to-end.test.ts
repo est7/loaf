@@ -257,4 +257,35 @@ describe("SC-8 — CLI dispatch integration", () => {
       expect((err as NodeJS.ErrnoException).code).toBe("ENOENT");
     }
   });
+
+  test("LOAF_LANG=zh localizes SESSION_NOT_FOUND text mode", async () => {
+    const registryDir = await tmpRegDir();
+    const sessionId = "550e8400-e29b-41d4-a716-deadbeefcafe";
+    const result = await runCli(
+      ["--session", sessionId, "status"],
+      { env: { LOAF_LANG: "zh" }, deps: { registryDir } },
+    );
+
+    expect(result.exit).toBe(2);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("SESSION_NOT_FOUND");
+    expect(result.stderr).toContain(`--session ${sessionId} 在 registry 找不到任何匹配`);
+  });
+
+  test("LOAF_LANG=zh leaves SESSION_NOT_FOUND JSON message byte-stable", async () => {
+    const registryDir = await tmpRegDir();
+    const sessionId = "550e8400-e29b-41d4-a716-deadbeefcafe";
+    const defaultResult = await runCli(
+      ["--session", sessionId, "status", "--format", "json"],
+      { deps: { registryDir } },
+    );
+    const zhResult = await runCli(
+      ["--session", sessionId, "status", "--format", "json"],
+      { env: { LOAF_LANG: "zh" }, deps: { registryDir } },
+    );
+
+    expect(defaultResult.exit).toBe(2);
+    expect(zhResult.exit).toBe(2);
+    expect(zhResult.stderr).toBe(defaultResult.stderr);
+  });
 });

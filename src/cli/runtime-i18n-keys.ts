@@ -12,6 +12,15 @@ export type PendingKind =
   | "spec_clarification"
   | "finding_decision"
   | "profile_escalation";
+export type MigratedDiagnosticCode =
+  | "INVALID_FORMAT"
+  | "MUTUALLY_EXCLUSIVE_FLAGS"
+  | "DRY_RUN_NOT_APPLICABLE"
+  | "FEATURE_NOT_FOUND"
+  | "FEATURE_AMBIGUOUS"
+  | "SESSION_CWD_MISMATCH"
+  | "SESSION_SHORT_AMBIGUOUS"
+  | "SESSION_NOT_FOUND";
 
 export const TASK_KIND_VALUES = [
   "behavioral",
@@ -109,6 +118,28 @@ const SUB_STATE_KEYS = {
   "DONE.abandoned": "sub_state.DONE.abandoned",
 } as const satisfies Record<SubState, string>;
 
+export const MIGRATED_DIAGNOSTIC_CODES = [
+  "INVALID_FORMAT",
+  "MUTUALLY_EXCLUSIVE_FLAGS",
+  "DRY_RUN_NOT_APPLICABLE",
+  "FEATURE_NOT_FOUND",
+  "FEATURE_AMBIGUOUS",
+  "SESSION_CWD_MISMATCH",
+  "SESSION_SHORT_AMBIGUOUS",
+  "SESSION_NOT_FOUND",
+] as const satisfies readonly MigratedDiagnosticCode[];
+
+const DIAGNOSTIC_KEYS = {
+  INVALID_FORMAT: "diagnostic.INVALID_FORMAT",
+  MUTUALLY_EXCLUSIVE_FLAGS: "diagnostic.MUTUALLY_EXCLUSIVE_FLAGS",
+  DRY_RUN_NOT_APPLICABLE: "diagnostic.DRY_RUN_NOT_APPLICABLE",
+  FEATURE_NOT_FOUND: "diagnostic.FEATURE_NOT_FOUND",
+  FEATURE_AMBIGUOUS: "diagnostic.FEATURE_AMBIGUOUS",
+  SESSION_CWD_MISMATCH: "diagnostic.SESSION_CWD_MISMATCH",
+  SESSION_SHORT_AMBIGUOUS: "diagnostic.SESSION_SHORT_AMBIGUOUS",
+  SESSION_NOT_FOUND: "diagnostic.SESSION_NOT_FOUND",
+} as const satisfies Record<MigratedDiagnosticCode, string>;
+
 export type RuntimeI18nKey =
   | (typeof STATUS_INDICATOR_KEYS)[keyof typeof STATUS_INDICATOR_KEYS]
   | (typeof TASK_KIND_KEYS)[keyof typeof TASK_KIND_KEYS]
@@ -117,7 +148,8 @@ export type RuntimeI18nKey =
   | (typeof FINDING_ACTION_KEYS)[keyof typeof FINDING_ACTION_KEYS]
   | (typeof PENDING_KIND_KEYS)[keyof typeof PENDING_KIND_KEYS]
   | (typeof PHASE_KEYS)[keyof typeof PHASE_KEYS]
-  | (typeof SUB_STATE_KEYS)[keyof typeof SUB_STATE_KEYS];
+  | (typeof SUB_STATE_KEYS)[keyof typeof SUB_STATE_KEYS]
+  | (typeof DIAGNOSTIC_KEYS)[keyof typeof DIAGNOSTIC_KEYS];
 
 export const RUNTIME_I18N_KEYS: readonly RuntimeI18nKey[] = [
   ...Object.values(STATUS_INDICATOR_KEYS),
@@ -128,6 +160,7 @@ export const RUNTIME_I18N_KEYS: readonly RuntimeI18nKey[] = [
   ...Object.values(PENDING_KIND_KEYS),
   ...Object.values(PHASE_KEYS),
   ...Object.values(SUB_STATE_KEYS),
+  ...Object.values(DIAGNOSTIC_KEYS),
 ];
 
 export function statusIndicatorKey(bucket: TuiStatusBucket): RuntimeI18nKey {
@@ -160,4 +193,8 @@ export function phaseKey(phase: Phase): RuntimeI18nKey {
 
 export function subStateKey(subState: SubState): RuntimeI18nKey {
   return SUB_STATE_KEYS[subState];
+}
+
+export function diagnosticKey(code: MigratedDiagnosticCode): RuntimeI18nKey {
+  return DIAGNOSTIC_KEYS[code];
 }

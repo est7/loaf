@@ -20,6 +20,7 @@ import {
   createCommandContext,
   type CommandContext,
 } from "../../src/cli/command-context.js";
+import { createI18n, BUILTIN_BUNDLES } from "../../src/cli/i18n.js";
 
 function makeCtx(
   argv: string[],
@@ -206,6 +207,40 @@ describe("Phase 16 SC-3 — CommandContext: failure routing + exitCode", () => {
     });
     const out = stderr.join("");
     expect(out).toContain("... (50 errors total; first 20 shown)");
+  });
+
+  test("failureKeyed() localizes text mode with injected i18n", () => {
+    const { ctx, stderr } = makeCtx(["loaf", "status"], {
+      i18n: createI18n("zh", BUILTIN_BUNDLES),
+    });
+    ctx.failureKeyed(
+      "DRY_RUN_NOT_APPLICABLE",
+      "diagnostic.DRY_RUN_NOT_APPLICABLE",
+      { command_type: "read-only", command: "status" },
+      { command_type: "read-only", command: "status" },
+    );
+
+    expect(ctx.exitCode).toBe(2);
+    expect(stderr.join("")).toContain("error: DRY_RUN_NOT_APPLICABLE — --dry-run 不适用于read-only命令 `status`");
+  });
+
+  test("failureKeyed() JSON mode keeps canonical English message", () => {
+    const { ctx, stderr } = makeCtx(["loaf", "status", "--format", "json"], {
+      i18n: createI18n("zh", BUILTIN_BUNDLES),
+    });
+    ctx.failureKeyed(
+      "DRY_RUN_NOT_APPLICABLE",
+      "diagnostic.DRY_RUN_NOT_APPLICABLE",
+      { command_type: "read-only", command: "status" },
+      { command_type: "read-only", command: "status" },
+    );
+
+    expect(JSON.parse(stderr.join(""))).toEqual({
+      ok: false,
+      code: "DRY_RUN_NOT_APPLICABLE",
+      message: "--dry-run not applicable to read-only command `status`",
+      detail: { command_type: "read-only", command: "status" },
+    });
   });
 });
 

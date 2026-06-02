@@ -24,7 +24,9 @@ import { UNEXPECTED_ERROR, writeCrashLog } from "./core/crash-log.js";
 import {
   createCommandContext,
   parsePresentation,
+  FORMAT_MODES,
   FORMAT_MODES_HUMAN,
+  type I18nVars,
 } from "./cli/command-context.js";
 import {
   buildTraceEntry,
@@ -80,6 +82,10 @@ import {
   createI18n,
   resolveLocale,
 } from "./cli/i18n.js";
+import {
+  diagnosticKey,
+  type MigratedDiagnosticCode,
+} from "./cli/runtime-i18n-keys.js";
 import { runEditor as defaultRunEditor, type RunEditor } from "./cli/run-editor.js";
 import { splitFrontmatter } from "./core/spec-frontmatter.js";
 import { parse as parseYaml } from "yaml";
@@ -285,6 +291,103 @@ export type MainDeps = {
   userConfigHomeDir?: string;
 };
 
+function preparseI18nFromEnv(env: Record<string, string | undefined>): ReturnType<typeof createI18n> {
+  const explicit = env["LOAF_LANG"];
+  if (explicit === "zh" || explicit === "en") {
+    return createI18n(explicit, BUILTIN_BUNDLES);
+  }
+  const ambient = env["LC_ALL"] ?? env["LC_MESSAGES"] ?? env["LANG"];
+  const normalized = ambient?.toLowerCase();
+  if (normalized?.startsWith("zh")) return createI18n("zh", BUILTIN_BUNDLES);
+  return createI18n("en", BUILTIN_BUNDLES);
+}
+
+function writePreContextKeyedFailure(
+  input: {
+    code: MigratedDiagnosticCode;
+    vars: I18nVars;
+    detail?: Record<string, unknown>;
+    renderAsJson: boolean;
+  },
+): void {
+  const keyPath = diagnosticKey(input.code);
+  const message = input.renderAsJson
+    ? createI18n("en", BUILTIN_BUNDLES).t(keyPath, input.vars)
+    : preparseI18nFromEnv(process.env).t(keyPath, input.vars);
+  if (input.renderAsJson) {
+    const out: Record<string, unknown> = { ok: false, code: input.code, message };
+    if (input.detail !== undefined) out["detail"] = input.detail;
+    process.stderr.write(JSON.stringify(out) + "\n");
+  } else {
+    process.stderr.write(`error: ${input.code} — ${message}\n`);
+  }
+}
+
+function diagnosticVarsFor(
+  code: string,
+  detail: Record<string, unknown> | undefined,
+): I18nVars | null {
+  switch (code) {
+    case "INVALID_FORMAT":
+      return varsIfDefined({
+        value: stringVar(detail?.["value"]),
+        allowed_values_human: stringVar(detail?.["allowed_values_human"]) ?? FORMAT_MODES_HUMAN,
+      });
+    case "MUTUALLY_EXCLUSIVE_FLAGS":
+      return varsIfDefined({ flags: listVar(detail?.["conflicting"]) });
+    case "DRY_RUN_NOT_APPLICABLE":
+      return varsIfDefined({
+        command_type: stringVar(detail?.["command_type"]),
+        command: stringVar(detail?.["command"]),
+      });
+    case "FEATURE_NOT_FOUND":
+      return {};
+    case "FEATURE_AMBIGUOUS":
+      return varsIfDefined({
+        count: numberVar(detail?.["count"]),
+        feature_list: listVar(detail?.["feature_list"]),
+      });
+    case "SESSION_CWD_MISMATCH":
+      return varsIfDefined({
+        uuid: stringVar(detail?.["uuid"]),
+        registered_cwd: stringVar(detail?.["registered_cwd"]),
+        current_cwd: stringVar(detail?.["current_cwd"]),
+      });
+    case "SESSION_SHORT_AMBIGUOUS":
+      return varsIfDefined({
+        prefix: stringVar(detail?.["prefix"]),
+        match_count: numberVar(detail?.["match_count"]),
+        candidate_list: listVar(detail?.["candidate_list"]),
+      });
+    case "SESSION_NOT_FOUND":
+      return varsIfDefined({ uuid_or_prefix: stringVar(detail?.["uuid_or_prefix"]) });
+    default:
+      return null;
+  }
+}
+
+function varsIfDefined(vars: Record<string, string | number | null>): I18nVars | null {
+  for (const value of Object.values(vars)) {
+    if (value === null) return null;
+  }
+  return vars as I18nVars;
+}
+
+function stringVar(value: unknown): string | null {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return null;
+}
+
+function numberVar(value: unknown): number | null {
+  return typeof value === "number" ? value : null;
+}
+
+function listVar(value: unknown): string | null {
+  if (Array.isArray(value)) return value.map((item) => String(item)).join(", ");
+  return stringVar(value);
+}
+
 export async function main(
   argv: string[] = process.argv,
   deps: MainDeps = {},
@@ -316,27 +419,28 @@ export async function main(
     if (!presentation.ok) {
       if (presentation.kind === "INVALID_FORMAT") {
         // Text-mode emit only: no output mode established yet.
-        process.stderr.write(
-          `error: INVALID_FORMAT — invalid --format value '${presentation.rawValue}'; ` +
-            `allowed: ${FORMAT_MODES_HUMAN}\n`,
-        );
+        writePreContextKeyedFailure({
+          code: "INVALID_FORMAT",
+          vars: {
+            value: presentation.rawValue,
+            allowed_values_human: FORMAT_MODES_HUMAN,
+          },
+          detail: {
+            value: presentation.rawValue,
+            allowed_values: FORMAT_MODES,
+          },
+          renderAsJson: false,
+        });
       } else {
         // MUTUALLY_EXCLUSIVE_FLAGS. renderAsJson honors protocol §10.7
         // scripting promise: any --format=json present → JSON body.
         const { conflicting, renderAsJson } = presentation;
-        const message = `mutually exclusive flags in the same invocation: ${conflicting.join(", ")}`;
-        if (renderAsJson) {
-          process.stderr.write(
-            JSON.stringify({
-              ok: false,
-              code: "MUTUALLY_EXCLUSIVE_FLAGS",
-              message,
-              detail: { conflicting },
-            }) + "\n",
-          );
-        } else {
-          process.stderr.write(`error: MUTUALLY_EXCLUSIVE_FLAGS — ${message}\n`);
-        }
+        writePreContextKeyedFailure({
+          code: "MUTUALLY_EXCLUSIVE_FLAGS",
+          vars: { flags: conflicting.join(", ") },
+          detail: { conflicting },
+          renderAsJson,
+        });
       }
       return 2;
     }
@@ -860,15 +964,29 @@ export async function main(
   // SC-5b2 closed the legacy presentation shim — all sites now route
   // through ctx.success / ctx.failure. Single source of truth =
   // ctx.output (parsePresentation via createCommandContext).
+  function emitKeyedFailure(
+    code: string,
+    detail: Record<string, unknown> | undefined,
+  ): boolean {
+    const vars = diagnosticVarsFor(code, detail);
+    if (vars === null) return false;
+    ctx.failureKeyed(code, diagnosticKey(code as MigratedDiagnosticCode), vars, detail);
+    return true;
+  }
+
   const fail = (code: string, message: string): void => {
-    ctx.failure(code, message);
+    if (!emitKeyedFailure(code, undefined)) {
+      ctx.failure(code, message);
+    }
   };
   const emitFailure = (
     code: string,
     message: string,
     detail?: Record<string, unknown>,
   ): void => {
-    ctx.failure(code, message, detail);
+    if (!emitKeyedFailure(code, detail)) {
+      ctx.failure(code, message, detail);
+    }
   };
 
   // Phase 16 SC-6a — actor-resolution boundary helpers. Both injection

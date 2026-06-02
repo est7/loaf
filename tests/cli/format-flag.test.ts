@@ -197,6 +197,17 @@ describe("Phase 16 SC-5a — RED #4 + #16: invalid --format value rejected with 
     expect(result.stdout).toBe("");
     expect(result.stderr).toContain("INVALID_FORMAT");
   });
+
+  test("LOAF_LANG=zh localizes INVALID_FORMAT text mode", async () => {
+    const result = await runCli(["status", "--format", "yaml"], {
+      env: { LOAF_LANG: "zh" },
+    });
+    expect(result.exit).toBe(2);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("INVALID_FORMAT");
+    expect(result.stderr).toContain("无效的 --format 值 'yaml'");
+    expect(result.stderr).toContain("合法值:text|json");
+  });
 });
 
 describe("Phase 16 SC-5a — RED #5: --json flag removed under A1", () => {
@@ -330,15 +341,28 @@ describe("ADR-0006 P0 — INVALID_LOCALE CLI guard", () => {
     });
   });
 
-  test("valid LOAF_LANG=zh does not localize JSON failure message in P0", async () => {
+  test("valid LOAF_LANG=zh does not localize JSON failure message", async () => {
+    const defaultResult = await runCli(["status", "--format", "json"]);
     const result = await runCli(["status", "--format", "json"], {
       env: { LOAF_LANG: "zh" },
     });
 
+    expect(defaultResult.exit).toBe(2);
     expect(result.exit).toBe(2);
+    expect(result.stderr).toBe(defaultResult.stderr);
     const parsed = JSON.parse(result.stderr);
     expect(parsed.code).toBe("FEATURE_NOT_FOUND");
-    expect(parsed.message).toBe("no feature found in cwd (.loaf/ is empty or missing)");
+    expect(parsed.message).toBe("no feature found in cwd (.loaf/ is empty or missing, or no projection has phase != DONE)");
+  });
+
+  test("valid LOAF_LANG=zh localizes dispatch text failure", async () => {
+    const result = await runCli(["status"], {
+      env: { LOAF_LANG: "zh" },
+    });
+
+    expect(result.exit).toBe(2);
+    expect(result.stderr).toContain("FEATURE_NOT_FOUND");
+    expect(result.stderr).toContain("当前 cwd 找不到 feature");
   });
 });
 

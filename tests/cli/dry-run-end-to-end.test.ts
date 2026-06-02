@@ -202,6 +202,30 @@ describe("SC-6c — read-only commands reject --dry-run (DRY_RUN_NOT_APPLICABLE)
     expect(result.stderr).toContain("error: DRY_RUN_NOT_APPLICABLE");
     expect(result.stderr).toContain("`status`");
   });
+
+  test("LOAF_LANG=zh localizes text-mode read-only reject", async () => {
+    const result = await runCli(
+      ["--dry-run", "status", "--feature", "f", "--feature-dir", "/tmp/x"],
+      { env: { LOAF_LANG: "zh" } },
+    );
+    expect(result.exit).toBe(2);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("error: DRY_RUN_NOT_APPLICABLE");
+    expect(result.stderr).toContain("--dry-run 不适用于read-only命令 `status`");
+  });
+
+  test("LOAF_LANG=zh leaves JSON read-only reject byte-stable", async () => {
+    const defaultResult = await runCli(
+      ["--dry-run", "status", "--feature", "auth-refresh", "--feature-dir", "/tmp/nonexistent", "--format", "json"],
+    );
+    const zhResult = await runCli(
+      ["--dry-run", "status", "--feature", "auth-refresh", "--feature-dir", "/tmp/nonexistent", "--format", "json"],
+      { env: { LOAF_LANG: "zh" } },
+    );
+    expect(defaultResult.exit).toBe(2);
+    expect(zhResult.exit).toBe(2);
+    expect(zhResult.stderr).toBe(defaultResult.stderr);
+  });
 });
 
 describe("SC-6c — doctor --rebuild rejects --dry-run (P2)", () => {
