@@ -180,6 +180,59 @@ describe("Phase 16 SC-3 — CommandContext: construction + output mode", () => {
     expect(zh.stdout.join("")).toBe(en.stdout.join(""));
   });
 
+  test("P3b success text/advisory keys localize representative zh text", () => {
+    const { ctx, stdout, stderr } = makeCtx(["loaf", "doctor", "--rebuild"], {
+      i18n: createI18n("zh", BUILTIN_BUNDLES),
+    });
+
+    ctx.success(
+      { ok: true, rebuilt: ["state.json", "tasks.json"] },
+      (i18n) =>
+        i18n.t(SUCCESS_KEYS.doctorRebuildTextMany, {
+          count: 2,
+          feature: "auth-refresh",
+        }) +
+        "\n" +
+        ["state.json", "tasks.json"].map((f) => `  snapshots/${f}\n`).join("") +
+        i18n.t(SUCCESS_KEYS.snapshotAsOfSeq, { seq: 7 }) +
+        "\n",
+      (i18n) => ({
+        stateChange: i18n.t(SUCCESS_KEYS.doctorRebuildStateChangeMany, {
+          count: 2,
+          feature: "auth-refresh",
+        }),
+      }),
+    );
+
+    expect(stdout.join("")).toBe(
+      "已为 auth-refresh 重建 2 个 projection file:\n" +
+        "  snapshots/state.json\n" +
+        "  snapshots/tasks.json\n" +
+        "# snapshot as-of seq=7\n",
+    );
+    expect(stderr.join("")).toBe("doctor rebuild: 已为 auth-refresh 重建 2 个 projection file\n");
+  });
+
+  test("P3b success JSON payload stays byte-stable under zh locale", () => {
+    const payload = { ok: true, feature: "auth-refresh", from: "VERIFY.accept", to: "SETTLE.reconcile" };
+    const en = makeCtx(["loaf", "settle", "--format", "json"], {
+      i18n: createI18n("en", BUILTIN_BUNDLES),
+    });
+    const zh = makeCtx(["loaf", "settle", "--format", "json"], {
+      i18n: createI18n("zh", BUILTIN_BUNDLES),
+    });
+    const renderText = (i18n: I18n) => i18n.t(SUCCESS_KEYS.settleText) + "\n";
+    const renderAdvisory = (i18n: I18n) => ({
+      stateChange: i18n.t(SUCCESS_KEYS.settleStateChange, { from: "VERIFY.accept" }),
+      next: i18n.t(SUCCESS_KEYS.nextDeliver),
+    });
+
+    en.ctx.success(payload, renderText, renderAdvisory);
+    zh.ctx.success(payload, renderText, renderAdvisory);
+
+    expect(zh.stdout.join("")).toBe(en.stdout.join(""));
+  });
+
   test("text mode + missing textRenderer → THROWS (codex r208 PATCH 1 — no silent JSON fallback)", () => {
     const { ctx } = makeCtx(["loaf", "status"]);
     expect(() => ctx.success({ ok: true } as never)).toThrow(/text renderer required/i);

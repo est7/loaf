@@ -327,7 +327,81 @@
       "add_sponsored_text_many": "已添加 {count} 个 task(由 {finding} sponsor):{task_ids}",
       "add_state_change": "tasks add: +{count} tasks(allocated {task_ids})",
       "claim_state_change": "tasks claim: {task_id}(status={status})",
-      "abandon_state_change": "tasks abandon: {task_id}(status={status})"
+      "abandon_state_change": "tasks abandon: {task_id}(status={status})",
+      "register_red_state_change": "tasks register-red: {task_id}"
+    },
+    "doctor": {
+      "rebuild_text_one": "已为 {feature} 重建 {count} 个 projection file:",
+      "rebuild_text_many": "已为 {feature} 重建 {count} 个 projection file:",
+      "rebuild_state_change_one": "doctor rebuild: 已为 {feature} 重建 {count} 个 projection file",
+      "rebuild_state_change_many": "doctor rebuild: 已为 {feature} 重建 {count} 个 projection file"
+    },
+    "snapshot": {
+      "as_of_seq": "# snapshot as-of seq={seq}"
+    },
+    "amend": {
+      "sponsored_text": "已修订 {task_id}(由 {finding_id} sponsor)",
+      "policy_text": "已修订 {task_id}({applied})",
+      "state_change": "amend: {task_id}"
+    },
+    "step": {
+      "start_state_change": "step start: {task_id} {step}(running)",
+      "done_text": "done {task_id} step={step} result={result}{evidence_suffix}{promote_suffix}",
+      "done_evidence_suffix": " evidence={evidence_id}",
+      "done_promote_suffix": " (task auto-promoted to done)",
+      "done_state_change": "step done: {task_id} {step}({result})"
+    },
+    "settle": {
+      "text": "",
+      "state_change": "settle: {from} → SETTLE.reconcile"
+    },
+    "resume": {
+      "state_change": "resume: session {session_id}(sub_state={sub_state} unchanged)"
+    },
+    "handoff": {
+      "state_change": "handoff: resume-pack.json written by {actor}"
+    },
+    "pending": {
+      "raise_state_change": "pending raise: {pending_id}(kind={kind})",
+      "resolve_text": "已 resolve {pending_id}(kind={kind})",
+      "resolve_state_change": "pending resolve: {pending_id} cleared"
+    },
+    "waive": {
+      "state_change": "waive: {evidence_id} obligation={obligation_id}"
+    },
+    "lessons": {
+      "add_state_change": "lessons add: {evidence_id} 已记录(kind=manual; lessons.md 已更新)"
+    },
+    "evidence": {
+      "covers_none": "<none>",
+      "add_state_change_single": "evidence add: {evidence_id} kind={kind}, covers={covers}",
+      "add_state_change_batch_homogeneous": "evidence add: +{count} evidence({evidence_ids}; kind={kind}, covers={covers})",
+      "add_state_change_batch_mixed": "evidence add: +{count} evidence({evidence_ids})"
+    },
+    "finding": {
+      "close_text": "已关闭 {finding_id}",
+      "close_state_change": "finding close: {finding_id} → closed"
+    },
+    "spec": {
+      "submit_text": "spec submitted v{spec_version}: {req_count} req / {scen_count} scen / {vis_count} vis",
+      "submit_state_change": "spec submit: spec_version={spec_version}, locked=false",
+      "submit_next": "loaf gate decide spec-lock",
+      "init_state_change": "spec init: 已写 scaffold 到 {path}",
+      "init_next": "编辑后运行 `loaf spec submit`",
+      "edit_text": "spec edit: spec_version={spec_version}",
+      "edit_state_change": "spec edit: spec_version={spec_version} via $EDITOR",
+      "add_req_text_one": "spec add-req v{spec_version}: {ids}",
+      "add_req_text_many": "spec add-req v{spec_version}: {ids}",
+      "add_req_state_change_one": "spec add-req: +{count} REQ(spec_version={spec_version}; allocated {ids})",
+      "add_req_state_change_many": "spec add-req: +{count} REQ(spec_version={spec_version}; allocated {ids})",
+      "add_scenario_text_one": "spec add-scenario v{spec_version}: {ids}",
+      "add_scenario_text_many": "spec add-scenario v{spec_version}: {ids}",
+      "add_scenario_state_change_one": "spec add-scenario: +{count} SCENARIO(spec_version={spec_version}; allocated {ids})",
+      "add_scenario_state_change_many": "spec add-scenario: +{count} SCENARIO(spec_version={spec_version}; allocated {ids})",
+      "add_visual_text_one": "spec add-visual v{spec_version}: {ids}",
+      "add_visual_text_many": "spec add-visual v{spec_version}: {ids}",
+      "add_visual_state_change_one": "spec add-visual: +{count} VISUAL(spec_version={spec_version}; allocated {ids})",
+      "add_visual_state_change_many": "spec add-visual: +{count} VISUAL(spec_version={spec_version}; allocated {ids})"
     }
   },
 

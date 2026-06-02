@@ -81,6 +81,7 @@ import {
   BUILTIN_BUNDLES,
   createI18n,
   resolveLocale,
+  type I18n,
 } from "./cli/i18n.js";
 import {
   diagnosticKey,
@@ -154,27 +155,40 @@ function normalizedCovers(covers: readonly string[] | undefined): string {
   return [...new Set(covers)].sort().join(",");
 }
 
-function formatCovers(covers: readonly string[] | undefined): string {
-  if (!covers || covers.length === 0) return "<none>";
+function formatCovers(i18n: I18n, covers: readonly string[] | undefined): string {
+  if (!covers || covers.length === 0) return i18n.t(SUCCESS_KEYS.evidenceCoversNone);
   return [...new Set(covers)].sort().join(",");
 }
 
 function evidenceAddStateChange(
+  i18n: I18n,
   items: Array<{ id: string; kind: string; covers?: readonly string[] | undefined }>,
 ): string {
   if (items.length === 1) {
     const it = items[0]!;
-    return `evidence add: ${it.id} kind=${it.kind}, covers=${formatCovers(it.covers)}`;
+    return i18n.t(SUCCESS_KEYS.evidenceAddStateChangeSingle, {
+      evidence_id: it.id,
+      kind: it.kind,
+      covers: formatCovers(i18n, it.covers),
+    });
   }
   const kinds = new Set(items.map((it) => it.kind));
   const coversNorm = new Set(items.map((it) => normalizedCovers(it.covers)));
   const idsList = items.map((it) => it.id).join(",");
   if (kinds.size === 1 && coversNorm.size === 1) {
     const kind = [...kinds][0]!;
-    const coversForRender = formatCovers(items[0]!.covers);
-    return `evidence add: +${items.length} evidence (${idsList}; kind=${kind}, covers=${coversForRender})`;
+    const coversForRender = formatCovers(i18n, items[0]!.covers);
+    return i18n.t(SUCCESS_KEYS.evidenceAddStateChangeBatchHomogeneous, {
+      count: items.length,
+      evidence_ids: idsList,
+      kind,
+      covers: coversForRender,
+    });
   }
-  return `evidence add: +${items.length} evidence (${idsList})`;
+  return i18n.t(SUCCESS_KEYS.evidenceAddStateChangeBatchMixed, {
+    count: items.length,
+    evidence_ids: idsList,
+  });
 }
 
 const PRESETS: Record<string, Ceremony> = {
@@ -2344,13 +2358,21 @@ export async function main(
       };
       ctx.success(
         out,
-        () =>
-          `rebuilt ${rebuilt.length} projection file(s) for ${opts.feature}:\n` +
+        (i18n) =>
+          i18n.t(
+            rebuilt.length === 1 ? SUCCESS_KEYS.doctorRebuildTextOne : SUCCESS_KEYS.doctorRebuildTextMany,
+            { count: rebuilt.length, feature: opts.feature },
+          ) + "\n" +
           rebuilt.map((f) => `  snapshots/${f}\n`).join("") +
-          `# snapshot as-of seq=${replay.meta.last_applied_seq}\n`,
-        {
-          stateChange: `doctor rebuild: rebuilt ${rebuilt.length} projection file(s) for ${opts.feature}`,
-        },
+          i18n.t(SUCCESS_KEYS.snapshotAsOfSeq, { seq: replay.meta.last_applied_seq }) + "\n",
+        (i18n) => ({
+          stateChange: i18n.t(
+            rebuilt.length === 1
+              ? SUCCESS_KEYS.doctorRebuildStateChangeOne
+              : SUCCESS_KEYS.doctorRebuildStateChangeMany,
+            { count: rebuilt.length, feature: opts.feature },
+          ),
+        }),
       );
     });
 
@@ -3317,8 +3339,13 @@ export async function main(
           };
           ctx.success(
             sOut,
-            () => `amended ${taskId} (sponsored by ${findingId})\n`,
-            { stateChange: `amend: ${taskId}` },
+            (i18n) => i18n.t(SUCCESS_KEYS.amendSponsoredText, {
+              task_id: taskId,
+              finding_id: findingId,
+            }) + "\n",
+            (i18n) => ({
+              stateChange: i18n.t(SUCCESS_KEYS.amendStateChange, { task_id: taskId }),
+            }),
           );
           return;
         }
@@ -3442,8 +3469,13 @@ export async function main(
         };
         ctx.success(
           out,
-          () => `amended ${taskId} (${applied})\n`,
-          { stateChange: `amend: ${taskId}` },
+          (i18n) => i18n.t(SUCCESS_KEYS.amendPolicyText, {
+            task_id: taskId,
+            applied,
+          }) + "\n",
+          (i18n) => ({
+            stateChange: i18n.t(SUCCESS_KEYS.amendStateChange, { task_id: taskId }),
+          }),
         );
       },
     );
@@ -3500,7 +3532,9 @@ export async function main(
       ctx.success(
         out,
         () => "",
-        { stateChange: `tasks register-red: ${taskId}` },
+        (i18n) => ({
+          stateChange: i18n.t(SUCCESS_KEYS.tasksRegisterRedStateChange, { task_id: taskId }),
+        }),
       );
     });
 
@@ -3586,7 +3620,12 @@ export async function main(
       ctx.success(
         out,
         () => "",
-        { stateChange: `step start: ${opts.task} ${opts.step} (running)` },
+        (i18n) => ({
+          stateChange: i18n.t(SUCCESS_KEYS.stepStartStateChange, {
+            task_id: opts.task,
+            step: opts.step,
+          }),
+        }),
       );
     });
 
@@ -3784,12 +3823,28 @@ export async function main(
       if (evidenceId !== undefined) out["evidence_id"] = evidenceId;
       ctx.success(
         out,
-        () => {
-          const promote = updated.status === "done" ? " (task auto-promoted to done)" : "";
-          const evidenceSuffix = evidenceId !== undefined ? ` evidence=${evidenceId}` : "";
-          return `done ${opts.task} step=${opts.step} result=${opts.result}${evidenceSuffix}${promote}\n`;
+        (i18n) => {
+          const promoteSuffix = updated.status === "done"
+            ? i18n.t(SUCCESS_KEYS.stepDonePromoteSuffix)
+            : "";
+          const evidenceSuffix = evidenceId !== undefined
+            ? i18n.t(SUCCESS_KEYS.stepDoneEvidenceSuffix, { evidence_id: evidenceId })
+            : "";
+          return i18n.t(SUCCESS_KEYS.stepDoneText, {
+            task_id: opts.task,
+            step: opts.step,
+            result: opts.result,
+            evidence_suffix: evidenceSuffix,
+            promote_suffix: promoteSuffix,
+          }) + "\n";
         },
-        { stateChange: `step done: ${opts.task} ${opts.step} (${opts.result})` },
+        (i18n) => ({
+          stateChange: i18n.t(SUCCESS_KEYS.stepDoneStateChange, {
+            task_id: opts.task,
+            step: opts.step,
+            result: opts.result,
+          }),
+        }),
       );
     });
 
@@ -3864,11 +3919,11 @@ export async function main(
       };
       ctx.success(
         out,
-        () => "",
-        {
-          stateChange: `settle: ${from} → SETTLE.reconcile`,
-          next: "loaf deliver",
-        },
+        (i18n) => i18n.t(SUCCESS_KEYS.settleText),
+        (i18n) => ({
+          stateChange: i18n.t(SUCCESS_KEYS.settleStateChange, { from }),
+          next: i18n.t(SUCCESS_KEYS.nextDeliver),
+        }),
       );
     });
 
@@ -3969,7 +4024,12 @@ export async function main(
           sub_state: result.snapshot.state?.sub_state,
         },
         () => `${pack.session_id}\n`,
-        { stateChange: `resume: session ${pack.session_id} (sub_state=${result.snapshot.state?.sub_state} unchanged)` },
+        (i18n) => ({
+          stateChange: i18n.t(SUCCESS_KEYS.resumeStateChange, {
+            session_id: pack.session_id,
+            sub_state: result.snapshot.state?.sub_state,
+          }),
+        }),
       );
     });
 
@@ -4042,7 +4102,9 @@ export async function main(
       ctx.success(
         { ok: true, feature: opts.feature, pack_path: packPath, session_id: pack.session_id },
         () => `${packPath}\n`,
-        { stateChange: `handoff: resume-pack.json written by ${resolution.actor}` },
+        (i18n) => ({
+          stateChange: i18n.t(SUCCESS_KEYS.handoffStateChange, { actor: resolution.actor }),
+        }),
       );
     });
 
@@ -4146,7 +4208,12 @@ export async function main(
       ctx.success(
         { ok: true, feature: opts.feature, id, kind: opts.kind },
         () => id + "\n",
-        { stateChange: `pending raise: ${id} (kind=${opts.kind})` },
+        (i18n) => ({
+          stateChange: i18n.t(SUCCESS_KEYS.pendingRaiseStateChange, {
+            pending_id: id,
+            kind: opts.kind,
+          }),
+        }),
       );
     });
 
@@ -4290,8 +4357,13 @@ export async function main(
           resolved_id: head.id,
           kind: head.kind,
         },
-        () => `resolved ${head.id} (kind=${head.kind})\n`,
-        { stateChange: `pending resolve: ${head.id} cleared` },
+        (i18n) => i18n.t(SUCCESS_KEYS.pendingResolveText, {
+          pending_id: head.id,
+          kind: head.kind,
+        }) + "\n",
+        (i18n) => ({
+          stateChange: i18n.t(SUCCESS_KEYS.pendingResolveStateChange, { pending_id: head.id }),
+        }),
       );
     });
 
@@ -4465,7 +4537,6 @@ export async function main(
         kind: input.kind,
         covers: input.covers,
       }));
-      const stateChange = evidenceAddStateChange(evidenceItems);
       if (isBatch) {
         ctx.success(
           {
@@ -4476,7 +4547,7 @@ export async function main(
             sub_state: result.snapshot.state?.sub_state,
           },
           () => evIds.join("\n") + "\n",
-          { stateChange },
+          (i18n) => ({ stateChange: evidenceAddStateChange(i18n, evidenceItems) }),
         );
       } else {
         // Single-input back-compat: bare EV-id in text mode; {ok,
@@ -4489,7 +4560,7 @@ export async function main(
             kind: validatedInputs[0]!.kind,
           },
           () => `${evIds[0]}\n`,
-          { stateChange },
+          (i18n) => ({ stateChange: evidenceAddStateChange(i18n, evidenceItems) }),
         );
       }
     });
@@ -4596,7 +4667,12 @@ export async function main(
           obligation_id: obligationId,
         },
         () => `${evidenceId}\n`,
-        { stateChange: `waive: ${evidenceId} obligation=${obligationId}` },
+        (i18n) => ({
+          stateChange: i18n.t(SUCCESS_KEYS.waiveStateChange, {
+            evidence_id: evidenceId,
+            obligation_id: obligationId,
+          }),
+        }),
       );
     });
 
@@ -4732,7 +4808,9 @@ export async function main(
           kind: "manual" as const,
         },
         () => `${evidenceId}\n`,
-        { stateChange: `lessons add: ${evidenceId} recorded (kind=manual; lessons.md updated)` },
+        (i18n) => ({
+          stateChange: i18n.t(SUCCESS_KEYS.lessonsAddStateChange, { evidence_id: evidenceId }),
+        }),
       );
     });
 
@@ -5615,8 +5693,10 @@ export async function main(
       }
       ctx.success(
         { ok: true, feature: opts.feature, id: fndId, status: "closed" },
-        () => `closed ${fndId}\n`,
-        { stateChange: `finding close: ${fndId} → closed` },
+        (i18n) => i18n.t(SUCCESS_KEYS.findingCloseText, { finding_id: fndId }) + "\n",
+        (i18n) => ({
+          stateChange: i18n.t(SUCCESS_KEYS.findingCloseStateChange, { finding_id: fndId }),
+        }),
       );
     });
 
@@ -5764,12 +5844,16 @@ export async function main(
       };
       ctx.success(
         out,
-        () =>
-          `spec submitted v${out.spec_version}: ${reqIds.length} req / ${scenIds.length} scen / ${visIds.length} vis\n`,
-        {
-          stateChange: `spec submit: spec_version=${out.spec_version}, locked=false`,
-          next: "loaf gate decide spec-lock",
-        },
+        (i18n) => i18n.t(SUCCESS_KEYS.specSubmitText, {
+          spec_version: out.spec_version,
+          req_count: reqIds.length,
+          scen_count: scenIds.length,
+          vis_count: visIds.length,
+        }) + "\n",
+        (i18n) => ({
+          stateChange: i18n.t(SUCCESS_KEYS.specSubmitStateChange, { spec_version: out.spec_version }),
+          next: i18n.t(SUCCESS_KEYS.specSubmitNext),
+        }),
       );
     });
 
@@ -5825,6 +5909,28 @@ export async function main(
       snapshotKey: "visual_contracts",
     },
   ];
+
+  function specAddTextKey(name: SpecAddKindConfig["name"], count: number): string {
+    if (name === "req") {
+      return count === 1 ? SUCCESS_KEYS.specAddReqTextOne : SUCCESS_KEYS.specAddReqTextMany;
+    }
+    if (name === "scenario") {
+      return count === 1 ? SUCCESS_KEYS.specAddScenarioTextOne : SUCCESS_KEYS.specAddScenarioTextMany;
+    }
+    return count === 1 ? SUCCESS_KEYS.specAddVisualTextOne : SUCCESS_KEYS.specAddVisualTextMany;
+  }
+
+  function specAddStateChangeKey(name: SpecAddKindConfig["name"], count: number): string {
+    if (name === "req") {
+      return count === 1 ? SUCCESS_KEYS.specAddReqStateChangeOne : SUCCESS_KEYS.specAddReqStateChangeMany;
+    }
+    if (name === "scenario") {
+      return count === 1
+        ? SUCCESS_KEYS.specAddScenarioStateChangeOne
+        : SUCCESS_KEYS.specAddScenarioStateChangeMany;
+    }
+    return count === 1 ? SUCCESS_KEYS.specAddVisualStateChangeOne : SUCCESS_KEYS.specAddVisualStateChangeMany;
+  }
 
   // ── loaf spec init — scaffold spec.md (no journal entry) ─────────────
   // Slice 4 SC4 (codex r74 sign-off): writes a parser-valid minimal
@@ -5950,10 +6056,10 @@ export async function main(
       ctx.success(
         { ok: true, feature: opts.feature, spec_md_path: specMdPath },
         () => `${specMdPath}\n`,
-        {
-          stateChange: `spec init: wrote scaffold to ${specMdPath}`,
-          next: "edit, then `loaf spec submit`",
-        },
+        (i18n) => ({
+          stateChange: i18n.t(SUCCESS_KEYS.specInitStateChange, { path: specMdPath }),
+          next: i18n.t(SUCCESS_KEYS.specInitNext),
+        }),
       );
     });
 
@@ -6164,8 +6270,10 @@ export async function main(
           spec_version: newSpecVersion,
           sub_state: mutateResult.snapshot.state?.sub_state,
         },
-        () => `spec edit: spec_version=${newSpecVersion}\n`,
-        { stateChange: `spec edit: spec_version=${newSpecVersion} via $EDITOR` },
+        (i18n) => i18n.t(SUCCESS_KEYS.specEditText, { spec_version: newSpecVersion }) + "\n",
+        (i18n) => ({
+          stateChange: i18n.t(SUCCESS_KEYS.specEditStateChange, { spec_version: newSpecVersion }),
+        }),
       );
     });
 
@@ -6310,12 +6418,17 @@ export async function main(
             ids: allocatedIds,
             sub_state: result.snapshot.state?.sub_state,
           },
-          () =>
-            `spec add-${cfg.name} v${specVersion}: ${allocatedIds.join(", ")}\n`,
-          {
-            stateChange:
-              `spec add-${cfg.name}: +${allocatedIds.length} ${cfg.name.toUpperCase()} (spec_version=${specVersion}; allocated ${allocatedIds.join(",")})`,
-          },
+          (i18n) => i18n.t(specAddTextKey(cfg.name, allocatedIds.length), {
+            spec_version: specVersion,
+            ids: allocatedIds.join(", "),
+          }) + "\n",
+          (i18n) => ({
+            stateChange: i18n.t(specAddStateChangeKey(cfg.name, allocatedIds.length), {
+              count: allocatedIds.length,
+              spec_version: specVersion,
+              ids: allocatedIds.join(","),
+            }),
+          }),
         );
       });
   }
