@@ -106,6 +106,20 @@ describe("SC-15a — bare `loaf hook` USAGE", () => {
     expect(err.code).toBe("USAGE");
     expect(err.detail.events).toHaveLength(4);
   });
+
+  test("LOAF_LANG=zh localizes bare hook text failure", async () => {
+    const result = await runCli(["hook"], { env: { LOAF_LANG: "zh" } });
+    expect(result.exit).toBe(2);
+    expect(result.stderr).toContain("loaf hook 需要 event token");
+  });
+
+  test("LOAF_LANG=zh leaves bare hook JSON message byte-stable", async () => {
+    const enResult = await runCli(["hook", "--format", "json"]);
+    const zhResult = await runCli(["hook", "--format", "json"], { env: { LOAF_LANG: "zh" } });
+    expect(enResult.exit).toBe(2);
+    expect(zhResult.exit).toBe(2);
+    expect(zhResult.stderr).toBe(enResult.stderr);
+  });
 });
 
 // ───────────────────────────────────────────────────────────────────────
@@ -120,6 +134,12 @@ describe("SC-15a — unknown hook event", () => {
     expect(err.message).toContain("Did you mean");
     expect(err.detail.event).toBe("bogus");
     expect(err.detail.suggestion).toBeDefined();
+  });
+
+  test("LOAF_LANG=zh localizes unknown hook text failure", async () => {
+    const result = await runCli(["hook", "bogus"], { env: { LOAF_LANG: "zh" } });
+    expect(result.exit).toBe(2);
+    expect(result.stderr).toContain("未知 hook event 'bogus'");
   });
 });
 

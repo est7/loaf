@@ -229,6 +229,31 @@ describe("SC-9b — dispatch selector rejection (codex r292 P1 v3)", () => {
     expect(result.stderr).toMatch(/^error: USAGE —/);
   });
 
+  test("LOAF_LANG=zh localizes sessions-list selector text failure", async () => {
+    const result = await runCli(
+      ["--session", "550e8400-e29b-41d4-a716-aaaaaaaaaaaa", "sessions", "list"],
+      { env: { LOAF_LANG: "zh" } },
+    );
+    expect(result.exit).toBe(2);
+    expect(result.stderr).toContain("sessions list 不接受 --session");
+  });
+
+  test("LOAF_LANG=zh leaves sessions-list selector JSON message byte-stable", async () => {
+    const argv = [
+      "--session",
+      "550e8400-e29b-41d4-a716-aaaaaaaaaaaa",
+      "sessions",
+      "list",
+      "--format",
+      "json",
+    ];
+    const enResult = await runCli(argv);
+    const zhResult = await runCli(argv, { env: { LOAF_LANG: "zh" } });
+    expect(enResult.exit).toBe(2);
+    expect(zhResult.exit).toBe(2);
+    expect(zhResult.stderr).toBe(enResult.stderr);
+  });
+
   test("T-reject-sanity: plain `loaf sessions list` (no selectors) → runs normally", async () => {
     const registryDir = await tmpRegDir();
     const result = await runCli(["sessions", "list", "--format", "json"], { deps: { registryDir } });

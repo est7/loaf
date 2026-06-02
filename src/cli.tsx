@@ -84,6 +84,9 @@ import {
 } from "./cli/i18n.js";
 import {
   diagnosticKey,
+  FAILURE_SITE_KEYS,
+  type FailureSiteDiagnosticCode,
+  type FailureSiteKey,
   type MigratedDiagnosticCode,
 } from "./cli/runtime-i18n-keys.js";
 import { runEditor as defaultRunEditor, type RunEditor } from "./cli/run-editor.js";
@@ -323,6 +326,27 @@ function writePreContextKeyedFailure(
   }
 }
 
+function writePreContextSiteFailure(
+  input: {
+    code: FailureSiteDiagnosticCode;
+    keyPath: FailureSiteKey;
+    vars: I18nVars;
+    detail?: Record<string, unknown>;
+    renderAsJson: boolean;
+  },
+): void {
+  const message = input.renderAsJson
+    ? createI18n("en", BUILTIN_BUNDLES).t(input.keyPath, input.vars)
+    : preparseI18nFromEnv(process.env).t(input.keyPath, input.vars);
+  if (input.renderAsJson) {
+    const out: Record<string, unknown> = { ok: false, code: input.code, message };
+    if (input.detail !== undefined) out["detail"] = input.detail;
+    process.stderr.write(JSON.stringify(out) + "\n");
+  } else {
+    process.stderr.write(`error: ${input.code} — ${message}\n`);
+  }
+}
+
 function diagnosticVarsFor(
   code: string,
   detail: Record<string, unknown> | undefined,
@@ -499,20 +523,16 @@ export async function main(
         presentSelectors.push("$LOAF_FEATURE");
       }
       if (presentSelectors.length > 0) {
-        const usageMessage = `sessions list does not accept ${presentSelectors.join(" / ")} — it lists across all sessions; use --in-cwd to filter`;
         const renderAsJson = argv.some(
           (a) => a === "--format=json" || (a === "--format" && argv[argv.indexOf(a) + 1] === "json"),
         );
-        if (renderAsJson) {
-          process.stderr.write(JSON.stringify({
-            ok: false,
-            code: "USAGE",
-            message: usageMessage,
-            detail: { conflicting: presentSelectors },
-          }) + "\n");
-        } else {
-          process.stderr.write(`error: USAGE — ${usageMessage}\n`);
-        }
+        writePreContextSiteFailure({
+          code: "USAGE",
+          keyPath: FAILURE_SITE_KEYS.sessionsListSelectorConflict,
+          vars: { conflicting: presentSelectors.join(" / ") },
+          detail: { conflicting: presentSelectors },
+          renderAsJson,
+        });
         return 2;
       }
     }
@@ -548,31 +568,23 @@ export async function main(
         (a) => a === "--format=json" || (a === "--format" && argv[argv.indexOf(a) + 1] === "json"),
       );
       if (presentSelectors.length > 0) {
-        const usageMessage = `tui does not accept ${presentSelectors.join(" / ")} — it lists across all sessions; selectors are nonsensical for an interactive UI`;
-        if (renderAsJson) {
-          process.stderr.write(JSON.stringify({
-            ok: false,
-            code: "USAGE",
-            message: usageMessage,
-            detail: { conflicting: presentSelectors },
-          }) + "\n");
-        } else {
-          process.stderr.write(`error: USAGE — ${usageMessage}\n`);
-        }
+        writePreContextSiteFailure({
+          code: "USAGE",
+          keyPath: FAILURE_SITE_KEYS.tuiSelectorConflict,
+          vars: { conflicting: presentSelectors.join(" / ") },
+          detail: { conflicting: presentSelectors },
+          renderAsJson,
+        });
         return 2;
       }
       if (hasFormat) {
-        const usageMessage = `tui is interactive-only; use \`loaf sessions list --format json\` for scriptable session output`;
-        if (renderAsJson) {
-          process.stderr.write(JSON.stringify({
-            ok: false,
-            code: "USAGE",
-            message: usageMessage,
-            detail: { reason: "tui-interactive-only" },
-          }) + "\n");
-        } else {
-          process.stderr.write(`error: USAGE — ${usageMessage}\n`);
-        }
+        writePreContextSiteFailure({
+          code: "USAGE",
+          keyPath: FAILURE_SITE_KEYS.tuiInteractiveOnly,
+          vars: {},
+          detail: { reason: "tui-interactive-only" },
+          renderAsJson,
+        });
         return 2;
       }
     }
@@ -608,34 +620,26 @@ export async function main(
       }
       // (2) Bare `loaf hook` → USAGE listing enum
       if (cmdTokens[1] === undefined) {
-        const usageMessage = `loaf hook requires an event token; one of: ${HOOK_EVENTS.join(", ")}. Run \`loaf hook --list-events\` for the full enum`;
-        if (renderAsJson) {
-          process.stderr.write(JSON.stringify({
-            ok: false,
-            code: "USAGE",
-            message: usageMessage,
-            detail: { events: HOOK_EVENTS },
-          }) + "\n");
-        } else {
-          process.stderr.write(`error: USAGE — ${usageMessage}\n`);
-        }
+        writePreContextSiteFailure({
+          code: "USAGE",
+          keyPath: FAILURE_SITE_KEYS.hookMissingEvent,
+          vars: { events: HOOK_EVENTS.join(", ") },
+          detail: { events: HOOK_EVENTS },
+          renderAsJson,
+        });
         return 2;
       }
       // (3) Unknown event → USAGE + did-you-mean
       if (!(HOOK_EVENTS as readonly string[]).includes(cmdTokens[1]!)) {
         const got = cmdTokens[1]!;
         const suggestion = HOOK_EVENTS.find((e) => e.startsWith(got.slice(0, 4))) ?? HOOK_EVENTS[0];
-        const usageMessage = `unknown hook event '${got}'; expected one of: ${HOOK_EVENTS.join(", ")}. Did you mean '${suggestion}'?`;
-        if (renderAsJson) {
-          process.stderr.write(JSON.stringify({
-            ok: false,
-            code: "USAGE",
-            message: usageMessage,
-            detail: { event: got, allowed: HOOK_EVENTS, suggestion },
-          }) + "\n");
-        } else {
-          process.stderr.write(`error: USAGE — ${usageMessage}\n`);
-        }
+        writePreContextSiteFailure({
+          code: "USAGE",
+          keyPath: FAILURE_SITE_KEYS.hookUnknownEvent,
+          vars: { event: got, allowed: HOOK_EVENTS.join(", "), suggestion },
+          detail: { event: got, allowed: HOOK_EVENTS, suggestion },
+          renderAsJson,
+        });
         return 2;
       }
     }
@@ -665,20 +669,16 @@ export async function main(
         presentSelectors.push("$LOAF_FEATURE");
       }
       if (presentSelectors.length > 0) {
-        const usageMessage = `check does not accept ${presentSelectors.join(" / ")} — it validates a file by path, independent of any feature session`;
         const renderAsJson = argv.some(
           (a) => a === "--format=json" || (a === "--format" && argv[argv.indexOf(a) + 1] === "json"),
         );
-        if (renderAsJson) {
-          process.stderr.write(JSON.stringify({
-            ok: false,
-            code: "USAGE",
-            message: usageMessage,
-            detail: { conflicting: presentSelectors },
-          }) + "\n");
-        } else {
-          process.stderr.write(`error: USAGE — ${usageMessage}\n`);
-        }
+        writePreContextSiteFailure({
+          code: "USAGE",
+          keyPath: FAILURE_SITE_KEYS.checkSelectorConflict,
+          vars: { conflicting: presentSelectors.join(" / ") },
+          detail: { conflicting: presentSelectors },
+          renderAsJson,
+        });
         return 2;
       }
     }
@@ -726,20 +726,16 @@ export async function main(
       }
       if (presentSelectors.length > 0) {
         const subj = mutatorSchemaLabel ?? `${cmdTokens[0]} schema`;
-        const usageMessage = `${subj} does not accept ${presentSelectors.join(" / ")} — schema dumps are feature-agnostic`;
         const renderAsJson = argv.some(
           (a) => a === "--format=json" || (a === "--format" && argv[argv.indexOf(a) + 1] === "json"),
         );
-        if (renderAsJson) {
-          process.stderr.write(JSON.stringify({
-            ok: false,
-            code: "USAGE",
-            message: usageMessage,
-            detail: { conflicting: presentSelectors },
-          }) + "\n");
-        } else {
-          process.stderr.write(`error: USAGE — ${usageMessage}\n`);
-        }
+        writePreContextSiteFailure({
+          code: "USAGE",
+          keyPath: FAILURE_SITE_KEYS.schemaSelectorConflict,
+          vars: { subject: subj, conflicting: presentSelectors.join(" / ") },
+          detail: { conflicting: presentSelectors },
+          renderAsJson,
+        });
         return 2;
       }
     }
@@ -801,18 +797,21 @@ export async function main(
       if (hasSession) sessionConflict.push("--session");
       if (hasLoafSession) sessionConflict.push("$LOAF_SESSION");
 
-      let usageMessage: string | null = null;
       let conflictingList: readonly string[] = [];
+      let usageKey: FailureSiteKey | null = null;
+      let usageVars: I18nVars = {};
 
       if (sessionConflict.length > 0) {
-        usageMessage = `${sessionConflict.join(" + ")} cannot be combined with --feature-dir (session identity comes from registry; manual featureDir is contradictory)`;
+        usageKey = FAILURE_SITE_KEYS.dispatchSessionFeatureDirConflict;
+        usageVars = { conflicting: sessionConflict.join(" + ") };
         conflictingList = [...sessionConflict, "--feature-dir"];
       } else if (!hasFeature && !hasLoafFeature) {
-        usageMessage = "--feature-dir requires --feature <name> or $LOAF_FEATURE to name the feature";
+        usageKey = FAILURE_SITE_KEYS.dispatchFeatureDirRequiresFeature;
+        usageVars = {};
         conflictingList = ["--feature-dir"];
       }
 
-      if (usageMessage !== null) {
+      if (usageKey !== null) {
         // Render shape per protocol §10.2: text vs JSON based on
         // --format. Reuse the parsePresentation result that already
         // resolved the output mode (safe because the presentation
@@ -820,18 +819,13 @@ export async function main(
         const renderAsJson = argv.some(
           (a) => a === "--format=json" || (a === "--format" && argv[argv.indexOf(a) + 1] === "json"),
         );
-        if (renderAsJson) {
-          process.stderr.write(
-            JSON.stringify({
-              ok: false,
-              code: "USAGE",
-              message: usageMessage,
-              detail: { conflicting: conflictingList },
-            }) + "\n",
-          );
-        } else {
-          process.stderr.write(`error: USAGE — ${usageMessage}\n`);
-        }
+        writePreContextSiteFailure({
+          code: "USAGE",
+          keyPath: usageKey,
+          vars: usageVars,
+          detail: { conflicting: conflictingList },
+          renderAsJson,
+        });
         return 2;
       }
     }
@@ -989,6 +983,19 @@ export async function main(
     }
   };
 
+  const emitNoSessionFailure = (
+    keyPath: FailureSiteKey,
+    feature: string,
+    detail?: Record<string, unknown>,
+  ): void => {
+    ctx.failureKeyed(
+      "NO_SESSION",
+      keyPath,
+      { feature },
+      detail,
+    );
+  };
+
   // Phase 16 SC-6a — actor-resolution boundary helpers. Both injection
   // points live in MainDeps so tests can drive deterministic TTY-up /
   // git-config values; production omits both and falls back to the
@@ -1080,9 +1087,10 @@ export async function main(
       }
       return parsed.path;
     }
-    emitFailure(
+    ctx.failureKeyed(
       "USAGE",
-      "write-side hook requires --path <P> or a non-TTY stdin hook payload (tool_input.file_path)",
+      FAILURE_SITE_KEYS.hookWritePathMissing,
+      {},
       {},
     );
     return null;
@@ -1195,16 +1203,13 @@ export async function main(
     featureDir: string,
     kinds: readonly K[],
     feature: string,
+    noSessionKey: FailureSiteKey,
   ): Promise<LoadResult<K> | null> => {
     try {
       return await loadProjections({ feature_dir: featureDir, kinds });
     } catch (err) {
       if (err instanceof NoSessionError) {
-        emitFailure(
-          "NO_SESSION",
-          `run \`loaf start ${feature}\` first`,
-          err.detail,
-        );
+        emitNoSessionFailure(noSessionKey, feature, err.detail);
         return null;
       }
       if (err instanceof SnapshotStaleError) {
@@ -1241,11 +1246,16 @@ export async function main(
       // satisfy the session:started payload contract (≥3 chars). Reject
       // client-side with a usage error rather than a deep INVALID_PAYLOAD.
       if (opts.label !== undefined && opts.label.length < 3) {
-        fail("USAGE", "--label must be at least 3 characters");
+        ctx.failureKeyed(
+          "USAGE",
+          FAILURE_SITE_KEYS.startLabelTooShort,
+          { min_length: 3 },
+          { min_length: 3, actual_length: opts.label.length },
+        );
         return;
       }
       if (opts.workspace.length < 1) {
-        fail("USAGE", "--workspace must not be empty");
+        ctx.failureKeyed("USAGE", FAILURE_SITE_KEYS.startWorkspaceEmpty, {}, {});
         return;
       }
       const featureDir = opts.featureDir ?? defaultFeatureDir(feature);
@@ -1316,7 +1326,7 @@ export async function main(
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       const from = session.snapshot.state?.sub_state;
       if (!from) {
-        fail("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionAdvance, opts.feature);
         return;
       }
       const result = await mutate(
@@ -1359,6 +1369,7 @@ export async function main(
         featureDir,
         ["state", "tasks", "evidence", "findings", "pending"] as const,
         opts.feature,
+        FAILURE_SITE_KEYS.noSessionStatus,
       );
       if (loaded === null) return;
       const { state, tasks, evidence, findings, pending, meta } = loaded;
@@ -1478,7 +1489,7 @@ export async function main(
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       const from = session.snapshot.state?.sub_state;
       if (!from) {
-        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
         return;
       }
       // (5) build entries + execute per-gate
@@ -1716,7 +1727,7 @@ export async function main(
       const session = await ctx.resolveSession(featureDir);
       const from = session.snapshot.state?.sub_state;
       if (!from) {
-        ctx.failure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
         return;
       }
 
@@ -1806,7 +1817,7 @@ export async function main(
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       const from = session.snapshot.state?.sub_state;
       if (!from) {
-        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
         return;
       }
 
@@ -1874,7 +1885,7 @@ export async function main(
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       const from = session.snapshot.state?.sub_state;
       if (!from) {
-        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
         return;
       }
 
@@ -1967,7 +1978,7 @@ export async function main(
         const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
         const from = session.snapshot.state?.sub_state;
         if (!from) {
-          emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+          emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
           return;
         }
 
@@ -2107,7 +2118,7 @@ export async function main(
         const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
         const from = session.snapshot.state?.sub_state;
         if (!from) {
-          emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+          emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
           return;
         }
 
@@ -2369,7 +2380,7 @@ export async function main(
       if (featureDir === null) return;
       const session = await ctx.resolveSession(featureDir);
       if (!session.snapshot.state) {
-        ctx.failure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
         return;
       }
 
@@ -2517,7 +2528,7 @@ export async function main(
       if (featureDir === null) return;
       const session = await ctx.resolveSession(featureDir);
       if (!session.snapshot.state) {
-        ctx.failure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
         return;
       }
       const subState = session.snapshot.state.sub_state;
@@ -2698,7 +2709,7 @@ export async function main(
       if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       if (!session.snapshot.state) {
-        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
         return;
       }
       const result = await mutate(
@@ -2771,7 +2782,7 @@ export async function main(
         if (featureDir === null) return;
         const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
         if (!session.snapshot.state) {
-          emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+          emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
           return;
         }
         const result = await mutate(
@@ -2850,6 +2861,7 @@ export async function main(
         featureDir,
         ["state", "tasks"] as const,
         opts.feature,
+        FAILURE_SITE_KEYS.noSessionTasks,
       );
       if (loaded === null) return;
       const slimTasks = loaded.tasks
@@ -2922,7 +2934,7 @@ export async function main(
       if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       if (!session.snapshot.state) {
-        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
         return;
       }
       const tasks = session.snapshot.tasks;
@@ -2969,7 +2981,7 @@ export async function main(
       if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       if (!session.snapshot.state) {
-        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
         return;
       }
       const task = session.snapshot.tasks.find((t) => t.id === taskId);
@@ -3130,7 +3142,7 @@ export async function main(
           const sFeatureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
           const sSession = await ctx.resolveSession(sFeatureDir);
           if (!sSession.snapshot.state) {
-            ctx.failure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+            emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
             return;
           }
           const sCurrent = sSession.snapshot.tasks.find((t) => t.id === taskId);
@@ -3275,7 +3287,7 @@ export async function main(
         if (featureDir === null) return;
         const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
         if (!session.snapshot.state) {
-          emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+          emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
           return;
         }
 
@@ -3384,7 +3396,7 @@ export async function main(
       if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       if (!session.snapshot.state) {
-        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
         return;
       }
       const result = await mutate(
@@ -3450,7 +3462,7 @@ export async function main(
       if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       if (!session.snapshot.state) {
-        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
         return;
       }
       const result = await mutate(
@@ -3583,7 +3595,7 @@ export async function main(
       if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       if (!session.snapshot.state) {
-        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
         return;
       }
       const now = new Date().toISOString();
@@ -3741,7 +3753,7 @@ export async function main(
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       const from = session.snapshot.state?.sub_state;
       if (!from) {
-        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
         return;
       }
 
@@ -3804,7 +3816,7 @@ export async function main(
       if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: false });
       if (!session.snapshot.state) {
-        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
         return;
       }
       const packPath = path.join(featureDir, "snapshots", "resume-pack.json");
@@ -3905,7 +3917,12 @@ export async function main(
     .action(async (opts: { reason: string; notes?: string; feature: string; featureDir?: string }) => {
       if (rejectIfDryRun("handoff", "projection-writer")) return;
       if (opts.reason.length < 5) {
-        emitFailure("USAGE", `--reason must be ≥5 chars (got ${opts.reason.length})`, { reason_length: opts.reason.length });
+        ctx.failureKeyed(
+          "USAGE",
+          FAILURE_SITE_KEYS.handoffReasonTooShort,
+          { min_length: 5, reason_length: opts.reason.length },
+          { min_length: 5, reason_length: opts.reason.length },
+        );
         return;
       }
       // Handoff is a deliberate human decision (codex r345 P4 — actor is
@@ -3921,7 +3938,7 @@ export async function main(
       if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: false });
       if (!session.snapshot.state) {
-        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
         return;
       }
       const pack = buildResumePack({
@@ -4006,7 +4023,7 @@ export async function main(
       if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       if (!session.snapshot.state) {
-        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionPending, opts.feature);
         return;
       }
       // Single-writer PEND-id allocator: max-serial+1, zero-padded to ≥4
@@ -4073,6 +4090,7 @@ export async function main(
         featureDir,
         ["pending"] as const,
         opts.feature,
+        FAILURE_SITE_KEYS.noSessionPending,
       );
       if (loaded === null) return;
       const entries = loaded.pending.pending;
@@ -4112,7 +4130,7 @@ export async function main(
       if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       if (!session.snapshot.state) {
-        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionPending, opts.feature);
         return;
       }
       const headIdx = session.snapshot.pending.findIndex((p) => !p.resolved);
@@ -4160,7 +4178,7 @@ export async function main(
       if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       if (!session.snapshot.state) {
-        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionPending, opts.feature);
         return;
       }
       const head = session.snapshot.pending.find((p) => !p.resolved);
@@ -4318,7 +4336,7 @@ export async function main(
       if (featureDir === null) return;
       const session = await ctx.resolveSession(featureDir);
       if (!session.snapshot.state) {
-        ctx.failure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
         return;
       }
 
@@ -4431,10 +4449,11 @@ export async function main(
       // (2) reason length is enforced by EvidenceFullPayload refine
       //     downstream; surface the friendlier USAGE here too
       if (opts.reason.length < 10) {
-        emitFailure(
+        ctx.failureKeyed(
           "USAGE",
-          `--reason must be ≥10 chars (got ${opts.reason.length})`,
-          { reason_length: opts.reason.length },
+          FAILURE_SITE_KEYS.lessonsReasonTooShort,
+          { min_length: 10, reason_length: opts.reason.length },
+          { min_length: 10, reason_length: opts.reason.length },
         );
         return;
       }
@@ -4453,7 +4472,7 @@ export async function main(
       if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       if (!session.snapshot.state) {
-        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
         return;
       }
       // (4) allocate EV-id + build payload (pure builder, payload only)
@@ -4551,11 +4570,21 @@ export async function main(
         }
       }
       if (lessonText.length < 3) {
-        emitFailure("USAGE", `lesson text must be ≥3 chars (got ${lessonText.length})`, { lesson_text_length: lessonText.length });
+        ctx.failureKeyed(
+          "USAGE",
+          FAILURE_SITE_KEYS.lessonsTextTooShort,
+          { min_length: 3, lesson_text_length: lessonText.length },
+          { min_length: 3, lesson_text_length: lessonText.length },
+        );
         return;
       }
       if (opts.reason.length < 10) {
-        emitFailure("USAGE", `--reason must be ≥10 chars (got ${opts.reason.length})`, { reason_length: opts.reason.length });
+        ctx.failureKeyed(
+          "USAGE",
+          FAILURE_SITE_KEYS.lessonsReasonTooShort,
+          { min_length: 10, reason_length: opts.reason.length },
+          { min_length: 10, reason_length: opts.reason.length },
+        );
         return;
       }
       // (3) resolve human actor (manual requires human:* per refine)
@@ -4570,7 +4599,7 @@ export async function main(
       if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       if (!session.snapshot.state) {
-        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
         return;
       }
       // (5) allocate EV-id + build payload
@@ -4999,10 +5028,11 @@ export async function main(
       let kind: CheckKind | undefined;
       if (opts.kind !== undefined) {
         if (!(CHECK_KINDS as readonly string[]).includes(opts.kind)) {
-          emitFailure(
+          ctx.failureKeyed(
             "USAGE",
-            `--kind '${opts.kind}' is not recognized; expected one of ${CHECK_KINDS.join("|")}`,
-            { provided: opts.kind, allowed: CHECK_KINDS },
+            FAILURE_SITE_KEYS.checkKindInvalid,
+            { value: opts.kind, allowed_kinds_human: CHECK_KINDS.join("|") },
+            { provided: opts.kind, value: opts.kind, allowed: CHECK_KINDS },
           );
           return;
         }
@@ -5012,6 +5042,47 @@ export async function main(
       const result = await checkFile(kind === undefined ? { path: filePath } : { path: filePath, kind });
       if (result.ok) {
         ctx.success(result, () => renderCheckSuccess(result));
+        return;
+      }
+      if (result.code === "USAGE" && result.detail["suggestion"] !== undefined) {
+        ctx.failureKeyed(
+          "USAGE",
+          FAILURE_SITE_KEYS.checkKindRequired,
+          {
+            subject: String(result.detail["argument"] ?? filePath),
+            kind: "tasks",
+            suggestion: String(result.detail["suggestion"]),
+          },
+          result.detail,
+        );
+        return;
+      }
+      if (result.code === "INPUT_FILE_NOT_FOUND") {
+        ctx.failureKeyed(
+          "INPUT_FILE_NOT_FOUND",
+          FAILURE_SITE_KEYS.checkPathMissing,
+          { path: String(result.detail["path"] ?? filePath) },
+          result.detail,
+        );
+        return;
+      }
+      if (
+        result.code === "SCHEMA_VALIDATION_FAILED" &&
+        result.detail["kind"] !== undefined &&
+        result.detail["path"] !== undefined &&
+        result.detail["error_count"] !== undefined
+      ) {
+        ctx.failureKeyed(
+          "SCHEMA_VALIDATION_FAILED",
+          FAILURE_SITE_KEYS.schemaValidation,
+          {
+            kind: String(result.detail["kind"]),
+            path: String(result.detail["path"]),
+            error_count: String(result.detail["error_count"]),
+            error_word: Number(result.detail["error_count"]) === 1 ? "error" : "errors",
+          },
+          result.detail,
+        );
         return;
       }
       emitFailure(result.code, result.message, result.detail);
@@ -5128,7 +5199,7 @@ export async function main(
       if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       if (!session.snapshot.state) {
-        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionFinding, opts.feature);
         return;
       }
       // FND-NNN allocator: scan numeric FND ids in projection, max+1,
@@ -5349,7 +5420,12 @@ export async function main(
     .action(async (opts: { feature: string; status?: string; featureDir?: string }) => {
       if (rejectIfDryRun("finding list")) return;
       if (opts.status !== undefined && opts.status !== "open" && opts.status !== "closed") {
-        emitFailure("USAGE", `--status must be one of: open | closed (got ${opts.status})`);
+        ctx.failureKeyed(
+          "USAGE",
+          FAILURE_SITE_KEYS.findingStatusInvalid,
+          { allowed_statuses_human: "open | closed", value: opts.status },
+          { allowed: ["open", "closed"], value: opts.status },
+        );
         return;
       }
       const featureDir = await dispatchOrFail(opts);
@@ -5362,6 +5438,7 @@ export async function main(
         featureDir,
         ["findings"] as const,
         opts.feature,
+        FAILURE_SITE_KEYS.noSessionFinding,
       );
       if (loaded === null) return;
       const all = loaded.findings.findings;
@@ -5405,7 +5482,7 @@ export async function main(
       if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       if (!session.snapshot.state) {
-        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionFinding, opts.feature);
         return;
       }
       // CLI-side pre-check surfaces FINDING_NOT_FOUND directly (instead of
@@ -5551,7 +5628,7 @@ export async function main(
       if (featureDir === null) return;
       const session = await ctx.resolveSession(featureDir);
       if (!session.snapshot.state) {
-        ctx.failure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
         return;
       }
       // (4-6) Build the spec-submit batch via shared SC-12a-1 helper.
@@ -5825,7 +5902,7 @@ export async function main(
       const actor = resolution.actor;
       const session = await loadSession(featureDir, { ensureDir: false });
       if (!session.snapshot.state) {
-        emitFailure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
         return;
       }
       // (1.5) pre-editor lock gate (codex r339 P2): post-lock direct
@@ -6076,7 +6153,7 @@ export async function main(
         if (featureDir === null) return;
         const session = await ctx.resolveSession(featureDir);
         if (!session.snapshot.state) {
-          ctx.failure("NO_SESSION", `run \`loaf start ${opts.feature}\` first`);
+          emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
           return;
         }
         // (4) Per-namespace allocator. Track counter across the batch so

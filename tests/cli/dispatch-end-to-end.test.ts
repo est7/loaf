@@ -217,6 +217,44 @@ describe("SC-8 — CLI dispatch integration", () => {
     expect(result.stderr).toMatch(/^error: USAGE —/);
   });
 
+  test("LOAF_LANG=zh localizes dispatch session/feature-dir text failure", async () => {
+    const registryDir = await tmpRegDir();
+    const result = await runCli(
+      ["--session", "550e8400-e29b-41d4-a716-aaaaaaaaaaaa", "--feature-dir", "/tmp/x", "status"],
+      { deps: { registryDir }, env: { LOAF_LANG: "zh" } },
+    );
+    expect(result.exit).toBe(2);
+    expect(result.stderr).toContain("不能与 --feature-dir 一起使用");
+  });
+
+  test("LOAF_LANG=zh leaves dispatch broad USAGE JSON message byte-stable", async () => {
+    const registryDir = await tmpRegDir();
+    const argv = [
+      "--session",
+      "550e8400-e29b-41d4-a716-aaaaaaaaaaaa",
+      "--feature-dir",
+      "/tmp/x",
+      "status",
+      "--format",
+      "json",
+    ];
+    const enResult = await runCli(argv, { deps: { registryDir } });
+    const zhResult = await runCli(argv, { deps: { registryDir }, env: { LOAF_LANG: "zh" } });
+    expect(enResult.exit).toBe(2);
+    expect(zhResult.exit).toBe(2);
+    expect(zhResult.stderr).toBe(enResult.stderr);
+  });
+
+  test("LOAF_LANG=zh localizes bare feature-dir text failure", async () => {
+    const registryDir = await tmpRegDir();
+    const result = await runCli(
+      ["--feature-dir", "/tmp/x", "status"],
+      { deps: { registryDir }, env: { LOAF_LANG: "zh" } },
+    );
+    expect(result.exit).toBe(2);
+    expect(result.stderr).toContain("--feature-dir 需要 --feature <name> 或 $LOAF_FEATURE");
+  });
+
   test("T-start-exempt: loaf start <feature> --feature-dir <path> NOT rejected (start has positional feature)", async () => {
     const registryDir = await tmpRegDir();
     const featureDir = await fs.mkdtemp(path.join(os.tmpdir(), "loaf-sc8-start-"));

@@ -218,6 +218,58 @@
     "SESSION_NOT_FOUND":          "--session {uuid_or_prefix} matches no entry in the registry"
   },
 
+  "failure": {
+    "sessions_list": {
+      "selector_conflict": "sessions list does not accept {conflicting} — it lists across all sessions; use --in-cwd to filter"
+    },
+    "tui": {
+      "selector_conflict": "tui does not accept {conflicting} — it lists across all sessions; selectors are nonsensical for an interactive UI",
+      "interactive_only": "tui is interactive-only; use `loaf sessions list --format json` for scriptable session output"
+    },
+    "hook": {
+      "missing_event": "loaf hook requires an event token; one of: {events}. Run `loaf hook --list-events` for the full enum",
+      "unknown_event": "unknown hook event '{event}'; expected one of: {allowed}. Did you mean '{suggestion}'?",
+      "write_path_missing": "write-side hook requires --path <P> or a non-TTY stdin hook payload (tool_input.file_path)"
+    },
+    "check": {
+      "selector_conflict": "check does not accept {conflicting} — it validates a file by path, independent of any feature session",
+      "kind_required": "`{subject}` is not a file path. To validate a {kind} artifact, pass its path: `{suggestion}` (noun-first `loaf {kind} check` is reserved for a future release)",
+      "path_missing": "file not found: {path}",
+      "kind_invalid": "--kind '{value}' is not recognized; expected one of {allowed_kinds_human}"
+    },
+    "schema": {
+      "selector_conflict": "{subject} does not accept {conflicting} — schema dumps are feature-agnostic",
+      "validation": "{kind} at {path} failed schema validation ({error_count} {error_word})"
+    },
+    "dispatch": {
+      "session_feature_dir_conflict": "{conflicting} cannot be combined with --feature-dir (session identity comes from registry; manual featureDir is contradictory)",
+      "feature_dir_requires_feature": "--feature-dir requires --feature <name> or $LOAF_FEATURE to name the feature"
+    },
+    "start": {
+      "label_too_short": "--label must be at least {min_length} characters",
+      "workspace_empty": "--workspace must not be empty"
+    },
+    "handoff": {
+      "reason_too_short": "--reason must be ≥{min_length} chars (got {reason_length})"
+    },
+    "lessons": {
+      "text_too_short": "lesson text must be ≥{min_length} chars (got {lesson_text_length})",
+      "reason_too_short": "--reason must be ≥{min_length} chars (got {reason_length})"
+    },
+    "finding": {
+      "status_invalid": "--status must be one of: {allowed_statuses_human} (got {value})"
+    },
+    "no_session": {
+      "status": "run `loaf start {feature}` first",
+      "advance": "run `loaf start {feature}` first",
+      "tasks": "run `loaf start {feature}` first",
+      "pending": "run `loaf start {feature}` first",
+      "finding": "run `loaf start {feature}` first",
+      "verify": "run `loaf start {feature}` first",
+      "generic": "run `loaf start {feature}` first"
+    }
+  },
+
   "help": {
     "start":          "Begin a new feature session in .loaf/<feature>/",
     "status":         "Print current state.json + artifact health summary",

@@ -21,6 +21,7 @@ import {
   type CommandContext,
 } from "../../src/cli/command-context.js";
 import { createI18n, BUILTIN_BUNDLES } from "../../src/cli/i18n.js";
+import { FAILURE_SITE_KEYS } from "../../src/cli/runtime-i18n-keys.js";
 
 function makeCtx(
   argv: string[],
@@ -240,6 +241,39 @@ describe("Phase 16 SC-3 — CommandContext: failure routing + exitCode", () => {
       code: "DRY_RUN_NOT_APPLICABLE",
       message: "--dry-run not applicable to read-only command `status`",
       detail: { command_type: "read-only", command: "status" },
+    });
+  });
+
+  test("failureKeyed() supports broad NO_SESSION site keys", () => {
+    const { ctx, stderr } = makeCtx(["loaf", "status"], {
+      i18n: createI18n("zh", BUILTIN_BUNDLES),
+    });
+    ctx.failureKeyed(
+      "NO_SESSION",
+      FAILURE_SITE_KEYS.noSessionStatus,
+      { feature: "auth-refresh" },
+      { feature: "auth-refresh", feature_dir: ".loaf/auth-refresh" },
+    );
+
+    expect(stderr.join("")).toContain("error: NO_SESSION — 先跑 `loaf start auth-refresh`");
+  });
+
+  test("failureKeyed() keeps broad NO_SESSION JSON message in English", () => {
+    const { ctx, stderr } = makeCtx(["loaf", "status", "--format", "json"], {
+      i18n: createI18n("zh", BUILTIN_BUNDLES),
+    });
+    ctx.failureKeyed(
+      "NO_SESSION",
+      FAILURE_SITE_KEYS.noSessionStatus,
+      { feature: "auth-refresh" },
+      { feature: "auth-refresh", feature_dir: ".loaf/auth-refresh" },
+    );
+
+    expect(JSON.parse(stderr.join(""))).toEqual({
+      ok: false,
+      code: "NO_SESSION",
+      message: "run `loaf start auth-refresh` first",
+      detail: { feature: "auth-refresh", feature_dir: ".loaf/auth-refresh" },
     });
   });
 });

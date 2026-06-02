@@ -218,6 +218,58 @@
     "SESSION_NOT_FOUND":          "--session {uuid_or_prefix} 在 registry 找不到任何匹配"
   },
 
+  "failure": {
+    "sessions_list": {
+      "selector_conflict": "sessions list 不接受 {conflicting} —— 它会跨全部 session 列表;如需过滤当前 cwd,使用 --in-cwd"
+    },
+    "tui": {
+      "selector_conflict": "tui 不接受 {conflicting} —— 它会跨全部 session 列表;selector 对交互 UI 没有意义",
+      "interactive_only": "tui 仅支持交互模式;脚本化 session 输出请使用 `loaf sessions list --format json`"
+    },
+    "hook": {
+      "missing_event": "loaf hook 需要 event token;可选值:{events}. 运行 `loaf hook --list-events` 查看完整枚举",
+      "unknown_event": "未知 hook event '{event}';期望值:{allowed}. 你是不是想输入 '{suggestion}'?",
+      "write_path_missing": "write-side hook 需要 --path <P> 或非 TTY stdin hook payload(tool_input.file_path)"
+    },
+    "check": {
+      "selector_conflict": "check 不接受 {conflicting} —— 它按路径校验文件,独立于 feature session",
+      "kind_required": "`{subject}` 不是文件路径. 如需校验 {kind} artifact,需要显式路径: `{suggestion}`(noun-first `loaf {kind} check` 预留给未来版本)",
+      "path_missing": "input file 不存在:{path}",
+      "kind_invalid": "--kind 必须是 {allowed_kinds_human};当前为 '{value}'"
+    },
+    "schema": {
+      "selector_conflict": "{subject} 不接受 {conflicting} —— schema dump 与 feature 无关",
+      "validation": "{kind} at {path} 校验失败({error_count} {error_word})"
+    },
+    "dispatch": {
+      "session_feature_dir_conflict": "{conflicting} 不能与 --feature-dir 一起使用(session identity 来自 registry;手动 featureDir 会矛盾)",
+      "feature_dir_requires_feature": "--feature-dir 需要 --feature <name> 或 $LOAF_FEATURE 来命名 feature"
+    },
+    "start": {
+      "label_too_short": "--label 至少需要 {min_length} 个字符",
+      "workspace_empty": "--workspace 不能为空"
+    },
+    "handoff": {
+      "reason_too_short": "--reason 必须 ≥{min_length} 字符(当前 {reason_length})"
+    },
+    "lessons": {
+      "text_too_short": "lesson text 必须 ≥{min_length} 字符(当前 {lesson_text_length})",
+      "reason_too_short": "--reason 必须 ≥{min_length} 字符(当前 {reason_length})"
+    },
+    "finding": {
+      "status_invalid": "--status 必须是:{allowed_statuses_human}(当前 {value})"
+    },
+    "no_session": {
+      "status": "先跑 `loaf start {feature}`",
+      "advance": "先跑 `loaf start {feature}`",
+      "tasks": "先跑 `loaf start {feature}`",
+      "pending": "先跑 `loaf start {feature}`",
+      "finding": "先跑 `loaf start {feature}`",
+      "verify": "先跑 `loaf start {feature}`",
+      "generic": "先跑 `loaf start {feature}`"
+    }
+  },
+
   "help": {
     "start":          "在 .loaf/<feature>/ 开启新 feature session",
     "status":         "打印当前 state.json + artifact 健康摘要",

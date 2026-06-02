@@ -11,6 +11,8 @@ import {
   phaseKey,
   RUNTIME_I18N_KEYS,
   diagnosticKey,
+  FAILURE_SITE_KEYS,
+  FAILURE_SITE_TEMPLATES,
   statusIndicatorKey,
   subStateKey,
   taskKindKey,
@@ -54,6 +56,7 @@ describe("runtime i18n key gate", () => {
       ...PHASE_VALUES.map(phaseKey),
       ...SubState.options.map(subStateKey),
       ...MIGRATED_DIAGNOSTIC_CODES.map(diagnosticKey),
+      ...Object.values(FAILURE_SITE_KEYS),
     ];
 
     expect(new Set(RUNTIME_I18N_KEYS)).toEqual(new Set(helperKeys));
@@ -70,6 +73,24 @@ describe("runtime i18n key gate", () => {
       expect(placeholders(String(en)), `${key} ERROR_CATALOG placeholders`).toEqual(
         placeholders(ERROR_CATALOG[code].message_template),
       );
+    }
+  });
+
+  test("failure site keys are explicit, localized, placeholder-symmetric, and map to catalog codes", () => {
+    const templateByKey = new Map(Object.values(FAILURE_SITE_TEMPLATES).map((entry) => [entry.key, entry]));
+    expect(templateByKey.size).toBe(Object.keys(FAILURE_SITE_TEMPLATES).length);
+
+    for (const key of Object.values(FAILURE_SITE_KEYS)) {
+      const entry = templateByKey.get(key);
+      expect(entry, `${key} registry entry`).toBeDefined();
+      expect(ERROR_CATALOG[entry!.code], `${key} known DiagnosticCode`).toBeDefined();
+
+      const en = lookup(BUILTIN_BUNDLES.en, key);
+      const zh = lookup(BUILTIN_BUNDLES.zh, key);
+      expect(en, `${key} en`).toBeTypeOf("string");
+      expect(zh, `${key} zh`).toBeTypeOf("string");
+      expect(placeholders(String(en)), `${key} zh placeholders`).toEqual(placeholders(String(zh)));
+      expect(placeholders(String(en)), `${key} registry placeholders`).toEqual(placeholders(entry!.template));
     }
   });
 

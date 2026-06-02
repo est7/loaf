@@ -22,6 +22,12 @@ export type MigratedDiagnosticCode =
   | "SESSION_SHORT_AMBIGUOUS"
   | "SESSION_NOT_FOUND";
 
+export type FailureSiteDiagnosticCode =
+  | "USAGE"
+  | "SCHEMA_VALIDATION_FAILED"
+  | "NO_SESSION"
+  | "INPUT_FILE_NOT_FOUND";
+
 export const TASK_KIND_VALUES = [
   "behavioral",
   "structural",
@@ -140,6 +146,180 @@ const DIAGNOSTIC_KEYS = {
   SESSION_NOT_FOUND: "diagnostic.SESSION_NOT_FOUND",
 } as const satisfies Record<MigratedDiagnosticCode, string>;
 
+export const FAILURE_SITE_KEYS = {
+  sessionsListSelectorConflict: "failure.sessions_list.selector_conflict",
+  tuiSelectorConflict: "failure.tui.selector_conflict",
+  tuiInteractiveOnly: "failure.tui.interactive_only",
+  hookMissingEvent: "failure.hook.missing_event",
+  hookUnknownEvent: "failure.hook.unknown_event",
+  hookWritePathMissing: "failure.hook.write_path_missing",
+  checkSelectorConflict: "failure.check.selector_conflict",
+  checkKindRequired: "failure.check.kind_required",
+  checkPathMissing: "failure.check.path_missing",
+  checkKindInvalid: "failure.check.kind_invalid",
+  schemaSelectorConflict: "failure.schema.selector_conflict",
+  schemaValidation: "failure.schema.validation",
+  dispatchSessionFeatureDirConflict: "failure.dispatch.session_feature_dir_conflict",
+  dispatchFeatureDirRequiresFeature: "failure.dispatch.feature_dir_requires_feature",
+  startLabelTooShort: "failure.start.label_too_short",
+  startWorkspaceEmpty: "failure.start.workspace_empty",
+  handoffReasonTooShort: "failure.handoff.reason_too_short",
+  lessonsTextTooShort: "failure.lessons.text_too_short",
+  lessonsReasonTooShort: "failure.lessons.reason_too_short",
+  findingStatusInvalid: "failure.finding.status_invalid",
+  noSessionStatus: "failure.no_session.status",
+  noSessionAdvance: "failure.no_session.advance",
+  noSessionTasks: "failure.no_session.tasks",
+  noSessionPending: "failure.no_session.pending",
+  noSessionFinding: "failure.no_session.finding",
+  noSessionVerify: "failure.no_session.verify",
+  noSessionGeneric: "failure.no_session.generic",
+} as const;
+
+export type FailureSiteKey = (typeof FAILURE_SITE_KEYS)[keyof typeof FAILURE_SITE_KEYS];
+
+export const FAILURE_SITE_TEMPLATES = {
+  sessionsListSelectorConflict: {
+    key: FAILURE_SITE_KEYS.sessionsListSelectorConflict,
+    code: "USAGE",
+    template: "sessions list does not accept {conflicting} — it lists across all sessions; use --in-cwd to filter",
+  },
+  tuiSelectorConflict: {
+    key: FAILURE_SITE_KEYS.tuiSelectorConflict,
+    code: "USAGE",
+    template: "tui does not accept {conflicting} — it lists across all sessions; selectors are nonsensical for an interactive UI",
+  },
+  tuiInteractiveOnly: {
+    key: FAILURE_SITE_KEYS.tuiInteractiveOnly,
+    code: "USAGE",
+    template: "tui is interactive-only; use `loaf sessions list --format json` for scriptable session output",
+  },
+  hookMissingEvent: {
+    key: FAILURE_SITE_KEYS.hookMissingEvent,
+    code: "USAGE",
+    template: "loaf hook requires an event token; one of: {events}. Run `loaf hook --list-events` for the full enum",
+  },
+  hookUnknownEvent: {
+    key: FAILURE_SITE_KEYS.hookUnknownEvent,
+    code: "USAGE",
+    template: "unknown hook event '{event}'; expected one of: {allowed}. Did you mean '{suggestion}'?",
+  },
+  hookWritePathMissing: {
+    key: FAILURE_SITE_KEYS.hookWritePathMissing,
+    code: "USAGE",
+    template: "write-side hook requires --path <P> or a non-TTY stdin hook payload (tool_input.file_path)",
+  },
+  checkSelectorConflict: {
+    key: FAILURE_SITE_KEYS.checkSelectorConflict,
+    code: "USAGE",
+    template: "check does not accept {conflicting} — it validates a file by path, independent of any feature session",
+  },
+  checkKindRequired: {
+    key: FAILURE_SITE_KEYS.checkKindRequired,
+    code: "USAGE",
+    template: "`{subject}` is not a file path. To validate a {kind} artifact, pass its path: `{suggestion}` (noun-first `loaf {kind} check` is reserved for a future release)",
+  },
+  checkPathMissing: {
+    key: FAILURE_SITE_KEYS.checkPathMissing,
+    code: "INPUT_FILE_NOT_FOUND",
+    template: "file not found: {path}",
+  },
+  checkKindInvalid: {
+    key: FAILURE_SITE_KEYS.checkKindInvalid,
+    code: "USAGE",
+    template: "--kind '{value}' is not recognized; expected one of {allowed_kinds_human}",
+  },
+  schemaSelectorConflict: {
+    key: FAILURE_SITE_KEYS.schemaSelectorConflict,
+    code: "USAGE",
+    template: "{subject} does not accept {conflicting} — schema dumps are feature-agnostic",
+  },
+  schemaValidation: {
+    key: FAILURE_SITE_KEYS.schemaValidation,
+    code: "SCHEMA_VALIDATION_FAILED",
+    template: "{kind} at {path} failed schema validation ({error_count} {error_word})",
+  },
+  dispatchSessionFeatureDirConflict: {
+    key: FAILURE_SITE_KEYS.dispatchSessionFeatureDirConflict,
+    code: "USAGE",
+    template: "{conflicting} cannot be combined with --feature-dir (session identity comes from registry; manual featureDir is contradictory)",
+  },
+  dispatchFeatureDirRequiresFeature: {
+    key: FAILURE_SITE_KEYS.dispatchFeatureDirRequiresFeature,
+    code: "USAGE",
+    template: "--feature-dir requires --feature <name> or $LOAF_FEATURE to name the feature",
+  },
+  startLabelTooShort: {
+    key: FAILURE_SITE_KEYS.startLabelTooShort,
+    code: "USAGE",
+    template: "--label must be at least {min_length} characters",
+  },
+  startWorkspaceEmpty: {
+    key: FAILURE_SITE_KEYS.startWorkspaceEmpty,
+    code: "USAGE",
+    template: "--workspace must not be empty",
+  },
+  handoffReasonTooShort: {
+    key: FAILURE_SITE_KEYS.handoffReasonTooShort,
+    code: "USAGE",
+    template: "--reason must be ≥{min_length} chars (got {reason_length})",
+  },
+  lessonsTextTooShort: {
+    key: FAILURE_SITE_KEYS.lessonsTextTooShort,
+    code: "USAGE",
+    template: "lesson text must be ≥{min_length} chars (got {lesson_text_length})",
+  },
+  lessonsReasonTooShort: {
+    key: FAILURE_SITE_KEYS.lessonsReasonTooShort,
+    code: "USAGE",
+    template: "--reason must be ≥{min_length} chars (got {reason_length})",
+  },
+  findingStatusInvalid: {
+    key: FAILURE_SITE_KEYS.findingStatusInvalid,
+    code: "USAGE",
+    template: "--status must be one of: {allowed_statuses_human} (got {value})",
+  },
+  noSessionStatus: {
+    key: FAILURE_SITE_KEYS.noSessionStatus,
+    code: "NO_SESSION",
+    template: "run `loaf start {feature}` first",
+  },
+  noSessionAdvance: {
+    key: FAILURE_SITE_KEYS.noSessionAdvance,
+    code: "NO_SESSION",
+    template: "run `loaf start {feature}` first",
+  },
+  noSessionTasks: {
+    key: FAILURE_SITE_KEYS.noSessionTasks,
+    code: "NO_SESSION",
+    template: "run `loaf start {feature}` first",
+  },
+  noSessionPending: {
+    key: FAILURE_SITE_KEYS.noSessionPending,
+    code: "NO_SESSION",
+    template: "run `loaf start {feature}` first",
+  },
+  noSessionFinding: {
+    key: FAILURE_SITE_KEYS.noSessionFinding,
+    code: "NO_SESSION",
+    template: "run `loaf start {feature}` first",
+  },
+  noSessionVerify: {
+    key: FAILURE_SITE_KEYS.noSessionVerify,
+    code: "NO_SESSION",
+    template: "run `loaf start {feature}` first",
+  },
+  noSessionGeneric: {
+    key: FAILURE_SITE_KEYS.noSessionGeneric,
+    code: "NO_SESSION",
+    template: "run `loaf start {feature}` first",
+  },
+} as const satisfies Record<string, {
+  key: FailureSiteKey;
+  code: FailureSiteDiagnosticCode;
+  template: string;
+}>;
+
 export type RuntimeI18nKey =
   | (typeof STATUS_INDICATOR_KEYS)[keyof typeof STATUS_INDICATOR_KEYS]
   | (typeof TASK_KIND_KEYS)[keyof typeof TASK_KIND_KEYS]
@@ -149,7 +329,8 @@ export type RuntimeI18nKey =
   | (typeof PENDING_KIND_KEYS)[keyof typeof PENDING_KIND_KEYS]
   | (typeof PHASE_KEYS)[keyof typeof PHASE_KEYS]
   | (typeof SUB_STATE_KEYS)[keyof typeof SUB_STATE_KEYS]
-  | (typeof DIAGNOSTIC_KEYS)[keyof typeof DIAGNOSTIC_KEYS];
+  | (typeof DIAGNOSTIC_KEYS)[keyof typeof DIAGNOSTIC_KEYS]
+  | FailureSiteKey;
 
 export const RUNTIME_I18N_KEYS: readonly RuntimeI18nKey[] = [
   ...Object.values(STATUS_INDICATOR_KEYS),
@@ -161,6 +342,7 @@ export const RUNTIME_I18N_KEYS: readonly RuntimeI18nKey[] = [
   ...Object.values(PHASE_KEYS),
   ...Object.values(SUB_STATE_KEYS),
   ...Object.values(DIAGNOSTIC_KEYS),
+  ...Object.values(FAILURE_SITE_KEYS),
 ];
 
 export function statusIndicatorKey(bucket: TuiStatusBucket): RuntimeI18nKey {

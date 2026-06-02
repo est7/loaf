@@ -115,6 +115,18 @@ describe("SC-9c — schema failure rendering", () => {
     expect(typeof err.detail.error_count).toBe("number");
   });
 
+  test("LOAF_LANG=zh leaves schema validation JSON message byte-stable", async () => {
+    const dir = await tmp();
+    const file = path.join(dir, "tasks.json");
+    await fs.writeFile(file, JSON.stringify({ wrong: "shape" }));
+    const argv = ["check", file, "--format", "json"];
+    const enResult = await runCli(argv);
+    const zhResult = await runCli(argv, { env: { LOAF_LANG: "zh" } });
+    expect(enResult.exit).toBe(2);
+    expect(zhResult.exit).toBe(2);
+    expect(zhResult.stderr).toBe(enResult.stderr);
+  });
+
   test("text mode: Zod fail renders top line + nested [path] CODE: message rows", async () => {
     const dir = await tmp();
     const file = path.join(dir, "tasks.json");
@@ -123,6 +135,17 @@ describe("SC-9c — schema failure rendering", () => {
     expect(result.exit).toBe(2);
     expect(result.stderr).toContain("error: SCHEMA_VALIDATION_FAILED — ");
     // Nested error lines render as `  [path] CODE: message`
+    expect(result.stderr).toMatch(/\n {2}\[[^\]]*\] [A-Za-z_]+: /);
+  });
+
+  test("LOAF_LANG=zh localizes schema validation top text while keeping raw detail rows", async () => {
+    const dir = await tmp();
+    const file = path.join(dir, "tasks.json");
+    await fs.writeFile(file, JSON.stringify({ wrong: "shape" }));
+    const result = await runCli(["check", file], { env: { LOAF_LANG: "zh" } });
+    expect(result.exit).toBe(2);
+    expect(result.stderr).toContain("error: SCHEMA_VALIDATION_FAILED — tasks at ");
+    expect(result.stderr).toContain("校验失败");
     expect(result.stderr).toMatch(/\n {2}\[[^\]]*\] [A-Za-z_]+: /);
   });
 
@@ -167,6 +190,25 @@ describe("SC-9c — file not found", () => {
     expect(err.code).toBe("INPUT_FILE_NOT_FOUND");
     expect(err.message).not.toContain("'loaf tasks check'");
   });
+
+  test("LOAF_LANG=zh localizes check missing-path text failure", async () => {
+    const dir = await tmp();
+    const file = path.join(dir, "tasks.json");
+    const result = await runCli(["check", file], { env: { LOAF_LANG: "zh" } });
+    expect(result.exit).toBe(2);
+    expect(result.stderr).toContain("input file 不存在");
+  });
+
+  test("LOAF_LANG=zh leaves check missing-path JSON message byte-stable", async () => {
+    const dir = await tmp();
+    const file = path.join(dir, "tasks.json");
+    const argv = ["check", file, "--format", "json"];
+    const enResult = await runCli(argv);
+    const zhResult = await runCli(argv, { env: { LOAF_LANG: "zh" } });
+    expect(enResult.exit).toBe(2);
+    expect(zhResult.exit).toBe(2);
+    expect(zhResult.stderr).toBe(enResult.stderr);
+  });
 });
 
 describe("SC-9c — did-you-mean for `loaf check tasks` (§1899)", () => {
@@ -180,6 +222,14 @@ describe("SC-9c — did-you-mean for `loaf check tasks` (§1899)", () => {
     expect(err.message).toContain("--kind tasks");
     expect(err.message).not.toContain("did you mean 'loaf tasks check'?");
     expect(err.detail.suggestion).toBe("loaf check <path>/tasks.json --kind tasks");
+  });
+
+  test("LOAF_LANG=zh localizes check kind-required text failure", async () => {
+    const dir = await tmp();
+    const result = await runCli(["check", "tasks"], { cwd: dir, env: { LOAF_LANG: "zh" } });
+    expect(result.exit).toBe(2);
+    expect(result.stderr).toContain("需要显式路径");
+    expect(result.stderr).toContain("--kind tasks");
   });
 
   test("negative `evidence` (no file) → INPUT_FILE_NOT_FOUND, NO did-you-mean (codex r311)", async () => {
@@ -302,5 +352,17 @@ describe("SC-9c — flags", () => {
     expect(result.exit).toBe(2);
     const err = JSON.parse(result.stderr);
     expect(err.code).toBe("USAGE");
+  });
+
+  test("LOAF_LANG=zh localizes invalid --kind text failure", async () => {
+    const dir = await tmp();
+    const file = path.join(dir, "tasks.json");
+    await fs.writeFile(file, VALID_TASKS_JSON);
+    const result = await runCli(
+      ["check", file, "--kind", "nonsense"],
+      { env: { LOAF_LANG: "zh" } },
+    );
+    expect(result.exit).toBe(2);
+    expect(result.stderr).toContain("--kind 必须是");
   });
 });
