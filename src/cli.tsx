@@ -30,7 +30,7 @@ import {
   defaultAppendTraceLine,
   type TraceEntry,
 } from "./cli/trace-writer.js";
-import { listSessions, formatAtRelative } from "./cli/sessions-list.js";
+import { listSessions, formatAtRelative, type SessionRow } from "./cli/sessions-list.js";
 import { buildEnvelope as buildVerifyStatusEnvelope, renderText as renderVerifyStatusText } from "./cli/verify-status.js";
 import { evaluateVerifyAcceptDiagnostic } from "./core/gates/verify-accept-eval.js";
 import { CHECK_KINDS, checkFile, renderSuccessText as renderCheckSuccess, type CheckKind } from "./cli/check-file.js";
@@ -52,6 +52,7 @@ import { buildSpecSubmitBatch } from "./cli/spec-submit-batch.js";
 import { buildResumePack } from "./cli/build-resume-pack.js";
 import { ResumePack as RuntimeResumePack } from "./core/resume-pack-schema.js";
 import { App as TuiApp } from "./cli/tui/app.js";
+import { classifyDetailOutcome, DETAIL_PROJECTION_KINDS } from "./cli/tui/detail-model.js";
 import { defaultRenderTui, type RenderTui } from "./cli/tui/render.js";
 import { createElement } from "react";
 import { HOOK_EVENTS, HOOK_EVENT_TO_CLAUDE_CODE } from "./core/hook-events.js";
@@ -4691,7 +4692,7 @@ export async function main(
   //        manual [r] refresh, [q]/Ctrl-C quit, TTY guard
   //   OUT (deferred to F-026) — [Enter] open / [d] details / [p] pending /
   //        [a] archive interactions; ⚠ stale marker (needs heartbeat_at);
-  //        auto-refresh polling; ⏸ gate differentiation
+  //        auto-refresh polling; ‖ gate differentiation
   //
   // Pre-parse guard above rejects --session / --feature / --feature-dir /
   // $LOAF_SESSION / $LOAF_FEATURE / --format.
@@ -4723,8 +4724,20 @@ export async function main(
         );
         return result.rows;
       };
+      const loadDetail = async (row: SessionRow) => {
+        const featureDir = path.join(row.cwd, ".loaf", row.feature);
+        try {
+          const loaded = await loadProjections({
+            feature_dir: featureDir,
+            kinds: DETAIL_PROJECTION_KINDS,
+          });
+          return classifyDetailOutcome(row, { ok: true, loaded }, new Date());
+        } catch (error) {
+          return classifyDetailOutcome(row, { ok: false, error });
+        }
+      };
       const initialRows = await loadRows();
-      const app = createElement(TuiApp, { initialRows, loadRows });
+      const app = createElement(TuiApp, { initialRows, loadRows, loadDetail });
       await renderTuiImpl(app);
     });
 

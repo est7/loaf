@@ -9,13 +9,14 @@
 //
 // Status column precedence (codex r354 P2 lock):
 //   1. sub_state.startsWith("DONE.")       → "✓ done"
-//   2. pending_queue_depth >= 2             → "⏸ ask [×N]"
-//   3. pending_queue_depth == 1             → "⏸ ask"
+//   2. pending_queue_depth >= 2             → "‖ ask [×N]"
+//   3. pending_queue_depth == 1             → "‖ ask"
 //   4. active_tasks.length >= 2             → "▶ run [×N]"
 //   5. active_tasks.length == 1             → "▶ run"
 //   6. else                                  → raw sub_state literal
 
 import type { SessionRow } from "../sessions-list.js";
+import { statusBucket } from "./list-model.js";
 
 /** Minimum widths per column (header width floors). */
 export const COLUMN_MIN_WIDTHS = {
@@ -54,10 +55,10 @@ export function formatStatus(row: SessionRow): string {
   if (row.sub_state.startsWith("DONE.")) return "✓ done";
   // 2-3. Pending head (gate-blocking semantic wins over workers)
   if (row.pending_queue_depth >= 2) {
-    return `⏸ ask [×${row.pending_queue_depth}]`;
+    return `‖ ask [×${row.pending_queue_depth}]`;
   }
   if (row.pending_queue_depth === 1) {
-    return "⏸ ask";
+    return "‖ ask";
   }
   // 4-5. Active workers
   if (row.active_tasks.length >= 2) {
@@ -68,6 +69,12 @@ export function formatStatus(row: SessionRow): string {
   }
   // 6. Idle / no workers / no pending — show sub_state as deterministic fallback
   return row.sub_state;
+}
+
+/** STATUS badge for rows that already render sub_state elsewhere. */
+export function formatStatusBadge(row: SessionRow): string {
+  if (statusBucket(row) === "idle") return "idle";
+  return formatStatus(row);
 }
 
 /** Compute the max content width per column across all rows. Used to

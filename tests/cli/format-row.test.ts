@@ -14,6 +14,7 @@ import {
   formatLabel,
   formatPhaseSub,
   formatStatus,
+  formatStatusBadge,
 } from "../../src/cli/tui/format-row.js";
 import type { SessionRow } from "../../src/cli/sessions-list.js";
 
@@ -87,19 +88,19 @@ describe("formatStatus — codex r354 P2 precedence order", () => {
     expect(formatStatus(makeRow({ sub_state: "DONE.archived" }))).toBe("✓ done");
   });
 
-  test("pending depth 1 → '⏸ ask' (no count badge for N=1)", () => {
-    expect(formatStatus(makeRow({ pending_queue_depth: 1 }))).toBe("⏸ ask");
+  test("pending depth 1 → '‖ ask' (no count badge for N=1)", () => {
+    expect(formatStatus(makeRow({ pending_queue_depth: 1 }))).toBe("‖ ask");
   });
 
-  test("pending depth 3 → '⏸ ask [×3]'", () => {
-    expect(formatStatus(makeRow({ pending_queue_depth: 3 }))).toBe("⏸ ask [×3]");
+  test("pending depth 3 → '‖ ask [×3]'", () => {
+    expect(formatStatus(makeRow({ pending_queue_depth: 3 }))).toBe("‖ ask [×3]");
   });
 
   test("pending wins over active_tasks (gate-blocking semantic)", () => {
     expect(formatStatus(makeRow({
       pending_queue_depth: 1,
       active_tasks: ["T-001", "T-002"],
-    }))).toBe("⏸ ask");
+    }))).toBe("‖ ask");
   });
 
   test("active_tasks 1 → '▶ run'", () => {
@@ -112,6 +113,37 @@ describe("formatStatus — codex r354 P2 precedence order", () => {
 
   test("idle (no pending, no active, non-DONE) → raw sub_state", () => {
     expect(formatStatus(makeRow({ sub_state: "VERIFY.accept" }))).toBe("VERIFY.accept");
+  });
+});
+
+describe("formatStatusBadge — display badge without idle sub_state duplication", () => {
+  test.each([
+    [
+      "done",
+      makeRow({ sub_state: "DONE.delivered", pending_queue_depth: 5, active_tasks: ["T-001"] }),
+      "✓ done",
+    ],
+    [
+      "blocked",
+      makeRow({ pending_queue_depth: 3, active_tasks: ["T-001"] }),
+      "‖ ask [×3]",
+    ],
+    [
+      "running",
+      makeRow({ active_tasks: ["T-001", "T-002"] }),
+      "▶ run [×2]",
+    ],
+    [
+      "idle",
+      makeRow({ sub_state: "EXECUTE.work" }),
+      "idle",
+    ],
+  ] as const)("%s badge", (_name, row, expected) => {
+    expect(formatStatusBadge(row)).toBe(expected);
+  });
+
+  test("idle badge does not repeat sub_state", () => {
+    expect(formatStatusBadge(makeRow({ sub_state: "VERIFY.accept" }))).not.toBe("VERIFY.accept");
   });
 });
 

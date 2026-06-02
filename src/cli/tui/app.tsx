@@ -1,26 +1,34 @@
-// Phase 16 SC-14 — thin Ink TUI for `loaf tui` MVP.
+// Phase 16 SC-14/15 — thin Ink TUI for `loaf tui`.
 //
-// Renders the 4-column session table from `format-row.ts` pure
-// formatters. Hotkeys:
-//   - `q` / Ctrl-C → exit
+// Renders the master session list from `list-model.ts` pure helpers.
+// Hotkeys:
+//   - ↑ / ↓        → move selection
+//   - Space        → fold/unfold project or feature headers
+//   - `a`          → toggle active-only/all
+//   - `s`          → toggle time/status sort
 //   - `r`          → reload registry via injected `loadRows` closure
+//   - `q` / Ctrl-C → exit
 //
-// All behavioral logic (status precedence, label truncation, width
-// computation) sits in pure helpers — this component is intentionally
-// thin per codex r355 Q3 + r356 layering ack.
+// Selection math, filtering, grouping, sorting, and render-plan construction
+// sit in pure helpers — this component is intentionally thin per codex r355
+// Q3 + r356 layering ack.
 
-import { useState, useCallback, type ReactElement } from "react";
+import { useState, useCallback, useEffect, useMemo, type ReactElement } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 
 import type { SessionRow } from "../sessions-list.js";
+import type { DetailLoadResult, DetailViewModel } from "./detail-model.js";
+import { formatIteration, formatStatusBadge } from "./format-row.js";
 import {
-  type ColumnWidths,
-  computeColumnWidths,
-  formatIteration,
-  formatLabel,
-  formatPhaseSub,
-  formatStatus,
-} from "./format-row.js";
+  buildRenderPlan,
+  filterActive,
+  nextSelectableIndex,
+  resolveSelectionAfterRebuild,
+  toggleCollapsed,
+  withTreePrefixes,
+  type TuiTreeListItem,
+  type TuiSortMode,
+} from "./list-model.js";
 
 export interface AppProps {
   /** Initial rows captured at startup; r reloads via loadRows. */
@@ -30,12 +38,39 @@ export interface AppProps {
    *  the App does NOT silently fall back to the real user registry
    *  during tests. */
   loadRows: () => Promise<ReadonlyArray<SessionRow>>;
+  /** Lazy detail loader injected by cli.tsx. App never imports or calls
+   *  loadProjections directly. */
+  loadDetail: (row: SessionRow) => Promise<DetailLoadResult>;
 }
 
-export function App({ initialRows, loadRows }: AppProps): ReactElement {
+type AppMode = "list" | "detail";
+
+interface DetailState {
+  row: SessionRow;
+  result: DetailLoadResult | null;
+}
+
+export function App({ initialRows, loadRows, loadDetail }: AppProps): ReactElement {
   const { exit } = useApp();
   const [rows, setRows] = useState<ReadonlyArray<SessionRow>>(initialRows);
   const [reloading, setReloading] = useState(false);
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [showAll, setShowAll] = useState(false);
+  const [sortMode, setSortMode] = useState<TuiSortMode>("time");
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
+  const [mode, setMode] = useState<AppMode>("list");
+  const [detail, setDetail] = useState<DetailState | null>(null);
+
+  const plan = useMemo(
+    () => buildRenderPlan(rows, { showAll, sortMode, collapsed }),
+    [rows, showAll, sortMode, collapsed],
+  );
+  const selection = useMemo(
+    () => resolveSelectionAfterRebuild(plan, selectedKey),
+    [plan, selectedKey],
+  );
+  const treePlan = useMemo(() => withTreePrefixes(plan), [plan]);
+  const activeCount = useMemo(() => filterActive(rows, false).length, [rows]);
 
   const handleReload = useCallback(async () => {
     if (reloading) return;
@@ -48,9 +83,65 @@ export function App({ initialRows, loadRows }: AppProps): ReactElement {
     }
   }, [loadRows, reloading]);
 
+  const handleOpenDetail = useCallback((row: SessionRow) => {
+    setMode("detail");
+    setDetail({ row, result: null });
+    void loadDetail(row)
+      .then((result) => {
+        setDetail((current) => current?.row.session_id === row.session_id ? { row, result } : current);
+      })
+      .catch((error) => {
+        setDetail((current) => current?.row.session_id === row.session_id
+          ? { row, result: unexpectedDetailError(error) }
+          : current);
+      });
+  }, [loadDetail]);
+
+  useEffect(() => {
+    if (selectedKey !== selection.selectedKey) {
+      setSelectedKey(selection.selectedKey);
+    }
+  }, [selectedKey, selection.selectedKey]);
+
   useInput((input, key) => {
-    if (input === "q" || key.ctrl && input === "c" || key.escape) {
+    if (input === "q" || key.ctrl && input === "c") {
       exit();
+      return;
+    }
+    if (key.escape) {
+      if (mode === "detail") {
+        setMode("list");
+        return;
+      }
+      exit();
+      return;
+    }
+    if (mode === "detail") {
+      return;
+    }
+    if (key.upArrow || key.downArrow) {
+      const nextIndex = nextSelectableIndex(plan, selection.index, key.downArrow ? 1 : -1);
+      const nextItem = nextIndex >= 0 ? plan[nextIndex] : undefined;
+      setSelectedKey(nextItem?.key ?? null);
+      return;
+    }
+    if (input === " " || key.return) {
+      const selectedItem = selection.index >= 0 ? plan[selection.index] : undefined;
+      if (selectedItem?.kind === "project" || selectedItem?.kind === "feature") {
+        setCollapsed((prev) => toggleCollapsed(prev, selectedItem.key));
+        setSelectedKey(selectedItem.key);
+      }
+      if (key.return && selectedItem?.kind === "session") {
+        handleOpenDetail(selectedItem.row);
+      }
+      return;
+    }
+    if (input === "a") {
+      setShowAll((current) => !current);
+      return;
+    }
+    if (input === "s") {
+      setSortMode((current) => current === "time" ? "status" : "time");
       return;
     }
     if (input === "r") {
@@ -58,51 +149,178 @@ export function App({ initialRows, loadRows }: AppProps): ReactElement {
     }
   });
 
-  const widths: ColumnWidths = computeColumnWidths(rows);
+  if (mode === "detail") {
+    return (
+      <Box flexDirection="column" padding={1} width="100%">
+        <Box borderStyle="round" flexDirection="column" paddingX={1} width="100%">
+          <Text bold>loaf detail</Text>
+          {renderDetail(detail)}
+        </Box>
+        <Box marginTop={1} paddingX={1}>
+          <Text dimColor>[Esc] back · [q] quit</Text>
+        </Box>
+      </Box>
+    );
+  }
 
   return (
-    <Box flexDirection="column" padding={1}>
-      <Box marginBottom={1}>
-        <Text bold>loaf sessions ({rows.length})</Text>
-        {reloading && <Text dimColor> · reloading…</Text>}
+    <Box flexDirection="column" padding={1} width="100%">
+      <Box borderStyle="round" flexDirection="column" paddingX={1} width="100%">
+        <Box>
+          <Text bold>{`loaf sessions (${activeCount} active / ${rows.length} total)`}</Text>
+          <Text dimColor>{` · sort: ${sortMode}`}</Text>
+          {reloading && <Text dimColor> · reloading…</Text>}
+        </Box>
+        {plan.length === 0 ? (
+          <Text dimColor>(no sessions found)</Text>
+        ) : (
+          treePlan.map((treeItem) => renderItem(treeItem, treeItem.item.key === selection.selectedKey))
+        )}
       </Box>
-      {rows.length === 0 ? (
-        <Text dimColor>(no sessions found)</Text>
-      ) : (
-        <>
-          <Box>
-            <Text bold>{padCell("LABEL", widths.label)}</Text>
-            <Text>  </Text>
-            <Text bold>{padCell("PHASE.SUB", widths.phase_sub)}</Text>
-            <Text>  </Text>
-            <Text bold>{padCell("ITER", widths.iter)}</Text>
-            <Text>  </Text>
-            <Text bold>STATUS</Text>
-          </Box>
-          {rows.map((row) => (
-            <Box key={row.session_id}>
-              <Text>{padCell(formatLabel(row, widths.label), widths.label)}</Text>
-              <Text>  </Text>
-              <Text>{padCell(formatPhaseSub(row), widths.phase_sub)}</Text>
-              <Text>  </Text>
-              <Text>{padCell(formatIteration(row), widths.iter)}</Text>
-              <Text>  </Text>
-              <Text>{formatStatus(row)}</Text>
-            </Box>
-          ))}
-        </>
-      )}
-      <Box marginTop={1}>
-        <Text dimColor>[q] quit · [r] refresh</Text>
+      <Box marginTop={1} paddingX={1}>
+        <Text dimColor>[↑/↓] move · [space] fold · [a] active/all · [s] sort · [r] refresh · [q] quit</Text>
       </Box>
     </Box>
   );
 }
 
-/** Right-pad a column cell with spaces. Truncation handled by
- *  formatLabel; PHASE.SUB / ITER / STATUS use computed widths so the
- *  raw content always fits (no truncation needed). */
-function padCell(text: string, width: number): string {
-  if (text.length >= width) return text;
-  return text + " ".repeat(width - text.length);
+function renderItem(treeItem: TuiTreeListItem, selected: boolean): ReactElement {
+  const { item, prefix } = treeItem;
+  const marker = selected ? ">" : " ";
+  switch (item.kind) {
+    case "project":
+      return (
+        <Box key={item.key}>
+          <Text inverse={selected}>{`${marker} ${caret(item.collapsed)} ${item.cwd} (${item.visible_session_count})`}</Text>
+        </Box>
+      );
+    case "feature":
+      return (
+        <Box key={item.key}>
+          <Text inverse={selected}>{`${marker} ${prefix}${caret(item.collapsed)} ${item.feature} (${item.visible_session_count})`}</Text>
+        </Box>
+      );
+    case "session":
+      return (
+        <Box key={item.key}>
+          <Text inverse={selected}>{`${marker} ${prefix}${item.row.sub_state} · iter ${formatIteration(item.row)} · ${formatStatusBadge(item.row)}`}</Text>
+        </Box>
+      );
+  }
+}
+
+function caret(collapsed: boolean): string {
+  return collapsed ? "▸" : "▾";
+}
+
+function renderDetail(detail: DetailState | null): ReactElement {
+  if (detail === null) {
+    return <Text dimColor>(no detail selected)</Text>;
+  }
+
+  if (detail.result === null) {
+    return (
+      <Box flexDirection="column">
+        <Text bold>{`detail: ${detail.row.feature}`}</Text>
+        <Text dimColor>loading…</Text>
+      </Box>
+    );
+  }
+
+  switch (detail.result.status) {
+    case "ready":
+      return renderReadyDetail(detail.result.vm);
+    case "missing":
+      return (
+        <Box flexDirection="column">
+          <Text bold>{`missing: ${detail.row.feature}`}</Text>
+          <Text>{detail.result.message}</Text>
+          {detail.result.fix !== null && <Text dimColor>{detail.result.fix}</Text>}
+        </Box>
+      );
+    case "stale":
+      return (
+        <Box flexDirection="column">
+          <Text bold>{`stale: ${detail.row.feature}`}</Text>
+          <Text>{detail.result.message}</Text>
+          {detail.result.fix !== null && <Text dimColor>{detail.result.fix}</Text>}
+        </Box>
+      );
+    case "error":
+      return (
+        <Box flexDirection="column">
+          <Text bold>{`error: ${detail.row.feature}`}</Text>
+          <Text>{detail.result.message}</Text>
+        </Box>
+      );
+  }
+}
+
+function renderReadyDetail(vm: DetailViewModel): ReactElement {
+  return (
+    <Box flexDirection="column">
+      <Text bold>{`feature: ${vm.feature}`}</Text>
+      <Text>{`session: ${vm.session_id_short}`}</Text>
+      <Text>{`label: ${vm.session_label ?? "n/a"}`}</Text>
+      <Text>{`workspace: ${vm.workspace}`}</Text>
+      <Text>{`ceremony: ${vm.ceremony_label}`}</Text>
+      <Text>{`phase: ${vm.sub_state}`}</Text>
+      <Text>{`iteration: ${vm.iteration}`}</Text>
+      <Text>{`complexity: ${vm.complexity_score}`}</Text>
+      <Text>{`based_on: spec ${vm.based_on.spec} / tasks ${vm.based_on.tasks}`}</Text>
+      <Text>{`created: ${vm.created_at_relative}`}</Text>
+      <Text>{`updated: ${vm.updated_at_relative}`}</Text>
+      <Text>{`spec_locked: ${String(vm.spec_locked)}`}</Text>
+      <Text>{`verify_accepted: ${String(vm.verify_accepted)}`}</Text>
+      <Text>{`spec_version: ${vm.spec_version}`}</Text>
+      <Text>{`tail_seq: ${vm.tail_seq}`}</Text>
+      <Box marginTop={1} flexDirection="column">
+        <Text bold>{`tasks (${vm.tasks.length})`}</Text>
+        {vm.tasks.length === 0
+          ? <Text dimColor>  (none)</Text>
+          : vm.tasks.map((task) => (
+            <Text key={task.id}>
+              {`  ${task.id} ${task.status} ${task.kind}${task.title === null ? "" : ` ${task.title}`} · steps ${task.step_summary}`}
+            </Text>
+          ))}
+      </Box>
+      <Box marginTop={1} flexDirection="column">
+        <Text bold>{`evidence (${vm.evidence.length})`}</Text>
+        {vm.evidence.length === 0
+          ? <Text dimColor>  (none)</Text>
+          : vm.evidence.map((evidence) => (
+            <Text key={evidence.id}>
+              {`  ${evidence.id} [${evidence.result_badge}] ${evidence.kind} iter ${evidence.iteration}${evidence.task_id === null ? "" : ` task ${evidence.task_id}`} · ${evidence.summary}`}
+            </Text>
+          ))}
+      </Box>
+      <Box marginTop={1} flexDirection="column">
+        <Text bold>{`open findings (${vm.open_findings.length})`}</Text>
+        {vm.open_findings.length === 0
+          ? <Text dimColor>  (none)</Text>
+          : vm.open_findings.map((finding) => (
+            <Text key={finding.id}>
+              {`  ${finding.id} ${finding.category}/${finding.action}${finding.target === null ? "" : ` target ${finding.target}`}${finding.reason ? ` · ${finding.reason}` : ""}${finding.summary ? ` · ${finding.summary}` : ""}`}
+            </Text>
+          ))}
+      </Box>
+      <Box marginTop={1} flexDirection="column">
+        <Text bold>{`pending (${vm.pending.length})`}</Text>
+        {vm.pending.length === 0
+          ? <Text dimColor>  (none)</Text>
+          : vm.pending.map((pending) => (
+            <Text key={pending.pending_id}>
+              {`  ${pending.pending_id} ${pending.kind} blocks=${pending.blocks}${pending.options.length === 0 ? "" : ` options=${pending.options.join(",")}`} · ${pending.question}`}
+            </Text>
+          ))}
+      </Box>
+    </Box>
+  );
+}
+
+function unexpectedDetailError(error: unknown): DetailLoadResult {
+  return {
+    status: "error",
+    message: error instanceof Error ? error.message : String(error),
+  };
 }
