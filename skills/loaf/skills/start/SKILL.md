@@ -1,0 +1,80 @@
+---
+name: start
+description: Start a new loaf feature lifecycle by running TRIAGE — score complexity, pick a ceremony preset, create the session with `loaf start`, then hand off to the next phase. This skill should be used when the user wants to begin a new feature, kick off or enter the loaf workflow, triage a new piece of work, or asks where to start on a loaf feature.
+user-invocable: true
+allowed-tools: ["Bash(loaf:*)", "Read"]
+---
+
+# /loaf:start — TRIAGE phase
+
+You drive **TRIAGE**: assess the work, agree on a ceremony level with the
+human, create the session, then hand the cursor to the next phase.
+
+You are the orchestrator; the kernel (`loaf-cli`) owns all state. Never write
+`.loaf/` directly — every change goes through a `loaf` command (ADR-0005:
+single typed journal, single writer). Pass `--feature <F>` on every command (a
+bare `--feature-dir` is rejected). `<F>` is the feature being started.
+
+## Steps
+
+1. **Check for an existing session (re-entry safe).**
+   `loaf status --feature <F> --format json`
+   - Exit 2 `FEATURE_NOT_FOUND` → no session yet; continue to step 2.
+   - Exit 0 with a `sub_state` → already started. Do **not** re-run `loaf
+     start`. Skip to **Handoff** — the kernel routes you to the real cursor.
+
+2. **Score the work (your judgment).** Rate complexity 0–100 across **files /
+   api / schema / concurrency / security**. The score only *suggests* a
+   ceremony; the human decides in step 3. Mapping:
+   [references/ceremony-presets.md](references/ceremony-presets.md).
+
+3. **Pick the ceremony (HUMAN decision point).** Present your suggested preset
+   with a one-line rationale and the four options — `quick` / `light` /
+   `standard` / `deep`, monotonic (each turns on the next phase). **Stop until
+   the human chooses.** Preset details: references/ceremony-presets.md.
+
+4. **Create the session.**
+   `loaf start <F> --ceremony <preset> [--label "<≥3 chars>"]`
+   Emits `session:started`, enters `TRIAGE.score`. `--ceremony` defaults to
+   `standard`.
+
+5. **Confirm the profile.** `loaf advance TRIAGE.confirm --feature <F>`
+   (`TRIAGE.score` → `TRIAGE.confirm` — the "accept or override profile"
+   checkpoint). Then hand off.
+
+## Handoff — always ask the kernel
+
+Never hardcode the next step. Run `loaf next --feature <F> --format json` and
+obey `next_action`:
+
+- `terminal: true` → lifecycle done; report and stop.
+- `blocked: true` (`gate decide` / `pending resolve` / `profile escalate`) → a
+  human decision: surface `next_action.command` + `reason`, let the human
+  choose, then run it. Never auto-run a blocking action.
+- `owner_verb: deliver` → the terminal close; run `loaf deliver` (human-owned)
+  and report `DONE`.
+- `target` is in **another phase** (not `deliver`) → hand off to that phase's
+  skill; it runs the boundary step on entry. Map target prefix → skill:
+  `TRIAGE`→`/loaf:start`, `SPEC`→`/loaf:spec`, `EXECUTE`→`/loaf:execute`,
+  `VERIFY`→`/loaf:verify`, `SETTLE`→`/loaf:settle`.
+- otherwise (`advance` within your phase, or `tasks next`) → run
+  `next_action.command`, then re-run `loaf next` and repeat.
+
+From `TRIAGE.confirm`: `quick` → `/loaf:execute`; `light` / `standard` / `deep`
+→ `/loaf:spec`.
+
+## Skeleton invariants (every phase skill carries these)
+
+- **Single writer** — mutate only via `loaf`; never touch `.loaf/`, `spec.md`,
+  or snapshots by hand.
+- **Re-entry safe** — read `loaf status` first; never assume you start at the
+  phase's first sub-state.
+- **Routing is the kernel's** — end the phase with `loaf next` and obey it;
+  don't re-derive the next phase yourself.
+- **Pause points are explicit** — stop and ask at each `*.confirm` / gate /
+  decision boundary rather than guessing.
+
+## References
+
+- [references/ceremony-presets.md](references/ceremony-presets.md) — six-flag
+  preset expansion + the score → preset mapping you apply in step 2.
