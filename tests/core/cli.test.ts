@@ -907,6 +907,48 @@ async function seedFeatureAtVerifyAccept(
   }
 }
 
+// Stops the lifecycle walk at VERIFY.run (vs seedFeatureAtVerifyAccept which
+// walks to VERIFY.accept). Used to exercise `loaf next` VERIFY lane routing
+// against real spec.md frontmatter through the CLI. Tasks planted by
+// seedFeatureAtSpecDesign are abandoned at EXECUTE.work (F-016), so VERIFY
+// lane applicability is driven purely by frontmatter unless the caller
+// rewrites spec.md.
+async function seedFeatureAtVerifyRun(
+  dir: string,
+  ceremony: Ceremony = STANDARD_CEREMONY,
+): Promise<void> {
+  await seedFeatureAtSpecDesign(dir, ceremony);
+  const { loadSession } = await import("../../src/core/cli-runtime.js");
+  let { snapshot, tail_seq, entries, meta } = await loadSession(dir);
+  let tailSeq = tail_seq;
+  for (const [from, to] of [
+    ["SPEC.design", "EXECUTE.plan"],
+    ["EXECUTE.plan", "EXECUTE.work"],
+    ["EXECUTE.work", "EXECUTE.done"],
+    ["EXECUTE.done", "VERIFY.plan"],
+    ["VERIFY.plan", "VERIFY.run"],
+  ] as Array<[string, string]>) {
+    const r = await mutateRaw(
+      {
+        at: new Date(2026, 4, 15, 11, 0, tailSeq + 1).toISOString(),
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "event:phase_advanced",
+        payload: { from: from as any, to: to as any },
+      },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
+    );
+    if (!r.ok) throw new Error(`seed-verify-run walk ${from}->${to} failed: ${r.message}`);
+    snapshot = r.snapshot;
+    entries = entries.concat(r.entry);
+    meta = r.meta;
+    tailSeq++;
+    if (to === "EXECUTE.work") {
+      ({ snapshot, tailSeq, entries, meta } = await seedAbandonPlantedTasks(dir, snapshot, tailSeq, entries, meta));
+    }
+  }
+}
+
 describe("loaf gate decide verify-accept — Slice 1.C sub-cycle 6 (MVP)", () => {
   test("approve happy path: single-entry batch, flag flipped, cursor stays at VERIFY.accept", async () => {
     const dir = await tmpFeatureDir();
@@ -4375,6 +4417,74 @@ needs_clarification: []
     ]);
     expect(result.exit).toBe(2);
     expect(JSON.parse(result.stderr).code).toBe("FEATURE_NOT_FOUND");
+  });
+
+  // Integration coverage for the frontmatter-derived VERIFY lane skip path
+  // (codex non-blocking residual): exercises the full CLI wiring
+  // readSpecFrontmatter → deriveVerifyApplicability → verifyNextTarget end to
+  // end, complementing the pure-function lane tests in next-action.test.ts.
+  test("VERIFY.run with no applicable lanes (vacuous frontmatter) recommends advance to VERIFY.accept and round-trips", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtVerifyRun(dir);
+    // Default seed spec.md: one acceptance_na REQ, no scenarios, no visual,
+    // planted tasks abandoned → applicable lanes = {}. verifyNextTarget skips
+    // run/review/acceptance/visual straight to VERIFY.accept.
+    const result = await runCli([
+      "next", "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
+    ]);
+    expect(result.exit).toBe(0);
+    const action = expectOnlyAction(parseNext(result.stdout));
+    expect(action).toMatchObject({ owner_verb: "advance", target: "VERIFY.accept", blocking: false });
+    await expectRecommendedCommandAccepted(dir, action);
+  });
+
+  test("VERIFY.run derives lane applicability from spec.md and skips inapplicable lanes (e2e scenario → acceptance)", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtVerifyRun(dir);
+    // Rewrite frontmatter: REQ stays acceptance_na (no review lane), add one
+    // e2e scenario (→ acceptance lane), no visual contracts (no visual lane).
+    // applicable = {acceptance} → verifyNextTarget skips VERIFY.review and
+    // lands on VERIFY.acceptance.
+    await fsP.writeFile(
+      path.join(dir, "spec.md"),
+      `---
+schema_version: 2
+spec_version: 1
+feature:
+  id: F-001
+  name: OAuth token refresh
+intent: users should not perceive auth recovery flows in flight
+adr_refs: []
+requirements:
+  - id: REQ-AUTH-001
+    type: ubiquitous
+    response: the system shall do something measurable here
+    acceptance_na: true
+    acceptance_na_reason: subjective UX validated via manual testing scope
+scenarios:
+  - id: SCEN-AUTH-001
+    name: end to end refresh flow
+    tag: e2e
+    given:
+      - a valid session exists
+    when:
+      - the token has expired
+    then:
+      - the user stays signed in
+needs_clarification: []
+---
+
+## Why
+prose body here
+`,
+    );
+    const result = await runCli([
+      "next", "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
+    ]);
+    expect(result.exit).toBe(0);
+    const action = expectOnlyAction(parseNext(result.stdout));
+    expect(action).toMatchObject({ owner_verb: "advance", target: "VERIFY.acceptance", blocking: false });
+    await expectRecommendedCommandAccepted(dir, action);
   });
 });
 
