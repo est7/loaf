@@ -44,12 +44,16 @@ bare `--feature-dir` is rejected). `<F>` is the feature being started.
 
 ## Done — report & stop
 
-Run `loaf next --feature <F> --format json` and **report** its `next_action`
-(command + `reason`), `blocked`, or `terminal` to the user as this phase's
-result — then **stop**. Do not act on it: do not invoke another phase skill, do
-not `deliver`, do not run a blocking action. Routing and the next hop belong to
-`/loaf:run` (or the user's next explicit command); if `/loaf:run` invoked you,
-returning here hands control back to its drive loop.
+Run `loaf next --feature <F> --format json`, **report** its result, then
+**stop**. Do not act on it: do not invoke another phase skill, do not
+`deliver`, do not run a blocking action — routing and the next hop belong to
+`/loaf:run` (or the user's next explicit command).
+
+Report enough that the user can continue by hand: (1) `next_action.command` +
+`reason` (or `blocked` / `terminal`), and (2) the next phase's skill — map
+`next_action.target`'s phase to its skill (`TRIAGE`→`/loaf:start`; `SPEC` /
+`EXECUTE` / `VERIFY` / `SETTLE` are same-named; `DONE` = finished). Or suggest
+`/loaf:run` to drive the rest automatically.
 
 ## Skeleton invariants (every phase skill carries these)
 

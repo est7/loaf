@@ -2,7 +2,7 @@
 name: run
 description: Drive a loaf feature end-to-end from one entry point — run TRIAGE, then walk every phase (SPEC → EXECUTE → VERIFY → SETTLE) to DONE by obeying `loaf next`, pausing for a human `go` at each non-gated phase boundary and for approval at every gate. This skill should be used when the user wants to run or drive a whole feature lifecycle from a single command, take a requirement "all the way to done", or orchestrate the full loaf workflow rather than one phase at a time.
 user-invocable: true
-allowed-tools: ["Bash(loaf:*)", "Read", "Skill"]
+allowed-tools: ["Bash(loaf:*)", "Read"]
 ---
 
 # /loaf:run — end-to-end lifecycle driver
@@ -18,7 +18,8 @@ You are the orchestrator; the kernel (`loaf-cli`) owns all state. Never write
 
 ## Step 1 — Bootstrap
 
-Invoke **`/loaf:start`** (Skill tool). It is re-entry safe: for a new `<F>` it
+Invoke **`/loaf:start`** (follow its instructions inline — skill chaining is
+instruction-level, not a tool call). It is re-entry safe: for a new `<F>` it
 scores complexity, stops for the human to confirm a ceremony, creates the
 session, and runs TRIAGE; for an existing one it routes from the real cursor.
 When it returns, control is back here.
@@ -58,7 +59,7 @@ Whether you ask first depends on the phase you just finished:
 - **The phase you just ran has no terminal gate** (`/loaf:start`/TRIAGE,
   `/loaf:execute`/EXECUTE) → this is a non-gated boundary. Report
   `<phase> done. Next: <Phase> (/loaf:X). Reply go / continue.` and **stop**.
-  When the human replies `go` / `continue`, invoke the phase skill (Skill tool).
+  When the human replies `go` / `continue`, invoke the phase skill (`/loaf:X`).
 
 Net effect: every boundary needs human input — a gate approval at gated
 boundaries (`SPEC`→`EXECUTE`, `VERIFY`→…), a `go` at non-gated ones
