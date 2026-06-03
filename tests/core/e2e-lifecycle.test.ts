@@ -319,6 +319,160 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     expect(delivered.sub_state ?? delivered.state?.sub_state).toBe("DONE.delivered");
   });
 
+  // `loaf next` drives every standard-lifecycle transition (read-side ↔
+  // write-side parity). SCEN-E2E-001 hard-codes the transition sequence; this
+  // test instead asks `loaf next` before each transition and runs *exactly*
+  // its recommendation, proving the /loaf:* skill loop ("ask the kernel, obey
+  // it") reaches DONE on a fully-populated spec. Same authoring inputs as
+  // SCEN-E2E-001 (proven to pass both gates); VERIFY lanes are followed
+  // dynamically since `loaf next` skips inapplicable lanes.
+  test("`loaf next` drives every standard-lifecycle transition to DONE", async () => {
+    const dir = await tmpFeatureDir();
+    const F = "e2e-next-std";
+    const ENV = { LOAF_USER: "e2e@test.invalid" };
+    const { step, writeInput } = makeCli(dir, ENV);
+
+    // Assert `loaf next` recommends exactly `command` (+ optional blocked flag).
+    const expectNext = async (
+      label: string,
+      command: string,
+      blocked?: boolean,
+    ): Promise<any> => {
+      const out = await step(`next @ ${label}`, ["next", "--feature", F]);
+      expect(out.next_action?.command, `next @ ${label}`).toBe(command);
+      if (blocked !== undefined) expect(out.blocked).toBe(blocked);
+      return out;
+    };
+
+    // ── TRIAGE ──────────────────────────────────────────────────────────
+    await step("start", ["start", F, "--ceremony", "standard"]);
+    await expectNext("TRIAGE.score", "loaf advance TRIAGE.confirm", false);
+    await step("advance TRIAGE.confirm", ["advance", "TRIAGE.confirm", "--feature", F]);
+    await expectNext("TRIAGE.confirm", "loaf advance SPEC.proposal", false);
+    await step("advance SPEC.proposal", ["advance", "SPEC.proposal", "--feature", F]);
+
+    // ── SPEC content, then next-driven in-phase advances ────────────────
+    await step("spec init", ["spec", "init", "--feature", F]);
+    const submitInput = await writeInput("submit.json", {
+      feature: { id: "F-001", name: "E2E next-driven lifecycle" },
+      intent: "prove loaf next drives the worker lifecycle start to deliver",
+      adr_refs: [],
+      needs_clarification: [],
+    });
+    await step("spec submit", ["spec", "submit", "--input", submitInput, "--feature", F]);
+    const reqInput = await writeInput("req.json", {
+      id_namespace: "REQ-CORE",
+      type: "ubiquitous",
+      response: "the system shall complete the next-driven lifecycle smoke",
+      acceptance_na: true,
+      acceptance_na_reason: "exercised by this end-to-end lifecycle integration test",
+    });
+    await step("spec add-req", ["spec", "add-req", "--input", reqInput, "--feature", F]);
+    await expectNext("SPEC.proposal", "loaf advance SPEC.spec");
+    await step("advance SPEC.spec", ["advance", "SPEC.spec", "--feature", F]);
+    await expectNext("SPEC.spec", "loaf advance SPEC.plan");
+    await step("advance SPEC.plan", ["advance", "SPEC.plan", "--feature", F]);
+    await expectNext("SPEC.plan", "loaf advance SPEC.design");
+    await step("advance SPEC.design", ["advance", "SPEC.design", "--feature", F]);
+
+    // ── tasks plan + spec-lock gate (blocked recommendation) ────────────
+    const st = await step("status pre-tasks", ["status", "--feature", F]);
+    const specVersion: number = st.state?.spec_version ?? st.spec_version;
+    const tasksFile = await writeInput("tasks.json", {
+      based_on: { spec: specVersion },
+      tasks: [
+        {
+          id: "T-001",
+          kind: "behavioral",
+          drives: ["REQ-CORE-001"],
+          tests: ["e2e.nextSmoke"],
+          status: "pending",
+          depends_on: [],
+          labels: [],
+          execution: {
+            red: { applicability: "must", status: "pending", evidence_refs: [] },
+            implement: { applicability: "must", status: "pending", evidence_refs: [] },
+            refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+          },
+        },
+      ],
+    });
+    await step("tasks submit", ["tasks", "submit", "--input", tasksFile, "--feature", F]);
+    await expectNext(
+      "SPEC.design",
+      'loaf gate decide spec-lock --approve|--reject --reason "<reason>"',
+      true,
+    );
+    await step("gate spec-lock", [
+      "gate", "decide", "spec-lock", "--approve",
+      "--reason", "all spec-lock checks pass for the next-driven smoke", "--feature", F,
+    ]);
+
+    // ── EXECUTE (spec-lock co-advanced the cursor to EXECUTE.plan) ──────
+    await expectNext("EXECUTE.plan", "loaf advance EXECUTE.work");
+    await step("advance EXECUTE.work", ["advance", "EXECUTE.work", "--feature", F]);
+    await expectNext("EXECUTE.work", "loaf tasks next", false);
+    await step("tasks claim T-001", ["tasks", "claim", "T-001", "--feature", F]);
+    for (const stp of ["red", "implement"]) {
+      await step(`step start ${stp}`, ["tasks", "step", "start", "--task", "T-001", "--step", stp, "--feature", F]);
+      await step(`step done ${stp}`, ["tasks", "step", "done", "--task", "T-001", "--step", stp, "--feature", F]);
+    }
+    // All tasks terminal — `loaf next` at EXECUTE.work always says `tasks next`,
+    // so the skill (not the kernel) advances once its work loop drains. Mirror
+    // that here, then re-confirm the kernel routes EXECUTE.done forward.
+    await step("advance EXECUTE.done", ["advance", "EXECUTE.done", "--feature", F]);
+    await expectNext("EXECUTE.done", "loaf advance VERIFY.plan");
+    await step("advance VERIFY.plan", ["advance", "VERIFY.plan", "--feature", F]);
+
+    // ── VERIFY: follow `loaf next` through whichever lanes apply, to gate ─
+    let reachedGate = false;
+    for (let guard = 0; guard < 8 && !reachedGate; guard++) {
+      const n = await step("next @ verify", ["next", "--feature", F]);
+      if (n.blocked) {
+        expect(n.next_action.command).toContain("gate decide verify-accept");
+        reachedGate = true;
+        break;
+      }
+      expect(n.next_action.owner_verb).toBe("advance");
+      expect(n.next_action.target).toMatch(/^VERIFY\./);
+      await step(`advance ${n.next_action.target}`, ["advance", n.next_action.target, "--feature", F]);
+    }
+    expect(reachedGate).toBe(true);
+
+    // Evidence for the verify-accept gate (task-summary → done-task + run lane;
+    // verify-review → review lane); same set SCEN-E2E-001 proves sufficient.
+    const tsEvidence = await writeInput("ev-ts.json", {
+      kind: "task-summary", iteration: 1, actor: "cli:loaf", result: "passed",
+      summary: "unit tests pass for T-001", task_id: "T-001", covers: ["T-001"],
+      cmd: "bun test", exit: 0,
+    });
+    await step("evidence task-summary", ["evidence", "add", "--input", tsEvidence, "--feature", F]);
+    const vrEvidence = await writeInput("ev-vr.json", {
+      kind: "verify-review", iteration: 1, actor: "cli:loaf", result: "approved",
+      summary: "spec-fit review passed; no anti-pattern", check: "review", covers: ["REQ-CORE-001"],
+    });
+    await step("evidence verify-review", ["evidence", "add", "--input", vrEvidence, "--feature", F]);
+
+    // ── verify-accept gate → deliver → DONE ─────────────────────────────
+    await expectNext(
+      "VERIFY.accept",
+      'loaf gate decide verify-accept --approve|--reject --reason "<reason>"',
+      true,
+    );
+    await step("gate verify-accept", [
+      "gate", "decide", "verify-accept", "--approve",
+      "--reason", "all verify-accept checks pass for the next-driven smoke", "--feature", F,
+    ]);
+    await expectNext("VERIFY.accept post-approve", "loaf deliver", false);
+    const delivered = await step("deliver", ["deliver", "--feature", F]);
+    expect(delivered.sub_state ?? delivered.state?.sub_state).toBe("DONE.delivered");
+
+    // Terminal: `loaf next` reports done and omits next_action.
+    const term = await step("next @ DONE", ["next", "--feature", F]);
+    expect(term.terminal).toBe(true);
+    expect(term.next_action).toBeUndefined();
+  });
+
   // SCEN-E2E-002 — see docs/e2e-scenarios.md (absorbs SCEN-010/017/018/029)
   test("SCEN-E2E-002 — standard structural + DAG built via tasks add", async () => {
     const dir = await tmpFeatureDir();
@@ -711,12 +865,39 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     expect(bypass.exit).toBe(2);
     expect(bypass.stderr + bypass.stdout).toContain("DELIVER_SETTLE_PHASE_BYPASS");
 
-    // ── SETTLE ──────────────────────────────────────────────────────────
+    // ── SETTLE — `loaf next` routes accept → settle → lessons → deliver ──
+    // Deep: verify-accept is approved but settle_phase=true, so `loaf next`
+    // recommends `loaf settle` (not deliver) — the read-side complement of the
+    // DELIVER_SETTLE_PHASE_BYPASS rejection above. Closes the /loaf:settle
+    // skill routing gap.
+    {
+      const n = await step("next @ VERIFY.accept", ["next", "--feature", F]);
+      expect(n.next_action?.command).toBe("loaf settle");
+      expect(n.blocked).toBe(false);
+    }
     await step("settle", ["settle", "--feature", F]);
+    {
+      const n = await step("next @ SETTLE.reconcile", ["next", "--feature", F]);
+      expect(n.next_action?.command).toBe("loaf advance SETTLE.lessons");
+    }
     await step("advance SETTLE.lessons", ["advance", "SETTLE.lessons", "--feature", F]);
+    {
+      const n = await step("next @ SETTLE.lessons", ["next", "--feature", F]);
+      expect(n.next_action?.command).toBe("loaf deliver");
+    }
 
+    // NOTE: this case delivers from SETTLE.lessons WITHOUT `loaf lessons add`.
+    // That is intentional — `lessons_required: must` is orchestration-only, not
+    // a kernel gate: the deliver guard (preflight.ts SETTLE.lessons branch) only
+    // checks verify_accepted, and no reducer/gate reads lessons_required at
+    // runtime. The deep-ceremony "must add a lesson" obligation is prompted by
+    // the loaf-skill settle SKILL.md, not enforced here. This block asserts
+    // routing only; do NOT read it as covering the lesson obligation.
     const delivered = await step("deliver", ["deliver", "--feature", F]);
     expect(delivered.sub_state ?? delivered.state?.sub_state).toBe("DONE.delivered");
+    const term = await step("next @ DONE", ["next", "--feature", F]);
+    expect(term.terminal).toBe(true);
+    expect(term.next_action).toBeUndefined();
   });
 
   // SCEN-E2E-024 — see docs/e2e-scenarios.md
