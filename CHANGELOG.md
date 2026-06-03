@@ -5,6 +5,43 @@ All notable changes to `loaf-cli` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] — 2026-06-03
+
+Adds `loaf next`, the read-side dual of the transition kernel: given the
+current cursor, ceremony, pending head, and VERIFY lane applicability it
+computes the one determined next owner command. Read-only, deterministic, and
+not an advisory layer — routing is the protocol state machine, not a skill
+concern.
+
+### Added
+
+- **`loaf next`** — computes the next owner command (`advance` / `deliver` /
+  `settle` / `gate decide` / `tasks next` / `pending resolve` /
+  `profile escalate`) from projections (+ `spec.md` frontmatter for VERIFY.*).
+  Read-only (exit 0 normal/blocked/terminal, exit 2 errors; `--dry-run`
+  rejected); `blocked=true` only for gate/pending/human-input; terminal states
+  omit `next_action`. Forward-route ownership is single-source in
+  `reducer/transition.ts` (`transitionOwnerFor` + `buildGateDecideAction` +
+  `gateNameForCursor`); `next-action.ts` composes pending precedence + VERIFY
+  lane selection. Public contract: `NextOutput` / `NextAction` in
+  `docs/schemas.ts` §18b. §10.8 command-table row added.
+
+### Fixed
+
+- **`loaf next` pending-resolve recommendation** no longer emits an illegal
+  positional id. The real `pending resolve` is strict-FIFO with no `--id`, so
+  the prior `loaf pending resolve <PEND-id> --answer …` was rejected by the CLI
+  (commander.excessArguments, exit 2). Now emits
+  `loaf pending resolve --answer "<answer>"`.
+
+### Verification
+
+- `bun run typecheck` clean; `bun run test` (Vitest) full suite green —
+  `tests/core` 65 files / 1360 tests. New `tests/core/next-action.test.ts`
+  (lane-routing kernel) + `loaf next` CLI block round-trips all 7 owner verbs
+  and the frontmatter-derived VERIFY lane skips.
+- `bun run build` regenerated `dist/cli.mjs`; `dist/cli.mjs --version` → `0.3.0`.
+
 ## [0.2.0] — 2026-06-02
 
 Two feature surfaces land together: a master-detail `loaf tui` and a CLI-wide

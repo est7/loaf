@@ -15,7 +15,7 @@ import picomatch from "picomatch";
 import { execFileSync, spawn } from "node:child_process";
 import { O_APPEND, O_CREAT, O_WRONLY } from "node:constants";
 //#region package.json
-var version = "0.2.0";
+var version = "0.3.0";
 //#endregion
 //#region src/core/crash-log.ts
 /** Sentinel code stamped into the JSON envelope and (when
@@ -591,6 +591,7 @@ var en_default = {
 	help: {
 		"start": "Begin a new feature session in .loaf/<feature>/",
 		"status": "Print current state.json + artifact health summary",
+		"next": "Compute the next owner command for the current session",
 		"advance": "Run next transition + diff guard (git status + write_paths AND-merge)",
 		"resume": "Resume session; --fresh prints minimal context pack for next iteration",
 		"handoff": "Write resume-pack.json for context overflow handoff",
@@ -1117,6 +1118,7 @@ var zh_default = {
 	help: {
 		"start": "在 .loaf/<feature>/ 开启新 feature session",
 		"status": "打印当前 state.json + artifact 健康摘要",
+		"next": "计算当前 session 的下一条 owner command",
 		"advance": "执行下一 transition + diff-guard(git status 全口径 ∩ write_paths)",
 		"resume": "恢复 session;--fresh 输出本轮最小 context pack",
 		"handoff": "写 resume-pack.json,context overflow 接力",
@@ -4825,6 +4827,441 @@ async function evaluateVerifyAcceptDiagnostic(snapshot, featureDir) {
 		checks: evaluateAllChecks(snapshot, read.frontmatter)
 	};
 }
+//#endregion
+//#region src/core/reducer/transition.ts
+const LEGAL_TRANSITIONS = {
+	"TRIAGE.score": ["TRIAGE.confirm"],
+	"TRIAGE.confirm": ["SPEC.proposal", "EXECUTE.plan"],
+	"SPEC.proposal": ["SPEC.spec"],
+	"SPEC.spec": ["SPEC.plan"],
+	"SPEC.plan": ["SPEC.design"],
+	"SPEC.design": ["EXECUTE.plan"],
+	"EXECUTE.plan": ["EXECUTE.work"],
+	"EXECUTE.work": ["EXECUTE.done"],
+	"EXECUTE.done": ["VERIFY.plan"],
+	"VERIFY.plan": ["VERIFY.run"],
+	"VERIFY.run": [
+		"VERIFY.review",
+		"VERIFY.acceptance",
+		"VERIFY.visual",
+		"VERIFY.accept"
+	],
+	"VERIFY.review": [
+		"VERIFY.acceptance",
+		"VERIFY.visual",
+		"VERIFY.accept"
+	],
+	"VERIFY.acceptance": ["VERIFY.visual", "VERIFY.accept"],
+	"VERIFY.visual": ["VERIFY.accept"],
+	"VERIFY.accept": ["SETTLE.reconcile"],
+	"SETTLE.reconcile": ["SETTLE.lessons"],
+	"SETTLE.lessons": [],
+	"DONE.delivered": [],
+	"DONE.archived": [],
+	"DONE.abandoned": []
+};
+function gateNameForCursor(subState) {
+	switch (subState) {
+		case "SPEC.design": return "spec-lock";
+		case "VERIFY.accept": return "verify-accept";
+		default: return null;
+	}
+}
+function buildGateDecideAction(gate) {
+	return {
+		command: `loaf gate decide ${gate} --approve|--reject --reason "<reason>"`,
+		owner_verb: "gate decide",
+		target: gate,
+		blocking: true,
+		reason: gate === "spec-lock" ? "SPEC_LOCK_GATE_DECISION_REQUIRED" : "VERIFY_ACCEPT_GATE_DECISION_REQUIRED"
+	};
+}
+function nextLegalTargets(prev, ceremony, verifyAccepted = false) {
+	return (LEGAL_TRANSITIONS[prev] ?? []).filter((target) => validateTransition(prev, target, {
+		ceremony,
+		actor: "cli:loaf",
+		verify_accepted: verifyAccepted
+	}).ok);
+}
+function transitionOwnerFor(input) {
+	const { sub_state, ceremony, spec_locked, verify_accepted, verify_next_target } = input;
+	const gate = gateNameForCursor(sub_state);
+	if (gate === "spec-lock" && !spec_locked) return buildGateDecideAction(gate);
+	if (sub_state === "VERIFY.accept") {
+		if (gate !== null && !verify_accepted) return buildGateDecideAction(gate);
+		if (ceremony.settle_phase) return {
+			command: "loaf settle",
+			owner_verb: "settle",
+			target: "SETTLE.reconcile",
+			blocking: false,
+			reason: "VERIFY_ACCEPTED_NEEDS_SETTLE"
+		};
+		return {
+			command: "loaf deliver",
+			owner_verb: "deliver",
+			target: "DONE.delivered",
+			blocking: false,
+			reason: "VERIFY_ACCEPTED_READY_TO_DELIVER"
+		};
+	}
+	if (sub_state === "EXECUTE.work") return {
+		command: "loaf tasks next",
+		owner_verb: "tasks next",
+		target: "task-level",
+		blocking: false,
+		reason: "EXECUTE_WORK_TASK_ROUTING"
+	};
+	if (sub_state === "EXECUTE.done" && !ceremony.verify_phase) return {
+		command: "loaf deliver",
+		owner_verb: "deliver",
+		target: "DONE.delivered",
+		blocking: false,
+		reason: "VERIFY_PHASE_DISABLED_READY_TO_DELIVER"
+	};
+	if (sub_state === "SETTLE.lessons") return {
+		command: "loaf deliver",
+		owner_verb: "deliver",
+		target: "DONE.delivered",
+		blocking: false,
+		reason: "SETTLE_COMPLETE_READY_TO_DELIVER"
+	};
+	if (sub_state.startsWith("DONE.")) return null;
+	const targets = nextLegalTargets(sub_state, ceremony, verify_accepted);
+	const target = verify_next_target !== void 0 && targets.includes(verify_next_target) ? verify_next_target : targets[0];
+	if (target === void 0) throw new Error(`No legal next action for non-terminal sub_state=${sub_state}`);
+	return {
+		command: `loaf advance ${target}`,
+		owner_verb: "advance",
+		target,
+		blocking: false,
+		reason: "ADVANCE_TO_NEXT_SUB_STATE"
+	};
+}
+const BACK_EDGE_FROM = {
+	"amend-spec": new Set([
+		"EXECUTE.plan",
+		"EXECUTE.work",
+		"EXECUTE.done",
+		"VERIFY.plan",
+		"VERIFY.run",
+		"VERIFY.review",
+		"VERIFY.acceptance",
+		"VERIFY.visual",
+		"VERIFY.accept"
+	]),
+	"amend-tasks": new Set([
+		"EXECUTE.work",
+		"EXECUTE.done",
+		"VERIFY.plan",
+		"VERIFY.run",
+		"VERIFY.review",
+		"VERIFY.acceptance",
+		"VERIFY.visual",
+		"VERIFY.accept"
+	]),
+	"fix-impl": new Set([
+		"EXECUTE.work",
+		"EXECUTE.done",
+		"VERIFY.plan",
+		"VERIFY.run",
+		"VERIFY.review",
+		"VERIFY.acceptance",
+		"VERIFY.visual",
+		"VERIFY.accept"
+	]),
+	"fix-test": new Set([
+		"EXECUTE.work",
+		"EXECUTE.done",
+		"VERIFY.plan",
+		"VERIFY.run",
+		"VERIFY.review",
+		"VERIFY.acceptance",
+		"VERIFY.visual",
+		"VERIFY.accept"
+	])
+};
+function validateTransition(prev, target, ctx) {
+	if (ctx.back_edge !== void 0) {
+		if (ctx.back_edge.action === "amend-spec") {
+			if (target !== "SPEC.spec") return {
+				ok: false,
+				code: "TRANSITION_ILLEGAL",
+				message: `back_edge action=amend-spec requires target=SPEC.spec, got ${target}`,
+				detail: {
+					from: prev,
+					to: target,
+					back_edge_action: ctx.back_edge.action,
+					expected_target: "SPEC.spec",
+					reason: "back_edge_target_mismatch"
+				}
+			};
+			const allowedFrom = BACK_EDGE_FROM["amend-spec"];
+			if (!allowedFrom.has(prev)) return {
+				ok: false,
+				code: "TRANSITION_ILLEGAL",
+				message: `back_edge action=amend-spec is not legal from ${prev}; allowed from EXECUTE.* + VERIFY.*`,
+				detail: {
+					from: prev,
+					to: target,
+					back_edge_action: ctx.back_edge.action,
+					allowed_from: [...allowedFrom],
+					reason: "back_edge_from_not_allowed"
+				}
+			};
+			return { ok: true };
+		}
+		if (ctx.back_edge.action === "amend-tasks") {
+			if (target !== "EXECUTE.work") return {
+				ok: false,
+				code: "TRANSITION_ILLEGAL",
+				message: `back_edge action=amend-tasks requires target=EXECUTE.work, got ${target}`,
+				detail: {
+					from: prev,
+					to: target,
+					back_edge_action: ctx.back_edge.action,
+					expected_target: "EXECUTE.work",
+					reason: "back_edge_target_mismatch"
+				}
+			};
+			const allowedFrom = BACK_EDGE_FROM["amend-tasks"];
+			if (!allowedFrom.has(prev)) return {
+				ok: false,
+				code: "TRANSITION_ILLEGAL",
+				message: `back_edge action=amend-tasks is not legal from ${prev}; allowed from EXECUTE.work / EXECUTE.done + VERIFY.*`,
+				detail: {
+					from: prev,
+					to: target,
+					back_edge_action: ctx.back_edge.action,
+					allowed_from: [...allowedFrom],
+					reason: "back_edge_from_not_allowed"
+				}
+			};
+			return { ok: true };
+		}
+		if (ctx.back_edge.action === "fix-impl") {
+			if (target !== "EXECUTE.work") return {
+				ok: false,
+				code: "TRANSITION_ILLEGAL",
+				message: `back_edge action=fix-impl requires target=EXECUTE.work, got ${target}`,
+				detail: {
+					from: prev,
+					to: target,
+					back_edge_action: ctx.back_edge.action,
+					expected_target: "EXECUTE.work",
+					reason: "back_edge_target_mismatch"
+				}
+			};
+			const allowedFrom = BACK_EDGE_FROM["fix-impl"];
+			if (!allowedFrom.has(prev)) return {
+				ok: false,
+				code: "TRANSITION_ILLEGAL",
+				message: `back_edge action=fix-impl is not legal from ${prev}; allowed from EXECUTE.work / EXECUTE.done + VERIFY.*`,
+				detail: {
+					from: prev,
+					to: target,
+					back_edge_action: ctx.back_edge.action,
+					allowed_from: [...allowedFrom],
+					reason: "back_edge_from_not_allowed"
+				}
+			};
+			return { ok: true };
+		}
+		if (ctx.back_edge.action === "fix-test") {
+			if (target !== "EXECUTE.work") return {
+				ok: false,
+				code: "TRANSITION_ILLEGAL",
+				message: `back_edge action=fix-test requires target=EXECUTE.work, got ${target}`,
+				detail: {
+					from: prev,
+					to: target,
+					back_edge_action: ctx.back_edge.action,
+					expected_target: "EXECUTE.work",
+					reason: "back_edge_target_mismatch"
+				}
+			};
+			const allowedFrom = BACK_EDGE_FROM["fix-test"];
+			if (!allowedFrom.has(prev)) return {
+				ok: false,
+				code: "TRANSITION_ILLEGAL",
+				message: `back_edge action=fix-test is not legal from ${prev}; allowed from EXECUTE.work / EXECUTE.done + VERIFY.*`,
+				detail: {
+					from: prev,
+					to: target,
+					back_edge_action: ctx.back_edge.action,
+					allowed_from: [...allowedFrom],
+					reason: "back_edge_from_not_allowed"
+				}
+			};
+			return { ok: true };
+		}
+		return {
+			ok: false,
+			code: "TRANSITION_ILLEGAL",
+			message: `unknown back_edge.action ${ctx.back_edge.action}`,
+			detail: {
+				back_edge: ctx.back_edge,
+				reason: "back_edge_action_unknown"
+			}
+		};
+	}
+	const allowed = LEGAL_TRANSITIONS[prev] ?? [];
+	if (!allowed.includes(target)) return {
+		ok: false,
+		code: "TRANSITION_ILLEGAL",
+		message: `cannot transition ${prev} → ${target}`,
+		detail: {
+			from: prev,
+			to: target,
+			allowed_forward: [...allowed]
+		}
+	};
+	if (prev === "TRIAGE.confirm") {
+		const specPhase = ctx.ceremony.spec_phase;
+		if (target === "SPEC.proposal" && !specPhase) return {
+			ok: false,
+			code: "SPEC_PHASE_FORK_VIOLATION",
+			message: "TRIAGE.confirm → SPEC.proposal requires ceremony.spec_phase=true",
+			detail: {
+				from: prev,
+				to: target,
+				spec_phase: specPhase
+			}
+		};
+		if (target === "EXECUTE.plan" && specPhase) return {
+			ok: false,
+			code: "SPEC_PHASE_FORK_VIOLATION",
+			message: "TRIAGE.confirm → EXECUTE.plan requires ceremony.spec_phase=false (quick); profiles with spec_phase=true must traverse SPEC.*",
+			detail: {
+				from: prev,
+				to: target,
+				spec_phase: specPhase
+			}
+		};
+	}
+	if (prev === "EXECUTE.done") {
+		const verifyPhase = ctx.ceremony.verify_phase;
+		if (target === "VERIFY.plan" && !verifyPhase) return {
+			ok: false,
+			code: "VERIFY_PHASE_FORK_VIOLATION",
+			message: "EXECUTE.done → VERIFY.plan requires ceremony.verify_phase=true (standard / deep)",
+			detail: {
+				from: prev,
+				to: target,
+				verify_phase: verifyPhase
+			}
+		};
+	}
+	if (prev === "VERIFY.accept" && target === "SETTLE.reconcile") {
+		if (!ctx.ceremony.settle_phase) return {
+			ok: false,
+			code: "SETTLE_PHASE_DISABLED",
+			message: "VERIFY.accept → SETTLE.reconcile requires ceremony.settle_phase=true (deep only)",
+			detail: {
+				from: prev,
+				to: target,
+				settle_phase: ctx.ceremony.settle_phase
+			}
+		};
+		if (!ctx.verify_accepted) return {
+			ok: false,
+			code: "SETTLE_NOT_ACCEPTED",
+			message: "VERIFY.accept → SETTLE.reconcile requires verify_accepted=true (run `loaf gate decide verify-accept --approve` first)",
+			detail: {
+				from: prev,
+				to: target,
+				verify_accepted: !!ctx.verify_accepted
+			}
+		};
+	}
+	return { ok: true };
+}
+//#endregion
+//#region src/core/next-action.ts
+const VERIFY_ORDER = [
+	"VERIFY.run",
+	"VERIFY.review",
+	"VERIFY.acceptance",
+	"VERIFY.visual"
+];
+const VERIFY_LANE_BY_STATE = {
+	"VERIFY.run": "run",
+	"VERIFY.review": "review",
+	"VERIFY.acceptance": "acceptance",
+	"VERIFY.visual": "visual"
+};
+function pendingResolveAction(head) {
+	return {
+		command: `loaf pending resolve --answer "<answer>"`,
+		owner_verb: "pending resolve",
+		target: head.kind,
+		blocking: true,
+		reason: "PENDING_HEAD_REQUIRES_RESOLUTION"
+	};
+}
+function profileEscalateAction() {
+	return {
+		command: "loaf profile escalate --confirm --input <ceremony.json>",
+		owner_verb: "profile escalate",
+		target: "profile_escalation",
+		blocking: true,
+		reason: "PROFILE_ESCALATION_PENDING"
+	};
+}
+function gateFromCursor(subState) {
+	const gate = gateNameForCursor(subState);
+	return gate === null ? null : buildGateDecideAction(gate);
+}
+function verifyNextTarget(subState, applicable) {
+	if (!subState.startsWith("VERIFY.")) return void 0;
+	if (subState === "VERIFY.accept") return void 0;
+	const startIndex = subState === "VERIFY.plan" ? 0 : VERIFY_ORDER.findIndex((state) => state === subState) + 1;
+	const lanes = applicable ?? new Set([
+		"run",
+		"review",
+		"acceptance",
+		"visual"
+	]);
+	for (const state of VERIFY_ORDER.slice(Math.max(startIndex, 0))) {
+		const lane = VERIFY_LANE_BY_STATE[state];
+		if (lane !== void 0 && lanes.has(lane)) return state;
+	}
+	return "VERIFY.accept";
+}
+function chooseNextAction(input) {
+	const head = input.pending[0];
+	if (head !== void 0) {
+		if (head.kind === "gate_decision") {
+			const gate = gateFromCursor(input.sub_state);
+			if (gate !== null) return gate;
+			return pendingResolveAction(head);
+		}
+		if (head.kind === "profile_escalation") return profileEscalateAction();
+		return pendingResolveAction(head);
+	}
+	return transitionOwnerFor({
+		sub_state: input.sub_state,
+		ceremony: input.ceremony,
+		spec_locked: input.spec_locked,
+		verify_accepted: input.verify_accepted,
+		verify_next_target: verifyNextTarget(input.sub_state, input.verify_applicable_lanes)
+	});
+}
+function buildNextOutput(input) {
+	const action = chooseNextAction(input);
+	return {
+		ok: true,
+		feature: input.feature,
+		feature_dir: input.feature_dir,
+		cursor: {
+			phase: input.phase,
+			sub_state: input.sub_state
+		},
+		ceremony: input.ceremony,
+		terminal: input.sub_state.startsWith("DONE."),
+		blocked: action?.blocking ?? false,
+		...action === null ? {} : { next_action: action }
+	};
+}
 const CHECK_KINDS = [
 	"spec",
 	"tasks",
@@ -5650,6 +6087,40 @@ z.object({
 	iteration_stats: IterationStats,
 	unusual_findings_count: z.number().int().nonnegative().default(0)
 });
+const NextOwnerVerb = z.enum([
+	"advance",
+	"deliver",
+	"settle",
+	"gate decide",
+	"profile escalate",
+	"pending resolve",
+	"tasks next"
+]);
+const NextAction = z.object({
+	command: z.string().min(1),
+	owner_verb: NextOwnerVerb,
+	target: z.union([
+		SubState,
+		GateName,
+		PendingPromptKind,
+		z.literal("task-level")
+	]).optional(),
+	blocking: z.boolean(),
+	reason: z.string().min(1)
+}).strict();
+z.object({
+	ok: z.literal(true),
+	feature: z.string().min(1),
+	feature_dir: z.string().min(1),
+	cursor: z.object({
+		phase: Phase,
+		sub_state: SubState
+	}).strict(),
+	ceremony: Ceremony,
+	terminal: z.boolean(),
+	blocked: z.boolean(),
+	next_action: NextAction.optional()
+}).strict().refine((o) => o.terminal || o.next_action !== void 0, { message: "next_action is required for non-terminal states" }).refine((o) => !o.terminal || o.next_action === void 0, { message: "next_action is omitted iff terminal=true" });
 z.object({
 	schema_version: SchemaVersion,
 	at: z.string().datetime(),
@@ -8014,277 +8485,6 @@ function resolveHumanActor(deps) {
 		message: "no $LOAF_USER set and git config user.email unavailable or empty; set LOAF_USER or configure git user.email"
 	};
 	return buildHumanActor(gitEmail);
-}
-//#endregion
-//#region src/core/reducer/transition.ts
-const LEGAL_TRANSITIONS = {
-	"TRIAGE.score": ["TRIAGE.confirm"],
-	"TRIAGE.confirm": ["SPEC.proposal", "EXECUTE.plan"],
-	"SPEC.proposal": ["SPEC.spec"],
-	"SPEC.spec": ["SPEC.plan"],
-	"SPEC.plan": ["SPEC.design"],
-	"SPEC.design": ["EXECUTE.plan"],
-	"EXECUTE.plan": ["EXECUTE.work"],
-	"EXECUTE.work": ["EXECUTE.done"],
-	"EXECUTE.done": ["VERIFY.plan"],
-	"VERIFY.plan": ["VERIFY.run"],
-	"VERIFY.run": [
-		"VERIFY.review",
-		"VERIFY.acceptance",
-		"VERIFY.visual",
-		"VERIFY.accept"
-	],
-	"VERIFY.review": [
-		"VERIFY.acceptance",
-		"VERIFY.visual",
-		"VERIFY.accept"
-	],
-	"VERIFY.acceptance": ["VERIFY.visual", "VERIFY.accept"],
-	"VERIFY.visual": ["VERIFY.accept"],
-	"VERIFY.accept": ["SETTLE.reconcile"],
-	"SETTLE.reconcile": ["SETTLE.lessons"],
-	"SETTLE.lessons": [],
-	"DONE.delivered": [],
-	"DONE.archived": [],
-	"DONE.abandoned": []
-};
-const BACK_EDGE_FROM = {
-	"amend-spec": new Set([
-		"EXECUTE.plan",
-		"EXECUTE.work",
-		"EXECUTE.done",
-		"VERIFY.plan",
-		"VERIFY.run",
-		"VERIFY.review",
-		"VERIFY.acceptance",
-		"VERIFY.visual",
-		"VERIFY.accept"
-	]),
-	"amend-tasks": new Set([
-		"EXECUTE.work",
-		"EXECUTE.done",
-		"VERIFY.plan",
-		"VERIFY.run",
-		"VERIFY.review",
-		"VERIFY.acceptance",
-		"VERIFY.visual",
-		"VERIFY.accept"
-	]),
-	"fix-impl": new Set([
-		"EXECUTE.work",
-		"EXECUTE.done",
-		"VERIFY.plan",
-		"VERIFY.run",
-		"VERIFY.review",
-		"VERIFY.acceptance",
-		"VERIFY.visual",
-		"VERIFY.accept"
-	]),
-	"fix-test": new Set([
-		"EXECUTE.work",
-		"EXECUTE.done",
-		"VERIFY.plan",
-		"VERIFY.run",
-		"VERIFY.review",
-		"VERIFY.acceptance",
-		"VERIFY.visual",
-		"VERIFY.accept"
-	])
-};
-function validateTransition(prev, target, ctx) {
-	if (ctx.back_edge !== void 0) {
-		if (ctx.back_edge.action === "amend-spec") {
-			if (target !== "SPEC.spec") return {
-				ok: false,
-				code: "TRANSITION_ILLEGAL",
-				message: `back_edge action=amend-spec requires target=SPEC.spec, got ${target}`,
-				detail: {
-					from: prev,
-					to: target,
-					back_edge_action: ctx.back_edge.action,
-					expected_target: "SPEC.spec",
-					reason: "back_edge_target_mismatch"
-				}
-			};
-			const allowedFrom = BACK_EDGE_FROM["amend-spec"];
-			if (!allowedFrom.has(prev)) return {
-				ok: false,
-				code: "TRANSITION_ILLEGAL",
-				message: `back_edge action=amend-spec is not legal from ${prev}; allowed from EXECUTE.* + VERIFY.*`,
-				detail: {
-					from: prev,
-					to: target,
-					back_edge_action: ctx.back_edge.action,
-					allowed_from: [...allowedFrom],
-					reason: "back_edge_from_not_allowed"
-				}
-			};
-			return { ok: true };
-		}
-		if (ctx.back_edge.action === "amend-tasks") {
-			if (target !== "EXECUTE.work") return {
-				ok: false,
-				code: "TRANSITION_ILLEGAL",
-				message: `back_edge action=amend-tasks requires target=EXECUTE.work, got ${target}`,
-				detail: {
-					from: prev,
-					to: target,
-					back_edge_action: ctx.back_edge.action,
-					expected_target: "EXECUTE.work",
-					reason: "back_edge_target_mismatch"
-				}
-			};
-			const allowedFrom = BACK_EDGE_FROM["amend-tasks"];
-			if (!allowedFrom.has(prev)) return {
-				ok: false,
-				code: "TRANSITION_ILLEGAL",
-				message: `back_edge action=amend-tasks is not legal from ${prev}; allowed from EXECUTE.work / EXECUTE.done + VERIFY.*`,
-				detail: {
-					from: prev,
-					to: target,
-					back_edge_action: ctx.back_edge.action,
-					allowed_from: [...allowedFrom],
-					reason: "back_edge_from_not_allowed"
-				}
-			};
-			return { ok: true };
-		}
-		if (ctx.back_edge.action === "fix-impl") {
-			if (target !== "EXECUTE.work") return {
-				ok: false,
-				code: "TRANSITION_ILLEGAL",
-				message: `back_edge action=fix-impl requires target=EXECUTE.work, got ${target}`,
-				detail: {
-					from: prev,
-					to: target,
-					back_edge_action: ctx.back_edge.action,
-					expected_target: "EXECUTE.work",
-					reason: "back_edge_target_mismatch"
-				}
-			};
-			const allowedFrom = BACK_EDGE_FROM["fix-impl"];
-			if (!allowedFrom.has(prev)) return {
-				ok: false,
-				code: "TRANSITION_ILLEGAL",
-				message: `back_edge action=fix-impl is not legal from ${prev}; allowed from EXECUTE.work / EXECUTE.done + VERIFY.*`,
-				detail: {
-					from: prev,
-					to: target,
-					back_edge_action: ctx.back_edge.action,
-					allowed_from: [...allowedFrom],
-					reason: "back_edge_from_not_allowed"
-				}
-			};
-			return { ok: true };
-		}
-		if (ctx.back_edge.action === "fix-test") {
-			if (target !== "EXECUTE.work") return {
-				ok: false,
-				code: "TRANSITION_ILLEGAL",
-				message: `back_edge action=fix-test requires target=EXECUTE.work, got ${target}`,
-				detail: {
-					from: prev,
-					to: target,
-					back_edge_action: ctx.back_edge.action,
-					expected_target: "EXECUTE.work",
-					reason: "back_edge_target_mismatch"
-				}
-			};
-			const allowedFrom = BACK_EDGE_FROM["fix-test"];
-			if (!allowedFrom.has(prev)) return {
-				ok: false,
-				code: "TRANSITION_ILLEGAL",
-				message: `back_edge action=fix-test is not legal from ${prev}; allowed from EXECUTE.work / EXECUTE.done + VERIFY.*`,
-				detail: {
-					from: prev,
-					to: target,
-					back_edge_action: ctx.back_edge.action,
-					allowed_from: [...allowedFrom],
-					reason: "back_edge_from_not_allowed"
-				}
-			};
-			return { ok: true };
-		}
-		return {
-			ok: false,
-			code: "TRANSITION_ILLEGAL",
-			message: `unknown back_edge.action ${ctx.back_edge.action}`,
-			detail: {
-				back_edge: ctx.back_edge,
-				reason: "back_edge_action_unknown"
-			}
-		};
-	}
-	const allowed = LEGAL_TRANSITIONS[prev] ?? [];
-	if (!allowed.includes(target)) return {
-		ok: false,
-		code: "TRANSITION_ILLEGAL",
-		message: `cannot transition ${prev} → ${target}`,
-		detail: {
-			from: prev,
-			to: target,
-			allowed_forward: [...allowed]
-		}
-	};
-	if (prev === "TRIAGE.confirm") {
-		const specPhase = ctx.ceremony.spec_phase;
-		if (target === "SPEC.proposal" && !specPhase) return {
-			ok: false,
-			code: "SPEC_PHASE_FORK_VIOLATION",
-			message: "TRIAGE.confirm → SPEC.proposal requires ceremony.spec_phase=true",
-			detail: {
-				from: prev,
-				to: target,
-				spec_phase: specPhase
-			}
-		};
-		if (target === "EXECUTE.plan" && specPhase) return {
-			ok: false,
-			code: "SPEC_PHASE_FORK_VIOLATION",
-			message: "TRIAGE.confirm → EXECUTE.plan requires ceremony.spec_phase=false (quick); profiles with spec_phase=true must traverse SPEC.*",
-			detail: {
-				from: prev,
-				to: target,
-				spec_phase: specPhase
-			}
-		};
-	}
-	if (prev === "EXECUTE.done") {
-		const verifyPhase = ctx.ceremony.verify_phase;
-		if (target === "VERIFY.plan" && !verifyPhase) return {
-			ok: false,
-			code: "VERIFY_PHASE_FORK_VIOLATION",
-			message: "EXECUTE.done → VERIFY.plan requires ceremony.verify_phase=true (standard / deep)",
-			detail: {
-				from: prev,
-				to: target,
-				verify_phase: verifyPhase
-			}
-		};
-	}
-	if (prev === "VERIFY.accept" && target === "SETTLE.reconcile") {
-		if (!ctx.ceremony.settle_phase) return {
-			ok: false,
-			code: "SETTLE_PHASE_DISABLED",
-			message: "VERIFY.accept → SETTLE.reconcile requires ceremony.settle_phase=true (deep only)",
-			detail: {
-				from: prev,
-				to: target,
-				settle_phase: ctx.ceremony.settle_phase
-			}
-		};
-		if (!ctx.verify_accepted) return {
-			ok: false,
-			code: "SETTLE_NOT_ACCEPTED",
-			message: "VERIFY.accept → SETTLE.reconcile requires verify_accepted=true (run `loaf gate decide verify-accept --approve` first)",
-			detail: {
-				from: prev,
-				to: target,
-				verify_accepted: !!ctx.verify_accepted
-			}
-		};
-	}
-	return { ok: true };
 }
 //#endregion
 //#region src/core/reducer/per-kind.ts
@@ -12125,6 +12325,52 @@ async function main(argv = process.argv, deps = {}) {
 			findings_count: out.findings_count,
 			pending_count: out.pending_count
 		}) + "\n" + i18n.t(CHROME_KEYS.statusSnapshotAsOfProjectionLoader, { seq: out.tail_seq }) + "\n");
+	});
+	program.command("next").description("Compute the next owner command for the current session (read-only)").option("--feature <name>", "Feature whose next action to compute").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+		if (rejectIfDryRun("next")) return;
+		const featureDir = await dispatchOrFail(opts);
+		if (featureDir === null) return;
+		const loaded = await loadProjectionsOrFail(featureDir, [
+			"state",
+			"tasks",
+			"pending"
+		], opts.feature, FAILURE_SITE_KEYS.noSessionStatus);
+		if (loaded === null) return;
+		let verifyApplicableLanes;
+		if (loaded.state.sub_state.startsWith("VERIFY.")) {
+			const read = await readSpecFrontmatter(featureDir);
+			if (!read.ok) {
+				emitFailure("SPEC_FRONTMATTER_INVALID", read.message, {
+					subcode: read.code,
+					...read.detail ?? {}
+				});
+				return;
+			}
+			verifyApplicableLanes = deriveVerifyApplicability({
+				state: null,
+				tasks: loaded.tasks ? loaded.tasks.tasks.map((t) => extractTaskSlim(t)) : [],
+				evidence: [],
+				findings: [],
+				pending: [],
+				spec_header: null,
+				requirements: [],
+				scenarios: [],
+				visual_contracts: [],
+				tasks_based_on: null
+			}, read.frontmatter);
+		}
+		const out = buildNextOutput({
+			feature: opts.feature,
+			feature_dir: featureDir,
+			phase: loaded.state.phase,
+			sub_state: loaded.state.sub_state,
+			ceremony: loaded.state.ceremony,
+			spec_locked: loaded.state.spec_locked,
+			verify_accepted: loaded.state.verify_accepted,
+			pending: loaded.state.pending,
+			verify_applicable_lanes: verifyApplicableLanes
+		});
+		ctx.success(out, () => out.next_action === void 0 ? "" : `${out.next_action.command}\n`);
 	});
 	program.command("gate").description("Gate decision commands (spec-lock + verify-accept)").command("decide <gate-name>").description("Decide a gate (emits gate:decided; spec-lock approve also advances cursor)").option("--approve", "Approve the gate").option("--reject", "Reject the gate").requiredOption("--reason <text>", "Decision rationale (passed through to GateDecidedPayload)").option("--feature <name>", "Feature whose session to gate").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (gateName, opts) => {
 		const approve = opts.approve === true;
