@@ -2116,6 +2116,61 @@ export const ReconcileJson = z.object({
 export type ReconcileJson = z.infer<typeof ReconcileJson>;
 
 // ─────────────────────────────────────────────────────────────────
+// 18b. loaf next — determined next command output
+// ─────────────────────────────────────────────────────────────────
+//
+// `loaf next` is a read-side deterministic function of the current
+// projections + VERIFY frontmatter applicability. It returns exactly one
+// next_action for every non-terminal state and omits next_action only for
+// DONE.* terminal states.
+
+export const NextOwnerVerb = z.enum([
+  "advance",
+  "deliver",
+  "settle",
+  "gate decide",
+  "profile escalate",
+  "pending resolve",
+  "tasks next",
+]);
+export type NextOwnerVerb = z.infer<typeof NextOwnerVerb>;
+
+export const NextAction = z.object({
+  command: z.string().min(1),
+  owner_verb: NextOwnerVerb,
+  target: z.union([
+    SubState,
+    GateName,
+    PendingPromptKind,
+    z.literal("task-level"),
+  ]).optional(),
+  blocking: z.boolean(),
+  reason: z.string().min(1),
+}).strict();
+export type NextAction = z.infer<typeof NextAction>;
+
+export const NextOutput = z.object({
+  ok: z.literal(true),
+  feature: z.string().min(1),
+  feature_dir: z.string().min(1),
+  cursor: z.object({
+    phase: Phase,
+    sub_state: SubState,
+  }).strict(),
+  ceremony: Ceremony,
+  terminal: z.boolean(),
+  blocked: z.boolean(),
+  next_action: NextAction.optional(),
+}).strict()
+  .refine((o) => o.terminal || o.next_action !== undefined, {
+    message: "next_action is required for non-terminal states",
+  })
+  .refine((o) => !o.terminal || o.next_action === undefined, {
+    message: "next_action is omitted iff terminal=true",
+  });
+export type NextOutput = z.infer<typeof NextOutput>;
+
+// ─────────────────────────────────────────────────────────────────
 // 19. gate-diagnostic.json (Q10b: borrowed from legacy Python prototype)
 // ─────────────────────────────────────────────────────────────────
 //
@@ -3473,13 +3528,14 @@ export const CONCURRENCY_INVARIANTS = {
   //     `loaf doctor --rebuild`. No silent fallback to cached snapshot.
   //     **Implementation status (Phase 15 SC3)**: this is the eventual
   //     contract for every read command, but the current binary only wires
-  //     four — `loaf status` / `tasks list` / `pending list` / `finding
-  //     list` — through `src/core/projection-loader.ts` (M0-anchored
-  //     double fast-check). Other read commands (`tasks check` / `tasks
-  //     next` / `verify status` / `pending status` / `sessions list` /
+  //     five — `loaf status` / `loaf next` / `tasks list` /
+  //     `pending list` / `finding list` — through
+  //     `src/core/projection-loader.ts` (M0-anchored double fast-check).
+  //     Other read commands (`tasks check` / `tasks next` /
+  //     `verify status` / `pending status` / `sessions list` /
   //     `<artifact> schema` / etc.) still run on `loadSession` full
   //     journal replay and will migrate in subsequent slices.
-  snapshot_read_fail_fast: "Phase 15 SC3 — 4 commands (status / tasks list / pending list / finding list) verify _meta fast-check via projection-loader (M0-anchored double check); mismatch → exit 2 SNAPSHOT_STALE_REBUILD_REQUIRED + structured stderr; no silent cached-snapshot output. Other read commands still on loadSession replay.",
+  snapshot_read_fail_fast: "Phase 15 SC3 — 5 commands (status / next / tasks list / pending list / finding list) verify _meta fast-check via projection-loader (M0-anchored double check); mismatch → exit 2 SNAPSHOT_STALE_REBUILD_REQUIRED + structured stderr; no silent cached-snapshot output. Other read commands still on loadSession replay.",
 
   // 7k. validateTransition shared helper (Gate #1, ADR-0005 §10)
   //     `event:phase_advanced` and `gate:decided` MUST call the same
@@ -4374,7 +4430,7 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
   },
   DRY_RUN_NOT_APPLICABLE: {
     // Phase 16 SC-6c — `--dry-run` only applies to mutating commands.
-    // Read-only commands (status, tasks list/next/complete, doctor,
+    // Read-only commands (status, next, tasks list/next/complete, doctor,
     // finding list, pending list/status, ...) reject with this code.
     // Future: wrapping commands (`spec edit`, `tui`) also reject when
     // implemented. `command_type` discriminates "read-only" vs

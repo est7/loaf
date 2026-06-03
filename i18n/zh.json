@@ -539,6 +539,7 @@
   "help": {
     "start":          "在 .loaf/<feature>/ 开启新 feature session",
     "status":         "打印当前 state.json + artifact 健康摘要",
+    "next":           "计算当前 session 的下一条 owner command",
     "advance":        "执行下一 transition + diff-guard(git status 全口径 ∩ write_paths)",
     "resume":         "恢复 session;--fresh 输出本轮最小 context pack",
     "handoff":        "写 resume-pack.json,context overflow 接力",

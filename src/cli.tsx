@@ -36,6 +36,8 @@ import {
 import { listSessions, formatAtRelative, type SessionRow } from "./cli/sessions-list.js";
 import { buildEnvelope as buildVerifyStatusEnvelope, renderText as renderVerifyStatusText } from "./cli/verify-status.js";
 import { evaluateVerifyAcceptDiagnostic } from "./core/gates/verify-accept-eval.js";
+import { deriveVerifyApplicability } from "./core/gates/verify-accept-check.js";
+import { buildNextOutput } from "./core/next-action.js";
 import { CHECK_KINDS, checkFile, renderSuccessText as renderCheckSuccess, type CheckKind } from "./cli/check-file.js";
 import {
   ARTIFACT_SCHEMA_KINDS,
@@ -102,7 +104,7 @@ import {
   type TaskStatus,
 } from "./cli/runtime-i18n-keys.js";
 import { runEditor as defaultRunEditor, type RunEditor } from "./cli/run-editor.js";
-import { splitFrontmatter } from "./core/spec-frontmatter.js";
+import { readSpecFrontmatter, splitFrontmatter } from "./core/spec-frontmatter.js";
 import { parse as parseYaml } from "yaml";
 import { mapZodIssues } from "./cli/check-file.js";
 import { CoversRefPayload } from "./core/evidence-schema.js";
@@ -123,6 +125,7 @@ import {
 } from "./core/cli-runtime.js";
 import { mutate, mutateBatch, type MutateContext } from "./core/journal-mutate.js";
 import { replayJournal } from "./core/journal-bootstrap.js";
+import type { TaskState } from "./core/reducer.js";
 import { writeProjections } from "./core/projection-writer.js";
 import {
   loadProjections,
@@ -1481,6 +1484,80 @@ export async function main(
             pending_count: out.pending_count,
           }) + "\n" +
           i18n.t(CHROME_KEYS.statusSnapshotAsOfProjectionLoader, { seq: out.tail_seq }) + "\n",
+      );
+    });
+
+  // ── loaf next ───────────────────────────────────────────────────────
+  // Read-side phase-routing computation. It does not mutate the session;
+  // it formats the next owner command from the current cursor, unresolved
+  // pending head, ceremony forks, and VERIFY lane applicability.
+  program
+    .command("next")
+    .description("Compute the next owner command for the current session (read-only)")
+    .option("--feature <name>", "Feature whose next action to compute")
+    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
+    .action(async (opts: { feature?: string; featureDir?: string }) => {
+      if (rejectIfDryRun("next")) return;
+      const featureDir = await dispatchOrFail(opts);
+      if (featureDir === null) return;
+      const loaded = await loadProjectionsOrFail(
+        featureDir,
+        ["state", "tasks", "pending"] as const,
+        opts.feature!,
+        FAILURE_SITE_KEYS.noSessionStatus,
+      );
+      if (loaded === null) return;
+
+      let verifyApplicableLanes: ReturnType<typeof deriveVerifyApplicability> | undefined;
+      if (loaded.state.sub_state.startsWith("VERIFY.")) {
+        const read = await readSpecFrontmatter(featureDir);
+        if (!read.ok) {
+          emitFailure(
+            "SPEC_FRONTMATTER_INVALID",
+            read.message,
+            { subcode: read.code, ...(read.detail ?? {}) },
+          );
+          return;
+        }
+        const tasks: TaskState[] = loaded.tasks
+          ? loaded.tasks.tasks.map((t) =>
+              extractTaskSlim(t as unknown as TaskFullProjection),
+            )
+          : [];
+        // deriveVerifyApplicability reads frontmatter plus snapshot.tasks;
+        // the remaining Snapshot fields are intentionally not loaded here.
+        verifyApplicableLanes = deriveVerifyApplicability(
+          {
+            state: null,
+            tasks,
+            evidence: [],
+            findings: [],
+            pending: [],
+            spec_header: null,
+            requirements: [],
+            scenarios: [],
+            visual_contracts: [],
+            tasks_based_on: null,
+          },
+          read.frontmatter,
+        );
+      }
+
+      const out = buildNextOutput({
+        feature: opts.feature!,
+        feature_dir: featureDir,
+        phase: loaded.state.phase,
+        sub_state: loaded.state.sub_state,
+        ceremony: loaded.state.ceremony,
+        spec_locked: loaded.state.spec_locked,
+        verify_accepted: loaded.state.verify_accepted,
+        pending: loaded.state.pending,
+        verify_applicable_lanes: verifyApplicableLanes,
+      });
+
+      ctx.success(
+        out,
+        () => out.next_action === undefined ? "" : `${out.next_action.command}\n`,
       );
     });
 

@@ -81,6 +81,143 @@ const LEGAL_TRANSITIONS: Record<SubState, readonly SubState[]> = {
   "DONE.abandoned": [],
 };
 
+export type NextOwnerVerb =
+  | "advance"
+  | "deliver"
+  | "settle"
+  | "gate decide"
+  | "profile escalate"
+  | "pending resolve"
+  | "tasks next";
+
+type PendingPromptKindValue =
+  | "ask_user_question"
+  | "gate_decision"
+  | "spec_clarification"
+  | "finding_decision"
+  | "profile_escalation";
+
+export type NextAction = {
+  command: string;
+  owner_verb: NextOwnerVerb;
+  target?: SubState | GateName | PendingPromptKindValue | "task-level";
+  blocking: boolean;
+  reason: string;
+};
+
+export function buildGateDecideAction(gate: GateName): NextAction {
+  return {
+    command: `loaf gate decide ${gate} --approve|--reject --reason "<reason>"`,
+    owner_verb: "gate decide",
+    target: gate,
+    blocking: true,
+    reason:
+      gate === "spec-lock"
+        ? "SPEC_LOCK_GATE_DECISION_REQUIRED"
+        : "VERIFY_ACCEPT_GATE_DECISION_REQUIRED",
+  };
+}
+
+export function nextLegalTargets(
+  prev: SubState,
+  ceremony: Ceremony,
+  verifyAccepted = false,
+): SubState[] {
+  const allowed = LEGAL_TRANSITIONS[prev] ?? [];
+  return allowed.filter((target) =>
+    validateTransition(prev, target, {
+      ceremony,
+      actor: "cli:loaf",
+      verify_accepted: verifyAccepted,
+    }).ok,
+  );
+}
+
+export type TransitionOwnerInput = {
+  sub_state: SubState;
+  ceremony: Ceremony;
+  spec_locked: boolean;
+  verify_accepted: boolean;
+  verify_next_target?: SubState | undefined;
+};
+
+export function transitionOwnerFor(input: TransitionOwnerInput): NextAction | null {
+  const { sub_state, ceremony, spec_locked, verify_accepted, verify_next_target } = input;
+
+  if (sub_state === "SPEC.design" && !spec_locked) {
+    return buildGateDecideAction("spec-lock");
+  }
+
+  if (sub_state === "VERIFY.accept") {
+    if (!verify_accepted) return buildGateDecideAction("verify-accept");
+    if (ceremony.settle_phase) {
+      return {
+        command: "loaf settle",
+        owner_verb: "settle",
+        target: "SETTLE.reconcile",
+        blocking: false,
+        reason: "VERIFY_ACCEPTED_NEEDS_SETTLE",
+      };
+    }
+    return {
+      command: "loaf deliver",
+      owner_verb: "deliver",
+      target: "DONE.delivered",
+      blocking: false,
+      reason: "VERIFY_ACCEPTED_READY_TO_DELIVER",
+    };
+  }
+
+  if (sub_state === "EXECUTE.work") {
+    return {
+      command: "loaf tasks next",
+      owner_verb: "tasks next",
+      target: "task-level",
+      blocking: false,
+      reason: "EXECUTE_WORK_TASK_ROUTING",
+    };
+  }
+
+  if (sub_state === "EXECUTE.done" && !ceremony.verify_phase) {
+    return {
+      command: "loaf deliver",
+      owner_verb: "deliver",
+      target: "DONE.delivered",
+      blocking: false,
+      reason: "VERIFY_PHASE_DISABLED_READY_TO_DELIVER",
+    };
+  }
+
+  if (sub_state === "SETTLE.lessons") {
+    return {
+      command: "loaf deliver",
+      owner_verb: "deliver",
+      target: "DONE.delivered",
+      blocking: false,
+      reason: "SETTLE_COMPLETE_READY_TO_DELIVER",
+    };
+  }
+
+  if (sub_state.startsWith("DONE.")) return null;
+
+  const targets = nextLegalTargets(sub_state, ceremony, verify_accepted);
+  const target =
+    verify_next_target !== undefined && targets.includes(verify_next_target)
+      ? verify_next_target
+      : targets[0];
+
+  if (target === undefined) {
+    throw new Error(`No legal next action for non-terminal sub_state=${sub_state}`);
+  }
+  return {
+    command: `loaf advance ${target}`,
+    owner_verb: "advance",
+    target,
+    blocking: false,
+    reason: "ADVANCE_TO_NEXT_SUB_STATE",
+  };
+}
+
 // Back-edge actions (Phase 11 Item 3). `amend-spec` wired at SC0,
 // `amend-tasks` at SC1, `fix-impl` at SC2, `fix-test` at SC3.
 type BackEdgeAction = "amend-spec" | "amend-tasks" | "fix-impl" | "fix-test";

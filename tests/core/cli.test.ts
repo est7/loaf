@@ -3897,6 +3897,453 @@ describe("End-to-end SPEC content → spec-lock approve (Slice A SC-A2)", () => 
 });
 
 // ─────────────────────────────────────────────────────────────────────────
+// loaf next — read-side phase-routing computation
+// ─────────────────────────────────────────────────────────────────────────
+
+type NextActionOut = {
+  command: string;
+  owner_verb:
+    | "advance"
+    | "deliver"
+    | "settle"
+    | "gate decide"
+    | "profile escalate"
+    | "pending resolve"
+    | "tasks next";
+  target?: string;
+  blocking: boolean;
+  reason: string;
+};
+
+type NextOutput = {
+  ok: true;
+  feature: string;
+  feature_dir: string;
+  cursor: { phase: string; sub_state: string };
+  ceremony: Ceremony;
+  terminal: boolean;
+  blocked: boolean;
+  next_action?: NextActionOut;
+};
+
+function parseNext(stdout: string): NextOutput {
+  return JSON.parse(stdout) as NextOutput;
+}
+
+function expectOnlyAction(out: NextOutput): NextActionOut {
+  expect(out.next_action).toBeDefined();
+  return out.next_action!;
+}
+
+async function raisePending(
+  dir: string,
+  kind: "ask_user_question" | "gate_decision" | "profile_escalation",
+): Promise<void> {
+  const result = await runCli([
+    "pending", "raise",
+    "--kind", kind,
+    "--question", `fixture ${kind} pending prompt`,
+    "--feature", "auth-refresh",
+    "--feature-dir", dir,
+    "--format", "json",
+  ]);
+  if (result.exit !== 0) {
+    throw new Error(`pending fixture failed: ${result.stderr || result.stdout}`);
+  }
+}
+
+async function expectRecommendedCommandAccepted(
+  dir: string,
+  action: NextActionOut,
+): Promise<void> {
+  const baseArgs = ["--feature", "auth-refresh", "--feature-dir", dir, "--format", "json"];
+  let result: { exit: number; stdout: string; stderr: string };
+
+  switch (action.owner_verb) {
+    case "advance":
+      expect(action.command).toBe(`loaf advance ${action.target}`);
+      result = await runCli(["advance", action.target!, ...baseArgs]);
+      break;
+    case "deliver":
+      expect(action.command).toBe("loaf deliver");
+      result = await runCli(
+        ["deliver", ...baseArgs],
+        { env: { LOAF_USER: "roundtrip@example.invalid" } },
+      );
+      break;
+    case "settle":
+      expect(action.command).toBe("loaf settle");
+      result = await runCli(["settle", ...baseArgs]);
+      break;
+    case "tasks next":
+      expect(action.command).toBe("loaf tasks next");
+      result = await runCli(["tasks", "next", ...baseArgs]);
+      break;
+    case "gate decide":
+      expect(action.command).toBe(`loaf gate decide ${action.target} --approve|--reject --reason "<reason>"`);
+      result = await runCli(
+        ["gate", "decide", action.target!, "--approve", "--reason", "round-trip decision", ...baseArgs],
+        { env: { LOAF_USER: "roundtrip@example.invalid" } },
+      );
+      break;
+    default:
+      throw new Error(`round-trip helper does not cover owner_verb=${action.owner_verb}`);
+  }
+
+  expect(result.exit, result.stderr || result.stdout).toBe(0);
+}
+
+describe("loaf next — phase-routing read-side dual", () => {
+  test("SPEC.design computes the same gate-decide action with and without a pending gate_decision head", async () => {
+    const withoutPending = await tmpFeatureDir();
+    await seedFeatureAtSpecDesign(withoutPending);
+    const noPendingResult = await runCli([
+      "next",
+      "--feature", "auth-refresh",
+      "--feature-dir", withoutPending,
+      "--format", "json",
+    ]);
+    expect(noPendingResult.exit).toBe(0);
+    const noPending = parseNext(noPendingResult.stdout);
+
+    const withPending = await tmpFeatureDir();
+    await seedFeatureAtSpecDesign(withPending);
+    await raisePending(withPending, "gate_decision");
+    const pendingResult = await runCli([
+      "next",
+      "--feature", "auth-refresh",
+      "--feature-dir", withPending,
+      "--format", "json",
+    ]);
+    expect(pendingResult.exit).toBe(0);
+    const pending = parseNext(pendingResult.stdout);
+
+    const expected = {
+      command: 'loaf gate decide spec-lock --approve|--reject --reason "<reason>"',
+      owner_verb: "gate decide",
+      target: "spec-lock",
+      blocking: true,
+      reason: "SPEC_LOCK_GATE_DECISION_REQUIRED",
+    } satisfies NextActionOut;
+    expect(expectOnlyAction(noPending)).toEqual(expected);
+    expect(expectOnlyAction(pending)).toEqual(expected);
+    expect(pending.blocked).toBe(true);
+    await expectRecommendedCommandAccepted(withoutPending, expectOnlyAction(noPending));
+  });
+
+  test("VERIFY.accept computes the same gate-decide action with and without a pending gate_decision head", async () => {
+    const withoutPending = await tmpFeatureDir();
+    await seedFeatureAtVerifyAccept(withoutPending);
+    const noPendingResult = await runCli([
+      "next",
+      "--feature", "auth-refresh",
+      "--feature-dir", withoutPending,
+      "--format", "json",
+    ]);
+    expect(noPendingResult.exit).toBe(0);
+    const noPending = parseNext(noPendingResult.stdout);
+
+    const withPending = await tmpFeatureDir();
+    await seedFeatureAtVerifyAccept(withPending);
+    await raisePending(withPending, "gate_decision");
+    const pendingResult = await runCli([
+      "next",
+      "--feature", "auth-refresh",
+      "--feature-dir", withPending,
+      "--format", "json",
+    ]);
+    expect(pendingResult.exit).toBe(0);
+    const pending = parseNext(pendingResult.stdout);
+
+    const expected = {
+      command: 'loaf gate decide verify-accept --approve|--reject --reason "<reason>"',
+      owner_verb: "gate decide",
+      target: "verify-accept",
+      blocking: true,
+      reason: "VERIFY_ACCEPT_GATE_DECISION_REQUIRED",
+    } satisfies NextActionOut;
+    expect(expectOnlyAction(noPending)).toEqual(expected);
+    expect(expectOnlyAction(pending)).toEqual(expected);
+    await expectRecommendedCommandAccepted(withoutPending, expectOnlyAction(noPending));
+  });
+
+  test("emits an exhaustive owner_verb table across all 7 determined owners", async () => {
+    const seen = new Set<NextActionOut["owner_verb"]>();
+
+    const triage = await tmpFeatureDir();
+    await runCli(["start", "auth-refresh", "--ceremony", "standard", "--feature-dir", triage]);
+    let result = await runCli(["next", "--feature", "auth-refresh", "--feature-dir", triage, "--format", "json"]);
+    expect(result.exit).toBe(0);
+    let action = expectOnlyAction(parseNext(result.stdout));
+    expect(action).toMatchObject({ owner_verb: "advance", target: "TRIAGE.confirm", blocking: false });
+    seen.add(action.owner_verb);
+    await expectRecommendedCommandAccepted(triage, action);
+
+    const execute = await tmpFeatureDir();
+    await seedFeatureAtExecuteWork(execute);
+    result = await runCli(["next", "--feature", "auth-refresh", "--feature-dir", execute, "--format", "json"]);
+    expect(result.exit).toBe(0);
+    const executeOut = parseNext(result.stdout);
+    action = expectOnlyAction(executeOut);
+    expect(action).toMatchObject({ owner_verb: "tasks next", target: "task-level", blocking: false });
+    expect(executeOut.blocked).toBe(false);
+    seen.add(action.owner_verb);
+    await expectRecommendedCommandAccepted(execute, action);
+
+    const verifyApproved = await tmpFeatureDir();
+    await seedFeatureAtVerifyAcceptApproved(verifyApproved);
+    result = await runCli(["next", "--feature", "auth-refresh", "--feature-dir", verifyApproved, "--format", "json"]);
+    expect(result.exit).toBe(0);
+    action = expectOnlyAction(parseNext(result.stdout));
+    expect(action).toMatchObject({ owner_verb: "deliver", target: "DONE.delivered", blocking: false });
+    seen.add(action.owner_verb);
+    await expectRecommendedCommandAccepted(verifyApproved, action);
+
+    const deepApproved = await tmpFeatureDir();
+    await seedFeatureAtVerifyAcceptApprovedDeep(deepApproved);
+    result = await runCli(["next", "--feature", "auth-refresh", "--feature-dir", deepApproved, "--format", "json"]);
+    expect(result.exit).toBe(0);
+    action = expectOnlyAction(parseNext(result.stdout));
+    expect(action).toMatchObject({ owner_verb: "settle", target: "SETTLE.reconcile", blocking: false });
+    seen.add(action.owner_verb);
+    await expectRecommendedCommandAccepted(deepApproved, action);
+
+    const gate = await tmpFeatureDir();
+    await seedFeatureAtSpecDesign(gate);
+    result = await runCli(["next", "--feature", "auth-refresh", "--feature-dir", gate, "--format", "json"]);
+    expect(result.exit).toBe(0);
+    action = expectOnlyAction(parseNext(result.stdout));
+    expect(action).toMatchObject({ owner_verb: "gate decide", target: "spec-lock", blocking: true });
+    seen.add(action.owner_verb);
+    await expectRecommendedCommandAccepted(gate, action);
+
+    const escalation = await tmpFeatureDir();
+    await seedFeatureAtSpecDesign(escalation);
+    await raisePending(escalation, "profile_escalation");
+    result = await runCli(["next", "--feature", "auth-refresh", "--feature-dir", escalation, "--format", "json"]);
+    expect(result.exit).toBe(0);
+    action = expectOnlyAction(parseNext(result.stdout));
+    expect(action).toMatchObject({ owner_verb: "profile escalate", target: "profile_escalation", blocking: true });
+    seen.add(action.owner_verb);
+
+    const question = await tmpFeatureDir();
+    await seedFeatureAtSpecDesign(question);
+    await raisePending(question, "ask_user_question");
+    result = await runCli(["next", "--feature", "auth-refresh", "--feature-dir", question, "--format", "json"]);
+    expect(result.exit).toBe(0);
+    action = expectOnlyAction(parseNext(result.stdout));
+    expect(action).toMatchObject({ owner_verb: "pending resolve", target: "ask_user_question", blocking: true });
+    seen.add(action.owner_verb);
+
+    expect([...seen].sort()).toEqual([
+      "advance",
+      "deliver",
+      "gate decide",
+      "pending resolve",
+      "profile escalate",
+      "settle",
+      "tasks next",
+    ]);
+  });
+
+  test("back-edge re-entry keeps cursor-based next routing despite open findings", async () => {
+    const fixImpl = await tmpFeatureDir();
+    const fixCli = (args: string[], env?: Record<string, string | undefined>) =>
+      runCli(
+        args.concat(["--feature", "auth-refresh", "--feature-dir", fixImpl, "--format", "json"]),
+        env ? { env } : {},
+      );
+    await seedFeatureAtExecuteWork(fixImpl);
+    await fixCli(["tasks", "claim", "T-001"]);
+    for (const stepName of ["red", "implement"]) {
+      await fixCli(["tasks", "step", "start", "--task", "T-001", "--step", stepName]);
+      await fixCli(["tasks", "step", "done", "--task", "T-001", "--step", stepName, "--result", "passed"]);
+    }
+    let r = await fixCli(
+      [
+        "finding", "raise",
+        "--category", "impl-defect",
+        "--action", "fix-impl",
+        "--summary", "the implementation regressed against REQ-AUTH-001",
+        "--target-task", "T-001",
+        "--target-step", "implement",
+      ],
+      { LOAF_USER: "engineer@test.invalid" },
+    );
+    expect(r.exit).toBe(0);
+    let findings = JSON.parse((await fixCli(["finding", "list"])).stdout).findings;
+    expect(findings.find((f: { id: string }) => f.id === "FND-001").status).toBe("open");
+    let out = parseNext((await fixCli(["next"])).stdout);
+    expect(out.cursor.sub_state).toBe("EXECUTE.work");
+    expect(expectOnlyAction(out)).toMatchObject({
+      command: "loaf tasks next",
+      owner_verb: "tasks next",
+      target: "task-level",
+      blocking: false,
+    });
+
+    const amendSpec = await tmpFeatureDir();
+    const specCli = (args: string[], env?: Record<string, string | undefined>) =>
+      runCli(
+        args.concat(["--feature", "auth-refresh", "--feature-dir", amendSpec, "--format", "json"]),
+        env ? { env } : {},
+      );
+    await seedFeatureAtExecuteWork(amendSpec);
+    r = await specCli(
+      [
+        "finding", "raise",
+        "--category", "spec-gap",
+        "--action", "amend-spec",
+        "--summary", "the spec missed a lock bypass requirement",
+      ],
+      { LOAF_USER: "engineer@test.invalid" },
+    );
+    expect(r.exit).toBe(0);
+    findings = JSON.parse((await specCli(["finding", "list"])).stdout).findings;
+    expect(findings.find((f: { id: string }) => f.id === "FND-001").status).toBe("open");
+    const status = JSON.parse((await specCli(["status"])).stdout);
+    expect(status.state.sub_state).toBe("SPEC.spec");
+    expect(status.state.spec_locked).toBe(false);
+    out = parseNext((await specCli(["next"])).stdout);
+    expect(expectOnlyAction(out)).toMatchObject({
+      command: "loaf advance SPEC.plan",
+      owner_verb: "advance",
+      target: "SPEC.plan",
+      blocking: false,
+    });
+  });
+
+  test("JSON output is strict, read-only, and status-compatible without embedding full status", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtSpecDesign(dir);
+    const journalPath = path.join(dir, "journal.jsonl");
+    const statePath = path.join(dir, "snapshots", "state.json");
+    const journalBefore = await fsP.readFile(journalPath, "utf8");
+    const stateBefore = await fsP.readFile(statePath, "utf8");
+
+    const result = await runCli([
+      "next",
+      "--feature", "auth-refresh",
+      "--feature-dir", dir,
+      "--format", "json",
+    ]);
+    expect(result.exit).toBe(0);
+    expect(result.stderr).toBe("");
+    const out = parseNext(result.stdout);
+    expect(Object.keys(out).sort()).toEqual([
+      "blocked",
+      "ceremony",
+      "cursor",
+      "feature",
+      "feature_dir",
+      "next_action",
+      "ok",
+      "terminal",
+    ]);
+    expect(out.cursor).toEqual({ phase: "SPEC", sub_state: "SPEC.design" });
+    expect(out).not.toHaveProperty("state");
+    expect(out.feature_dir).toBe(dir);
+    expect(out.next_action).toBeDefined();
+
+    await expect(fsP.readFile(journalPath, "utf8")).resolves.toBe(journalBefore);
+    await expect(fsP.readFile(statePath, "utf8")).resolves.toBe(stateBefore);
+  });
+
+  test("terminal state omits next_action", async () => {
+    const dir = await tmpFeatureDir();
+    await runCli([
+      "start", "auth-refresh",
+      "--ceremony", "standard",
+      "--feature-dir", dir,
+      "--format", "json",
+    ]);
+    const archived = await runCli(
+      [
+        "archive",
+        "--reason", "fixture terminal closure",
+        "--feature", "auth-refresh",
+        "--feature-dir", dir,
+        "--format", "json",
+      ],
+      { env: { LOAF_USER: "tester@example.invalid" } },
+    );
+    expect(archived.exit).toBe(0);
+
+    const result = await runCli([
+      "next",
+      "--feature", "auth-refresh",
+      "--feature-dir", dir,
+      "--format", "json",
+    ]);
+    expect(result.exit).toBe(0);
+    const out = parseNext(result.stdout);
+    expect(out.terminal).toBe(true);
+    expect(out.blocked).toBe(false);
+    expect(out).not.toHaveProperty("next_action");
+  });
+
+  test("VERIFY frontmatter failure emits SPEC_FRONTMATTER_INVALID with existing detail-key shape", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtVerifyAccept(dir);
+    await fsP.writeFile(
+      path.join(dir, "spec.md"),
+      `---
+schema_version: 2
+spec_version: "not-a-number"
+feature:
+  id: F-001
+  name: OAuth token refresh
+intent: invalid frontmatter fixture
+adr_refs: []
+requirements: []
+scenarios: []
+needs_clarification: []
+---
+`,
+    );
+
+    const result = await runCli([
+      "next",
+      "--feature", "auth-refresh",
+      "--feature-dir", dir,
+      "--format", "json",
+    ]);
+
+    expect(result.exit).toBe(2);
+    expect(result.stdout).toBe("");
+    const err = JSON.parse(result.stderr);
+    expect(err.code).toBe("SPEC_FRONTMATTER_INVALID");
+    expect(Object.keys(err.detail).sort()).toEqual(["issues", "path", "subcode"]);
+    expect(err.detail.subcode).toBe("SPEC_FRONTMATTER_INVALID");
+  });
+
+  test("dry-run is rejected and no-session uses the existing dispatch diagnostic", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtSpecDesign(dir);
+
+    let result = await runCli([
+      "next",
+      "--feature", "auth-refresh",
+      "--feature-dir", dir,
+      "--dry-run",
+      "--format", "json",
+    ]);
+    expect(result.exit).toBe(2);
+    expect(JSON.parse(result.stderr).code).toBe("DRY_RUN_NOT_APPLICABLE");
+
+    const emptyDir = await tmpFeatureDir();
+    result = await runCli([
+      "next",
+      "--feature", "ghost",
+      "--feature-dir", emptyDir,
+      "--format", "json",
+    ]);
+    expect(result.exit).toBe(2);
+    expect(JSON.parse(result.stderr).code).toBe("FEATURE_NOT_FOUND");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
 // Slice B — CLI shell test for `loaf finding raise --action amend-spec`
 // (codex r98 §1 fix: text-mode stdout MUST stay bare FND-id; r98 added
 // CLI-level coverage gap callout. Raw mutateBatch tests in

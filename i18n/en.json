@@ -539,6 +539,7 @@
   "help": {
     "start":          "Begin a new feature session in .loaf/<feature>/",
     "status":         "Print current state.json + artifact health summary",
+    "next":           "Compute the next owner command for the current session",
     "advance":        "Run next transition + diff guard (git status + write_paths AND-merge)",
     "resume":         "Resume session; --fresh prints minimal context pack for next iteration",
     "handoff":        "Write resume-pack.json for context overflow handoff",
