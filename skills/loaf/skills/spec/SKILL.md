@@ -23,7 +23,7 @@ spec …` / `loaf tasks …` commands — never write `.loaf/` or `spec.md` dire
 - `sub_state = TRIAGE.confirm` → you are the receiving skill. Run `loaf next`
   (it returns `loaf advance SPEC.proposal`) and run that advance to enter SPEC.
 - `sub_state` already in `SPEC.*` → resume at that sub-state.
-- `sub_state` past SPEC (`EXECUTE.*` …) → SPEC is done; skip to **Handoff**.
+- `sub_state` past SPEC (`EXECUTE.*` …) → SPEC is done; skip to **Done — report & stop**.
 
 ## Step 2 — Walk the SPEC sub-states
 
@@ -60,26 +60,17 @@ If `--approve` fails with failed checks (incomplete spec), surface them, return
 to step 2 to fix the spec or tasks, then retry. **Never force a lock past a
 failing check.** A reject keeps the cursor in SPEC — return to step 2.
 
-## Handoff — always ask the kernel
+## Done — report & stop
 
-Never hardcode the next step. Run `loaf next --feature <F> --format json` and
-obey `next_action`:
+Run `loaf next --feature <F> --format json` and **report** its `next_action`
+(command + `reason`), `blocked`, or `terminal` to the user as this phase's
+result — then **stop**. Do not act on it: do not invoke another phase skill, do
+not `deliver`, do not run a blocking action. Routing and the next hop belong to
+`/loaf:run` (or the user's next explicit command); if `/loaf:run` invoked you,
+returning here hands control back to its drive loop.
 
-- `terminal: true` → lifecycle done; report and stop.
-- `blocked: true` (`gate decide` / `pending resolve` / `profile escalate`) → a
-  human decision: surface `next_action.command` + `reason`, let the human
-  choose, then run it. Never auto-run a blocking action.
-- `owner_verb: deliver` → the terminal close; run `loaf deliver` (human-owned)
-  and report `DONE`.
-- `target` is in **another phase** (not `deliver`) → hand off to that phase's
-  skill; it runs the boundary step on entry. Map target prefix → skill:
-  `TRIAGE`→`/loaf:start`, `SPEC`→`/loaf:spec`, `EXECUTE`→`/loaf:execute`,
-  `VERIFY`→`/loaf:verify`, `SETTLE`→`/loaf:settle`.
-- otherwise (`advance` within your phase, or `tasks next`) → run
-  `next_action.command`, then re-run `loaf next` and repeat.
-
-A successful spec-lock approve advances the cursor `SPEC.design` →
-`EXECUTE.plan` in the same batch, so the next step hands off to `/loaf:execute`.
+(A successful spec-lock approve co-advances the cursor `SPEC.design` →
+`EXECUTE.plan` in the same batch, so `loaf next` will already point at EXECUTE.)
 
 ## Skeleton invariants (every phase skill carries these)
 
@@ -87,7 +78,7 @@ A successful spec-lock approve advances the cursor `SPEC.design` →
   or snapshots by hand.
 - **Re-entry safe** — read `loaf status` first; never assume you start at the
   phase's first sub-state.
-- **Routing is the kernel's** — end the phase with `loaf next` and obey it;
-  don't re-derive the next phase yourself.
+- **Routing belongs to `/loaf:run`** — end your phase by reporting `loaf next`'s
+  recommendation; never advance into another phase yourself.
 - **Pause points are explicit** — stop and ask at each `*.confirm` / gate /
   decision boundary rather than guessing.

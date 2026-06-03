@@ -21,7 +21,7 @@ bare `--feature-dir` is rejected). `<F>` is the feature being started.
    `loaf status --feature <F> --format json`
    - Exit 2 `FEATURE_NOT_FOUND` → no session yet; continue to step 2.
    - Exit 0 with a `sub_state` → already started. Do **not** re-run `loaf
-     start`. Skip to **Handoff** — the kernel routes you to the real cursor.
+     start`. Skip to **Done — report & stop** — the kernel routes you to the real cursor.
 
 2. **Score the work (your judgment).** Rate complexity 0–100 across **files /
    api / schema / concurrency / security**. The score only *suggests* a
@@ -40,28 +40,16 @@ bare `--feature-dir` is rejected). `<F>` is the feature being started.
 
 5. **Confirm the profile.** `loaf advance TRIAGE.confirm --feature <F>`
    (`TRIAGE.score` → `TRIAGE.confirm` — the "accept or override profile"
-   checkpoint). Then hand off.
+   checkpoint). Then report & stop.
 
-## Handoff — always ask the kernel
+## Done — report & stop
 
-Never hardcode the next step. Run `loaf next --feature <F> --format json` and
-obey `next_action`:
-
-- `terminal: true` → lifecycle done; report and stop.
-- `blocked: true` (`gate decide` / `pending resolve` / `profile escalate`) → a
-  human decision: surface `next_action.command` + `reason`, let the human
-  choose, then run it. Never auto-run a blocking action.
-- `owner_verb: deliver` → the terminal close; run `loaf deliver` (human-owned)
-  and report `DONE`.
-- `target` is in **another phase** (not `deliver`) → hand off to that phase's
-  skill; it runs the boundary step on entry. Map target prefix → skill:
-  `TRIAGE`→`/loaf:start`, `SPEC`→`/loaf:spec`, `EXECUTE`→`/loaf:execute`,
-  `VERIFY`→`/loaf:verify`, `SETTLE`→`/loaf:settle`.
-- otherwise (`advance` within your phase, or `tasks next`) → run
-  `next_action.command`, then re-run `loaf next` and repeat.
-
-From `TRIAGE.confirm`: `quick` → `/loaf:execute`; `light` / `standard` / `deep`
-→ `/loaf:spec`.
+Run `loaf next --feature <F> --format json` and **report** its `next_action`
+(command + `reason`), `blocked`, or `terminal` to the user as this phase's
+result — then **stop**. Do not act on it: do not invoke another phase skill, do
+not `deliver`, do not run a blocking action. Routing and the next hop belong to
+`/loaf:run` (or the user's next explicit command); if `/loaf:run` invoked you,
+returning here hands control back to its drive loop.
 
 ## Skeleton invariants (every phase skill carries these)
 
@@ -69,8 +57,8 @@ From `TRIAGE.confirm`: `quick` → `/loaf:execute`; `light` / `standard` / `deep
   or snapshots by hand.
 - **Re-entry safe** — read `loaf status` first; never assume you start at the
   phase's first sub-state.
-- **Routing is the kernel's** — end the phase with `loaf next` and obey it;
-  don't re-derive the next phase yourself.
+- **Routing belongs to `/loaf:run`** — end your phase by reporting `loaf next`'s
+  recommendation; never advance into another phase yourself.
 - **Pause points are explicit** — stop and ask at each `*.confirm` / gate /
   decision boundary rather than guessing.
 

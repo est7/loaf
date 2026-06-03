@@ -1,7 +1,7 @@
 {
   "name": "loaf",
-  "version": "0.1.0",
-  "description": "Loaf feature-lifecycle orchestration — phase skills that drive the loaf-cli protocol kernel (TRIAGE → SPEC → EXECUTE → VERIFY → SETTLE) with human pause points and kernel-computed routing",
+  "version": "0.2.0",
+  "description": "Loaf feature-lifecycle orchestration — a single end-to-end driver (/loaf:run) plus per-phase skills that drive the loaf-cli protocol kernel (TRIAGE → SPEC → EXECUTE → VERIFY → SETTLE) with human pause points and kernel-computed routing",
   "author": {
     "name": "est7",
     "email": "ffoisx@gmail.com"
@@ -15,6 +15,7 @@
     "orchestration"
   ],
   "commands": [
+    "./skills/run/",
     "./skills/start/",
     "./skills/spec/",
     "./skills/execute/",

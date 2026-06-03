@@ -24,7 +24,7 @@ commands — never touch `.loaf/` or its snapshots (ADR-0005 single writer). Pas
   you are the receiving skill: run `loaf next` and the advance it returns to
   reach `EXECUTE.plan`.
 - `sub_state` in `EXECUTE.*` → resume at that sub-state.
-- `sub_state` past EXECUTE → done here; skip to **Handoff**.
+- `sub_state` past EXECUTE → done here; skip to **Done — report & stop**.
 
 ## Step 2 — `EXECUTE.plan`: derive execution policy
 
@@ -55,26 +55,17 @@ Independent ready leaves may run **concurrently** — see
 writes always stay serial** (single writer). When every task is terminal →
 `loaf advance EXECUTE.done`.
 
-## Handoff — always ask the kernel
+## Done — report & stop
 
-Never hardcode the next step. Run `loaf next --feature <F> --format json` and
-obey `next_action`:
+Run `loaf next --feature <F> --format json` and **report** its `next_action`
+(command + `reason`), `blocked`, or `terminal` to the user as this phase's
+result — then **stop**. Do not act on it: do not invoke another phase skill, do
+not `deliver`, do not run a blocking action. Routing and the next hop belong to
+`/loaf:run` (or the user's next explicit command); if `/loaf:run` invoked you,
+returning here hands control back to its drive loop.
 
-- `terminal: true` → lifecycle done; report and stop.
-- `blocked: true` (`gate decide` / `pending resolve` / `profile escalate`) → a
-  human decision: surface `next_action.command` + `reason`, let the human
-  choose, then run it. Never auto-run a blocking action.
-- `owner_verb: deliver` → the terminal close; run `loaf deliver` (human-owned)
-  and report `DONE`.
-- `target` is in **another phase** (not `deliver`) → hand off to that phase's
-  skill; it runs the boundary step on entry. Map target prefix → skill:
-  `TRIAGE`→`/loaf:start`, `SPEC`→`/loaf:spec`, `EXECUTE`→`/loaf:execute`,
-  `VERIFY`→`/loaf:verify`, `SETTLE`→`/loaf:settle`.
-- otherwise (`advance` within your phase, or `tasks next`) → run
-  `next_action.command`, then re-run `loaf next` and repeat.
-
-At `EXECUTE.done`: `quick` / `light` → `loaf next` returns `loaf deliver`
-(terminal close, run it here); `standard` / `deep` → hand off to `/loaf:verify`.
+(At `EXECUTE.done`, `loaf next` points at `loaf deliver` for `quick`/`light` or
+the VERIFY phase for `standard`/`deep` — `/loaf:run` routes accordingly.)
 
 ## Skeleton invariants (every phase skill carries these)
 
@@ -82,7 +73,7 @@ At `EXECUTE.done`: `quick` / `light` → `loaf next` returns `loaf deliver`
   or snapshots by hand.
 - **Re-entry safe** — read `loaf status` first; never assume you start at the
   phase's first sub-state.
-- **Routing is the kernel's** — end the phase with `loaf next` and obey it;
-  don't re-derive the next phase yourself.
+- **Routing belongs to `/loaf:run`** — end your phase by reporting `loaf next`'s
+  recommendation; never advance into another phase yourself.
 - **Pause points are explicit** — stop and ask at each `*.confirm` / gate /
   decision boundary rather than guessing.
