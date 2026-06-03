@@ -3986,6 +3986,36 @@ async function expectRecommendedCommandAccepted(
         { env: { LOAF_USER: "roundtrip@example.invalid" } },
       );
       break;
+    case "pending resolve":
+      // FIFO command takes no positional id (cli.tsx `pending resolve`:
+      // "strict FIFO; no --id flag"). The recommendation must match that
+      // surface — the `<answer>` placeholder is the only operator-filled token.
+      expect(action.command).toBe('loaf pending resolve --answer "<answer>"');
+      result = await runCli(["pending", "resolve", "--answer", "round-trip answer", ...baseArgs]);
+      break;
+    case "profile escalate": {
+      // `<ceremony.json>` is an operator-supplied path placeholder; the flag
+      // shape (--confirm --input <path>) must match the real command. Write a
+      // valid escalated 6-flag Ceremony and run it (human-only acceptance).
+      expect(action.command).toBe("loaf profile escalate --confirm --input <ceremony.json>");
+      const ceremonyPath = path.join(dir, "escalated-ceremony.json");
+      await fsP.writeFile(
+        ceremonyPath,
+        JSON.stringify({
+          spec_phase: true,
+          verify_phase: true,
+          settle_phase: true,
+          strict_spec_review: false,
+          lessons_required: "must",
+          strict_drift_check: false,
+        }),
+      );
+      result = await runCli(
+        ["profile", "escalate", "--confirm", "--input", ceremonyPath, ...baseArgs],
+        { env: { LOAF_USER: "roundtrip@example.invalid" } },
+      );
+      break;
+    }
     default:
       throw new Error(`round-trip helper does not cover owner_verb=${action.owner_verb}`);
   }
@@ -4124,7 +4154,9 @@ describe("loaf next — phase-routing read-side dual", () => {
     expect(result.exit).toBe(0);
     action = expectOnlyAction(parseNext(result.stdout));
     expect(action).toMatchObject({ owner_verb: "profile escalate", target: "profile_escalation", blocking: true });
+    expect(action.command).toBe("loaf profile escalate --confirm --input <ceremony.json>");
     seen.add(action.owner_verb);
+    await expectRecommendedCommandAccepted(escalation, action);
 
     const question = await tmpFeatureDir();
     await seedFeatureAtSpecDesign(question);
@@ -4133,7 +4165,10 @@ describe("loaf next — phase-routing read-side dual", () => {
     expect(result.exit).toBe(0);
     action = expectOnlyAction(parseNext(result.stdout));
     expect(action).toMatchObject({ owner_verb: "pending resolve", target: "ask_user_question", blocking: true });
+    expect(action.command).toBe('loaf pending resolve --answer "<answer>"');
     seen.add(action.owner_verb);
+    // Round-trip: the recommended FIFO command must be accepted by the real CLI.
+    await expectRecommendedCommandAccepted(question, action);
 
     expect([...seen].sort()).toEqual([
       "advance",

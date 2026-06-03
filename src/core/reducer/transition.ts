@@ -105,6 +105,22 @@ export type NextAction = {
   reason: string;
 };
 
+// Single source for the cursor → gate mapping. Both the forward-route
+// owner (`transitionOwnerFor`, flag-gated) and the pending-precedence
+// composer (`next-action.ts` gateFromCursor, unconditional on a pending
+// gate_decision head) route through this so the mapping is not re-encoded
+// in two files (audit Finding 3).
+export function gateNameForCursor(subState: SubState): GateName | null {
+  switch (subState) {
+    case "SPEC.design":
+      return "spec-lock";
+    case "VERIFY.accept":
+      return "verify-accept";
+    default:
+      return null;
+  }
+}
+
 export function buildGateDecideAction(gate: GateName): NextAction {
   return {
     command: `loaf gate decide ${gate} --approve|--reject --reason "<reason>"`,
@@ -143,13 +159,14 @@ export type TransitionOwnerInput = {
 
 export function transitionOwnerFor(input: TransitionOwnerInput): NextAction | null {
   const { sub_state, ceremony, spec_locked, verify_accepted, verify_next_target } = input;
+  const gate = gateNameForCursor(sub_state);
 
-  if (sub_state === "SPEC.design" && !spec_locked) {
-    return buildGateDecideAction("spec-lock");
+  if (gate === "spec-lock" && !spec_locked) {
+    return buildGateDecideAction(gate);
   }
 
   if (sub_state === "VERIFY.accept") {
-    if (!verify_accepted) return buildGateDecideAction("verify-accept");
+    if (gate !== null && !verify_accepted) return buildGateDecideAction(gate);
     if (ceremony.settle_phase) {
       return {
         command: "loaf settle",

@@ -2,6 +2,7 @@ import type { Ceremony, SubState } from "./journal-entry.js";
 import type { PendingQueueEntry } from "./projection-schema.js";
 import {
   buildGateDecideAction,
+  gateNameForCursor,
   transitionOwnerFor,
   type NextAction,
 } from "./reducer/transition.js";
@@ -45,8 +46,12 @@ export type BuildNextOutputInput = {
 };
 
 function pendingResolveAction(head: PendingQueueEntry): NextAction {
+  // `loaf pending resolve` is strict FIFO and rejects a positional id
+  // ("no --id flag"; commander.excessArguments → exit 2). The head is
+  // already determined by FIFO order, so the id is redundant in the
+  // command — it is preserved as `target` (head.kind) for the caller.
   return {
-    command: `loaf pending resolve ${head.pending_id} --answer "<answer>"`,
+    command: `loaf pending resolve --answer "<answer>"`,
     owner_verb: "pending resolve",
     target: head.kind,
     blocking: true,
@@ -65,9 +70,8 @@ function profileEscalateAction(): NextAction {
 }
 
 function gateFromCursor(subState: SubState): NextAction | null {
-  if (subState === "SPEC.design") return buildGateDecideAction("spec-lock");
-  if (subState === "VERIFY.accept") return buildGateDecideAction("verify-accept");
-  return null;
+  const gate = gateNameForCursor(subState);
+  return gate === null ? null : buildGateDecideAction(gate);
 }
 
 function verifyNextTarget(
