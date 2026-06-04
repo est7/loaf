@@ -54,6 +54,8 @@ import {
 import { buildWaiveEvidencePayload } from "./cli/waive.js";
 import { buildLessonsEvidencePayload } from "./cli/lessons-add.js";
 import { buildSpecSubmitBatch } from "./cli/spec-submit-batch.js";
+import type { MutatorEntry } from "./cli/mutator-entry.js";
+import { buildFindingRaiseBatch, buildGateApprovalBatch } from "./cli/batch-builders.js";
 import { buildResumePack } from "./cli/build-resume-pack.js";
 import { ResumePack as RuntimeResumePack } from "./core/resume-pack-schema.js";
 import { App as TuiApp } from "./cli/tui/app.js";
@@ -1270,7 +1272,6 @@ export async function main(
   // mutateBatch). `at` is one `now` per invocation; actor stays per entry so
   // batches with mixed actors (gate approve) are preserved.
   type RunPartial = Parameters<typeof mutate>[0];
-  type MutatorEntry = Pick<RunPartial, "kind" | "payload" | "actor">;
   type FailureRoute = "emit-failure" | "legacy-fail" | "raw-ctx-failure";
   type MutateOkSingle = Extract<Awaited<ReturnType<typeof mutate>>, { ok: true }>;
   type MutateOkBatch = Extract<Awaited<ReturnType<typeof mutateBatch>>, { ok: true }>;
@@ -1719,26 +1720,18 @@ export async function main(
           // the gate decision and the cursor advance — order matters for
           // reducer dry-run (pending head must still be unresolved when
           // pending:resolved applies; phase_advanced runs after).
-          const entries: MutatorEntry[] = [
-            {
-              kind: "gate:decided",
-              payload: { gate_kind: "spec-lock", decision: "approved", reason: opts.reason },
-              actor: humanActor,
-            },
-          ];
-          if (coEmitPendingResolved && pendingHead) {
-            entries.push({
-              kind: "pending:resolved",
-              payload: { id: pendingHead.id, answer: "gate-decide:spec-lock:approved" },
-              actor,
-            });
-          }
-          entries.push({
-            kind: "event:phase_advanced",
-            payload: { from, to: "EXECUTE.plan" },
-            actor,
-          });
-          const result = await runMutator(featureDir, session, entries);
+          const result = await runMutator(
+            featureDir,
+            session,
+            buildGateApprovalBatch({
+              gate: "spec-lock",
+              reason: opts.reason,
+              humanActor,
+              cliActor: actor,
+              from,
+              ...(coEmitPendingResolved && pendingHead ? { pendingHeadId: pendingHead.id } : {}),
+            }),
+          );
           if (!result) return;
           const out = {
             ok: true,
@@ -1766,32 +1759,17 @@ export async function main(
         // / deep spec-review). Gate does NOT move cursor — cursor stays at
         // VERIFY.accept; `loaf deliver` / `loaf settle` advance cursor later
         // per ceremony.settle_phase.
-        const result = coEmitPendingResolved && pendingHead
-          ? await runMutator(
-            featureDir,
-            session,
-            [
-              {
-                kind: "gate:decided",
-                payload: { gate_kind: "verify-accept", decision: "approved", reason: opts.reason },
-                actor: humanActor,
-              },
-              {
-                kind: "pending:resolved",
-                payload: { id: pendingHead.id, answer: "gate-decide:verify-accept:approved" },
-                actor,
-              },
-            ],
-          )
-          : await runMutator(
-            featureDir,
-            session,
-            {
-              kind: "gate:decided",
-              payload: { gate_kind: "verify-accept", decision: "approved", reason: opts.reason },
-              actor: humanActor,
-            },
-          );
+        const result = await runMutator(
+          featureDir,
+          session,
+          buildGateApprovalBatch({
+            gate: "verify-accept",
+            reason: opts.reason,
+            humanActor,
+            cliActor: actor,
+            ...(coEmitPendingResolved && pendingHead ? { pendingHeadId: pendingHead.id } : {}),
+          }),
+        );
         if (!result) return;
         const out = {
           ok: true,
@@ -5282,54 +5260,29 @@ export async function main(
       // dictated by `action` and re-derived by validateTransition.
       // Other actions remain single-entry until their slices land.
 
-      // Phase 11 Item 3 SC2/SC3 — fix-impl / fix-test emit a 3-entry batch
-      // [finding:raised, event:task_step_reset, event:phase_advanced(
-      // back_edge → EXECUTE.work)]. The reset entry returns the target
-      // repair step to `pending` so the fix loop can re-run it. The step
-      // is the action's canonical step (fix-impl → "implement",
-      // fix-test → "red"). Both actions share the keyed batch path and the
-      // event:task_step_reset kind — the only per-action input is this map.
-      const FIX_RESET_STEP: Record<string, string> = {
-        "fix-impl": "implement",
-        "fix-test": "red",
-      };
-      const fixResetStep = FIX_RESET_STEP[opts.action];
-      // fix-impl is a `task_id_step` target action: the CLI cannot build the
-      // event:task_step_reset entry without {task_id, step}. When the target
-      // is absent, fall through to the lone-`finding:raised` path below — its
-      // FINDING_TARGET_REQUIRED preflight refine is the authoritative,
-      // already-tested target gate (the 3-entry batch path only runs when
-      // the target is present).
-      if (fixResetStep !== undefined && hasTask && hasStep) {
-        const currentSubState = session.snapshot.state.sub_state;
-        const batchResult = await runMutator(featureDir, session, [
-          {
-            kind: "finding:raised",
-            payload,
-            actor,
-          },
-          {
-            // cli:loaf actor on the mechanical reset entry — human
-            // attribution lives on the sibling finding:raised entry.
-            kind: "event:task_step_reset",
-            payload: {
-              task_id: opts.targetTask,
-              step: fixResetStep,
-              finding_id: id,
-            },
-            actor: "cli:loaf",
-          },
-          {
-            kind: "event:phase_advanced",
-            payload: {
-              from: currentSubState,
-              to: "EXECUTE.work",
-              back_edge: { action: opts.action, finding_id: id },
-            },
-            actor: "cli:loaf",
-          },
-        ]);
-        if (!batchResult) return;
+      // L9: finding-raise co-emission shape lives in buildFindingRaiseBatch
+      // (fix-* reset batch / amend-* back-edge / lone). The builder owns the
+      // action→batch mapping, ordering, and per-entry actor split; fix-* without
+      // a target returns "none" so the lone path runs and preflight's
+      // FINDING_TARGET_REQUIRED stays the authoritative target gate.
+      const currentSubState = session.snapshot.state.sub_state;
+      const findingBatch = buildFindingRaiseBatch({
+        action: opts.action,
+        findingPayload: payload,
+        findingId: id,
+        currentSubState,
+        findingActor: actor,
+        ...(hasTask && hasStep
+          ? { target: { taskId: opts.targetTask!, step: opts.targetStep! } }
+          : {}),
+      });
+      if (findingBatch.kind === "none") {
+        const result = await runMutator(
+          featureDir,
+          session,
+          { kind: "finding:raised", payload, actor },
+        );
+        if (!result) return;
         ctx.success(
           {
             ok: true,
@@ -5337,75 +5290,17 @@ export async function main(
             id,
             category: opts.category,
             action: opts.action,
-            back_edge: { from: currentSubState, to: "EXECUTE.work" },
           },
           () => id + "\n",
           {
             stateChange:
-              `finding raise: ${id} (category=${opts.category}, action=${opts.action}) — back-edge to EXECUTE.work`,
+              `finding raise: ${id} (category=${opts.category}, action=${opts.action})`,
           },
         );
         return;
       }
-
-      const BACK_EDGE_TARGET: Record<string, SubState> = {
-        "amend-spec": "SPEC.spec",
-        "amend-tasks": "EXECUTE.work",
-      };
-      const backEdgeTarget = BACK_EDGE_TARGET[opts.action];
-      if (backEdgeTarget !== undefined) {
-        const currentSubState = session.snapshot.state.sub_state;
-        const batchResult = await runMutator(featureDir, session, [
-          {
-            kind: "finding:raised",
-            payload,
-            actor,
-          },
-          {
-            // codex r96 Q6 ack: cli:loaf actor on derived
-            // phase_advanced (consistent with gate-decide
-            // co-emission). Human attribution lives on the
-            // sibling finding:raised entry one journal line away.
-            kind: "event:phase_advanced",
-            payload: {
-              from: currentSubState,
-              to: backEdgeTarget,
-              back_edge: { action: opts.action, finding_id: id },
-            },
-            actor: "cli:loaf",
-          },
-        ]);
-        if (!batchResult) return;
-        ctx.success(
-          {
-            ok: true,
-            feature: opts.feature,
-            id,
-            category: opts.category,
-            action: opts.action,
-            back_edge: { from: currentSubState, to: backEdgeTarget },
-          },
-          // codex r98 §1: keep text-mode stdout bare (matches every
-          // other `loaf finding raise` action). Callers script
-          // `FND=$(loaf finding raise ...)` and feed the id straight
-          // into `loaf finding close`; a decorated string would
-          // break that pipeline contract. The back_edge sponsorship
-          // is observable from the journal tail + JSON mode.
-          () => id + "\n",
-          {
-            stateChange:
-              `finding raise: ${id} (category=${opts.category}, action=${opts.action}) — back-edge to ${backEdgeTarget}`,
-          },
-        );
-        return;
-      }
-
-      const result = await runMutator(
-        featureDir,
-        session,
-        { kind: "finding:raised", payload, actor },
-      );
-      if (!result) return;
+      const batchResult = await runMutator(featureDir, session, findingBatch.entries);
+      if (!batchResult) return;
       ctx.success(
         {
           ok: true,
@@ -5413,11 +5308,18 @@ export async function main(
           id,
           category: opts.category,
           action: opts.action,
+          back_edge: { from: currentSubState, to: findingBatch.backEdgeTo },
         },
+        // codex r98 §1: keep text-mode stdout bare (matches every other
+        // `loaf finding raise` action). Callers script
+        // `FND=$(loaf finding raise ...)` and feed the id straight into
+        // `loaf finding close`; a decorated string would break that pipeline
+        // contract. The back_edge sponsorship is observable from the journal
+        // tail + JSON mode.
         () => id + "\n",
         {
           stateChange:
-            `finding raise: ${id} (category=${opts.category}, action=${opts.action})`,
+            `finding raise: ${id} (category=${opts.category}, action=${opts.action}) — back-edge to ${findingBatch.backEdgeTo}`,
         },
       );
     });
