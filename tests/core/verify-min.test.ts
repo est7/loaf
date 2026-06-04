@@ -205,4 +205,22 @@ describe("verify-min — per-task required evidence (§3.2)", () => {
       [ev("EV-1", "local-check", ["T-001"])],
     )).ok).toBe(true);
   });
+
+  test("earlier missing-evidence task + later bug-RED task → BUG_TASK_RED preempts (L6 short-circuit)", () => {
+    // codex L6 RED ask: the post-evaluator adapter must reproduce the
+    // pre-extraction loop's behavior — bug-RED on a LATER done task returns
+    // before the earlier task's missing evidence can surface as INCOMPLETE.
+    const r = run(snap(
+      [
+        task("T-001", "behavioral"), // missing evidence
+        task("T-002", "behavioral", { labels: ["bug"], red_test_registered: false }),
+      ],
+      [],
+    ));
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.code).toBe("BUG_TASK_RED_NOT_REGISTERED");
+      expect(r.detail).toMatchObject({ task_id: "T-002" });
+    }
+  });
 });

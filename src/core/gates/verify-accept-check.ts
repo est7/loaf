@@ -43,6 +43,8 @@ import type { EvidenceState, Snapshot } from "../reducer.js";
 import type { SpecFrontmatter } from "../spec-schema.js";
 import type { VerifyCheckKind } from "../evidence-schema.js";
 import { canSatisfy } from "../evidence-compat.js";
+import { isPassingResult } from "./evidence-result.js";
+import { evaluateTaskProof, verifyAcceptPolicy } from "./task-proof.js";
 
 export type FailedCheck = {
   check: 1 | 2 | 3 | 4 | 5;
@@ -111,13 +113,6 @@ const KIND_TO_LANE_FALLBACK: Partial<Record<EvidenceState["kind"], VerifyCheckKi
   acceptance: "acceptance",
   "visual-review": "visual",
 };
-
-export const PASSING_RESULTS = new Set(["passed", "approved", "waived"]);
-
-/** Lanes that pass an evidence result-check filter. */
-export function isPassingResult(result?: EvidenceState["result"]): boolean {
-  return result !== undefined && PASSING_RESULTS.has(result);
-}
 
 /**
  * Derive the set of "must" lanes from the snapshot + frontmatter.
@@ -208,13 +203,6 @@ function deriveImplementers(snapshot: Snapshot): Set<string> {
   }
   return implementers;
 }
-
-const TASK_ALLOWED_EVIDENCE_KINDS: ReadonlyArray<EvidenceState["kind"]> = [
-  "task-summary",
-  "local-check",
-  "manual",
-  "waiver",
-];
 
 // SC-9a-1: per-check failure walks, extracted from the original
 // verifyAcceptCheck body. Each returns the FailedCheck rows the check
@@ -312,34 +300,27 @@ function evalTaskEvidence(snapshot: Snapshot, frontmatter: SpecFrontmatter): Fai
     });
     return failures;
   }
-  for (const task of snapshot.tasks) {
-    if (task.status !== "done") continue;
-    const satisfied = snapshot.evidence.some(
-      (ev) =>
-        isPassingResult(ev.result) &&
-        ev.covers.includes(task.id) &&
-        TASK_ALLOWED_EVIDENCE_KINDS.includes(ev.kind),
-    );
-    if (!satisfied) {
-      failures.push({
-        check: 4,
-        code: "TASK_DONE_NO_EVIDENCE",
-        message: `task ${task.id} is status=done but has no PASSING evidence (result ∈ {passed, approved, waived}; kind ∈ {task-summary, local-check, manual, waiver}) covering it`,
-        detail: { task_id: task.id },
-      });
-    }
-    // Slice C SC-C4 (R2) — defense-in-depth for bug-RED invariant.
-    if (
-      task.kind === "behavioral" &&
-      task.labels.includes("bug") &&
-      task.red_test_registered !== true
-    ) {
-      failures.push({
-        check: 4,
-        code: "BUG_TASK_RED_NOT_REGISTERED",
-        message: `behavioral bug task ${task.id} is status=done but never registered its RED test (red_test_registered≠true)`,
-        detail: { task_id: task.id },
-      });
+  // verify-accept check 4 uses the kind-UNIFORM proof policy; each gap maps to
+  // its own collected failure (one done task can emit BOTH). Gap order
+  // [no-passing-evidence, bug-red-unregistered] preserves the original push order.
+  for (const { task, gaps } of evaluateTaskProof(snapshot, verifyAcceptPolicy)) {
+    for (const gap of gaps) {
+      if (gap === "no-passing-evidence") {
+        failures.push({
+          check: 4,
+          code: "TASK_DONE_NO_EVIDENCE",
+          message: `task ${task.id} is status=done but has no PASSING evidence (result ∈ {passed, approved, waived}; kind ∈ {task-summary, local-check, manual, waiver}) covering it`,
+          detail: { task_id: task.id },
+        });
+      } else {
+        // gap === "bug-red-unregistered" — Slice C SC-C4 (R2) defense-in-depth.
+        failures.push({
+          check: 4,
+          code: "BUG_TASK_RED_NOT_REGISTERED",
+          message: `behavioral bug task ${task.id} is status=done but never registered its RED test (red_test_registered≠true)`,
+          detail: { task_id: task.id },
+        });
+      }
     }
   }
   return failures;

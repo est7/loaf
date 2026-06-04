@@ -36,7 +36,7 @@ import { JournalEntry } from "../journal-entry.js";
 import { PER_KIND_PAYLOAD } from "../kind-registry.js";
 import type { Ceremony, EntryKind, SubState } from "../journal-entry.js";
 import type { Snapshot, TaskState } from "../reducer.js";
-import { isPassingResult } from "../gates/verify-accept-check.js";
+import { evaluateTaskProof, verifyMinPolicy } from "../gates/task-proof.js";
 import { extractTaskSlim, type TaskFullProjection } from "../task-schema.js";
 import {
   validateTransition,
@@ -744,41 +744,29 @@ export function preflight(
       // (`covers` includes task.id); session-wide evidence never satisfies an
       // unrelated task. spike tasks are hard-blocked above (DELIVER_SPIKE_TASKS)
       // so never reach here.
-      const VERIFY_MIN_REQUIRED_KINDS: Record<string, readonly string[]> = {
-        behavioral: ["local-check"],
-        structural: ["local-check"],
-        "visual-ui": ["visual-review", "manual"],
-        docs: ["task-summary", "manual"],
-        chore: ["local-check", "manual", "task-summary"],
-      };
-      const missing: Array<{ task_id: string; kind: string; required_kinds: readonly string[] }> = [];
-      for (const task of ctx.snapshot.tasks) {
-        if (task.status !== "done") continue;
-        // bug-RED defense (codex Q4): mirror verify-accept check 4 — a done
-        // behavioral bug task that never registered its RED test fails with
-        // its own dedicated code, not hidden behind generic missing-evidence.
-        if (
-          task.kind === "behavioral" &&
-          task.labels.includes("bug") &&
-          task.red_test_registered !== true
-        ) {
-          return {
-            ok: false,
-            code: "BUG_TASK_RED_NOT_REGISTERED",
-            message: `behavioral bug task ${task.id} is status=done but never registered its RED test (red_test_registered≠true); cannot verify-min deliver`,
-            detail: { task_id: task.id },
-          };
-        }
-        const required = VERIFY_MIN_REQUIRED_KINDS[task.kind] ?? [];
-        const satisfied = ctx.snapshot.evidence.some((ev) =>
-          isPassingResult(ev.result) &&
-          ev.covers.includes(task.id) &&
-          (required.includes(ev.kind) || ev.kind === "waiver"),
-        );
-        if (!satisfied) {
-          missing.push({ task_id: task.id, kind: task.kind, required_kinds: required });
-        }
+      // Shared proof kernel (L6) under the kind-PER-task verify-min policy.
+      // bug-RED short-circuits before evidence with its own dedicated code,
+      // mirroring the pre-extraction loop's early return on the FIRST bug-RED
+      // done task in snapshot order; missing-evidence is assembled only when no
+      // bug-RED gap exists. required_kinds is the waiver-free policy list (waiver
+      // is an evaluator-owned universal escape, never reported as "needs").
+      const proofGaps = evaluateTaskProof(ctx.snapshot, verifyMinPolicy);
+      const redGap = proofGaps.find((f) => f.gaps.includes("bug-red-unregistered"));
+      if (redGap) {
+        return {
+          ok: false,
+          code: "BUG_TASK_RED_NOT_REGISTERED",
+          message: `behavioral bug task ${redGap.task.id} is status=done but never registered its RED test (red_test_registered≠true); cannot verify-min deliver`,
+          detail: { task_id: redGap.task.id },
+        };
       }
+      const missing = proofGaps
+        .filter((f) => f.gaps.includes("no-passing-evidence"))
+        .map((f) => ({
+          task_id: f.task.id,
+          kind: f.task.kind,
+          required_kinds: verifyMinPolicy.acceptedKinds(f.task),
+        }));
       if (missing.length > 0) {
         return {
           ok: false,
