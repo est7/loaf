@@ -8,8 +8,10 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
-import { main } from "../../src/cli.js";
+import { main, type MainDeps } from "../../src/cli.js";
 import { LOAF_DOCS_URL, LOAF_ISSUE_URL } from "../../src/core/cli-runtime.js";
+import { defaultLoafConfig, LoafConfig, loafConfigPath } from "../../src/core/loaf-config.js";
+import { UserConfig, userConfigPath } from "../../src/core/user-config.js";
 
 async function tmpFeatureDir(): Promise<string> {
   return await fs.mkdtemp(path.join(os.tmpdir(), "loaf-cli-test-"));
@@ -17,7 +19,7 @@ async function tmpFeatureDir(): Promise<string> {
 
 async function runCli(
   argv: string[],
-  opts: { env?: Record<string, string | undefined> } = {},
+  opts: { env?: Record<string, string | undefined>; cwd?: string; deps?: MainDeps } = {},
 ): Promise<{ exit: number; stdout: string; stderr: string }> {
   // Capture stdout / stderr writes during main(); restore after.
   const stdoutChunks: string[] = [];
@@ -29,6 +31,7 @@ async function runCli(
   // replaced (codex r31 Q5.1). Tests must not be marked concurrent —
   // process.env is global.
   const envBackup: Record<string, string | undefined> = {};
+  const cwdBackup = process.cwd();
   if (opts.env) {
     for (const k of Object.keys(opts.env)) {
       envBackup[k] = process.env[k];
@@ -37,6 +40,7 @@ async function runCli(
       else process.env[k] = v;
     }
   }
+  if (opts.cwd !== undefined) process.chdir(opts.cwd);
   process.stdout.write = ((chunk: string | Uint8Array): boolean => {
     stdoutChunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
     return true;
@@ -46,11 +50,12 @@ async function runCli(
     return true;
   }) as typeof process.stderr.write;
   try {
-    const exit = await main(["node", "loaf", ...argv]);
+    const exit = await main(["node", "loaf", ...argv], opts.deps ?? {});
     return { exit, stdout: stdoutChunks.join(""), stderr: stderrChunks.join("") };
   } finally {
     process.stdout.write = origStdout;
     process.stderr.write = origStderr;
+    if (opts.cwd !== undefined) process.chdir(cwdBackup);
     for (const k of Object.keys(envBackup)) {
       const prev = envBackup[k];
       if (prev === undefined) delete process.env[k];
@@ -3778,6 +3783,92 @@ describe("End-to-end task lifecycle CLI — Slice 2 SC4", () => {
 
     // Slice 2 done-when: planning + execution lifecycle commands all
     // landed through public CLI. SC4 final.
+  });
+});
+
+describe("loaf config init", () => {
+  test("project scope writes full explicit LoafConfig scaffold under cwd-root", async () => {
+    const repo = await tmpFeatureDir();
+    const repoRoot = await fs.realpath(repo);
+    const configPath = loafConfigPath(repoRoot);
+
+    const result = await runCli(["config", "init", "--format", "json"], { cwd: repo });
+
+    expect(result.exit).toBe(0);
+    expect(result.stderr).toBe("");
+    const out = JSON.parse(result.stdout) as { ok: boolean; config_path: string };
+    expect(out).toEqual({ ok: true, config_path: configPath });
+
+    const written = JSON.parse(await fs.readFile(configPath, "utf8")) as Record<string, unknown>;
+    expect(typeof written["_comment"]).toBe("string");
+    expect(written["_comment"]).toContain("docs/schemas.ts");
+    delete written["_comment"];
+    expect(LoafConfig.parse(written)).toEqual(defaultLoafConfig());
+    await expect(fs.stat(path.join(repo, ".loaf", "journal.jsonl"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+
+  test("--global writes only UserConfig shape under injected home", async () => {
+    const repo = await tmpFeatureDir();
+    const home = await tmpFeatureDir();
+    const configPath = userConfigPath(home);
+
+    const result = await runCli(["config", "init", "--global", "--format", "json"], {
+      cwd: repo,
+      deps: { userConfigHomeDir: home },
+    });
+
+    expect(result.exit).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(JSON.parse(result.stdout)).toEqual({ ok: true, config_path: configPath });
+    const written = JSON.parse(await fs.readFile(configPath, "utf8"));
+    expect(UserConfig.parse(written)).toEqual({
+      schema_version: 1,
+      locale: { default_lang: "en" },
+    });
+    expect(written).not.toHaveProperty("commands");
+    expect(written).not.toHaveProperty("constitution");
+  });
+
+  test("existing config refuses overwrite with CONFIG_ALREADY_INITIALIZED", async () => {
+    const repo = await tmpFeatureDir();
+    const repoRoot = await fs.realpath(repo);
+    const configPath = loafConfigPath(repoRoot);
+    await fs.mkdir(path.dirname(configPath), { recursive: true });
+    await fs.writeFile(configPath, "keep me");
+
+    const result = await runCli(["config", "init", "--format", "json"], { cwd: repo });
+
+    expect(result.exit).toBe(2);
+    expect(result.stdout).toBe("");
+    const errJson = JSON.parse(result.stderr.trim());
+    expect(errJson).toMatchObject({
+      ok: false,
+      code: "CONFIG_ALREADY_INITIALIZED",
+      detail: { config_path: configPath },
+    });
+    expect(await fs.readFile(configPath, "utf8")).toBe("keep me");
+  });
+
+  test("--dry-run rejects as scaffold-writer and writes nothing", async () => {
+    const repo = await tmpFeatureDir();
+    const repoRoot = await fs.realpath(repo);
+    const configPath = loafConfigPath(repoRoot);
+
+    const result = await runCli(["--dry-run", "config", "init", "--format", "json"], {
+      cwd: repo,
+    });
+
+    expect(result.exit).toBe(2);
+    expect(result.stdout).toBe("");
+    const errJson = JSON.parse(result.stderr.trim());
+    expect(errJson).toMatchObject({
+      ok: false,
+      code: "DRY_RUN_NOT_APPLICABLE",
+      detail: { command: "config init", command_type: "scaffold-writer" },
+    });
+    await expect(fs.stat(configPath)).rejects.toMatchObject({ code: "ENOENT" });
   });
 });
 

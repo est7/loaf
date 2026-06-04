@@ -16,6 +16,10 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 
+import { Ceremony } from "./journal-entry.js";
+
+const CONFIG_SCHEMA_VERSION = 2;
+
 // Mirror of docs/schemas.ts:LoafConfig.paths (§21). Defaults match the
 // canonical schema so an omitted key behaves identically to docs semantics
 // (and the defaults overlap the built-in step globs, so they widen nothing
@@ -35,12 +39,62 @@ export type WriteGuardConfigPaths = z.infer<typeof WriteGuardConfigPaths>;
 // config file also carries commands / constitution / locale, which Zod's
 // default object parse silently strips (they are not write-guard's concern).
 export const WriteGuardConfig = z.object({
-  schema_version: z.literal(2),
+  schema_version: z.literal(CONFIG_SCHEMA_VERSION),
   protected_files: z.array(z.string()).default([]),
   stable_core: z.array(z.string()).default([]),
   paths: WriteGuardConfigPaths.prefault({}),
 });
 export type WriteGuardConfig = z.infer<typeof WriteGuardConfig>;
+
+// Runtime mirror of docs/schemas.ts:LoafConfig (§21). loaf-cli owns the
+// config file syntax and default serialization, but only slice-specific
+// readers interpret their own sections. Keep WriteGuardConfig separate so a
+// malformed skill-owned section cannot block the write-guard slice parser.
+export const LoafConfigCommands = z
+  .object({
+    run: z.array(z.string()).default([]),
+    lint: z.array(z.string()).default([]),
+    typecheck: z.array(z.string()).default([]),
+    visual: z.array(z.string()).default([]),
+    acceptance: z.array(z.string()).default([]),
+    build: z.array(z.string()).default([]),
+  })
+  .prefault({});
+export type LoafConfigCommands = z.infer<typeof LoafConfigCommands>;
+
+export const LoafConfigConstitution = z
+  .object({
+    tdd_strictness: z.enum(["strict", "preferred", "advisory"]).default("preferred"),
+    default_ceremony_label: z.string().default("standard"),
+    default_ceremony: Ceremony.optional(),
+    require_red_for_behavioral: z.boolean().default(true),
+    allow_manual_for_requirement: z.boolean().default(true),
+    require_attachment_for_visual: z.boolean().default(true),
+  })
+  .prefault({});
+export type LoafConfigConstitution = z.infer<typeof LoafConfigConstitution>;
+
+export const LoafConfigLocale = z
+  .object({
+    default_lang: z.enum(["en", "zh"]).default("en"),
+  })
+  .prefault({});
+export type LoafConfigLocale = z.infer<typeof LoafConfigLocale>;
+
+export const LoafConfig = z.object({
+  schema_version: z.literal(CONFIG_SCHEMA_VERSION),
+  protected_files: z.array(z.string()).default([]),
+  stable_core: z.array(z.string()).default([]),
+  paths: WriteGuardConfigPaths.prefault({}),
+  commands: LoafConfigCommands,
+  constitution: LoafConfigConstitution,
+  locale: LoafConfigLocale,
+});
+export type LoafConfig = z.infer<typeof LoafConfig>;
+
+export function defaultLoafConfig(): LoafConfig {
+  return LoafConfig.parse({ schema_version: CONFIG_SCHEMA_VERSION });
+}
 
 export type LoafConfigLoad =
   | { status: "ok"; config: WriteGuardConfig }

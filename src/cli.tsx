@@ -79,8 +79,13 @@ import {
   type VerifyCheckKind,
 } from "./core/step-write-paths.js";
 import { evaluateWritePath, parseHookStdinPath } from "./core/write-guard.js";
-import { readLoafConfig } from "./core/loaf-config.js";
-import { readUserConfig } from "./core/user-config.js";
+import {
+  defaultLoafConfig,
+  LoafConfig,
+  loafConfigPath,
+  readLoafConfig,
+} from "./core/loaf-config.js";
+import { readUserConfig, UserConfig, userConfigPath } from "./core/user-config.js";
 import {
   BUILTIN_BUNDLES,
   createI18n,
@@ -425,6 +430,8 @@ function diagnosticVarsFor(
         command_type: stringVar(detail?.["command_type"]),
         command: stringVar(detail?.["command"]),
       });
+    case "CONFIG_ALREADY_INITIALIZED":
+      return varsIfDefined({ config_path: stringVar(detail?.["config_path"]) });
     case "FEATURE_NOT_FOUND":
       return {};
     case "FEATURE_AMBIGUOUS":
@@ -1235,7 +1242,7 @@ export async function main(
   };
   const rejectIfDryRun = (
     command: string,
-    commandType: "read-only" | "wrapping" | "projection-writer" = "read-only",
+    commandType: "read-only" | "wrapping" | "projection-writer" | "scaffold-writer" = "read-only",
   ): boolean => {
     if (ctx.dryRun) {
       emitFailure(
@@ -2306,6 +2313,88 @@ export async function main(
         );
       },
     );
+
+  // ── loaf config init — scaffold project/user config (no journal entry) ──
+  const CONFIG_INIT_COMMENT =
+    "Scaffolded by `loaf config init`. Semantic schema: docs/schemas.ts §21 LoafConfig. " +
+    "This _comment key is an output affordance only; loaf-cli parses the semantic config without it.";
+
+  function serializeStableJson(value: unknown): string {
+    return JSON.stringify(value, null, 2) + "\n";
+  }
+
+  async function ensureConfigTargetAbsent(configPath: string): Promise<boolean> {
+    try {
+      await fsP.access(configPath);
+      emitFailure(
+        "CONFIG_ALREADY_INITIALIZED",
+        `loaf config already exists at ${configPath}; refusing to overwrite`,
+        { config_path: configPath },
+      );
+      return false;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return true;
+      throw err;
+    }
+  }
+
+  async function writeJsonExclusive(configPath: string, content: string): Promise<boolean> {
+    await fsP.mkdir(path.dirname(configPath), { recursive: true });
+    let handle: Awaited<ReturnType<typeof fsP.open>> | undefined;
+    try {
+      handle = await fsP.open(configPath, "wx");
+      await handle.writeFile(content, "utf8");
+      return true;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "EEXIST") {
+        emitFailure(
+          "CONFIG_ALREADY_INITIALIZED",
+          `loaf config already exists at ${configPath}; refusing to overwrite`,
+          { config_path: configPath },
+        );
+        return false;
+      }
+      throw err;
+    } finally {
+      await handle?.close();
+    }
+  }
+
+  const configCmd = program
+    .command("config")
+    .description("Project and user config commands");
+
+  configCmd
+    .command("init")
+    .description("Write .loaf/.config/loaf.config.json; --global writes ~/.loaf/config.json")
+    .option("--global", "Write user config at ~/.loaf/config.json instead of project config")
+    .action(async (opts: { global?: boolean }) => {
+      // no-feature: config init writes project/user config, not a feature session target.
+      if (rejectIfDryRun("config init", "scaffold-writer")) return;
+
+      const configPath = opts.global
+        ? userConfigPath(deps.userConfigHomeDir ?? os.homedir())
+        : loafConfigPath(process.cwd());
+      if (!(await ensureConfigTargetAbsent(configPath))) return;
+
+      const content = opts.global
+        ? serializeStableJson(
+            UserConfig.parse({
+              schema_version: 1,
+              locale: { default_lang: "en" },
+            }),
+          )
+        : serializeStableJson({
+            _comment: CONFIG_INIT_COMMENT,
+            ...LoafConfig.parse(defaultLoafConfig()),
+          });
+
+      if (!(await writeJsonExclusive(configPath, content))) return;
+      ctx.success(
+        { ok: true, config_path: configPath },
+        () => `${configPath}\n`,
+      );
+    });
 
   // ── loaf doctor --rebuild ───────────────────────────────────────────
   // Phase 14 SC2. The only doctor mode this release: --rebuild does a full

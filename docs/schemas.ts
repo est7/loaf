@@ -4042,6 +4042,7 @@ export const DiagnosticCode = z.enum([
   "SPEC_LOCKED_NO_DIRECT_EDIT",            // A4
   "SPEC_NOT_INITIALIZED",                  // A4
   "SPEC_ALREADY_INITIALIZED",              // Slice 4 SC4 — `loaf spec init` guard
+  "CONFIG_ALREADY_INITIALIZED",            // config-init — `loaf config init` guard
   "ATTACHMENT_NOT_FOUND",                  // A6
   "ATTACHMENT_NOT_FILE",                   // A6
   "FINDING_ACTION_UNUSUAL_REASON_REQUIRED",// A7
@@ -4303,6 +4304,15 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
       "edit the existing spec.md directly, or remove it before re-running " +
       "`loaf spec init` (no --force flag in Slice 4)",
     doc_anchor: "protocol.md#§4.2",
+  },
+  CONFIG_ALREADY_INITIALIZED: {
+    exit_code: 2,
+    message_template:
+      "loaf config already exists at {config_path}; refusing to overwrite",
+    fix_template:
+      "edit the existing config file directly, or remove it before re-running " +
+      "`loaf config init` (no --force flag)",
+    doc_anchor: "protocol.md#§10.8",
   },
   SPEC_NOT_INITIALIZED: {
     // Slice 4 SC3: preflight refine (5i) emits this with detail.kind

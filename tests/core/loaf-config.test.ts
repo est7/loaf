@@ -9,7 +9,13 @@ import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
 
-import { readLoafConfig, loafConfigPath, WriteGuardConfig } from "../../src/core/loaf-config.js";
+import {
+  defaultLoafConfig,
+  LoafConfig,
+  readLoafConfig,
+  loafConfigPath,
+  WriteGuardConfig,
+} from "../../src/core/loaf-config.js";
 
 const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -98,5 +104,53 @@ describe("readLoafConfig", () => {
     expect(Object.keys(parsed.paths).sort()).toEqual([
       "docs", "public_api", "schema", "security", "source", "tests", "ui",
     ]);
+  });
+});
+
+describe("LoafConfig full runtime schema", () => {
+  test("defaultLoafConfig serializes every explicit §21 section and key", () => {
+    const config = defaultLoafConfig();
+    expect(LoafConfig.parse(config)).toEqual(config);
+    expect(config).toEqual({
+      schema_version: 2,
+      protected_files: [],
+      stable_core: [],
+      paths: {
+        source: ["src/**"],
+        tests: ["**/test/**", "tests/**"],
+        docs: ["docs/**", "**/*.md"],
+        ui: [],
+        public_api: [],
+        schema: [],
+        security: [],
+      },
+      commands: {
+        run: [],
+        lint: [],
+        typecheck: [],
+        visual: [],
+        acceptance: [],
+        build: [],
+      },
+      constitution: {
+        tdd_strictness: "preferred",
+        default_ceremony_label: "standard",
+        require_red_for_behavioral: true,
+        allow_manual_for_requirement: true,
+        require_attachment_for_visual: true,
+      },
+      locale: {
+        default_lang: "en",
+      },
+    });
+  });
+
+  test("malformed skill-only section fails full config but not write-guard slice", () => {
+    const raw = {
+      ...defaultLoafConfig(),
+      commands: { run: "bun test" },
+    };
+    expect(LoafConfig.safeParse(raw).success).toBe(false);
+    expect(WriteGuardConfig.safeParse(raw).success).toBe(true);
   });
 });

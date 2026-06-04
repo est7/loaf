@@ -121,6 +121,20 @@ describe("SC-13b — §10.7 dry-run classification ↔ runtime/SC-6c drift gate 
     ).toBe(true);
   });
 
+  test("§10.7 has a `Scaffold-writer` category for `config init`", async () => {
+    const protocolText = await readRepo("docs/protocol.md");
+    const scaffoldLine = protocolText.split("\n").find((line) =>
+      line.startsWith("|") &&
+      line.includes("Scaffold-writer") &&
+      line.includes("config init"),
+    );
+    expect(
+      scaffoldLine,
+      "docs/protocol.md §10.7 must include a Scaffold-writer category covering `config init`",
+    ).toBeDefined();
+    expect(scaffoldLine).toContain('"scaffold-writer"');
+  });
+
   test("§10.7 Hook category row exists (Phase 16 SC-15a)", async () => {
     const protocolText = await readRepo("docs/protocol.md");
     const hookLine = protocolText.split("\n").find((line) =>

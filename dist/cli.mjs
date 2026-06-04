@@ -266,6 +266,7 @@ var en_default = {
 		"FINDING_TARGET_REQUIRED": "finding action={action} target validation failed ({reason}): task_id={task_id}, step={step}",
 		"SPEC_NOT_INITIALIZED": "{kind} blocked: spec_version=0; run `loaf spec submit` first to bump spec_version to 1",
 		"SPEC_ALREADY_INITIALIZED": "spec.md already exists at {spec_md_path}; refusing to overwrite",
+		"CONFIG_ALREADY_INITIALIZED": "loaf config already exists at {config_path}; refusing to overwrite",
 		"SPEC_LOCKED_NO_DIRECT_EDIT": "{kind} blocked: spec_locked=true; use `loaf finding raise --category spec-gap --action amend-spec` to back-edge into SPEC.spec",
 		"AMEND_REJECTED_POST_LOCK": "spec_locked=true; use `loaf finding raise` instead of `loaf amend`",
 		"DELIVER_FORBIDDEN_FOR_SPIKE": "spike tasks cannot be delivered; use `loaf archive`, `loaf spike convert`, or `loaf abandon`",
@@ -793,6 +794,7 @@ var zh_default = {
 		"FINDING_TARGET_REQUIRED": "finding action={action} target 校验失败({reason}):task_id={task_id}, step={step}",
 		"SPEC_NOT_INITIALIZED": "{kind} 被拒:spec_version=0;先跑 `loaf spec submit` 把 spec_version 升到 1",
 		"SPEC_ALREADY_INITIALIZED": "spec.md 已存在于 {spec_md_path};拒绝覆盖",
+		"CONFIG_ALREADY_INITIALIZED": "loaf config 已存在于 {config_path};拒绝覆盖",
 		"SPEC_LOCKED_NO_DIRECT_EDIT": "{kind} 被拒:spec_locked=true;用 `loaf finding raise --category spec-gap --action amend-spec` 走 amend-spec 回退到 SPEC.spec",
 		"AMEND_REJECTED_POST_LOCK": "spec_locked=true;使用 `loaf finding raise` 替代 `loaf amend`",
 		"DELIVER_FORBIDDEN_FOR_SPIKE": "spike 任务不允许 deliver;使用 `loaf archive` / `loaf spike convert` / `loaf abandon`",
@@ -3884,6 +3886,7 @@ const DIAGNOSTIC_KEYS = {
 	INVALID_FORMAT: "diagnostic.INVALID_FORMAT",
 	MUTUALLY_EXCLUSIVE_FLAGS: "diagnostic.MUTUALLY_EXCLUSIVE_FLAGS",
 	DRY_RUN_NOT_APPLICABLE: "diagnostic.DRY_RUN_NOT_APPLICABLE",
+	CONFIG_ALREADY_INITIALIZED: "diagnostic.CONFIG_ALREADY_INITIALIZED",
 	FEATURE_NOT_FOUND: "diagnostic.FEATURE_NOT_FOUND",
 	FEATURE_AMBIGUOUS: "diagnostic.FEATURE_AMBIGUOUS",
 	SESSION_CWD_MISMATCH: "diagnostic.SESSION_CWD_MISMATCH",
@@ -6321,6 +6324,7 @@ const DiagnosticCode = z.enum([
 	"SPEC_LOCKED_NO_DIRECT_EDIT",
 	"SPEC_NOT_INITIALIZED",
 	"SPEC_ALREADY_INITIALIZED",
+	"CONFIG_ALREADY_INITIALIZED",
 	"ATTACHMENT_NOT_FOUND",
 	"ATTACHMENT_NOT_FILE",
 	"FINDING_ACTION_UNUSUAL_REASON_REQUIRED",
@@ -8152,6 +8156,7 @@ function parseHookStdinPath(raw) {
 }
 //#endregion
 //#region src/core/loaf-config.ts
+const CONFIG_SCHEMA_VERSION = 2;
 const WriteGuardConfigPaths = z.object({
 	source: z.array(z.string()).default(["src/**"]),
 	tests: z.array(z.string()).default(["**/test/**", "tests/**"]),
@@ -8162,11 +8167,44 @@ const WriteGuardConfigPaths = z.object({
 	security: z.array(z.string()).default([])
 });
 const WriteGuardConfig = z.object({
-	schema_version: z.literal(2),
+	schema_version: z.literal(CONFIG_SCHEMA_VERSION),
 	protected_files: z.array(z.string()).default([]),
 	stable_core: z.array(z.string()).default([]),
 	paths: WriteGuardConfigPaths.prefault({})
 });
+const LoafConfigCommands = z.object({
+	run: z.array(z.string()).default([]),
+	lint: z.array(z.string()).default([]),
+	typecheck: z.array(z.string()).default([]),
+	visual: z.array(z.string()).default([]),
+	acceptance: z.array(z.string()).default([]),
+	build: z.array(z.string()).default([])
+}).prefault({});
+const LoafConfigConstitution = z.object({
+	tdd_strictness: z.enum([
+		"strict",
+		"preferred",
+		"advisory"
+	]).default("preferred"),
+	default_ceremony_label: z.string().default("standard"),
+	default_ceremony: Ceremony$1.optional(),
+	require_red_for_behavioral: z.boolean().default(true),
+	allow_manual_for_requirement: z.boolean().default(true),
+	require_attachment_for_visual: z.boolean().default(true)
+}).prefault({});
+const LoafConfigLocale = z.object({ default_lang: z.enum(["en", "zh"]).default("en") }).prefault({});
+const LoafConfig = z.object({
+	schema_version: z.literal(CONFIG_SCHEMA_VERSION),
+	protected_files: z.array(z.string()).default([]),
+	stable_core: z.array(z.string()).default([]),
+	paths: WriteGuardConfigPaths.prefault({}),
+	commands: LoafConfigCommands,
+	constitution: LoafConfigConstitution,
+	locale: LoafConfigLocale
+});
+function defaultLoafConfig() {
+	return LoafConfig.parse({ schema_version: CONFIG_SCHEMA_VERSION });
+}
 /** Canonical project-level config path under a repo root. */
 function loafConfigPath(repoRoot) {
 	return path.join(repoRoot, ".loaf", ".config", "loaf.config.json");
@@ -11979,6 +12017,7 @@ function diagnosticVarsFor(code, detail) {
 			command_type: stringVar(detail?.["command_type"]),
 			command: stringVar(detail?.["command"])
 		});
+		case "CONFIG_ALREADY_INITIALIZED": return varsIfDefined({ config_path: stringVar(detail?.["config_path"]) });
 		case "FEATURE_NOT_FOUND": return {};
 		case "FEATURE_AMBIGUOUS": return varsIfDefined({
 			count: numberVar(detail?.["count"]),
@@ -12996,6 +13035,53 @@ async function main(argv = process.argv, deps = {}) {
 			actor: humanActor
 		};
 		ctx.success(out, () => "", (i18n) => ({ stateChange: i18n.t(SUCCESS_KEYS.profileEscalateStateChange, { pending_id: head.id }) }));
+	});
+	const CONFIG_INIT_COMMENT = "Scaffolded by `loaf config init`. Semantic schema: docs/schemas.ts §21 LoafConfig. This _comment key is an output affordance only; loaf-cli parses the semantic config without it.";
+	function serializeStableJson(value) {
+		return JSON.stringify(value, null, 2) + "\n";
+	}
+	async function ensureConfigTargetAbsent(configPath) {
+		try {
+			await promises.access(configPath);
+			emitFailure("CONFIG_ALREADY_INITIALIZED", `loaf config already exists at ${configPath}; refusing to overwrite`, { config_path: configPath });
+			return false;
+		} catch (err) {
+			if (err.code === "ENOENT") return true;
+			throw err;
+		}
+	}
+	async function writeJsonExclusive(configPath, content) {
+		await promises.mkdir(path.dirname(configPath), { recursive: true });
+		let handle;
+		try {
+			handle = await promises.open(configPath, "wx");
+			await handle.writeFile(content, "utf8");
+			return true;
+		} catch (err) {
+			if (err.code === "EEXIST") {
+				emitFailure("CONFIG_ALREADY_INITIALIZED", `loaf config already exists at ${configPath}; refusing to overwrite`, { config_path: configPath });
+				return false;
+			}
+			throw err;
+		} finally {
+			await handle?.close();
+		}
+	}
+	program.command("config").description("Project and user config commands").command("init").description("Write .loaf/.config/loaf.config.json; --global writes ~/.loaf/config.json").option("--global", "Write user config at ~/.loaf/config.json instead of project config").action(async (opts) => {
+		if (rejectIfDryRun("config init", "scaffold-writer")) return;
+		const configPath = opts.global ? userConfigPath(deps.userConfigHomeDir ?? os.homedir()) : loafConfigPath(process.cwd());
+		if (!await ensureConfigTargetAbsent(configPath)) return;
+		if (!await writeJsonExclusive(configPath, opts.global ? serializeStableJson(UserConfig.parse({
+			schema_version: 1,
+			locale: { default_lang: "en" }
+		})) : serializeStableJson({
+			_comment: CONFIG_INIT_COMMENT,
+			...LoafConfig.parse(defaultLoafConfig())
+		}))) return;
+		ctx.success({
+			ok: true,
+			config_path: configPath
+		}, () => `${configPath}\n`);
 	});
 	program.command("doctor").description("Repository self-check. This release implements --rebuild only").option("--rebuild", "Full journal replay → rebuild snapshots/*.json + _meta.json").option("--feature <name>", "Feature whose snapshots to rebuild (required with --rebuild)").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		if (rejectIfDryRun(opts.rebuild ? "doctor --rebuild" : "doctor")) return;
