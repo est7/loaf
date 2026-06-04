@@ -183,6 +183,38 @@ describe("SC-8 — session dispatch resolver, session sources", () => {
       expect(result.message).toContain("too short");
     }
   });
+
+  // L4 regression: a matched-but-unreadable registry entry collapses to the
+  // strict SESSION_NOT_FOUND "cannot be parsed" surface (shared readRegistryEntry,
+  // strict policy). Pre-L4 dispatch tests covered no-entry / ambiguity / mismatch
+  // but not this parse-failure path.
+  test("T6b: --session matches a corrupt-JSON registry entry → SESSION_NOT_FOUND (cannot be parsed)", async () => {
+    const cwd = await tmpCwd();
+    const regDir = await tmpRegDir();
+    const sid = "550e8400-e29b-41d4-a716-0000000000cc";
+    await fs.writeFile(path.join(regDir, `${sid}.json`), "{ not json");
+
+    const result = await resolveDispatch({ argv: ["--session", sid], env: {}, cwd, registryDir: regDir });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("SESSION_NOT_FOUND");
+      expect(result.message).toContain("cannot be parsed");
+    }
+  });
+
+  test("T6c: --session matches a schema-invalid registry entry → SESSION_NOT_FOUND (cannot be parsed)", async () => {
+    const cwd = await tmpCwd();
+    const regDir = await tmpRegDir();
+    const sid = "550e8400-e29b-41d4-a716-0000000000dd";
+    await fs.writeFile(path.join(regDir, `${sid}.json`), JSON.stringify({ session_id: sid }));
+
+    const result = await resolveDispatch({ argv: ["--session", sid], env: {}, cwd, registryDir: regDir });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("SESSION_NOT_FOUND");
+      expect(result.message).toContain("cannot be parsed");
+    }
+  });
 });
 
 describe("SC-8 — session dispatch resolver, feature sources", () => {

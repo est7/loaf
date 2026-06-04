@@ -36,7 +36,7 @@ import {
   NoSessionError,
   SnapshotStaleError,
 } from "./projection-loader.js";
-import { RegistryFile } from "./projection-schema.js";
+import { readRegistryEntry, tryRealpath } from "./registry-read.js";
 
 const MIN_SHORT_UUID_PREFIX = 8;
 
@@ -242,29 +242,26 @@ async function resolveBySessionId(
   }
 
   const sessionId = matches[0]!;
-  // Read the registry file to validate cwd match.
-  let registryFile: RegistryFile;
-  try {
-    const raw = await fs.readFile(path.join(registryDir, `${sessionId}.json`), "utf8");
-    registryFile = RegistryFile.parse(JSON.parse(raw));
-  } catch (err) {
+  // Read the registry file to validate cwd match. Any read/parse failure
+  // collapses to the strict SESSION_NOT_FOUND surface (L4: shared primitive,
+  // strict policy here).
+  const read = await readRegistryEntry(registryDir, sessionId);
+  if (!read.ok) {
     return {
       ok: false,
       code: "SESSION_NOT_FOUND",
       message:
-        `--session ${uuidOrPrefix} registry entry exists but cannot be parsed: ${(err as Error).message}`,
+        `--session ${uuidOrPrefix} registry entry exists but cannot be parsed: ${read.strictDetail}`,
       detail: { uuid_or_prefix: uuidOrPrefix, session_id: sessionId, source },
     };
   }
+  const registryFile = read.file;
 
-  // Canonicalize both paths before comparison — on macOS, /var/folders/
-  // and /private/var/folders/ refer to the same dir but stringify
-  // differently. Use fs.realpath to normalize. Fall back to literal
-  // string compare if either path doesn't exist (e.g. dir deleted).
-  let registeredCanonical = registryFile.cwd;
-  let currentCanonical = input.cwd;
-  try { registeredCanonical = await fs.realpath(registryFile.cwd); } catch { /* dir gone — keep literal */ }
-  try { currentCanonical = await fs.realpath(input.cwd); } catch { /* keep literal */ }
+  // Canonicalize both paths before comparison — on macOS, /var/folders/ and
+  // /private/var/folders/ refer to the same dir but stringify differently.
+  // Fall back to the literal path if it doesn't resolve (e.g. dir deleted).
+  const registeredCanonical = (await tryRealpath(registryFile.cwd)) ?? registryFile.cwd;
+  const currentCanonical = (await tryRealpath(input.cwd)) ?? input.cwd;
   if (registeredCanonical !== currentCanonical) {
     return {
       ok: false,

@@ -12,10 +12,9 @@
 // belongs in the presentation layer (cli.tsx with injected `now`).
 
 import { promises as fs } from "node:fs";
-import path from "node:path";
 
 import { defaultRegistryDir } from "../core/registry-writer.js";
-import { RegistryFile } from "../core/projection-schema.js";
+import { readRegistryEntry, tryRealpath } from "../core/registry-read.js";
 import type { SubState } from "../core/journal-entry.js";
 import { DEFAULT_I18N, type I18n } from "./i18n.js";
 import { CHROME_KEYS } from "./runtime-i18n-keys.js";
@@ -77,17 +76,6 @@ export interface ListSessionsInput {
   filterCwd?: string;
 }
 
-/** Canonicalize a path via fs.realpath. Returns null on any error
- *  (ENOENT, permissions, etc.) so the caller can treat unresolvable
- *  paths as orphan candidates. */
-async function tryRealpath(p: string): Promise<string | null> {
-  try {
-    return await fs.realpath(p);
-  } catch {
-    return null;
-  }
-}
-
 export async function listSessions(
   input: ListSessionsInput,
 ): Promise<ListSessionsResult> {
@@ -113,34 +101,13 @@ export async function listSessions(
 
   for (const entry of entries) {
     if (!entry.endsWith(".json")) continue;
-    const filePath = path.join(registryDir, entry);
-
-    let raw: string;
-    try {
-      raw = await fs.readFile(filePath, "utf8");
-    } catch (err) {
-      warnings.push({ file: entry, reason: "io-error", detail: (err as Error).message });
+    const id = entry.slice(0, -".json".length);
+    const read = await readRegistryEntry(registryDir, id);
+    if (!read.ok) {
+      warnings.push({ file: entry, reason: read.reason, detail: read.warningDetail });
       continue;
     }
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(raw);
-    } catch (err) {
-      warnings.push({ file: entry, reason: "corrupt-json", detail: (err as Error).message });
-      continue;
-    }
-
-    const result = RegistryFile.safeParse(parsed);
-    if (!result.success) {
-      warnings.push({
-        file: entry,
-        reason: "schema-invalid",
-        detail: result.error.issues.map((i) => i.message).join("; "),
-      });
-      continue;
-    }
-    const reg = result.data;
+    const reg = read.file;
 
     // Orphan-cwd check: canonicalize the registry's recorded cwd.
     // null → cwd no longer exists / unresolvable.
