@@ -29,7 +29,6 @@ bun run test                     # vitest run (full suite)
 bun run check                    # typecheck && test && build
 bunx vitest run tests/core/spec-init.test.ts          # single file
 bunx vitest run -t "spec init writes valid scaffold"  # single test name
-bunx vitest run tests/spike                           # spike perf tests (F-005 is a known flake)
 ```
 
 Do **NOT** invoke `bun test` — Bun's test runner is not used here; tests rely on Vitest globals + `vi.*`.
@@ -135,19 +134,15 @@ FND-NNN   finding
 - **Stable core unit tests**: `tests/core/{actor-resolver,journal-append,journal-mutate,reducer,preflight-validation,...}.test.ts`. Table-driven where shape allows.
 - **Seed helpers**: `seedFeatureAtSpecDesign` / `seedFeatureAtVerifyAccept` / `seedAtSpecProposalPostSubmit` chain `event:phase_advanced` entries to set up sub_state-specific fixtures. Reuse rather than re-roll.
 - **Per-kind payload fixtures**: `tests/core/per-kind-fixture-builder.ts` synthesizes the minimum valid payload for any kind in `REDUCER_IMPLEMENTED_KINDS` — drives `per-kind-substate.test.ts`'s sub_state × kind matrix.
-- **Spike perf** (`tests/spike/perf.test.ts:124`): **F-005** — threshold ~300ms cap intermittently fires at 300–600ms. Pre-existing, tracked across sessions. Use `bunx vitest run tests/core` (skip `tests/spike`) for non-flake runs.
 
 ## Planning workflow (session-spanning)
 
-This repo carries three live planning docs that survive context resets — read them before any non-trivial work:
+The retired planning trio (`task_plan.md` / `progress.md` / `findings.md`) was
+consolidated into **`backlog.md`** (gitignored, repo root) at v0.1.1 — read it
+before any non-trivial work. It tracks only what is **not yet implemented**;
+per-cycle history now lives in the thick commit bodies.
 
-| File | Role |
-|---|---|
-| `task_plan.md` | Phase / Slice / Sub-cycle table with CLOSED status + source-of-truth pointers. |
-| `progress.md` | Session-by-session narrative with codex review trace (rXX rounds + BLOCKs + sign-offs). |
-| `findings.md` | F-NNN findings: design ambiguities, blocker analyses, codex consult records. |
-
-Commit message bodies are **thick** — each sub-cycle commit carries: design decisions / codex review trace / RED tests / Deferred / Residual risk. Last 8 commits cover Slice 3 + Slice 4 close; `git show <hash>` is the per-cycle ground truth, NOT progress.md.
+Commit message bodies are **thick** — each sub-cycle commit carries: design decisions / codex review trace / RED tests / Deferred / Residual risk. `git show <hash>` is the per-cycle ground truth.
 
 ## Workflow conventions
 
