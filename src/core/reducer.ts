@@ -690,7 +690,7 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
       if (!versionCheck.ok) {
         return invalidPayload(entry.kind, versionCheck.message);
       }
-      if (findCollision(payload.req.id, prev.requirements.map((r) => r.id))) {
+      if (findCollision(payload.req.id, prev.requirements, (r) => r.id)) {
         return invalidPayload(entry.kind, `DUPLICATE_REQ_ID: ${payload.req.id} already in projection`);
       }
       // Slice A SC1 widen: push full payload.req (was extractRequirementSlim).
@@ -715,7 +715,7 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
       if (!versionCheck.ok) {
         return invalidPayload(entry.kind, versionCheck.message);
       }
-      if (findCollision(payload.scenario.id, prev.scenarios.map((s) => s.id))) {
+      if (findCollision(payload.scenario.id, prev.scenarios, (s) => s.id)) {
         return invalidPayload(entry.kind, `DUPLICATE_SCEN_ID: ${payload.scenario.id} already in projection`);
       }
       prev.scenarios.push(structuredClone(payload.scenario));
@@ -737,7 +737,7 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
       if (!versionCheck.ok) {
         return invalidPayload(entry.kind, versionCheck.message);
       }
-      if (findCollision(payload.visual.id, prev.visual_contracts.map((v) => v.id))) {
+      if (findCollision(payload.visual.id, prev.visual_contracts, (v) => v.id)) {
         return invalidPayload(entry.kind, `DUPLICATE_VIS_ID: ${payload.visual.id} already in projection`);
       }
       prev.visual_contracts.push(structuredClone(payload.visual));

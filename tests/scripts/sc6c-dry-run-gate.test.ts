@@ -183,13 +183,25 @@ describe("SC-6c — every mutator call carries dryRun in MutateContext", () => {
   test("static: each await mutate(Batch) site's ctx arg contains dryRun: ctx.dryRun", async () => {
     const source = await readRepo("src/cli.tsx");
 
-    // Collect names of locally-defined ctx variables that include
-    // `dryRun: ctx.dryRun` in their object literal. `mctx` is the
-    // common reuse pattern (see codex r277 audit).
+    // The single wired-ctx factory: every mutator ctx now flows through
+    // `mctxFor(...)` (runMutator's `mctx = mctxFor(...)` + the bypass sites
+    // pass it directly). Verify the factory wires the field once, then accept
+    // any site whose ctx arg is mctxFor(...) or a var assigned from it.
+    expect(
+      /const\s+mctxFor\s*=[\s\S]{0,400}?dryRun\s*:\s*ctx\.dryRun/.test(source),
+      "mctxFor factory must wire `dryRun: ctx.dryRun`",
+    ).toBe(true);
+
+    // Collect names of locally-defined ctx variables that carry
+    // `dryRun: ctx.dryRun` — either as an inline object literal OR assigned
+    // from the `mctxFor` factory. `mctx` is the common reuse pattern.
     const KNOWN_GOOD_CTX_NAMES = new Set<string>();
     const ctxDefRe =
       /const\s+(\w+)\s*(?::\s*\w+\s*)?=\s*\{[^}]*?dryRun\s*:\s*ctx\.dryRun[^}]*?\};/gs;
     for (const m of source.matchAll(ctxDefRe)) {
+      KNOWN_GOOD_CTX_NAMES.add(m[1]!);
+    }
+    for (const m of source.matchAll(/const\s+(\w+)\s*=\s*mctxFor\(/g)) {
       KNOWN_GOOD_CTX_NAMES.add(m[1]!);
     }
 
@@ -230,6 +242,9 @@ describe("SC-6c — every mutator call carries dryRun in MutateContext", () => {
 
       // Inline literal check
       if (/dryRun\s*:\s*ctx\.dryRun/.test(slice)) continue;
+
+      // Direct factory call as the ctx arg: `mutateBatch(batch, mctxFor(...))`
+      if (/\bmctxFor\(/.test(slice)) continue;
 
       // Named-ctx check: find the last identifier before the closing
       // `)`. Allow optional trailing comma (multi-line call style).

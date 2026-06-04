@@ -1286,6 +1286,38 @@ export async function main(
     else emitFailure(r.code, r.message, r.detail);
   };
 
+  // The MutateContext is identical for every mutation — derive it from the
+  // resolved session in one place so runMutator and the few bypass sites that
+  // build their own batch don't each re-spell the 7-field literal.
+  const mctxFor = (featureDir: string, session: RunSession): MutateContext => ({
+    feature_dir: featureDir,
+    snapshot: session.snapshot,
+    tail_seq: session.tail_seq,
+    entries: session.entries,
+    meta: session.meta,
+    dryRun: ctx.dryRun,
+    registryWriter: registryWriterDeps,
+  });
+
+  // Shared result tail for any mutate/mutateBatch outcome: route the failure,
+  // swallow a dry-run (emitting the would-be success), else hand back the ok
+  // result. runMutator uses it; so do the bypass sites that must build the batch
+  // themselves (per-entry `at` / extra envelope fields MutatorEntry can't model).
+  function finishMutate<Ok extends MutateOkSingle | MutateOkBatch>(
+    result: Ok | { ok: false; code: string; message: string; detail?: Record<string, unknown> },
+    route: FailureRoute,
+  ): Ok | null {
+    if (!result.ok) {
+      routeMutateFailure(route, result);
+      return null;
+    }
+    if (ctx.dryRun) {
+      emitDryRunSuccess(result);
+      return null;
+    }
+    return result;
+  }
+
   function runMutator(
     featureDir: string,
     session: RunSession,
@@ -1305,15 +1337,6 @@ export async function main(
     route: FailureRoute = "emit-failure",
   ): Promise<MutateOkSingle | MutateOkBatch | null> {
     const now = new Date().toISOString();
-    const mctx: MutateContext = {
-      feature_dir: featureDir,
-      snapshot: session.snapshot,
-      tail_seq: session.tail_seq,
-      entries: session.entries,
-      meta: session.meta,
-      dryRun: ctx.dryRun,
-      registryWriter: registryWriterDeps,
-    };
     const stamp = (e: MutatorEntry): RunPartial => ({
       at: now,
       actor: e.actor,
@@ -1321,18 +1344,11 @@ export async function main(
       kind: e.kind,
       payload: e.payload,
     });
+    const mctx = mctxFor(featureDir, session);
     const result = Array.isArray(input)
       ? await mutateBatch(input.map(stamp), mctx)
       : await mutate(stamp(input as MutatorEntry), mctx);
-    if (!result.ok) {
-      routeMutateFailure(route, result);
-      return null;
-    }
-    if (ctx.dryRun) {
-      emitDryRunSuccess(result);
-      return null;
-    }
-    return result;
+    return finishMutate(result, route);
   }
 
   // loadProjectionsOrFail — projection-loader wrapper for the four
@@ -2713,23 +2729,11 @@ export async function main(
             },
           }),
         );
-        const result = await mutateBatch(sponsoredBatch, {
-          feature_dir: featureDir,
-          snapshot: session.snapshot,
-          tail_seq: session.tail_seq,
-          entries: session.entries,
-          meta: session.meta,
-          dryRun: ctx.dryRun,
-          registryWriter: registryWriterDeps,
-        });
-        if (!result.ok) {
-          ctx.failure(result.code, result.message, result.detail);
-          return;
-        }
-        if (ctx.dryRun) {
-          emitDryRunSuccess(result);
-          return;
-        }
+        const result = finishMutate(
+          await mutateBatch(sponsoredBatch, mctxFor(featureDir, session)),
+          "raw-ctx-failure",
+        );
+        if (!result) return;
         const out = {
           ok: true,
           feature: opts.feature,
@@ -5273,7 +5277,7 @@ export async function main(
         currentSubState,
         findingActor: actor,
         ...(hasTask && hasStep
-          ? { target: { taskId: opts.targetTask!, step: opts.targetStep! } }
+          ? { target: { taskId: opts.targetTask! } }
           : {}),
       });
       if (findingBatch.kind === "none") {
@@ -5552,23 +5556,11 @@ export async function main(
         now,
       });
       // (7) Mutate.
-      const result = await mutateBatch(entries, {
-        feature_dir: featureDir,
-        snapshot: session.snapshot,
-        tail_seq: session.tail_seq,
-        entries: session.entries,
-        meta: session.meta,
-        dryRun: ctx.dryRun,
-        registryWriter: registryWriterDeps,
-      });
-      if (!result.ok) {
-        ctx.failure(result.code, result.message, result.detail);
-        return;
-      }
-      if (ctx.dryRun) {
-        emitDryRunSuccess(result);
-        return;
-      }
+      const result = finishMutate(
+        await mutateBatch(entries, mctxFor(featureDir, session)),
+        "raw-ctx-failure",
+      );
+      if (!result) return;
       // Output. Echo collected ids for shell scripting.
       const reqIds = result.snapshot.requirements.map((r) => r.id);
       const scenIds = result.snapshot.scenarios.map((s) => s.id);
@@ -5989,19 +5981,14 @@ export async function main(
         actor,
         now,
       });
-      const mutateResult = await mutateBatch(entries, {
-        feature_dir: featureDir,
-        snapshot: session.snapshot,
-        tail_seq: session.tail_seq,
-        entries: session.entries,
-        meta: session.meta,
-        dryRun: ctx.dryRun,
-        registryWriter: registryWriterDeps,
-      });
-      if (!mutateResult.ok) {
-        emitFailure(mutateResult.code, mutateResult.message, mutateResult.detail);
-        return;
-      }
+      // `spec edit` rejects --dry-run upfront (rejectIfDryRun above), so
+      // finishMutate's dry-run branch is unreachable here; the route is the
+      // default emit-failure, matching the prior inline emitFailure(...).
+      const mutateResult = finishMutate(
+        await mutateBatch(entries, mctxFor(featureDir, session)),
+        "emit-failure",
+      );
+      if (!mutateResult) return;
       const newSpecVersion = (entries[0]!.payload as { spec_version: number }).spec_version;
       ctx.success(
         {

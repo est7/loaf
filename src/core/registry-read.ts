@@ -20,7 +20,9 @@ export type RegistryReadResult =
       reason: "io-error" | "corrupt-json" | "schema-invalid";
       /** Joined human-readable issue messages — the lenient (list) warning text. */
       warningDetail: string;
-      /** The raw Zod/error message — the strict (dispatch) "cannot be parsed" text. */
+      /** The full error message (Node `err.message` for io-error / corrupt-json,
+       *  ZodError.message for schema-invalid) — the strict (dispatch)
+       *  "cannot be parsed" text. */
       strictDetail: string;
     };
 

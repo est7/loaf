@@ -58,14 +58,22 @@ export function findDuplicateId(ids: readonly string[]): { id: string } | null {
 }
 
 /**
- * Membership: does `incomingId` already exist in `existingIds`, else null. For
+ * Membership: does `incomingId` already exist among `existing`, else null. For
  * REQ/SCEN/VIS add-one, where the question is collision against the projection
  * — NOT whether the projection is internally corrupt. A pre-existing duplicate
- * in `existingIds` unrelated to `incomingId` must not change the answer.
+ * in `existing` unrelated to `incomingId` must not change the answer.
+ *
+ * Takes the source items + an id selector and short-circuits on the first match,
+ * so callers pass the projection array directly — no throwaway `.map(...)` id
+ * array per check on the per-mutation path.
  */
-export function findCollision(
+export function findCollision<T>(
   incomingId: string,
-  existingIds: readonly string[],
+  existing: readonly T[],
+  selectId: (item: T) => string,
 ): { id: string } | null {
-  return existingIds.includes(incomingId) ? { id: incomingId } : null;
+  for (const item of existing) {
+    if (selectId(item) === incomingId) return { id: incomingId };
+  }
+  return null;
 }

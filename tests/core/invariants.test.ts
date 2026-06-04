@@ -69,23 +69,27 @@ describe("findDuplicateId — self-scan for a duplicate WITHIN a list (tasks_pla
 });
 
 describe("findCollision — membership: does incomingId already exist (REQ/SCEN/VIS add-one)", () => {
+  // findCollision takes the source items + an id selector; these string fixtures
+  // use identity. Production callers pass the projection array + `(r) => r.id`.
+  const id = (s: string): string => s;
+
   test("collision → { id: incomingId }", () => {
-    expect(findCollision("REQ-1", ["REQ-1"])).toEqual({ id: "REQ-1" });
-    expect(findCollision("REQ-1", ["REQ-2", "REQ-1", "REQ-3"])).toEqual({ id: "REQ-1" });
+    expect(findCollision("REQ-1", ["REQ-1"], id)).toEqual({ id: "REQ-1" });
+    expect(findCollision("REQ-1", ["REQ-2", "REQ-1", "REQ-3"], id)).toEqual({ id: "REQ-1" });
   });
 
   test("no collision → null", () => {
-    expect(findCollision("REQ-2", ["REQ-1"])).toBeNull();
+    expect(findCollision("REQ-2", ["REQ-1"], id)).toBeNull();
   });
 
   test("empty existing → null", () => {
-    expect(findCollision("REQ-1", [])).toBeNull();
+    expect(findCollision("REQ-1", [], id)).toBeNull();
   });
 
   // R3 regression lock (codex): membership ≠ whole-projection scan. A duplicate
   // ALREADY in the projection, unrelated to the incoming id, must NOT change the
   // add-one answer — otherwise pre-existing corruption would reject a valid add.
   test("pre-existing unrelated duplicate does NOT affect the incoming-id answer", () => {
-    expect(findCollision("NEW", ["REQ-1", "REQ-1"])).toBeNull();
+    expect(findCollision("NEW", ["REQ-1", "REQ-1"], id)).toBeNull();
   });
 });

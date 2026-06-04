@@ -60,7 +60,10 @@ describe("buildFindingRaiseBatch — action→batch mapping + actor split", () =
   };
 
   test("fix-impl WITH target → 3-entry reset (→ EXECUTE.work); siblings literal cli:loaf", () => {
-    const r = buildFindingRaiseBatch({ ...base, action: "fix-impl", target: { taskId: "T-001", step: "implement" } });
+    // No `step` in the input target — the reset step is map-derived from the
+    // action (FIX_RESET_STEP["fix-impl"] = "implement"), so asserting the output
+    // step proves it comes from the action, not echoed from caller input.
+    const r = buildFindingRaiseBatch({ ...base, action: "fix-impl", target: { taskId: "T-001" } });
     expect(r.kind).toBe("fix-reset");
     if (r.kind !== "fix-reset") return;
     expect(r.backEdgeTo).toBe("EXECUTE.work");
@@ -70,7 +73,7 @@ describe("buildFindingRaiseBatch — action→batch mapping + actor split", () =
   });
 
   test("fix-test WITH target → reset step 'red'", () => {
-    const r = buildFindingRaiseBatch({ ...base, action: "fix-test", target: { taskId: "T-002", step: "red" } });
+    const r = buildFindingRaiseBatch({ ...base, action: "fix-test", target: { taskId: "T-002" } });
     expect(r.kind).toBe("fix-reset");
     if (r.kind !== "fix-reset") return;
     expect((r.entries[1]!.payload as { step: string }).step).toBe("red");

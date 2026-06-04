@@ -96,7 +96,10 @@ export function buildFindingRaiseBatch(args: {
   findingId: string;
   currentSubState: SubState;
   findingActor: string;
-  target?: { taskId: string; step: string };
+  // Only `taskId` is consumed: the reset `step` is derived from `action` via
+  // FIX_RESET_STEP, NOT taken from the caller's target. The finding payload's
+  // own `target.step` is built separately at the call site.
+  target?: { taskId: string };
 }): FindingRaiseBatch {
   const findingRaised: MutatorEntry = {
     kind: "finding:raised",

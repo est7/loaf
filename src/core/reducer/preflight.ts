@@ -1689,7 +1689,7 @@ export function preflight(
   // payload, so this check only fires on the three add-* kinds.
   if (entry.kind === "event:spec_req_added") {
     const payload = payloadParsed.data as { req: { id: string } };
-    if (findCollision(payload.req.id, ctx.snapshot.requirements.map((r) => r.id))) {
+    if (findCollision(payload.req.id, ctx.snapshot.requirements, (r) => r.id)) {
       return {
         ok: false,
         code: "DUPLICATE_REQ_ID",
@@ -1700,7 +1700,7 @@ export function preflight(
   }
   if (entry.kind === "event:spec_scenario_added") {
     const payload = payloadParsed.data as { scenario: { id: string } };
-    if (findCollision(payload.scenario.id, ctx.snapshot.scenarios.map((s) => s.id))) {
+    if (findCollision(payload.scenario.id, ctx.snapshot.scenarios, (s) => s.id)) {
       return {
         ok: false,
         code: "DUPLICATE_SCEN_ID",
@@ -1711,7 +1711,7 @@ export function preflight(
   }
   if (entry.kind === "event:spec_visual_added") {
     const payload = payloadParsed.data as { visual: { id: string } };
-    if (findCollision(payload.visual.id, ctx.snapshot.visual_contracts.map((v) => v.id))) {
+    if (findCollision(payload.visual.id, ctx.snapshot.visual_contracts, (v) => v.id)) {
       return {
         ok: false,
         code: "DUPLICATE_VIS_ID",

@@ -24,12 +24,24 @@ describe("SC-7 — every mutator call carries registryWriter in MutateContext", 
   test("static: each await mutate(Batch) site's ctx contains registryWriter: registryWriterDeps", async () => {
     const source = await readRepo("src/cli.tsx");
 
-    // Collect names of locally-defined ctx variables that include
-    // `registryWriter: registryWriterDeps` in their object literal.
+    // The single wired-ctx factory: every mutator ctx now flows through
+    // `mctxFor(...)`. Verify the factory wires the field once, then accept any
+    // site whose ctx arg is mctxFor(...) or a var assigned from it.
+    expect(
+      /const\s+mctxFor\s*=[\s\S]{0,400}?registryWriter\s*:\s*registryWriterDeps/.test(source),
+      "mctxFor factory must wire `registryWriter: registryWriterDeps`",
+    ).toBe(true);
+
+    // Collect names of locally-defined ctx variables that carry
+    // `registryWriter: registryWriterDeps` — either as an inline object literal
+    // OR assigned from the `mctxFor` factory.
     const KNOWN_GOOD_CTX_NAMES = new Set<string>();
     const ctxDefRe =
       /const\s+(\w+)\s*(?::\s*\w+\s*)?=\s*\{[^}]*?registryWriter\s*:\s*registryWriterDeps[^}]*?\};/gs;
     for (const m of source.matchAll(ctxDefRe)) {
+      KNOWN_GOOD_CTX_NAMES.add(m[1]!);
+    }
+    for (const m of source.matchAll(/const\s+(\w+)\s*=\s*mctxFor\(/g)) {
       KNOWN_GOOD_CTX_NAMES.add(m[1]!);
     }
 
@@ -64,6 +76,9 @@ describe("SC-7 — every mutator call carries registryWriter in MutateContext", 
 
       // Inline literal check
       if (/registryWriter\s*:\s*registryWriterDeps/.test(slice)) continue;
+
+      // Direct factory call as the ctx arg: `mutateBatch(batch, mctxFor(...))`
+      if (/\bmctxFor\(/.test(slice)) continue;
 
       // Named-ctx check
       const tailMatch = /(\w+)\s*,?\s*\)\s*$/.exec(slice.trim());
