@@ -12,6 +12,7 @@
 import type { Ceremony, EntryKind, JournalEntry, SubState } from "./journal-entry.js";
 import { preflight } from "./reducer/preflight.js";
 import type { PreflightFailureCode } from "./reducer/preflight.js";
+import { checkSpecVersion as specVersionRule, findCollision, findDuplicateId } from "./reducer/invariants.js";
 import { extractTaskSlim, shouldPromoteToDone } from "./task-schema.js";
 import type { TaskFullProjection } from "./task-schema.js";
 import type {
@@ -398,12 +399,9 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
         return invalidPayload(entry.kind, "missing based_on.spec");
       }
       const incoming = payload.tasks ?? [];
-      const seenIds = new Set<string>();
-      for (const t of incoming) {
-        if (seenIds.has(t.id)) {
-          return invalidPayload(entry.kind, `DUPLICATE_TASK_ID: ${t.id} appears more than once in tasks_planned payload`);
-        }
-        seenIds.add(t.id);
+      const dup = findDuplicateId(incoming.map((t) => t.id));
+      if (dup) {
+        return invalidPayload(entry.kind, `DUPLICATE_TASK_ID: ${dup.id} appears more than once in tasks_planned payload`);
       }
       const taskList: TaskState[] = incoming.map(extractTaskSlim);
       return {
@@ -692,7 +690,7 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
       if (!versionCheck.ok) {
         return invalidPayload(entry.kind, versionCheck.message);
       }
-      if (prev.requirements.some((r) => r.id === payload.req!.id)) {
+      if (findCollision(payload.req.id, prev.requirements.map((r) => r.id))) {
         return invalidPayload(entry.kind, `DUPLICATE_REQ_ID: ${payload.req.id} already in projection`);
       }
       // Slice A SC1 widen: push full payload.req (was extractRequirementSlim).
@@ -717,7 +715,7 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
       if (!versionCheck.ok) {
         return invalidPayload(entry.kind, versionCheck.message);
       }
-      if (prev.scenarios.some((s) => s.id === payload.scenario!.id)) {
+      if (findCollision(payload.scenario.id, prev.scenarios.map((s) => s.id))) {
         return invalidPayload(entry.kind, `DUPLICATE_SCEN_ID: ${payload.scenario.id} already in projection`);
       }
       prev.scenarios.push(structuredClone(payload.scenario));
@@ -739,7 +737,7 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
       if (!versionCheck.ok) {
         return invalidPayload(entry.kind, versionCheck.message);
       }
-      if (prev.visual_contracts.some((v) => v.id === payload.visual!.id)) {
+      if (findCollision(payload.visual.id, prev.visual_contracts.map((v) => v.id))) {
         return invalidPayload(entry.kind, `DUPLICATE_VIS_ID: ${payload.visual.id} already in projection`);
       }
       prev.visual_contracts.push(structuredClone(payload.visual));
@@ -984,13 +982,15 @@ function checkSpecVersionHead(
       message: `SPEC_VERSION_BATCH_MISMATCH: spec_submitted must appear at batch_index=0, got ${entry.batch_index}`,
     };
   }
-  if (payloadVersion !== currentVersion + 1) {
-    return {
-      ok: false,
-      message: `SPEC_VERSION_NOT_MONOTONIC: spec_version must be ${currentVersion + 1} (current+1), got ${payloadVersion}`,
-    };
-  }
-  return { ok: true, nextVersion: payloadVersion };
+  // Structural guard above stays OUTSIDE the shared predicate (it has no
+  // kind/batch_index); only the monotonic compare delegates (L3).
+  const r = specVersionRule(payloadVersion, currentVersion, "head");
+  return r.ok
+    ? { ok: true, nextVersion: r.nextVersion }
+    : {
+        ok: false,
+        message: `SPEC_VERSION_NOT_MONOTONIC: spec_version must be ${r.expected} (current+1), got ${payloadVersion}`,
+      };
 }
 
 function checkSpecVersion(
@@ -998,24 +998,16 @@ function checkSpecVersion(
   payloadVersion: number,
   currentVersion: number,
 ): SpecVersionCheck {
-  const isHead = entry.batch_index === undefined || entry.batch_index === 0;
-  if (isHead) {
-    if (payloadVersion !== currentVersion + 1) {
-      return {
-        ok: false,
-        message: `SPEC_VERSION_NOT_MONOTONIC: spec_version must be ${currentVersion + 1} (current+1) at batch head, got ${payloadVersion}`,
-      };
-    }
-    return { ok: true, nextVersion: payloadVersion };
-  }
-  // batch continuation — head already bumped state.
-  if (payloadVersion !== currentVersion) {
-    return {
-      ok: false,
-      message: `SPEC_VERSION_BATCH_MISMATCH: spec_version must be ${currentVersion} at batch_index=${entry.batch_index}, got ${payloadVersion}`,
-    };
-  }
-  return { ok: true, nextVersion: currentVersion };
+  const mode = entry.batch_index === undefined || entry.batch_index === 0 ? "head" : "continuation";
+  const r = specVersionRule(payloadVersion, currentVersion, mode);
+  if (r.ok) return { ok: true, nextVersion: r.nextVersion };
+  return {
+    ok: false,
+    message:
+      mode === "head"
+        ? `SPEC_VERSION_NOT_MONOTONIC: spec_version must be ${r.expected} (current+1) at batch head, got ${payloadVersion}`
+        : `SPEC_VERSION_BATCH_MISMATCH: spec_version must be ${r.expected} at batch_index=${entry.batch_index}, got ${payloadVersion}`,
+  };
 }
 
 // Slice A SC1: slim extractors removed. RequirementState / ScenarioState /

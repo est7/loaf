@@ -43,6 +43,7 @@ import {
   type TransitionResult,
 } from "./transition.js";
 import { isActorAllowed, isSubStateAllowed } from "./per-kind.js";
+import { checkSpecVersion as specVersionRule, findCollision } from "./invariants.js";
 import {
   FINDING_ACTION_TARGET_MODE,
   FINDING_UNUSUAL_REASON_MIN_LENGTH,
@@ -1699,7 +1700,7 @@ export function preflight(
   // payload, so this check only fires on the three add-* kinds.
   if (entry.kind === "event:spec_req_added") {
     const payload = payloadParsed.data as { req: { id: string } };
-    if (ctx.snapshot.requirements.some((r) => r.id === payload.req.id)) {
+    if (findCollision(payload.req.id, ctx.snapshot.requirements.map((r) => r.id))) {
       return {
         ok: false,
         code: "DUPLICATE_REQ_ID",
@@ -1710,7 +1711,7 @@ export function preflight(
   }
   if (entry.kind === "event:spec_scenario_added") {
     const payload = payloadParsed.data as { scenario: { id: string } };
-    if (ctx.snapshot.scenarios.some((s) => s.id === payload.scenario.id)) {
+    if (findCollision(payload.scenario.id, ctx.snapshot.scenarios.map((s) => s.id))) {
       return {
         ok: false,
         code: "DUPLICATE_SCEN_ID",
@@ -1721,7 +1722,7 @@ export function preflight(
   }
   if (entry.kind === "event:spec_visual_added") {
     const payload = payloadParsed.data as { visual: { id: string } };
-    if (ctx.snapshot.visual_contracts.some((v) => v.id === payload.visual.id)) {
+    if (findCollision(payload.visual.id, ctx.snapshot.visual_contracts.map((v) => v.id))) {
       return {
         ok: false,
         code: "DUPLICATE_VIS_ID",
@@ -1768,16 +1769,17 @@ export function preflight(
           },
         };
       }
-      if (payloadVersion !== currentVersion + 1) {
+      const v = specVersionRule(payloadVersion, currentVersion, "head");
+      if (!v.ok) {
         return {
           ok: false,
           code: "SPEC_VERSION_NOT_MONOTONIC",
-          message: `spec_submitted: spec_version must be ${currentVersion + 1} (current+1), got ${payloadVersion}`,
+          message: `spec_submitted: spec_version must be ${v.expected} (current+1), got ${payloadVersion}`,
           detail: {
             kind: entry.kind,
             payload_spec_version: payloadVersion,
             current_spec_version: currentVersion,
-            expected_spec_version: currentVersion + 1,
+            expected_spec_version: v.expected,
           },
         };
       }
@@ -1785,37 +1787,35 @@ export function preflight(
       // spec_*_added: HEAD path bumps (must equal current+1);
       // CONTINUATION path tracks (must equal current — the head
       // already bumped state in mutateBatch's accumulator).
-      const isHead = entry.batch_index === undefined || entry.batch_index === 0;
-      if (isHead) {
-        if (payloadVersion !== currentVersion + 1) {
+      const mode = entry.batch_index === undefined || entry.batch_index === 0 ? "head" : "continuation";
+      const v = specVersionRule(payloadVersion, currentVersion, mode);
+      if (!v.ok) {
+        if (mode === "head") {
           return {
             ok: false,
             code: "SPEC_VERSION_NOT_MONOTONIC",
-            message: `${entry.kind}: spec_version must be ${currentVersion + 1} (current+1) at batch head, got ${payloadVersion}`,
+            message: `${entry.kind}: spec_version must be ${v.expected} (current+1) at batch head, got ${payloadVersion}`,
             detail: {
               kind: entry.kind,
               payload_spec_version: payloadVersion,
               current_spec_version: currentVersion,
-              expected_spec_version: currentVersion + 1,
+              expected_spec_version: v.expected,
               batch_position: "head",
             },
           };
         }
-      } else {
-        if (payloadVersion !== currentVersion) {
-          return {
-            ok: false,
-            code: "SPEC_VERSION_BATCH_MISMATCH",
-            message: `${entry.kind}: spec_version must be ${currentVersion} at batch_index=${entry.batch_index} (batch continuation), got ${payloadVersion}`,
-            detail: {
-              kind: entry.kind,
-              payload_spec_version: payloadVersion,
-              current_spec_version: currentVersion,
-              batch_index: entry.batch_index,
-              batch_position: "continuation",
-            },
-          };
-        }
+        return {
+          ok: false,
+          code: "SPEC_VERSION_BATCH_MISMATCH",
+          message: `${entry.kind}: spec_version must be ${v.expected} at batch_index=${entry.batch_index} (batch continuation), got ${payloadVersion}`,
+          detail: {
+            kind: entry.kind,
+            payload_spec_version: payloadVersion,
+            current_spec_version: currentVersion,
+            batch_index: entry.batch_index,
+            batch_position: "continuation",
+          },
+        };
       }
     }
   }
