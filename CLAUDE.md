@@ -48,7 +48,7 @@ snapshots/_meta.json # derived projection (lazy; doctor --rebuild is a Slice 5 d
 spec.md             # derived projection of spec content (writer is current open work — slice A)
 ```
 
-`JournalEntry` envelope (see `src/core/journal-entry.ts`): `{seq, entry_id (JE-NNNNNN), at (ISO ts), actor (^(human|skill|ci|cli|migration):.+$), entry_schema_version=1, kind, payload}`. Per-kind payload schemas live alongside (`PER_KIND_PAYLOAD`) and the reducer-implemented subset is gated by `REDUCER_IMPLEMENTED_KINDS`.
+`JournalEntry` envelope (see `src/core/journal-entry.ts`): `{seq, entry_id (JE-NNNNNN), at (ISO ts), actor (^(human|skill|ci|cli|migration):.+$), entry_schema_version=1, kind, payload}`. Per-kind payload schemas live alongside; the kind→schema table (`PER_KIND_PAYLOAD`), the reducer-implemented gate (`REDUCER_IMPLEMENTED_KINDS`), and the sub_state / actor / spec-emitting tables are all derived from `KIND_REGISTRY` in `src/core/kind-registry.ts` (L2 single-source).
 
 ### Mutator pipeline (`src/core/journal-mutate.ts`)
 
@@ -73,11 +73,14 @@ All-or-nothing **before** write. Once `appendMany` starts writing, partial corru
 |---|---|
 | `src/core/reducer.ts` | `apply(snapshot, entry) → snapshot` — in-place projection mutation. Narrows on `kind` discriminator. |
 | `src/core/reducer/preflight.ts` | sub_state authority + seq monotonicity + ceremony + per-kind payload refines. Returns typed `PreflightFailureCode`. |
-| `src/core/reducer/per-kind.ts` | `PER_KIND_AUTHORITY` (allowed actor prefixes) + `PER_KIND_SUB_STATE` (allowed sub_states). |
+| `src/core/reducer/invariants.ts` | Shared scalar invariant predicates (`checkSpecVersion` / `findDuplicateId` / `findCollision`) — reducer + preflight both delegate, each mapping the fact to its own error surface (L3). |
+| `src/core/kind-registry.ts` | Single source for the 5 per-kind tables (`PER_KIND_PAYLOAD` / `REDUCER_IMPLEMENTED_KINDS` / `PER_KIND_SUB_STATE` / `PER_KIND_ACTOR` / `SPEC_EMITTING_KINDS`) derived from `KIND_REGISTRY` (26 kinds). `reducer/per-kind.ts` is now a re-export shim; `kind-guards.ts` holds the guard vocabulary + `isSubStateAllowed`/`isActorAllowed` (L2). |
 | `src/core/reducer/transition.ts` | `validateTransition` shared by reducer + preflight. `event:phase_advanced` is the ONLY kind that moves cursor; `gate:decided` flips flags (`spec_locked` / `verify_accepted`) but does NOT move cursor (Slice 1.A normalization). |
 | `src/core/gates/spec-lock-check.ts` | 8 pure checks: frontmatter / needs_clarification / tasks.based_on.spec / REQ coverage / spec-review / scenario coverage / visual coverage / orphan check. |
-| `src/core/gates/spec-lock-eval.ts` | IO boundary — reads `spec.md` via `readSpecFrontmatter`, maps file-read failures to `check:1 SPEC_FRONTMATTER_INVALID` with `detail.subcode`. |
+| `src/core/gates/spec-lock-eval.ts` | IO boundary — reads `spec.md` via `readSpecFrontmatter`, maps file-read failures to `check:1 SPEC_FRONTMATTER_INVALID` with `detail.subcode`. Thin wrapper over `gates/gate-eval.ts`. |
+| `src/core/gates/gate-eval.ts` | `gateEvalFromCheck(check)` — the shared gate-mode IO skeleton (read frontmatter → `check:1` on failure → delegate to the pure check) behind both gate evals. The verify-accept *diagnostic* eval stays inline (returns a structured error, not a check:1 row — codex r302) (L7). |
 | `src/core/gates/verify-accept-{check,eval}.ts` | Same shape for verify-accept gate (5 checks: lane status / open findings / coverage / done-task evidence / spec-review). |
+| `src/core/gates/task-proof.ts` + `gates/evidence-result.ts` | `evaluateTaskProof(snapshot, policy)` — the task-proof kernel (passing + covering + accepted-kind + bug-RED) with `verifyAcceptPolicy` (kind-uniform) + `verifyMinPolicy` (kind-per-task) adapters; `evidence-result.ts` owns `isPassingResult`/`PASSING_RESULTS` (L6). |
 | `src/core/actor-resolver.ts` | Pure policy: `$LOAF_USER` → git email → `NO_HUMAN_ACTOR`. IO (env read / git read) injected from `cli-runtime.ts`. CI safety: never derive `human:` in non-interactive without explicit env. |
 | `src/core/journal-append.ts` | `appendEntry` is a 1-line wrapper over `appendMany`. Hard byte caps: 64KB per entry, batch-total enforced. |
 | `src/core/sidecar.ts` | Long-text-field promotion via `LongTextField` discriminated union (`inline` → `sidecar`). |

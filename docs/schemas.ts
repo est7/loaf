@@ -441,10 +441,12 @@ export const SchemaVersion = z.literal(SCHEMA_VERSION);
 //
 // Runtime registry cross-reference (audit r1-r5 catch-up): per-kind payload
 // schemas are executable runtime policy, not duplicated here. The canonical
-// tables live in `src/core/journal-entry.ts`:
-//   - PER_KIND_PAYLOAD (`src/core/journal-entry.ts:330`) maps every EntryKind to
+// tables are derived from `KIND_REGISTRY` in `src/core/kind-registry.ts` (L2
+// single-source); the per-kind Zod payload schema consts they map to live in
+// `src/core/journal-entry.ts`:
+//   - PER_KIND_PAYLOAD (`src/core/kind-registry.ts`) maps every EntryKind to
 //     the strict Zod payload schema used by preflight and final append validate.
-//   - REDUCER_IMPLEMENTED_KINDS (`src/core/journal-entry.ts:372`) is the allowlist
+//   - REDUCER_IMPLEMENTED_KINDS (`src/core/kind-registry.ts`) is the allowlist
 //     journal-mutate checks before append so payload-valid but reducer-unknown
 //     kinds cannot orphan journal entries.
 // JournalEntry.payload stays z.unknown() here; runtime narrows by (kind, payload)
@@ -678,7 +680,7 @@ export type SnapshotMeta = z.infer<typeof SnapshotMeta>;
 //
 // In rev 5.0 every kind is at version 1; UPCASTER_REGISTRY is structurally
 // declared but empty. Upcasters must be kept in sync with the runtime
-// PER_KIND_PAYLOAD registry in `src/core/journal-entry.ts:330`; when a kind's
+// PER_KIND_PAYLOAD registry in `src/core/kind-registry.ts`; when a kind's
 // payload shape evolves, add the upcaster and payload schema in the same runtime
 // change, then update this docs registry in the same docs-sync commit.
 
