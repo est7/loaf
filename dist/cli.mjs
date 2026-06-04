@@ -2123,71 +2123,18 @@ const SpecSubmittedPayload = z.object({
 	adr_refs: z.array(z.string()),
 	needs_clarification: z.array(NeedsClarification$1)
 }).passthrough();
-const PER_KIND_PAYLOAD = {
-	"event:phase_advanced": PhaseAdvancedPayload,
-	"event:ceremony_set": CeremonyPayload,
-	"event:tasks_planned": TasksPlannedPayload,
-	"event:tasks_amended": TasksAmendedPayload,
-	"event:task_claimed": TaskRefPayload,
-	"event:task_step_started": TaskStepRefPayload,
-	"event:task_step_done": TaskStepDonePayload,
-	"event:task_step_reset": TaskStepResetPayload,
-	"event:task_abandoned": TaskAbandonedPayload,
-	"event:spec_req_added": z.object({
-		spec_version: BatchSpecVersion,
-		req: RequirementEarsVerifiable
-	}).passthrough(),
-	"event:spec_scenario_added": z.object({
-		spec_version: BatchSpecVersion,
-		scenario: ScenarioGherkin$1
-	}).passthrough(),
-	"event:spec_visual_added": z.object({
-		spec_version: BatchSpecVersion,
-		visual: VisualContract$1
-	}).passthrough(),
-	"event:spec_submitted": SpecSubmittedPayload,
-	"evidence:added": EvidenceAddedPayload,
-	"finding:raised": FindingRaisedPayload,
-	"finding:closed": FindingClosedPayload,
-	"pending:added": PendingAddedPayload,
-	"pending:resolved": PendingResolvedPayload,
-	"gate:decided": GateDecidedPayload,
-	"session:started": SessionStartedPayload,
-	"session:resumed": SessionResumedPayload,
-	"session:delivered": SessionReasonPayload,
-	"session:archived": SessionReasonPayload,
-	"session:abandoned": SessionReasonPayload,
-	"spike:converted": SpikeConvertedPayload,
-	"migration:snapshot_imported": MigrationSnapshotImportedPayload
-};
-const REDUCER_IMPLEMENTED_KINDS = new Set([
-	"session:started",
-	"migration:snapshot_imported",
-	"event:phase_advanced",
-	"event:ceremony_set",
-	"event:tasks_planned",
-	"event:tasks_amended",
-	"event:task_claimed",
-	"event:task_step_started",
-	"event:task_step_done",
-	"event:task_step_reset",
-	"event:task_abandoned",
-	"event:spec_submitted",
-	"event:spec_req_added",
-	"event:spec_scenario_added",
-	"event:spec_visual_added",
-	"evidence:added",
-	"finding:raised",
-	"finding:closed",
-	"pending:added",
-	"pending:resolved",
-	"gate:decided",
-	"session:delivered",
-	"session:resumed",
-	"session:archived",
-	"session:abandoned",
-	"spike:converted"
-]);
+const SpecReqAddedPayload = z.object({
+	spec_version: BatchSpecVersion,
+	req: RequirementEarsVerifiable
+}).passthrough();
+const SpecScenarioAddedPayload = z.object({
+	spec_version: BatchSpecVersion,
+	scenario: ScenarioGherkin$1
+}).passthrough();
+const SpecVisualAddedPayload = z.object({
+	spec_version: BatchSpecVersion,
+	visual: VisualContract$1
+}).passthrough();
 const SchemaVersionLiteral = z.literal(2);
 const TasksJson$1 = z.object({
 	schema_version: SchemaVersionLiteral,
@@ -3146,6 +3093,61 @@ async function _loadProjectionsImpl(input, hooks) {
 	return result;
 }
 //#endregion
+//#region src/core/registry-read.ts
+/**
+* Read + parse exactly `${id}.json` from `registryDir`. Returns the finest error
+* granularity so each caller applies its own policy. For schema-invalid the two
+* detail surfaces differ on purpose: `warningDetail` is the joined issue
+* messages (matches sessions-list), `strictDetail` is the full Zod error message
+* (matches session-dispatch's `RegistryFile.parse(...)` catch). For io / corrupt
+* the two surfaces are the same `err.message`.
+*/
+async function readRegistryEntry(registryDir, id) {
+	let raw;
+	try {
+		raw = await fsp.readFile(path$1.join(registryDir, `${id}.json`), "utf8");
+	} catch (err) {
+		const m = err.message;
+		return {
+			ok: false,
+			reason: "io-error",
+			warningDetail: m,
+			strictDetail: m
+		};
+	}
+	let parsed;
+	try {
+		parsed = JSON.parse(raw);
+	} catch (err) {
+		const m = err.message;
+		return {
+			ok: false,
+			reason: "corrupt-json",
+			warningDetail: m,
+			strictDetail: m
+		};
+	}
+	const result = RegistryFile$1.safeParse(parsed);
+	if (!result.success) return {
+		ok: false,
+		reason: "schema-invalid",
+		warningDetail: result.error.issues.map((i) => i.message).join("; "),
+		strictDetail: result.error.message
+	};
+	return {
+		ok: true,
+		file: result.data
+	};
+}
+/** Canonicalize a path via fs.realpath; null when it can't be resolved (deleted). */
+async function tryRealpath(p) {
+	try {
+		return await fsp.realpath(p);
+	} catch {
+		return null;
+	}
+}
+//#endregion
 //#region src/core/session-dispatch.ts
 const MIN_SHORT_UUID_PREFIX = 8;
 /** Extract flag value (`--flag value` or `--flag=value`). Returns
@@ -3239,31 +3241,19 @@ async function resolveBySessionId(uuidOrPrefix, input, source) {
 		}
 	};
 	const sessionId = matches[0];
-	let registryFile;
-	try {
-		const raw = await promises.readFile(path.join(registryDir, `${sessionId}.json`), "utf8");
-		registryFile = RegistryFile$1.parse(JSON.parse(raw));
-	} catch (err) {
-		return {
-			ok: false,
-			code: "SESSION_NOT_FOUND",
-			message: `--session ${uuidOrPrefix} registry entry exists but cannot be parsed: ${err.message}`,
-			detail: {
-				uuid_or_prefix: uuidOrPrefix,
-				session_id: sessionId,
-				source
-			}
-		};
-	}
-	let registeredCanonical = registryFile.cwd;
-	let currentCanonical = input.cwd;
-	try {
-		registeredCanonical = await promises.realpath(registryFile.cwd);
-	} catch {}
-	try {
-		currentCanonical = await promises.realpath(input.cwd);
-	} catch {}
-	if (registeredCanonical !== currentCanonical) return {
+	const read = await readRegistryEntry(registryDir, sessionId);
+	if (!read.ok) return {
+		ok: false,
+		code: "SESSION_NOT_FOUND",
+		message: `--session ${uuidOrPrefix} registry entry exists but cannot be parsed: ${read.strictDetail}`,
+		detail: {
+			uuid_or_prefix: uuidOrPrefix,
+			session_id: sessionId,
+			source
+		}
+	};
+	const registryFile = read.file;
+	if ((await tryRealpath(registryFile.cwd) ?? registryFile.cwd) !== (await tryRealpath(input.cwd) ?? input.cwd)) return {
 		ok: false,
 		code: "SESSION_CWD_MISMATCH",
 		message: `--session ${uuidOrPrefix} is registered against cwd=${registryFile.cwd}, but the current cwd is ${input.cwd}`,
@@ -4158,16 +4148,6 @@ function diagnosticKey(code) {
 }
 //#endregion
 //#region src/cli/sessions-list.ts
-/** Canonicalize a path via fs.realpath. Returns null on any error
-*  (ENOENT, permissions, etc.) so the caller can treat unresolvable
-*  paths as orphan candidates. */
-async function tryRealpath(p) {
-	try {
-		return await promises.realpath(p);
-	} catch {
-		return null;
-	}
-}
 async function listSessions(input) {
 	const registryDir = input.registryDir ?? defaultRegistryDir();
 	const rows = [];
@@ -4193,39 +4173,16 @@ async function listSessions(input) {
 	}
 	for (const entry of entries) {
 		if (!entry.endsWith(".json")) continue;
-		const filePath = path.join(registryDir, entry);
-		let raw;
-		try {
-			raw = await promises.readFile(filePath, "utf8");
-		} catch (err) {
+		const read = await readRegistryEntry(registryDir, entry.slice(0, -5));
+		if (!read.ok) {
 			warnings.push({
 				file: entry,
-				reason: "io-error",
-				detail: err.message
+				reason: read.reason,
+				detail: read.warningDetail
 			});
 			continue;
 		}
-		let parsed;
-		try {
-			parsed = JSON.parse(raw);
-		} catch (err) {
-			warnings.push({
-				file: entry,
-				reason: "corrupt-json",
-				detail: err.message
-			});
-			continue;
-		}
-		const result = RegistryFile$1.safeParse(parsed);
-		if (!result.success) {
-			warnings.push({
-				file: entry,
-				reason: "schema-invalid",
-				detail: result.error.issues.map((i) => i.message).join("; ")
-			});
-			continue;
-		}
-		const reg = result.data;
+		const reg = read.file;
 		const canonicalRegCwd = await tryRealpath(reg.cwd);
 		if (canonicalRegCwd === null) {
 			warnings.push({
@@ -4483,6 +4440,64 @@ function canSatisfy(evidence, coveredId) {
 	return true;
 }
 //#endregion
+//#region src/core/gates/evidence-result.ts
+/** Evidence results that count as a positive proof signal. `waived` is a human
+*  escape; spec-review uses a STRICTER notion (passed/approved only) and does
+*  NOT go through this set. */
+const PASSING_RESULTS = new Set([
+	"passed",
+	"approved",
+	"waived"
+]);
+/** True when an evidence result is a positive proof signal (passed / approved /
+*  waived). undefined (no result yet) is never passing. */
+function isPassingResult(result) {
+	return result !== void 0 && PASSING_RESULTS.has(result);
+}
+//#endregion
+//#region src/core/gates/task-proof.ts
+/**
+* Per done task in `snapshot.tasks` (snapshot order, NOT sorted), compute the
+* proof gaps under `policy`. A task is evidence-proven when some evidence is
+* passing, covers the task, and has an accepted kind (or is a waiver). Returns
+* one finding per done task that has ≥1 gap; proven tasks produce no finding.
+* Iteration order is preserved so callers relying on first-gap-wins
+* (verify-min's bug-RED short-circuit) stay behavior-identical.
+*/
+function evaluateTaskProof(snapshot, policy) {
+	const findings = [];
+	for (const task of snapshot.tasks) {
+		if (task.status !== "done") continue;
+		const accepted = policy.acceptedKinds(task);
+		const gaps = [];
+		if (!snapshot.evidence.some((ev) => isPassingResult(ev.result) && ev.covers.includes(task.id) && (accepted.includes(ev.kind) || ev.kind === "waiver"))) gaps.push("no-passing-evidence");
+		if (task.kind === "behavioral" && task.labels.includes("bug") && task.red_test_registered !== true) gaps.push("bug-red-unregistered");
+		if (gaps.length > 0) findings.push({
+			task,
+			gaps
+		});
+	}
+	return findings;
+}
+const VERIFY_ACCEPT_KINDS = [
+	"task-summary",
+	"local-check",
+	"manual"
+];
+const verifyAcceptPolicy = { acceptedKinds: () => VERIFY_ACCEPT_KINDS };
+const VERIFY_MIN_REQUIRED_KINDS = {
+	behavioral: ["local-check"],
+	structural: ["local-check"],
+	"visual-ui": ["visual-review", "manual"],
+	docs: ["task-summary", "manual"],
+	chore: [
+		"local-check",
+		"manual",
+		"task-summary"
+	]
+};
+const verifyMinPolicy = { acceptedKinds: (task) => VERIFY_MIN_REQUIRED_KINDS[task.kind] ?? [] };
+//#endregion
 //#region src/core/gates/verify-accept-check.ts
 const VERIFY_CHECK_IDS = [
 	"lane_status",
@@ -4499,15 +4514,6 @@ const KIND_TO_LANE_FALLBACK = {
 	acceptance: "acceptance",
 	"visual-review": "visual"
 };
-const PASSING_RESULTS = new Set([
-	"passed",
-	"approved",
-	"waived"
-]);
-/** Lanes that pass an evidence result-check filter. */
-function isPassingResult(result) {
-	return result !== void 0 && PASSING_RESULTS.has(result);
-}
 /**
 * Derive the set of "must" lanes from the snapshot + frontmatter.
 *
@@ -4583,12 +4589,6 @@ function deriveImplementers(snapshot) {
 	}
 	return implementers;
 }
-const TASK_ALLOWED_EVIDENCE_KINDS = [
-	"task-summary",
-	"local-check",
-	"manual",
-	"waiver"
-];
 function evalLaneStatus(snapshot, frontmatter) {
 	const failures = [];
 	const applicableLanes = deriveVerifyApplicability(snapshot, frontmatter);
@@ -4677,21 +4677,18 @@ function evalTaskEvidence(snapshot, frontmatter) {
 		});
 		return failures;
 	}
-	for (const task of snapshot.tasks) {
-		if (task.status !== "done") continue;
-		if (!snapshot.evidence.some((ev) => isPassingResult(ev.result) && ev.covers.includes(task.id) && TASK_ALLOWED_EVIDENCE_KINDS.includes(ev.kind))) failures.push({
-			check: 4,
-			code: "TASK_DONE_NO_EVIDENCE",
-			message: `task ${task.id} is status=done but has no PASSING evidence (result ∈ {passed, approved, waived}; kind ∈ {task-summary, local-check, manual, waiver}) covering it`,
-			detail: { task_id: task.id }
-		});
-		if (task.kind === "behavioral" && task.labels.includes("bug") && task.red_test_registered !== true) failures.push({
-			check: 4,
-			code: "BUG_TASK_RED_NOT_REGISTERED",
-			message: `behavioral bug task ${task.id} is status=done but never registered its RED test (red_test_registered≠true)`,
-			detail: { task_id: task.id }
-		});
-	}
+	for (const { task, gaps } of evaluateTaskProof(snapshot, verifyAcceptPolicy)) for (const gap of gaps) if (gap === "no-passing-evidence") failures.push({
+		check: 4,
+		code: "TASK_DONE_NO_EVIDENCE",
+		message: `task ${task.id} is status=done but has no PASSING evidence (result ∈ {passed, approved, waived}; kind ∈ {task-summary, local-check, manual, waiver}) covering it`,
+		detail: { task_id: task.id }
+	});
+	else failures.push({
+		check: 4,
+		code: "BUG_TASK_RED_NOT_REGISTERED",
+		message: `behavioral bug task ${task.id} is status=done but never registered its RED test (red_test_registered≠true)`,
+		detail: { task_id: task.id }
+	});
 	return failures;
 }
 function evalSpecReview(snapshot) {
@@ -4794,10 +4791,9 @@ function verifyAcceptCheck(snapshot, frontmatter) {
 	};
 }
 //#endregion
-//#region src/core/gates/verify-accept-eval.ts
-async function evaluateVerifyAccept(snapshot, featureDir) {
-	const read = await readSpecFrontmatter(featureDir);
-	if (!read.ok) return {
+//#region src/core/gates/gate-eval.ts
+function specReadFailure(read) {
+	return {
 		ok: false,
 		checks: [{
 			check: 1,
@@ -4809,7 +4805,26 @@ async function evaluateVerifyAccept(snapshot, featureDir) {
 			}
 		}]
 	};
-	return verifyAcceptCheck(snapshot, read.frontmatter);
+}
+/**
+* Build a gate-mode evaluator from a pure check. The returned evaluator reads
+* frontmatter at the IO boundary, maps a read failure to a check-1 row, and
+* otherwise delegates to `check`. Return type is `R | SpecReadFailure`; callers
+* annotate the clean alias (FullSpecLockResult / FullVerifyAcceptResult) to
+* coerce — SpecReadFailure is a subtype of both gate results' failure arm.
+*/
+function gateEvalFromCheck(check) {
+	return async (snapshot, featureDir) => {
+		const read = await readSpecFrontmatter(featureDir);
+		if (!read.ok) return specReadFailure(read);
+		return check(snapshot, read.frontmatter);
+	};
+}
+//#endregion
+//#region src/core/gates/verify-accept-eval.ts
+const evaluateVerifyAcceptGate = gateEvalFromCheck(verifyAcceptCheck);
+async function evaluateVerifyAccept(snapshot, featureDir) {
+	return evaluateVerifyAcceptGate(snapshot, featureDir);
 }
 async function evaluateVerifyAcceptDiagnostic(snapshot, featureDir) {
 	const read = await readSpecFrontmatter(featureDir);
@@ -6697,6 +6712,121 @@ function buildSpecSubmitBatch(args) {
 	});
 	return entries;
 }
+//#endregion
+//#region src/cli/batch-builders.ts
+/**
+* Approval ordering invariant (historically a codex BLOCK source):
+* 1. `gate:decided` (human) FIRST.
+* 2. `pending:resolved` (cli) only when the unresolved head is a gate_decision
+*    prompt — caller passes `pendingHeadId` exactly when that holds. It MUST sit
+*    between the decision and any cursor advance so the reducer dry-run still
+*    sees the head unresolved.
+* 3. `event:phase_advanced` (cli) only for spec-lock (SPEC.design → EXECUTE.plan);
+*    verify-accept moves NO cursor (deliver/settle advance later).
+*/
+function buildGateApprovalBatch(args) {
+	const entries = [{
+		kind: "gate:decided",
+		payload: {
+			gate_kind: args.gate,
+			decision: "approved",
+			reason: args.reason
+		},
+		actor: args.humanActor
+	}];
+	if (args.pendingHeadId !== void 0) entries.push({
+		kind: "pending:resolved",
+		payload: {
+			id: args.pendingHeadId,
+			answer: `gate-decide:${args.gate}:approved`
+		},
+		actor: args.cliActor
+	});
+	if (args.gate === "spec-lock") entries.push({
+		kind: "event:phase_advanced",
+		payload: {
+			from: args.from,
+			to: "EXECUTE.plan"
+		},
+		actor: args.cliActor
+	});
+	return entries;
+}
+const FIX_RESET_STEP = {
+	"fix-impl": "implement",
+	"fix-test": "red"
+};
+const BACK_EDGE_TARGET = {
+	"amend-spec": "SPEC.spec",
+	"amend-tasks": "EXECUTE.work"
+};
+/**
+* finding raise co-emission shape, by `action`:
+* - fix-impl/fix-test WITH a target → 3-entry reset batch (→ EXECUTE.work).
+* - amend-spec/amend-tasks → 2-entry back-edge batch.
+* - everything else, incl. fix-* WITHOUT a target → "none": the caller falls
+*   through to its lone `finding:raised` so preflight's FINDING_TARGET_REQUIRED
+*   stays the authoritative target gate (we do NOT synthesize a partial batch).
+*
+* Actor split: `finding:raised` carries the caller's `findingActor`
+* (`cli:loaf@<user>`); the mechanical `event:task_step_reset` / phase_advanced
+* siblings carry the literal machine actor `"cli:loaf"` — human attribution
+* lives on the sibling finding:raised entry one journal line away.
+*/
+function buildFindingRaiseBatch(args) {
+	const findingRaised = {
+		kind: "finding:raised",
+		payload: args.findingPayload,
+		actor: args.findingActor
+	};
+	const fixResetStep = FIX_RESET_STEP[args.action];
+	if (fixResetStep !== void 0 && args.target !== void 0) return {
+		kind: "fix-reset",
+		backEdgeTo: "EXECUTE.work",
+		entries: [
+			findingRaised,
+			{
+				kind: "event:task_step_reset",
+				payload: {
+					task_id: args.target.taskId,
+					step: fixResetStep,
+					finding_id: args.findingId
+				},
+				actor: "cli:loaf"
+			},
+			{
+				kind: "event:phase_advanced",
+				payload: {
+					from: args.currentSubState,
+					to: "EXECUTE.work",
+					back_edge: {
+						action: args.action,
+						finding_id: args.findingId
+					}
+				},
+				actor: "cli:loaf"
+			}
+		]
+	};
+	const backEdgeTarget = BACK_EDGE_TARGET[args.action];
+	if (backEdgeTarget !== void 0) return {
+		kind: "back-edge",
+		backEdgeTo: backEdgeTarget,
+		entries: [findingRaised, {
+			kind: "event:phase_advanced",
+			payload: {
+				from: args.currentSubState,
+				to: backEdgeTarget,
+				back_edge: {
+					action: args.action,
+					finding_id: args.findingId
+				}
+			},
+			actor: "cli:loaf"
+		}]
+	};
+	return { kind: "none" };
+}
 /** TasksActiveSummary — mirror of docs/schemas.ts §20.
 *  current_step is null when no step on the in_progress/ready task is
 *  currently running (i.e. between steps or paused). */
@@ -8487,7 +8617,7 @@ function resolveHumanActor(deps) {
 	return buildHumanActor(gitEmail);
 }
 //#endregion
-//#region src/core/reducer/per-kind.ts
+//#region src/core/kind-guards.ts
 const ANY_SUB_STATE = Symbol("any-sub-state");
 const ANY_NON_DONE = Symbol("any-non-done");
 const VERIFY_OR_POST_LOCK_EXECUTE = [
@@ -8522,43 +8652,6 @@ const FIX_BACK_EDGE_FROM = [
 	"VERIFY.visual",
 	"VERIFY.accept"
 ];
-const PER_KIND_SUB_STATE = {
-	"event:phase_advanced": ANY_SUB_STATE,
-	"event:ceremony_set": new Set([
-		"TRIAGE.score",
-		"TRIAGE.confirm",
-		...ALL_SPEC,
-		...ALL_EXECUTE
-	]),
-	"event:tasks_planned": new Set(["SPEC.design", "EXECUTE.plan"]),
-	"event:tasks_amended": new Set(VERIFY_OR_POST_LOCK_EXECUTE),
-	"event:task_claimed": new Set(["EXECUTE.work"]),
-	"event:task_step_started": new Set(["EXECUTE.work"]),
-	"event:task_step_done": new Set(["EXECUTE.work"]),
-	"event:task_step_reset": new Set(FIX_BACK_EDGE_FROM),
-	"event:task_abandoned": new Set(["EXECUTE.work"]),
-	"event:spec_req_added": new Set(ALL_SPEC),
-	"event:spec_scenario_added": new Set(ALL_SPEC),
-	"event:spec_visual_added": new Set(ALL_SPEC),
-	"event:spec_submitted": new Set(ALL_SPEC),
-	"evidence:added": new Set([...ALL_EXECUTE, ...VERIFY_OR_POST_LOCK_EXECUTE.filter((s) => s.startsWith("VERIFY"))]),
-	"finding:raised": new Set(VERIFY_OR_POST_LOCK_EXECUTE),
-	"finding:closed": new Set(VERIFY_OR_POST_LOCK_EXECUTE),
-	"pending:added": ANY_SUB_STATE,
-	"pending:resolved": ANY_SUB_STATE,
-	"gate:decided": new Set(["SPEC.design", "VERIFY.accept"]),
-	"session:started": ANY_SUB_STATE,
-	"session:resumed": ANY_SUB_STATE,
-	"session:delivered": new Set([
-		"EXECUTE.done",
-		"VERIFY.accept",
-		"SETTLE.lessons"
-	]),
-	"session:archived": ANY_NON_DONE,
-	"session:abandoned": ANY_NON_DONE,
-	"spike:converted": ANY_NON_DONE,
-	"migration:snapshot_imported": ANY_SUB_STATE
-};
 const ALL_NON_MIGRATION = [
 	"human",
 	"skill",
@@ -8566,40 +8659,215 @@ const ALL_NON_MIGRATION = [
 	"cli"
 ];
 const HUMAN_ONLY = ["human"];
-const PER_KIND_ACTOR = {
-	"event:phase_advanced": ALL_NON_MIGRATION,
-	"event:ceremony_set": ALL_NON_MIGRATION,
-	"event:tasks_planned": ALL_NON_MIGRATION,
-	"event:tasks_amended": ALL_NON_MIGRATION,
-	"event:task_claimed": ALL_NON_MIGRATION,
-	"event:task_step_started": ALL_NON_MIGRATION,
-	"event:task_step_done": ALL_NON_MIGRATION,
-	"event:task_step_reset": ["cli"],
-	"event:task_abandoned": ALL_NON_MIGRATION,
-	"event:spec_req_added": ALL_NON_MIGRATION,
-	"event:spec_scenario_added": ALL_NON_MIGRATION,
-	"event:spec_visual_added": ALL_NON_MIGRATION,
-	"event:spec_submitted": ALL_NON_MIGRATION,
-	"evidence:added": ALL_NON_MIGRATION,
-	"finding:raised": ALL_NON_MIGRATION,
-	"finding:closed": ALL_NON_MIGRATION,
-	"pending:added": ALL_NON_MIGRATION,
-	"pending:resolved": ALL_NON_MIGRATION,
-	"gate:decided": HUMAN_ONLY,
-	"session:started": ALL_NON_MIGRATION,
-	"session:resumed": ALL_NON_MIGRATION,
-	"session:delivered": HUMAN_ONLY,
-	"session:archived": HUMAN_ONLY,
-	"session:abandoned": HUMAN_ONLY,
-	"spike:converted": HUMAN_ONLY,
-	"migration:snapshot_imported": ["migration"]
-};
+const CLI_ONLY = ["cli"];
+const MIGRATION_ONLY = ["migration"];
 function actorPrefix(actor) {
 	const m = /^(human|skill|ci|cli|migration):/.exec(actor);
 	return m ? m[1] : null;
 }
+//#endregion
+//#region src/core/kind-registry.ts
+const KIND_REGISTRY = {
+	"event:phase_advanced": {
+		payload: PhaseAdvancedPayload,
+		reducerImplemented: true,
+		subStates: ANY_SUB_STATE,
+		actors: ALL_NON_MIGRATION,
+		emitsSpec: false
+	},
+	"event:ceremony_set": {
+		payload: CeremonyPayload,
+		reducerImplemented: true,
+		subStates: new Set([
+			"TRIAGE.score",
+			"TRIAGE.confirm",
+			...ALL_SPEC,
+			...ALL_EXECUTE
+		]),
+		actors: ALL_NON_MIGRATION,
+		emitsSpec: false
+	},
+	"event:tasks_planned": {
+		payload: TasksPlannedPayload,
+		reducerImplemented: true,
+		subStates: new Set(["SPEC.design", "EXECUTE.plan"]),
+		actors: ALL_NON_MIGRATION,
+		emitsSpec: false
+	},
+	"event:tasks_amended": {
+		payload: TasksAmendedPayload,
+		reducerImplemented: true,
+		subStates: new Set(VERIFY_OR_POST_LOCK_EXECUTE),
+		actors: ALL_NON_MIGRATION,
+		emitsSpec: false
+	},
+	"event:task_claimed": {
+		payload: TaskRefPayload,
+		reducerImplemented: true,
+		subStates: new Set(["EXECUTE.work"]),
+		actors: ALL_NON_MIGRATION,
+		emitsSpec: false
+	},
+	"event:task_step_started": {
+		payload: TaskStepRefPayload,
+		reducerImplemented: true,
+		subStates: new Set(["EXECUTE.work"]),
+		actors: ALL_NON_MIGRATION,
+		emitsSpec: false
+	},
+	"event:task_step_done": {
+		payload: TaskStepDonePayload,
+		reducerImplemented: true,
+		subStates: new Set(["EXECUTE.work"]),
+		actors: ALL_NON_MIGRATION,
+		emitsSpec: false
+	},
+	"event:task_step_reset": {
+		payload: TaskStepResetPayload,
+		reducerImplemented: true,
+		subStates: new Set(FIX_BACK_EDGE_FROM),
+		actors: CLI_ONLY,
+		emitsSpec: false
+	},
+	"event:task_abandoned": {
+		payload: TaskAbandonedPayload,
+		reducerImplemented: true,
+		subStates: new Set(["EXECUTE.work"]),
+		actors: ALL_NON_MIGRATION,
+		emitsSpec: false
+	},
+	"event:spec_req_added": {
+		payload: SpecReqAddedPayload,
+		reducerImplemented: true,
+		subStates: new Set(ALL_SPEC),
+		actors: ALL_NON_MIGRATION,
+		emitsSpec: true
+	},
+	"event:spec_scenario_added": {
+		payload: SpecScenarioAddedPayload,
+		reducerImplemented: true,
+		subStates: new Set(ALL_SPEC),
+		actors: ALL_NON_MIGRATION,
+		emitsSpec: true
+	},
+	"event:spec_visual_added": {
+		payload: SpecVisualAddedPayload,
+		reducerImplemented: true,
+		subStates: new Set(ALL_SPEC),
+		actors: ALL_NON_MIGRATION,
+		emitsSpec: true
+	},
+	"event:spec_submitted": {
+		payload: SpecSubmittedPayload,
+		reducerImplemented: true,
+		subStates: new Set(ALL_SPEC),
+		actors: ALL_NON_MIGRATION,
+		emitsSpec: true
+	},
+	"evidence:added": {
+		payload: EvidenceAddedPayload,
+		reducerImplemented: true,
+		subStates: new Set([...ALL_EXECUTE, ...VERIFY_OR_POST_LOCK_EXECUTE.filter((s) => s.startsWith("VERIFY"))]),
+		actors: ALL_NON_MIGRATION,
+		emitsSpec: false
+	},
+	"finding:raised": {
+		payload: FindingRaisedPayload,
+		reducerImplemented: true,
+		subStates: new Set(VERIFY_OR_POST_LOCK_EXECUTE),
+		actors: ALL_NON_MIGRATION,
+		emitsSpec: false
+	},
+	"finding:closed": {
+		payload: FindingClosedPayload,
+		reducerImplemented: true,
+		subStates: new Set(VERIFY_OR_POST_LOCK_EXECUTE),
+		actors: ALL_NON_MIGRATION,
+		emitsSpec: false
+	},
+	"pending:added": {
+		payload: PendingAddedPayload,
+		reducerImplemented: true,
+		subStates: ANY_SUB_STATE,
+		actors: ALL_NON_MIGRATION,
+		emitsSpec: false
+	},
+	"pending:resolved": {
+		payload: PendingResolvedPayload,
+		reducerImplemented: true,
+		subStates: ANY_SUB_STATE,
+		actors: ALL_NON_MIGRATION,
+		emitsSpec: false
+	},
+	"gate:decided": {
+		payload: GateDecidedPayload,
+		reducerImplemented: true,
+		subStates: new Set(["SPEC.design", "VERIFY.accept"]),
+		actors: HUMAN_ONLY,
+		emitsSpec: false
+	},
+	"session:started": {
+		payload: SessionStartedPayload,
+		reducerImplemented: true,
+		subStates: ANY_SUB_STATE,
+		actors: ALL_NON_MIGRATION,
+		emitsSpec: false
+	},
+	"session:resumed": {
+		payload: SessionResumedPayload,
+		reducerImplemented: true,
+		subStates: ANY_SUB_STATE,
+		actors: ALL_NON_MIGRATION,
+		emitsSpec: false
+	},
+	"session:delivered": {
+		payload: SessionReasonPayload,
+		reducerImplemented: true,
+		subStates: new Set([
+			"EXECUTE.done",
+			"VERIFY.accept",
+			"SETTLE.lessons"
+		]),
+		actors: HUMAN_ONLY,
+		emitsSpec: false
+	},
+	"session:archived": {
+		payload: SessionReasonPayload,
+		reducerImplemented: true,
+		subStates: ANY_NON_DONE,
+		actors: HUMAN_ONLY,
+		emitsSpec: false
+	},
+	"session:abandoned": {
+		payload: SessionReasonPayload,
+		reducerImplemented: true,
+		subStates: ANY_NON_DONE,
+		actors: HUMAN_ONLY,
+		emitsSpec: false
+	},
+	"spike:converted": {
+		payload: SpikeConvertedPayload,
+		reducerImplemented: true,
+		subStates: ANY_NON_DONE,
+		actors: HUMAN_ONLY,
+		emitsSpec: false
+	},
+	"migration:snapshot_imported": {
+		payload: MigrationSnapshotImportedPayload,
+		reducerImplemented: true,
+		subStates: ANY_SUB_STATE,
+		actors: MIGRATION_ONLY,
+		emitsSpec: false
+	}
+};
+const ALL_KINDS = Object.keys(KIND_REGISTRY);
+const PER_KIND_PAYLOAD = Object.fromEntries(ALL_KINDS.map((k) => [k, KIND_REGISTRY[k].payload]));
+const REDUCER_IMPLEMENTED_KINDS = new Set(ALL_KINDS.filter((k) => KIND_REGISTRY[k].reducerImplemented));
+Object.fromEntries(ALL_KINDS.map((k) => [k, KIND_REGISTRY[k].subStates]));
+Object.fromEntries(ALL_KINDS.map((k) => [k, KIND_REGISTRY[k].actors]));
+const SPEC_EMITTING_KINDS = new Set(ALL_KINDS.filter((k) => KIND_REGISTRY[k].emitsSpec));
 function isSubStateAllowed(kind, subState) {
-	const guard = PER_KIND_SUB_STATE[kind];
+	const guard = KIND_REGISTRY[kind].subStates;
 	if (guard === ANY_SUB_STATE) return true;
 	if (guard === ANY_NON_DONE) return !subState.startsWith("DONE.");
 	return guard.has(subState);
@@ -8607,7 +8875,57 @@ function isSubStateAllowed(kind, subState) {
 function isActorAllowed(kind, actor) {
 	const prefix = actorPrefix(actor);
 	if (prefix === null) return false;
-	return PER_KIND_ACTOR[kind].includes(prefix);
+	return KIND_REGISTRY[kind].actors.includes(prefix);
+}
+//#endregion
+//#region src/core/reducer/invariants.ts
+/**
+* spec_version monotonicity, parametrised by batch position.
+*
+* - "head": the first entry of a batch must bump to `currentVersion + 1`.
+* - "continuation": a non-head entry must repeat `currentVersion` (the head
+*   already bumped state).
+*
+* On success returns the accepted `nextVersion` so the reducer can set
+* `state.spec_version` without recomputing the rule; on failure returns the
+* `expected` version so each layer formats its own message/detail.
+*
+* NOTE: the structural guard for `spec_submitted` at batch_index > 0 is NOT this
+* predicate's concern (it has no kind/batch_index) and must be checked by the
+* caller before delegating here.
+*/
+function checkSpecVersion$1(payloadVersion, currentVersion, mode) {
+	const expected = mode === "head" ? currentVersion + 1 : currentVersion;
+	return payloadVersion === expected ? {
+		ok: true,
+		nextVersion: expected
+	} : {
+		ok: false,
+		expected
+	};
+}
+/**
+* Self-scan: the first id that appears more than once within `ids`, else null.
+* For `tasks_planned`, where the duplicate question is internal to the incoming
+* task list. Returns the first id encountered a second time (scan order) so the
+* offender is deterministic.
+*/
+function findDuplicateId(ids) {
+	const seen = /* @__PURE__ */ new Set();
+	for (const id of ids) {
+		if (seen.has(id)) return { id };
+		seen.add(id);
+	}
+	return null;
+}
+/**
+* Membership: does `incomingId` already exist in `existingIds`, else null. For
+* REQ/SCEN/VIS add-one, where the question is collision against the projection
+* — NOT whether the projection is internally corrupt. A pre-existing duplicate
+* in `existingIds` unrelated to `incomingId` must not change the answer.
+*/
+function findCollision(incomingId, existingIds) {
+	return existingIds.includes(incomingId) ? { id: incomingId } : null;
 }
 //#endregion
 //#region src/core/reducer/preflight.ts
@@ -8925,33 +9243,19 @@ function preflight(rawEntry, ctx) {
 					verify_phase: true
 				}
 			};
-			const VERIFY_MIN_REQUIRED_KINDS = {
-				behavioral: ["local-check"],
-				structural: ["local-check"],
-				"visual-ui": ["visual-review", "manual"],
-				docs: ["task-summary", "manual"],
-				chore: [
-					"local-check",
-					"manual",
-					"task-summary"
-				]
+			const proofGaps = evaluateTaskProof(ctx.snapshot, verifyMinPolicy);
+			const redGap = proofGaps.find((f) => f.gaps.includes("bug-red-unregistered"));
+			if (redGap) return {
+				ok: false,
+				code: "BUG_TASK_RED_NOT_REGISTERED",
+				message: `behavioral bug task ${redGap.task.id} is status=done but never registered its RED test (red_test_registered≠true); cannot verify-min deliver`,
+				detail: { task_id: redGap.task.id }
 			};
-			const missing = [];
-			for (const task of ctx.snapshot.tasks) {
-				if (task.status !== "done") continue;
-				if (task.kind === "behavioral" && task.labels.includes("bug") && task.red_test_registered !== true) return {
-					ok: false,
-					code: "BUG_TASK_RED_NOT_REGISTERED",
-					message: `behavioral bug task ${task.id} is status=done but never registered its RED test (red_test_registered≠true); cannot verify-min deliver`,
-					detail: { task_id: task.id }
-				};
-				const required = VERIFY_MIN_REQUIRED_KINDS[task.kind] ?? [];
-				if (!ctx.snapshot.evidence.some((ev) => isPassingResult(ev.result) && ev.covers.includes(task.id) && (required.includes(ev.kind) || ev.kind === "waiver"))) missing.push({
-					task_id: task.id,
-					kind: task.kind,
-					required_kinds: required
-				});
-			}
+			const missing = proofGaps.filter((f) => f.gaps.includes("no-passing-evidence")).map((f) => ({
+				task_id: f.task.id,
+				kind: f.task.kind,
+				required_kinds: verifyMinPolicy.acceptedKinds(f.task)
+			}));
 			if (missing.length > 0) return {
 				ok: false,
 				code: "DELIVER_VERIFY_MIN_INCOMPLETE",
@@ -9533,7 +9837,7 @@ function preflight(rawEntry, ctx) {
 	}
 	if (entry.kind === "event:spec_req_added") {
 		const payload = payloadParsed.data;
-		if (ctx.snapshot.requirements.some((r) => r.id === payload.req.id)) return {
+		if (findCollision(payload.req.id, ctx.snapshot.requirements.map((r) => r.id))) return {
 			ok: false,
 			code: "DUPLICATE_REQ_ID",
 			message: `spec_req_added: REQ ${payload.req.id} already in projection`,
@@ -9542,7 +9846,7 @@ function preflight(rawEntry, ctx) {
 	}
 	if (entry.kind === "event:spec_scenario_added") {
 		const payload = payloadParsed.data;
-		if (ctx.snapshot.scenarios.some((s) => s.id === payload.scenario.id)) return {
+		if (findCollision(payload.scenario.id, ctx.snapshot.scenarios.map((s) => s.id))) return {
 			ok: false,
 			code: "DUPLICATE_SCEN_ID",
 			message: `spec_scenario_added: SCEN ${payload.scenario.id} already in projection`,
@@ -9551,7 +9855,7 @@ function preflight(rawEntry, ctx) {
 	}
 	if (entry.kind === "event:spec_visual_added") {
 		const payload = payloadParsed.data;
-		if (ctx.snapshot.visual_contracts.some((v) => v.id === payload.visual.id)) return {
+		if (findCollision(payload.visual.id, ctx.snapshot.visual_contracts.map((v) => v.id))) return {
 			ok: false,
 			code: "DUPLICATE_VIS_ID",
 			message: `spec_visual_added: VIS ${payload.visual.id} already in projection`,
@@ -9577,42 +9881,48 @@ function preflight(rawEntry, ctx) {
 					expected_batch_index: 0
 				}
 			};
-			if (payloadVersion !== currentVersion + 1) return {
+			const v = checkSpecVersion$1(payloadVersion, currentVersion, "head");
+			if (!v.ok) return {
 				ok: false,
 				code: "SPEC_VERSION_NOT_MONOTONIC",
-				message: `spec_submitted: spec_version must be ${currentVersion + 1} (current+1), got ${payloadVersion}`,
+				message: `spec_submitted: spec_version must be ${v.expected} (current+1), got ${payloadVersion}`,
 				detail: {
 					kind: entry.kind,
 					payload_spec_version: payloadVersion,
 					current_spec_version: currentVersion,
-					expected_spec_version: currentVersion + 1
+					expected_spec_version: v.expected
 				}
 			};
-		} else if (entry.batch_index === void 0 || entry.batch_index === 0) {
-			if (payloadVersion !== currentVersion + 1) return {
-				ok: false,
-				code: "SPEC_VERSION_NOT_MONOTONIC",
-				message: `${entry.kind}: spec_version must be ${currentVersion + 1} (current+1) at batch head, got ${payloadVersion}`,
-				detail: {
-					kind: entry.kind,
-					payload_spec_version: payloadVersion,
-					current_spec_version: currentVersion,
-					expected_spec_version: currentVersion + 1,
-					batch_position: "head"
-				}
-			};
-		} else if (payloadVersion !== currentVersion) return {
-			ok: false,
-			code: "SPEC_VERSION_BATCH_MISMATCH",
-			message: `${entry.kind}: spec_version must be ${currentVersion} at batch_index=${entry.batch_index} (batch continuation), got ${payloadVersion}`,
-			detail: {
-				kind: entry.kind,
-				payload_spec_version: payloadVersion,
-				current_spec_version: currentVersion,
-				batch_index: entry.batch_index,
-				batch_position: "continuation"
+		} else {
+			const mode = entry.batch_index === void 0 || entry.batch_index === 0 ? "head" : "continuation";
+			const v = checkSpecVersion$1(payloadVersion, currentVersion, mode);
+			if (!v.ok) {
+				if (mode === "head") return {
+					ok: false,
+					code: "SPEC_VERSION_NOT_MONOTONIC",
+					message: `${entry.kind}: spec_version must be ${v.expected} (current+1) at batch head, got ${payloadVersion}`,
+					detail: {
+						kind: entry.kind,
+						payload_spec_version: payloadVersion,
+						current_spec_version: currentVersion,
+						expected_spec_version: v.expected,
+						batch_position: "head"
+					}
+				};
+				return {
+					ok: false,
+					code: "SPEC_VERSION_BATCH_MISMATCH",
+					message: `${entry.kind}: spec_version must be ${v.expected} at batch_index=${entry.batch_index} (batch continuation), got ${payloadVersion}`,
+					detail: {
+						kind: entry.kind,
+						payload_spec_version: payloadVersion,
+						current_spec_version: currentVersion,
+						batch_index: entry.batch_index,
+						batch_position: "continuation"
+					}
+				};
 			}
-		};
+		}
 	}
 	const transitionResult = checkTransition(entry.kind, rawEntry, {
 		sub_state,
@@ -9829,11 +10139,8 @@ function apply(prev, entry) {
 			const payload = entry.payload;
 			if (typeof payload.based_on?.spec !== "number") return invalidPayload(entry.kind, "missing based_on.spec");
 			const incoming = payload.tasks ?? [];
-			const seenIds = /* @__PURE__ */ new Set();
-			for (const t of incoming) {
-				if (seenIds.has(t.id)) return invalidPayload(entry.kind, `DUPLICATE_TASK_ID: ${t.id} appears more than once in tasks_planned payload`);
-				seenIds.add(t.id);
-			}
+			const dup = findDuplicateId(incoming.map((t) => t.id));
+			if (dup) return invalidPayload(entry.kind, `DUPLICATE_TASK_ID: ${dup.id} appears more than once in tasks_planned payload`);
 			const taskList = incoming.map(extractTaskSlim);
 			return {
 				ok: true,
@@ -10071,7 +10378,7 @@ function apply(prev, entry) {
 			if (typeof payload.spec_version !== "number" || !payload.req) return invalidPayload(entry.kind, "missing spec_version or req");
 			const versionCheck = checkSpecVersion(entry, payload.spec_version, prev.state.spec_version);
 			if (!versionCheck.ok) return invalidPayload(entry.kind, versionCheck.message);
-			if (prev.requirements.some((r) => r.id === payload.req.id)) return invalidPayload(entry.kind, `DUPLICATE_REQ_ID: ${payload.req.id} already in projection`);
+			if (findCollision(payload.req.id, prev.requirements.map((r) => r.id))) return invalidPayload(entry.kind, `DUPLICATE_REQ_ID: ${payload.req.id} already in projection`);
 			prev.requirements.push(structuredClone(payload.req));
 			return {
 				ok: true,
@@ -10089,7 +10396,7 @@ function apply(prev, entry) {
 			if (typeof payload.spec_version !== "number" || !payload.scenario) return invalidPayload(entry.kind, "missing spec_version or scenario");
 			const versionCheck = checkSpecVersion(entry, payload.spec_version, prev.state.spec_version);
 			if (!versionCheck.ok) return invalidPayload(entry.kind, versionCheck.message);
-			if (prev.scenarios.some((s) => s.id === payload.scenario.id)) return invalidPayload(entry.kind, `DUPLICATE_SCEN_ID: ${payload.scenario.id} already in projection`);
+			if (findCollision(payload.scenario.id, prev.scenarios.map((s) => s.id))) return invalidPayload(entry.kind, `DUPLICATE_SCEN_ID: ${payload.scenario.id} already in projection`);
 			prev.scenarios.push(structuredClone(payload.scenario));
 			return {
 				ok: true,
@@ -10107,7 +10414,7 @@ function apply(prev, entry) {
 			if (typeof payload.spec_version !== "number" || !payload.visual) return invalidPayload(entry.kind, "missing spec_version or visual");
 			const versionCheck = checkSpecVersion(entry, payload.spec_version, prev.state.spec_version);
 			if (!versionCheck.ok) return invalidPayload(entry.kind, versionCheck.message);
-			if (prev.visual_contracts.some((v) => v.id === payload.visual.id)) return invalidPayload(entry.kind, `DUPLICATE_VIS_ID: ${payload.visual.id} already in projection`);
+			if (findCollision(payload.visual.id, prev.visual_contracts.map((v) => v.id))) return invalidPayload(entry.kind, `DUPLICATE_VIS_ID: ${payload.visual.id} already in projection`);
 			prev.visual_contracts.push(structuredClone(payload.visual));
 			return {
 				ok: true,
@@ -10296,33 +10603,25 @@ function checkSpecVersionHead(entry, payloadVersion, currentVersion) {
 		ok: false,
 		message: `SPEC_VERSION_BATCH_MISMATCH: spec_submitted must appear at batch_index=0, got ${entry.batch_index}`
 	};
-	if (payloadVersion !== currentVersion + 1) return {
-		ok: false,
-		message: `SPEC_VERSION_NOT_MONOTONIC: spec_version must be ${currentVersion + 1} (current+1), got ${payloadVersion}`
-	};
-	return {
+	const r = checkSpecVersion$1(payloadVersion, currentVersion, "head");
+	return r.ok ? {
 		ok: true,
-		nextVersion: payloadVersion
+		nextVersion: r.nextVersion
+	} : {
+		ok: false,
+		message: `SPEC_VERSION_NOT_MONOTONIC: spec_version must be ${r.expected} (current+1), got ${payloadVersion}`
 	};
 }
 function checkSpecVersion(entry, payloadVersion, currentVersion) {
-	if (entry.batch_index === void 0 || entry.batch_index === 0) {
-		if (payloadVersion !== currentVersion + 1) return {
-			ok: false,
-			message: `SPEC_VERSION_NOT_MONOTONIC: spec_version must be ${currentVersion + 1} (current+1) at batch head, got ${payloadVersion}`
-		};
-		return {
-			ok: true,
-			nextVersion: payloadVersion
-		};
-	}
-	if (payloadVersion !== currentVersion) return {
-		ok: false,
-		message: `SPEC_VERSION_BATCH_MISMATCH: spec_version must be ${currentVersion} at batch_index=${entry.batch_index}, got ${payloadVersion}`
+	const mode = entry.batch_index === void 0 || entry.batch_index === 0 ? "head" : "continuation";
+	const r = checkSpecVersion$1(payloadVersion, currentVersion, mode);
+	if (r.ok) return {
+		ok: true,
+		nextVersion: r.nextVersion
 	};
 	return {
-		ok: true,
-		nextVersion: currentVersion
+		ok: false,
+		message: mode === "head" ? `SPEC_VERSION_NOT_MONOTONIC: spec_version must be ${r.expected} (current+1) at batch head, got ${payloadVersion}` : `SPEC_VERSION_BATCH_MISMATCH: spec_version must be ${r.expected} at batch_index=${entry.batch_index}, got ${payloadVersion}`
 	};
 }
 //#endregion
@@ -11089,21 +11388,9 @@ function specLockCheck(snapshot, frontmatter) {
 }
 //#endregion
 //#region src/core/gates/spec-lock-eval.ts
+const evaluateSpecLockGate = gateEvalFromCheck(specLockCheck);
 async function evaluateSpecLock(snapshot, featureDir) {
-	const read = await readSpecFrontmatter(featureDir);
-	if (!read.ok) return {
-		ok: false,
-		checks: [{
-			check: 1,
-			code: "SPEC_FRONTMATTER_INVALID",
-			message: read.message,
-			detail: {
-				subcode: read.code,
-				...read.detail ?? {}
-			}
-		}]
-	};
-	return specLockCheck(snapshot, read.frontmatter);
+	return evaluateSpecLockGate(snapshot, featureDir);
 }
 //#endregion
 //#region src/core/sidecar.ts
@@ -11249,12 +11536,6 @@ async function writeDerivedSpecMd(snapshot, featureDir) {
 }
 //#endregion
 //#region src/core/journal-mutate.ts
-const SPEC_EMITTING_KINDS = new Set([
-	"event:spec_submitted",
-	"event:spec_req_added",
-	"event:spec_scenario_added",
-	"event:spec_visual_added"
-]);
 async function mutateBatch(partials, ctx) {
 	if (partials.length === 0) return {
 		ok: false,
@@ -12154,6 +12435,40 @@ async function main(argv = process.argv, deps = {}) {
 		const schema = emitInputSchema(commandKey);
 		ctx.success(schema, () => formatSchema(schema));
 	};
+	const routeMutateFailure = (route, r) => {
+		if (route === "legacy-fail") fail(r.code, r.message);
+		else if (route === "raw-ctx-failure") ctx.failure(r.code, r.message, r.detail);
+		else emitFailure(r.code, r.message, r.detail);
+	};
+	async function runMutator(featureDir, session, input, route = "emit-failure") {
+		const now = (/* @__PURE__ */ new Date()).toISOString();
+		const mctx = {
+			feature_dir: featureDir,
+			snapshot: session.snapshot,
+			tail_seq: session.tail_seq,
+			entries: session.entries,
+			meta: session.meta,
+			dryRun: ctx.dryRun,
+			registryWriter: registryWriterDeps
+		};
+		const stamp = (e) => ({
+			at: now,
+			actor: e.actor,
+			entry_schema_version: 1,
+			kind: e.kind,
+			payload: e.payload
+		});
+		const result = Array.isArray(input) ? await mutateBatch(input.map(stamp), mctx) : await mutate(stamp(input), mctx);
+		if (!result.ok) {
+			routeMutateFailure(route, result);
+			return null;
+		}
+		if (ctx.dryRun) {
+			emitDryRunSuccess(result);
+			return null;
+		}
+		return result;
+	}
 	const loadProjectionsOrFail = async (featureDir, kinds, feature, noSessionKey) => {
 		try {
 			return await loadProjections({
@@ -12193,10 +12508,7 @@ async function main(argv = process.argv, deps = {}) {
 		ctx.recordTraceTarget(feature, featureDir);
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		const sessionId = crypto.randomUUID();
-		const result = await mutate({
-			at: (/* @__PURE__ */ new Date()).toISOString(),
-			actor,
-			entry_schema_version: 1,
+		const result = await runMutator(featureDir, session, {
 			kind: "session:started",
 			payload: {
 				session_id: sessionId,
@@ -12206,24 +12518,10 @@ async function main(argv = process.argv, deps = {}) {
 				workspace: opts.workspace,
 				loaf_version_required: `^${version}`,
 				...opts.label !== void 0 ? { session_label: opts.label } : {}
-			}
-		}, {
-			feature_dir: featureDir,
-			snapshot: session.snapshot,
-			tail_seq: session.tail_seq,
-			entries: session.entries,
-			meta: session.meta,
-			dryRun: ctx.dryRun,
-			registryWriter: registryWriterDeps
-		});
-		if (!result.ok) {
-			fail(result.code, result.message);
-			return;
-		}
-		if (ctx.dryRun) {
-			emitDryRunSuccess(result);
-			return;
-		}
+			},
+			actor
+		}, "legacy-fail");
+		if (!result) return;
 		const out = {
 			ok: true,
 			feature,
@@ -12247,32 +12545,15 @@ async function main(argv = process.argv, deps = {}) {
 			emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionAdvance, opts.feature);
 			return;
 		}
-		const result = await mutate({
-			at: (/* @__PURE__ */ new Date()).toISOString(),
-			actor,
-			entry_schema_version: 1,
+		const result = await runMutator(featureDir, session, {
 			kind: "event:phase_advanced",
 			payload: {
 				from,
 				to
-			}
-		}, {
-			feature_dir: featureDir,
-			snapshot: session.snapshot,
-			tail_seq: session.tail_seq,
-			entries: session.entries,
-			meta: session.meta,
-			dryRun: ctx.dryRun,
-			registryWriter: registryWriterDeps
-		});
-		if (!result.ok) {
-			fail(result.code, result.message);
-			return;
-		}
-		if (ctx.dryRun) {
-			emitDryRunSuccess(result);
-			return;
-		}
+			},
+			actor
+		}, "legacy-fail");
+		if (!result) return;
 		const out = {
 			ok: true,
 			from,
@@ -12400,60 +12681,19 @@ async function main(argv = process.argv, deps = {}) {
 			emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
 			return;
 		}
-		const mctx = {
-			feature_dir: featureDir,
-			snapshot: session.snapshot,
-			tail_seq: session.tail_seq,
-			entries: session.entries,
-			meta: session.meta,
-			dryRun: ctx.dryRun,
-			registryWriter: registryWriterDeps
-		};
-		const now = (/* @__PURE__ */ new Date()).toISOString();
 		const pendingHead = session.snapshot.pending.find((p) => !p.resolved);
 		const coEmitPendingResolved = approve && pendingHead && pendingHead.kind === "gate_decision";
 		if (approve) {
 			if (gateName === "spec-lock") {
-				const entries = [{
-					at: now,
-					actor: humanActor,
-					entry_schema_version: 1,
-					kind: "gate:decided",
-					payload: {
-						gate_kind: "spec-lock",
-						decision: "approved",
-						reason: opts.reason
-					}
-				}];
-				if (coEmitPendingResolved && pendingHead) entries.push({
-					at: now,
-					actor,
-					entry_schema_version: 1,
-					kind: "pending:resolved",
-					payload: {
-						id: pendingHead.id,
-						answer: "gate-decide:spec-lock:approved"
-					}
-				});
-				entries.push({
-					at: now,
-					actor,
-					entry_schema_version: 1,
-					kind: "event:phase_advanced",
-					payload: {
-						from,
-						to: "EXECUTE.plan"
-					}
-				});
-				const result = await mutateBatch(entries, mctx);
-				if (!result.ok) {
-					emitFailure(result.code, result.message, result.detail);
-					return;
-				}
-				if (ctx.dryRun) {
-					emitDryRunSuccess(result);
-					return;
-				}
+				const result = await runMutator(featureDir, session, buildGateApprovalBatch({
+					gate: "spec-lock",
+					reason: opts.reason,
+					humanActor,
+					cliActor: actor,
+					from,
+					...coEmitPendingResolved && pendingHead ? { pendingHeadId: pendingHead.id } : {}
+				}));
+				if (!result) return;
 				const out = {
 					ok: true,
 					gate: "spec-lock",
@@ -12467,44 +12707,14 @@ async function main(argv = process.argv, deps = {}) {
 				ctx.success(out, () => "", (i18n) => ({ stateChange: i18n.t(SUCCESS_KEYS.gateSpecLockApprovedStateChange, { actor: humanActor }) }));
 				return;
 			}
-			const result = coEmitPendingResolved && pendingHead ? await mutateBatch([{
-				at: now,
-				actor: humanActor,
-				entry_schema_version: 1,
-				kind: "gate:decided",
-				payload: {
-					gate_kind: "verify-accept",
-					decision: "approved",
-					reason: opts.reason
-				}
-			}, {
-				at: now,
-				actor,
-				entry_schema_version: 1,
-				kind: "pending:resolved",
-				payload: {
-					id: pendingHead.id,
-					answer: "gate-decide:verify-accept:approved"
-				}
-			}], mctx) : await mutate({
-				at: now,
-				actor: humanActor,
-				entry_schema_version: 1,
-				kind: "gate:decided",
-				payload: {
-					gate_kind: "verify-accept",
-					decision: "approved",
-					reason: opts.reason
-				}
-			}, mctx);
-			if (!result.ok) {
-				emitFailure(result.code, result.message, result.detail);
-				return;
-			}
-			if (ctx.dryRun) {
-				emitDryRunSuccess(result);
-				return;
-			}
+			const result = await runMutator(featureDir, session, buildGateApprovalBatch({
+				gate: "verify-accept",
+				reason: opts.reason,
+				humanActor,
+				cliActor: actor,
+				...coEmitPendingResolved && pendingHead ? { pendingHeadId: pendingHead.id } : {}
+			}));
+			if (!result) return;
 			const out = {
 				ok: true,
 				gate: "verify-accept",
@@ -12521,25 +12731,16 @@ async function main(argv = process.argv, deps = {}) {
 			}));
 			return;
 		}
-		const result = await mutate({
-			at: now,
-			actor: humanActor,
-			entry_schema_version: 1,
+		const result = await runMutator(featureDir, session, {
 			kind: "gate:decided",
 			payload: {
 				gate_kind: gateName,
 				decision: "rejected",
 				reason: opts.reason
-			}
-		}, mctx);
-		if (!result.ok) {
-			emitFailure(result.code, result.message, result.detail);
-			return;
-		}
-		if (ctx.dryRun) {
-			emitDryRunSuccess(result);
-			return;
-		}
+			},
+			actor: humanActor
+		});
+		if (!result) return;
 		const out = {
 			ok: true,
 			gate: gateName,
@@ -12576,29 +12777,12 @@ async function main(argv = process.argv, deps = {}) {
 		}
 		const payload = {};
 		if (opts.reason !== void 0) payload["reason"] = opts.reason;
-		const result = await mutate({
-			at: (/* @__PURE__ */ new Date()).toISOString(),
-			actor: humanActor,
-			entry_schema_version: 1,
+		const result = await runMutator(featureDir, session, {
 			kind: "session:delivered",
-			payload
-		}, {
-			feature_dir: featureDir,
-			snapshot: session.snapshot,
-			tail_seq: session.tail_seq,
-			entries: session.entries,
-			meta: session.meta,
-			dryRun: ctx.dryRun,
-			registryWriter: registryWriterDeps
-		});
-		if (!result.ok) {
-			ctx.failure(result.code, result.message, result.detail);
-			return;
-		}
-		if (ctx.dryRun) {
-			emitDryRunSuccess(result);
-			return;
-		}
+			payload,
+			actor: humanActor
+		}, "raw-ctx-failure");
+		if (!result) return;
 		const out = {
 			ok: true,
 			feature: opts.feature,
@@ -12636,29 +12820,12 @@ async function main(argv = process.argv, deps = {}) {
 			emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
 			return;
 		}
-		const result = await mutate({
-			at: (/* @__PURE__ */ new Date()).toISOString(),
-			actor: humanActor,
-			entry_schema_version: 1,
+		const result = await runMutator(featureDir, session, {
 			kind: "session:archived",
-			payload: { reason: opts.reason }
-		}, {
-			feature_dir: featureDir,
-			snapshot: session.snapshot,
-			tail_seq: session.tail_seq,
-			entries: session.entries,
-			meta: session.meta,
-			dryRun: ctx.dryRun,
-			registryWriter: registryWriterDeps
+			payload: { reason: opts.reason },
+			actor: humanActor
 		});
-		if (!result.ok) {
-			emitFailure(result.code, result.message, result.detail);
-			return;
-		}
-		if (ctx.dryRun) {
-			emitDryRunSuccess(result);
-			return;
-		}
+		if (!result) return;
 		const out = {
 			ok: true,
 			feature: opts.feature,
@@ -12692,29 +12859,12 @@ async function main(argv = process.argv, deps = {}) {
 			emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
 			return;
 		}
-		const result = await mutate({
-			at: (/* @__PURE__ */ new Date()).toISOString(),
-			actor: humanActor,
-			entry_schema_version: 1,
+		const result = await runMutator(featureDir, session, {
 			kind: "session:abandoned",
-			payload: { reason: opts.reason }
-		}, {
-			feature_dir: featureDir,
-			snapshot: session.snapshot,
-			tail_seq: session.tail_seq,
-			entries: session.entries,
-			meta: session.meta,
-			dryRun: ctx.dryRun,
-			registryWriter: registryWriterDeps
+			payload: { reason: opts.reason },
+			actor: humanActor
 		});
-		if (!result.ok) {
-			emitFailure(result.code, result.message, result.detail);
-			return;
-		}
-		if (ctx.dryRun) {
-			emitDryRunSuccess(result);
-			return;
-		}
+		if (!result) return;
 		const out = {
 			ok: true,
 			feature: opts.feature,
@@ -12749,39 +12899,19 @@ async function main(argv = process.argv, deps = {}) {
 			emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
 			return;
 		}
-		const now = (/* @__PURE__ */ new Date()).toISOString();
-		const result = await mutateBatch([{
-			at: now,
-			actor: humanActor,
-			entry_schema_version: 1,
+		const result = await runMutator(featureDir, session, [{
 			kind: "spike:converted",
 			payload: {
 				to_feature: opts.toFeature,
 				reason: opts.reason
-			}
+			},
+			actor: humanActor
 		}, {
-			at: now,
-			actor: humanActor,
-			entry_schema_version: 1,
 			kind: "session:archived",
-			payload: { reason: opts.reason }
-		}], {
-			feature_dir: featureDir,
-			snapshot: session.snapshot,
-			tail_seq: session.tail_seq,
-			entries: session.entries,
-			meta: session.meta,
-			dryRun: ctx.dryRun,
-			registryWriter: registryWriterDeps
-		});
-		if (!result.ok) {
-			emitFailure(result.code, result.message, result.detail);
-			return;
-		}
-		if (ctx.dryRun) {
-			emitDryRunSuccess(result);
-			return;
-		}
+			payload: { reason: opts.reason },
+			actor: humanActor
+		}]);
+		if (!result) return;
 		const out = {
 			ok: true,
 			feature: opts.feature,
@@ -12840,36 +12970,16 @@ async function main(argv = process.argv, deps = {}) {
 			emitFailure("ESCALATION_NOT_PENDING", "`loaf profile escalate --confirm --input <ceremony.json>` requires pending head kind=profile_escalation; current head: (none)", { actual_head: "(none)" });
 			return;
 		}
-		const now = (/* @__PURE__ */ new Date()).toISOString();
-		const result = await mutateBatch([{
-			at: now,
-			actor: humanActor,
-			entry_schema_version: 1,
+		const result = await runMutator(featureDir, session, [{
 			kind: "event:ceremony_set",
-			payload: ceremony
+			payload: ceremony,
+			actor: humanActor
 		}, {
-			at: now,
-			actor: humanActor,
-			entry_schema_version: 1,
 			kind: "pending:resolved",
-			payload: { id: head.id }
-		}], {
-			feature_dir: featureDir,
-			snapshot: session.snapshot,
-			tail_seq: session.tail_seq,
-			entries: session.entries,
-			meta: session.meta,
-			dryRun: ctx.dryRun,
-			registryWriter: registryWriterDeps
-		});
-		if (!result.ok) {
-			emitFailure(result.code, result.message, result.detail);
-			return;
-		}
-		if (ctx.dryRun) {
-			emitDryRunSuccess(result);
-			return;
-		}
+			payload: { id: head.id },
+			actor: humanActor
+		}]);
+		if (!result) return;
 		const out = {
 			ok: true,
 			feature: opts.feature,
@@ -12955,29 +13065,12 @@ async function main(argv = process.argv, deps = {}) {
 			emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
 			return;
 		}
-		const result = await mutate({
-			at: (/* @__PURE__ */ new Date()).toISOString(),
-			actor,
-			entry_schema_version: 1,
+		const result = await runMutator(featureDir, session, {
 			kind: "event:tasks_planned",
-			payload
-		}, {
-			feature_dir: featureDir,
-			snapshot: session.snapshot,
-			tail_seq: session.tail_seq,
-			entries: session.entries,
-			meta: session.meta,
-			dryRun: ctx.dryRun,
-			registryWriter: registryWriterDeps
-		});
-		if (!result.ok) {
-			ctx.failure(result.code, result.message, result.detail);
-			return;
-		}
-		if (ctx.dryRun) {
-			emitDryRunSuccess(result);
-			return;
-		}
+			payload,
+			actor
+		}, "raw-ctx-failure");
+		if (!result) return;
 		const tasks = result.snapshot.tasks;
 		const taskIds = tasks.map((t) => t.id);
 		const out = {
@@ -13119,33 +13212,15 @@ async function main(argv = process.argv, deps = {}) {
 			}
 			existingFull.push(materializeTaskForAmend(base, t));
 		}
-		const based_on = session.snapshot.tasks_based_on ?? { spec: session.snapshot.state.spec_version };
-		const result = await mutate({
-			at: (/* @__PURE__ */ new Date()).toISOString(),
-			actor,
-			entry_schema_version: 1,
+		const result = await runMutator(featureDir, session, {
 			kind: "event:tasks_planned",
 			payload: {
-				based_on,
+				based_on: session.snapshot.tasks_based_on ?? { spec: session.snapshot.state.spec_version },
 				tasks: [...existingFull, ...seededNew]
-			}
-		}, {
-			feature_dir: featureDir,
-			snapshot: session.snapshot,
-			tail_seq: session.tail_seq,
-			entries: session.entries,
-			meta: session.meta,
-			dryRun: ctx.dryRun,
-			registryWriter: registryWriterDeps
-		});
-		if (!result.ok) {
-			ctx.failure(result.code, result.message, result.detail);
-			return;
-		}
-		if (ctx.dryRun) {
-			emitDryRunSuccess(result);
-			return;
-		}
+			},
+			actor
+		}, "raw-ctx-failure");
+		if (!result) return;
 		const out = {
 			ok: true,
 			feature: opts.feature,
@@ -13169,29 +13244,12 @@ async function main(argv = process.argv, deps = {}) {
 			emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
 			return;
 		}
-		const result = await mutate({
-			at: (/* @__PURE__ */ new Date()).toISOString(),
-			actor,
-			entry_schema_version: 1,
+		const result = await runMutator(featureDir, session, {
 			kind: "event:task_claimed",
-			payload: { task_id: taskId }
-		}, {
-			feature_dir: featureDir,
-			snapshot: session.snapshot,
-			tail_seq: session.tail_seq,
-			entries: session.entries,
-			meta: session.meta,
-			dryRun: ctx.dryRun,
-			registryWriter: registryWriterDeps
+			payload: { task_id: taskId },
+			actor
 		});
-		if (!result.ok) {
-			emitFailure(result.code, result.message, result.detail);
-			return;
-		}
-		if (ctx.dryRun) {
-			emitDryRunSuccess(result);
-			return;
-		}
+		if (!result) return;
 		const claimed = result.snapshot.tasks.find((t) => t.id === taskId);
 		if (!claimed) {
 			emitFailure("REDUCER_ERROR", `internal: task ${taskId} missing from snapshot after successful task_claimed apply`);
@@ -13218,32 +13276,15 @@ async function main(argv = process.argv, deps = {}) {
 			emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
 			return;
 		}
-		const result = await mutate({
-			at: (/* @__PURE__ */ new Date()).toISOString(),
-			actor,
-			entry_schema_version: 1,
+		const result = await runMutator(featureDir, session, {
 			kind: "event:task_abandoned",
 			payload: {
 				task_id: taskId,
 				reason: opts.reason
-			}
-		}, {
-			feature_dir: featureDir,
-			snapshot: session.snapshot,
-			tail_seq: session.tail_seq,
-			entries: session.entries,
-			meta: session.meta,
-			dryRun: ctx.dryRun,
-			registryWriter: registryWriterDeps
+			},
+			actor
 		});
-		if (!result.ok) {
-			emitFailure(result.code, result.message, result.detail);
-			return;
-		}
-		if (ctx.dryRun) {
-			emitDryRunSuccess(result);
-			return;
-		}
+		if (!result) return;
 		const abandoned = result.snapshot.tasks.find((t) => t.id === taskId);
 		if (!abandoned) {
 			emitFailure("REDUCER_ERROR", `internal: task ${taskId} missing from snapshot after successful task_abandoned apply`);
@@ -13442,34 +13483,16 @@ async function main(argv = process.argv, deps = {}) {
 					return;
 				}
 			}
-			const sMaterialized = materializeTaskForAmend(carryForwardStepProgress(sNewGraph, sCanonical), sCurrent);
-			const sResult = await mutate({
-				at: (/* @__PURE__ */ new Date()).toISOString(),
-				actor,
-				entry_schema_version: 1,
+			const sResult = await runMutator(sFeatureDir, sSession, {
 				kind: "event:tasks_amended",
 				payload: {
 					mode: "replace",
-					task: sMaterialized,
+					task: materializeTaskForAmend(carryForwardStepProgress(sNewGraph, sCanonical), sCurrent),
 					sponsored_by_finding_id: findingId
-				}
-			}, {
-				feature_dir: sFeatureDir,
-				snapshot: sSession.snapshot,
-				tail_seq: sSession.tail_seq,
-				entries: sSession.entries,
-				meta: sSession.meta,
-				dryRun: ctx.dryRun,
-				registryWriter: registryWriterDeps
-			});
-			if (!sResult.ok) {
-				ctx.failure(sResult.code, sResult.message, sResult.detail);
-				return;
-			}
-			if (ctx.dryRun) {
-				emitDryRunSuccess(sResult);
-				return;
-			}
+				},
+				actor
+			}, "raw-ctx-failure");
+			if (!sResult) return;
 			const sOut = {
 				ok: true,
 				feature: opts.feature,
@@ -13540,32 +13563,15 @@ async function main(argv = process.argv, deps = {}) {
 			}
 			seeded.applicability = applicability;
 		}
-		const result = await mutate({
-			at: (/* @__PURE__ */ new Date()).toISOString(),
-			actor,
-			entry_schema_version: 1,
+		const result = await runMutator(featureDir, session, {
 			kind: "event:tasks_amended",
 			payload: {
 				mode: "replace",
 				task: materialized
-			}
-		}, {
-			feature_dir: featureDir,
-			snapshot: session.snapshot,
-			tail_seq: session.tail_seq,
-			entries: session.entries,
-			meta: session.meta,
-			dryRun: ctx.dryRun,
-			registryWriter: registryWriterDeps
+			},
+			actor
 		});
-		if (!result.ok) {
-			emitFailure(result.code, result.message, result.detail);
-			return;
-		}
-		if (ctx.dryRun) {
-			emitDryRunSuccess(result);
-			return;
-		}
+		if (!result) return;
 		const applied = [...policyMap].map(([s, a]) => `${s}=${a}`).join(", ");
 		const out = {
 			ok: true,
@@ -13587,34 +13593,17 @@ async function main(argv = process.argv, deps = {}) {
 			emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
 			return;
 		}
-		const result = await mutate({
-			at: (/* @__PURE__ */ new Date()).toISOString(),
-			actor,
-			entry_schema_version: 1,
+		const result = await runMutator(featureDir, session, {
 			kind: "event:task_step_done",
 			payload: {
 				task_id: taskId,
 				step: "red",
 				result: "passed",
 				red_test_registered: true
-			}
-		}, {
-			feature_dir: featureDir,
-			snapshot: session.snapshot,
-			tail_seq: session.tail_seq,
-			entries: session.entries,
-			meta: session.meta,
-			dryRun: ctx.dryRun,
-			registryWriter: registryWriterDeps
+			},
+			actor
 		});
-		if (!result.ok) {
-			emitFailure(result.code, result.message, result.detail);
-			return;
-		}
-		if (ctx.dryRun) {
-			emitDryRunSuccess(result);
-			return;
-		}
+		if (!result) return;
 		const out = {
 			ok: true,
 			feature: opts.feature,
@@ -13633,32 +13622,15 @@ async function main(argv = process.argv, deps = {}) {
 			emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
 			return;
 		}
-		const result = await mutate({
-			at: (/* @__PURE__ */ new Date()).toISOString(),
-			actor,
-			entry_schema_version: 1,
+		const result = await runMutator(featureDir, session, {
 			kind: "event:task_step_started",
 			payload: {
 				task_id: opts.task,
 				step: opts.step
-			}
-		}, {
-			feature_dir: featureDir,
-			snapshot: session.snapshot,
-			tail_seq: session.tail_seq,
-			entries: session.entries,
-			meta: session.meta,
-			dryRun: ctx.dryRun,
-			registryWriter: registryWriterDeps
+			},
+			actor
 		});
-		if (!result.ok) {
-			emitFailure(result.code, result.message, result.detail);
-			return;
-		}
-		if (ctx.dryRun) {
-			emitDryRunSuccess(result);
-			return;
-		}
+		if (!result) return;
 		const updated = result.snapshot.tasks.find((t) => t.id === opts.task);
 		if (!updated) {
 			emitFailure("REDUCER_ERROR", `internal: task ${opts.task} missing from snapshot after successful step_started apply`);
@@ -13706,26 +13678,14 @@ async function main(argv = process.argv, deps = {}) {
 			emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
 			return;
 		}
-		const now = (/* @__PURE__ */ new Date()).toISOString();
 		const stepDoneEntry = {
-			at: now,
-			actor,
-			entry_schema_version: 1,
 			kind: "event:task_step_done",
 			payload: {
 				task_id: opts.task,
 				step: opts.step,
 				result: opts.result
-			}
-		};
-		const mctx = {
-			feature_dir: featureDir,
-			snapshot: session.snapshot,
-			tail_seq: session.tail_seq,
-			entries: session.entries,
-			meta: session.meta,
-			dryRun: ctx.dryRun,
-			registryWriter: registryWriterDeps
+			},
+			actor
 		};
 		let result;
 		let evidenceId;
@@ -13750,22 +13710,13 @@ async function main(argv = process.argv, deps = {}) {
 			if (opts.evidenceCovers !== void 0) evidencePayload["covers"] = opts.evidenceCovers.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
 			if (opts.evidenceCheck !== void 0) evidencePayload["check"] = opts.evidenceCheck;
 			if (opts.evidenceReason !== void 0) evidencePayload["reason"] = opts.evidenceReason;
-			result = await mutateBatch([stepDoneEntry, {
-				at: now,
-				actor,
-				entry_schema_version: 1,
+			result = await runMutator(featureDir, session, [stepDoneEntry, {
 				kind: "evidence:added",
-				payload: evidencePayload
-			}], mctx);
-		} else result = await mutate(stepDoneEntry, mctx);
-		if (!result.ok) {
-			emitFailure(result.code, result.message, result.detail);
-			return;
-		}
-		if (ctx.dryRun) {
-			emitDryRunSuccess(result);
-			return;
-		}
+				payload: evidencePayload,
+				actor
+			}]);
+		} else result = await runMutator(featureDir, session, stepDoneEntry);
+		if (!result) return;
 		const updated = result.snapshot.tasks.find((t) => t.id === opts.task);
 		if (!updated) {
 			emitFailure("REDUCER_ERROR", `internal: task ${opts.task} missing from snapshot after successful step_done apply`);
@@ -13811,32 +13762,15 @@ async function main(argv = process.argv, deps = {}) {
 			emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
 			return;
 		}
-		const result = await mutate({
-			at: (/* @__PURE__ */ new Date()).toISOString(),
-			actor,
-			entry_schema_version: 1,
+		const result = await runMutator(featureDir, session, {
 			kind: "event:phase_advanced",
 			payload: {
 				from,
 				to: "SETTLE.reconcile"
-			}
-		}, {
-			feature_dir: featureDir,
-			snapshot: session.snapshot,
-			tail_seq: session.tail_seq,
-			entries: session.entries,
-			meta: session.meta,
-			dryRun: ctx.dryRun,
-			registryWriter: registryWriterDeps
+			},
+			actor
 		});
-		if (!result.ok) {
-			emitFailure(result.code, result.message, result.detail);
-			return;
-		}
-		if (ctx.dryRun) {
-			emitDryRunSuccess(result);
-			return;
-		}
+		if (!result) return;
 		const out = {
 			ok: true,
 			feature: opts.feature,
@@ -13890,33 +13824,16 @@ async function main(argv = process.argv, deps = {}) {
 		}
 		const pack = packParse.data;
 		const actor = `cli:loaf@${process.env["USER"] ?? "unknown"}`;
-		const result = await mutate({
-			at: (/* @__PURE__ */ new Date()).toISOString(),
-			actor,
-			entry_schema_version: 1,
+		const result = await runMutator(featureDir, session, {
 			kind: "session:resumed",
 			payload: { resumed_from_pack: {
 				at: pack.at,
 				reason: pack.reason,
 				session_id: pack.session_id
-			} }
-		}, {
-			feature_dir: featureDir,
-			snapshot: session.snapshot,
-			tail_seq: session.tail_seq,
-			entries: session.entries,
-			meta: session.meta,
-			dryRun: ctx.dryRun,
-			registryWriter: registryWriterDeps
+			} },
+			actor
 		});
-		if (!result.ok) {
-			emitFailure(result.code, result.message, result.detail);
-			return;
-		}
-		if (ctx.dryRun) {
-			emitDryRunSuccess(result);
-			return;
-		}
+		if (!result) return;
 		ctx.success({
 			ok: true,
 			feature: opts.feature,
@@ -14005,29 +13922,11 @@ async function main(argv = process.argv, deps = {}) {
 		};
 		if (opts.options !== void 0) payload["options"] = opts.options.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
 		if (opts.taskId !== void 0) payload["task_id"] = opts.taskId;
-		const result = await mutate({
-			at: (/* @__PURE__ */ new Date()).toISOString(),
-			actor,
-			entry_schema_version: 1,
+		if (!await runMutator(featureDir, session, {
 			kind: "pending:added",
-			payload
-		}, {
-			feature_dir: featureDir,
-			snapshot: session.snapshot,
-			tail_seq: session.tail_seq,
-			entries: session.entries,
-			meta: session.meta,
-			dryRun: ctx.dryRun,
-			registryWriter: registryWriterDeps
-		});
-		if (!result.ok) {
-			emitFailure(result.code, result.message, result.detail);
-			return;
-		}
-		if (ctx.dryRun) {
-			emitDryRunSuccess(result);
-			return;
-		}
+			payload,
+			actor
+		})) return;
 		ctx.success({
 			ok: true,
 			feature: opts.feature,
@@ -14116,32 +14015,14 @@ async function main(argv = process.argv, deps = {}) {
 			emitFailure("PENDING_NOT_FOUND", "pending:resolved called but the queue has no unresolved head");
 			return;
 		}
-		const result = await mutate({
-			at: (/* @__PURE__ */ new Date()).toISOString(),
-			actor,
-			entry_schema_version: 1,
+		if (!await runMutator(featureDir, session, {
 			kind: "pending:resolved",
 			payload: {
 				id: head.id,
 				answer: opts.answer
-			}
-		}, {
-			feature_dir: featureDir,
-			snapshot: session.snapshot,
-			tail_seq: session.tail_seq,
-			entries: session.entries,
-			meta: session.meta,
-			dryRun: ctx.dryRun,
-			registryWriter: registryWriterDeps
-		});
-		if (!result.ok) {
-			emitFailure(result.code, result.message, result.detail);
-			return;
-		}
-		if (ctx.dryRun) {
-			emitDryRunSuccess(result);
-			return;
-		}
+			},
+			actor
+		})) return;
 		ctx.success({
 			ok: true,
 			feature: opts.feature,
@@ -14202,33 +14083,15 @@ async function main(argv = process.argv, deps = {}) {
 			return;
 		}
 		const evIds = allocateNextEvidenceIds(session.snapshot, validatedInputs.length);
-		const now = (/* @__PURE__ */ new Date()).toISOString();
-		const result = await mutateBatch(validatedInputs.map((input, i) => ({
-			at: now,
-			actor,
-			entry_schema_version: 1,
+		const result = await runMutator(featureDir, session, validatedInputs.map((input, i) => ({
 			kind: "evidence:added",
 			payload: {
 				...input,
 				id: evIds[i]
-			}
-		})), {
-			feature_dir: featureDir,
-			snapshot: session.snapshot,
-			tail_seq: session.tail_seq,
-			entries: session.entries,
-			meta: session.meta,
-			dryRun: ctx.dryRun,
-			registryWriter: registryWriterDeps
-		});
-		if (!result.ok) {
-			ctx.failure(result.code, result.message, result.detail);
-			return;
-		}
-		if (ctx.dryRun) {
-			emitDryRunSuccess(result);
-			return;
-		}
+			},
+			actor
+		})), "raw-ctx-failure");
+		if (!result) return;
 		const isBatch = Array.isArray(parsed);
 		const evidenceItems = validatedInputs.map((input, i) => ({
 			id: evIds[i],
@@ -14282,36 +14145,17 @@ async function main(argv = process.argv, deps = {}) {
 			return;
 		}
 		const evidenceId = allocateNextEvidenceId(session.snapshot);
-		const payload = buildWaiveEvidencePayload({
-			evidenceId,
-			obligationId,
-			reason: opts.reason,
-			actor,
-			iteration: session.snapshot.state.iteration
-		});
-		const result = await mutate({
-			at: (/* @__PURE__ */ new Date()).toISOString(),
-			actor,
-			entry_schema_version: 1,
+		if (!await runMutator(featureDir, session, {
 			kind: "evidence:added",
-			payload
-		}, {
-			feature_dir: featureDir,
-			snapshot: session.snapshot,
-			tail_seq: session.tail_seq,
-			entries: session.entries,
-			meta: session.meta,
-			dryRun: ctx.dryRun,
-			registryWriter: registryWriterDeps
-		});
-		if (!result.ok) {
-			emitFailure(result.code, result.message, result.detail);
-			return;
-		}
-		if (ctx.dryRun) {
-			emitDryRunSuccess(result);
-			return;
-		}
+			payload: buildWaiveEvidencePayload({
+				evidenceId,
+				obligationId,
+				reason: opts.reason,
+				actor,
+				iteration: session.snapshot.state.iteration
+			}),
+			actor
+		})) return;
 		ctx.success({
 			ok: true,
 			feature: opts.feature,
@@ -14382,36 +14226,17 @@ async function main(argv = process.argv, deps = {}) {
 			return;
 		}
 		const evidenceId = allocateNextEvidenceId(session.snapshot);
-		const payload = buildLessonsEvidencePayload({
-			evidenceId,
-			lessonText,
-			reason: opts.reason,
-			actor,
-			iteration: session.snapshot.state.iteration
-		});
-		const result = await mutate({
-			at: (/* @__PURE__ */ new Date()).toISOString(),
-			actor,
-			entry_schema_version: 1,
+		if (!await runMutator(featureDir, session, {
 			kind: "evidence:added",
-			payload
-		}, {
-			feature_dir: featureDir,
-			snapshot: session.snapshot,
-			tail_seq: session.tail_seq,
-			entries: session.entries,
-			meta: session.meta,
-			dryRun: ctx.dryRun,
-			registryWriter: registryWriterDeps
-		});
-		if (!result.ok) {
-			emitFailure(result.code, result.message, result.detail);
-			return;
-		}
-		if (ctx.dryRun) {
-			emitDryRunSuccess(result);
-			return;
-		}
+			payload: buildLessonsEvidencePayload({
+				evidenceId,
+				lessonText,
+				reason: opts.reason,
+				actor,
+				iteration: session.snapshot.state.iteration
+			}),
+			actor
+		})) return;
 		ctx.success({
 			ok: true,
 			feature: opts.feature,
@@ -14727,161 +14552,45 @@ async function main(argv = process.argv, deps = {}) {
 			task_id: opts.targetTask,
 			step: opts.targetStep
 		};
-		const nowIso = (/* @__PURE__ */ new Date()).toISOString();
-		const fixResetStep = {
-			"fix-impl": "implement",
-			"fix-test": "red"
-		}[opts.action];
-		if (fixResetStep !== void 0 && hasTask && hasStep) {
-			const currentSubState = session.snapshot.state.sub_state;
-			const batchResult = await mutateBatch([
-				{
-					at: nowIso,
-					actor,
-					entry_schema_version: 1,
-					kind: "finding:raised",
-					payload
-				},
-				{
-					at: nowIso,
-					actor: "cli:loaf",
-					entry_schema_version: 1,
-					kind: "event:task_step_reset",
-					payload: {
-						task_id: opts.targetTask,
-						step: fixResetStep,
-						finding_id: id
-					}
-				},
-				{
-					at: nowIso,
-					actor: "cli:loaf",
-					entry_schema_version: 1,
-					kind: "event:phase_advanced",
-					payload: {
-						from: currentSubState,
-						to: "EXECUTE.work",
-						back_edge: {
-							action: opts.action,
-							finding_id: id
-						}
-					}
-				}
-			], {
-				feature_dir: featureDir,
-				snapshot: session.snapshot,
-				tail_seq: session.tail_seq,
-				entries: session.entries,
-				meta: session.meta,
-				dryRun: ctx.dryRun,
-				registryWriter: registryWriterDeps
-			});
-			if (!batchResult.ok) {
-				emitFailure(batchResult.code, batchResult.message, batchResult.detail);
-				return;
-			}
-			if (ctx.dryRun) {
-				emitDryRunSuccess(batchResult);
-				return;
-			}
-			ctx.success({
-				ok: true,
-				feature: opts.feature,
-				id,
-				category: opts.category,
-				action: opts.action,
-				back_edge: {
-					from: currentSubState,
-					to: "EXECUTE.work"
-				}
-			}, () => id + "\n", { stateChange: `finding raise: ${id} (category=${opts.category}, action=${opts.action}) — back-edge to EXECUTE.work` });
-			return;
-		}
-		const backEdgeTarget = {
-			"amend-spec": "SPEC.spec",
-			"amend-tasks": "EXECUTE.work"
-		}[opts.action];
-		if (backEdgeTarget !== void 0) {
-			const currentSubState = session.snapshot.state.sub_state;
-			const batchResult = await mutateBatch([{
-				at: nowIso,
-				actor,
-				entry_schema_version: 1,
-				kind: "finding:raised",
-				payload
-			}, {
-				at: nowIso,
-				actor: "cli:loaf",
-				entry_schema_version: 1,
-				kind: "event:phase_advanced",
-				payload: {
-					from: currentSubState,
-					to: backEdgeTarget,
-					back_edge: {
-						action: opts.action,
-						finding_id: id
-					}
-				}
-			}], {
-				feature_dir: featureDir,
-				snapshot: session.snapshot,
-				tail_seq: session.tail_seq,
-				entries: session.entries,
-				meta: session.meta,
-				dryRun: ctx.dryRun,
-				registryWriter: registryWriterDeps
-			});
-			if (!batchResult.ok) {
-				emitFailure(batchResult.code, batchResult.message, batchResult.detail);
-				return;
-			}
-			if (ctx.dryRun) {
-				emitDryRunSuccess(batchResult);
-				return;
-			}
-			ctx.success({
-				ok: true,
-				feature: opts.feature,
-				id,
-				category: opts.category,
-				action: opts.action,
-				back_edge: {
-					from: currentSubState,
-					to: backEdgeTarget
-				}
-			}, () => id + "\n", { stateChange: `finding raise: ${id} (category=${opts.category}, action=${opts.action}) — back-edge to ${backEdgeTarget}` });
-			return;
-		}
-		const result = await mutate({
-			at: nowIso,
-			actor,
-			entry_schema_version: 1,
-			kind: "finding:raised",
-			payload
-		}, {
-			feature_dir: featureDir,
-			snapshot: session.snapshot,
-			tail_seq: session.tail_seq,
-			entries: session.entries,
-			meta: session.meta,
-			dryRun: ctx.dryRun,
-			registryWriter: registryWriterDeps
+		const currentSubState = session.snapshot.state.sub_state;
+		const findingBatch = buildFindingRaiseBatch({
+			action: opts.action,
+			findingPayload: payload,
+			findingId: id,
+			currentSubState,
+			findingActor: actor,
+			...hasTask && hasStep ? { target: {
+				taskId: opts.targetTask,
+				step: opts.targetStep
+			} } : {}
 		});
-		if (!result.ok) {
-			emitFailure(result.code, result.message, result.detail);
+		if (findingBatch.kind === "none") {
+			if (!await runMutator(featureDir, session, {
+				kind: "finding:raised",
+				payload,
+				actor
+			})) return;
+			ctx.success({
+				ok: true,
+				feature: opts.feature,
+				id,
+				category: opts.category,
+				action: opts.action
+			}, () => id + "\n", { stateChange: `finding raise: ${id} (category=${opts.category}, action=${opts.action})` });
 			return;
 		}
-		if (ctx.dryRun) {
-			emitDryRunSuccess(result);
-			return;
-		}
+		if (!await runMutator(featureDir, session, findingBatch.entries)) return;
 		ctx.success({
 			ok: true,
 			feature: opts.feature,
 			id,
 			category: opts.category,
-			action: opts.action
-		}, () => id + "\n", { stateChange: `finding raise: ${id} (category=${opts.category}, action=${opts.action})` });
+			action: opts.action,
+			back_edge: {
+				from: currentSubState,
+				to: findingBatch.backEdgeTo
+			}
+		}, () => id + "\n", { stateChange: `finding raise: ${id} (category=${opts.category}, action=${opts.action}) — back-edge to ${findingBatch.backEdgeTo}` });
 	});
 	findingCmd.command("list").description("List findings (read-only; --status filters open|closed)").option("--feature <name>", "Feature whose findings to list").option("--status <s>", "Filter by status (open | closed)").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		if (rejectIfDryRun("finding list")) return;
@@ -14944,29 +14653,11 @@ async function main(argv = process.argv, deps = {}) {
 			});
 			return;
 		}
-		const result = await mutate({
-			at: (/* @__PURE__ */ new Date()).toISOString(),
-			actor,
-			entry_schema_version: 1,
+		if (!await runMutator(featureDir, session, {
 			kind: "finding:closed",
-			payload: { id: fndId }
-		}, {
-			feature_dir: featureDir,
-			snapshot: session.snapshot,
-			tail_seq: session.tail_seq,
-			entries: session.entries,
-			meta: session.meta,
-			dryRun: ctx.dryRun,
-			registryWriter: registryWriterDeps
-		});
-		if (!result.ok) {
-			emitFailure(result.code, result.message, result.detail);
-			return;
-		}
-		if (ctx.dryRun) {
-			emitDryRunSuccess(result);
-			return;
-		}
+			payload: { id: fndId },
+			actor
+		})) return;
 		ctx.success({
 			ok: true,
 			feature: opts.feature,
@@ -15351,11 +15042,7 @@ feature:
 				});
 			}
 			const targetVersion = session.snapshot.state.spec_version + 1;
-			const now = (/* @__PURE__ */ new Date()).toISOString();
-			const result = await mutateBatch(transformedItems.map(({ id, rest }, _idx) => ({
-				at: now,
-				actor,
-				entry_schema_version: 1,
+			const result = await runMutator(featureDir, session, transformedItems.map(({ id, rest }) => ({
 				kind: cfg.entryKind,
 				payload: {
 					spec_version: targetVersion,
@@ -15363,24 +15050,10 @@ feature:
 						id,
 						...rest
 					}
-				}
-			})), {
-				feature_dir: featureDir,
-				snapshot: session.snapshot,
-				tail_seq: session.tail_seq,
-				entries: session.entries,
-				meta: session.meta,
-				dryRun: ctx.dryRun,
-				registryWriter: registryWriterDeps
-			});
-			if (!result.ok) {
-				ctx.failure(result.code, result.message, result.detail);
-				return;
-			}
-			if (ctx.dryRun) {
-				emitDryRunSuccess(result);
-				return;
-			}
+				},
+				actor
+			})), "raw-ctx-failure");
+			if (!result) return;
 			const specVersion = result.snapshot.state?.spec_version;
 			ctx.success({
 				ok: true,
