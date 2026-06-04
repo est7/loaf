@@ -358,7 +358,8 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
   // the previous "non-empty unimplemented set" guard. Future EntryKind
   // additions must implement reducer support to keep this invariant.
   test("REDUCER_IMPLEMENTED_KINDS covers every EntryKind (Phase 16 SC-13b lock)", async () => {
-    const { REDUCER_IMPLEMENTED_KINDS, EntryKind } = await import("../../src/core/journal-entry.js");
+    const { REDUCER_IMPLEMENTED_KINDS } = await import("../../src/core/kind-registry.js");
+    const { EntryKind } = await import("../../src/core/journal-entry.js");
     const allKinds = EntryKind.options as readonly string[];
     const missing = allKinds.filter((k) => !REDUCER_IMPLEMENTED_KINDS.has(k as never));
     expect(missing, `unimplemented kinds: ${missing.join(", ")}`).toEqual([]);
@@ -369,7 +370,7 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
   // a test: every kind in REDUCER_IMPLEMENTED_KINDS must NOT return
   // REDUCER_NOT_IMPLEMENTED when fed a minimal envelope-valid entry.
   test("REDUCER_IMPLEMENTED_KINDS is consistent with reducer.ts switch coverage", async () => {
-    const { REDUCER_IMPLEMENTED_KINDS } = await import("../../src/core/journal-entry.js");
+    const { REDUCER_IMPLEMENTED_KINDS } = await import("../../src/core/kind-registry.js");
     const refStub = { path: "x", sha256: "0".repeat(64), size: 0 };
     const payloadFor: Record<string, unknown> = {
       "session:started": {

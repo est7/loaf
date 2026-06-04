@@ -37,7 +37,8 @@
 import { promises as fsp } from "node:fs";
 import { O_APPEND, O_CREAT, O_WRONLY } from "node:constants";
 
-import { ENTRY_BYTE_LIMIT, JournalEntry, PER_KIND_PAYLOAD } from "./journal-entry.js";
+import { ENTRY_BYTE_LIMIT, JournalEntry } from "./journal-entry.js";
+import { PER_KIND_PAYLOAD } from "./kind-registry.js";
 import {
   computeLineHash,
   extendRollingChecksum,

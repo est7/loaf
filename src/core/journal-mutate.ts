@@ -60,7 +60,8 @@ import path from "node:path";
 import { AppendError, appendMany } from "./journal-append.js";
 import { evaluateSpecLock } from "./gates/spec-lock-eval.js";
 import { evaluateVerifyAccept } from "./gates/verify-accept-eval.js";
-import { REDUCER_IMPLEMENTED_KINDS, type EntryKind, type JournalEntry } from "./journal-entry.js";
+import { type JournalEntry } from "./journal-entry.js";
+import { REDUCER_IMPLEMENTED_KINDS, SPEC_EMITTING_KINDS } from "./kind-registry.js";
 import { writeProjections } from "./projection-writer.js";
 import { apply, type Snapshot } from "./reducer.js";
 import { preflight, type PreflightFailureCode } from "./reducer/preflight.js";
@@ -69,16 +70,6 @@ import { isEmptyMeta, type SnapshotMeta } from "./snapshot.js";
 import { buildRegistryFile, writeRegistryFile } from "./registry-writer.js";
 import type { RegistryFile } from "./projection-schema.js";
 import { writeDerivedSpecMd } from "./spec-projection.js";
-
-// Slice A SC-A2: kinds that drive the spec.md projection writer at Pass 5
-// (post-appendMany). Scoping by this set means non-spec batches never
-// touch the FS for spec.md.
-const SPEC_EMITTING_KINDS: ReadonlySet<EntryKind> = new Set<EntryKind>([
-  "event:spec_submitted",
-  "event:spec_req_added",
-  "event:spec_scenario_added",
-  "event:spec_visual_added",
-]);
 
 export interface MutateContext {
   /** Feature directory; journal.jsonl + attachments/ + snapshots/ live here */

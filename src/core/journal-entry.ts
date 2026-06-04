@@ -236,7 +236,7 @@ export const SessionResumedPayload = z
   .strict();
 export type SessionResumedPayload = z.infer<typeof SessionResumedPayload>;
 
-const CeremonyPayload = z
+export const CeremonyPayload = z
   .object({
     spec_phase: z.boolean(),
     verify_phase: z.boolean(),
@@ -368,11 +368,11 @@ export type GateDecidedPayload = z.infer<typeof GateDecidedPayload>;
 // Kinds that the reducer has not yet implemented fall to RecordPayload + a
 // runtime "reducer-implemented" gate in journal-mutate.ts.
 
-const TaskRefPayload = z
+export const TaskRefPayload = z
   .object({ task_id: TaskIdPayload })
   .passthrough();
 
-const TaskStepRefPayload = z
+export const TaskStepRefPayload = z
   .object({
     task_id: TaskIdPayload,
     step: z.string().min(1),
@@ -383,14 +383,14 @@ const TaskStepRefPayload = z
 // carries the why (reason) even though the reducer projection stays
 // minimal (status→abandoned only). `.passthrough()` mirrors the sibling
 // TaskRefPayload / TaskStepRefPayload.
-const TaskAbandonedPayload = z
+export const TaskAbandonedPayload = z
   .object({
     task_id: TaskIdPayload,
     reason: z.string().min(1),
   })
   .passthrough();
 
-const TaskStepDonePayload = z
+export const TaskStepDonePayload = z
   .object({
     task_id: TaskIdPayload,
     step: z.string().min(1),
@@ -425,7 +425,7 @@ export type TaskStepResetPayload = z.infer<typeof TaskStepResetPayload>;
 // from `{ tasks: [{ id, kind? }] }` to the full TaskFull discriminated
 // union so the reducer can seed per-kind execution steps + cross-cutting
 // fields needed by spec-lock checks 3/4/6/7/8 (lands in sub-cycle 3b).
-const TasksPlannedPayload = z
+export const TasksPlannedPayload = z
   .object({
     based_on: z.object({ spec: z.number().int().positive() }),
     tasks: z.array(TaskFullPayload),
@@ -450,7 +450,7 @@ const TasksPlannedPayload = z
 // `.strict()` (not `.passthrough()`): this is an authority-bearing payload,
 // so a typo'd top-level key (e.g. `sponsored_by_findng_id`) must fail at
 // append time, not be silently dropped and read as unsponsored.
-const TasksAmendedPayload = z
+export const TasksAmendedPayload = z
   .object({
     mode: z.enum(["add", "replace"]).default("replace"),
     task: TaskFullPayload,
@@ -466,7 +466,7 @@ const TasksAmendedPayload = z
 //   - manual/waiver: actor must start with human:*, reason ≥10 chars
 //   - visual-review: attachments[] must be non-empty
 // All 17 documented EvidenceEntry payload fields are validated.
-const EvidenceAddedPayload = EvidenceFullPayload;
+export const EvidenceAddedPayload = EvidenceFullPayload;
 
 // Slice 3 SC3 (codex r68): mirror docs/schemas.ts §5/§16 canonical shapes.
 // Closed category/action enums + canonical FindingId regex catch typos
@@ -474,7 +474,7 @@ const EvidenceAddedPayload = EvidenceFullPayload;
 // against the parsed typed payload. summary/reason/target are accepted as
 // typed optional fields rather than passthrough so the projection can
 // surface them via FindingState.
-const FindingRaisedPayload = z
+export const FindingRaisedPayload = z
   .object({
     id: FindingId,
     category: FindingCategory,
@@ -485,7 +485,7 @@ const FindingRaisedPayload = z
   })
   .passthrough();
 
-const FindingClosedPayload = z
+export const FindingClosedPayload = z
   .object({
     id: FindingId,
   })
@@ -506,7 +506,7 @@ export const PendingPromptKind = z.enum([
   "profile_escalation",
 ]);
 
-const PendingAddedPayload = z
+export const PendingAddedPayload = z
   .object({
     id: PendingId,
     kind: PendingPromptKind,
@@ -514,13 +514,13 @@ const PendingAddedPayload = z
   })
   .passthrough();
 
-const PendingResolvedPayload = z
+export const PendingResolvedPayload = z
   .object({
     id: PendingId,
   })
   .passthrough();
 
-const SessionReasonPayload = z
+export const SessionReasonPayload = z
   .object({
     reason: z.string().min(1).optional(),
   })
@@ -533,7 +533,7 @@ const SessionReasonPayload = z
 // opened by a separate `loaf start`. `.strict()` (the kind was a loose
 // RecordPayload pre-SC2): caller-side payload typos must fail Gate #3, not
 // pass silently.
-const SpikeConvertedPayload = z
+export const SpikeConvertedPayload = z
   .object({
     to_feature: FeatureIdPayload,
     reason: z.string().min(1),
@@ -588,79 +588,6 @@ export const SpecVisualAddedPayload = z
   .passthrough();
 export type SpecVisualAddedPayload = z.infer<typeof SpecVisualAddedPayload>;
 
-// PER_KIND_PAYLOAD — preflight + final validate parse the payload against
-// the schema mapped here. Kinds with strict schemas (12 reducer-implemented
-// + 1 gate + 1 migration) are validated to the field level. Kinds without
-// a reducer handler fall to RecordPayload (just-an-object) and are caught
-// by the REDUCER_IMPLEMENTED_KINDS gate in journal-mutate.ts before append.
-export const PER_KIND_PAYLOAD: Record<EntryKind, z.ZodTypeAny> = {
-  // State machine transitions
-  "event:phase_advanced": PhaseAdvancedPayload,
-  "event:ceremony_set": CeremonyPayload,
-  "event:tasks_planned": TasksPlannedPayload,
-  "event:tasks_amended": TasksAmendedPayload,
-  "event:task_claimed": TaskRefPayload,
-  "event:task_step_started": TaskStepRefPayload,
-  "event:task_step_done": TaskStepDonePayload,
-  "event:task_step_reset": TaskStepResetPayload,
-  "event:task_abandoned": TaskAbandonedPayload,
-  "event:spec_req_added": SpecReqAddedPayload,
-  "event:spec_scenario_added": SpecScenarioAddedPayload,
-  "event:spec_visual_added": SpecVisualAddedPayload,
-  "event:spec_submitted": SpecSubmittedPayload,
-
-  // Domain ledger entries
-  "evidence:added": EvidenceAddedPayload,
-  "finding:raised": FindingRaisedPayload,
-  "finding:closed": FindingClosedPayload,
-  "pending:added": PendingAddedPayload,
-  "pending:resolved": PendingResolvedPayload,
-
-  // Gates
-  "gate:decided": GateDecidedPayload,
-
-  // Session lifecycle
-  "session:started": SessionStartedPayload,
-  "session:resumed": SessionResumedPayload,
-  "session:delivered": SessionReasonPayload,
-  "session:archived": SessionReasonPayload,
-  "session:abandoned": SessionReasonPayload,
-
-  // Spike + migration
-  "spike:converted": SpikeConvertedPayload,
-  "migration:snapshot_imported": MigrationSnapshotImportedPayload,
-};
-
-// REDUCER_IMPLEMENTED_KINDS — audit r2 fix. journal-mutate gates on this
-// BEFORE append; preflight + payload schema may pass but if the reducer
-// can't apply the kind, the journal would otherwise grow + then reducer
-// fail (`mutate()` returns error). Keep this set in sync with reducer.ts
-// switch cases.
-export const REDUCER_IMPLEMENTED_KINDS: ReadonlySet<EntryKind> = new Set([
-  "session:started",
-  "migration:snapshot_imported",
-  "event:phase_advanced",
-  "event:ceremony_set",
-  "event:tasks_planned",
-  "event:tasks_amended",
-  "event:task_claimed",
-  "event:task_step_started",
-  "event:task_step_done",
-  "event:task_step_reset",
-  "event:task_abandoned",
-  "event:spec_submitted",
-  "event:spec_req_added",
-  "event:spec_scenario_added",
-  "event:spec_visual_added",
-  "evidence:added",
-  "finding:raised",
-  "finding:closed",
-  "pending:added",
-  "pending:resolved",
-  "gate:decided",
-  "session:delivered",
-  "session:resumed",
-  "session:archived",
-  "session:abandoned",
-  "spike:converted",
-]);
+// PER_KIND_PAYLOAD + REDUCER_IMPLEMENTED_KINDS moved to kind-registry.ts (L2):
+// they are now derived from the single per-kind metadata registry. The payload
+// schema consts above are exported and imported by name from kind-registry.ts.

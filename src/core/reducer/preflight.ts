@@ -32,7 +32,8 @@
 // ceremony / verify_accepted=false fallbacks when state is null (pre-
 // session entries). `tasks` flows for the spike-block check at step 5c.
 
-import { JournalEntry, PER_KIND_PAYLOAD } from "../journal-entry.js";
+import { JournalEntry } from "../journal-entry.js";
+import { PER_KIND_PAYLOAD } from "../kind-registry.js";
 import type { Ceremony, EntryKind, SubState } from "../journal-entry.js";
 import type { Snapshot, TaskState } from "../reducer.js";
 import { isPassingResult } from "../gates/verify-accept-check.js";
