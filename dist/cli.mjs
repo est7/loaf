@@ -8919,13 +8919,18 @@ function findDuplicateId(ids) {
 	return null;
 }
 /**
-* Membership: does `incomingId` already exist in `existingIds`, else null. For
+* Membership: does `incomingId` already exist among `existing`, else null. For
 * REQ/SCEN/VIS add-one, where the question is collision against the projection
 * — NOT whether the projection is internally corrupt. A pre-existing duplicate
-* in `existingIds` unrelated to `incomingId` must not change the answer.
+* in `existing` unrelated to `incomingId` must not change the answer.
+*
+* Takes the source items + an id selector and short-circuits on the first match,
+* so callers pass the projection array directly — no throwaway `.map(...)` id
+* array per check on the per-mutation path.
 */
-function findCollision(incomingId, existingIds) {
-	return existingIds.includes(incomingId) ? { id: incomingId } : null;
+function findCollision(incomingId, existing, selectId) {
+	for (const item of existing) if (selectId(item) === incomingId) return { id: incomingId };
+	return null;
 }
 //#endregion
 //#region src/core/reducer/preflight.ts
@@ -9837,7 +9842,7 @@ function preflight(rawEntry, ctx) {
 	}
 	if (entry.kind === "event:spec_req_added") {
 		const payload = payloadParsed.data;
-		if (findCollision(payload.req.id, ctx.snapshot.requirements.map((r) => r.id))) return {
+		if (findCollision(payload.req.id, ctx.snapshot.requirements, (r) => r.id)) return {
 			ok: false,
 			code: "DUPLICATE_REQ_ID",
 			message: `spec_req_added: REQ ${payload.req.id} already in projection`,
@@ -9846,7 +9851,7 @@ function preflight(rawEntry, ctx) {
 	}
 	if (entry.kind === "event:spec_scenario_added") {
 		const payload = payloadParsed.data;
-		if (findCollision(payload.scenario.id, ctx.snapshot.scenarios.map((s) => s.id))) return {
+		if (findCollision(payload.scenario.id, ctx.snapshot.scenarios, (s) => s.id)) return {
 			ok: false,
 			code: "DUPLICATE_SCEN_ID",
 			message: `spec_scenario_added: SCEN ${payload.scenario.id} already in projection`,
@@ -9855,7 +9860,7 @@ function preflight(rawEntry, ctx) {
 	}
 	if (entry.kind === "event:spec_visual_added") {
 		const payload = payloadParsed.data;
-		if (findCollision(payload.visual.id, ctx.snapshot.visual_contracts.map((v) => v.id))) return {
+		if (findCollision(payload.visual.id, ctx.snapshot.visual_contracts, (v) => v.id)) return {
 			ok: false,
 			code: "DUPLICATE_VIS_ID",
 			message: `spec_visual_added: VIS ${payload.visual.id} already in projection`,
@@ -10378,7 +10383,7 @@ function apply(prev, entry) {
 			if (typeof payload.spec_version !== "number" || !payload.req) return invalidPayload(entry.kind, "missing spec_version or req");
 			const versionCheck = checkSpecVersion(entry, payload.spec_version, prev.state.spec_version);
 			if (!versionCheck.ok) return invalidPayload(entry.kind, versionCheck.message);
-			if (findCollision(payload.req.id, prev.requirements.map((r) => r.id))) return invalidPayload(entry.kind, `DUPLICATE_REQ_ID: ${payload.req.id} already in projection`);
+			if (findCollision(payload.req.id, prev.requirements, (r) => r.id)) return invalidPayload(entry.kind, `DUPLICATE_REQ_ID: ${payload.req.id} already in projection`);
 			prev.requirements.push(structuredClone(payload.req));
 			return {
 				ok: true,
@@ -10396,7 +10401,7 @@ function apply(prev, entry) {
 			if (typeof payload.spec_version !== "number" || !payload.scenario) return invalidPayload(entry.kind, "missing spec_version or scenario");
 			const versionCheck = checkSpecVersion(entry, payload.spec_version, prev.state.spec_version);
 			if (!versionCheck.ok) return invalidPayload(entry.kind, versionCheck.message);
-			if (findCollision(payload.scenario.id, prev.scenarios.map((s) => s.id))) return invalidPayload(entry.kind, `DUPLICATE_SCEN_ID: ${payload.scenario.id} already in projection`);
+			if (findCollision(payload.scenario.id, prev.scenarios, (s) => s.id)) return invalidPayload(entry.kind, `DUPLICATE_SCEN_ID: ${payload.scenario.id} already in projection`);
 			prev.scenarios.push(structuredClone(payload.scenario));
 			return {
 				ok: true,
@@ -10414,7 +10419,7 @@ function apply(prev, entry) {
 			if (typeof payload.spec_version !== "number" || !payload.visual) return invalidPayload(entry.kind, "missing spec_version or visual");
 			const versionCheck = checkSpecVersion(entry, payload.spec_version, prev.state.spec_version);
 			if (!versionCheck.ok) return invalidPayload(entry.kind, versionCheck.message);
-			if (findCollision(payload.visual.id, prev.visual_contracts.map((v) => v.id))) return invalidPayload(entry.kind, `DUPLICATE_VIS_ID: ${payload.visual.id} already in projection`);
+			if (findCollision(payload.visual.id, prev.visual_contracts, (v) => v.id)) return invalidPayload(entry.kind, `DUPLICATE_VIS_ID: ${payload.visual.id} already in projection`);
 			prev.visual_contracts.push(structuredClone(payload.visual));
 			return {
 				ok: true,
@@ -12440,25 +12445,16 @@ async function main(argv = process.argv, deps = {}) {
 		else if (route === "raw-ctx-failure") ctx.failure(r.code, r.message, r.detail);
 		else emitFailure(r.code, r.message, r.detail);
 	};
-	async function runMutator(featureDir, session, input, route = "emit-failure") {
-		const now = (/* @__PURE__ */ new Date()).toISOString();
-		const mctx = {
-			feature_dir: featureDir,
-			snapshot: session.snapshot,
-			tail_seq: session.tail_seq,
-			entries: session.entries,
-			meta: session.meta,
-			dryRun: ctx.dryRun,
-			registryWriter: registryWriterDeps
-		};
-		const stamp = (e) => ({
-			at: now,
-			actor: e.actor,
-			entry_schema_version: 1,
-			kind: e.kind,
-			payload: e.payload
-		});
-		const result = Array.isArray(input) ? await mutateBatch(input.map(stamp), mctx) : await mutate(stamp(input), mctx);
+	const mctxFor = (featureDir, session) => ({
+		feature_dir: featureDir,
+		snapshot: session.snapshot,
+		tail_seq: session.tail_seq,
+		entries: session.entries,
+		meta: session.meta,
+		dryRun: ctx.dryRun,
+		registryWriter: registryWriterDeps
+	});
+	function finishMutate(result, route) {
 		if (!result.ok) {
 			routeMutateFailure(route, result);
 			return null;
@@ -12468,6 +12464,18 @@ async function main(argv = process.argv, deps = {}) {
 			return null;
 		}
 		return result;
+	}
+	async function runMutator(featureDir, session, input, route = "emit-failure") {
+		const now = (/* @__PURE__ */ new Date()).toISOString();
+		const stamp = (e) => ({
+			at: now,
+			actor: e.actor,
+			entry_schema_version: 1,
+			kind: e.kind,
+			payload: e.payload
+		});
+		const mctx = mctxFor(featureDir, session);
+		return finishMutate(Array.isArray(input) ? await mutateBatch(input.map(stamp), mctx) : await mutate(stamp(input), mctx), route);
 	}
 	const loadProjectionsOrFail = async (featureDir, kinds, feature, noSessionKey) => {
 		try {
@@ -13155,7 +13163,7 @@ async function main(argv = process.argv, deps = {}) {
 		const seededNew = validatedInputs.map((input, i) => materializeTaskInput(input, `T-${String(maxSerial + 1 + i).padStart(3, "0")}`));
 		const newIds = seededNew.map((t) => t.id);
 		if (sponsored) {
-			const result = await mutateBatch(seededNew.map((task) => ({
+			const result = finishMutate(await mutateBatch(seededNew.map((task) => ({
 				at: (/* @__PURE__ */ new Date()).toISOString(),
 				actor,
 				entry_schema_version: 1,
@@ -13165,23 +13173,8 @@ async function main(argv = process.argv, deps = {}) {
 					task,
 					sponsored_by_finding_id: opts.finding
 				}
-			})), {
-				feature_dir: featureDir,
-				snapshot: session.snapshot,
-				tail_seq: session.tail_seq,
-				entries: session.entries,
-				meta: session.meta,
-				dryRun: ctx.dryRun,
-				registryWriter: registryWriterDeps
-			});
-			if (!result.ok) {
-				ctx.failure(result.code, result.message, result.detail);
-				return;
-			}
-			if (ctx.dryRun) {
-				emitDryRunSuccess(result);
-				return;
-			}
+			})), mctxFor(featureDir, session)), "raw-ctx-failure");
+			if (!result) return;
 			const out = {
 				ok: true,
 				feature: opts.feature,
@@ -14559,10 +14552,7 @@ async function main(argv = process.argv, deps = {}) {
 			findingId: id,
 			currentSubState,
 			findingActor: actor,
-			...hasTask && hasStep ? { target: {
-				taskId: opts.targetTask,
-				step: opts.targetStep
-			} } : {}
+			...hasTask && hasStep ? { target: { taskId: opts.targetTask } } : {}
 		});
 		if (findingBatch.kind === "none") {
 			if (!await runMutator(featureDir, session, {
@@ -14697,28 +14687,13 @@ async function main(argv = process.argv, deps = {}) {
 			return;
 		}
 		const now = (/* @__PURE__ */ new Date()).toISOString();
-		const result = await mutateBatch(buildSpecSubmitBatch({
+		const result = finishMutate(await mutateBatch(buildSpecSubmitBatch({
 			input,
 			snapshot: session.snapshot,
 			actor,
 			now
-		}), {
-			feature_dir: featureDir,
-			snapshot: session.snapshot,
-			tail_seq: session.tail_seq,
-			entries: session.entries,
-			meta: session.meta,
-			dryRun: ctx.dryRun,
-			registryWriter: registryWriterDeps
-		});
-		if (!result.ok) {
-			ctx.failure(result.code, result.message, result.detail);
-			return;
-		}
-		if (ctx.dryRun) {
-			emitDryRunSuccess(result);
-			return;
-		}
+		}), mctxFor(featureDir, session)), "raw-ctx-failure");
+		if (!result) return;
 		const reqIds = result.snapshot.requirements.map((r) => r.id);
 		const scenIds = result.snapshot.scenarios.map((s) => s.id);
 		const visIds = result.snapshot.visual_contracts.map((v) => v.id);
@@ -14962,19 +14937,8 @@ feature:
 			actor,
 			now
 		});
-		const mutateResult = await mutateBatch(entries, {
-			feature_dir: featureDir,
-			snapshot: session.snapshot,
-			tail_seq: session.tail_seq,
-			entries: session.entries,
-			meta: session.meta,
-			dryRun: ctx.dryRun,
-			registryWriter: registryWriterDeps
-		});
-		if (!mutateResult.ok) {
-			emitFailure(mutateResult.code, mutateResult.message, mutateResult.detail);
-			return;
-		}
+		const mutateResult = finishMutate(await mutateBatch(entries, mctxFor(featureDir, session)), "emit-failure");
+		if (!mutateResult) return;
 		const newSpecVersion = entries[0].payload.spec_version;
 		ctx.success({
 			ok: true,
