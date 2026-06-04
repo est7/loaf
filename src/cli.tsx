@@ -1256,6 +1256,84 @@ export async function main(
     ctx.success(schema, () => formatSchema(schema));
   };
 
+  // L1 — runMutator: collapse the per-command envelope (at + version),
+  // MutateContext construction, dry-run branch, and result-failure routing
+  // into one inline helper. Caller owns loadSession, command pre-validation,
+  // batch construction/ordering, and command-specific success formatting.
+  // Returns the ok result on real success (caller formats); returns null when
+  // it already emitted a failure or a dry-run success (caller early-returns).
+  //
+  // Three failure routes are preserved 1:1 (behavior-preserving — L1 does NOT
+  // normalize them): "emit-failure" (default; keyed + detail), "legacy-fail"
+  // (detail SUPPRESSED), "raw-ctx-failure" (direct ctx.failure, no keyed). Does
+  // NOT build batches, choose ordering, or touch gate Pass 1.5 (that is L9 /
+  // mutateBatch). `at` is one `now` per invocation; actor stays per entry so
+  // batches with mixed actors (gate approve) are preserved.
+  type RunPartial = Parameters<typeof mutate>[0];
+  type MutatorEntry = Pick<RunPartial, "kind" | "payload" | "actor">;
+  type FailureRoute = "emit-failure" | "legacy-fail" | "raw-ctx-failure";
+  type MutateOkSingle = Extract<Awaited<ReturnType<typeof mutate>>, { ok: true }>;
+  type MutateOkBatch = Extract<Awaited<ReturnType<typeof mutateBatch>>, { ok: true }>;
+  type RunSession = Awaited<ReturnType<typeof loadSession>>;
+
+  const routeMutateFailure = (
+    route: FailureRoute,
+    r: { code: string; message: string; detail?: Record<string, unknown> },
+  ): void => {
+    if (route === "legacy-fail") fail(r.code, r.message);
+    else if (route === "raw-ctx-failure") ctx.failure(r.code, r.message, r.detail);
+    else emitFailure(r.code, r.message, r.detail);
+  };
+
+  function runMutator(
+    featureDir: string,
+    session: RunSession,
+    entry: MutatorEntry,
+    route?: FailureRoute,
+  ): Promise<MutateOkSingle | null>;
+  function runMutator(
+    featureDir: string,
+    session: RunSession,
+    entries: readonly MutatorEntry[],
+    route?: FailureRoute,
+  ): Promise<MutateOkBatch | null>;
+  async function runMutator(
+    featureDir: string,
+    session: RunSession,
+    input: MutatorEntry | readonly MutatorEntry[],
+    route: FailureRoute = "emit-failure",
+  ): Promise<MutateOkSingle | MutateOkBatch | null> {
+    const now = new Date().toISOString();
+    const mctx: MutateContext = {
+      feature_dir: featureDir,
+      snapshot: session.snapshot,
+      tail_seq: session.tail_seq,
+      entries: session.entries,
+      meta: session.meta,
+      dryRun: ctx.dryRun,
+      registryWriter: registryWriterDeps,
+    };
+    const stamp = (e: MutatorEntry): RunPartial => ({
+      at: now,
+      actor: e.actor,
+      entry_schema_version: 1,
+      kind: e.kind,
+      payload: e.payload,
+    });
+    const result = Array.isArray(input)
+      ? await mutateBatch(input.map(stamp), mctx)
+      : await mutate(stamp(input as MutatorEntry), mctx);
+    if (!result.ok) {
+      routeMutateFailure(route, result);
+      return null;
+    }
+    if (ctx.dryRun) {
+      emitDryRunSuccess(result);
+      return null;
+    }
+    return result;
+  }
+
   // loadProjectionsOrFail — projection-loader wrapper for the four
   // SC3-wired read-only commands (status / tasks list / pending list /
   // finding list). On NoSessionError / SnapshotStaleError, routes through
@@ -1326,11 +1404,10 @@ export async function main(
       ctx.recordTraceTarget(feature, featureDir);
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       const sessionId = crypto.randomUUID();
-      const result = await mutate(
+      const result = await runMutator(
+        featureDir,
+        session,
         {
-          at: new Date().toISOString(),
-          actor,
-          entry_schema_version: 1,
           kind: "session:started",
           // Phase 15 SC1 (F-019): bucket-C identity fields ride the
           // session:started payload so state.json is fully journal-derived.
@@ -1343,17 +1420,11 @@ export async function main(
             loaf_version_required: `^${packageJson.version}`,
             ...(opts.label !== undefined ? { session_label: opts.label } : {}),
           },
+          actor,
         },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun, registryWriter: registryWriterDeps },
+        "legacy-fail",
       );
-      if (!result.ok) {
-        fail(result.code, result.message);
-        return;
-      }
-      if (ctx.dryRun) {
-        emitDryRunSuccess(result);
-        return;
-      }
+      if (!result) return;
       const out = {
         ok: true,
         feature,
@@ -1393,24 +1464,13 @@ export async function main(
         emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionAdvance, opts.feature);
         return;
       }
-      const result = await mutate(
-        {
-          at: new Date().toISOString(),
-          actor,
-          entry_schema_version: 1,
-          kind: "event:phase_advanced",
-          payload: { from, to },
-        },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun, registryWriter: registryWriterDeps },
+      const result = await runMutator(
+        featureDir,
+        session,
+        { kind: "event:phase_advanced", payload: { from, to }, actor },
+        "legacy-fail",
       );
-      if (!result.ok) {
-        fail(result.code, result.message);
-        return;
-      }
-      if (ctx.dryRun) {
-        emitDryRunSuccess(result);
-        return;
-      }
+      if (!result) return;
       const out = { ok: true, from, to, sub_state: result.snapshot.state?.sub_state };
       ctx.success(
         out,
@@ -1642,16 +1702,6 @@ export async function main(
         return;
       }
       // (5) build entries + execute per-gate
-      const mctx = {
-        feature_dir: featureDir,
-        snapshot: session.snapshot,
-        tail_seq: session.tail_seq,
-        entries: session.entries,
-        meta: session.meta,
-        dryRun: ctx.dryRun,
-        registryWriter: registryWriterDeps,
-      };
-      const now = new Date().toISOString();
       // SC4 soft pending co-emission: if the unresolved head is a
       // gate_decision prompt, the approve batch appends pending:resolved
       // so the head clears atomically. Non-gate heads are rejected by
@@ -1669,40 +1719,27 @@ export async function main(
           // the gate decision and the cursor advance — order matters for
           // reducer dry-run (pending head must still be unresolved when
           // pending:resolved applies; phase_advanced runs after).
-          const entries: Parameters<typeof mutateBatch>[0] = [
+          const entries: MutatorEntry[] = [
             {
-              at: now,
-              actor: humanActor,
-              entry_schema_version: 1,
               kind: "gate:decided",
               payload: { gate_kind: "spec-lock", decision: "approved", reason: opts.reason },
+              actor: humanActor,
             },
           ];
           if (coEmitPendingResolved && pendingHead) {
             entries.push({
-              at: now,
-              actor,
-              entry_schema_version: 1,
               kind: "pending:resolved",
               payload: { id: pendingHead.id, answer: "gate-decide:spec-lock:approved" },
+              actor,
             });
           }
           entries.push({
-            at: now,
-            actor,
-            entry_schema_version: 1,
             kind: "event:phase_advanced",
             payload: { from, to: "EXECUTE.plan" },
+            actor,
           });
-          const result = await mutateBatch(entries, mctx);
-          if (!result.ok) {
-            emitFailure(result.code, result.message, result.detail);
-            return;
-          }
-          if (ctx.dryRun) {
-            emitDryRunSuccess(result);
-            return;
-          }
+          const result = await runMutator(featureDir, session, entries);
+          if (!result) return;
           const out = {
             ok: true,
             gate: "spec-lock",
@@ -1730,43 +1767,32 @@ export async function main(
         // VERIFY.accept; `loaf deliver` / `loaf settle` advance cursor later
         // per ceremony.settle_phase.
         const result = coEmitPendingResolved && pendingHead
-          ? await mutateBatch(
+          ? await runMutator(
+            featureDir,
+            session,
             [
               {
-                at: now,
-                actor: humanActor,
-                entry_schema_version: 1,
                 kind: "gate:decided",
                 payload: { gate_kind: "verify-accept", decision: "approved", reason: opts.reason },
+                actor: humanActor,
               },
               {
-                at: now,
-                actor,
-                entry_schema_version: 1,
                 kind: "pending:resolved",
                 payload: { id: pendingHead.id, answer: "gate-decide:verify-accept:approved" },
+                actor,
               },
             ],
-            mctx,
           )
-          : await mutate(
+          : await runMutator(
+            featureDir,
+            session,
             {
-              at: now,
-              actor: humanActor,
-              entry_schema_version: 1,
               kind: "gate:decided",
               payload: { gate_kind: "verify-accept", decision: "approved", reason: opts.reason },
+              actor: humanActor,
             },
-            mctx,
           );
-        if (!result.ok) {
-          emitFailure(result.code, result.message, result.detail);
-          return;
-        }
-        if (ctx.dryRun) {
-          emitDryRunSuccess(result);
-          return;
-        }
+        if (!result) return;
         const out = {
           ok: true,
           gate: "verify-accept",
@@ -1792,24 +1818,16 @@ export async function main(
       }
       // reject: single entry, no cursor side-effect, no Pass 1.5 eval.
       // Shared between spec-lock and verify-accept.
-      const result = await mutate(
+      const result = await runMutator(
+        featureDir,
+        session,
         {
-          at: now,
-          actor: humanActor,
-          entry_schema_version: 1,
           kind: "gate:decided",
           payload: { gate_kind: gateName, decision: "rejected", reason: opts.reason },
+          actor: humanActor,
         },
-        mctx,
       );
-      if (!result.ok) {
-        emitFailure(result.code, result.message, result.detail);
-        return;
-      }
-      if (ctx.dryRun) {
-        emitDryRunSuccess(result);
-        return;
-      }
+      if (!result) return;
       const out = {
         ok: true,
         gate: gateName,
@@ -1890,24 +1908,13 @@ export async function main(
 
       // (4) Mutate. preflight step 5c enforces all delivery preconditions;
       //     reducer flips cursor to DONE.delivered.
-      const result = await mutate(
-        {
-          at: new Date().toISOString(),
-          actor: humanActor,
-          entry_schema_version: 1,
-          kind: "session:delivered",
-          payload,
-        },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun, registryWriter: registryWriterDeps },
+      const result = await runMutator(
+        featureDir,
+        session,
+        { kind: "session:delivered", payload, actor: humanActor },
+        "raw-ctx-failure",
       );
-      if (!result.ok) {
-        ctx.failure(result.code, result.message, result.detail);
-        return;
-      }
-      if (ctx.dryRun) {
-        emitDryRunSuccess(result);
-        return;
-      }
+      if (!result) return;
 
       // (5) Success output via ctx.success — stateChange + next routed to
       //     stderr per protocol §10.12 (SC-5b2). The advisory string
@@ -1980,24 +1987,12 @@ export async function main(
 
       // (3) Mutate. preflight step 5c.2 enforces reason-required; reducer
       //     flips cursor to DONE.archived.
-      const result = await mutate(
-        {
-          at: new Date().toISOString(),
-          actor: humanActor,
-          entry_schema_version: 1,
-          kind: "session:archived",
-          payload: { reason: opts.reason },
-        },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun, registryWriter: registryWriterDeps },
+      const result = await runMutator(
+        featureDir,
+        session,
+        { kind: "session:archived", payload: { reason: opts.reason }, actor: humanActor },
       );
-      if (!result.ok) {
-        emitFailure(result.code, result.message, result.detail);
-        return;
-      }
-      if (ctx.dryRun) {
-        emitDryRunSuccess(result);
-        return;
-      }
+      if (!result) return;
 
       // (4) Success output.
       const out = {
@@ -2052,24 +2047,12 @@ export async function main(
 
       // (3) Mutate. preflight step 5c.2 enforces reason-required; reducer
       //     flips cursor to DONE.abandoned.
-      const result = await mutate(
-        {
-          at: new Date().toISOString(),
-          actor: humanActor,
-          entry_schema_version: 1,
-          kind: "session:abandoned",
-          payload: { reason: opts.reason },
-        },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun, registryWriter: registryWriterDeps },
+      const result = await runMutator(
+        featureDir,
+        session,
+        { kind: "session:abandoned", payload: { reason: opts.reason }, actor: humanActor },
       );
-      if (!result.ok) {
-        emitFailure(result.code, result.message, result.detail);
-        return;
-      }
-      if (ctx.dryRun) {
-        emitDryRunSuccess(result);
-        return;
-      }
+      if (!result) return;
 
       // (4) Success output.
       const out = {
@@ -2152,34 +2135,19 @@ export async function main(
         //     precede session:archived: it carries ANY_NON_DONE authority and
         //     would be rejected against the post-archive DONE snapshot. The
         //     sponsored session:archived performs the terminal cursor flip.
-        const now = new Date().toISOString();
-        const result = await mutateBatch(
-          [
-            {
-              at: now,
-              actor: humanActor,
-              entry_schema_version: 1,
-              kind: "spike:converted",
-              payload: { to_feature: opts.toFeature, reason: opts.reason },
-            },
-            {
-              at: now,
-              actor: humanActor,
-              entry_schema_version: 1,
-              kind: "session:archived",
-              payload: { reason: opts.reason },
-            },
-          ],
-          { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun, registryWriter: registryWriterDeps },
-        );
-        if (!result.ok) {
-          emitFailure(result.code, result.message, result.detail);
-          return;
-        }
-        if (ctx.dryRun) {
-          emitDryRunSuccess(result);
-          return;
-        }
+        const result = await runMutator(featureDir, session, [
+          {
+            kind: "spike:converted",
+            payload: { to_feature: opts.toFeature, reason: opts.reason },
+            actor: humanActor,
+          },
+          {
+            kind: "session:archived",
+            payload: { reason: opts.reason },
+            actor: humanActor,
+          },
+        ]);
+        if (!result) return;
 
         // (4) Success output.
         const out = {
@@ -2313,34 +2281,19 @@ export async function main(
 
         // (5) Mutate — 2-entry batch. event:ceremony_set MUST precede
         //     pending:resolved so preflight 5c.4 sees the unresolved head.
-        const now = new Date().toISOString();
-        const result = await mutateBatch(
-          [
-            {
-              at: now,
-              actor: humanActor,
-              entry_schema_version: 1,
-              kind: "event:ceremony_set",
-              payload: ceremony as Record<string, unknown>,
-            },
-            {
-              at: now,
-              actor: humanActor,
-              entry_schema_version: 1,
-              kind: "pending:resolved",
-              payload: { id: head.id },
-            },
-          ],
-          { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun, registryWriter: registryWriterDeps },
-        );
-        if (!result.ok) {
-          emitFailure(result.code, result.message, result.detail);
-          return;
-        }
-        if (ctx.dryRun) {
-          emitDryRunSuccess(result);
-          return;
-        }
+        const result = await runMutator(featureDir, session, [
+          {
+            kind: "event:ceremony_set",
+            payload: ceremony as Record<string, unknown>,
+            actor: humanActor,
+          },
+          {
+            kind: "pending:resolved",
+            payload: { id: head.id },
+            actor: humanActor,
+          },
+        ]);
+        if (!result) return;
 
         // (6) Success output. The batch moves no cursor — sub_state unchanged.
         const out = {
@@ -2570,24 +2523,13 @@ export async function main(
       // Mutate. Preflight validates TasksPlannedPayload + sub_state +
       // duplicate task ids + reducer dry-run + final-validate. CLI does
       // not duplicate any of that.
-      const result = await mutate(
-        {
-          at: new Date().toISOString(),
-          actor,
-          entry_schema_version: 1,
-          kind: "event:tasks_planned",
-          payload: payload as Record<string, unknown>,
-        },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun, registryWriter: registryWriterDeps },
+      const result = await runMutator(
+        featureDir,
+        session,
+        { kind: "event:tasks_planned", payload: payload as Record<string, unknown>, actor },
+        "raw-ctx-failure",
       );
-      if (!result.ok) {
-        ctx.failure(result.code, result.message, result.detail);
-        return;
-      }
-      if (ctx.dryRun) {
-        emitDryRunSuccess(result);
-        return;
-      }
+      if (!result) return;
 
       // Success output via ctx.success — output bytes identical to
       // pre-SC-4b shape (asserted via existing tasks-submit tests).
@@ -2775,6 +2717,11 @@ export async function main(
         // input carries several). Preflight §8.6 verifies the finding is
         // open with action=amend-tasks; the reducer dry-run appends each
         // task and rejects a duplicate id.
+        // L1 exclusion (codex L1 audit): this sponsored multi-add stamps a
+        // per-entry `at` inside the map — each event:tasks_amended carries its
+        // own timestamp. runMutator captures one `now` per call, which would
+        // flatten the batch to a single `at`. To stay behavior-preserving this
+        // path keeps its direct mutateBatch with per-entry timestamps.
         const sponsoredBatch: Parameters<typeof mutateBatch>[0] = seededNew.map(
           (task) => ({
             at: new Date().toISOString(),
@@ -2857,24 +2804,17 @@ export async function main(
       const based_on = session.snapshot.tasks_based_on ?? {
         spec: session.snapshot.state.spec_version,
       };
-      const result = await mutate(
+      const result = await runMutator(
+        featureDir,
+        session,
         {
-          at: new Date().toISOString(),
-          actor,
-          entry_schema_version: 1,
           kind: "event:tasks_planned",
           payload: { based_on, tasks: [...existingFull, ...seededNew] },
+          actor,
         },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun, registryWriter: registryWriterDeps },
+        "raw-ctx-failure",
       );
-      if (!result.ok) {
-        ctx.failure(result.code, result.message, result.detail);
-        return;
-      }
-      if (ctx.dryRun) {
-        emitDryRunSuccess(result);
-        return;
-      }
+      if (!result) return;
 
       // (7) Success output — echo the allocated ids for shell scripting.
       const out = {
@@ -2920,24 +2860,12 @@ export async function main(
         emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
         return;
       }
-      const result = await mutate(
-        {
-          at: new Date().toISOString(),
-          actor,
-          entry_schema_version: 1,
-          kind: "event:task_claimed",
-          payload: { task_id: taskId },
-        },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun, registryWriter: registryWriterDeps },
+      const result = await runMutator(
+        featureDir,
+        session,
+        { kind: "event:task_claimed", payload: { task_id: taskId }, actor },
       );
-      if (!result.ok) {
-        emitFailure(result.code, result.message, result.detail);
-        return;
-      }
-      if (ctx.dryRun) {
-        emitDryRunSuccess(result);
-        return;
-      }
+      if (!result) return;
       // Read the actual claimed task status from the reducer-applied snapshot
       // (codex r60 P2.1 + r61 BLOCK closure): fail-fast if the post-mutate
       // lookup misses. Preflight + reducer guarantee task exists on success,
@@ -2998,24 +2926,12 @@ export async function main(
           emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
           return;
         }
-        const result = await mutate(
-          {
-            at: new Date().toISOString(),
-            actor,
-            entry_schema_version: 1,
-            kind: "event:task_abandoned",
-            payload: { task_id: taskId, reason: opts.reason },
-          },
-          { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun, registryWriter: registryWriterDeps },
+        const result = await runMutator(
+          featureDir,
+          session,
+          { kind: "event:task_abandoned", payload: { task_id: taskId, reason: opts.reason }, actor },
         );
-        if (!result.ok) {
-          emitFailure(result.code, result.message, result.detail);
-          return;
-        }
-        if (ctx.dryRun) {
-          emitDryRunSuccess(result);
-          return;
-        }
+        if (!result) return;
         // Read the abandoned task status from the reducer-applied snapshot;
         // fail-fast if the post-mutate lookup misses (preflight + reducer
         // guarantee the task exists on success — same pattern as claim).
@@ -3445,28 +3361,21 @@ export async function main(
           const sMaterialized = materializeTaskForAmend(sWithProgress, sCurrent);
           // (b6) Emit event:tasks_amended mode="replace" + sponsorship
           // marker. Preflight §8.6 sponsored branch does the rest.
-          const sResult = await mutate(
+          const sResult = await runMutator(
+            sFeatureDir,
+            sSession,
             {
-              at: new Date().toISOString(),
-              actor,
-              entry_schema_version: 1,
               kind: "event:tasks_amended",
               payload: {
                 mode: "replace",
                 task: sMaterialized,
                 sponsored_by_finding_id: findingId,
               },
+              actor,
             },
-            { feature_dir: sFeatureDir, snapshot: sSession.snapshot, tail_seq: sSession.tail_seq, entries: sSession.entries, meta: sSession.meta, dryRun: ctx.dryRun, registryWriter: registryWriterDeps },
+            "raw-ctx-failure",
           );
-          if (!sResult.ok) {
-            ctx.failure(sResult.code, sResult.message, sResult.detail);
-            return;
-          }
-          if (ctx.dryRun) {
-            emitDryRunSuccess(sResult);
-            return;
-          }
+          if (!sResult) return;
           const sOut = {
             ok: true,
             feature: opts.feature,
@@ -3576,24 +3485,12 @@ export async function main(
 
         // (6) Emit event:tasks_amended (mode=replace). Preflight §8.6
         // validates the change is applicability-only.
-        const result = await mutate(
-          {
-            at: new Date().toISOString(),
-            actor,
-            entry_schema_version: 1,
-            kind: "event:tasks_amended",
-            payload: { mode: "replace", task: materialized },
-          },
-          { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun, registryWriter: registryWriterDeps },
+        const result = await runMutator(
+          featureDir,
+          session,
+          { kind: "event:tasks_amended", payload: { mode: "replace", task: materialized }, actor },
         );
-        if (!result.ok) {
-          emitFailure(result.code, result.message, result.detail);
-          return;
-        }
-        if (ctx.dryRun) {
-          emitDryRunSuccess(result);
-          return;
-        }
+        if (!result) return;
 
         // (7) Success output.
         const applied = [...policyMap].map(([s, a]) => `${s}=${a}`).join(", ");
@@ -3641,24 +3538,16 @@ export async function main(
         emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
         return;
       }
-      const result = await mutate(
+      const result = await runMutator(
+        featureDir,
+        session,
         {
-          at: new Date().toISOString(),
-          actor,
-          entry_schema_version: 1,
           kind: "event:task_step_done",
           payload: { task_id: taskId, step: "red", result: "passed", red_test_registered: true },
+          actor,
         },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun, registryWriter: registryWriterDeps },
       );
-      if (!result.ok) {
-        emitFailure(result.code, result.message, result.detail);
-        return;
-      }
-      if (ctx.dryRun) {
-        emitDryRunSuccess(result);
-        return;
-      }
+      if (!result) return;
       const out = {
         ok: true,
         feature: opts.feature,
@@ -3709,24 +3598,12 @@ export async function main(
         emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
         return;
       }
-      const result = await mutate(
-        {
-          at: new Date().toISOString(),
-          actor,
-          entry_schema_version: 1,
-          kind: "event:task_step_started",
-          payload: { task_id: opts.task, step: opts.step },
-        },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun, registryWriter: registryWriterDeps },
+      const result = await runMutator(
+        featureDir,
+        session,
+        { kind: "event:task_step_started", payload: { task_id: opts.task, step: opts.step }, actor },
       );
-      if (!result.ok) {
-        emitFailure(result.code, result.message, result.detail);
-        return;
-      }
-      if (ctx.dryRun) {
-        emitDryRunSuccess(result);
-        return;
-      }
+      if (!result) return;
       // Slice 2 SC4 (codex r60 P2.2 closure): preflight + reducer guarantee
       // task + step exist on success; fail-fast if either is missing so
       // output schema never silently drops `step_status` to undefined.
@@ -3847,28 +3724,14 @@ export async function main(
         emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
         return;
       }
-      const now = new Date().toISOString();
       // Build the step_done entry. SC4 batch path adds evidence:added
       // afterward when --evidence-* is set.
-      const stepDoneEntry = {
-        at: now,
-        actor,
-        entry_schema_version: 1,
-        kind: "event:task_step_done" as const,
+      const stepDoneEntry: MutatorEntry = {
+        kind: "event:task_step_done",
         payload: { task_id: opts.task, step: opts.step, result: opts.result },
+        actor,
       };
-      const mctx = {
-        feature_dir: featureDir,
-        snapshot: session.snapshot,
-        tail_seq: session.tail_seq,
-        entries: session.entries,
-        meta: session.meta,
-        dryRun: ctx.dryRun,
-        registryWriter: registryWriterDeps,
-      };
-      let result:
-        | Awaited<ReturnType<typeof mutate>>
-        | Awaited<ReturnType<typeof mutateBatch>>;
+      let result: MutateOkSingle | MutateOkBatch | null;
       let evidenceId: string | undefined;
       if (evidenceFlagSet) {
         // Allocate EV-NNNNNN — same shape as evidence add CLI.
@@ -3906,30 +3769,14 @@ export async function main(
         // trail aligns with the adjacent event:task_step_done entry.
         // Payload.actor inside evidencePayload can still carry `human:*`
         // for manual/waiver evidence (preserved above).
-        result = await mutateBatch(
-          [
-            stepDoneEntry,
-            {
-              at: now,
-              actor,
-              entry_schema_version: 1,
-              kind: "evidence:added",
-              payload: evidencePayload,
-            },
-          ],
-          mctx,
-        );
+        result = await runMutator(featureDir, session, [
+          stepDoneEntry,
+          { kind: "evidence:added", payload: evidencePayload, actor },
+        ]);
       } else {
-        result = await mutate(stepDoneEntry, mctx);
+        result = await runMutator(featureDir, session, stepDoneEntry);
       }
-      if (!result.ok) {
-        emitFailure(result.code, result.message, result.detail);
-        return;
-      }
-      if (ctx.dryRun) {
-        emitDryRunSuccess(result);
-        return;
-      }
+      if (!result) return;
       // Slice 2 SC4 (codex r60 P2.2 closure): same fail-fast assertions
       // as step start — concrete step_status / task_status in output.
       const updated = result.snapshot.tasks.find((t) => t.id === opts.task);
@@ -4024,24 +3871,13 @@ export async function main(
 
       // mutate. preflight + transition validator enforce all preconditions
       // (settle_phase / verify_accepted / cursor edge legality).
-      const result = await mutate(
-        {
-          at: new Date().toISOString(),
-          actor, // module-level cli:loaf actor — settle is machine-driven
-          entry_schema_version: 1,
-          kind: "event:phase_advanced",
-          payload: { from, to: "SETTLE.reconcile" },
-        },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun, registryWriter: registryWriterDeps },
+      const result = await runMutator(
+        featureDir,
+        session,
+        // module-level cli:loaf actor — settle is machine-driven
+        { kind: "event:phase_advanced", payload: { from, to: "SETTLE.reconcile" }, actor },
       );
-      if (!result.ok) {
-        emitFailure(result.code, result.message, result.detail);
-        return;
-      }
-      if (ctx.dryRun) {
-        emitDryRunSuccess(result);
-        return;
-      }
+      if (!result) return;
 
       const advisory = [
         "complete SETTLE.* phase (loaf advance SETTLE.lessons) then `loaf deliver`",
@@ -4121,11 +3957,10 @@ export async function main(
       const pack = packParse.data;
       // Default cli actor — PER_KIND_ACTOR allows human|skill|ci|cli.
       const actor = `cli:loaf@${process.env["USER"] ?? "unknown"}`;
-      const result = await mutate(
+      const result = await runMutator(
+        featureDir,
+        session,
         {
-          at: new Date().toISOString(),
-          actor,
-          entry_schema_version: 1,
           kind: "session:resumed",
           payload: {
             resumed_from_pack: {
@@ -4134,25 +3969,10 @@ export async function main(
               session_id: pack.session_id,
             },
           },
-        },
-        {
-          feature_dir: featureDir,
-          snapshot: session.snapshot,
-          tail_seq: session.tail_seq,
-          entries: session.entries,
-          meta: session.meta,
-          dryRun: ctx.dryRun,
-          registryWriter: registryWriterDeps,
+          actor,
         },
       );
-      if (!result.ok) {
-        emitFailure(result.code, result.message, result.detail);
-        return;
-      }
-      if (ctx.dryRun) {
-        emitDryRunSuccess(result);
-        return;
-      }
+      if (!result) return;
       ctx.success(
         {
           ok: true,
@@ -4324,24 +4144,12 @@ export async function main(
           .filter((s) => s.length > 0);
       }
       if (opts.taskId !== undefined) payload["task_id"] = opts.taskId;
-      const result = await mutate(
-        {
-          at: new Date().toISOString(),
-          actor,
-          entry_schema_version: 1,
-          kind: "pending:added",
-          payload,
-        },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun, registryWriter: registryWriterDeps },
+      const result = await runMutator(
+        featureDir,
+        session,
+        { kind: "pending:added", payload, actor },
       );
-      if (!result.ok) {
-        emitFailure(result.code, result.message, result.detail);
-        return;
-      }
-      if (ctx.dryRun) {
-        emitDryRunSuccess(result);
-        return;
-      }
+      if (!result) return;
       ctx.success(
         { ok: true, feature: opts.feature, id, kind: opts.kind },
         () => id + "\n",
@@ -4479,24 +4287,12 @@ export async function main(
         );
         return;
       }
-      const result = await mutate(
-        {
-          at: new Date().toISOString(),
-          actor,
-          entry_schema_version: 1,
-          kind: "pending:resolved",
-          payload: { id: head.id, answer: opts.answer },
-        },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun, registryWriter: registryWriterDeps },
+      const result = await runMutator(
+        featureDir,
+        session,
+        { kind: "pending:resolved", payload: { id: head.id, answer: opts.answer }, actor },
       );
-      if (!result.ok) {
-        emitFailure(result.code, result.message, result.detail);
-        return;
-      }
-      if (ctx.dryRun) {
-        emitDryRunSuccess(result);
-        return;
-      }
+      if (!result) return;
       ctx.success(
         {
           ok: true,
@@ -4643,34 +4439,14 @@ export async function main(
 
       // Materialize full payloads (inject CLI-allocated EV-id; refines
       // in EvidenceFullPayload run during mutateBatch preflight).
-      const now = new Date().toISOString();
-      const entries: Parameters<typeof mutateBatch>[0] = validatedInputs.map(
-        (input, i) => ({
-          at: now,
-          actor,
-          entry_schema_version: 1,
-          kind: "evidence:added",
-          payload: { ...input, id: evIds[i] },
-        }),
-      );
+      const entries: MutatorEntry[] = validatedInputs.map((input, i) => ({
+        kind: "evidence:added",
+        payload: { ...input, id: evIds[i] },
+        actor,
+      }));
 
-      const result = await mutateBatch(entries, {
-        feature_dir: featureDir,
-        snapshot: session.snapshot,
-        tail_seq: session.tail_seq,
-        entries: session.entries,
-        meta: session.meta,
-        dryRun: ctx.dryRun,
-        registryWriter: registryWriterDeps,
-      });
-      if (!result.ok) {
-        ctx.failure(result.code, result.message, result.detail);
-        return;
-      }
-      if (ctx.dryRun) {
-        emitDryRunSuccess(result);
-        return;
-      }
+      const result = await runMutator(featureDir, session, entries, "raw-ctx-failure");
+      if (!result) return;
 
       // Output preserves single-input bare-EV-id text (back-compat per
       // codex r230 Q6 + r236) and adds {ok, feature, ev_ids, count,
@@ -4779,32 +4555,12 @@ export async function main(
         iteration: session.snapshot.state.iteration,
       });
       // (5) wrap in journal envelope (codex r325 P1 Option A boundary)
-      const result = await mutate(
-        {
-          at: new Date().toISOString(),
-          actor,
-          entry_schema_version: 1,
-          kind: "evidence:added",
-          payload,
-        },
-        {
-          feature_dir: featureDir,
-          snapshot: session.snapshot,
-          tail_seq: session.tail_seq,
-          entries: session.entries,
-          meta: session.meta,
-          dryRun: ctx.dryRun,
-          registryWriter: registryWriterDeps,
-        },
+      const result = await runMutator(
+        featureDir,
+        session,
+        { kind: "evidence:added", payload, actor },
       );
-      if (!result.ok) {
-        emitFailure(result.code, result.message, result.detail);
-        return;
-      }
-      if (ctx.dryRun) {
-        emitDryRunSuccess(result);
-        return;
-      }
+      if (!result) return;
       ctx.success(
         {
           ok: true,
@@ -4917,32 +4673,12 @@ export async function main(
         actor,
         iteration: session.snapshot.state.iteration,
       });
-      const result = await mutate(
-        {
-          at: new Date().toISOString(),
-          actor,
-          entry_schema_version: 1,
-          kind: "evidence:added",
-          payload,
-        },
-        {
-          feature_dir: featureDir,
-          snapshot: session.snapshot,
-          tail_seq: session.tail_seq,
-          entries: session.entries,
-          meta: session.meta,
-          dryRun: ctx.dryRun,
-          registryWriter: registryWriterDeps,
-        },
+      const result = await runMutator(
+        featureDir,
+        session,
+        { kind: "evidence:added", payload, actor },
       );
-      if (!result.ok) {
-        emitFailure(result.code, result.message, result.detail);
-        return;
-      }
-      if (ctx.dryRun) {
-        emitDryRunSuccess(result);
-        return;
-      }
+      if (!result) return;
       // v0.1.1 (F-024): the lessons.md projection writer landed — every
       // mutate rebuilds `.loaf/<feature>/lessons.md` from the lesson
       // entries (writeProjections), so the advisory now states it was
@@ -5545,7 +5281,6 @@ export async function main(
       // only, no event:tasks_amended — that is SC1b). The target is
       // dictated by `action` and re-derived by validateTransition.
       // Other actions remain single-entry until their slices land.
-      const nowIso = new Date().toISOString();
 
       // Phase 11 Item 3 SC2/SC3 — fix-impl / fix-test emit a 3-entry batch
       // [finding:raised, event:task_step_reset, event:phase_advanced(
@@ -5567,50 +5302,34 @@ export async function main(
       // the target is present).
       if (fixResetStep !== undefined && hasTask && hasStep) {
         const currentSubState = session.snapshot.state.sub_state;
-        const batchResult = await mutateBatch(
-          [
-            {
-              at: nowIso,
-              actor,
-              entry_schema_version: 1,
-              kind: "finding:raised",
-              payload,
+        const batchResult = await runMutator(featureDir, session, [
+          {
+            kind: "finding:raised",
+            payload,
+            actor,
+          },
+          {
+            // cli:loaf actor on the mechanical reset entry — human
+            // attribution lives on the sibling finding:raised entry.
+            kind: "event:task_step_reset",
+            payload: {
+              task_id: opts.targetTask,
+              step: fixResetStep,
+              finding_id: id,
             },
-            {
-              // cli:loaf actor on the mechanical reset entry — human
-              // attribution lives on the sibling finding:raised entry.
-              at: nowIso,
-              actor: "cli:loaf",
-              entry_schema_version: 1,
-              kind: "event:task_step_reset",
-              payload: {
-                task_id: opts.targetTask,
-                step: fixResetStep,
-                finding_id: id,
-              },
+            actor: "cli:loaf",
+          },
+          {
+            kind: "event:phase_advanced",
+            payload: {
+              from: currentSubState,
+              to: "EXECUTE.work",
+              back_edge: { action: opts.action, finding_id: id },
             },
-            {
-              at: nowIso,
-              actor: "cli:loaf",
-              entry_schema_version: 1,
-              kind: "event:phase_advanced",
-              payload: {
-                from: currentSubState,
-                to: "EXECUTE.work",
-                back_edge: { action: opts.action, finding_id: id },
-              },
-            },
-          ],
-          { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun, registryWriter: registryWriterDeps },
-        );
-        if (!batchResult.ok) {
-          emitFailure(batchResult.code, batchResult.message, batchResult.detail);
-          return;
-        }
-        if (ctx.dryRun) {
-          emitDryRunSuccess(batchResult);
-          return;
-        }
+            actor: "cli:loaf",
+          },
+        ]);
+        if (!batchResult) return;
         ctx.success(
           {
             ok: true,
@@ -5636,41 +5355,27 @@ export async function main(
       const backEdgeTarget = BACK_EDGE_TARGET[opts.action];
       if (backEdgeTarget !== undefined) {
         const currentSubState = session.snapshot.state.sub_state;
-        const batchResult = await mutateBatch(
-          [
-            {
-              at: nowIso,
-              actor,
-              entry_schema_version: 1,
-              kind: "finding:raised",
-              payload,
+        const batchResult = await runMutator(featureDir, session, [
+          {
+            kind: "finding:raised",
+            payload,
+            actor,
+          },
+          {
+            // codex r96 Q6 ack: cli:loaf actor on derived
+            // phase_advanced (consistent with gate-decide
+            // co-emission). Human attribution lives on the
+            // sibling finding:raised entry one journal line away.
+            kind: "event:phase_advanced",
+            payload: {
+              from: currentSubState,
+              to: backEdgeTarget,
+              back_edge: { action: opts.action, finding_id: id },
             },
-            {
-              // codex r96 Q6 ack: cli:loaf actor on derived
-              // phase_advanced (consistent with gate-decide
-              // co-emission). Human attribution lives on the
-              // sibling finding:raised entry one journal line away.
-              at: nowIso,
-              actor: "cli:loaf",
-              entry_schema_version: 1,
-              kind: "event:phase_advanced",
-              payload: {
-                from: currentSubState,
-                to: backEdgeTarget,
-                back_edge: { action: opts.action, finding_id: id },
-              },
-            },
-          ],
-          { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun, registryWriter: registryWriterDeps },
-        );
-        if (!batchResult.ok) {
-          emitFailure(batchResult.code, batchResult.message, batchResult.detail);
-          return;
-        }
-        if (ctx.dryRun) {
-          emitDryRunSuccess(batchResult);
-          return;
-        }
+            actor: "cli:loaf",
+          },
+        ]);
+        if (!batchResult) return;
         ctx.success(
           {
             ok: true,
@@ -5695,24 +5400,12 @@ export async function main(
         return;
       }
 
-      const result = await mutate(
-        {
-          at: nowIso,
-          actor,
-          entry_schema_version: 1,
-          kind: "finding:raised",
-          payload,
-        },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun, registryWriter: registryWriterDeps },
+      const result = await runMutator(
+        featureDir,
+        session,
+        { kind: "finding:raised", payload, actor },
       );
-      if (!result.ok) {
-        emitFailure(result.code, result.message, result.detail);
-        return;
-      }
-      if (ctx.dryRun) {
-        emitDryRunSuccess(result);
-        return;
-      }
+      if (!result) return;
       ctx.success(
         {
           ok: true,
@@ -5830,24 +5523,12 @@ export async function main(
         );
         return;
       }
-      const result = await mutate(
-        {
-          at: new Date().toISOString(),
-          actor,
-          entry_schema_version: 1,
-          kind: "finding:closed",
-          payload: { id: fndId },
-        },
-        { feature_dir: featureDir, snapshot: session.snapshot, tail_seq: session.tail_seq, entries: session.entries, meta: session.meta, dryRun: ctx.dryRun, registryWriter: registryWriterDeps },
+      const result = await runMutator(
+        featureDir,
+        session,
+        { kind: "finding:closed", payload: { id: fndId }, actor },
       );
-      if (!result.ok) {
-        emitFailure(result.code, result.message, result.detail);
-        return;
-      }
-      if (ctx.dryRun) {
-        emitDryRunSuccess(result);
-        return;
-      }
+      if (!result) return;
       ctx.success(
         { ok: true, feature: opts.feature, id: fndId, status: "closed" },
         (i18n) => i18n.t(SUCCESS_KEYS.findingCloseText, { finding_id: fndId }) + "\n",
@@ -6536,36 +6217,16 @@ export async function main(
         // (batch head bumps; companions share). Per protocol: each CLI
         // invocation = one spec_version bump, irrespective of N items.
         const targetVersion = session.snapshot.state.spec_version + 1;
-        const now = new Date().toISOString();
-        const entries: Parameters<typeof mutateBatch>[0] = transformedItems.map(
-          ({ id, rest }, _idx) => ({
-            at: now,
-            actor,
-            entry_schema_version: 1,
-            kind: cfg.entryKind,
-            payload: {
-              spec_version: targetVersion,
-              [cfg.payloadField]: { id, ...rest },
-            },
-          }),
-        );
-        const result = await mutateBatch(entries, {
-          feature_dir: featureDir,
-          snapshot: session.snapshot,
-          tail_seq: session.tail_seq,
-          entries: session.entries,
-          meta: session.meta,
-          dryRun: ctx.dryRun,
-          registryWriter: registryWriterDeps,
-        });
-        if (!result.ok) {
-          ctx.failure(result.code, result.message, result.detail);
-          return;
-        }
-        if (ctx.dryRun) {
-          emitDryRunSuccess(result);
-          return;
-        }
+        const entries: MutatorEntry[] = transformedItems.map(({ id, rest }) => ({
+          kind: cfg.entryKind,
+          payload: {
+            spec_version: targetVersion,
+            [cfg.payloadField]: { id, ...rest },
+          },
+          actor,
+        }));
+        const result = await runMutator(featureDir, session, entries, "raw-ctx-failure");
+        if (!result) return;
         const specVersion = result.snapshot.state?.spec_version;
         ctx.success(
           {

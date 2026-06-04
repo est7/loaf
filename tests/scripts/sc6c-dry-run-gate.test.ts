@@ -188,7 +188,7 @@ describe("SC-6c — every mutator call carries dryRun in MutateContext", () => {
     // common reuse pattern (see codex r277 audit).
     const KNOWN_GOOD_CTX_NAMES = new Set<string>();
     const ctxDefRe =
-      /const\s+(\w+)\s*=\s*\{[^}]*?dryRun\s*:\s*ctx\.dryRun[^}]*?\};/gs;
+      /const\s+(\w+)\s*(?::\s*\w+\s*)?=\s*\{[^}]*?dryRun\s*:\s*ctx\.dryRun[^}]*?\};/gs;
     for (const m of source.matchAll(ctxDefRe)) {
       KNOWN_GOOD_CTX_NAMES.add(m[1]!);
     }
@@ -243,9 +243,15 @@ describe("SC-6c — every mutator call carries dryRun in MutateContext", () => {
     }
 
     expect(misses).toEqual([]);
-    // Sanity: there should be ≥30 mutator call sites in cli.tsx
-    const totalCalls = source.match(/await\s+mutate(?:Batch)?\s*\(/g)?.length ?? 0;
-    expect(totalCalls).toBeGreaterThanOrEqual(30);
+    // Sanity: the mutator pipeline is centralized behind `runMutator`, which
+    // builds the wired `mctx` once. The remaining textual `await mutate(Batch)`
+    // sites are the helper internals, the two pre-stamped buildSpecSubmitBatch
+    // sites, and the sponsored tasks-add exclusion (per-entry `at`) — all
+    // covered by the `misses` check above.
+    // Guard that a representative number of call sites route through the
+    // centralized helper (was: ≥30 inline ctx literals pre-L1 migration).
+    const runMutatorCalls = source.match(/await\s+runMutator\s*\(/g)?.length ?? 0;
+    expect(runMutatorCalls).toBeGreaterThanOrEqual(25);
   });
 });
 
