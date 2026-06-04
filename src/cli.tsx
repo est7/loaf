@@ -1582,7 +1582,7 @@ export async function main(
         }
         const tasks: TaskState[] = loaded.tasks
           ? loaded.tasks.tasks.map((t) =>
-              extractTaskSlim(t as unknown as TaskFullProjection),
+              extractTaskSlim(t),
             )
           : [];
         // deriveVerifyApplicability reads frontmatter plus snapshot.tasks;
@@ -2978,7 +2978,7 @@ export async function main(
       if (loaded === null) return;
       const slimTasks = loaded.tasks
         ? loaded.tasks.tasks.map((t) =>
-            extractTaskSlim(t as unknown as TaskFullProjection),
+            extractTaskSlim(t),
           )
         : [];
       const tasksById = new Map(slimTasks.map((t) => [t.id, t]));

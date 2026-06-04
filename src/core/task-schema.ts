@@ -202,14 +202,19 @@ export type TaskFullProjection = {
   status: "pending" | "ready" | "in_progress" | "done" | "abandoned";
   depends_on: string[];
   labels: string[];
-  drives?: string[];
+  drives?: string[] | undefined;
   execution: Record<string, TaskExecutionStepPayload>;
-  // Optional per-kind extras (narrowed by `kind`):
-  red_test_registered?: boolean;
-  no_test_rationale?: string;
-  visual_contract_refs?: string[];
-  requires_acceptance?: boolean;
-  requires_visual?: boolean;
+  // Optional per-kind extras (narrowed by `kind`). The explicit `| undefined`
+  // is REQUIRED under exactOptionalPropertyTypes: a zod-inferred TaskFullPayload
+  // variant's `.optional()` keys are optional AND their value type includes
+  // `undefined`, so this flattened read-view must allow `undefined` on the same
+  // keys for the union to provably satisfy it — making the doc claim above
+  // compiler-checked instead of bypassed by an `as unknown as` cast (L5 / T3).
+  red_test_registered?: boolean | undefined;
+  no_test_rationale?: string | undefined;
+  visual_contract_refs?: string[] | undefined;
+  requires_acceptance?: boolean | undefined;
+  requires_visual?: boolean | undefined;
 };
 
 /**
