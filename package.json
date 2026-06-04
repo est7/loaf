@@ -36,6 +36,9 @@
     "yaml": "^2.9.0",
     "zod": "^4.4.3"
   },
+  "overrides": {
+    "ws": "^8.21.0"
+  },
   "devDependencies": {
     "@types/node": "^25.7.0",
     "@types/picomatch": "^4.0.3",
