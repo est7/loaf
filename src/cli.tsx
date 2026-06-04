@@ -84,6 +84,7 @@ import {
   LoafConfig,
   loafConfigPath,
   readLoafConfig,
+  writeConfigExclusive,
 } from "./core/loaf-config.js";
 import { readUserConfig, UserConfig, userConfigPath } from "./core/user-config.js";
 import {
@@ -2323,40 +2324,23 @@ export async function main(
     return JSON.stringify(value, null, 2) + "\n";
   }
 
+  const refuseConfigExists = (configPath: string): void =>
+    emitFailure(
+      "CONFIG_ALREADY_INITIALIZED",
+      `loaf config already exists at ${configPath}; refusing to overwrite`,
+      { config_path: configPath },
+    );
+
+  // Pre-check before any scaffold I/O (mkdir / compose). The exclusive `wx`
+  // write in writeConfigExclusive still backstops the check→write race.
   async function ensureConfigTargetAbsent(configPath: string): Promise<boolean> {
     try {
       await fsP.access(configPath);
-      emitFailure(
-        "CONFIG_ALREADY_INITIALIZED",
-        `loaf config already exists at ${configPath}; refusing to overwrite`,
-        { config_path: configPath },
-      );
+      refuseConfigExists(configPath);
       return false;
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") return true;
       throw err;
-    }
-  }
-
-  async function writeJsonExclusive(configPath: string, content: string): Promise<boolean> {
-    await fsP.mkdir(path.dirname(configPath), { recursive: true });
-    let handle: Awaited<ReturnType<typeof fsP.open>> | undefined;
-    try {
-      handle = await fsP.open(configPath, "wx");
-      await handle.writeFile(content, "utf8");
-      return true;
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === "EEXIST") {
-        emitFailure(
-          "CONFIG_ALREADY_INITIALIZED",
-          `loaf config already exists at ${configPath}; refusing to overwrite`,
-          { config_path: configPath },
-        );
-        return false;
-      }
-      throw err;
-    } finally {
-      await handle?.close();
     }
   }
 
@@ -2389,7 +2373,10 @@ export async function main(
             ...LoafConfig.parse(defaultLoafConfig()),
           });
 
-      if (!(await writeJsonExclusive(configPath, content))) return;
+      if ((await writeConfigExclusive(configPath, content)) === "exists") {
+        refuseConfigExists(configPath);
+        return;
+      }
       ctx.success(
         { ok: true, config_path: configPath },
         () => `${configPath}\n`,

@@ -137,3 +137,31 @@ export async function readLoafConfig(repoRoot: string): Promise<LoafConfigLoad> 
   }
   return { status: "ok", config: result.data };
 }
+
+export type ConfigWriteResult = "written" | "exists";
+
+/**
+ * Exclusive-create write for a scaffolded config file: `mkdir -p` the parent,
+ * then `open` with the `wx` flag so a race between a caller's existence
+ * pre-check and this write still refuses (`"exists"`) instead of clobbering.
+ * Non-EEXIST failures propagate — fail fast at the I/O boundary. The caller
+ * owns diagnostic emission; this stays pure I/O so the refuse-on-race branch
+ * is deterministically testable.
+ */
+export async function writeConfigExclusive(
+  configPath: string,
+  content: string,
+): Promise<ConfigWriteResult> {
+  await fs.mkdir(path.dirname(configPath), { recursive: true });
+  let handle: Awaited<ReturnType<typeof fs.open>> | undefined;
+  try {
+    handle = await fs.open(configPath, "wx");
+    await handle.writeFile(content, "utf8");
+    return "written";
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "EEXIST") return "exists";
+    throw err;
+  } finally {
+    await handle?.close();
+  }
+}

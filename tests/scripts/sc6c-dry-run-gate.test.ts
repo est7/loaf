@@ -53,6 +53,7 @@ const READ_ONLY_COMMANDS: readonly string[] = [
   "spec edit",         // Phase 16 SC-12a-2 (wrapping mutator)
   "handoff",           // Phase 16 SC-13a (projection-writer)
   "tui",               // Phase 16 SC-14 (read-only)
+  "config init",       // rev 5.0 (scaffold-writer) — rejects --dry-run
 ];
 
 /** Escape regex metacharacters in a literal label. */

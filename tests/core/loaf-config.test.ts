@@ -15,6 +15,7 @@ import {
   readLoafConfig,
   loafConfigPath,
   WriteGuardConfig,
+  writeConfigExclusive,
 } from "../../src/core/loaf-config.js";
 
 const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -152,5 +153,39 @@ describe("LoafConfig full runtime schema", () => {
     };
     expect(LoafConfig.safeParse(raw).success).toBe(false);
     expect(WriteGuardConfig.safeParse(raw).success).toBe(true);
+  });
+});
+
+describe("writeConfigExclusive", () => {
+  test("writes content and creates the parent dir when target absent", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "loaf-cfg-write-"));
+    const target = path.join(dir, ".loaf", ".config", "loaf.config.json");
+
+    const result = await writeConfigExclusive(target, "scaffolded\n");
+
+    expect(result).toBe("written");
+    expect(await fs.readFile(target, "utf8")).toBe("scaffolded\n");
+  });
+
+  test("returns 'exists' without clobbering when target is present (wx race path)", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "loaf-cfg-write-"));
+    const target = path.join(dir, "loaf.config.json");
+    await fs.writeFile(target, "original");
+
+    const result = await writeConfigExclusive(target, "REPLACEMENT");
+
+    expect(result).toBe("exists");
+    expect(await fs.readFile(target, "utf8")).toBe("original");
+  });
+
+  test("propagates non-EEXIST errors (parent path is a file, not a dir)", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "loaf-cfg-write-"));
+    const fileAsParent = path.join(dir, "not-a-dir");
+    await fs.writeFile(fileAsParent, "x");
+    const target = path.join(fileAsParent, "loaf.config.json");
+
+    await expect(writeConfigExclusive(target, "data")).rejects.toMatchObject({
+      code: expect.stringMatching(/^(ENOTDIR|EEXIST)$/),
+    });
   });
 });

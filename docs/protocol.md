@@ -1760,11 +1760,12 @@ error: input does not satisfy schema for spec:add-req: /measurable/threshold: ex
 - `loaf evidence add/schema` ✅
 - `loaf finding raise/list/close` ✅
 - `loaf gate decide` ✅
+- `loaf config init` ✅(rev 5.0:`--global` 写 user config;noun-first,非 bare `loaf init`,见 ADR-0007 §1)
 - `loaf sessions list` ✅
 - `loaf context pack` ⏳(命名锁定 rev 4.3,但 **inventory:future / F-025 延后,未在 v0.1.0 实装**;见 §10.8)
 
 **Chaos deviation — session lifecycle 命令保留单 verb**(git-style muscle memory):
-- `loaf start` / `loaf status` / `loaf advance` / `loaf resume` / `loaf handoff` / `loaf config init`
+- `loaf start` / `loaf status` / `loaf advance` / `loaf resume` / `loaf handoff`
 - `loaf settle` / `loaf deliver` / `loaf archive` / `loaf abandon`
 - `loaf doctor` / `loaf tui`
 

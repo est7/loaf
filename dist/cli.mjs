@@ -8250,6 +8250,28 @@ async function readLoafConfig(repoRoot) {
 		config: result.data
 	};
 }
+/**
+* Exclusive-create write for a scaffolded config file: `mkdir -p` the parent,
+* then `open` with the `wx` flag so a race between a caller's existence
+* pre-check and this write still refuses (`"exists"`) instead of clobbering.
+* Non-EEXIST failures propagate — fail fast at the I/O boundary. The caller
+* owns diagnostic emission; this stays pure I/O so the refuse-on-race branch
+* is deterministically testable.
+*/
+async function writeConfigExclusive(configPath, content) {
+	await promises.mkdir(path.dirname(configPath), { recursive: true });
+	let handle;
+	try {
+		handle = await promises.open(configPath, "wx");
+		await handle.writeFile(content, "utf8");
+		return "written";
+	} catch (err) {
+		if (err.code === "EEXIST") return "exists";
+		throw err;
+	} finally {
+		await handle?.close();
+	}
+}
 //#endregion
 //#region src/core/user-config.ts
 const UserConfig = z.object({
@@ -13040,44 +13062,31 @@ async function main(argv = process.argv, deps = {}) {
 	function serializeStableJson(value) {
 		return JSON.stringify(value, null, 2) + "\n";
 	}
+	const refuseConfigExists = (configPath) => emitFailure("CONFIG_ALREADY_INITIALIZED", `loaf config already exists at ${configPath}; refusing to overwrite`, { config_path: configPath });
 	async function ensureConfigTargetAbsent(configPath) {
 		try {
 			await promises.access(configPath);
-			emitFailure("CONFIG_ALREADY_INITIALIZED", `loaf config already exists at ${configPath}; refusing to overwrite`, { config_path: configPath });
+			refuseConfigExists(configPath);
 			return false;
 		} catch (err) {
 			if (err.code === "ENOENT") return true;
 			throw err;
 		}
 	}
-	async function writeJsonExclusive(configPath, content) {
-		await promises.mkdir(path.dirname(configPath), { recursive: true });
-		let handle;
-		try {
-			handle = await promises.open(configPath, "wx");
-			await handle.writeFile(content, "utf8");
-			return true;
-		} catch (err) {
-			if (err.code === "EEXIST") {
-				emitFailure("CONFIG_ALREADY_INITIALIZED", `loaf config already exists at ${configPath}; refusing to overwrite`, { config_path: configPath });
-				return false;
-			}
-			throw err;
-		} finally {
-			await handle?.close();
-		}
-	}
 	program.command("config").description("Project and user config commands").command("init").description("Write .loaf/.config/loaf.config.json; --global writes ~/.loaf/config.json").option("--global", "Write user config at ~/.loaf/config.json instead of project config").action(async (opts) => {
 		if (rejectIfDryRun("config init", "scaffold-writer")) return;
 		const configPath = opts.global ? userConfigPath(deps.userConfigHomeDir ?? os.homedir()) : loafConfigPath(process.cwd());
 		if (!await ensureConfigTargetAbsent(configPath)) return;
-		if (!await writeJsonExclusive(configPath, opts.global ? serializeStableJson(UserConfig.parse({
+		if (await writeConfigExclusive(configPath, opts.global ? serializeStableJson(UserConfig.parse({
 			schema_version: 1,
 			locale: { default_lang: "en" }
 		})) : serializeStableJson({
 			_comment: CONFIG_INIT_COMMENT,
 			...LoafConfig.parse(defaultLoafConfig())
-		}))) return;
+		})) === "exists") {
+			refuseConfigExists(configPath);
+			return;
+		}
 		ctx.success({
 			ok: true,
 			config_path: configPath
