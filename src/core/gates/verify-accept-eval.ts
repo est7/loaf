@@ -25,33 +25,21 @@ import { readSpecFrontmatter } from "../spec-frontmatter.js";
 import type { Snapshot } from "../reducer.js";
 import { evaluateAllChecks, verifyAcceptCheck } from "./verify-accept-check.js";
 import type { PerCheckResult, VerifyAcceptResult } from "./verify-accept-check.js";
+import { gateEvalFromCheck } from "./gate-eval.js";
 
 /** Alias for downstream readability — same shape as VerifyAcceptResult. */
 export type FullVerifyAcceptResult = VerifyAcceptResult;
+
+// L7: gate-mode body shared with spec-lock-eval via gateEvalFromCheck; only the
+// pure check (verifyAcceptCheck) differs. Thin `export async function` wrapper
+// (codex L7 Q4) preserves the exported declaration form of this core export.
+const evaluateVerifyAcceptGate = gateEvalFromCheck(verifyAcceptCheck);
 
 export async function evaluateVerifyAccept(
   snapshot: Snapshot,
   featureDir: string,
 ): Promise<FullVerifyAcceptResult> {
-  const read = await readSpecFrontmatter(featureDir);
-  if (!read.ok) {
-    // ReadSpecResult preserves a specific code (SPEC_NOT_FOUND |
-    // SPEC_YAML_INVALID | SPEC_FRONTMATTER_INVALID). The gate result
-    // collapses these to a single user-visible code with the read
-    // subcode in detail so the catalog template can branch on it.
-    return {
-      ok: false,
-      checks: [
-        {
-          check: 1,
-          code: "SPEC_FRONTMATTER_INVALID",
-          message: read.message,
-          detail: { subcode: read.code, ...(read.detail ?? {}) },
-        },
-      ],
-    };
-  }
-  return verifyAcceptCheck(snapshot, read.frontmatter);
+  return evaluateVerifyAcceptGate(snapshot, featureDir);
 }
 
 // SC-9a-1: diagnostic eval entry for `loaf verify status` (read-only).
