@@ -15,7 +15,7 @@
 // REGISTERED independently; verify-min short-circuits on the first bug-RED before
 // assembling DELIVER_VERIFY_MIN_INCOMPLETE.
 
-import type { Snapshot, TaskState, EvidenceState } from "../reducer.js";
+import type { Snapshot, TaskState, EvidenceState } from "../projection-types.js";
 import { isPassingResult } from "./evidence-result.js";
 
 export type TaskProofGap = "no-passing-evidence" | "bug-red-unregistered";

@@ -5,7 +5,7 @@
 // keeping isPassingResult in verify-accept-check.ts would make the kernel depend
 // on one of its own callers (codex L6 plan-first required adjustment).
 
-import type { EvidenceState } from "../reducer.js";
+import type { EvidenceState } from "../projection-types.js";
 
 /** Evidence results that count as a positive proof signal. `waived` is a human
  *  escape; spec-review uses a STRICTER notion (passed/approved only) and does

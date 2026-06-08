@@ -2,7 +2,7 @@ import type { EvidenceKind } from "../core/evidence-schema.js";
 import type { FindingAction, FindingCategory } from "../core/finding-schema.js";
 import type { SubState } from "../core/journal-entry.js";
 import type { TaskFullProjection } from "../core/task-schema.js";
-import type { TuiStatusBucket } from "./tui/list-model.js";
+import type { TuiStatusBucket } from "./tui/types.js";
 
 export type TaskKind = TaskFullProjection["kind"];
 export type TaskStatus = TaskFullProjection["status"];

@@ -5,8 +5,8 @@
 // and typed render-plan construction.
 
 import type { SessionRow } from "../sessions-list.js";
+import type { TuiStatusBucket } from "./types.js";
 
-export type TuiStatusBucket = "done" | "blocked" | "running" | "idle";
 export type TuiSortMode = "time" | "status";
 export type TuiDetailStatus = "unknown" | "loading" | "ready" | "stale" | "missing" | "error";
 export type TuiMoveDirection = -1 | 1;

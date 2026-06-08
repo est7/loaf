@@ -39,7 +39,7 @@
 // IO boundary (read spec.md frontmatter) lands in sub-cycle 4
 // (verify-accept-eval.ts).
 
-import type { EvidenceState, Snapshot } from "../reducer.js";
+import type { EvidenceState, Snapshot } from "../projection-types.js";
 import type { SpecFrontmatter } from "../spec-schema.js";
 import type { VerifyCheckKind } from "../evidence-schema.js";
 import { canSatisfy } from "../evidence-compat.js";

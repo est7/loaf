@@ -22,7 +22,7 @@
 // silently exempting all coverage obligations.
 
 import { readSpecFrontmatter } from "../spec-frontmatter.js";
-import type { Snapshot } from "../reducer.js";
+import type { Snapshot } from "../projection-types.js";
 import { evaluateAllChecks, verifyAcceptCheck } from "./verify-accept-check.js";
 import type { PerCheckResult, VerifyAcceptResult } from "./verify-accept-check.js";
 import { gateEvalFromCheck } from "./gate-eval.js";

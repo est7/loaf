@@ -30,7 +30,7 @@
 //
 // Pure, zero-IO. Tests inject parsed SpecFrontmatter + Snapshot fixtures.
 
-import type { Snapshot, TaskState } from "../reducer.js";
+import type { Snapshot, TaskState } from "../projection-types.js";
 import { hasVerifiability } from "../spec-schema.js";
 import type { SpecFrontmatter } from "../spec-schema.js";
 

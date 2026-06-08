@@ -11,7 +11,7 @@
 
 import { readSpecFrontmatter } from "../spec-frontmatter.js";
 import type { ReadSpecResult } from "../spec-frontmatter.js";
-import type { Snapshot } from "../reducer.js";
+import type { Snapshot } from "../projection-types.js";
 
 type ReadFailure = Extract<ReadSpecResult, { ok: false }>;
 type Frontmatter = Extract<ReadSpecResult, { ok: true }>["frontmatter"];

@@ -35,7 +35,7 @@
 import { JournalEntry } from "../journal-entry.js";
 import { PER_KIND_PAYLOAD } from "../kind-registry.js";
 import type { Ceremony, EntryKind, SubState } from "../journal-entry.js";
-import type { Snapshot, TaskState } from "../reducer.js";
+import type { Snapshot, TaskState } from "../projection-types.js";
 import { evaluateTaskProof, verifyMinPolicy } from "../gates/task-proof.js";
 import { extractTaskSlim, type TaskFullProjection } from "../task-schema.js";
 import {
