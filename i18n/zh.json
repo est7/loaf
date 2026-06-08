@@ -157,6 +157,54 @@
     "profile_escalation":  "Profile 升级待确认"
   },
 
+  "board": {
+    "chrome": {
+      "app_title": "loaf 看板",
+      "brand": "loaf 看板",
+      "scope_label": "范围",
+      "all_sessions": "全部会话",
+      "current_cwd": "当前 cwd",
+      "refresh": "刷新",
+      "theme_toggle": "切换主题",
+      "eyebrow": "本地看板",
+      "heading": "Loaf 实时看板",
+      "subtitle": "读取本地 journal projection。",
+      "active": "活跃",
+      "blocked": "阻塞",
+      "updated": "更新于",
+      "waiting": "等待中",
+      "board_label": "Loaf 会话看板",
+      "no_sessions": "暂无会话。",
+      "none": "无。",
+      "session": "会话",
+      "session_detail": "会话详情",
+      "close_session_detail": "关闭会话详情",
+      "loading": "加载中...",
+      "session_error": "会话错误",
+      "iteration_short": "迭代"
+    },
+    "column": {
+      "TRIAGE":  { "description": "打分并确认 ceremony" },
+      "SPEC":    { "description": "提案、规格、计划、设计" },
+      "EXECUTE": { "description": "任务执行与并行展开" },
+      "VERIFY":  { "description": "运行、评审、验收、视觉" },
+      "SETTLE":  { "description": "对账与经验沉淀" },
+      "DONE":    { "description": "已交付或终态会话" }
+    },
+    "detail": {
+      "phase": "阶段",
+      "sub_state": "子状态",
+      "tail_seq": "尾序号",
+      "tasks": "任务",
+      "evidence": "证据",
+      "open_findings": "开放发现",
+      "pending": "待处理",
+      "task_done_suffix": "完成",
+      "evidence_passing_suffix": "通过",
+      "steps_suffix": "步骤"
+    }
+  },
+
   "diagnostic": {
     "MISSING_VERIFIABILITY":      "需求 {req_id} 必须声明 measurable、verified_by_scenarios[] 或 acceptance_na+reason 三选一",
     "DRIVES_NOT_BOUND":           "需求 {req_id} 没有被任何 task.drives[] 引用",

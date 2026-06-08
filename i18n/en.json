@@ -157,6 +157,54 @@
     "profile_escalation":  "Profile escalation pending confirm"
   },
 
+  "board": {
+    "chrome": {
+      "app_title": "loaf board",
+      "brand": "loaf board",
+      "scope_label": "Scope",
+      "all_sessions": "All sessions",
+      "current_cwd": "Current cwd",
+      "refresh": "Refresh",
+      "theme_toggle": "Toggle theme",
+      "eyebrow": "Local board",
+      "heading": "Loaf Live Board",
+      "subtitle": "Reading local journal projections.",
+      "active": "Active",
+      "blocked": "Blocked",
+      "updated": "Updated",
+      "waiting": "Waiting",
+      "board_label": "Loaf session board",
+      "no_sessions": "No sessions.",
+      "none": "None.",
+      "session": "Session",
+      "session_detail": "Session detail",
+      "close_session_detail": "Close session detail",
+      "loading": "Loading...",
+      "session_error": "Session error",
+      "iteration_short": "iter"
+    },
+    "column": {
+      "TRIAGE":  { "description": "Score and confirm ceremony" },
+      "SPEC":    { "description": "Proposal, spec, plan, design" },
+      "EXECUTE": { "description": "Task work and fan-out" },
+      "VERIFY":  { "description": "Run, review, acceptance, visual" },
+      "SETTLE":  { "description": "Reconcile and lessons" },
+      "DONE":    { "description": "Delivered or terminal sessions" }
+    },
+    "detail": {
+      "phase": "Phase",
+      "sub_state": "Sub-state",
+      "tail_seq": "Tail seq",
+      "tasks": "Tasks",
+      "evidence": "Evidence",
+      "open_findings": "Open findings",
+      "pending": "Pending",
+      "task_done_suffix": "done",
+      "evidence_passing_suffix": "passing",
+      "steps_suffix": "steps"
+    }
+  },
+
   "diagnostic": {
     "MISSING_VERIFIABILITY":      "REQ {req_id} must declare measurable, verified_by_scenarios[], or acceptance_na+reason",
     "DRIVES_NOT_BOUND":           "REQ {req_id} is not referenced by any task.drives[]",
