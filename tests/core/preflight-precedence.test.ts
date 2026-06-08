@@ -417,6 +417,61 @@ const PRECEDENCE_PAIRS: PrecedenceRow[] = [
     ctx: { snapshot: mkSnapshot("EXECUTE.work", QUICK_CEREMONY), tail_seq: -1 },
     expected: "ACTOR_AUTHORITY_VIOLATION",
   },
+  // W9a — pin the round-2 W1 transition code SPEC_LOCK_NOT_SATISFIED's
+  // precedence position (it post-dates the original SC-10 row set). These lock
+  // the order the W9b extraction must preserve.
+  {
+    name: "spec-lock advance + bad actor -> ACTOR_AUTHORITY_VIOLATION because actor authority runs before the transition spec-lock refine",
+    entry: baseEntry({
+      actor: "migration:fixture",
+      kind: "event:phase_advanced",
+      payload: { from: "SPEC.design", to: "EXECUTE.plan" },
+    }),
+    ctx: {
+      snapshot: mkSnapshot("SPEC.design", STANDARD_CEREMONY, { spec_locked: false }),
+      tail_seq: -1,
+    },
+    expected: "ACTOR_AUTHORITY_VIOLATION",
+  },
+  {
+    name: "spec-lock advance + pending head -> PENDING_BLOCKS_ADVANCE because the pending guard runs before the transition spec-lock refine",
+    entry: baseEntry({
+      kind: "event:phase_advanced",
+      payload: { from: "SPEC.design", to: "EXECUTE.plan" },
+    }),
+    ctx: {
+      snapshot: mkSnapshot("SPEC.design", STANDARD_CEREMONY, {
+        spec_locked: false,
+        pending: pendingGateHead,
+      }),
+      tail_seq: -1,
+    },
+    expected: "PENDING_BLOCKS_ADVANCE",
+  },
+  {
+    name: "spec-lock advance illegal target + unlocked -> TRANSITION_ILLEGAL because edge legality runs before the spec-lock refine inside validateTransition",
+    entry: baseEntry({
+      kind: "event:phase_advanced",
+      payload: { from: "SPEC.design", to: "VERIFY.run" },
+    }),
+    ctx: {
+      snapshot: mkSnapshot("SPEC.design", STANDARD_CEREMONY, { spec_locked: false }),
+      tail_seq: -1,
+    },
+    expected: "TRANSITION_ILLEGAL",
+  },
+  {
+    name: "spec-lock advance, legal edge, unlocked, nothing higher -> SPEC_LOCK_NOT_SATISFIED (positive: the W1 refine fires when no earlier check does)",
+    entry: baseEntry({
+      kind: "event:phase_advanced",
+      payload: { from: "SPEC.design", to: "EXECUTE.plan" },
+    }),
+    ctx: {
+      snapshot: mkSnapshot("SPEC.design", STANDARD_CEREMONY, { spec_locked: false }),
+      tail_seq: -1,
+    },
+    expected: "SPEC_LOCK_NOT_SATISFIED",
+  },
 ];
 
 describe("preflight — error precedence characterization", () => {
@@ -425,7 +480,7 @@ describe("preflight — error precedence characterization", () => {
     expect(r).toMatchObject({ ok: false, code: expected });
   });
 
-  test("PRECEDENCE_PAIRS keeps the converged SC-10 row count", () => {
-    expect(PRECEDENCE_PAIRS).toHaveLength(22);
+  test("PRECEDENCE_PAIRS keeps the converged row count (SC-10: 22 + W9a: 4)", () => {
+    expect(PRECEDENCE_PAIRS).toHaveLength(26);
   });
 });
