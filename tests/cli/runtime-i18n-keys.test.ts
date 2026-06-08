@@ -28,7 +28,7 @@ import {
 import { EvidenceKind } from "../../src/core/evidence-schema.js";
 import { FindingAction, FindingCategory } from "../../src/core/finding-schema.js";
 import { PendingPromptKind, SubState } from "../../src/core/journal-entry.js";
-import { ERROR_CATALOG } from "../../docs/schemas.js";
+import { ERROR_CATALOG, DiagnosticCode } from "../../docs/schemas.js";
 
 const PHASE_VALUES = ["TRIAGE", "SPEC", "EXECUTE", "VERIFY", "SETTLE", "DONE"] as const;
 const STATUS_BUCKETS = ["done", "blocked", "running", "idle"] as const;
@@ -106,6 +106,25 @@ describe("runtime i18n key gate", () => {
     }
 
     expect(stalePresent).toEqual([]);
+  });
+
+  // W5a — structural gate: every bundled `diagnostic.*` key MUST be a valid
+  // DiagnosticCode. The STALE_DIAGNOSTIC_KEYS denylist above is a hardcoded
+  // backstop; this gate is exhaustive and catches the NEXT stale rename or
+  // phantom key automatically (the 10 phantoms removed in this change would
+  // have been caught here).
+  test("every bundled diagnostic.* key is a valid DiagnosticCode", () => {
+    const validCodes = new Set<string>(DiagnosticCode.options);
+    const orphans: string[] = [];
+    for (const locale of LOCALES) {
+      const section = (BUILTIN_BUNDLES[locale] as { diagnostic?: Record<string, string> })
+        .diagnostic;
+      if (!section) continue;
+      for (const code of Object.keys(section)) {
+        if (!validCodes.has(code)) orphans.push(`${locale}:diagnostic.${code}`);
+      }
+    }
+    expect(orphans).toEqual([]);
   });
 
   test("failure site keys are explicit, localized, placeholder-symmetric, and map to catalog codes", () => {
