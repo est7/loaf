@@ -18,6 +18,8 @@
     "dev": "bun run src/cli.tsx",
     "build": "tsdown",
     "typecheck": "tsc --noEmit",
+    "lint": "biome check --formatter-enabled=false --assist-enabled=false src tests tsdown.config.ts package.json tsconfig.json biome.json",
+    "format": "biome format --write src tests tsdown.config.ts package.json tsconfig.json biome.json",
     "test": "vitest run",
     "check": "bun run typecheck && bun run test && bun run build",
     "ga:pack-smoke": "bash scripts/ga-package-smoke.sh",
@@ -40,6 +42,7 @@
     "ws": "^8.21.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.4.16",
     "@types/node": "^25.7.0",
     "@types/picomatch": "^4.0.3",
     "@types/react": "^19.2.14",
