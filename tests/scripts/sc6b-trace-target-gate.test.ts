@@ -8,11 +8,13 @@
 // gate decide, spike convert, profile escalate, tasks claim/abandon/
 // step/amend, pending raise, finding raise, spec init/submit, etc.).
 //
-// Window: 60 lines from each `.action(` start covers all current
+// Window: 80 lines from each `.action(` start covers all current
 // action bodies (codex r271 acceptance: 45 was generous for current;
 // we widened to 60 to absorb long pre-validation bodies — profile
 // escalate, tasks amend, evidence add, spec submit — whose featureDir
 // resolution sits past 45 lines from the `.action(` open).
+// SC-8b biome formatting expands action bodies; widen to 80 so the
+// static locality guard still covers the same dispatch markers after format.
 //
 // Also asserts protocol.md + .gitignore invariants: `--debug` row no
 // longer has `inventory:future`, §13.2 no longer advertises current
@@ -33,7 +35,7 @@ async function readRepo(rel: string): Promise<string> {
 }
 
 describe("SC-6b — static guard: every .action( records trace target", () => {
-  test("every .action( block has ctx.recordTraceTarget(...) or // no-feature within 60 lines", async () => {
+  test("every .action( block has ctx.recordTraceTarget(...) or // no-feature within 80 lines", async () => {
     const source = await readRepo("src/cli.tsx");
     const lines = source.split("\n");
     const actionLines = lines
@@ -44,7 +46,7 @@ describe("SC-6b — static guard: every .action( records trace target", () => {
 
     const misses: string[] = [];
     for (const block of actionLines) {
-      const slice = lines.slice(block.index, block.index + 60).join("\n");
+      const slice = lines.slice(block.index, block.index + 80).join("\n");
       // SC-8: `dispatchOrFail(opts)` records traceTarget internally
       // (resolves §10.3 dispatch + mutates opts + calls
       // ctx.recordTraceTarget). Action handlers that call dispatchOrFail
