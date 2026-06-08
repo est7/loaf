@@ -656,11 +656,13 @@ export async function mutateBatch(
   } finally {
     // Release the write lock on EVERY exit path — the success return above, any
     // mid-span error return (SIDECAR_ERROR / REDUCER_ERROR drift / APPEND_ERROR
-    // / PROJECTION_WRITE_FAILED), or an unexpected throw. Best-effort unlink: if
-    // the process dies between close and unlink, a stale `.lock` remains and the
-    // next writer hits WRITE_CONTENTION until `loaf doctor` clears it (the
-    // honest single-writer-MVP recovery story).
-    await lockFh.close();
+    // / PROJECTION_WRITE_FAILED), or an unexpected throw. Both close and unlink
+    // are independently best-effort: a failing close() must NOT skip the unlink
+    // (codex W3 nit), and a crash anywhere here leaves a stale `.lock` that the
+    // next writer hits as WRITE_CONTENTION — the user removes it manually
+    // (doctor does not yet auto-clear stale locks); the honest single-writer-MVP
+    // recovery story.
+    await lockFh.close().catch(() => {});
     await fsp.unlink(lockPath).catch(() => {});
   }
 }
