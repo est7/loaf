@@ -14,6 +14,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 
 import { mutate, mutateBatch } from "../../src/core/journal-mutate.js";
 import { initialSnapshot } from "../../src/core/reducer.js";
@@ -36,6 +37,26 @@ const STANDARD = {
 };
 
 describe("mutate — transactional journal write (audit r1 Blocker #3)", () => {
+  test("snapshot drift equality ignores object key order", () => {
+    const a = initialSnapshot();
+    const b: Snapshot = {
+      tasks_based_on: a.tasks_based_on,
+      visual_contracts: a.visual_contracts,
+      scenarios: a.scenarios,
+      requirements: a.requirements,
+      spec_header: a.spec_header,
+      pending: a.pending,
+      findings: a.findings,
+      evidence: a.evidence,
+      tasks: a.tasks,
+      state: a.state,
+    };
+
+    // The drift guard must compare structure, not serialized key order.
+    expect(JSON.stringify(a)).not.toBe(JSON.stringify(b));
+    expect(isDeepStrictEqual(a, b)).toBe(true);
+  });
+
   test("happy path: session:started → snapshot bootstrapped, journal has the entry", async () => {
     const dir = await tmpFeatureDir();
     const result = await mutate(

@@ -56,6 +56,7 @@
 // audit-sanctioned end-to-end path.
 
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 
 import { AppendError, appendMany } from "./journal-append.js";
 import { evaluateSpecLock } from "./gates/spec-lock-eval.js";
@@ -445,7 +446,7 @@ export async function mutateBatch(
     }
     finalSnapshot = dryRun.snapshot;
   }
-  if (JSON.stringify(finalSnapshot) !== JSON.stringify(snapshotAcc)) {
+  if (!isDeepStrictEqual(finalSnapshot, snapshotAcc)) {
     return {
       ok: false,
       code: "REDUCER_ERROR",
