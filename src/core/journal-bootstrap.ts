@@ -135,6 +135,27 @@ export async function replayJournal(
       };
     }
 
+    // W2 — seq monotonicity. appendMany enforces `seq === tail + 1` on the
+    // write path, but replay never re-checked it: apply() delegates to
+    // preflight with `tail_seq = entry.seq - 1`, which makes preflight's
+    // monotonicity gate tautological (expectedSeq === entry.seq always). So a
+    // journal with a duplicated / gapped / reordered seq replayed clean as
+    // long as each entry's transition was individually legal — a corrupt or
+    // tampered journal projected to a plausible-but-wrong state. Assert strict
+    // contiguity here, BEFORE apply, so even a reducer-legal entry at the
+    // wrong seq is rejected. (`doctor --verify-checksum` remains the deeper
+    // rolling-chain check; this is the cheap structural guard on every read.)
+    const expectedSeq = lastSeq + 1;
+    if (entry.seq !== expectedSeq) {
+      return {
+        ok: false,
+        code: "INVALID_ENTRY",
+        message: `journal seq not monotonic: entry.seq=${entry.seq} but expected ${expectedSeq} (prior applied seq=${lastSeq})`,
+        at_seq: entry.seq,
+        detail: { expected_seq: expectedSeq, got_seq: entry.seq, prior_seq: lastSeq },
+      };
+    }
+
     // Migration entries bypass apply()'s default bootstrap and rehydrate
     // the full projection from sidecar artifacts (audit r1 Blocker #6).
     // Audit r2 Medium fix: replayJournal MUST fail-fast if a migration
