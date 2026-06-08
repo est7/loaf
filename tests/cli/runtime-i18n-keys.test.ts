@@ -32,6 +32,13 @@ import { ERROR_CATALOG } from "../../docs/schemas.js";
 
 const PHASE_VALUES = ["TRIAGE", "SPEC", "EXECUTE", "VERIFY", "SETTLE", "DONE"] as const;
 const STATUS_BUCKETS = ["done", "blocked", "running", "idle"] as const;
+const STALE_DIAGNOSTIC_KEYS = [
+  "TASK_KIND_SCHEMA_INVALID",
+  "E2E_ACCEPTANCE_UNRESOLVED",
+  "VISUAL_CONTRACT_UNRESOLVED",
+  "NO_OPEN_CLARIFICATIONS",
+  "TASKS_VERSION_MISMATCH",
+] as const;
 
 function lookup(bundle: LocaleBundle, keyPath: string): unknown {
   let cur: unknown = bundle;
@@ -84,6 +91,19 @@ describe("runtime i18n key gate", () => {
         placeholders(ERROR_CATALOG[code].message_template),
       );
     }
+  });
+
+  test("stale renamed diagnostic keys are absent from bundled catalogs", () => {
+    const stalePresent: string[] = [];
+    for (const locale of LOCALES) {
+      for (const code of STALE_DIAGNOSTIC_KEYS) {
+        if (lookup(BUILTIN_BUNDLES[locale], `diagnostic.${code}`) !== undefined) {
+          stalePresent.push(`${locale}:diagnostic.${code}`);
+        }
+      }
+    }
+
+    expect(stalePresent).toEqual([]);
   });
 
   test("failure site keys are explicit, localized, placeholder-symmetric, and map to catalog codes", () => {
