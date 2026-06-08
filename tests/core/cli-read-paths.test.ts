@@ -21,9 +21,7 @@ async function tmpFeatureDir(): Promise<string> {
   return await fs.mkdtemp(path.join(os.tmpdir(), "loaf-cli-readpath-"));
 }
 
-async function runCli(
-  argv: string[],
-): Promise<{ exit: number; stdout: string; stderr: string }> {
+async function runCli(argv: string[]): Promise<{ exit: number; stdout: string; stderr: string }> {
   const stdoutChunks: string[] = [];
   const stderrChunks: string[] = [];
   const origStdout = process.stdout.write.bind(process.stdout);
@@ -47,10 +45,14 @@ async function runCli(
 
 async function startFeature(dir: string): Promise<void> {
   const r = await runCli([
-    "start", "auth-refresh",
-    "--ceremony", "standard",
-    "--feature-dir", dir,
-    "--format", "json",
+    "start",
+    "auth-refresh",
+    "--ceremony",
+    "standard",
+    "--feature-dir",
+    dir,
+    "--format",
+    "json",
   ]);
   if (r.exit !== 0) throw new Error(`start failed (exit=${r.exit}): ${r.stderr}`);
 }
@@ -64,7 +66,13 @@ describe("SC3 contract preservation — 4 read commands, happy path", () => {
     const dir = await tmpFeatureDir();
     await startFeature(dir);
     const r = await runCli([
-      "status", "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
+      "status",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     expect(r.exit).toBe(0);
     const out = JSON.parse(r.stdout);
@@ -116,7 +124,14 @@ describe("SC3 contract preservation — 4 read commands, happy path", () => {
     const dir = await tmpFeatureDir();
     await startFeature(dir);
     const r = await runCli([
-      "tasks", "list", "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
+      "tasks",
+      "list",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     expect(r.exit).toBe(0);
     expect(r.stderr).toBe("");
@@ -128,7 +143,14 @@ describe("SC3 contract preservation — 4 read commands, happy path", () => {
     const dir = await tmpFeatureDir();
     await startFeature(dir);
     const r = await runCli([
-      "pending", "list", "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
+      "pending",
+      "list",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     expect(r.exit).toBe(0);
     const out = JSON.parse(r.stdout);
@@ -143,7 +165,14 @@ describe("SC3 contract preservation — 4 read commands, happy path", () => {
     const dir = await tmpFeatureDir();
     await startFeature(dir);
     const r = await runCli([
-      "finding", "list", "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
+      "finding",
+      "list",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     expect(r.exit).toBe(0);
     const out = JSON.parse(r.stdout);
@@ -160,7 +189,13 @@ describe("SC3 NO_SESSION — fresh dir for all 4 commands", () => {
   test("status on empty dir → exit 2 NO_SESSION", async () => {
     const dir = await tmpFeatureDir();
     const r = await runCli([
-      "status", "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
+      "status",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     expect(r.exit).toBe(2);
     expect(r.stderr).toBeTruthy();
@@ -173,7 +208,14 @@ describe("SC3 NO_SESSION — fresh dir for all 4 commands", () => {
   test("tasks list on empty dir → exit 2 NO_SESSION", async () => {
     const dir = await tmpFeatureDir();
     const r = await runCli([
-      "tasks", "list", "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
+      "tasks",
+      "list",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     expect(r.exit).toBe(2);
     const err = JSON.parse(r.stderr);
@@ -185,7 +227,14 @@ describe("SC3 NO_SESSION — fresh dir for all 4 commands", () => {
   test("pending list on empty dir → exit 2 NO_SESSION", async () => {
     const dir = await tmpFeatureDir();
     const r = await runCli([
-      "pending", "list", "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
+      "pending",
+      "list",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     expect(r.exit).toBe(2);
     const err = JSON.parse(r.stderr);
@@ -197,7 +246,14 @@ describe("SC3 NO_SESSION — fresh dir for all 4 commands", () => {
   test("finding list on empty dir → exit 2 NO_SESSION", async () => {
     const dir = await tmpFeatureDir();
     const r = await runCli([
-      "finding", "list", "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
+      "finding",
+      "list",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     expect(r.exit).toBe(2);
     const err = JSON.parse(r.stderr);
@@ -226,7 +282,13 @@ describe("SC3 stale meta → SNAPSHOT_STALE_REBUILD_REQUIRED on stderr (exit 2)"
     await startFeature(dir);
     await corruptMetaOffset(dir);
     const r = await runCli([
-      "status", "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
+      "status",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     expect(r.exit).toBe(2);
     expect(r.stdout).toBe("");
@@ -234,7 +296,11 @@ describe("SC3 stale meta → SNAPSHOT_STALE_REBUILD_REQUIRED on stderr (exit 2)"
     expect(err).toMatchObject({
       ok: false,
       code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
-      detail: { reason: "tail_offset_mismatch", feature_dir: dir, fix: expect.stringContaining("doctor --rebuild") },
+      detail: {
+        reason: "tail_offset_mismatch",
+        feature_dir: dir,
+        fix: expect.stringContaining("doctor --rebuild"),
+      },
     });
   });
 
@@ -243,7 +309,14 @@ describe("SC3 stale meta → SNAPSHOT_STALE_REBUILD_REQUIRED on stderr (exit 2)"
     await startFeature(dir);
     await corruptMetaOffset(dir);
     const r = await runCli([
-      "tasks", "list", "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
+      "tasks",
+      "list",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     expect(r.exit).toBe(2);
     expect(r.stdout).toBe("");
@@ -260,7 +333,14 @@ describe("SC3 stale meta → SNAPSHOT_STALE_REBUILD_REQUIRED on stderr (exit 2)"
     await startFeature(dir);
     await corruptMetaOffset(dir);
     const r = await runCli([
-      "pending", "list", "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
+      "pending",
+      "list",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     expect(r.exit).toBe(2);
     expect(r.stdout).toBe("");
@@ -277,7 +357,14 @@ describe("SC3 stale meta → SNAPSHOT_STALE_REBUILD_REQUIRED on stderr (exit 2)"
     await startFeature(dir);
     await corruptMetaOffset(dir);
     const r = await runCli([
-      "finding", "list", "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
+      "finding",
+      "list",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     expect(r.exit).toBe(2);
     expect(r.stdout).toBe("");
@@ -301,7 +388,13 @@ describe("SC3 invalid meta/leaf → exit 2 + structured cause on stderr", () => 
     await startFeature(dir);
     await fs.writeFile(path.join(dir, "snapshots", "_meta.json"), "{ not valid json");
     const r = await runCli([
-      "status", "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
+      "status",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     expect(r.exit).toBe(2);
     expect(r.stdout).toBe("");
@@ -322,7 +415,14 @@ describe("SC3 invalid meta/leaf → exit 2 + structured cause on stderr", () => 
       JSON.stringify({ schema_version: 2, pending: [{ pending_id: "BAD-ID" }] }),
     );
     const r = await runCli([
-      "pending", "list", "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
+      "pending",
+      "list",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     expect(r.exit).toBe(2);
     expect(r.stdout).toBe("");

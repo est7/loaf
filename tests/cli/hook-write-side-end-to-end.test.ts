@@ -46,7 +46,14 @@ async function runCli(
 
 async function start(featureDir: string): Promise<void> {
   const r = await runCli([
-    "start", "auth-refresh", "--ceremony", "standard", "--feature-dir", featureDir, "--format", "json",
+    "start",
+    "auth-refresh",
+    "--ceremony",
+    "standard",
+    "--feature-dir",
+    featureDir,
+    "--format",
+    "json",
   ]);
   if (r.exit !== 0) throw new Error(`start failed (${r.exit}): ${r.stderr}`);
 }
@@ -58,7 +65,14 @@ async function writeConfig(repoRoot: string, content: string): Promise<void> {
 }
 
 const wg = (featureDir: string, target: string): string[] => [
-  "hook", "write-guard", "--feature", "auth-refresh", "--feature-dir", featureDir, "--path", target,
+  "hook",
+  "write-guard",
+  "--feature",
+  "auth-refresh",
+  "--feature-dir",
+  featureDir,
+  "--path",
+  target,
 ];
 
 describe("SC-15c — write-guard allow/deny", () => {
@@ -75,7 +89,11 @@ describe("SC-15c — write-guard allow/deny", () => {
   test("out-of-scope write (src/foo.ts at TRIAGE.score) → exit 2 WRITE_PATH_VIOLATION", async () => {
     const { repoRoot, featureDir } = await tmpRepo();
     await start(featureDir);
-    const r = await runCli([...wg(featureDir, path.join(repoRoot, "src", "foo.ts")), "--format", "json"]);
+    const r = await runCli([
+      ...wg(featureDir, path.join(repoRoot, "src", "foo.ts")),
+      "--format",
+      "json",
+    ]);
     expect(r.exit).toBe(2);
     const e = JSON.parse(r.stderr);
     expect(e.code).toBe("WRITE_PATH_VIOLATION");
@@ -88,9 +106,17 @@ describe("SC-15c — write-guard allow/deny", () => {
     await start(featureDir);
     await writeConfig(
       repoRoot,
-      JSON.stringify({ schema_version: 2, protected_files: [".loaf/auth-refresh/state.json"], paths: {} }),
+      JSON.stringify({
+        schema_version: 2,
+        protected_files: [".loaf/auth-refresh/state.json"],
+        paths: {},
+      }),
     );
-    const r = await runCli([...wg(featureDir, path.join(featureDir, "state.json")), "--format", "json"]);
+    const r = await runCli([
+      ...wg(featureDir, path.join(featureDir, "state.json")),
+      "--format",
+      "json",
+    ]);
     expect(r.exit).toBe(2);
     const e = JSON.parse(r.stderr);
     expect(e.code).toBe("PROTECTED_FILE_WRITE");
@@ -111,7 +137,11 @@ describe("SC-15c — write-guard fail-closed / allow polarity", () => {
     const { repoRoot, featureDir } = await tmpRepo();
     await start(featureDir);
     await writeConfig(repoRoot, "{ malformed json");
-    const r = await runCli([...wg(featureDir, path.join(featureDir, "state.json")), "--format", "json"]);
+    const r = await runCli([
+      ...wg(featureDir, path.join(featureDir, "state.json")),
+      "--format",
+      "json",
+    ]);
     expect(r.exit).toBe(2);
     expect(JSON.parse(r.stderr).code).toBe("SCHEMA_VALIDATION_FAILED");
   });
@@ -123,7 +153,8 @@ describe("SC-15c — strict stdin resolution", () => {
     await start(featureDir);
     const deps: MainDeps = {
       isStdinTty: () => false,
-      readStdin: async () => JSON.stringify({ tool_input: { file_path: path.join(featureDir, "state.json") } }),
+      readStdin: async () =>
+        JSON.stringify({ tool_input: { file_path: path.join(featureDir, "state.json") } }),
     };
     const r = await runCli(
       ["hook", "write-guard", "--feature", "auth-refresh", "--feature-dir", featureDir],
@@ -137,7 +168,16 @@ describe("SC-15c — strict stdin resolution", () => {
     await start(featureDir);
     const deps: MainDeps = { isStdinTty: () => false, readStdin: async () => "{ not json" };
     const r = await runCli(
-      ["hook", "write-guard", "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "hook",
+        "write-guard",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       deps,
     );
     expect(r.exit).toBe(2);
@@ -148,7 +188,16 @@ describe("SC-15c — strict stdin resolution", () => {
     const { featureDir } = await tmpRepo();
     await start(featureDir);
     const r = await runCli(
-      ["hook", "write-guard", "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "hook",
+        "write-guard",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { isStdinTty: () => true },
     );
     expect(r.exit).toBe(2);
@@ -161,7 +210,14 @@ describe("SC-15c — scope-track stub", () => {
     const { featureDir } = await tmpRepo();
     await start(featureDir);
     const r = await runCli([
-      "hook", "scope-track", "--feature", "auth-refresh", "--feature-dir", featureDir, "--path", path.join(featureDir, "state.json"),
+      "hook",
+      "scope-track",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      featureDir,
+      "--path",
+      path.join(featureDir, "state.json"),
     ]);
     expect(r.exit).toBe(0);
     expect(r.stdout).toBe("");
@@ -171,7 +227,16 @@ describe("SC-15c — scope-track stub", () => {
   test("no longer returns HOOK_EVENT_NOT_IMPLEMENTED", async () => {
     const { featureDir } = await tmpRepo();
     const r = await runCli(
-      ["hook", "scope-track", "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "hook",
+        "scope-track",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { isStdinTty: () => true },
     );
     expect(r.stderr).not.toContain("HOOK_EVENT_NOT_IMPLEMENTED");

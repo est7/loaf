@@ -66,9 +66,11 @@ const LegacyTaskSchema = z
     steps: z
       .record(
         z.string(),
-        z.object({
-          status: z.enum(["pending", "running", "passed", "failed", "waived", "na"]).optional(),
-        }).passthrough(),
+        z
+          .object({
+            status: z.enum(["pending", "running", "passed", "failed", "waived", "na"]).optional(),
+          })
+          .passthrough(),
       )
       .optional(),
   })
@@ -272,7 +274,11 @@ export async function migrateV2(
       await fsp.writeFile(tmpAbs, body);
       if (fsync) {
         const fh = await fsp.open(tmpAbs, "r+");
-        try { await fh.sync(); } finally { await fh.close(); }
+        try {
+          await fh.sync();
+        } finally {
+          await fh.close();
+        }
       }
       await fsp.rename(tmpAbs, dstAbs);
 
@@ -293,7 +299,9 @@ export async function migrateV2(
       if (remaining.length === 0) {
         await fsp.rm(attachmentsParent, { recursive: true, force: true }).catch(() => {});
       }
-    } catch { /* ENOENT ok */ }
+    } catch {
+      /* ENOENT ok */
+    }
     throw err;
   }
 
@@ -338,7 +346,9 @@ export async function migrateV2(
       if (remaining.length === 0) {
         await fsp.rm(attachmentsParent, { recursive: true, force: true }).catch(() => {});
       }
-    } catch { /* ENOENT ok */ }
+    } catch {
+      /* ENOENT ok */
+    }
     throw err;
   }
 
@@ -410,13 +420,26 @@ interface LegacyPendingJson {
 
 function isLegalSubState(value: string): value is SubState {
   return [
-    "TRIAGE.score", "TRIAGE.confirm",
-    "SPEC.proposal", "SPEC.spec", "SPEC.plan", "SPEC.design",
-    "EXECUTE.plan", "EXECUTE.work", "EXECUTE.done",
-    "VERIFY.plan", "VERIFY.run", "VERIFY.review", "VERIFY.acceptance",
-    "VERIFY.visual", "VERIFY.accept",
-    "SETTLE.reconcile", "SETTLE.lessons",
-    "DONE.delivered", "DONE.archived", "DONE.abandoned",
+    "TRIAGE.score",
+    "TRIAGE.confirm",
+    "SPEC.proposal",
+    "SPEC.spec",
+    "SPEC.plan",
+    "SPEC.design",
+    "EXECUTE.plan",
+    "EXECUTE.work",
+    "EXECUTE.done",
+    "VERIFY.plan",
+    "VERIFY.run",
+    "VERIFY.review",
+    "VERIFY.acceptance",
+    "VERIFY.visual",
+    "VERIFY.accept",
+    "SETTLE.reconcile",
+    "SETTLE.lessons",
+    "DONE.delivered",
+    "DONE.archived",
+    "DONE.abandoned",
   ].includes(value);
 }
 
@@ -700,11 +723,10 @@ export async function verifyMigrationSidecars(
       body = await fsp.readFile(abs);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-        throw new MigrationError(
-          "MIGRATION_SIDECAR_MISSING",
-          `migration sidecar absent: ${key}`,
-          { key, path: ref.path },
-        );
+        throw new MigrationError("MIGRATION_SIDECAR_MISSING", `migration sidecar absent: ${key}`, {
+          key,
+          path: ref.path,
+        });
       }
       throw err;
     }

@@ -52,7 +52,12 @@ function mkSnapshot(
   } = {},
 ): Snapshot {
   const phase = sub_state.split(".")[0] as
-    | "TRIAGE" | "SPEC" | "EXECUTE" | "VERIFY" | "SETTLE" | "DONE";
+    | "TRIAGE"
+    | "SPEC"
+    | "EXECUTE"
+    | "VERIFY"
+    | "SETTLE"
+    | "DONE";
   return {
     ...initialSnapshot(),
     state: {
@@ -392,7 +397,15 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
     const r = preflight(deliverEntry(), {
       snapshot: mkSnapshot("EXECUTE.done", QUICK_CEREMONY, {
         tasks: [
-          { id: "T-001", kind: "behavioral", status: "done", steps: {}, drives: [], depends_on: [], labels: [] },
+          {
+            id: "T-001",
+            kind: "behavioral",
+            status: "done",
+            steps: {},
+            drives: [],
+            depends_on: [],
+            labels: [],
+          },
         ],
       }),
       tail_seq: -1,
@@ -510,8 +523,13 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
 
   test("spike:converted with a non-abandoned spike task → OK", () => {
     const spikeTask = {
-      id: "T-001", kind: "spike" as const, status: "in_progress" as const,
-      steps: {}, drives: [], depends_on: [], labels: [],
+      id: "T-001",
+      kind: "spike" as const,
+      status: "in_progress" as const,
+      steps: {},
+      drives: [],
+      depends_on: [],
+      labels: [],
     };
     const r = preflight(spikeConvertEntry(), {
       snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [spikeTask] }),
@@ -522,8 +540,13 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
 
   test("spike:converted with a done spike task → OK (done is non-abandoned)", () => {
     const spikeTask = {
-      id: "T-001", kind: "spike" as const, status: "done" as const,
-      steps: {}, drives: [], depends_on: [], labels: [],
+      id: "T-001",
+      kind: "spike" as const,
+      status: "done" as const,
+      steps: {},
+      drives: [],
+      depends_on: [],
+      labels: [],
     };
     const r = preflight(spikeConvertEntry(), {
       snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [spikeTask] }),
@@ -543,8 +566,13 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
 
   test("spike:converted with only an abandoned spike task → SPIKE_CONVERT_NO_SPIKE_TASK", () => {
     const abandonedSpike = {
-      id: "T-002", kind: "spike" as const, status: "abandoned" as const,
-      steps: {}, drives: [], depends_on: [], labels: [],
+      id: "T-002",
+      kind: "spike" as const,
+      status: "abandoned" as const,
+      steps: {},
+      drives: [],
+      depends_on: [],
+      labels: [],
     };
     const r = preflight(spikeConvertEntry(), {
       snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [abandonedSpike] }),
@@ -556,8 +584,13 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
 
   test("spike:converted with only a non-spike task → SPIKE_CONVERT_NO_SPIKE_TASK", () => {
     const behavioralTask = {
-      id: "T-003", kind: "behavioral" as const, status: "in_progress" as const,
-      steps: {}, drives: [], depends_on: [], labels: [],
+      id: "T-003",
+      kind: "behavioral" as const,
+      status: "in_progress" as const,
+      steps: {},
+      drives: [],
+      depends_on: [],
+      labels: [],
     };
     const r = preflight(spikeConvertEntry(), {
       snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [behavioralTask] }),
@@ -665,20 +698,20 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
   });
 
   test("event:task_claimed @ EXECUTE.work + task missing → TASK_NOT_FOUND", () => {
-    const r = preflight(
-      baseEntry({ kind: "event:task_claimed", payload: { task_id: "T-999" } }),
-      { snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [] }), tail_seq: -1 },
-    );
+    const r = preflight(baseEntry({ kind: "event:task_claimed", payload: { task_id: "T-999" } }), {
+      snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [] }),
+      tail_seq: -1,
+    });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.code).toBe("TASK_NOT_FOUND");
   });
 
   test("event:task_claimed + task.status=in_progress → TASK_ALREADY_CLAIMED", () => {
     const task = makeTask({ id: "T-001", kind: "behavioral", status: "in_progress" });
-    const r = preflight(
-      baseEntry({ kind: "event:task_claimed", payload: { task_id: "T-001" } }),
-      { snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [task] }), tail_seq: -1 },
-    );
+    const r = preflight(baseEntry({ kind: "event:task_claimed", payload: { task_id: "T-001" } }), {
+      snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [task] }),
+      tail_seq: -1,
+    });
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.code).toBe("TASK_ALREADY_CLAIMED");
@@ -688,10 +721,10 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
 
   test("event:task_claimed + task.status=done → TASK_NOT_CLAIMABLE", () => {
     const task = makeTask({ id: "T-001", kind: "behavioral", status: "done" });
-    const r = preflight(
-      baseEntry({ kind: "event:task_claimed", payload: { task_id: "T-001" } }),
-      { snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [task] }), tail_seq: -1 },
-    );
+    const r = preflight(baseEntry({ kind: "event:task_claimed", payload: { task_id: "T-001" } }), {
+      snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [task] }),
+      tail_seq: -1,
+    });
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.code).toBe("TASK_NOT_CLAIMABLE");
@@ -701,10 +734,10 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
 
   test("event:task_claimed + task.status=abandoned → TASK_NOT_CLAIMABLE", () => {
     const task = makeTask({ id: "T-001", kind: "behavioral", status: "abandoned" });
-    const r = preflight(
-      baseEntry({ kind: "event:task_claimed", payload: { task_id: "T-001" } }),
-      { snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [task] }), tail_seq: -1 },
-    );
+    const r = preflight(baseEntry({ kind: "event:task_claimed", payload: { task_id: "T-001" } }), {
+      snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [task] }),
+      tail_seq: -1,
+    });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.code).toBe("TASK_NOT_CLAIMABLE");
   });
@@ -717,13 +750,10 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
       status: "pending",
       depends_on: ["T-002"],
     });
-    const r = preflight(
-      baseEntry({ kind: "event:task_claimed", payload: { task_id: "T-001" } }),
-      {
-        snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [task, dep] }),
-        tail_seq: -1,
-      },
-    );
+    const r = preflight(baseEntry({ kind: "event:task_claimed", payload: { task_id: "T-001" } }), {
+      snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [task, dep] }),
+      tail_seq: -1,
+    });
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.code).toBe("TASK_DEPS_NOT_SATISFIED");
@@ -743,13 +773,10 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
       status: "pending",
       depends_on: ["T-002"],
     });
-    const r = preflight(
-      baseEntry({ kind: "event:task_claimed", payload: { task_id: "T-001" } }),
-      {
-        snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [task, dep] }),
-        tail_seq: -1,
-      },
-    );
+    const r = preflight(baseEntry({ kind: "event:task_claimed", payload: { task_id: "T-001" } }), {
+      snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [task, dep] }),
+      tail_seq: -1,
+    });
     expect(r.ok).toBe(true);
   });
 
@@ -760,13 +787,10 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
       status: "pending",
       depends_on: ["T-ghost"],
     });
-    const r = preflight(
-      baseEntry({ kind: "event:task_claimed", payload: { task_id: "T-001" } }),
-      {
-        snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [task] }),
-        tail_seq: -1,
-      },
-    );
+    const r = preflight(baseEntry({ kind: "event:task_claimed", payload: { task_id: "T-001" } }), {
+      snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [task] }),
+      tail_seq: -1,
+    });
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.code).toBe("TASK_DEPS_NOT_SATISFIED");
@@ -843,10 +867,11 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
 // ─────────────────────────────────────────────────────────────────────────
 
 function behavioralFull(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-  const execStep = (
-    applicability: string,
-    status = "pending",
-  ): Record<string, unknown> => ({ applicability, status, evidence_refs: [] });
+  const execStep = (applicability: string, status = "pending"): Record<string, unknown> => ({
+    applicability,
+    status,
+    evidence_refs: [],
+  });
   return {
     id: "T-001",
     kind: "behavioral",
@@ -883,9 +908,7 @@ function slimT001(overrides: Partial<TaskState> = {}): TaskState {
   };
 }
 
-function amendEntry(
-  payload: Record<string, unknown>,
-): Record<string, unknown> {
+function amendEntry(payload: Record<string, unknown>): Record<string, unknown> {
   return baseEntry({ kind: "event:tasks_amended", payload });
 }
 
@@ -906,10 +929,7 @@ describe("preflight — event:tasks_amended §8.6 mutation rights (Slice C SC-C2
         refactor: { applicability: "na", status: "pending", evidence_refs: [] },
       },
     });
-    const result = preflight(
-      amendEntry({ mode: "replace", task: incoming }),
-      planCtx(slimT001()),
-    );
+    const result = preflight(amendEntry({ mode: "replace", task: incoming }), planCtx(slimT001()));
     expect(result.ok).toBe(true);
   });
 
@@ -983,10 +1003,7 @@ describe("preflight — event:tasks_amended §8.6 mutation rights (Slice C SC-C2
 
   test("drives change → MUTATION_OUT_OF_RIGHTS", () => {
     const incoming = behavioralFull({ drives: ["REQ-AUTH-999"] });
-    const result = preflight(
-      amendEntry({ mode: "replace", task: incoming }),
-      planCtx(slimT001()),
-    );
+    const result = preflight(amendEntry({ mode: "replace", task: incoming }), planCtx(slimT001()));
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe("MUTATION_OUT_OF_RIGHTS");
@@ -996,40 +1013,28 @@ describe("preflight — event:tasks_amended §8.6 mutation rights (Slice C SC-C2
 
   test("depends_on change → MUTATION_OUT_OF_RIGHTS", () => {
     const incoming = behavioralFull({ depends_on: ["T-002"] });
-    const result = preflight(
-      amendEntry({ mode: "replace", task: incoming }),
-      planCtx(slimT001()),
-    );
+    const result = preflight(amendEntry({ mode: "replace", task: incoming }), planCtx(slimT001()));
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.code).toBe("MUTATION_OUT_OF_RIGHTS");
   });
 
   test("labels change → MUTATION_OUT_OF_RIGHTS", () => {
     const incoming = behavioralFull({ labels: ["perf"] });
-    const result = preflight(
-      amendEntry({ mode: "replace", task: incoming }),
-      planCtx(slimT001()),
-    );
+    const result = preflight(amendEntry({ mode: "replace", task: incoming }), planCtx(slimT001()));
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.code).toBe("MUTATION_OUT_OF_RIGHTS");
   });
 
   test("kind-flag change (red_test_registered) → MUTATION_OUT_OF_RIGHTS", () => {
     const incoming = behavioralFull({ red_test_registered: true });
-    const result = preflight(
-      amendEntry({ mode: "replace", task: incoming }),
-      planCtx(slimT001()),
-    );
+    const result = preflight(amendEntry({ mode: "replace", task: incoming }), planCtx(slimT001()));
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.code).toBe("MUTATION_OUT_OF_RIGHTS");
   });
 
   test("kind-flag change (requires_visual) → MUTATION_OUT_OF_RIGHTS", () => {
     const incoming = behavioralFull({ requires_visual: true });
-    const result = preflight(
-      amendEntry({ mode: "replace", task: incoming }),
-      planCtx(slimT001()),
-    );
+    const result = preflight(amendEntry({ mode: "replace", task: incoming }), planCtx(slimT001()));
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe("MUTATION_OUT_OF_RIGHTS");
@@ -1045,10 +1050,7 @@ describe("preflight — event:tasks_amended §8.6 mutation rights (Slice C SC-C2
         refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
       },
     });
-    const result = preflight(
-      amendEntry({ mode: "replace", task: incoming }),
-      planCtx(slimT001()),
-    );
+    const result = preflight(amendEntry({ mode: "replace", task: incoming }), planCtx(slimT001()));
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.code).toBe("MUTATION_OUT_OF_RIGHTS");
   });
@@ -1080,13 +1082,10 @@ describe("preflight — event:tasks_amended §8.6 mutation rights (Slice C SC-C2
   });
 
   test("mode='replace' outside EXECUTE.plan → MUTATION_OUT_OF_RIGHTS", () => {
-    const result = preflight(
-      amendEntry({ mode: "replace", task: behavioralFull() }),
-      {
-        snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [slimT001()] }),
-        tail_seq: -1,
-      },
-    );
+    const result = preflight(amendEntry({ mode: "replace", task: behavioralFull() }), {
+      snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, { tasks: [slimT001()] }),
+      tail_seq: -1,
+    });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.code).toBe("MUTATION_OUT_OF_RIGHTS");
   });
@@ -1132,10 +1131,7 @@ describe("preflight — sponsored event:tasks_amended (Phase 11 Item 3 SC1b)", (
     status: "open",
   };
 
-  function workCtx(
-    current: TaskState,
-    findings: FindingState[] = [OPEN_AMEND_TASKS],
-  ) {
+  function workCtx(current: TaskState, findings: FindingState[] = [OPEN_AMEND_TASKS]) {
     return {
       snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, {
         tasks: [current],
@@ -1217,9 +1213,7 @@ describe("preflight — sponsored event:tasks_amended (Phase 11 Item 3 SC1b)", (
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe("MUTATION_OUT_OF_RIGHTS");
-      expect(result.detail?.["reason"]).toBe(
-        "sponsored_tasks_amended_wrong_sub_state",
-      );
+      expect(result.detail?.["reason"]).toBe("sponsored_tasks_amended_wrong_sub_state");
     }
   });
 
@@ -1241,9 +1235,7 @@ describe("preflight — sponsored event:tasks_amended (Phase 11 Item 3 SC1b)", (
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe("MUTATION_OUT_OF_RIGHTS");
-      expect(result.detail?.["reason"]).toBe(
-        "sponsored_tasks_amended_wrong_sub_state",
-      );
+      expect(result.detail?.["reason"]).toBe("sponsored_tasks_amended_wrong_sub_state");
     }
   });
 
@@ -1627,7 +1619,10 @@ describe("preflight — bug-task RED registration (Slice C SC-C4)", () => {
 
   test("task_step_started implement on an unregistered bug task → BUG_TASK_REQUIRES_RED", () => {
     const result = preflight(
-      baseEntry({ kind: "event:task_step_started", payload: { task_id: "T-001", step: "implement" } }),
+      baseEntry({
+        kind: "event:task_step_started",
+        payload: { task_id: "T-001", step: "implement" },
+      }),
       workCtx(bugTaskState()),
     );
     expect(result.ok).toBe(false);
@@ -1657,7 +1652,10 @@ describe("preflight — bug-task RED registration (Slice C SC-C4)", () => {
 
   test("task_step_started implement on a registered bug task → OK", () => {
     const result = preflight(
-      baseEntry({ kind: "event:task_step_started", payload: { task_id: "T-001", step: "implement" } }),
+      baseEntry({
+        kind: "event:task_step_started",
+        payload: { task_id: "T-001", step: "implement" },
+      }),
       workCtx(bugTaskState({ red_test_registered: true })),
     );
     expect(result.ok).toBe(true);
@@ -1665,7 +1663,10 @@ describe("preflight — bug-task RED registration (Slice C SC-C4)", () => {
 
   test("task_step_started implement on a non-bug behavioral task → OK (no RED requirement)", () => {
     const result = preflight(
-      baseEntry({ kind: "event:task_step_started", payload: { task_id: "T-001", step: "implement" } }),
+      baseEntry({
+        kind: "event:task_step_started",
+        payload: { task_id: "T-001", step: "implement" },
+      }),
       workCtx(bugTaskState({ labels: [] })),
     );
     expect(result.ok).toBe(true);
@@ -1694,7 +1695,12 @@ describe("preflight — bug-task RED registration (Slice C SC-C4)", () => {
     const result = preflight(
       baseEntry({
         kind: "event:task_step_done",
-        payload: { task_id: "T-001", step: "implement", result: "passed", red_test_registered: true },
+        payload: {
+          task_id: "T-001",
+          step: "implement",
+          result: "passed",
+          red_test_registered: true,
+        },
       }),
       workCtx(bugTaskState({ red_test_registered: true })),
     );
@@ -1888,9 +1894,7 @@ describe("preflight — event:task_abandoned refines (Item 1)", () => {
     ...overrides,
   });
 
-  const abandonEntry = (
-    overrides: Record<string, unknown> = {},
-  ): Record<string, unknown> =>
+  const abandonEntry = (overrides: Record<string, unknown> = {}): Record<string, unknown> =>
     baseEntry({
       kind: "event:task_abandoned",
       payload: { task_id: "T-001", reason: "out of scope", ...overrides },
@@ -2168,6 +2172,53 @@ describe("preflight — session:archived / session:abandoned reason-required (It
         tail_seq: -1,
       },
     );
+    expect(r.ok).toBe(true);
+  });
+});
+
+describe("preflight — evidence:added payload semantic refine (§5.4 manual≠waived)", () => {
+  // Ceremony-independent companion to the end-to-end lock in
+  // tests/core/evidence-input-modality.test.ts. The `kind=manual must not carry
+  // result=waived` refine lives on EvidenceFullPayload (PER_KIND_PAYLOAD), so it
+  // surfaces at preflight step 4b as INVALID_PAYLOAD regardless of ceremony —
+  // the stable-core code, no presentation-layer localization (see
+  // docs/references/loaf-cli-i18n.md). evidence:added authority is ceremony-
+  // independent (actors=ALL_NON_MIGRATION, subStates⊇ALL_EXECUTE). A valid
+  // payload.id avoids a missing-id parse failure; actor=human:* + reason≥10
+  // isolate the waived refine from the manual/waiver human-actor refine.
+  function evidenceManual(overrides: Record<string, unknown>): Record<string, unknown> {
+    return baseEntry({
+      kind: "evidence:added",
+      actor: "cli:loaf",
+      payload: {
+        id: "EV-000001",
+        kind: "manual",
+        iteration: 1,
+        actor: "human:tester@example.invalid",
+        summary: "manual review entry",
+        reason: "manual review entry with sufficient justification text",
+        ...overrides,
+      },
+    });
+  }
+
+  test("kind=manual result=waived → INVALID_PAYLOAD", () => {
+    const r = preflight(evidenceManual({ result: "waived" }), {
+      snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY),
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.code).toBe("INVALID_PAYLOAD");
+      expect(JSON.stringify(r.detail)).toContain("must not carry result=waived");
+    }
+  });
+
+  test("kind=manual result=passed → OK (refine targets result=waived, not the manual kind)", () => {
+    const r = preflight(evidenceManual({ result: "passed" }), {
+      snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY),
+      tail_seq: -1,
+    });
     expect(r.ok).toBe(true);
   });
 });

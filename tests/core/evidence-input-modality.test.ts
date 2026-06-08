@@ -91,7 +91,14 @@ async function seedQuickAtExecuteWork(): Promise<{ dir: string; feature: string 
         kind: "event:phase_advanced",
         payload: { from, to },
       },
-      { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, entries: s.entries, meta: s.meta, fsync: false },
+      {
+        feature_dir: dir,
+        snapshot: s.snapshot,
+        tail_seq: s.tail_seq,
+        entries: s.entries,
+        meta: s.meta,
+        fsync: false,
+      },
     );
     if (!r.ok) throw new Error(`seed walk ${from}→${to} failed: ${r.code} ${r.message}`);
   }
@@ -122,8 +129,14 @@ describe("Phase 16 SC-4c — `loaf evidence add` --input source lanes", () => {
   test("inline happy (single) → exit 0 + EV-000001", async () => {
     const { dir, feature } = await seedQuickAtExecuteWork();
     const r = await runCli([
-      "evidence", "add", "--input", JSON.stringify(baseInput()),
-      "--feature", feature, "--feature-dir", dir,
+      "evidence",
+      "add",
+      "--input",
+      JSON.stringify(baseInput()),
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(0);
     expect(r.stdout.trim()).toBe("EV-000001");
@@ -134,7 +147,14 @@ describe("Phase 16 SC-4c — `loaf evidence add` --input source lanes", () => {
     const filePath = path.join(dir, "evidence.json");
     await fs.writeFile(filePath, JSON.stringify(baseInput()));
     const r = await runCli([
-      "evidence", "add", "--input", filePath, "--feature", feature, "--feature-dir", dir,
+      "evidence",
+      "add",
+      "--input",
+      filePath,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(0);
     expect(r.stdout.trim()).toBe("EV-000001");
@@ -144,16 +164,21 @@ describe("Phase 16 SC-4c — `loaf evidence add` --input source lanes", () => {
 describe("Phase 16 SC-4c — `loaf evidence add` batch (array) input", () => {
   test("inline array happy (2 items) → 2 EV-ids allocated sequentially", async () => {
     const { dir, feature } = await seedQuickAtExecuteWork();
-    const r = await runCli(
-      [
-        "evidence", "add", "--input",
-        JSON.stringify([
-          { ...baseInput(), summary: "first batch entry" },
-          { ...baseInput(), summary: "second batch entry" },
-        ]),
-        "--feature", feature, "--feature-dir", dir, "--format", "json",
-      ],
-    );
+    const r = await runCli([
+      "evidence",
+      "add",
+      "--input",
+      JSON.stringify([
+        { ...baseInput(), summary: "first batch entry" },
+        { ...baseInput(), summary: "second batch entry" },
+      ]),
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
+    ]);
     expect(r.exit).toBe(0);
     const out = JSON.parse(r.stdout);
     expect(out.ev_ids).toEqual(["EV-000001", "EV-000002"]);
@@ -163,7 +188,18 @@ describe("Phase 16 SC-4c — `loaf evidence add` batch (array) input", () => {
   test("stdin array happy (3 items) → 3 EV-ids allocated sequentially", async () => {
     const { dir, feature } = await seedQuickAtExecuteWork();
     const r = await runCli(
-      ["evidence", "add", "--input", "-", "--feature", feature, "--feature-dir", dir, "--format", "json"],
+      [
+        "evidence",
+        "add",
+        "--input",
+        "-",
+        "--feature",
+        feature,
+        "--feature-dir",
+        dir,
+        "--format",
+        "json",
+      ],
       {
         stdin: JSON.stringify([
           { ...baseInput(), summary: "stdin batch #1" },
@@ -203,7 +239,14 @@ describe("Phase 16 SC-4c — `loaf evidence add` error paths", () => {
   test("inline malformed JSON → exit 2 SCHEMA_VALIDATION_FAILED", async () => {
     const { dir, feature } = await seedQuickAtExecuteWork();
     const r = await runCli([
-      "evidence", "add", "--input", "{badjson", "--feature", feature, "--feature-dir", dir,
+      "evidence",
+      "add",
+      "--input",
+      "{badjson",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(2);
     expect(r.stderr).toContain("SCHEMA_VALIDATION_FAILED");
@@ -211,16 +254,21 @@ describe("Phase 16 SC-4c — `loaf evidence add` error paths", () => {
 
   test("caller-supplied id at item[1] in array → SCHEMA_VALIDATION_FAILED + detail.index=1", async () => {
     const { dir, feature } = await seedQuickAtExecuteWork();
-    const r = await runCli(
-      [
-        "evidence", "add", "--input",
-        JSON.stringify([
-          baseInput(),
-          { ...baseInput(), id: "EV-DEADBEEF" }, // caller-supplied id at index 1
-        ]),
-        "--feature", feature, "--feature-dir", dir, "--format", "json",
-      ],
-    );
+    const r = await runCli([
+      "evidence",
+      "add",
+      "--input",
+      JSON.stringify([
+        baseInput(),
+        { ...baseInput(), id: "EV-DEADBEEF" }, // caller-supplied id at index 1
+      ]),
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
+    ]);
     expect(r.exit).toBe(2);
     const lines = r.stderr.split("\n").filter((l) => l.startsWith("{"));
     const obj = JSON.parse(lines[0]!);
@@ -231,7 +279,14 @@ describe("Phase 16 SC-4c — `loaf evidence add` error paths", () => {
   test("empty array → SCHEMA_VALIDATION_FAILED with 'empty array' message", async () => {
     const { dir, feature } = await seedQuickAtExecuteWork();
     const r = await runCli([
-      "evidence", "add", "--input", "[]", "--feature", feature, "--feature-dir", dir,
+      "evidence",
+      "add",
+      "--input",
+      "[]",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(2);
     expect(r.stderr).toContain("SCHEMA_VALIDATION_FAILED");
@@ -246,16 +301,60 @@ describe("Phase 16 SC-4c — `loaf evidence add` error paths", () => {
     // runtime EvidenceAddInput mirror keeps the contract.
     const { dir, feature } = await seedQuickAtExecuteWork();
     const r = await runCli([
-      "evidence", "add", "--input",
+      "evidence",
+      "add",
+      "--input",
       JSON.stringify({
         ...baseInput("visual-review"),
         actor: "human:tester@example.invalid",
         attachments: [{ path: "screenshot.png" }], // {path}-only — missing sha256/mime
       }),
-      "--feature", feature, "--feature-dir", dir,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(2);
     expect(r.stderr).toContain("SCHEMA_VALIDATION_FAILED");
+  });
+
+  test("manual + result=waived → exit 2 INVALID_PAYLOAD (preflight, not input-mirror)", async () => {
+    // End-to-end lock for the evidence-schema refine `kind=manual must not
+    // carry result=waived` (src/core/evidence-schema.ts). The refine lives on
+    // EvidenceFullPayload, NOT the EvidenceAddInput mirror (which is built from
+    // the un-refined EvidenceFullShape) — so the input mirror passes and the
+    // rejection surfaces at the preflight PER_KIND_PAYLOAD parse as
+    // INVALID_PAYLOAD, the same stable-core code as its sibling evidence
+    // semantic refines (no presentation-layer localization — see
+    // docs/references/loaf-cli-i18n.md). actor=human:* + reason≥10 isolate the
+    // waived refine from the manual/waiver human-actor refine.
+    const { dir, feature } = await seedQuickAtExecuteWork();
+    const r = await runCli(
+      [
+        "evidence",
+        "add",
+        "--input",
+        JSON.stringify({
+          ...baseInput("manual"),
+          actor: "human:tester@example.invalid",
+          result: "waived",
+          reason: "manual review intentionally waived with sufficient justification",
+        }),
+        "--feature",
+        feature,
+        "--feature-dir",
+        dir,
+        "--format",
+        "json",
+      ],
+    );
+    expect(r.exit).toBe(2);
+    const lines = r.stderr.split("\n").filter((l) => l.startsWith("{"));
+    const obj = JSON.parse(lines[0]!);
+    expect(obj.code).toBe("INVALID_PAYLOAD");
+    // Prove it is the waived refine specifically (detail.issues carries the
+    // Zod refine message), not the human-actor or visual-review refine.
+    expect(JSON.stringify(obj)).toContain("must not carry result=waived");
   });
 });
 

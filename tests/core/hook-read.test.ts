@@ -138,7 +138,9 @@ describe("runClosureWarnings", () => {
       evidence: { schema_version: 2, evidence: [evidenceWithCovers("EV-000001", ["T-999"])] },
       findings: cleanFindings,
     });
-    expect(w.some((line) => line.includes("orphan evidence") && line.includes("EV-000001→T-999"))).toBe(true);
+    expect(
+      w.some((line) => line.includes("orphan evidence") && line.includes("EV-000001→T-999")),
+    ).toBe(true);
   });
 
   test("covers a present task id → no orphan warning", () => {
@@ -155,7 +157,10 @@ describe("runClosureWarnings", () => {
     const w = runClosureWarnings({
       state: {} as never,
       tasks: tasksWith([]),
-      evidence: { schema_version: 2, evidence: [evidenceWithCovers("EV-000001", ["REQ-AUTH-001"])] },
+      evidence: {
+        schema_version: 2,
+        evidence: [evidenceWithCovers("EV-000001", ["REQ-AUTH-001"])],
+      },
       findings: cleanFindings,
     });
     expect(w).toEqual([]);
@@ -168,7 +173,11 @@ describe("runClosureWarnings", () => {
       evidence: noEvidence,
       findings: {
         schema_version: 2,
-        findings: [finding("FND-001", "open"), finding("FND-002", "closed"), finding("FND-003", "open")],
+        findings: [
+          finding("FND-001", "open"),
+          finding("FND-002", "closed"),
+          finding("FND-003", "open"),
+        ],
       },
     });
     const line = w.find((l) => l.includes("open findings"));

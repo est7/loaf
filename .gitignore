@@ -46,3 +46,9 @@ implementation-notes.md
 # Phase 16 SC-6b — `--debug` observability trace files (Debug-trace per
 # protocol §13.1; local debug data, never committed).
 **/.loaf/*/trace.jsonl
+
+# sc-loop driver state + planning trio (session-local, never committed)
+.sc-loop/
+task_plan.md
+progress.md
+findings.md

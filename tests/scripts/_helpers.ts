@@ -1,5 +1,14 @@
 import { spawnSync, type SpawnSyncReturns } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, readdirSync, chmodSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  rmSync,
+  existsSync,
+  readdirSync,
+  chmodSync,
+} from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
@@ -172,7 +181,9 @@ export type PackageSmokeFixture = {
  * Also returns tmpHome (TMPDIR) so callers can verify trap cleanup left
  * nothing behind.
  */
-export function makePackageSmokeFixture(opts: PackageSmokeFixtureOptions = {}): PackageSmokeFixture {
+export function makePackageSmokeFixture(
+  opts: PackageSmokeFixtureOptions = {},
+): PackageSmokeFixture {
   const version = opts.pkgVersion ?? "0.0.0-fixture";
   const root = mktempd("ga-package-smoke-");
   const packageRoot = path.join(root, "pkg");

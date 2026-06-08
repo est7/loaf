@@ -7,7 +7,10 @@
 
 import { describe, expect, test } from "vitest";
 
-import { SUB_STATE_CONTRACTS as DOCS_CONTRACTS, SubStateContract as DocsSubStateContract } from "../../docs/schemas.js";
+import {
+  SUB_STATE_CONTRACTS as DOCS_CONTRACTS,
+  SubStateContract as DocsSubStateContract,
+} from "../../docs/schemas.js";
 import {
   SUB_STATE_CONTRACTS,
   SUB_STATE_CONTRACT_BY_STATE,

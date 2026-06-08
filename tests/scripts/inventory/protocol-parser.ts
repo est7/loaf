@@ -72,9 +72,12 @@ export function parseProtocolMarkersFromText(text: string, sourceLabel = "<inlin
   const errors: ParseError[] = [];
   const blocks: ParsedBlock[] = [];
 
-  let openBlock:
-    | { tag: string; beginLine: number; rows: ParsedRow[]; sawSeparator: boolean }
-    | null = null;
+  let openBlock: {
+    tag: string;
+    beginLine: number;
+    rows: ParsedRow[];
+    sawSeparator: boolean;
+  } | null = null;
   let lineIndex = 0;
 
   while (lineIndex < lines.length) {
@@ -166,9 +169,7 @@ function parseTableRow(
   // `--policy <...> \| --input ...`). Without this, cells split early and
   // names parse as malformed without raising ROW_MALFORMED. (codex r191 BLOCKER 1)
   const inner = trimmed.replace(/^\|/, "").replace(/\|\s*$/, "");
-  const cells = inner
-    .split(/(?<!\\)\|/)
-    .map((c) => c.replace(/\\\|/g, "|").trim());
+  const cells = inner.split(/(?<!\\)\|/).map((c) => c.replace(/\\\|/g, "|").trim());
 
   if (cells.length === 0 || (cells.length === 1 && cells[0] === "")) {
     return null;
@@ -210,7 +211,7 @@ function parseTableRow(
       errors.push({
         kind: "FUTURE_NO_REASON",
         location: `${sourceLabel}:${lineNumber}`,
-        detail: "inventory:future annotation missing reason=\"...\" attribute",
+        detail: 'inventory:future annotation missing reason="..." attribute',
       });
     } else {
       skipReason = { type: "future", reason };
@@ -223,7 +224,7 @@ function parseTableRow(
         errors.push({
           kind: "PLACEHOLDER_NO_REASON",
           location: `${sourceLabel}:${lineNumber}`,
-          detail: "inventory:placeholder annotation missing reason=\"...\" attribute",
+          detail: 'inventory:placeholder annotation missing reason="..." attribute',
         });
       } else {
         skipReason = { type: "placeholder", reason };

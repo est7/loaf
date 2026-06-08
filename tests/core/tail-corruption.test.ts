@@ -104,9 +104,27 @@ describe("tailRecovery — Gate #4 (ADR-0005 §4.13)", () => {
     const fp = await tmpJournal();
     const batchId = "550e8400-e29b-41d4-a716-446655440000";
     const lines = [
-      singleEntry({ seq: 0, entry_id: "JE-000001", batch_id: batchId, batch_index: 0, batch_count: 3 }),
-      singleEntry({ seq: 1, entry_id: "JE-000002", batch_id: batchId, batch_index: 1, batch_count: 3 }),
-      singleEntry({ seq: 2, entry_id: "JE-000003", batch_id: batchId, batch_index: 2, batch_count: 3 }),
+      singleEntry({
+        seq: 0,
+        entry_id: "JE-000001",
+        batch_id: batchId,
+        batch_index: 0,
+        batch_count: 3,
+      }),
+      singleEntry({
+        seq: 1,
+        entry_id: "JE-000002",
+        batch_id: batchId,
+        batch_index: 1,
+        batch_count: 3,
+      }),
+      singleEntry({
+        seq: 2,
+        entry_id: "JE-000003",
+        batch_id: batchId,
+        batch_index: 2,
+        batch_count: 3,
+      }),
     ];
     await writeRaw(fp, lines.map(serialize).join(""));
     const r = await tailRecovery(fp);
@@ -121,8 +139,20 @@ describe("tailRecovery — Gate #4 (ADR-0005 §4.13)", () => {
     const prelude = singleEntry({ seq: 0, entry_id: "JE-000001" });
     const batchId = "550e8400-e29b-41d4-a716-446655440000";
     const partial = [
-      singleEntry({ seq: 1, entry_id: "JE-000002", batch_id: batchId, batch_index: 0, batch_count: 3 }),
-      singleEntry({ seq: 2, entry_id: "JE-000003", batch_id: batchId, batch_index: 1, batch_count: 3 }),
+      singleEntry({
+        seq: 1,
+        entry_id: "JE-000002",
+        batch_id: batchId,
+        batch_index: 0,
+        batch_count: 3,
+      }),
+      singleEntry({
+        seq: 2,
+        entry_id: "JE-000003",
+        batch_id: batchId,
+        batch_index: 1,
+        batch_count: 3,
+      }),
     ];
     await writeRaw(fp, serialize(prelude) + partial.map(serialize).join(""));
     const r = await tailRecovery(fp);

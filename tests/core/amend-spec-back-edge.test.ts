@@ -298,11 +298,16 @@ async function seedRealJournalAtExecuteWork(dir: string): Promise<{
   const journalPath = path.join(dir, "journal.jsonl");
   let seq = 0;
   const bootstrap: JournalEntry[] = [
-    makeEntry(seq++, "session:started", {
-      session_id: "550e8400-e29b-41d4-a716-446655440000",
-      feature: "auth-refresh",
-      ceremony: STANDARD,
-    }, "cli:loaf"),
+    makeEntry(
+      seq++,
+      "session:started",
+      {
+        session_id: "550e8400-e29b-41d4-a716-446655440000",
+        feature: "auth-refresh",
+        ceremony: STANDARD,
+      },
+      "cli:loaf",
+    ),
   ];
   for (const [from, to] of [
     ["TRIAGE.score", "TRIAGE.confirm"],
@@ -314,17 +319,32 @@ async function seedRealJournalAtExecuteWork(dir: string): Promise<{
     bootstrap.push(makeEntry(seq++, "event:phase_advanced", { from, to }, "cli:loaf"));
   }
   bootstrap.push(
-    makeEntry(seq++, "gate:decided", {
-      gate_kind: "spec-lock",
-      decision: "approved",
-      reason: "fixture bootstrap",
-    }, "human:engineer@test.local"),
+    makeEntry(
+      seq++,
+      "gate:decided",
+      {
+        gate_kind: "spec-lock",
+        decision: "approved",
+        reason: "fixture bootstrap",
+      },
+      "human:engineer@test.local",
+    ),
   );
   bootstrap.push(
-    makeEntry(seq++, "event:phase_advanced", { from: "SPEC.design", to: "EXECUTE.plan" }, "cli:loaf"),
+    makeEntry(
+      seq++,
+      "event:phase_advanced",
+      { from: "SPEC.design", to: "EXECUTE.plan" },
+      "cli:loaf",
+    ),
   );
   bootstrap.push(
-    makeEntry(seq++, "event:phase_advanced", { from: "EXECUTE.plan", to: "EXECUTE.work" }, "cli:loaf"),
+    makeEntry(
+      seq++,
+      "event:phase_advanced",
+      { from: "EXECUTE.plan", to: "EXECUTE.work" },
+      "cli:loaf",
+    ),
   );
 
   let meta = emptyMeta();
@@ -410,7 +430,14 @@ describe("mutateBatch — Slice B amend-spec batch integration", () => {
           },
         },
       ],
-      { feature_dir: dir, snapshot: baseSnap, tail_seq: -1, entries: [], meta: emptyMeta(), fsync: false },
+      {
+        feature_dir: dir,
+        snapshot: baseSnap,
+        tail_seq: -1,
+        entries: [],
+        meta: emptyMeta(),
+        fsync: false,
+      },
     );
     expect(r.ok).toBe(false);
     if (!r.ok) {
@@ -438,7 +465,14 @@ describe("mutateBatch — Slice B amend-spec batch integration", () => {
           },
         },
       ],
-      { feature_dir: dir, snapshot: baseSnap, tail_seq: -1, entries: [], meta: emptyMeta(), fsync: false },
+      {
+        feature_dir: dir,
+        snapshot: baseSnap,
+        tail_seq: -1,
+        entries: [],
+        meta: emptyMeta(),
+        fsync: false,
+      },
     );
     expect(r.ok).toBe(false);
     if (!r.ok) {
@@ -466,7 +500,14 @@ describe("mutateBatch — Slice B amend-spec batch integration", () => {
           },
         },
       ],
-      { feature_dir: dir, snapshot: baseSnap, tail_seq: -1, entries: [], meta: emptyMeta(), fsync: false },
+      {
+        feature_dir: dir,
+        snapshot: baseSnap,
+        tail_seq: -1,
+        entries: [],
+        meta: emptyMeta(),
+        fsync: false,
+      },
     );
     expect(r.ok).toBe(false);
     if (!r.ok) {
@@ -530,7 +571,14 @@ describe("mutateBatch — Slice B amend-spec batch integration", () => {
           },
         },
       ],
-      { feature_dir: dir, snapshot: baseSnap, tail_seq: -1, entries: [], meta: emptyMeta(), fsync: false },
+      {
+        feature_dir: dir,
+        snapshot: baseSnap,
+        tail_seq: -1,
+        entries: [],
+        meta: emptyMeta(),
+        fsync: false,
+      },
     );
     expect(r.ok).toBe(false);
     if (!r.ok) {
@@ -576,11 +624,16 @@ describe("replay anchor — Slice B journal-derivability", () => {
     // We use raw appendEntry here to set up the on-disk preconditions.
     let seq = 0;
     const bootstrap: Array<JournalEntry> = [
-      makeEntry(seq++, "session:started", {
-        session_id: "550e8400-e29b-41d4-a716-446655440000",
-        feature: "auth-refresh",
-        ceremony: STANDARD,
-      }, "cli:loaf"),
+      makeEntry(
+        seq++,
+        "session:started",
+        {
+          session_id: "550e8400-e29b-41d4-a716-446655440000",
+          feature: "auth-refresh",
+          ceremony: STANDARD,
+        },
+        "cli:loaf",
+      ),
     ];
     const walk: Array<[SubState, SubState]> = [
       ["TRIAGE.score", "TRIAGE.confirm"],
@@ -594,18 +647,33 @@ describe("replay anchor — Slice B journal-derivability", () => {
     }
     // gate:decided spec-lock approved at SPEC.design (locks)
     bootstrap.push(
-      makeEntry(seq++, "gate:decided", {
-        gate_kind: "spec-lock",
-        decision: "approved",
-        reason: "anchor-test bootstrap",
-      }, "human:engineer@test.local"),
+      makeEntry(
+        seq++,
+        "gate:decided",
+        {
+          gate_kind: "spec-lock",
+          decision: "approved",
+          reason: "anchor-test bootstrap",
+        },
+        "human:engineer@test.local",
+      ),
     );
     // phase_advanced SPEC.design → EXECUTE.plan → EXECUTE.work
     bootstrap.push(
-      makeEntry(seq++, "event:phase_advanced", { from: "SPEC.design", to: "EXECUTE.plan" }, "cli:loaf"),
+      makeEntry(
+        seq++,
+        "event:phase_advanced",
+        { from: "SPEC.design", to: "EXECUTE.plan" },
+        "cli:loaf",
+      ),
     );
     bootstrap.push(
-      makeEntry(seq++, "event:phase_advanced", { from: "EXECUTE.plan", to: "EXECUTE.work" }, "cli:loaf"),
+      makeEntry(
+        seq++,
+        "event:phase_advanced",
+        { from: "EXECUTE.plan", to: "EXECUTE.work" },
+        "cli:loaf",
+      ),
     );
     {
       let m = emptyMeta();
@@ -655,7 +723,7 @@ describe("replay anchor — Slice B journal-derivability", () => {
         feature_dir: dir,
         snapshot: pre.ok ? pre.snapshot : initialSnapshot(),
         tail_seq: seq - 1,
-        entries: pre.ok ? pre.entries ?? [] : [],
+        entries: pre.ok ? (pre.entries ?? []) : [],
         meta: pre.ok ? pre.meta : emptyMeta(),
         fsync: false,
       },
@@ -689,11 +757,16 @@ describe("replay anchor — Slice B journal-derivability", () => {
     // Bootstrap to EXECUTE.work + spec_locked=true (same walk as above).
     let seq = 0;
     const bootstrap: Array<JournalEntry> = [
-      makeEntry(seq++, "session:started", {
-        session_id: "660e8400-e29b-41d4-a716-446655440001",
-        feature: "auth-refresh",
-        ceremony: STANDARD,
-      }, "cli:loaf"),
+      makeEntry(
+        seq++,
+        "session:started",
+        {
+          session_id: "660e8400-e29b-41d4-a716-446655440001",
+          feature: "auth-refresh",
+          ceremony: STANDARD,
+        },
+        "cli:loaf",
+      ),
     ];
     for (const [from, to] of [
       ["TRIAGE.score", "TRIAGE.confirm"],
@@ -705,36 +778,61 @@ describe("replay anchor — Slice B journal-derivability", () => {
       bootstrap.push(makeEntry(seq++, "event:phase_advanced", { from, to }, "cli:loaf"));
     }
     bootstrap.push(
-      makeEntry(seq++, "gate:decided", {
-        gate_kind: "spec-lock",
-        decision: "approved",
-        reason: "anchor-negative bootstrap",
-      }, "human:engineer@test.local"),
+      makeEntry(
+        seq++,
+        "gate:decided",
+        {
+          gate_kind: "spec-lock",
+          decision: "approved",
+          reason: "anchor-negative bootstrap",
+        },
+        "human:engineer@test.local",
+      ),
     );
     bootstrap.push(
-      makeEntry(seq++, "event:phase_advanced", { from: "SPEC.design", to: "EXECUTE.plan" }, "cli:loaf"),
+      makeEntry(
+        seq++,
+        "event:phase_advanced",
+        { from: "SPEC.design", to: "EXECUTE.plan" },
+        "cli:loaf",
+      ),
     );
     bootstrap.push(
-      makeEntry(seq++, "event:phase_advanced", { from: "EXECUTE.plan", to: "EXECUTE.work" }, "cli:loaf"),
+      makeEntry(
+        seq++,
+        "event:phase_advanced",
+        { from: "EXECUTE.plan", to: "EXECUTE.work" },
+        "cli:loaf",
+      ),
     );
     // Now the evil sequence: raise + close + stale back_edge reference.
     bootstrap.push(
-      makeEntry(seq++, "finding:raised", {
-        id: "FND-001",
-        category: "spec-gap",
-        action: "amend-spec",
-        summary: "raised then closed without using the sponsorship",
-      }, "human:engineer@test.local"),
+      makeEntry(
+        seq++,
+        "finding:raised",
+        {
+          id: "FND-001",
+          category: "spec-gap",
+          action: "amend-spec",
+          summary: "raised then closed without using the sponsorship",
+        },
+        "human:engineer@test.local",
+      ),
     );
     bootstrap.push(
       makeEntry(seq++, "finding:closed", { id: "FND-001" }, "human:engineer@test.local"),
     );
     bootstrap.push(
-      makeEntry(seq++, "event:phase_advanced", {
-        from: "EXECUTE.work",
-        to: "SPEC.spec",
-        back_edge: { action: "amend-spec", finding_id: "FND-001" },
-      }, "cli:loaf"),
+      makeEntry(
+        seq++,
+        "event:phase_advanced",
+        {
+          from: "EXECUTE.work",
+          to: "SPEC.spec",
+          back_edge: { action: "amend-spec", finding_id: "FND-001" },
+        },
+        "cli:loaf",
+      ),
     );
     {
       let m = emptyMeta();

@@ -13,10 +13,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import {
-  composeSpecMdFrontmatter,
-  writeDerivedSpecMd,
-} from "../../src/core/spec-projection.js";
+import { composeSpecMdFrontmatter, writeDerivedSpecMd } from "../../src/core/spec-projection.js";
 import { initialSnapshot, type Snapshot, type SpecHeader } from "../../src/core/reducer.js";
 import { emptyMeta } from "../../src/core/snapshot.js";
 import type { JournalEntry } from "../../src/core/journal-entry.js";

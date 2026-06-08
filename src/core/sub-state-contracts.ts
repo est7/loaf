@@ -40,8 +40,7 @@ export const SUB_STATE_CONTRACTS: Array<z.infer<typeof SubStateContract>> = [
     exit: "complexity_score computed (0-100)",
     write_paths: [".loaf/<feature>/state.json"],
     next: ["TRIAGE.confirm"],
-    prompt_inject:
-      "Score 0-100 across files/api/schema/concurrency/security. Suggest profile.",
+    prompt_inject: "Score 0-100 across files/api/schema/concurrency/security. Suggest profile.",
   },
   {
     sub_state: "TRIAGE.confirm",
@@ -56,7 +55,8 @@ export const SUB_STATE_CONTRACTS: Array<z.infer<typeof SubStateContract>> = [
   // ─── SPEC ───
   {
     sub_state: "SPEC.proposal",
-    entry: "ceremony.spec_phase=true && TRIAGE.confirm done; OR Q9 escalation backfill (ceremony.spec_phase 由 false 改 true)",
+    entry:
+      "ceremony.spec_phase=true && TRIAGE.confirm done; OR Q9 escalation backfill (ceremony.spec_phase 由 false 改 true)",
     exit: "spec.md body has Proposal section",
     write_paths: [".loaf/<feature>/spec.md", ".loaf/<feature>/spec-draft-context.md"],
     next: ["SPEC.spec"],
@@ -66,8 +66,7 @@ export const SUB_STATE_CONTRACTS: Array<z.infer<typeof SubStateContract>> = [
   {
     sub_state: "SPEC.spec",
     entry: "proposal section exists OR amend-spec back-edge",
-    exit:
-      "frontmatter has requirements (each with three-way verifiability) + scenarios (+visual_contracts if UI); needs_clarification empty",
+    exit: "frontmatter has requirements (each with three-way verifiability) + scenarios (+visual_contracts if UI); needs_clarification empty",
     write_paths: [".loaf/<feature>/spec.md"],
     next: ["SPEC.plan"],
     prompt_inject:
@@ -79,9 +78,7 @@ export const SUB_STATE_CONTRACTS: Array<z.infer<typeof SubStateContract>> = [
     exit: "spec.md body has Plan section",
     write_paths: [".loaf/<feature>/spec.md"],
     mutation_rights: {
-      writable_fields: [
-        "spec.md:body.plan",
-      ],
+      writable_fields: ["spec.md:body.plan"],
       forbidden_fields: [
         "spec.md:frontmatter.requirements",
         "spec.md:frontmatter.scenarios",
@@ -95,14 +92,10 @@ export const SUB_STATE_CONTRACTS: Array<z.infer<typeof SubStateContract>> = [
   {
     sub_state: "SPEC.design",
     entry: "plan section complete",
-    exit:
-      "design section + tasks.json generated; every REQ/SCEN/VIS bound to ≥1 task",
+    exit: "design section + tasks.json generated; every REQ/SCEN/VIS bound to ≥1 task",
     write_paths: [".loaf/<feature>/spec.md", ".loaf/<feature>/tasks.json"],
     mutation_rights: {
-      writable_fields: [
-        "spec.md:body.design",
-        "tasks.json:*",
-      ],
+      writable_fields: ["spec.md:body.design", "tasks.json:*"],
       forbidden_fields: [
         "spec.md:frontmatter.requirements",
         "spec.md:frontmatter.scenarios",
@@ -141,8 +134,7 @@ export const SUB_STATE_CONTRACTS: Array<z.infer<typeof SubStateContract>> = [
   {
     sub_state: "EXECUTE.work",
     entry: "EXECUTE.plan done OR fix-impl/fix-test/amend-tasks back-edge",
-    exit:
-      "every task.status = done OR abandoned, with all required steps passed/waived/na",
+    exit: "every task.status = done OR abandoned, with all required steps passed/waived/na",
     write_paths: [
       ".loaf/<feature>/tasks.json",
       ".loaf/<feature>/evidence.jsonl",
@@ -187,8 +179,7 @@ export const SUB_STATE_CONTRACTS: Array<z.infer<typeof SubStateContract>> = [
   {
     sub_state: "VERIFY.plan",
     entry: "EXECUTE.done && ceremony.verify_phase=true",
-    exit:
-      "applicability computed for each VerifyCheckKind (must/optional/na with reasons)",
+    exit: "applicability computed for each VerifyCheckKind (must/optional/na with reasons)",
     write_paths: [".loaf/<feature>/state.json"],
     next: ["VERIFY.run", "VERIFY.review", "VERIFY.acceptance", "VERIFY.visual", "VERIFY.accept"],
     prompt_inject:
@@ -214,7 +205,8 @@ export const SUB_STATE_CONTRACTS: Array<z.infer<typeof SubStateContract>> = [
   },
   {
     sub_state: "VERIFY.acceptance",
-    entry: "VERIFY.plan or prior check done with acceptance applicability ∈ {must, optional-elected}",
+    entry:
+      "VERIFY.plan or prior check done with acceptance applicability ∈ {must, optional-elected}",
     exit: "acceptance check passed or explicitly waived",
     write_paths: [".loaf/<feature>/evidence.jsonl", ".loaf/<feature>/findings.jsonl"],
     next: ["VERIFY.run", "VERIFY.review", "VERIFY.visual", "VERIFY.accept"],
@@ -248,7 +240,8 @@ export const SUB_STATE_CONTRACTS: Array<z.infer<typeof SubStateContract>> = [
   // ─── SETTLE ───
   {
     sub_state: "SETTLE.reconcile",
-    entry: "verify-accept passed && ceremony.settle_phase=true (deep only after rev 5.x; quick/light/standard skip SETTLE)",
+    entry:
+      "verify-accept passed && ceremony.settle_phase=true (deep only after rev 5.x; quick/light/standard skip SETTLE)",
     exit: "reconcile.json valid",
     write_paths: [".loaf/<feature>/reconcile.json"],
     next: ["SETTLE.lessons"],

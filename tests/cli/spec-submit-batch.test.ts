@@ -121,7 +121,11 @@ describe("buildSpecSubmitBatch — entry count + order", () => {
       input: makeInput({
         requirements: [REQ_VERIFIABLE, { ...REQ_VERIFIABLE, id: "REQ-AUTH-002" }],
         scenarios: [SCEN_E2E],
-        visual_contracts: [VIS_001, { ...VIS_001, id: "VIS-AUTH-002" }, { ...VIS_001, id: "VIS-AUTH-003" }],
+        visual_contracts: [
+          VIS_001,
+          { ...VIS_001, id: "VIS-AUTH-002" },
+          { ...VIS_001, id: "VIS-AUTH-003" },
+        ],
       }),
       snapshot: makeSnapshot(0),
       actor: ACTOR,
@@ -153,7 +157,7 @@ describe("buildSpecSubmitBatch — shared envelope fields", () => {
 describe("buildSpecSubmitBatch — spec_version stamping (codex r331 P1)", () => {
   test("snapshot.state.spec_version + 1 by default", () => {
     const entries = buildSpecSubmitBatch({
-      input: makeInput(),  // input.spec_version absent
+      input: makeInput(), // input.spec_version absent
       snapshot: makeSnapshot(5),
       actor: ACTOR,
       now: NOW,
@@ -208,20 +212,25 @@ describe("buildSpecSubmitBatch — payload field shapes", () => {
       feature: { id: "F-007", name: "Custom feature name" },
       intent: "deliberately custom intent for shape regression check",
       adr_refs: ["adr-0005-truth-model", "adr-0001-baseline"],
-      needs_clarification: [{
-        id: "NC-001",
-        question: "what is the expected hover state for the OAuth login button",
-        status: "open",
-      }],
+      needs_clarification: [
+        {
+          id: "NC-001",
+          question: "what is the expected hover state for the OAuth login button",
+          status: "open",
+        },
+      ],
     });
     const entries = buildSpecSubmitBatch({
-      input, snapshot: makeSnapshot(0), actor: ACTOR, now: NOW,
+      input,
+      snapshot: makeSnapshot(0),
+      actor: ACTOR,
+      now: NOW,
     });
     const head = entries[0]!.payload as Record<string, unknown>;
     expect(head["feature"]).toEqual({ id: "F-007", name: "Custom feature name" });
     expect(head["intent"]).toBe("deliberately custom intent for shape regression check");
     expect(head["adr_refs"]).toEqual(["adr-0005-truth-model", "adr-0001-baseline"]);
-    expect((head["needs_clarification"] as Array<{ id: string }>)).toHaveLength(1);
+    expect(head["needs_clarification"] as Array<{ id: string }>).toHaveLength(1);
   });
 
   test("req companion payload: { spec_version, req }", () => {

@@ -14,7 +14,7 @@
 //   - `gates/spec-lock-eval.ts`  = IO boundary, check-1 mapping, called by
 //                                   mutateBatch Pass 1.5 + (later) CLI.
 
-import type { Snapshot } from "../reducer.js";
+import type { Snapshot } from "../projection-types.js";
 import { specLockCheck } from "./spec-lock-check.js";
 import type { SpecLockResult } from "./spec-lock-check.js";
 import { gateEvalFromCheck } from "./gate-eval.js";

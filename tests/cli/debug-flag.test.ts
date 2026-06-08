@@ -77,7 +77,9 @@ describe("SC-6b — parseDebugFromArgv: flag + env precedence", () => {
   });
 
   test("T7: --debug flag wins regardless of envs", () => {
-    expect(parseDebugFromArgv(["loaf", "status", "--debug"], { LOAF_DEBUG: "", DEBUG: "" })).toBe(true);
+    expect(parseDebugFromArgv(["loaf", "status", "--debug"], { LOAF_DEBUG: "", DEBUG: "" })).toBe(
+      true,
+    );
   });
 });
 

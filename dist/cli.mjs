@@ -14,6 +14,7 @@ import { jsx, jsxs } from "react/jsx-runtime";
 import picomatch from "picomatch";
 import { execFileSync, spawn } from "node:child_process";
 import { O_APPEND, O_CREAT, O_WRONLY } from "node:constants";
+import { isDeepStrictEqual } from "node:util";
 //#region package.json
 var version = "0.3.0";
 //#endregion
@@ -250,11 +251,6 @@ var en_default = {
 	diagnostic: {
 		"MISSING_VERIFIABILITY": "REQ {req_id} must declare measurable, verified_by_scenarios[], or acceptance_na+reason",
 		"DRIVES_NOT_BOUND": "REQ {req_id} is not referenced by any task.drives[]",
-		"E2E_ACCEPTANCE_UNRESOLVED": "Scenario {scen_id} (tag=e2e) lacks acceptance binding or acceptance_na+reason",
-		"VISUAL_CONTRACT_UNRESOLVED": "Visual contract {vis_id} lacks visual-ui task binding or visual_na+reason",
-		"TASK_KIND_SCHEMA_INVALID": "Task {task_id} does not match its kind={kind} schema: {reason}",
-		"NO_OPEN_CLARIFICATIONS": "spec.md still has open clarifications: {ids}",
-		"TASKS_VERSION_MISMATCH": "tasks.based_on.spec ({tasks_ver}) ≠ spec.spec_version ({spec_ver})",
 		"EVIDENCE_INCOMPATIBLE": "Evidence {evidence_id} (kind={kind}) cannot satisfy {covered_id}",
 		"WAIVER_MISSING_REASON": "Waiver evidence {evidence_id} requires reason ≥10 characters",
 		"WAIVER_NOT_HUMAN": "Waiver evidence {evidence_id} actor must start with 'human:'; got {actor}",
@@ -778,11 +774,6 @@ var zh_default = {
 	diagnostic: {
 		"MISSING_VERIFIABILITY": "需求 {req_id} 必须声明 measurable、verified_by_scenarios[] 或 acceptance_na+reason 三选一",
 		"DRIVES_NOT_BOUND": "需求 {req_id} 没有被任何 task.drives[] 引用",
-		"E2E_ACCEPTANCE_UNRESOLVED": "场景 {scen_id}(tag=e2e)既没有 task 验收绑定,也没有 acceptance_na+reason",
-		"VISUAL_CONTRACT_UNRESOLVED": "视觉合约 {vis_id} 既没有 visual-ui task 引用,也没有 visual_na+reason",
-		"TASK_KIND_SCHEMA_INVALID": "任务 {task_id} 不符合 kind={kind} 的 schema:{reason}",
-		"NO_OPEN_CLARIFICATIONS": "spec.md 仍有未解决的 clarifications: {ids}",
-		"TASKS_VERSION_MISMATCH": "tasks.based_on.spec({tasks_ver})≠ spec.spec_version({spec_ver})",
 		"EVIDENCE_INCOMPATIBLE": "证据 {evidence_id}(kind={kind})不能满足 {covered_id} 的覆盖要求",
 		"WAIVER_MISSING_REASON": "豁免证据 {evidence_id} 必须有 reason(≥10 字符)",
 		"WAIVER_NOT_HUMAN": "豁免证据 {evidence_id} 的 actor 必须以 'human:' 开头,当前 {actor}",
@@ -1759,7 +1750,7 @@ const EvidenceFullPayload = EvidenceFullShape.refine((e) => {
 		if (!e.reason || e.reason.length < 10) return false;
 	}
 	return true;
-}, { message: "evidence kind=manual/waiver requires actor=human:* and reason ≥10 chars (per §5.4)" }).refine((e) => {
+}, { message: "evidence kind=manual/waiver requires actor=human:* and reason ≥10 chars (per §5.4)" }).refine((e) => !(e.kind === "manual" && e.result === "waived"), { message: "evidence kind=manual must not carry result=waived; use kind=waiver" }).refine((e) => {
 	if (e.kind === "visual-review") {
 		if (!e.attachments || e.attachments.length === 0) return false;
 	}
@@ -1804,48 +1795,48 @@ const FINDING_ACTION_GRID = {
 		"amend-tasks": "unusual",
 		"fix-impl": "incoherent",
 		"fix-test": "incoherent",
-		"defer": "typical",
-		"backlog": "typical"
+		defer: "typical",
+		backlog: "typical"
 	},
 	"spec-defect": {
 		"amend-spec": "typical",
 		"amend-tasks": "unusual",
 		"fix-impl": "unusual",
 		"fix-test": "unusual",
-		"defer": "typical",
-		"backlog": "typical"
+		defer: "typical",
+		backlog: "typical"
 	},
 	"impl-defect": {
 		"amend-spec": "unusual",
 		"amend-tasks": "typical",
 		"fix-impl": "typical",
 		"fix-test": "unusual",
-		"defer": "typical",
-		"backlog": "typical"
+		defer: "typical",
+		backlog: "typical"
 	},
 	"test-defect": {
 		"amend-spec": "unusual",
 		"amend-tasks": "typical",
 		"fix-impl": "unusual",
 		"fix-test": "typical",
-		"defer": "typical",
-		"backlog": "typical"
+		defer: "typical",
+		backlog: "typical"
 	},
 	"new-scope": {
 		"amend-spec": "typical",
 		"amend-tasks": "typical",
 		"fix-impl": "incoherent",
 		"fix-test": "incoherent",
-		"defer": "typical",
-		"backlog": "typical"
+		defer: "typical",
+		backlog: "typical"
 	},
 	"risk-escalation": {
 		"amend-spec": "unusual",
 		"amend-tasks": "typical",
 		"fix-impl": "unusual",
 		"fix-test": "unusual",
-		"defer": "typical",
-		"backlog": "typical"
+		defer: "typical",
+		backlog: "typical"
 	}
 };
 /** Look up the (category, action) cell risk in O(1). */
@@ -1857,8 +1848,8 @@ const FINDING_ACTION_TARGET_MODE = {
 	"amend-tasks": "task_id_optional",
 	"fix-impl": "task_id_step",
 	"fix-test": "task_id_step",
-	"defer": "none",
-	"backlog": "none"
+	defer: "none",
+	backlog: "none"
 };
 /**
 * For `task_id_step` actions only, the canonical step that the action's
@@ -7034,6 +7025,7 @@ function withTreePrefixes(plan) {
 				};
 			}
 		}
+		return item;
 	});
 }
 function sortProjectGroups(groups, sortMode) {
@@ -8939,6 +8931,9 @@ function isActorAllowed(kind, actor) {
 }
 //#endregion
 //#region src/core/reducer/invariants.ts
+function resolveSpecVersionMode(batchIndex) {
+	return batchIndex === void 0 || batchIndex === 0 ? "head" : "continuation";
+}
 /**
 * spec_version monotonicity, parametrised by batch position.
 *
@@ -9959,7 +9954,7 @@ function preflight(rawEntry, ctx) {
 				}
 			};
 		} else {
-			const mode = entry.batch_index === void 0 || entry.batch_index === 0 ? "head" : "continuation";
+			const mode = resolveSpecVersionMode(entry.batch_index);
 			const v = checkSpecVersion$1(payloadVersion, currentVersion, mode);
 			if (!v.ok) {
 				if (mode === "head") return {
@@ -10059,6 +10054,14 @@ const MIGRATION_BOOTSTRAP_CEREMONY = {
 	lessons_required: "skip",
 	strict_drift_check: false
 };
+/**
+* Applies one already-validated journal entry into a snapshot projection.
+*
+* Contract: `prev` is consumed. Some cases mutate projection arrays in place and
+* may return the same snapshot object/array references. Callers that need to
+* keep observing the pre-apply snapshot must pass a clone. `mutateBatch` and
+* replay-style callers own that clone boundary.
+*/
 function apply(prev, entry) {
 	if (entry.kind === "migration:snapshot_imported") {
 		if (prev.state !== null) return {
@@ -10678,7 +10681,7 @@ function checkSpecVersionHead(entry, payloadVersion, currentVersion) {
 	};
 }
 function checkSpecVersion(entry, payloadVersion, currentVersion) {
-	const mode = entry.batch_index === void 0 || entry.batch_index === 0 ? "head" : "continuation";
+	const mode = resolveSpecVersionMode(entry.batch_index);
 	const r = checkSpecVersion$1(payloadVersion, currentVersion, mode);
 	if (r.ok) return {
 		ok: true,
@@ -11766,7 +11769,7 @@ async function mutateBatch(partials, ctx) {
 		};
 		finalSnapshot = dryRun.snapshot;
 	}
-	if (JSON.stringify(finalSnapshot) !== JSON.stringify(snapshotAcc)) return {
+	if (!isDeepStrictEqual(finalSnapshot, snapshotAcc)) return {
 		ok: false,
 		code: "REDUCER_ERROR",
 		message: "snapshot drift between unpromoted and promoted dry-runs — a reducer is reading LongTextField content; the batch is unsafe to append",
@@ -12075,6 +12078,18 @@ function listVar(value) {
 	if (Array.isArray(value)) return value.map((item) => String(item)).join(", ");
 	return stringVar(value);
 }
+function collectPresentSelectors(argv, env) {
+	const selectors = [];
+	if (argv.includes("--session") || argv.some((a) => a.startsWith("--session="))) selectors.push("--session");
+	if (argv.includes("--feature") || argv.some((a) => a.startsWith("--feature="))) selectors.push("--feature");
+	if (argv.includes("--feature-dir") || argv.some((a) => a.startsWith("--feature-dir="))) selectors.push("--feature-dir");
+	if (env["LOAF_SESSION"] !== void 0 && env["LOAF_SESSION"].length > 0) selectors.push("$LOAF_SESSION");
+	if (env["LOAF_FEATURE"] !== void 0 && env["LOAF_FEATURE"].length > 0) selectors.push("$LOAF_FEATURE");
+	return selectors;
+}
+function detectRenderAsJson(argv) {
+	return argv.some((a) => a === "--format=json" || a === "--format" && argv[argv.indexOf(a) + 1] === "json");
+}
 async function main(argv = process.argv, deps = {}) {
 	const wantsHelpOrVersion = argv.some((a) => a === "--help" || a === "-h" || a === "--version" || a === "-V");
 	if (!wantsHelpOrVersion) {
@@ -12131,14 +12146,9 @@ async function main(argv = process.argv, deps = {}) {
 		};
 		const cmdTokens = collectNonFlagTokens(2, 2);
 		if (cmdTokens[0] === "sessions" && cmdTokens[1] === "list") {
-			const presentSelectors = [];
-			if (argv.includes("--session") || argv.some((a) => a.startsWith("--session="))) presentSelectors.push("--session");
-			if (argv.includes("--feature") || argv.some((a) => a.startsWith("--feature="))) presentSelectors.push("--feature");
-			if (argv.includes("--feature-dir") || argv.some((a) => a.startsWith("--feature-dir="))) presentSelectors.push("--feature-dir");
-			if (process.env["LOAF_SESSION"] !== void 0 && process.env["LOAF_SESSION"].length > 0) presentSelectors.push("$LOAF_SESSION");
-			if (process.env["LOAF_FEATURE"] !== void 0 && process.env["LOAF_FEATURE"].length > 0) presentSelectors.push("$LOAF_FEATURE");
+			const presentSelectors = collectPresentSelectors(argv, process.env);
 			if (presentSelectors.length > 0) {
-				const renderAsJson = argv.some((a) => a === "--format=json" || a === "--format" && argv[argv.indexOf(a) + 1] === "json");
+				const renderAsJson = detectRenderAsJson(argv);
 				writePreContextSiteFailure({
 					code: "USAGE",
 					keyPath: FAILURE_SITE_KEYS.sessionsListSelectorConflict,
@@ -12150,14 +12160,9 @@ async function main(argv = process.argv, deps = {}) {
 			}
 		}
 		if (cmdTokens[0] === "tui") {
-			const presentSelectors = [];
-			if (argv.includes("--session") || argv.some((a) => a.startsWith("--session="))) presentSelectors.push("--session");
-			if (argv.includes("--feature") || argv.some((a) => a.startsWith("--feature="))) presentSelectors.push("--feature");
-			if (argv.includes("--feature-dir") || argv.some((a) => a.startsWith("--feature-dir="))) presentSelectors.push("--feature-dir");
-			if (process.env["LOAF_SESSION"] !== void 0 && process.env["LOAF_SESSION"].length > 0) presentSelectors.push("$LOAF_SESSION");
-			if (process.env["LOAF_FEATURE"] !== void 0 && process.env["LOAF_FEATURE"].length > 0) presentSelectors.push("$LOAF_FEATURE");
+			const presentSelectors = collectPresentSelectors(argv, process.env);
 			const hasFormat = argv.some((a) => a === "--format" || a.startsWith("--format="));
-			const renderAsJson = argv.some((a) => a === "--format=json" || a === "--format" && argv[argv.indexOf(a) + 1] === "json");
+			const renderAsJson = detectRenderAsJson(argv);
 			if (presentSelectors.length > 0) {
 				writePreContextSiteFailure({
 					code: "USAGE",
@@ -12180,7 +12185,7 @@ async function main(argv = process.argv, deps = {}) {
 			}
 		}
 		if (cmdTokens[0] === "hook") {
-			const renderAsJson = argv.some((a) => a === "--format=json" || a === "--format" && argv[argv.indexOf(a) + 1] === "json");
+			const renderAsJson = detectRenderAsJson(argv);
 			if (argv.includes("--list-events")) {
 				if (renderAsJson) process.stdout.write(JSON.stringify({
 					ok: true,
@@ -12225,14 +12230,9 @@ async function main(argv = process.argv, deps = {}) {
 			}
 		}
 		if (cmdTokens[0] === "check") {
-			const presentSelectors = [];
-			if (argv.includes("--session") || argv.some((a) => a.startsWith("--session="))) presentSelectors.push("--session");
-			if (argv.includes("--feature") || argv.some((a) => a.startsWith("--feature="))) presentSelectors.push("--feature");
-			if (argv.includes("--feature-dir") || argv.some((a) => a.startsWith("--feature-dir="))) presentSelectors.push("--feature-dir");
-			if (process.env["LOAF_SESSION"] !== void 0 && process.env["LOAF_SESSION"].length > 0) presentSelectors.push("$LOAF_SESSION");
-			if (process.env["LOAF_FEATURE"] !== void 0 && process.env["LOAF_FEATURE"].length > 0) presentSelectors.push("$LOAF_FEATURE");
+			const presentSelectors = collectPresentSelectors(argv, process.env);
 			if (presentSelectors.length > 0) {
-				const renderAsJson = argv.some((a) => a === "--format=json" || a === "--format" && argv[argv.indexOf(a) + 1] === "json");
+				const renderAsJson = detectRenderAsJson(argv);
 				writePreContextSiteFailure({
 					code: "USAGE",
 					keyPath: FAILURE_SITE_KEYS.checkSelectorConflict,
@@ -12260,15 +12260,10 @@ async function main(argv = process.argv, deps = {}) {
 		const isArtifactSchema = cmdTokens[1] === "schema" && cmdTokens[0] !== void 0 && ARTIFACT_KINDS.has(cmdTokens[0]);
 		const mutatorSchemaLabel = cmdTokens[0] !== void 0 && cmdTokens[1] !== void 0 && argv.includes("--schema") ? MUTATOR_SCHEMA_LABELS.get(`${cmdTokens[0]}/${cmdTokens[1]}`) : void 0;
 		if (isArtifactSchema || mutatorSchemaLabel !== void 0) {
-			const presentSelectors = [];
-			if (argv.includes("--session") || argv.some((a) => a.startsWith("--session="))) presentSelectors.push("--session");
-			if (argv.includes("--feature") || argv.some((a) => a.startsWith("--feature="))) presentSelectors.push("--feature");
-			if (argv.includes("--feature-dir") || argv.some((a) => a.startsWith("--feature-dir="))) presentSelectors.push("--feature-dir");
-			if (process.env["LOAF_SESSION"] !== void 0 && process.env["LOAF_SESSION"].length > 0) presentSelectors.push("$LOAF_SESSION");
-			if (process.env["LOAF_FEATURE"] !== void 0 && process.env["LOAF_FEATURE"].length > 0) presentSelectors.push("$LOAF_FEATURE");
+			const presentSelectors = collectPresentSelectors(argv, process.env);
 			if (presentSelectors.length > 0) {
 				const subj = mutatorSchemaLabel ?? `${cmdTokens[0]} schema`;
-				const renderAsJson = argv.some((a) => a === "--format=json" || a === "--format" && argv[argv.indexOf(a) + 1] === "json");
+				const renderAsJson = detectRenderAsJson(argv);
 				writePreContextSiteFailure({
 					code: "USAGE",
 					keyPath: FAILURE_SITE_KEYS.schemaSelectorConflict,
@@ -12327,7 +12322,7 @@ async function main(argv = process.argv, deps = {}) {
 				conflictingList = ["--feature-dir"];
 			}
 			if (usageKey !== null) {
-				const renderAsJson = argv.some((a) => a === "--format=json" || a === "--format" && argv[argv.indexOf(a) + 1] === "json");
+				const renderAsJson = detectRenderAsJson(argv);
 				writePreContextSiteFailure({
 					code: "USAGE",
 					keyPath: usageKey,
@@ -12403,6 +12398,18 @@ async function main(argv = process.argv, deps = {}) {
 	};
 	const isInteractiveHumanForActor = () => (deps.isInteractiveHuman?.() ?? process.stdin.isTTY === true) && !ctx.noInput;
 	const readGitConfigForActor = deps.readGitConfig ?? getGitEmail;
+	const resolveHumanActorOrFail = () => {
+		const r = resolveHumanActor({
+			env: process.env,
+			readGitConfig: readGitConfigForActor,
+			isInteractiveHuman: isInteractiveHumanForActor()
+		});
+		if (!r.ok) {
+			emitFailure(r.code, r.message);
+			return null;
+		}
+		return r.actor;
+	};
 	const dispatchOrFail = async (opts) => {
 		const dispatch = await ctx.resolveDispatch();
 		if (!dispatch.ok) {
@@ -12732,16 +12739,8 @@ async function main(argv = process.argv, deps = {}) {
 			emitFailure("GATE_NOT_IMPLEMENTED", `gate=${gateName} is not recognized; protocol GateName enum is closed at {spec-lock, verify-accept}`, { gate: gateName });
 			return;
 		}
-		const resolution = resolveHumanActor({
-			env: process.env,
-			readGitConfig: readGitConfigForActor,
-			isInteractiveHuman: isInteractiveHumanForActor()
-		});
-		if (!resolution.ok) {
-			emitFailure(resolution.code, resolution.message);
-			return;
-		}
-		const humanActor = resolution.actor;
+		const humanActor = resolveHumanActorOrFail();
+		if (humanActor === null) return;
 		const featureDir = await dispatchOrFail(opts);
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
@@ -12826,16 +12825,8 @@ async function main(argv = process.argv, deps = {}) {
 		}) }));
 	});
 	program.command("deliver").description("Deliver the feature session (emits session:delivered → DONE.delivered)").option("--feature <name>", "Feature whose session to deliver").option("--feature-dir <path>", "Override default .loaf/<feature> directory").option("--reason <text>", "Optional rationale to record on the session:delivered entry").action(async (opts) => {
-		const resolution = resolveHumanActor({
-			env: process.env,
-			readGitConfig: readGitConfigForActor,
-			isInteractiveHuman: isInteractiveHumanForActor()
-		});
-		if (!resolution.ok) {
-			ctx.failure(resolution.code, resolution.message);
-			return;
-		}
-		const humanActor = resolution.actor;
+		const humanActor = resolveHumanActorOrFail();
+		if (humanActor === null) return;
 		const featureDir = await dispatchOrFail(opts);
 		if (featureDir === null) return;
 		const session = await ctx.resolveSession(featureDir);
@@ -12871,16 +12862,8 @@ async function main(argv = process.argv, deps = {}) {
 		}));
 	});
 	program.command("archive").description("Close the feature session without delivering (emits session:archived → DONE.archived)").option("--feature <name>", "Feature whose session to archive").requiredOption("--reason <text>", "Rationale recorded on the session:archived entry").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
-		const resolution = resolveHumanActor({
-			env: process.env,
-			readGitConfig: readGitConfigForActor,
-			isInteractiveHuman: isInteractiveHumanForActor()
-		});
-		if (!resolution.ok) {
-			emitFailure(resolution.code, resolution.message);
-			return;
-		}
-		const humanActor = resolution.actor;
+		const humanActor = resolveHumanActorOrFail();
+		if (humanActor === null) return;
 		const featureDir = await dispatchOrFail(opts);
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
@@ -12910,16 +12893,8 @@ async function main(argv = process.argv, deps = {}) {
 		}) }));
 	});
 	program.command("abandon").description("Abandon the feature session (emits session:abandoned → DONE.abandoned)").option("--feature <name>", "Feature whose session to abandon").requiredOption("--reason <text>", "Rationale recorded on the session:abandoned entry").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
-		const resolution = resolveHumanActor({
-			env: process.env,
-			readGitConfig: readGitConfigForActor,
-			isInteractiveHuman: isInteractiveHumanForActor()
-		});
-		if (!resolution.ok) {
-			emitFailure(resolution.code, resolution.message);
-			return;
-		}
-		const humanActor = resolution.actor;
+		const humanActor = resolveHumanActorOrFail();
+		if (humanActor === null) return;
 		const featureDir = await dispatchOrFail(opts);
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
@@ -12950,16 +12925,8 @@ async function main(argv = process.argv, deps = {}) {
 		}) }));
 	});
 	program.command("spike").description("Spike-task exits (protocol §8.3)").command("convert").description("Convert a spike session — emits spike:converted then archives to DONE.archived").option("--feature <name>", "Feature whose spike session to convert").requiredOption("--to-feature <id>", "Target feature id (F-NNN) the spike learnings carry into").requiredOption("--reason <text>", "Rationale recorded on the spike:converted entry").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
-		const resolution = resolveHumanActor({
-			env: process.env,
-			readGitConfig: readGitConfigForActor,
-			isInteractiveHuman: isInteractiveHumanForActor()
-		});
-		if (!resolution.ok) {
-			emitFailure(resolution.code, resolution.message);
-			return;
-		}
-		const humanActor = resolution.actor;
+		const humanActor = resolveHumanActorOrFail();
+		if (humanActor === null) return;
 		const featureDir = await dispatchOrFail(opts);
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
@@ -12999,16 +12966,8 @@ async function main(argv = process.argv, deps = {}) {
 	});
 	program.command("profile").description("Ceremony profile commands (protocol §10.8)").command("escalate").description("Apply a ceremony escalation — resolve the profile_escalation pending + emit event:ceremony_set").requiredOption("--confirm", "Human acceptance of the escalation (required)").requiredOption("--input <path>", "JSON file with the escalated 6-flag Ceremony object").option("--feature <name>", "Feature whose session to escalate").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		if (await dispatchOrFail(opts) === null) return;
-		const resolution = resolveHumanActor({
-			env: process.env,
-			readGitConfig: readGitConfigForActor,
-			isInteractiveHuman: isInteractiveHumanForActor()
-		});
-		if (!resolution.ok) {
-			emitFailure(resolution.code, resolution.message);
-			return;
-		}
-		const humanActor = resolution.actor;
+		const humanActor = resolveHumanActorOrFail();
+		if (humanActor === null) return;
 		let content;
 		try {
 			content = await promises.readFile(opts.input, "utf8");
@@ -13502,7 +13461,8 @@ async function main(argv = process.argv, deps = {}) {
 		}) + "\n");
 	});
 	tasksCmd.command("amend <task-id>").description("Amend a task: --policy <step>=<applicability> (EXECUTE.plan) or --input <file> --finding <FND-N> (sponsored, EXECUTE.work)").option("--feature <name>", "Feature whose task to amend").option("--feature-dir <path>", "Override default .loaf/<feature> directory").option("--policy <step=applicability>", "Step applicability override (must|optional|na); repeatable", (val, acc) => [...acc, val], []).option("--input <file>", "New id-less task definition for a sponsored graph replacement (JSON file or '-')").option("--finding <FND-N>", "Sponsoring amend-tasks finding (required with --input)").action(async (taskId, opts) => {
-		if (await dispatchOrFail(opts) === null) return;
+		const earlyFeatureDir = await dispatchOrFail(opts);
+		if (earlyFeatureDir === null) return;
 		const policies = opts.policy ?? [];
 		const hasPolicy = policies.length > 0;
 		const hasInput = opts.input !== void 0;
@@ -13538,7 +13498,7 @@ async function main(argv = process.argv, deps = {}) {
 				ctx.failure("SCHEMA_VALIDATION_FAILED", `tasks amend --input is not a valid id-less task (omit id / status / execution): ${inTask.error.issues.map((i) => i.message).join("; ")}`, { issues: inTask.error.issues });
 				return;
 			}
-			const sFeatureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+			const sFeatureDir = earlyFeatureDir;
 			const sSession = await ctx.resolveSession(sFeatureDir);
 			if (!sSession.snapshot.state) {
 				emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
@@ -13944,15 +13904,8 @@ async function main(argv = process.argv, deps = {}) {
 			});
 			return;
 		}
-		const resolution = resolveHumanActor({
-			env: process.env,
-			readGitConfig: readGitConfigForActor,
-			isInteractiveHuman: isInteractiveHumanForActor()
-		});
-		if (!resolution.ok) {
-			emitFailure(resolution.code, resolution.message);
-			return;
-		}
+		const humanActor = resolveHumanActorOrFail();
+		if (humanActor === null) return;
 		const featureDir = await dispatchOrFail(opts);
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: false });
@@ -13986,7 +13939,7 @@ async function main(argv = process.argv, deps = {}) {
 			feature: opts.feature,
 			pack_path: packPath,
 			session_id: pack.session_id
-		}, () => `${packPath}\n`, (i18n) => ({ stateChange: i18n.t(SUCCESS_KEYS.handoffStateChange, { actor: resolution.actor }) }));
+		}, () => `${packPath}\n`, (i18n) => ({ stateChange: i18n.t(SUCCESS_KEYS.handoffStateChange, { actor: humanActor }) }));
 	});
 	const pendingCmd = program.command("pending").description("Pending queue commands (raise / list / status / resolve)");
 	pendingCmd.command("raise").description("Raise a new pending entry (CLI allocates PEND-id)").requiredOption("--kind <kind>", "Pending kind (ask_user_question | gate_decision | spec_clarification | finding_decision | profile_escalation)").requiredOption("--question <text>", "Question / rationale shown to whoever resolves it (required for ALL kinds)").option("--options <csv>", "Comma-separated answer options (passthrough)").option("--task-id <id>", "Optional task association (passthrough)").option("--feature <name>", "Feature whose session to raise pending against").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
@@ -14215,16 +14168,8 @@ async function main(argv = process.argv, deps = {}) {
 			});
 			return;
 		}
-		const resolution = resolveHumanActor({
-			env: process.env,
-			readGitConfig: readGitConfigForActor,
-			isInteractiveHuman: isInteractiveHumanForActor()
-		});
-		if (!resolution.ok) {
-			emitFailure(resolution.code, resolution.message);
-			return;
-		}
-		const actor = resolution.actor;
+		const actor = resolveHumanActorOrFail();
+		if (actor === null) return;
 		const featureDir = await dispatchOrFail(opts);
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
@@ -14296,16 +14241,8 @@ async function main(argv = process.argv, deps = {}) {
 			});
 			return;
 		}
-		const resolution = resolveHumanActor({
-			env: process.env,
-			readGitConfig: readGitConfigForActor,
-			isInteractiveHuman: isInteractiveHumanForActor()
-		});
-		if (!resolution.ok) {
-			emitFailure(resolution.code, resolution.message);
-			return;
-		}
-		const actor = resolution.actor;
+		const actor = resolveHumanActorOrFail();
+		if (actor === null) return;
 		const featureDir = await dispatchOrFail(opts);
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
@@ -14896,16 +14833,8 @@ feature:
 		if (rejectIfDryRun("spec edit", "wrapping")) return;
 		const featureDir = await dispatchOrFail(opts);
 		if (featureDir === null) return;
-		const resolution = resolveHumanActor({
-			env: process.env,
-			readGitConfig: readGitConfigForActor,
-			isInteractiveHuman: isInteractiveHumanForActor()
-		});
-		if (!resolution.ok) {
-			emitFailure(resolution.code, resolution.message);
-			return;
-		}
-		const actor = resolution.actor;
+		const actor = resolveHumanActorOrFail();
+		if (actor === null) return;
 		const session = await loadSession(featureDir, { ensureDir: false });
 		if (!session.snapshot.state) {
 			emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);

@@ -22,13 +22,26 @@ import {
 } from "../../src/core/reducer/per-kind.js";
 
 const ALL_SUB_STATES: SubState[] = [
-  "TRIAGE.score", "TRIAGE.confirm",
-  "SPEC.proposal", "SPEC.spec", "SPEC.plan", "SPEC.design",
-  "EXECUTE.plan", "EXECUTE.work", "EXECUTE.done",
-  "VERIFY.plan", "VERIFY.run", "VERIFY.review", "VERIFY.acceptance",
-  "VERIFY.visual", "VERIFY.accept",
-  "SETTLE.reconcile", "SETTLE.lessons",
-  "DONE.delivered", "DONE.archived", "DONE.abandoned",
+  "TRIAGE.score",
+  "TRIAGE.confirm",
+  "SPEC.proposal",
+  "SPEC.spec",
+  "SPEC.plan",
+  "SPEC.design",
+  "EXECUTE.plan",
+  "EXECUTE.work",
+  "EXECUTE.done",
+  "VERIFY.plan",
+  "VERIFY.run",
+  "VERIFY.review",
+  "VERIFY.acceptance",
+  "VERIFY.visual",
+  "VERIFY.accept",
+  "SETTLE.reconcile",
+  "SETTLE.lessons",
+  "DONE.delivered",
+  "DONE.archived",
+  "DONE.abandoned",
 ];
 
 export interface KindSubStateFixture {

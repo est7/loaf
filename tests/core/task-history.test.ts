@@ -235,9 +235,11 @@ describe("materializeTaskForAmend — Slice C SC-C2a", () => {
   test("preserves canonical body-only fields absent from the slim projection", () => {
     const out = materializeTaskForAmend(baseBody() as never, liveState());
     expect((out as { tests: string[] }).tests).toEqual(["TokenCoord.refreshOnce"]);
-    const exec = (out as {
-      execution: Record<string, { evidence_refs: string[]; started_at?: string }>;
-    }).execution;
+    const exec = (
+      out as {
+        execution: Record<string, { evidence_refs: string[]; started_at?: string }>;
+      }
+    ).execution;
     expect(exec.red!.started_at).toBe("2026-05-15T11:00:00.000Z");
     expect(exec.implement!.evidence_refs).toEqual(["EV-000001"]);
   });
@@ -265,19 +267,23 @@ describe("SessionLoad.entries — Slice C SC-C2a", () => {
   test("loadSession exposes the replayed journal entries", async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "loaf-c2a-"));
     const journalPath = path.join(dir, "journal.jsonl");
-    await appendEntry(journalPath, {
-      seq: 0,
-      entry_id: "JE-000001",
-      at: "2026-05-15T10:00:00.000Z",
-      actor: "cli:loaf",
-      entry_schema_version: 1,
-      kind: "session:started",
-      payload: {
-        session_id: "550e8400-e29b-41d4-a716-446655440000",
-        feature: "auth-refresh",
-        ceremony: STANDARD,
+    await appendEntry(
+      journalPath,
+      {
+        seq: 0,
+        entry_id: "JE-000001",
+        at: "2026-05-15T10:00:00.000Z",
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "session:started",
+        payload: {
+          session_id: "550e8400-e29b-41d4-a716-446655440000",
+          feature: "auth-refresh",
+          ceremony: STANDARD,
+        },
       },
-    }, emptyMeta());
+      emptyMeta(),
+    );
     const session = await loadSession(dir);
     expect(session.entries).toHaveLength(1);
     expect(session.entries[0]!.kind).toBe("session:started");
@@ -343,9 +349,14 @@ describe("carryForwardStepProgress — Phase 11 Item 3 SC1b", () => {
       },
     });
     const out = carryForwardStepProgress(freshReplacement() as never, canonical as never);
-    const exec = (out as {
-      execution: Record<string, { evidence_refs: string[]; started_at?: string; reason?: string }>;
-    }).execution;
+    const exec = (
+      out as {
+        execution: Record<
+          string,
+          { evidence_refs: string[]; started_at?: string; reason?: string }
+        >;
+      }
+    ).execution;
     expect(exec.red!.evidence_refs).toEqual(["EV-000001"]);
     expect(exec.red!.started_at).toBe("2026-05-15T11:00:00.000Z");
     expect(exec.red!.reason).toBe("RED registered");
@@ -362,9 +373,11 @@ describe("carryForwardStepProgress — Phase 11 Item 3 SC1b", () => {
       },
     });
     const out = carryForwardStepProgress(freshReplacement() as never, canonical as never);
-    const exec = (out as {
-      execution: Record<string, { status: string; applicability: string }>;
-    }).execution;
+    const exec = (
+      out as {
+        execution: Record<string, { status: string; applicability: string }>;
+      }
+    ).execution;
     // status / applicability stay at the fresh replacement's values.
     expect(exec.red!.status).toBe("pending");
     expect(exec.implement!.status).toBe("pending");
@@ -382,9 +395,11 @@ describe("carryForwardStepProgress — Phase 11 Item 3 SC1b", () => {
       },
     });
     const out = carryForwardStepProgress(freshReplacement() as never, canonical as never);
-    const exec = (out as {
-      execution: Record<string, { evidence_refs: string[]; started_at?: string }>;
-    }).execution;
+    const exec = (
+      out as {
+        execution: Record<string, { evidence_refs: string[]; started_at?: string }>;
+      }
+    ).execution;
     expect(exec.refactor!.evidence_refs).toEqual([]);
     expect(exec.refactor!.started_at).toBeUndefined();
   });
@@ -395,11 +410,12 @@ describe("carryForwardStepProgress — Phase 11 Item 3 SC1b", () => {
       replacement as never,
       behavioralTask({ id: "T-001" }) as never,
     );
-    (out as { execution: Record<string, { evidence_refs: string[] }> }).execution
-      .red!.evidence_refs.push("EV-999");
+    (
+      out as { execution: Record<string, { evidence_refs: string[] }> }
+    ).execution.red!.evidence_refs.push("EV-999");
     expect(
-      (replacement as { execution: Record<string, { evidence_refs: string[] }> }).execution
-        .red!.evidence_refs,
+      (replacement as { execution: Record<string, { evidence_refs: string[] }> }).execution.red!
+        .evidence_refs,
     ).toEqual([]);
   });
 });

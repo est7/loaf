@@ -55,7 +55,7 @@ function pendingLine(seq: number): string {
   return JSON.stringify({
     seq,
     entry_id: `JE-${String(seq + 1).padStart(6, "0")}`,
-    at: `2026-05-15T10:00:${String((seq % 60)).padStart(2, "0")}.000Z`,
+    at: `2026-05-15T10:00:${String(seq % 60).padStart(2, "0")}.000Z`,
     actor: "cli:loaf",
     entry_schema_version: 1,
     kind: "pending:added",
@@ -78,45 +78,37 @@ async function writeJournal(filePath: string, n: number): Promise<void> {
 }
 
 describe("replayJournal perf — Stage 6 (ADR-0005 §4.15, user-pinned)", () => {
-  test(
-    "10K entries replay < 1000ms",
-    async () => {
-      const filePath = await tmpJournal();
-      await writeJournal(filePath, 10_000);
+  test("10K entries replay < 1000ms", async () => {
+    const filePath = await tmpJournal();
+    await writeJournal(filePath, 10_000);
 
-      const t0 = performance.now();
-      const result = await replayJournal(filePath);
-      const elapsed = performance.now() - t0;
+    const t0 = performance.now();
+    const result = await replayJournal(filePath);
+    const elapsed = performance.now() - t0;
 
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.entries_applied).toBe(10_000);
-      }
-      expect(elapsed).toBeLessThan(1_000);
-      // eslint-disable-next-line no-console
-      console.log(`  10K replay: ${elapsed.toFixed(1)}ms`);
-    },
-    15_000,
-  );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.entries_applied).toBe(10_000);
+    }
+    expect(elapsed).toBeLessThan(1_000);
+    // eslint-disable-next-line no-console
+    console.log(`  10K replay: ${elapsed.toFixed(1)}ms`);
+  }, 15_000);
 
-  test(
-    "100K entries replay < 10_000ms",
-    async () => {
-      const filePath = await tmpJournal();
-      await writeJournal(filePath, 100_000);
+  test("100K entries replay < 10_000ms", async () => {
+    const filePath = await tmpJournal();
+    await writeJournal(filePath, 100_000);
 
-      const t0 = performance.now();
-      const result = await replayJournal(filePath);
-      const elapsed = performance.now() - t0;
+    const t0 = performance.now();
+    const result = await replayJournal(filePath);
+    const elapsed = performance.now() - t0;
 
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.entries_applied).toBe(100_000);
-      }
-      expect(elapsed).toBeLessThan(10_000);
-      // eslint-disable-next-line no-console
-      console.log(`  100K replay: ${elapsed.toFixed(1)}ms`);
-    },
-    60_000,
-  );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.entries_applied).toBe(100_000);
+    }
+    expect(elapsed).toBeLessThan(10_000);
+    // eslint-disable-next-line no-console
+    console.log(`  100K replay: ${elapsed.toFixed(1)}ms`);
+  }, 60_000);
 });

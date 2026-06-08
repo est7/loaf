@@ -34,7 +34,7 @@ describe("Phase 16 SC-3 — readJsonInput (IO + parse)", () => {
   });
 
   test("inline JSON array → parsed value", async () => {
-    const source = parseInputSource('[1,2,3]');
+    const source = parseInputSource("[1,2,3]");
     const r = await readJsonInput(source, { readStdin: NEVER_STDIN });
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.value).toEqual([1, 2, 3]);
@@ -65,7 +65,7 @@ describe("Phase 16 SC-3 — readJsonInput (IO + parse)", () => {
   });
 
   test("inline malformed JSON → { ok: false, code: SCHEMA_VALIDATION_FAILED }", async () => {
-    const source = parseInputSource('{not json}');
+    const source = parseInputSource("{not json}");
     const r = await readJsonInput(source, { readStdin: NEVER_STDIN });
     expect(r.ok).toBe(false);
     if (!r.ok) {

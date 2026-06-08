@@ -8,11 +8,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
-import {
-  readUserConfig,
-  userConfigPath,
-  UserConfig,
-} from "../../src/core/user-config.js";
+import { readUserConfig, userConfigPath, UserConfig } from "../../src/core/user-config.js";
 
 async function tmpHome(): Promise<string> {
   return await fs.mkdtemp(path.join(os.tmpdir(), "loaf-user-config-"));

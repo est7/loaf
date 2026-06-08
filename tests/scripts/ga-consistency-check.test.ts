@@ -1,10 +1,6 @@
 import { describe, expect, test, afterEach } from "vitest";
 import { spawnSync } from "node:child_process";
-import {
-  makeConsistencyFixture,
-  runShellScript,
-  type ConsistencyFixture,
-} from "./_helpers.js";
+import { makeConsistencyFixture, runShellScript, type ConsistencyFixture } from "./_helpers.js";
 
 const fixtures: ConsistencyFixture[] = [];
 function track(f: ConsistencyFixture): ConsistencyFixture {
@@ -26,10 +22,7 @@ describe("ga-consistency-check.sh", () => {
       }),
     );
 
-    const result = runShellScript(
-      "ga-consistency-check.sh",
-      ["--repo", repo, "--no-fetch"],
-    );
+    const result = runShellScript("ga-consistency-check.sh", ["--repo", repo, "--no-fetch"]);
 
     expect(result.exit).toBe(0);
   });
@@ -44,10 +37,7 @@ describe("ga-consistency-check.sh", () => {
       }),
     );
 
-    const result = runShellScript(
-      "ga-consistency-check.sh",
-      ["--repo", repo, "--no-fetch"],
-    );
+    const result = runShellScript("ga-consistency-check.sh", ["--repo", repo, "--no-fetch"]);
 
     expect(result.exit).not.toBe(0);
     expect(result.stderr).toMatch(/WORKTREE_DIRTY/);
@@ -62,10 +52,13 @@ describe("ga-consistency-check.sh", () => {
       }),
     );
 
-    const result = runShellScript(
-      "ga-consistency-check.sh",
-      ["--repo", repo, "--no-fetch", "--expected-tag", "v0.2.0"],
-    );
+    const result = runShellScript("ga-consistency-check.sh", [
+      "--repo",
+      repo,
+      "--no-fetch",
+      "--expected-tag",
+      "v0.2.0",
+    ]);
 
     expect(result.exit).not.toBe(0);
     expect(result.stderr).toMatch(/VERSION_TAG_MISMATCH/);
@@ -80,10 +73,7 @@ describe("ga-consistency-check.sh", () => {
       }),
     );
 
-    const result = runShellScript(
-      "ga-consistency-check.sh",
-      ["--repo", repo, "--no-fetch"],
-    );
+    const result = runShellScript("ga-consistency-check.sh", ["--repo", repo, "--no-fetch"]);
 
     expect(result.exit).not.toBe(0);
     expect(result.stderr).toMatch(/CHANGELOG_MISSING/);
@@ -98,10 +88,7 @@ describe("ga-consistency-check.sh", () => {
       }),
     );
 
-    const result = runShellScript(
-      "ga-consistency-check.sh",
-      ["--repo", repo, "--no-fetch"],
-    );
+    const result = runShellScript("ga-consistency-check.sh", ["--repo", repo, "--no-fetch"]);
 
     expect(result.exit).not.toBe(0);
     expect(result.stderr).toMatch(/CHANGELOG_MISSING/);
@@ -116,10 +103,7 @@ describe("ga-consistency-check.sh", () => {
       }),
     );
 
-    const result = runShellScript(
-      "ga-consistency-check.sh",
-      ["--repo", repo, "--no-fetch"],
-    );
+    const result = runShellScript("ga-consistency-check.sh", ["--repo", repo, "--no-fetch"]);
 
     expect(result.exit).not.toBe(0);
     expect(result.stderr).toMatch(/HEAD_NOT_ORIGIN/);
@@ -134,11 +118,9 @@ describe("ga-consistency-check.sh", () => {
       }),
     );
 
-    const result = runShellScript(
-      "ga-consistency-check.sh",
-      ["--no-fetch"],
-      { env: { GA_REPO_ROOT: repo } },
-    );
+    const result = runShellScript("ga-consistency-check.sh", ["--no-fetch"], {
+      env: { GA_REPO_ROOT: repo },
+    });
 
     expect(result.exit).toBe(0);
   });
@@ -159,11 +141,9 @@ describe("ga-consistency-check.sh", () => {
       encoding: "utf8",
     });
 
-    const result = runShellScript(
-      "ga-consistency-check.sh",
-      ["--repo", repo, "--no-fetch"],
-      { timeoutMs: 10_000 },
-    );
+    const result = runShellScript("ga-consistency-check.sh", ["--repo", repo, "--no-fetch"], {
+      timeoutMs: 10_000,
+    });
 
     expect(result.exit).toBe(0);
   });

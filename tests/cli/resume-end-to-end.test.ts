@@ -68,14 +68,31 @@ async function seedFeatureAndHandoff(): Promise<{ featureDir: string }> {
   const featureDir = path.join(tmp, ".loaf", "auth-refresh");
   await fs.mkdir(featureDir, { recursive: true });
   const start = await runCli(
-    ["start", "auth-refresh", "--ceremony", "standard",
-     "--feature-dir", featureDir, "--format", "json"],
+    [
+      "start",
+      "auth-refresh",
+      "--ceremony",
+      "standard",
+      "--feature-dir",
+      featureDir,
+      "--format",
+      "json",
+    ],
     { env: SEED_ENV },
   );
   if (start.exit !== 0) throw new Error(`seed start failed: ${start.stderr}`);
   const handoff = await runCli(
-    ["handoff", "--reason", "context overflow approaching mid-session",
-     "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+    [
+      "handoff",
+      "--reason",
+      "context overflow approaching mid-session",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      featureDir,
+      "--format",
+      "json",
+    ],
     { env: SEED_ENV },
   );
   if (handoff.exit !== 0) throw new Error(`seed handoff failed: ${handoff.stderr}`);
@@ -84,7 +101,10 @@ async function seedFeatureAndHandoff(): Promise<{ featureDir: string }> {
 
 async function readJournalEntries(featureDir: string): Promise<unknown[]> {
   const raw = await fs.readFile(path.join(featureDir, "journal.jsonl"), "utf8");
-  return raw.trim().split("\n").map((line) => JSON.parse(line));
+  return raw
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
 }
 
 describe("SC-13b — loaf resume happy paths", () => {
@@ -136,7 +156,9 @@ describe("SC-13b — loaf resume happy paths", () => {
     );
     expect(result.exit).toBe(0);
     const entries = await readJournalEntries(featureDir);
-    const resumed = entries.find((e) => (e as { kind: string }).kind === "session:resumed") as { actor: string };
+    const resumed = entries.find((e) => (e as { kind: string }).kind === "session:resumed") as {
+      actor: string;
+    };
     expect(resumed.actor).toBe("cli:loaf@alice");
   });
 });
@@ -147,8 +169,16 @@ describe("SC-13b — loaf resume error paths", () => {
     const featureDir = path.join(tmp, ".loaf", "auth-refresh");
     await fs.mkdir(featureDir, { recursive: true });
     const start = await runCli(
-      ["start", "auth-refresh", "--ceremony", "standard",
-       "--feature-dir", featureDir, "--format", "json"],
+      [
+        "start",
+        "auth-refresh",
+        "--ceremony",
+        "standard",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { env: SEED_ENV },
     );
     expect(start.exit).toBe(0);
@@ -193,7 +223,16 @@ describe("SC-13b — loaf resume error paths", () => {
     const { featureDir } = await seedFeatureAndHandoff();
     const before = await readJournalEntries(featureDir);
     const result = await runCli(
-      ["resume", "--dry-run", "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "resume",
+        "--dry-run",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { env: SEED_ENV },
     );
     expect(result.exit).toBe(0);

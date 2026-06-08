@@ -160,11 +160,6 @@
   "diagnostic": {
     "MISSING_VERIFIABILITY":      "REQ {req_id} must declare measurable, verified_by_scenarios[], or acceptance_na+reason",
     "DRIVES_NOT_BOUND":           "REQ {req_id} is not referenced by any task.drives[]",
-    "E2E_ACCEPTANCE_UNRESOLVED":  "Scenario {scen_id} (tag=e2e) lacks acceptance binding or acceptance_na+reason",
-    "VISUAL_CONTRACT_UNRESOLVED": "Visual contract {vis_id} lacks visual-ui task binding or visual_na+reason",
-    "TASK_KIND_SCHEMA_INVALID":   "Task {task_id} does not match its kind={kind} schema: {reason}",
-    "NO_OPEN_CLARIFICATIONS":     "spec.md still has open clarifications: {ids}",
-    "TASKS_VERSION_MISMATCH":     "tasks.based_on.spec ({tasks_ver}) ≠ spec.spec_version ({spec_ver})",
     "EVIDENCE_INCOMPATIBLE":      "Evidence {evidence_id} (kind={kind}) cannot satisfy {covered_id}",
     "WAIVER_MISSING_REASON":      "Waiver evidence {evidence_id} requires reason ≥10 characters",
     "WAIVER_NOT_HUMAN":           "Waiver evidence {evidence_id} actor must start with 'human:'; got {actor}",

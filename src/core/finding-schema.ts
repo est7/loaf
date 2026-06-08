@@ -29,22 +29,22 @@ export type FindingId = z.infer<typeof FindingId>;
 // ── FindingCategory / FindingAction (mirror docs/schemas.ts §5) ─────────
 
 export const FindingCategory = z.enum([
-  "spec-gap",          // spec silent on this aspect
-  "spec-defect",       // spec wrong (covers design-gap)
-  "impl-defect",       // implementation wrong (covers visual-defect)
-  "test-defect",       // test or test-env wrong
-  "new-scope",         // out of current scope, needs new task
-  "risk-escalation",   // task complexity exceeds current profile
+  "spec-gap", // spec silent on this aspect
+  "spec-defect", // spec wrong (covers design-gap)
+  "impl-defect", // implementation wrong (covers visual-defect)
+  "test-defect", // test or test-env wrong
+  "new-scope", // out of current scope, needs new task
+  "risk-escalation", // task complexity exceeds current profile
 ]);
 export type FindingCategory = z.infer<typeof FindingCategory>;
 
 export const FindingAction = z.enum([
-  "amend-spec",   // → SPEC.spec, spec_version+1
-  "amend-tasks",  // → EXECUTE.work, tasks.version+1
-  "fix-impl",     // → EXECUTE.work; event:task_step_reset sets execution.implement.status=pending
-  "fix-test",     // → EXECUTE.work; event:task_step_reset sets execution.red.status=pending
-  "defer",        // close finding, drift recorded in reconcile
-  "backlog",      // close finding, candidate for next feature
+  "amend-spec", // → SPEC.spec, spec_version+1
+  "amend-tasks", // → EXECUTE.work, tasks.version+1
+  "fix-impl", // → EXECUTE.work; event:task_step_reset sets execution.implement.status=pending
+  "fix-test", // → EXECUTE.work; event:task_step_reset sets execution.red.status=pending
+  "defer", // close finding, drift recorded in reconcile
+  "backlog", // close finding, candidate for next feature
 ]);
 export type FindingAction = z.infer<typeof FindingAction>;
 
@@ -69,56 +69,53 @@ export const FINDING_ACTION_GRID: Record<
     "amend-tasks": "unusual",
     "fix-impl": "incoherent",
     "fix-test": "incoherent",
-    "defer": "typical",
-    "backlog": "typical",
+    defer: "typical",
+    backlog: "typical",
   },
   "spec-defect": {
     "amend-spec": "typical",
     "amend-tasks": "unusual",
     "fix-impl": "unusual",
     "fix-test": "unusual",
-    "defer": "typical",
-    "backlog": "typical",
+    defer: "typical",
+    backlog: "typical",
   },
   "impl-defect": {
     "amend-spec": "unusual",
     "amend-tasks": "typical",
     "fix-impl": "typical",
     "fix-test": "unusual",
-    "defer": "typical",
-    "backlog": "typical",
+    defer: "typical",
+    backlog: "typical",
   },
   "test-defect": {
     "amend-spec": "unusual",
     "amend-tasks": "typical",
     "fix-impl": "unusual",
     "fix-test": "typical",
-    "defer": "typical",
-    "backlog": "typical",
+    defer: "typical",
+    backlog: "typical",
   },
   "new-scope": {
     "amend-spec": "typical",
     "amend-tasks": "typical",
     "fix-impl": "incoherent",
     "fix-test": "incoherent",
-    "defer": "typical",
-    "backlog": "typical",
+    defer: "typical",
+    backlog: "typical",
   },
   "risk-escalation": {
     "amend-spec": "unusual",
     "amend-tasks": "typical",
     "fix-impl": "unusual",
     "fix-test": "unusual",
-    "defer": "typical",
-    "backlog": "typical",
+    defer: "typical",
+    backlog: "typical",
   },
 };
 
 /** Look up the (category, action) cell risk in O(1). */
-export function cellRisk(
-  category: FindingCategory,
-  action: FindingAction,
-): FindingActionRisk {
+export function cellRisk(category: FindingCategory, action: FindingAction): FindingActionRisk {
   return FINDING_ACTION_GRID[category][action];
 }
 
@@ -149,8 +146,8 @@ export const FINDING_ACTION_TARGET_MODE: Record<FindingAction, FindingTargetMode
   "amend-tasks": "task_id_optional",
   "fix-impl": "task_id_step",
   "fix-test": "task_id_step",
-  "defer": "none",
-  "backlog": "none",
+  defer: "none",
+  backlog: "none",
 };
 
 /**
@@ -165,8 +162,10 @@ export const FIX_ACTION_STEP: Partial<Record<FindingAction, string>> = {
 
 // ── Target payload shape (mirror docs/schemas.ts FindingResolutionPayload) ──
 
-export const FindingTarget = z.object({
-  task_id: TaskIdPayload,
-  step: z.string().min(1),
-}).strict();
+export const FindingTarget = z
+  .object({
+    task_id: TaskIdPayload,
+    step: z.string().min(1),
+  })
+  .strict();
 export type FindingTarget = z.infer<typeof FindingTarget>;

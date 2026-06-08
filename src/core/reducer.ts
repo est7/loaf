@@ -1,8 +1,8 @@
 // Reducer apply path — minimum viable Stage 2.
 //
 // preflight() (§11.2 step 3) validates authority + transition; apply() (step 7)
-// narrows on kind and mutates the projection. Returns Result so callers can
-// branch on typed error codes without try/catch.
+// narrows on kind and consumes prev while mutating the projection. Returns
+// Result so callers can branch on typed error codes without try/catch.
 //
 // Stage 2 scope intentionally narrow: handle just enough kinds to demonstrate
 // the apply path (`session:started`, `event:phase_advanced`, `gate:decided`).
@@ -12,7 +12,12 @@
 import type { Ceremony, EntryKind, JournalEntry, SubState } from "./journal-entry.js";
 import { preflight } from "./reducer/preflight.js";
 import type { PreflightFailureCode } from "./reducer/preflight.js";
-import { checkSpecVersion as specVersionRule, findCollision, findDuplicateId } from "./reducer/invariants.js";
+import {
+  checkSpecVersion as specVersionRule,
+  findCollision,
+  findDuplicateId,
+  resolveSpecVersionMode,
+} from "./reducer/invariants.js";
 import { extractTaskSlim, shouldPromoteToDone } from "./task-schema.js";
 import type { TaskFullProjection } from "./task-schema.js";
 import type {
@@ -21,152 +26,39 @@ import type {
   EvidenceResult,
   VerifyCheckKind,
 } from "./evidence-schema.js";
+import type { NeedsClarification } from "./spec-schema.js";
 import type {
-  NeedsClarification,
-  RequirementEarsShape,
-  ScenarioGherkin,
-  VisualContract,
-} from "./spec-schema.js";
+  EvidenceState,
+  FindingState,
+  PendingState,
+  RequirementState,
+  ScenarioState,
+  SessionState,
+  Snapshot,
+  SpecHeader,
+  TaskState,
+  TaskStepStatus,
+  VisualContractState,
+} from "./projection-types.js";
 
-export interface SessionState {
-  session_id: string;
-  feature: string;
-  phase: "TRIAGE" | "SPEC" | "EXECUTE" | "VERIFY" | "SETTLE" | "DONE";
-  sub_state: SubState;
-  iteration: number;
-  /** Set true by `gate:decided spec-lock approved`. gate does NOT move cursor; `event:phase_advanced` owns cursor movement. */
-  spec_locked: boolean;
-  /** Set true by `gate:decided verify-accept approved`. Parallel to spec_locked: flag only, no cursor move. */
-  verify_accepted: boolean;
-  /** Live spec-projection counter. Bumped +1 per `loaf spec submit` / `add-*` invocation
-   *  (protocol §586). 0 before first submission. spec-lock check 3 compares
-   *  `tasks.based_on.spec === state.spec_version`. */
-  spec_version: number;
-  ceremony: Ceremony;
-}
-
-// Per-projection state — reducer mutates these alongside SessionState as
-// domain entries (tasks, evidence, findings, pending) land on the journal.
-
-export type TaskStepStatus = "pending" | "running" | "passed" | "failed" | "waived" | "na";
-
-export type TaskStepApplicability = "must" | "optional" | "na";
-
-export type TaskKind = "behavioral" | "structural" | "visual-ui" | "docs" | "spike" | "chore";
-
-// Slim TaskState projection (Slice 1.B sub-cycle 3a). Mirrors only the
-// cross-cutting fields needed by spec-lock checks 3/4/6/7/8 + auto-promote;
-// the canonical body (tests/test_layer, execution.evidence_refs/reason/
-// started_at, etc.) lives in the journal payload and round-trips via
-// `loaf doctor --rebuild`. steps carry applicability so the auto-promote
-// helper distinguishes must vs optional vs na (codex r23 BLOCK 2 fix).
-export interface TaskState {
-  id: string;
-  kind: TaskKind;
-  status: "pending" | "ready" | "in_progress" | "done" | "abandoned";
-  steps: Record<string, { status: TaskStepStatus; applicability: TaskStepApplicability }>;
-  drives: string[];
-  depends_on: string[];
-  labels: string[];
-  red_test_registered?: boolean;
-  no_test_rationale?: string;
-  visual_contract_refs?: string[];
-  requires_acceptance?: boolean;
-  requires_visual?: boolean;
-}
-
-// Slice 1.C sub-cycle 1: 3 new projection fields (check / reason /
-// attachments) back verify-accept gate check 1 (lane status via
-// EvidenceEntry.check) + check 3 (canSatisfy reason/attachments) without
-// re-reading journal payload at gate time.
-//
-// EvidenceState is the SLIM projection — not a 1:1 mirror of the full
-// EvidenceFullPayload journal payload. The full payload also carries
-// iteration / summary / cmd / exit / wall_ms / task_id / gate / decided_by
-// / based_on / waiver_obligation_id / external_ref; those live on the
-// journal entry and round-trip via doctor --rebuild but do not need to
-// surface in the snapshot projection for verify-accept gate evaluation.
-//
-// `test_layer` intentionally NOT mirrored even at the full-payload layer:
-// codex r33 confirmed §5.4 canSatisfy doesn't require it for current MVP.
-export interface EvidenceState {
-  id: string;
-  kind: EvidenceKind;
-  result?: EvidenceResult;
-  covers: string[];
-  actor: string;
-  check?: VerifyCheckKind;
-  reason?: string;
-  attachments?: AttachmentPayload[];
-}
-
-export interface FindingState {
-  id: string;
-  category: string;
-  action: string;
-  status: "open" | "closed";
-  // Slice 3 SC3 — payload-derived fields projected so `finding list` /
-  // `status --format json` surface user-input without re-replaying the
-  // journal.
-  summary?: string;
-  reason?: string;
-  target?: { task_id: string; step: string };
-}
-
-export interface PendingState {
-  id: string;
-  kind: string;
-  resolved: boolean;
-}
-
-// SPEC projection — full mirror of spec.md frontmatter (Slice A SC1 widen).
-// Prior to Slice A this was a slim id+verifiability mirror; widened to the
-// full EARS body / Gherkin / VisualContract z.infer types so the SC-A2
-// spec.md projection writer can re-serialize from snapshot alone (codex
-// r84 BLOCK absorb).
-//
-// spec-lock-check.ts:64-214 reads parsed frontmatter from
-// readSpecFrontmatter(), NOT these arrays — so the widening is type/test
-// fallout only, no gate-eval behavior change. Snapshot arrays are only
-// consumed for `.id`-only duplicate checks at:
-//   - reducer.ts cases for spec_*_added (DUPLICATE_*_ID surface)
-//   - preflight.ts spec_*_added refines (top-level DUPLICATE promotion)
-export type RequirementState = RequirementEarsShape;
-export type ScenarioState = ScenarioGherkin;
-export type VisualContractState = VisualContract;
-
-// SpecHeader — the non-array portion of spec.md frontmatter
-// (feature / intent / adr_refs / needs_clarification). Populated by
-// `event:spec_submitted` apply; reset on each submit (whole-replacement).
-// null until first submit lands. Slice A SC1 introduces this projection
-// so SC-A2's writeDerivedSpecMd can render the full frontmatter from
-// snapshot without re-reading the journal.
-export interface SpecHeader {
-  /** Protocol F-NNN feature id from spec.md frontmatter — distinct from
-   *  `SessionState.feature` (the loaf-internal session feature key). */
-  feature: { id: string; name: string };
-  intent: string;
-  adr_refs: string[];
-  needs_clarification: NeedsClarification[];
-}
-
-export interface Snapshot {
-  state: SessionState | null;
-  tasks: TaskState[];
-  evidence: EvidenceState[];
-  findings: FindingState[];
-  pending: PendingState[];
-  spec_header: SpecHeader | null;
-  requirements: RequirementState[];
-  scenarios: ScenarioState[];
-  visual_contracts: VisualContractState[];
-  /** Set by `event:tasks_planned`. spec-lock check 3 compares
-   *  `tasks_based_on.spec === state.spec_version`. null until first
-   *  tasks_planned lands. NOT a mirror of state.spec_version: this is the
-   *  frozen spec version at the moment tasks were planned, while
-   *  state.spec_version is the live counter. */
-  tasks_based_on: { spec: number } | null;
-}
+// Compat re-export: the dozens of existing consumers continue importing the
+// projection types from `reducer.js`; the canonical declarations now live in
+// the leaf module `projection-types.js` (P2/SC-7).
+export type {
+  SessionState,
+  TaskStepStatus,
+  TaskStepApplicability,
+  TaskKind,
+  TaskState,
+  EvidenceState,
+  FindingState,
+  PendingState,
+  RequirementState,
+  ScenarioState,
+  VisualContractState,
+  SpecHeader,
+  Snapshot,
+} from "./projection-types.js";
 
 export function initialSnapshot(): Snapshot {
   return {
@@ -217,6 +109,14 @@ const MIGRATION_BOOTSTRAP_CEREMONY: Ceremony = {
   strict_drift_check: false,
 };
 
+/**
+ * Applies one already-validated journal entry into a snapshot projection.
+ *
+ * Contract: `prev` is consumed. Some cases mutate projection arrays in place and
+ * may return the same snapshot object/array references. Callers that need to
+ * keep observing the pre-apply snapshot must pass a clone. `mutateBatch` and
+ * replay-style callers own that clone boundary.
+ */
 export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
   // migration:snapshot_imported is also a bootstrap kind — it initializes
   // state from a v0.0.x legacy projection. Stage 5 MVP records the entry but
@@ -330,9 +230,7 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
         // iteration by 1 (protocol.md §1 L210-212). A plain forward
         // `advance` carries no `back_edge` and leaves iteration alone.
         iteration:
-          payload.back_edge !== undefined
-            ? prev.state.iteration + 1
-            : prev.state.iteration,
+          payload.back_edge !== undefined ? prev.state.iteration + 1 : prev.state.iteration,
       };
       return { ok: true, snapshot: { ...prev, state: next } };
     }
@@ -401,7 +299,10 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
       const incoming = payload.tasks ?? [];
       const dup = findDuplicateId(incoming.map((t) => t.id));
       if (dup) {
-        return invalidPayload(entry.kind, `DUPLICATE_TASK_ID: ${dup.id} appears more than once in tasks_planned payload`);
+        return invalidPayload(
+          entry.kind,
+          `DUPLICATE_TASK_ID: ${dup.id} appears more than once in tasks_planned payload`,
+        );
       }
       const taskList: TaskState[] = incoming.map(extractTaskSlim);
       return {
@@ -484,7 +385,8 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
       // task or unseeded step so we don't silently add a step without
       // applicability metadata (which would later subvert auto-promote).
       const payload = entry.payload as { task_id?: string; step?: string };
-      if (!payload.task_id || !payload.step) return invalidPayload(entry.kind, "missing task_id/step");
+      if (!payload.task_id || !payload.step)
+        return invalidPayload(entry.kind, "missing task_id/step");
       const task = prev.tasks.find((t) => t.id === payload.task_id);
       if (!task) {
         return {
@@ -509,7 +411,10 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
               ...t,
               steps: {
                 ...t.steps,
-                [payload.step!]: { applicability: seeded.applicability, status: "running" as const },
+                [payload.step!]: {
+                  applicability: seeded.applicability,
+                  status: "running" as const,
+                },
               },
             }
           : t,
@@ -529,7 +434,8 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
         result?: "passed" | "failed" | "waived" | "na";
         red_test_registered?: boolean;
       };
-      if (!payload.task_id || !payload.step) return invalidPayload(entry.kind, "missing task_id/step");
+      if (!payload.task_id || !payload.step)
+        return invalidPayload(entry.kind, "missing task_id/step");
       const task = prev.tasks.find((t) => t.id === payload.task_id);
       if (!task) {
         return {
@@ -613,7 +519,10 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
               status: "in_progress" as const,
               steps: {
                 ...t.steps,
-                [payload.step!]: { applicability: seeded.applicability, status: "pending" as const },
+                [payload.step!]: {
+                  applicability: seeded.applicability,
+                  status: "pending" as const,
+                },
               },
             }
           : t,
@@ -655,7 +564,11 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
       if (typeof payload.spec_version !== "number") {
         return invalidPayload(entry.kind, "missing spec_version");
       }
-      const versionCheck = checkSpecVersionHead(entry, payload.spec_version, prev.state.spec_version);
+      const versionCheck = checkSpecVersionHead(
+        entry,
+        payload.spec_version,
+        prev.state.spec_version,
+      );
       if (!versionCheck.ok) {
         return invalidPayload(entry.kind, versionCheck.message);
       }
@@ -691,7 +604,10 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
         return invalidPayload(entry.kind, versionCheck.message);
       }
       if (findCollision(payload.req.id, prev.requirements, (r) => r.id)) {
-        return invalidPayload(entry.kind, `DUPLICATE_REQ_ID: ${payload.req.id} already in projection`);
+        return invalidPayload(
+          entry.kind,
+          `DUPLICATE_REQ_ID: ${payload.req.id} already in projection`,
+        );
       }
       // Slice A SC1 widen: push full payload.req (was extractRequirementSlim).
       // structuredClone isolates projection from caller-owned object
@@ -716,7 +632,10 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
         return invalidPayload(entry.kind, versionCheck.message);
       }
       if (findCollision(payload.scenario.id, prev.scenarios, (s) => s.id)) {
-        return invalidPayload(entry.kind, `DUPLICATE_SCEN_ID: ${payload.scenario.id} already in projection`);
+        return invalidPayload(
+          entry.kind,
+          `DUPLICATE_SCEN_ID: ${payload.scenario.id} already in projection`,
+        );
       }
       prev.scenarios.push(structuredClone(payload.scenario));
       return {
@@ -738,7 +657,10 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
         return invalidPayload(entry.kind, versionCheck.message);
       }
       if (findCollision(payload.visual.id, prev.visual_contracts, (v) => v.id)) {
-        return invalidPayload(entry.kind, `DUPLICATE_VIS_ID: ${payload.visual.id} already in projection`);
+        return invalidPayload(
+          entry.kind,
+          `DUPLICATE_VIS_ID: ${payload.visual.id} already in projection`,
+        );
       }
       prev.visual_contracts.push(structuredClone(payload.visual));
       return {
@@ -839,7 +761,9 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
           detail: { id: payload.id, reason: "already_closed" },
         };
       }
-      const findings = prev.findings.map((f, i) => (i === idx ? { ...f, status: "closed" as const } : f));
+      const findings = prev.findings.map((f, i) =>
+        i === idx ? { ...f, status: "closed" as const } : f,
+      );
       return { ok: true, snapshot: { ...prev, findings } };
     }
 
@@ -874,9 +798,7 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
           message: `pending:resolved id=${payload.id} does not match head id=${head.id} (FIFO violation)`,
         };
       }
-      const pending = prev.pending.map((p, i) =>
-        i === headIdx ? { ...p, resolved: true } : p,
-      );
+      const pending = prev.pending.map((p, i) => (i === headIdx ? { ...p, resolved: true } : p));
       return { ok: true, snapshot: { ...prev, pending } };
     }
 
@@ -965,9 +887,7 @@ function invalidPayload(kind: string, reason: string): ApplyResult {
 //   - undefined | 0 → must bump (payload.spec_version === current + 1)
 //   - >0            → must equal current (already bumped by batch head)
 
-type SpecVersionCheck =
-  | { ok: true; nextVersion: number }
-  | { ok: false; message: string };
+type SpecVersionCheck = { ok: true; nextVersion: number } | { ok: false; message: string };
 
 function checkSpecVersionHead(
   entry: JournalEntry,
@@ -998,7 +918,7 @@ function checkSpecVersion(
   payloadVersion: number,
   currentVersion: number,
 ): SpecVersionCheck {
-  const mode = entry.batch_index === undefined || entry.batch_index === 0 ? "head" : "continuation";
+  const mode = resolveSpecVersionMode(entry.batch_index);
   const r = specVersionRule(payloadVersion, currentVersion, mode);
   if (r.ok) return { ok: true, nextVersion: r.nextVersion };
   return {

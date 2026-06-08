@@ -3,10 +3,7 @@
 import { describe, expect, test } from "vitest";
 
 import { buildResumePack } from "../../src/cli/build-resume-pack.js";
-import {
-  ResumePack,
-  RESUME_PACK_RECENT_CAP,
-} from "../../src/core/resume-pack-schema.js";
+import { ResumePack, RESUME_PACK_RECENT_CAP } from "../../src/core/resume-pack-schema.js";
 import { initialSnapshot } from "../../src/core/reducer.js";
 import type {
   EvidenceState,
@@ -122,13 +119,17 @@ describe("buildResumePack — shape and field passthrough", () => {
 describe("buildResumePack — recent ID cap (codex r346 P1/P2)", () => {
   test("25 evidence entries → only last 10 IDs emitted", () => {
     const snap = baseSnapshot();
-    snap.evidence = Array.from({ length: 25 }, (_, i) => ({
-      id: `EV-${String(i + 1).padStart(6, "0")}`,
-      kind: "task-summary",
-      actor: "human:dev@example.com",
-      result: "passed",
-      covers: [],
-    } as EvidenceState));
+    snap.evidence = Array.from(
+      { length: 25 },
+      (_, i) =>
+        ({
+          id: `EV-${String(i + 1).padStart(6, "0")}`,
+          kind: "task-summary",
+          actor: "human:dev@example.com",
+          result: "passed",
+          covers: [],
+        }) as EvidenceState,
+    );
     const pack = buildResumePack({
       snapshot: snap,
       entries: BASE_ENTRIES,
@@ -142,12 +143,16 @@ describe("buildResumePack — recent ID cap (codex r346 P1/P2)", () => {
 
   test("25 findings → only last 10 IDs emitted", () => {
     const snap = baseSnapshot();
-    snap.findings = Array.from({ length: 25 }, (_, i) => ({
-      id: `FND-${String(i + 1).padStart(3, "0")}`,
-      category: "spec_quality",
-      action: "amend-spec",
-      status: "open",
-    } as FindingState));
+    snap.findings = Array.from(
+      { length: 25 },
+      (_, i) =>
+        ({
+          id: `FND-${String(i + 1).padStart(3, "0")}`,
+          category: "spec_quality",
+          action: "amend-spec",
+          status: "open",
+        }) as FindingState,
+    );
     const pack = buildResumePack({
       snapshot: snap,
       entries: BASE_ENTRIES,
@@ -194,20 +199,22 @@ describe("buildResumePack — tasks_active_summary derivation", () => {
 
   test("in_progress task with no running step → current_step is null", () => {
     const snap = baseSnapshot();
-    snap.tasks = [{
-      id: "T-002",
-      kind: "behavioral",
-      status: "in_progress",
-      steps: {
-        red: { applicability: "must", status: "passed" },
-        implement: { applicability: "must", status: "pending" },
+    snap.tasks = [
+      {
+        id: "T-002",
+        kind: "behavioral",
+        status: "in_progress",
+        steps: {
+          red: { applicability: "must", status: "passed" },
+          implement: { applicability: "must", status: "pending" },
+        },
+        drives: [],
+        depends_on: [],
+        labels: [],
+        requires_acceptance: false,
+        red_test_registered: true,
       },
-      drives: [],
-      depends_on: [],
-      labels: [],
-      requires_acceptance: false,
-      red_test_registered: true,
-    }];
+    ];
     const pack = buildResumePack({
       snapshot: snap,
       entries: BASE_ENTRIES,

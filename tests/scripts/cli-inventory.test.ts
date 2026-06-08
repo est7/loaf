@@ -46,11 +46,7 @@ type Baseline = {
 };
 
 type Finding = {
-  kind:
-    | "missing-command"
-    | "extra-command"
-    | "uncataloged-code"
-    | "future-without-baseline";
+  kind: "missing-command" | "extra-command" | "uncataloged-code" | "future-without-baseline";
   name: string;
   doc_location: string;
   runtime_location: string;
@@ -169,7 +165,7 @@ describe("protocol-parser: name extraction", () => {
       "<!-- inventory:current-begin v0.1.0 demo -->",
       "| 命令 | exit |",
       "|---|---|",
-      "| `loaf resume` <!-- inventory:future reason=\"SC-13 lifecycle\" --> | 0 |",
+      '| `loaf resume` <!-- inventory:future reason="SC-13 lifecycle" --> | 0 |',
       "<!-- inventory:current-end -->",
     ].join("\n");
     const r = parseProtocolMarkersFromText(text);
@@ -368,12 +364,12 @@ describe("drift gate: DiagnosticCode emit ⊆ catalog ∪ baseline", () => {
 });
 
 describe("Phase 16 SC-3 — presentation-surface catalog gate (codex r206 PATCH G/I)", () => {
-  test("extractEmittedCodes catches `ctx.failure(\"CODE\", ...)` pattern (SC-3 new emit shape)", () => {
+  test('extractEmittedCodes catches `ctx.failure("CODE", ...)` pattern (SC-3 new emit shape)', () => {
     const synthetic = [
       'import type { CommandContext } from "./command-context.js";',
-      'export function foo(ctx: CommandContext): void {',
+      "export function foo(ctx: CommandContext): void {",
       '  ctx.failure("UNCATALOGED_FOO", "synthetic uncataloged code");',
-      '}',
+      "}",
     ].join("\n");
     const codes = extractEmittedCodes(synthetic);
     expect(codes.has("UNCATALOGED_FOO")).toBe(true);
@@ -590,13 +586,16 @@ export function extractEmittedCodes(text: string): Set<string> {
   //   ctx.failure("CODE", ...) / context.failure("CODE", ...) (SC-3)
   const emitRe =
     /\b(?:fail(?:[A-Z][A-Za-z0-9]*)?|emit\w*|(?:ctx|context)\.failure)\(\s*["']([A-Z][A-Z0-9_]+)["']/g;
-  let m: RegExpExecArray | null;
-  while ((m = emitRe.exec(text)) !== null) {
+  let m: RegExpExecArray | null = emitRe.exec(text);
+  while (m !== null) {
     codes.add(m[1] ?? "");
+    m = emitRe.exec(text);
   }
   const codeFieldRe = /\bcode:\s*["']([A-Z][A-Z0-9_]+)["']/g;
-  while ((m = codeFieldRe.exec(text)) !== null) {
+  m = codeFieldRe.exec(text);
+  while (m !== null) {
     codes.add(m[1] ?? "");
+    m = codeFieldRe.exec(text);
   }
   return codes;
 }

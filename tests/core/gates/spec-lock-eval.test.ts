@@ -71,7 +71,10 @@ describe("evaluateSpecLock — IO boundary mapping (shared gateEvalFromCheck)", 
 
   test("SPEC_FRONTMATTER_INVALID (schema-invalid) → check:1 preserves subcode", async () => {
     const dir = await tmpFeatureDir();
-    await fs.writeFile(path.join(dir, "spec.md"), "---\nschema_version: 99\nspec_version: 1\n---\n");
+    await fs.writeFile(
+      path.join(dir, "spec.md"),
+      "---\nschema_version: 99\nspec_version: 1\n---\n",
+    );
     const result = await evaluateSpecLock(specDesignSnapshot(), dir);
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("unreachable");

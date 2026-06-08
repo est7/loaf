@@ -2,11 +2,7 @@
 
 import { describe, expect, test } from "vitest";
 
-import {
-  createI18n,
-  resolveLocale,
-  type LocaleBundle,
-} from "../../src/cli/i18n.js";
+import { createI18n, resolveLocale, type LocaleBundle } from "../../src/cli/i18n.js";
 
 const bundles = {
   en: {
@@ -21,42 +17,54 @@ const bundles = {
 
 describe("ADR-0006 P0 — resolveLocale", () => {
   test("precedence: --lang future flag > LOAF_LANG > user config > project config > ambient > en", () => {
-    expect(resolveLocale({
-      argv: ["loaf", "status", "--lang", "zh"],
-      env: { LOAF_LANG: "en", LANG: "en_US.UTF-8" },
-      userConfig: { status: "ok", locale: "en" },
-      projectConfig: { locale: "en" },
-    })).toEqual({ ok: true, locale: "zh", source: "argv" });
+    expect(
+      resolveLocale({
+        argv: ["loaf", "status", "--lang", "zh"],
+        env: { LOAF_LANG: "en", LANG: "en_US.UTF-8" },
+        userConfig: { status: "ok", locale: "en" },
+        projectConfig: { locale: "en" },
+      }),
+    ).toEqual({ ok: true, locale: "zh", source: "argv" });
 
-    expect(resolveLocale({
-      argv: ["loaf", "status"],
-      env: { LOAF_LANG: "zh", LANG: "en_US.UTF-8" },
-      userConfig: { status: "ok", locale: "en" },
-      projectConfig: { locale: "en" },
-    })).toEqual({ ok: true, locale: "zh", source: "env" });
+    expect(
+      resolveLocale({
+        argv: ["loaf", "status"],
+        env: { LOAF_LANG: "zh", LANG: "en_US.UTF-8" },
+        userConfig: { status: "ok", locale: "en" },
+        projectConfig: { locale: "en" },
+      }),
+    ).toEqual({ ok: true, locale: "zh", source: "env" });
 
-    expect(resolveLocale({
-      argv: ["loaf", "status"],
-      env: { LANG: "en_US.UTF-8" },
-      userConfig: { status: "ok", locale: "zh" },
-      projectConfig: { locale: "en" },
-    })).toEqual({ ok: true, locale: "zh", source: "user-config" });
+    expect(
+      resolveLocale({
+        argv: ["loaf", "status"],
+        env: { LANG: "en_US.UTF-8" },
+        userConfig: { status: "ok", locale: "zh" },
+        projectConfig: { locale: "en" },
+      }),
+    ).toEqual({ ok: true, locale: "zh", source: "user-config" });
 
-    expect(resolveLocale({
-      argv: ["loaf", "status"],
-      env: { LANG: "zh_CN.UTF-8" },
-      projectConfig: { locale: "en" },
-    })).toEqual({ ok: true, locale: "en", source: "project-config" });
+    expect(
+      resolveLocale({
+        argv: ["loaf", "status"],
+        env: { LANG: "zh_CN.UTF-8" },
+        projectConfig: { locale: "en" },
+      }),
+    ).toEqual({ ok: true, locale: "en", source: "project-config" });
 
-    expect(resolveLocale({
-      argv: ["loaf", "status"],
-      env: { LANG: "zh_CN.UTF-8" },
-    })).toEqual({ ok: true, locale: "zh", source: "ambient" });
+    expect(
+      resolveLocale({
+        argv: ["loaf", "status"],
+        env: { LANG: "zh_CN.UTF-8" },
+      }),
+    ).toEqual({ ok: true, locale: "zh", source: "ambient" });
 
-    expect(resolveLocale({
-      argv: ["loaf", "status"],
-      env: {},
-    })).toEqual({ ok: true, locale: "en", source: "default" });
+    expect(
+      resolveLocale({
+        argv: ["loaf", "status"],
+        env: {},
+      }),
+    ).toEqual({ ok: true, locale: "en", source: "default" });
   });
 
   test("ambient locale parsing maps zh/en and treats C/POSIX/unsupported as en", () => {
@@ -65,7 +73,9 @@ describe("ADR-0006 P0 — resolveLocale", () => {
       locale: "zh",
       source: "ambient",
     });
-    expect(resolveLocale({ argv: [], env: { LC_ALL: "en_US.UTF-8", LANG: "zh_CN.UTF-8" } })).toEqual({
+    expect(
+      resolveLocale({ argv: [], env: { LC_ALL: "en_US.UTF-8", LANG: "zh_CN.UTF-8" } }),
+    ).toEqual({
       ok: true,
       locale: "en",
       source: "ambient",
@@ -93,10 +103,12 @@ describe("ADR-0006 P0 — resolveLocale", () => {
   });
 
   test("explicit invalid LOAF_LANG returns INVALID_LOCALE", () => {
-    expect(resolveLocale({
-      argv: [],
-      env: { LOAF_LANG: "fr" },
-    })).toEqual({
+    expect(
+      resolveLocale({
+        argv: [],
+        env: { LOAF_LANG: "fr" },
+      }),
+    ).toEqual({
       ok: false,
       code: "INVALID_LOCALE",
       message: "invalid locale from LOAF_LANG: fr (expected en or zh)",
@@ -105,18 +117,21 @@ describe("ADR-0006 P0 — resolveLocale", () => {
   });
 
   test("invalid user config returns INVALID_LOCALE", () => {
-    expect(resolveLocale({
-      argv: [],
-      env: {},
-      userConfig: {
-        status: "invalid",
-        path: "/tmp/home/.loaf/config.json",
-        reason: "schema validation failed for /tmp/home/.loaf/config.json",
-      },
-    })).toEqual({
+    expect(
+      resolveLocale({
+        argv: [],
+        env: {},
+        userConfig: {
+          status: "invalid",
+          path: "/tmp/home/.loaf/config.json",
+          reason: "schema validation failed for /tmp/home/.loaf/config.json",
+        },
+      }),
+    ).toEqual({
       ok: false,
       code: "INVALID_LOCALE",
-      message: "invalid locale config at /tmp/home/.loaf/config.json: schema validation failed for /tmp/home/.loaf/config.json",
+      message:
+        "invalid locale config at /tmp/home/.loaf/config.json: schema validation failed for /tmp/home/.loaf/config.json",
       detail: {
         source: "user-config",
         path: "/tmp/home/.loaf/config.json",
@@ -126,11 +141,13 @@ describe("ADR-0006 P0 — resolveLocale", () => {
   });
 
   test("projectConfig participates only as an explicit repo-default input", () => {
-    expect(resolveLocale({
-      argv: [],
-      env: { LANG: "zh_CN.UTF-8" },
-      projectConfig: { locale: "en" },
-    })).toEqual({ ok: true, locale: "en", source: "project-config" });
+    expect(
+      resolveLocale({
+        argv: [],
+        env: { LANG: "zh_CN.UTF-8" },
+        projectConfig: { locale: "en" },
+      }),
+    ).toEqual({ ok: true, locale: "en", source: "project-config" });
   });
 });
 

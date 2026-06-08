@@ -22,7 +22,10 @@ import {
 import type { Ceremony, JournalEntry } from "../../src/core/journal-entry.js";
 
 function mkMeta(
-  partial: Pick<SnapshotMeta, "last_applied_seq" | "last_entry_offset" | "last_entry_line_hash" | "rolling_checksum">,
+  partial: Pick<
+    SnapshotMeta,
+    "last_applied_seq" | "last_entry_offset" | "last_entry_line_hash" | "rolling_checksum"
+  >,
 ): SnapshotMeta {
   return {
     ...partial,

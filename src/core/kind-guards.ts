@@ -13,14 +13,18 @@ export type SubStateGuard = ReadonlySet<SubState> | typeof ANY_SUB_STATE | typeo
 
 // ── sub_state from-sets (groupings reused across kinds) ──────────────────────
 export const VERIFY_OR_POST_LOCK_EXECUTE: SubState[] = [
-  "EXECUTE.plan", "EXECUTE.work", "EXECUTE.done",
-  "VERIFY.plan", "VERIFY.run", "VERIFY.review",
-  "VERIFY.acceptance", "VERIFY.visual", "VERIFY.accept",
+  "EXECUTE.plan",
+  "EXECUTE.work",
+  "EXECUTE.done",
+  "VERIFY.plan",
+  "VERIFY.run",
+  "VERIFY.review",
+  "VERIFY.acceptance",
+  "VERIFY.visual",
+  "VERIFY.accept",
 ];
 
-export const ALL_SPEC: SubState[] = [
-  "SPEC.proposal", "SPEC.spec", "SPEC.plan", "SPEC.design",
-];
+export const ALL_SPEC: SubState[] = ["SPEC.proposal", "SPEC.spec", "SPEC.plan", "SPEC.design"];
 
 export const ALL_EXECUTE: SubState[] = ["EXECUTE.plan", "EXECUTE.work", "EXECUTE.done"];
 
@@ -29,9 +33,14 @@ export const ALL_EXECUTE: SubState[] = ["EXECUTE.plan", "EXECUTE.work", "EXECUTE
 // is co-emitted from exactly these sub_states by both fix-impl and fix-test (it
 // mirrors the fix-impl / fix-test BACK_EDGE_FROM rows in transition.ts).
 export const FIX_BACK_EDGE_FROM: SubState[] = [
-  "EXECUTE.work", "EXECUTE.done",
-  "VERIFY.plan", "VERIFY.run", "VERIFY.review",
-  "VERIFY.acceptance", "VERIFY.visual", "VERIFY.accept",
+  "EXECUTE.work",
+  "EXECUTE.done",
+  "VERIFY.plan",
+  "VERIFY.run",
+  "VERIFY.review",
+  "VERIFY.acceptance",
+  "VERIFY.visual",
+  "VERIFY.accept",
 ];
 
 // ── actor authority vocabulary (ADR-0005 §3.4) ───────────────────────────────

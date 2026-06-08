@@ -44,10 +44,7 @@ function fullPayload(overrides: Record<string, unknown> = {}): Record<string, un
   };
 }
 
-function ev(
-  payload: Record<string, unknown>,
-  overrides: Partial<JournalEntry> = {},
-): JournalEntry {
+function ev(payload: Record<string, unknown>, overrides: Partial<JournalEntry> = {}): JournalEntry {
   return {
     seq: 0,
     entry_id: "JE-000001",
@@ -109,34 +106,23 @@ describe("evidence-schema enums (docs/schemas.ts §4/§6 mirror)", () => {
   });
 
   test("EvidenceResult enum lists protocol §6 results", () => {
-    expect(EvidenceResult.options).toEqual([
-      "passed",
-      "failed",
-      "approved",
-      "rejected",
-      "waived",
-    ]);
+    expect(EvidenceResult.options).toEqual(["passed", "failed", "approved", "rejected", "waived"]);
   });
 
   test("VerifyCheckKind enum lists protocol §4 lanes", () => {
-    expect(VerifyCheckKind.options).toEqual([
-      "run",
-      "review",
-      "acceptance",
-      "visual",
-    ]);
+    expect(VerifyCheckKind.options).toEqual(["run", "review", "acceptance", "visual"]);
   });
 
   test("AttachmentPayload requires path min 3 + sha256 64-hex + mime min 3", () => {
     expect(() => AttachmentPayload.parse({ path: "x", sha256: SHA, mime: "image/png" })).toThrow(
       ZodError,
     );
-    expect(() => AttachmentPayload.parse({ path: "screenshot.png", sha256: "short", mime: "image/png" })).toThrow(
-      ZodError,
-    );
-    expect(() => AttachmentPayload.parse({ path: "screenshot.png", sha256: SHA, mime: "x" })).toThrow(
-      ZodError,
-    );
+    expect(() =>
+      AttachmentPayload.parse({ path: "screenshot.png", sha256: "short", mime: "image/png" }),
+    ).toThrow(ZodError);
+    expect(() =>
+      AttachmentPayload.parse({ path: "screenshot.png", sha256: SHA, mime: "x" }),
+    ).toThrow(ZodError);
     const ok = AttachmentPayload.parse({
       path: "screenshot.png",
       sha256: SHA,
@@ -283,9 +269,7 @@ describe("EvidenceFullPayload — required fields reject missing", () => {
 
 describe("EvidenceFullPayload — strict refines reject invalid bodies", () => {
   test("rejects id not matching EV-\\d{6,}", () => {
-    expect(() => EvidenceFullPayload.parse(fullPayload({ id: "EV-1" }))).toThrow(
-      ZodError,
-    );
+    expect(() => EvidenceFullPayload.parse(fullPayload({ id: "EV-1" }))).toThrow(ZodError);
   });
 
   test("rejects unknown kind", () => {
@@ -342,6 +326,26 @@ describe("EvidenceFullPayload — strict refines reject invalid bodies", () => {
         }),
       ),
     ).toThrow(ZodError);
+  });
+
+  test("kind=manual with result=waived fails refine", () => {
+    const parsed = EvidenceFullPayload.safeParse(
+      fullPayload({
+        id: "EV-000035",
+        kind: "manual",
+        result: "waived",
+        actor: "human:tester@example.com",
+        reason: "manual review waived with enough context",
+      }),
+    );
+
+    expect(parsed.success).toBe(false);
+    if (parsed.success) {
+      throw new Error("expected manual+waived evidence to be rejected");
+    }
+    expect(parsed.error.issues.map((issue) => issue.message)).toContain(
+      "evidence kind=manual must not carry result=waived; use kind=waiver",
+    );
   });
 
   test("kind=waiver with human:* actor but missing reason fails refine", () => {

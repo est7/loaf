@@ -11,7 +11,7 @@
 // a trailing newline; the contract says the reader must NOT proceed in that
 // state.
 
-import { promises as fsp } from "node:fs";
+import { promises as fsp, type Stats } from "node:fs";
 
 import { ENTRY_BYTE_LIMIT } from "./journal-entry.js";
 import { computeLineHash, type SnapshotMeta } from "./snapshot.js";
@@ -39,7 +39,7 @@ export async function checkSnapshotFresh(
   meta: SnapshotMeta,
   journalPath: string,
 ): Promise<SnapshotReaderResult> {
-  let stat;
+  let stat: Stats;
   try {
     stat = await fsp.stat(journalPath);
   } catch (err) {
@@ -89,10 +89,7 @@ export async function checkSnapshotFresh(
     // Locate the last complete line.
     const withoutTrailingNl = trailingText.slice(0, -1);
     const lastNl = withoutTrailingNl.lastIndexOf("\n");
-    const tailLine =
-      lastNl === -1
-        ? withoutTrailingNl
-        : withoutTrailingNl.slice(lastNl + 1);
+    const tailLine = lastNl === -1 ? withoutTrailingNl : withoutTrailingNl.slice(lastNl + 1);
     const tailLineBytes = Buffer.byteLength(tailLine + "\n", "utf8");
     const tailLineOffset = stat.size - tailLineBytes;
 

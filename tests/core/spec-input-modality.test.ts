@@ -83,8 +83,14 @@ async function seedAtSpecPostSubmit(): Promise<{ dir: string; feature: string }>
   const dir = await tmpFeatureDir();
   const feature = "F1";
   await runCli([
-    "start", feature, "--ceremony", "standard",
-    "--feature-dir", dir, "--format", "json",
+    "start",
+    feature,
+    "--ceremony",
+    "standard",
+    "--feature-dir",
+    dir,
+    "--format",
+    "json",
   ]);
   for (const [from, to] of [
     ["TRIAGE.score", "TRIAGE.confirm"],
@@ -99,7 +105,14 @@ async function seedAtSpecPostSubmit(): Promise<{ dir: string; feature: string }>
         kind: "event:phase_advanced",
         payload: { from, to },
       },
-      { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, entries: s.entries, meta: s.meta, fsync: false },
+      {
+        feature_dir: dir,
+        snapshot: s.snapshot,
+        tail_seq: s.tail_seq,
+        entries: s.entries,
+        meta: s.meta,
+        fsync: false,
+      },
     );
     if (!r.ok) throw new Error(`walk ${from}→${to} failed: ${r.code} ${r.message}`);
   }
@@ -115,8 +128,16 @@ async function seedAtSpecPostSubmit(): Promise<{ dir: string; feature: string }>
     }),
   );
   const submit = await runCli([
-    "spec", "submit", "--input", submitInputPath,
-    "--feature", feature, "--feature-dir", dir, "--format", "json",
+    "spec",
+    "submit",
+    "--input",
+    submitInputPath,
+    "--feature",
+    feature,
+    "--feature-dir",
+    dir,
+    "--format",
+    "json",
   ]);
   if (submit.exit !== 0) throw new Error(`seed submit fail: ${submit.stderr}`);
   return { dir, feature };
@@ -147,21 +168,37 @@ describe("Phase 16 SC-4a — `loaf spec` --input stdin lane", () => {
     const feature = "F1";
     // Walk to SPEC.proposal (fresh session — no prior submit needed)
     await runCli([
-      "start", feature, "--ceremony", "standard",
-      "--feature-dir", dir, "--format", "json",
+      "start",
+      feature,
+      "--ceremony",
+      "standard",
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     for (const [from, to] of [
       ["TRIAGE.score", "TRIAGE.confirm"],
       ["TRIAGE.confirm", "SPEC.proposal"],
     ] as Array<[SubState, SubState]>) {
       const s = await loadSnapshot(dir);
-      await mutate({
-        at: new Date().toISOString(),
-        actor: "cli:loaf",
-        entry_schema_version: 1,
-        kind: "event:phase_advanced",
-        payload: { from, to },
-      }, { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, entries: s.entries, meta: s.meta, fsync: false });
+      await mutate(
+        {
+          at: new Date().toISOString(),
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "event:phase_advanced",
+          payload: { from, to },
+        },
+        {
+          feature_dir: dir,
+          snapshot: s.snapshot,
+          tail_seq: s.tail_seq,
+          entries: s.entries,
+          meta: s.meta,
+          fsync: false,
+        },
+      );
     }
     const inputJson = JSON.stringify({
       feature: { id: "F-042", name: "stdin-fed spec" },
@@ -170,7 +207,18 @@ describe("Phase 16 SC-4a — `loaf spec` --input stdin lane", () => {
       needs_clarification: [],
     });
     const r = await runCli(
-      ["spec", "submit", "--input", "-", "--feature", feature, "--feature-dir", dir, "--format", "json"],
+      [
+        "spec",
+        "submit",
+        "--input",
+        "-",
+        "--feature",
+        feature,
+        "--feature-dir",
+        dir,
+        "--format",
+        "json",
+      ],
       { stdin: inputJson },
     );
     expect(r.exit).toBe(0);
@@ -187,7 +235,18 @@ describe("Phase 16 SC-4a — `loaf spec` --input stdin lane", () => {
       ...REQ_VERIFIABLE_TAIL,
     });
     const r = await runCli(
-      ["spec", "add-req", "--input", "-", "--feature", feature, "--feature-dir", dir, "--format", "json"],
+      [
+        "spec",
+        "add-req",
+        "--input",
+        "-",
+        "--feature",
+        feature,
+        "--feature-dir",
+        dir,
+        "--format",
+        "json",
+      ],
       { stdin: stdinJson },
     );
     expect(r.exit).toBe(0);
@@ -202,7 +261,18 @@ describe("Phase 16 SC-4a — `loaf spec` --input stdin lane", () => {
       ...SCEN_VERIFIABLE_TAIL,
     });
     const r = await runCli(
-      ["spec", "add-scenario", "--input", "-", "--feature", feature, "--feature-dir", dir, "--format", "json"],
+      [
+        "spec",
+        "add-scenario",
+        "--input",
+        "-",
+        "--feature",
+        feature,
+        "--feature-dir",
+        dir,
+        "--format",
+        "json",
+      ],
       { stdin: stdinJson },
     );
     expect(r.exit).toBe(0);
@@ -217,7 +287,18 @@ describe("Phase 16 SC-4a — `loaf spec` --input stdin lane", () => {
       ...VIS_PAYLOAD_BASE,
     });
     const r = await runCli(
-      ["spec", "add-visual", "--input", "-", "--feature", feature, "--feature-dir", dir, "--format", "json"],
+      [
+        "spec",
+        "add-visual",
+        "--input",
+        "-",
+        "--feature",
+        feature,
+        "--feature-dir",
+        dir,
+        "--format",
+        "json",
+      ],
       { stdin: stdinJson },
     );
     expect(r.exit).toBe(0);
@@ -231,21 +312,37 @@ describe("Phase 16 SC-4a — `loaf spec` --input inline JSON lane", () => {
     const dir = await tmpFeatureDir();
     const feature = "F1";
     await runCli([
-      "start", feature, "--ceremony", "standard",
-      "--feature-dir", dir, "--format", "json",
+      "start",
+      feature,
+      "--ceremony",
+      "standard",
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     for (const [from, to] of [
       ["TRIAGE.score", "TRIAGE.confirm"],
       ["TRIAGE.confirm", "SPEC.proposal"],
     ] as Array<[SubState, SubState]>) {
       const s = await loadSnapshot(dir);
-      await mutate({
-        at: new Date().toISOString(),
-        actor: "cli:loaf",
-        entry_schema_version: 1,
-        kind: "event:phase_advanced",
-        payload: { from, to },
-      }, { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, entries: s.entries, meta: s.meta, fsync: false });
+      await mutate(
+        {
+          at: new Date().toISOString(),
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "event:phase_advanced",
+          payload: { from, to },
+        },
+        {
+          feature_dir: dir,
+          snapshot: s.snapshot,
+          tail_seq: s.tail_seq,
+          entries: s.entries,
+          meta: s.meta,
+          fsync: false,
+        },
+      );
     }
     const inline = JSON.stringify({
       feature: { id: "F-099", name: "inline" },
@@ -254,7 +351,16 @@ describe("Phase 16 SC-4a — `loaf spec` --input inline JSON lane", () => {
       needs_clarification: [],
     });
     const r = await runCli([
-      "spec", "submit", "--input", inline, "--feature", feature, "--feature-dir", dir, "--format", "json",
+      "spec",
+      "submit",
+      "--input",
+      inline,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     expect(r.exit).toBe(0);
     expect(JSON.parse(r.stdout).spec_version).toBe(1);
@@ -269,7 +375,16 @@ describe("Phase 16 SC-4a — `loaf spec` --input inline JSON lane", () => {
       ...REQ_VERIFIABLE_TAIL,
     });
     const r = await runCli([
-      "spec", "add-req", "--input", inline, "--feature", feature, "--feature-dir", dir, "--format", "json",
+      "spec",
+      "add-req",
+      "--input",
+      inline,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     expect(r.exit).toBe(0);
     expect(JSON.parse(r.stdout).ids).toEqual(["REQ-INLINE-001"]);
@@ -282,7 +397,16 @@ describe("Phase 16 SC-4a — `loaf spec` --input inline JSON lane", () => {
       { id_namespace: "SCEN-INLINE", ...SCEN_VERIFIABLE_TAIL, name: "edge case" },
     ]);
     const r = await runCli([
-      "spec", "add-scenario", "--input", inline, "--feature", feature, "--feature-dir", dir, "--format", "json",
+      "spec",
+      "add-scenario",
+      "--input",
+      inline,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     expect(r.exit).toBe(0);
     expect(JSON.parse(r.stdout).ids).toEqual(["SCEN-INLINE-001", "SCEN-INLINE-002"]);
@@ -295,7 +419,16 @@ describe("Phase 16 SC-4a — `loaf spec` --input inline JSON lane", () => {
       ...VIS_PAYLOAD_BASE,
     });
     const r = await runCli([
-      "spec", "add-visual", "--input", inline, "--feature", feature, "--feature-dir", dir, "--format", "json",
+      "spec",
+      "add-visual",
+      "--input",
+      inline,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     expect(r.exit).toBe(0);
     expect(JSON.parse(r.stdout).ids).toEqual(["VIS-INLINE-001"]);
@@ -343,7 +476,14 @@ describe("Phase 16 SC-4a — `loaf spec` --input error paths", () => {
   test("inline lane with malformed JSON → exit 2 SCHEMA_VALIDATION_FAILED", async () => {
     const { dir, feature } = await seedAtSpecPostSubmit();
     const r = await runCli([
-      "spec", "add-req", "--input", "{badjson", "--feature", feature, "--feature-dir", dir,
+      "spec",
+      "add-req",
+      "--input",
+      "{badjson",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(2);
     expect(r.stderr).toContain("SCHEMA_VALIDATION_FAILED");
@@ -352,8 +492,14 @@ describe("Phase 16 SC-4a — `loaf spec` --input error paths", () => {
   test("file path that does not exist → exit 2 INPUT_FILE_NOT_FOUND", async () => {
     const { dir, feature } = await seedAtSpecPostSubmit();
     const r = await runCli([
-      "spec", "submit", "--input", "/tmp/loaf-sc4a-nonexistent.json",
-      "--feature", feature, "--feature-dir", dir,
+      "spec",
+      "submit",
+      "--input",
+      "/tmp/loaf-sc4a-nonexistent.json",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(2);
     expect(r.stderr).toContain("INPUT_FILE_NOT_FOUND");

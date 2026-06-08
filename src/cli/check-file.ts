@@ -37,13 +37,7 @@ import { CHROME_KEYS } from "./runtime-i18n-keys.js";
 /** Codex r309 B2: cap Zod issue list at 20 to keep CI output bounded. */
 export const MAX_CHECK_ERRORS = 20;
 
-export type CheckKind =
-  | "spec"
-  | "tasks"
-  | "evidence"
-  | "finding"
-  | "pending"
-  | "state";
+export type CheckKind = "spec" | "tasks" | "evidence" | "finding" | "pending" | "state";
 
 export const CHECK_KINDS: ReadonlyArray<CheckKind> = [
   "spec",
@@ -62,12 +56,12 @@ interface KindEntry {
 
 /** External --kind ↔ internal projection mapping (codex r309 N1). */
 export const KIND_DISPATCH: Record<CheckKind, KindEntry> = {
-  spec:     { basename: "spec.md",       parse: "yaml-frontmatter", schema: SpecFrontmatter },
-  tasks:    { basename: "tasks.json",    parse: "json",             schema: TasksJson },
-  evidence: { basename: "evidence.json", parse: "json",             schema: EvidenceJson },
-  finding:  { basename: "findings.json", parse: "json",             schema: FindingsJson },
-  pending:  { basename: "pending.json",  parse: "json",             schema: PendingJson },
-  state:    { basename: "state.json",    parse: "json",             schema: StateProjection },
+  spec: { basename: "spec.md", parse: "yaml-frontmatter", schema: SpecFrontmatter },
+  tasks: { basename: "tasks.json", parse: "json", schema: TasksJson },
+  evidence: { basename: "evidence.json", parse: "json", schema: EvidenceJson },
+  finding: { basename: "findings.json", parse: "json", schema: FindingsJson },
+  pending: { basename: "pending.json", parse: "json", schema: PendingJson },
+  state: { basename: "state.json", parse: "json", schema: StateProjection },
 };
 
 /** Reverse basename → kind for auto-detection. */
@@ -112,10 +106,7 @@ export type CheckResult =
     }
   | {
       ok: false;
-      code:
-        | "USAGE"
-        | "INPUT_FILE_NOT_FOUND"
-        | "SCHEMA_VALIDATION_FAILED";
+      code: "USAGE" | "INPUT_FILE_NOT_FOUND" | "SCHEMA_VALIDATION_FAILED";
       message: string;
       detail: Record<string, unknown>;
     };
@@ -260,6 +251,9 @@ export async function checkFile(opts: CheckFileOptions): Promise<CheckResult> {
 }
 
 /** Text-mode success line. */
-export function renderSuccessText(result: { ok: true; kind: CheckKind; path: string }, i18n: I18n = DEFAULT_I18N): string {
+export function renderSuccessText(
+  result: { ok: true; kind: CheckKind; path: string },
+  i18n: I18n = DEFAULT_I18N,
+): string {
   return i18n.t(CHROME_KEYS.checkOk, { kind: result.kind, path: result.path }) + "\n";
 }

@@ -2,7 +2,7 @@ import type { EvidenceKind } from "../core/evidence-schema.js";
 import type { FindingAction, FindingCategory } from "../core/finding-schema.js";
 import type { SubState } from "../core/journal-entry.js";
 import type { TaskFullProjection } from "../core/task-schema.js";
-import type { TuiStatusBucket } from "./tui/list-model.js";
+import type { TuiStatusBucket } from "./tui/types.js";
 
 export type TaskKind = TaskFullProjection["kind"];
 export type TaskStatus = TaskFullProjection["status"];
@@ -48,10 +48,7 @@ export const TASK_STATUS_VALUES = [
   "abandoned",
 ] as const satisfies readonly TaskStatus[];
 
-export const FINDING_STATUS_VALUES = [
-  "open",
-  "closed",
-] as const satisfies readonly FindingStatus[];
+export const FINDING_STATUS_VALUES = ["open", "closed"] as const satisfies readonly FindingStatus[];
 
 const STATUS_INDICATOR_KEYS = {
   done: "status_indicator.done",
@@ -221,27 +218,32 @@ export const FAILURE_SITE_TEMPLATES = {
   sessionsListSelectorConflict: {
     key: FAILURE_SITE_KEYS.sessionsListSelectorConflict,
     code: "USAGE",
-    template: "sessions list does not accept {conflicting} — it lists across all sessions; use --in-cwd to filter",
+    template:
+      "sessions list does not accept {conflicting} — it lists across all sessions; use --in-cwd to filter",
   },
   tuiSelectorConflict: {
     key: FAILURE_SITE_KEYS.tuiSelectorConflict,
     code: "USAGE",
-    template: "tui does not accept {conflicting} — it lists across all sessions; selectors are nonsensical for an interactive UI",
+    template:
+      "tui does not accept {conflicting} — it lists across all sessions; selectors are nonsensical for an interactive UI",
   },
   tuiInteractiveOnly: {
     key: FAILURE_SITE_KEYS.tuiInteractiveOnly,
     code: "USAGE",
-    template: "tui is interactive-only; use `loaf sessions list --format json` for scriptable session output",
+    template:
+      "tui is interactive-only; use `loaf sessions list --format json` for scriptable session output",
   },
   hookMissingEvent: {
     key: FAILURE_SITE_KEYS.hookMissingEvent,
     code: "USAGE",
-    template: "loaf hook requires an event token; one of: {events}. Run `loaf hook --list-events` for the full enum",
+    template:
+      "loaf hook requires an event token; one of: {events}. Run `loaf hook --list-events` for the full enum",
   },
   hookUnknownEvent: {
     key: FAILURE_SITE_KEYS.hookUnknownEvent,
     code: "USAGE",
-    template: "unknown hook event '{event}'; expected one of: {allowed}. Did you mean '{suggestion}'?",
+    template:
+      "unknown hook event '{event}'; expected one of: {allowed}. Did you mean '{suggestion}'?",
   },
   hookStdinParseFailed: {
     key: FAILURE_SITE_KEYS.hookStdinParseFailed,
@@ -251,17 +253,20 @@ export const FAILURE_SITE_TEMPLATES = {
   hookWritePathMissing: {
     key: FAILURE_SITE_KEYS.hookWritePathMissing,
     code: "USAGE",
-    template: "write-side hook requires --path <P> or a non-TTY stdin hook payload (tool_input.file_path)",
+    template:
+      "write-side hook requires --path <P> or a non-TTY stdin hook payload (tool_input.file_path)",
   },
   checkSelectorConflict: {
     key: FAILURE_SITE_KEYS.checkSelectorConflict,
     code: "USAGE",
-    template: "check does not accept {conflicting} — it validates a file by path, independent of any feature session",
+    template:
+      "check does not accept {conflicting} — it validates a file by path, independent of any feature session",
   },
   checkKindRequired: {
     key: FAILURE_SITE_KEYS.checkKindRequired,
     code: "USAGE",
-    template: "`{subject}` is not a file path. To validate a {kind} artifact, pass its path: `{suggestion}` (noun-first `loaf {kind} check` is reserved for a future release)",
+    template:
+      "`{subject}` is not a file path. To validate a {kind} artifact, pass its path: `{suggestion}` (noun-first `loaf {kind} check` is reserved for a future release)",
   },
   checkPathMissing: {
     key: FAILURE_SITE_KEYS.checkPathMissing,
@@ -286,7 +291,8 @@ export const FAILURE_SITE_TEMPLATES = {
   dispatchSessionFeatureDirConflict: {
     key: FAILURE_SITE_KEYS.dispatchSessionFeatureDirConflict,
     code: "USAGE",
-    template: "{conflicting} cannot be combined with --feature-dir (session identity comes from registry; manual featureDir is contradictory)",
+    template:
+      "{conflicting} cannot be combined with --feature-dir (session identity comes from registry; manual featureDir is contradictory)",
   },
   dispatchFeatureDirRequiresFeature: {
     key: FAILURE_SITE_KEYS.dispatchFeatureDirRequiresFeature,
@@ -393,11 +399,14 @@ export const FAILURE_SITE_TEMPLATES = {
     code: "NO_SESSION",
     template: "run `loaf start {feature}` first",
   },
-} as const satisfies Record<string, {
-  key: FailureSiteKey;
-  code: FailureSiteDiagnosticCode;
-  template: string;
-}>;
+} as const satisfies Record<
+  string,
+  {
+    key: FailureSiteKey;
+    code: FailureSiteDiagnosticCode;
+    template: string;
+  }
+>;
 
 export const SUCCESS_KEYS = {
   nextAdvance: "success.next.advance",

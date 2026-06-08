@@ -11,10 +11,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const REPO_ROOT = path.join(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "..", "..",
-);
+const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 async function readRepo(rel: string): Promise<string> {
   return await fs.readFile(path.join(REPO_ROOT, rel), "utf8");
@@ -84,9 +81,7 @@ describe("SC-7 — every mutator call carries registryWriter in MutateContext", 
       const tailMatch = /(\w+)\s*,?\s*\)\s*$/.exec(slice.trim());
       if (tailMatch && KNOWN_GOOD_CTX_NAMES.has(tailMatch[1]!)) continue;
 
-      misses.push(
-        `line ${i + 1}: await ${callMatch[1]}(...) — missing registryWriter wiring`,
-      );
+      misses.push(`line ${i + 1}: await ${callMatch[1]}(...) — missing registryWriter wiring`);
     }
 
     expect(misses).toEqual([]);

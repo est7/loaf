@@ -248,9 +248,7 @@ describe("reducer SPEC content handlers — Slice 1.B sub-cycle 1", () => {
     const snap = seedAtSpecProposal();
     expect(snap.state!.spec_version).toBe(0);
 
-    const next = mustOk(
-      apply(snap, entry(3, "event:spec_submitted", fullSubmittedPayload(1))),
-    );
+    const next = mustOk(apply(snap, entry(3, "event:spec_submitted", fullSubmittedPayload(1))));
 
     expect(next.state!.spec_version).toBe(1);
     expect(next.requirements).toEqual([]);
@@ -282,9 +280,7 @@ describe("reducer SPEC content handlers — Slice 1.B sub-cycle 1", () => {
     );
     expect(snap.requirements).toHaveLength(1);
 
-    snap = mustOk(
-      apply(snap, entry(5, "event:spec_submitted", fullSubmittedPayload(2))),
-    );
+    snap = mustOk(apply(snap, entry(5, "event:spec_submitted", fullSubmittedPayload(2))));
     expect(snap.state!.spec_version).toBe(2);
     expect(snap.requirements).toEqual([]);
     expect(snap.scenarios).toEqual([]);
@@ -326,10 +322,7 @@ describe("reducer SPEC content handlers — Slice 1.B sub-cycle 1", () => {
     // the now-blocked 0 → 1 pre-submit path.
     const snap = seedAtSpecProposalPostSubmit();
     const next = mustOk(
-      apply(
-        snap,
-        entry(4, "event:spec_req_added", fullUbiquitousReqPayload(2, "REQ-AUTH-001")),
-      ),
+      apply(snap, entry(4, "event:spec_req_added", fullUbiquitousReqPayload(2, "REQ-AUTH-001"))),
     );
     expect(next.state!.spec_version).toBe(2);
     expect(next.requirements).toHaveLength(1);
@@ -346,12 +339,16 @@ describe("reducer SPEC content handlers — Slice 1.B sub-cycle 1", () => {
     const snap = seedAtSpecProposalPostSubmit();
     const fullPayload = fullEventDrivenReqPayload(2, "REQ-AUTH-001") as {
       spec_version: number;
-      req: { id: string; type: string; trigger: string; response: string; verified_by_scenarios: string[] };
+      req: {
+        id: string;
+        type: string;
+        trigger: string;
+        response: string;
+        verified_by_scenarios: string[];
+      };
     };
 
-    const next = mustOk(
-      apply(snap, entry(4, "event:spec_req_added", fullPayload)),
-    );
+    const next = mustOk(apply(snap, entry(4, "event:spec_req_added", fullPayload)));
 
     const stored = next.requirements[0]! as unknown as Record<string, unknown>;
     expect(stored["id"]).toBe("REQ-AUTH-001");
@@ -364,10 +361,7 @@ describe("reducer SPEC content handlers — Slice 1.B sub-cycle 1", () => {
   test("event:spec_req_added stale standalone version is rejected (post-submit)", () => {
     let snap = seedAtSpecProposalPostSubmit();
     snap = mustOk(
-      apply(
-        snap,
-        entry(4, "event:spec_req_added", fullUbiquitousReqPayload(2, "REQ-AUTH-001")),
-      ),
+      apply(snap, entry(4, "event:spec_req_added", fullUbiquitousReqPayload(2, "REQ-AUTH-001"))),
     );
     expect(snap.state!.spec_version).toBe(2);
 
@@ -417,10 +411,7 @@ describe("reducer SPEC content handlers — Slice 1.B sub-cycle 1", () => {
   test("event:spec_req_added with duplicate id is rejected", () => {
     let snap = seedAtSpecProposalPostSubmit();
     snap = mustOk(
-      apply(
-        snap,
-        entry(4, "event:spec_req_added", fullUbiquitousReqPayload(2, "REQ-AUTH-001")),
-      ),
+      apply(snap, entry(4, "event:spec_req_added", fullUbiquitousReqPayload(2, "REQ-AUTH-001"))),
     );
 
     const result = apply(
@@ -462,10 +453,7 @@ describe("reducer SPEC content handlers — Slice 1.B sub-cycle 1", () => {
   test("event:spec_visual_added standalone happy + duplicate rejected", () => {
     let snap = seedAtSpecProposalPostSubmit();
     snap = mustOk(
-      apply(
-        snap,
-        entry(4, "event:spec_visual_added", fullVisualPayload(2, "VIS-AUTH-001")),
-      ),
+      apply(snap, entry(4, "event:spec_visual_added", fullVisualPayload(2, "VIS-AUTH-001"))),
     );
     expect(snap.state!.spec_version).toBe(2);
     expect(snap.visual_contracts).toHaveLength(1);
@@ -484,14 +472,9 @@ describe("reducer SPEC content handlers — Slice 1.B sub-cycle 1", () => {
 
   test("event:spec_submitted with non-monotonic version is rejected", () => {
     let snap = seedAtSpecProposal();
-    snap = mustOk(
-      apply(snap, entry(3, "event:spec_submitted", fullSubmittedPayload(1))),
-    );
+    snap = mustOk(apply(snap, entry(3, "event:spec_submitted", fullSubmittedPayload(1))));
 
-    const result = apply(
-      snap,
-      entry(4, "event:spec_submitted", fullSubmittedPayload(1)),
-    );
+    const result = apply(snap, entry(4, "event:spec_submitted", fullSubmittedPayload(1)));
     expect(result.ok).toBe(false);
     if (!result.ok) {
       // Slice E promotion: SPEC_VERSION_NOT_MONOTONIC from preflight
@@ -549,7 +532,9 @@ describe("SPEC payload schemas — canonical truth required for replay", () => {
     );
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.message).toMatch(/payload schema|measurable|verified_by_scenarios|acceptance_na/i);
+      expect(result.message).toMatch(
+        /payload schema|measurable|verified_by_scenarios|acceptance_na/i,
+      );
     }
   });
 
@@ -593,13 +578,13 @@ describe("reducer SPEC content full projection — Slice A SC1", () => {
 
   test("event:spec_submitted populates spec_header with full header fields", () => {
     const snap = seedAtSpecProposal();
-    const next = mustOk(
-      apply(snap, entry(3, "event:spec_submitted", fullSubmittedPayload(1))),
-    );
+    const next = mustOk(apply(snap, entry(3, "event:spec_submitted", fullSubmittedPayload(1))));
 
     expect(next.spec_header).not.toBeNull();
     expect(next.spec_header!.feature).toEqual({ id: "F-001", name: "OAuth access token refresh" });
-    expect(next.spec_header!.intent).toBe("users should not perceive auth recovery flows in flight");
+    expect(next.spec_header!.intent).toBe(
+      "users should not perceive auth recovery flows in flight",
+    );
     expect(next.spec_header!.adr_refs).toEqual([]);
     expect(next.spec_header!.needs_clarification).toEqual([]);
   });
@@ -643,7 +628,9 @@ describe("reducer SPEC content full projection — Slice A SC1", () => {
 
     // re-submit replaces — not merges
     expect(snap.spec_header!.feature).toEqual({ id: "F-002", name: "Logout flow hardening" });
-    expect(snap.spec_header!.intent).toBe("logout must not leave dangling refresh tokens in storage");
+    expect(snap.spec_header!.intent).toBe(
+      "logout must not leave dangling refresh tokens in storage",
+    );
     expect(snap.spec_header!.adr_refs).toEqual(["ADR-0007"]);
   });
 
@@ -658,31 +645,60 @@ describe("reducer SPEC content full projection — Slice A SC1", () => {
     bodyKey: string;
     bodyMatcher: RegExp;
   }> = [
-    { variant: "ubiquitous", payloadFn: fullUbiquitousReqPayload, bodyKey: "response", bodyMatcher: /handle the case correctly/ },
-    { variant: "event-driven", payloadFn: fullEventDrivenReqPayload, bodyKey: "trigger", bodyMatcher: /HTTP 401/ },
-    { variant: "state-driven", payloadFn: fullStateDrivenReqPayload, bodyKey: "while_", bodyMatcher: /session is in flight/ },
-    { variant: "optional", payloadFn: fullOptionalReqPayload, bodyKey: "feature", bodyMatcher: /biometric unlock/ },
-    { variant: "unwanted", payloadFn: fullUnwantedReqPayload, bodyKey: "condition", bodyMatcher: /empty password field/ },
+    {
+      variant: "ubiquitous",
+      payloadFn: fullUbiquitousReqPayload,
+      bodyKey: "response",
+      bodyMatcher: /handle the case correctly/,
+    },
+    {
+      variant: "event-driven",
+      payloadFn: fullEventDrivenReqPayload,
+      bodyKey: "trigger",
+      bodyMatcher: /HTTP 401/,
+    },
+    {
+      variant: "state-driven",
+      payloadFn: fullStateDrivenReqPayload,
+      bodyKey: "while_",
+      bodyMatcher: /session is in flight/,
+    },
+    {
+      variant: "optional",
+      payloadFn: fullOptionalReqPayload,
+      bodyKey: "feature",
+      bodyMatcher: /biometric unlock/,
+    },
+    {
+      variant: "unwanted",
+      payloadFn: fullUnwantedReqPayload,
+      bodyKey: "condition",
+      bodyMatcher: /empty password field/,
+    },
   ];
 
-  test.each(EARS_VARIANTS)(
-    "event:spec_req_added preserves full $variant REQ body in Snapshot.requirements[]",
-    ({ payloadFn, bodyKey, bodyMatcher }) => {
-      const snap = seedAtSpecProposalPostSubmit();
-      const next = mustOk(
-        apply(snap, entry(4, "event:spec_req_added", payloadFn(2, "REQ-VAR-001"))),
-      );
+  test.each(
+    EARS_VARIANTS,
+  )("event:spec_req_added preserves full $variant REQ body in Snapshot.requirements[]", ({
+    payloadFn,
+    bodyKey,
+    bodyMatcher,
+  }) => {
+    const snap = seedAtSpecProposalPostSubmit();
+    const next = mustOk(apply(snap, entry(4, "event:spec_req_added", payloadFn(2, "REQ-VAR-001"))));
 
-      const stored = next.requirements[0]! as unknown as Record<string, unknown>;
-      expect(stored["id"]).toBe("REQ-VAR-001");
-      expect(stored[bodyKey]).toMatch(bodyMatcher);
-    },
-  );
+    const stored = next.requirements[0]! as unknown as Record<string, unknown>;
+    expect(stored["id"]).toBe("REQ-VAR-001");
+    expect(stored[bodyKey]).toMatch(bodyMatcher);
+  });
 
   test("event:spec_scenario_added preserves full SCEN body (name/given/when/then) in Snapshot.scenarios[]", () => {
     const snap = seedAtSpecProposalPostSubmit();
     const next = mustOk(
-      apply(snap, entry(4, "event:spec_scenario_added", fullScenarioPayload(2, "SCEN-AUTH-E2E-001"))),
+      apply(
+        snap,
+        entry(4, "event:spec_scenario_added", fullScenarioPayload(2, "SCEN-AUTH-E2E-001")),
+      ),
     );
 
     const stored = next.scenarios[0]! as unknown as Record<string, unknown>;
@@ -691,7 +707,10 @@ describe("reducer SPEC content full projection — Slice A SC1", () => {
     expect(stored["tag"]).toBe("e2e");
     expect(stored["given"]).toEqual(["user has valid refresh token", "access token is expired"]);
     expect(stored["when"]).toEqual(["user opens the order list"]);
-    expect(stored["then"]).toEqual(["system refreshes the access token", "order list is displayed"]);
+    expect(stored["then"]).toEqual([
+      "system refreshes the access token",
+      "order list is displayed",
+    ]);
   });
 
   test("event:spec_visual_added preserves full VIS body (target/checks) in Snapshot.visual_contracts[]", () => {

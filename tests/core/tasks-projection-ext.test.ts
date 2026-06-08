@@ -95,11 +95,7 @@ function structuralTask(overrides: Record<string, unknown> = {}): Record<string,
   };
 }
 
-function entry(
-  seq: number,
-  kind: JournalEntry["kind"],
-  payload: unknown,
-): JournalEntry {
+function entry(seq: number, kind: JournalEntry["kind"], payload: unknown): JournalEntry {
   return {
     seq,
     entry_id: `JE-${String(seq + 1).padStart(6, "0")}`,
@@ -251,10 +247,7 @@ describe("event:tasks_planned — Slice 1.B sub-cycle 3a", () => {
 
   test("rejects payload missing based_on.spec", () => {
     const snap = seedAtExecutePlan();
-    const result = apply(
-      snap,
-      entry(7, "event:tasks_planned", { tasks: [behavioralTask()] }),
-    );
+    const result = apply(snap, entry(7, "event:tasks_planned", { tasks: [behavioralTask()] }));
     expect(result.ok).toBe(false);
   });
 
@@ -388,8 +381,9 @@ describe("event:tasks_amended mode discriminator — Slice C SC-C2b", () => {
     );
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.snapshot.tasks.find((t) => t.id === "T-001")!.steps.refactor!.applicability)
-        .toBe("na");
+      expect(
+        result.snapshot.tasks.find((t) => t.id === "T-001")!.steps.refactor!.applicability,
+      ).toBe("na");
     }
   });
 
@@ -455,7 +449,10 @@ describe("event:task_step_started / _done — Slice 1.B sub-cycle 3a", () => {
   test("task_step_done preserves applicability on update", () => {
     let snap = seedAtWork();
     snap = mustOk(
-      apply(snap, entry(9, "event:task_step_done", { task_id: "T-001", step: "implement", result: "passed" })),
+      apply(
+        snap,
+        entry(9, "event:task_step_done", { task_id: "T-001", step: "implement", result: "passed" }),
+      ),
     );
     const task = snap.tasks.find((t) => t.id === "T-001")!;
     expect(task.steps.implement?.status).toBe("passed");
@@ -474,10 +471,20 @@ describe("event:task_step_done auto-promote — Slice 1.B sub-cycle 3a (F-010 #3
   test("all must passed + optional pending → promotes to done (codex r24 #4)", () => {
     let snap = seedAtWork();
     snap = mustOk(
-      apply(snap, entry(9, "event:task_step_done", { task_id: "T-001", step: "red", result: "passed" })),
+      apply(
+        snap,
+        entry(9, "event:task_step_done", { task_id: "T-001", step: "red", result: "passed" }),
+      ),
     );
     snap = mustOk(
-      apply(snap, entry(10, "event:task_step_done", { task_id: "T-001", step: "implement", result: "passed" })),
+      apply(
+        snap,
+        entry(10, "event:task_step_done", {
+          task_id: "T-001",
+          step: "implement",
+          result: "passed",
+        }),
+      ),
     );
     const task = snap.tasks.find((t) => t.id === "T-001")!;
     expect(task.steps.refactor?.status).toBe("pending");
@@ -487,7 +494,10 @@ describe("event:task_step_done auto-promote — Slice 1.B sub-cycle 3a (F-010 #3
   test("one must pending → no promote (codex r24 #4)", () => {
     let snap = seedAtWork();
     snap = mustOk(
-      apply(snap, entry(9, "event:task_step_done", { task_id: "T-001", step: "implement", result: "passed" })),
+      apply(
+        snap,
+        entry(9, "event:task_step_done", { task_id: "T-001", step: "implement", result: "passed" }),
+      ),
     );
     const task = snap.tasks.find((t) => t.id === "T-001")!;
     expect(task.steps.red?.status).toBe("pending");
@@ -499,10 +509,20 @@ describe("event:task_step_done auto-promote — Slice 1.B sub-cycle 3a (F-010 #3
   test("must failed → no promote (failed must blocks done)", () => {
     let snap = seedAtWork();
     snap = mustOk(
-      apply(snap, entry(9, "event:task_step_done", { task_id: "T-001", step: "red", result: "passed" })),
+      apply(
+        snap,
+        entry(9, "event:task_step_done", { task_id: "T-001", step: "red", result: "passed" }),
+      ),
     );
     snap = mustOk(
-      apply(snap, entry(10, "event:task_step_done", { task_id: "T-001", step: "implement", result: "failed" })),
+      apply(
+        snap,
+        entry(10, "event:task_step_done", {
+          task_id: "T-001",
+          step: "implement",
+          result: "failed",
+        }),
+      ),
     );
     const task = snap.tasks.find((t) => t.id === "T-001")!;
     // Slice 2 SC1: post-claim status is in_progress; failed must blocks promote.
@@ -512,10 +532,20 @@ describe("event:task_step_done auto-promote — Slice 1.B sub-cycle 3a (F-010 #3
   test("waived must counts as terminal-positive → promote", () => {
     let snap = seedAtWork();
     snap = mustOk(
-      apply(snap, entry(9, "event:task_step_done", { task_id: "T-001", step: "red", result: "waived" })),
+      apply(
+        snap,
+        entry(9, "event:task_step_done", { task_id: "T-001", step: "red", result: "waived" }),
+      ),
     );
     snap = mustOk(
-      apply(snap, entry(10, "event:task_step_done", { task_id: "T-001", step: "implement", result: "passed" })),
+      apply(
+        snap,
+        entry(10, "event:task_step_done", {
+          task_id: "T-001",
+          step: "implement",
+          result: "passed",
+        }),
+      ),
     );
     const task = snap.tasks.find((t) => t.id === "T-001")!;
     expect(task.status).toBe("done");
@@ -524,7 +554,10 @@ describe("event:task_step_done auto-promote — Slice 1.B sub-cycle 3a (F-010 #3
   test("seeded must step untouched by events does not falsely promote (codex r23 BLOCK 2 witness)", () => {
     let snap = seedAtWork();
     snap = mustOk(
-      apply(snap, entry(9, "event:task_step_done", { task_id: "T-001", step: "implement", result: "passed" })),
+      apply(
+        snap,
+        entry(9, "event:task_step_done", { task_id: "T-001", step: "implement", result: "passed" }),
+      ),
     );
     const task = snap.tasks.find((t) => t.id === "T-001")!;
     // Slice 2 SC1: post-claim status is in_progress; red must still pending
@@ -554,9 +587,10 @@ describe("bug-task RED registration — Slice C SC-C4 (R2)", () => {
   });
 
   test("task_step_done step=red red_test_registered=true sets task.red_test_registered", () => {
-    let snap = seedAtExecuteWork(
-      { based_on: { spec: 1 }, tasks: [behavioralTask({ id: "T-001", labels: ["bug"] })] },
-    );
+    let snap = seedAtExecuteWork({
+      based_on: { spec: 1 },
+      tasks: [behavioralTask({ id: "T-001", labels: ["bug"] })],
+    });
     snap = mustOk(
       apply(
         snap,

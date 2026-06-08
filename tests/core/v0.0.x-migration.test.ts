@@ -91,8 +91,12 @@ describe("migrateV2 — Stage 5 §5.2", () => {
     // Backup directory has original v0.0.x files.
     expect(await fs.readdir(result.backup_dir)).toEqual(
       expect.arrayContaining([
-        "state.json", "tasks.json", "spec.md",
-        "evidence.jsonl", "findings.jsonl", "pending.json",
+        "state.json",
+        "tasks.json",
+        "spec.md",
+        "evidence.jsonl",
+        "findings.jsonl",
+        "pending.json",
       ]),
     );
     // Original featureDir no longer has those at top level (moved to backup).
@@ -102,10 +106,9 @@ describe("migrateV2 — Stage 5 §5.2", () => {
 
     // Replay journal with feature_dir → migration rehydrates projection
     // from sidecars (audit r1 Blocker #6 fix).
-    const replay = await replayJournal(
-      path.join(featureDir, "journal.jsonl"),
-      { feature_dir: featureDir },
-    );
+    const replay = await replayJournal(path.join(featureDir, "journal.jsonl"), {
+      feature_dir: featureDir,
+    });
     expect(replay.ok).toBe(true);
     if (replay.ok) {
       expect(replay.entries_applied).toBe(1);
@@ -297,18 +300,26 @@ describe("migrateV2 — Stage 5 §5.2", () => {
     expect(caught!.code).toBe("MIGRATION_INCOMPLETE");
 
     // Journal must NOT exist — preflight aborted before appendEntry.
-    await expect(fs.readFile(path.join(featureDir, "journal.jsonl"), "utf8")).rejects.toMatchObject({
-      code: "ENOENT",
-    });
+    await expect(fs.readFile(path.join(featureDir, "journal.jsonl"), "utf8")).rejects.toMatchObject(
+      {
+        code: "ENOENT",
+      },
+    );
     // Originals must NOT have been moved to backup.
     expect(await fs.readdir(featureDir)).toEqual(
       expect.arrayContaining([
-        "state.json", "tasks.json", "spec.md",
-        "evidence.jsonl", "findings.jsonl", "pending.json",
+        "state.json",
+        "tasks.json",
+        "spec.md",
+        "evidence.jsonl",
+        "findings.jsonl",
+        "pending.json",
       ]),
     );
     // Sidecar dir was rolled back.
-    await expect(fs.access(path.join(featureDir, "attachments", "JE-000000"))).rejects.toMatchObject({
+    await expect(
+      fs.access(path.join(featureDir, "attachments", "JE-000000")),
+    ).rejects.toMatchObject({
       code: "ENOENT",
     });
   });

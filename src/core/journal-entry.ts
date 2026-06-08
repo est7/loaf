@@ -17,17 +17,9 @@ import {
   ScenarioGherkin,
   VisualContract,
 } from "./spec-schema.js";
-import {
-  TaskFullPayload,
-  TaskIdPayload,
-} from "./task-schema.js";
+import { TaskFullPayload, TaskIdPayload } from "./task-schema.js";
 import { EvidenceFullPayload } from "./evidence-schema.js";
-import {
-  FindingAction,
-  FindingCategory,
-  FindingId,
-  FindingTarget,
-} from "./finding-schema.js";
+import { FindingAction, FindingCategory, FindingId, FindingTarget } from "./finding-schema.js";
 
 // Hard byte ceiling per serialized JournalEntry. Mirrors §34
 // entry_byte_limit_kb (64KB); enforced by appendEntry at step 5 final
@@ -36,19 +28,15 @@ import {
 // (Stage 4); Stage 1 simply rejects oversize entries outright.
 export const ENTRY_BYTE_LIMIT = 64_000;
 
-export const EntryId = z
-  .string()
-  .regex(/^JE-\d{6,}$/, {
-    message: "entry_id must match /^JE-\\d{6,}$/ (e.g. JE-000123)",
-  });
+export const EntryId = z.string().regex(/^JE-\d{6,}$/, {
+  message: "entry_id must match /^JE-\\d{6,}$/ (e.g. JE-000123)",
+});
 export type EntryId = z.infer<typeof EntryId>;
 
-export const ActorString = z
-  .string()
-  .regex(/^(human|skill|ci|cli|migration):[^\s].*$/, {
-    message:
-      "actor must be of form '<prefix>:<id>' where prefix ∈ {human, skill, ci, cli, migration}",
-  });
+export const ActorString = z.string().regex(/^(human|skill|ci|cli|migration):[^\s].*$/, {
+  message:
+    "actor must be of form '<prefix>:<id>' where prefix ∈ {human, skill, ci, cli, migration}",
+});
 export type ActorString = z.infer<typeof ActorString>;
 
 // AttachmentRef — per-entry sidecar pointer (ADR-0005 §3.2 / Stage 4).
@@ -100,13 +88,26 @@ export type MigrationSnapshotImportedPayload = z.infer<typeof MigrationSnapshotI
 // State machine cursor; reducer projects this from `event:phase_advanced` /
 // `gate:decided` entries via the shared validateTransition helper (Gate #1).
 export const SubState = z.enum([
-  "TRIAGE.score", "TRIAGE.confirm",
-  "SPEC.proposal", "SPEC.spec", "SPEC.plan", "SPEC.design",
-  "EXECUTE.plan", "EXECUTE.work", "EXECUTE.done",
-  "VERIFY.plan", "VERIFY.run", "VERIFY.review", "VERIFY.acceptance",
-  "VERIFY.visual", "VERIFY.accept",
-  "SETTLE.reconcile", "SETTLE.lessons",
-  "DONE.delivered", "DONE.archived", "DONE.abandoned",
+  "TRIAGE.score",
+  "TRIAGE.confirm",
+  "SPEC.proposal",
+  "SPEC.spec",
+  "SPEC.plan",
+  "SPEC.design",
+  "EXECUTE.plan",
+  "EXECUTE.work",
+  "EXECUTE.done",
+  "VERIFY.plan",
+  "VERIFY.run",
+  "VERIFY.review",
+  "VERIFY.acceptance",
+  "VERIFY.visual",
+  "VERIFY.accept",
+  "SETTLE.reconcile",
+  "SETTLE.lessons",
+  "DONE.delivered",
+  "DONE.archived",
+  "DONE.abandoned",
 ]);
 export type SubState = z.infer<typeof SubState>;
 
@@ -198,15 +199,12 @@ export const JournalEntry = z
       return present === 0 || present === 3;
     },
     {
-      message:
-        "batch_id, batch_index, batch_count must be all-present or all-absent",
+      message: "batch_id, batch_index, batch_count must be all-present or all-absent",
     },
   )
   .refine(
     (e) =>
-      e.batch_index === undefined ||
-      e.batch_count === undefined ||
-      e.batch_index < e.batch_count,
+      e.batch_index === undefined || e.batch_count === undefined || e.batch_index < e.batch_count,
     { message: "batch_index must be < batch_count" },
   );
 export type JournalEntry = z.infer<typeof JournalEntry>;
@@ -368,9 +366,7 @@ export type GateDecidedPayload = z.infer<typeof GateDecidedPayload>;
 // Kinds that the reducer has not yet implemented fall to RecordPayload + a
 // runtime "reducer-implemented" gate in journal-mutate.ts.
 
-export const TaskRefPayload = z
-  .object({ task_id: TaskIdPayload })
-  .passthrough();
+export const TaskRefPayload = z.object({ task_id: TaskIdPayload }).passthrough();
 
 export const TaskStepRefPayload = z
   .object({

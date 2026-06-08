@@ -7,12 +7,7 @@
 import { z } from "zod";
 
 /** Canonical 4-event enum per protocol §11 / docs/schemas.ts §36. */
-export const HookEvent = z.enum([
-  "session-start",
-  "write-guard",
-  "scope-track",
-  "closure-check",
-]);
+export const HookEvent = z.enum(["session-start", "write-guard", "scope-track", "closure-check"]);
 export type HookEvent = z.infer<typeof HookEvent>;
 
 /** Canonical event list — frozen order for stable `--list-events` output

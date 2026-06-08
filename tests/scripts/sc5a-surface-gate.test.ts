@@ -72,7 +72,10 @@ describe("Phase 16 SC-5a/SC-5b1 — RED #12: placeholder symmetry across catalog
   // SC-5b1 generalizes the symmetry harness to walk any set of
   // DiagnosticCodes and assert catalog ↔ en ↔ zh placeholder-set
   // equality. Add new codes to this list as they get cataloged.
-  const SYMMETRY_CODES: ReadonlyArray<{ code: keyof typeof ERROR_CATALOG; canonical: Set<string> }> = [
+  const SYMMETRY_CODES: ReadonlyArray<{
+    code: keyof typeof ERROR_CATALOG;
+    canonical: Set<string>;
+  }> = [
     { code: "INVALID_FORMAT", canonical: new Set(["value", "allowed_values_human"]) },
     { code: "MUTUALLY_EXCLUSIVE_FLAGS", canonical: new Set(["flags"]) },
     { code: "CONFIG_ALREADY_INITIALIZED", canonical: new Set(["config_path"]) },

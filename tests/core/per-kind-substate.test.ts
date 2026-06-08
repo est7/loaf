@@ -13,10 +13,7 @@ import { describe, expect, test } from "vitest";
 import { preflight } from "../../src/core/reducer/preflight.js";
 import { initialSnapshot, type Snapshot } from "../../src/core/reducer.js";
 import type { Ceremony, SubState } from "../../src/core/journal-entry.js";
-import {
-  kindActorFixtures,
-  kindSubStateFixtures,
-} from "./per-kind-fixture-builder.js";
+import { kindActorFixtures, kindSubStateFixtures } from "./per-kind-fixture-builder.js";
 
 const DEEP_CEREMONY: Ceremony = {
   spec_phase: true,
@@ -32,7 +29,12 @@ const DEEP_CEREMONY: Ceremony = {
 // without forcing every test to construct a full SessionState by hand.
 function mkSnapshot(sub_state: SubState, ceremony: Ceremony): Snapshot {
   const phase = sub_state.split(".")[0] as
-    | "TRIAGE" | "SPEC" | "EXECUTE" | "VERIFY" | "SETTLE" | "DONE";
+    | "TRIAGE"
+    | "SPEC"
+    | "EXECUTE"
+    | "VERIFY"
+    | "SETTLE"
+    | "DONE";
   return {
     ...initialSnapshot(),
     state: {
@@ -200,9 +202,14 @@ describe("per-kind sub_state authority (Cartesian matrix)", () => {
     if (fx.kind === "event:phase_advanced" || fx.kind === "gate:decided") continue;
 
     test(`kind=${fx.kind} in ${fx.sub_state} → ${fx.expected}`, () => {
-      const allowedActor = fx.kind === "migration:snapshot_imported" ? "migration:test" :
-        fx.kind === "gate:decided" || fx.kind.startsWith("session:") || fx.kind === "spike:converted" ? "human:tester" :
-        "cli:loaf";
+      const allowedActor =
+        fx.kind === "migration:snapshot_imported"
+          ? "migration:test"
+          : fx.kind === "gate:decided" ||
+              fx.kind.startsWith("session:") ||
+              fx.kind === "spike:converted"
+            ? "human:tester"
+            : "cli:loaf";
 
       const result = preflight(
         {

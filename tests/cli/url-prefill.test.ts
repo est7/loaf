@@ -36,16 +36,12 @@ describe("Phase 16 SC-3 — sanitizeArgvForUrl (allowlist + redact)", () => {
 
   test("codex r208 PATCH 2 — gate name positional (public enum) passes through", () => {
     const argv = ["loaf", "gate", "decide", "spec-lock", "--approve"];
-    expect(sanitizeArgvForUrl(argv)).toBe(
-      "loaf gate decide spec-lock --approve",
-    );
+    expect(sanitizeArgvForUrl(argv)).toBe("loaf gate decide spec-lock --approve");
   });
 
   test("codex r208 PATCH 2 — task id positional (sensitive-by-default) REDACTED", () => {
     const argv = ["loaf", "tasks", "abandon", "T-007", "--reason", "scope-cut"];
-    expect(sanitizeArgvForUrl(argv)).toBe(
-      "loaf tasks abandon <redacted> --reason <redacted>",
-    );
+    expect(sanitizeArgvForUrl(argv)).toBe("loaf tasks abandon <redacted> --reason <redacted>");
   });
 
   test("flag names pass through; values for sensitive flags get redacted", () => {
@@ -91,16 +87,12 @@ describe("Phase 16 SC-3 — sanitizeArgvForUrl (allowlist + redact)", () => {
     // post-codex-r208 PATCH 2. --ceremony standard pair still passes
     // through (ceremony is allowlisted + standard is a known preset).
     const argv = ["loaf", "start", "F-001", "--ceremony", "standard"];
-    expect(sanitizeArgvForUrl(argv)).toBe(
-      "loaf start <redacted> --ceremony standard",
-    );
+    expect(sanitizeArgvForUrl(argv)).toBe("loaf start <redacted> --ceremony standard");
   });
 
   test("--format json/text passes through (enum-like)", () => {
     const argv = ["loaf", "status", "--feature", "F-042", "--format", "json"];
-    expect(sanitizeArgvForUrl(argv)).toBe(
-      "loaf status --feature F-042 --format json",
-    );
+    expect(sanitizeArgvForUrl(argv)).toBe("loaf status --feature F-042 --format json");
   });
 });
 
@@ -116,9 +108,7 @@ describe("Phase 16 SC-3 — buildReportUrl (query assembly)", () => {
       crash_log_path: "/Users/test/.loaf/crashes/2026-05-26T05-00-00-000Z.json",
     });
     const parsed = new URL(url);
-    expect(parsed.origin + parsed.pathname).toBe(
-      "https://github.com/loaf-cli/loaf/issues/new",
-    );
+    expect(parsed.origin + parsed.pathname).toBe("https://github.com/loaf-cli/loaf/issues/new");
     expect(parsed.searchParams.get("loaf_version")).toBe("0.1.0");
     expect(parsed.searchParams.get("schema_version")).toBe("2");
     expect(parsed.searchParams.get("last_command")).toBe(
@@ -155,9 +145,7 @@ describe("Phase 16 SC-3 — buildReportUrl (query assembly)", () => {
       crash_log_path: null,
     });
     const parsed = new URL(url);
-    expect(parsed.searchParams.get("last_command")).toBe(
-      "loaf finding raise --reason <redacted>",
-    );
+    expect(parsed.searchParams.get("last_command")).toBe("loaf finding raise --reason <redacted>");
     expect(parsed.searchParams.get("last_command")).not.toContain("actual reason");
   });
 });

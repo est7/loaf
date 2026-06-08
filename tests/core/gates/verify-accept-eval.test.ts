@@ -88,10 +88,7 @@ describe("evaluateVerifyAccept — IO boundary mapping", () => {
 
   test("SPEC_YAML_INVALID → check:1 FailedCheck preserves subcode", async () => {
     const dir = await tmpFeatureDir();
-    await fs.writeFile(
-      path.join(dir, "spec.md"),
-      "---\n[: bogus yaml :]\n---\n",
-    );
+    await fs.writeFile(path.join(dir, "spec.md"), "---\n[: bogus yaml :]\n---\n");
     const result = await evaluateVerifyAccept(execSnapshot(), dir);
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("unreachable");

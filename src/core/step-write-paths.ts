@@ -114,7 +114,9 @@ export type TaskKind = keyof typeof STEP_WRITE_PATHS_BY_KIND;
  * kind/step combination (caller treats absence as "no built-in grant").
  */
 export function stepWritePaths(kind: string, step: string): readonly string[] {
-  const byKind = (STEP_WRITE_PATHS_BY_KIND as Record<string, Record<string, readonly string[]>>)[kind];
+  const byKind = (STEP_WRITE_PATHS_BY_KIND as Record<string, Record<string, readonly string[]>>)[
+    kind
+  ];
   return byKind?.[step] ?? [];
 }
 
@@ -124,6 +126,8 @@ export function stepWritePaths(kind: string, step: string): readonly string[] {
  * artifacts.
  */
 export function stepWriteCategories(kind: string, step: string): readonly WriteCategory[] {
-  const byKind = (STEP_WRITE_CATEGORIES_BY_KIND as Record<string, Record<string, readonly WriteCategory[]>>)[kind];
+  const byKind = (
+    STEP_WRITE_CATEGORIES_BY_KIND as Record<string, Record<string, readonly WriteCategory[]>>
+  )[kind];
   return byKind?.[step] ?? [];
 }

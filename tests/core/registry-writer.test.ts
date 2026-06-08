@@ -16,10 +16,7 @@ import {
   writeRegistryFile,
   defaultRegistryDir,
 } from "../../src/core/registry-writer.js";
-import {
-  RegistryFile,
-  PROJECTION_SCHEMA_VERSION,
-} from "../../src/core/projection-schema.js";
+import { RegistryFile, PROJECTION_SCHEMA_VERSION } from "../../src/core/projection-schema.js";
 import { initialSnapshot } from "../../src/core/reducer.js";
 import { mutate } from "../../src/core/journal-mutate.js";
 import { emptyMeta } from "../../src/core/snapshot.js";
@@ -50,7 +47,11 @@ async function tmpFeatureDir(): Promise<string> {
 async function seedSession(
   featureName: string,
   payloadOverrides: Record<string, unknown> = {},
-): Promise<{ snapshot: ReturnType<typeof initialSnapshot>; entries: readonly unknown[]; featureDir: string }> {
+): Promise<{
+  snapshot: ReturnType<typeof initialSnapshot>;
+  entries: readonly unknown[];
+  featureDir: string;
+}> {
   const dir = await tmpFeatureDir();
   const result = await mutate(
     {

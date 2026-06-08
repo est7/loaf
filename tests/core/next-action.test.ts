@@ -43,12 +43,7 @@ const QUICK: Ceremony = {
   strict_drift_check: false,
 };
 
-const ALL_LANES: ReadonlySet<VerifyCheckKind> = new Set([
-  "run",
-  "review",
-  "acceptance",
-  "visual",
-]);
+const ALL_LANES: ReadonlySet<VerifyCheckKind> = new Set(["run", "review", "acceptance", "visual"]);
 
 function makePending(kind: PendingQueueEntry["kind"]): PendingQueueEntry {
   return {
@@ -120,9 +115,9 @@ describe("buildNextOutput — VERIFY lane routing", () => {
     expect(
       run("VERIFY.review", { verify_applicable_lanes: new Set(["visual"]) }).next_action,
     ).toMatchObject({ target: "VERIFY.visual" });
-    expect(
-      run("VERIFY.review", { verify_applicable_lanes: ALL_LANES }).next_action,
-    ).toMatchObject({ target: "VERIFY.acceptance" });
+    expect(run("VERIFY.review", { verify_applicable_lanes: ALL_LANES }).next_action).toMatchObject({
+      target: "VERIFY.acceptance",
+    });
     expect(
       run("VERIFY.acceptance", { verify_applicable_lanes: new Set(["visual"]) }).next_action,
     ).toMatchObject({ target: "VERIFY.visual" });
@@ -132,9 +127,10 @@ describe("buildNextOutput — VERIFY lane routing", () => {
   });
 
   test("VERIFY.visual always advances to VERIFY.accept", () => {
-    expect(
-      run("VERIFY.visual", { verify_applicable_lanes: new Set() }).next_action,
-    ).toMatchObject({ owner_verb: "advance", target: "VERIFY.accept" });
+    expect(run("VERIFY.visual", { verify_applicable_lanes: new Set() }).next_action).toMatchObject({
+      owner_verb: "advance",
+      target: "VERIFY.accept",
+    });
   });
 
   test("lane order is independent of applicable-Set insertion order (deterministic)", () => {
@@ -164,12 +160,20 @@ describe("buildNextOutput — VERIFY.accept gate / settle / deliver fork", () =>
 
   test("VERIFY.accept accepted under standard ceremony recommends deliver", () => {
     const out = run("VERIFY.accept", { verify_accepted: true, ceremony: STANDARD });
-    expect(out.next_action).toMatchObject({ owner_verb: "deliver", target: "DONE.delivered", blocking: false });
+    expect(out.next_action).toMatchObject({
+      owner_verb: "deliver",
+      target: "DONE.delivered",
+      blocking: false,
+    });
   });
 
   test("VERIFY.accept accepted under deep ceremony recommends settle", () => {
     const out = run("VERIFY.accept", { verify_accepted: true, ceremony: DEEP });
-    expect(out.next_action).toMatchObject({ owner_verb: "settle", target: "SETTLE.reconcile", blocking: false });
+    expect(out.next_action).toMatchObject({
+      owner_verb: "settle",
+      target: "SETTLE.reconcile",
+      blocking: false,
+    });
   });
 });
 
@@ -191,7 +195,10 @@ describe("buildNextOutput — pending precedence and forks", () => {
 
   test("gate_decision head off a gate cursor falls back to pending resolve", () => {
     const out = run("EXECUTE.work", { pending: [makePending("gate_decision")] });
-    expect(out.next_action).toMatchObject({ owner_verb: "pending resolve", target: "gate_decision" });
+    expect(out.next_action).toMatchObject({
+      owner_verb: "pending resolve",
+      target: "gate_decision",
+    });
   });
 
   test("profile_escalation head recommends profile escalate", () => {

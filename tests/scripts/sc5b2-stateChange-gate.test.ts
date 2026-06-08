@@ -74,10 +74,19 @@ const STATE_CHANGE_FIXTURES: ReadonlyArray<{
   // advance — narrow (no iter, no prompt_inject)
   { commandKey: "loaf advance", mustContain: ["advance:", "<prev sub-state>", "<new sub-state>"] },
   // spec submit — align
-  { commandKey: "loaf spec submit", mustContain: ["spec submit:", "spec_version=N", "locked=false", "loaf gate decide spec-lock"] },
+  {
+    commandKey: "loaf spec submit",
+    mustContain: ["spec submit:", "spec_version=N", "locked=false", "loaf gate decide spec-lock"],
+  },
   // spec add-* — narrow
-  { commandKey: "loaf spec add-req", mustContain: ["spec add-req:", "+K REQ", "spec_version=N", "allocated"] },
-  { commandKey: "loaf spec add-scenario", mustContain: ["spec add-scenario:", "+K SCEN", "allocated"] },
+  {
+    commandKey: "loaf spec add-req",
+    mustContain: ["spec add-req:", "+K REQ", "spec_version=N", "allocated"],
+  },
+  {
+    commandKey: "loaf spec add-scenario",
+    mustContain: ["spec add-scenario:", "+K SCEN", "allocated"],
+  },
   { commandKey: "loaf spec add-visual", mustContain: ["spec add-visual:", "+K VIS", "allocated"] },
   // tasks submit — narrow (no tasks_version)
   { commandKey: "loaf tasks submit", mustContain: ["tasks submit:", "N tasks", "loaf advance"] },
@@ -87,14 +96,32 @@ const STATE_CHANGE_FIXTURES: ReadonlyArray<{
   { commandKey: "loaf tasks step start", mustContain: ["step start:", "(running)"] },
   { commandKey: "loaf tasks step done", mustContain: ["step done:", "(passed)"] },
   // evidence add — three shapes
-  { commandKey: "loaf evidence add", mustContain: ["evidence add:", "kind=", "covers=", "+K evidence"] },
+  {
+    commandKey: "loaf evidence add",
+    mustContain: ["evidence add:", "kind=", "covers=", "+K evidence"],
+  },
   // finding raise — align with back-edge clause
-  { commandKey: "loaf finding raise", mustContain: ["finding raise:", "category=", "action=", "back-edge"] },
+  {
+    commandKey: "loaf finding raise",
+    mustContain: ["finding raise:", "category=", "action=", "back-edge"],
+  },
   // finding close — narrow
   { commandKey: "loaf finding close", mustContain: ["finding close:", "→ closed"] },
   // gate decide split — 3 variants
-  { commandKey: "loaf gate decide spec-lock", mustContain: ["gate decide:", "spec-lock approved by"] },
-  { commandKey: "loaf gate decide verify-accept", mustContain: ["gate decide:", "verify-accept approved by", "loaf settle", "loaf deliver", "settle_phase"] },
+  {
+    commandKey: "loaf gate decide spec-lock",
+    mustContain: ["gate decide:", "spec-lock approved by"],
+  },
+  {
+    commandKey: "loaf gate decide verify-accept",
+    mustContain: [
+      "gate decide:",
+      "verify-accept approved by",
+      "loaf settle",
+      "loaf deliver",
+      "settle_phase",
+    ],
+  },
   // settle — narrow
   { commandKey: "loaf settle", mustContain: ["settle:", "SETTLE.reconcile", "loaf deliver"] },
   // deliver — align
@@ -111,10 +138,16 @@ const STATE_CHANGE_FIXTURES: ReadonlyArray<{
   // pending resolve — narrow
   { commandKey: "loaf pending resolve", mustContain: ["pending resolve:", "<PEND-id>", "cleared"] },
   // 4 new rows (P23)
-  { commandKey: "loaf profile escalate", mustContain: ["profile escalate:", "ceremony updated", "<PEND-id>"] },
+  {
+    commandKey: "loaf profile escalate",
+    mustContain: ["profile escalate:", "ceremony updated", "<PEND-id>"],
+  },
   { commandKey: "loaf spike convert", mustContain: ["spike convert:", "DONE.archived"] },
   { commandKey: "loaf tasks register-red", mustContain: ["tasks register-red:", "<task_id>"] },
-  { commandKey: "loaf doctor --rebuild", mustContain: ["doctor rebuild:", "rebuilt", "projection file"] },
+  {
+    commandKey: "loaf doctor --rebuild",
+    mustContain: ["doctor rebuild:", "rebuilt", "projection file"],
+  },
 ];
 
 describe("Phase 16 SC-5b2 — RED: per-site stateChange ↔ protocol §10.12 drift gate", () => {

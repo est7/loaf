@@ -17,18 +17,21 @@ import {
   taskKindKey,
   taskStatusKey,
 } from "../runtime-i18n-keys.js";
-import {
-  formatTuiDetailSidecarSummary,
-  formatTuiDetailStepSummary,
-} from "./chrome.js";
+import { formatTuiDetailSidecarSummary, formatTuiDetailStepSummary } from "./chrome.js";
 import {
   NoSessionError,
   SnapshotStaleError,
   type LoadResult,
 } from "../../core/projection-loader.js";
 
-export const DETAIL_PROJECTION_KINDS = ["state", "tasks", "evidence", "findings", "pending"] as const;
-export type DetailProjectionKind = typeof DETAIL_PROJECTION_KINDS[number];
+export const DETAIL_PROJECTION_KINDS = [
+  "state",
+  "tasks",
+  "evidence",
+  "findings",
+  "pending",
+] as const;
+export type DetailProjectionKind = (typeof DETAIL_PROJECTION_KINDS)[number];
 export type DetailProjectionLoad = LoadResult<DetailProjectionKind>;
 export type DetailResultBadge = "pass" | "fail" | "waived";
 
@@ -158,15 +161,16 @@ export function shapeDetailViewModel(
     verify_accepted: state.verify_accepted,
     spec_version: state.spec_version,
     tail_seq: meta.last_applied_seq,
-    tasks: tasks === null
-      ? []
-      : tasks.tasks.map((task) => ({
-        id: task.id,
-        kind: i18n.t(taskKindKey(task.kind)),
-        status: i18n.t(taskStatusKey(task.status)),
-        title: optionalStringField(task, "title"),
-        step_summary: formatStepSummary(task.execution, i18n),
-      })),
+    tasks:
+      tasks === null
+        ? []
+        : tasks.tasks.map((task) => ({
+            id: task.id,
+            kind: i18n.t(taskKindKey(task.kind)),
+            status: i18n.t(taskStatusKey(task.status)),
+            title: optionalStringField(task, "title"),
+            step_summary: formatStepSummary(task.execution, i18n),
+          })),
     evidence: evidence.evidence.map((entry) => ({
       id: entry.id,
       kind: i18n.t(evidenceKindKey(entry.kind)),
@@ -184,7 +188,8 @@ export function shapeDetailViewModel(
         action: i18n.t(findingActionKey(finding.action)),
         summary: truncateHighSignal(finding.summary ?? ""),
         reason: truncateHighSignal(finding.reason ?? ""),
-        target: finding.target === undefined ? null : `${finding.target.task_id}/${finding.target.step}`,
+        target:
+          finding.target === undefined ? null : `${finding.target.task_id}/${finding.target.step}`,
       })),
     pending: pending.pending
       .filter((entry) => !entry.resolved)
@@ -217,7 +222,10 @@ function resultBadge(result: string): DetailResultBadge {
   }
 }
 
-function summaryText(summary: DetailProjectionLoad["evidence"]["evidence"][number]["summary"], i18n: I18n): string {
+function summaryText(
+  summary: DetailProjectionLoad["evidence"]["evidence"][number]["summary"],
+  i18n: I18n,
+): string {
   if (typeof summary === "string") return summary;
   if (summary.mode === "inline") return summary.text;
   return formatTuiDetailSidecarSummary(i18n, summary.ref.path);

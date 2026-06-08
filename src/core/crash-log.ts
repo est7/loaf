@@ -138,9 +138,7 @@ export async function writeCrashLog(
     await fs.chmod(file, 0o600);
     return file;
   } catch (err) {
-    deps.writeStderr(
-      `loaf: crash log unwritable at ${file} — ${(err as Error).message}\n`,
-    );
+    deps.writeStderr(`loaf: crash log unwritable at ${file} — ${(err as Error).message}\n`);
     return null;
   }
 }

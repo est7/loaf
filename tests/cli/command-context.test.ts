@@ -16,10 +16,7 @@
 
 import { describe, expect, test } from "vitest";
 
-import {
-  createCommandContext,
-  type CommandContext,
-} from "../../src/cli/command-context.js";
+import { createCommandContext, type CommandContext } from "../../src/cli/command-context.js";
 import { createI18n, BUILTIN_BUNDLES, type I18n } from "../../src/cli/i18n.js";
 import { CHROME_KEYS, FAILURE_SITE_KEYS, SUCCESS_KEYS } from "../../src/cli/runtime-i18n-keys.js";
 
@@ -132,7 +129,9 @@ describe("Phase 16 SC-3 — CommandContext: construction + output mode", () => {
     );
 
     expect(stdout.join("")).toBe("session-1\n");
-    expect(stderr.join("")).toBe("start: 'auth-refresh' 已创建 → TRIAGE.score\nnext: loaf advance\n");
+    expect(stderr.join("")).toBe(
+      "start: 'auth-refresh' 已创建 → TRIAGE.score\nnext: loaf advance\n",
+    );
   });
 
   test("success text renderer uses P3a localized task-submit key", () => {
@@ -142,10 +141,11 @@ describe("Phase 16 SC-3 — CommandContext: construction + output mode", () => {
 
     ctx.success(
       { ok: true, tasks_count: 2, task_ids: ["T-001", "T-002"] },
-      (i18n) => i18n.t(SUCCESS_KEYS.tasksSubmitTextMany, {
-        count: 2,
-        task_ids: "T-001, T-002",
-      }) + "\n",
+      (i18n) =>
+        i18n.t(SUCCESS_KEYS.tasksSubmitTextMany, {
+          count: 2,
+          task_ids: "T-001, T-002",
+        }) + "\n",
       (i18n) => ({
         stateChange: i18n.t(SUCCESS_KEYS.tasksSubmitStateChange, { count: 2 }),
         next: i18n.t(SUCCESS_KEYS.nextAdvance),
@@ -214,7 +214,12 @@ describe("Phase 16 SC-3 — CommandContext: construction + output mode", () => {
   });
 
   test("P3b success JSON payload stays byte-stable under zh locale", () => {
-    const payload = { ok: true, feature: "auth-refresh", from: "VERIFY.accept", to: "SETTLE.reconcile" };
+    const payload = {
+      ok: true,
+      feature: "auth-refresh",
+      from: "VERIFY.accept",
+      to: "SETTLE.reconcile",
+    };
     const en = makeCtx(["loaf", "settle", "--format", "json"], {
       i18n: createI18n("en", BUILTIN_BUNDLES),
     });
@@ -241,25 +246,30 @@ describe("Phase 16 SC-3 — CommandContext: construction + output mode", () => {
     ctx.success(
       { ok: true, feature: "auth-refresh", phase: "EXECUTE", task_kind: "behavioral" },
       (i18n) =>
-        i18n.t(CHROME_KEYS.statusFeature, { feature: "auth-refresh" }) + "\n" +
-        i18n.t(CHROME_KEYS.statusPhase, { phase: "执行 / 任务进行中" }) + "\n" +
+        i18n.t(CHROME_KEYS.statusFeature, { feature: "auth-refresh" }) +
+        "\n" +
+        i18n.t(CHROME_KEYS.statusPhase, { phase: "执行 / 任务进行中" }) +
+        "\n" +
         i18n.t(CHROME_KEYS.tasksListRowReady, {
           task_id: "T-001",
           kind: "行为",
           status: "待处理",
           ready: "就绪",
-        }) + "\n",
+        }) +
+        "\n",
     );
 
     expect(stdout.join("")).toBe(
-      "功能: auth-refresh\n" +
-      "阶段: 执行 / 任务进行中\n" +
-      "T-001 行为 待处理 [就绪]\n",
+      "功能: auth-refresh\n" + "阶段: 执行 / 任务进行中\n" + "T-001 行为 待处理 [就绪]\n",
     );
   });
 
   test("P3c read-only JSON payload stays byte-stable under zh locale", () => {
-    const payload = { ok: true, feature: "auth-refresh", tasks: [{ id: "T-001", kind: "behavioral" }] };
+    const payload = {
+      ok: true,
+      feature: "auth-refresh",
+      tasks: [{ id: "T-001", kind: "behavioral" }],
+    };
     const en = makeCtx(["loaf", "tasks", "list", "--format", "json"], {
       i18n: createI18n("en", BUILTIN_BUNDLES),
     });
@@ -298,7 +308,10 @@ describe("Phase 16 SC-3 — CommandContext: failure routing + exitCode", () => {
   test("failure() in JSON mode writes single-line JSON to stderr", () => {
     const { ctx, stderr } = makeCtx(["loaf", "tasks", "claim", "--format", "json"]);
     ctx.failure("USAGE", "missing --task", { foo: "bar" });
-    const lines = stderr.join("").split("\n").filter((l) => l.length > 0);
+    const lines = stderr
+      .join("")
+      .split("\n")
+      .filter((l) => l.length > 0);
     expect(lines.length).toBe(1);
     const obj = JSON.parse(lines[0]!);
     expect(obj).toEqual({
@@ -340,7 +353,10 @@ describe("Phase 16 SC-3 — CommandContext: failure routing + exitCode", () => {
       error_count: 1,
       truncated: false,
     });
-    const lines = stderr.join("").split("\n").filter((l) => l.length > 0);
+    const lines = stderr
+      .join("")
+      .split("\n")
+      .filter((l) => l.length > 0);
     expect(lines.length).toBe(1);
     const obj = JSON.parse(lines[0]!);
     expect(obj.detail.errors).toEqual([
@@ -381,7 +397,9 @@ describe("Phase 16 SC-3 — CommandContext: failure routing + exitCode", () => {
     );
 
     expect(ctx.exitCode).toBe(2);
-    expect(stderr.join("")).toContain("error: DRY_RUN_NOT_APPLICABLE — --dry-run 不适用于read-only命令 `status`");
+    expect(stderr.join("")).toContain(
+      "error: DRY_RUN_NOT_APPLICABLE — --dry-run 不适用于read-only命令 `status`",
+    );
   });
 
   test("failureKeyed() JSON mode keeps canonical English message", () => {
@@ -560,12 +578,13 @@ describe("Phase 16 SC-3 — CommandContext: snapshotCrashContext for SC-2 bounda
 
   test("after resolveSession: phase + sub_state populated from cached snapshot.state.sub_state", async () => {
     const { ctx } = makeCtx(["loaf", "deliver", "--feature", "F-042"], {
-      loadSession: async () => ({
-        snapshot: { state: { sub_state: "VERIFY.accept" as const } },
-        tail_seq: 0,
-        entries: [],
-        meta: null,
-      }) as never,
+      loadSession: async () =>
+        ({
+          snapshot: { state: { sub_state: "VERIFY.accept" as const } },
+          tail_seq: 0,
+          entries: [],
+          meta: null,
+        }) as never,
     });
     await ctx.resolveSession("/tmp/feat");
     const snap = ctx.snapshotCrashContext();

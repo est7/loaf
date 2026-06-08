@@ -69,8 +69,16 @@ async function seedFeature(): Promise<{ featureDir: string }> {
   const featureDir = path.join(tmp, ".loaf", "auth-refresh");
   await fs.mkdir(featureDir, { recursive: true });
   const start = await runCli(
-    ["start", "auth-refresh", "--ceremony", "standard",
-     "--feature-dir", featureDir, "--format", "json"],
+    [
+      "start",
+      "auth-refresh",
+      "--ceremony",
+      "standard",
+      "--feature-dir",
+      featureDir,
+      "--format",
+      "json",
+    ],
     { env: SEED_ENV },
   );
   if (start.exit !== 0) throw new Error(`seed start failed: ${start.stderr}`);
@@ -81,8 +89,17 @@ describe("SC-13a — loaf handoff happy paths", () => {
   test("writes snapshots/resume-pack.json; content validates against runtime ResumePack", async () => {
     const { featureDir } = await seedFeature();
     const result = await runCli(
-      ["handoff", "--reason", "context overflow approaching mid-session",
-       "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "handoff",
+        "--reason",
+        "context overflow approaching mid-session",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { env: SEED_ENV },
     );
     expect(result.exit).toBe(0);
@@ -102,9 +119,19 @@ describe("SC-13a — loaf handoff happy paths", () => {
   test("--notes optional passthrough", async () => {
     const { featureDir } = await seedFeature();
     const result = await runCli(
-      ["handoff", "--reason", "deep retro of refresh storm",
-       "--notes", "remember to revalidate REQ-AUTH-001 on resume",
-       "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "handoff",
+        "--reason",
+        "deep retro of refresh storm",
+        "--notes",
+        "remember to revalidate REQ-AUTH-001 on resume",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { env: SEED_ENV },
     );
     expect(result.exit).toBe(0);
@@ -128,8 +155,17 @@ describe("SC-13a — loaf handoff error paths", () => {
   test("--reason <5 chars → USAGE", async () => {
     const { featureDir } = await seedFeature();
     const result = await runCli(
-      ["handoff", "--reason", "x",
-       "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "handoff",
+        "--reason",
+        "x",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { env: SEED_ENV },
     );
     expect(result.exit).toBe(2);
@@ -141,8 +177,18 @@ describe("SC-13a — loaf handoff error paths", () => {
   test("--dry-run → DRY_RUN_NOT_APPLICABLE + command_type=projection-writer", async () => {
     const { featureDir } = await seedFeature();
     const result = await runCli(
-      ["handoff", "--dry-run", "--reason", "context overflow approaching",
-       "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "handoff",
+        "--dry-run",
+        "--reason",
+        "context overflow approaching",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { env: SEED_ENV },
     );
     expect(result.exit).toBe(2);
@@ -157,8 +203,18 @@ describe("SC-13a — loaf handoff error paths", () => {
   test("NO_HUMAN_ACTOR via --no-input + no LOAF_USER", async () => {
     const { featureDir } = await seedFeature();
     const result = await runCli(
-      ["handoff", "--no-input", "--reason", "context overflow approaching",
-       "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "handoff",
+        "--no-input",
+        "--reason",
+        "context overflow approaching",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { env: { LOAF_USER: undefined } },
     );
     expect(result.exit).toBe(2);

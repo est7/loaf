@@ -134,8 +134,14 @@ SC4 fixture body.
 `,
   );
   const startRes = await runCli([
-    "start", feature, "--ceremony", "standard",
-    "--feature-dir", dir, "--format", "json",
+    "start",
+    feature,
+    "--ceremony",
+    "standard",
+    "--feature-dir",
+    dir,
+    "--format",
+    "json",
   ]);
   if (startRes.exit !== 0) throw new Error(`start failed: ${startRes.stderr}`);
   const edges: Array<[SubState, SubState]> = [
@@ -155,7 +161,14 @@ SC4 fixture body.
         kind: "event:phase_advanced",
         payload: { from, to },
       },
-      { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, entries: s.entries, meta: s.meta, fsync: false },
+      {
+        feature_dir: dir,
+        snapshot: s.snapshot,
+        tail_seq: s.tail_seq,
+        entries: s.entries,
+        meta: s.meta,
+        fsync: false,
+      },
     );
     if (!r.ok) throw new Error(`walk ${from}→${to} failed: ${r.code} ${r.message}`);
   }
@@ -195,7 +208,14 @@ SC4 fixture body.
         },
       },
     ],
-    { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, entries: s.entries, meta: s.meta, fsync: false },
+    {
+      feature_dir: dir,
+      snapshot: s.snapshot,
+      tail_seq: s.tail_seq,
+      entries: s.entries,
+      meta: s.meta,
+      fsync: false,
+    },
   );
   if (!submitted.ok) throw new Error(`spec_submitted batch failed: ${submitted.message}`);
   // tasks_planned with one behavioral task driving REQ-AUTH-001.
@@ -226,7 +246,14 @@ SC4 fixture body.
         ],
       },
     },
-    { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, entries: s.entries, meta: s.meta, fsync: false },
+    {
+      feature_dir: dir,
+      snapshot: s.snapshot,
+      tail_seq: s.tail_seq,
+      entries: s.entries,
+      meta: s.meta,
+      fsync: false,
+    },
   );
   if (!planned.ok) throw new Error(`tasks_planned failed: ${planned.message}`);
   return { dir, feature };
@@ -262,7 +289,14 @@ async function seedAtExecuteWorkRedRunning(): Promise<{ dir: string; feature: st
         payload: { from: "SPEC.design", to: "EXECUTE.plan" },
       },
     ],
-    { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, entries: s.entries, meta: s.meta, fsync: false },
+    {
+      feature_dir: dir,
+      snapshot: s.snapshot,
+      tail_seq: s.tail_seq,
+      entries: s.entries,
+      meta: s.meta,
+      fsync: false,
+    },
   );
   if (!lock.ok) throw new Error(`spec-lock failed: ${lock.code} ${lock.message}`);
   // advance EXECUTE.plan → EXECUTE.work
@@ -275,7 +309,14 @@ async function seedAtExecuteWorkRedRunning(): Promise<{ dir: string; feature: st
       kind: "event:phase_advanced",
       payload: { from: "EXECUTE.plan", to: "EXECUTE.work" },
     },
-    { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, entries: s.entries, meta: s.meta, fsync: false },
+    {
+      feature_dir: dir,
+      snapshot: s.snapshot,
+      tail_seq: s.tail_seq,
+      entries: s.entries,
+      meta: s.meta,
+      fsync: false,
+    },
   );
   if (!adv.ok) throw new Error(`advance EXECUTE.work failed: ${adv.message}`);
   // claim T-001
@@ -288,7 +329,14 @@ async function seedAtExecuteWorkRedRunning(): Promise<{ dir: string; feature: st
       kind: "event:task_claimed",
       payload: { task_id: "T-001" },
     },
-    { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, entries: s.entries, meta: s.meta, fsync: false },
+    {
+      feature_dir: dir,
+      snapshot: s.snapshot,
+      tail_seq: s.tail_seq,
+      entries: s.entries,
+      meta: s.meta,
+      fsync: false,
+    },
   );
   if (!claim.ok) throw new Error(`task_claimed failed: ${claim.message}`);
   // step start red
@@ -301,7 +349,14 @@ async function seedAtExecuteWorkRedRunning(): Promise<{ dir: string; feature: st
       kind: "event:task_step_started",
       payload: { task_id: "T-001", step: "red" },
     },
-    { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, entries: s.entries, meta: s.meta, fsync: false },
+    {
+      feature_dir: dir,
+      snapshot: s.snapshot,
+      tail_seq: s.tail_seq,
+      entries: s.entries,
+      meta: s.meta,
+      fsync: false,
+    },
   );
   if (!stepStart.ok) throw new Error(`step_started failed: ${stepStart.message}`);
   return { dir, feature };
@@ -324,7 +379,14 @@ async function rawRaisePending(
       kind: "pending:added",
       payload: { id, kind, question },
     },
-    { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, entries: s.entries, meta: s.meta, fsync: false },
+    {
+      feature_dir: dir,
+      snapshot: s.snapshot,
+      tail_seq: s.tail_seq,
+      entries: s.entries,
+      meta: s.meta,
+      fsync: false,
+    },
   );
   if (!r.ok) throw new Error(`raise pending failed: ${r.code} ${r.message}`);
 }
@@ -338,9 +400,21 @@ describe("loaf tasks step done — SC4 --evidence-* batch", () => {
     const { dir, feature } = await seedAtExecuteWorkRedRunning();
     const before = await readJournalLines(dir);
     const r = await runCli([
-      "tasks", "step", "done",
-      "--task", "T-001", "--step", "red", "--result", "passed",
-      "--feature", feature, "--feature-dir", dir, "--format", "json",
+      "tasks",
+      "step",
+      "done",
+      "--task",
+      "T-001",
+      "--step",
+      "red",
+      "--result",
+      "passed",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     expect(r.exit).toBe(0);
     const after = await readJournalLines(dir);
@@ -354,11 +428,25 @@ describe("loaf tasks step done — SC4 --evidence-* batch", () => {
     const { dir, feature } = await seedAtExecuteWorkRedRunning();
     const before = await readJournalLines(dir);
     const r = await runCli([
-      "tasks", "step", "done",
-      "--task", "T-001", "--step", "red", "--result", "passed",
-      "--evidence-kind", "local-check",
-      "--evidence-summary", "red test failed as expected for T-001",
-      "--feature", feature, "--feature-dir", dir, "--format", "json",
+      "tasks",
+      "step",
+      "done",
+      "--task",
+      "T-001",
+      "--step",
+      "red",
+      "--result",
+      "passed",
+      "--evidence-kind",
+      "local-check",
+      "--evidence-summary",
+      "red test failed as expected for T-001",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     expect(r.exit).toBe(0);
     const after = await readJournalLines(dir);
@@ -383,11 +471,23 @@ describe("loaf tasks step done — SC4 --evidence-* batch", () => {
   test("JSON output includes evidence_id when batch path fired", async () => {
     const { dir, feature } = await seedAtExecuteWorkRedRunning();
     const r = await runCli([
-      "tasks", "step", "done",
-      "--task", "T-001", "--step", "red",
-      "--evidence-kind", "local-check",
-      "--evidence-summary", "T-001 red step pass",
-      "--feature", feature, "--feature-dir", dir, "--format", "json",
+      "tasks",
+      "step",
+      "done",
+      "--task",
+      "T-001",
+      "--step",
+      "red",
+      "--evidence-kind",
+      "local-check",
+      "--evidence-summary",
+      "T-001 red step pass",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     expect(r.exit).toBe(0);
     const out = JSON.parse(r.stdout);
@@ -398,10 +498,19 @@ describe("loaf tasks step done — SC4 --evidence-* batch", () => {
     const { dir, feature } = await seedAtExecuteWorkRedRunning();
     const before = await readJournalLines(dir);
     const r = await runCli([
-      "tasks", "step", "done",
-      "--task", "T-001", "--step", "red",
-      "--evidence-kind", "local-check",
-      "--feature", feature, "--feature-dir", dir,
+      "tasks",
+      "step",
+      "done",
+      "--task",
+      "T-001",
+      "--step",
+      "red",
+      "--evidence-kind",
+      "local-check",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(2);
     expect(r.stderr).toMatch(/USAGE/);
@@ -412,11 +521,21 @@ describe("loaf tasks step done — SC4 --evidence-* batch", () => {
     const { dir, feature } = await seedAtExecuteWorkRedRunning();
     const before = await readJournalLines(dir);
     const r = await runCli([
-      "tasks", "step", "done",
-      "--task", "T-001", "--step", "red",
-      "--evidence-kind", "not-a-kind",
-      "--evidence-summary", "this should reject the whole batch",
-      "--feature", feature, "--feature-dir", dir,
+      "tasks",
+      "step",
+      "done",
+      "--task",
+      "T-001",
+      "--step",
+      "red",
+      "--evidence-kind",
+      "not-a-kind",
+      "--evidence-summary",
+      "this should reject the whole batch",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).not.toBe(0);
     expect(r.stderr).toMatch(/INVALID_PAYLOAD/);
@@ -427,11 +546,21 @@ describe("loaf tasks step done — SC4 --evidence-* batch", () => {
   test("--evidence-kind=manual without human:* actor → INVALID_PAYLOAD (schema refine)", async () => {
     const { dir, feature } = await seedAtExecuteWorkRedRunning();
     const r = await runCli([
-      "tasks", "step", "done",
-      "--task", "T-001", "--step", "red",
-      "--evidence-kind", "manual",
-      "--evidence-summary", "manual check passes",
-      "--feature", feature, "--feature-dir", dir,
+      "tasks",
+      "step",
+      "done",
+      "--task",
+      "T-001",
+      "--step",
+      "red",
+      "--evidence-kind",
+      "manual",
+      "--evidence-summary",
+      "manual check passes",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).not.toBe(0);
     expect(r.stderr).toMatch(/INVALID_PAYLOAD/);
@@ -440,13 +569,29 @@ describe("loaf tasks step done — SC4 --evidence-* batch", () => {
   test("--evidence-actor human:* overrides payload.actor only; journal envelope actor stays CLI (codex r72)", async () => {
     const { dir, feature } = await seedAtExecuteWorkRedRunning();
     const r = await runCli([
-      "tasks", "step", "done",
-      "--task", "T-001", "--step", "red", "--result", "passed",
-      "--evidence-kind", "manual",
-      "--evidence-actor", "human:reviewer@invalid.example",
-      "--evidence-reason", "manual review passed per QA checklist",
-      "--evidence-summary", "T-001 red verified manually",
-      "--feature", feature, "--feature-dir", dir, "--format", "json",
+      "tasks",
+      "step",
+      "done",
+      "--task",
+      "T-001",
+      "--step",
+      "red",
+      "--result",
+      "passed",
+      "--evidence-kind",
+      "manual",
+      "--evidence-actor",
+      "human:reviewer@invalid.example",
+      "--evidence-reason",
+      "manual review passed per QA checklist",
+      "--evidence-summary",
+      "T-001 red verified manually",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     expect(r.exit).toBe(0);
     // Payload actor (snapshot projection) is the human override.
@@ -476,9 +621,18 @@ describe("loaf gate decide — SC4 soft pending:resolved co-emission", () => {
     const before = await readJournalLines(dir);
     const r = await runCli(
       [
-        "gate", "decide", "spec-lock",
-        "--approve", "--reason", "sc4-approve: no pending head",
-        "--feature", feature, "--feature-dir", dir, "--format", "json",
+        "gate",
+        "decide",
+        "spec-lock",
+        "--approve",
+        "--reason",
+        "sc4-approve: no pending head",
+        "--feature",
+        feature,
+        "--feature-dir",
+        dir,
+        "--format",
+        "json",
       ],
       { env: HUMAN_ENV },
     );
@@ -493,11 +647,23 @@ describe("loaf gate decide — SC4 soft pending:resolved co-emission", () => {
     const { dir, feature } = await seedAtSpecDesignWithTask();
     await rawRaisePending(dir, "PEND-0001", "gate_decision", "approve spec-lock?");
     const before = await readJournalLines(dir);
-    const r = await runCli([
-      "gate", "decide", "spec-lock",
-      "--approve", "--reason", "sc4-approve: with pending head co-emit",
-      "--feature", feature, "--feature-dir", dir, "--format", "json",
-    ], { env: HUMAN_ENV });
+    const r = await runCli(
+      [
+        "gate",
+        "decide",
+        "spec-lock",
+        "--approve",
+        "--reason",
+        "sc4-approve: with pending head co-emit",
+        "--feature",
+        feature,
+        "--feature-dir",
+        dir,
+        "--format",
+        "json",
+      ],
+      { env: HUMAN_ENV },
+    );
     expect(r.exit).toBe(0);
     const after = await readJournalLines(dir);
     expect(after.length - before.length).toBe(3); // gate:decided + pending:resolved + phase_advanced
@@ -529,7 +695,14 @@ describe("loaf gate decide — SC4 soft pending:resolved co-emission", () => {
           payload: { from: "SPEC.design", to: "EXECUTE.plan" },
         },
       ],
-      { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, entries: s.entries, meta: s.meta, fsync: false },
+      {
+        feature_dir: dir,
+        snapshot: s.snapshot,
+        tail_seq: s.tail_seq,
+        entries: s.entries,
+        meta: s.meta,
+        fsync: false,
+      },
     );
     if (!lock.ok) throw new Error(`seed lock fail: ${lock.message}`);
     const walk: Array<[SubState, SubState]> = [
@@ -549,7 +722,14 @@ describe("loaf gate decide — SC4 soft pending:resolved co-emission", () => {
           kind: "event:phase_advanced",
           payload: { from, to },
         },
-        { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, entries: s.entries, meta: s.meta, fsync: false },
+        {
+          feature_dir: dir,
+          snapshot: s.snapshot,
+          tail_seq: s.tail_seq,
+          entries: s.entries,
+          meta: s.meta,
+          fsync: false,
+        },
       );
       if (!r.ok) throw new Error(`walk ${from}→${to}: ${r.message}`);
       if (to === "EXECUTE.work") {
@@ -564,20 +744,42 @@ describe("loaf gate decide — SC4 soft pending:resolved co-emission", () => {
             actor: "cli:loaf",
             entry_schema_version: 1,
             kind: "event:task_abandoned",
-            payload: { task_id: "T-001", reason: "seed fixture: gate-pending test, no task execution" },
+            payload: {
+              task_id: "T-001",
+              reason: "seed fixture: gate-pending test, no task execution",
+            },
           },
-          { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, entries: s.entries, meta: s.meta, fsync: false },
+          {
+            feature_dir: dir,
+            snapshot: s.snapshot,
+            tail_seq: s.tail_seq,
+            entries: s.entries,
+            meta: s.meta,
+            fsync: false,
+          },
         );
         if (!ab.ok) throw new Error(`seed task abandon: ${ab.message}`);
       }
     }
     await rawRaisePending(dir, "PEND-0001", "gate_decision", "approve verify-accept?");
     const before = await readJournalLines(dir);
-    const r = await runCli([
-      "gate", "decide", "verify-accept",
-      "--approve", "--reason", "sc4 verify-accept with pending",
-      "--feature", feature, "--feature-dir", dir, "--format", "json",
-    ], { env: HUMAN_ENV });
+    const r = await runCli(
+      [
+        "gate",
+        "decide",
+        "verify-accept",
+        "--approve",
+        "--reason",
+        "sc4 verify-accept with pending",
+        "--feature",
+        feature,
+        "--feature-dir",
+        dir,
+        "--format",
+        "json",
+      ],
+      { env: HUMAN_ENV },
+    );
     expect(r.exit).toBe(0);
     const after = await readJournalLines(dir);
     expect(after.length - before.length).toBe(2); // gate:decided + pending:resolved
@@ -590,11 +792,23 @@ describe("loaf gate decide — SC4 soft pending:resolved co-emission", () => {
     const { dir, feature } = await seedAtSpecDesignWithTask();
     await rawRaisePending(dir, "PEND-0001", "gate_decision", "approve spec-lock?");
     const before = await readJournalLines(dir);
-    const r = await runCli([
-      "gate", "decide", "spec-lock",
-      "--reject", "--reason", "spec needs more work",
-      "--feature", feature, "--feature-dir", dir, "--format", "json",
-    ], { env: HUMAN_ENV });
+    const r = await runCli(
+      [
+        "gate",
+        "decide",
+        "spec-lock",
+        "--reject",
+        "--reason",
+        "spec needs more work",
+        "--feature",
+        feature,
+        "--feature-dir",
+        dir,
+        "--format",
+        "json",
+      ],
+      { env: HUMAN_ENV },
+    );
     expect(r.exit).toBe(0);
     const after = await readJournalLines(dir);
     expect(after.length - before.length).toBe(1); // gate:decided only
@@ -606,11 +820,23 @@ describe("loaf gate decide — SC4 soft pending:resolved co-emission", () => {
     const { dir, feature } = await seedAtSpecDesignWithTask();
     await rawRaisePending(dir, "PEND-0001", "ask_user_question", "Should we use approach X?");
     const before = await readJournalLines(dir);
-    const r = await runCli([
-      "gate", "decide", "spec-lock",
-      "--approve", "--reason", "sc4: non-matching head must block",
-      "--feature", feature, "--feature-dir", dir, "--format", "json",
-    ], { env: HUMAN_ENV });
+    const r = await runCli(
+      [
+        "gate",
+        "decide",
+        "spec-lock",
+        "--approve",
+        "--reason",
+        "sc4: non-matching head must block",
+        "--feature",
+        feature,
+        "--feature-dir",
+        dir,
+        "--format",
+        "json",
+      ],
+      { env: HUMAN_ENV },
+    );
     expect(r.exit).toBe(2);
     expect(r.stderr).toMatch(/GATE_NOT_PENDING/);
     // Journal unchanged — preflight rejects before any append.
@@ -630,15 +856,34 @@ describe("loaf gate decide — SC4 soft pending:resolved co-emission", () => {
         kind: "pending:resolved",
         payload: { id: "PEND-0001", answer: "approved-via-test" },
       },
-      { feature_dir: dir, snapshot: s1.snapshot, tail_seq: s1.tail_seq, entries: s1.entries, meta: s1.meta, fsync: false },
+      {
+        feature_dir: dir,
+        snapshot: s1.snapshot,
+        tail_seq: s1.tail_seq,
+        entries: s1.entries,
+        meta: s1.meta,
+        fsync: false,
+      },
     );
     if (!resolved.ok) throw new Error(`seed resolve fail: ${resolved.message}`);
     const before = await readJournalLines(dir);
-    const r = await runCli([
-      "gate", "decide", "spec-lock",
-      "--approve", "--reason", "approve after stale head",
-      "--feature", feature, "--feature-dir", dir, "--format", "json",
-    ], { env: HUMAN_ENV });
+    const r = await runCli(
+      [
+        "gate",
+        "decide",
+        "spec-lock",
+        "--approve",
+        "--reason",
+        "approve after stale head",
+        "--feature",
+        feature,
+        "--feature-dir",
+        dir,
+        "--format",
+        "json",
+      ],
+      { env: HUMAN_ENV },
+    );
     expect(r.exit).toBe(0);
     expect((await readJournalLines(dir)).length - before.length).toBe(2);
   });

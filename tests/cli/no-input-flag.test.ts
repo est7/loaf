@@ -94,7 +94,15 @@ describe("SC-6a — parsePresentation.noInput field", () => {
 
 describe("SC-6a — --no-input orthogonality (codex r265 P1)", () => {
   test("RED #6 (Row A): --no-input --quiet --format json -vv parses cleanly", () => {
-    const res = parsePresentation(["loaf", "status", "--no-input", "--quiet", "--format", "json", "-vv"]);
+    const res = parsePresentation([
+      "loaf",
+      "status",
+      "--no-input",
+      "--quiet",
+      "--format",
+      "json",
+      "-vv",
+    ]);
     expect(res.ok).toBe(true);
     if (res.ok) {
       expect(res.noInput).toBe(true);

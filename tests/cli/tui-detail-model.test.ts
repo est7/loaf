@@ -134,7 +134,13 @@ function makeLoaded(): DetailProjectionLoad {
           reason: "detail evidence projection was dropped before rendering",
           target: { task_id: "T-001", step: "implement" },
         },
-        { id: "FND-002", category: "test-defect", action: "fix-test", status: "closed", summary: "already closed" },
+        {
+          id: "FND-002",
+          category: "test-defect",
+          action: "fix-test",
+          status: "closed",
+          summary: "already closed",
+        },
       ],
     },
     pending: {
@@ -195,7 +201,13 @@ describe("shapeDetailViewModel", () => {
       spec_version: 3,
       tail_seq: 7,
       tasks: [
-        { id: "T-001", kind: "Behavioral", status: "in_progress", title: null, step_summary: "1/3 done" },
+        {
+          id: "T-001",
+          kind: "Behavioral",
+          status: "in_progress",
+          title: null,
+          step_summary: "1/3 done",
+        },
         { id: "T-002", kind: "Chore", status: "done", title: null, step_summary: "1/1 done" },
       ],
       evidence: [
@@ -250,9 +262,7 @@ describe("shapeDetailViewModel", () => {
       ...makeLoaded(),
       findings: {
         schema_version: 2 as const,
-        findings: [
-          { id: "FND-003", category: "spec-gap", action: "amend-spec", status: "open" },
-        ],
+        findings: [{ id: "FND-003", category: "spec-gap", action: "amend-spec", status: "open" }],
       },
       pending: {
         schema_version: 2 as const,
@@ -325,16 +335,31 @@ describe("classifyDetailOutcome", () => {
   const row = makeRow();
 
   test("success maps to ready with a view model", () => {
-    const result = classifyDetailOutcome(row, { ok: true, loaded: makeLoaded() }, FIXED_NOW, DEFAULT_I18N);
+    const result = classifyDetailOutcome(
+      row,
+      { ok: true, loaded: makeLoaded() },
+      FIXED_NOW,
+      DEFAULT_I18N,
+    );
     expect(result.status).toBe("ready");
     expect(result.status === "ready" ? result.vm.tail_seq : null).toBe(7);
   });
 
   test("NoSessionError maps to missing", () => {
-    expect(classifyDetailOutcome(row, {
-      ok: false,
-      error: new NoSessionError({ feature_dir: "/repo/.loaf/auth-refresh", fix: "run `loaf start <feature>` first" }),
-    }, FIXED_NOW, DEFAULT_I18N)).toEqual({
+    expect(
+      classifyDetailOutcome(
+        row,
+        {
+          ok: false,
+          error: new NoSessionError({
+            feature_dir: "/repo/.loaf/auth-refresh",
+            fix: "run `loaf start <feature>` first",
+          }),
+        },
+        FIXED_NOW,
+        DEFAULT_I18N,
+      ),
+    ).toEqual({
       status: "missing",
       message: "run `loaf start auth-refresh` first",
       fix: "run `loaf start <feature>` first",
@@ -342,10 +367,20 @@ describe("classifyDetailOutcome", () => {
   });
 
   test("NoSessionError localizes missing message in zh", () => {
-    expect(classifyDetailOutcome(row, {
-      ok: false,
-      error: new NoSessionError({ feature_dir: "/repo/.loaf/auth-refresh", fix: "run `loaf start <feature>` first" }),
-    }, FIXED_NOW, ZH_I18N)).toEqual({
+    expect(
+      classifyDetailOutcome(
+        row,
+        {
+          ok: false,
+          error: new NoSessionError({
+            feature_dir: "/repo/.loaf/auth-refresh",
+            fix: "run `loaf start <feature>` first",
+          }),
+        },
+        FIXED_NOW,
+        ZH_I18N,
+      ),
+    ).toEqual({
       status: "missing",
       message: "先运行 `loaf start auth-refresh`",
       fix: "run `loaf start <feature>` first",
@@ -353,10 +388,19 @@ describe("classifyDetailOutcome", () => {
   });
 
   test("SnapshotStaleError maps to stale", () => {
-    expect(classifyDetailOutcome(row, {
-      ok: false,
-      error: new SnapshotStaleError("tail_offset_mismatch", { fix: "run `loaf doctor --rebuild --feature auth-refresh`" }),
-    }, FIXED_NOW, DEFAULT_I18N)).toEqual({
+    expect(
+      classifyDetailOutcome(
+        row,
+        {
+          ok: false,
+          error: new SnapshotStaleError("tail_offset_mismatch", {
+            fix: "run `loaf doctor --rebuild --feature auth-refresh`",
+          }),
+        },
+        FIXED_NOW,
+        DEFAULT_I18N,
+      ),
+    ).toEqual({
       status: "stale",
       reason: "tail_offset_mismatch",
       message: "snapshot stale (reason=tail_offset_mismatch)",
@@ -365,10 +409,19 @@ describe("classifyDetailOutcome", () => {
   });
 
   test("SnapshotStaleError localizes stale message in zh", () => {
-    expect(classifyDetailOutcome(row, {
-      ok: false,
-      error: new SnapshotStaleError("tail_offset_mismatch", { fix: "run `loaf doctor --rebuild --feature auth-refresh`" }),
-    }, FIXED_NOW, ZH_I18N)).toEqual({
+    expect(
+      classifyDetailOutcome(
+        row,
+        {
+          ok: false,
+          error: new SnapshotStaleError("tail_offset_mismatch", {
+            fix: "run `loaf doctor --rebuild --feature auth-refresh`",
+          }),
+        },
+        FIXED_NOW,
+        ZH_I18N,
+      ),
+    ).toEqual({
       status: "stale",
       reason: "tail_offset_mismatch",
       message: "快照过期(reason=tail_offset_mismatch)",
@@ -377,10 +430,17 @@ describe("classifyDetailOutcome", () => {
   });
 
   test("unexpected errors map to error", () => {
-    expect(classifyDetailOutcome(row, {
-      ok: false,
-      error: new Error("boom"),
-    }, FIXED_NOW, DEFAULT_I18N)).toEqual({
+    expect(
+      classifyDetailOutcome(
+        row,
+        {
+          ok: false,
+          error: new Error("boom"),
+        },
+        FIXED_NOW,
+        DEFAULT_I18N,
+      ),
+    ).toEqual({
       status: "error",
       message: "boom",
     });

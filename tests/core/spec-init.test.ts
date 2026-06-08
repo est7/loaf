@@ -103,8 +103,14 @@ async function seedAtSpecProposal(): Promise<{ dir: string; feature: string }> {
   const dir = await tmpFeatureDir();
   const feature = "F1";
   await runCli([
-    "start", feature, "--ceremony", "standard",
-    "--feature-dir", dir, "--format", "json",
+    "start",
+    feature,
+    "--ceremony",
+    "standard",
+    "--feature-dir",
+    dir,
+    "--format",
+    "json",
   ]);
   for (const [from, to] of [
     ["TRIAGE.score", "TRIAGE.confirm"],
@@ -119,7 +125,14 @@ async function seedAtSpecProposal(): Promise<{ dir: string; feature: string }> {
         kind: "event:phase_advanced",
         payload: { from, to },
       },
-      { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, entries: s.entries, meta: s.meta, fsync: false },
+      {
+        feature_dir: dir,
+        snapshot: s.snapshot,
+        tail_seq: s.tail_seq,
+        entries: s.entries,
+        meta: s.meta,
+        fsync: false,
+      },
     );
     if (!r.ok) throw new Error(`walk ${from}→${to} failed: ${r.code} ${r.message}`);
   }
@@ -134,7 +147,14 @@ describe("loaf spec init — SC4 scaffold", () => {
     await expect(fs.access(specMdPath)).rejects.toBeDefined(); // doesn't exist yet
 
     const r = await runCli([
-      "spec", "init", "--feature", feature, "--feature-dir", dir, "--format", "json",
+      "spec",
+      "init",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     expect(r.exit).toBe(0);
 
@@ -161,7 +181,14 @@ describe("loaf spec init — SC4 scaffold", () => {
   test("init JSON mode emits {ok, feature, spec_md_path}", async () => {
     const { dir, feature } = await seedAtSpecProposal();
     const r = await runCli([
-      "spec", "init", "--feature", feature, "--feature-dir", dir, "--format", "json",
+      "spec",
+      "init",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     expect(r.exit).toBe(0);
     const out = JSON.parse(r.stdout);
@@ -173,15 +200,11 @@ describe("loaf spec init — SC4 scaffold", () => {
   test("init refuses to overwrite existing spec.md → SPEC_ALREADY_INITIALIZED", async () => {
     const { dir, feature } = await seedAtSpecProposal();
     // Run init once.
-    await runCli([
-      "spec", "init", "--feature", feature, "--feature-dir", dir, "--format", "json",
-    ]);
+    await runCli(["spec", "init", "--feature", feature, "--feature-dir", dir, "--format", "json"]);
     const firstContent = await fs.readFile(path.join(dir, "spec.md"), "utf8");
 
     // Run init again — must refuse.
-    const r = await runCli([
-      "spec", "init", "--feature", feature, "--feature-dir", dir,
-    ]);
+    const r = await runCli(["spec", "init", "--feature", feature, "--feature-dir", dir]);
     expect(r.exit).toBe(2);
     expect(r.stderr).toMatch(/SPEC_ALREADY_INITIALIZED/);
 
@@ -193,22 +216,34 @@ describe("loaf spec init — SC4 scaffold", () => {
   test("init accepts --feature-id / --feature-name / --intent overrides (round-trip via readSpecFrontmatter)", async () => {
     const { dir, feature } = await seedAtSpecProposal();
     const r = await runCli([
-      "spec", "init",
-      "--feature", feature, "--feature-dir", dir,
-      "--feature-id", "F-001",
-      "--feature-name", "OAuth token refresh",
-      "--intent", "users should not perceive auth recovery flows in flight",
-      "--format", "json",
+      "spec",
+      "init",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
+      "--feature-id",
+      "F-001",
+      "--feature-name",
+      "OAuth token refresh",
+      "--intent",
+      "users should not perceive auth recovery flows in flight",
+      "--format",
+      "json",
     ]);
     expect(r.exit).toBe(0);
     const { readSpecFrontmatter } = await import("../../src/core/spec-frontmatter.js");
     const result = await readSpecFrontmatter(dir);
     if (!result.ok) {
-      throw new Error(`readSpecFrontmatter rejected init scaffold: ${result.code} ${result.message}`);
+      throw new Error(
+        `readSpecFrontmatter rejected init scaffold: ${result.code} ${result.message}`,
+      );
     }
     expect(result.frontmatter.feature.id).toBe("F-001");
     expect(result.frontmatter.feature.name).toBe("OAuth token refresh");
-    expect(result.frontmatter.intent).toBe("users should not perceive auth recovery flows in flight");
+    expect(result.frontmatter.intent).toBe(
+      "users should not perceive auth recovery flows in flight",
+    );
   });
 
   test("init's spec.md is accepted by production readSpecFrontmatter() YAML reader (codex r80 BLOCK)", async () => {
@@ -217,13 +252,13 @@ describe("loaf spec init — SC4 scaffold", () => {
     // calls readSpecFrontmatter() directly on the written file so we
     // catch any scalar-with-colon issues at the production parse path.
     const { dir, feature } = await seedAtSpecProposal();
-    await runCli([
-      "spec", "init", "--feature", feature, "--feature-dir", dir, "--format", "json",
-    ]);
+    await runCli(["spec", "init", "--feature", feature, "--feature-dir", dir, "--format", "json"]);
     const { readSpecFrontmatter } = await import("../../src/core/spec-frontmatter.js");
     const result = await readSpecFrontmatter(dir);
     if (!result.ok) {
-      throw new Error(`readSpecFrontmatter rejected init scaffold: ${result.code} ${result.message}`);
+      throw new Error(
+        `readSpecFrontmatter rejected init scaffold: ${result.code} ${result.message}`,
+      );
     }
     expect(result.frontmatter.spec_version).toBe(1);
     expect(result.frontmatter.feature.id).toBe("F-000");
@@ -240,11 +275,18 @@ describe("loaf spec init — SC4 scaffold", () => {
     const { dir, feature } = await seedAtSpecProposal();
     const specMdPath = path.join(dir, "spec.md");
     const r = await runCli([
-      "spec", "init",
-      "--feature", feature, "--feature-dir", dir,
-      "--feature-id", "BAD",      // fails FeatureIdPayload regex
-      "--feature-name", "x",      // fails min(3)
-      "--intent", "short",        // fails min(20)
+      "spec",
+      "init",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
+      "--feature-id",
+      "BAD", // fails FeatureIdPayload regex
+      "--feature-name",
+      "x", // fails min(3)
+      "--intent",
+      "short", // fails min(20)
     ]);
     expect(r.exit).toBe(2);
     expect(r.stderr).toMatch(/SCHEMA_VALIDATION_FAILED/);
@@ -256,9 +298,14 @@ describe("loaf spec init — SC4 scaffold", () => {
     const { dir, feature } = await seedAtSpecProposal();
     const specMdPath = path.join(dir, "spec.md");
     const r = await runCli([
-      "spec", "init",
-      "--feature", feature, "--feature-dir", dir,
-      "--intent", "too short",
+      "spec",
+      "init",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
+      "--intent",
+      "too short",
     ]);
     expect(r.exit).toBe(2);
     expect(r.stderr).toMatch(/SCHEMA_VALIDATION_FAILED/);
@@ -282,75 +329,134 @@ describe("Slice 4 e2e — init → submit → add-* → SPEC.design", () => {
 
     // 1. init — write spec.md scaffold
     const initRes = await runCli([
-      "spec", "init",
-      "--feature", feature, "--feature-dir", dir,
-      "--feature-id", "F-001",
-      "--feature-name", "OAuth token refresh e2e",
-      "--intent", "users should not perceive auth recovery flows in flight",
-      "--format", "json",
+      "spec",
+      "init",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
+      "--feature-id",
+      "F-001",
+      "--feature-name",
+      "OAuth token refresh e2e",
+      "--intent",
+      "users should not perceive auth recovery flows in flight",
+      "--format",
+      "json",
     ]);
     expect(initRes.exit).toBe(0);
 
     // 2. submit — initial spec_version=1 (CLI fills); no companions
     //    (we'll add them via add-* to exercise SC2 path)
     const submitRes = await runCli([
-      "spec", "submit", "--input", await writeInput(dir, {
-        feature: { id: "F-001", name: "OAuth token refresh e2e" },
-        intent: "users should not perceive auth recovery flows in flight",
-        adr_refs: [],
-        needs_clarification: [],
-      }, "submit.json"),
-      "--feature", feature, "--feature-dir", dir, "--format", "json",
+      "spec",
+      "submit",
+      "--input",
+      await writeInput(
+        dir,
+        {
+          feature: { id: "F-001", name: "OAuth token refresh e2e" },
+          intent: "users should not perceive auth recovery flows in flight",
+          adr_refs: [],
+          needs_clarification: [],
+        },
+        "submit.json",
+      ),
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     expect(submitRes.exit).toBe(0);
     expect(JSON.parse(submitRes.stdout).spec_version).toBe(1);
 
     // 3. add-req — REQ-AUTH-001; spec_version 1→2
     const reqRes = await runCli([
-      "spec", "add-req", "--input", await writeInput(dir, {
-        id_namespace: "REQ-AUTH",
-        type: "ubiquitous",
-        response: "the system shall refresh access tokens silently",
-        acceptance_na: true,
-        acceptance_na_reason: "subjective UX validated via manual testing scope",
-      }, "req.json"),
-      "--feature", feature, "--feature-dir", dir, "--format", "json",
+      "spec",
+      "add-req",
+      "--input",
+      await writeInput(
+        dir,
+        {
+          id_namespace: "REQ-AUTH",
+          type: "ubiquitous",
+          response: "the system shall refresh access tokens silently",
+          acceptance_na: true,
+          acceptance_na_reason: "subjective UX validated via manual testing scope",
+        },
+        "req.json",
+      ),
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     expect(reqRes.exit).toBe(0);
     expect(JSON.parse(reqRes.stdout)).toMatchObject({
-      spec_version: 2, ids: ["REQ-AUTH-001"],
+      spec_version: 2,
+      ids: ["REQ-AUTH-001"],
     });
 
     // 4. add-scenario — SCEN-LOGIN-001; spec_version 2→3
     const scenRes = await runCli([
-      "spec", "add-scenario", "--input", await writeInput(dir, {
-        id_namespace: "SCEN-LOGIN",
-        name: "happy refresh",
-        given: ["user has an expired access token"],
-        when: ["a protected request is made"],
-        then: ["session continues without user prompt"],
-        acceptance_na: "covered by manual exploration",
-      }, "scen.json"),
-      "--feature", feature, "--feature-dir", dir, "--format", "json",
+      "spec",
+      "add-scenario",
+      "--input",
+      await writeInput(
+        dir,
+        {
+          id_namespace: "SCEN-LOGIN",
+          name: "happy refresh",
+          given: ["user has an expired access token"],
+          when: ["a protected request is made"],
+          then: ["session continues without user prompt"],
+          acceptance_na: "covered by manual exploration",
+        },
+        "scen.json",
+      ),
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     expect(scenRes.exit).toBe(0);
     expect(JSON.parse(scenRes.stdout)).toMatchObject({
-      spec_version: 3, ids: ["SCEN-LOGIN-001"],
+      spec_version: 3,
+      ids: ["SCEN-LOGIN-001"],
     });
 
     // 5. add-visual — VIS-DASH-001; spec_version 3→4
     const visRes = await runCli([
-      "spec", "add-visual", "--input", await writeInput(dir, {
-        id_namespace: "VIS-DASH",
-        target: "dashboard header",
-        checks: ["no auth retry banner visible during refresh"],
-        visual_na: "skipped per fixture (no visual review yet)",
-      }, "vis.json"),
-      "--feature", feature, "--feature-dir", dir, "--format", "json",
+      "spec",
+      "add-visual",
+      "--input",
+      await writeInput(
+        dir,
+        {
+          id_namespace: "VIS-DASH",
+          target: "dashboard header",
+          checks: ["no auth retry banner visible during refresh"],
+          visual_na: "skipped per fixture (no visual review yet)",
+        },
+        "vis.json",
+      ),
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     expect(visRes.exit).toBe(0);
     expect(JSON.parse(visRes.stdout)).toMatchObject({
-      spec_version: 4, ids: ["VIS-DASH-001"],
+      spec_version: 4,
+      ids: ["VIS-DASH-001"],
     });
 
     // 6. advance through SPEC.* sub-states.
@@ -360,8 +466,14 @@ describe("Slice 4 e2e — init → submit → add-* → SPEC.design", () => {
       ["SPEC.plan", "SPEC.design"],
     ] as Array<[SubState, SubState]>) {
       const adv = await runCli([
-        "advance", to,
-        "--feature", feature, "--feature-dir", dir, "--format", "json",
+        "advance",
+        to,
+        "--feature",
+        feature,
+        "--feature-dir",
+        dir,
+        "--format",
+        "json",
       ]);
       expect(adv.exit).toBe(0);
       const out = JSON.parse(adv.stdout);

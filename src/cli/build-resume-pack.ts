@@ -62,12 +62,8 @@ export function buildResumePack(args: BuildResumePackArgs): ResumePack {
 
   // Recent IDs: last N from each ledger. Snapshot keeps them ordered by
   // append seq via reducer; we slice the tail.
-  const recentEvidenceIds = snapshot.evidence
-    .map((e) => e.id)
-    .slice(-RESUME_PACK_RECENT_CAP);
-  const recentFindingIds = snapshot.findings
-    .map((f) => f.id)
-    .slice(-RESUME_PACK_RECENT_CAP);
+  const recentEvidenceIds = snapshot.evidence.map((e) => e.id).slice(-RESUME_PACK_RECENT_CAP);
+  const recentFindingIds = snapshot.findings.map((f) => f.id).slice(-RESUME_PACK_RECENT_CAP);
 
   // Compose the full StateProjection (bucket-C identity + timestamps +
   // pending queue) — same path the projection writer uses to emit
@@ -75,16 +71,16 @@ export function buildResumePack(args: BuildResumePackArgs): ResumePack {
   // reducer SessionState.
   const stateProjection = composeStateProjection(snapshot, args.entries);
   if (stateProjection === null) {
-    throw new Error("buildResumePack: composeStateProjection returned null (state should be non-null at this point)");
+    throw new Error(
+      "buildResumePack: composeStateProjection returned null (state should be non-null at this point)",
+    );
   }
 
   // open_pending: FIFO head of unresolved pending entries from the
   // composed projection's live queue. The projection writer already
   // synthesizes PendingQueueEntry shape from journal — we just take
   // index 0.
-  const openPending = stateProjection.pending.length > 0
-    ? stateProjection.pending[0]!
-    : null;
+  const openPending = stateProjection.pending.length > 0 ? stateProjection.pending[0]! : null;
 
   return {
     schema_version: 2,

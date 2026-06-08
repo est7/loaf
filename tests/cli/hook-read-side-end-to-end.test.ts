@@ -16,9 +16,7 @@ async function tmpFeatureDir(): Promise<string> {
   return await fs.mkdtemp(path.join(os.tmpdir(), "loaf-cli-hook-readside-"));
 }
 
-async function runCli(
-  argv: string[],
-): Promise<{ exit: number; stdout: string; stderr: string }> {
+async function runCli(argv: string[]): Promise<{ exit: number; stdout: string; stderr: string }> {
   const stdoutChunks: string[] = [];
   const stderrChunks: string[] = [];
   const origStdout = process.stdout.write.bind(process.stdout);
@@ -42,10 +40,14 @@ async function runCli(
 
 async function startFeature(dir: string): Promise<void> {
   const r = await runCli([
-    "start", "auth-refresh",
-    "--ceremony", "standard",
-    "--feature-dir", dir,
-    "--format", "json",
+    "start",
+    "auth-refresh",
+    "--ceremony",
+    "standard",
+    "--feature-dir",
+    dir,
+    "--format",
+    "json",
   ]);
   if (r.exit !== 0) throw new Error(`start failed (exit=${r.exit}): ${r.stderr}`);
 }
@@ -56,7 +58,12 @@ describe("SC-15b — loaf hook session-start", () => {
     const dir = await tmpFeatureDir();
     await startFeature(dir);
     const r = await runCli([
-      "hook", "session-start", "--feature", "auth-refresh", "--feature-dir", dir,
+      "hook",
+      "session-start",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(0);
     const out = JSON.parse(r.stdout);
@@ -73,9 +80,7 @@ describe("SC-15b — loaf hook session-start", () => {
 
   test("no .loaf in cwd / unresolvable feature → silent exit 0 (empty stdout + stderr)", async () => {
     const empty = await tmpFeatureDir();
-    const r = await runCli([
-      "hook", "session-start", "--feature", "ghost", "--feature-dir", empty,
-    ]);
+    const r = await runCli(["hook", "session-start", "--feature", "ghost", "--feature-dir", empty]);
     expect(r.exit).toBe(0);
     expect(r.stdout).toBe("");
     expect(r.stderr).toBe("");
@@ -85,7 +90,14 @@ describe("SC-15b — loaf hook session-start", () => {
     const dir = await tmpFeatureDir();
     await startFeature(dir);
     const r = await runCli([
-      "hook", "session-start", "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
+      "hook",
+      "session-start",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     expect(r.stderr).not.toContain("HOOK_EVENT_NOT_IMPLEMENTED");
     expect(r.exit).toBe(0);
@@ -98,7 +110,12 @@ describe("SC-15b — loaf hook closure-check", () => {
     const dir = await tmpFeatureDir();
     await startFeature(dir);
     const r = await runCli([
-      "hook", "closure-check", "--feature", "auth-refresh", "--feature-dir", dir,
+      "hook",
+      "closure-check",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(0);
     expect(r.stdout).toBe("");
@@ -107,9 +124,7 @@ describe("SC-15b — loaf hook closure-check", () => {
 
   test("no active session → silent exit 0", async () => {
     const empty = await tmpFeatureDir();
-    const r = await runCli([
-      "hook", "closure-check", "--feature", "ghost", "--feature-dir", empty,
-    ]);
+    const r = await runCli(["hook", "closure-check", "--feature", "ghost", "--feature-dir", empty]);
     expect(r.exit).toBe(0);
     expect(r.stdout).toBe("");
     expect(r.stderr).toBe("");
@@ -119,7 +134,14 @@ describe("SC-15b — loaf hook closure-check", () => {
     const dir = await tmpFeatureDir();
     await startFeature(dir);
     const r = await runCli([
-      "hook", "closure-check", "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
+      "hook",
+      "closure-check",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     expect(r.stderr).not.toContain("HOOK_EVENT_NOT_IMPLEMENTED");
     expect(r.exit).toBe(0);
@@ -136,7 +158,12 @@ describe("SC-15b — loaf hook closure-check", () => {
     await fs.chmod(findingsLeaf, 0o000);
     try {
       const r = await runCli([
-        "hook", "closure-check", "--feature", "auth-refresh", "--feature-dir", dir,
+        "hook",
+        "closure-check",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        dir,
       ]);
       expect(r.exit).toBe(0);
       expect(r.stdout).toBe("");

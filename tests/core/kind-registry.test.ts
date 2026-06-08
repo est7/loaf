@@ -62,16 +62,36 @@ describe("kind-registry — totality + invariants", () => {
 
 describe("preservation — set surfaces (legacy fixtures)", () => {
   test("REDUCER_IMPLEMENTED_KINDS == the 26 pre-L2 members (all kinds)", () => {
-    expect(sorted(REDUCER_IMPLEMENTED_KINDS)).toEqual(sorted([
-      "event:phase_advanced", "event:ceremony_set", "event:tasks_planned",
-      "event:tasks_amended", "event:task_claimed", "event:task_step_started",
-      "event:task_step_done", "event:task_step_reset", "event:task_abandoned",
-      "event:spec_req_added", "event:spec_scenario_added", "event:spec_visual_added",
-      "event:spec_submitted", "evidence:added", "finding:raised", "finding:closed",
-      "pending:added", "pending:resolved", "gate:decided", "session:started",
-      "session:resumed", "session:delivered", "session:archived", "session:abandoned",
-      "spike:converted", "migration:snapshot_imported",
-    ]));
+    expect(sorted(REDUCER_IMPLEMENTED_KINDS)).toEqual(
+      sorted([
+        "event:phase_advanced",
+        "event:ceremony_set",
+        "event:tasks_planned",
+        "event:tasks_amended",
+        "event:task_claimed",
+        "event:task_step_started",
+        "event:task_step_done",
+        "event:task_step_reset",
+        "event:task_abandoned",
+        "event:spec_req_added",
+        "event:spec_scenario_added",
+        "event:spec_visual_added",
+        "event:spec_submitted",
+        "evidence:added",
+        "finding:raised",
+        "finding:closed",
+        "pending:added",
+        "pending:resolved",
+        "gate:decided",
+        "session:started",
+        "session:resumed",
+        "session:delivered",
+        "session:archived",
+        "session:abandoned",
+        "spike:converted",
+        "migration:snapshot_imported",
+      ]),
+    );
   });
 
   test("SPEC_EMITTING_KINDS == the 4 spec_* kinds", () => {
@@ -156,8 +176,14 @@ describe("preservation — PER_KIND_ACTOR (exact arrays, all 26)", () => {
 
 describe("preservation — PER_KIND_SUB_STATE (sentinels + sorted members)", () => {
   test("ANY_SUB_STATE sentinels", () => {
-    for (const k of ["event:phase_advanced", "pending:added", "pending:resolved",
-      "session:started", "session:resumed", "migration:snapshot_imported"] as const) {
+    for (const k of [
+      "event:phase_advanced",
+      "pending:added",
+      "pending:resolved",
+      "session:started",
+      "session:resumed",
+      "migration:snapshot_imported",
+    ] as const) {
       expect(PER_KIND_SUB_STATE[k], k).toBe(ANY_SUB_STATE);
     }
   });
@@ -171,15 +197,33 @@ describe("preservation — PER_KIND_SUB_STATE (sentinels + sorted members)", () 
     expect(set("event:tasks_planned")).toEqual(["EXECUTE.plan", "SPEC.design"]);
     expect(set("event:task_claimed")).toEqual(["EXECUTE.work"]);
     expect(set("event:task_step_reset")).toEqual([
-      "EXECUTE.done", "EXECUTE.work", "VERIFY.accept", "VERIFY.acceptance",
-      "VERIFY.plan", "VERIFY.review", "VERIFY.run", "VERIFY.visual",
+      "EXECUTE.done",
+      "EXECUTE.work",
+      "VERIFY.accept",
+      "VERIFY.acceptance",
+      "VERIFY.plan",
+      "VERIFY.review",
+      "VERIFY.run",
+      "VERIFY.visual",
     ]);
-    expect(set("event:spec_submitted")).toEqual(["SPEC.design", "SPEC.plan", "SPEC.proposal", "SPEC.spec"]);
+    expect(set("event:spec_submitted")).toEqual([
+      "SPEC.design",
+      "SPEC.plan",
+      "SPEC.proposal",
+      "SPEC.spec",
+    ]);
     expect(set("gate:decided")).toEqual(["SPEC.design", "VERIFY.accept"]);
     expect(set("session:delivered")).toEqual(["EXECUTE.done", "SETTLE.lessons", "VERIFY.accept"]);
     expect(set("evidence:added")).toEqual([
-      "EXECUTE.done", "EXECUTE.plan", "EXECUTE.work", "VERIFY.accept",
-      "VERIFY.acceptance", "VERIFY.plan", "VERIFY.review", "VERIFY.run", "VERIFY.visual",
+      "EXECUTE.done",
+      "EXECUTE.plan",
+      "EXECUTE.work",
+      "VERIFY.accept",
+      "VERIFY.acceptance",
+      "VERIFY.plan",
+      "VERIFY.review",
+      "VERIFY.run",
+      "VERIFY.visual",
     ]);
   });
 });

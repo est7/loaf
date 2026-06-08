@@ -52,10 +52,10 @@ export interface ListSessionsWarning {
   /** Registry file basename (e.g. `<uuid>.json`). */
   file: string;
   reason:
-    | "corrupt-json"        // JSON.parse failed
-    | "schema-invalid"      // Zod parse failed
-    | "orphan-cwd"          // registry's cwd field points at deleted dir
-    | "io-error";           // file read failed (rare; not ENOENT)
+    | "corrupt-json" // JSON.parse failed
+    | "schema-invalid" // Zod parse failed
+    | "orphan-cwd" // registry's cwd field points at deleted dir
+    | "io-error"; // file read failed (rare; not ENOENT)
   detail?: string;
 }
 
@@ -76,9 +76,7 @@ export interface ListSessionsInput {
   filterCwd?: string;
 }
 
-export async function listSessions(
-  input: ListSessionsInput,
-): Promise<ListSessionsResult> {
+export async function listSessions(input: ListSessionsInput): Promise<ListSessionsResult> {
   const registryDir = input.registryDir ?? defaultRegistryDir();
   const rows: SessionRow[] = [];
   const warnings: ListSessionsWarning[] = [];

@@ -39,9 +39,7 @@ export interface BuildLessonsEvidenceArgs {
  *  to sidecar. Mirrors sidecar promotion predicate (`>`, not `>=`) per
  *  codex r327 non-blocking nit — boundary stays consistent across the
  *  builder and the promoter. */
-type SummaryFieldValue =
-  | string
-  | { mode: "inline"; text: string };
+type SummaryFieldValue = string | { mode: "inline"; text: string };
 
 function chooseSummary(lessonText: string): SummaryFieldValue {
   return Buffer.byteLength(lessonText, "utf8") > SIDECAR_THRESHOLD_BYTES

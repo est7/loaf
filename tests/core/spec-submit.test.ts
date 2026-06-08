@@ -80,8 +80,14 @@ async function seedAtSpecProposal(): Promise<{ dir: string; feature: string }> {
   const dir = await tmpFeatureDir();
   const feature = "F1";
   const startRes = await runCli([
-    "start", feature, "--ceremony", "standard",
-    "--feature-dir", dir, "--format", "json",
+    "start",
+    feature,
+    "--ceremony",
+    "standard",
+    "--feature-dir",
+    dir,
+    "--format",
+    "json",
   ]);
   if (startRes.exit !== 0) throw new Error(`start failed: ${startRes.stderr}`);
   const edges: Array<[SubState, SubState]> = [
@@ -98,7 +104,14 @@ async function seedAtSpecProposal(): Promise<{ dir: string; feature: string }> {
         kind: "event:phase_advanced",
         payload: { from, to },
       },
-      { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, entries: s.entries, meta: s.meta, fsync: false },
+      {
+        feature_dir: dir,
+        snapshot: s.snapshot,
+        tail_seq: s.tail_seq,
+        entries: s.entries,
+        meta: s.meta,
+        fsync: false,
+      },
     );
     if (!r.ok) throw new Error(`walk ${from}→${to} failed: ${r.code} ${r.message}`);
   }
@@ -149,8 +162,16 @@ describe("loaf spec submit — SC1 happy paths", () => {
     const before = await readJournalLines(dir);
     const input = await writeInput(dir, baseHeader());
     const r = await runCli([
-      "spec", "submit", "--input", input,
-      "--feature", feature, "--feature-dir", dir, "--format", "json",
+      "spec",
+      "submit",
+      "--input",
+      input,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     expect(r.exit).toBe(0);
     const after = await readJournalLines(dir);
@@ -165,14 +186,25 @@ describe("loaf spec submit — SC1 happy paths", () => {
   test("submit with REQ+SCEN+VIS arrays → N+1-entry batch sharing batch_id; projections populated", async () => {
     const { dir, feature } = await seedAtSpecProposal();
     const before = await readJournalLines(dir);
-    const input = await writeInput(dir, baseHeader({
-      requirements: [VALID_REQ],
-      scenarios: [VALID_SCEN],
-      visual_contracts: [VALID_VIS],
-    }));
+    const input = await writeInput(
+      dir,
+      baseHeader({
+        requirements: [VALID_REQ],
+        scenarios: [VALID_SCEN],
+        visual_contracts: [VALID_VIS],
+      }),
+    );
     const r = await runCli([
-      "spec", "submit", "--input", input,
-      "--feature", feature, "--feature-dir", dir, "--format", "json",
+      "spec",
+      "submit",
+      "--input",
+      input,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     expect(r.exit).toBe(0);
     const after = await readJournalLines(dir);
@@ -182,7 +214,9 @@ describe("loaf spec submit — SC1 happy paths", () => {
     expect(new Set(newEntries.map((e) => e.batch_id)).size).toBe(1);
     expect(newEntries[0].kind).toBe("event:spec_submitted");
     expect(newEntries[0].batch_index).toBe(0);
-    expect(newEntries.slice(1).every((e) => typeof e.batch_index === "number" && e.batch_index >= 1)).toBe(true);
+    expect(
+      newEntries.slice(1).every((e) => typeof e.batch_index === "number" && e.batch_index >= 1),
+    ).toBe(true);
     const s = await loadSnapshot(dir);
     expect(s.snapshot.state?.spec_version).toBe(1);
     expect(s.snapshot.requirements.map((r: any) => r.id)).toEqual(["REQ-AUTH-001"]);
@@ -194,8 +228,16 @@ describe("loaf spec submit — SC1 happy paths", () => {
     const { dir, feature } = await seedAtSpecProposal();
     const input = await writeInput(dir, baseHeader()); // no spec_version field
     const r = await runCli([
-      "spec", "submit", "--input", input,
-      "--feature", feature, "--feature-dir", dir, "--format", "json",
+      "spec",
+      "submit",
+      "--input",
+      input,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     expect(r.exit).toBe(0);
     const s = await loadSnapshot(dir);
@@ -206,8 +248,14 @@ describe("loaf spec submit — SC1 happy paths", () => {
     const { dir, feature } = await seedAtSpecProposal();
     const input = await writeInput(dir, baseHeader({ spec_version: 2 }));
     const r = await runCli([
-      "spec", "submit", "--input", input,
-      "--feature", feature, "--feature-dir", dir,
+      "spec",
+      "submit",
+      "--input",
+      input,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).not.toBe(0);
     // Slice E promotion: SPEC_VERSION_NOT_MONOTONIC surfaces directly
@@ -217,13 +265,24 @@ describe("loaf spec submit — SC1 happy paths", () => {
 
   test("JSON output emits {ok, feature, spec_version, req_ids, scen_ids, vis_ids}", async () => {
     const { dir, feature } = await seedAtSpecProposal();
-    const input = await writeInput(dir, baseHeader({
-      requirements: [VALID_REQ],
-      scenarios: [VALID_SCEN],
-    }));
+    const input = await writeInput(
+      dir,
+      baseHeader({
+        requirements: [VALID_REQ],
+        scenarios: [VALID_SCEN],
+      }),
+    );
     const r = await runCli([
-      "spec", "submit", "--input", input,
-      "--feature", feature, "--feature-dir", dir, "--format", "json",
+      "spec",
+      "submit",
+      "--input",
+      input,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     expect(r.exit).toBe(0);
     const out = JSON.parse(r.stdout);
@@ -241,12 +300,21 @@ describe("loaf spec submit — DUPLICATE_*_ID preflight promotion (SC1)", () => 
   test("two REQ-AUTH-001 in same submit batch → DUPLICATE_REQ_ID preflight; journal unchanged", async () => {
     const { dir, feature } = await seedAtSpecProposal();
     const before = await readJournalLines(dir);
-    const input = await writeInput(dir, baseHeader({
-      requirements: [VALID_REQ, { ...VALID_REQ }], // same id twice
-    }));
+    const input = await writeInput(
+      dir,
+      baseHeader({
+        requirements: [VALID_REQ, { ...VALID_REQ }], // same id twice
+      }),
+    );
     const r = await runCli([
-      "spec", "submit", "--input", input,
-      "--feature", feature, "--feature-dir", dir,
+      "spec",
+      "submit",
+      "--input",
+      input,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(2);
     expect(r.stderr).toMatch(/DUPLICATE_REQ_ID/);
@@ -264,10 +332,21 @@ describe("loaf spec submit — DUPLICATE_*_ID preflight promotion (SC1)", () => 
     // spec_req_added without a reset between.
     const { dir, feature } = await seedAtSpecProposal();
     await runCli([
-      "spec", "submit", "--input", await writeInput(dir, baseHeader({
-        requirements: [VALID_REQ],
-      })),
-      "--feature", feature, "--feature-dir", dir, "--format", "json",
+      "spec",
+      "submit",
+      "--input",
+      await writeInput(
+        dir,
+        baseHeader({
+          requirements: [VALID_REQ],
+        }),
+      ),
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     // Raw mutate: emit a second spec_req_added with the same id, sharing
     // the existing spec_version=1 (would be a standalone add-req
@@ -281,7 +360,14 @@ describe("loaf spec submit — DUPLICATE_*_ID preflight promotion (SC1)", () => 
         kind: "event:spec_req_added",
         payload: { spec_version: 1, req: { ...VALID_REQ } },
       },
-      { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, entries: s.entries, meta: s.meta, fsync: false },
+      {
+        feature_dir: dir,
+        snapshot: s.snapshot,
+        tail_seq: s.tail_seq,
+        entries: s.entries,
+        meta: s.meta,
+        fsync: false,
+      },
     );
     expect(r.ok).toBe(false);
     if (!r.ok) {
@@ -295,12 +381,21 @@ describe("loaf spec submit — DUPLICATE_*_ID preflight promotion (SC1)", () => 
 
   test("two SCEN-LOGIN-001 → DUPLICATE_SCEN_ID", async () => {
     const { dir, feature } = await seedAtSpecProposal();
-    const input = await writeInput(dir, baseHeader({
-      scenarios: [VALID_SCEN, { ...VALID_SCEN }],
-    }));
+    const input = await writeInput(
+      dir,
+      baseHeader({
+        scenarios: [VALID_SCEN, { ...VALID_SCEN }],
+      }),
+    );
     const r = await runCli([
-      "spec", "submit", "--input", input,
-      "--feature", feature, "--feature-dir", dir,
+      "spec",
+      "submit",
+      "--input",
+      input,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(2);
     expect(r.stderr).toMatch(/DUPLICATE_SCEN_ID/);
@@ -308,12 +403,21 @@ describe("loaf spec submit — DUPLICATE_*_ID preflight promotion (SC1)", () => 
 
   test("two VIS-DASH-001 → DUPLICATE_VIS_ID", async () => {
     const { dir, feature } = await seedAtSpecProposal();
-    const input = await writeInput(dir, baseHeader({
-      visual_contracts: [VALID_VIS, { ...VALID_VIS }],
-    }));
+    const input = await writeInput(
+      dir,
+      baseHeader({
+        visual_contracts: [VALID_VIS, { ...VALID_VIS }],
+      }),
+    );
     const r = await runCli([
-      "spec", "submit", "--input", input,
-      "--feature", feature, "--feature-dir", dir,
+      "spec",
+      "submit",
+      "--input",
+      input,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(2);
     expect(r.stderr).toMatch(/DUPLICATE_VIS_ID/);
@@ -321,12 +425,21 @@ describe("loaf spec submit — DUPLICATE_*_ID preflight promotion (SC1)", () => 
 
   test("DUPLICATE_REQ_ID fires as preflight code (not wrapped as REDUCER_ERROR)", async () => {
     const { dir, feature } = await seedAtSpecProposal();
-    const input = await writeInput(dir, baseHeader({
-      requirements: [VALID_REQ, { ...VALID_REQ }],
-    }));
+    const input = await writeInput(
+      dir,
+      baseHeader({
+        requirements: [VALID_REQ, { ...VALID_REQ }],
+      }),
+    );
     const r = await runCli([
-      "spec", "submit", "--input", input,
-      "--feature", feature, "--feature-dir", dir,
+      "spec",
+      "submit",
+      "--input",
+      input,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(2);
     expect(r.stderr).toMatch(/DUPLICATE_REQ_ID/);
@@ -340,8 +453,14 @@ describe("loaf spec submit — input + sub_state boundary", () => {
     const { dir, feature } = await seedAtSpecProposal();
     const before = await readJournalLines(dir);
     const r = await runCli([
-      "spec", "submit", "--input", path.join(dir, "missing.json"),
-      "--feature", feature, "--feature-dir", dir,
+      "spec",
+      "submit",
+      "--input",
+      path.join(dir, "missing.json"),
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).not.toBe(0);
     expect(r.stderr).toMatch(/INPUT_FILE_NOT_FOUND/);
@@ -353,8 +472,14 @@ describe("loaf spec submit — input + sub_state boundary", () => {
     const p = path.join(dir, "bad.json");
     await fs.writeFile(p, "{not json");
     const r = await runCli([
-      "spec", "submit", "--input", p,
-      "--feature", feature, "--feature-dir", dir,
+      "spec",
+      "submit",
+      "--input",
+      p,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).not.toBe(0);
     expect(r.stderr).toMatch(/SCHEMA_VALIDATION_FAILED/);
@@ -364,13 +489,25 @@ describe("loaf spec submit — input + sub_state boundary", () => {
     const dir = await tmpFeatureDir();
     const feature = "F1";
     await runCli([
-      "start", feature, "--ceremony", "standard",
-      "--feature-dir", dir, "--format", "json",
+      "start",
+      feature,
+      "--ceremony",
+      "standard",
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     const input = await writeInput(dir, baseHeader());
     const r = await runCli([
-      "spec", "submit", "--input", input,
-      "--feature", feature, "--feature-dir", dir,
+      "spec",
+      "submit",
+      "--input",
+      input,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).not.toBe(0);
     expect(r.stderr).toMatch(/SUB_STATE_AUTHORITY_VIOLATION/);
@@ -381,8 +518,14 @@ describe("loaf spec submit — input + sub_state boundary", () => {
     const before = await readJournalLines(dir);
     const input = await writeInput(dir, { ...baseHeader(), spec_version: "2" });
     const r = await runCli([
-      "spec", "submit", "--input", input,
-      "--feature", feature, "--feature-dir", dir,
+      "spec",
+      "submit",
+      "--input",
+      input,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).not.toBe(0);
     expect(r.stderr).toMatch(/SCHEMA_VALIDATION_FAILED/);
@@ -394,8 +537,14 @@ describe("loaf spec submit — input + sub_state boundary", () => {
     const before = await readJournalLines(dir);
     const input = await writeInput(dir, { ...baseHeader(), requirements: "oops" });
     const r = await runCli([
-      "spec", "submit", "--input", input,
-      "--feature", feature, "--feature-dir", dir,
+      "spec",
+      "submit",
+      "--input",
+      input,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).not.toBe(0);
     expect(r.stderr).toMatch(/SCHEMA_VALIDATION_FAILED/);
@@ -406,8 +555,14 @@ describe("loaf spec submit — input + sub_state boundary", () => {
     const { dir, feature } = await seedAtSpecProposal();
     const input = await writeInput(dir, { ...baseHeader(), scenarios: {} });
     const r = await runCli([
-      "spec", "submit", "--input", input,
-      "--feature", feature, "--feature-dir", dir,
+      "spec",
+      "submit",
+      "--input",
+      input,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).not.toBe(0);
     expect(r.stderr).toMatch(/SCHEMA_VALIDATION_FAILED/);
@@ -417,8 +572,14 @@ describe("loaf spec submit — input + sub_state boundary", () => {
     const { dir, feature } = await seedAtSpecProposal();
     const input = await writeInput(dir, { ...baseHeader(), visual_contracts: "oops" });
     const r = await runCli([
-      "spec", "submit", "--input", input,
-      "--feature", feature, "--feature-dir", dir,
+      "spec",
+      "submit",
+      "--input",
+      input,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).not.toBe(0);
     expect(r.stderr).toMatch(/SCHEMA_VALIDATION_FAILED/);
@@ -432,20 +593,29 @@ describe("loaf spec submit — input + sub_state boundary", () => {
     // BLOCK fix routes this through SpecSubmitInput at the CLI boundary
     // (SCHEMA_VALIDATION_FAILED), strictly earlier than mutateBatch.
     // Atomicity proof still holds — no entries appended.
-    const input = await writeInput(dir, baseHeader({
-      requirements: [
-        VALID_REQ,
-        {
-          id: "REQ-AUTH-002",
-          type: "ubiquitous",
-          response: "the system shall do something else here",
-          // no acceptance_na, no measurable, no scenarios → fails verifiability
-        },
-      ],
-    }));
+    const input = await writeInput(
+      dir,
+      baseHeader({
+        requirements: [
+          VALID_REQ,
+          {
+            id: "REQ-AUTH-002",
+            type: "ubiquitous",
+            response: "the system shall do something else here",
+            // no acceptance_na, no measurable, no scenarios → fails verifiability
+          },
+        ],
+      }),
+    );
     const r = await runCli([
-      "spec", "submit", "--input", input,
-      "--feature", feature, "--feature-dir", dir,
+      "spec",
+      "submit",
+      "--input",
+      input,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).not.toBe(0);
     expect(r.stderr).toMatch(/SCHEMA_VALIDATION_FAILED/);

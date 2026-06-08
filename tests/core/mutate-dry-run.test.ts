@@ -61,7 +61,9 @@ describe("SC-6c — mutate dry-run pipeline", () => {
 
     expect(result.ok).toBe(true);
     // No journal.jsonl on disk
-    await expect(fs.stat(path.join(dir, "journal.jsonl"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(fs.stat(path.join(dir, "journal.jsonl"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
     // No attachments/ directory
     await expect(fs.stat(path.join(dir, "attachments"))).rejects.toMatchObject({ code: "ENOENT" });
   });
@@ -107,7 +109,9 @@ describe("SC-6c — mutate dry-run pipeline", () => {
         actor: "cli:loaf",
         entry_schema_version: 1,
         kind: "session:started",
-        payload: { /* missing session_id / feature / ceremony */ } as never,
+        payload: {
+          /* missing session_id / feature / ceremony */
+        } as never,
       },
       {
         feature_dir: dir,
@@ -146,9 +150,9 @@ describe("SC-6c — mutate dry-run pipeline", () => {
       {
         feature_dir: dir,
         snapshot: initialSnapshot(),
-        tail_seq: 5,           // ← inconsistent: entries says tail seq -1
+        tail_seq: 5, // ← inconsistent: entries says tail seq -1
         entries: [],
-        meta: emptyMeta(),     // ← inconsistent: meta.last_applied_seq -1
+        meta: emptyMeta(), // ← inconsistent: meta.last_applied_seq -1
         dryRun: true,
         fsync: false,
       },
@@ -159,7 +163,9 @@ describe("SC-6c — mutate dry-run pipeline", () => {
       expect(result.code).toBe("INVALID_BATCH");
     }
     // Verify NO journal on disk either way
-    await expect(fs.stat(path.join(dir, "journal.jsonl"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(fs.stat(path.join(dir, "journal.jsonl"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
   });
 
   test("T13: dry-run mutateBatch short-circuits — no partial writes", async () => {
@@ -191,7 +197,9 @@ describe("SC-6c — mutate dry-run pipeline", () => {
 
     expect(result.ok).toBe(true);
     // No journal on disk
-    await expect(fs.stat(path.join(dir, "journal.jsonl"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(fs.stat(path.join(dir, "journal.jsonl"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
   });
 
   test("T14: NON-dry-run still works (regression — default behavior unchanged)", async () => {

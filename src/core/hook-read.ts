@@ -129,9 +129,7 @@ export function runClosureWarnings(input: ClosureWarningsInput): string[] {
   // ── 2. open findings summary ──
   const open = input.findings.findings.filter((f) => f.status === "open");
   if (open.length > 0) {
-    warnings.push(
-      `open findings (${open.length}): ${open.map((f) => f.id).join(", ")}`,
-    );
+    warnings.push(`open findings (${open.length}): ${open.map((f) => f.id).join(", ")}`);
   }
 
   return warnings;

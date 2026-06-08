@@ -84,8 +84,14 @@ async function seedQuickAtExecuteWork(): Promise<{ dir: string; feature: string 
   const dir = await tmpFeatureDir();
   const feature = "F1";
   const startRes = await runCli([
-    "start", feature, "--ceremony", "quick",
-    "--feature-dir", dir, "--format", "json",
+    "start",
+    feature,
+    "--ceremony",
+    "quick",
+    "--feature-dir",
+    dir,
+    "--format",
+    "json",
   ]);
   if (startRes.exit !== 0) throw new Error(`start failed: ${startRes.stderr}`);
   const edges: Array<[SubState, SubState]> = [
@@ -103,7 +109,14 @@ async function seedQuickAtExecuteWork(): Promise<{ dir: string; feature: string 
         kind: "event:phase_advanced",
         payload: { from, to },
       },
-      { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, entries: s.entries, meta: s.meta, fsync: false },
+      {
+        feature_dir: dir,
+        snapshot: s.snapshot,
+        tail_seq: s.tail_seq,
+        entries: s.entries,
+        meta: s.meta,
+        fsync: false,
+      },
     );
     if (!r.ok) throw new Error(`seed walk ${from}→${to} failed: ${r.code} ${r.message}`);
   }
@@ -135,8 +148,14 @@ describe("loaf evidence add — SC2 happy paths", () => {
     const { dir, feature } = await seedQuickAtExecuteWork();
     const input = await writeInput(dir, baseInput("local-check"));
     const r = await runCli([
-      "evidence", "add", "--input", input,
-      "--feature", feature, "--feature-dir", dir,
+      "evidence",
+      "add",
+      "--input",
+      input,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(0);
     expect(r.stdout.trim()).toBe("EV-000001");
@@ -155,8 +174,16 @@ describe("loaf evidence add — SC2 happy paths", () => {
     const { dir, feature } = await seedQuickAtExecuteWork();
     const input = await writeInput(dir, baseInput("task-summary"));
     const r = await runCli([
-      "evidence", "add", "--input", input,
-      "--feature", feature, "--feature-dir", dir, "--format", "json",
+      "evidence",
+      "add",
+      "--input",
+      input,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     expect(r.exit).toBe(0);
     const parsed = JSON.parse(r.stdout);
@@ -172,16 +199,28 @@ describe("loaf evidence add — SC2 happy paths", () => {
     const { dir, feature } = await seedQuickAtExecuteWork();
     const input1 = await writeInput(dir, baseInput("local-check"));
     const r1 = await runCli([
-      "evidence", "add", "--input", input1,
-      "--feature", feature, "--feature-dir", dir,
+      "evidence",
+      "add",
+      "--input",
+      input1,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r1.stdout.trim()).toBe("EV-000001");
 
     // Need a fresh input file because we'll rewrite — but content is same.
     const input2 = await writeInput(dir, baseInput("local-check"));
     const r2 = await runCli([
-      "evidence", "add", "--input", input2,
-      "--feature", feature, "--feature-dir", dir,
+      "evidence",
+      "add",
+      "--input",
+      input2,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r2.stdout.trim()).toBe("EV-000002");
   });
@@ -200,8 +239,14 @@ describe("loaf evidence add — SC2 happy paths", () => {
       ],
     });
     const r = await runCli([
-      "evidence", "add", "--input", input,
-      "--feature", feature, "--feature-dir", dir,
+      "evidence",
+      "add",
+      "--input",
+      input,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(0);
     expect(r.stdout.trim()).toBe("EV-000001");
@@ -224,8 +269,14 @@ describe("loaf evidence add — SC2 happy paths", () => {
       reason: "reviewed manually per QA checklist",
     });
     const r = await runCli([
-      "evidence", "add", "--input", input,
-      "--feature", feature, "--feature-dir", dir,
+      "evidence",
+      "add",
+      "--input",
+      input,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(0);
   });
@@ -240,8 +291,14 @@ describe("loaf evidence add — SC2 schema refines (EvidenceFullPayload)", () =>
       // reason omitted
     });
     const r = await runCli([
-      "evidence", "add", "--input", input,
-      "--feature", feature, "--feature-dir", dir,
+      "evidence",
+      "add",
+      "--input",
+      input,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).not.toBe(0);
     expect(r.stderr).toMatch(/INVALID_PAYLOAD/);
@@ -255,8 +312,14 @@ describe("loaf evidence add — SC2 schema refines (EvidenceFullPayload)", () =>
       reason: "this reason is long enough to pass",
     });
     const r = await runCli([
-      "evidence", "add", "--input", input,
-      "--feature", feature, "--feature-dir", dir,
+      "evidence",
+      "add",
+      "--input",
+      input,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).not.toBe(0);
     expect(r.stderr).toMatch(/INVALID_PAYLOAD/);
@@ -271,8 +334,14 @@ describe("loaf evidence add — SC2 schema refines (EvidenceFullPayload)", () =>
       reason: "waiver reason text long enough",
     });
     const r = await runCli([
-      "evidence", "add", "--input", input,
-      "--feature", feature, "--feature-dir", dir,
+      "evidence",
+      "add",
+      "--input",
+      input,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).not.toBe(0);
     expect(r.stderr).toMatch(/INVALID_PAYLOAD/);
@@ -282,8 +351,14 @@ describe("loaf evidence add — SC2 schema refines (EvidenceFullPayload)", () =>
     const { dir, feature } = await seedQuickAtExecuteWork();
     const input = await writeInput(dir, baseInput("visual-review"));
     const r = await runCli([
-      "evidence", "add", "--input", input,
-      "--feature", feature, "--feature-dir", dir,
+      "evidence",
+      "add",
+      "--input",
+      input,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).not.toBe(0);
     expect(r.stderr).toMatch(/INVALID_PAYLOAD/);
@@ -293,13 +368,17 @@ describe("loaf evidence add — SC2 schema refines (EvidenceFullPayload)", () =>
     const { dir, feature } = await seedQuickAtExecuteWork();
     const input = await writeInput(dir, {
       ...baseInput("visual-review"),
-      attachments: [
-        { path: "x.png", sha256: "NOT-HEX-SHA", mime: "image/png" },
-      ],
+      attachments: [{ path: "x.png", sha256: "NOT-HEX-SHA", mime: "image/png" }],
     });
     const r = await runCli([
-      "evidence", "add", "--input", input,
-      "--feature", feature, "--feature-dir", dir,
+      "evidence",
+      "add",
+      "--input",
+      input,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).not.toBe(0);
     expect(r.stderr).toMatch(/SCHEMA_VALIDATION_FAILED/);
@@ -311,8 +390,14 @@ describe("loaf evidence add — SC2 input boundary guards", () => {
     const { dir, feature } = await seedQuickAtExecuteWork();
     const before = await readJournalLines(dir);
     const r = await runCli([
-      "evidence", "add", "--input", path.join(dir, "does-not-exist.json"),
-      "--feature", feature, "--feature-dir", dir,
+      "evidence",
+      "add",
+      "--input",
+      path.join(dir, "does-not-exist.json"),
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).not.toBe(0);
     expect(r.stderr).toMatch(/INPUT_FILE_NOT_FOUND/);
@@ -325,8 +410,14 @@ describe("loaf evidence add — SC2 input boundary guards", () => {
     const p = path.join(dir, "bad.json");
     await fs.writeFile(p, "{not valid json");
     const r = await runCli([
-      "evidence", "add", "--input", p,
-      "--feature", feature, "--feature-dir", dir,
+      "evidence",
+      "add",
+      "--input",
+      p,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).not.toBe(0);
     expect(r.stderr).toMatch(/SCHEMA_VALIDATION_FAILED/);
@@ -337,8 +428,14 @@ describe("loaf evidence add — SC2 input boundary guards", () => {
     const before = await readJournalLines(dir);
     const input = await writeInput(dir, { ...baseInput("local-check"), id: "EV-999999" });
     const r = await runCli([
-      "evidence", "add", "--input", input,
-      "--feature", feature, "--feature-dir", dir,
+      "evidence",
+      "add",
+      "--input",
+      input,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(2);
     expect(r.stderr).toMatch(/SCHEMA_VALIDATION_FAILED/);
@@ -355,8 +452,14 @@ describe("loaf evidence add — SC2 input boundary guards", () => {
     const before = await readJournalLines(dir);
     const input = await writeInput(dir, [baseInput("local-check")]);
     const r = await runCli([
-      "evidence", "add", "--input", input,
-      "--feature", feature, "--feature-dir", dir,
+      "evidence",
+      "add",
+      "--input",
+      input,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(0);
     const after = await readJournalLines(dir);
@@ -368,8 +471,14 @@ describe("loaf evidence add — SC2 input boundary guards", () => {
     const { kind: _kind, ...without } = baseInput("local-check") as any;
     const input = await writeInput(dir, without);
     const r = await runCli([
-      "evidence", "add", "--input", input,
-      "--feature", feature, "--feature-dir", dir,
+      "evidence",
+      "add",
+      "--input",
+      input,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).not.toBe(0);
     expect(r.stderr).toMatch(/SCHEMA_VALIDATION_FAILED/);
@@ -381,13 +490,25 @@ describe("loaf evidence add — SC2 sub_state authority", () => {
     const dir = await tmpFeatureDir();
     const feature = "F1";
     await runCli([
-      "start", feature, "--ceremony", "quick",
-      "--feature-dir", dir, "--format", "json",
+      "start",
+      feature,
+      "--ceremony",
+      "quick",
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     const input = await writeInput(dir, baseInput("local-check"));
     const r = await runCli([
-      "evidence", "add", "--input", input,
-      "--feature", feature, "--feature-dir", dir,
+      "evidence",
+      "add",
+      "--input",
+      input,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).not.toBe(0);
     expect(r.stderr).toMatch(/SUB_STATE_AUTHORITY_VIOLATION/);
@@ -397,8 +518,14 @@ describe("loaf evidence add — SC2 sub_state authority", () => {
     const dir = await tmpFeatureDir();
     const feature = "F1";
     await runCli([
-      "start", feature, "--ceremony", "quick",
-      "--feature-dir", dir, "--format", "json",
+      "start",
+      feature,
+      "--ceremony",
+      "quick",
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     for (const [from, to] of [
       ["TRIAGE.score", "TRIAGE.confirm"],
@@ -413,14 +540,27 @@ describe("loaf evidence add — SC2 sub_state authority", () => {
           kind: "event:phase_advanced",
           payload: { from, to },
         },
-        { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, entries: s.entries, meta: s.meta, fsync: false },
+        {
+          feature_dir: dir,
+          snapshot: s.snapshot,
+          tail_seq: s.tail_seq,
+          entries: s.entries,
+          meta: s.meta,
+          fsync: false,
+        },
       );
       if (!m.ok) throw new Error(`walk failed: ${m.message}`);
     }
     const input = await writeInput(dir, baseInput("local-check"));
     const r = await runCli([
-      "evidence", "add", "--input", input,
-      "--feature", feature, "--feature-dir", dir,
+      "evidence",
+      "add",
+      "--input",
+      input,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(0);
   });
@@ -441,14 +581,27 @@ describe("loaf evidence add — SC2 EV-id allocator edge cases", () => {
           kind: "evidence:added",
           payload: { ...baseInput("local-check"), id },
         },
-        { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, entries: s.entries, meta: s.meta, fsync: false },
+        {
+          feature_dir: dir,
+          snapshot: s.snapshot,
+          tail_seq: s.tail_seq,
+          entries: s.entries,
+          meta: s.meta,
+          fsync: false,
+        },
       );
       if (!r.ok) throw new Error(`seed failed: ${r.code} ${r.message}`);
     }
     const input = await writeInput(dir, baseInput("local-check"));
     const r = await runCli([
-      "evidence", "add", "--input", input,
-      "--feature", feature, "--feature-dir", dir,
+      "evidence",
+      "add",
+      "--input",
+      input,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(0);
     // Max existing serial is 5 → next is 6.

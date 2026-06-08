@@ -66,10 +66,14 @@ describe("SC-6b — --debug end-to-end", () => {
     const dir = await tmpFeatureDir();
     const result = await runCli(
       [
-        "start", "auth-refresh",
-        "--ceremony", "standard",
-        "--feature-dir", dir,
-        "--format", "json",
+        "start",
+        "auth-refresh",
+        "--ceremony",
+        "standard",
+        "--feature-dir",
+        dir,
+        "--format",
+        "json",
         "--debug",
       ],
       { env: { LOAF_USER: "tester@example.invalid", LOAF_DEBUG: undefined, DEBUG: undefined } },
@@ -106,12 +110,7 @@ describe("SC-6b — --debug end-to-end", () => {
   test("T22: loaf start <f> WITHOUT --debug → no trace.jsonl", async () => {
     const dir = await tmpFeatureDir();
     const result = await runCli(
-      [
-        "start", "auth-refresh",
-        "--ceremony", "standard",
-        "--feature-dir", dir,
-        "--format", "json",
-      ],
+      ["start", "auth-refresh", "--ceremony", "standard", "--feature-dir", dir, "--format", "json"],
       { env: { LOAF_USER: "tester@example.invalid", LOAF_DEBUG: undefined, DEBUG: undefined } },
     );
     expect(result.exit).toBe(0);
@@ -123,12 +122,7 @@ describe("SC-6b — --debug end-to-end", () => {
   test("T23: LOAF_DEBUG=1 env (no --debug flag) → trace.jsonl written", async () => {
     const dir = await tmpFeatureDir();
     const result = await runCli(
-      [
-        "start", "auth-refresh",
-        "--ceremony", "standard",
-        "--feature-dir", dir,
-        "--format", "json",
-      ],
+      ["start", "auth-refresh", "--ceremony", "standard", "--feature-dir", dir, "--format", "json"],
       { env: { LOAF_USER: "tester@example.invalid", LOAF_DEBUG: "1", DEBUG: undefined } },
     );
     expect(result.exit).toBe(0);
@@ -142,12 +136,7 @@ describe("SC-6b — --debug end-to-end", () => {
   test("T24: loaf advance --feature flag-form + --debug → trace.jsonl with cmd=loaf advance", async () => {
     const dir = await tmpFeatureDir();
     await runCli(
-      [
-        "start", "auth-refresh",
-        "--ceremony", "standard",
-        "--feature-dir", dir,
-        "--format", "json",
-      ],
+      ["start", "auth-refresh", "--ceremony", "standard", "--feature-dir", dir, "--format", "json"],
       { env: { LOAF_USER: "tester@example.invalid", LOAF_DEBUG: undefined, DEBUG: undefined } },
     );
     // start ran without --debug → no trace yet
@@ -155,10 +144,14 @@ describe("SC-6b — --debug end-to-end", () => {
 
     const result = await runCli(
       [
-        "advance", "TRIAGE.confirm",
-        "--feature", "auth-refresh",
-        "--feature-dir", dir,
-        "--format", "json",
+        "advance",
+        "TRIAGE.confirm",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        dir,
+        "--format",
+        "json",
         "--debug",
       ],
       { env: { LOAF_USER: "tester@example.invalid", LOAF_DEBUG: undefined, DEBUG: undefined } },
@@ -181,10 +174,14 @@ describe("SC-6b — --debug end-to-end", () => {
     const dir = await tmpFeatureDir();
     const result = await runCli(
       [
-        "start", "auth-refresh",
-        "--ceremony", "standard",
-        "--feature-dir", dir,
-        "--format", "json",
+        "start",
+        "auth-refresh",
+        "--ceremony",
+        "standard",
+        "--feature-dir",
+        dir,
+        "--format",
+        "json",
         "--debug",
       ],
       {
@@ -212,10 +209,14 @@ describe("SC-6b — --debug end-to-end", () => {
     const captured: TraceEntry[] = [];
     const result = await runCli(
       [
-        "start", "auth-refresh",
-        "--ceremony", "standard",
-        "--feature-dir", dir,
-        "--format", "json",
+        "start",
+        "auth-refresh",
+        "--ceremony",
+        "standard",
+        "--feature-dir",
+        dir,
+        "--format",
+        "json",
         "--debug",
       ],
       {

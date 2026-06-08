@@ -157,8 +157,6 @@ export function composeLessonsProjection(
   resolved: readonly ResolvedLesson[],
   header: LessonsHeader,
 ): string {
-  const bullets = resolved
-    .map((r) => `- ${r.body.trim().replace(/\n/g, "\n  ")}`)
-    .join("\n");
+  const bullets = resolved.map((r) => `- ${r.body.trim().replace(/\n/g, "\n  ")}`).join("\n");
   return `## ${header.id} ${header.name} · ${header.date} (iterations=${header.iterations})\n\n${bullets}\n`;
 }

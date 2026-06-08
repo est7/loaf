@@ -13,10 +13,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const REPO_ROOT = path.join(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "..", "..",
-);
+const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 const COMMANDS_WITHOUT_SCHEMA: ReadonlyArray<string> = [
   // input-consuming commands NOT in the 5 batch-capable mutator set
@@ -33,7 +30,9 @@ describe("SC-10 — docs/schemas.ts fix_template hygiene", () => {
     for (const cmd of COMMANDS_WITHOUT_SCHEMA) {
       const literal = `${cmd} --schema`;
       if (source.includes(literal)) {
-        offenders.push(`stale fix_template recommends \`loaf ${literal}\` but ${cmd} does not accept --schema (SC-10 narrows --schema to 5 batch-capable mutators)`);
+        offenders.push(
+          `stale fix_template recommends \`loaf ${literal}\` but ${cmd} does not accept --schema (SC-10 narrows --schema to 5 batch-capable mutators)`,
+        );
       }
     }
     expect(offenders).toEqual([]);

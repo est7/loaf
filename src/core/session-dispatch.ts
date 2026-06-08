@@ -31,11 +31,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 
 import { defaultRegistryDir } from "./registry-writer.js";
-import {
-  loadProjections,
-  NoSessionError,
-  SnapshotStaleError,
-} from "./projection-loader.js";
+import { loadProjections, NoSessionError, SnapshotStaleError } from "./projection-loader.js";
 import { readRegistryEntry, tryRealpath } from "./registry-read.js";
 
 const MIN_SHORT_UUID_PREFIX = 8;
@@ -165,11 +161,7 @@ export async function resolveDispatch(input: DispatchInput): Promise<DispatchRes
   return autoPickFromCwd(input);
 }
 
-function usageConflict(
-  message: string,
-  conflicting: readonly string[],
-  fix: string,
-): DispatchFail {
+function usageConflict(message: string, conflicting: readonly string[], fix: string): DispatchFail {
   return {
     ok: false,
     code: "USAGE",
@@ -250,8 +242,7 @@ async function resolveBySessionId(
     return {
       ok: false,
       code: "SESSION_NOT_FOUND",
-      message:
-        `--session ${uuidOrPrefix} registry entry exists but cannot be parsed: ${read.strictDetail}`,
+      message: `--session ${uuidOrPrefix} registry entry exists but cannot be parsed: ${read.strictDetail}`,
       detail: { uuid_or_prefix: uuidOrPrefix, session_id: sessionId, source },
     };
   }
@@ -327,8 +318,7 @@ async function resolveByFeatureName(
       return {
         ok: false,
         code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
-        message:
-          `feature '${name}' projection is stale at ${featureDir} (reason: ${err.reason})`,
+        message: `feature '${name}' projection is stale at ${featureDir} (reason: ${err.reason})`,
         detail: { ...err.detail, reason: err.reason, dispatch_source: source },
       };
     }

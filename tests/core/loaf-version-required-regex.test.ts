@@ -67,12 +67,12 @@ const ACCEPT_PRE_OR_BUILD = [
 
 const REJECT = [
   "not-a-version",
-  "^1",            // missing minor
-  "^1.2.3.4",      // four segments — protocol pin is three at most
-  "^1.2.3-",       // empty prerelease segment
-  "^1.2.3+",       // empty build segment
-  "",              // empty string
-  "v1.2.3",        // leading `v` not in our prefix set
+  "^1", // missing minor
+  "^1.2.3.4", // four segments — protocol pin is three at most
+  "^1.2.3-", // empty prerelease segment
+  "^1.2.3+", // empty build segment
+  "", // empty string
+  "v1.2.3", // leading `v` not in our prefix set
 ];
 
 describe("loaf_version_required regex — backward-compatible widening (RC blocker)", () => {
@@ -92,27 +92,25 @@ describe("loaf_version_required regex — backward-compatible widening (RC block
     expect(r.success).toBe(true);
   });
 
-  test.each(ACCEPT_PRE_OR_BUILD)(
-    "SessionStartedPayload accepts semver prerelease/build pin: %s",
-    (pin) => {
-      const r = SessionStartedPayload.safeParse({
-        ...baseSessionStartedPayload,
-        loaf_version_required: pin,
-      });
-      expect(r.success).toBe(true);
-    },
-  );
+  test.each(
+    ACCEPT_PRE_OR_BUILD,
+  )("SessionStartedPayload accepts semver prerelease/build pin: %s", (pin) => {
+    const r = SessionStartedPayload.safeParse({
+      ...baseSessionStartedPayload,
+      loaf_version_required: pin,
+    });
+    expect(r.success).toBe(true);
+  });
 
-  test.each(ACCEPT_PRE_OR_BUILD)(
-    "StateProjection accepts semver prerelease/build pin: %s",
-    (pin) => {
-      const r = StateProjection.safeParse({
-        ...baseStateProjection,
-        loaf_version_required: pin,
-      });
-      expect(r.success).toBe(true);
-    },
-  );
+  test.each(
+    ACCEPT_PRE_OR_BUILD,
+  )("StateProjection accepts semver prerelease/build pin: %s", (pin) => {
+    const r = StateProjection.safeParse({
+      ...baseStateProjection,
+      loaf_version_required: pin,
+    });
+    expect(r.success).toBe(true);
+  });
 
   test.each(REJECT)("SessionStartedPayload rejects malformed pin: %s", (pin) => {
     const r = SessionStartedPayload.safeParse({

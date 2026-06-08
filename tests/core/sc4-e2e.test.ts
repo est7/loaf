@@ -24,9 +24,7 @@ async function tmpFeatureDir(): Promise<string> {
   return await fs.mkdtemp(path.join(os.tmpdir(), "loaf-sc4-"));
 }
 
-async function runCli(
-  argv: string[],
-): Promise<{ exit: number; stdout: string; stderr: string }> {
+async function runCli(argv: string[]): Promise<{ exit: number; stdout: string; stderr: string }> {
   const stdoutChunks: string[] = [];
   const stderrChunks: string[] = [];
   const origStdout = process.stdout.write.bind(process.stdout);
@@ -53,10 +51,14 @@ const FEATURE = "auth-refresh";
 async function setup(): Promise<string> {
   const dir = await tmpFeatureDir();
   const r = await runCli([
-    "start", FEATURE,
-    "--ceremony", "standard",
-    "--feature-dir", dir,
-    "--format", "json",
+    "start",
+    FEATURE,
+    "--ceremony",
+    "standard",
+    "--feature-dir",
+    dir,
+    "--format",
+    "json",
   ]);
   if (r.exit !== 0) throw new Error(`setup start failed: exit=${r.exit} stderr=${r.stderr}`);
   return dir;
@@ -70,11 +72,7 @@ async function corruptMeta(dir: string): Promise<void> {
 }
 
 async function rebuild(dir: string): Promise<void> {
-  const r = await runCli([
-    "doctor", "--rebuild",
-    "--feature", FEATURE,
-    "--feature-dir", dir,
-  ]);
+  const r = await runCli(["doctor", "--rebuild", "--feature", FEATURE, "--feature-dir", dir]);
   if (r.exit !== 0) throw new Error(`doctor --rebuild failed: exit=${r.exit} stderr=${r.stderr}`);
 }
 
@@ -88,14 +86,30 @@ async function fullClosure(
   cmdArgs: readonly string[],
 ): Promise<{ initialJson: unknown; afterRebuildJson: unknown }> {
   // 2. happy path read
-  const happy = await runCli([...cmdArgs, "--feature", FEATURE, "--feature-dir", dir, "--format", "json"]);
+  const happy = await runCli([
+    ...cmdArgs,
+    "--feature",
+    FEATURE,
+    "--feature-dir",
+    dir,
+    "--format",
+    "json",
+  ]);
   expect(happy.exit).toBe(0);
   expect(happy.stderr).toBe("");
   const initialJson = JSON.parse(happy.stdout);
 
   // 3. corrupt _meta → command fails stale
   await corruptMeta(dir);
-  const stale = await runCli([...cmdArgs, "--feature", FEATURE, "--feature-dir", dir, "--format", "json"]);
+  const stale = await runCli([
+    ...cmdArgs,
+    "--feature",
+    FEATURE,
+    "--feature-dir",
+    dir,
+    "--format",
+    "json",
+  ]);
   expect(stale.exit).toBe(2);
   expect(stale.stdout).toBe(""); // no stdout payload on stale
   const staleErr = JSON.parse(stale.stderr);
@@ -109,7 +123,15 @@ async function fullClosure(
   await rebuild(dir);
 
   // 5. happy path read again, byte-equal to step 2
-  const recovered = await runCli([...cmdArgs, "--feature", FEATURE, "--feature-dir", dir, "--format", "json"]);
+  const recovered = await runCli([
+    ...cmdArgs,
+    "--feature",
+    FEATURE,
+    "--feature-dir",
+    dir,
+    "--format",
+    "json",
+  ]);
   expect(recovered.exit).toBe(0);
   expect(recovered.stderr).toBe("");
   const afterRebuildJson = JSON.parse(recovered.stdout);
@@ -151,13 +173,29 @@ describe("SC4 — alternative stale paths exercised via the same cycle", () => {
   test("trailing_partial_line: truncate journal tail by 1 byte → stale + rebuild repairs", async () => {
     const dir = await setup();
     // happy
-    const happy = await runCli(["status", "--feature", FEATURE, "--feature-dir", dir, "--format", "json"]);
+    const happy = await runCli([
+      "status",
+      "--feature",
+      FEATURE,
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
+    ]);
     expect(happy.exit).toBe(0);
     // corrupt: truncate trailing \n from journal
     const journalPath = path.join(dir, "journal.jsonl");
     const stat = await fs.stat(journalPath);
     await fs.truncate(journalPath, stat.size - 1);
-    const stale = await runCli(["status", "--feature", FEATURE, "--feature-dir", dir, "--format", "json"]);
+    const stale = await runCli([
+      "status",
+      "--feature",
+      FEATURE,
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
+    ]);
     expect(stale.exit).toBe(2);
     expect(stale.stdout).toBe("");
     const err = JSON.parse(stale.stderr);
@@ -172,7 +210,16 @@ describe("SC4 — alternative stale paths exercised via the same cycle", () => {
   test("projection_missing: delete pending.json → stale + rebuild repairs", async () => {
     const dir = await setup();
     await fs.rm(path.join(dir, "snapshots", "pending.json"));
-    const stale = await runCli(["pending", "list", "--feature", FEATURE, "--feature-dir", dir, "--format", "json"]);
+    const stale = await runCli([
+      "pending",
+      "list",
+      "--feature",
+      FEATURE,
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
+    ]);
     expect(stale.exit).toBe(2);
     expect(stale.stdout).toBe("");
     const err = JSON.parse(stale.stderr);
@@ -182,7 +229,16 @@ describe("SC4 — alternative stale paths exercised via the same cycle", () => {
     });
     // rebuild repairs (unconditional writer re-emits pending.json)
     await rebuild(dir);
-    const recovered = await runCli(["pending", "list", "--feature", FEATURE, "--feature-dir", dir, "--format", "json"]);
+    const recovered = await runCli([
+      "pending",
+      "list",
+      "--feature",
+      FEATURE,
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
+    ]);
     expect(recovered.exit).toBe(0);
     expect(JSON.parse(recovered.stdout)).toMatchObject({ ok: true, count: 0, pending: [] });
   });
@@ -196,7 +252,15 @@ describe("SC4 — alternative stale paths exercised via the same cycle", () => {
     const raw = JSON.parse(await fs.readFile(metaPath, "utf8"));
     raw.last_applied_seq = "not-a-number"; // schema fail
     await fs.writeFile(metaPath, JSON.stringify(raw));
-    const stale = await runCli(["status", "--feature", FEATURE, "--feature-dir", dir, "--format", "json"]);
+    const stale = await runCli([
+      "status",
+      "--feature",
+      FEATURE,
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
+    ]);
     expect(stale.exit).toBe(2);
     expect(stale.stdout).toBe("");
     const err = JSON.parse(stale.stderr);
@@ -206,7 +270,15 @@ describe("SC4 — alternative stale paths exercised via the same cycle", () => {
     });
     // rebuild repairs (writes a valid _meta)
     await rebuild(dir);
-    const recovered = await runCli(["status", "--feature", FEATURE, "--feature-dir", dir, "--format", "json"]);
+    const recovered = await runCli([
+      "status",
+      "--feature",
+      FEATURE,
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
+    ]);
     expect(recovered.exit).toBe(0);
   });
 });

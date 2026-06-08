@@ -30,9 +30,7 @@ const STANDARD: Ceremony = {
 /** Capture stdout/stderr around a `main(argv)` call. Serial — patches the
  *  process write streams globally (F-011); this file's tests are not
  *  marked concurrent. */
-async function runCli(
-  argv: string[],
-): Promise<{ exit: number; stdout: string; stderr: string }> {
+async function runCli(argv: string[]): Promise<{ exit: number; stdout: string; stderr: string }> {
   const outChunks: string[] = [];
   const errChunks: string[] = [];
   const origOut = process.stdout.write.bind(process.stdout);
@@ -181,8 +179,7 @@ async function buildV0Fixture(): Promise<string> {
       tasks: [{ id: "T-001", kind: "behavioral", status: "in_progress" }],
     }),
     "spec.md": "## REQ-AUTH-001\nWHEN user logs in, system shall issue a session token.\n",
-    "evidence.jsonl":
-      JSON.stringify({ id: "EV-000001", kind: "test", result: "passed" }) + "\n",
+    "evidence.jsonl": JSON.stringify({ id: "EV-000001", kind: "test", result: "passed" }) + "\n",
     "findings.jsonl":
       JSON.stringify({ id: "FND-001", category: "spec-gap", action: "amend-spec" }) + "\n",
     "pending.json": JSON.stringify({ pending: [] }),
@@ -199,12 +196,23 @@ describe("loaf doctor --rebuild — Phase 14 SC2", () => {
     try {
       await seedJournal(dir, { withPlan: false });
       const r = await runCli([
-        "doctor", "--rebuild", "--feature", "auth-refresh", "--feature-dir", dir,
+        "doctor",
+        "--rebuild",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        dir,
       ]);
       expect(r.exit).toBe(0);
       expect(r.stderr).toContain("doctor rebuild: rebuilt");
       const snapDir = path.join(dir, "snapshots");
-      for (const f of ["state.json", "evidence.json", "findings.json", "pending.json", "_meta.json"]) {
+      for (const f of [
+        "state.json",
+        "evidence.json",
+        "findings.json",
+        "pending.json",
+        "_meta.json",
+      ]) {
         expect((await fs.stat(path.join(snapDir, f))).isFile()).toBe(true);
       }
       expect(r.stdout).toContain("# snapshot as-of seq=");
@@ -218,7 +226,14 @@ describe("loaf doctor --rebuild — Phase 14 SC2", () => {
     try {
       await seedJournal(dir, { withPlan: false });
       const r = await runCli([
-        "doctor", "--rebuild", "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
+        "doctor",
+        "--rebuild",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        dir,
+        "--format",
+        "json",
       ]);
       expect(r.exit).toBe(0);
       expect(r.stderr).toContain("doctor rebuild: rebuilt");
@@ -227,7 +242,11 @@ describe("loaf doctor --rebuild — Phase 14 SC2", () => {
       expect(out.feature).toBe("auth-refresh");
       expect(typeof out.tail_seq).toBe("number");
       expect(out.rebuilt).toEqual([
-        "state.json", "evidence.json", "findings.json", "pending.json", "_meta.json",
+        "state.json",
+        "evidence.json",
+        "findings.json",
+        "pending.json",
+        "_meta.json",
       ]);
       expect(out.rebuilt).not.toContain("tasks.json");
     } finally {
@@ -240,14 +259,19 @@ describe("loaf doctor --rebuild — Phase 14 SC2", () => {
     try {
       await seedJournal(dir, { withPlan: true });
       const r = await runCli([
-        "doctor", "--rebuild", "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
+        "doctor",
+        "--rebuild",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        dir,
+        "--format",
+        "json",
       ]);
       expect(r.exit).toBe(0);
       const out = JSON.parse(r.stdout);
       expect(out.rebuilt).toContain("tasks.json");
-      expect(
-        (await fs.stat(path.join(dir, "snapshots", "tasks.json"))).isFile(),
-      ).toBe(true);
+      expect((await fs.stat(path.join(dir, "snapshots", "tasks.json"))).isFile()).toBe(true);
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
     }
@@ -258,14 +282,25 @@ describe("loaf doctor --rebuild — Phase 14 SC2", () => {
     try {
       await seedJournal(dir, { withPlan: true });
       const r = await runCli([
-        "doctor", "--rebuild", "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
+        "doctor",
+        "--rebuild",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        dir,
+        "--format",
+        "json",
       ]);
       expect(r.exit).toBe(0);
       const out = JSON.parse(r.stdout);
       // state.json leads the rebuilt list; _meta.json trails — 5/5 + tasks.
       expect(out.rebuilt).toEqual([
-        "state.json", "tasks.json", "evidence.json",
-        "findings.json", "pending.json", "_meta.json",
+        "state.json",
+        "tasks.json",
+        "evidence.json",
+        "findings.json",
+        "pending.json",
+        "_meta.json",
       ]);
       const state = JSON.parse(
         await fs.readFile(path.join(dir, "snapshots", "state.json"), "utf8"),
@@ -295,12 +330,27 @@ describe("loaf doctor --rebuild — Phase 14 SC2", () => {
     const dir = await tmpDir();
     try {
       const s = await runCli([
-        "start", "auth-refresh", "--feature-dir", dir,
-        "--ceremony", "standard", "--label", "OAuth refresh", "--workspace", "team-a",
+        "start",
+        "auth-refresh",
+        "--feature-dir",
+        dir,
+        "--ceremony",
+        "standard",
+        "--label",
+        "OAuth refresh",
+        "--workspace",
+        "team-a",
       ]);
       expect(s.exit).toBe(0);
       const r = await runCli([
-        "doctor", "--rebuild", "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json",
+        "doctor",
+        "--rebuild",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        dir,
+        "--format",
+        "json",
       ]);
       expect(r.exit).toBe(0);
       const state = JSON.parse(
@@ -364,14 +414,19 @@ describe("loaf doctor --rebuild — Phase 14 SC2", () => {
         fsync: false,
       });
       const r = await runCli([
-        "doctor", "--rebuild", "--feature", "auth-refresh", "--feature-dir", featureDir,
+        "doctor",
+        "--rebuild",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
       ]);
       expect(r.exit).toBe(2);
       expect(r.stderr).toContain("DOCTOR_REBUILD_MIGRATED_UNSUPPORTED");
       // The guard fires before writeProjections — nothing materialized.
-      await expect(
-        fs.stat(path.join(featureDir, "snapshots", "_meta.json")),
-      ).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(fs.stat(path.join(featureDir, "snapshots", "_meta.json"))).rejects.toMatchObject(
+        { code: "ENOENT" },
+      );
     } finally {
       await fs.rm(path.dirname(featureDir), { recursive: true, force: true });
     }
@@ -384,19 +439,20 @@ describe("loaf doctor --rebuild — Phase 14 SC2", () => {
     const dir = await tmpDir();
     try {
       // Envelope-invalid line — replayJournal returns INVALID_ENTRY.
-      await fs.writeFile(
-        path.join(dir, "journal.jsonl"),
-        '{"not":"a journal entry"}\n',
-        "utf8",
-      );
+      await fs.writeFile(path.join(dir, "journal.jsonl"), '{"not":"a journal entry"}\n', "utf8");
       const r = await runCli([
-        "doctor", "--rebuild", "--feature", "auth-refresh", "--feature-dir", dir,
+        "doctor",
+        "--rebuild",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        dir,
       ]);
       expect(r.exit).toBe(2);
       expect(r.stderr).toContain("cannot be replayed");
-      await expect(
-        fs.stat(path.join(dir, "snapshots", "_meta.json")),
-      ).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(fs.stat(path.join(dir, "snapshots", "_meta.json"))).rejects.toMatchObject({
+        code: "ENOENT",
+      });
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
     }

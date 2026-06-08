@@ -70,9 +70,7 @@ describe("ResumePack runtime/docs lockstep", () => {
   test("cap exceeded: 11 evidence IDs rejected by BOTH (RESUME_PACK_RECENT_CAP=10)", () => {
     const bad = {
       ...VALID_FIXTURE,
-      recent_evidence: Array.from({ length: 11 }, (_, i) =>
-        `EV-${String(i + 1).padStart(6, "0")}`,
-      ),
+      recent_evidence: Array.from({ length: 11 }, (_, i) => `EV-${String(i + 1).padStart(6, "0")}`),
     };
     expect(DocsResumePack.safeParse(bad).success).toBe(false);
     expect(RuntimeResumePack.safeParse(bad).success).toBe(false);
@@ -81,8 +79,9 @@ describe("ResumePack runtime/docs lockstep", () => {
   test("cap exceeded: 11 finding IDs rejected by BOTH", () => {
     const bad = {
       ...VALID_FIXTURE,
-      recent_findings: Array.from({ length: 11 }, (_, i) =>
-        `FND-${String(i + 1).padStart(3, "0")}`,
+      recent_findings: Array.from(
+        { length: 11 },
+        (_, i) => `FND-${String(i + 1).padStart(3, "0")}`,
       ),
     };
     expect(DocsResumePack.safeParse(bad).success).toBe(false);

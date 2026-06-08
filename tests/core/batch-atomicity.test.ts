@@ -44,7 +44,12 @@ function startEntry(): JournalEntry {
   };
 }
 
-function pendingEntry(seq: number, batchId: string, batchIndex: number, batchCount: number): JournalEntry {
+function pendingEntry(
+  seq: number,
+  batchId: string,
+  batchIndex: number,
+  batchCount: number,
+): JournalEntry {
   return {
     seq,
     entry_id: `JE-${String(seq + 1).padStart(6, "0")}`,
@@ -116,10 +121,7 @@ describe("batch atomicity — ADR-0005 §4.16", () => {
   test("Scenario 3: batch_count=1 (singleton batch) is complete", async () => {
     const fp = await tmpJournal();
     const batchId = "a1b2c3d4-e5f6-4a78-9b0c-1d2e3f4a5b6c";
-    const lines = [
-      startEntry(),
-      pendingEntry(1, batchId, 0, 1),
-    ];
+    const lines = [startEntry(), pendingEntry(1, batchId, 0, 1)];
     await fs.writeFile(fp, lines.map(serialize).join(""));
 
     const recovery = await tailRecovery(fp);

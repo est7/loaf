@@ -96,7 +96,12 @@ export function evaluateWritePath(input: WritePathDecisionInput): WritePathDecis
     const denyGlobs = input.config.protected_files.map((g) => substituteFeature(g, input.feature));
     const matchedDeny = firstMatch(normalized, denyGlobs);
     if (matchedDeny !== null) {
-      return { allowed: false, code: "PROTECTED_FILE_WRITE", normalizedPath: normalized, matchedDeny };
+      return {
+        allowed: false,
+        code: "PROTECTED_FILE_WRITE",
+        normalizedPath: normalized,
+        matchedDeny,
+      };
     }
   }
 
@@ -128,9 +133,7 @@ export const HookToolInputEnvelope = z.object({
   }),
 });
 
-export type HookStdinParse =
-  | { ok: true; path: string }
-  | { ok: false; reason: string };
+export type HookStdinParse = { ok: true; path: string } | { ok: false; reason: string };
 
 /** Parse `tool_input.file_path` from a Claude Code hook stdin JSON payload. */
 export function parseHookStdinPath(raw: string): HookStdinParse {

@@ -63,11 +63,8 @@ export function hasVerifiability(req: {
 }): boolean {
   const hasMeasurable = req.measurable !== undefined;
   const hasScenarios =
-    req.verified_by_scenarios !== undefined &&
-    req.verified_by_scenarios.length > 0;
-  const hasNa =
-    req.acceptance_na === true &&
-    (req.acceptance_na_reason?.length ?? 0) >= 10;
+    req.verified_by_scenarios !== undefined && req.verified_by_scenarios.length > 0;
+  const hasNa = req.acceptance_na === true && (req.acceptance_na_reason?.length ?? 0) >= 10;
   return hasMeasurable || hasScenarios || hasNa;
 }
 
@@ -121,10 +118,10 @@ export type RequirementEarsShape = z.infer<typeof RequirementEarsShape>;
 // when no verifiability triad — this is the journal-strict gate so loaf
 // can't append a REQ that violates protocol §4.2.
 
-export const RequirementEarsVerifiable = RequirementEarsShape.refine(
-  hasVerifiability,
-  { message: "REQ must declare measurable, verified_by_scenarios[], or acceptance_na+reason (≥10 chars)" },
-);
+export const RequirementEarsVerifiable = RequirementEarsShape.refine(hasVerifiability, {
+  message:
+    "REQ must declare measurable, verified_by_scenarios[], or acceptance_na+reason (≥10 chars)",
+});
 export type RequirementEarsVerifiable = z.infer<typeof RequirementEarsVerifiable>;
 
 // ── Scenarios + visual contracts + needs_clarification ──────────────────
@@ -140,10 +137,9 @@ export const ScenarioGherkin = z
     when: z.array(z.string().min(3)).min(1),
     then: z.array(z.string().min(3)).min(1),
   })
-  .refine(
-    (s) => !(s.tag === "e2e" && s.acceptance_na !== undefined && s.requires_acceptance),
-    { message: "cannot set both requires_acceptance and acceptance_na" },
-  );
+  .refine((s) => !(s.tag === "e2e" && s.acceptance_na !== undefined && s.requires_acceptance), {
+    message: "cannot set both requires_acceptance and acceptance_na",
+  });
 export type ScenarioGherkin = z.infer<typeof ScenarioGherkin>;
 
 export const VisualContract = z

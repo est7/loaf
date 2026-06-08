@@ -111,7 +111,11 @@ describe("Phase 16 SC-5b1 — RED #4-#11: MUTUALLY_EXCLUSIVE_FLAGS rendering", (
     expect(result.stdout).toBe("");
     const lines = result.stderr.split("\n").filter((l) => l.length > 0);
     expect(lines.length).toBe(1);
-    const obj = JSON.parse(lines[0]!) as { ok: boolean; code: string; detail: { conflicting: string[] } };
+    const obj = JSON.parse(lines[0]!) as {
+      ok: boolean;
+      code: string;
+      detail: { conflicting: string[] };
+    };
     expect(obj.ok).toBe(false);
     expect(obj.code).toBe("MUTUALLY_EXCLUSIVE_FLAGS");
     expect(obj.detail.conflicting).toContain("--plain");
@@ -122,7 +126,10 @@ describe("Phase 16 SC-5b1 — RED #4-#11: MUTUALLY_EXCLUSIVE_FLAGS rendering", (
     const result = await runCli(["status", "--plain", "--format", "json"]);
     expect(result.exit).toBe(2);
     expect(result.stdout).toBe("");
-    const obj = JSON.parse(result.stderr.trim()) as { code: string; detail: { conflicting: string[] } };
+    const obj = JSON.parse(result.stderr.trim()) as {
+      code: string;
+      detail: { conflicting: string[] };
+    };
     expect(obj.code).toBe("MUTUALLY_EXCLUSIVE_FLAGS");
     expect(obj.detail.conflicting).toContain("--plain");
   });
@@ -165,7 +172,9 @@ describe("Phase 16 SC-5b1 — RED #4-#11: MUTUALLY_EXCLUSIVE_FLAGS rendering", (
     expect(zhResult.stderr).toBe(defaultResult.stderr);
     const obj = JSON.parse(zhResult.stderr.trim()) as { code: string; message: string };
     expect(obj.code).toBe("MUTUALLY_EXCLUSIVE_FLAGS");
-    expect(obj.message).toBe("mutually exclusive flags in the same invocation: --plain, --format=json");
+    expect(obj.message).toBe(
+      "mutually exclusive flags in the same invocation: --plain, --format=json",
+    );
   });
 
   test("RED #10: --format text --format text → OK (same canonical, no mutex)", () => {
@@ -211,9 +220,15 @@ describe("Phase 16 SC-5b1 — RED #4-#11: MUTUALLY_EXCLUSIVE_FLAGS rendering", (
 
   test("RED #11d (r258 F1): unit — findFirstInvalidFormat scans all occurrences", async () => {
     const { findFirstInvalidFormat } = await import("../../src/cli/command-context.js");
-    expect(findFirstInvalidFormat(["--format", "text", "--format", "yaml"])).toEqual({ rawValue: "yaml" });
-    expect(findFirstInvalidFormat(["--format=json", "--format=yaml"])).toEqual({ rawValue: "yaml" });
-    expect(findFirstInvalidFormat(["--format=yaml", "--format=text"])).toEqual({ rawValue: "yaml" });
+    expect(findFirstInvalidFormat(["--format", "text", "--format", "yaml"])).toEqual({
+      rawValue: "yaml",
+    });
+    expect(findFirstInvalidFormat(["--format=json", "--format=yaml"])).toEqual({
+      rawValue: "yaml",
+    });
+    expect(findFirstInvalidFormat(["--format=yaml", "--format=text"])).toEqual({
+      rawValue: "yaml",
+    });
     expect(findFirstInvalidFormat(["--format", "text", "--format", "json"])).toBeNull();
     expect(findFirstInvalidFormat([])).toBeNull();
   });
@@ -282,10 +297,14 @@ describe("Phase 16 SC-5b1 — RED #16-#20: loaf start pilot ctx.success advisory
   test("RED #16: loaf start --format json --quiet → JSON stdout; stateChange/next stderr SUPPRESSED", async () => {
     const dir = await tmpFeatureDir();
     const result = await runCli([
-      "start", "auth-refresh",
-      "--ceremony", "quick",
-      "--feature-dir", dir,
-      "--format", "json",
+      "start",
+      "auth-refresh",
+      "--ceremony",
+      "quick",
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
       "--quiet",
     ]);
     expect(result.exit).toBe(0);
@@ -298,9 +317,12 @@ describe("Phase 16 SC-5b1 — RED #16-#20: loaf start pilot ctx.success advisory
   test("RED #17: loaf start --quiet (text mode) → stdout <UUID>\\n; stderr SUPPRESSED", async () => {
     const dir = await tmpFeatureDir();
     const result = await runCli([
-      "start", "auth-refresh",
-      "--ceremony", "quick",
-      "--feature-dir", dir,
+      "start",
+      "auth-refresh",
+      "--ceremony",
+      "quick",
+      "--feature-dir",
+      dir,
       "--quiet",
     ]);
     expect(result.exit).toBe(0);
@@ -313,9 +335,12 @@ describe("Phase 16 SC-5b1 — RED #16-#20: loaf start pilot ctx.success advisory
   test("RED #18: loaf start (no quiet, text) → stdout=UUID; stderr stateChange + next per protocol §10.12", async () => {
     const dir = await tmpFeatureDir();
     const result = await runCli([
-      "start", "auth-refresh",
-      "--ceremony", "quick",
-      "--feature-dir", dir,
+      "start",
+      "auth-refresh",
+      "--ceremony",
+      "quick",
+      "--feature-dir",
+      dir,
     ]);
     expect(result.exit).toBe(0);
     expect(result.stdout).toMatch(/^[0-9a-f-]{36}\n$/i);
@@ -326,10 +351,14 @@ describe("Phase 16 SC-5b1 — RED #16-#20: loaf start pilot ctx.success advisory
   test("RED #19: loaf start --format json (no quiet) → JSON stdout + stateChange/next stderr both emit", async () => {
     const dir = await tmpFeatureDir();
     const result = await runCli([
-      "start", "auth-refresh",
-      "--ceremony", "quick",
-      "--feature-dir", dir,
-      "--format", "json",
+      "start",
+      "auth-refresh",
+      "--ceremony",
+      "quick",
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     expect(result.exit).toBe(0);
     const parsed = JSON.parse(result.stdout) as { ok: boolean };
@@ -355,17 +384,16 @@ describe("Phase 16 SC-5b1 — RED #16-#20: loaf start pilot ctx.success advisory
 describe("Phase 16 SC-5b1 — RED #22: read-only --quiet preserves primary stdout", () => {
   test("loaf status --quiet → primary stdout still emits (read-only is channel A)", async () => {
     const dir = await tmpFeatureDir();
-    await runCli([
-      "start", "auth-refresh",
-      "--ceremony", "quick",
-      "--feature-dir", dir,
-    ]);
+    await runCli(["start", "auth-refresh", "--ceremony", "quick", "--feature-dir", dir]);
     const result = await runCli([
       "status",
-      "--feature", "auth-refresh",
-      "--feature-dir", dir,
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      dir,
       "--quiet",
-      "--format", "json",
+      "--format",
+      "json",
     ]);
     // Status is read-only; --quiet must not silence its primary
     // output. Per protocol §10.12 quiet suppresses advisory stderr only.
@@ -440,7 +468,10 @@ describe("Phase 16 SC-5b1 — RED #25: FLAG_EXCLUSIONS.output_format normalizati
 
 describe("Phase 16 SC-5b2 — RED #26: protocol inventory:future annotations REMOVED from 4 flag rows", () => {
   test("docs/protocol.md no longer has inventory:future on --plain/--no-color/--quiet/--verbose rows", async () => {
-    const text = await fs.readFile(path.join(import.meta.dirname ?? __dirname, "../../docs/protocol.md"), "utf8");
+    const text = await fs.readFile(
+      path.join(import.meta.dirname ?? __dirname, "../../docs/protocol.md"),
+      "utf8",
+    );
     const flags = ["--plain", "--no-color", "--quiet", "--verbose"];
     for (const flag of flags) {
       // SC-5b2 flipped these to current: the flag row must NOT carry
@@ -460,9 +491,12 @@ describe("Phase 16 SC-5b2 — quiet suppression on migrated mutators", () => {
     const dir = await tmpFeatureDir();
     await runCli(["start", "auth-refresh", "--ceremony", "quick", "--feature-dir", dir]);
     const result = await runCli([
-      "advance", "TRIAGE.confirm",
-      "--feature", "auth-refresh",
-      "--feature-dir", dir,
+      "advance",
+      "TRIAGE.confirm",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      dir,
     ]);
     expect(result.exit).toBe(0);
     expect(result.stderr).toContain("advance: TRIAGE.score → TRIAGE.confirm");
@@ -472,9 +506,12 @@ describe("Phase 16 SC-5b2 — quiet suppression on migrated mutators", () => {
     const dir = await tmpFeatureDir();
     await runCli(["start", "auth-refresh", "--ceremony", "quick", "--feature-dir", dir]);
     const result = await runCli([
-      "advance", "TRIAGE.confirm",
-      "--feature", "auth-refresh",
-      "--feature-dir", dir,
+      "advance",
+      "TRIAGE.confirm",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      dir,
       "--quiet",
     ]);
     expect(result.exit).toBe(0);

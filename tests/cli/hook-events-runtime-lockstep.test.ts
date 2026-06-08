@@ -6,7 +6,10 @@
 
 import { describe, expect, test } from "vitest";
 
-import { HookEvent as DocsHookEvent, HOOK_EVENT_TO_CLAUDE_CODE as DOCS_MAP } from "../../docs/schemas.js";
+import {
+  HookEvent as DocsHookEvent,
+  HOOK_EVENT_TO_CLAUDE_CODE as DOCS_MAP,
+} from "../../docs/schemas.js";
 import {
   HOOK_EVENTS,
   HOOK_EVENT_TO_CLAUDE_CODE,
@@ -16,12 +19,7 @@ import {
 describe("HookEvent runtime/docs lockstep", () => {
   test("enum options match (same 4 values, same order)", () => {
     expect(RuntimeHookEvent.options).toEqual(DocsHookEvent.options);
-    expect(HOOK_EVENTS).toEqual([
-      "session-start",
-      "write-guard",
-      "scope-track",
-      "closure-check",
-    ]);
+    expect(HOOK_EVENTS).toEqual(["session-start", "write-guard", "scope-track", "closure-check"]);
   });
 
   test("ClaudeCode map keys + values match docs", () => {

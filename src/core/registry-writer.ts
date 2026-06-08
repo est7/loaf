@@ -73,9 +73,7 @@ export interface BuildRegistryFileInput {
  *  Throws on Zod parse failure — schema mismatch means a code defect,
  *  not a stale projection (codex r280 P4). Caller in `mutateBatch`
  *  step 9 catches + converts to a mutate failure result. */
-export function buildRegistryFile(
-  input: BuildRegistryFileInput,
-): RegistryFile | null {
+export function buildRegistryFile(input: BuildRegistryFileInput): RegistryFile | null {
   const { snapshot, entries, now, cwd } = input;
   const state = snapshot.state;
   if (!state || !state.session_id) return null;
@@ -116,9 +114,7 @@ export function buildRegistryFile(
 
   // active_tasks: TaskState.status === "in_progress" literal per
   // src/core/reducer.ts:62-66 (codex r279 D + r280 D confirmed).
-  const activeTasks = snapshot.tasks
-    .filter((t) => t.status === "in_progress")
-    .map((t) => t.id);
+  const activeTasks = snapshot.tasks.filter((t) => t.status === "in_progress").map((t) => t.id);
 
   // feature: canonical source is the session:started payload. The
   // rev-4.0 C9' invariant (feature == basename(dirname(state.json)))

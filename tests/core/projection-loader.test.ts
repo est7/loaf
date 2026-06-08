@@ -21,11 +21,7 @@ import os from "node:os";
 
 import { appendEntry } from "../../src/core/journal-append.js";
 import { initialSnapshot } from "../../src/core/reducer.js";
-import {
-  emptyMeta,
-  FEATURE_SCHEMA_VERSION,
-  type SnapshotMeta,
-} from "../../src/core/snapshot.js";
+import { emptyMeta, FEATURE_SCHEMA_VERSION, type SnapshotMeta } from "../../src/core/snapshot.js";
 import { mutate as mutateRaw } from "../../src/core/journal-mutate.js";
 import type { Ceremony, JournalEntry } from "../../src/core/journal-entry.js";
 
@@ -80,7 +76,14 @@ async function seedStarted(dir: string): Promise<{
         ceremony: STANDARD,
       },
     },
-    { feature_dir: dir, snapshot: initialSnapshot(), tail_seq: -1, entries: [], meta: emptyMeta(), fsync: false },
+    {
+      feature_dir: dir,
+      snapshot: initialSnapshot(),
+      tail_seq: -1,
+      entries: [],
+      meta: emptyMeta(),
+      fsync: false,
+    },
   );
   if (!r.ok) throw new Error(`seed boot failed: ${r.message}`);
   return { snapshot: r.snapshot, entries: [r.entry], meta: r.meta };
@@ -322,10 +325,7 @@ describe("loadProjections — NO_SESSION paths", () => {
   test("meta is the fresh empty sentinel (isEmptyMeta=true) + journal empty/absent → NO_SESSION", async () => {
     const dir = await tmpFeatureDir();
     await fs.mkdir(path.join(dir, "snapshots"), { recursive: true });
-    await fs.writeFile(
-      path.join(dir, "snapshots", "_meta.json"),
-      JSON.stringify(emptyMeta()),
-    );
+    await fs.writeFile(path.join(dir, "snapshots", "_meta.json"), JSON.stringify(emptyMeta()));
 
     await expect(loadProjections({ feature_dir: dir, kinds: ["state"] })).rejects.toMatchObject({
       code: "NO_SESSION",

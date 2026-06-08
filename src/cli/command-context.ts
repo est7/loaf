@@ -46,9 +46,7 @@ export const FORMAT_MODES: readonly OutputMode[] = ["text", "json"] as const;
  *  (per RED #12 in tests/scripts/sc5a-surface-gate.test.ts). */
 export const FORMAT_MODES_HUMAN: string = FORMAT_MODES.join("|");
 
-export type FormatParseResult =
-  | { ok: true; format: OutputMode }
-  | { ok: false; rawValue: string };
+export type FormatParseResult = { ok: true; format: OutputMode } | { ok: false; rawValue: string };
 
 /** Parse `--format <v>` or `--format=<v>` from argv. Returns OK 'text'
  *  on absent. Bare `--format` (no value, or followed by another flag)
@@ -99,9 +97,7 @@ export function parseFormatFromArgv(argv: readonly string[]): FormatParseResult 
  *  to honor INVALID_FORMAT precedence over mutex regardless of
  *  position (codex r258 F1: an invalid value AFTER a valid one must
  *  still raise INVALID_FORMAT). */
-export function findFirstInvalidFormat(
-  argv: readonly string[],
-): { rawValue: string } | null {
+export function findFirstInvalidFormat(argv: readonly string[]): { rawValue: string } | null {
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!;
     if (arg === "--format") {
@@ -196,7 +192,11 @@ export function parseVerboseFromArgv(argv: readonly string[]): number {
  *  Per protocol §10.2 (`docs/protocol.md:1512-1513`). */
 export function parseNoColorFromArgv(
   argv: readonly string[],
-  env: { NO_COLOR?: string | undefined; LOAF_NO_COLOR?: string | undefined; TERM?: string | undefined } = process.env as never,
+  env: {
+    NO_COLOR?: string | undefined;
+    LOAF_NO_COLOR?: string | undefined;
+    TERM?: string | undefined;
+  } = process.env as never,
 ): boolean {
   if (argv.includes("--no-color")) return true;
   if (env.NO_COLOR && env.NO_COLOR.length > 0) return true;
@@ -246,7 +246,9 @@ export type PresentationResult = PresentationOk | PresentationFail;
 /** Internal: collect every (entry, canonicalValue) pair from argv
  *  using the FLAG_EXCLUSIONS.output_format normalization. Used to
  *  detect non-equivalent multi-flag conflicts. */
-function collectOutputFormatEntries(argv: readonly string[]): Array<{ entry: string; canonical: OutputMode }> {
+function collectOutputFormatEntries(
+  argv: readonly string[],
+): Array<{ entry: string; canonical: OutputMode }> {
   const out: Array<{ entry: string; canonical: OutputMode }> = [];
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!;
@@ -346,10 +348,7 @@ export type CommandContextDeps = {
   /** Phase 16 SC-6c: `loadSession` accepts an `ensureDir` option.
    *  Production wires `cli-runtime.ts` `loadSession` (which honors
    *  the option); tests inject synthetic loaders. */
-  loadSession?: (
-    featureDir: string,
-    opts?: { ensureDir?: boolean },
-  ) => Promise<SessionLoad>;
+  loadSession?: (featureDir: string, opts?: { ensureDir?: boolean }) => Promise<SessionLoad>;
   loadProjections?: LoadProjectionsFn;
   /** Phase 16 SC-8: per-call registry dir override. Production omits
    *  (registry-writer's defaultRegistryDir() honors LOAF_REGISTRY_DIR
@@ -374,9 +373,7 @@ export type SuccessAdvisories = {
   next?: string | string[];
 };
 
-export type LazySuccessAdvisories =
-  | SuccessAdvisories
-  | ((i18n: I18n) => SuccessAdvisories);
+export type LazySuccessAdvisories = SuccessAdvisories | ((i18n: I18n) => SuccessAdvisories);
 
 export type CommandContext = {
   readonly argv: readonly string[];
@@ -447,11 +444,7 @@ export type CommandContext = {
     textRenderer?: (i18n: I18n) => string,
     advisories?: LazySuccessAdvisories,
   ) => void;
-  failure: (
-    code: string,
-    message: string,
-    detail?: Record<string, unknown>,
-  ) => void;
+  failure: (code: string, message: string, detail?: Record<string, unknown>) => void;
   failureKeyed: (
     code: string,
     keyPath: string,
@@ -545,9 +538,7 @@ export function createCommandContext(
       const cached = sessionCache.get(featureDir);
       if (cached) return cached;
       if (!deps.loadSession) {
-        throw new Error(
-          "CommandContext: loadSession dep not provided; cannot resolveSession",
-        );
+        throw new Error("CommandContext: loadSession dep not provided; cannot resolveSession");
       }
       // SC-6c: dry-run suppresses the mkdir side-effect by passing
       // `ensureDir: false` so a `loaf --dry-run start new-feature` does
@@ -604,8 +595,7 @@ export function createCommandContext(
       // SC-5b1 only `loaf start` passes advisories; SC-5b2 migrates
       // the remaining 40 sites.
       if (!quiet && advisories) {
-        const renderedAdvisories =
-          typeof advisories === "function" ? advisories(i18n) : advisories;
+        const renderedAdvisories = typeof advisories === "function" ? advisories(i18n) : advisories;
         if (renderedAdvisories.stateChange) {
           deps.writeStderr(renderedAdvisories.stateChange + "\n");
         }
@@ -625,9 +615,7 @@ export function createCommandContext(
     },
 
     failureKeyed(code, keyPath, vars, detail) {
-      const message = output === "json"
-        ? DEFAULT_I18N.t(keyPath, vars)
-        : i18n.t(keyPath, vars);
+      const message = output === "json" ? DEFAULT_I18N.t(keyPath, vars) : i18n.t(keyPath, vars);
       writeFailure(code, message, detail);
     },
 
@@ -658,54 +646,48 @@ export function createCommandContext(
     },
   };
 
-  function writeFailure(
-    code: string,
-    message: string,
-    detail?: Record<string, unknown>,
-  ): void {
-      if (output === "json") {
-        const out: Record<string, unknown> = { ok: false, code, message };
-        if (detail !== undefined) out["detail"] = detail;
-        deps.writeStderr(JSON.stringify(out) + "\n");
-      } else {
-        deps.writeStderr(`error: ${code} — ${message}\n`);
-        // Inherit the SC-2 emitFailure check-detail rendering for parity.
-        const checks = detail?.["checks"];
-        if (Array.isArray(checks)) {
-          for (const c of checks as Array<{
-            check?: number;
-            code?: string;
-            message?: string;
-          }>) {
-            deps.writeStderr(
-              `  [check ${c.check ?? "?"}] ${c.code ?? "UNKNOWN"}: ${c.message ?? ""}\n`,
-            );
-          }
-        }
-        // Phase 16 SC-9c — schema validation issue list (codex r309 B1).
-        // Renderer is generic but narrow to `{path?, code?, message?}` elements
-        // emitted by `mapZodIssues` (src/cli/check-file.ts). JSON mode is
-        // untouched — payload still rides one shared envelope line.
-        const errors = detail?.["errors"];
-        if (Array.isArray(errors)) {
-          for (const e of errors as Array<{
-            path?: string;
-            code?: string;
-            message?: string;
-          }>) {
-            deps.writeStderr(
-              `  [${e.path ?? "?"}] ${e.code ?? "UNKNOWN"}: ${e.message ?? ""}\n`,
-            );
-          }
-          if (detail?.["truncated"] === true) {
-            const total = detail?.["error_count"];
-            deps.writeStderr(
-              `  ... (${typeof total === "number" ? total : "?"} errors total; first ${errors.length} shown)\n`,
-            );
-          }
+  function writeFailure(code: string, message: string, detail?: Record<string, unknown>): void {
+    if (output === "json") {
+      const out: Record<string, unknown> = { ok: false, code, message };
+      if (detail !== undefined) out["detail"] = detail;
+      deps.writeStderr(JSON.stringify(out) + "\n");
+    } else {
+      deps.writeStderr(`error: ${code} — ${message}\n`);
+      // Inherit the SC-2 emitFailure check-detail rendering for parity.
+      const checks = detail?.["checks"];
+      if (Array.isArray(checks)) {
+        for (const c of checks as Array<{
+          check?: number;
+          code?: string;
+          message?: string;
+        }>) {
+          deps.writeStderr(
+            `  [check ${c.check ?? "?"}] ${c.code ?? "UNKNOWN"}: ${c.message ?? ""}\n`,
+          );
         }
       }
-      exitCode = 2;
+      // Phase 16 SC-9c — schema validation issue list (codex r309 B1).
+      // Renderer is generic but narrow to `{path?, code?, message?}` elements
+      // emitted by `mapZodIssues` (src/cli/check-file.ts). JSON mode is
+      // untouched — payload still rides one shared envelope line.
+      const errors = detail?.["errors"];
+      if (Array.isArray(errors)) {
+        for (const e of errors as Array<{
+          path?: string;
+          code?: string;
+          message?: string;
+        }>) {
+          deps.writeStderr(`  [${e.path ?? "?"}] ${e.code ?? "UNKNOWN"}: ${e.message ?? ""}\n`);
+        }
+        if (detail?.["truncated"] === true) {
+          const total = detail?.["error_count"];
+          deps.writeStderr(
+            `  ... (${typeof total === "number" ? total : "?"} errors total; first ${errors.length} shown)\n`,
+          );
+        }
+      }
+    }
+    exitCode = 2;
   }
 
   return ctx;

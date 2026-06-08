@@ -160,11 +160,6 @@
   "diagnostic": {
     "MISSING_VERIFIABILITY":      "需求 {req_id} 必须声明 measurable、verified_by_scenarios[] 或 acceptance_na+reason 三选一",
     "DRIVES_NOT_BOUND":           "需求 {req_id} 没有被任何 task.drives[] 引用",
-    "E2E_ACCEPTANCE_UNRESOLVED":  "场景 {scen_id}(tag=e2e)既没有 task 验收绑定,也没有 acceptance_na+reason",
-    "VISUAL_CONTRACT_UNRESOLVED": "视觉合约 {vis_id} 既没有 visual-ui task 引用,也没有 visual_na+reason",
-    "TASK_KIND_SCHEMA_INVALID":   "任务 {task_id} 不符合 kind={kind} 的 schema:{reason}",
-    "NO_OPEN_CLARIFICATIONS":     "spec.md 仍有未解决的 clarifications: {ids}",
-    "TASKS_VERSION_MISMATCH":     "tasks.based_on.spec({tasks_ver})≠ spec.spec_version({spec_ver})",
     "EVIDENCE_INCOMPATIBLE":      "证据 {evidence_id}(kind={kind})不能满足 {covered_id} 的覆盖要求",
     "WAIVER_MISSING_REASON":      "豁免证据 {evidence_id} 必须有 reason(≥10 字符)",
     "WAIVER_NOT_HUMAN":           "豁免证据 {evidence_id} 的 actor 必须以 'human:' 开头,当前 {actor}",

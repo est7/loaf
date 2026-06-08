@@ -54,11 +54,7 @@ describe("statusBucket", () => {
       makeRow({ pending_queue_depth: 1, active_tasks: ["T-001"] }),
       "blocked",
     ],
-    [
-      "active tasks mark running",
-      makeRow({ active_tasks: ["T-001"] }),
-      "running",
-    ],
+    ["active tasks mark running", makeRow({ active_tasks: ["T-001"] }), "running"],
     [
       "non-terminal row with no pending or active work is idle",
       makeRow({ sub_state: "VERIFY.accept" }),
@@ -70,11 +66,19 @@ describe("statusBucket", () => {
 });
 
 describe("filterActive", () => {
-  const active = makeRow({ session_id: "aaaaaaaa-0000-4000-8000-000000000001", sub_state: "EXECUTE.work" });
-  const done = makeRow({ session_id: "bbbbbbbb-0000-4000-8000-000000000002", sub_state: "DONE.delivered" });
+  const active = makeRow({
+    session_id: "aaaaaaaa-0000-4000-8000-000000000001",
+    sub_state: "EXECUTE.work",
+  });
+  const done = makeRow({
+    session_id: "bbbbbbbb-0000-4000-8000-000000000002",
+    sub_state: "DONE.delivered",
+  });
 
   test("showAll=false removes DONE.* rows", () => {
-    expect(filterActive([active, done], false).map((row) => row.session_id)).toEqual([active.session_id]);
+    expect(filterActive([active, done], false).map((row) => row.session_id)).toEqual([
+      active.session_id,
+    ]);
   });
 
   test("showAll=true preserves active and DONE.* rows", () => {
@@ -88,10 +92,26 @@ describe("filterActive", () => {
 describe("groupByProjectFeature", () => {
   test("builds project -> feature groups without redefining SessionRow", () => {
     const rows = [
-      makeRow({ session_id: "aaaaaaaa-0000-4000-8000-000000000001", cwd: "/repo/a", feature: "alpha" }),
-      makeRow({ session_id: "bbbbbbbb-0000-4000-8000-000000000002", cwd: "/repo/a", feature: "beta" }),
-      makeRow({ session_id: "cccccccc-0000-4000-8000-000000000003", cwd: "/repo/b", feature: "alpha" }),
-      makeRow({ session_id: "dddddddd-0000-4000-8000-000000000004", cwd: "/repo/a", feature: "alpha" }),
+      makeRow({
+        session_id: "aaaaaaaa-0000-4000-8000-000000000001",
+        cwd: "/repo/a",
+        feature: "alpha",
+      }),
+      makeRow({
+        session_id: "bbbbbbbb-0000-4000-8000-000000000002",
+        cwd: "/repo/a",
+        feature: "beta",
+      }),
+      makeRow({
+        session_id: "cccccccc-0000-4000-8000-000000000003",
+        cwd: "/repo/b",
+        feature: "alpha",
+      }),
+      makeRow({
+        session_id: "dddddddd-0000-4000-8000-000000000004",
+        cwd: "/repo/a",
+        feature: "alpha",
+      }),
     ];
 
     expect(groupByProjectFeature(rows)).toEqual([
@@ -131,7 +151,9 @@ describe("groupByProjectFeature", () => {
 
 describe("buildRenderPlan", () => {
   test("returns an empty plan for empty input", () => {
-    expect(buildRenderPlan([], { showAll: false, sortMode: "time", collapsed: new Set() })).toEqual([]);
+    expect(buildRenderPlan([], { showAll: false, sortMode: "time", collapsed: new Set() })).toEqual(
+      [],
+    );
   });
 
   test("uses stable keys for project, feature, and session items", () => {
@@ -141,7 +163,9 @@ describe("buildRenderPlan", () => {
       feature: "alpha",
     });
 
-    expect(itemKeys(buildRenderPlan([row], { showAll: false, sortMode: "time", collapsed: new Set() }))).toEqual([
+    expect(
+      itemKeys(buildRenderPlan([row], { showAll: false, sortMode: "time", collapsed: new Set() })),
+    ).toEqual([
       "project:/repo/a",
       "feature:/repo/a:alpha",
       "session:aaaaaaaa-0000-4000-8000-000000000001",
@@ -176,7 +200,9 @@ describe("buildRenderPlan", () => {
       }),
     ];
 
-    expect(itemKeys(buildRenderPlan(rows, { showAll: false, sortMode: "time", collapsed: new Set() }))).toEqual([
+    expect(
+      itemKeys(buildRenderPlan(rows, { showAll: false, sortMode: "time", collapsed: new Set() })),
+    ).toEqual([
       "project:/repo/new",
       "feature:/repo/new:alpha",
       "session:cccccccc-0000-4000-8000-000000000003",
@@ -203,7 +229,11 @@ describe("buildRenderPlan", () => {
       sub_state: "DONE.delivered",
     });
 
-    const plan = buildRenderPlan([active, done], { showAll: false, sortMode: "time", collapsed: new Set() });
+    const plan = buildRenderPlan([active, done], {
+      showAll: false,
+      sortMode: "time",
+      collapsed: new Set(),
+    });
 
     expect(plan).toEqual([
       {
@@ -259,7 +289,9 @@ describe("buildRenderPlan", () => {
       }),
     ];
 
-    expect(itemKeys(buildRenderPlan(rows, { showAll: true, sortMode: "status", collapsed: new Set() }))).toEqual([
+    expect(
+      itemKeys(buildRenderPlan(rows, { showAll: true, sortMode: "status", collapsed: new Set() })),
+    ).toEqual([
       "project:/Users/dev/project-a",
       "feature:/Users/dev/project-a:auth-refresh",
       "session:block222-0000-4000-8000-000000000005",
@@ -339,9 +371,27 @@ describe("buildRenderPlan", () => {
 
 describe("navigation helpers", () => {
   const plan: TuiListItem[] = [
-    { kind: "project", key: "project:/repo/a", cwd: "/repo/a", visible_session_count: 1, collapsed: false },
-    { kind: "feature", key: "feature:/repo/a:alpha", cwd: "/repo/a", feature: "alpha", visible_session_count: 1, collapsed: false },
-    { kind: "session", key: "session:aaaaaaaa-0000-4000-8000-000000000001", row: makeRow({ session_id: "aaaaaaaa-0000-4000-8000-000000000001" }), detail_status: "unknown" },
+    {
+      kind: "project",
+      key: "project:/repo/a",
+      cwd: "/repo/a",
+      visible_session_count: 1,
+      collapsed: false,
+    },
+    {
+      kind: "feature",
+      key: "feature:/repo/a:alpha",
+      cwd: "/repo/a",
+      feature: "alpha",
+      visible_session_count: 1,
+      collapsed: false,
+    },
+    {
+      kind: "session",
+      key: "session:aaaaaaaa-0000-4000-8000-000000000001",
+      row: makeRow({ session_id: "aaaaaaaa-0000-4000-8000-000000000001" }),
+      detail_status: "unknown",
+    },
   ];
 
   test.each([

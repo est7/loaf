@@ -76,8 +76,7 @@ export function materializeTaskForAmend(
   // `tasks amend` rebuilt from the canonical body does not drop it (which
   // §8.6's frozen-field diff would then read as a true→undefined change).
   if (current.red_test_registered !== undefined) {
-    (out as { red_test_registered?: boolean }).red_test_registered =
-      current.red_test_registered;
+    (out as { red_test_registered?: boolean }).red_test_registered = current.red_test_registered;
   }
   // Each TaskFull variant's `execution` is a fixed-key object whose values
   // are all TaskExecutionStepPayload — structurally a Record over the step

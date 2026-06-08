@@ -13,41 +13,72 @@ const CLI = "cli:loaf@alice";
 describe("buildGateApprovalBatch — approval co-emission ordering + actor split", () => {
   test("spec-lock, no pending head → [gate:decided(human), phase_advanced(cli)]", () => {
     const b = buildGateApprovalBatch({
-      gate: "spec-lock", reason: "looks good", humanActor: HUMAN, cliActor: CLI, from: "SPEC.design",
+      gate: "spec-lock",
+      reason: "looks good",
+      humanActor: HUMAN,
+      cliActor: CLI,
+      from: "SPEC.design",
     });
     expect(b.map((e) => e.kind)).toEqual(["gate:decided", "event:phase_advanced"]);
     expect(b.map((e) => e.actor)).toEqual([HUMAN, CLI]);
-    expect(b[0]!.payload).toEqual({ gate_kind: "spec-lock", decision: "approved", reason: "looks good" });
+    expect(b[0]!.payload).toEqual({
+      gate_kind: "spec-lock",
+      decision: "approved",
+      reason: "looks good",
+    });
     expect(b[1]!.payload).toEqual({ from: "SPEC.design", to: "EXECUTE.plan" });
   });
 
   test("spec-lock, pending head → pending:resolved(cli) BETWEEN decision and advance", () => {
     const b = buildGateApprovalBatch({
-      gate: "spec-lock", reason: "ok", humanActor: HUMAN, cliActor: CLI, from: "SPEC.design", pendingHeadId: "PEND-0001",
+      gate: "spec-lock",
+      reason: "ok",
+      humanActor: HUMAN,
+      cliActor: CLI,
+      from: "SPEC.design",
+      pendingHeadId: "PEND-0001",
     });
-    expect(b.map((e) => e.kind)).toEqual(["gate:decided", "pending:resolved", "event:phase_advanced"]);
+    expect(b.map((e) => e.kind)).toEqual([
+      "gate:decided",
+      "pending:resolved",
+      "event:phase_advanced",
+    ]);
     expect(b.map((e) => e.actor)).toEqual([HUMAN, CLI, CLI]);
     expect(b[1]!.payload).toEqual({ id: "PEND-0001", answer: "gate-decide:spec-lock:approved" });
   });
 
   test("verify-accept, no pending head → [gate:decided(human)] only, NEVER phase_advanced", () => {
     const b = buildGateApprovalBatch({
-      gate: "verify-accept", reason: "accept", humanActor: HUMAN, cliActor: CLI,
+      gate: "verify-accept",
+      reason: "accept",
+      humanActor: HUMAN,
+      cliActor: CLI,
     });
     expect(b.map((e) => e.kind)).toEqual(["gate:decided"]);
     expect(b.map((e) => e.kind)).not.toContain("event:phase_advanced");
     expect(b[0]!.actor).toBe(HUMAN);
-    expect(b[0]!.payload).toEqual({ gate_kind: "verify-accept", decision: "approved", reason: "accept" });
+    expect(b[0]!.payload).toEqual({
+      gate_kind: "verify-accept",
+      decision: "approved",
+      reason: "accept",
+    });
   });
 
   test("verify-accept, pending head → [gate:decided(human), pending:resolved(cli)], still NO phase_advanced", () => {
     const b = buildGateApprovalBatch({
-      gate: "verify-accept", reason: "accept", humanActor: HUMAN, cliActor: CLI, pendingHeadId: "PEND-0002",
+      gate: "verify-accept",
+      reason: "accept",
+      humanActor: HUMAN,
+      cliActor: CLI,
+      pendingHeadId: "PEND-0002",
     });
     expect(b.map((e) => e.kind)).toEqual(["gate:decided", "pending:resolved"]);
     expect(b.map((e) => e.kind)).not.toContain("event:phase_advanced");
     expect(b[1]!.actor).toBe(CLI);
-    expect(b[1]!.payload).toEqual({ id: "PEND-0002", answer: "gate-decide:verify-accept:approved" });
+    expect(b[1]!.payload).toEqual({
+      id: "PEND-0002",
+      answer: "gate-decide:verify-accept:approved",
+    });
   });
 });
 
@@ -67,9 +98,17 @@ describe("buildFindingRaiseBatch — action→batch mapping + actor split", () =
     expect(r.kind).toBe("fix-reset");
     if (r.kind !== "fix-reset") return;
     expect(r.backEdgeTo).toBe("EXECUTE.work");
-    expect(r.entries.map((e) => e.kind)).toEqual(["finding:raised", "event:task_step_reset", "event:phase_advanced"]);
+    expect(r.entries.map((e) => e.kind)).toEqual([
+      "finding:raised",
+      "event:task_step_reset",
+      "event:phase_advanced",
+    ]);
     expect(r.entries.map((e) => e.actor)).toEqual([CLI, "cli:loaf", "cli:loaf"]);
-    expect(r.entries[1]!.payload).toEqual({ task_id: "T-001", step: "implement", finding_id: "FND-001" });
+    expect(r.entries[1]!.payload).toEqual({
+      task_id: "T-001",
+      step: "implement",
+      finding_id: "FND-001",
+    });
   });
 
   test("fix-test WITH target → reset step 'red'", () => {
