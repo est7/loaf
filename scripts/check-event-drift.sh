@@ -58,14 +58,17 @@ EXCLUDE_PATHS=(
   "adr/0004-moni-audit-resolution.md"
 )
 
-# Directories that live in a different namespace and may legitimately
-# reuse a drift-spelled identifier for unrelated purposes. For example,
-# i18n/<lang>.json keys follow the pattern <command>_<verb>
-# ("spec_submit", "spec_init", "spec_edit") for CLI help text — these
-# are translation keys, NOT event names, and collide with one of the
-# drift entries by coincidence. Exclude the whole directory.
+# Two reasons a directory is excluded:
+#  (a) different namespace that legitimately reuses a drift-spelled identifier
+#      (i18n/<lang>.json CLI-help keys like "spec_init" — translation keys, NOT events);
+#  (b) generated or runtime output that is not canonical source and may echo a
+#      documented drift term (dist/ bundles+sourcemaps, coverage/ reports, .agent-mail/
+#      AMQ message store). Canonical src/ docs/ tests/ stay scanned.
 EXCLUDE_DIRS=(
   ".git"
+  ".agent-mail"
+  "dist"
+  "coverage"
   "i18n"
   "node_modules"
   "WangSnapshots"

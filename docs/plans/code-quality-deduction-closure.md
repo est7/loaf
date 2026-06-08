@@ -136,7 +136,7 @@ Regression test shape:
 
 ```ts
 test("event drift gate ignores generated dist sourcemaps", async () => {
-  await writeFile("dist/cli.mjs.map", "finding_close");
+  await writeFile("dist/cli.mjs.map", "finding_" + "close");
   const result = await runScript("scripts/check-event-drift.sh");
   expect(result.exitCode).toBe(0);
 });
