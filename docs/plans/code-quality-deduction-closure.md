@@ -9,6 +9,13 @@
 > doc's P2/P3 score-impact rows (`8.0→8.5`, split raises score) as **stale**;
 > the rest of this draft (P0 gates, P1 cycles, the 9+ ladder, audit checklist)
 > stands. The two docs agree on everything except split scoring.
+>
+> **Current-score note (2026-06-08).** This document's 7.5/10 score basis is also
+> stale after current `main` closed the release-gate, event-drift, cycle, lint,
+> and test-gate deductions. Use `claude-code-quality-deduction-closure.md` as the
+> current score source: live score 8.6/10; closing the five refreshed remaining
+> deductions correctly should reach 9.1/10, or 9.2/10 if the CLI/preflight
+> locality improvements are materially deep.
 
 **Status:** DRAFT FOR THIRD-PARTY AUDIT.
 **Type:** quality / architecture closure plan.
