@@ -16,7 +16,17 @@ import {
   checkSpecVersion,
   findCollision,
   findDuplicateId,
+  resolveSpecVersionMode,
 } from "../../src/core/reducer/invariants.js";
+
+describe("resolveSpecVersionMode — batch_index to spec-version mode", () => {
+  test("undefined and 0 are heads; positive indexes are continuations", () => {
+    expect(resolveSpecVersionMode(undefined)).toBe("head");
+    expect(resolveSpecVersionMode(0)).toBe("head");
+    expect(resolveSpecVersionMode(1)).toBe("continuation");
+    expect(resolveSpecVersionMode(12)).toBe("continuation");
+  });
+});
 
 describe("checkSpecVersion — monotonic spec_version, parametrised by batch position", () => {
   // head: payloadVersion must be currentVersion + 1; success carries nextVersion.

@@ -1,8 +1,8 @@
 // Reducer apply path — minimum viable Stage 2.
 //
 // preflight() (§11.2 step 3) validates authority + transition; apply() (step 7)
-// narrows on kind and mutates the projection. Returns Result so callers can
-// branch on typed error codes without try/catch.
+// narrows on kind and consumes prev while mutating the projection. Returns
+// Result so callers can branch on typed error codes without try/catch.
 //
 // Stage 2 scope intentionally narrow: handle just enough kinds to demonstrate
 // the apply path (`session:started`, `event:phase_advanced`, `gate:decided`).
@@ -16,6 +16,7 @@ import {
   checkSpecVersion as specVersionRule,
   findCollision,
   findDuplicateId,
+  resolveSpecVersionMode,
 } from "./reducer/invariants.js";
 import { extractTaskSlim, shouldPromoteToDone } from "./task-schema.js";
 import type { TaskFullProjection } from "./task-schema.js";
@@ -108,6 +109,14 @@ const MIGRATION_BOOTSTRAP_CEREMONY: Ceremony = {
   strict_drift_check: false,
 };
 
+/**
+ * Applies one already-validated journal entry into a snapshot projection.
+ *
+ * Contract: `prev` is consumed. Some cases mutate projection arrays in place and
+ * may return the same snapshot object/array references. Callers that need to
+ * keep observing the pre-apply snapshot must pass a clone. `mutateBatch` and
+ * replay-style callers own that clone boundary.
+ */
 export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
   // migration:snapshot_imported is also a bootstrap kind — it initializes
   // state from a v0.0.x legacy projection. Stage 5 MVP records the entry but
@@ -909,7 +918,7 @@ function checkSpecVersion(
   payloadVersion: number,
   currentVersion: number,
 ): SpecVersionCheck {
-  const mode = entry.batch_index === undefined || entry.batch_index === 0 ? "head" : "continuation";
+  const mode = resolveSpecVersionMode(entry.batch_index);
   const r = specVersionRule(payloadVersion, currentVersion, mode);
   if (r.ok) return { ok: true, nextVersion: r.nextVersion };
   return {

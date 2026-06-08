@@ -40,7 +40,11 @@ import { evaluateTaskProof, verifyMinPolicy } from "../gates/task-proof.js";
 import { extractTaskSlim, type TaskFullProjection } from "../task-schema.js";
 import { validateTransition, type TransitionContext, type TransitionResult } from "./transition.js";
 import { isActorAllowed, isSubStateAllowed } from "./per-kind.js";
-import { checkSpecVersion as specVersionRule, findCollision } from "./invariants.js";
+import {
+  checkSpecVersion as specVersionRule,
+  findCollision,
+  resolveSpecVersionMode,
+} from "./invariants.js";
 import {
   FINDING_ACTION_TARGET_MODE,
   FINDING_UNUSUAL_REASON_MIN_LENGTH,
@@ -1756,8 +1760,7 @@ export function preflight(rawEntry: unknown, ctx: PreflightContext): PreflightRe
       // spec_*_added: HEAD path bumps (must equal current+1);
       // CONTINUATION path tracks (must equal current — the head
       // already bumped state in mutateBatch's accumulator).
-      const mode =
-        entry.batch_index === undefined || entry.batch_index === 0 ? "head" : "continuation";
+      const mode = resolveSpecVersionMode(entry.batch_index);
       const v = specVersionRule(payloadVersion, currentVersion, mode);
       if (!v.ok) {
         if (mode === "head") {
