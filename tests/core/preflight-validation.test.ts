@@ -2175,3 +2175,50 @@ describe("preflight — session:archived / session:abandoned reason-required (It
     expect(r.ok).toBe(true);
   });
 });
+
+describe("preflight — evidence:added payload semantic refine (§5.4 manual≠waived)", () => {
+  // Ceremony-independent companion to the end-to-end lock in
+  // tests/core/evidence-input-modality.test.ts. The `kind=manual must not carry
+  // result=waived` refine lives on EvidenceFullPayload (PER_KIND_PAYLOAD), so it
+  // surfaces at preflight step 4b as INVALID_PAYLOAD regardless of ceremony —
+  // the stable-core code, no presentation-layer localization (see
+  // docs/references/loaf-cli-i18n.md). evidence:added authority is ceremony-
+  // independent (actors=ALL_NON_MIGRATION, subStates⊇ALL_EXECUTE). A valid
+  // payload.id avoids a missing-id parse failure; actor=human:* + reason≥10
+  // isolate the waived refine from the manual/waiver human-actor refine.
+  function evidenceManual(overrides: Record<string, unknown>): Record<string, unknown> {
+    return baseEntry({
+      kind: "evidence:added",
+      actor: "cli:loaf",
+      payload: {
+        id: "EV-000001",
+        kind: "manual",
+        iteration: 1,
+        actor: "human:tester@example.invalid",
+        summary: "manual review entry",
+        reason: "manual review entry with sufficient justification text",
+        ...overrides,
+      },
+    });
+  }
+
+  test("kind=manual result=waived → INVALID_PAYLOAD", () => {
+    const r = preflight(evidenceManual({ result: "waived" }), {
+      snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY),
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.code).toBe("INVALID_PAYLOAD");
+      expect(JSON.stringify(r.detail)).toContain("must not carry result=waived");
+    }
+  });
+
+  test("kind=manual result=passed → OK (refine targets result=waived, not the manual kind)", () => {
+    const r = preflight(evidenceManual({ result: "passed" }), {
+      snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY),
+      tail_seq: -1,
+    });
+    expect(r.ok).toBe(true);
+  });
+});

@@ -317,6 +317,45 @@ describe("Phase 16 SC-4c — `loaf evidence add` error paths", () => {
     expect(r.exit).toBe(2);
     expect(r.stderr).toContain("SCHEMA_VALIDATION_FAILED");
   });
+
+  test("manual + result=waived → exit 2 INVALID_PAYLOAD (preflight, not input-mirror)", async () => {
+    // End-to-end lock for the evidence-schema refine `kind=manual must not
+    // carry result=waived` (src/core/evidence-schema.ts). The refine lives on
+    // EvidenceFullPayload, NOT the EvidenceAddInput mirror (which is built from
+    // the un-refined EvidenceFullShape) — so the input mirror passes and the
+    // rejection surfaces at the preflight PER_KIND_PAYLOAD parse as
+    // INVALID_PAYLOAD, the same stable-core code as its sibling evidence
+    // semantic refines (no presentation-layer localization — see
+    // docs/references/loaf-cli-i18n.md). actor=human:* + reason≥10 isolate the
+    // waived refine from the manual/waiver human-actor refine.
+    const { dir, feature } = await seedQuickAtExecuteWork();
+    const r = await runCli(
+      [
+        "evidence",
+        "add",
+        "--input",
+        JSON.stringify({
+          ...baseInput("manual"),
+          actor: "human:tester@example.invalid",
+          result: "waived",
+          reason: "manual review intentionally waived with sufficient justification",
+        }),
+        "--feature",
+        feature,
+        "--feature-dir",
+        dir,
+        "--format",
+        "json",
+      ],
+    );
+    expect(r.exit).toBe(2);
+    const lines = r.stderr.split("\n").filter((l) => l.startsWith("{"));
+    const obj = JSON.parse(lines[0]!);
+    expect(obj.code).toBe("INVALID_PAYLOAD");
+    // Prove it is the waived refine specifically (detail.issues carries the
+    // Zod refine message), not the human-actor or visual-review refine.
+    expect(JSON.stringify(obj)).toContain("must not carry result=waived");
+  });
 });
 
 describe("Phase 16 SC-4c — machine-schema regression (docs/schemas.ts INPUT_SCHEMAS['evidence:add'])", () => {
