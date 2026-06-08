@@ -191,6 +191,12 @@ export const EvidenceFullPayload = EvidenceFullShape.refine(
       "evidence kind=manual/waiver requires actor=human:* and reason ≥10 chars (per §5.4)",
   },
 ).refine(
+  (e) => !(e.kind === "manual" && e.result === "waived"),
+  {
+    message:
+      "evidence kind=manual must not carry result=waived; use kind=waiver",
+  },
+).refine(
   (e) => {
     if (e.kind === "visual-review") {
       if (!e.attachments || e.attachments.length === 0) return false;

@@ -344,6 +344,26 @@ describe("EvidenceFullPayload — strict refines reject invalid bodies", () => {
     ).toThrow(ZodError);
   });
 
+  test("kind=manual with result=waived fails refine", () => {
+    const parsed = EvidenceFullPayload.safeParse(
+      fullPayload({
+        id: "EV-000035",
+        kind: "manual",
+        result: "waived",
+        actor: "human:tester@example.com",
+        reason: "manual review waived with enough context",
+      }),
+    );
+
+    expect(parsed.success).toBe(false);
+    if (parsed.success) {
+      throw new Error("expected manual+waived evidence to be rejected");
+    }
+    expect(parsed.error.issues.map((issue) => issue.message)).toContain(
+      "evidence kind=manual must not carry result=waived; use kind=waiver",
+    );
+  });
+
   test("kind=waiver with human:* actor but missing reason fails refine", () => {
     const payload = fullPayload({
       id: "EV-000032",
