@@ -283,6 +283,23 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
       ["VERIFY.plan", "VERIFY.run"],
       ["VERIFY.run", "VERIFY.accept"],
     ] as const) {
+      // W1: the spec-lock gate is enforced on the SPEC.design → EXECUTE.plan
+      // advance. Lock the spec first (gate:decided spec-lock approved at
+      // SPEC.design — human actor, does NOT move the cursor per Slice 1.A).
+      if (from === "SPEC.design" && to === "EXECUTE.plan") {
+        snap = mustOk(
+          apply(snap, {
+            seq,
+            entry_id: `JE-${String(seq + 1).padStart(6, "0")}`,
+            at: new Date(2026, 4, 15, 10, 0, seq).toISOString(),
+            actor: "human:est9",
+            entry_schema_version: 1,
+            kind: "gate:decided",
+            payload: { gate_kind: "spec-lock", decision: "approved", reason: "seed" },
+          }),
+        );
+        seq++;
+      }
       snap = mustOk(
         apply(snap, {
           seq,

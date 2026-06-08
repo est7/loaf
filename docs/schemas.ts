@@ -4153,6 +4153,7 @@ export const DiagnosticCode = z.enum([
   "DELIVER_VERIFY_MIN_INCOMPLETE",         // src/core/reducer/preflight.ts step 5c — v0.1.1: `session:delivered` at EXECUTE.done (quick/light) but ≥1 done task lacks the §3.2 per-kind verify-min evidence (code→local-check / visual-ui→visual-review|manual / docs→task-summary|manual / chore→local-check|manual|task-summary; waiver always satisfies)
   "DELIVER_SPIKE_TASKS",                   // src/core/reducer/preflight.ts step 5c — snapshot.tasks contains a non-abandoned spike task (protocol §703 + §1298 hard block)
   "SETTLE_NOT_ACCEPTED",                   // src/core/reducer/transition.ts — `event:phase_advanced` VERIFY.accept→SETTLE.reconcile but snapshot.state.verify_accepted=false (gate must approve before settle)
+  "SPEC_LOCK_NOT_SATISFIED",               // src/core/reducer/transition.ts — `event:phase_advanced` SPEC.design→EXECUTE.plan but snapshot.state.spec_locked=false (W1: spec-lock gate must approve before advancing to EXECUTE; symmetric to SETTLE_NOT_ACCEPTED)
   // ── Slice 2 SC1 — task lifecycle preflight (codex r56/r57) ──
   "TASK_NOT_CLAIMABLE",                    // src/core/reducer/preflight.ts step 5e — event:task_claimed for task with status ∈ {done, abandoned} (terminal — cannot be reclaimed)
   "TASK_ALREADY_CLAIMED",                  // src/core/reducer/preflight.ts step 5e — event:task_claimed for task with status=in_progress
@@ -5147,6 +5148,14 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
     fix_template:
       "run `loaf gate decide verify-accept --approve --reason \"...\"` before `loaf settle`; the gate flips snapshot.state.verify_accepted before the transition validator will admit the SETTLE entry",
     doc_anchor: "protocol.md#§5.2",
+  },
+  SPEC_LOCK_NOT_SATISFIED: {
+    exit_code: 2,
+    message_template:
+      "SPEC.design → EXECUTE.plan requires spec_locked=true; gate approval missing",
+    fix_template:
+      "run `loaf gate decide spec-lock --approve --reason \"...\"` before `loaf advance EXECUTE.plan`; the gate runs the 8 spec-lock checks and flips snapshot.state.spec_locked before the transition validator will admit the EXECUTE.plan entry",
+    doc_anchor: "protocol.md#§5.1",
   },
   // ── Slice 2 SC1 — task lifecycle preflight (codex r56/r57) ──
   TASK_NOT_CLAIMABLE: {

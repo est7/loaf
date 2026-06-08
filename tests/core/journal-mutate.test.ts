@@ -17,9 +17,10 @@ import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 
 import { mutate, mutateBatch } from "../../src/core/journal-mutate.js";
-import { initialSnapshot } from "../../src/core/reducer.js";
+import { initialSnapshot, apply } from "../../src/core/reducer.js";
 import type { Snapshot } from "../../src/core/reducer.js";
 import { replayJournal } from "../../src/core/journal-bootstrap.js";
+import { appendEntry } from "../../src/core/journal-append.js";
 import { emptyMeta, type SnapshotMeta } from "../../src/core/snapshot.js";
 import type { JournalEntry } from "../../src/core/journal-entry.js";
 
@@ -215,41 +216,63 @@ describe("mutate — transactional journal write (audit r1 Blocker #3)", () => {
     if (!boot.ok) return;
 
     // Walk to EXECUTE.work so evidence:added is sub_state-legal.
-    const transitions: Array<
-      [
-        (
-          | "TRIAGE.score"
-          | "TRIAGE.confirm"
-          | "SPEC.proposal"
-          | "SPEC.spec"
-          | "SPEC.plan"
-          | "SPEC.design"
-          | "EXECUTE.plan"
-        ),
-        (
-          | "TRIAGE.confirm"
-          | "SPEC.proposal"
-          | "SPEC.spec"
-          | "SPEC.plan"
-          | "SPEC.design"
-          | "EXECUTE.plan"
-          | "EXECUTE.work"
-        ),
-      ]
-    > = [
+    // Split at SPEC.design so we can inject the spec-lock gate entry before
+    // the SPEC.design → EXECUTE.plan edge (guard added in fix/enforcement-integrity-closure).
+    const preGateEdges = [
       ["TRIAGE.score", "TRIAGE.confirm"],
       ["TRIAGE.confirm", "SPEC.proposal"],
       ["SPEC.proposal", "SPEC.spec"],
       ["SPEC.spec", "SPEC.plan"],
       ["SPEC.plan", "SPEC.design"],
+    ] as const;
+    const postGateEdges = [
       ["SPEC.design", "EXECUTE.plan"],
       ["EXECUTE.plan", "EXECUTE.work"],
-    ];
+    ] as const;
     let snapshot = boot.snapshot;
     let tailSeq = 0;
     let entries: JournalEntry[] = [boot.entry];
     let meta = boot.meta;
-    for (const [from, to] of transitions) {
+    for (const [from, to] of preGateEdges) {
+      const r = await mutate(
+        {
+          at: new Date(2026, 4, 15, 10, 0, tailSeq + 1).toISOString(),
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "event:phase_advanced",
+          payload: { from, to },
+        },
+        { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
+      );
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      snapshot = r.snapshot;
+      tailSeq++;
+      entries = entries.concat(r.entry);
+      meta = r.meta;
+    }
+    // Inject gate:decided spec-lock via appendEntry (bypasses Pass 1.5) +
+    // apply in-memory so the threaded snapshot reflects spec_locked=true.
+    {
+      const gateSeq = tailSeq + 1;
+      const gateEntry: JournalEntry = {
+        seq: gateSeq,
+        entry_id: `JE-${String(gateSeq + 1).padStart(6, "0")}`,
+        at: new Date(2026, 4, 15, 10, 0, gateSeq).toISOString(),
+        actor: "human:est9",
+        entry_schema_version: 1,
+        kind: "gate:decided",
+        payload: { gate_kind: "spec-lock", decision: "approved", reason: "seed" },
+      };
+      meta = await appendEntry(path.join(dir, "journal.jsonl"), gateEntry, meta, { fsync: false });
+      const applyResult = apply(snapshot, gateEntry);
+      expect(applyResult.ok).toBe(true);
+      if (!applyResult.ok) return;
+      snapshot = applyResult.snapshot;
+      tailSeq = gateSeq;
+      entries = entries.concat(gateEntry);
+    }
+    for (const [from, to] of postGateEdges) {
       const r = await mutate(
         {
           at: new Date(2026, 4, 15, 10, 0, tailSeq + 1).toISOString(),
@@ -656,14 +679,14 @@ describe("mutateBatch — Slice 1.0 Cycle 3 (multi-entry transactional)", () => 
         },
       },
     ];
+    // Pre-gate edges only — stop at SPEC.design (guard blocks SPEC.design→EXECUTE.plan
+    // without spec_locked=true; inject gate via appendEntry before that edge).
     const subStateEdges: Array<[string, string]> = [
       ["TRIAGE.score", "TRIAGE.confirm"],
       ["TRIAGE.confirm", "SPEC.proposal"],
       ["SPEC.proposal", "SPEC.spec"],
       ["SPEC.spec", "SPEC.plan"],
       ["SPEC.plan", "SPEC.design"],
-      ["SPEC.design", "EXECUTE.plan"],
-      ["EXECUTE.plan", "EXECUTE.work"],
     ];
     for (const [from, to] of subStateEdges) {
       bootOps.push({
@@ -683,6 +706,55 @@ describe("mutateBatch — Slice 1.0 Cycle 3 (multi-entry transactional)", () => 
         meta,
         fsync: false,
       });
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      snapshot = r.snapshot;
+      tailSeq++;
+      entries = entries.concat(r.entry);
+      meta = r.meta;
+    }
+    // Approve spec-lock via appendEntry (bypasses Pass 1.5) + apply in-memory.
+    {
+      const gateSeq = tailSeq + 1;
+      const gateEntry: JournalEntry = {
+        seq: gateSeq,
+        entry_id: `JE-${String(gateSeq + 1).padStart(6, "0")}`,
+        at: new Date(2026, 4, 15, 10, 0, gateSeq).toISOString(),
+        actor: "human:est9",
+        entry_schema_version: 1,
+        kind: "gate:decided",
+        payload: { gate_kind: "spec-lock", decision: "approved", reason: "seed" },
+      };
+      meta = await appendEntry(path.join(dir, "journal.jsonl"), gateEntry, meta, { fsync: false });
+      const applyResult = apply(snapshot, gateEntry);
+      expect(applyResult.ok).toBe(true);
+      if (!applyResult.ok) return;
+      snapshot = applyResult.snapshot;
+      tailSeq = gateSeq;
+      entries = entries.concat(gateEntry);
+    }
+    // Complete the walk with the post-gate edges.
+    for (const [from, to] of [
+      ["SPEC.design", "EXECUTE.plan"],
+      ["EXECUTE.plan", "EXECUTE.work"],
+    ] as Array<[string, string]>) {
+      const r = await mutate(
+        {
+          at: new Date(2026, 4, 15, 10, 0, tailSeq + 1).toISOString(),
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "event:phase_advanced",
+          payload: { from: from as any, to: to as any },
+        },
+        {
+          feature_dir: dir,
+          snapshot,
+          tail_seq: tailSeq,
+          entries,
+          meta,
+          fsync: false,
+        },
+      );
       expect(r.ok).toBe(true);
       if (!r.ok) return;
       snapshot = r.snapshot;
@@ -869,14 +941,13 @@ describe("mutateBatch — Slice 1.0 Cycle 3 (multi-entry transactional)", () => 
         },
       },
     ];
+    // Pre-gate edges only (SPEC.design → EXECUTE.plan guard requires spec_locked=true).
     for (const [from, to] of [
       ["TRIAGE.score", "TRIAGE.confirm"],
       ["TRIAGE.confirm", "SPEC.proposal"],
       ["SPEC.proposal", "SPEC.spec"],
       ["SPEC.spec", "SPEC.plan"],
       ["SPEC.plan", "SPEC.design"],
-      ["SPEC.design", "EXECUTE.plan"],
-      ["EXECUTE.plan", "EXECUTE.work"],
     ] as Array<[string, string]>) {
       bootOps.push({
         at: new Date(2026, 4, 15, 10, 0, bootOps.length).toISOString(),
@@ -895,6 +966,48 @@ describe("mutateBatch — Slice 1.0 Cycle 3 (multi-entry transactional)", () => 
         meta,
         fsync: false,
       });
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      snapshot = r.snapshot;
+      tailSeq++;
+      entries = entries.concat(r.entry);
+      meta = r.meta;
+    }
+    // Approve spec-lock via appendEntry (bypasses Pass 1.5) + apply in-memory.
+    {
+      const gateSeq = tailSeq + 1;
+      const gateEntry: JournalEntry = {
+        seq: gateSeq,
+        entry_id: `JE-${String(gateSeq + 1).padStart(6, "0")}`,
+        at: new Date(2026, 4, 15, 10, 0, gateSeq).toISOString(),
+        actor: "human:est9",
+        entry_schema_version: 1,
+        kind: "gate:decided",
+        payload: { gate_kind: "spec-lock", decision: "approved", reason: "seed" },
+      };
+      meta = await appendEntry(path.join(dir, "journal.jsonl"), gateEntry, meta, { fsync: false });
+      const applyResult = apply(snapshot, gateEntry);
+      expect(applyResult.ok).toBe(true);
+      if (!applyResult.ok) return;
+      snapshot = applyResult.snapshot;
+      tailSeq = gateSeq;
+      entries = entries.concat(gateEntry);
+    }
+    // Complete the walk with post-gate edges.
+    for (const [from, to] of [
+      ["SPEC.design", "EXECUTE.plan"],
+      ["EXECUTE.plan", "EXECUTE.work"],
+    ] as Array<[string, string]>) {
+      const r = await mutate(
+        {
+          at: new Date(2026, 4, 15, 10, 0, tailSeq + 1).toISOString(),
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "event:phase_advanced",
+          payload: { from: from as any, to: to as any },
+        },
+        { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
+      );
       expect(r.ok).toBe(true);
       if (!r.ok) return;
       snapshot = r.snapshot;
@@ -1626,12 +1739,14 @@ describe("mutate evidence:added — strict refines (Slice 1.C sub-cycle 1)", () 
       },
     );
     if (!boot.ok) throw new Error(`bootstrap failed: ${boot.code}`);
-    const transitions = [
+    const preGate = [
       ["TRIAGE.score", "TRIAGE.confirm"],
       ["TRIAGE.confirm", "SPEC.proposal"],
       ["SPEC.proposal", "SPEC.spec"],
       ["SPEC.spec", "SPEC.plan"],
       ["SPEC.plan", "SPEC.design"],
+    ] as const;
+    const postGate = [
       ["SPEC.design", "EXECUTE.plan"],
       ["EXECUTE.plan", "EXECUTE.work"],
     ] as const;
@@ -1639,7 +1754,43 @@ describe("mutate evidence:added — strict refines (Slice 1.C sub-cycle 1)", () 
     let tailSeq = 0;
     let entries: JournalEntry[] = [boot.entry];
     let meta = boot.meta;
-    for (const [from, to] of transitions) {
+    for (const [from, to] of preGate) {
+      const r = await mutate(
+        {
+          at: new Date(2026, 4, 15, 10, 0, tailSeq + 1).toISOString(),
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "event:phase_advanced",
+          payload: { from, to },
+        },
+        { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
+      );
+      if (!r.ok) throw new Error(`transition ${from}->${to} failed: ${r.code}`);
+      snapshot = r.snapshot;
+      tailSeq++;
+      entries = entries.concat(r.entry);
+      meta = r.meta;
+    }
+    // Approve spec-lock via appendEntry (bypasses Pass 1.5) + apply in-memory.
+    {
+      const gateSeq = tailSeq + 1;
+      const gateEntry: JournalEntry = {
+        seq: gateSeq,
+        entry_id: `JE-${String(gateSeq + 1).padStart(6, "0")}`,
+        at: new Date(2026, 4, 15, 10, 0, gateSeq).toISOString(),
+        actor: "human:est9",
+        entry_schema_version: 1,
+        kind: "gate:decided",
+        payload: { gate_kind: "spec-lock", decision: "approved", reason: "seed" },
+      };
+      meta = await appendEntry(path.join(dir, "journal.jsonl"), gateEntry, meta, { fsync: false });
+      const applyResult = apply(snapshot, gateEntry);
+      if (!applyResult.ok) throw new Error(`gate apply failed: ${applyResult.code}`);
+      snapshot = applyResult.snapshot;
+      tailSeq = gateSeq;
+      entries = entries.concat(gateEntry);
+    }
+    for (const [from, to] of postGate) {
       const r = await mutate(
         {
           at: new Date(2026, 4, 15, 10, 0, tailSeq + 1).toISOString(),
@@ -1857,10 +2008,31 @@ scenarios: []
       ["SPEC.proposal", "SPEC.spec"],
       ["SPEC.spec", "SPEC.plan"],
       ["SPEC.plan", "SPEC.design"],
-      ["SPEC.design", "EXECUTE.plan"],
     ] as Array<[string, string]>) {
       await advance(from, to);
     }
+    // Approve spec-lock before SPEC.design → EXECUTE.plan (guard added in
+    // fix/enforcement-integrity-closure). Inject via appendEntry (bypasses
+    // Pass 1.5) and apply in-memory so emit()/advance() sees spec_locked=true.
+    {
+      const gateSeq = tailSeq + 1;
+      const gateEntry: JournalEntry = {
+        seq: gateSeq,
+        entry_id: `JE-${String(gateSeq + 1).padStart(6, "0")}`,
+        at: new Date(2026, 4, 15, 10, 0, gateSeq).toISOString(),
+        actor: "human:est9",
+        entry_schema_version: 1,
+        kind: "gate:decided",
+        payload: { gate_kind: "spec-lock", decision: "approved", reason: "seed" },
+      };
+      meta = await appendEntry(path.join(dir, "journal.jsonl"), gateEntry, meta, { fsync: false });
+      const applyResult = apply(snapshot, gateEntry);
+      if (!applyResult.ok) throw new Error(`gate apply failed: ${applyResult.code}`);
+      snapshot = applyResult.snapshot;
+      tailSeq = gateSeq;
+      entries = entries.concat(gateEntry);
+    }
+    await advance("SPEC.design", "EXECUTE.plan");
 
     // Emit an empty-graph event:tasks_planned. The verify-accept happy
     // fixture needs a VACUOUSLY-passing gate (no task obligations, no

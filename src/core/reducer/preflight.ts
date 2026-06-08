@@ -90,6 +90,7 @@ export type PreflightFailureCode =
   | "TRANSITION_ILLEGAL"
   | "SETTLE_PHASE_DISABLED"
   | "SETTLE_NOT_ACCEPTED"
+  | "SPEC_LOCK_NOT_SATISFIED"
   | "SPEC_PHASE_FORK_VIOLATION"
   | "VERIFY_PHASE_FORK_VIOLATION"
   // Slice 1.D — `loaf deliver` preflight refines (step 5c).
@@ -455,6 +456,7 @@ export function preflight(rawEntry: unknown, ctx: PreflightContext): PreflightRe
   const sub_state: SubState = ctx.snapshot.state?.sub_state ?? DEFAULT_SUB_STATE;
   const ceremony: Ceremony = ctx.snapshot.state?.ceremony ?? DEFAULT_CEREMONY;
   const verify_accepted: boolean = ctx.snapshot.state?.verify_accepted ?? false;
+  const spec_locked: boolean = ctx.snapshot.state?.spec_locked ?? false;
 
   // (1) Envelope schema parse.
   const parsed = JournalEntry.safeParse(rawEntry);
@@ -1798,6 +1800,7 @@ export function preflight(rawEntry: unknown, ctx: PreflightContext): PreflightRe
     sub_state,
     ceremony,
     verify_accepted,
+    spec_locked,
     actor: entry.actor,
   });
   if (transitionResult && !transitionResult.ok) {
@@ -1828,6 +1831,7 @@ interface TransitionProbeContext {
   sub_state: SubState;
   ceremony: Ceremony;
   verify_accepted: boolean;
+  spec_locked: boolean;
   actor: string;
 }
 
@@ -1860,6 +1864,7 @@ function checkTransition(
       ceremony: ctx.ceremony,
       actor: ctx.actor,
       verify_accepted: ctx.verify_accepted,
+      spec_locked: ctx.spec_locked,
       ...(backEdge !== undefined ? { back_edge: backEdge } : {}),
     });
   }

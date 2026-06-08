@@ -34,9 +34,10 @@ import {
   composeTasksJson,
   writeProjections,
 } from "../../src/core/projection-writer.js";
-import { initialSnapshot, type Snapshot } from "../../src/core/reducer.js";
+import { initialSnapshot, apply, type Snapshot } from "../../src/core/reducer.js";
 import type { Ceremony, JournalEntry } from "../../src/core/journal-entry.js";
 import { mutateBatch } from "../../src/core/journal-mutate.js";
+import { appendEntry } from "../../src/core/journal-append.js";
 import { replayJournal } from "../../src/core/journal-bootstrap.js";
 import { emptyMeta } from "../../src/core/snapshot.js";
 
@@ -476,6 +477,29 @@ async function buildFullFeatureJournal(opts: { withPlan: boolean }): Promise<str
     ]);
   }
 
+  // Approve spec-lock before SPEC.design → EXECUTE.plan (guard added in
+  // fix/enforcement-integrity-closure). appendEntry bypasses Pass 1.5
+  // (evaluateSpecLock); also apply in-memory so snapshot.state.spec_locked=true
+  // when step() calls mutateBatch for the next edge.
+  {
+    const journalPath = path.join(dir, "journal.jsonl");
+    const gateSeq = tail + 1;
+    const gateEntry: JournalEntry = {
+      seq: gateSeq,
+      entry_id: `JE-${String(gateSeq + 1).padStart(6, "0")}`,
+      at: "2026-05-21T10:00:03.500Z",
+      actor: "human:est9",
+      entry_schema_version: 1,
+      kind: "gate:decided",
+      payload: { gate_kind: "spec-lock", decision: "approved", reason: "seed" },
+    };
+    meta = await appendEntry(journalPath, gateEntry, meta, { fsync: false });
+    const applyResult = apply(snapshot, gateEntry);
+    if (!applyResult.ok) throw new Error(`gate apply failed: ${applyResult.code}`);
+    snapshot = applyResult.snapshot;
+    tail = gateSeq;
+    entries = entries.concat(gateEntry);
+  }
   // SPEC.design → EXECUTE.plan → EXECUTE.work.
   for (const [from, to] of [
     ["SPEC.design", "EXECUTE.plan"],

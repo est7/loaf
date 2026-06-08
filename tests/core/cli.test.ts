@@ -974,12 +974,30 @@ async function seedFeatureAtVerifyAccept(
   await seedFeatureAtSpecDesign(dir, ceremony);
   // Read current state — seedFeatureAtSpecDesign leaves cursor at SPEC.design
   // with tasks_planned emitted (tasks_based_on=1). spec_locked is still
-  // false (no gate decided yet). For verify-accept we don't need spec_locked
-  // (verify-accept gate doesn't read that flag), so just walk the cursor
-  // forward.
+  // false (no gate decided yet). W1: the SPEC.design → EXECUTE.plan advance is
+  // now gated on spec_locked, so lock the spec first. The spec built by
+  // seedFeatureAtSpecDesign is complete, so this real gate approval passes
+  // Pass 1.5; spec_locked flips without moving the cursor (Slice 1.A).
   const { loadSession } = await import("../../src/core/cli-runtime.js");
   let { snapshot, tail_seq, entries, meta } = await loadSession(dir);
   let tailSeq = tail_seq;
+  {
+    const lock = await mutateRaw(
+      {
+        at: new Date(2026, 4, 15, 11, 0, tailSeq + 1).toISOString(),
+        actor: "human:seed@test.invalid",
+        entry_schema_version: 1,
+        kind: "gate:decided",
+        payload: { gate_kind: "spec-lock", decision: "approved", reason: "seed approval" },
+      },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
+    );
+    if (!lock.ok) throw new Error(`seed-verify spec-lock failed: ${lock.message}`);
+    snapshot = lock.snapshot;
+    entries = entries.concat(lock.entry);
+    meta = lock.meta;
+    tailSeq++;
+  }
   for (const [from, to] of [
     ["SPEC.design", "EXECUTE.plan"],
     ["EXECUTE.plan", "EXECUTE.work"],
@@ -1035,6 +1053,25 @@ async function seedFeatureAtVerifyRun(
   const { loadSession } = await import("../../src/core/cli-runtime.js");
   let { snapshot, tail_seq, entries, meta } = await loadSession(dir);
   let tailSeq = tail_seq;
+  // W1: lock the spec before crossing SPEC.design → EXECUTE.plan (complete
+  // spec from seedFeatureAtSpecDesign → real gate approval passes Pass 1.5).
+  {
+    const lock = await mutateRaw(
+      {
+        at: new Date(2026, 4, 15, 11, 0, tailSeq + 1).toISOString(),
+        actor: "human:seed@test.invalid",
+        entry_schema_version: 1,
+        kind: "gate:decided",
+        payload: { gate_kind: "spec-lock", decision: "approved", reason: "seed approval" },
+      },
+      { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
+    );
+    if (!lock.ok) throw new Error(`seed-verify-run spec-lock failed: ${lock.message}`);
+    snapshot = lock.snapshot;
+    entries = entries.concat(lock.entry);
+    meta = lock.meta;
+    tailSeq++;
+  }
   for (const [from, to] of [
     ["SPEC.design", "EXECUTE.plan"],
     ["EXECUTE.plan", "EXECUTE.work"],

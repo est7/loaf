@@ -182,6 +182,7 @@
     "DELIVER_SPIKE_TASKS":         "无法 deliver:task {task_id} 是 kind=spike(status={status});spike 任务阻塞整 session 的交付",
     "EXECUTE_DONE_TASKS_NOT_FINAL": "无法从 EXECUTE.work 推进到 EXECUTE.done:{count} 个 task 未处于终态(done 或 abandoned);跑完剩余 step,或用 `loaf tasks abandon <T-N> --reason \"...\"` 放弃超出范围的 task",
     "SETTLE_NOT_ACCEPTED":         "VERIFY.accept → SETTLE.reconcile 要求 verify_accepted=true;先运行 `loaf gate decide verify-accept --approve` 再 `loaf settle`",
+    "SPEC_LOCK_NOT_SATISFIED":     "SPEC.design → EXECUTE.plan 要求 spec_locked=true;先运行 `loaf gate decide spec-lock --approve` 再 `loaf advance EXECUTE.plan`",
     "TASK_NOT_CLAIMABLE":          "task {task_id} 无法 claim(status={status} — 终态)",
     "TASK_ALREADY_CLAIMED":        "task {task_id} 已被 claim(status=in_progress)",
     "TASK_DEPS_NOT_SATISFIED":     "task {task_id} 无法 claim:依赖 {blocking_dep} 未 done(status={blocking_status})",

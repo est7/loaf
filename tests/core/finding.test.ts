@@ -35,6 +35,7 @@ import os from "node:os";
 
 import { main } from "../../src/cli.js";
 import { mutate } from "../../src/core/journal-mutate.js";
+import { appendEntry } from "../../src/core/journal-append.js";
 import type { SubState } from "../../src/core/journal-entry.js";
 
 async function tmpFeatureDir(): Promise<string> {
@@ -286,6 +287,27 @@ async function seedLightAtExecuteWorkWithTask(): Promise<{ dir: string; feature:
     },
   );
   if (!planned.ok) throw new Error(`tasks_planned failed: ${planned.code} ${planned.message}`);
+  // Approve spec-lock so SPEC.design → EXECUTE.plan passes the guard.
+  // appendEntry bypasses Pass 1.5 (evaluateSpecLock); spec_locked=true on
+  // replay is all the guard needs when the advance is later replayed.
+  {
+    const sg = await loadSnapshot(dir);
+    const gateSeq = sg.tail_seq + 1;
+    await appendEntry(
+      path.join(dir, "journal.jsonl"),
+      {
+        seq: gateSeq,
+        entry_id: `JE-${String(gateSeq + 1).padStart(6, "0")}`,
+        at: new Date().toISOString(),
+        actor: "human:est9",
+        entry_schema_version: 1,
+        kind: "gate:decided",
+        payload: { gate_kind: "spec-lock", decision: "approved", reason: "seed" },
+      },
+      sg.meta,
+      { fsync: false },
+    );
+  }
   // Walk to EXECUTE.work for finding tests.
   const advanceEdges: Array<[SubState, SubState]> = [
     ["SPEC.design", "EXECUTE.plan"],
