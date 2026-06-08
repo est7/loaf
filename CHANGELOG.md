@@ -114,6 +114,7 @@ migration.
 - Both fixes RED→GREEN independently reproduced (revert only the predicate with the new tests present → exactly the new negative cases fail; restore → green).
 - `dist/cli.mjs --version` → `0.1.2`.
 
+[0.3.0]: https://github.com/est7/loaf/releases/tag/v0.3.0
 [0.2.0]: https://github.com/est7/loaf/releases/tag/v0.2.0
 [0.1.2]: https://github.com/est7/loaf/releases/tag/v0.1.2
 
