@@ -2236,3 +2236,53 @@ scenarios: []
     expect(journalAfter).toBe(journalBefore);
   });
 });
+
+describe("W3 — per-feature write-contention fence", () => {
+  const bootPartial = {
+    at: "2026-05-15T10:00:00.000Z",
+    actor: "cli:loaf" as const,
+    entry_schema_version: 1 as const,
+    kind: "session:started" as const,
+    payload: {
+      session_id: "550e8400-e29b-41d4-a716-446655440000",
+      feature: "auth-refresh",
+      ceremony: STANDARD,
+    },
+  };
+  const freshCtx = (dir: string) => ({
+    feature_dir: dir,
+    snapshot: initialSnapshot(),
+    tail_seq: -1,
+    entries: [] as JournalEntry[],
+    meta: emptyMeta(),
+    fsync: false,
+  });
+
+  test("a held .lock makes mutate return WRITE_CONTENTION; journal untouched", async () => {
+    const dir = await tmpFeatureDir();
+    // Simulate a concurrent writer holding the per-feature lock.
+    await fs.writeFile(path.join(dir, ".lock"), "held by another writer\n");
+
+    const result = await mutate(bootPartial, freshCtx(dir));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("WRITE_CONTENTION");
+
+    // The fence rejects before any disk write — journal.jsonl never created.
+    await expect(fs.readFile(path.join(dir, "journal.jsonl"), "utf8")).rejects.toThrow();
+  });
+
+  test("a successful mutate releases the lock (no .lock left behind)", async () => {
+    const dir = await tmpFeatureDir();
+    const result = await mutate(bootPartial, freshCtx(dir));
+    expect(result.ok).toBe(true);
+    await expect(fs.access(path.join(dir, ".lock"))).rejects.toThrow();
+  });
+
+  test("dry-run does NOT acquire the lock (read-only preview, no contention)", async () => {
+    const dir = await tmpFeatureDir();
+    await fs.writeFile(path.join(dir, ".lock"), "held\n");
+    // dryRun short-circuits before the disk span, so a held lock must not block it.
+    const result = await mutateBatch([bootPartial], { ...freshCtx(dir), dryRun: true });
+    expect(result.ok).toBe(true);
+  });
+});

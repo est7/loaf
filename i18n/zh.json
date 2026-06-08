@@ -184,6 +184,7 @@
     "TASK_ABANDON_BLOCKED_DEPENDENTS": "task {task_id} 无法 abandon:非终态 task {blocking_dependents} 依赖它;先 abandon 或完成这些依赖方",
     "SESSION_REASON_REQUIRED":     "{kind}:必须提供 --reason(会话终态 entry 必须记录原因)",
     "PROJECTION_WRITE_FAILED":     "{projection} 派生投影在 journal append (last_seq={last_seq}, spec_version={spec_version}) 后写盘失败:{error}",
+    "WRITE_CONTENTION":            "另一个写入者正持有该 feature 的锁 {lock_path};待其释放后重试",
     "FINDING_AMEND_SPEC_NOT_LOCKED": "finding raise action=amend-spec 要求 state.spec_locked=true;当前 sub_state={current_sub_state} 下 spec 未锁,请直接使用 `loaf spec submit / add-*`",
     "SPEC_VERSION_NOT_MONOTONIC":  "{kind}: spec_version 必须等于 {expected_spec_version}(current+1),实际为 {payload_spec_version}",
     "SPEC_VERSION_BATCH_MISMATCH": "{kind}: batch_index={batch_index} 处 spec_version 必须等于 {current_spec_version},实际为 {payload_spec_version}",

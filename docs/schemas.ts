@@ -4166,6 +4166,7 @@ export const DiagnosticCode = z.enum([
   "SESSION_REASON_REQUIRED",               // src/core/reducer/preflight.ts step 5c.2 — session:archived or session:abandoned with no reason key (the shared SessionReasonPayload makes reason optional; archive/abandon tighten it to required)
   // ── Slice A SC-A2 — spec.md projection writer (post-appendMany Pass 5) ──
   "PROJECTION_WRITE_FAILED",               // src/core/journal-mutate.ts Pass 5 — writeDerivedSpecMd threw after journal append succeeded; journal authoritative, run `loaf doctor --rebuild` to resync
+  "WRITE_CONTENTION",                       // src/core/journal-mutate.ts W3 — another writer holds the per-feature .lock (O_EXCL); retry after release, or `loaf doctor` clears a stale lock left by a crashed writer
   // ── Slice B — finding amend-spec back-edge batch (codex r94/r96) ──
   "FINDING_AMEND_SPEC_NOT_LOCKED",         // src/core/reducer/preflight.ts — `finding:raised` action=amend-spec when state.spec_locked=false; pre-lock should edit via `loaf spec submit / add-*` directly
   // ── Slice E — SPEC_VERSION_NOT_MONOTONIC / SPEC_VERSION_BATCH_MISMATCH promotion ──
@@ -5246,6 +5247,14 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
     fix_template:
       "the journal already records the change; do NOT retry the same command. Run `loaf doctor --rebuild` (when available) to resync derived projections from journal truth, or inspect `.loaf/<feature>/journal.jsonl` tail manually.",
     doc_anchor: "protocol.md#§10.15",
+  },
+  WRITE_CONTENTION: {
+    exit_code: 2,
+    message_template:
+      "another writer holds the per-feature lock at {lock_path}; retry after it releases",
+    fix_template:
+      "a concurrent `loaf` invocation is mid-write on this feature — retry once it finishes. If no writer is active, a prior run crashed mid-write: remove the stale `.lock` and run `loaf doctor` to verify journal integrity.",
+    doc_anchor: "protocol.md#§11.2",
   },
   // Slice B SC-B1: paired with FINDING_NOT_FOUND when back_edge
   // references a stale / nonexistent finding. cli emitFailure prints
