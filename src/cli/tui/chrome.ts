@@ -59,7 +59,9 @@ export function formatTuiListTitle(i18n: I18n, activeCount: number, totalCount: 
 }
 
 export function formatTuiSortLabel(i18n: I18n, sortMode: TuiSortMode): string {
-  const sort = i18n.t(sortMode === "time" ? CHROME_KEYS.tuiListSortTime : CHROME_KEYS.tuiListSortStatus);
+  const sort = i18n.t(
+    sortMode === "time" ? CHROME_KEYS.tuiListSortTime : CHROME_KEYS.tuiListSortStatus,
+  );
   return i18n.t(CHROME_KEYS.tuiListSort, { sort });
 }
 
@@ -83,7 +85,11 @@ export function formatTuiBoolean(i18n: I18n, value: boolean): string {
   return i18n.t(value ? CHROME_KEYS.tuiDetailBooleanTrue : CHROME_KEYS.tuiDetailBooleanFalse);
 }
 
-export function formatTuiDetailField(i18n: I18n, field: TuiDetailField, value: string | number): string {
+export function formatTuiDetailField(
+  i18n: I18n,
+  field: TuiDetailField,
+  value: string | number,
+): string {
   return i18n.t(DETAIL_FIELD_KEYS[field], { value });
 }
 
@@ -91,7 +97,11 @@ export function formatTuiDetailBasedOn(i18n: I18n, spec: number, tasks: number):
   return i18n.t(CHROME_KEYS.tuiDetailFieldBasedOn, { spec, tasks });
 }
 
-export function formatTuiDetailSectionTitle(i18n: I18n, section: TuiDetailSection, count: number): string {
+export function formatTuiDetailSectionTitle(
+  i18n: I18n,
+  section: TuiDetailSection,
+  count: number,
+): string {
   return i18n.t(DETAIL_SECTION_KEYS[section], { count });
 }
 

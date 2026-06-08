@@ -81,9 +81,7 @@ function verifyNextTarget(
   if (!subState.startsWith("VERIFY.")) return undefined;
   if (subState === "VERIFY.accept") return undefined;
   const startIndex =
-    subState === "VERIFY.plan"
-      ? 0
-      : VERIFY_ORDER.findIndex((state) => state === subState) + 1;
+    subState === "VERIFY.plan" ? 0 : VERIFY_ORDER.findIndex((state) => state === subState) + 1;
   const lanes = applicable ?? new Set<VerifyCheckKind>(["run", "review", "acceptance", "visual"]);
   for (const state of VERIFY_ORDER.slice(Math.max(startIndex, 0))) {
     const lane = VERIFY_LANE_BY_STATE[state];

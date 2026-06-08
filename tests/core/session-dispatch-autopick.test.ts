@@ -145,7 +145,8 @@ describe("SC-8 — auto-pick (level 5)", () => {
     // Write minimal journal so NoSessionError doesn't trigger (we want
     // SnapshotStaleError instead). Easier: write corrupt _meta.json
     // alongside a partial journal.
-    await fs.writeFile(path.join(staleDir, "journal.jsonl"),
+    await fs.writeFile(
+      path.join(staleDir, "journal.jsonl"),
       JSON.stringify({
         seq: 0,
         entry_id: "JE-000000",
@@ -153,8 +154,13 @@ describe("SC-8 — auto-pick (level 5)", () => {
         actor: "cli:loaf",
         kind: "session:started",
         schema_version: 2,
-        payload: { session_id: "550e8400-e29b-41d4-a716-deadbeefdead", feature: "stale-feature", ceremony: STANDARD_CEREMONY },
-      }) + "\n");
+        payload: {
+          session_id: "550e8400-e29b-41d4-a716-deadbeefdead",
+          feature: "stale-feature",
+          ceremony: STANDARD_CEREMONY,
+        },
+      }) + "\n",
+    );
     // Write a _meta.json that intentionally mismatches the journal tail
     // to trigger snapshot-stale.
     await fs.writeFile(
@@ -186,7 +192,8 @@ describe("SC-8 — auto-pick (level 5)", () => {
     const regDir = await tmpRegDir();
     const staleDir = path.join(cwd, ".loaf", "stale-only");
     await fs.mkdir(path.join(staleDir, "snapshots"), { recursive: true });
-    await fs.writeFile(path.join(staleDir, "journal.jsonl"),
+    await fs.writeFile(
+      path.join(staleDir, "journal.jsonl"),
       JSON.stringify({
         seq: 0,
         entry_id: "JE-000000",
@@ -194,8 +201,13 @@ describe("SC-8 — auto-pick (level 5)", () => {
         actor: "cli:loaf",
         kind: "session:started",
         schema_version: 2,
-        payload: { session_id: "550e8400-e29b-41d4-a716-deadbeefdea1", feature: "stale-only", ceremony: STANDARD_CEREMONY },
-      }) + "\n");
+        payload: {
+          session_id: "550e8400-e29b-41d4-a716-deadbeefdea1",
+          feature: "stale-only",
+          ceremony: STANDARD_CEREMONY,
+        },
+      }) + "\n",
+    );
     await fs.writeFile(
       path.join(staleDir, "snapshots", "_meta.json"),
       JSON.stringify({

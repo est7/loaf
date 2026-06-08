@@ -159,7 +159,10 @@ export function buildRenderPlan(
   rows: ReadonlyArray<SessionRow>,
   options: BuildRenderPlanOptions,
 ): TuiListItem[] {
-  const groups = sortProjectGroups(groupByProjectFeature(filterActive(rows, options.showAll)), options.sortMode);
+  const groups = sortProjectGroups(
+    groupByProjectFeature(filterActive(rows, options.showAll)),
+    options.sortMode,
+  );
   const plan: TuiListItem[] = [];
 
   for (const project of groups) {
@@ -212,7 +215,8 @@ export function withTreePrefixes(plan: ReadonlyArray<TuiListItem>): TuiTreeListI
         return { item, prefix: `${isLastFeature(plan, index) ? "└─" : "├─"} ` };
       case "session": {
         const parentFeatureIndex = findParentFeatureIndex(plan, index);
-        const parentFeatureIsLast = parentFeatureIndex < 0 ? true : isLastFeature(plan, parentFeatureIndex);
+        const parentFeatureIsLast =
+          parentFeatureIndex < 0 ? true : isLastFeature(plan, parentFeatureIndex);
         const vertical = parentFeatureIsLast ? "  " : "│ ";
         return { item, prefix: `${vertical}${isLastSession(plan, index) ? "└─" : "├─"} ` };
       }
@@ -236,7 +240,10 @@ function compareProjects(a: TuiProjectGroup, b: TuiProjectGroup): number {
 }
 
 function compareFeatures(a: TuiFeatureGroup, b: TuiFeatureGroup): number {
-  return compareIsoDesc(latestAtForFeature(a), latestAtForFeature(b)) || a.feature.localeCompare(b.feature);
+  return (
+    compareIsoDesc(latestAtForFeature(a), latestAtForFeature(b)) ||
+    a.feature.localeCompare(b.feature)
+  );
 }
 
 function compareSessions(sortMode: TuiSortMode): (a: SessionRow, b: SessionRow) => number {

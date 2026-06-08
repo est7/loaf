@@ -13,10 +13,24 @@ import {
   verifyMinPolicy,
   type TaskProofGap,
 } from "../../src/core/gates/task-proof.js";
-import { initialSnapshot, type Snapshot, type TaskState, type EvidenceState } from "../../src/core/reducer.js";
+import {
+  initialSnapshot,
+  type Snapshot,
+  type TaskState,
+  type EvidenceState,
+} from "../../src/core/reducer.js";
 
 function task(id: string, kind: TaskState["kind"], overrides: Partial<TaskState> = {}): TaskState {
-  return { id, kind, status: "done", steps: {}, drives: [], depends_on: [], labels: [], ...overrides };
+  return {
+    id,
+    kind,
+    status: "done",
+    steps: {},
+    drives: [],
+    depends_on: [],
+    labels: [],
+    ...overrides,
+  };
 }
 
 function ev(
@@ -33,7 +47,11 @@ function snap(tasks: TaskState[], evidence: EvidenceState[]): Snapshot {
 }
 
 /** gaps for the single done task in a one-task snapshot under a policy. */
-function gapsOf(t: TaskState, evidence: EvidenceState[], policy: typeof verifyMinPolicy): TaskProofGap[] {
+function gapsOf(
+  t: TaskState,
+  evidence: EvidenceState[],
+  policy: typeof verifyMinPolicy,
+): TaskProofGap[] {
   const findings = evaluateTaskProof(snap([t], evidence), policy);
   return findings.length === 0 ? [] : findings[0]!.gaps;
 }
@@ -48,12 +66,18 @@ describe("evaluateTaskProof — evidence proof", () => {
   });
 
   test("done task, no covering evidence → [no-passing-evidence]", () => {
-    expect(gapsOf(task("T-001", "behavioral"), [], verifyMinPolicy)).toEqual(["no-passing-evidence"]);
+    expect(gapsOf(task("T-001", "behavioral"), [], verifyMinPolicy)).toEqual([
+      "no-passing-evidence",
+    ]);
   });
 
   test("evidence covers but result not passing → [no-passing-evidence]", () => {
     expect(
-      gapsOf(task("T-001", "behavioral"), [ev("EV-1", "local-check", ["T-001"], "failed")], verifyMinPolicy),
+      gapsOf(
+        task("T-001", "behavioral"),
+        [ev("EV-1", "local-check", ["T-001"], "failed")],
+        verifyMinPolicy,
+      ),
     ).toEqual(["no-passing-evidence"]);
   });
 
@@ -71,7 +95,10 @@ describe("evaluateTaskProof — evidence proof", () => {
   });
 
   test("non-done task is ignored entirely", () => {
-    const findings = evaluateTaskProof(snap([task("T-001", "behavioral", { status: "pending" })], []), verifyMinPolicy);
+    const findings = evaluateTaskProof(
+      snap([task("T-001", "behavioral", { status: "pending" })], []),
+      verifyMinPolicy,
+    );
     expect(findings).toEqual([]);
   });
 });
@@ -106,9 +133,13 @@ describe("evaluateTaskProof — bug-RED gap", () => {
     task("T-001", "behavioral", { labels: ["bug"], ...overrides });
 
   test("behavioral bug, red unregistered, otherwise proven → [bug-red-unregistered] only", () => {
-    expect(gapsOf(bug({ red_test_registered: false }), [ev("EV-1", "local-check", ["T-001"])], verifyMinPolicy)).toEqual([
-      "bug-red-unregistered",
-    ]);
+    expect(
+      gapsOf(
+        bug({ red_test_registered: false }),
+        [ev("EV-1", "local-check", ["T-001"])],
+        verifyMinPolicy,
+      ),
+    ).toEqual(["bug-red-unregistered"]);
   });
 
   test("behavioral bug, red unregistered, NO evidence → [no-passing-evidence, bug-red-unregistered] in that order", () => {
@@ -121,12 +152,18 @@ describe("evaluateTaskProof — bug-RED gap", () => {
 
   test("behavioral bug, red REGISTERED, proven → no finding", () => {
     expect(
-      gapsOf(bug({ red_test_registered: true }), [ev("EV-1", "local-check", ["T-001"])], verifyMinPolicy),
+      gapsOf(
+        bug({ red_test_registered: true }),
+        [ev("EV-1", "local-check", ["T-001"])],
+        verifyMinPolicy,
+      ),
     ).toEqual([]);
   });
 
   test("non-bug behavioral never raises bug-red gap even when red unregistered", () => {
-    expect(gapsOf(task("T-001", "behavioral"), [ev("EV-1", "local-check", ["T-001"])], verifyMinPolicy)).toEqual([]);
+    expect(
+      gapsOf(task("T-001", "behavioral"), [ev("EV-1", "local-check", ["T-001"])], verifyMinPolicy),
+    ).toEqual([]);
   });
 });
 

@@ -140,12 +140,13 @@ export function nextLegalTargets(
   verifyAccepted = false,
 ): SubState[] {
   const allowed = LEGAL_TRANSITIONS[prev] ?? [];
-  return allowed.filter((target) =>
-    validateTransition(prev, target, {
-      ceremony,
-      actor: "cli:loaf",
-      verify_accepted: verifyAccepted,
-    }).ok,
+  return allowed.filter(
+    (target) =>
+      validateTransition(prev, target, {
+        ceremony,
+        actor: "cli:loaf",
+        verify_accepted: verifyAccepted,
+      }).ok,
   );
 }
 
@@ -549,8 +550,7 @@ export function validateTransition(
       return {
         ok: false,
         code: "SPEC_PHASE_FORK_VIOLATION",
-        message:
-          "TRIAGE.confirm → SPEC.proposal requires ceremony.spec_phase=true",
+        message: "TRIAGE.confirm → SPEC.proposal requires ceremony.spec_phase=true",
         detail: { from: prev, to: target, spec_phase: specPhase },
       };
     }
@@ -577,8 +577,7 @@ export function validateTransition(
       return {
         ok: false,
         code: "VERIFY_PHASE_FORK_VIOLATION",
-        message:
-          "EXECUTE.done → VERIFY.plan requires ceremony.verify_phase=true (standard / deep)",
+        message: "EXECUTE.done → VERIFY.plan requires ceremony.verify_phase=true (standard / deep)",
         detail: { from: prev, to: target, verify_phase: verifyPhase },
       };
     }
@@ -595,8 +594,7 @@ export function validateTransition(
       return {
         ok: false,
         code: "SETTLE_PHASE_DISABLED",
-        message:
-          "VERIFY.accept → SETTLE.reconcile requires ceremony.settle_phase=true (deep only)",
+        message: "VERIFY.accept → SETTLE.reconcile requires ceremony.settle_phase=true (deep only)",
         detail: { from: prev, to: target, settle_phase: ctx.ceremony.settle_phase },
       };
     }

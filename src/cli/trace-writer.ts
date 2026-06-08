@@ -109,17 +109,12 @@ export function redactArgv(argv: readonly string[]): readonly string[] {
  *  mode passes raw + truncates. 256-char cap. */
 const STDOUT_SUMMARY_CHAR_CAP = 256;
 
-export function summarizeStdout(
-  rawStdout: string,
-  outputMode: "json" | "text",
-): string {
+export function summarizeStdout(rawStdout: string, outputMode: "json" | "text"): string {
   if (outputMode === "json") {
     try {
       const parsed = JSON.parse(rawStdout) as unknown;
       const s = JSON.stringify(parsed);
-      return s.length <= STDOUT_SUMMARY_CHAR_CAP
-        ? s
-        : s.slice(0, STDOUT_SUMMARY_CHAR_CAP);
+      return s.length <= STDOUT_SUMMARY_CHAR_CAP ? s : s.slice(0, STDOUT_SUMMARY_CHAR_CAP);
     } catch {
       // Fall through to text truncation if not parseable
     }
@@ -162,10 +157,7 @@ export function buildTraceEntry(input: BuildTraceEntryInput): TraceEntry {
  *  fsync (Debug-trace is non-authoritative per §13.1). POSIX
  *  O_APPEND atomic semantics for single-line writes (entries here
  *  cap below 4KB after redaction + summary truncation). */
-export async function defaultAppendTraceLine(
-  featureDir: string,
-  entry: TraceEntry,
-): Promise<void> {
+export async function defaultAppendTraceLine(featureDir: string, entry: TraceEntry): Promise<void> {
   const line = JSON.stringify(entry) + "\n";
   await fs.appendFile(path.join(featureDir, "trace.jsonl"), line, "utf8");
 }

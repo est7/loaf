@@ -39,35 +39,29 @@ import { TaskIdPayload } from "./task-schema.js";
 // ── EvidenceKind / EvidenceResult enums (mirror docs/schemas.ts §6) ─────
 
 export const EvidenceKind = z.enum([
-  "task-summary",   // per-task closing summary
-  "verify-review",  // emitted during VERIFY.review
-  "spec-review",    // deep profile: independent spec reviewer
-  "acceptance",     // emitted during VERIFY.acceptance (Gherkin E2E)
-  "visual-review",  // emitted during VERIFY.visual
-  "gate-decision",  // human gate approval/rejection
-  "local-check",    // local test/lint/typecheck run
-  "manual",         // human verification (kind=manual implies result≠waived)
-  "waiver",         // human waiver; actor MUST start with "human:"; reason required
-  "spike-finding",  // spike task: explore/prototype output
+  "task-summary", // per-task closing summary
+  "verify-review", // emitted during VERIFY.review
+  "spec-review", // deep profile: independent spec reviewer
+  "acceptance", // emitted during VERIFY.acceptance (Gherkin E2E)
+  "visual-review", // emitted during VERIFY.visual
+  "gate-decision", // human gate approval/rejection
+  "local-check", // local test/lint/typecheck run
+  "manual", // human verification (kind=manual implies result≠waived)
+  "waiver", // human waiver; actor MUST start with "human:"; reason required
+  "spike-finding", // spike task: explore/prototype output
 ]);
 export type EvidenceKind = z.infer<typeof EvidenceKind>;
 
-export const EvidenceResult = z.enum([
-  "passed",
-  "failed",
-  "approved",
-  "rejected",
-  "waived",
-]);
+export const EvidenceResult = z.enum(["passed", "failed", "approved", "rejected", "waived"]);
 export type EvidenceResult = z.infer<typeof EvidenceResult>;
 
 // ── VerifyCheckKind (mirror docs/schemas.ts §4) ─────────────────────────
 
 export const VerifyCheckKind = z.enum([
-  "run",          // test + lint + type-check
-  "review",       // quality reviewer (spec_fit + quality_fit)
-  "acceptance",   // selected Gherkin E2E scenarios
-  "visual",       // visual contract verification
+  "run", // test + lint + type-check
+  "review", // quality reviewer (spec_fit + quality_fit)
+  "acceptance", // selected Gherkin E2E scenarios
+  "visual", // visual contract verification
 ]);
 export type VerifyCheckKind = z.infer<typeof VerifyCheckKind>;
 
@@ -82,12 +76,14 @@ export type GateNamePayload = z.infer<typeof GateNamePayload>;
 
 // ── Attachment (mirror docs/schemas.ts §16:1695-1700) ───────────────────
 
-export const AttachmentPayload = z.object({
-  path: z.string().min(3),                              // relative to feature dir
-  sha256: z.string().regex(/^[a-f0-9]{64}$/),
-  mime: z.string().min(3),
-  bytes: z.number().int().positive().optional(),
-}).strict();
+export const AttachmentPayload = z
+  .object({
+    path: z.string().min(3), // relative to feature dir
+    sha256: z.string().regex(/^[a-f0-9]{64}$/),
+    mime: z.string().min(3),
+    bytes: z.number().int().positive().optional(),
+  })
+  .strict();
 export type AttachmentPayload = z.infer<typeof AttachmentPayload>;
 
 // ── LongTextField (mirror docs/schemas.ts §0a:487-491) ──────────────────
@@ -97,11 +93,13 @@ export type AttachmentPayload = z.infer<typeof AttachmentPayload>;
 // journal-mutate. Pass 1 (strict schema validate) sees inline form; Pass 3
 // (post-promote dry-run) sees sidecar form — both must pass the union.
 
-const AttachmentRefShape = z.object({
-  path: z.string().min(3),
-  sha256: z.string().regex(/^[a-f0-9]{64}$/),
-  size: z.number().int().nonnegative(),
-}).strict();
+const AttachmentRefShape = z
+  .object({
+    path: z.string().min(3),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/),
+    size: z.number().int().nonnegative(),
+  })
+  .strict();
 
 export const LongTextFieldPayload = z.discriminatedUnion("mode", [
   z.object({ mode: z.literal("inline"), text: z.string() }).strict(),
@@ -119,12 +117,7 @@ const SummaryField = z.union([z.string().min(3), LongTextFieldPayload]);
 
 export const EvidenceIdPayload = z.string().regex(/^EV-\d{6,}$/);
 
-export const CoversRefPayload = z.union([
-  ReqIdPayload,
-  ScenIdPayload,
-  VisIdPayload,
-  TaskIdPayload,
-]);
+export const CoversRefPayload = z.union([ReqIdPayload, ScenIdPayload, VisIdPayload, TaskIdPayload]);
 export type CoversRefPayload = z.infer<typeof CoversRefPayload>;
 
 // ── EvidenceFullPayload — strict full mirror of docs EvidenceEntry ──────
@@ -136,47 +129,52 @@ export type CoversRefPayload = z.infer<typeof CoversRefPayload>;
 // this raw ZodObject with the two envelope-owned fields (`schema_version`,
 // `at`). `EvidenceFullPayload` below is a refined `ZodEffects` and cannot
 // be `.extend()`'d — projection-schema.ts needs the unrefined shape.
-export const EvidenceFullShape = z.object({
-  // Required core (docs §16 lines 1704-1712).
-  id: EvidenceIdPayload,                                // = docs evidence_id
-  kind: EvidenceKind,
-  iteration: z.number().int().positive(),
-  actor: z.string().min(1),
-  result: EvidenceResult,
-  summary: SummaryField,
+export const EvidenceFullShape = z
+  .object({
+    // Required core (docs §16 lines 1704-1712).
+    id: EvidenceIdPayload, // = docs evidence_id
+    kind: EvidenceKind,
+    iteration: z.number().int().positive(),
+    actor: z.string().min(1),
+    result: EvidenceResult,
+    summary: SummaryField,
 
-  // Coverage assertion (line 1715).
-  covers: z.array(CoversRefPayload).default([]),
+    // Coverage assertion (line 1715).
+    covers: z.array(CoversRefPayload).default([]),
 
-  // Task linkage (line 1718).
-  task_id: TaskIdPayload.optional(),
+    // Task linkage (line 1718).
+    task_id: TaskIdPayload.optional(),
 
-  // Verify-check linkage (line 1721).
-  check: VerifyCheckKind.optional(),
+    // Verify-check linkage (line 1721).
+    check: VerifyCheckKind.optional(),
 
-  // Command details (lines 1724-1726).
-  cmd: z.string().optional(),
-  exit: z.number().int().optional(),
-  wall_ms: z.number().int().optional(),
+    // Command details (lines 1724-1726).
+    cmd: z.string().optional(),
+    exit: z.number().int().optional(),
+    wall_ms: z.number().int().optional(),
 
-  // Gate-decision specifics (lines 1729-1737).
-  gate: GateNamePayload.optional(),
-  decided_by: z.string().optional(),
-  reason: z.string().optional(),
-  based_on: z.object({
-    spec: z.number().int().nonnegative(),
-    tasks: z.number().int().nonnegative(),
-  }).strict().optional(),
+    // Gate-decision specifics (lines 1729-1737).
+    gate: GateNamePayload.optional(),
+    decided_by: z.string().optional(),
+    reason: z.string().optional(),
+    based_on: z
+      .object({
+        spec: z.number().int().nonnegative(),
+        tasks: z.number().int().nonnegative(),
+      })
+      .strict()
+      .optional(),
 
-  // Visual-review attachments (line 1740).
-  attachments: z.array(AttachmentPayload).optional(),
+    // Visual-review attachments (line 1740).
+    attachments: z.array(AttachmentPayload).optional(),
 
-  // Waiver-specifics (line 1744).
-  waiver_obligation_id: z.string().optional(),
+    // Waiver-specifics (line 1744).
+    waiver_obligation_id: z.string().optional(),
 
-  // Caller correlation (line 1750).
-  external_ref: z.string().optional(),
-}).strict();
+    // Caller correlation (line 1750).
+    external_ref: z.string().optional(),
+  })
+  .strict();
 
 export const EvidenceFullPayload = EvidenceFullShape.refine(
   (e) => {
@@ -187,27 +185,23 @@ export const EvidenceFullPayload = EvidenceFullShape.refine(
     return true;
   },
   {
-    message:
-      "evidence kind=manual/waiver requires actor=human:* and reason ≥10 chars (per §5.4)",
+    message: "evidence kind=manual/waiver requires actor=human:* and reason ≥10 chars (per §5.4)",
   },
-).refine(
-  (e) => !(e.kind === "manual" && e.result === "waived"),
-  {
-    message:
-      "evidence kind=manual must not carry result=waived; use kind=waiver",
-  },
-).refine(
-  (e) => {
-    if (e.kind === "visual-review") {
-      if (!e.attachments || e.attachments.length === 0) return false;
-    }
-    return true;
-  },
-  {
-    message:
-      "evidence kind=visual-review requires ≥1 attachment (per §5.4 + §1695-1700)",
-  },
-);
+)
+  .refine((e) => !(e.kind === "manual" && e.result === "waived"), {
+    message: "evidence kind=manual must not carry result=waived; use kind=waiver",
+  })
+  .refine(
+    (e) => {
+      if (e.kind === "visual-review") {
+        if (!e.attachments || e.attachments.length === 0) return false;
+      }
+      return true;
+    },
+    {
+      message: "evidence kind=visual-review requires ≥1 attachment (per §5.4 + §1695-1700)",
+    },
+  );
 
 export type EvidenceFull = z.infer<typeof EvidenceFullPayload>;
 

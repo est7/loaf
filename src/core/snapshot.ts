@@ -102,17 +102,10 @@ export function computeLineHash(line: string): string {
 // Verifier walks the journal entry-by-entry, recomputing each step; mismatch
 // indicates corruption between an entry and its declared meta snapshot.
 export function extendRollingChecksum(prev: string, line: string): string {
-  return createHash("sha256")
-    .update(prev, "hex")
-    .update(line, "utf8")
-    .digest("hex");
+  return createHash("sha256").update(prev, "hex").update(line, "utf8").digest("hex");
 }
 
-export async function writeMeta(
-  metaPath: string,
-  meta: SnapshotMeta,
-  fsync = true,
-): Promise<void> {
+export async function writeMeta(metaPath: string, meta: SnapshotMeta, fsync = true): Promise<void> {
   // Audit r1 fix #12: crypto.randomBytes for tmp suffix, fsync file + parent
   // dir per §11.2 atomic-rename semantics. (Math.random was predictable +
   // parent-dir fsync was missing, violating durability on power loss.)
@@ -125,7 +118,11 @@ export async function writeMeta(
   // fsync the file
   if (fsync) {
     const fh = await fsp.open(tmp, "r+");
-    try { await fh.sync(); } finally { await fh.close(); }
+    try {
+      await fh.sync();
+    } finally {
+      await fh.close();
+    }
   }
   await fsp.rename(tmp, metaPath);
   // fsync the parent directory so the rename is durable.
@@ -133,7 +130,11 @@ export async function writeMeta(
     const dir = path.dirname(metaPath);
     try {
       const dh = await fsp.open(dir, "r");
-      try { await dh.sync(); } finally { await dh.close(); }
+      try {
+        await dh.sync();
+      } finally {
+        await dh.close();
+      }
     } catch {
       // Some filesystems (e.g. tmpfs) don't permit dir fsync; best-effort only.
     }

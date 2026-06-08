@@ -649,7 +649,11 @@ describe("composeStateProjection — Phase 15 SC1", () => {
     const entries = [
       startedWidened(),
       entry(1, "pending:added", { id: "PEND-0001", kind: "ask_user_question", question: "first?" }),
-      entry(2, "pending:added", { id: "PEND-0002", kind: "ask_user_question", question: "second?" }),
+      entry(2, "pending:added", {
+        id: "PEND-0002",
+        kind: "ask_user_question",
+        question: "second?",
+      }),
       entry(3, "pending:resolved", { id: "PEND-0001" }),
     ];
     const state = composeStateProjection(stateSnapshot(), entries);
@@ -696,10 +700,9 @@ describe("composeStateProjection — Phase 15 SC1", () => {
 
   test("THROWS when sub_state does not match phase (StateProjection refine — corruption)", () => {
     expect(() =>
-      composeStateProjection(
-        stateSnapshot({ phase: "SPEC", sub_state: "EXECUTE.work" }),
-        [startedWidened()],
-      ),
+      composeStateProjection(stateSnapshot({ phase: "SPEC", sub_state: "EXECUTE.work" }), [
+        startedWidened(),
+      ]),
     ).toThrow();
   });
 
@@ -837,7 +840,14 @@ describe("writeProjections — Phase 14 SC1 end-to-end", () => {
 
       await writeProjections(dir, input);
       const snapDir = path.join(dir, "snapshots");
-      const files = ["state.json", "tasks.json", "evidence.json", "findings.json", "pending.json", "_meta.json"];
+      const files = [
+        "state.json",
+        "tasks.json",
+        "evidence.json",
+        "findings.json",
+        "pending.json",
+        "_meta.json",
+      ];
       const first: Record<string, string> = {};
       for (const f of files) first[f] = await readFile(path.join(snapDir, f), "utf8");
 

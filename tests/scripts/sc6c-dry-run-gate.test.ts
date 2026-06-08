@@ -13,10 +13,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const REPO_ROOT = path.join(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "..", "..",
-);
+const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 async function readRepo(rel: string): Promise<string> {
   return await fs.readFile(path.join(REPO_ROOT, rel), "utf8");
@@ -34,10 +31,10 @@ const READ_ONLY_COMMANDS: readonly string[] = [
   "pending list",
   "pending status",
   "finding list",
-  "doctor",            // bare + --rebuild both go through the same handler
-  "sessions list",     // Phase 16 SC-9b
-  "verify status",     // Phase 16 SC-9a-1
-  "check",             // Phase 16 SC-9c
+  "doctor", // bare + --rebuild both go through the same handler
+  "sessions list", // Phase 16 SC-9b
+  "verify status", // Phase 16 SC-9a-1
+  "check", // Phase 16 SC-9c
   // Phase 16 SC-10 — `--schema` modifier mode on 5 batch-capable mutators
   // + 5 `<kind> schema` artifact subs. All are read-only schema dumps.
   "spec add-req --schema",
@@ -50,10 +47,10 @@ const READ_ONLY_COMMANDS: readonly string[] = [
   "evidence schema",
   "finding schema",
   "state schema",
-  "spec edit",         // Phase 16 SC-12a-2 (wrapping mutator)
-  "handoff",           // Phase 16 SC-13a (projection-writer)
-  "tui",               // Phase 16 SC-14 (read-only)
-  "config init",       // rev 5.0 (scaffold-writer) — rejects --dry-run
+  "spec edit", // Phase 16 SC-12a-2 (wrapping mutator)
+  "handoff", // Phase 16 SC-13a (projection-writer)
+  "tui", // Phase 16 SC-14 (read-only)
+  "config init", // rev 5.0 (scaffold-writer) — rejects --dry-run
 ];
 
 /** Escape regex metacharacters in a literal label. */
@@ -62,7 +59,7 @@ function escapeRegex(s: string): string {
 }
 
 describe("SC-6c — positive table: every read-only command has rejectIfDryRun marker", () => {
-  test("static: each table entry has rejectIfDryRun(\"<label>\"...) in src/cli.tsx", async () => {
+  test('static: each table entry has rejectIfDryRun("<label>"...) in src/cli.tsx', async () => {
     const source = await readRepo("src/cli.tsx");
     const misses: string[] = [];
     for (const label of READ_ONLY_COMMANDS) {
@@ -124,11 +121,12 @@ describe("SC-13b — §10.7 dry-run classification ↔ runtime/SC-6c drift gate 
 
   test("§10.7 has a `Scaffold-writer` category for `config init`", async () => {
     const protocolText = await readRepo("docs/protocol.md");
-    const scaffoldLine = protocolText.split("\n").find((line) =>
-      line.startsWith("|") &&
-      line.includes("Scaffold-writer") &&
-      line.includes("config init"),
-    );
+    const scaffoldLine = protocolText
+      .split("\n")
+      .find(
+        (line) =>
+          line.startsWith("|") && line.includes("Scaffold-writer") && line.includes("config init"),
+      );
     expect(
       scaffoldLine,
       "docs/protocol.md §10.7 must include a Scaffold-writer category covering `config init`",
@@ -138,11 +136,9 @@ describe("SC-13b — §10.7 dry-run classification ↔ runtime/SC-6c drift gate 
 
   test("§10.7 Hook category row exists (Phase 16 SC-15a)", async () => {
     const protocolText = await readRepo("docs/protocol.md");
-    const hookLine = protocolText.split("\n").find((line) =>
-      line.startsWith("|") &&
-      line.includes("Hook 入口") &&
-      line.includes("hook"),
-    );
+    const hookLine = protocolText
+      .split("\n")
+      .find((line) => line.startsWith("|") && line.includes("Hook 入口") && line.includes("hook"));
     expect(hookLine, "expected §10.7 Hook 入口 row").toBeDefined();
   });
 
@@ -180,10 +176,11 @@ describe("SC-13b — §10.7 dry-run classification ↔ runtime/SC-6c drift gate 
     // rows only.
     const wrappingDryRunRow = protocolText
       .split("\n")
-      .find((line) =>
-        line.startsWith("|") &&
-        line.includes("Wrapping 命令") &&
-        line.includes("reject `--dry-run`"),
+      .find(
+        (line) =>
+          line.startsWith("|") &&
+          line.includes("Wrapping 命令") &&
+          line.includes("reject `--dry-run`"),
       );
     expect(wrappingDryRunRow, "expected to find §10.7 Wrapping dry-run table row").toBeDefined();
     const hasTui = /[\s/(`]tui[\s/),`*]/.test(wrappingDryRunRow!);

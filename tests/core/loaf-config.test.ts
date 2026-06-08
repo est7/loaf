@@ -103,7 +103,13 @@ describe("readLoafConfig", () => {
   test("WriteGuardConfig.paths keys mirror docs LoafConfig.paths (drift guard)", async () => {
     const parsed = WriteGuardConfig.parse({ schema_version: 2 });
     expect(Object.keys(parsed.paths).sort()).toEqual([
-      "docs", "public_api", "schema", "security", "source", "tests", "ui",
+      "docs",
+      "public_api",
+      "schema",
+      "security",
+      "source",
+      "tests",
+      "ui",
     ]);
   });
 });

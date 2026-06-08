@@ -14,10 +14,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const REPO_ROOT = path.join(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "..", "..",
-);
+const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 async function readRepo(rel: string): Promise<string> {
   return await fs.readFile(path.join(REPO_ROOT, rel), "utf8");
@@ -80,8 +77,15 @@ describe("SC-8 — feature-addressed actions go through dispatchOrFail", () => {
       // which is for recovering corrupt projections — going through
       // dispatch would prematurely surface SnapshotStale).
       const isNoDispatchMarker = /\/\/\s*no-dispatch/.test(slice);
-      if (referencesOptsFeature && !callsDispatchOrFail && !isNoFeatureMarker && !isNoDispatchMarker) {
-        misses.push(`line ${block.index + 1}: action references opts.feature but doesn't call dispatchOrFail`);
+      if (
+        referencesOptsFeature &&
+        !callsDispatchOrFail &&
+        !isNoFeatureMarker &&
+        !isNoDispatchMarker
+      ) {
+        misses.push(
+          `line ${block.index + 1}: action references opts.feature but doesn't call dispatchOrFail`,
+        );
       }
     }
     expect(misses).toEqual([]);

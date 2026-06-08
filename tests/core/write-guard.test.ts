@@ -116,7 +116,7 @@ describe("evaluateWritePath — category-aware widening (codex Q1 SECURITY BOUND
       feature: "auth",
       subState: "EXECUTE.work",
       targetPath: "/repo/custom-tests/login.spec.ts",
-      builtinGlobs: ["src/**"],            // implement built-ins (source only)
+      builtinGlobs: ["src/**"], // implement built-ins (source only)
       activeCategories: ["source"],
       config: cfg({ paths: { tests: ["custom-tests/**"] } }),
     });

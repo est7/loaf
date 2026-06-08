@@ -85,8 +85,14 @@ async function seedAtSpecProposalNoSubmit(): Promise<{ dir: string; feature: str
   const dir = await tmpFeatureDir();
   const feature = "F1";
   await runCli([
-    "start", feature, "--ceremony", "standard",
-    "--feature-dir", dir, "--format", "json",
+    "start",
+    feature,
+    "--ceremony",
+    "standard",
+    "--feature-dir",
+    dir,
+    "--format",
+    "json",
   ]);
   for (const [from, to] of [
     ["TRIAGE.score", "TRIAGE.confirm"],
@@ -101,7 +107,14 @@ async function seedAtSpecProposalNoSubmit(): Promise<{ dir: string; feature: str
         kind: "event:phase_advanced",
         payload: { from, to },
       },
-      { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, entries: s.entries, meta: s.meta, fsync: false },
+      {
+        feature_dir: dir,
+        snapshot: s.snapshot,
+        tail_seq: s.tail_seq,
+        entries: s.entries,
+        meta: s.meta,
+        fsync: false,
+      },
     );
     if (!r.ok) throw new Error(`walk ${from}→${to} failed: ${r.code} ${r.message}`);
   }
@@ -120,8 +133,14 @@ describe("SPEC_NOT_INITIALIZED — state.spec_version === 0 blocks spec_*_added"
       acceptance_na_reason: "subjective UX validated via manual testing scope",
     });
     const r = await runCli([
-      "spec", "add-req", "--input", input,
-      "--feature", feature, "--feature-dir", dir,
+      "spec",
+      "add-req",
+      "--input",
+      input,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(2);
     expect(r.stderr).toMatch(/SPEC_NOT_INITIALIZED/);
@@ -140,8 +159,14 @@ describe("SPEC_NOT_INITIALIZED — state.spec_version === 0 blocks spec_*_added"
       acceptance_na: "covered by manual exploration",
     });
     const r = await runCli([
-      "spec", "add-scenario", "--input", input,
-      "--feature", feature, "--feature-dir", dir,
+      "spec",
+      "add-scenario",
+      "--input",
+      input,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(2);
     expect(r.stderr).toMatch(/SPEC_NOT_INITIALIZED/);
@@ -156,8 +181,14 @@ describe("SPEC_NOT_INITIALIZED — state.spec_version === 0 blocks spec_*_added"
       visual_na: "skipped per fixture (no visual review yet)",
     });
     const r = await runCli([
-      "spec", "add-visual", "--input", input,
-      "--feature", feature, "--feature-dir", dir,
+      "spec",
+      "add-visual",
+      "--input",
+      input,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(2);
     expect(r.stderr).toMatch(/SPEC_NOT_INITIALIZED/);
@@ -172,8 +203,16 @@ describe("SPEC_NOT_INITIALIZED — state.spec_version === 0 blocks spec_*_added"
       needs_clarification: [],
     });
     const r = await runCli([
-      "spec", "submit", "--input", input,
-      "--feature", feature, "--feature-dir", dir, "--format", "json",
+      "spec",
+      "submit",
+      "--input",
+      input,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     expect(r.exit).toBe(0);
     const s = await loadSnapshot(dir);
@@ -184,24 +223,48 @@ describe("SPEC_NOT_INITIALIZED — state.spec_version === 0 blocks spec_*_added"
     const { dir, feature } = await seedAtSpecProposalNoSubmit();
     // Submit first to bump spec_version to 1.
     await runCli([
-      "spec", "submit", "--input", await writeInput(dir, {
-        feature: { id: "F-001", name: "SC3 fixture" },
-        intent: "exercise SC3 preflight: submit allows subsequent add-*",
-        adr_refs: [],
-        needs_clarification: [],
-      }, "submit.json"),
-      "--feature", feature, "--feature-dir", dir, "--format", "json",
+      "spec",
+      "submit",
+      "--input",
+      await writeInput(
+        dir,
+        {
+          feature: { id: "F-001", name: "SC3 fixture" },
+          intent: "exercise SC3 preflight: submit allows subsequent add-*",
+          adr_refs: [],
+          needs_clarification: [],
+        },
+        "submit.json",
+      ),
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     // Now add-req should pass (spec_version=1, SPEC_NOT_INITIALIZED doesn't fire).
     const r = await runCli([
-      "spec", "add-req", "--input", await writeInput(dir, {
-        id_namespace: "REQ-AUTH",
-        type: "ubiquitous",
-        response: "the system shall authenticate",
-        acceptance_na: true,
-        acceptance_na_reason: "subjective UX validated via manual testing scope",
-      }, "add.json"),
-      "--feature", feature, "--feature-dir", dir, "--format", "json",
+      "spec",
+      "add-req",
+      "--input",
+      await writeInput(
+        dir,
+        {
+          id_namespace: "REQ-AUTH",
+          type: "ubiquitous",
+          response: "the system shall authenticate",
+          acceptance_na: true,
+          acceptance_na_reason: "subjective UX validated via manual testing scope",
+        },
+        "add.json",
+      ),
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     expect(r.exit).toBe(0);
   });

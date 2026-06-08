@@ -48,7 +48,10 @@ function makeFrontmatter(overrides: Partial<SpecFrontmatter> = {}): SpecFrontmat
   };
 }
 
-function step(applicability: "must" | "optional" | "na", status: TaskState["steps"][string]["status"] = "pending") {
+function step(
+  applicability: "must" | "optional" | "na",
+  status: TaskState["steps"][string]["status"] = "pending",
+) {
   return { applicability, status };
 }
 
@@ -151,9 +154,7 @@ describe("specLockCheck — happy path (Slice 1.B sub-cycle 3b)", () => {
 describe("specLockCheck check 2 — needs_clarification", () => {
   test("fails when needs_clarification has unresolved entries", () => {
     const fm = makeFrontmatter({
-      needs_clarification: [
-        { id: "NC-001", question: "should we support OAuth 2.1?" },
-      ],
+      needs_clarification: [{ id: "NC-001", question: "should we support OAuth 2.1?" }],
     });
     const result = specLockCheck(snapshotCoveringFrontmatter(fm), fm);
     expect(result.ok).toBe(false);
@@ -274,10 +275,7 @@ describe("specLockCheck check 4 — REQ_NOT_DRIVEN", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       const check4Failures = result.checks.filter((c) => c.check === 4);
-      expect(check4Failures.map((c) => c.detail?.req_id)).toEqual([
-        "REQ-AUTH-001",
-        "REQ-AUTH-002",
-      ]);
+      expect(check4Failures.map((c) => c.detail?.req_id)).toEqual(["REQ-AUTH-001", "REQ-AUTH-002"]);
     }
   });
 });
@@ -352,9 +350,7 @@ describe("specLockCheck check 6 — E2E_SCENARIO_UNBOUND", () => {
     const fm = makeFrontmatter({ scenarios: [E2E_SCENARIO] });
     const snap: Snapshot = {
       ...initialSnapshot(),
-      tasks: [
-        behavioralTask({ drives: ["REQ-AUTH-001"], requires_acceptance: true }),
-      ],
+      tasks: [behavioralTask({ drives: ["REQ-AUTH-001"], requires_acceptance: true })],
       tasks_based_on: { spec: 1 },
     };
     const result = specLockCheck(snap, fm);
@@ -417,9 +413,7 @@ describe("specLockCheck check 7 — VISUAL_CONTRACT_UNBOUND", () => {
     const fm = makeFrontmatter({ visual_contracts: [VISUAL] });
     const snap: Snapshot = {
       ...initialSnapshot(),
-      tasks: [
-        behavioralTask({ drives: ["REQ-AUTH-001"], requires_visual: true }),
-      ],
+      tasks: [behavioralTask({ drives: ["REQ-AUTH-001"], requires_visual: true })],
       tasks_based_on: { spec: 1 },
     };
     const result = specLockCheck(snap, fm);
@@ -554,10 +548,7 @@ describe("specLockCheck check 8 — TASK_KIND_SCHEMA_VIOLATION", () => {
     if (!result.ok) {
       const check8Failures = result.checks.filter((c) => c.check === 8);
       expect(check8Failures).toHaveLength(2);
-      expect(check8Failures.map((c) => c.detail?.task_id).sort()).toEqual([
-        "T-001",
-        "T-099",
-      ]);
+      expect(check8Failures.map((c) => c.detail?.task_id).sort()).toEqual(["T-001", "T-099"]);
     }
   });
 

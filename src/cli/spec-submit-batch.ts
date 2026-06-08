@@ -49,9 +49,7 @@ export interface SpecSubmitBatchEntry {
  *  + N `event:spec_req_added` + M `event:spec_scenario_added` + K
  *  `event:spec_visual_added`. All entries share `at` / `actor` /
  *  `entry_schema_version` / payload's `spec_version`. */
-export function buildSpecSubmitBatch(
-  args: BuildSpecSubmitBatchArgs,
-): SpecSubmitBatchEntry[] {
+export function buildSpecSubmitBatch(args: BuildSpecSubmitBatchArgs): SpecSubmitBatchEntry[] {
   const { input, snapshot, actor, now } = args;
 
   // codex r331 P1 lock: CLI fills with current+1 when absent. When

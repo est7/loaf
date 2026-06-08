@@ -30,9 +30,10 @@ function entryWithSummary(text: string, mode: "inline" | "sidecar" = "inline"): 
     entry_schema_version: 1,
     kind: "evidence:added",
     payload: {
-      summary: mode === "inline"
-        ? { mode: "inline", text }
-        : { mode: "sidecar", ref: { path: "x", sha256: "0".repeat(64), size: 0 } },
+      summary:
+        mode === "inline"
+          ? { mode: "inline", text }
+          : { mode: "sidecar", ref: { path: "x", sha256: "0".repeat(64), size: 0 } },
     },
   };
 }
@@ -56,7 +57,11 @@ describe("promoteSidecars — Stage 4 §11.2 step 4", () => {
     const e = entryWithSummary(big);
     const promoted = await promoteSidecars(e, root, { fsync: false });
 
-    const promotedField = (promoted.payload as { summary: { mode: string; ref?: { path: string; sha256: string; size: number } } }).summary;
+    const promotedField = (
+      promoted.payload as {
+        summary: { mode: string; ref?: { path: string; sha256: string; size: number } };
+      }
+    ).summary;
     expect(promotedField.mode).toBe("sidecar");
     expect(promotedField.ref).toBeDefined();
     expect(promotedField.ref!.path).toBe(`attachments/${e.entry_id}/summary.txt`);
@@ -120,16 +125,13 @@ describe("listOrphanSidecars / cleanupOrphanSidecars — orphan GC", () => {
     await fs.mkdir(path.join(root, "attachments", "JE-000099"), { recursive: true });
     await fs.writeFile(path.join(root, "attachments", "JE-000099", "x.txt"), "byebye");
     await fs.mkdir(path.join(root, "attachments", "JE-000001"), { recursive: true });
-    await fs.writeFile(
-      path.join(root, "attachments", "JE-000001", "summary.txt.tmp-xyz"),
-      "stray",
-    );
+    await fs.writeFile(path.join(root, "attachments", "JE-000001", "summary.txt.tmp-xyz"), "stray");
 
     await cleanupOrphanSidecars(root, new Set(["JE-000001"]));
 
-    await expect(
-      fs.access(path.join(root, "attachments", "JE-000099")),
-    ).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(fs.access(path.join(root, "attachments", "JE-000099"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
     await expect(
       fs.access(path.join(root, "attachments", "JE-000001", "summary.txt.tmp-xyz")),
     ).rejects.toMatchObject({ code: "ENOENT" });

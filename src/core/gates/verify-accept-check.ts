@@ -48,10 +48,9 @@ import { evaluateTaskProof, verifyAcceptPolicy } from "./task-proof.js";
 
 export type FailedCheck = {
   check: 1 | 2 | 3 | 4 | 5;
-  code:
-    // Slice 1.C sub-cycle 4: caller's responsibility (spec.md read failures
-    // map to check 1 via verify-accept-eval.ts), parallel to spec-lock-check
-    // structure. Pure verifyAcceptCheck() never returns this code itself.
+  code: // Slice 1.C sub-cycle 4: caller's responsibility (spec.md read failures
+  // map to check 1 via verify-accept-eval.ts), parallel to spec-lock-check
+  // structure. Pure verifyAcceptCheck() never returns this code itself.
     | "SPEC_FRONTMATTER_INVALID"
     | "VERIFY_LANE_NOT_PASSED"
     | "OPEN_FINDINGS_PRESENT"
@@ -71,20 +70,18 @@ export type FailedCheck = {
   detail?: Record<string, unknown>;
 };
 
-export type VerifyAcceptResult =
-  | { ok: true }
-  | { ok: false; checks: FailedCheck[] };
+export type VerifyAcceptResult = { ok: true } | { ok: false; checks: FailedCheck[] };
 
 // SC-9a-1: named per-check axis exposed by `loaf verify status`. Kept
 // separate from VerifyCheckKind (the lane enum) because checks 2/3/4/5 are
 // not lanes. Numeric 1..5 stays on FailedCheck.check for byte-equivalence
 // with verifyAcceptCheck output; the named id rides PerCheckResult.check.
 export type VerifyCheckId =
-  | "lane_status"   // check 1
+  | "lane_status" // check 1
   | "open_findings" // check 2
-  | "coverage"      // check 3
+  | "coverage" // check 3
   | "task_evidence" // check 4 (multi-code: TASKS_NOT_PLANNED / TASKS_BASED_ON_STALE / TASK_DONE_NO_EVIDENCE / BUG_TASK_RED_NOT_REGISTERED)
-  | "spec_review";  // check 5 (multi-code: SPEC_REVIEW_MISSING / SPEC_REVIEW_IMPLEMENTER_CONFLICT / SPEC_REVIEW_IMPLEMENTER_UNKNOWN)
+  | "spec_review"; // check 5 (multi-code: SPEC_REVIEW_MISSING / SPEC_REVIEW_IMPLEMENTER_CONFLICT / SPEC_REVIEW_IMPLEMENTER_UNKNOWN)
 
 export const VERIFY_CHECK_IDS = [
   "lane_status",
@@ -191,9 +188,7 @@ function laneIsPassed(lane: VerifyCheckKind, evidence: ReadonlyArray<EvidenceSta
  * implementer can be established — caller must fail-closed.
  */
 function deriveImplementers(snapshot: Snapshot): Set<string> {
-  const doneTaskIds = new Set(
-    snapshot.tasks.filter((t) => t.status === "done").map((t) => t.id),
-  );
+  const doneTaskIds = new Set(snapshot.tasks.filter((t) => t.status === "done").map((t) => t.id));
   const implementers = new Set<string>();
   for (const ev of snapshot.evidence) {
     if (ev.kind !== "task-summary" && ev.kind !== "local-check") continue;
@@ -229,12 +224,14 @@ function evalLaneStatus(snapshot: Snapshot, frontmatter: SpecFrontmatter): Faile
 function evalOpenFindings(snapshot: Snapshot): FailedCheck[] {
   const open = snapshot.findings.filter((f) => f.status === "open");
   if (open.length === 0) return [];
-  return [{
-    check: 2,
-    code: "OPEN_FINDINGS_PRESENT",
-    message: `${open.length} finding(s) still open; resolve or close before verify-accept`,
-    detail: { count: open.length, open_ids: open.map((f) => f.id) },
-  }];
+  return [
+    {
+      check: 2,
+      code: "OPEN_FINDINGS_PRESENT",
+      message: `${open.length} finding(s) still open; resolve or close before verify-accept`,
+      detail: { count: open.length, open_ids: open.map((f) => f.id) },
+    },
+  ];
 }
 
 function evalCoverage(snapshot: Snapshot, frontmatter: SpecFrontmatter): FailedCheck[] {
@@ -335,31 +332,37 @@ function evalSpecReview(snapshot: Snapshot): FailedCheck[] {
     (ev) => ev.kind === "spec-review" && isPassingSpecReview(ev.result),
   );
   if (specReviews.length === 0) {
-    return [{
-      check: 5,
-      code: "SPEC_REVIEW_MISSING",
-      message: `ceremony.strict_spec_review=true requires ≥1 evidence kind=spec-review from an actor ≠ implementer; none found`,
-    }];
+    return [
+      {
+        check: 5,
+        code: "SPEC_REVIEW_MISSING",
+        message: `ceremony.strict_spec_review=true requires ≥1 evidence kind=spec-review from an actor ≠ implementer; none found`,
+      },
+    ];
   }
   const implementers = deriveImplementers(snapshot);
   if (implementers.size === 0) {
-    return [{
-      check: 5,
-      code: "SPEC_REVIEW_IMPLEMENTER_UNKNOWN",
-      message: `ceremony.strict_spec_review=true requires actor ≠ implementer comparison, but no implementer actor can be established (done-task evidence actors all cli:*); fail-closed`,
-    }];
+    return [
+      {
+        check: 5,
+        code: "SPEC_REVIEW_IMPLEMENTER_UNKNOWN",
+        message: `ceremony.strict_spec_review=true requires actor ≠ implementer comparison, but no implementer actor can be established (done-task evidence actors all cli:*); fail-closed`,
+      },
+    ];
   }
   const conflicts = specReviews.filter((ev) => implementers.has(ev.actor));
   if (conflicts.length > 0 && conflicts.length === specReviews.length) {
-    return [{
-      check: 5,
-      code: "SPEC_REVIEW_IMPLEMENTER_CONFLICT",
-      message: `every spec-review evidence has actor ∈ implementer set; require ≥1 spec-review from an actor that did not implement done tasks`,
-      detail: {
-        spec_review_actors: specReviews.map((ev) => ev.actor),
-        implementers: [...implementers],
+    return [
+      {
+        check: 5,
+        code: "SPEC_REVIEW_IMPLEMENTER_CONFLICT",
+        message: `every spec-review evidence has actor ∈ implementer set; require ≥1 spec-review from an actor that did not implement done tasks`,
+        detail: {
+          spec_review_actors: specReviews.map((ev) => ev.actor),
+          implementers: [...implementers],
+        },
       },
-    }];
+    ];
   }
   return [];
 }

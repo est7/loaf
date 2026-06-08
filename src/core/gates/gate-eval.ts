@@ -24,7 +24,12 @@ type Frontmatter = Extract<ReadSpecResult, { ok: true }>["frontmatter"];
 type SpecReadFailure = {
   ok: false;
   checks: [
-    { check: 1; code: "SPEC_FRONTMATTER_INVALID"; message: string; detail: Record<string, unknown> },
+    {
+      check: 1;
+      code: "SPEC_FRONTMATTER_INVALID";
+      message: string;
+      detail: Record<string, unknown>;
+    },
   ];
 };
 

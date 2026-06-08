@@ -65,15 +65,25 @@ async function runCli(
 }
 
 /** Seed a feature session with valid spec.md frontmatter. */
-async function seedSessionWithSpec(opts: { allNa?: boolean } = {}): Promise<{ featureDir: string; tmp: string }> {
+async function seedSessionWithSpec(
+  opts: { allNa?: boolean } = {},
+): Promise<{ featureDir: string; tmp: string }> {
   const tmp = await tmpDir();
   const featureDir = path.join(tmp, ".loaf", "auth-refresh");
   await fs.mkdir(featureDir, { recursive: true });
 
   // Bootstrap session via CLI start
   const startResult = await runCli(
-    ["start", "auth-refresh", "--ceremony", "standard",
-     "--feature-dir", featureDir, "--format", "json"],
+    [
+      "start",
+      "auth-refresh",
+      "--ceremony",
+      "standard",
+      "--feature-dir",
+      featureDir,
+      "--format",
+      "json",
+    ],
     {},
   );
   if (startResult.exit !== 0) {
@@ -118,7 +128,16 @@ describe("SC-9a-1 — verify status JSON envelope", () => {
   test("happy: seeded session + valid spec.md → exit 0, 5 rows, ok:true, all_pass boolean", async () => {
     const { featureDir } = await seedSessionWithSpec({ allNa: true });
     const result = await runCli(
-      ["verify", "status", "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "verify",
+        "status",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       {},
     );
     expect(result.exit).toBe(0);
@@ -142,7 +161,16 @@ describe("SC-9a-1 — verify status JSON envelope", () => {
   test("task_evidence row reports TASKS_NOT_PLANNED when no tasks_planned yet", async () => {
     const { featureDir } = await seedSessionWithSpec({ allNa: true });
     const result = await runCli(
-      ["verify", "status", "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "verify",
+        "status",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       {},
     );
     expect(result.exit).toBe(0);
@@ -176,14 +204,31 @@ describe("SC-9a-1 — verify status IO boundary errors", () => {
     const featureDir = path.join(tmp, ".loaf", "auth-refresh");
     await fs.mkdir(featureDir, { recursive: true });
     const start = await runCli(
-      ["start", "auth-refresh", "--ceremony", "standard",
-       "--feature-dir", featureDir, "--format", "json"],
+      [
+        "start",
+        "auth-refresh",
+        "--ceremony",
+        "standard",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       {},
     );
     expect(start.exit).toBe(0);
     // Intentionally do NOT write spec.md
     const result = await runCli(
-      ["verify", "status", "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "verify",
+        "status",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       {},
     );
     expect(result.exit).toBe(2);
@@ -201,7 +246,16 @@ describe("SC-9a-1 — verify status IO boundary errors", () => {
     const tmp = await tmpDir();
     const featureDir = path.join(tmp, ".loaf", "missing");
     const result = await runCli(
-      ["verify", "status", "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "verify",
+        "status",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { cwd: tmp },
     );
     expect(result.exit).toBe(2);
@@ -217,7 +271,17 @@ describe("SC-9a-1 — verify status flags", () => {
   test("--dry-run rejected: exit 2 DRY_RUN_NOT_APPLICABLE (read-only)", async () => {
     const { featureDir } = await seedSessionWithSpec({ allNa: true });
     const result = await runCli(
-      ["verify", "status", "--feature", "auth-refresh", "--feature-dir", featureDir, "--dry-run", "--format", "json"],
+      [
+        "verify",
+        "status",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--dry-run",
+        "--format",
+        "json",
+      ],
       {},
     );
     expect(result.exit).toBe(2);
@@ -228,7 +292,17 @@ describe("SC-9a-1 — verify status flags", () => {
   test("--quiet suppresses any advisory but envelope still emits", async () => {
     const { featureDir } = await seedSessionWithSpec({ allNa: true });
     const result = await runCli(
-      ["verify", "status", "--feature", "auth-refresh", "--feature-dir", featureDir, "--quiet", "--format", "json"],
+      [
+        "verify",
+        "status",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--quiet",
+        "--format",
+        "json",
+      ],
       {},
     );
     expect(result.exit).toBe(0);

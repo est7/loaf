@@ -5,10 +5,7 @@
 
 import { describe, expect, test } from "vitest";
 
-import {
-  resolveHumanActor,
-  type ResolverDeps,
-} from "../../src/core/actor-resolver.js";
+import { resolveHumanActor, type ResolverDeps } from "../../src/core/actor-resolver.js";
 
 function deps(overrides: Partial<ResolverDeps>): ResolverDeps {
   return {
@@ -38,10 +35,12 @@ describe("resolveHumanActor — Slice 1.0 Cycle 1", () => {
   });
 
   test("#4 CI guard — $LOAF_USER unset + git set + non-interactive → NO_HUMAN_ACTOR (refuse auto-derive)", () => {
-    const r = resolveHumanActor(deps({
-      readGitConfig: () => "cathy@x.com",
-      isInteractiveHuman: false,
-    }));
+    const r = resolveHumanActor(
+      deps({
+        readGitConfig: () => "cathy@x.com",
+        isInteractiveHuman: false,
+      }),
+    );
     expect(r.ok).toBe(false);
     if (r.ok) throw new Error("unreachable");
     expect(r.code).toBe("NO_HUMAN_ACTOR");
@@ -49,10 +48,12 @@ describe("resolveHumanActor — Slice 1.0 Cycle 1", () => {
   });
 
   test("#5 explicit env wins in non-interactive context → human:<value>", () => {
-    const r = resolveHumanActor(deps({
-      env: { LOAF_USER: "dave@x.com" },
-      isInteractiveHuman: false,
-    }));
+    const r = resolveHumanActor(
+      deps({
+        env: { LOAF_USER: "dave@x.com" },
+        isInteractiveHuman: false,
+      }),
+    );
     expect(r).toEqual({ ok: true, actor: "human:dave@x.com" });
   });
 
@@ -100,11 +101,13 @@ describe("resolveHumanActor — Slice 1.0 Cycle 1", () => {
   });
 
   test("#11 readGitConfig throws → NO_HUMAN_ACTOR (treat as no git available)", () => {
-    const r = resolveHumanActor(deps({
-      readGitConfig: () => {
-        throw new Error("git binary not found");
-      },
-    }));
+    const r = resolveHumanActor(
+      deps({
+        readGitConfig: () => {
+          throw new Error("git binary not found");
+        },
+      }),
+    );
     expect(r.ok).toBe(false);
     if (r.ok) throw new Error("unreachable");
     expect(r.code).toBe("NO_HUMAN_ACTOR");

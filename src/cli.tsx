@@ -28,17 +28,21 @@ import {
   FORMAT_MODES_HUMAN,
   type I18nVars,
 } from "./cli/command-context.js";
-import {
-  buildTraceEntry,
-  defaultAppendTraceLine,
-  type TraceEntry,
-} from "./cli/trace-writer.js";
+import { buildTraceEntry, defaultAppendTraceLine, type TraceEntry } from "./cli/trace-writer.js";
 import { listSessions, formatAtRelative, type SessionRow } from "./cli/sessions-list.js";
-import { buildEnvelope as buildVerifyStatusEnvelope, renderText as renderVerifyStatusText } from "./cli/verify-status.js";
+import {
+  buildEnvelope as buildVerifyStatusEnvelope,
+  renderText as renderVerifyStatusText,
+} from "./cli/verify-status.js";
 import { evaluateVerifyAcceptDiagnostic } from "./core/gates/verify-accept-eval.js";
 import { deriveVerifyApplicability } from "./core/gates/verify-accept-check.js";
 import { buildNextOutput } from "./core/next-action.js";
-import { CHECK_KINDS, checkFile, renderSuccessText as renderCheckSuccess, type CheckKind } from "./cli/check-file.js";
+import {
+  CHECK_KINDS,
+  checkFile,
+  renderSuccessText as renderCheckSuccess,
+  type CheckKind,
+} from "./cli/check-file.js";
 import {
   ARTIFACT_SCHEMA_KINDS,
   emitArtifactSchema,
@@ -47,10 +51,7 @@ import {
   type ArtifactSchemaKind,
 } from "./cli/schema-emit.js";
 import type { MutatorCommand } from "../docs/schemas.js";
-import {
-  allocateNextEvidenceId,
-  allocateNextEvidenceIds,
-} from "./cli/evidence-id-allocator.js";
+import { allocateNextEvidenceId, allocateNextEvidenceIds } from "./cli/evidence-id-allocator.js";
 import { buildWaiveEvidencePayload } from "./cli/waive.js";
 import { buildLessonsEvidencePayload } from "./cli/lessons-add.js";
 import { buildSpecSubmitBatch } from "./cli/spec-submit-batch.js";
@@ -87,12 +88,7 @@ import {
   writeConfigExclusive,
 } from "./core/loaf-config.js";
 import { readUserConfig, UserConfig, userConfigPath } from "./core/user-config.js";
-import {
-  BUILTIN_BUNDLES,
-  createI18n,
-  resolveLocale,
-  type I18n,
-} from "./cli/i18n.js";
+import { BUILTIN_BUNDLES, createI18n, resolveLocale, type I18n } from "./cli/i18n.js";
 import {
   CHROME_KEYS,
   diagnosticKey,
@@ -361,7 +357,9 @@ export type MainDeps = {
   userConfigHomeDir?: string;
 };
 
-function preparseI18nFromEnv(env: Record<string, string | undefined>): ReturnType<typeof createI18n> {
+function preparseI18nFromEnv(
+  env: Record<string, string | undefined>,
+): ReturnType<typeof createI18n> {
   const explicit = env["LOAF_LANG"];
   if (explicit === "zh" || explicit === "en") {
     return createI18n(explicit, BUILTIN_BUNDLES);
@@ -372,14 +370,12 @@ function preparseI18nFromEnv(env: Record<string, string | undefined>): ReturnTyp
   return createI18n("en", BUILTIN_BUNDLES);
 }
 
-function writePreContextKeyedFailure(
-  input: {
-    code: MigratedDiagnosticCode;
-    vars: I18nVars;
-    detail?: Record<string, unknown>;
-    renderAsJson: boolean;
-  },
-): void {
+function writePreContextKeyedFailure(input: {
+  code: MigratedDiagnosticCode;
+  vars: I18nVars;
+  detail?: Record<string, unknown>;
+  renderAsJson: boolean;
+}): void {
   const keyPath = diagnosticKey(input.code);
   const message = input.renderAsJson
     ? createI18n("en", BUILTIN_BUNDLES).t(keyPath, input.vars)
@@ -393,15 +389,13 @@ function writePreContextKeyedFailure(
   }
 }
 
-function writePreContextSiteFailure(
-  input: {
-    code: FailureSiteDiagnosticCode;
-    keyPath: FailureSiteKey;
-    vars: I18nVars;
-    detail?: Record<string, unknown>;
-    renderAsJson: boolean;
-  },
-): void {
+function writePreContextSiteFailure(input: {
+  code: FailureSiteDiagnosticCode;
+  keyPath: FailureSiteKey;
+  vars: I18nVars;
+  detail?: Record<string, unknown>;
+  renderAsJson: boolean;
+}): void {
   const message = input.renderAsJson
     ? createI18n("en", BUILTIN_BUNDLES).t(input.keyPath, input.vars)
     : preparseI18nFromEnv(process.env).t(input.keyPath, input.vars);
@@ -481,10 +475,7 @@ function listVar(value: unknown): string | null {
   return stringVar(value);
 }
 
-export async function main(
-  argv: string[] = process.argv,
-  deps: MainDeps = {},
-): Promise<number> {
+export async function main(argv: string[] = process.argv, deps: MainDeps = {}): Promise<number> {
   // Phase 16 SC-5a/SC-5b1 — pre-parse presentation guard.
   //
   // Runs BEFORE Commander setup, BEFORE actor/env init, BEFORE
@@ -554,8 +545,13 @@ export async function main(
   // actually-present selectors (codex r290 nit).
   if (!wantsHelpOrVersion) {
     const SUBCOMMAND_VALUE_FLAGS = new Set([
-      "--format", "--session", "--feature", "--feature-dir",
-      "--ceremony", "--label", "--workspace",
+      "--format",
+      "--session",
+      "--feature",
+      "--feature-dir",
+      "--ceremony",
+      "--label",
+      "--workspace",
     ]);
     const collectNonFlagTokens = (startIdx: number, max: number): string[] => {
       const out: string[] = [];
@@ -593,7 +589,8 @@ export async function main(
       }
       if (presentSelectors.length > 0) {
         const renderAsJson = argv.some(
-          (a) => a === "--format=json" || (a === "--format" && argv[argv.indexOf(a) + 1] === "json"),
+          (a) =>
+            a === "--format=json" || (a === "--format" && argv[argv.indexOf(a) + 1] === "json"),
         );
         writePreContextSiteFailure({
           code: "USAGE",
@@ -630,9 +627,7 @@ export async function main(
       if (process.env["LOAF_FEATURE"] !== undefined && process.env["LOAF_FEATURE"].length > 0) {
         presentSelectors.push("$LOAF_FEATURE");
       }
-      const hasFormat = argv.some(
-        (a) => a === "--format" || a.startsWith("--format="),
-      );
+      const hasFormat = argv.some((a) => a === "--format" || a.startsWith("--format="));
       const renderAsJson = argv.some(
         (a) => a === "--format=json" || (a === "--format" && argv[argv.indexOf(a) + 1] === "json"),
       );
@@ -672,14 +667,16 @@ export async function main(
       // (1) --list-events takes precedence
       if (argv.includes("--list-events")) {
         if (renderAsJson) {
-          process.stdout.write(JSON.stringify({
-            ok: true,
-            count: HOOK_EVENTS.length,
-            events: HOOK_EVENTS.map((e) => ({
-              event: e,
-              claude_code: HOOK_EVENT_TO_CLAUDE_CODE[e],
-            })),
-          }) + "\n");
+          process.stdout.write(
+            JSON.stringify({
+              ok: true,
+              count: HOOK_EVENTS.length,
+              events: HOOK_EVENTS.map((e) => ({
+                event: e,
+                claude_code: HOOK_EVENT_TO_CLAUDE_CODE[e],
+              })),
+            }) + "\n",
+          );
         } else {
           for (const e of HOOK_EVENTS) {
             process.stdout.write(`${e}\t${HOOK_EVENT_TO_CLAUDE_CODE[e]}\n`);
@@ -739,7 +736,8 @@ export async function main(
       }
       if (presentSelectors.length > 0) {
         const renderAsJson = argv.some(
-          (a) => a === "--format=json" || (a === "--format" && argv[argv.indexOf(a) + 1] === "json"),
+          (a) =>
+            a === "--format=json" || (a === "--format" && argv[argv.indexOf(a) + 1] === "json"),
         );
         writePreContextSiteFailure({
           code: "USAGE",
@@ -763,11 +761,11 @@ export async function main(
     // Both reject the same 5 selectors as SC-9b/SC-9c (--session /
     // --feature / --feature-dir / $LOAF_SESSION / $LOAF_FEATURE).
     const MUTATOR_SCHEMA_LABELS = new Map<string, string>([
-      ["spec/add-req",      "spec add-req --schema"],
+      ["spec/add-req", "spec add-req --schema"],
       ["spec/add-scenario", "spec add-scenario --schema"],
-      ["spec/add-visual",   "spec add-visual --schema"],
-      ["tasks/add",         "tasks add --schema"],
-      ["evidence/add",      "evidence add --schema"],
+      ["spec/add-visual", "spec add-visual --schema"],
+      ["tasks/add", "tasks add --schema"],
+      ["evidence/add", "evidence add --schema"],
     ]);
     const ARTIFACT_KINDS = new Set(["spec", "tasks", "evidence", "finding", "state"]);
     const isArtifactSchema =
@@ -796,7 +794,8 @@ export async function main(
       if (presentSelectors.length > 0) {
         const subj = mutatorSchemaLabel ?? `${cmdTokens[0]} schema`;
         const renderAsJson = argv.some(
-          (a) => a === "--format=json" || (a === "--format" && argv[argv.indexOf(a) + 1] === "json"),
+          (a) =>
+            a === "--format=json" || (a === "--format" && argv[argv.indexOf(a) + 1] === "json"),
         );
         writePreContextSiteFailure({
           code: "USAGE",
@@ -832,10 +831,13 @@ export async function main(
   // `error: USAGE — <message>` (codex r287 P1).
   if (!wantsHelpOrVersion) {
     const hasSession = argv.includes("--session") || argv.some((a) => a.startsWith("--session="));
-    const hasFeatureDir = argv.includes("--feature-dir") || argv.some((a) => a.startsWith("--feature-dir="));
+    const hasFeatureDir =
+      argv.includes("--feature-dir") || argv.some((a) => a.startsWith("--feature-dir="));
     const hasFeature = argv.includes("--feature") || argv.some((a) => a.startsWith("--feature="));
-    const hasLoafSession = process.env["LOAF_SESSION"] !== undefined && process.env["LOAF_SESSION"].length > 0;
-    const hasLoafFeature = process.env["LOAF_FEATURE"] !== undefined && process.env["LOAF_FEATURE"].length > 0;
+    const hasLoafSession =
+      process.env["LOAF_SESSION"] !== undefined && process.env["LOAF_SESSION"].length > 0;
+    const hasLoafFeature =
+      process.env["LOAF_FEATURE"] !== undefined && process.env["LOAF_FEATURE"].length > 0;
     // Detect the subcommand: walk argv[2:] and pick the first non-flag
     // (and non-flag-value) token. Global flags like `--dry-run`,
     // `--debug`, `--no-input`, `--quiet` can appear BEFORE the
@@ -843,8 +845,13 @@ export async function main(
     // simply use argv[2]. Track flags that take values so we skip
     // their value too.
     const FLAGS_WITH_VALUES = new Set([
-      "--format", "--session", "--feature", "--feature-dir",
-      "--ceremony", "--label", "--workspace",
+      "--format",
+      "--session",
+      "--feature",
+      "--feature-dir",
+      "--ceremony",
+      "--label",
+      "--workspace",
     ]);
     let subcommand: string | undefined;
     for (let i = 2; i < argv.length; i++) {
@@ -886,7 +893,8 @@ export async function main(
         // resolved the output mode (safe because the presentation
         // guard above bailed for INVALID_FORMAT etc.).
         const renderAsJson = argv.some(
-          (a) => a === "--format=json" || (a === "--format" && argv[argv.indexOf(a) + 1] === "json"),
+          (a) =>
+            a === "--format=json" || (a === "--format" && argv[argv.indexOf(a) + 1] === "json"),
         );
         writePreContextSiteFailure({
           code: "USAGE",
@@ -965,21 +973,26 @@ export async function main(
     .name("loaf")
     .description("Spec-driven development protocol CLI")
     .version(packageJson.version)
-    .option(
-      "--format <fmt>",
-      `Output format: ${FORMAT_MODES_HUMAN} (default: text)`,
-    )
+    .option("--format <fmt>", `Output format: ${FORMAT_MODES_HUMAN} (default: text)`)
     // SC-5b2 presentation flags. Registered globally so they parse on
     // any subcommand; advisory routing per protocol §10.12.
     .option("--plain", "Alias for --format text (clig.dev convention)")
     .option("--no-color", "Disable color (NO_COLOR/LOAF_NO_COLOR/TERM=dumb equivalents)")
     .option("-q, --quiet", "Suppress advisory stderr (state-change + next hint; errors still emit)")
-    .option("-v, --verbose", "Increase advisory detail; counter — repeat for more (-v, -vv)", (_v: string, prior: number | undefined): number => (prior ?? 0) + 1, 0)
+    .option(
+      "-v, --verbose",
+      "Increase advisory detail; counter — repeat for more (-v, -vv)",
+      (_v: string, prior: number | undefined): number => (prior ?? 0) + 1,
+      0,
+    )
     // SC-6a — non-interactive mode declaration. Required for skill / hook /
     // CI runners on a TTY: forces actor resolver to refuse the git-config
     // fallback (`isInteractiveHuman` AND-folded with !ctx.noInput). Future
     // prompt entry points must short-circuit to exit 2 when set.
-    .option("--no-input", "Non-interactive mode: refuse git-config actor fallback; forward-compat with future prompts (skill / hook / CI)")
+    .option(
+      "--no-input",
+      "Non-interactive mode: refuse git-config actor fallback; forward-compat with future prompts (skill / hook / CI)",
+    )
     // SC-6b — debug observability. Writes one `kind:"cli"` row to
     // `.loaf/<feature>/trace.jsonl` at invocation end. Orthogonal to
     // `-v/--verbose` (which owns stderr advisory density). Env equivalents
@@ -989,7 +1002,10 @@ export async function main(
     // gate + integrity) without writing journal / sidecars / projections;
     // read-only commands reject with DRY_RUN_NOT_APPLICABLE. Orthogonal
     // to all other flags. Per §10.7 invariant: dry-run persists NO state.
-    .option("-n, --dry-run", "Validate without writing (mutating commands only); read-only commands exit 2")
+    .option(
+      "-n, --dry-run",
+      "Validate without writing (mutating commands only); read-only commands exit 2",
+    )
     // SC-8 — session dispatch. Resolves a registry-tracked session by
     // UUID or ≥8-char prefix. Per protocol §10.3, precedence is
     // --session > --feature > $LOAF_SESSION > $LOAF_FEATURE > auto-pick.
@@ -997,7 +1013,10 @@ export async function main(
     // `enforceDispatchUsagePreParse` below). --feature / --feature-dir
     // stay per-command registrations because making them global
     // conflicts with the per-command opts during Commander parse.
-    .option("--session <uuid-or-prefix>", "Resolve session by UUID or ≥8-char prefix (registry lookup; see §10.3)")
+    .option(
+      "--session <uuid-or-prefix>",
+      "Resolve session by UUID or ≥8-char prefix (registry lookup; see §10.3)",
+    )
     .addHelpText("after", helpFooter())
     .showHelpAfterError()
     .exitOverride();
@@ -1027,10 +1046,7 @@ export async function main(
   // SC-5b2 closed the legacy presentation shim — all sites now route
   // through ctx.success / ctx.failure. Single source of truth =
   // ctx.output (parsePresentation via createCommandContext).
-  function emitKeyedFailure(
-    code: string,
-    detail: Record<string, unknown> | undefined,
-  ): boolean {
+  function emitKeyedFailure(code: string, detail: Record<string, unknown> | undefined): boolean {
     const vars = diagnosticVarsFor(code, detail);
     if (vars === null) return false;
     ctx.failureKeyed(code, diagnosticKey(code as MigratedDiagnosticCode), vars, detail);
@@ -1042,11 +1058,7 @@ export async function main(
       ctx.failure(code, message);
     }
   };
-  const emitFailure = (
-    code: string,
-    message: string,
-    detail?: Record<string, unknown>,
-  ): void => {
+  const emitFailure = (code: string, message: string, detail?: Record<string, unknown>): void => {
     if (!emitKeyedFailure(code, detail)) {
       ctx.failure(code, message, detail);
     }
@@ -1057,12 +1069,7 @@ export async function main(
     feature: string,
     detail?: Record<string, unknown>,
   ): void => {
-    ctx.failureKeyed(
-      "NO_SESSION",
-      keyPath,
-      { feature },
-      detail,
-    );
+    ctx.failureKeyed("NO_SESSION", keyPath, { feature }, detail);
   };
 
   // Phase 16 SC-6a — actor-resolution boundary helpers. Both injection
@@ -1083,9 +1090,10 @@ export async function main(
   // returns null (caller early-returns). On success mutates `opts` so
   // downstream `opts.feature` / `opts.featureDir` references resolve to
   // the dispatched values (existing code path stays valid).
-  const dispatchOrFail = async (
-    opts: { feature?: string; featureDir?: string },
-  ): Promise<string | null> => {
+  const dispatchOrFail = async (opts: {
+    feature?: string;
+    featureDir?: string;
+  }): Promise<string | null> => {
     const dispatch = await ctx.resolveDispatch();
     if (!dispatch.ok) {
       emitFailure(dispatch.code, dispatch.message, dispatch.detail);
@@ -1110,11 +1118,11 @@ export async function main(
   // to avoid emitting misleading context). All other dispatch failures
   // (explicit bad --session etc.) also skip silently — a hook must never
   // break the host tool's lifecycle.
-  const dispatchForHookOptional = async (
-    opts: { feature?: string; featureDir?: string },
-  ): Promise<
-    | { featureDir: string }
-    | { skip: true; stale?: { code: string; message: string } }
+  const dispatchForHookOptional = async (opts: {
+    feature?: string;
+    featureDir?: string;
+  }): Promise<
+    { featureDir: string } | { skip: true; stale?: { code: string; message: string } }
   > => {
     let dispatch: Awaited<ReturnType<typeof ctx.resolveDispatch>>;
     try {
@@ -1161,12 +1169,7 @@ export async function main(
       }
       return parsed.path;
     }
-    ctx.failureKeyed(
-      "USAGE",
-      FAILURE_SITE_KEYS.hookWritePathMissing,
-      {},
-      {},
-    );
+    ctx.failureKeyed("USAGE", FAILURE_SITE_KEYS.hookWritePathMissing, {}, {});
     return null;
   };
 
@@ -1178,12 +1181,11 @@ export async function main(
   // (ambiguous / stale / explicit-selector miss / unexpected throw) is a
   // session context we cannot cleanly resolve → fail closed (exit 2),
   // never authorize blindly.
-  const resolveDispatchForWriteGuard = async (
-    opts: { feature?: string; featureDir?: string },
-  ): Promise<
-    | { featureDir: string }
-    | { allow: true }
-    | { failClosed: true; code: string; message: string }
+  const resolveDispatchForWriteGuard = async (opts: {
+    feature?: string;
+    featureDir?: string;
+  }): Promise<
+    { featureDir: string } | { allow: true } | { failClosed: true; code: string; message: string }
   > => {
     let dispatch: Awaited<ReturnType<typeof ctx.resolveDispatch>>;
     try {
@@ -1234,12 +1236,8 @@ export async function main(
   const emitDryRunSuccess = (
     result: { entry: { kind: string } } | { entries: readonly { kind: string }[] },
   ): void => {
-    const kind =
-      "entry" in result ? result.entry.kind : result.entries[0]?.kind ?? "(empty)";
-    ctx.success(
-      { ok: true, dry_run: true, would: { kind } },
-      () => `dry-run: would ${kind}\n`,
-    );
+    const kind = "entry" in result ? result.entry.kind : (result.entries[0]?.kind ?? "(empty)");
+    ctx.success({ ok: true, dry_run: true, would: { kind } }, () => `dry-run: would ${kind}\n`);
   };
   const rejectIfDryRun = (
     command: string,
@@ -1399,80 +1397,84 @@ export async function main(
     .option("--label <text>", "Human-readable session label (≥3 chars)")
     .option("--workspace <name>", "Workspace name (multi-worktree display)", "default")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-    .action(async (
-      feature: string,
-      opts: { ceremony: string; label?: string; workspace: string; featureDir?: string },
-    ) => {
-      const ceremony = PRESETS[opts.ceremony];
-      if (!ceremony) {
-        fail("INVALID_PRESET",
-          `unknown ceremony preset "${opts.ceremony}" — known: ${Object.keys(PRESETS).join(", ")}`);
-        return;
-      }
-      // Phase 15 SC1 (F-019): --label is optional, but when given it must
-      // satisfy the session:started payload contract (≥3 chars). Reject
-      // client-side with a usage error rather than a deep INVALID_PAYLOAD.
-      if (opts.label !== undefined && opts.label.length < 3) {
-        ctx.failureKeyed(
-          "USAGE",
-          FAILURE_SITE_KEYS.startLabelTooShort,
-          { min_length: 3 },
-          { min_length: 3, actual_length: opts.label.length },
-        );
-        return;
-      }
-      if (opts.workspace.length < 1) {
-        ctx.failureKeyed("USAGE", FAILURE_SITE_KEYS.startWorkspaceEmpty, {}, {});
-        return;
-      }
-      const featureDir = opts.featureDir ?? defaultFeatureDir(feature);
-      ctx.recordTraceTarget(feature, featureDir);
-      const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
-      const sessionId = crypto.randomUUID();
-      const result = await runMutator(
-        featureDir,
-        session,
-        {
-          kind: "session:started",
-          // Phase 15 SC1 (F-019): bucket-C identity fields ride the
-          // session:started payload so state.json is fully journal-derived.
-          payload: {
-            session_id: sessionId,
-            feature,
-            ceremony,
-            ceremony_label: opts.ceremony,
-            workspace: opts.workspace,
-            loaf_version_required: `^${packageJson.version}`,
-            ...(opts.label !== undefined ? { session_label: opts.label } : {}),
+    .action(
+      async (
+        feature: string,
+        opts: { ceremony: string; label?: string; workspace: string; featureDir?: string },
+      ) => {
+        const ceremony = PRESETS[opts.ceremony];
+        if (!ceremony) {
+          fail(
+            "INVALID_PRESET",
+            `unknown ceremony preset "${opts.ceremony}" — known: ${Object.keys(PRESETS).join(", ")}`,
+          );
+          return;
+        }
+        // Phase 15 SC1 (F-019): --label is optional, but when given it must
+        // satisfy the session:started payload contract (≥3 chars). Reject
+        // client-side with a usage error rather than a deep INVALID_PAYLOAD.
+        if (opts.label !== undefined && opts.label.length < 3) {
+          ctx.failureKeyed(
+            "USAGE",
+            FAILURE_SITE_KEYS.startLabelTooShort,
+            { min_length: 3 },
+            { min_length: 3, actual_length: opts.label.length },
+          );
+          return;
+        }
+        if (opts.workspace.length < 1) {
+          ctx.failureKeyed("USAGE", FAILURE_SITE_KEYS.startWorkspaceEmpty, {}, {});
+          return;
+        }
+        const featureDir = opts.featureDir ?? defaultFeatureDir(feature);
+        ctx.recordTraceTarget(feature, featureDir);
+        const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
+        const sessionId = crypto.randomUUID();
+        const result = await runMutator(
+          featureDir,
+          session,
+          {
+            kind: "session:started",
+            // Phase 15 SC1 (F-019): bucket-C identity fields ride the
+            // session:started payload so state.json is fully journal-derived.
+            payload: {
+              session_id: sessionId,
+              feature,
+              ceremony,
+              ceremony_label: opts.ceremony,
+              workspace: opts.workspace,
+              loaf_version_required: `^${packageJson.version}`,
+              ...(opts.label !== undefined ? { session_label: opts.label } : {}),
+            },
+            actor,
           },
-          actor,
-        },
-        "legacy-fail",
-      );
-      if (!result) return;
-      const out = {
-        ok: true,
-        feature,
-        session_id: sessionId,
-        ceremony_label: opts.ceremony,
-        workspace: opts.workspace,
-        feature_dir: featureDir,
-        sub_state: result.snapshot.state?.sub_state,
-      };
-      // Phase 16 SC-5b1 pilot — `loaf start` is the first command
-      // migrated to ctx.success(payload, textRenderer, advisories).
-      // Text mode stdout = bare session_id (UUID) for pipeable use;
-      // stderr stateChange + next advisory per protocol §10.12
-      // (`docs/protocol.md:2014` — aligned to runtime data, no F-NNN).
-      ctx.success(
-        out,
-        () => `${sessionId}\n`,
-        (i18n) => ({
-          stateChange: i18n.t(SUCCESS_KEYS.startStateChange, { feature }),
-          next: i18n.t(SUCCESS_KEYS.nextAdvance),
-        }),
-      );
-    });
+          "legacy-fail",
+        );
+        if (!result) return;
+        const out = {
+          ok: true,
+          feature,
+          session_id: sessionId,
+          ceremony_label: opts.ceremony,
+          workspace: opts.workspace,
+          feature_dir: featureDir,
+          sub_state: result.snapshot.state?.sub_state,
+        };
+        // Phase 16 SC-5b1 pilot — `loaf start` is the first command
+        // migrated to ctx.success(payload, textRenderer, advisories).
+        // Text mode stdout = bare session_id (UUID) for pipeable use;
+        // stderr stateChange + next advisory per protocol §10.12
+        // (`docs/protocol.md:2014` — aligned to runtime data, no F-NNN).
+        ctx.success(
+          out,
+          () => `${sessionId}\n`,
+          (i18n) => ({
+            stateChange: i18n.t(SUCCESS_KEYS.startStateChange, { feature }),
+            next: i18n.t(SUCCESS_KEYS.nextAdvance),
+          }),
+        );
+      },
+    );
 
   // ── loaf advance <to> ───────────────────────────────────────────────
   program
@@ -1558,17 +1560,23 @@ export async function main(
       ctx.success(
         out,
         (i18n) =>
-          i18n.t(CHROME_KEYS.statusFeature, { feature: opts.feature }) + "\n" +
-          i18n.t(CHROME_KEYS.statusPhase, { phase: i18n.t(subStateKey(state.sub_state)) }) + "\n" +
-          i18n.t(CHROME_KEYS.statusCursor, { cursor: state.sub_state }) + "\n" +
-          i18n.t(CHROME_KEYS.statusTail, { seq: out.tail_seq }) + "\n" +
+          i18n.t(CHROME_KEYS.statusFeature, { feature: opts.feature }) +
+          "\n" +
+          i18n.t(CHROME_KEYS.statusPhase, { phase: i18n.t(subStateKey(state.sub_state)) }) +
+          "\n" +
+          i18n.t(CHROME_KEYS.statusCursor, { cursor: state.sub_state }) +
+          "\n" +
+          i18n.t(CHROME_KEYS.statusTail, { seq: out.tail_seq }) +
+          "\n" +
           i18n.t(CHROME_KEYS.statusCounts, {
             tasks_count: out.tasks_count,
             evidence_count: out.evidence_count,
             findings_count: out.findings_count,
             pending_count: out.pending_count,
-          }) + "\n" +
-          i18n.t(CHROME_KEYS.statusSnapshotAsOfProjectionLoader, { seq: out.tail_seq }) + "\n",
+          }) +
+          "\n" +
+          i18n.t(CHROME_KEYS.statusSnapshotAsOfProjectionLoader, { seq: out.tail_seq }) +
+          "\n",
       );
     });
 
@@ -1597,17 +1605,14 @@ export async function main(
       if (loaded.state.sub_state.startsWith("VERIFY.")) {
         const read = await readSpecFrontmatter(featureDir);
         if (!read.ok) {
-          emitFailure(
-            "SPEC_FRONTMATTER_INVALID",
-            read.message,
-            { subcode: read.code, ...(read.detail ?? {}) },
-          );
+          emitFailure("SPEC_FRONTMATTER_INVALID", read.message, {
+            subcode: read.code,
+            ...(read.detail ?? {}),
+          });
           return;
         }
         const tasks: TaskState[] = loaded.tasks
-          ? loaded.tasks.tasks.map((t) =>
-              extractTaskSlim(t),
-            )
+          ? loaded.tasks.tasks.map((t) => extractTaskSlim(t))
           : [];
         // deriveVerifyApplicability reads frontmatter plus snapshot.tasks;
         // the remaining Snapshot fields are intentionally not loaded here.
@@ -1640,10 +1645,7 @@ export async function main(
         verify_applicable_lanes: verifyApplicableLanes,
       });
 
-      ctx.success(
-        out,
-        () => out.next_action === undefined ? "" : `${out.next_action.command}\n`,
-      );
+      ctx.success(out, () => (out.next_action === undefined ? "" : `${out.next_action.command}\n`));
     });
 
   // ── loaf gate decide <gate-name> ────────────────────────────────────
@@ -1669,185 +1671,185 @@ export async function main(
     .command("gate")
     .description("Gate decision commands (spec-lock + verify-accept)")
     .command("decide <gate-name>")
-    .description(
-      "Decide a gate (emits gate:decided; spec-lock approve also advances cursor)",
-    )
+    .description("Decide a gate (emits gate:decided; spec-lock approve also advances cursor)")
     .option("--approve", "Approve the gate")
     .option("--reject", "Reject the gate")
     .requiredOption("--reason <text>", "Decision rationale (passed through to GateDecidedPayload)")
     .option("--feature <name>", "Feature whose session to gate")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-    .action(async (
-      gateName: string,
-      opts: {
-        approve?: boolean;
-        reject?: boolean;
-        reason: string;
-        feature: string;
-        featureDir?: string;
-      },
-    ) => {
-      // (1) action-level mutex: exactly one of --approve / --reject
-      const approve = opts.approve === true;
-      const reject = opts.reject === true;
-      if (approve === reject) {
-        emitFailure(
-          "USAGE",
-          "exactly one of --approve | --reject is required",
-        );
-        return;
-      }
-      // (2) gate name validation — must be in GateName enum
-      if (gateName !== "spec-lock" && gateName !== "verify-accept") {
-        emitFailure(
-          "GATE_NOT_IMPLEMENTED",
-          `gate=${gateName} is not recognized; protocol GateName enum is closed at {spec-lock, verify-accept}`,
-          { gate: gateName },
-        );
-        return;
-      }
-      // (3) resolve human actor (gate is human-only per per-kind actor policy)
-      const resolution = resolveHumanActor({
-        env: process.env,
-        readGitConfig: readGitConfigForActor,
-        isInteractiveHuman: isInteractiveHumanForActor(),
-      });
-      if (!resolution.ok) {
-        emitFailure(resolution.code, resolution.message);
-        return;
-      }
-      const humanActor = resolution.actor;
-      // (4) load session
-      const featureDir = await dispatchOrFail(opts);
-      if (featureDir === null) return;
-      const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
-      const from = session.snapshot.state?.sub_state;
-      if (!from) {
-        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
-        return;
-      }
-      // (5) build entries + execute per-gate
-      // SC4 soft pending co-emission: if the unresolved head is a
-      // gate_decision prompt, the approve batch appends pending:resolved
-      // so the head clears atomically. Non-gate heads are rejected by
-      // preflight GATE_NOT_PENDING (see reducer/preflight.ts (5a)).
-      const pendingHead = session.snapshot.pending.find((p) => !p.resolved);
-      const coEmitPendingResolved =
-        approve && pendingHead && pendingHead.kind === "gate_decision";
-      if (approve) {
-        if (gateName === "spec-lock") {
-          // dual-entry batch: human gate:decided + machine event:phase_advanced.
-          // mutateBatch Pass 1.5 evaluates spec-lock via evaluateSpecLock; any
-          // failure surfaces as GATE_PRECONDITION_VIOLATION with checks[] in
-          // detail. spec-lock specifically moves SPEC.design → EXECUTE.plan.
-          // SC4: when coEmitPendingResolved, insert pending:resolved between
-          // the gate decision and the cursor advance — order matters for
-          // reducer dry-run (pending head must still be unresolved when
-          // pending:resolved applies; phase_advanced runs after).
+    .action(
+      async (
+        gateName: string,
+        opts: {
+          approve?: boolean;
+          reject?: boolean;
+          reason: string;
+          feature: string;
+          featureDir?: string;
+        },
+      ) => {
+        // (1) action-level mutex: exactly one of --approve / --reject
+        const approve = opts.approve === true;
+        const reject = opts.reject === true;
+        if (approve === reject) {
+          emitFailure("USAGE", "exactly one of --approve | --reject is required");
+          return;
+        }
+        // (2) gate name validation — must be in GateName enum
+        if (gateName !== "spec-lock" && gateName !== "verify-accept") {
+          emitFailure(
+            "GATE_NOT_IMPLEMENTED",
+            `gate=${gateName} is not recognized; protocol GateName enum is closed at {spec-lock, verify-accept}`,
+            { gate: gateName },
+          );
+          return;
+        }
+        // (3) resolve human actor (gate is human-only per per-kind actor policy)
+        const resolution = resolveHumanActor({
+          env: process.env,
+          readGitConfig: readGitConfigForActor,
+          isInteractiveHuman: isInteractiveHumanForActor(),
+        });
+        if (!resolution.ok) {
+          emitFailure(resolution.code, resolution.message);
+          return;
+        }
+        const humanActor = resolution.actor;
+        // (4) load session
+        const featureDir = await dispatchOrFail(opts);
+        if (featureDir === null) return;
+        const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
+        const from = session.snapshot.state?.sub_state;
+        if (!from) {
+          emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+          return;
+        }
+        // (5) build entries + execute per-gate
+        // SC4 soft pending co-emission: if the unresolved head is a
+        // gate_decision prompt, the approve batch appends pending:resolved
+        // so the head clears atomically. Non-gate heads are rejected by
+        // preflight GATE_NOT_PENDING (see reducer/preflight.ts (5a)).
+        const pendingHead = session.snapshot.pending.find((p) => !p.resolved);
+        const coEmitPendingResolved =
+          approve && pendingHead && pendingHead.kind === "gate_decision";
+        if (approve) {
+          if (gateName === "spec-lock") {
+            // dual-entry batch: human gate:decided + machine event:phase_advanced.
+            // mutateBatch Pass 1.5 evaluates spec-lock via evaluateSpecLock; any
+            // failure surfaces as GATE_PRECONDITION_VIOLATION with checks[] in
+            // detail. spec-lock specifically moves SPEC.design → EXECUTE.plan.
+            // SC4: when coEmitPendingResolved, insert pending:resolved between
+            // the gate decision and the cursor advance — order matters for
+            // reducer dry-run (pending head must still be unresolved when
+            // pending:resolved applies; phase_advanced runs after).
+            const result = await runMutator(
+              featureDir,
+              session,
+              buildGateApprovalBatch({
+                gate: "spec-lock",
+                reason: opts.reason,
+                humanActor,
+                cliActor: actor,
+                from,
+                ...(coEmitPendingResolved && pendingHead ? { pendingHeadId: pendingHead.id } : {}),
+              }),
+            );
+            if (!result) return;
+            const out = {
+              ok: true,
+              gate: "spec-lock",
+              decision: "approved" as const,
+              from,
+              to: "EXECUTE.plan",
+              actor: humanActor,
+              sub_state: result.snapshot.state?.sub_state,
+              spec_locked: result.snapshot.state?.spec_locked,
+            };
+            ctx.success(
+              out,
+              () => "",
+              (i18n) => ({
+                stateChange: i18n.t(SUCCESS_KEYS.gateSpecLockApprovedStateChange, {
+                  actor: humanActor,
+                }),
+              }),
+            );
+            return;
+          }
+          // verify-accept approve: single-entry [gate:decided] OR 2-entry
+          // batch [gate:decided, pending:resolved] when SC4 co-emission fires.
+          // mutateBatch Pass 1.5 evaluates verify-accept via evaluateVerifyAccept
+          // (5 checks: lane status / open findings / coverage / done-task evidence
+          // / deep spec-review). Gate does NOT move cursor — cursor stays at
+          // VERIFY.accept; `loaf deliver` / `loaf settle` advance cursor later
+          // per ceremony.settle_phase.
           const result = await runMutator(
             featureDir,
             session,
             buildGateApprovalBatch({
-              gate: "spec-lock",
+              gate: "verify-accept",
               reason: opts.reason,
               humanActor,
               cliActor: actor,
-              from,
               ...(coEmitPendingResolved && pendingHead ? { pendingHeadId: pendingHead.id } : {}),
             }),
           );
           if (!result) return;
           const out = {
             ok: true,
-            gate: "spec-lock",
+            gate: "verify-accept",
             decision: "approved" as const,
             from,
-            to: "EXECUTE.plan",
             actor: humanActor,
             sub_state: result.snapshot.state?.sub_state,
-            spec_locked: result.snapshot.state?.spec_locked,
+            verify_accepted: result.snapshot.state?.verify_accepted,
           };
+          const nextCmd =
+            result.snapshot.state?.ceremony?.settle_phase === true ? "loaf settle" : "loaf deliver";
           ctx.success(
             out,
             () => "",
             (i18n) => ({
-              stateChange: i18n.t(SUCCESS_KEYS.gateSpecLockApprovedStateChange, { actor: humanActor }),
+              stateChange: i18n.t(SUCCESS_KEYS.gateVerifyAcceptApprovedStateChange, {
+                actor: humanActor,
+              }),
+              next: i18n.t(
+                nextCmd === "loaf settle" ? SUCCESS_KEYS.nextSettle : SUCCESS_KEYS.nextDeliver,
+              ),
             }),
           );
           return;
         }
-        // verify-accept approve: single-entry [gate:decided] OR 2-entry
-        // batch [gate:decided, pending:resolved] when SC4 co-emission fires.
-        // mutateBatch Pass 1.5 evaluates verify-accept via evaluateVerifyAccept
-        // (5 checks: lane status / open findings / coverage / done-task evidence
-        // / deep spec-review). Gate does NOT move cursor — cursor stays at
-        // VERIFY.accept; `loaf deliver` / `loaf settle` advance cursor later
-        // per ceremony.settle_phase.
-        const result = await runMutator(
-          featureDir,
-          session,
-          buildGateApprovalBatch({
-            gate: "verify-accept",
-            reason: opts.reason,
-            humanActor,
-            cliActor: actor,
-            ...(coEmitPendingResolved && pendingHead ? { pendingHeadId: pendingHead.id } : {}),
-          }),
-        );
+        // reject: single entry, no cursor side-effect, no Pass 1.5 eval.
+        // Shared between spec-lock and verify-accept.
+        const result = await runMutator(featureDir, session, {
+          kind: "gate:decided",
+          payload: { gate_kind: gateName, decision: "rejected", reason: opts.reason },
+          actor: humanActor,
+        });
         if (!result) return;
         const out = {
           ok: true,
-          gate: "verify-accept",
-          decision: "approved" as const,
+          gate: gateName,
+          decision: "rejected" as const,
           from,
           actor: humanActor,
           sub_state: result.snapshot.state?.sub_state,
+          spec_locked: result.snapshot.state?.spec_locked,
           verify_accepted: result.snapshot.state?.verify_accepted,
         };
-        const nextCmd =
-          result.snapshot.state?.ceremony?.settle_phase === true
-            ? "loaf settle"
-            : "loaf deliver";
         ctx.success(
           out,
           () => "",
           (i18n) => ({
-            stateChange: i18n.t(SUCCESS_KEYS.gateVerifyAcceptApprovedStateChange, { actor: humanActor }),
-            next: i18n.t(nextCmd === "loaf settle" ? SUCCESS_KEYS.nextSettle : SUCCESS_KEYS.nextDeliver),
+            stateChange: i18n.t(SUCCESS_KEYS.gateRejectedStateChange, {
+              gate: gateName,
+              actor: humanActor,
+            }),
           }),
         );
-        return;
-      }
-      // reject: single entry, no cursor side-effect, no Pass 1.5 eval.
-      // Shared between spec-lock and verify-accept.
-      const result = await runMutator(
-        featureDir,
-        session,
-        {
-          kind: "gate:decided",
-          payload: { gate_kind: gateName, decision: "rejected", reason: opts.reason },
-          actor: humanActor,
-        },
-      );
-      if (!result) return;
-      const out = {
-        ok: true,
-        gate: gateName,
-        decision: "rejected" as const,
-        from,
-        actor: humanActor,
-        sub_state: result.snapshot.state?.sub_state,
-        spec_locked: result.snapshot.state?.spec_locked,
-        verify_accepted: result.snapshot.state?.verify_accepted,
-      };
-      ctx.success(
-        out,
-        () => "",
-        (i18n) => ({
-          stateChange: i18n.t(SUCCESS_KEYS.gateRejectedStateChange, { gate: gateName, actor: humanActor }),
-        }),
-      );
-    });
+      },
+    );
 
   // ── loaf deliver ────────────────────────────────────────────────────
   // Slice 1.D sub-cycle 2. Emits a single `session:delivered` entry
@@ -1921,9 +1923,7 @@ export async function main(
       // (5) Success output via ctx.success — stateChange + next routed to
       //     stderr per protocol §10.12 (SC-5b2). The advisory string
       //     remains in the JSON payload for back-compat.
-      const advisory = [
-        `session complete — \`loaf start <feature>\` to begin another`,
-      ];
+      const advisory = [`session complete — \`loaf start <feature>\` to begin another`];
       const out = {
         ok: true,
         feature: opts.feature,
@@ -1960,7 +1960,9 @@ export async function main(
   // than abstracted, consistent with `deliver` not sharing a helper.
   program
     .command("archive")
-    .description("Close the feature session without delivering (emits session:archived → DONE.archived)")
+    .description(
+      "Close the feature session without delivering (emits session:archived → DONE.archived)",
+    )
     .option("--feature <name>", "Feature whose session to archive")
     .requiredOption("--reason <text>", "Rationale recorded on the session:archived entry")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
@@ -1989,11 +1991,11 @@ export async function main(
 
       // (3) Mutate. preflight step 5c.2 enforces reason-required; reducer
       //     flips cursor to DONE.archived.
-      const result = await runMutator(
-        featureDir,
-        session,
-        { kind: "session:archived", payload: { reason: opts.reason }, actor: humanActor },
-      );
+      const result = await runMutator(featureDir, session, {
+        kind: "session:archived",
+        payload: { reason: opts.reason },
+        actor: humanActor,
+      });
       if (!result) return;
 
       // (4) Success output.
@@ -2049,11 +2051,11 @@ export async function main(
 
       // (3) Mutate. preflight step 5c.2 enforces reason-required; reducer
       //     flips cursor to DONE.abandoned.
-      const result = await runMutator(
-        featureDir,
-        session,
-        { kind: "session:abandoned", payload: { reason: opts.reason }, actor: humanActor },
-      );
+      const result = await runMutator(featureDir, session, {
+        kind: "session:abandoned",
+        payload: { reason: opts.reason },
+        actor: humanActor,
+      });
       if (!result) return;
 
       // (4) Success output.
@@ -2088,29 +2090,17 @@ export async function main(
   // command does NOT scaffold it. Precondition (preflight 5c.3):
   // SPIKE_CONVERT_NO_SPIKE_TASK if the session holds no non-abandoned
   // kind=spike task.
-  const spikeCmd = program
-    .command("spike")
-    .description("Spike-task exits (protocol §8.3)");
+  const spikeCmd = program.command("spike").description("Spike-task exits (protocol §8.3)");
 
   spikeCmd
     .command("convert")
-    .description(
-      "Convert a spike session — emits spike:converted then archives to DONE.archived",
-    )
+    .description("Convert a spike session — emits spike:converted then archives to DONE.archived")
     .option("--feature <name>", "Feature whose spike session to convert")
-    .requiredOption(
-      "--to-feature <id>",
-      "Target feature id (F-NNN) the spike learnings carry into",
-    )
+    .requiredOption("--to-feature <id>", "Target feature id (F-NNN) the spike learnings carry into")
     .requiredOption("--reason <text>", "Rationale recorded on the spike:converted entry")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(
-      async (opts: {
-        feature: string;
-        toFeature: string;
-        reason: string;
-        featureDir?: string;
-      }) => {
+      async (opts: { feature: string; toFeature: string; reason: string; featureDir?: string }) => {
         // (1) Human-only actor — `spike:converted` is HUMAN_ONLY per PER_KIND_ACTOR.
         const resolution = resolveHumanActor({
           env: process.env,
@@ -2199,12 +2189,7 @@ export async function main(
     .option("--feature <name>", "Feature whose session to escalate")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(
-      async (opts: {
-        confirm: boolean;
-        input: string;
-        feature: string;
-        featureDir?: string;
-      }) => {
+      async (opts: { confirm: boolean; input: string; feature: string; featureDir?: string }) => {
         // SC-6b — record trace target at action entry so input-read /
         // schema-parse failures still trace. SC-8: dispatchOrFail
         // resolves §10.3 precedence + mutates opts.feature/featureDir
@@ -2344,9 +2329,7 @@ export async function main(
     }
   }
 
-  const configCmd = program
-    .command("config")
-    .description("Project and user config commands");
+  const configCmd = program.command("config").description("Project and user config commands");
 
   configCmd
     .command("init")
@@ -2377,10 +2360,7 @@ export async function main(
         refuseConfigExists(configPath);
         return;
       }
-      ctx.success(
-        { ok: true, config_path: configPath },
-        () => `${configPath}\n`,
-      );
+      ctx.success({ ok: true, config_path: configPath }, () => `${configPath}\n`);
     });
 
   // ── loaf doctor --rebuild ───────────────────────────────────────────
@@ -2430,10 +2410,7 @@ export async function main(
       // missing-feature error — `--feature` is a Commander `.option`, not
       // `.requiredOption`, precisely so mode is checked first (codex r161).
       if (!opts.feature) {
-        emitFailure(
-          "DOCTOR_FEATURE_REQUIRED",
-          "doctor --rebuild requires --feature <name>",
-        );
+        emitFailure("DOCTOR_FEATURE_REQUIRED", "doctor --rebuild requires --feature <name>");
         return;
       }
 
@@ -2488,10 +2465,7 @@ export async function main(
           meta: replay.meta,
         });
       } catch (err) {
-        emitFailure(
-          "DOCTOR_REBUILD_FAILED",
-          `snapshot rebuild failed — ${(err as Error).message}`,
-        );
+        emitFailure("DOCTOR_REBUILD_FAILED", `snapshot rebuild failed — ${(err as Error).message}`);
         return;
       }
 
@@ -2506,11 +2480,15 @@ export async function main(
         out,
         (i18n) =>
           i18n.t(
-            rebuilt.length === 1 ? SUCCESS_KEYS.doctorRebuildTextOne : SUCCESS_KEYS.doctorRebuildTextMany,
+            rebuilt.length === 1
+              ? SUCCESS_KEYS.doctorRebuildTextOne
+              : SUCCESS_KEYS.doctorRebuildTextMany,
             { count: rebuilt.length, feature: opts.feature },
-          ) + "\n" +
+          ) +
+          "\n" +
           rebuilt.map((f) => `  snapshots/${f}\n`).join("") +
-          i18n.t(SUCCESS_KEYS.snapshotAsOfSeq, { seq: replay.meta.last_applied_seq }) + "\n",
+          i18n.t(SUCCESS_KEYS.snapshotAsOfSeq, { seq: replay.meta.last_applied_seq }) +
+          "\n",
         (i18n) => ({
           stateChange: i18n.t(
             rebuilt.length === 1
@@ -2556,7 +2534,9 @@ export async function main(
   //   - no session               → NO_SESSION (CLI-side)
   tasksCmd
     .command("submit")
-    .description("Submit a complete task graph from --input <src> (stdin / inline JSON / file path; whole-graph single object)")
+    .description(
+      "Submit a complete task graph from --input <src> (stdin / inline JSON / file path; whole-graph single object)",
+    )
     .requiredOption(
       "--input <src>",
       "JSON source: `-` (stdin), inline JSON literal, or file path (protocol §10.7). Whole-graph single object only.",
@@ -2616,10 +2596,13 @@ export async function main(
       ctx.success(
         out,
         (i18n) =>
-          i18n.t(tasks.length === 1 ? SUCCESS_KEYS.tasksSubmitTextOne : SUCCESS_KEYS.tasksSubmitTextMany, {
-            count: tasks.length,
-            task_ids: taskIds.join(", "),
-          }) + "\n",
+          i18n.t(
+            tasks.length === 1 ? SUCCESS_KEYS.tasksSubmitTextOne : SUCCESS_KEYS.tasksSubmitTextMany,
+            {
+              count: tasks.length,
+              task_ids: taskIds.join(", "),
+            },
+          ) + "\n",
         (i18n) => ({
           stateChange: i18n.t(SUCCESS_KEYS.tasksSubmitStateChange, { count: tasks.length }),
           next: i18n.t(SUCCESS_KEYS.nextAdvance),
@@ -2657,7 +2640,9 @@ export async function main(
   // `.lock` yet (Slice 5), single-writer assumption (codex r112).
   tasksCmd
     .command("add")
-    .description("Append id-less task(s) to the graph — --input <src> with single object or array (batch); SPEC.design whole-graph, or EXECUTE.work sponsored via --finding")
+    .description(
+      "Append id-less task(s) to the graph — --input <src> with single object or array (batch); SPEC.design whole-graph, or EXECUTE.work sponsored via --finding",
+    )
     .option(
       "--input <src>",
       "JSON source for TaskInput (single object or array): `-` (stdin), inline JSON, or file path (protocol §10.7)",
@@ -2666,134 +2651,145 @@ export async function main(
     .option("--feature <name>", "Feature whose task graph to extend")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .option("--finding <FND-N>", "Sponsoring amend-tasks finding (sponsored add at EXECUTE.work)")
-    .action(async (rawOpts: { input?: string; schema?: boolean; feature: string; featureDir?: string; finding?: string }) => {
-      // dispatchOrFail(opts) below records the trace target after input pre-validation.
-      if (rawOpts.schema === true) {
-        if (rejectIfDryRun("tasks add --schema")) return;
-        emitMutatorSchemaAndExit("tasks:add");
-        return;
-      }
-      if (rawOpts.input === undefined) {
-        emitFailure(
-          "MISSING_INPUT",
-          "loaf tasks add requires --input <src> (or pass --schema to dump the input JSON Schema)",
-        );
-        return;
-      }
-      const opts = rawOpts as { input: string; feature: string; featureDir?: string; finding?: string };
-      // Phase 16 SC-4b — unified --input modality (protocol §10.7).
-      const source = parseInputSource(opts.input);
-      if (source.kind === "stdin" && isStdinTty()) {
-        ctx.failure(
-          "USAGE",
-          "stdin is TTY — `loaf tasks add --input -` expects piped input. " +
-            "Pipe JSON via `... | loaf tasks add --input -`, OR pass inline " +
-            "JSON / file path. Run --help for examples.",
-        );
-        return;
-      }
-      const read = await readJsonInput(source, { readStdin });
-      if (!read.ok) {
-        ctx.failure(read.code, read.message, read.detail);
-        return;
-      }
-      const parsed = read.value;
-
-      // Normalize to an array; validate each against the strict TaskInput
-      // schema. TaskInput omits id / status / execution (CLI-owned);
-      // `.strict()` rejects a caller that supplies any of them — the
-      // shape-enforcement point of ADR-0004 (codex r113).
-      const rawTasks: unknown[] = Array.isArray(parsed) ? parsed : [parsed];
-      if (rawTasks.length === 0) {
-        ctx.failureKeyed(
-          "SCHEMA_VALIDATION_FAILED",
-          FAILURE_SITE_KEYS.tasksAddEmptyArray,
-          {},
-          {},
-        );
-        return;
-      }
-      const validatedInputs: TaskInput[] = [];
-      for (const raw of rawTasks) {
-        const p = TaskInput.safeParse(raw);
-        if (!p.success) {
+    .action(
+      async (rawOpts: {
+        input?: string;
+        schema?: boolean;
+        feature: string;
+        featureDir?: string;
+        finding?: string;
+      }) => {
+        // dispatchOrFail(opts) below records the trace target after input pre-validation.
+        if (rawOpts.schema === true) {
+          if (rejectIfDryRun("tasks add --schema")) return;
+          emitMutatorSchemaAndExit("tasks:add");
+          return;
+        }
+        if (rawOpts.input === undefined) {
+          emitFailure(
+            "MISSING_INPUT",
+            "loaf tasks add requires --input <src> (or pass --schema to dump the input JSON Schema)",
+          );
+          return;
+        }
+        const opts = rawOpts as {
+          input: string;
+          feature: string;
+          featureDir?: string;
+          finding?: string;
+        };
+        // Phase 16 SC-4b — unified --input modality (protocol §10.7).
+        const source = parseInputSource(opts.input);
+        if (source.kind === "stdin" && isStdinTty()) {
           ctx.failure(
+            "USAGE",
+            "stdin is TTY — `loaf tasks add --input -` expects piped input. " +
+              "Pipe JSON via `... | loaf tasks add --input -`, OR pass inline " +
+              "JSON / file path. Run --help for examples.",
+          );
+          return;
+        }
+        const read = await readJsonInput(source, { readStdin });
+        if (!read.ok) {
+          ctx.failure(read.code, read.message, read.detail);
+          return;
+        }
+        const parsed = read.value;
+
+        // Normalize to an array; validate each against the strict TaskInput
+        // schema. TaskInput omits id / status / execution (CLI-owned);
+        // `.strict()` rejects a caller that supplies any of them — the
+        // shape-enforcement point of ADR-0004 (codex r113).
+        const rawTasks: unknown[] = Array.isArray(parsed) ? parsed : [parsed];
+        if (rawTasks.length === 0) {
+          ctx.failureKeyed(
             "SCHEMA_VALIDATION_FAILED",
-            `tasks add input is not a valid id-less task (omit id / status / execution): ${p.error.issues.map((i) => i.message).join("; ")}`,
-            { issues: p.error.issues },
+            FAILURE_SITE_KEYS.tasksAddEmptyArray,
+            {},
+            {},
           );
           return;
         }
-        validatedInputs.push(p.data);
-      }
+        const validatedInputs: TaskInput[] = [];
+        for (const raw of rawTasks) {
+          const p = TaskInput.safeParse(raw);
+          if (!p.success) {
+            ctx.failure(
+              "SCHEMA_VALIDATION_FAILED",
+              `tasks add input is not a valid id-less task (omit id / status / execution): ${p.error.issues.map((i) => i.message).join("; ")}`,
+              { issues: p.error.issues },
+            );
+            return;
+          }
+          validatedInputs.push(p.data);
+        }
 
-      // Load session; resolve the surface (unsponsored vs sponsored).
-      const featureDir = await dispatchOrFail(opts);
-      if (featureDir === null) return;
-      const session = await ctx.resolveSession(featureDir);
-      if (!session.snapshot.state) {
-        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
-        return;
-      }
-      const subState = session.snapshot.state.sub_state;
-      const sponsored = opts.finding !== undefined;
-      // --finding is the EXECUTE.work sponsored path; SPEC.design is the
-      // unsponsored whole-graph path. Reject the cross-product explicitly
-      // rather than silently ignoring the flag (codex r136 Q6).
-      if (sponsored && subState === "SPEC.design") {
-        ctx.failure(
-          "USAGE",
-          "--finding is for the sponsored EXECUTE.work add; at SPEC.design `tasks add` is the unsponsored whole-graph path — drop --finding",
-        );
-        return;
-      }
-      if (!sponsored && subState !== "SPEC.design") {
-        ctx.failure(
-          "SUB_STATE_AUTHORITY_VIOLATION",
-          `loaf tasks add without --finding is only valid at SPEC.design (current sub_state=${subState}); post-lock task additions go through \`loaf finding raise --action amend-tasks\` then \`tasks add --finding\``,
-          { sub_state: subState },
-        );
-        return;
-      }
-
-      // (4) Allocate T-ids. Existing ids must all be canonical T-NNN — a
-      // non-canonical id cannot participate in collision-safe allocation
-      // (codex r112: fail loud, do not skip).
-      let maxSerial = 0;
-      for (const t of session.snapshot.tasks) {
-        const m = /^T-(\d{3,})$/.exec(t.id);
-        if (!m) {
+        // Load session; resolve the surface (unsponsored vs sponsored).
+        const featureDir = await dispatchOrFail(opts);
+        if (featureDir === null) return;
+        const session = await ctx.resolveSession(featureDir);
+        if (!session.snapshot.state) {
+          emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
+          return;
+        }
+        const subState = session.snapshot.state.sub_state;
+        const sponsored = opts.finding !== undefined;
+        // --finding is the EXECUTE.work sponsored path; SPEC.design is the
+        // unsponsored whole-graph path. Reject the cross-product explicitly
+        // rather than silently ignoring the flag (codex r136 Q6).
+        if (sponsored && subState === "SPEC.design") {
           ctx.failure(
-            "REDUCER_ERROR",
-            `internal: task id ${t.id} in the projection is not canonical T-NNN; cannot allocate the next id`,
-            { task_id: t.id },
+            "USAGE",
+            "--finding is for the sponsored EXECUTE.work add; at SPEC.design `tasks add` is the unsponsored whole-graph path — drop --finding",
           );
           return;
         }
-        const n = Number.parseInt(m[1]!, 10);
-        if (n > maxSerial) maxSerial = n;
-      }
-      // Materialize each validated input into a full TaskFull — the CLI
-      // stamps the allocated id, status="pending", and the per-kind
-      // execution map (all steps applicability="must", status="pending").
-      const seededNew = validatedInputs.map((input, i) =>
-        materializeTaskInput(input, `T-${String(maxSerial + 1 + i).padStart(3, "0")}`),
-      );
-      const newIds = seededNew.map((t) => t.id);
+        if (!sponsored && subState !== "SPEC.design") {
+          ctx.failure(
+            "SUB_STATE_AUTHORITY_VIOLATION",
+            `loaf tasks add without --finding is only valid at SPEC.design (current sub_state=${subState}); post-lock task additions go through \`loaf finding raise --action amend-tasks\` then \`tasks add --finding\``,
+            { sub_state: subState },
+          );
+          return;
+        }
 
-      if (sponsored) {
-        // (5s) SPONSORED — emit one event:tasks_amended mode="add" +
-        // sponsored_by_finding_id per added task (a mutateBatch when the
-        // input carries several). Preflight §8.6 verifies the finding is
-        // open with action=amend-tasks; the reducer dry-run appends each
-        // task and rejects a duplicate id.
-        // L1 exclusion (codex L1 audit): this sponsored multi-add stamps a
-        // per-entry `at` inside the map — each event:tasks_amended carries its
-        // own timestamp. runMutator captures one `now` per call, which would
-        // flatten the batch to a single `at`. To stay behavior-preserving this
-        // path keeps its direct mutateBatch with per-entry timestamps.
-        const sponsoredBatch: Parameters<typeof mutateBatch>[0] = seededNew.map(
-          (task) => ({
+        // (4) Allocate T-ids. Existing ids must all be canonical T-NNN — a
+        // non-canonical id cannot participate in collision-safe allocation
+        // (codex r112: fail loud, do not skip).
+        let maxSerial = 0;
+        for (const t of session.snapshot.tasks) {
+          const m = /^T-(\d{3,})$/.exec(t.id);
+          if (!m) {
+            ctx.failure(
+              "REDUCER_ERROR",
+              `internal: task id ${t.id} in the projection is not canonical T-NNN; cannot allocate the next id`,
+              { task_id: t.id },
+            );
+            return;
+          }
+          const n = Number.parseInt(m[1]!, 10);
+          if (n > maxSerial) maxSerial = n;
+        }
+        // Materialize each validated input into a full TaskFull — the CLI
+        // stamps the allocated id, status="pending", and the per-kind
+        // execution map (all steps applicability="must", status="pending").
+        const seededNew = validatedInputs.map((input, i) =>
+          materializeTaskInput(input, `T-${String(maxSerial + 1 + i).padStart(3, "0")}`),
+        );
+        const newIds = seededNew.map((t) => t.id);
+
+        if (sponsored) {
+          // (5s) SPONSORED — emit one event:tasks_amended mode="add" +
+          // sponsored_by_finding_id per added task (a mutateBatch when the
+          // input carries several). Preflight §8.6 verifies the finding is
+          // open with action=amend-tasks; the reducer dry-run appends each
+          // task and rejects a duplicate id.
+          // L1 exclusion (codex L1 audit): this sponsored multi-add stamps a
+          // per-entry `at` inside the map — each event:tasks_amended carries its
+          // own timestamp. runMutator captures one `now` per call, which would
+          // flatten the batch to a single `at`. To stay behavior-preserving this
+          // path keeps its direct mutateBatch with per-entry timestamps.
+          const sponsoredBatch: Parameters<typeof mutateBatch>[0] = seededNew.map((task) => ({
             at: new Date().toISOString(),
             actor,
             entry_schema_version: 1,
@@ -2803,18 +2799,83 @@ export async function main(
               task,
               sponsored_by_finding_id: opts.finding,
             },
-          }),
-        );
-        const result = finishMutate(
-          await mutateBatch(sponsoredBatch, mctxFor(featureDir, session)),
+          }));
+          const result = finishMutate(
+            await mutateBatch(sponsoredBatch, mctxFor(featureDir, session)),
+            "raw-ctx-failure",
+          );
+          if (!result) return;
+          const out = {
+            ok: true,
+            feature: opts.feature,
+            task_ids: newIds,
+            sponsored_by_finding_id: opts.finding,
+            tasks_count: result.snapshot.tasks.length,
+            sub_state: result.snapshot.state?.sub_state,
+          };
+          ctx.success(
+            out,
+            (i18n) =>
+              i18n.t(
+                newIds.length === 1
+                  ? SUCCESS_KEYS.tasksAddSponsoredTextOne
+                  : SUCCESS_KEYS.tasksAddSponsoredTextMany,
+                {
+                  count: newIds.length,
+                  finding: opts.finding,
+                  task_ids: newIds.join(", "),
+                },
+              ) + "\n",
+            (i18n) => ({
+              stateChange: i18n.t(SUCCESS_KEYS.tasksAddStateChange, {
+                count: newIds.length,
+                task_ids: newIds.join(","),
+              }),
+            }),
+          );
+          return;
+        }
+
+        // (5u) UNSPONSORED — re-materialize every existing task to its
+        // canonical full body. tasks_planned is whole-replacement, so the
+        // re-emit must carry the complete graph; the slim projection alone
+        // would erase body fields.
+        const existingFull: TaskFullPayload[] = [];
+        for (const t of session.snapshot.tasks) {
+          const base = latestCanonicalTaskBody(session.entries, t.id);
+          if (!base) {
+            ctx.failure(
+              "CANONICAL_TASK_BODY_UNAVAILABLE",
+              `task ${t.id} is in the projection but has no canonical body in the journal (migration-imported); cannot rebuild the graph to append`,
+              { task_id: t.id, source: "migration" },
+            );
+            return;
+          }
+          existingFull.push(materializeTaskForAmend(base, t));
+        }
+
+        // (6) Emit one whole-replacement event:tasks_planned. based_on carries
+        // forward the spec version the graph derives from.
+        const based_on = session.snapshot.tasks_based_on ?? {
+          spec: session.snapshot.state.spec_version,
+        };
+        const result = await runMutator(
+          featureDir,
+          session,
+          {
+            kind: "event:tasks_planned",
+            payload: { based_on, tasks: [...existingFull, ...seededNew] },
+            actor,
+          },
           "raw-ctx-failure",
         );
         if (!result) return;
+
+        // (7) Success output — echo the allocated ids for shell scripting.
         const out = {
           ok: true,
           feature: opts.feature,
           task_ids: newIds,
-          sponsored_by_finding_id: opts.finding,
           tasks_count: result.snapshot.tasks.length,
           sub_state: result.snapshot.state?.sub_state,
         };
@@ -2822,10 +2883,9 @@ export async function main(
           out,
           (i18n) =>
             i18n.t(
-              newIds.length === 1 ? SUCCESS_KEYS.tasksAddSponsoredTextOne : SUCCESS_KEYS.tasksAddSponsoredTextMany,
+              newIds.length === 1 ? SUCCESS_KEYS.tasksAddTextOne : SUCCESS_KEYS.tasksAddTextMany,
               {
                 count: newIds.length,
-                finding: opts.finding,
                 task_ids: newIds.join(", "),
               },
             ) + "\n",
@@ -2836,67 +2896,8 @@ export async function main(
             }),
           }),
         );
-        return;
-      }
-
-      // (5u) UNSPONSORED — re-materialize every existing task to its
-      // canonical full body. tasks_planned is whole-replacement, so the
-      // re-emit must carry the complete graph; the slim projection alone
-      // would erase body fields.
-      const existingFull: TaskFullPayload[] = [];
-      for (const t of session.snapshot.tasks) {
-        const base = latestCanonicalTaskBody(session.entries, t.id);
-        if (!base) {
-          ctx.failure(
-            "CANONICAL_TASK_BODY_UNAVAILABLE",
-            `task ${t.id} is in the projection but has no canonical body in the journal (migration-imported); cannot rebuild the graph to append`,
-            { task_id: t.id, source: "migration" },
-          );
-          return;
-        }
-        existingFull.push(materializeTaskForAmend(base, t));
-      }
-
-      // (6) Emit one whole-replacement event:tasks_planned. based_on carries
-      // forward the spec version the graph derives from.
-      const based_on = session.snapshot.tasks_based_on ?? {
-        spec: session.snapshot.state.spec_version,
-      };
-      const result = await runMutator(
-        featureDir,
-        session,
-        {
-          kind: "event:tasks_planned",
-          payload: { based_on, tasks: [...existingFull, ...seededNew] },
-          actor,
-        },
-        "raw-ctx-failure",
-      );
-      if (!result) return;
-
-      // (7) Success output — echo the allocated ids for shell scripting.
-      const out = {
-        ok: true,
-        feature: opts.feature,
-        task_ids: newIds,
-        tasks_count: result.snapshot.tasks.length,
-        sub_state: result.snapshot.state?.sub_state,
-      };
-      ctx.success(
-        out,
-        (i18n) =>
-          i18n.t(newIds.length === 1 ? SUCCESS_KEYS.tasksAddTextOne : SUCCESS_KEYS.tasksAddTextMany, {
-            count: newIds.length,
-            task_ids: newIds.join(", "),
-          }) + "\n",
-        (i18n) => ({
-          stateChange: i18n.t(SUCCESS_KEYS.tasksAddStateChange, {
-            count: newIds.length,
-            task_ids: newIds.join(","),
-          }),
-        }),
-      );
-    });
+      },
+    );
 
   // ── loaf tasks claim <task-id> ──────────────────────────────────────
   // Slice 2 SC3. Emits `event:task_claimed` for a pending/ready task at
@@ -2918,11 +2919,11 @@ export async function main(
         emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
         return;
       }
-      const result = await runMutator(
-        featureDir,
-        session,
-        { kind: "event:task_claimed", payload: { task_id: taskId }, actor },
-      );
+      const result = await runMutator(featureDir, session, {
+        kind: "event:task_claimed",
+        payload: { task_id: taskId },
+        actor,
+      });
       if (!result) return;
       // Read the actual claimed task status from the reducer-applied snapshot
       // (codex r60 P2.1 + r61 BLOCK closure): fail-fast if the post-mutate
@@ -2973,10 +2974,7 @@ export async function main(
     .option("--feature <name>", "Feature whose task to abandon")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(
-      async (
-        taskId: string,
-        opts: { reason: string; feature: string; featureDir?: string },
-      ) => {
+      async (taskId: string, opts: { reason: string; feature: string; featureDir?: string }) => {
         const featureDir = await dispatchOrFail(opts);
         if (featureDir === null) return;
         const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
@@ -2984,11 +2982,11 @@ export async function main(
           emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
           return;
         }
-        const result = await runMutator(
-          featureDir,
-          session,
-          { kind: "event:task_abandoned", payload: { task_id: taskId, reason: opts.reason }, actor },
-        );
+        const result = await runMutator(featureDir, session, {
+          kind: "event:task_abandoned",
+          payload: { task_id: taskId, reason: opts.reason },
+          actor,
+        });
         if (!result) return;
         // Read the abandoned task status from the reducer-applied snapshot;
         // fail-fast if the post-mutate lookup misses (preflight + reducer
@@ -3036,10 +3034,7 @@ export async function main(
     .description("List tasks (read-only); shows derived `ready` column")
     .option("--feature <name>", "Feature whose tasks to list")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-    .option(
-      "--status <s>",
-      "Filter by task status (pending|ready|in_progress|done|abandoned)",
-    )
+    .option("--status <s>", "Filter by task status (pending|ready|in_progress|done|abandoned)")
     .action(async (opts: { feature: string; featureDir?: string; status?: string }) => {
       if (rejectIfDryRun("tasks list")) return;
       const featureDir = await dispatchOrFail(opts);
@@ -3056,11 +3051,7 @@ export async function main(
         FAILURE_SITE_KEYS.noSessionTasks,
       );
       if (loaded === null) return;
-      const slimTasks = loaded.tasks
-        ? loaded.tasks.tasks.map((t) =>
-            extractTaskSlim(t),
-          )
-        : [];
+      const slimTasks = loaded.tasks ? loaded.tasks.tasks.map((t) => extractTaskSlim(t)) : [];
       const tasksById = new Map(slimTasks.map((t) => [t.id, t]));
       const withDerived = slimTasks.map((t) => {
         const depsAllDone =
@@ -3075,7 +3066,10 @@ export async function main(
       // Apply --status filter (codex r60 P2 wording: validate filter
       // value client-side for actionable USAGE error).
       const validStatuses = ["pending", "ready", "in_progress", "done", "abandoned"] as const;
-      if (opts.status !== undefined && !(validStatuses as readonly string[]).includes(opts.status)) {
+      if (
+        opts.status !== undefined &&
+        !(validStatuses as readonly string[]).includes(opts.status)
+      ) {
         emitFailure(
           "USAGE",
           `--status must be one of: ${validStatuses.join(" | ")} (got ${opts.status})`,
@@ -3111,7 +3105,10 @@ export async function main(
                 status: formatTaskStatus(i18n, t.status),
                 ready: i18n.t(CHROME_KEYS.tasksListReadyMarker),
               };
-              return i18n.t(t.ready ? CHROME_KEYS.tasksListRowReady : CHROME_KEYS.tasksListRow, vars) + "\n";
+              return (
+                i18n.t(t.ready ? CHROME_KEYS.tasksListRowReady : CHROME_KEYS.tasksListRow, vars) +
+                "\n"
+              );
             })
             .join("");
         },
@@ -3186,11 +3183,9 @@ export async function main(
       }
       const task = session.snapshot.tasks.find((t) => t.id === taskId);
       if (!task) {
-        emitFailure(
-          "TASK_NOT_FOUND",
-          `task ${taskId} is not in the current tasks projection`,
-          { task_id: taskId },
-        );
+        emitFailure("TASK_NOT_FOUND", `task ${taskId} is not in the current tasks projection`, {
+          task_id: taskId,
+        });
         return;
       }
       if (task.status !== "done") {
@@ -3198,9 +3193,7 @@ export async function main(
         // caller knows exactly what is still owed (codex r101 Q2 detail).
         const TERMINAL_POSITIVE = ["passed", "waived", "na"];
         const blockingSteps = Object.entries(task.steps)
-          .filter(
-            ([, s]) => s.applicability === "must" && !TERMINAL_POSITIVE.includes(s.status),
-          )
+          .filter(([, s]) => s.applicability === "must" && !TERMINAL_POSITIVE.includes(s.status))
           .map(([name]) => name);
         emitFailure(
           "TASK_COMPLETE_PRECONDITION_VIOLATED",
@@ -3217,10 +3210,11 @@ export async function main(
       };
       ctx.success(
         out,
-        (i18n) => i18n.t(CHROME_KEYS.tasksCompleteText, {
-          task_id: taskId,
-          status: formatTaskStatus(i18n, "done"),
-        }) + "\n",
+        (i18n) =>
+          i18n.t(CHROME_KEYS.tasksCompleteText, {
+            task_id: taskId,
+            status: formatTaskStatus(i18n, "done"),
+          }) + "\n",
       );
     });
 
@@ -3259,7 +3253,9 @@ export async function main(
   //   - sponsored amend outside EXECUTE.work / bad finding → preflight §8.6
   tasksCmd
     .command("amend <task-id>")
-    .description("Amend a task: --policy <step>=<applicability> (EXECUTE.plan) or --input <file> --finding <FND-N> (sponsored, EXECUTE.work)")
+    .description(
+      "Amend a task: --policy <step>=<applicability> (EXECUTE.plan) or --input <file> --finding <FND-N> (sponsored, EXECUTE.work)",
+    )
     .option("--feature <name>", "Feature whose task to amend")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .option(
@@ -3268,7 +3264,10 @@ export async function main(
       (val: string, acc: string[]) => [...acc, val],
       [] as string[],
     )
-    .option("--input <file>", "New id-less task definition for a sponsored graph replacement (JSON file or '-')")
+    .option(
+      "--input <file>",
+      "New id-less task definition for a sponsored graph replacement (JSON file or '-')",
+    )
     .option("--finding <FND-N>", "Sponsoring amend-tasks finding (required with --input)")
     .action(
       async (
@@ -3353,11 +3352,9 @@ export async function main(
           }
           const sCurrent = sSession.snapshot.tasks.find((t) => t.id === taskId);
           if (!sCurrent) {
-            ctx.failure(
-              "TASK_NOT_FOUND",
-              `task ${taskId} is not in the current tasks projection`,
-              { task_id: taskId },
-            );
+            ctx.failure("TASK_NOT_FOUND", `task ${taskId} is not in the current tasks projection`, {
+              task_id: taskId,
+            });
             return;
           }
           // (b4) Recover the current canonical body from the journal. A
@@ -3443,10 +3440,11 @@ export async function main(
           };
           ctx.success(
             sOut,
-            (i18n) => i18n.t(SUCCESS_KEYS.amendSponsoredText, {
-              task_id: taskId,
-              finding_id: findingId,
-            }) + "\n",
+            (i18n) =>
+              i18n.t(SUCCESS_KEYS.amendSponsoredText, {
+                task_id: taskId,
+                finding_id: findingId,
+              }) + "\n",
             (i18n) => ({
               stateChange: i18n.t(SUCCESS_KEYS.amendStateChange, { task_id: taskId }),
             }),
@@ -3498,11 +3496,9 @@ export async function main(
         // (3) Current task must be in the projection.
         const current = session.snapshot.tasks.find((t) => t.id === taskId);
         if (!current) {
-          emitFailure(
-            "TASK_NOT_FOUND",
-            `task ${taskId} is not in the current tasks projection`,
-            { task_id: taskId },
-          );
+          emitFailure("TASK_NOT_FOUND", `task ${taskId} is not in the current tasks projection`, {
+            task_id: taskId,
+          });
           return;
         }
 
@@ -3524,10 +3520,7 @@ export async function main(
         // (5) Materialize (canonical body + live runtime status) then apply
         // the --policy applicability deltas.
         const materialized = materializeTaskForAmend(base, current);
-        const execution = materialized.execution as Record<
-          string,
-          { applicability: string }
-        >;
+        const execution = materialized.execution as Record<string, { applicability: string }>;
         for (const [step, applicability] of policyMap) {
           const seeded = execution[step];
           if (!seeded) {
@@ -3543,11 +3536,11 @@ export async function main(
 
         // (6) Emit event:tasks_amended (mode=replace). Preflight §8.6
         // validates the change is applicability-only.
-        const result = await runMutator(
-          featureDir,
-          session,
-          { kind: "event:tasks_amended", payload: { mode: "replace", task: materialized }, actor },
-        );
+        const result = await runMutator(featureDir, session, {
+          kind: "event:tasks_amended",
+          payload: { mode: "replace", task: materialized },
+          actor,
+        });
         if (!result) return;
 
         // (7) Success output.
@@ -3561,10 +3554,11 @@ export async function main(
         };
         ctx.success(
           out,
-          (i18n) => i18n.t(SUCCESS_KEYS.amendPolicyText, {
-            task_id: taskId,
-            applied,
-          }) + "\n",
+          (i18n) =>
+            i18n.t(SUCCESS_KEYS.amendPolicyText, {
+              task_id: taskId,
+              applied,
+            }) + "\n",
           (i18n) => ({
             stateChange: i18n.t(SUCCESS_KEYS.amendStateChange, { task_id: taskId }),
           }),
@@ -3596,15 +3590,11 @@ export async function main(
         emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
         return;
       }
-      const result = await runMutator(
-        featureDir,
-        session,
-        {
-          kind: "event:task_step_done",
-          payload: { task_id: taskId, step: "red", result: "passed", red_test_registered: true },
-          actor,
-        },
-      );
+      const result = await runMutator(featureDir, session, {
+        kind: "event:task_step_done",
+        payload: { task_id: taskId, step: "red", result: "passed", red_test_registered: true },
+        actor,
+      });
       if (!result) return;
       const out = {
         ok: true,
@@ -3625,9 +3615,7 @@ export async function main(
   // ── loaf tasks step <subcommand> ────────────────────────────────────
   // Slice 2 SC3. Sub-namespace for task step lifecycle. `step start` and
   // `step done` both require task.status=in_progress (SC1 TASK_NOT_CLAIMED).
-  const stepCmd = tasksCmd
-    .command("step")
-    .description("Task step lifecycle (start / done)");
+  const stepCmd = tasksCmd.command("step").description("Task step lifecycle (start / done)");
 
   // ── loaf tasks step start --task T-N --step <s> ─────────────────────
   // Slice 2 SC3. Emits `event:task_step_started`. SC1 preflight gates:
@@ -3656,11 +3644,11 @@ export async function main(
         emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
         return;
       }
-      const result = await runMutator(
-        featureDir,
-        session,
-        { kind: "event:task_step_started", payload: { task_id: opts.task, step: opts.step }, actor },
-      );
+      const result = await runMutator(featureDir, session, {
+        kind: "event:task_step_started",
+        payload: { task_id: opts.task, step: opts.step },
+        actor,
+      });
       if (!result) return;
       // Slice 2 SC4 (codex r60 P2.2 closure): preflight + reducer guarantee
       // task + step exist on success; fail-fast if either is missing so
@@ -3725,170 +3713,183 @@ export async function main(
     // the batch path; --evidence-kind + --evidence-summary are then
     // required together (others optional, mirrors evidence add payload).
     .option("--evidence-kind <kind>", "Evidence kind (closed EvidenceKind enum)")
-    .option("--evidence-result <r>", "Evidence result (passed | failed | approved | rejected | waived)")
+    .option(
+      "--evidence-result <r>",
+      "Evidence result (passed | failed | approved | rejected | waived)",
+    )
     .option("--evidence-summary <text>", "Evidence summary (≥3 chars)")
-    .option("--evidence-covers <csv>", "Comma-separated REQ/SCEN/VIS/Task ids covered by this evidence")
+    .option(
+      "--evidence-covers <csv>",
+      "Comma-separated REQ/SCEN/VIS/Task ids covered by this evidence",
+    )
     .option("--evidence-check <kind>", "Verify-check kind (run | review | acceptance | visual)")
     .option("--evidence-reason <text>", "Evidence reason (manual/waiver require ≥10 chars)")
-    .option("--evidence-actor <actor>", "Override evidence actor (default: cli:loaf; required human:* for manual/waiver)")
+    .option(
+      "--evidence-actor <actor>",
+      "Override evidence actor (default: cli:loaf; required human:* for manual/waiver)",
+    )
     .option("--feature <name>", "Feature whose task lifecycle to advance")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-    .action(async (opts: {
-      task: string;
-      step: string;
-      result: string;
-      feature: string;
-      featureDir?: string;
-      evidenceKind?: string;
-      evidenceResult?: string;
-      evidenceSummary?: string;
-      evidenceCovers?: string;
-      evidenceCheck?: string;
-      evidenceReason?: string;
-      evidenceActor?: string;
-    }) => {
-      // Validate --result client-side (payload schema also enforces).
-      const validResults = ["passed", "failed", "waived", "na"] as const;
-      if (!(validResults as readonly string[]).includes(opts.result)) {
-        emitFailure(
-          "USAGE",
-          `--result must be one of: passed | failed | waived | na (got ${opts.result})`,
-        );
-        return;
-      }
-      // SC4 batch path: any --evidence-* flag triggers; --kind + --summary
-      // are mutually required (kind without summary or vice versa → USAGE).
-      const evidenceFlagSet =
-        opts.evidenceKind !== undefined ||
-        opts.evidenceResult !== undefined ||
-        opts.evidenceSummary !== undefined ||
-        opts.evidenceCovers !== undefined ||
-        opts.evidenceCheck !== undefined ||
-        opts.evidenceReason !== undefined ||
-        opts.evidenceActor !== undefined;
-      if (evidenceFlagSet) {
-        if (opts.evidenceKind === undefined || opts.evidenceSummary === undefined) {
+    .action(
+      async (opts: {
+        task: string;
+        step: string;
+        result: string;
+        feature: string;
+        featureDir?: string;
+        evidenceKind?: string;
+        evidenceResult?: string;
+        evidenceSummary?: string;
+        evidenceCovers?: string;
+        evidenceCheck?: string;
+        evidenceReason?: string;
+        evidenceActor?: string;
+      }) => {
+        // Validate --result client-side (payload schema also enforces).
+        const validResults = ["passed", "failed", "waived", "na"] as const;
+        if (!(validResults as readonly string[]).includes(opts.result)) {
           emitFailure(
             "USAGE",
-            "--evidence-kind and --evidence-summary must be specified together when any --evidence-* flag is present",
+            `--result must be one of: passed | failed | waived | na (got ${opts.result})`,
           );
           return;
         }
-      }
-      const featureDir = await dispatchOrFail(opts);
-      if (featureDir === null) return;
-      const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
-      if (!session.snapshot.state) {
-        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
-        return;
-      }
-      // Build the step_done entry. SC4 batch path adds evidence:added
-      // afterward when --evidence-* is set.
-      const stepDoneEntry: MutatorEntry = {
-        kind: "event:task_step_done",
-        payload: { task_id: opts.task, step: opts.step, result: opts.result },
-        actor,
-      };
-      let result: MutateOkSingle | MutateOkBatch | null;
-      let evidenceId: string | undefined;
-      if (evidenceFlagSet) {
-        // Allocate EV-NNNNNN — same shape as evidence add CLI.
-        const maxSerial = session.snapshot.evidence.reduce((max, e) => {
-          const m = /^EV-(\d+)$/.exec(e.id);
-          if (!m) return max;
-          return Math.max(max, Number.parseInt(m[1]!, 10));
-        }, 0);
-        evidenceId = `EV-${String(maxSerial + 1).padStart(6, "0")}`;
-        const iteration = session.snapshot.state.iteration ?? 1;
-        const evidenceActor = opts.evidenceActor ?? actor;
-        const evidencePayload: Record<string, unknown> = {
-          id: evidenceId,
-          kind: opts.evidenceKind,
-          iteration,
-          actor: evidenceActor,
-          // Evidence.result defaults to the step result so passed steps
-          // emit passed evidence by default; caller can override via
-          // --evidence-result for waiver / approved / rejected cases.
-          result: opts.evidenceResult ?? opts.result,
-          summary: opts.evidenceSummary,
-          task_id: opts.task,
-        };
-        if (opts.evidenceCovers !== undefined) {
-          evidencePayload["covers"] = opts.evidenceCovers
-            .split(",")
-            .map((s) => s.trim())
-            .filter((s) => s.length > 0);
+        // SC4 batch path: any --evidence-* flag triggers; --kind + --summary
+        // are mutually required (kind without summary or vice versa → USAGE).
+        const evidenceFlagSet =
+          opts.evidenceKind !== undefined ||
+          opts.evidenceResult !== undefined ||
+          opts.evidenceSummary !== undefined ||
+          opts.evidenceCovers !== undefined ||
+          opts.evidenceCheck !== undefined ||
+          opts.evidenceReason !== undefined ||
+          opts.evidenceActor !== undefined;
+        if (evidenceFlagSet) {
+          if (opts.evidenceKind === undefined || opts.evidenceSummary === undefined) {
+            emitFailure(
+              "USAGE",
+              "--evidence-kind and --evidence-summary must be specified together when any --evidence-* flag is present",
+            );
+            return;
+          }
         }
-        if (opts.evidenceCheck !== undefined) evidencePayload["check"] = opts.evidenceCheck;
-        if (opts.evidenceReason !== undefined) evidencePayload["reason"] = opts.evidenceReason;
-        // Journal envelope actor is always the CLI-injected machine actor
-        // (codex r72 BLOCK fix): protocol §10.8 keeps `--actor` a permanent
-        // non-flag — envelope provenance must stay `cli:loaf@...` so audit
-        // trail aligns with the adjacent event:task_step_done entry.
-        // Payload.actor inside evidencePayload can still carry `human:*`
-        // for manual/waiver evidence (preserved above).
-        result = await runMutator(featureDir, session, [
-          stepDoneEntry,
-          { kind: "evidence:added", payload: evidencePayload, actor },
-        ]);
-      } else {
-        result = await runMutator(featureDir, session, stepDoneEntry);
-      }
-      if (!result) return;
-      // Slice 2 SC4 (codex r60 P2.2 closure): same fail-fast assertions
-      // as step start — concrete step_status / task_status in output.
-      const updated = result.snapshot.tasks.find((t) => t.id === opts.task);
-      if (!updated) {
-        emitFailure(
-          "REDUCER_ERROR",
-          `internal: task ${opts.task} missing from snapshot after successful step_done apply`,
-        );
-        return;
-      }
-      const stepInfo = updated.steps[opts.step];
-      if (!stepInfo) {
-        emitFailure(
-          "REDUCER_ERROR",
-          `internal: step ${opts.step} missing from task ${opts.task} after successful step_done apply`,
-        );
-        return;
-      }
-      const out: Record<string, unknown> = {
-        ok: true,
-        feature: opts.feature,
-        task_id: opts.task,
-        step: opts.step,
-        step_status: stepInfo.status,
-        task_status: updated.status, // reflects auto-promote if it fired
-        sub_state: result.snapshot.state?.sub_state,
-      };
-      if (evidenceId !== undefined) out["evidence_id"] = evidenceId;
-      ctx.success(
-        out,
-        (i18n) => {
-          const promoteSuffix = updated.status === "done"
-            ? i18n.t(SUCCESS_KEYS.stepDonePromoteSuffix)
-            : "";
-          const evidenceSuffix = evidenceId !== undefined
-            ? i18n.t(SUCCESS_KEYS.stepDoneEvidenceSuffix, { evidence_id: evidenceId })
-            : "";
-          return i18n.t(SUCCESS_KEYS.stepDoneText, {
+        const featureDir = await dispatchOrFail(opts);
+        if (featureDir === null) return;
+        const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
+        if (!session.snapshot.state) {
+          emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
+          return;
+        }
+        // Build the step_done entry. SC4 batch path adds evidence:added
+        // afterward when --evidence-* is set.
+        const stepDoneEntry: MutatorEntry = {
+          kind: "event:task_step_done",
+          payload: { task_id: opts.task, step: opts.step, result: opts.result },
+          actor,
+        };
+        let result: MutateOkSingle | MutateOkBatch | null;
+        let evidenceId: string | undefined;
+        if (evidenceFlagSet) {
+          // Allocate EV-NNNNNN — same shape as evidence add CLI.
+          const maxSerial = session.snapshot.evidence.reduce((max, e) => {
+            const m = /^EV-(\d+)$/.exec(e.id);
+            if (!m) return max;
+            return Math.max(max, Number.parseInt(m[1]!, 10));
+          }, 0);
+          evidenceId = `EV-${String(maxSerial + 1).padStart(6, "0")}`;
+          const iteration = session.snapshot.state.iteration ?? 1;
+          const evidenceActor = opts.evidenceActor ?? actor;
+          const evidencePayload: Record<string, unknown> = {
+            id: evidenceId,
+            kind: opts.evidenceKind,
+            iteration,
+            actor: evidenceActor,
+            // Evidence.result defaults to the step result so passed steps
+            // emit passed evidence by default; caller can override via
+            // --evidence-result for waiver / approved / rejected cases.
+            result: opts.evidenceResult ?? opts.result,
+            summary: opts.evidenceSummary,
             task_id: opts.task,
-            step: opts.step,
-            result: opts.result,
-            evidence_suffix: evidenceSuffix,
-            promote_suffix: promoteSuffix,
-          }) + "\n";
-        },
-        (i18n) => ({
-          stateChange: i18n.t(SUCCESS_KEYS.stepDoneStateChange, {
-            task_id: opts.task,
-            step: opts.step,
-            result: opts.result,
+          };
+          if (opts.evidenceCovers !== undefined) {
+            evidencePayload["covers"] = opts.evidenceCovers
+              .split(",")
+              .map((s) => s.trim())
+              .filter((s) => s.length > 0);
+          }
+          if (opts.evidenceCheck !== undefined) evidencePayload["check"] = opts.evidenceCheck;
+          if (opts.evidenceReason !== undefined) evidencePayload["reason"] = opts.evidenceReason;
+          // Journal envelope actor is always the CLI-injected machine actor
+          // (codex r72 BLOCK fix): protocol §10.8 keeps `--actor` a permanent
+          // non-flag — envelope provenance must stay `cli:loaf@...` so audit
+          // trail aligns with the adjacent event:task_step_done entry.
+          // Payload.actor inside evidencePayload can still carry `human:*`
+          // for manual/waiver evidence (preserved above).
+          result = await runMutator(featureDir, session, [
+            stepDoneEntry,
+            { kind: "evidence:added", payload: evidencePayload, actor },
+          ]);
+        } else {
+          result = await runMutator(featureDir, session, stepDoneEntry);
+        }
+        if (!result) return;
+        // Slice 2 SC4 (codex r60 P2.2 closure): same fail-fast assertions
+        // as step start — concrete step_status / task_status in output.
+        const updated = result.snapshot.tasks.find((t) => t.id === opts.task);
+        if (!updated) {
+          emitFailure(
+            "REDUCER_ERROR",
+            `internal: task ${opts.task} missing from snapshot after successful step_done apply`,
+          );
+          return;
+        }
+        const stepInfo = updated.steps[opts.step];
+        if (!stepInfo) {
+          emitFailure(
+            "REDUCER_ERROR",
+            `internal: step ${opts.step} missing from task ${opts.task} after successful step_done apply`,
+          );
+          return;
+        }
+        const out: Record<string, unknown> = {
+          ok: true,
+          feature: opts.feature,
+          task_id: opts.task,
+          step: opts.step,
+          step_status: stepInfo.status,
+          task_status: updated.status, // reflects auto-promote if it fired
+          sub_state: result.snapshot.state?.sub_state,
+        };
+        if (evidenceId !== undefined) out["evidence_id"] = evidenceId;
+        ctx.success(
+          out,
+          (i18n) => {
+            const promoteSuffix =
+              updated.status === "done" ? i18n.t(SUCCESS_KEYS.stepDonePromoteSuffix) : "";
+            const evidenceSuffix =
+              evidenceId !== undefined
+                ? i18n.t(SUCCESS_KEYS.stepDoneEvidenceSuffix, { evidence_id: evidenceId })
+                : "";
+            return (
+              i18n.t(SUCCESS_KEYS.stepDoneText, {
+                task_id: opts.task,
+                step: opts.step,
+                result: opts.result,
+                evidence_suffix: evidenceSuffix,
+                promote_suffix: promoteSuffix,
+              }) + "\n"
+            );
+          },
+          (i18n) => ({
+            stateChange: i18n.t(SUCCESS_KEYS.stepDoneStateChange, {
+              task_id: opts.task,
+              step: opts.step,
+              result: opts.result,
+            }),
           }),
-        }),
-      );
-    });
+        );
+      },
+    );
 
   // ── loaf settle ─────────────────────────────────────────────────────
   // Slice 1.D sub-cycle 3. Deep-ceremony-only cursor advance:
@@ -3967,7 +3968,9 @@ export async function main(
   // `--dry-run` honored through standard mutate dry-run path.
   program
     .command("resume")
-    .description("Resume session from snapshots/resume-pack.json (emits session:resumed journal entry)")
+    .description(
+      "Resume session from snapshots/resume-pack.json (emits session:resumed journal entry)",
+    )
     .option("--feature <name>", "Feature whose resume pack to consume")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { feature: string; featureDir?: string }) => {
@@ -3994,8 +3997,9 @@ export async function main(
         throw err;
       }
       let parsedPack: unknown;
-      try { parsedPack = JSON.parse(raw); }
-      catch (err) {
+      try {
+        parsedPack = JSON.parse(raw);
+      } catch (err) {
         emitFailure(
           "SCHEMA_VALIDATION_FAILED",
           `resume pack at ${packPath} is not valid JSON: ${(err as Error).message}`,
@@ -4015,21 +4019,17 @@ export async function main(
       const pack = packParse.data;
       // Default cli actor — PER_KIND_ACTOR allows human|skill|ci|cli.
       const actor = `cli:loaf@${process.env["USER"] ?? "unknown"}`;
-      const result = await runMutator(
-        featureDir,
-        session,
-        {
-          kind: "session:resumed",
-          payload: {
-            resumed_from_pack: {
-              at: pack.at,
-              reason: pack.reason,
-              session_id: pack.session_id,
-            },
+      const result = await runMutator(featureDir, session, {
+        kind: "session:resumed",
+        payload: {
+          resumed_from_pack: {
+            at: pack.at,
+            reason: pack.reason,
+            session_id: pack.session_id,
           },
-          actor,
         },
-      );
+        actor,
+      });
       if (!result) return;
       ctx.success(
         {
@@ -4057,71 +4057,81 @@ export async function main(
   // nor wrapping).
   program
     .command("handoff")
-    .description("Compose and persist snapshots/resume-pack.json (read-side projection writer; no journal entry)")
-    .requiredOption("--reason <text>", "Why this handoff is being taken (≥5 chars; mandatory per ResumePack.reason)")
+    .description(
+      "Compose and persist snapshots/resume-pack.json (read-side projection writer; no journal entry)",
+    )
+    .requiredOption(
+      "--reason <text>",
+      "Why this handoff is being taken (≥5 chars; mandatory per ResumePack.reason)",
+    )
     .option("--notes <text>", "Optional free-form notes attached to the pack")
     .option("--feature <name>", "Feature whose handoff to take")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-    .action(async (opts: { reason: string; notes?: string; feature: string; featureDir?: string }) => {
-      if (rejectIfDryRun("handoff", "projection-writer")) return;
-      if (opts.reason.length < 5) {
-        ctx.failureKeyed(
-          "USAGE",
-          FAILURE_SITE_KEYS.handoffReasonTooShort,
-          { min_length: 5, reason_length: opts.reason.length },
-          { min_length: 5, reason_length: opts.reason.length },
+    .action(
+      async (opts: { reason: string; notes?: string; feature: string; featureDir?: string }) => {
+        if (rejectIfDryRun("handoff", "projection-writer")) return;
+        if (opts.reason.length < 5) {
+          ctx.failureKeyed(
+            "USAGE",
+            FAILURE_SITE_KEYS.handoffReasonTooShort,
+            { min_length: 5, reason_length: opts.reason.length },
+            { min_length: 5, reason_length: opts.reason.length },
+          );
+          return;
+        }
+        // Handoff is a deliberate human decision (codex r345 P4 — actor is
+        // a gate not persisted in the pack, per ResumePack having no actor
+        // field; documented residual).
+        const resolution = resolveHumanActor({
+          env: process.env,
+          readGitConfig: readGitConfigForActor,
+          isInteractiveHuman: isInteractiveHumanForActor(),
+        });
+        if (!resolution.ok) {
+          emitFailure(resolution.code, resolution.message);
+          return;
+        }
+        const featureDir = await dispatchOrFail(opts);
+        if (featureDir === null) return;
+        const session = await loadSession(featureDir, { ensureDir: false });
+        if (!session.snapshot.state) {
+          emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+          return;
+        }
+        const pack = buildResumePack({
+          snapshot: session.snapshot,
+          entries: session.entries,
+          at: new Date().toISOString(),
+          reason: opts.reason,
+          ...(opts.notes !== undefined && { notes: opts.notes }),
+        });
+        // Defense-in-depth: validate against runtime schema before write.
+        const parse = RuntimeResumePack.safeParse(pack);
+        if (!parse.success) {
+          ctx.failureKeyed(
+            "SCHEMA_VALIDATION_FAILED",
+            FAILURE_SITE_KEYS.handoffPackValidationFailed,
+            {},
+            { subcode: "zod", issues: parse.error.issues },
+          );
+          return;
+        }
+        // Atomic write to <feature-dir>/snapshots/resume-pack.json
+        const snapshotsDir = path.join(featureDir, "snapshots");
+        await fsP.mkdir(snapshotsDir, { recursive: true });
+        const packPath = path.join(snapshotsDir, "resume-pack.json");
+        const tmpPath = packPath + ".tmp";
+        await fsP.writeFile(tmpPath, JSON.stringify(pack, null, 2) + "\n");
+        await fsP.rename(tmpPath, packPath);
+        ctx.success(
+          { ok: true, feature: opts.feature, pack_path: packPath, session_id: pack.session_id },
+          () => `${packPath}\n`,
+          (i18n) => ({
+            stateChange: i18n.t(SUCCESS_KEYS.handoffStateChange, { actor: resolution.actor }),
+          }),
         );
-        return;
-      }
-      // Handoff is a deliberate human decision (codex r345 P4 — actor is
-      // a gate not persisted in the pack, per ResumePack having no actor
-      // field; documented residual).
-      const resolution = resolveHumanActor({
-        env: process.env,
-        readGitConfig: readGitConfigForActor,
-        isInteractiveHuman: isInteractiveHumanForActor(),
-      });
-      if (!resolution.ok) { emitFailure(resolution.code, resolution.message); return; }
-      const featureDir = await dispatchOrFail(opts);
-      if (featureDir === null) return;
-      const session = await loadSession(featureDir, { ensureDir: false });
-      if (!session.snapshot.state) {
-        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
-        return;
-      }
-      const pack = buildResumePack({
-        snapshot: session.snapshot,
-        entries: session.entries,
-        at: new Date().toISOString(),
-        reason: opts.reason,
-        ...(opts.notes !== undefined && { notes: opts.notes }),
-      });
-      // Defense-in-depth: validate against runtime schema before write.
-      const parse = RuntimeResumePack.safeParse(pack);
-      if (!parse.success) {
-        ctx.failureKeyed(
-          "SCHEMA_VALIDATION_FAILED",
-          FAILURE_SITE_KEYS.handoffPackValidationFailed,
-          {},
-          { subcode: "zod", issues: parse.error.issues },
-        );
-        return;
-      }
-      // Atomic write to <feature-dir>/snapshots/resume-pack.json
-      const snapshotsDir = path.join(featureDir, "snapshots");
-      await fsP.mkdir(snapshotsDir, { recursive: true });
-      const packPath = path.join(snapshotsDir, "resume-pack.json");
-      const tmpPath = packPath + ".tmp";
-      await fsP.writeFile(tmpPath, JSON.stringify(pack, null, 2) + "\n");
-      await fsP.rename(tmpPath, packPath);
-      ctx.success(
-        { ok: true, feature: opts.feature, pack_path: packPath, session_id: pack.session_id },
-        () => `${packPath}\n`,
-        (i18n) => ({
-          stateChange: i18n.t(SUCCESS_KEYS.handoffStateChange, { actor: resolution.actor }),
-        }),
-      );
-    });
+      },
+    );
 
   // ── loaf pending raise / list / status / resolve ─────────────────────
   // Slice 3 SC1 — minimum FIFO surface over the pending queue.
@@ -4164,61 +4174,63 @@ export async function main(
     .option("--task-id <id>", "Optional task association (passthrough)")
     .option("--feature <name>", "Feature whose session to raise pending against")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-    .action(async (opts: {
-      kind: string;
-      question: string;
-      options?: string;
-      taskId?: string;
-      feature: string;
-      featureDir?: string;
-    }) => {
-      const featureDir = await dispatchOrFail(opts);
-      if (featureDir === null) return;
-      const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
-      if (!session.snapshot.state) {
-        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionPending, opts.feature);
-        return;
-      }
-      // Single-writer PEND-id allocator: max-serial+1, zero-padded to ≥4
-      // digits to match `^PEND-\d{4,}$` (docs/schemas.ts §PendingId,
-      // protocol §10.7 rev 4.1). Parser is intentionally permissive on
-      // older/legacy unpadded ids so a v0.0.x journal can replay; the
-      // allocator only emits canonical form (codex r64 BLOCK 2).
-      const maxSerial = session.snapshot.pending.reduce((max, p) => {
-        const m = /^PEND-(\d+)$/.exec(p.id);
-        if (!m) return max;
-        return Math.max(max, Number.parseInt(m[1]!, 10));
-      }, 0);
-      const id = `PEND-${String(maxSerial + 1).padStart(4, "0")}`;
-      const payload: Record<string, unknown> = {
-        id,
-        kind: opts.kind,
-        question: opts.question,
-      };
-      if (opts.options !== undefined) {
-        payload["options"] = opts.options
-          .split(",")
-          .map((s) => s.trim())
-          .filter((s) => s.length > 0);
-      }
-      if (opts.taskId !== undefined) payload["task_id"] = opts.taskId;
-      const result = await runMutator(
-        featureDir,
-        session,
-        { kind: "pending:added", payload, actor },
-      );
-      if (!result) return;
-      ctx.success(
-        { ok: true, feature: opts.feature, id, kind: opts.kind },
-        () => id + "\n",
-        (i18n) => ({
-          stateChange: i18n.t(SUCCESS_KEYS.pendingRaiseStateChange, {
-            pending_id: id,
-            kind: opts.kind,
+    .action(
+      async (opts: {
+        kind: string;
+        question: string;
+        options?: string;
+        taskId?: string;
+        feature: string;
+        featureDir?: string;
+      }) => {
+        const featureDir = await dispatchOrFail(opts);
+        if (featureDir === null) return;
+        const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
+        if (!session.snapshot.state) {
+          emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionPending, opts.feature);
+          return;
+        }
+        // Single-writer PEND-id allocator: max-serial+1, zero-padded to ≥4
+        // digits to match `^PEND-\d{4,}$` (docs/schemas.ts §PendingId,
+        // protocol §10.7 rev 4.1). Parser is intentionally permissive on
+        // older/legacy unpadded ids so a v0.0.x journal can replay; the
+        // allocator only emits canonical form (codex r64 BLOCK 2).
+        const maxSerial = session.snapshot.pending.reduce((max, p) => {
+          const m = /^PEND-(\d+)$/.exec(p.id);
+          if (!m) return max;
+          return Math.max(max, Number.parseInt(m[1]!, 10));
+        }, 0);
+        const id = `PEND-${String(maxSerial + 1).padStart(4, "0")}`;
+        const payload: Record<string, unknown> = {
+          id,
+          kind: opts.kind,
+          question: opts.question,
+        };
+        if (opts.options !== undefined) {
+          payload["options"] = opts.options
+            .split(",")
+            .map((s) => s.trim())
+            .filter((s) => s.length > 0);
+        }
+        if (opts.taskId !== undefined) payload["task_id"] = opts.taskId;
+        const result = await runMutator(featureDir, session, {
+          kind: "pending:added",
+          payload,
+          actor,
+        });
+        if (!result) return;
+        ctx.success(
+          { ok: true, feature: opts.feature, id, kind: opts.kind },
+          () => id + "\n",
+          (i18n) => ({
+            stateChange: i18n.t(SUCCESS_KEYS.pendingRaiseStateChange, {
+              pending_id: id,
+              kind: opts.kind,
+            }),
           }),
-        }),
-      );
-    });
+        );
+      },
+    );
 
   pendingCmd
     .command("list")
@@ -4261,7 +4273,9 @@ export async function main(
                 i18n.t(CHROME_KEYS.pendingListRow, {
                   pending_id: r.id,
                   kind: formatPendingKind(i18n, r.kind),
-                  status: i18n.t(r.resolved ? CHROME_KEYS.pendingResolved : CHROME_KEYS.pendingOpen),
+                  status: i18n.t(
+                    r.resolved ? CHROME_KEYS.pendingResolved : CHROME_KEYS.pendingOpen,
+                  ),
                   head: i18n.t(r.head ? CHROME_KEYS.pendingHead : CHROME_KEYS.pendingNonHead),
                 }) + "\n",
             )
@@ -4289,21 +4303,16 @@ export async function main(
       if (opts.id !== undefined) {
         const idx = session.snapshot.pending.findIndex((p) => p.id === opts.id);
         if (idx === -1) {
-          emitFailure(
-            "PENDING_NOT_FOUND",
-            `pending id=${opts.id} not found in queue`,
-            { pending_id: opts.id },
-          );
+          emitFailure("PENDING_NOT_FOUND", `pending id=${opts.id} not found in queue`, {
+            pending_id: opts.id,
+          });
           return;
         }
         target = { ...session.snapshot.pending[idx]!, head: idx === headIdx };
       } else {
         // Default = head; empty queue yields null (script-friendly per
         // codex r63 — distinct from --id miss which is PENDING_NOT_FOUND).
-        target =
-          headIdx === -1
-            ? null
-            : { ...session.snapshot.pending[headIdx]!, head: true };
+        target = headIdx === -1 ? null : { ...session.snapshot.pending[headIdx]!, head: true };
       }
       ctx.success(
         {
@@ -4313,12 +4322,16 @@ export async function main(
         },
         (i18n) => {
           if (target === null) return i18n.t(CHROME_KEYS.pendingStatusNoOpen) + "\n";
-          return i18n.t(CHROME_KEYS.pendingListRow, {
-            pending_id: target.id,
-            kind: formatPendingKind(i18n, target.kind),
-            status: i18n.t(target.resolved ? CHROME_KEYS.pendingResolved : CHROME_KEYS.pendingOpen),
-            head: i18n.t(target.head ? CHROME_KEYS.pendingHead : CHROME_KEYS.pendingNonHead),
-          }) + "\n";
+          return (
+            i18n.t(CHROME_KEYS.pendingListRow, {
+              pending_id: target.id,
+              kind: formatPendingKind(i18n, target.kind),
+              status: i18n.t(
+                target.resolved ? CHROME_KEYS.pendingResolved : CHROME_KEYS.pendingOpen,
+              ),
+              head: i18n.t(target.head ? CHROME_KEYS.pendingHead : CHROME_KEYS.pendingNonHead),
+            }) + "\n"
+          );
         },
       );
     });
@@ -4326,7 +4339,10 @@ export async function main(
   pendingCmd
     .command("resolve")
     .description("Resolve the head pending entry (strict FIFO; no --id flag)")
-    .requiredOption("--answer <text>", "Resolution answer (passthrough into pending:resolved payload)")
+    .requiredOption(
+      "--answer <text>",
+      "Resolution answer (passthrough into pending:resolved payload)",
+    )
     .option("--feature <name>", "Feature whose pending to resolve")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { answer: string; feature: string; featureDir?: string }) => {
@@ -4345,11 +4361,11 @@ export async function main(
         );
         return;
       }
-      const result = await runMutator(
-        featureDir,
-        session,
-        { kind: "pending:resolved", payload: { id: head.id, answer: opts.answer }, actor },
-      );
+      const result = await runMutator(featureDir, session, {
+        kind: "pending:resolved",
+        payload: { id: head.id, answer: opts.answer },
+        actor,
+      });
       if (!result) return;
       ctx.success(
         {
@@ -4358,10 +4374,11 @@ export async function main(
           resolved_id: head.id,
           kind: head.kind,
         },
-        (i18n) => i18n.t(SUCCESS_KEYS.pendingResolveText, {
-          pending_id: head.id,
-          kind: head.kind,
-        }) + "\n",
+        (i18n) =>
+          i18n.t(SUCCESS_KEYS.pendingResolveText, {
+            pending_id: head.id,
+            kind: head.kind,
+          }) + "\n",
         (i18n) => ({
           stateChange: i18n.t(SUCCESS_KEYS.pendingResolveStateChange, { pending_id: head.id }),
         }),
@@ -4404,7 +4421,9 @@ export async function main(
 
   evidenceCmd
     .command("add")
-    .description("Append evidence entry/entries from --input <src> JSON (CLI allocates EV-id; single object or non-empty array for batch)")
+    .description(
+      "Append evidence entry/entries from --input <src> JSON (CLI allocates EV-id; single object or non-empty array for batch)",
+    )
     .option(
       "--input <src>",
       "JSON source for EvidenceAddInput (single object OR non-empty array for batch): `-` (stdin), inline JSON, or file path (protocol §10.7)",
@@ -4412,139 +4431,146 @@ export async function main(
     .option("--schema", "Dump the input JSON Schema instead of mutating (Phase 16 SC-10)")
     .option("--feature <name>", "Feature whose ledger to append to")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-    .action(async (rawOpts: { input?: string; schema?: boolean; feature: string; featureDir?: string }) => {
-      if (rawOpts.schema === true) {
-        if (rejectIfDryRun("evidence add --schema")) return;
-        emitMutatorSchemaAndExit("evidence:add");
-        return;
-      }
-      if (rawOpts.input === undefined) {
-        emitFailure(
-          "MISSING_INPUT",
-          "loaf evidence add requires --input <src> (or pass --schema to dump the input JSON Schema)",
-        );
-        return;
-      }
-      const opts = rawOpts as { input: string; feature: string; featureDir?: string };
-      // SC-6b — record trace target at action entry so long input-validation
-      // failures still trace. SC-8: dispatchOrFail handles §10.3 precedence
-      // + traceTarget in one call.
-      const earlyFeatureDir = await dispatchOrFail(opts);
-      if (earlyFeatureDir === null) return;
-      // Phase 16 SC-4c — unified --input modality (protocol §10.7) +
-      // array (batch) input enabled (was USAGE reject).
-      const source = parseInputSource(opts.input);
-      if (source.kind === "stdin" && isStdinTty()) {
-        ctx.failure(
-          "USAGE",
-          "stdin is TTY — `loaf evidence add --input -` expects piped input. " +
-            "Pipe JSON via `... | loaf evidence add --input -`, OR pass inline " +
-            "JSON / file path. Run --help for examples.",
-        );
-        return;
-      }
-      const read = await readJsonInput(source, { readStdin });
-      if (!read.ok) {
-        ctx.failure(read.code, read.message, read.detail);
-        return;
-      }
-      const parsed = read.value;
-
-      // Normalize to array; reject empty (codex r230 Q3 + r236 PATCH E).
-      const rawItems: unknown[] = Array.isArray(parsed) ? parsed : [parsed];
-      if (rawItems.length === 0) {
-        ctx.failure(
-          "SCHEMA_VALIDATION_FAILED",
-          "evidence add input is an empty array (non-empty array required)",
-        );
-        return;
-      }
-
-      // Per-item strict parse — caller-supplied `id` rejected via
-      // .strict() in EvidenceAddInput (codex r230 PATCH D:
-      // SCHEMA_VALIDATION_FAILED, not USAGE, for input-schema violations
-      // — matches tasks add strict rejection pattern). detail.index
-      // identifies the failing item in batch input.
-      const validatedInputs: EvidenceAddInput[] = [];
-      for (let i = 0; i < rawItems.length; i++) {
-        const raw = rawItems[i];
-        const p = EvidenceAddInput.safeParse(raw);
-        if (!p.success) {
-          ctx.failure(
-            "SCHEMA_VALIDATION_FAILED",
-            `evidence add input[${i}] failed schema validation: ${p.error.issues.map((iss: { message: string }) => iss.message).join("; ")}`,
-            { index: i, issues: p.error.issues },
+    .action(
+      async (rawOpts: {
+        input?: string;
+        schema?: boolean;
+        feature: string;
+        featureDir?: string;
+      }) => {
+        if (rawOpts.schema === true) {
+          if (rejectIfDryRun("evidence add --schema")) return;
+          emitMutatorSchemaAndExit("evidence:add");
+          return;
+        }
+        if (rawOpts.input === undefined) {
+          emitFailure(
+            "MISSING_INPUT",
+            "loaf evidence add requires --input <src> (or pass --schema to dump the input JSON Schema)",
           );
           return;
         }
-        validatedInputs.push(p.data);
-      }
+        const opts = rawOpts as { input: string; feature: string; featureDir?: string };
+        // SC-6b — record trace target at action entry so long input-validation
+        // failures still trace. SC-8: dispatchOrFail handles §10.3 precedence
+        // + traceTarget in one call.
+        const earlyFeatureDir = await dispatchOrFail(opts);
+        if (earlyFeatureDir === null) return;
+        // Phase 16 SC-4c — unified --input modality (protocol §10.7) +
+        // array (batch) input enabled (was USAGE reject).
+        const source = parseInputSource(opts.input);
+        if (source.kind === "stdin" && isStdinTty()) {
+          ctx.failure(
+            "USAGE",
+            "stdin is TTY — `loaf evidence add --input -` expects piped input. " +
+              "Pipe JSON via `... | loaf evidence add --input -`, OR pass inline " +
+              "JSON / file path. Run --help for examples.",
+          );
+          return;
+        }
+        const read = await readJsonInput(source, { readStdin });
+        if (!read.ok) {
+          ctx.failure(read.code, read.message, read.detail);
+          return;
+        }
+        const parsed = read.value;
 
-      // Load session via ctx.
-      const featureDir = await dispatchOrFail(opts);
-      if (featureDir === null) return;
-      const session = await ctx.resolveSession(featureDir);
-      if (!session.snapshot.state) {
-        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
-        return;
-      }
+        // Normalize to array; reject empty (codex r230 Q3 + r236 PATCH E).
+        const rawItems: unknown[] = Array.isArray(parsed) ? parsed : [parsed];
+        if (rawItems.length === 0) {
+          ctx.failure(
+            "SCHEMA_VALIDATION_FAILED",
+            "evidence add input is an empty array (non-empty array required)",
+          );
+          return;
+        }
 
-      // Allocate EV-ids sequentially via shared allocator (Phase 16
-      // SC-11 lock — single source for `evidence add` / `waive` /
-      // `lessons add`). Atomic across batch via mutateBatch sharing
-      // batch_id (codex r230 Q1 / r236 GO).
-      const evIds: string[] = allocateNextEvidenceIds(session.snapshot, validatedInputs.length);
+        // Per-item strict parse — caller-supplied `id` rejected via
+        // .strict() in EvidenceAddInput (codex r230 PATCH D:
+        // SCHEMA_VALIDATION_FAILED, not USAGE, for input-schema violations
+        // — matches tasks add strict rejection pattern). detail.index
+        // identifies the failing item in batch input.
+        const validatedInputs: EvidenceAddInput[] = [];
+        for (let i = 0; i < rawItems.length; i++) {
+          const raw = rawItems[i];
+          const p = EvidenceAddInput.safeParse(raw);
+          if (!p.success) {
+            ctx.failure(
+              "SCHEMA_VALIDATION_FAILED",
+              `evidence add input[${i}] failed schema validation: ${p.error.issues.map((iss: { message: string }) => iss.message).join("; ")}`,
+              { index: i, issues: p.error.issues },
+            );
+            return;
+          }
+          validatedInputs.push(p.data);
+        }
 
-      // Materialize full payloads (inject CLI-allocated EV-id; refines
-      // in EvidenceFullPayload run during mutateBatch preflight).
-      const entries: MutatorEntry[] = validatedInputs.map((input, i) => ({
-        kind: "evidence:added",
-        payload: { ...input, id: evIds[i] },
-        actor,
-      }));
+        // Load session via ctx.
+        const featureDir = await dispatchOrFail(opts);
+        if (featureDir === null) return;
+        const session = await ctx.resolveSession(featureDir);
+        if (!session.snapshot.state) {
+          emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+          return;
+        }
 
-      const result = await runMutator(featureDir, session, entries, "raw-ctx-failure");
-      if (!result) return;
+        // Allocate EV-ids sequentially via shared allocator (Phase 16
+        // SC-11 lock — single source for `evidence add` / `waive` /
+        // `lessons add`). Atomic across batch via mutateBatch sharing
+        // batch_id (codex r230 Q1 / r236 GO).
+        const evIds: string[] = allocateNextEvidenceIds(session.snapshot, validatedInputs.length);
 
-      // Output preserves single-input bare-EV-id text (back-compat per
-      // codex r230 Q6 + r236) and adds {ok, feature, ev_ids, count,
-      // sub_state} JSON for batch (matches tasks add shape).
-      // SC-5b2: stateChange via evidenceAddStateChange helper per
-      // protocol §10.12 (set-semantics covers; heterogeneous batches
-      // drop kind/covers).
-      const isBatch = Array.isArray(parsed);
-      const evidenceItems = validatedInputs.map((input, i) => ({
-        id: evIds[i]!,
-        kind: input.kind,
-        covers: input.covers,
-      }));
-      if (isBatch) {
-        ctx.success(
-          {
-            ok: true,
-            feature: opts.feature,
-            ev_ids: evIds,
-            count: evIds.length,
-            sub_state: result.snapshot.state?.sub_state,
-          },
-          () => evIds.join("\n") + "\n",
-          (i18n) => ({ stateChange: evidenceAddStateChange(i18n, evidenceItems) }),
-        );
-      } else {
-        // Single-input back-compat: bare EV-id in text mode; {ok,
-        // feature, id, kind} in JSON mode (pre-SC-4c shape preserved).
-        ctx.success(
-          {
-            ok: true,
-            feature: opts.feature,
-            id: evIds[0],
-            kind: validatedInputs[0]!.kind,
-          },
-          () => `${evIds[0]}\n`,
-          (i18n) => ({ stateChange: evidenceAddStateChange(i18n, evidenceItems) }),
-        );
-      }
-    });
+        // Materialize full payloads (inject CLI-allocated EV-id; refines
+        // in EvidenceFullPayload run during mutateBatch preflight).
+        const entries: MutatorEntry[] = validatedInputs.map((input, i) => ({
+          kind: "evidence:added",
+          payload: { ...input, id: evIds[i] },
+          actor,
+        }));
+
+        const result = await runMutator(featureDir, session, entries, "raw-ctx-failure");
+        if (!result) return;
+
+        // Output preserves single-input bare-EV-id text (back-compat per
+        // codex r230 Q6 + r236) and adds {ok, feature, ev_ids, count,
+        // sub_state} JSON for batch (matches tasks add shape).
+        // SC-5b2: stateChange via evidenceAddStateChange helper per
+        // protocol §10.12 (set-semantics covers; heterogeneous batches
+        // drop kind/covers).
+        const isBatch = Array.isArray(parsed);
+        const evidenceItems = validatedInputs.map((input, i) => ({
+          id: evIds[i]!,
+          kind: input.kind,
+          covers: input.covers,
+        }));
+        if (isBatch) {
+          ctx.success(
+            {
+              ok: true,
+              feature: opts.feature,
+              ev_ids: evIds,
+              count: evIds.length,
+              sub_state: result.snapshot.state?.sub_state,
+            },
+            () => evIds.join("\n") + "\n",
+            (i18n) => ({ stateChange: evidenceAddStateChange(i18n, evidenceItems) }),
+          );
+        } else {
+          // Single-input back-compat: bare EV-id in text mode; {ok,
+          // feature, id, kind} in JSON mode (pre-SC-4c shape preserved).
+          ctx.success(
+            {
+              ok: true,
+              feature: opts.feature,
+              id: evIds[0],
+              kind: validatedInputs[0]!.kind,
+            },
+            () => `${evIds[0]}\n`,
+            (i18n) => ({ stateChange: evidenceAddStateChange(i18n, evidenceItems) }),
+          );
+        }
+      },
+    );
 
   // ── loaf waive <obligation-id> — Phase 16 SC-11 ──────────────────────
   // Sugar wrapper over `evidence:added` payload.kind=waiver. Records a
@@ -4555,87 +4581,94 @@ export async function main(
   // `lessons add`.
   program
     .command("waive <obligation-id>")
-    .description("Record a waiver evidence (kind=waiver) against an obligation id (REQ-/SCEN-/VIS-/T-)")
-    .requiredOption("--reason <text>", "Waiver rationale (≥10 chars; mandatory per evidence schema refine)")
+    .description(
+      "Record a waiver evidence (kind=waiver) against an obligation id (REQ-/SCEN-/VIS-/T-)",
+    )
+    .requiredOption(
+      "--reason <text>",
+      "Waiver rationale (≥10 chars; mandatory per evidence schema refine)",
+    )
     .option("--feature <name>", "Feature whose ledger to append to")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-    .action(async (
-      obligationId: string,
-      opts: { reason: string; feature: string; featureDir?: string },
-    ) => {
-      // (1) obligation id validation via shared CoversRefPayload regex
-      //     (no parallel local regex; codex r322 P5 lock)
-      const idCheck = CoversRefPayload.safeParse(obligationId);
-      if (!idCheck.success) {
-        emitFailure(
-          "USAGE",
-          `invalid obligation id '${obligationId}' — expected REQ-NS-NNN / SCEN-NS-NNN / VIS-NS-NNN / T-NNN form`,
-          { argument: obligationId },
-        );
-        return;
-      }
-      // (2) reason length is enforced by EvidenceFullPayload refine
-      //     downstream; surface the friendlier USAGE here too
-      if (opts.reason.length < 10) {
-        ctx.failureKeyed(
-          "USAGE",
-          FAILURE_SITE_KEYS.lessonsReasonTooShort,
-          { min_length: 10, reason_length: opts.reason.length },
-          { min_length: 10, reason_length: opts.reason.length },
-        );
-        return;
-      }
-      // (3) resolve human actor (waiver requires human:* per refine)
-      const resolution = resolveHumanActor({
-        env: process.env,
-        readGitConfig: readGitConfigForActor,
-        isInteractiveHuman: isInteractiveHumanForActor(),
-      });
-      if (!resolution.ok) {
-        emitFailure(resolution.code, resolution.message);
-        return;
-      }
-      const actor = resolution.actor;
-      const featureDir = await dispatchOrFail(opts);
-      if (featureDir === null) return;
-      const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
-      if (!session.snapshot.state) {
-        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
-        return;
-      }
-      // (4) allocate EV-id + build payload (pure builder, payload only)
-      const evidenceId = allocateNextEvidenceId(session.snapshot);
-      const payload = buildWaiveEvidencePayload({
-        evidenceId,
-        obligationId,
-        reason: opts.reason,
-        actor,
-        iteration: session.snapshot.state.iteration,
-      });
-      // (5) wrap in journal envelope (codex r325 P1 Option A boundary)
-      const result = await runMutator(
-        featureDir,
-        session,
-        { kind: "evidence:added", payload, actor },
-      );
-      if (!result) return;
-      ctx.success(
-        {
-          ok: true,
-          feature: opts.feature,
-          id: evidenceId,
-          kind: "waiver" as const,
-          obligation_id: obligationId,
-        },
-        () => `${evidenceId}\n`,
-        (i18n) => ({
-          stateChange: i18n.t(SUCCESS_KEYS.waiveStateChange, {
-            evidence_id: evidenceId,
+    .action(
+      async (
+        obligationId: string,
+        opts: { reason: string; feature: string; featureDir?: string },
+      ) => {
+        // (1) obligation id validation via shared CoversRefPayload regex
+        //     (no parallel local regex; codex r322 P5 lock)
+        const idCheck = CoversRefPayload.safeParse(obligationId);
+        if (!idCheck.success) {
+          emitFailure(
+            "USAGE",
+            `invalid obligation id '${obligationId}' — expected REQ-NS-NNN / SCEN-NS-NNN / VIS-NS-NNN / T-NNN form`,
+            { argument: obligationId },
+          );
+          return;
+        }
+        // (2) reason length is enforced by EvidenceFullPayload refine
+        //     downstream; surface the friendlier USAGE here too
+        if (opts.reason.length < 10) {
+          ctx.failureKeyed(
+            "USAGE",
+            FAILURE_SITE_KEYS.lessonsReasonTooShort,
+            { min_length: 10, reason_length: opts.reason.length },
+            { min_length: 10, reason_length: opts.reason.length },
+          );
+          return;
+        }
+        // (3) resolve human actor (waiver requires human:* per refine)
+        const resolution = resolveHumanActor({
+          env: process.env,
+          readGitConfig: readGitConfigForActor,
+          isInteractiveHuman: isInteractiveHumanForActor(),
+        });
+        if (!resolution.ok) {
+          emitFailure(resolution.code, resolution.message);
+          return;
+        }
+        const actor = resolution.actor;
+        const featureDir = await dispatchOrFail(opts);
+        if (featureDir === null) return;
+        const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
+        if (!session.snapshot.state) {
+          emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+          return;
+        }
+        // (4) allocate EV-id + build payload (pure builder, payload only)
+        const evidenceId = allocateNextEvidenceId(session.snapshot);
+        const payload = buildWaiveEvidencePayload({
+          evidenceId,
+          obligationId,
+          reason: opts.reason,
+          actor,
+          iteration: session.snapshot.state.iteration,
+        });
+        // (5) wrap in journal envelope (codex r325 P1 Option A boundary)
+        const result = await runMutator(featureDir, session, {
+          kind: "evidence:added",
+          payload,
+          actor,
+        });
+        if (!result) return;
+        ctx.success(
+          {
+            ok: true,
+            feature: opts.feature,
+            id: evidenceId,
+            kind: "waiver" as const,
             obligation_id: obligationId,
+          },
+          () => `${evidenceId}\n`,
+          (i18n) => ({
+            stateChange: i18n.t(SUCCESS_KEYS.waiveStateChange, {
+              evidence_id: evidenceId,
+              obligation_id: obligationId,
+            }),
           }),
-        }),
-      );
-    });
+        );
+      },
+    );
 
   // ── loaf lessons add — Phase 16 SC-11 ────────────────────────────────
   // Sugar wrapper over `evidence:added` payload.kind=manual. Records a
@@ -4652,108 +4685,125 @@ export async function main(
 
   lessonsCmd
     .command("add")
-    .description("Record a lessons-learned evidence entry (kind=manual; --text inline OR --file <path>)")
+    .description(
+      "Record a lessons-learned evidence entry (kind=manual; --text inline OR --file <path>)",
+    )
     .option("--text <inline>", "Lesson body text (inline). Mutex with --file.")
     .option("--file <path>", "Read lesson body from file. Mutex with --text.")
-    .requiredOption("--reason <text>", "Why this lesson matters (≥10 chars; mandatory per evidence schema refine)")
+    .requiredOption(
+      "--reason <text>",
+      "Why this lesson matters (≥10 chars; mandatory per evidence schema refine)",
+    )
     .option("--feature <name>", "Feature whose ledger to append to")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-    .action(async (opts: { text?: string; file?: string; reason: string; feature: string; featureDir?: string }) => {
-      // (1) --text / --file mutex (codex r322 P1 lock)
-      const hasText = opts.text !== undefined;
-      const hasFile = opts.file !== undefined;
-      if (hasText === hasFile) {
-        ctx.failureKeyed(
-          "USAGE",
-          FAILURE_SITE_KEYS.lessonsTextFileMutex,
-          { provided_state: hasText ? "both provided" : "neither provided" },
-          { text_provided: hasText, file_provided: hasFile },
-        );
-        return;
-      }
-      // (2) Read lesson body
-      let lessonText: string;
-      if (hasText) lessonText = opts.text!;
-      else {
-        try { lessonText = await fsPromises.readFile(opts.file!, "utf8"); }
-        catch (err) {
-          if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-            ctx.failureKeyed(
-              "INPUT_FILE_NOT_FOUND",
-              FAILURE_SITE_KEYS.lessonsFileMissing,
-              { path: opts.file! },
-              { path: opts.file! },
-            );
-            return;
-          }
-          throw err;
+    .action(
+      async (opts: {
+        text?: string;
+        file?: string;
+        reason: string;
+        feature: string;
+        featureDir?: string;
+      }) => {
+        // (1) --text / --file mutex (codex r322 P1 lock)
+        const hasText = opts.text !== undefined;
+        const hasFile = opts.file !== undefined;
+        if (hasText === hasFile) {
+          ctx.failureKeyed(
+            "USAGE",
+            FAILURE_SITE_KEYS.lessonsTextFileMutex,
+            { provided_state: hasText ? "both provided" : "neither provided" },
+            { text_provided: hasText, file_provided: hasFile },
+          );
+          return;
         }
-      }
-      if (lessonText.length < 3) {
-        ctx.failureKeyed(
-          "USAGE",
-          FAILURE_SITE_KEYS.lessonsTextTooShort,
-          { min_length: 3, lesson_text_length: lessonText.length },
-          { min_length: 3, lesson_text_length: lessonText.length },
+        // (2) Read lesson body
+        let lessonText: string;
+        if (hasText) lessonText = opts.text!;
+        else {
+          try {
+            lessonText = await fsPromises.readFile(opts.file!, "utf8");
+          } catch (err) {
+            if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+              ctx.failureKeyed(
+                "INPUT_FILE_NOT_FOUND",
+                FAILURE_SITE_KEYS.lessonsFileMissing,
+                { path: opts.file! },
+                { path: opts.file! },
+              );
+              return;
+            }
+            throw err;
+          }
+        }
+        if (lessonText.length < 3) {
+          ctx.failureKeyed(
+            "USAGE",
+            FAILURE_SITE_KEYS.lessonsTextTooShort,
+            { min_length: 3, lesson_text_length: lessonText.length },
+            { min_length: 3, lesson_text_length: lessonText.length },
+          );
+          return;
+        }
+        if (opts.reason.length < 10) {
+          ctx.failureKeyed(
+            "USAGE",
+            FAILURE_SITE_KEYS.lessonsReasonTooShort,
+            { min_length: 10, reason_length: opts.reason.length },
+            { min_length: 10, reason_length: opts.reason.length },
+          );
+          return;
+        }
+        // (3) resolve human actor (manual requires human:* per refine)
+        const resolution = resolveHumanActor({
+          env: process.env,
+          readGitConfig: readGitConfigForActor,
+          isInteractiveHuman: isInteractiveHumanForActor(),
+        });
+        if (!resolution.ok) {
+          emitFailure(resolution.code, resolution.message);
+          return;
+        }
+        const actor = resolution.actor;
+        const featureDir = await dispatchOrFail(opts);
+        if (featureDir === null) return;
+        const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
+        if (!session.snapshot.state) {
+          emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+          return;
+        }
+        // (5) allocate EV-id + build payload
+        const evidenceId = allocateNextEvidenceId(session.snapshot);
+        const payload = buildLessonsEvidencePayload({
+          evidenceId,
+          lessonText,
+          reason: opts.reason,
+          actor,
+          iteration: session.snapshot.state.iteration,
+        });
+        const result = await runMutator(featureDir, session, {
+          kind: "evidence:added",
+          payload,
+          actor,
+        });
+        if (!result) return;
+        // v0.1.1 (F-024): the lessons.md projection writer landed — every
+        // mutate rebuilds `.loaf/<feature>/lessons.md` from the lesson
+        // entries (writeProjections), so the advisory now states it was
+        // updated. (Was: "projection writer deferred" through v0.1.0.)
+        ctx.success(
+          {
+            ok: true,
+            feature: opts.feature,
+            id: evidenceId,
+            kind: "manual" as const,
+          },
+          () => `${evidenceId}\n`,
+          (i18n) => ({
+            stateChange: i18n.t(SUCCESS_KEYS.lessonsAddStateChange, { evidence_id: evidenceId }),
+          }),
         );
-        return;
-      }
-      if (opts.reason.length < 10) {
-        ctx.failureKeyed(
-          "USAGE",
-          FAILURE_SITE_KEYS.lessonsReasonTooShort,
-          { min_length: 10, reason_length: opts.reason.length },
-          { min_length: 10, reason_length: opts.reason.length },
-        );
-        return;
-      }
-      // (3) resolve human actor (manual requires human:* per refine)
-      const resolution = resolveHumanActor({
-        env: process.env,
-        readGitConfig: readGitConfigForActor,
-        isInteractiveHuman: isInteractiveHumanForActor(),
-      });
-      if (!resolution.ok) { emitFailure(resolution.code, resolution.message); return; }
-      const actor = resolution.actor;
-      const featureDir = await dispatchOrFail(opts);
-      if (featureDir === null) return;
-      const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
-      if (!session.snapshot.state) {
-        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
-        return;
-      }
-      // (5) allocate EV-id + build payload
-      const evidenceId = allocateNextEvidenceId(session.snapshot);
-      const payload = buildLessonsEvidencePayload({
-        evidenceId,
-        lessonText,
-        reason: opts.reason,
-        actor,
-        iteration: session.snapshot.state.iteration,
-      });
-      const result = await runMutator(
-        featureDir,
-        session,
-        { kind: "evidence:added", payload, actor },
-      );
-      if (!result) return;
-      // v0.1.1 (F-024): the lessons.md projection writer landed — every
-      // mutate rebuilds `.loaf/<feature>/lessons.md` from the lesson
-      // entries (writeProjections), so the advisory now states it was
-      // updated. (Was: "projection writer deferred" through v0.1.0.)
-      ctx.success(
-        {
-          ok: true,
-          feature: opts.feature,
-          id: evidenceId,
-          kind: "manual" as const,
-        },
-        () => `${evidenceId}\n`,
-        (i18n) => ({
-          stateChange: i18n.t(SUCCESS_KEYS.lessonsAddStateChange, { evidence_id: evidenceId }),
-        }),
-      );
-    });
+      },
+    );
 
   // ── loaf sessions list — Phase 16 SC-9b ──────────────────────────────
   // Read-only: walks ~/.loaf/registry/*.json (via defaultRegistryDir
@@ -4775,213 +4825,213 @@ export async function main(
   //           would be dangerous; codex r361 P2 lock).
   program
     .command("hook <event>")
-    .description("Claude Code hook entry point (session-start + closure-check read-side; write-guard + scope-track land SC-15c)")
+    .description(
+      "Claude Code hook entry point (session-start + closure-check read-side; write-guard + scope-track land SC-15c)",
+    )
     .option("--list-events", "Dump the canonical 4-event enum (handled by pre-parse guard)")
     .option("--feature <name>", "Feature whose session to read (read-side events)")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .option("--session <uuid>", "Resolve session by registry UUID (read-side events)")
     .option("--path <text>", "Tool target path (for write-guard / scope-track; SC-15c)")
-    .action(async (event: string, opts: { feature?: string; featureDir?: string; path?: string }) => {
-      // The pre-parse guard already validated `event ∈ HOOK_EVENTS`.
+    .action(
+      async (event: string, opts: { feature?: string; featureDir?: string; path?: string }) => {
+        // The pre-parse guard already validated `event ∈ HOOK_EVENTS`.
 
-      // ── session-start (SC-15b) — inject sub_state context into the
-      //    Claude Code SessionStart hook. No active session (non-loaf
-      //    project / empty .loaf / stale) → silent exit 0, empty output. ──
-      if (event === "session-start") {
-        const d = await dispatchForHookOptional(opts);
-        if ("skip" in d) return; // absence OR stale → silent (avoid misleading context)
-        let loaded: LoadResult<"state" | "findings" | "pending">;
-        try {
-          loaded = await loadProjections({
-            feature_dir: d.featureDir,
-            kinds: ["state", "findings", "pending"] as const,
-          });
-        } catch {
-          // NoSession race / stale / corrupt → stay silent for SessionStart.
-          return;
-        }
-        const additionalContext = composeSessionStartContext({
-          sub_state: loaded.state.sub_state,
-          iteration: loaded.state.iteration,
-          open_findings: loaded.findings.findings.filter((f) => f.status === "open"),
-          pending: loaded.state.pending,
-        });
-        // Claude Code SessionStart hook wire shape — NOT the loaf {ok}
-        // envelope (codex GO Q-A lock).
-        process.stdout.write(
-          JSON.stringify(sessionStartHookOutput(additionalContext)) + "\n",
-        );
-        return;
-      }
-
-      // ── closure-check (SC-15b) — read-only consistency warnings on the
-      //    Claude Code Stop event. ALWAYS exit 0 (warnings to stderr);
-      //    blocking Stop is a regression. ──
-      if (event === "closure-check") {
-        const d = await dispatchForHookOptional(opts);
-        if ("skip" in d) {
-          if (d.stale) {
-            process.stderr.write(`warning: closure-check skipped — ${d.stale.message}\n`);
-          }
-          return;
-        }
-        let loaded: LoadResult<"state" | "tasks" | "evidence" | "findings">;
-        try {
-          loaded = await loadProjections({
-            feature_dir: d.featureDir,
-            kinds: ["state", "tasks", "evidence", "findings"] as const,
-          });
-        } catch (err) {
-          if (err instanceof SnapshotStaleError) {
-            // Q-B check 1: projection freshness — warn, never block.
-            process.stderr.write(`warning: closure-check skipped — ${err.message}\n`);
+        // ── session-start (SC-15b) — inject sub_state context into the
+        //    Claude Code SessionStart hook. No active session (non-loaf
+        //    project / empty .loaf / stale) → silent exit 0, empty output. ──
+        if (event === "session-start") {
+          const d = await dispatchForHookOptional(opts);
+          if ("skip" in d) return; // absence OR stale → silent (avoid misleading context)
+          let loaded: LoadResult<"state" | "findings" | "pending">;
+          try {
+            loaded = await loadProjections({
+              feature_dir: d.featureDir,
+              kinds: ["state", "findings", "pending"] as const,
+            });
+          } catch {
+            // NoSession race / stale / corrupt → stay silent for SessionStart.
             return;
           }
-          if (err instanceof NoSessionError) return; // absence → silent
-          // Contract: closure-check must NEVER block the Claude Code Stop
-          // event. Any other failure (EACCES / read error outside the stale
-          // taxonomy) degrades to a stderr warning + exit 0 — it must not
-          // escape to the UNEXPECTED_ERROR boundary (exit 1) (codex SC-15b
-          // PATCH: blocking Stop is a regression).
-          process.stderr.write(
-            `warning: closure-check skipped — ${(err as Error).message}\n`,
+          const additionalContext = composeSessionStartContext({
+            sub_state: loaded.state.sub_state,
+            iteration: loaded.state.iteration,
+            open_findings: loaded.findings.findings.filter((f) => f.status === "open"),
+            pending: loaded.state.pending,
+          });
+          // Claude Code SessionStart hook wire shape — NOT the loaf {ok}
+          // envelope (codex GO Q-A lock).
+          process.stdout.write(JSON.stringify(sessionStartHookOutput(additionalContext)) + "\n");
+          return;
+        }
+
+        // ── closure-check (SC-15b) — read-only consistency warnings on the
+        //    Claude Code Stop event. ALWAYS exit 0 (warnings to stderr);
+        //    blocking Stop is a regression. ──
+        if (event === "closure-check") {
+          const d = await dispatchForHookOptional(opts);
+          if ("skip" in d) {
+            if (d.stale) {
+              process.stderr.write(`warning: closure-check skipped — ${d.stale.message}\n`);
+            }
+            return;
+          }
+          let loaded: LoadResult<"state" | "tasks" | "evidence" | "findings">;
+          try {
+            loaded = await loadProjections({
+              feature_dir: d.featureDir,
+              kinds: ["state", "tasks", "evidence", "findings"] as const,
+            });
+          } catch (err) {
+            if (err instanceof SnapshotStaleError) {
+              // Q-B check 1: projection freshness — warn, never block.
+              process.stderr.write(`warning: closure-check skipped — ${err.message}\n`);
+              return;
+            }
+            if (err instanceof NoSessionError) return; // absence → silent
+            // Contract: closure-check must NEVER block the Claude Code Stop
+            // event. Any other failure (EACCES / read error outside the stale
+            // taxonomy) degrades to a stderr warning + exit 0 — it must not
+            // escape to the UNEXPECTED_ERROR boundary (exit 1) (codex SC-15b
+            // PATCH: blocking Stop is a regression).
+            process.stderr.write(`warning: closure-check skipped — ${(err as Error).message}\n`);
+            return;
+          }
+          const warnings = runClosureWarnings({
+            state: loaded.state,
+            tasks: loaded.tasks,
+            evidence: loaded.evidence,
+            findings: loaded.findings,
+          });
+          for (const w of warnings) process.stderr.write(`warning: ${w}\n`);
+          return;
+        }
+
+        // ── scope-track (SC-15c) — PostToolUse(Write,Edit) STUB ──
+        // Accepts the write-side path surface (so its CLI shape matches
+        // write-guard) but writes NOTHING — no heartbeat, no reconcile cache,
+        // no journal, no side-file. The actual_scope / heartbeat writer is
+        // F-027's (codex Q3 lock). exit 0.
+        if (event === "scope-track") {
+          const target = await resolveHookPath(opts);
+          if (target === null) return; // USAGE / SCHEMA_VALIDATION_FAILED exit 2
+          return; // stub — accept + exit 0, write nothing
+        }
+
+        // ── write-guard (SC-15c) — PreToolUse(Write,Edit) ──
+        // Block a tool write whose target path is outside the allowed write
+        // set for the current sub_state + active task/step + config-widened
+        // categories. SAFETY BOUNDARY: fail closed on any ambiguity/error;
+        // allow only when there is genuinely no loaf session to guard
+        // (codex Q5). exit 0 = allowed; exit 2 = denied.
+        const target = await resolveHookPath(opts);
+        if (target === null) return; // USAGE / SCHEMA exit 2 (already emitted)
+
+        const wd = await resolveDispatchForWriteGuard(opts);
+        if ("allow" in wd) return; // no loaf session here → allow, exit 0
+        if ("failClosed" in wd) {
+          emitFailure(wd.code, `write-guard blocked: ${wd.message}`, { reason: wd.message });
+          return;
+        }
+
+        const repoRoot = path.dirname(path.dirname(wd.featureDir)); // <repoRoot>/.loaf/<feature>
+        const feature = opts.feature!;
+
+        // Config overlay — fail closed on an invalid (untrusted) config.
+        const cfg = await readLoafConfig(repoRoot);
+        if (cfg.status === "invalid") {
+          ctx.failureKeyed(
+            "SCHEMA_VALIDATION_FAILED",
+            FAILURE_SITE_KEYS.writeGuardConfigInvalid,
+            { reason: cfg.reason },
+            {
+              source: "loaf.config.json",
+              reason: cfg.reason,
+            },
           );
           return;
         }
-        const warnings = runClosureWarnings({
-          state: loaded.state,
-          tasks: loaded.tasks,
-          evidence: loaded.evidence,
-          findings: loaded.findings,
-        });
-        for (const w of warnings) process.stderr.write(`warning: ${w}\n`);
-        return;
-      }
+        const config = cfg.status === "ok" ? cfg.config : null;
 
-      // ── scope-track (SC-15c) — PostToolUse(Write,Edit) STUB ──
-      // Accepts the write-side path surface (so its CLI shape matches
-      // write-guard) but writes NOTHING — no heartbeat, no reconcile cache,
-      // no journal, no side-file. The actual_scope / heartbeat writer is
-      // F-027's (codex Q3 lock). exit 0.
-      if (event === "scope-track") {
-        const target = await resolveHookPath(opts);
-        if (target === null) return; // USAGE / SCHEMA_VALIDATION_FAILED exit 2
-        return; // stub — accept + exit 0, write nothing
-      }
+        // Projections — fail closed (stale/corrupt selected session must not
+        // relax the write boundary; codex Q5 reversed polarity vs read-side).
+        let loaded: LoadResult<"state" | "tasks">;
+        try {
+          loaded = await loadProjections({
+            feature_dir: wd.featureDir,
+            kinds: ["state", "tasks"] as const,
+          });
+        } catch (err) {
+          const code =
+            err instanceof SnapshotStaleError ? err.code : "SNAPSHOT_STALE_REBUILD_REQUIRED";
+          emitFailure(code, `write-guard blocked: ${(err as Error).message}`, {
+            reason: (err as Error).message,
+          });
+          return;
+        }
+        const { state, tasks } = loaded;
 
-      // ── write-guard (SC-15c) — PreToolUse(Write,Edit) ──
-      // Block a tool write whose target path is outside the allowed write
-      // set for the current sub_state + active task/step + config-widened
-      // categories. SAFETY BOUNDARY: fail closed on any ambiguity/error;
-      // allow only when there is genuinely no loaf session to guard
-      // (codex Q5). exit 0 = allowed; exit 2 = denied.
-      const target = await resolveHookPath(opts);
-      if (target === null) return; // USAGE / SCHEMA exit 2 (already emitted)
-
-      const wd = await resolveDispatchForWriteGuard(opts);
-      if ("allow" in wd) return; // no loaf session here → allow, exit 0
-      if ("failClosed" in wd) {
-        emitFailure(wd.code, `write-guard blocked: ${wd.message}`, { reason: wd.message });
-        return;
-      }
-
-      const repoRoot = path.dirname(path.dirname(wd.featureDir)); // <repoRoot>/.loaf/<feature>
-      const feature = opts.feature!;
-
-      // Config overlay — fail closed on an invalid (untrusted) config.
-      const cfg = await readLoafConfig(repoRoot);
-      if (cfg.status === "invalid") {
-        ctx.failureKeyed(
-          "SCHEMA_VALIDATION_FAILED",
-          FAILURE_SITE_KEYS.writeGuardConfigInvalid,
-          { reason: cfg.reason },
-          {
-            source: "loaf.config.json",
-            reason: cfg.reason,
-          },
-        );
-        return;
-      }
-      const config = cfg.status === "ok" ? cfg.config : null;
-
-      // Projections — fail closed (stale/corrupt selected session must not
-      // relax the write boundary; codex Q5 reversed polarity vs read-side).
-      let loaded: LoadResult<"state" | "tasks">;
-      try {
-        loaded = await loadProjections({
-          feature_dir: wd.featureDir,
-          kinds: ["state", "tasks"] as const,
-        });
-      } catch (err) {
-        const code =
-          err instanceof SnapshotStaleError ? err.code : "SNAPSHOT_STALE_REBUILD_REQUIRED";
-        emitFailure(code, `write-guard blocked: ${(err as Error).message}`, {
-          reason: (err as Error).message,
-        });
-        return;
-      }
-      const { state, tasks } = loaded;
-
-      // Assemble built-in globs (sub_state ∪ active task/step ∪ verify check)
-      // + the config-widenable semantic categories for the active steps.
-      const builtinGlobs: string[] = [
-        ...(SUB_STATE_CONTRACT_BY_STATE[state.sub_state]?.write_paths ?? []),
-      ];
-      const activeCategories = new Set<WriteCategory>();
-      for (const task of tasks?.tasks ?? []) {
-        if (task.status !== "in_progress") continue;
-        const execution =
-          (task as { execution?: Record<string, { status?: string }> }).execution ?? {};
-        for (const [step, st] of Object.entries(execution)) {
-          if (st?.status === "running") {
-            for (const g of stepWritePaths(task.kind, step)) builtinGlobs.push(g);
-            for (const c of stepWriteCategories(task.kind, step)) activeCategories.add(c);
+        // Assemble built-in globs (sub_state ∪ active task/step ∪ verify check)
+        // + the config-widenable semantic categories for the active steps.
+        const builtinGlobs: string[] = [
+          ...(SUB_STATE_CONTRACT_BY_STATE[state.sub_state]?.write_paths ?? []),
+        ];
+        const activeCategories = new Set<WriteCategory>();
+        for (const task of tasks?.tasks ?? []) {
+          if (task.status !== "in_progress") continue;
+          const execution =
+            (task as { execution?: Record<string, { status?: string }> }).execution ?? {};
+          for (const [step, st] of Object.entries(execution)) {
+            if (st?.status === "running") {
+              for (const g of stepWritePaths(task.kind, step)) builtinGlobs.push(g);
+              for (const c of stepWriteCategories(task.kind, step)) activeCategories.add(c);
+            }
           }
         }
-      }
-      const [phase, sub] = state.sub_state.split(".");
-      const VERIFY_CHECKS: readonly VerifyCheckKind[] = ["run", "review", "acceptance", "visual"];
-      if (phase === "VERIFY" && VERIFY_CHECKS.includes(sub as VerifyCheckKind)) {
-        const check = sub as VerifyCheckKind;
-        for (const g of VERIFY_CHECK_WRITE_PATHS[check]) builtinGlobs.push(g);
-        for (const c of VERIFY_CHECK_WRITE_CATEGORIES[check]) activeCategories.add(c);
-      }
+        const [phase, sub] = state.sub_state.split(".");
+        const VERIFY_CHECKS: readonly VerifyCheckKind[] = ["run", "review", "acceptance", "visual"];
+        if (phase === "VERIFY" && VERIFY_CHECKS.includes(sub as VerifyCheckKind)) {
+          const check = sub as VerifyCheckKind;
+          for (const g of VERIFY_CHECK_WRITE_PATHS[check]) builtinGlobs.push(g);
+          for (const c of VERIFY_CHECK_WRITE_CATEGORIES[check]) activeCategories.add(c);
+        }
 
-      const decision = evaluateWritePath({
-        targetPath: target,
-        repoRoot,
-        feature,
-        subState: state.sub_state,
-        builtinGlobs,
-        activeCategories: [...activeCategories],
-        config,
-      });
+        const decision = evaluateWritePath({
+          targetPath: target,
+          repoRoot,
+          feature,
+          subState: state.sub_state,
+          builtinGlobs,
+          activeCategories: [...activeCategories],
+          config,
+        });
 
-      if (decision.allowed) return; // exit 0 — write permitted
-      if (decision.code === "PROTECTED_FILE_WRITE") {
+        if (decision.allowed) return; // exit 0 — write permitted
+        if (decision.code === "PROTECTED_FILE_WRITE") {
+          emitFailure(
+            "PROTECTED_FILE_WRITE",
+            `write blocked: \`${decision.normalizedPath}\` matches protected_files entry \`${decision.matchedDeny}\` — protected files are never writable`,
+            {
+              path: target,
+              normalized_path: decision.normalizedPath,
+              matched_deny: decision.matchedDeny,
+            },
+          );
+          return;
+        }
+        // WRITE_PATH_VIOLATION — bound the allow_set for the detail envelope.
         emitFailure(
-          "PROTECTED_FILE_WRITE",
-          `write blocked: \`${decision.normalizedPath}\` matches protected_files entry \`${decision.matchedDeny}\` — protected files are never writable`,
+          "WRITE_PATH_VIOLATION",
+          `write blocked: \`${decision.normalizedPath}\` is outside the allowed write paths for sub_state \`${state.sub_state}\``,
           {
             path: target,
             normalized_path: decision.normalizedPath,
-            matched_deny: decision.matchedDeny,
+            sub_state: state.sub_state,
+            allow_set: decision.allowSet.slice(0, 30),
           },
         );
-        return;
-      }
-      // WRITE_PATH_VIOLATION — bound the allow_set for the detail envelope.
-      emitFailure(
-        "WRITE_PATH_VIOLATION",
-        `write blocked: \`${decision.normalizedPath}\` is outside the allowed write paths for sub_state \`${state.sub_state}\``,
-        {
-          path: target,
-          normalized_path: decision.normalizedPath,
-          sub_state: state.sub_state,
-          allow_set: decision.allowSet.slice(0, 30),
-        },
-      );
-    });
+      },
+    );
 
   // ── loaf tui — Phase 16 SC-14 ────────────────────────────────────────
   // Read-only Ink-based session manager (MVP). Walks the registry
@@ -5009,11 +5059,10 @@ export async function main(
       const stdinTty = isStdinTty();
       const stdoutTty = isStdoutTtyForTui();
       if (!stdinTty || !stdoutTty) {
-        emitFailure(
-          "USAGE",
-          "TUI requires an interactive terminal (stdin/stdout TTY)",
-          { stdin_tty: stdinTty, stdout_tty: stdoutTty },
-        );
+        emitFailure("USAGE", "TUI requires an interactive terminal (stdin/stdout TTY)", {
+          stdin_tty: stdinTty,
+          stdout_tty: stdoutTty,
+        });
         return;
       }
       // loadRows closure: preserves deps.registryDir / LOAF_REGISTRY_DIR
@@ -5042,9 +5091,7 @@ export async function main(
       await renderTuiImpl(app);
     });
 
-  const sessionsCmd = program
-    .command("sessions")
-    .description("Session registry commands (list)");
+  const sessionsCmd = program.command("sessions").description("Session registry commands (list)");
 
   sessionsCmd
     .command("list")
@@ -5070,7 +5117,9 @@ export async function main(
       for (const w of result.warnings) {
         const actionKey =
           w.reason === "orphan-cwd"
-            ? (opts.inCwd ? CHROME_KEYS.sessionsActionFilteredOut : CHROME_KEYS.sessionsActionOrphanCwd)
+            ? opts.inCwd
+              ? CHROME_KEYS.sessionsActionFilteredOut
+              : CHROME_KEYS.sessionsActionOrphanCwd
             : CHROME_KEYS.sessionsActionSkipped;
         ctx.advisory(
           i18n.t(CHROME_KEYS.sessionsWarning, {
@@ -5096,10 +5145,7 @@ export async function main(
           // 4-column aligned: <short8> <feature> <phase.sub_state> <at>
           const lines: string[] = [];
           // Column widths
-          const featureWidth = Math.max(
-            ...result.rows.map((r) => r.feature.length),
-            7,
-          );
+          const featureWidth = Math.max(...result.rows.map((r) => r.feature.length), 7);
           const stateWidth = Math.max(
             ...result.rows.map((r) => formatPhaseSub(r, textI18n).length),
             12,
@@ -5151,7 +5197,9 @@ export async function main(
         kind = opts.kind as CheckKind;
       }
 
-      const result = await checkFile(kind === undefined ? { path: filePath } : { path: filePath, kind });
+      const result = await checkFile(
+        kind === undefined ? { path: filePath } : { path: filePath, kind },
+      );
       if (result.ok) {
         ctx.success(result, (i18n) => renderCheckSuccess(result, i18n));
         return;
@@ -5287,82 +5335,98 @@ export async function main(
     .option("--target-step <step>", "Target step (must equal action's canonical step)")
     .option("--feature <name>", "Feature whose ledger to append to")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-    .action(async (opts: {
-      category: string;
-      action: string;
-      summary?: string;
-      reason?: string;
-      targetTask?: string;
-      targetStep?: string;
-      feature: string;
-      featureDir?: string;
-    }) => {
-      // Partial target flags: USAGE before mutate (codex r68 RED #5).
-      const hasTask = opts.targetTask !== undefined;
-      const hasStep = opts.targetStep !== undefined;
-      if (hasTask !== hasStep) {
-        emitFailure(
-          "USAGE",
-          "--target-task and --target-step must be specified together (or both omitted)",
-        );
-        return;
-      }
-      const featureDir = await dispatchOrFail(opts);
-      if (featureDir === null) return;
-      const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
-      if (!session.snapshot.state) {
-        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionFinding, opts.feature);
-        return;
-      }
-      // FND-NNN allocator: scan numeric FND ids in projection, max+1,
-      // zero-pad to ≥3 digits per FindingId regex.
-      const maxSerial = session.snapshot.findings.reduce((max, f) => {
-        const m = /^FND-(\d+)$/.exec(f.id);
-        if (!m) return max;
-        return Math.max(max, Number.parseInt(m[1]!, 10));
-      }, 0);
-      const id = `FND-${String(maxSerial + 1).padStart(3, "0")}`;
-      const payload: Record<string, unknown> = {
-        id,
-        category: opts.category,
-        action: opts.action,
-      };
-      if (opts.summary !== undefined) payload["summary"] = opts.summary;
-      if (opts.reason !== undefined) payload["reason"] = opts.reason;
-      if (hasTask && hasStep) {
-        payload["target"] = { task_id: opts.targetTask, step: opts.targetStep };
-      }
-      // Slice B / Phase 11 Item 3 SC1: back-edge actions emit a 2-entry
-      // batch [finding:raised, event:phase_advanced(back_edge)] so the
-      // cursor move is journal-derivable + replay-safe. amend-spec →
-      // SPEC.spec (lock-bypass); amend-tasks → EXECUTE.work (back-edge-
-      // only, no event:tasks_amended — that is SC1b). The target is
-      // dictated by `action` and re-derived by validateTransition.
-      // Other actions remain single-entry until their slices land.
+    .action(
+      async (opts: {
+        category: string;
+        action: string;
+        summary?: string;
+        reason?: string;
+        targetTask?: string;
+        targetStep?: string;
+        feature: string;
+        featureDir?: string;
+      }) => {
+        // Partial target flags: USAGE before mutate (codex r68 RED #5).
+        const hasTask = opts.targetTask !== undefined;
+        const hasStep = opts.targetStep !== undefined;
+        if (hasTask !== hasStep) {
+          emitFailure(
+            "USAGE",
+            "--target-task and --target-step must be specified together (or both omitted)",
+          );
+          return;
+        }
+        const featureDir = await dispatchOrFail(opts);
+        if (featureDir === null) return;
+        const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
+        if (!session.snapshot.state) {
+          emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionFinding, opts.feature);
+          return;
+        }
+        // FND-NNN allocator: scan numeric FND ids in projection, max+1,
+        // zero-pad to ≥3 digits per FindingId regex.
+        const maxSerial = session.snapshot.findings.reduce((max, f) => {
+          const m = /^FND-(\d+)$/.exec(f.id);
+          if (!m) return max;
+          return Math.max(max, Number.parseInt(m[1]!, 10));
+        }, 0);
+        const id = `FND-${String(maxSerial + 1).padStart(3, "0")}`;
+        const payload: Record<string, unknown> = {
+          id,
+          category: opts.category,
+          action: opts.action,
+        };
+        if (opts.summary !== undefined) payload["summary"] = opts.summary;
+        if (opts.reason !== undefined) payload["reason"] = opts.reason;
+        if (hasTask && hasStep) {
+          payload["target"] = { task_id: opts.targetTask, step: opts.targetStep };
+        }
+        // Slice B / Phase 11 Item 3 SC1: back-edge actions emit a 2-entry
+        // batch [finding:raised, event:phase_advanced(back_edge)] so the
+        // cursor move is journal-derivable + replay-safe. amend-spec →
+        // SPEC.spec (lock-bypass); amend-tasks → EXECUTE.work (back-edge-
+        // only, no event:tasks_amended — that is SC1b). The target is
+        // dictated by `action` and re-derived by validateTransition.
+        // Other actions remain single-entry until their slices land.
 
-      // L9: finding-raise co-emission shape lives in buildFindingRaiseBatch
-      // (fix-* reset batch / amend-* back-edge / lone). The builder owns the
-      // action→batch mapping, ordering, and per-entry actor split; fix-* without
-      // a target returns "none" so the lone path runs and preflight's
-      // FINDING_TARGET_REQUIRED stays the authoritative target gate.
-      const currentSubState = session.snapshot.state.sub_state;
-      const findingBatch = buildFindingRaiseBatch({
-        action: opts.action,
-        findingPayload: payload,
-        findingId: id,
-        currentSubState,
-        findingActor: actor,
-        ...(hasTask && hasStep
-          ? { target: { taskId: opts.targetTask! } }
-          : {}),
-      });
-      if (findingBatch.kind === "none") {
-        const result = await runMutator(
-          featureDir,
-          session,
-          { kind: "finding:raised", payload, actor },
-        );
-        if (!result) return;
+        // L9: finding-raise co-emission shape lives in buildFindingRaiseBatch
+        // (fix-* reset batch / amend-* back-edge / lone). The builder owns the
+        // action→batch mapping, ordering, and per-entry actor split; fix-* without
+        // a target returns "none" so the lone path runs and preflight's
+        // FINDING_TARGET_REQUIRED stays the authoritative target gate.
+        const currentSubState = session.snapshot.state.sub_state;
+        const findingBatch = buildFindingRaiseBatch({
+          action: opts.action,
+          findingPayload: payload,
+          findingId: id,
+          currentSubState,
+          findingActor: actor,
+          ...(hasTask && hasStep ? { target: { taskId: opts.targetTask! } } : {}),
+        });
+        if (findingBatch.kind === "none") {
+          const result = await runMutator(featureDir, session, {
+            kind: "finding:raised",
+            payload,
+            actor,
+          });
+          if (!result) return;
+          ctx.success(
+            {
+              ok: true,
+              feature: opts.feature,
+              id,
+              category: opts.category,
+              action: opts.action,
+            },
+            () => id + "\n",
+            {
+              stateChange: `finding raise: ${id} (category=${opts.category}, action=${opts.action})`,
+            },
+          );
+          return;
+        }
+        const batchResult = await runMutator(featureDir, session, findingBatch.entries);
+        if (!batchResult) return;
         ctx.success(
           {
             ok: true,
@@ -5370,39 +5434,21 @@ export async function main(
             id,
             category: opts.category,
             action: opts.action,
+            back_edge: { from: currentSubState, to: findingBatch.backEdgeTo },
           },
+          // codex r98 §1: keep text-mode stdout bare (matches every other
+          // `loaf finding raise` action). Callers script
+          // `FND=$(loaf finding raise ...)` and feed the id straight into
+          // `loaf finding close`; a decorated string would break that pipeline
+          // contract. The back_edge sponsorship is observable from the journal
+          // tail + JSON mode.
           () => id + "\n",
           {
-            stateChange:
-              `finding raise: ${id} (category=${opts.category}, action=${opts.action})`,
+            stateChange: `finding raise: ${id} (category=${opts.category}, action=${opts.action}) — back-edge to ${findingBatch.backEdgeTo}`,
           },
         );
-        return;
-      }
-      const batchResult = await runMutator(featureDir, session, findingBatch.entries);
-      if (!batchResult) return;
-      ctx.success(
-        {
-          ok: true,
-          feature: opts.feature,
-          id,
-          category: opts.category,
-          action: opts.action,
-          back_edge: { from: currentSubState, to: findingBatch.backEdgeTo },
-        },
-        // codex r98 §1: keep text-mode stdout bare (matches every other
-        // `loaf finding raise` action). Callers script
-        // `FND=$(loaf finding raise ...)` and feed the id straight into
-        // `loaf finding close`; a decorated string would break that pipeline
-        // contract. The back_edge sponsorship is observable from the journal
-        // tail + JSON mode.
-        () => id + "\n",
-        {
-          stateChange:
-            `finding raise: ${id} (category=${opts.category}, action=${opts.action}) — back-edge to ${findingBatch.backEdgeTo}`,
-        },
-      );
-    });
+      },
+    );
 
   findingCmd
     .command("list")
@@ -5435,9 +5481,7 @@ export async function main(
       );
       if (loaded === null) return;
       const all = loaded.findings.findings;
-      const rows = opts.status
-        ? all.filter((f) => f.status === opts.status)
-        : all;
+      const rows = opts.status ? all.filter((f) => f.status === opts.status) : all;
       ctx.success(
         {
           ok: true,
@@ -5447,12 +5491,15 @@ export async function main(
         },
         (i18n) =>
           rows
-            .map((r) => i18n.t(CHROME_KEYS.findingListRow, {
-              finding_id: r.id,
-              category: formatFindingCategory(i18n, r.category),
-              action: formatFindingAction(i18n, r.action),
-              status: formatFindingStatus(i18n, r.status),
-            }) + "\n")
+            .map(
+              (r) =>
+                i18n.t(CHROME_KEYS.findingListRow, {
+                  finding_id: r.id,
+                  category: formatFindingCategory(i18n, r.category),
+                  action: formatFindingAction(i18n, r.action),
+                  status: formatFindingStatus(i18n, r.status),
+                }) + "\n",
+            )
             .join(""),
       );
     });
@@ -5490,11 +5537,10 @@ export async function main(
       // that want to react programmatically (codex r68 #4).
       const existing = session.snapshot.findings.find((f) => f.id === fndId);
       if (!existing) {
-        emitFailure(
-          "FINDING_NOT_FOUND",
-          `finding:closed references unknown finding id=${fndId}`,
-          { id: fndId, reason: "unknown" },
-        );
+        emitFailure("FINDING_NOT_FOUND", `finding:closed references unknown finding id=${fndId}`, {
+          id: fndId,
+          reason: "unknown",
+        });
         return;
       }
       if (existing.status === "closed") {
@@ -5505,11 +5551,11 @@ export async function main(
         );
         return;
       }
-      const result = await runMutator(
-        featureDir,
-        session,
-        { kind: "finding:closed", payload: { id: fndId }, actor },
-      );
+      const result = await runMutator(featureDir, session, {
+        kind: "finding:closed",
+        payload: { id: fndId },
+        actor,
+      });
       if (!result) return;
       ctx.success(
         { ok: true, feature: opts.feature, id: fndId, status: "closed" },
@@ -5551,7 +5597,9 @@ export async function main(
   // PER_KIND_SUB_STATE ALL_SPEC gate).
   const specCmd = program
     .command("spec")
-    .description("SPEC content commands (submit / add-req / add-scenario / add-visual; init in SC4)");
+    .description(
+      "SPEC content commands (submit / add-req / add-scenario / add-visual; init in SC4)",
+    );
 
   specCmd
     .command("submit")
@@ -5590,10 +5638,7 @@ export async function main(
       }
       const parsed = read.value;
       if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-        ctx.failure(
-          "USAGE",
-          "spec submit --input expects a JSON object (SpecFrontmatter shape)",
-        );
+        ctx.failure("USAGE", "spec submit --input expects a JSON object (SpecFrontmatter shape)");
         return;
       }
       // CLI boundary: typed runtime schema enforcement (codex r75 BLOCK
@@ -5652,14 +5697,17 @@ export async function main(
       };
       ctx.success(
         out,
-        (i18n) => i18n.t(SUCCESS_KEYS.specSubmitText, {
-          spec_version: out.spec_version,
-          req_count: reqIds.length,
-          scen_count: scenIds.length,
-          vis_count: visIds.length,
-        }) + "\n",
+        (i18n) =>
+          i18n.t(SUCCESS_KEYS.specSubmitText, {
+            spec_version: out.spec_version,
+            req_count: reqIds.length,
+            scen_count: scenIds.length,
+            vis_count: visIds.length,
+          }) + "\n",
         (i18n) => ({
-          stateChange: i18n.t(SUCCESS_KEYS.specSubmitStateChange, { spec_version: out.spec_version }),
+          stateChange: i18n.t(SUCCESS_KEYS.specSubmitStateChange, {
+            spec_version: out.spec_version,
+          }),
           next: i18n.t(SUCCESS_KEYS.specSubmitNext),
         }),
       );
@@ -5723,21 +5771,27 @@ export async function main(
       return count === 1 ? SUCCESS_KEYS.specAddReqTextOne : SUCCESS_KEYS.specAddReqTextMany;
     }
     if (name === "scenario") {
-      return count === 1 ? SUCCESS_KEYS.specAddScenarioTextOne : SUCCESS_KEYS.specAddScenarioTextMany;
+      return count === 1
+        ? SUCCESS_KEYS.specAddScenarioTextOne
+        : SUCCESS_KEYS.specAddScenarioTextMany;
     }
     return count === 1 ? SUCCESS_KEYS.specAddVisualTextOne : SUCCESS_KEYS.specAddVisualTextMany;
   }
 
   function specAddStateChangeKey(name: SpecAddKindConfig["name"], count: number): string {
     if (name === "req") {
-      return count === 1 ? SUCCESS_KEYS.specAddReqStateChangeOne : SUCCESS_KEYS.specAddReqStateChangeMany;
+      return count === 1
+        ? SUCCESS_KEYS.specAddReqStateChangeOne
+        : SUCCESS_KEYS.specAddReqStateChangeMany;
     }
     if (name === "scenario") {
       return count === 1
         ? SUCCESS_KEYS.specAddScenarioStateChangeOne
         : SUCCESS_KEYS.specAddScenarioStateChangeMany;
     }
-    return count === 1 ? SUCCESS_KEYS.specAddVisualStateChangeOne : SUCCESS_KEYS.specAddVisualStateChangeMany;
+    return count === 1
+      ? SUCCESS_KEYS.specAddVisualStateChangeOne
+      : SUCCESS_KEYS.specAddVisualStateChangeMany;
   }
 
   // ── loaf spec init — scaffold spec.md (no journal entry) ─────────────
@@ -5762,114 +5816,114 @@ export async function main(
       "--intent <text>",
       "Override intent line in scaffold (default: TODO placeholder ≥20 chars)",
     )
-    .action(async (opts: {
-      feature: string;
-      featureDir?: string;
-      featureId?: string;
-      featureName?: string;
-      intent?: string;
-    }) => {
-      const featureDir = await dispatchOrFail(opts);
-      if (featureDir === null) return;
-      const specMdPath = path.join(featureDir, "spec.md");
-      // SPEC_ALREADY_INITIALIZED guard: refuse to overwrite. Check
-      // before any I/O so the error surface is the file's existence,
-      // not a partial write.
-      try {
-        await fsP.access(specMdPath);
-        // File exists — refuse.
-        emitFailure(
-          "SPEC_ALREADY_INITIALIZED",
-          `spec.md already exists at ${specMdPath}; edit it directly or remove before re-init`,
-          { spec_md_path: specMdPath },
+    .action(
+      async (opts: {
+        feature: string;
+        featureDir?: string;
+        featureId?: string;
+        featureName?: string;
+        intent?: string;
+      }) => {
+        const featureDir = await dispatchOrFail(opts);
+        if (featureDir === null) return;
+        const specMdPath = path.join(featureDir, "spec.md");
+        // SPEC_ALREADY_INITIALIZED guard: refuse to overwrite. Check
+        // before any I/O so the error surface is the file's existence,
+        // not a partial write.
+        try {
+          await fsP.access(specMdPath);
+          // File exists — refuse.
+          emitFailure(
+            "SPEC_ALREADY_INITIALIZED",
+            `spec.md already exists at ${specMdPath}; edit it directly or remove before re-init`,
+            { spec_md_path: specMdPath },
+          );
+          return;
+        } catch {
+          // ENOENT — proceed.
+        }
+        // Ensure feature dir exists (loaf start would have created it,
+        // but spec init might be called before start in a fresh tree).
+        await fsP.mkdir(featureDir, { recursive: true });
+        // FeatureIdPayload regex is `^F-\d{3,}$`. F-000 is a deliberate
+        // placeholder that parses but is obviously a stand-in — caller
+        // should override with `--feature-id F-NNN` before running submit.
+        // codex r81 BLOCK fix: validate the composed scaffold against
+        // SpecFrontmatter BEFORE writing. Otherwise caller overrides like
+        // `--feature-id BAD --feature-name x --intent short` would emit a
+        // file that immediately fails the production readSpecFrontmatter()
+        // parser, giving scripts a false-success result. Validation here
+        // catches feature.id regex / feature.name min length / intent
+        // min length / etc. upfront with SCHEMA_VALIDATION_FAILED.
+        const featureId = opts.featureId ?? "F-000";
+        // SpecFrontmatter requires feature.name length ≥3. The --feature
+        // flag is a loaf-internal feature key that can be short (e.g.
+        // "F1"); when no --feature-name override is supplied and the
+        // feature key is too short, fall back to a clearly-marked
+        // placeholder so the scaffold parses but does not pretend to be
+        // a finished display name.
+        const featureName =
+          opts.featureName ?? (opts.feature.length >= 3 ? opts.feature : "TODO Feature Name");
+        const intent =
+          opts.intent ?? "TODO: describe the feature intent in at least twenty characters";
+        // codex r81 BLOCK fix: validate the composed scaffold against
+        // SpecFrontmatter BEFORE any disk write. Caller overrides
+        // (--feature-id BAD / --feature-name x / --intent short) would
+        // otherwise write a spec.md that immediately fails the production
+        // readSpecFrontmatter() parser. Validation here catches feature.id
+        // regex / feature.name min length / intent min length upfront with
+        // SCHEMA_VALIDATION_FAILED and zero partial-write risk.
+        const scaffoldObj = {
+          schema_version: 2,
+          spec_version: 1,
+          feature: { id: featureId, name: featureName },
+          intent,
+          adr_refs: [],
+          requirements: [],
+          scenarios: [],
+          visual_contracts: [],
+          needs_clarification: [],
+        };
+        const scaffoldParse = SpecFrontmatter.safeParse(scaffoldObj);
+        if (!scaffoldParse.success) {
+          emitFailure(
+            "SCHEMA_VALIDATION_FAILED",
+            "spec init scaffold failed SpecFrontmatter validation; check --feature-id (/^F-\\d{3,}$/), --feature-name (≥3 chars), --intent (≥20 chars)",
+            { issues: scaffoldParse.error.issues },
+          );
+          return;
+        }
+        // codex r80 BLOCK fix: YAML scalars containing colons / leading
+        // dashes / hashes (e.g. the default "TODO: describe..." intent)
+        // would otherwise be parsed as nested mappings or comments. Quote
+        // every interpolated scalar via JSON.stringify — JSON-encoded
+        // strings are also valid double-quoted YAML scalars, so the
+        // production readSpecFrontmatter() parser accepts them.
+        const md =
+          `---\n` +
+          `schema_version: 2\n` +
+          `spec_version: 1\n` +
+          `feature:\n` +
+          `  id: ${JSON.stringify(featureId)}\n` +
+          `  name: ${JSON.stringify(featureName)}\n` +
+          `intent: ${JSON.stringify(intent)}\n` +
+          `adr_refs: []\n` +
+          `requirements: []\n` +
+          `scenarios: []\n` +
+          `needs_clarification: []\n` +
+          `---\n` +
+          `\n## Why\n\nTODO: describe motivation and scope. Edit this section, then run \`loaf spec submit --input <json>\` to record the canonical spec.\n`;
+        await fsP.writeFile(specMdPath, md);
+        ctx.success(
+          { ok: true, feature: opts.feature, spec_md_path: specMdPath },
+          () => `${specMdPath}\n`,
+          (i18n) => ({
+            stateChange: i18n.t(SUCCESS_KEYS.specInitStateChange, { path: specMdPath }),
+            next: i18n.t(SUCCESS_KEYS.specInitNext),
+          }),
         );
-        return;
-      } catch {
-        // ENOENT — proceed.
-      }
-      // Ensure feature dir exists (loaf start would have created it,
-      // but spec init might be called before start in a fresh tree).
-      await fsP.mkdir(featureDir, { recursive: true });
-      // FeatureIdPayload regex is `^F-\d{3,}$`. F-000 is a deliberate
-      // placeholder that parses but is obviously a stand-in — caller
-      // should override with `--feature-id F-NNN` before running submit.
-      // codex r81 BLOCK fix: validate the composed scaffold against
-      // SpecFrontmatter BEFORE writing. Otherwise caller overrides like
-      // `--feature-id BAD --feature-name x --intent short` would emit a
-      // file that immediately fails the production readSpecFrontmatter()
-      // parser, giving scripts a false-success result. Validation here
-      // catches feature.id regex / feature.name min length / intent
-      // min length / etc. upfront with SCHEMA_VALIDATION_FAILED.
-      const featureId = opts.featureId ?? "F-000";
-      // SpecFrontmatter requires feature.name length ≥3. The --feature
-      // flag is a loaf-internal feature key that can be short (e.g.
-      // "F1"); when no --feature-name override is supplied and the
-      // feature key is too short, fall back to a clearly-marked
-      // placeholder so the scaffold parses but does not pretend to be
-      // a finished display name.
-      const featureName =
-        opts.featureName ??
-        (opts.feature.length >= 3 ? opts.feature : "TODO Feature Name");
-      const intent =
-        opts.intent ??
-        "TODO: describe the feature intent in at least twenty characters";
-      // codex r81 BLOCK fix: validate the composed scaffold against
-      // SpecFrontmatter BEFORE any disk write. Caller overrides
-      // (--feature-id BAD / --feature-name x / --intent short) would
-      // otherwise write a spec.md that immediately fails the production
-      // readSpecFrontmatter() parser. Validation here catches feature.id
-      // regex / feature.name min length / intent min length upfront with
-      // SCHEMA_VALIDATION_FAILED and zero partial-write risk.
-      const scaffoldObj = {
-        schema_version: 2,
-        spec_version: 1,
-        feature: { id: featureId, name: featureName },
-        intent,
-        adr_refs: [],
-        requirements: [],
-        scenarios: [],
-        visual_contracts: [],
-        needs_clarification: [],
-      };
-      const scaffoldParse = SpecFrontmatter.safeParse(scaffoldObj);
-      if (!scaffoldParse.success) {
-        emitFailure(
-          "SCHEMA_VALIDATION_FAILED",
-          "spec init scaffold failed SpecFrontmatter validation; check --feature-id (/^F-\\d{3,}$/), --feature-name (≥3 chars), --intent (≥20 chars)",
-          { issues: scaffoldParse.error.issues },
-        );
-        return;
-      }
-      // codex r80 BLOCK fix: YAML scalars containing colons / leading
-      // dashes / hashes (e.g. the default "TODO: describe..." intent)
-      // would otherwise be parsed as nested mappings or comments. Quote
-      // every interpolated scalar via JSON.stringify — JSON-encoded
-      // strings are also valid double-quoted YAML scalars, so the
-      // production readSpecFrontmatter() parser accepts them.
-      const md =
-        `---\n` +
-        `schema_version: 2\n` +
-        `spec_version: 1\n` +
-        `feature:\n` +
-        `  id: ${JSON.stringify(featureId)}\n` +
-        `  name: ${JSON.stringify(featureName)}\n` +
-        `intent: ${JSON.stringify(intent)}\n` +
-        `adr_refs: []\n` +
-        `requirements: []\n` +
-        `scenarios: []\n` +
-        `needs_clarification: []\n` +
-        `---\n` +
-        `\n## Why\n\nTODO: describe motivation and scope. Edit this section, then run \`loaf spec submit --input <json>\` to record the canonical spec.\n`;
-      await fsP.writeFile(specMdPath, md);
-      ctx.success(
-        { ok: true, feature: opts.feature, spec_md_path: specMdPath },
-        () => `${specMdPath}\n`,
-        (i18n) => ({
-          stateChange: i18n.t(SUCCESS_KEYS.specInitStateChange, { path: specMdPath }),
-          next: i18n.t(SUCCESS_KEYS.specInitNext),
-        }),
-      );
-    });
+      },
+    );
 
   // ── loaf spec edit — Phase 16 SC-12a-2 ─────────────────────────────
   // Wrapping mutator: spawn $EDITOR on <feature-dir>/spec.md, wait for
@@ -5887,7 +5941,9 @@ export async function main(
   const runEditorImpl: RunEditor = deps.runEditor ?? defaultRunEditor;
   specCmd
     .command("edit")
-    .description("Launch $EDITOR on spec.md, validate, then emit event:spec_submitted (wrapping mutator; --dry-run rejected)")
+    .description(
+      "Launch $EDITOR on spec.md, validate, then emit event:spec_submitted (wrapping mutator; --dry-run rejected)",
+    )
     .option("--feature <name>", "Feature whose spec.md to edit")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { feature: string; featureDir?: string }) => {
@@ -5900,7 +5956,10 @@ export async function main(
         readGitConfig: readGitConfigForActor,
         isInteractiveHuman: isInteractiveHumanForActor(),
       });
-      if (!resolution.ok) { emitFailure(resolution.code, resolution.message); return; }
+      if (!resolution.ok) {
+        emitFailure(resolution.code, resolution.message);
+        return;
+      }
       const actor = resolution.actor;
       const session = await loadSession(featureDir, { ensureDir: false });
       if (!session.snapshot.state) {
@@ -5946,11 +6005,10 @@ export async function main(
       });
       // (4a) spawn error → USAGE (codex r335 P1)
       if (result.error !== undefined) {
-        emitFailure(
-          "USAGE",
-          `editor '${editor}' could not be launched (${result.error})`,
-          { editor, spawn_error: result.error },
-        );
+        emitFailure("USAGE", `editor '${editor}' could not be launched (${result.error})`, {
+          editor,
+          spawn_error: result.error,
+        });
         return;
       }
       // (4b) signal abort → exit 130, no journal write (codex r333 P3)
@@ -5960,11 +6018,10 @@ export async function main(
       }
       // (4c) non-zero exit → USAGE (user aborted via :q! or similar)
       if (result.code !== 0) {
-        emitFailure(
-          "USAGE",
-          `editor exited with code=${result.code}`,
-          { editor, editor_exit: result.code },
-        );
+        emitFailure("USAGE", `editor exited with code=${result.code}`, {
+          editor,
+          editor_exit: result.code,
+        });
         return;
       }
       // (5) re-read post-edit content; no-op skip (codex r332 P6)
@@ -6082,12 +6139,16 @@ export async function main(
 
   for (const cfg of REGISTER_SPEC_ADD) {
     const mutatorKey: MutatorCommand =
-      cfg.name === "req" ? "spec:add-req"
-      : cfg.name === "scenario" ? "spec:add-scenario"
-      : "spec:add-visual";
+      cfg.name === "req"
+        ? "spec:add-req"
+        : cfg.name === "scenario"
+          ? "spec:add-scenario"
+          : "spec:add-visual";
     specCmd
       .command(`add-${cfg.name}`)
-      .description(`Add ${cfg.name} entries via id_namespace stamping (CLI allocates ${cfg.name.toUpperCase()} ids)`)
+      .description(
+        `Add ${cfg.name} entries via id_namespace stamping (CLI allocates ${cfg.name.toUpperCase()} ids)`,
+      )
       .option(
         "--input <src>",
         `JSON source for SpecAdd${cfg.name[0]!.toUpperCase()}${cfg.name.slice(1)}Input (item or array): \`-\` (stdin), inline JSON, or file path (protocol §10.7)`,
@@ -6095,125 +6156,134 @@ export async function main(
       .option("--schema", "Dump the input JSON Schema instead of mutating (Phase 16 SC-10)")
       .option("--feature <name>", `Feature whose spec to extend`)
       .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-      .action(async (rawOpts: { input?: string; schema?: boolean; feature: string; featureDir?: string }) => {
-        // Phase 16 SC-10 — --schema bypass MUST be first (no input read,
-        // no session resolve). Pre-parse guard already rejected selectors
-        // when --schema is present. Literal labels per cfg.name so the
-        // SC-6c static guard can scan rejectIfDryRun("<label>") strings.
-        if (rawOpts.schema === true) {
-          let rejected = false;
-          if (cfg.name === "req")            rejected = rejectIfDryRun("spec add-req --schema");
-          else if (cfg.name === "scenario")  rejected = rejectIfDryRun("spec add-scenario --schema");
-          else                                rejected = rejectIfDryRun("spec add-visual --schema");
-          if (rejected) return;
-          emitMutatorSchemaAndExit(mutatorKey);
-          return;
-        }
-        if (rawOpts.input === undefined) {
-          emitFailure(
-            "MISSING_INPUT",
-            `loaf spec add-${cfg.name} requires --input <src> (or pass --schema to dump the input JSON Schema)`,
-          );
-          return;
-        }
-        const opts = rawOpts as { input: string; feature: string; featureDir?: string };
-        // Phase 16 SC-4a — unified --input modality. TTY no-hang guard
-        // per codex r212 PATCH 2 (protocol §10.1:1505) covers the stdin
-        // case before any read.
-        const source = parseInputSource(opts.input);
-        if (source.kind === "stdin" && isStdinTty()) {
-          ctx.failure(
-            "USAGE",
-            `stdin is TTY — \`loaf spec add-${cfg.name} --input -\` expects piped input. ` +
-              `Pipe JSON via \`... | loaf spec add-${cfg.name} --input -\`, OR pass ` +
-              `inline JSON / file path. Run --help for examples.`,
-          );
-          return;
-        }
-        const read = await readJsonInput(source, { readStdin });
-        if (!read.ok) {
-          ctx.failure(read.code, read.message, read.detail);
-          return;
-        }
-        const parsed = read.value;
-        const inputParse = cfg.inputSchema.safeParse(parsed);
-        if (!inputParse.success) {
-          ctx.failure(
-            "SCHEMA_VALIDATION_FAILED",
-            `spec add-${cfg.name} input failed schema validation`,
-            { issues: inputParse.error.issues },
-          );
-          return;
-        }
-        const items: ReadonlyArray<{ id_namespace: string; [k: string]: unknown }> =
-          Array.isArray(inputParse.data) ? inputParse.data : [inputParse.data];
-        // Load session via ctx (caches; captures sub_state for crash context).
-        const featureDir = await dispatchOrFail(opts);
-        if (featureDir === null) return;
-        const session = await ctx.resolveSession(featureDir);
-        if (!session.snapshot.state) {
-          emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
-          return;
-        }
-        // (4) Per-namespace allocator. Track counter across the batch so
-        // multiple items in the same invocation share a coherent
-        // monotonic sequence per namespace.
-        const projection = (session.snapshot[cfg.snapshotKey] as ReadonlyArray<{ id: string }>);
-        const existingIds = projection.map((p) => p.id);
-        const counters = new Map<string, number>();
-        const allocatedIds: string[] = [];
-        const transformedItems: Array<{ id: string; rest: Record<string, unknown> }> = [];
-        for (const raw of items) {
-          const ns = raw.id_namespace;
-          let next = counters.get(ns);
-          if (next === undefined) {
-            next = nextSerialInNamespace(existingIds, ns);
+      .action(
+        async (rawOpts: {
+          input?: string;
+          schema?: boolean;
+          feature: string;
+          featureDir?: string;
+        }) => {
+          // Phase 16 SC-10 — --schema bypass MUST be first (no input read,
+          // no session resolve). Pre-parse guard already rejected selectors
+          // when --schema is present. Literal labels per cfg.name so the
+          // SC-6c static guard can scan rejectIfDryRun("<label>") strings.
+          if (rawOpts.schema === true) {
+            let rejected = false;
+            if (cfg.name === "req") rejected = rejectIfDryRun("spec add-req --schema");
+            else if (cfg.name === "scenario")
+              rejected = rejectIfDryRun("spec add-scenario --schema");
+            else rejected = rejectIfDryRun("spec add-visual --schema");
+            if (rejected) return;
+            emitMutatorSchemaAndExit(mutatorKey);
+            return;
           }
-          const fullId = `${ns}-${String(next).padStart(3, "0")}`;
-          counters.set(ns, next + 1);
-          allocatedIds.push(fullId);
-          // Strip id_namespace; CLI does not pass it through to the
-          // journal payload (output regex enforces id only).
-          const { id_namespace: _ns, ...rest } = raw;
-          transformedItems.push({ id: fullId, rest });
-        }
-        // (5) Build batch: one event:spec_*_added per item. spec_version
-        // = current+1; reducer applies whole-batch monotonic check
-        // (batch head bumps; companions share). Per protocol: each CLI
-        // invocation = one spec_version bump, irrespective of N items.
-        const targetVersion = session.snapshot.state.spec_version + 1;
-        const entries: MutatorEntry[] = transformedItems.map(({ id, rest }) => ({
-          kind: cfg.entryKind,
-          payload: {
-            spec_version: targetVersion,
-            [cfg.payloadField]: { id, ...rest },
-          },
-          actor,
-        }));
-        const result = await runMutator(featureDir, session, entries, "raw-ctx-failure");
-        if (!result) return;
-        const specVersion = result.snapshot.state?.spec_version;
-        ctx.success(
-          {
-            ok: true,
-            feature: opts.feature,
-            spec_version: specVersion,
-            ids: allocatedIds,
-            sub_state: result.snapshot.state?.sub_state,
-          },
-          (i18n) => i18n.t(specAddTextKey(cfg.name, allocatedIds.length), {
-            spec_version: specVersion,
-            ids: allocatedIds.join(", "),
-          }) + "\n",
-          (i18n) => ({
-            stateChange: i18n.t(specAddStateChangeKey(cfg.name, allocatedIds.length), {
-              count: allocatedIds.length,
+          if (rawOpts.input === undefined) {
+            emitFailure(
+              "MISSING_INPUT",
+              `loaf spec add-${cfg.name} requires --input <src> (or pass --schema to dump the input JSON Schema)`,
+            );
+            return;
+          }
+          const opts = rawOpts as { input: string; feature: string; featureDir?: string };
+          // Phase 16 SC-4a — unified --input modality. TTY no-hang guard
+          // per codex r212 PATCH 2 (protocol §10.1:1505) covers the stdin
+          // case before any read.
+          const source = parseInputSource(opts.input);
+          if (source.kind === "stdin" && isStdinTty()) {
+            ctx.failure(
+              "USAGE",
+              `stdin is TTY — \`loaf spec add-${cfg.name} --input -\` expects piped input. ` +
+                `Pipe JSON via \`... | loaf spec add-${cfg.name} --input -\`, OR pass ` +
+                `inline JSON / file path. Run --help for examples.`,
+            );
+            return;
+          }
+          const read = await readJsonInput(source, { readStdin });
+          if (!read.ok) {
+            ctx.failure(read.code, read.message, read.detail);
+            return;
+          }
+          const parsed = read.value;
+          const inputParse = cfg.inputSchema.safeParse(parsed);
+          if (!inputParse.success) {
+            ctx.failure(
+              "SCHEMA_VALIDATION_FAILED",
+              `spec add-${cfg.name} input failed schema validation`,
+              { issues: inputParse.error.issues },
+            );
+            return;
+          }
+          const items: ReadonlyArray<{ id_namespace: string; [k: string]: unknown }> =
+            Array.isArray(inputParse.data) ? inputParse.data : [inputParse.data];
+          // Load session via ctx (caches; captures sub_state for crash context).
+          const featureDir = await dispatchOrFail(opts);
+          if (featureDir === null) return;
+          const session = await ctx.resolveSession(featureDir);
+          if (!session.snapshot.state) {
+            emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+            return;
+          }
+          // (4) Per-namespace allocator. Track counter across the batch so
+          // multiple items in the same invocation share a coherent
+          // monotonic sequence per namespace.
+          const projection = session.snapshot[cfg.snapshotKey] as ReadonlyArray<{ id: string }>;
+          const existingIds = projection.map((p) => p.id);
+          const counters = new Map<string, number>();
+          const allocatedIds: string[] = [];
+          const transformedItems: Array<{ id: string; rest: Record<string, unknown> }> = [];
+          for (const raw of items) {
+            const ns = raw.id_namespace;
+            let next = counters.get(ns);
+            if (next === undefined) {
+              next = nextSerialInNamespace(existingIds, ns);
+            }
+            const fullId = `${ns}-${String(next).padStart(3, "0")}`;
+            counters.set(ns, next + 1);
+            allocatedIds.push(fullId);
+            // Strip id_namespace; CLI does not pass it through to the
+            // journal payload (output regex enforces id only).
+            const { id_namespace: _ns, ...rest } = raw;
+            transformedItems.push({ id: fullId, rest });
+          }
+          // (5) Build batch: one event:spec_*_added per item. spec_version
+          // = current+1; reducer applies whole-batch monotonic check
+          // (batch head bumps; companions share). Per protocol: each CLI
+          // invocation = one spec_version bump, irrespective of N items.
+          const targetVersion = session.snapshot.state.spec_version + 1;
+          const entries: MutatorEntry[] = transformedItems.map(({ id, rest }) => ({
+            kind: cfg.entryKind,
+            payload: {
+              spec_version: targetVersion,
+              [cfg.payloadField]: { id, ...rest },
+            },
+            actor,
+          }));
+          const result = await runMutator(featureDir, session, entries, "raw-ctx-failure");
+          if (!result) return;
+          const specVersion = result.snapshot.state?.spec_version;
+          ctx.success(
+            {
+              ok: true,
+              feature: opts.feature,
               spec_version: specVersion,
-              ids: allocatedIds.join(","),
+              ids: allocatedIds,
+              sub_state: result.snapshot.state?.sub_state,
+            },
+            (i18n) =>
+              i18n.t(specAddTextKey(cfg.name, allocatedIds.length), {
+                spec_version: specVersion,
+                ids: allocatedIds.join(", "),
+              }) + "\n",
+            (i18n) => ({
+              stateChange: i18n.t(specAddStateChangeKey(cfg.name, allocatedIds.length), {
+                count: allocatedIds.length,
+                spec_version: specVersion,
+                ids: allocatedIds.join(","),
+              }),
             }),
-          }),
-        );
-      });
+          );
+        },
+      );
   }
 
   // ── Phase 16 SC-10 — `loaf <kind> schema` artifact subs ──────────────
@@ -6226,16 +6296,14 @@ export async function main(
   // state subs). Feature-agnostic — pre-parse guard already rejected
   // --feature / --feature-dir / --session / $LOAF_*. Read-only —
   // `--dry-run` rejected via rejectIfDryRun(<label>).
-  const stateCmd = program
-    .command("state")
-    .description("Session state schema dump (SC-10)");
+  const stateCmd = program.command("state").description("Session state schema dump (SC-10)");
 
   const ARTIFACT_PARENTS: Record<ArtifactSchemaKind, ReturnType<typeof program.command>> = {
-    spec:     specCmd,
-    tasks:    tasksCmd,
+    spec: specCmd,
+    tasks: tasksCmd,
     evidence: evidenceCmd,
-    finding:  findingCmd,
-    state:    stateCmd,
+    finding: findingCmd,
+    state: stateCmd,
   };
   for (const kind of ARTIFACT_SCHEMA_KINDS) {
     ARTIFACT_PARENTS[kind]
@@ -6245,11 +6313,11 @@ export async function main(
         // no-feature — schema dump is feature-agnostic. Literal label
         // per kind so the SC-6c static guard finds rejectIfDryRun("<kind> schema").
         let rejected = false;
-        if (kind === "spec")          rejected = rejectIfDryRun("spec schema");
-        else if (kind === "tasks")    rejected = rejectIfDryRun("tasks schema");
+        if (kind === "spec") rejected = rejectIfDryRun("spec schema");
+        else if (kind === "tasks") rejected = rejectIfDryRun("tasks schema");
         else if (kind === "evidence") rejected = rejectIfDryRun("evidence schema");
-        else if (kind === "finding")  rejected = rejectIfDryRun("finding schema");
-        else                          rejected = rejectIfDryRun("state schema");
+        else if (kind === "finding") rejected = rejectIfDryRun("finding schema");
+        else rejected = rejectIfDryRun("state schema");
         if (rejected) return;
         const schema = emitArtifactSchema(kind) as Record<string, unknown>;
         ctx.success(schema, () => formatSchema(schema));

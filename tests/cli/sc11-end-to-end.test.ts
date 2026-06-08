@@ -80,8 +80,16 @@ async function seedAtExecuteWork(): Promise<{ featureDir: string }> {
 
   // start
   const start = await runCli(
-    ["start", "auth-refresh", "--ceremony", "standard",
-     "--feature-dir", featureDir, "--format", "json"],
+    [
+      "start",
+      "auth-refresh",
+      "--ceremony",
+      "standard",
+      "--feature-dir",
+      featureDir,
+      "--format",
+      "json",
+    ],
     { env: SEED_ENV },
   );
   if (start.exit !== 0) throw new Error(`seed start failed: ${start.stderr}`);
@@ -120,49 +128,94 @@ prose
   const walkA: string[] = ["TRIAGE.confirm", "SPEC.proposal"];
   for (const sub of walkA) {
     const adv = await runCli(
-      ["advance", sub, "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "advance",
+        sub,
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { env: SEED_ENV },
     );
     if (adv.exit !== 0) throw new Error(`seed advance ${sub} failed: ${adv.stderr}`);
   }
   // spec submit (whole-replacement at SPEC.proposal)
   const submit = await runCli(
-    ["spec", "submit", "--input",
-     JSON.stringify({
-       spec_version: 1,
-       feature: { id: "F-001", name: "OAuth token refresh" },
-       intent: "users should not perceive auth recovery flows in flight",
-       adr_refs: [],
-       needs_clarification: [],
-     }),
-     "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+    [
+      "spec",
+      "submit",
+      "--input",
+      JSON.stringify({
+        spec_version: 1,
+        feature: { id: "F-001", name: "OAuth token refresh" },
+        intent: "users should not perceive auth recovery flows in flight",
+        adr_refs: [],
+        needs_clarification: [],
+      }),
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      featureDir,
+      "--format",
+      "json",
+    ],
     { env: SEED_ENV },
   );
   if (submit.exit !== 0) throw new Error(`seed spec submit failed: ${submit.stderr}`);
   // advance SPEC.proposal → SPEC.spec
   const advSpec = await runCli(
-    ["advance", "SPEC.spec", "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+    [
+      "advance",
+      "SPEC.spec",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      featureDir,
+      "--format",
+      "json",
+    ],
     { env: SEED_ENV },
   );
   if (advSpec.exit !== 0) throw new Error(`seed advance SPEC.spec failed: ${advSpec.stderr}`);
   // add REQ at SPEC.spec
   const addReq = await runCli(
-    ["spec", "add-req", "--input",
-     JSON.stringify({
-       id_namespace: "REQ-AUTH",
-       type: "ubiquitous",
-       response: "the system shall do something measurably here",
-       acceptance_na: true,
-       acceptance_na_reason: "covered by manual UX testing scope outside automation",
-     }),
-     "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+    [
+      "spec",
+      "add-req",
+      "--input",
+      JSON.stringify({
+        id_namespace: "REQ-AUTH",
+        type: "ubiquitous",
+        response: "the system shall do something measurably here",
+        acceptance_na: true,
+        acceptance_na_reason: "covered by manual UX testing scope outside automation",
+      }),
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      featureDir,
+      "--format",
+      "json",
+    ],
     { env: SEED_ENV },
   );
   if (addReq.exit !== 0) throw new Error(`seed add-req failed: ${addReq.stderr}`);
   // advance SPEC.spec → SPEC.plan → SPEC.design
   for (const sub of ["SPEC.plan", "SPEC.design"]) {
     const adv = await runCli(
-      ["advance", sub, "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "advance",
+        sub,
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { env: SEED_ENV },
     );
     if (adv.exit !== 0) throw new Error(`seed advance ${sub} failed: ${adv.stderr}`);
@@ -171,39 +224,71 @@ prose
   // settle-seed pattern in tests/core/cli.test.ts:1287-1306 — id +
   // tests + execution all required.
   const submitTasks = await runCli(
-    ["tasks", "submit", "--input",
-     JSON.stringify({
-       // spec_version is now 2 (spec submit=1 + spec add-req bumps to 2)
-       based_on: { spec: 2 },
-       tasks: [{
-         id: "T-001",
-         kind: "behavioral",
-         drives: ["REQ-AUTH-001"],
-         tests: ["TokenCoord.refreshOnce"],
-         status: "pending",
-         depends_on: [],
-         labels: [],
-         execution: {
-           red: { applicability: "must", status: "pending", evidence_refs: [] },
-           implement: { applicability: "must", status: "pending", evidence_refs: [] },
-           refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
-         },
-       }],
-     }),
-     "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+    [
+      "tasks",
+      "submit",
+      "--input",
+      JSON.stringify({
+        // spec_version is now 2 (spec submit=1 + spec add-req bumps to 2)
+        based_on: { spec: 2 },
+        tasks: [
+          {
+            id: "T-001",
+            kind: "behavioral",
+            drives: ["REQ-AUTH-001"],
+            tests: ["TokenCoord.refreshOnce"],
+            status: "pending",
+            depends_on: [],
+            labels: [],
+            execution: {
+              red: { applicability: "must", status: "pending", evidence_refs: [] },
+              implement: { applicability: "must", status: "pending", evidence_refs: [] },
+              refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+            },
+          },
+        ],
+      }),
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      featureDir,
+      "--format",
+      "json",
+    ],
     { env: SEED_ENV },
   );
   if (submitTasks.exit !== 0) throw new Error(`seed tasks submit failed: ${submitTasks.stderr}`);
   // spec-lock approve at SPEC.design → auto-advances to EXECUTE.plan
   const lock = await runCli(
-    ["gate", "decide", "spec-lock", "--approve", "--reason", "seed: spec ready for execution",
-     "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+    [
+      "gate",
+      "decide",
+      "spec-lock",
+      "--approve",
+      "--reason",
+      "seed: spec ready for execution",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      featureDir,
+      "--format",
+      "json",
+    ],
     { env: SEED_ENV },
   );
   if (lock.exit !== 0) throw new Error(`seed spec-lock failed: ${lock.stderr}`);
   // advance EXECUTE.plan → EXECUTE.work
   const advWork = await runCli(
-    ["advance", "EXECUTE.work", "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+    [
+      "advance",
+      "EXECUTE.work",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      featureDir,
+      "--format",
+      "json",
+    ],
     { env: SEED_ENV },
   );
   if (advWork.exit !== 0) throw new Error(`seed EXECUTE.work failed: ${advWork.stderr}`);
@@ -213,7 +298,10 @@ prose
 
 async function readJournalEntries(featureDir: string): Promise<unknown[]> {
   const raw = await fs.readFile(path.join(featureDir, "journal.jsonl"), "utf8");
-  return raw.trim().split("\n").map((line) => JSON.parse(line));
+  return raw
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
 }
 
 // ───────────────────────────────────────────────────────────────────────
@@ -223,8 +311,18 @@ describe("SC-11 — loaf waive", () => {
   test("happy: emits evidence:added kind=waiver with EV-NNN allocated", async () => {
     const { featureDir } = await seedAtExecuteWork();
     const result = await runCli(
-      ["waive", "REQ-AUTH-001", "--reason", "covered by manual UX testing scope",
-       "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "waive",
+        "REQ-AUTH-001",
+        "--reason",
+        "covered by manual UX testing scope",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { env: SEED_ENV },
     );
     expect(result.exit).toBe(0);
@@ -248,8 +346,18 @@ describe("SC-11 — loaf waive", () => {
   test("invalid obligation regex → USAGE", async () => {
     const { featureDir } = await seedAtExecuteWork();
     const result = await runCli(
-      ["waive", "not-a-real-id", "--reason", "long enough reason here",
-       "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "waive",
+        "not-a-real-id",
+        "--reason",
+        "long enough reason here",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { env: SEED_ENV },
     );
     expect(result.exit).toBe(2);
@@ -261,8 +369,18 @@ describe("SC-11 — loaf waive", () => {
   test("--reason <10 chars → USAGE", async () => {
     const { featureDir } = await seedAtExecuteWork();
     const result = await runCli(
-      ["waive", "REQ-AUTH-001", "--reason", "too short",
-       "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "waive",
+        "REQ-AUTH-001",
+        "--reason",
+        "too short",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { env: SEED_ENV },
     );
     expect(result.exit).toBe(2);
@@ -274,8 +392,19 @@ describe("SC-11 — loaf waive", () => {
   test("NO_HUMAN_ACTOR via --no-input + no LOAF_USER", async () => {
     const { featureDir } = await seedAtExecuteWork();
     const result = await runCli(
-      ["waive", "REQ-AUTH-001", "--no-input", "--reason", "long enough reason here",
-       "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "waive",
+        "REQ-AUTH-001",
+        "--no-input",
+        "--reason",
+        "long enough reason here",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { env: { LOAF_USER: undefined } },
     );
     expect(result.exit).toBe(2);
@@ -291,10 +420,20 @@ describe("SC-11 — loaf lessons add (happy)", () => {
   test("--text inline → exit 0, journal entry kind=manual", async () => {
     const { featureDir } = await seedAtExecuteWork();
     const result = await runCli(
-      ["lessons", "add",
-       "--text", "single-flight refresh requires global lock",
-       "--reason", "diagnosed during retry storm post-mortem",
-       "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "lessons",
+        "add",
+        "--text",
+        "single-flight refresh requires global lock",
+        "--reason",
+        "diagnosed during retry storm post-mortem",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { env: SEED_ENV },
     );
     expect(result.exit).toBe(0);
@@ -314,10 +453,18 @@ describe("SC-11 — loaf lessons add (happy)", () => {
   test("F-024: writes .loaf/<feature>/lessons.md with the lesson; advisory says updated, not deferred", async () => {
     const { featureDir } = await seedAtExecuteWork();
     const result = await runCli(
-      ["lessons", "add",
-       "--text", "single-flight refresh requires global lock",
-       "--reason", "diagnosed during retry storm post-mortem",
-       "--feature", "auth-refresh", "--feature-dir", featureDir],
+      [
+        "lessons",
+        "add",
+        "--text",
+        "single-flight refresh requires global lock",
+        "--reason",
+        "diagnosed during retry storm post-mortem",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+      ],
       { env: SEED_ENV },
     );
     expect(result.exit).toBe(0);
@@ -337,9 +484,20 @@ describe("SC-11 — loaf lessons add (happy)", () => {
     const body = "SENTINEL_BODY " + "y".repeat(9 * 1024);
     await fs.writeFile(filePath, body);
     const result = await runCli(
-      ["lessons", "add", "--file", filePath,
-       "--reason", "deep retro of refresh storm",
-       "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "lessons",
+        "add",
+        "--file",
+        filePath,
+        "--reason",
+        "deep retro of refresh storm",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { env: SEED_ENV },
     );
     expect(result.exit).toBe(0);
@@ -359,10 +517,20 @@ describe("SC-11 — loaf lessons add (happy)", () => {
     const filePath = path.join(tmp, "lesson.md");
     await fs.writeFile(filePath, "## Insight\nsome short lesson body content here");
     const result = await runCli(
-      ["lessons", "add",
-       "--file", filePath,
-       "--reason", "captured from triage review",
-       "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "lessons",
+        "add",
+        "--file",
+        filePath,
+        "--reason",
+        "captured from triage review",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { env: SEED_ENV },
     );
     expect(result.exit).toBe(0);
@@ -371,7 +539,7 @@ describe("SC-11 — loaf lessons add (happy)", () => {
       (e: any) => e.kind === "evidence:added" && e.payload?.kind === "manual",
     ) as any;
     expect(typeof lesson.payload.summary).toBe("string");
-    expect((lesson.payload.summary as string)).toContain("Insight");
+    expect(lesson.payload.summary as string).toContain("Insight");
   });
 
   test("--file >8KB → summary.mode=sidecar (Pass 2 promoted)", async () => {
@@ -380,10 +548,20 @@ describe("SC-11 — loaf lessons add (happy)", () => {
     const filePath = path.join(tmp, "big-lesson.md");
     await fs.writeFile(filePath, "x".repeat(9 * 1024)); // 9KB > 8KB threshold
     const result = await runCli(
-      ["lessons", "add",
-       "--file", filePath,
-       "--reason", "deep retro of refresh storm",
-       "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "lessons",
+        "add",
+        "--file",
+        filePath,
+        "--reason",
+        "deep retro of refresh storm",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { env: SEED_ENV },
     );
     expect(result.exit).toBe(0);
@@ -407,11 +585,21 @@ describe("SC-11 — loaf lessons add (happy)", () => {
 
     const journalBefore = await fs.readFile(path.join(featureDir, "journal.jsonl"), "utf8");
     const result = await runCli(
-      ["lessons", "add",
-       "--file", filePath,
-       "--reason", "deep retro of refresh storm",
-       "--dry-run",
-       "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "lessons",
+        "add",
+        "--file",
+        filePath,
+        "--reason",
+        "deep retro of refresh storm",
+        "--dry-run",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { env: SEED_ENV },
     );
     expect(result.exit).toBe(0);
@@ -444,11 +632,22 @@ describe("SC-11 — loaf lessons add (errors)", () => {
     const filePath = path.join(tmp, "f.md");
     await fs.writeFile(filePath, "body");
     const result = await runCli(
-      ["lessons", "add",
-       "--text", "inline body",
-       "--file", filePath,
-       "--reason", "covered by manual exploratory test",
-       "--feature", "auth-refresh", "--feature-dir", "/tmp/none", "--format", "json"],
+      [
+        "lessons",
+        "add",
+        "--text",
+        "inline body",
+        "--file",
+        filePath,
+        "--reason",
+        "covered by manual exploratory test",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        "/tmp/none",
+        "--format",
+        "json",
+      ],
       { env: SEED_ENV },
     );
     expect(result.exit).toBe(2);
@@ -459,9 +658,18 @@ describe("SC-11 — loaf lessons add (errors)", () => {
 
   test("neither --text nor --file → USAGE", async () => {
     const result = await runCli(
-      ["lessons", "add",
-       "--reason", "covered by manual exploratory test",
-       "--feature", "auth-refresh", "--feature-dir", "/tmp/none", "--format", "json"],
+      [
+        "lessons",
+        "add",
+        "--reason",
+        "covered by manual exploratory test",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        "/tmp/none",
+        "--format",
+        "json",
+      ],
       { env: SEED_ENV },
     );
     expect(result.exit).toBe(2);
@@ -471,10 +679,20 @@ describe("SC-11 — loaf lessons add (errors)", () => {
 
   test("--file ENOENT → INPUT_FILE_NOT_FOUND", async () => {
     const result = await runCli(
-      ["lessons", "add",
-       "--file", "/tmp/does-not-exist-sc11",
-       "--reason", "covered by manual exploratory test",
-       "--feature", "auth-refresh", "--feature-dir", "/tmp/none", "--format", "json"],
+      [
+        "lessons",
+        "add",
+        "--file",
+        "/tmp/does-not-exist-sc11",
+        "--reason",
+        "covered by manual exploratory test",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        "/tmp/none",
+        "--format",
+        "json",
+      ],
       { env: SEED_ENV },
     );
     expect(result.exit).toBe(2);
@@ -484,10 +702,20 @@ describe("SC-11 — loaf lessons add (errors)", () => {
 
   test("--reason <10 chars → USAGE", async () => {
     const result = await runCli(
-      ["lessons", "add",
-       "--text", "lesson body",
-       "--reason", "short",
-       "--feature", "auth-refresh", "--feature-dir", "/tmp/none", "--format", "json"],
+      [
+        "lessons",
+        "add",
+        "--text",
+        "lesson body",
+        "--reason",
+        "short",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        "/tmp/none",
+        "--format",
+        "json",
+      ],
       { env: SEED_ENV },
     );
     expect(result.exit).toBe(2);
@@ -499,11 +727,21 @@ describe("SC-11 — loaf lessons add (errors)", () => {
   test("NO_HUMAN_ACTOR via --no-input + no LOAF_USER", async () => {
     const { featureDir } = await seedAtExecuteWork();
     const result = await runCli(
-      ["lessons", "add",
-       "--text", "lesson body",
-       "--reason", "long enough reason here",
-       "--no-input",
-       "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "lessons",
+        "add",
+        "--text",
+        "lesson body",
+        "--reason",
+        "long enough reason here",
+        "--no-input",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { env: { LOAF_USER: undefined } },
     );
     expect(result.exit).toBe(2);
@@ -521,8 +759,18 @@ describe("SC-11 — cross-wrapper EV-id monotonic allocation", () => {
 
     // (1) waive → EV-000001 (first evidence in fresh feature)
     const waive = await runCli(
-      ["waive", "REQ-AUTH-001", "--reason", "covered by manual UX testing scope",
-       "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "waive",
+        "REQ-AUTH-001",
+        "--reason",
+        "covered by manual UX testing scope",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { env: SEED_ENV },
     );
     expect(waive.exit).toBe(0);
@@ -531,10 +779,20 @@ describe("SC-11 — cross-wrapper EV-id monotonic allocation", () => {
 
     // (2) lessons add → EV-000002 (next-after-waiver)
     const lesson = await runCli(
-      ["lessons", "add",
-       "--text", "lesson body content here",
-       "--reason", "captured from triage review",
-       "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "lessons",
+        "add",
+        "--text",
+        "lesson body content here",
+        "--reason",
+        "captured from triage review",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { env: SEED_ENV },
     );
     expect(lesson.exit).toBe(0);

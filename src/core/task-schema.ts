@@ -39,14 +39,7 @@ export { RawDrivesRef };
 export const ApplicabilityPayload = z.enum(["must", "optional", "na"]);
 export type ApplicabilityPayload = z.infer<typeof ApplicabilityPayload>;
 
-export const StepStatusPayload = z.enum([
-  "na",
-  "pending",
-  "running",
-  "passed",
-  "failed",
-  "waived",
-]);
+export const StepStatusPayload = z.enum(["na", "pending", "running", "passed", "failed", "waived"]);
 export type StepStatusPayload = z.infer<typeof StepStatusPayload>;
 
 export const TaskExecutionStepPayload = z.object({
@@ -87,13 +80,7 @@ export const ChoreExecutionPayload = z.object({
 
 // ── TaskBase shared fields ──────────────────────────────────────────────
 
-const TaskStatusPayload = z.enum([
-  "pending",
-  "ready",
-  "in_progress",
-  "done",
-  "abandoned",
-]);
+const TaskStatusPayload = z.enum(["pending", "ready", "in_progress", "done", "abandoned"]);
 
 const TaskBase = z.object({
   id: TaskIdPayload,
@@ -185,7 +172,8 @@ export type TaskFullPayload = z.infer<typeof TaskFullPayload>;
 export function extractTaskSteps(
   exec: Record<string, TaskExecutionStepPayload>,
 ): Record<string, { applicability: ApplicabilityPayload; status: StepStatusPayload }> {
-  const out: Record<string, { applicability: ApplicabilityPayload; status: StepStatusPayload }> = {};
+  const out: Record<string, { applicability: ApplicabilityPayload; status: StepStatusPayload }> =
+    {};
   for (const [name, step] of Object.entries(exec)) {
     out[name] = { applicability: step.applicability, status: step.status };
   }
@@ -264,7 +252,9 @@ export function shouldPromoteToDone(
 ): boolean {
   const mustSteps = Object.values(steps).filter((s) => s.applicability === "must");
   if (mustSteps.length === 0) return false;
-  return mustSteps.every((s) => s.status === "passed" || s.status === "waived" || s.status === "na");
+  return mustSteps.every(
+    (s) => s.status === "passed" || s.status === "waived" || s.status === "na",
+  );
 }
 
 // ── TaskInput — `loaf tasks add` input shape (Slice C SC-C3) ─────────────
@@ -302,7 +292,11 @@ export const TaskBehavioralInput = z
   .strict();
 
 export const TaskStructuralInput = z
-  .object({ ...TaskInputBaseShape, kind: z.literal("structural"), no_test_rationale: z.string().min(10) })
+  .object({
+    ...TaskInputBaseShape,
+    kind: z.literal("structural"),
+    no_test_rationale: z.string().min(10),
+  })
   .strict();
 
 export const TaskVisualUiInput = z
@@ -319,11 +313,19 @@ export const TaskDocsInput = z
   .strict();
 
 export const TaskSpikeInput = z
-  .object({ ...TaskInputBaseShape, kind: z.literal("spike"), no_test_rationale: z.string().min(10) })
+  .object({
+    ...TaskInputBaseShape,
+    kind: z.literal("spike"),
+    no_test_rationale: z.string().min(10),
+  })
   .strict();
 
 export const TaskChoreInput = z
-  .object({ ...TaskInputBaseShape, kind: z.literal("chore"), no_test_rationale: z.string().min(10) })
+  .object({
+    ...TaskInputBaseShape,
+    kind: z.literal("chore"),
+    no_test_rationale: z.string().min(10),
+  })
   .strict();
 
 // TaskInput — z.union over the six per-kind input variants; `kind` literal

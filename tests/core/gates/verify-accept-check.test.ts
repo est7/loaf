@@ -22,7 +22,12 @@ import { describe, expect, test } from "vitest";
 
 import { verifyAcceptCheck } from "../../../src/core/gates/verify-accept-check.js";
 import { initialSnapshot } from "../../../src/core/reducer.js";
-import type { Snapshot, TaskState, EvidenceState, FindingState } from "../../../src/core/reducer.js";
+import type {
+  Snapshot,
+  TaskState,
+  EvidenceState,
+  FindingState,
+} from "../../../src/core/reducer.js";
 import type { SpecFrontmatter } from "../../../src/core/spec-schema.js";
 
 const SHA = "a".repeat(64);
@@ -90,7 +95,10 @@ function makeFrontmatter(overrides: Partial<SpecFrontmatter> = {}): SpecFrontmat
   };
 }
 
-function step(applicability: "must" | "optional" | "na" = "must", status: TaskState["steps"][string]["status"] = "passed") {
+function step(
+  applicability: "must" | "optional" | "na" = "must",
+  status: TaskState["steps"][string]["status"] = "passed",
+) {
   return { applicability, status };
 }
 
@@ -135,7 +143,10 @@ function evidence(overrides: Partial<EvidenceState> = {}): EvidenceState {
 }
 
 /** Snapshot pre-positioned so all 5 checks pass against the default frontmatter. */
-function happySnapshot(frontmatter: SpecFrontmatter, ceremonyOverrides: Partial<Snapshot["state"] & object> = {}): Snapshot {
+function happySnapshot(
+  frontmatter: SpecFrontmatter,
+  ceremonyOverrides: Partial<Snapshot["state"] & object> = {},
+): Snapshot {
   const base = initialSnapshot();
   return {
     ...base,
@@ -159,18 +170,26 @@ function happySnapshot(frontmatter: SpecFrontmatter, ceremonyOverrides: Partial<
       },
     },
     tasks_based_on: { spec: frontmatter.spec_version },
-    tasks: [
-      doneTask(),
-      visualDoneTask(),
-    ],
+    tasks: [doneTask(), visualDoneTask()],
     evidence: [
       // task evidence (check 4)
       evidence({ id: "EV-000001", kind: "task-summary", covers: ["T-001"], check: "run" }),
       evidence({ id: "EV-000002", kind: "task-summary", covers: ["T-200"], check: "run" }),
       // REQ coverage (check 3)
-      evidence({ id: "EV-000003", kind: "verify-review", covers: ["REQ-AUTH-001"], check: "review", result: "approved" }),
+      evidence({
+        id: "EV-000003",
+        kind: "verify-review",
+        covers: ["REQ-AUTH-001"],
+        check: "review",
+        result: "approved",
+      }),
       // SCEN coverage (check 3)
-      evidence({ id: "EV-000004", kind: "acceptance", covers: ["SCEN-AUTH-E2E-001"], check: "acceptance" }),
+      evidence({
+        id: "EV-000004",
+        kind: "acceptance",
+        covers: ["SCEN-AUTH-E2E-001"],
+        check: "acceptance",
+      }),
       // VIS coverage (check 3)
       evidence({
         id: "EV-000005",
@@ -207,7 +226,7 @@ describe("verifyAcceptCheck — happy path (all 5 checks pass)", () => {
         covers: ["REQ-AUTH-001"],
         check: "review",
         result: "approved",
-        actor: "human:reviewer@example.com",  // different from implementer dev@
+        actor: "human:reviewer@example.com", // different from implementer dev@
       }),
     );
     const result = verifyAcceptCheck(snap, fm);
@@ -278,7 +297,11 @@ describe("verifyAcceptCheck — check 1 lane status", () => {
   });
 
   test("kind-only fallback: local-check (no check field) counts for RUN lane", () => {
-    const fm = makeFrontmatter({ requirements: [REQ_VERIFIABLE], scenarios: [], visual_contracts: [] });
+    const fm = makeFrontmatter({
+      requirements: [REQ_VERIFIABLE],
+      scenarios: [],
+      visual_contracts: [],
+    });
     const snap = happySnapshot(fm);
     snap.evidence = snap.evidence.filter((e) => e.check !== "run");
     // Add a local-check WITHOUT check field — fallback should map to RUN.
@@ -302,7 +325,11 @@ describe("verifyAcceptCheck — check 1 lane status", () => {
   });
 
   test("task-summary alone does NOT count for REVIEW lane (not in narrow fallback map)", () => {
-    const fm = makeFrontmatter({ requirements: [REQ_VERIFIABLE], scenarios: [], visual_contracts: [] });
+    const fm = makeFrontmatter({
+      requirements: [REQ_VERIFIABLE],
+      scenarios: [],
+      visual_contracts: [],
+    });
     const snap = happySnapshot(fm);
     // Strip all verify-review/spec-review evidence + check=review labels.
     snap.evidence = snap.evidence.filter(
@@ -312,9 +339,7 @@ describe("verifyAcceptCheck — check 1 lane status", () => {
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("unreachable");
     expect(
-      result.checks.some(
-        (c) => c.code === "VERIFY_LANE_NOT_PASSED" && c.detail?.lane === "review",
-      ),
+      result.checks.some((c) => c.code === "VERIFY_LANE_NOT_PASSED" && c.detail?.lane === "review"),
     ).toBe(true);
   });
 });
@@ -365,7 +390,7 @@ describe("verifyAcceptCheck — check 2 open findings", () => {
     if (result.ok) throw new Error("unreachable");
     const fails = result.checks.filter((c) => c.code === "OPEN_FINDINGS_PRESENT");
     expect(fails.length).toBe(1);
-    expect((fails[0]!.detail?.open_ids as string[])).toContain("FND-001");
+    expect(fails[0]!.detail?.open_ids as string[]).toContain("FND-001");
   });
 });
 
@@ -569,10 +594,7 @@ describe("verifyAcceptCheck — check 4 task evidence + stale precondition", () 
   test("fails TASK_DONE_NO_EVIDENCE when multi-task lane evidence passes but one done task has only failed evidence", () => {
     const fm = makeFrontmatter({ scenarios: [], visual_contracts: [] });
     const snap = happySnapshot(fm);
-    snap.tasks = [
-      doneTask({ id: "T-001" }),
-      doneTask({ id: "T-002" }),
-    ];
+    snap.tasks = [doneTask({ id: "T-001" }), doneTask({ id: "T-002" })];
     snap.evidence = [
       evidence({
         id: "EV-000101",
@@ -601,14 +623,9 @@ describe("verifyAcceptCheck — check 4 task evidence + stale precondition", () 
 
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("unreachable");
-    expect(
-      result.checks.filter((c) => c.code === "VERIFY_LANE_NOT_PASSED"),
-    ).toEqual([]);
+    expect(result.checks.filter((c) => c.code === "VERIFY_LANE_NOT_PASSED")).toEqual([]);
     const fails = result.checks.filter(
-      (c) =>
-        c.check === 4 &&
-        c.code === "TASK_DONE_NO_EVIDENCE" &&
-        c.detail?.task_id === "T-001",
+      (c) => c.check === 4 && c.code === "TASK_DONE_NO_EVIDENCE" && c.detail?.task_id === "T-001",
     );
     expect(fails.length).toBe(1);
   });
@@ -639,10 +656,7 @@ describe("verifyAcceptCheck — check 4 task evidence + stale precondition", () 
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("unreachable");
     const fails = result.checks.filter(
-      (c) =>
-        c.check === 4 &&
-        c.code === "TASK_DONE_NO_EVIDENCE" &&
-        c.detail?.task_id === "T-001",
+      (c) => c.check === 4 && c.code === "TASK_DONE_NO_EVIDENCE" && c.detail?.task_id === "T-001",
     );
     expect(fails.length).toBe(1);
   });

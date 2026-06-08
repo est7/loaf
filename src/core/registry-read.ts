@@ -34,7 +34,10 @@ export type RegistryReadResult =
  * (matches session-dispatch's `RegistryFile.parse(...)` catch). For io / corrupt
  * the two surfaces are the same `err.message`.
  */
-export async function readRegistryEntry(registryDir: string, id: string): Promise<RegistryReadResult> {
+export async function readRegistryEntry(
+  registryDir: string,
+  id: string,
+): Promise<RegistryReadResult> {
   let raw: string;
   try {
     raw = await fs.readFile(path.join(registryDir, `${id}.json`), "utf8");

@@ -125,16 +125,26 @@ describe("SC-6b — redactArgv (14-flag × 2-form table)", () => {
 
   test("T17: non-redacted flags pass verbatim", () => {
     const out = redactArgv([
-      "loaf", "advance", "EXECUTE.done",
-      "--feature", "auth-refresh",
-      "--ceremony", "standard",
-      "--format", "json",
+      "loaf",
+      "advance",
+      "EXECUTE.done",
+      "--feature",
+      "auth-refresh",
+      "--ceremony",
+      "standard",
+      "--format",
+      "json",
     ]);
     expect(out).toEqual([
-      "loaf", "advance", "EXECUTE.done",
-      "--feature", "auth-refresh",
-      "--ceremony", "standard",
-      "--format", "json",
+      "loaf",
+      "advance",
+      "EXECUTE.done",
+      "--feature",
+      "auth-refresh",
+      "--ceremony",
+      "standard",
+      "--format",
+      "json",
     ]);
   });
 

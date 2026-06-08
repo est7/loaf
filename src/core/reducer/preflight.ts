@@ -38,11 +38,7 @@ import type { Ceremony, EntryKind, SubState } from "../journal-entry.js";
 import type { Snapshot, TaskState } from "../projection-types.js";
 import { evaluateTaskProof, verifyMinPolicy } from "../gates/task-proof.js";
 import { extractTaskSlim, type TaskFullProjection } from "../task-schema.js";
-import {
-  validateTransition,
-  type TransitionContext,
-  type TransitionResult,
-} from "./transition.js";
+import { validateTransition, type TransitionContext, type TransitionResult } from "./transition.js";
 import { isActorAllowed, isSubStateAllowed } from "./per-kind.js";
 import { checkSpecVersion as specVersionRule, findCollision } from "./invariants.js";
 import {
@@ -283,14 +279,10 @@ function arraysEqual(
   return a.length === b.length && a.every((v, i) => v === b[i]);
 }
 
-function firstFrozenViolation(
-  current: TaskState,
-  incoming: TaskState,
-): FrozenViolation | null {
+function firstFrozenViolation(current: TaskState, incoming: TaskState): FrozenViolation | null {
   // status: unchanged, or the single legal advance pending → ready.
   if (incoming.status !== current.status) {
-    const legalAdvance =
-      current.status === "pending" && incoming.status === "ready";
+    const legalAdvance = current.status === "pending" && incoming.status === "ready";
     if (!legalAdvance) {
       return { field: "status", from: current.status, to: incoming.status };
     }
@@ -452,10 +444,7 @@ function firstAddFreshnessViolation(
   return null;
 }
 
-export function preflight(
-  rawEntry: unknown,
-  ctx: PreflightContext,
-): PreflightResult {
+export function preflight(rawEntry: unknown, ctx: PreflightContext): PreflightResult {
   // Derive validation scalars from the snapshot single-source (codex r51).
   // Bootstrap kinds (session:started / migration:snapshot_imported) arrive
   // before state has been initialized; defaults preserve historical behavior.
@@ -617,8 +606,8 @@ export function preflight(
     // Runs before checkTransition because validateTransition's contract
     // is target+from legality; the finding-existence lookup needs the
     // snapshot which transition doesn't carry.
-    const rawPayload =
-      ((rawEntry as { payload?: Record<string, unknown> }).payload ?? {}) as Record<string, unknown>;
+    const rawPayload = ((rawEntry as { payload?: Record<string, unknown> }).payload ??
+      {}) as Record<string, unknown>;
     const backEdge = rawPayload["back_edge"] as
       | { action?: string; finding_id?: string }
       | undefined;
@@ -645,8 +634,7 @@ export function preflight(
         return {
           ok: false,
           code: "FINDING_NOT_FOUND",
-          message:
-            `event:phase_advanced.back_edge.action=${backEdge.action} but finding ${findingId} has action=${finding.action}`,
+          message: `event:phase_advanced.back_edge.action=${backEdge.action} but finding ${findingId} has action=${finding.action}`,
           detail: {
             id: findingId,
             reason: "action_mismatch",
@@ -666,11 +654,7 @@ export function preflight(
     // transition diagnostics (codex r123 constraint #1) — back_edge
     // targets SPEC.spec, never EXECUTE.done, but the gate is explicit.
     const phaseTo = payload["to"] as SubState | undefined;
-    if (
-      backEdge === undefined &&
-      sub_state === "EXECUTE.work" &&
-      phaseTo === "EXECUTE.done"
-    ) {
+    if (backEdge === undefined && sub_state === "EXECUTE.work" && phaseTo === "EXECUTE.done") {
       const nonFinal = ctx.snapshot.tasks
         .filter((t) => t.status !== "done" && t.status !== "abandoned")
         .map((t) => ({ task_id: t.id, status: t.status }));
@@ -775,7 +759,12 @@ export function preflight(
             `verify-min: ${missing.length} done task(s) lack the required evidence to deliver ` +
             `(${missing.map((m) => `${m.task_id} needs ${m.required_kinds.join("/")}`).join("; ")}). ` +
             `Add evidence (e.g. \`loaf evidence add\`) or waive, then re-deliver`,
-          detail: { sub_state, ceremony_label: deriveCeremonyLabel(ceremony), count: missing.length, tasks: missing },
+          detail: {
+            sub_state,
+            ceremony_label: deriveCeremonyLabel(ceremony),
+            count: missing.length,
+            tasks: missing,
+          },
         };
       }
       // verify-min passed — fall through; session:delivered proceeds.
@@ -849,8 +838,7 @@ export function preflight(
   // guard still sees the unresolved head before pending:resolved pops it.
   // detail.actual_head feeds the ERROR_CATALOG {actual_head} placeholder.
   if (entry.kind === "event:ceremony_set") {
-    const isTriage =
-      sub_state === "TRIAGE.score" || sub_state === "TRIAGE.confirm";
+    const isTriage = sub_state === "TRIAGE.score" || sub_state === "TRIAGE.confirm";
     if (!isTriage) {
       const head = ctx.snapshot.pending.find((p) => !p.resolved);
       if (!head || head.kind !== "profile_escalation") {
@@ -879,10 +867,7 @@ export function preflight(
   // as INVALID_PAYLOAD; this refine handles only the absent case (no
   // whitespace-trimming — that would be stricter than the repo's
   // `z.string().min(1)` convention).
-  if (
-    entry.kind === "session:archived" ||
-    entry.kind === "session:abandoned"
-  ) {
+  if (entry.kind === "session:archived" || entry.kind === "session:abandoned") {
     const payload = (rawEntry as { payload?: Record<string, unknown> }).payload ?? {};
     if (payload["reason"] === undefined) {
       return {
@@ -1261,16 +1246,19 @@ export function preflight(
         const result = payload["result"] as string | undefined;
         const okResult = result === undefined || result === "passed" || result === "waived";
         const okShape =
-          step === "red" &&
-          task.kind === "behavioral" &&
-          task.labels.includes("bug") &&
-          okResult;
+          step === "red" && task.kind === "behavioral" && task.labels.includes("bug") && okResult;
         if (!okShape) {
           return {
             ok: false,
             code: "BUG_TASK_FLAG_MISUSE",
             message: `red_test_registered=true is valid only on a red-step task_step_done for a behavioral bug task with a passed/waived result (task ${task_id}, step=${step ?? "?"}, result=${result ?? "passed"}, kind=${task.kind})`,
-            detail: { task_id, step, result: result ?? "passed", kind: task.kind, labels: task.labels },
+            detail: {
+              task_id,
+              step,
+              result: result ?? "passed",
+              kind: task.kind,
+              labels: task.labels,
+            },
           };
         }
       }
@@ -1322,10 +1310,7 @@ export function preflight(
     }
     const blockingDependents = ctx.snapshot.tasks
       .filter(
-        (t) =>
-          t.depends_on.includes(task_id) &&
-          t.status !== "done" &&
-          t.status !== "abandoned",
+        (t) => t.depends_on.includes(task_id) && t.status !== "done" && t.status !== "abandoned",
       )
       .map((t) => t.id);
     if (blockingDependents.length > 0) {
@@ -1579,8 +1564,7 @@ export function preflight(
           return {
             ok: false,
             code: "FINDING_TARGET_REQUIRED",
-            message:
-              `finding raise target.task_id=${payload.target.task_id} not found in projection`,
+            message: `finding raise target.task_id=${payload.target.task_id} not found in projection`,
             detail: {
               action: payload.action,
               task_id: payload.target.task_id,
@@ -1618,8 +1602,7 @@ export function preflight(
       return {
         ok: false,
         code: "FINDING_AMEND_SPEC_NOT_LOCKED",
-        message:
-          `finding raise action=amend-spec requires state.spec_locked=true; spec is not locked at sub_state=${sub_state}, edit directly via 'loaf spec submit / add-*'`,
+        message: `finding raise action=amend-spec requires state.spec_locked=true; spec is not locked at sub_state=${sub_state}, edit directly via 'loaf spec submit / add-*'`,
         detail: {
           current_spec_locked: false,
           current_sub_state: sub_state,
@@ -1661,10 +1644,7 @@ export function preflight(
         detail: { kind: entry.kind, spec_locked: true },
       };
     }
-    if (
-      entry.kind !== "event:spec_submitted" &&
-      (ctx.snapshot.state?.spec_version ?? 0) === 0
-    ) {
+    if (entry.kind !== "event:spec_submitted" && (ctx.snapshot.state?.spec_version ?? 0) === 0) {
       return {
         ok: false,
         code: "SPEC_NOT_INITIALIZED",
@@ -1776,7 +1756,8 @@ export function preflight(
       // spec_*_added: HEAD path bumps (must equal current+1);
       // CONTINUATION path tracks (must equal current — the head
       // already bumped state in mutateBatch's accumulator).
-      const mode = entry.batch_index === undefined || entry.batch_index === 0 ? "head" : "continuation";
+      const mode =
+        entry.batch_index === undefined || entry.batch_index === 0 ? "head" : "continuation";
       const v = specVersionRule(payloadVersion, currentVersion, mode);
       if (!v.ok) {
         if (mode === "head") {
@@ -1810,11 +1791,12 @@ export function preflight(
   }
 
   // (5f) Transition (for kinds carrying a state-machine edge).
-  const transitionResult = checkTransition(
-    entry.kind,
-    rawEntry as Record<string, unknown>,
-    { sub_state, ceremony, verify_accepted, actor: entry.actor },
-  );
+  const transitionResult = checkTransition(entry.kind, rawEntry as Record<string, unknown>, {
+    sub_state,
+    ceremony,
+    verify_accepted,
+    actor: entry.actor,
+  });
   if (transitionResult && !transitionResult.ok) {
     return {
       ok: false,

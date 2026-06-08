@@ -382,8 +382,12 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
         source_schema_version: 1,
         migrated_at: "2026-05-15T10:00:00.000Z",
         artifacts: {
-          state: refStub, tasks: refStub, spec_md: refStub,
-          evidence: refStub, findings: refStub, pending: refStub,
+          state: refStub,
+          tasks: refStub,
+          spec_md: refStub,
+          evidence: refStub,
+          findings: refStub,
+          pending: refStub,
         },
       },
       "event:phase_advanced": { from: "TRIAGE.score", to: "TRIAGE.confirm" },
@@ -554,7 +558,12 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
   });
 });
 
-function mustOk<T extends { ok: boolean }>(r: T): Extract<T, { ok: true; snapshot: unknown }>["snapshot"] {
+function mustOk<T extends { ok: boolean }>(
+  r: T,
+): Extract<T, { ok: true; snapshot: unknown }>["snapshot"] {
   if (!r.ok) throw new Error(`expected ok, got: ${JSON.stringify(r)}`);
-  return (r as unknown as { snapshot: unknown }).snapshot as Extract<T, { ok: true; snapshot: unknown }>["snapshot"];
+  return (r as unknown as { snapshot: unknown }).snapshot as Extract<
+    T,
+    { ok: true; snapshot: unknown }
+  >["snapshot"];
 }

@@ -82,8 +82,14 @@ async function runCli(
 
 async function startFeature(dir: string): Promise<void> {
   const started = await runCli([
-    "start", "auth-refresh", "--ceremony", "standard",
-    "--feature-dir", dir, "--format", "json",
+    "start",
+    "auth-refresh",
+    "--ceremony",
+    "standard",
+    "--feature-dir",
+    dir,
+    "--format",
+    "json",
   ]);
   expect(started.exit).toBe(0);
 }
@@ -101,10 +107,14 @@ describe("SC-6a — actor-resolution downgrade matrix (loaf abandon)", () => {
     const result = await runCli(
       [
         "abandon",
-        "--reason", "matrix T1",
-        "--feature", "auth-refresh",
-        "--feature-dir", dir,
-        "--format", "json",
+        "--reason",
+        "matrix T1",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        dir,
+        "--format",
+        "json",
       ],
       {
         env: { LOAF_USER: undefined },
@@ -127,10 +137,14 @@ describe("SC-6a — actor-resolution downgrade matrix (loaf abandon)", () => {
     const result = await runCli(
       [
         "abandon",
-        "--reason", "matrix T2",
-        "--feature", "auth-refresh",
-        "--feature-dir", dir,
-        "--format", "json",
+        "--reason",
+        "matrix T2",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        dir,
+        "--format",
+        "json",
         "--no-input",
       ],
       {
@@ -155,10 +169,14 @@ describe("SC-6a — actor-resolution downgrade matrix (loaf abandon)", () => {
     const result = await runCli(
       [
         "abandon",
-        "--reason", "matrix T3",
-        "--feature", "auth-refresh",
-        "--feature-dir", dir,
-        "--format", "json",
+        "--reason",
+        "matrix T3",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        dir,
+        "--format",
+        "json",
         "--no-input",
       ],
       {
@@ -185,10 +203,14 @@ describe("SC-6a — actor-resolution downgrade matrix (loaf abandon)", () => {
     const result = await runCli(
       [
         "abandon",
-        "--reason", "matrix T4",
-        "--feature", "auth-refresh",
-        "--feature-dir", dir,
-        "--format", "json",
+        "--reason",
+        "matrix T4",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        dir,
+        "--format",
+        "json",
       ],
       {
         env: { LOAF_USER: undefined },
@@ -219,9 +241,12 @@ describe("SC-6a — per-site smoke (helper wired across human-actor commands)", 
     const result = await runCli(
       [
         "deliver",
-        "--feature", "auth-refresh",
-        "--feature-dir", dir,
-        "--format", "json",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        dir,
+        "--format",
+        "json",
         "--no-input",
       ],
       {
@@ -245,10 +270,14 @@ describe("SC-6a — per-site smoke (helper wired across human-actor commands)", 
     const result = await runCli(
       [
         "archive",
-        "--reason", "t5b",
-        "--feature", "auth-refresh",
-        "--feature-dir", dir,
-        "--format", "json",
+        "--reason",
+        "t5b",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        dir,
+        "--format",
+        "json",
         "--no-input",
       ],
       {
@@ -275,12 +304,18 @@ describe("SC-6a — per-site smoke (helper wired across human-actor commands)", 
 
     const result = await runCli(
       [
-        "gate", "decide", "spec-lock",
+        "gate",
+        "decide",
+        "spec-lock",
         "--approve",
-        "--reason", "t5c",
-        "--feature", "auth-refresh",
-        "--feature-dir", dir,
-        "--format", "json",
+        "--reason",
+        "t5c",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        dir,
+        "--format",
+        "json",
         "--no-input",
       ],
       {
@@ -312,7 +347,10 @@ describe("SC-6a — static guard: no inline actor-resolution literals remain", (
   test("static: src/cli.tsx contains zero inline isInteractiveHuman literals", async () => {
     const cliPath = path.join(
       path.dirname(fileURLToPath(import.meta.url)),
-      "..", "..", "src", "cli.tsx",
+      "..",
+      "..",
+      "src",
+      "cli.tsx",
     );
     const source = await fs.readFile(cliPath, "utf8");
     expect(source).not.toMatch(/isInteractiveHuman:\s*process\.stdin\.isTTY\s*===\s*true/);
@@ -321,7 +359,10 @@ describe("SC-6a — static guard: no inline actor-resolution literals remain", (
   test("static: src/cli.tsx contains zero inline readGitConfig: getGitEmail literals", async () => {
     const cliPath = path.join(
       path.dirname(fileURLToPath(import.meta.url)),
-      "..", "..", "src", "cli.tsx",
+      "..",
+      "..",
+      "src",
+      "cli.tsx",
     );
     const source = await fs.readFile(cliPath, "utf8");
     expect(source).not.toMatch(/readGitConfig:\s*getGitEmail\b/);

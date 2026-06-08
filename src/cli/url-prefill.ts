@@ -24,14 +24,42 @@
 const COMMAND_WORDS = new Set<string>([
   "loaf",
   // Top-level commands
-  "start", "advance", "status", "spec", "tasks", "pending", "evidence",
-  "finding", "gate", "deliver", "settle", "doctor", "archive", "abandon",
-  "spike", "profile",
+  "start",
+  "advance",
+  "status",
+  "spec",
+  "tasks",
+  "pending",
+  "evidence",
+  "finding",
+  "gate",
+  "deliver",
+  "settle",
+  "doctor",
+  "archive",
+  "abandon",
+  "spike",
+  "profile",
   // Subcommands (per cli.tsx)
-  "submit", "init", "add-req", "add-scenario", "add-visual",
-  "claim", "list", "next", "step", "amend", "complete",
-  "done", "raise", "resolve", "add", "close", "decide",
-  "convert", "escalate",
+  "submit",
+  "init",
+  "add-req",
+  "add-scenario",
+  "add-visual",
+  "claim",
+  "list",
+  "next",
+  "step",
+  "amend",
+  "complete",
+  "done",
+  "raise",
+  "resolve",
+  "add",
+  "close",
+  "decide",
+  "convert",
+  "escalate",
 ]);
 
 // Public enum positionals per protocol §1 SubState + §10.8 gate names
@@ -45,11 +73,7 @@ function isSafePositional(token: string): boolean {
   return false;
 }
 
-const ALLOWLIST_VALUE_FLAGS = new Set<string>([
-  "--ceremony",
-  "--format",
-  "--feature",
-]);
+const ALLOWLIST_VALUE_FLAGS = new Set<string>(["--ceremony", "--format", "--feature"]);
 
 const ALWAYS_REDACT_FLAGS = new Set<string>([
   "--input",

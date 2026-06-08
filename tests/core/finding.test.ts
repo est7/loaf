@@ -88,8 +88,14 @@ async function seedQuickAtExecutePlan(): Promise<{ dir: string; feature: string 
   const dir = await tmpFeatureDir();
   const feature = "F1";
   const startRes = await runCli([
-    "start", feature, "--ceremony", "quick",
-    "--feature-dir", dir, "--format", "json",
+    "start",
+    feature,
+    "--ceremony",
+    "quick",
+    "--feature-dir",
+    dir,
+    "--format",
+    "json",
   ]);
   if (startRes.exit !== 0) throw new Error(`start failed: ${startRes.stderr}`);
   const edges: Array<[SubState, SubState]> = [
@@ -106,7 +112,14 @@ async function seedQuickAtExecutePlan(): Promise<{ dir: string; feature: string 
         kind: "event:phase_advanced",
         payload: { from, to },
       },
-      { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, entries: s.entries, meta: s.meta, fsync: false },
+      {
+        feature_dir: dir,
+        snapshot: s.snapshot,
+        tail_seq: s.tail_seq,
+        entries: s.entries,
+        meta: s.meta,
+        fsync: false,
+      },
     );
     if (!r.ok) throw new Error(`walk ${from}→${to} failed: ${r.code} ${r.message}`);
   }
@@ -131,7 +144,14 @@ async function seedQuickAtExecuteWork(): Promise<{ dir: string; feature: string 
       kind: "event:phase_advanced",
       payload: { from: "EXECUTE.plan", to: "EXECUTE.work" },
     },
-    { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, entries: s.entries, meta: s.meta, fsync: false },
+    {
+      feature_dir: dir,
+      snapshot: s.snapshot,
+      tail_seq: s.tail_seq,
+      entries: s.entries,
+      meta: s.meta,
+      fsync: false,
+    },
   );
   if (!r.ok) throw new Error(`walk EXECUTE.plan→EXECUTE.work failed: ${r.code} ${r.message}`);
   return { dir, feature };
@@ -151,8 +171,14 @@ async function seedLightAtExecuteWorkWithTask(): Promise<{ dir: string; feature:
   const dir = await tmpFeatureDir();
   const feature = "F1";
   const startRes = await runCli([
-    "start", feature, "--ceremony", "light",
-    "--feature-dir", dir, "--format", "json",
+    "start",
+    feature,
+    "--ceremony",
+    "light",
+    "--feature-dir",
+    dir,
+    "--format",
+    "json",
   ]);
   if (startRes.exit !== 0) throw new Error(`start failed: ${startRes.stderr}`);
   const edges: Array<[SubState, SubState]> = [
@@ -172,7 +198,14 @@ async function seedLightAtExecuteWorkWithTask(): Promise<{ dir: string; feature:
         kind: "event:phase_advanced",
         payload: { from, to },
       },
-      { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, entries: s.entries, meta: s.meta, fsync: false },
+      {
+        feature_dir: dir,
+        snapshot: s.snapshot,
+        tail_seq: s.tail_seq,
+        entries: s.entries,
+        meta: s.meta,
+        fsync: false,
+      },
     );
     if (!r.ok) throw new Error(`walk ${from}→${to} failed: ${r.code} ${r.message}`);
   }
@@ -192,9 +225,17 @@ async function seedLightAtExecuteWorkWithTask(): Promise<{ dir: string; feature:
         needs_clarification: [],
       },
     },
-    { feature_dir: dir, snapshot: s1.snapshot, tail_seq: s1.tail_seq, entries: s1.entries, meta: s1.meta, fsync: false },
+    {
+      feature_dir: dir,
+      snapshot: s1.snapshot,
+      tail_seq: s1.tail_seq,
+      entries: s1.entries,
+      meta: s1.meta,
+      fsync: false,
+    },
   );
-  if (!submitted.ok) throw new Error(`spec_submitted failed: ${submitted.code} ${submitted.message}`);
+  if (!submitted.ok)
+    throw new Error(`spec_submitted failed: ${submitted.code} ${submitted.message}`);
   // tasks_planned with one behavioral task that has implement + red steps.
   const s2 = await loadSnapshot(dir);
   const planned = await mutate(
@@ -235,7 +276,14 @@ async function seedLightAtExecuteWorkWithTask(): Promise<{ dir: string; feature:
         ],
       },
     },
-    { feature_dir: dir, snapshot: s2.snapshot, tail_seq: s2.tail_seq, entries: s2.entries, meta: s2.meta, fsync: false },
+    {
+      feature_dir: dir,
+      snapshot: s2.snapshot,
+      tail_seq: s2.tail_seq,
+      entries: s2.entries,
+      meta: s2.meta,
+      fsync: false,
+    },
   );
   if (!planned.ok) throw new Error(`tasks_planned failed: ${planned.code} ${planned.message}`);
   // Walk to EXECUTE.work for finding tests.
@@ -253,7 +301,14 @@ async function seedLightAtExecuteWorkWithTask(): Promise<{ dir: string; feature:
         kind: "event:phase_advanced",
         payload: { from, to },
       },
-      { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, entries: s.entries, meta: s.meta, fsync: false },
+      {
+        feature_dir: dir,
+        snapshot: s.snapshot,
+        tail_seq: s.tail_seq,
+        entries: s.entries,
+        meta: s.meta,
+        fsync: false,
+      },
     );
     if (!r.ok) throw new Error(`walk ${from}→${to} failed: ${r.code} ${r.message}`);
   }
@@ -270,11 +325,18 @@ describe("loaf finding raise — SC3 happy paths + schema tighten", () => {
   test("raise typical (spec-gap × defer) → FND-001 stdout bare; projection populated", async () => {
     const { dir, feature } = await seedQuickAtExecutePlan();
     const r = await runCli([
-      "finding", "raise",
-      "--category", "spec-gap",
-      "--action", "defer",
-      "--summary", "spec missing field X",
-      "--feature", feature, "--feature-dir", dir,
+      "finding",
+      "raise",
+      "--category",
+      "spec-gap",
+      "--action",
+      "defer",
+      "--summary",
+      "spec missing field X",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(0);
     expect(r.stdout.trim()).toBe("FND-001");
@@ -293,15 +355,29 @@ describe("loaf finding raise — SC3 happy paths + schema tighten", () => {
   test("raise twice → FND-001 + FND-002 (allocator monotonic)", async () => {
     const { dir, feature } = await seedQuickAtExecutePlan();
     const r1 = await runCli([
-      "finding", "raise",
-      "--category", "spec-gap", "--action", "defer",
-      "--feature", feature, "--feature-dir", dir,
+      "finding",
+      "raise",
+      "--category",
+      "spec-gap",
+      "--action",
+      "defer",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r1.stdout.trim()).toBe("FND-001");
     const r2 = await runCli([
-      "finding", "raise",
-      "--category", "impl-defect", "--action", "backlog",
-      "--feature", feature, "--feature-dir", dir,
+      "finding",
+      "raise",
+      "--category",
+      "impl-defect",
+      "--action",
+      "backlog",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r2.stdout.trim()).toBe("FND-002");
   });
@@ -309,23 +385,42 @@ describe("loaf finding raise — SC3 happy paths + schema tighten", () => {
   test("JSON mode emits {ok, feature, id, category, action}", async () => {
     const { dir, feature } = await seedQuickAtExecutePlan();
     const r = await runCli([
-      "finding", "raise",
-      "--category", "spec-gap", "--action", "defer",
-      "--feature", feature, "--feature-dir", dir, "--format", "json",
+      "finding",
+      "raise",
+      "--category",
+      "spec-gap",
+      "--action",
+      "defer",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     expect(r.exit).toBe(0);
     expect(JSON.parse(r.stdout)).toEqual({
-      ok: true, feature, id: "FND-001",
-      category: "spec-gap", action: "defer",
+      ok: true,
+      feature,
+      id: "FND-001",
+      category: "spec-gap",
+      action: "defer",
     });
   });
 
   test("raise with invalid category → INVALID_PAYLOAD (closed enum)", async () => {
     const { dir, feature } = await seedQuickAtExecutePlan();
     const r = await runCli([
-      "finding", "raise",
-      "--category", "not-a-category", "--action", "amend-spec",
-      "--feature", feature, "--feature-dir", dir,
+      "finding",
+      "raise",
+      "--category",
+      "not-a-category",
+      "--action",
+      "amend-spec",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).not.toBe(0);
     expect(r.stderr).toMatch(/INVALID_PAYLOAD/);
@@ -334,9 +429,16 @@ describe("loaf finding raise — SC3 happy paths + schema tighten", () => {
   test("raise with invalid action → INVALID_PAYLOAD (closed enum)", async () => {
     const { dir, feature } = await seedQuickAtExecutePlan();
     const r = await runCli([
-      "finding", "raise",
-      "--category", "spec-gap", "--action", "not-an-action",
-      "--feature", feature, "--feature-dir", dir,
+      "finding",
+      "raise",
+      "--category",
+      "spec-gap",
+      "--action",
+      "not-an-action",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).not.toBe(0);
     expect(r.stderr).toMatch(/INVALID_PAYLOAD/);
@@ -346,13 +448,26 @@ describe("loaf finding raise — SC3 happy paths + schema tighten", () => {
     const dir = await tmpFeatureDir();
     const feature = "F1";
     await runCli([
-      "start", feature, "--ceremony", "quick",
-      "--feature-dir", dir, "--format", "json",
+      "start",
+      feature,
+      "--ceremony",
+      "quick",
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     const r = await runCli([
-      "finding", "raise",
-      "--category", "spec-gap", "--action", "amend-spec",
-      "--feature", feature, "--feature-dir", dir,
+      "finding",
+      "raise",
+      "--category",
+      "spec-gap",
+      "--action",
+      "amend-spec",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).not.toBe(0);
     expect(r.stderr).toMatch(/SUB_STATE_AUTHORITY_VIOLATION/);
@@ -363,10 +478,20 @@ describe("loaf finding raise — FINDING_ACTION_GRID enforcement", () => {
   test("incoherent cell (spec-gap × fix-impl) → FINDING_ACTION_INCOHERENT", async () => {
     const { dir, feature } = await seedQuickAtExecutePlan();
     const r = await runCli([
-      "finding", "raise",
-      "--category", "spec-gap", "--action", "fix-impl",
-      "--target-task", "T-001", "--target-step", "implement",
-      "--feature", feature, "--feature-dir", dir,
+      "finding",
+      "raise",
+      "--category",
+      "spec-gap",
+      "--action",
+      "fix-impl",
+      "--target-task",
+      "T-001",
+      "--target-step",
+      "implement",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(2);
     expect(r.stderr).toMatch(/FINDING_ACTION_INCOHERENT/);
@@ -375,10 +500,20 @@ describe("loaf finding raise — FINDING_ACTION_GRID enforcement", () => {
   test("incoherent cell (new-scope × fix-test) → FINDING_ACTION_INCOHERENT", async () => {
     const { dir, feature } = await seedQuickAtExecutePlan();
     const r = await runCli([
-      "finding", "raise",
-      "--category", "new-scope", "--action", "fix-test",
-      "--target-task", "T-001", "--target-step", "red",
-      "--feature", feature, "--feature-dir", dir,
+      "finding",
+      "raise",
+      "--category",
+      "new-scope",
+      "--action",
+      "fix-test",
+      "--target-task",
+      "T-001",
+      "--target-step",
+      "red",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(2);
     expect(r.stderr).toMatch(/FINDING_ACTION_INCOHERENT/);
@@ -387,9 +522,16 @@ describe("loaf finding raise — FINDING_ACTION_GRID enforcement", () => {
   test("unusual cell (spec-gap × amend-tasks) without --reason → FINDING_ACTION_UNUSUAL_REASON_REQUIRED", async () => {
     const { dir, feature } = await seedQuickAtExecutePlan();
     const r = await runCli([
-      "finding", "raise",
-      "--category", "spec-gap", "--action", "amend-tasks",
-      "--feature", feature, "--feature-dir", dir,
+      "finding",
+      "raise",
+      "--category",
+      "spec-gap",
+      "--action",
+      "amend-tasks",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(2);
     expect(r.stderr).toMatch(/FINDING_ACTION_UNUSUAL_REASON_REQUIRED/);
@@ -398,10 +540,18 @@ describe("loaf finding raise — FINDING_ACTION_GRID enforcement", () => {
   test("unusual cell (spec-gap × amend-tasks) with --reason <20 chars → FINDING_ACTION_UNUSUAL_REASON_REQUIRED", async () => {
     const { dir, feature } = await seedQuickAtExecutePlan();
     const r = await runCli([
-      "finding", "raise",
-      "--category", "spec-gap", "--action", "amend-tasks",
-      "--reason", "short",
-      "--feature", feature, "--feature-dir", dir,
+      "finding",
+      "raise",
+      "--category",
+      "spec-gap",
+      "--action",
+      "amend-tasks",
+      "--reason",
+      "short",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(2);
     expect(r.stderr).toMatch(/FINDING_ACTION_UNUSUAL_REASON_REQUIRED/);
@@ -412,10 +562,18 @@ describe("loaf finding raise — FINDING_ACTION_GRID enforcement", () => {
     // must sit in the amend-tasks from-set (EXECUTE.plan is excluded).
     const { dir, feature } = await seedQuickAtExecuteWork();
     const r = await runCli([
-      "finding", "raise",
-      "--category", "spec-gap", "--action", "amend-tasks",
-      "--reason", "this reason is at least twenty characters long",
-      "--feature", feature, "--feature-dir", dir,
+      "finding",
+      "raise",
+      "--category",
+      "spec-gap",
+      "--action",
+      "amend-tasks",
+      "--reason",
+      "this reason is at least twenty characters long",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(0);
     expect(r.stdout.trim()).toBe("FND-001");
@@ -425,9 +583,16 @@ describe("loaf finding raise — FINDING_ACTION_GRID enforcement", () => {
     // SC1: see note above — seed at EXECUTE.work, not EXECUTE.plan.
     const { dir, feature } = await seedQuickAtExecuteWork();
     const r = await runCli([
-      "finding", "raise",
-      "--category", "impl-defect", "--action", "amend-tasks",
-      "--feature", feature, "--feature-dir", dir,
+      "finding",
+      "raise",
+      "--category",
+      "impl-defect",
+      "--action",
+      "amend-tasks",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(0);
   });
@@ -437,27 +602,48 @@ describe("loaf finding raise — target_payload preflight", () => {
   test("fix-impl with valid target {task_id, step:implement} → succeeds", async () => {
     const { dir, feature } = await seedLightAtExecuteWorkWithTask();
     const r = await runCli([
-      "finding", "raise",
-      "--category", "impl-defect", "--action", "fix-impl",
-      "--target-task", "T-001", "--target-step", "implement",
-      "--feature", feature, "--feature-dir", dir,
+      "finding",
+      "raise",
+      "--category",
+      "impl-defect",
+      "--action",
+      "fix-impl",
+      "--target-task",
+      "T-001",
+      "--target-step",
+      "implement",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(0);
     expect(r.stdout.trim()).toBe("FND-001");
 
     const s = await loadSnapshot(dir);
     expect(s.snapshot.findings[0].target).toEqual({
-      task_id: "T-001", step: "implement",
+      task_id: "T-001",
+      step: "implement",
     });
   });
 
   test("fix-test with valid target {task_id, step:red} → succeeds", async () => {
     const { dir, feature } = await seedLightAtExecuteWorkWithTask();
     const r = await runCli([
-      "finding", "raise",
-      "--category", "test-defect", "--action", "fix-test",
-      "--target-task", "T-001", "--target-step", "red",
-      "--feature", feature, "--feature-dir", dir,
+      "finding",
+      "raise",
+      "--category",
+      "test-defect",
+      "--action",
+      "fix-test",
+      "--target-task",
+      "T-001",
+      "--target-step",
+      "red",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(0);
   });
@@ -465,10 +651,20 @@ describe("loaf finding raise — target_payload preflight", () => {
   test("fix-impl with wrong step (red) → FINDING_TARGET_REQUIRED (step_mismatch)", async () => {
     const { dir, feature } = await seedLightAtExecuteWorkWithTask();
     const r = await runCli([
-      "finding", "raise",
-      "--category", "impl-defect", "--action", "fix-impl",
-      "--target-task", "T-001", "--target-step", "red",
-      "--feature", feature, "--feature-dir", dir,
+      "finding",
+      "raise",
+      "--category",
+      "impl-defect",
+      "--action",
+      "fix-impl",
+      "--target-task",
+      "T-001",
+      "--target-step",
+      "red",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(2);
     expect(r.stderr).toMatch(/FINDING_TARGET_REQUIRED/);
@@ -477,10 +673,20 @@ describe("loaf finding raise — target_payload preflight", () => {
   test("fix-test with wrong step (implement) → FINDING_TARGET_REQUIRED", async () => {
     const { dir, feature } = await seedLightAtExecuteWorkWithTask();
     const r = await runCli([
-      "finding", "raise",
-      "--category", "test-defect", "--action", "fix-test",
-      "--target-task", "T-001", "--target-step", "implement",
-      "--feature", feature, "--feature-dir", dir,
+      "finding",
+      "raise",
+      "--category",
+      "test-defect",
+      "--action",
+      "fix-test",
+      "--target-task",
+      "T-001",
+      "--target-step",
+      "implement",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(2);
     expect(r.stderr).toMatch(/FINDING_TARGET_REQUIRED/);
@@ -489,10 +695,20 @@ describe("loaf finding raise — target_payload preflight", () => {
   test("fix-impl with unknown task → FINDING_TARGET_REQUIRED (task_not_found)", async () => {
     const { dir, feature } = await seedLightAtExecuteWorkWithTask();
     const r = await runCli([
-      "finding", "raise",
-      "--category", "impl-defect", "--action", "fix-impl",
-      "--target-task", "T-999", "--target-step", "implement",
-      "--feature", feature, "--feature-dir", dir,
+      "finding",
+      "raise",
+      "--category",
+      "impl-defect",
+      "--action",
+      "fix-impl",
+      "--target-task",
+      "T-999",
+      "--target-step",
+      "implement",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(2);
     expect(r.stderr).toMatch(/FINDING_TARGET_REQUIRED/);
@@ -501,9 +717,16 @@ describe("loaf finding raise — target_payload preflight", () => {
   test("fix-impl without target → FINDING_TARGET_REQUIRED (missing)", async () => {
     const { dir, feature } = await seedLightAtExecuteWorkWithTask();
     const r = await runCli([
-      "finding", "raise",
-      "--category", "impl-defect", "--action", "fix-impl",
-      "--feature", feature, "--feature-dir", dir,
+      "finding",
+      "raise",
+      "--category",
+      "impl-defect",
+      "--action",
+      "fix-impl",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(2);
     expect(r.stderr).toMatch(/FINDING_TARGET_REQUIRED/);
@@ -512,9 +735,16 @@ describe("loaf finding raise — target_payload preflight", () => {
   test("amend-tasks without target → succeeds (target_id_optional)", async () => {
     const { dir, feature } = await seedLightAtExecuteWorkWithTask();
     const r = await runCli([
-      "finding", "raise",
-      "--category", "impl-defect", "--action", "amend-tasks",
-      "--feature", feature, "--feature-dir", dir,
+      "finding",
+      "raise",
+      "--category",
+      "impl-defect",
+      "--action",
+      "amend-tasks",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(0);
   });
@@ -522,10 +752,20 @@ describe("loaf finding raise — target_payload preflight", () => {
   test("amend-tasks with unknown task → FINDING_TARGET_REQUIRED (task_not_found)", async () => {
     const { dir, feature } = await seedLightAtExecuteWorkWithTask();
     const r = await runCli([
-      "finding", "raise",
-      "--category", "impl-defect", "--action", "amend-tasks",
-      "--target-task", "T-999", "--target-step", "implement",
-      "--feature", feature, "--feature-dir", dir,
+      "finding",
+      "raise",
+      "--category",
+      "impl-defect",
+      "--action",
+      "amend-tasks",
+      "--target-task",
+      "T-999",
+      "--target-step",
+      "implement",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(2);
     expect(r.stderr).toMatch(/FINDING_TARGET_REQUIRED/);
@@ -535,10 +775,18 @@ describe("loaf finding raise — target_payload preflight", () => {
     const { dir, feature } = await seedLightAtExecuteWorkWithTask();
     const before = await readJournalLines(dir);
     const r = await runCli([
-      "finding", "raise",
-      "--category", "impl-defect", "--action", "fix-impl",
-      "--target-step", "implement",
-      "--feature", feature, "--feature-dir", dir,
+      "finding",
+      "raise",
+      "--category",
+      "impl-defect",
+      "--action",
+      "fix-impl",
+      "--target-step",
+      "implement",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(2);
     expect(r.stderr).toMatch(/USAGE/);
@@ -548,10 +796,18 @@ describe("loaf finding raise — target_payload preflight", () => {
   test("partial --target-task without --target-step for fix-impl → USAGE", async () => {
     const { dir, feature } = await seedLightAtExecuteWorkWithTask();
     const r = await runCli([
-      "finding", "raise",
-      "--category", "impl-defect", "--action", "fix-impl",
-      "--target-task", "T-001",
-      "--feature", feature, "--feature-dir", dir,
+      "finding",
+      "raise",
+      "--category",
+      "impl-defect",
+      "--action",
+      "fix-impl",
+      "--target-task",
+      "T-001",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(2);
     expect(r.stderr).toMatch(/USAGE/);
@@ -561,10 +817,20 @@ describe("loaf finding raise — target_payload preflight", () => {
     const { dir, feature } = await seedLightAtExecuteWorkWithTask();
     const before = await readJournalLines(dir);
     const r = await runCli([
-      "finding", "raise",
-      "--category", "spec-gap", "--action", "amend-spec",
-      "--target-task", "T-001", "--target-step", "implement",
-      "--feature", feature, "--feature-dir", dir,
+      "finding",
+      "raise",
+      "--category",
+      "spec-gap",
+      "--action",
+      "amend-spec",
+      "--target-task",
+      "T-001",
+      "--target-step",
+      "implement",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(2);
     expect(r.stderr).toMatch(/FINDING_TARGET_REQUIRED/);
@@ -575,10 +841,20 @@ describe("loaf finding raise — target_payload preflight", () => {
   test("none-mode action (defer) with target → FINDING_TARGET_REQUIRED", async () => {
     const { dir, feature } = await seedLightAtExecuteWorkWithTask();
     const r = await runCli([
-      "finding", "raise",
-      "--category", "spec-gap", "--action", "defer",
-      "--target-task", "T-001", "--target-step", "implement",
-      "--feature", feature, "--feature-dir", dir,
+      "finding",
+      "raise",
+      "--category",
+      "spec-gap",
+      "--action",
+      "defer",
+      "--target-task",
+      "T-001",
+      "--target-step",
+      "implement",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(2);
     expect(r.stderr).toMatch(/FINDING_TARGET_REQUIRED/);
@@ -589,51 +865,100 @@ describe("loaf finding list", () => {
   test("list text mode shows raised findings; --status filters open/closed", async () => {
     const { dir, feature } = await seedQuickAtExecutePlan();
     await runCli([
-      "finding", "raise", "--category", "spec-gap", "--action", "defer",
-      "--feature", feature, "--feature-dir", dir,
+      "finding",
+      "raise",
+      "--category",
+      "spec-gap",
+      "--action",
+      "defer",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     await runCli([
-      "finding", "raise", "--category", "impl-defect", "--action", "backlog",
-      "--feature", feature, "--feature-dir", dir,
+      "finding",
+      "raise",
+      "--category",
+      "impl-defect",
+      "--action",
+      "backlog",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
-    const all = await runCli([
-      "finding", "list",
-      "--feature", feature, "--feature-dir", dir,
-    ]);
+    const all = await runCli(["finding", "list", "--feature", feature, "--feature-dir", dir]);
     expect(all.exit).toBe(0);
     const lines = all.stdout.trim().split("\n");
     expect(lines).toHaveLength(2);
     // Expect 4 columns: <FND-id> <category> <action> <status>
     expect(lines[0]!.split(/\s+/)).toEqual(["FND-001", "spec-gap", "defer", "open"]);
 
-    await runCli([
-      "finding", "close", "FND-001",
-      "--feature", feature, "--feature-dir", dir,
-    ]);
+    await runCli(["finding", "close", "FND-001", "--feature", feature, "--feature-dir", dir]);
     const open = await runCli([
-      "finding", "list", "--status", "open",
-      "--feature", feature, "--feature-dir", dir,
+      "finding",
+      "list",
+      "--status",
+      "open",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
-    expect(open.stdout.trim().split("\n").map((l) => l.split(/\s+/)[0])).toEqual(["FND-002"]);
+    expect(
+      open.stdout
+        .trim()
+        .split("\n")
+        .map((l) => l.split(/\s+/)[0]),
+    ).toEqual(["FND-002"]);
     const closed = await runCli([
-      "finding", "list", "--status", "closed",
-      "--feature", feature, "--feature-dir", dir,
+      "finding",
+      "list",
+      "--status",
+      "closed",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
-    expect(closed.stdout.trim().split("\n").map((l) => l.split(/\s+/)[0])).toEqual(["FND-001"]);
+    expect(
+      closed.stdout
+        .trim()
+        .split("\n")
+        .map((l) => l.split(/\s+/)[0]),
+    ).toEqual(["FND-001"]);
   });
 
   test("list --json surfaces summary/reason/target from raise (projection contract)", async () => {
     const { dir, feature } = await seedLightAtExecuteWorkWithTask();
     await runCli([
-      "finding", "raise",
-      "--category", "impl-defect", "--action", "fix-impl",
-      "--target-task", "T-001", "--target-step", "implement",
-      "--summary", "auth flow regression",
-      "--feature", feature, "--feature-dir", dir,
+      "finding",
+      "raise",
+      "--category",
+      "impl-defect",
+      "--action",
+      "fix-impl",
+      "--target-task",
+      "T-001",
+      "--target-step",
+      "implement",
+      "--summary",
+      "auth flow regression",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     const r = await runCli([
-      "finding", "list", "--format", "json",
-      "--feature", feature, "--feature-dir", dir,
+      "finding",
+      "list",
+      "--format",
+      "json",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(0);
     const parsed = JSON.parse(r.stdout);
@@ -653,12 +978,25 @@ describe("loaf finding close", () => {
   test("close FND-001 marks status closed", async () => {
     const { dir, feature } = await seedQuickAtExecutePlan();
     await runCli([
-      "finding", "raise", "--category", "spec-gap", "--action", "defer",
-      "--feature", feature, "--feature-dir", dir,
+      "finding",
+      "raise",
+      "--category",
+      "spec-gap",
+      "--action",
+      "defer",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     const r = await runCli([
-      "finding", "close", "FND-001",
-      "--feature", feature, "--feature-dir", dir,
+      "finding",
+      "close",
+      "FND-001",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(0);
 
@@ -669,8 +1007,13 @@ describe("loaf finding close", () => {
   test("close unknown id → FINDING_NOT_FOUND", async () => {
     const { dir, feature } = await seedQuickAtExecutePlan();
     const r = await runCli([
-      "finding", "close", "FND-999",
-      "--feature", feature, "--feature-dir", dir,
+      "finding",
+      "close",
+      "FND-999",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).not.toBe(0);
     expect(r.stderr).toMatch(/FINDING_NOT_FOUND/);
@@ -679,16 +1022,28 @@ describe("loaf finding close", () => {
   test("close already-closed finding → FINDING_NOT_FOUND (detail.reason=already_closed)", async () => {
     const { dir, feature } = await seedQuickAtExecutePlan();
     await runCli([
-      "finding", "raise", "--category", "spec-gap", "--action", "defer",
-      "--feature", feature, "--feature-dir", dir,
+      "finding",
+      "raise",
+      "--category",
+      "spec-gap",
+      "--action",
+      "defer",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
-    await runCli([
-      "finding", "close", "FND-001",
-      "--feature", feature, "--feature-dir", dir,
-    ]);
+    await runCli(["finding", "close", "FND-001", "--feature", feature, "--feature-dir", dir]);
     const r = await runCli([
-      "finding", "close", "FND-001",
-      "--feature", feature, "--feature-dir", dir, "--format", "json",
+      "finding",
+      "close",
+      "FND-001",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     expect(r.exit).not.toBe(0);
     const err = r.stderr;
@@ -699,8 +1054,13 @@ describe("loaf finding close", () => {
   test("close FND-1 (non-canonical) → INVALID_PAYLOAD (FindingId regex tightened)", async () => {
     const { dir, feature } = await seedQuickAtExecutePlan();
     const r = await runCli([
-      "finding", "close", "FND-1",
-      "--feature", feature, "--feature-dir", dir,
+      "finding",
+      "close",
+      "FND-1",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).not.toBe(0);
     expect(r.stderr).toMatch(/INVALID_PAYLOAD/);

@@ -108,7 +108,14 @@ describe("mutate — transactional journal write (audit r1 Blocker #3)", () => {
           ceremony: STANDARD,
         },
       },
-      { feature_dir: dir, snapshot: initialSnapshot(), tail_seq: -1, entries: [], meta: emptyMeta(), fsync: false },
+      {
+        feature_dir: dir,
+        snapshot: initialSnapshot(),
+        tail_seq: -1,
+        entries: [],
+        meta: emptyMeta(),
+        fsync: false,
+      },
     );
     expect(boot.ok).toBe(true);
     if (!boot.ok) return;
@@ -123,7 +130,14 @@ describe("mutate — transactional journal write (audit r1 Blocker #3)", () => {
         kind: "event:phase_advanced",
         payload: { from: "EXECUTE.work", to: "EXECUTE.done" },
       },
-      { feature_dir: dir, snapshot: boot.snapshot, tail_seq: 0, entries: [boot.entry], meta: boot.meta, fsync: false },
+      {
+        feature_dir: dir,
+        snapshot: boot.snapshot,
+        tail_seq: 0,
+        entries: [boot.entry],
+        meta: boot.meta,
+        fsync: false,
+      },
     );
     expect(bad.ok).toBe(false);
     if (!bad.ok) expect(bad.code).toBe("FROM_CURSOR_MISMATCH");
@@ -155,7 +169,14 @@ describe("mutate — transactional journal write (audit r1 Blocker #3)", () => {
           },
         },
       },
-      { feature_dir: dir, snapshot: initialSnapshot(), tail_seq: -1, entries: [], meta: emptyMeta(), fsync: false },
+      {
+        feature_dir: dir,
+        snapshot: initialSnapshot(),
+        tail_seq: -1,
+        entries: [],
+        meta: emptyMeta(),
+        fsync: false,
+      },
     );
     expect(bad.ok).toBe(false);
     if (!bad.ok) expect(bad.code).toBe("INVALID_PAYLOAD");
@@ -181,13 +202,41 @@ describe("mutate — transactional journal write (audit r1 Blocker #3)", () => {
           ceremony: STANDARD,
         },
       },
-      { feature_dir: dir, snapshot: initialSnapshot(), tail_seq: -1, entries: [], meta: emptyMeta(), fsync: false },
+      {
+        feature_dir: dir,
+        snapshot: initialSnapshot(),
+        tail_seq: -1,
+        entries: [],
+        meta: emptyMeta(),
+        fsync: false,
+      },
     );
     expect(boot.ok).toBe(true);
     if (!boot.ok) return;
 
     // Walk to EXECUTE.work so evidence:added is sub_state-legal.
-    const transitions: Array<["TRIAGE.score" | "TRIAGE.confirm" | "SPEC.proposal" | "SPEC.spec" | "SPEC.plan" | "SPEC.design" | "EXECUTE.plan", "TRIAGE.confirm" | "SPEC.proposal" | "SPEC.spec" | "SPEC.plan" | "SPEC.design" | "EXECUTE.plan" | "EXECUTE.work"]> = [
+    const transitions: Array<
+      [
+        (
+          | "TRIAGE.score"
+          | "TRIAGE.confirm"
+          | "SPEC.proposal"
+          | "SPEC.spec"
+          | "SPEC.plan"
+          | "SPEC.design"
+          | "EXECUTE.plan"
+        ),
+        (
+          | "TRIAGE.confirm"
+          | "SPEC.proposal"
+          | "SPEC.spec"
+          | "SPEC.plan"
+          | "SPEC.design"
+          | "EXECUTE.plan"
+          | "EXECUTE.work"
+        ),
+      ]
+    > = [
       ["TRIAGE.score", "TRIAGE.confirm"],
       ["TRIAGE.confirm", "SPEC.proposal"],
       ["SPEC.proposal", "SPEC.spec"],
@@ -242,7 +291,11 @@ describe("mutate — transactional journal write (audit r1 Blocker #3)", () => {
     if (!r.ok) return;
 
     // Sidecar landed at attachments/JE-NNNNNN/summary.txt with matching sha256.
-    const summary = (r.entry.payload as { summary: { mode: string; ref: { path: string; sha256: string; size: number } } }).summary;
+    const summary = (
+      r.entry.payload as {
+        summary: { mode: string; ref: { path: string; sha256: string; size: number } };
+      }
+    ).summary;
     expect(summary.mode).toBe("sidecar");
     const bytes = await fs.readFile(path.join(dir, summary.ref.path));
     const actualSha = createHash("sha256").update(bytes).digest("hex");
@@ -270,7 +323,14 @@ describe("mutate — transactional journal write (audit r1 Blocker #3)", () => {
           ceremony: STANDARD,
         },
       },
-      { feature_dir: dir, snapshot: initialSnapshot(), tail_seq: -1, entries: [], meta: emptyMeta(), fsync: false },
+      {
+        feature_dir: dir,
+        snapshot: initialSnapshot(),
+        tail_seq: -1,
+        entries: [],
+        meta: emptyMeta(),
+        fsync: false,
+      },
     );
     expect(boot.ok).toBe(true);
     if (!boot.ok) return;
@@ -333,7 +393,14 @@ describe("mutate — transactional journal write (audit r1 Blocker #3)", () => {
           ceremony: STANDARD,
         },
       },
-      { feature_dir: dir, snapshot: initialSnapshot(), tail_seq: -1, entries: [], meta: emptyMeta(), fsync: false },
+      {
+        feature_dir: dir,
+        snapshot: initialSnapshot(),
+        tail_seq: -1,
+        entries: [],
+        meta: emptyMeta(),
+        fsync: false,
+      },
     );
     expect(boot.ok).toBe(true);
     if (!boot.ok) return;
@@ -450,7 +517,14 @@ describe("mutateBatch — Slice 1.0 Cycle 3 (multi-entry transactional)", () => 
           },
         },
       ],
-      { feature_dir: dir, snapshot: initialSnapshot(), tail_seq: -1, entries: [], meta: emptyMeta(), fsync: false },
+      {
+        feature_dir: dir,
+        snapshot: initialSnapshot(),
+        tail_seq: -1,
+        entries: [],
+        meta: emptyMeta(),
+        fsync: false,
+      },
     );
 
     expect(result.ok).toBe(true);
@@ -491,7 +565,14 @@ describe("mutateBatch — Slice 1.0 Cycle 3 (multi-entry transactional)", () => 
           payload: { from: "TRIAGE.score", to: "TRIAGE.confirm" },
         },
       ],
-      { feature_dir: dir, snapshot: initialSnapshot(), tail_seq: -1, entries: [], meta: emptyMeta(), fsync: false },
+      {
+        feature_dir: dir,
+        snapshot: initialSnapshot(),
+        tail_seq: -1,
+        entries: [],
+        meta: emptyMeta(),
+        fsync: false,
+      },
     );
 
     expect(result.ok).toBe(true);
@@ -531,7 +612,14 @@ describe("mutateBatch — Slice 1.0 Cycle 3 (multi-entry transactional)", () => 
           payload: { from: "SPEC.spec", to: "SPEC.plan" },
         },
       ],
-      { feature_dir: dir, snapshot: initialSnapshot(), tail_seq: -1, entries: [], meta: emptyMeta(), fsync: false },
+      {
+        feature_dir: dir,
+        snapshot: initialSnapshot(),
+        tail_seq: -1,
+        entries: [],
+        meta: emptyMeta(),
+        fsync: false,
+      },
     );
 
     expect(result.ok).toBe(false);
@@ -693,7 +781,14 @@ describe("mutateBatch — Slice 1.0 Cycle 3 (multi-entry transactional)", () => 
           payload: { from: "TRIAGE.score", to: "TRIAGE.confirm" },
         },
       ],
-      { feature_dir: dir, snapshot: initialSnapshot(), tail_seq: -1, entries: [], meta: emptyMeta(), fsync: false },
+      {
+        feature_dir: dir,
+        snapshot: initialSnapshot(),
+        tail_seq: -1,
+        entries: [],
+        meta: emptyMeta(),
+        fsync: false,
+      },
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -709,7 +804,10 @@ describe("mutateBatch — Slice 1.0 Cycle 3 (multi-entry transactional)", () => 
 
     // Journal lines carry the envelope too.
     const journal = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
-    const lines = journal.trim().split("\n").map((l) => JSON.parse(l!));
+    const lines = journal
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l!));
     expect(lines[0].batch_id).toBe(e0!.batch_id);
     expect(lines[1].batch_index).toBe(1);
     expect(lines[0].batch_count).toBe(2);
@@ -731,7 +829,14 @@ describe("mutateBatch — Slice 1.0 Cycle 3 (multi-entry transactional)", () => 
           },
         },
       ],
-      { feature_dir: dir, snapshot: initialSnapshot(), tail_seq: -1, entries: [], meta: emptyMeta(), fsync: false },
+      {
+        feature_dir: dir,
+        snapshot: initialSnapshot(),
+        tail_seq: -1,
+        entries: [],
+        meta: emptyMeta(),
+        fsync: false,
+      },
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -865,13 +970,22 @@ describe("mutateBatch — Slice 1.0 Cycle 3 (multi-entry transactional)", () => 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
         } as any,
       ],
-      { feature_dir: dir, snapshot: initialSnapshot(), tail_seq: -1, entries: [], meta: emptyMeta(), fsync: false },
+      {
+        feature_dir: dir,
+        snapshot: initialSnapshot(),
+        tail_seq: -1,
+        entries: [],
+        meta: emptyMeta(),
+        fsync: false,
+      },
     );
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe("INVALID_BATCH");
       expect(result.failed_index).toBe(0);
-      expect((result.detail as { forbidden_field?: string } | undefined)?.forbidden_field).toBe("seq");
+      expect((result.detail as { forbidden_field?: string } | undefined)?.forbidden_field).toBe(
+        "seq",
+      );
     }
     await expect(fs.readFile(path.join(dir, "journal.jsonl"), "utf8")).rejects.toMatchObject({
       code: "ENOENT",
@@ -1138,12 +1252,21 @@ prose body here
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
         } as any,
       ],
-      { feature_dir: dir, snapshot: initialSnapshot(), tail_seq: -1, entries: [], meta: emptyMeta(), fsync: false },
+      {
+        feature_dir: dir,
+        snapshot: initialSnapshot(),
+        tail_seq: -1,
+        entries: [],
+        meta: emptyMeta(),
+        fsync: false,
+      },
     );
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe("INVALID_BATCH");
-      expect((result.detail as { forbidden_field?: string } | undefined)?.forbidden_field).toBe("batch_id");
+      expect((result.detail as { forbidden_field?: string } | undefined)?.forbidden_field).toBe(
+        "batch_id",
+      );
     }
   });
 
@@ -1167,7 +1290,14 @@ prose body here
           ceremony: STANDARD,
         },
       },
-      { feature_dir: dir, snapshot: initialSnapshot(), tail_seq: -1, entries: [], meta: emptyMeta(), fsync: false },
+      {
+        feature_dir: dir,
+        snapshot: initialSnapshot(),
+        tail_seq: -1,
+        entries: [],
+        meta: emptyMeta(),
+        fsync: false,
+      },
     );
     expect(boot.ok).toBe(true);
     if (!boot.ok) return;
@@ -1288,7 +1418,11 @@ describe("mutateBatch Pass 1.5 — spec-lock gate wire (Slice 1.B sub-cycle 3c)"
     if (!result.ok) {
       expect(result.code).toBe("GATE_PRECONDITION_VIOLATION");
       const detail = result.detail as
-        | { gate?: string; failure_count?: number; checks?: Array<{ check: number; code: string; detail?: Record<string, unknown> }> }
+        | {
+            gate?: string;
+            failure_count?: number;
+            checks?: Array<{ check: number; code: string; detail?: Record<string, unknown> }>;
+          }
         | undefined;
       expect(detail?.gate).toBe("spec-lock");
       expect(detail?.failure_count).toBe(1);
@@ -1364,7 +1498,9 @@ needs_clarification: []
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe("GATE_PRECONDITION_VIOLATION");
-      const checks = (result.detail as { checks?: Array<{ check: number; code: string }> } | undefined)?.checks;
+      const checks = (
+        result.detail as { checks?: Array<{ check: number; code: string }> } | undefined
+      )?.checks;
       expect(checks?.some((c) => c.check === 3 && c.code === "TASKS_BASED_ON_STALE")).toBe(true);
     }
   });
@@ -1480,7 +1616,14 @@ describe("mutate evidence:added — strict refines (Slice 1.C sub-cycle 1)", () 
           ceremony: STANDARD,
         },
       },
-      { feature_dir: dir, snapshot: initialSnapshot(), tail_seq: -1, entries: [], meta: emptyMeta(), fsync: false },
+      {
+        feature_dir: dir,
+        snapshot: initialSnapshot(),
+        tail_seq: -1,
+        entries: [],
+        meta: emptyMeta(),
+        fsync: false,
+      },
     );
     if (!boot.ok) throw new Error(`bootstrap failed: ${boot.code}`);
     const transitions = [
@@ -1561,7 +1704,7 @@ describe("mutate evidence:added — strict refines (Slice 1.C sub-cycle 1)", () 
           id: "EV-000001",
           kind: "manual",
           iteration: 1,
-          actor: "cli:loaf",                       // NOT human:* → refine rejects
+          actor: "cli:loaf", // NOT human:* → refine rejects
           result: "passed",
           summary: "manual verification of REQ-AUTH-001",
           reason: "tested the flow by hand on staging",
@@ -1806,7 +1949,9 @@ scenarios: []
     expect(result.code).toBe("GATE_PRECONDITION_VIOLATION");
     expect((result.detail as { gate?: string }).gate).toBe("verify-accept");
     expect((result.detail as { failure_count?: number }).failure_count).toBe(1);
-    const checks = (result.detail as { checks?: Array<{ code: string; detail?: { subcode?: string } }> }).checks ?? [];
+    const checks =
+      (result.detail as { checks?: Array<{ code: string; detail?: { subcode?: string } }> })
+        .checks ?? [];
     expect(checks[0]!.code).toBe("SPEC_FRONTMATTER_INVALID");
     expect(checks[0]!.detail?.subcode).toBe("SPEC_NOT_FOUND");
     // Journal untouched — Pass 1.5 fired before Pass 2/4 append.
@@ -1898,7 +2043,14 @@ scenarios: []
           reason: "wishing it through",
         },
       },
-      { feature_dir: dir, snapshot: snapWithFinding, tail_seq: tailSeq, entries, meta, fsync: false },
+      {
+        feature_dir: dir,
+        snapshot: snapWithFinding,
+        tail_seq: tailSeq,
+        entries,
+        meta,
+        fsync: false,
+      },
     );
 
     expect(result.ok).toBe(false);

@@ -110,11 +110,13 @@ export interface MutateContext {
    *  never touch the real user registry. `| undefined` is explicit so
    *  CLI sites can spread a precomputed `undefined` from MainDeps under
    *  `exactOptionalPropertyTypes`. */
-  registryWriter?: {
-    registryDir?: string;
-    now?: () => Date;
-    cwd?: () => string;
-  } | undefined;
+  registryWriter?:
+    | {
+        registryDir?: string;
+        now?: () => Date;
+        cwd?: () => string;
+      }
+    | undefined;
 }
 
 export type MutateFailureCode =
@@ -291,8 +293,7 @@ export async function mutateBatch(
   // satisfaction; preflight + reducer dry-run still validates them).
   const gateApprovals = candidates.filter(
     (c) =>
-      c.kind === "gate:decided" &&
-      (c.payload as { decision?: string }).decision === "approved",
+      c.kind === "gate:decided" && (c.payload as { decision?: string }).decision === "approved",
   );
   if (gateApprovals.length > 1) {
     return {
@@ -301,9 +302,7 @@ export async function mutateBatch(
       message: `batch contains ${gateApprovals.length} approved gate:decided entries; protocol §10.8 requires one gate decision per atomic operation`,
       detail: {
         count: gateApprovals.length,
-        gate_kinds: gateApprovals.map(
-          (c) => (c.payload as { gate_kind?: string }).gate_kind,
-        ),
+        gate_kinds: gateApprovals.map((c) => (c.payload as { gate_kind?: string }).gate_kind),
       },
     };
   }
@@ -504,8 +503,7 @@ export async function mutateBatch(
       return {
         ok: false,
         code: "PROJECTION_WRITE_FAILED",
-        message:
-          `spec.md projection write failed after journal append at last_seq=${lastSeq} (spec_version=${failSpecVer}); journal is authoritative — run 'loaf doctor --rebuild' to resync. Cause: ${(err as Error).message}`,
+        message: `spec.md projection write failed after journal append at last_seq=${lastSeq} (spec_version=${failSpecVer}); journal is authoritative — run 'loaf doctor --rebuild' to resync. Cause: ${(err as Error).message}`,
         detail: {
           projection: "spec.md",
           path: path.join(ctx.feature_dir, "spec.md"),
@@ -630,10 +628,7 @@ export async function mutateBatch(
  * single produced entry under the `entry` key for API compatibility with
  * callers that always emit one entry.
  */
-export async function mutate(
-  partial: PartialEntry,
-  ctx: MutateContext,
-): Promise<MutateResult> {
+export async function mutate(partial: PartialEntry, ctx: MutateContext): Promise<MutateResult> {
   const batch = await mutateBatch([partial], ctx);
   if (!batch.ok) {
     return batch.detail !== undefined

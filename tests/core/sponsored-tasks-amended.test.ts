@@ -133,30 +133,52 @@ async function seedToAmendTasksAtWork(
   });
   await step("spec submit", ["spec", "submit", "--input", submitInput, "--feature", F]);
   await step("spec add-req", [
-    "spec", "add-req",
-    "--input", await writeInput("req1.json", {
+    "spec",
+    "add-req",
+    "--input",
+    await writeInput("req1.json", {
       id_namespace: "REQ-CORE",
       type: "ubiquitous",
       response: "the system shall complete the sponsored amend smoke",
       acceptance_na: true,
       acceptance_na_reason: "exercised by this end-to-end lifecycle integration test",
     }),
-    "--feature", F,
+    "--feature",
+    F,
   ]);
   await step("advance SPEC.spec", ["advance", "SPEC.spec", "--feature", F]);
   await step("advance SPEC.plan", ["advance", "SPEC.plan", "--feature", F]);
   await step("advance SPEC.design", ["advance", "SPEC.design", "--feature", F]);
   await step("tasks submit", [
-    "tasks", "submit", "--input", await writeInput("tasks.json", tasksGraph), "--feature", F,
+    "tasks",
+    "submit",
+    "--input",
+    await writeInput("tasks.json", tasksGraph),
+    "--feature",
+    F,
   ]);
   await step("gate spec-lock", [
-    "gate", "decide", "spec-lock", "--approve",
-    "--reason", "spec and task graph complete for the lock", "--feature", F,
+    "gate",
+    "decide",
+    "spec-lock",
+    "--approve",
+    "--reason",
+    "spec and task graph complete for the lock",
+    "--feature",
+    F,
   ]);
   await step("advance EXECUTE.work", ["advance", "EXECUTE.work", "--feature", F]);
   const raised = await step("finding raise amend-tasks", [
-    "finding", "raise", "--category", "new-scope", "--action", "amend-tasks",
-    "--summary", "execution surfaced a missing task", "--feature", F,
+    "finding",
+    "raise",
+    "--category",
+    "new-scope",
+    "--action",
+    "amend-tasks",
+    "--summary",
+    "execution surfaced a missing task",
+    "--feature",
+    F,
   ]);
   expect(raised.back_edge.to).toBe("EXECUTE.work");
   return raised.id as string;
@@ -164,7 +186,10 @@ async function seedToAmendTasksAtWork(
 
 async function readJournal(dir: string): Promise<Array<Record<string, any>>> {
   const raw = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
-  return raw.trim().split("\n").map((l) => JSON.parse(l));
+  return raw
+    .trim()
+    .split("\n")
+    .map((l) => JSON.parse(l));
 }
 
 async function readJournalIfExists(dir: string): Promise<Array<Record<string, any>>> {
@@ -188,7 +213,14 @@ describe("SC1b — sponsored `tasks add --finding` at EXECUTE.work", () => {
       no_test_rationale: "extract a helper the missing task needs; no behavior change",
     });
     const added = await cli.step("tasks add --finding", [
-      "tasks", "add", "--input", newTask, "--finding", fnd, "--feature", F,
+      "tasks",
+      "add",
+      "--input",
+      newTask,
+      "--finding",
+      fnd,
+      "--feature",
+      F,
     ]);
     expect(added.ok).toBe(true);
     expect(added.task_ids).toEqual(["T-002"]);
@@ -218,11 +250,21 @@ describe("SC1b — sponsored `tasks add --finding` at EXECUTE.work", () => {
     const fnd = await seedToAmendTasksAtWork(cli, F);
 
     const newTasks = await cli.writeInput("new-tasks.json", [
-      { kind: "structural", no_test_rationale: "first missing structural task; no behavior change" },
+      {
+        kind: "structural",
+        no_test_rationale: "first missing structural task; no behavior change",
+      },
       { kind: "chore", no_test_rationale: "second missing chore task; pure housekeeping" },
     ]);
     const added = await cli.step("tasks add batch", [
-      "tasks", "add", "--input", newTasks, "--finding", fnd, "--feature", F,
+      "tasks",
+      "add",
+      "--input",
+      newTasks,
+      "--finding",
+      fnd,
+      "--feature",
+      F,
     ]);
     expect(added.task_ids).toEqual(["T-002", "T-003"]);
 
@@ -245,13 +287,17 @@ describe("SC1b — sponsored `tasks add --finding` at EXECUTE.work", () => {
     await step("advance SPEC.proposal", ["advance", "SPEC.proposal", "--feature", F]);
     await step("spec init", ["spec", "init", "--feature", F]);
     await step("spec submit", [
-      "spec", "submit", "--input", await writeInput("submit.json", {
+      "spec",
+      "submit",
+      "--input",
+      await writeInput("submit.json", {
         feature: { id: "F-001", name: "SC1b spec-design reject" },
         intent: "drive to SPEC.design to reject --finding there",
         adr_refs: [],
         needs_clarification: [],
       }),
-      "--feature", F,
+      "--feature",
+      F,
     ]);
     await step("advance SPEC.spec", ["advance", "SPEC.spec", "--feature", F]);
     await step("advance SPEC.plan", ["advance", "SPEC.plan", "--feature", F]);
@@ -262,7 +308,14 @@ describe("SC1b — sponsored `tasks add --finding` at EXECUTE.work", () => {
       no_test_rationale: "a structural task that should never be added with --finding",
     });
     const fail = await expectFail([
-      "tasks", "add", "--input", newTask, "--finding", "FND-001", "--feature", F,
+      "tasks",
+      "add",
+      "--input",
+      newTask,
+      "--finding",
+      "FND-001",
+      "--feature",
+      F,
     ]);
     expect(fail.code).toBe("USAGE");
   });
@@ -291,7 +344,14 @@ describe("SC1b — sponsored `tasks add --finding` at EXECUTE.work", () => {
       no_test_rationale: "a structural task sponsored by a now-closed finding",
     });
     const fail = await cli.expectFail([
-      "tasks", "add", "--input", newTask, "--finding", fnd, "--feature", F,
+      "tasks",
+      "add",
+      "--input",
+      newTask,
+      "--finding",
+      fnd,
+      "--feature",
+      F,
     ]);
     expect(fail.code).toBe("FINDING_NOT_FOUND");
     expect(fail.detail.reason).toBe("already_closed");
@@ -307,7 +367,14 @@ describe("SC1b — sponsored `tasks add --finding` at EXECUTE.work", () => {
       no_test_rationale: "a structural task sponsored by a non-existent finding",
     });
     const fail = await cli.expectFail([
-      "tasks", "add", "--input", newTask, "--finding", "FND-404", "--feature", F,
+      "tasks",
+      "add",
+      "--input",
+      newTask,
+      "--finding",
+      "FND-404",
+      "--feature",
+      F,
     ]);
     expect(fail.code).toBe("FINDING_NOT_FOUND");
     expect(fail.detail.reason).toBe("not_found");
@@ -329,7 +396,15 @@ describe("SC1b — sponsored `tasks amend --input --finding` at EXECUTE.work", (
       labels: ["perf"],
     });
     const amended = await cli.step("tasks amend --input --finding", [
-      "tasks", "amend", "T-001", "--input", newGraph, "--finding", fnd, "--feature", F,
+      "tasks",
+      "amend",
+      "T-001",
+      "--input",
+      newGraph,
+      "--finding",
+      fnd,
+      "--feature",
+      F,
     ]);
     expect(amended.ok).toBe(true);
     expect(amended.task_id).toBe("T-001");
@@ -363,14 +438,24 @@ describe("SC1b — sponsored `tasks amend --input --finding` at EXECUTE.work", (
       tests: ["sc1b.feature-dir-dispatch"],
       labels: ["feature-dir-dispatch"],
     });
-    const result = await runCli([
-      "tasks", "amend", "T-001",
-      "--input", newGraph,
-      "--finding", fnd,
-      "--feature", F,
-      "--feature-dir", dispatchedDir,
-      "--format", "json",
-    ], { env: ENV });
+    const result = await runCli(
+      [
+        "tasks",
+        "amend",
+        "T-001",
+        "--input",
+        newGraph,
+        "--finding",
+        fnd,
+        "--feature",
+        F,
+        "--feature-dir",
+        dispatchedDir,
+        "--format",
+        "json",
+      ],
+      { env: ENV },
+    );
 
     expect(result.exit).toBe(0);
     const amended = JSON.parse(result.stdout);
@@ -379,19 +464,21 @@ describe("SC1b — sponsored `tasks amend --input --finding` at EXECUTE.work", (
     expect(amended.sponsored_by_finding_id).toBe(fnd);
 
     const dispatchedEntries = await readJournal(dispatchedDir);
-    const dispatchedAmends = dispatchedEntries.filter((entry) =>
-      entry.kind === "event:tasks_amended" &&
-      entry.payload.mode === "replace" &&
-      entry.payload.sponsored_by_finding_id === fnd
+    const dispatchedAmends = dispatchedEntries.filter(
+      (entry) =>
+        entry.kind === "event:tasks_amended" &&
+        entry.payload.mode === "replace" &&
+        entry.payload.sponsored_by_finding_id === fnd,
     );
     expect(dispatchedAmends.length).toBe(1);
     expect(dispatchedAmends[0]!.payload.task.labels).toEqual(["feature-dir-dispatch"]);
 
     const wrongDefaultEntries = await readJournalIfExists(wrongDefaultDir);
-    const wrongDefaultAmends = wrongDefaultEntries.filter((entry) =>
-      entry.kind === "event:tasks_amended" &&
-      entry.payload.mode === "replace" &&
-      entry.payload.sponsored_by_finding_id === fnd
+    const wrongDefaultAmends = wrongDefaultEntries.filter(
+      (entry) =>
+        entry.kind === "event:tasks_amended" &&
+        entry.payload.mode === "replace" &&
+        entry.payload.sponsored_by_finding_id === fnd,
     );
     expect(wrongDefaultAmends).toEqual([]);
   });
@@ -402,12 +489,22 @@ describe("SC1b — sponsored `tasks amend --input --finding` at EXECUTE.work", (
     const cli = makeCli(dir, ENV);
     const fnd = await seedToAmendTasksAtWork(cli, F);
     const newGraph = await cli.writeInput("amend.json", {
-      kind: "behavioral", drives: ["REQ-CORE-001"], tests: ["sc1b.x"],
+      kind: "behavioral",
+      drives: ["REQ-CORE-001"],
+      tests: ["sc1b.x"],
     });
     const fail = await cli.expectFail([
-      "tasks", "amend", "T-001",
-      "--policy", "refactor=na", "--input", newGraph, "--finding", fnd,
-      "--feature", F,
+      "tasks",
+      "amend",
+      "T-001",
+      "--policy",
+      "refactor=na",
+      "--input",
+      newGraph,
+      "--finding",
+      fnd,
+      "--feature",
+      F,
     ]);
     expect(fail.code).toBe("USAGE");
   });
@@ -418,10 +515,18 @@ describe("SC1b — sponsored `tasks amend --input --finding` at EXECUTE.work", (
     const cli = makeCli(dir, ENV);
     await seedToAmendTasksAtWork(cli, F);
     const newGraph = await cli.writeInput("amend.json", {
-      kind: "behavioral", drives: ["REQ-CORE-001"], tests: ["sc1b.x"],
+      kind: "behavioral",
+      drives: ["REQ-CORE-001"],
+      tests: ["sc1b.x"],
     });
     const fail = await cli.expectFail([
-      "tasks", "amend", "T-001", "--input", newGraph, "--feature", F,
+      "tasks",
+      "amend",
+      "T-001",
+      "--input",
+      newGraph,
+      "--feature",
+      F,
     ]);
     expect(fail.code).toBe("USAGE");
   });
@@ -434,14 +539,32 @@ describe("SC1b — sponsored `tasks amend --input --finding` at EXECUTE.work", (
     // Raise a second finding with a different action — defer is not a
     // back-edge action, so it stays open without moving the cursor.
     const defer = await cli.step("finding raise defer", [
-      "finding", "raise", "--category", "risk-escalation", "--action", "defer",
-      "--summary", "a non-amend-tasks finding to mis-cite", "--feature", F,
+      "finding",
+      "raise",
+      "--category",
+      "risk-escalation",
+      "--action",
+      "defer",
+      "--summary",
+      "a non-amend-tasks finding to mis-cite",
+      "--feature",
+      F,
     ]);
     const newGraph = await cli.writeInput("amend.json", {
-      kind: "behavioral", drives: ["REQ-CORE-001"], tests: ["sc1b.x"],
+      kind: "behavioral",
+      drives: ["REQ-CORE-001"],
+      tests: ["sc1b.x"],
     });
     const fail = await cli.expectFail([
-      "tasks", "amend", "T-001", "--input", newGraph, "--finding", defer.id, "--feature", F,
+      "tasks",
+      "amend",
+      "T-001",
+      "--input",
+      newGraph,
+      "--finding",
+      defer.id,
+      "--feature",
+      F,
     ]);
     expect(fail.code).toBe("FINDING_NOT_FOUND");
     expect(fail.detail.reason).toBe("action_mismatch");
@@ -457,10 +580,26 @@ describe("SC1b — sponsored `tasks amend --input --finding` at EXECUTE.work", (
     // progress-bearing step in the projection.
     await cli.step("tasks claim", ["tasks", "claim", "T-001", "--feature", F]);
     await cli.step("tasks step start red", [
-      "tasks", "step", "start", "--task", "T-001", "--step", "red", "--feature", F,
+      "tasks",
+      "step",
+      "start",
+      "--task",
+      "T-001",
+      "--step",
+      "red",
+      "--feature",
+      F,
     ]);
     await cli.step("tasks step done red", [
-      "tasks", "step", "done", "--task", "T-001", "--step", "red", "--feature", F,
+      "tasks",
+      "step",
+      "done",
+      "--task",
+      "T-001",
+      "--step",
+      "red",
+      "--feature",
+      F,
     ]);
 
     // A sponsored amend that re-classifies T-001 behavioral→structural drops
@@ -471,7 +610,15 @@ describe("SC1b — sponsored `tasks amend --input --finding` at EXECUTE.work", (
       no_test_rationale: "reclassify the task, dropping the red step that has progress",
     });
     const fail = await cli.expectFail([
-      "tasks", "amend", "T-001", "--input", newGraph, "--finding", fnd, "--feature", F,
+      "tasks",
+      "amend",
+      "T-001",
+      "--input",
+      newGraph,
+      "--finding",
+      fnd,
+      "--feature",
+      F,
     ]);
     expect(fail.code).toBe("MUTATION_OUT_OF_RIGHTS");
     expect(fail.detail.field).toBe("execution.red.status");
@@ -516,7 +663,15 @@ describe("SC1b — sponsored `tasks amend --input --finding` at EXECUTE.work", (
       tests: ["sc1b.amended"],
     });
     await cli.step("tasks amend --input --finding", [
-      "tasks", "amend", "T-001", "--input", newGraph, "--finding", fnd, "--feature", F,
+      "tasks",
+      "amend",
+      "T-001",
+      "--input",
+      newGraph,
+      "--finding",
+      fnd,
+      "--feature",
+      F,
     ]);
 
     const entries = await readJournal(dir);
@@ -565,7 +720,15 @@ describe("SC1b — sponsored `tasks amend --input --finding` at EXECUTE.work", (
       no_test_rationale: "reclassify the task; the dropped red step still holds evidence",
     });
     const fail = await cli.expectFail([
-      "tasks", "amend", "T-001", "--input", newGraph, "--finding", fnd, "--feature", F,
+      "tasks",
+      "amend",
+      "T-001",
+      "--input",
+      newGraph,
+      "--finding",
+      fnd,
+      "--feature",
+      F,
     ]);
     expect(fail.code).toBe("MUTATION_OUT_OF_RIGHTS");
     expect(fail.detail.reason).toBe("sponsored_amend_drops_progress_step");

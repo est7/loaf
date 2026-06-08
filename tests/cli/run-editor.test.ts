@@ -6,11 +6,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
-import {
-  EditorTokenizeError,
-  runEditor,
-  tokenizeEditor,
-} from "../../src/cli/run-editor.js";
+import { EditorTokenizeError, runEditor, tokenizeEditor } from "../../src/cli/run-editor.js";
 
 // ───────────────────────────────────────────────────────────────────────
 // tokenizeEditor — 7 fixture cases per codex r336 P2 contract
@@ -33,9 +29,11 @@ describe("tokenizeEditor — shell-style word split with quote grouping", () => 
   });
 
   test("quote grouping: double + single quotes preserve whitespace inside", () => {
-    expect(
-      tokenizeEditor(`"node" '<stub path with spaces>.js' --flag`),
-    ).toEqual(["node", "<stub path with spaces>.js", "--flag"]);
+    expect(tokenizeEditor(`"node" '<stub path with spaces>.js' --flag`)).toEqual([
+      "node",
+      "<stub path with spaces>.js",
+      "--flag",
+    ]);
   });
 
   test("unmatched double quote → EditorTokenizeError", () => {
@@ -65,7 +63,7 @@ describe("runEditor — production wrapper", () => {
     await fs.writeFile(filePath, "fixture content");
     const result = await runEditor({
       filePath,
-      editor: "true",  // POSIX `true` — exits 0 immediately
+      editor: "true", // POSIX `true` — exits 0 immediately
       cwd: tmp,
       env: process.env,
     });
@@ -80,7 +78,7 @@ describe("runEditor — production wrapper", () => {
     await fs.writeFile(filePath, "fixture content");
     const result = await runEditor({
       filePath,
-      editor: "false",  // POSIX `false` — exits 1
+      editor: "false", // POSIX `false` — exits 1
       cwd: tmp,
       env: process.env,
     });
@@ -123,7 +121,7 @@ describe("runEditor — production wrapper", () => {
     await fs.writeFile(filePath, "x");
     const result = await runEditor({
       filePath,
-      editor: "",  // bypassing the cli.tsx fallback path explicitly
+      editor: "", // bypassing the cli.tsx fallback path explicitly
       cwd: tmp,
       env: process.env,
     });

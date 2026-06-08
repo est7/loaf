@@ -12,7 +12,11 @@
 import type { Ceremony, EntryKind, JournalEntry, SubState } from "./journal-entry.js";
 import { preflight } from "./reducer/preflight.js";
 import type { PreflightFailureCode } from "./reducer/preflight.js";
-import { checkSpecVersion as specVersionRule, findCollision, findDuplicateId } from "./reducer/invariants.js";
+import {
+  checkSpecVersion as specVersionRule,
+  findCollision,
+  findDuplicateId,
+} from "./reducer/invariants.js";
 import { extractTaskSlim, shouldPromoteToDone } from "./task-schema.js";
 import type { TaskFullProjection } from "./task-schema.js";
 import type {
@@ -217,9 +221,7 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
         // iteration by 1 (protocol.md §1 L210-212). A plain forward
         // `advance` carries no `back_edge` and leaves iteration alone.
         iteration:
-          payload.back_edge !== undefined
-            ? prev.state.iteration + 1
-            : prev.state.iteration,
+          payload.back_edge !== undefined ? prev.state.iteration + 1 : prev.state.iteration,
       };
       return { ok: true, snapshot: { ...prev, state: next } };
     }
@@ -288,7 +290,10 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
       const incoming = payload.tasks ?? [];
       const dup = findDuplicateId(incoming.map((t) => t.id));
       if (dup) {
-        return invalidPayload(entry.kind, `DUPLICATE_TASK_ID: ${dup.id} appears more than once in tasks_planned payload`);
+        return invalidPayload(
+          entry.kind,
+          `DUPLICATE_TASK_ID: ${dup.id} appears more than once in tasks_planned payload`,
+        );
       }
       const taskList: TaskState[] = incoming.map(extractTaskSlim);
       return {
@@ -371,7 +376,8 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
       // task or unseeded step so we don't silently add a step without
       // applicability metadata (which would later subvert auto-promote).
       const payload = entry.payload as { task_id?: string; step?: string };
-      if (!payload.task_id || !payload.step) return invalidPayload(entry.kind, "missing task_id/step");
+      if (!payload.task_id || !payload.step)
+        return invalidPayload(entry.kind, "missing task_id/step");
       const task = prev.tasks.find((t) => t.id === payload.task_id);
       if (!task) {
         return {
@@ -396,7 +402,10 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
               ...t,
               steps: {
                 ...t.steps,
-                [payload.step!]: { applicability: seeded.applicability, status: "running" as const },
+                [payload.step!]: {
+                  applicability: seeded.applicability,
+                  status: "running" as const,
+                },
               },
             }
           : t,
@@ -416,7 +425,8 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
         result?: "passed" | "failed" | "waived" | "na";
         red_test_registered?: boolean;
       };
-      if (!payload.task_id || !payload.step) return invalidPayload(entry.kind, "missing task_id/step");
+      if (!payload.task_id || !payload.step)
+        return invalidPayload(entry.kind, "missing task_id/step");
       const task = prev.tasks.find((t) => t.id === payload.task_id);
       if (!task) {
         return {
@@ -500,7 +510,10 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
               status: "in_progress" as const,
               steps: {
                 ...t.steps,
-                [payload.step!]: { applicability: seeded.applicability, status: "pending" as const },
+                [payload.step!]: {
+                  applicability: seeded.applicability,
+                  status: "pending" as const,
+                },
               },
             }
           : t,
@@ -542,7 +555,11 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
       if (typeof payload.spec_version !== "number") {
         return invalidPayload(entry.kind, "missing spec_version");
       }
-      const versionCheck = checkSpecVersionHead(entry, payload.spec_version, prev.state.spec_version);
+      const versionCheck = checkSpecVersionHead(
+        entry,
+        payload.spec_version,
+        prev.state.spec_version,
+      );
       if (!versionCheck.ok) {
         return invalidPayload(entry.kind, versionCheck.message);
       }
@@ -578,7 +595,10 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
         return invalidPayload(entry.kind, versionCheck.message);
       }
       if (findCollision(payload.req.id, prev.requirements, (r) => r.id)) {
-        return invalidPayload(entry.kind, `DUPLICATE_REQ_ID: ${payload.req.id} already in projection`);
+        return invalidPayload(
+          entry.kind,
+          `DUPLICATE_REQ_ID: ${payload.req.id} already in projection`,
+        );
       }
       // Slice A SC1 widen: push full payload.req (was extractRequirementSlim).
       // structuredClone isolates projection from caller-owned object
@@ -603,7 +623,10 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
         return invalidPayload(entry.kind, versionCheck.message);
       }
       if (findCollision(payload.scenario.id, prev.scenarios, (s) => s.id)) {
-        return invalidPayload(entry.kind, `DUPLICATE_SCEN_ID: ${payload.scenario.id} already in projection`);
+        return invalidPayload(
+          entry.kind,
+          `DUPLICATE_SCEN_ID: ${payload.scenario.id} already in projection`,
+        );
       }
       prev.scenarios.push(structuredClone(payload.scenario));
       return {
@@ -625,7 +648,10 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
         return invalidPayload(entry.kind, versionCheck.message);
       }
       if (findCollision(payload.visual.id, prev.visual_contracts, (v) => v.id)) {
-        return invalidPayload(entry.kind, `DUPLICATE_VIS_ID: ${payload.visual.id} already in projection`);
+        return invalidPayload(
+          entry.kind,
+          `DUPLICATE_VIS_ID: ${payload.visual.id} already in projection`,
+        );
       }
       prev.visual_contracts.push(structuredClone(payload.visual));
       return {
@@ -726,7 +752,9 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
           detail: { id: payload.id, reason: "already_closed" },
         };
       }
-      const findings = prev.findings.map((f, i) => (i === idx ? { ...f, status: "closed" as const } : f));
+      const findings = prev.findings.map((f, i) =>
+        i === idx ? { ...f, status: "closed" as const } : f,
+      );
       return { ok: true, snapshot: { ...prev, findings } };
     }
 
@@ -761,9 +789,7 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
           message: `pending:resolved id=${payload.id} does not match head id=${head.id} (FIFO violation)`,
         };
       }
-      const pending = prev.pending.map((p, i) =>
-        i === headIdx ? { ...p, resolved: true } : p,
-      );
+      const pending = prev.pending.map((p, i) => (i === headIdx ? { ...p, resolved: true } : p));
       return { ok: true, snapshot: { ...prev, pending } };
     }
 
@@ -852,9 +878,7 @@ function invalidPayload(kind: string, reason: string): ApplyResult {
 //   - undefined | 0 → must bump (payload.spec_version === current + 1)
 //   - >0            → must equal current (already bumped by batch head)
 
-type SpecVersionCheck =
-  | { ok: true; nextVersion: number }
-  | { ok: false; message: string };
+type SpecVersionCheck = { ok: true; nextVersion: number } | { ok: false; message: string };
 
 function checkSpecVersionHead(
   entry: JournalEntry,

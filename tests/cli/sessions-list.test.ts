@@ -14,10 +14,7 @@ import path from "node:path";
 import os from "node:os";
 
 import { listSessions, formatAtRelative } from "../../src/cli/sessions-list.js";
-import {
-  PROJECTION_SCHEMA_VERSION,
-  type RegistryFile,
-} from "../../src/core/projection-schema.js";
+import { PROJECTION_SCHEMA_VERSION, type RegistryFile } from "../../src/core/projection-schema.js";
 
 async function tmpRegDir(): Promise<string> {
   return await fs.mkdtemp(path.join(os.tmpdir(), "loaf-sc9b-reg-"));
@@ -43,11 +40,7 @@ async function writeRegistryEntry(
     ceremony_label: "standard",
     ...overrides,
   };
-  await fs.writeFile(
-    path.join(regDir, `${file.session_id}.json`),
-    JSON.stringify(file),
-    "utf8",
-  );
+  await fs.writeFile(path.join(regDir, `${file.session_id}.json`), JSON.stringify(file), "utf8");
 }
 
 describe("SC-9b — listSessions pure cases", () => {
@@ -92,8 +85,14 @@ describe("SC-9b — listSessions pure cases", () => {
     const dir = await tmpRegDir();
     const cwdA = await fs.mkdtemp(path.join(os.tmpdir(), "loaf-sc9b-cwdA-"));
     const cwdB = await fs.mkdtemp(path.join(os.tmpdir(), "loaf-sc9b-cwdB-"));
-    await writeRegistryEntry(dir, { session_id: "550e8400-e29b-41d4-a716-00000000000a", cwd: cwdA });
-    await writeRegistryEntry(dir, { session_id: "550e8400-e29b-41d4-a716-00000000000b", cwd: cwdB });
+    await writeRegistryEntry(dir, {
+      session_id: "550e8400-e29b-41d4-a716-00000000000a",
+      cwd: cwdA,
+    });
+    await writeRegistryEntry(dir, {
+      session_id: "550e8400-e29b-41d4-a716-00000000000b",
+      cwd: cwdB,
+    });
 
     const canonicalA = await fs.realpath(cwdA);
     const result = await listSessions({ registryDir: dir, filterCwd: canonicalA });
@@ -118,7 +117,10 @@ describe("SC-9b — listSessions pure cases", () => {
   test("T6: orphan-cwd entry — listed WITHOUT filter; NOT listed WITH filter; warning surfaced both times", async () => {
     const dir = await tmpRegDir();
     const validCwd = await fs.mkdtemp(path.join(os.tmpdir(), "loaf-sc9b-valid-"));
-    await writeRegistryEntry(dir, { session_id: "550e8400-e29b-41d4-a716-000000000020", cwd: validCwd });
+    await writeRegistryEntry(dir, {
+      session_id: "550e8400-e29b-41d4-a716-000000000020",
+      cwd: validCwd,
+    });
     // Orphan: registry references a dir that doesn't exist
     await writeRegistryEntry(dir, {
       session_id: "550e8400-e29b-41d4-a716-000000000021",
@@ -150,7 +152,11 @@ describe("SC-9b — listSessions pure cases", () => {
   test("T8: schema-invalid entry → silently absent from rows; warning surfaced with reason='schema-invalid'", async () => {
     const dir = await tmpRegDir();
     // Valid JSON but missing required fields
-    await fs.writeFile(path.join(dir, "schema-bad.json"), JSON.stringify({ session_id: "not a uuid" }), "utf8");
+    await fs.writeFile(
+      path.join(dir, "schema-bad.json"),
+      JSON.stringify({ session_id: "not a uuid" }),
+      "utf8",
+    );
     const result = await listSessions({ registryDir: dir });
     expect(result.rows).toEqual([]);
     expect(result.warnings.length).toBe(1);

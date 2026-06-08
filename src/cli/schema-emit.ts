@@ -32,12 +32,7 @@ import {
 
 /** External CLI artifact-kind names exposed by `<kind> schema` subs.
  *  Closed enum per protocol §1947 (excludes `pending`). */
-export type ArtifactSchemaKind =
-  | "spec"
-  | "tasks"
-  | "evidence"
-  | "finding"
-  | "state";
+export type ArtifactSchemaKind = "spec" | "tasks" | "evidence" | "finding" | "state";
 
 export const ARTIFACT_SCHEMA_KINDS: ReadonlyArray<ArtifactSchemaKind> = [
   "spec",
@@ -51,11 +46,11 @@ export const ARTIFACT_SCHEMA_KINDS: ReadonlyArray<ArtifactSchemaKind> = [
  *  `FindingsJson` (plural file name) — same singular/plural mismatch as
  *  SC-9c check. */
 const ARTIFACT_SCHEMAS: Record<ArtifactSchemaKind, z.ZodTypeAny> = {
-  spec:     SpecFrontmatter,
-  tasks:    TasksJson,
+  spec: SpecFrontmatter,
+  tasks: TasksJson,
   evidence: EvidenceJson,
-  finding:  FindingsJson,
-  state:    StateProjection,
+  finding: FindingsJson,
+  state: StateProjection,
 };
 
 /** Emit JSON Schema for one of the 5 batch-capable mutators. */

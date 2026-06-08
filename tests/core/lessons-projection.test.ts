@@ -93,7 +93,11 @@ describe("resolveLessonBodies", () => {
   test("inline string + inline LongTextField pass through", async () => {
     const lessons: LessonEntry[] = [
       { entry_id: "JE-1", at: "2026-05-15T10:00:00.000Z", summary: "short lesson" },
-      { entry_id: "JE-2", at: "2026-05-15T10:00:00.000Z", summary: { mode: "inline", text: "inline lesson" } as never },
+      {
+        entry_id: "JE-2",
+        at: "2026-05-15T10:00:00.000Z",
+        summary: { mode: "inline", text: "inline lesson" } as never,
+      },
     ];
     const resolved = await resolveLessonBodies("/unused", lessons);
     expect(resolved.map((r) => r.body)).toEqual(["short lesson", "inline lesson"]);
@@ -109,12 +113,20 @@ describe("resolveLessonBodies", () => {
     const size = Buffer.byteLength(body);
 
     const good: LessonEntry[] = [
-      { entry_id: "JE-000009", at: "2026-05-15T10:00:00.000Z", summary: { mode: "sidecar", ref: { path: rel, sha256, size } } as never },
+      {
+        entry_id: "JE-000009",
+        at: "2026-05-15T10:00:00.000Z",
+        summary: { mode: "sidecar", ref: { path: rel, sha256, size } } as never,
+      },
     ];
     expect((await resolveLessonBodies(dir, good))[0]!.body).toBe(body);
 
     const bad: LessonEntry[] = [
-      { entry_id: "JE-000009", at: "2026-05-15T10:00:00.000Z", summary: { mode: "sidecar", ref: { path: rel, sha256: "0".repeat(64), size } } as never },
+      {
+        entry_id: "JE-000009",
+        at: "2026-05-15T10:00:00.000Z",
+        summary: { mode: "sidecar", ref: { path: rel, sha256: "0".repeat(64), size } } as never,
+      },
     ];
     await expect(resolveLessonBodies(dir, bad)).rejects.toThrow(/integrity mismatch/);
   });
@@ -123,20 +135,35 @@ describe("resolveLessonBodies", () => {
 // ── deriveLessonsHeader ───────────────────────────────────────────────────
 describe("deriveLessonsHeader", () => {
   const started = {
-    seq: 0, entry_id: "JE-000000", actor: "cli:loaf",
-    iso_ts: "2026-05-15T10:00:00.000Z", at: "2026-05-15T10:00:00.000Z",
-    schema_version: 2, kind: "session:started",
+    seq: 0,
+    entry_id: "JE-000000",
+    actor: "cli:loaf",
+    iso_ts: "2026-05-15T10:00:00.000Z",
+    at: "2026-05-15T10:00:00.000Z",
+    schema_version: 2,
+    kind: "session:started",
     payload: { session_id: "x", feature: "auth-refresh", session_label: "Auth refresh work" },
   } as unknown as JournalEntry;
 
   test("prefers spec_header.feature when present", () => {
-    const snap = { state: { feature: "auth-refresh", iteration: 2 }, spec_header: { feature: { id: "F-001", name: "OAuth token refresh" } } } as unknown as Snapshot;
+    const snap = {
+      state: { feature: "auth-refresh", iteration: 2 },
+      spec_header: { feature: { id: "F-001", name: "OAuth token refresh" } },
+    } as unknown as Snapshot;
     const h = deriveLessonsHeader(snap, [started]);
-    expect(h).toMatchObject({ id: "F-001", name: "OAuth token refresh", date: "2026-05-15", iterations: 2 });
+    expect(h).toMatchObject({
+      id: "F-001",
+      name: "OAuth token refresh",
+      date: "2026-05-15",
+      iterations: 2,
+    });
   });
 
   test("no-spec fallback: id=state.feature, name=session_label", () => {
-    const snap = { state: { feature: "auth-refresh", iteration: 1 }, spec_header: null } as unknown as Snapshot;
+    const snap = {
+      state: { feature: "auth-refresh", iteration: 1 },
+      spec_header: null,
+    } as unknown as Snapshot;
     const h = deriveLessonsHeader(snap, [started]);
     expect(h).toMatchObject({ id: "auth-refresh", name: "Auth refresh work" });
   });

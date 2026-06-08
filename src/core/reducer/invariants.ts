@@ -12,9 +12,7 @@
 
 export type SpecVersionMode = "head" | "continuation";
 
-export type SpecVersionCheck =
-  | { ok: true; nextVersion: number }
-  | { ok: false; expected: number };
+export type SpecVersionCheck = { ok: true; nextVersion: number } | { ok: false; expected: number };
 
 /**
  * spec_version monotonicity, parametrised by batch position.

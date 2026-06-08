@@ -20,10 +20,7 @@ import path from "node:path";
 import os from "node:os";
 
 import { main } from "../../src/cli.js";
-import {
-  installSigintHandler,
-  type SigintHandlerDeps,
-} from "../../src/cli.js";
+import { installSigintHandler, type SigintHandlerDeps } from "../../src/cli.js";
 
 async function runCli(
   argv: string[],
@@ -112,7 +109,8 @@ describe("Phase 16 SC-2 — top-level boundary: exit 1 on unhandled throw", () =
           "X",
           "--feature-dir",
           featureDir,
-          "--format", "json",
+          "--format",
+          "json",
         ],
         home,
       );
@@ -198,19 +196,8 @@ describe("Phase 16 SC-2 — failRebuild normalization (SC-1 catalog drift closur
   test("unreplayable journal under `doctor --rebuild` now exits 2 (was 1)", async () => {
     const dir = await tmpDir();
     try {
-      await fs.writeFile(
-        path.join(dir, "journal.jsonl"),
-        '{"not":"a journal entry"}\n',
-        "utf8",
-      );
-      const r = await runCli([
-        "doctor",
-        "--rebuild",
-        "--feature",
-        "X",
-        "--feature-dir",
-        dir,
-      ]);
+      await fs.writeFile(path.join(dir, "journal.jsonl"), '{"not":"a journal entry"}\n', "utf8");
+      const r = await runCli(["doctor", "--rebuild", "--feature", "X", "--feature-dir", dir]);
       expect(r.exit).toBe(2);
       expect(r.stderr).toContain("cannot be replayed");
     } finally {

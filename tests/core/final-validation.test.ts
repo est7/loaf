@@ -116,7 +116,11 @@ describe("final-validation — Stage 4 end-to-end §11.2 step 4-6", () => {
     });
     const { seq, meta } = await advanceToExecuteWork(journalPath, startMeta);
 
-    const evidence = { ...oversizeEvidence(), seq, entry_id: `JE-${String(seq + 1).padStart(6, "0")}` };
+    const evidence = {
+      ...oversizeEvidence(),
+      seq,
+      entry_id: `JE-${String(seq + 1).padStart(6, "0")}`,
+    };
     const promoted = await promoteSidecars(evidence, root, { fsync: false });
     await appendEntry(journalPath, promoted, meta, { fsync: false });
 
@@ -127,7 +131,9 @@ describe("final-validation — Stage 4 end-to-end §11.2 step 4-6", () => {
     }
 
     // Verify the sidecar file on disk content matches the embedded sha256.
-    const summary = (promoted.payload as { summary: { mode: string; ref: { path: string; sha256: string } } }).summary;
+    const summary = (
+      promoted.payload as { summary: { mode: string; ref: { path: string; sha256: string } } }
+    ).summary;
     expect(summary.mode).toBe("sidecar");
     const onDisk = await fs.readFile(path.join(root, summary.ref.path));
     expect(createHash("sha256").update(onDisk).digest("hex")).toBe(summary.ref.sha256);
@@ -148,7 +154,12 @@ describe("final-validation — Stage 4 end-to-end §11.2 step 4-6", () => {
       actor: "cli:loaf",
       entry_schema_version: 1,
       kind: "pending:added",
-      payload: { id: "PEND-0001", kind: "ask_user_question", question: "stub", non_long_text_field: huge },
+      payload: {
+        id: "PEND-0001",
+        kind: "ask_user_question",
+        question: "stub",
+        non_long_text_field: huge,
+      },
     };
     // Promote does nothing here (payload has no LongTextField shape).
     const promoted = await promoteSidecars(raw, root, { fsync: false });
@@ -195,7 +206,10 @@ describe("final-validation — Stage 4 end-to-end §11.2 step 4-6", () => {
     await appendEntry(journalPath, promoted, emptyMeta(), { fsync: false });
 
     const note = (promoted.payload as { note: { ref: { path: string; sha256: string } } }).note;
-    const fileExists = await fs.stat(path.join(root, note.ref.path)).then(() => true).catch(() => false);
+    const fileExists = await fs
+      .stat(path.join(root, note.ref.path))
+      .then(() => true)
+      .catch(() => false);
     expect(fileExists).toBe(true);
   });
 });

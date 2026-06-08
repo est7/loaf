@@ -53,7 +53,9 @@ describe("runtime i18n key gate", () => {
   test("every runtime presentation key exists in en + zh bundles", () => {
     expect(new Set(RUNTIME_I18N_KEYS).size).toBe(RUNTIME_I18N_KEYS.length);
     for (const locale of LOCALES) {
-      const missing = RUNTIME_I18N_KEYS.filter((key) => lookup(BUILTIN_BUNDLES[locale], key) === undefined);
+      const missing = RUNTIME_I18N_KEYS.filter(
+        (key) => lookup(BUILTIN_BUNDLES[locale], key) === undefined,
+      );
       expect(missing, `${locale} missing runtime i18n keys`).toEqual([]);
     }
   });
@@ -107,7 +109,9 @@ describe("runtime i18n key gate", () => {
   });
 
   test("failure site keys are explicit, localized, placeholder-symmetric, and map to catalog codes", () => {
-    const templateByKey = new Map(Object.values(FAILURE_SITE_TEMPLATES).map((entry) => [entry.key, entry]));
+    const templateByKey = new Map(
+      Object.values(FAILURE_SITE_TEMPLATES).map((entry) => [entry.key, entry]),
+    );
     expect(templateByKey.size).toBe(Object.keys(FAILURE_SITE_TEMPLATES).length);
 
     for (const key of Object.values(FAILURE_SITE_KEYS)) {
@@ -120,7 +124,9 @@ describe("runtime i18n key gate", () => {
       expect(en, `${key} en`).toBeTypeOf("string");
       expect(zh, `${key} zh`).toBeTypeOf("string");
       expect(placeholders(String(en)), `${key} zh placeholders`).toEqual(placeholders(String(zh)));
-      expect(placeholders(String(en)), `${key} registry placeholders`).toEqual(placeholders(entry!.template));
+      expect(placeholders(String(en)), `${key} registry placeholders`).toEqual(
+        placeholders(entry!.template),
+      );
     }
   });
 
@@ -167,7 +173,7 @@ async function collectSources(dir: string): Promise<string[]> {
   for (const entry of entries) {
     const entryPath = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      out.push(...await collectSources(entryPath));
+      out.push(...(await collectSources(entryPath)));
     } else if (entry.name.endsWith(".ts") || entry.name.endsWith(".tsx")) {
       out.push(entryPath);
     }

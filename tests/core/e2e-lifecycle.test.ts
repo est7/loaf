@@ -146,37 +146,88 @@ async function seedToVerifyAccept(
   });
   await step("tasks submit", ["tasks", "submit", "--input", tasksFile, "--feature", F]);
   await step("gate spec-lock", [
-    "gate", "decide", "spec-lock", "--approve",
-    "--reason", "spec and task graph complete", "--feature", F,
+    "gate",
+    "decide",
+    "spec-lock",
+    "--approve",
+    "--reason",
+    "spec and task graph complete",
+    "--feature",
+    F,
   ]);
   await step("advance EXECUTE.work", ["advance", "EXECUTE.work", "--feature", F]);
   await step("tasks claim T-001", ["tasks", "claim", "T-001", "--feature", F]);
   for (const stp of ["red", "implement"]) {
     await step(`step start ${stp}`, [
-      "tasks", "step", "start", "--task", "T-001", "--step", stp, "--feature", F,
+      "tasks",
+      "step",
+      "start",
+      "--task",
+      "T-001",
+      "--step",
+      stp,
+      "--feature",
+      F,
     ]);
     await step(`step done ${stp}`, [
-      "tasks", "step", "done", "--task", "T-001", "--step", stp, "--feature", F,
+      "tasks",
+      "step",
+      "done",
+      "--task",
+      "T-001",
+      "--step",
+      stp,
+      "--feature",
+      F,
     ]);
   }
   await step("advance EXECUTE.done", ["advance", "EXECUTE.done", "--feature", F]);
   for (const ss of [
-    "VERIFY.plan", "VERIFY.run", "VERIFY.review",
-    "VERIFY.acceptance", "VERIFY.visual", "VERIFY.accept",
+    "VERIFY.plan",
+    "VERIFY.run",
+    "VERIFY.review",
+    "VERIFY.acceptance",
+    "VERIFY.visual",
+    "VERIFY.accept",
   ]) {
     await step(`advance ${ss}`, ["advance", ss, "--feature", F]);
   }
   const tsEvidence = await writeInput("ev-task-summary.json", {
-    kind: "task-summary", iteration: 1, actor: "cli:loaf", result: "passed",
-    summary: "unit tests pass for T-001", task_id: "T-001", covers: ["T-001"],
-    cmd: "bun test", exit: 0,
+    kind: "task-summary",
+    iteration: 1,
+    actor: "cli:loaf",
+    result: "passed",
+    summary: "unit tests pass for T-001",
+    task_id: "T-001",
+    covers: ["T-001"],
+    cmd: "bun test",
+    exit: 0,
   });
-  await step("evidence add task-summary", ["evidence", "add", "--input", tsEvidence, "--feature", F]);
+  await step("evidence add task-summary", [
+    "evidence",
+    "add",
+    "--input",
+    tsEvidence,
+    "--feature",
+    F,
+  ]);
   const vrEvidence = await writeInput("ev-verify-review.json", {
-    kind: "verify-review", iteration: 1, actor: "cli:loaf", result: "approved",
-    summary: "spec-fit review passed", check: "review", covers: ["REQ-CORE-001"],
+    kind: "verify-review",
+    iteration: 1,
+    actor: "cli:loaf",
+    result: "approved",
+    summary: "spec-fit review passed",
+    check: "review",
+    covers: ["REQ-CORE-001"],
   });
-  await step("evidence add verify-review", ["evidence", "add", "--input", vrEvidence, "--feature", F]);
+  await step("evidence add verify-review", [
+    "evidence",
+    "add",
+    "--input",
+    vrEvidence,
+    "--feature",
+    F,
+  ]);
 }
 
 // These scenarios drive 20-30 real `loaf` CLI subprocesses each. Phase 15
@@ -248,9 +299,14 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
 
     // ── gate spec-lock (flips spec_locked; does NOT move cursor) ─────────
     await step("gate spec-lock", [
-      "gate", "decide", "spec-lock", "--approve",
-      "--reason", "all spec-lock checks pass for the smoke feature",
-      "--feature", F,
+      "gate",
+      "decide",
+      "spec-lock",
+      "--approve",
+      "--reason",
+      "all spec-lock checks pass for the smoke feature",
+      "--feature",
+      F,
     ]);
 
     // ── EXECUTE ─────────────────────────────────────────────────────────
@@ -264,18 +320,38 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     // runs — a step done after the last must-step cannot reopen the task).
     for (const stp of ["red", "implement"]) {
       await step(`tasks step start ${stp}`, [
-        "tasks", "step", "start", "--task", "T-001", "--step", stp, "--feature", F,
+        "tasks",
+        "step",
+        "start",
+        "--task",
+        "T-001",
+        "--step",
+        stp,
+        "--feature",
+        F,
       ]);
       await step(`tasks step done ${stp}`, [
-        "tasks", "step", "done", "--task", "T-001", "--step", stp, "--feature", F,
+        "tasks",
+        "step",
+        "done",
+        "--task",
+        "T-001",
+        "--step",
+        stp,
+        "--feature",
+        F,
       ]);
     }
     await step("advance EXECUTE.done", ["advance", "EXECUTE.done", "--feature", F]);
 
     // ── VERIFY ──────────────────────────────────────────────────────────
     for (const ss of [
-      "VERIFY.plan", "VERIFY.run", "VERIFY.review",
-      "VERIFY.acceptance", "VERIFY.visual", "VERIFY.accept",
+      "VERIFY.plan",
+      "VERIFY.run",
+      "VERIFY.review",
+      "VERIFY.acceptance",
+      "VERIFY.visual",
+      "VERIFY.accept",
     ]) {
       await step(`advance ${ss}`, ["advance", ss, "--feature", F]);
     }
@@ -296,7 +372,14 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
       cmd: "bun test",
       exit: 0,
     });
-    await step("evidence add task-summary", ["evidence", "add", "--input", tsEvidence, "--feature", F]);
+    await step("evidence add task-summary", [
+      "evidence",
+      "add",
+      "--input",
+      tsEvidence,
+      "--feature",
+      F,
+    ]);
     const vrEvidence = await writeInput("ev-verify-review.json", {
       kind: "verify-review",
       iteration: 1,
@@ -306,12 +389,24 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
       check: "review",
       covers: ["REQ-CORE-001"],
     });
-    await step("evidence add verify-review", ["evidence", "add", "--input", vrEvidence, "--feature", F]);
+    await step("evidence add verify-review", [
+      "evidence",
+      "add",
+      "--input",
+      vrEvidence,
+      "--feature",
+      F,
+    ]);
 
     await step("gate verify-accept", [
-      "gate", "decide", "verify-accept", "--approve",
-      "--reason", "all verify-accept checks pass for the smoke feature",
-      "--feature", F,
+      "gate",
+      "decide",
+      "verify-accept",
+      "--approve",
+      "--reason",
+      "all verify-accept checks pass for the smoke feature",
+      "--feature",
+      F,
     ]);
 
     // ── DELIVER ─────────────────────────────────────────────────────────
@@ -333,11 +428,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     const { step, writeInput } = makeCli(dir, ENV);
 
     // Assert `loaf next` recommends exactly `command` (+ optional blocked flag).
-    const expectNext = async (
-      label: string,
-      command: string,
-      blocked?: boolean,
-    ): Promise<any> => {
+    const expectNext = async (label: string, command: string, blocked?: boolean): Promise<any> => {
       const out = await step(`next @ ${label}`, ["next", "--feature", F]);
       expect(out.next_action?.command, `next @ ${label}`).toBe(command);
       if (blocked !== undefined) expect(out.blocked).toBe(blocked);
@@ -404,8 +495,14 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
       true,
     );
     await step("gate spec-lock", [
-      "gate", "decide", "spec-lock", "--approve",
-      "--reason", "all spec-lock checks pass for the next-driven smoke", "--feature", F,
+      "gate",
+      "decide",
+      "spec-lock",
+      "--approve",
+      "--reason",
+      "all spec-lock checks pass for the next-driven smoke",
+      "--feature",
+      F,
     ]);
 
     // ── EXECUTE (spec-lock co-advanced the cursor to EXECUTE.plan) ──────
@@ -414,8 +511,28 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     await expectNext("EXECUTE.work", "loaf tasks next", false);
     await step("tasks claim T-001", ["tasks", "claim", "T-001", "--feature", F]);
     for (const stp of ["red", "implement"]) {
-      await step(`step start ${stp}`, ["tasks", "step", "start", "--task", "T-001", "--step", stp, "--feature", F]);
-      await step(`step done ${stp}`, ["tasks", "step", "done", "--task", "T-001", "--step", stp, "--feature", F]);
+      await step(`step start ${stp}`, [
+        "tasks",
+        "step",
+        "start",
+        "--task",
+        "T-001",
+        "--step",
+        stp,
+        "--feature",
+        F,
+      ]);
+      await step(`step done ${stp}`, [
+        "tasks",
+        "step",
+        "done",
+        "--task",
+        "T-001",
+        "--step",
+        stp,
+        "--feature",
+        F,
+      ]);
     }
     // All tasks terminal — `loaf next` at EXECUTE.work always says `tasks next`,
     // so the skill (not the kernel) advances once its work loop drains. Mirror
@@ -435,23 +552,46 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
       }
       expect(n.next_action.owner_verb).toBe("advance");
       expect(n.next_action.target).toMatch(/^VERIFY\./);
-      await step(`advance ${n.next_action.target}`, ["advance", n.next_action.target, "--feature", F]);
+      await step(`advance ${n.next_action.target}`, [
+        "advance",
+        n.next_action.target,
+        "--feature",
+        F,
+      ]);
     }
     expect(reachedGate).toBe(true);
 
     // Evidence for the verify-accept gate (task-summary → done-task + run lane;
     // verify-review → review lane); same set SCEN-E2E-001 proves sufficient.
     const tsEvidence = await writeInput("ev-ts.json", {
-      kind: "task-summary", iteration: 1, actor: "cli:loaf", result: "passed",
-      summary: "unit tests pass for T-001", task_id: "T-001", covers: ["T-001"],
-      cmd: "bun test", exit: 0,
+      kind: "task-summary",
+      iteration: 1,
+      actor: "cli:loaf",
+      result: "passed",
+      summary: "unit tests pass for T-001",
+      task_id: "T-001",
+      covers: ["T-001"],
+      cmd: "bun test",
+      exit: 0,
     });
     await step("evidence task-summary", ["evidence", "add", "--input", tsEvidence, "--feature", F]);
     const vrEvidence = await writeInput("ev-vr.json", {
-      kind: "verify-review", iteration: 1, actor: "cli:loaf", result: "approved",
-      summary: "spec-fit review passed; no anti-pattern", check: "review", covers: ["REQ-CORE-001"],
+      kind: "verify-review",
+      iteration: 1,
+      actor: "cli:loaf",
+      result: "approved",
+      summary: "spec-fit review passed; no anti-pattern",
+      check: "review",
+      covers: ["REQ-CORE-001"],
     });
-    await step("evidence verify-review", ["evidence", "add", "--input", vrEvidence, "--feature", F]);
+    await step("evidence verify-review", [
+      "evidence",
+      "add",
+      "--input",
+      vrEvidence,
+      "--feature",
+      F,
+    ]);
 
     // ── verify-accept gate → deliver → DONE ─────────────────────────────
     await expectNext(
@@ -460,8 +600,14 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
       true,
     );
     await step("gate verify-accept", [
-      "gate", "decide", "verify-accept", "--approve",
-      "--reason", "all verify-accept checks pass for the next-driven smoke", "--feature", F,
+      "gate",
+      "decide",
+      "verify-accept",
+      "--approve",
+      "--reason",
+      "all verify-accept checks pass for the next-driven smoke",
+      "--feature",
+      F,
     ]);
     await expectNext("VERIFY.accept post-approve", "loaf deliver", false);
     const delivered = await step("deliver", ["deliver", "--feature", F]);
@@ -521,15 +667,37 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
 
     // ── gate spec-lock → EXECUTE.plan ───────────────────────────────────
     await step("gate spec-lock", [
-      "gate", "decide", "spec-lock", "--approve",
-      "--reason", "structural DAG feature passes spec-lock", "--feature", F,
+      "gate",
+      "decide",
+      "spec-lock",
+      "--approve",
+      "--reason",
+      "structural DAG feature passes spec-lock",
+      "--feature",
+      F,
     ]);
 
     // ── tasks amend --policy at EXECUTE.plan: narrow refactor must -> na ─
     // tasks add materializes every step at applicability=must; structural
     // refactor is narrowed to na so the task auto-promotes after implement.
-    await step("tasks amend T-001", ["tasks", "amend", "T-001", "--policy", "refactor=na", "--feature", F]);
-    await step("tasks amend T-002", ["tasks", "amend", "T-002", "--policy", "refactor=na", "--feature", F]);
+    await step("tasks amend T-001", [
+      "tasks",
+      "amend",
+      "T-001",
+      "--policy",
+      "refactor=na",
+      "--feature",
+      F,
+    ]);
+    await step("tasks amend T-002", [
+      "tasks",
+      "amend",
+      "T-002",
+      "--policy",
+      "refactor=na",
+      "--feature",
+      F,
+    ]);
 
     await step("advance EXECUTE.work", ["advance", "EXECUTE.work", "--feature", F]);
 
@@ -540,10 +708,26 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
 
     await step("tasks claim T-001", ["tasks", "claim", "T-001", "--feature", F]);
     await step("step start implement T-001", [
-      "tasks", "step", "start", "--task", "T-001", "--step", "implement", "--feature", F,
+      "tasks",
+      "step",
+      "start",
+      "--task",
+      "T-001",
+      "--step",
+      "implement",
+      "--feature",
+      F,
     ]);
     await step("step done implement T-001", [
-      "tasks", "step", "done", "--task", "T-001", "--step", "implement", "--feature", F,
+      "tasks",
+      "step",
+      "done",
+      "--task",
+      "T-001",
+      "--step",
+      "implement",
+      "--feature",
+      F,
     ]);
 
     const next2 = await step("tasks next (post)", ["tasks", "next", "--feature", F]);
@@ -551,18 +735,38 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
 
     await step("tasks claim T-002", ["tasks", "claim", "T-002", "--feature", F]);
     await step("step start implement T-002", [
-      "tasks", "step", "start", "--task", "T-002", "--step", "implement", "--feature", F,
+      "tasks",
+      "step",
+      "start",
+      "--task",
+      "T-002",
+      "--step",
+      "implement",
+      "--feature",
+      F,
     ]);
     await step("step done implement T-002", [
-      "tasks", "step", "done", "--task", "T-002", "--step", "implement", "--feature", F,
+      "tasks",
+      "step",
+      "done",
+      "--task",
+      "T-002",
+      "--step",
+      "implement",
+      "--feature",
+      F,
     ]);
 
     await step("advance EXECUTE.done", ["advance", "EXECUTE.done", "--feature", F]);
 
     // ── VERIFY ──────────────────────────────────────────────────────────
     for (const ss of [
-      "VERIFY.plan", "VERIFY.run", "VERIFY.review",
-      "VERIFY.acceptance", "VERIFY.visual", "VERIFY.accept",
+      "VERIFY.plan",
+      "VERIFY.run",
+      "VERIFY.review",
+      "VERIFY.acceptance",
+      "VERIFY.visual",
+      "VERIFY.accept",
     ]) {
       await step(`advance ${ss}`, ["advance", ss, "--feature", F]);
     }
@@ -577,7 +781,14 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
       cmd: "bun test",
       exit: 0,
     });
-    await step("evidence add task-summary", ["evidence", "add", "--input", tsEvidence, "--feature", F]);
+    await step("evidence add task-summary", [
+      "evidence",
+      "add",
+      "--input",
+      tsEvidence,
+      "--feature",
+      F,
+    ]);
     const vrEvidence = await writeInput("ev-verify-review.json", {
       kind: "verify-review",
       iteration: 1,
@@ -587,12 +798,24 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
       check: "review",
       covers: ["REQ-CORE-001"],
     });
-    await step("evidence add verify-review", ["evidence", "add", "--input", vrEvidence, "--feature", F]);
+    await step("evidence add verify-review", [
+      "evidence",
+      "add",
+      "--input",
+      vrEvidence,
+      "--feature",
+      F,
+    ]);
 
     await step("gate verify-accept", [
-      "gate", "decide", "verify-accept", "--approve",
-      "--reason", "all verify-accept checks pass for the structural DAG feature",
-      "--feature", F,
+      "gate",
+      "decide",
+      "verify-accept",
+      "--approve",
+      "--reason",
+      "all verify-accept checks pass for the structural DAG feature",
+      "--feature",
+      F,
     ]);
     const delivered = await step("deliver", ["deliver", "--feature", F]);
     expect(delivered.sub_state ?? delivered.state?.sub_state).toBe("DONE.delivered");
@@ -665,8 +888,14 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     await step("tasks add chore", ["tasks", "add", "--input", tChore, "--feature", F]);
 
     await step("gate spec-lock", [
-      "gate", "decide", "spec-lock", "--approve",
-      "--reason", "mixed-kind feature passes spec-lock", "--feature", F,
+      "gate",
+      "decide",
+      "spec-lock",
+      "--approve",
+      "--reason",
+      "mixed-kind feature passes spec-lock",
+      "--feature",
+      F,
     ]);
     await step("advance EXECUTE.work", ["advance", "EXECUTE.work", "--feature", F]);
 
@@ -680,10 +909,26 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
       await step(`tasks claim ${task}`, ["tasks", "claim", task, "--feature", F]);
       for (const stp of steps) {
         await step(`step start ${task} ${stp}`, [
-          "tasks", "step", "start", "--task", task, "--step", stp, "--feature", F,
+          "tasks",
+          "step",
+          "start",
+          "--task",
+          task,
+          "--step",
+          stp,
+          "--feature",
+          F,
         ]);
         await step(`step done ${task} ${stp}`, [
-          "tasks", "step", "done", "--task", task, "--step", stp, "--feature", F,
+          "tasks",
+          "step",
+          "done",
+          "--task",
+          task,
+          "--step",
+          stp,
+          "--feature",
+          F,
         ]);
       }
     }
@@ -691,8 +936,12 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
 
     // ── VERIFY ──────────────────────────────────────────────────────────
     for (const ss of [
-      "VERIFY.plan", "VERIFY.run", "VERIFY.review",
-      "VERIFY.acceptance", "VERIFY.visual", "VERIFY.accept",
+      "VERIFY.plan",
+      "VERIFY.run",
+      "VERIFY.review",
+      "VERIFY.acceptance",
+      "VERIFY.visual",
+      "VERIFY.accept",
     ]) {
       await step(`advance ${ss}`, ["advance", ss, "--feature", F]);
     }
@@ -709,7 +958,14 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
       cmd: "bun test",
       exit: 0,
     });
-    await step("evidence add task-summary", ["evidence", "add", "--input", tsEvidence, "--feature", F]);
+    await step("evidence add task-summary", [
+      "evidence",
+      "add",
+      "--input",
+      tsEvidence,
+      "--feature",
+      F,
+    ]);
     const vrEvidence = await writeInput("ev-verify-review.json", {
       kind: "verify-review",
       iteration: 1,
@@ -719,7 +975,14 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
       check: "review",
       covers: ["REQ-CORE-001"],
     });
-    await step("evidence add verify-review", ["evidence", "add", "--input", vrEvidence, "--feature", F]);
+    await step("evidence add verify-review", [
+      "evidence",
+      "add",
+      "--input",
+      vrEvidence,
+      "--feature",
+      F,
+    ]);
     const vsEvidence = await writeInput("ev-visual-review.json", {
       kind: "visual-review",
       iteration: 1,
@@ -731,15 +994,32 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
       // visual-review requires >=1 pre-hashed attachment; the CLI does not
       // stat/hash/copy the file in this slice — it is passthrough metadata.
       attachments: [
-        { path: "screenshots/vis-core-001.png", sha256: "a".repeat(64), mime: "image/png", bytes: 1024 },
+        {
+          path: "screenshots/vis-core-001.png",
+          sha256: "a".repeat(64),
+          mime: "image/png",
+          bytes: 1024,
+        },
       ],
     });
-    await step("evidence add visual-review", ["evidence", "add", "--input", vsEvidence, "--feature", F]);
+    await step("evidence add visual-review", [
+      "evidence",
+      "add",
+      "--input",
+      vsEvidence,
+      "--feature",
+      F,
+    ]);
 
     await step("gate verify-accept", [
-      "gate", "decide", "verify-accept", "--approve",
-      "--reason", "all verify-accept checks pass for the mixed-kind feature",
-      "--feature", F,
+      "gate",
+      "decide",
+      "verify-accept",
+      "--approve",
+      "--reason",
+      "all verify-accept checks pass for the mixed-kind feature",
+      "--feature",
+      F,
     ]);
     const delivered = await step("deliver", ["deliver", "--feature", F]);
     expect(delivered.sub_state ?? delivered.state?.sub_state).toBe("DONE.delivered");
@@ -800,8 +1080,14 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     });
     await step("tasks submit", ["tasks", "submit", "--input", tasksFile, "--feature", F]);
     await step("gate spec-lock", [
-      "gate", "decide", "spec-lock", "--approve",
-      "--reason", "deep feature passes spec-lock", "--feature", F,
+      "gate",
+      "decide",
+      "spec-lock",
+      "--approve",
+      "--reason",
+      "deep feature passes spec-lock",
+      "--feature",
+      F,
     ]);
 
     // ── EXECUTE ─────────────────────────────────────────────────────────
@@ -809,18 +1095,38 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     await step("tasks claim T-001", ["tasks", "claim", "T-001", "--feature", F]);
     for (const stp of ["red", "implement"]) {
       await step(`step start ${stp}`, [
-        "tasks", "step", "start", "--task", "T-001", "--step", stp, "--feature", F,
+        "tasks",
+        "step",
+        "start",
+        "--task",
+        "T-001",
+        "--step",
+        stp,
+        "--feature",
+        F,
       ]);
       await step(`step done ${stp}`, [
-        "tasks", "step", "done", "--task", "T-001", "--step", stp, "--feature", F,
+        "tasks",
+        "step",
+        "done",
+        "--task",
+        "T-001",
+        "--step",
+        stp,
+        "--feature",
+        F,
       ]);
     }
     await step("advance EXECUTE.done", ["advance", "EXECUTE.done", "--feature", F]);
 
     // ── VERIFY ──────────────────────────────────────────────────────────
     for (const ss of [
-      "VERIFY.plan", "VERIFY.run", "VERIFY.review",
-      "VERIFY.acceptance", "VERIFY.visual", "VERIFY.accept",
+      "VERIFY.plan",
+      "VERIFY.run",
+      "VERIFY.review",
+      "VERIFY.acceptance",
+      "VERIFY.visual",
+      "VERIFY.accept",
     ]) {
       await step(`advance ${ss}`, ["advance", ss, "--feature", F]);
     }
@@ -839,7 +1145,14 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
       cmd: "bun test",
       exit: 0,
     });
-    await step("evidence add task-summary", ["evidence", "add", "--input", tsEvidence, "--feature", F]);
+    await step("evidence add task-summary", [
+      "evidence",
+      "add",
+      "--input",
+      tsEvidence,
+      "--feature",
+      F,
+    ]);
     const srEvidence = await writeInput("ev-spec-review.json", {
       kind: "spec-review",
       iteration: 1,
@@ -849,12 +1162,24 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
       check: "review",
       covers: ["REQ-CORE-001"],
     });
-    await step("evidence add spec-review", ["evidence", "add", "--input", srEvidence, "--feature", F]);
+    await step("evidence add spec-review", [
+      "evidence",
+      "add",
+      "--input",
+      srEvidence,
+      "--feature",
+      F,
+    ]);
 
     await step("gate verify-accept", [
-      "gate", "decide", "verify-accept", "--approve",
-      "--reason", "all verify-accept checks pass for the deep feature",
-      "--feature", F,
+      "gate",
+      "decide",
+      "verify-accept",
+      "--approve",
+      "--reason",
+      "all verify-accept checks pass for the deep feature",
+      "--feature",
+      F,
     ]);
 
     // ── deep deliver routing — SCEN-008: deliver cannot bypass settle ────
@@ -954,8 +1279,14 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
 
     // ── reject — cursor stays SPEC.design, spec_locked stays false ──────
     await step("gate spec-lock reject", [
-      "gate", "decide", "spec-lock", "--reject",
-      "--reason", "hold for one more spec review pass", "--feature", F,
+      "gate",
+      "decide",
+      "spec-lock",
+      "--reject",
+      "--reason",
+      "hold for one more spec review pass",
+      "--feature",
+      F,
     ]);
     const afterReject = await step("status after reject", ["status", "--feature", F]);
     expect(afterReject.state.sub_state).toBe("SPEC.design");
@@ -963,8 +1294,14 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
 
     // ── approve — cursor advances to EXECUTE.plan ───────────────────────
     const approved = await step("gate spec-lock approve", [
-      "gate", "decide", "spec-lock", "--approve",
-      "--reason", "spec and task graph are complete", "--feature", F,
+      "gate",
+      "decide",
+      "spec-lock",
+      "--approve",
+      "--reason",
+      "spec and task graph are complete",
+      "--feature",
+      F,
     ]);
     expect(approved.sub_state ?? approved.state?.sub_state).toBe("EXECUTE.plan");
   });
@@ -1022,42 +1359,99 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     });
     await step("tasks submit", ["tasks", "submit", "--input", tasksFile, "--feature", F]);
     await step("gate spec-lock", [
-      "gate", "decide", "spec-lock", "--approve",
-      "--reason", "spec and task graph complete", "--feature", F,
+      "gate",
+      "decide",
+      "spec-lock",
+      "--approve",
+      "--reason",
+      "spec and task graph complete",
+      "--feature",
+      F,
     ]);
     await step("advance EXECUTE.work", ["advance", "EXECUTE.work", "--feature", F]);
     await step("tasks claim T-001", ["tasks", "claim", "T-001", "--feature", F]);
     for (const stp of ["red", "implement"]) {
       await step(`step start ${stp}`, [
-        "tasks", "step", "start", "--task", "T-001", "--step", stp, "--feature", F,
+        "tasks",
+        "step",
+        "start",
+        "--task",
+        "T-001",
+        "--step",
+        stp,
+        "--feature",
+        F,
       ]);
       await step(`step done ${stp}`, [
-        "tasks", "step", "done", "--task", "T-001", "--step", stp, "--feature", F,
+        "tasks",
+        "step",
+        "done",
+        "--task",
+        "T-001",
+        "--step",
+        stp,
+        "--feature",
+        F,
       ]);
     }
     await step("advance EXECUTE.done", ["advance", "EXECUTE.done", "--feature", F]);
     for (const ss of [
-      "VERIFY.plan", "VERIFY.run", "VERIFY.review",
-      "VERIFY.acceptance", "VERIFY.visual", "VERIFY.accept",
+      "VERIFY.plan",
+      "VERIFY.run",
+      "VERIFY.review",
+      "VERIFY.acceptance",
+      "VERIFY.visual",
+      "VERIFY.accept",
     ]) {
       await step(`advance ${ss}`, ["advance", ss, "--feature", F]);
     }
     const tsEvidence = await writeInput("ev-task-summary.json", {
-      kind: "task-summary", iteration: 1, actor: "cli:loaf", result: "passed",
-      summary: "unit tests pass for T-001", task_id: "T-001", covers: ["T-001"],
-      cmd: "bun test", exit: 0,
+      kind: "task-summary",
+      iteration: 1,
+      actor: "cli:loaf",
+      result: "passed",
+      summary: "unit tests pass for T-001",
+      task_id: "T-001",
+      covers: ["T-001"],
+      cmd: "bun test",
+      exit: 0,
     });
-    await step("evidence add task-summary", ["evidence", "add", "--input", tsEvidence, "--feature", F]);
+    await step("evidence add task-summary", [
+      "evidence",
+      "add",
+      "--input",
+      tsEvidence,
+      "--feature",
+      F,
+    ]);
     const vrEvidence = await writeInput("ev-verify-review.json", {
-      kind: "verify-review", iteration: 1, actor: "cli:loaf", result: "approved",
-      summary: "spec-fit review passed", check: "review", covers: ["REQ-CORE-001"],
+      kind: "verify-review",
+      iteration: 1,
+      actor: "cli:loaf",
+      result: "approved",
+      summary: "spec-fit review passed",
+      check: "review",
+      covers: ["REQ-CORE-001"],
     });
-    await step("evidence add verify-review", ["evidence", "add", "--input", vrEvidence, "--feature", F]);
+    await step("evidence add verify-review", [
+      "evidence",
+      "add",
+      "--input",
+      vrEvidence,
+      "--feature",
+      F,
+    ]);
 
     // ── reject — verify_accepted stays false, deliver is blocked ────────
     await step("gate verify-accept reject", [
-      "gate", "decide", "verify-accept", "--reject",
-      "--reason", "hold for one more verification pass", "--feature", F,
+      "gate",
+      "decide",
+      "verify-accept",
+      "--reject",
+      "--reason",
+      "hold for one more verification pass",
+      "--feature",
+      F,
     ]);
     const afterReject = await step("status after reject", ["status", "--feature", F]);
     expect(afterReject.state.sub_state).toBe("VERIFY.accept");
@@ -1072,8 +1466,14 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
 
     // ── approve — deliver unblocked ─────────────────────────────────────
     await step("gate verify-accept approve", [
-      "gate", "decide", "verify-accept", "--approve",
-      "--reason", "all verify-accept checks pass", "--feature", F,
+      "gate",
+      "decide",
+      "verify-accept",
+      "--approve",
+      "--reason",
+      "all verify-accept checks pass",
+      "--feature",
+      F,
     ]);
     const delivered = await step("deliver", ["deliver", "--feature", F]);
     expect(delivered.sub_state ?? delivered.state?.sub_state).toBe("DONE.delivered");
@@ -1133,16 +1533,35 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     });
     await step("tasks submit", ["tasks", "submit", "--input", tasksFile, "--feature", F]);
     await step("gate spec-lock", [
-      "gate", "decide", "spec-lock", "--approve",
-      "--reason", "bug feature passes spec-lock", "--feature", F,
+      "gate",
+      "decide",
+      "spec-lock",
+      "--approve",
+      "--reason",
+      "bug feature passes spec-lock",
+      "--feature",
+      F,
     ]);
     await step("advance EXECUTE.work", ["advance", "EXECUTE.work", "--feature", F]);
     await step("tasks claim T-001", ["tasks", "claim", "T-001", "--feature", F]);
 
     // ── implement is blocked until RED is registered ────────────────────
     const gated = await runCli(
-      ["tasks", "step", "start", "--task", "T-001", "--step", "implement",
-        "--feature", F, "--feature-dir", dir, "--format", "json"],
+      [
+        "tasks",
+        "step",
+        "start",
+        "--task",
+        "T-001",
+        "--step",
+        "implement",
+        "--feature",
+        F,
+        "--feature-dir",
+        dir,
+        "--format",
+        "json",
+      ],
       { env: ENV },
     );
     expect(gated.exit).toBe(2);
@@ -1151,10 +1570,26 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     // ── register-red unlocks implement ──────────────────────────────────
     await step("tasks register-red", ["tasks", "register-red", "T-001", "--feature", F]);
     await step("step start implement", [
-      "tasks", "step", "start", "--task", "T-001", "--step", "implement", "--feature", F,
+      "tasks",
+      "step",
+      "start",
+      "--task",
+      "T-001",
+      "--step",
+      "implement",
+      "--feature",
+      F,
     ]);
     await step("step done implement", [
-      "tasks", "step", "done", "--task", "T-001", "--step", "implement", "--feature", F,
+      "tasks",
+      "step",
+      "done",
+      "--task",
+      "T-001",
+      "--step",
+      "implement",
+      "--feature",
+      F,
     ]);
 
     // T-001 auto-promotes: red registered, implement done, refactor optional.
@@ -1214,40 +1649,97 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     });
     await step("tasks submit", ["tasks", "submit", "--input", tasksFile, "--feature", F]);
     await step("gate spec-lock", [
-      "gate", "decide", "spec-lock", "--approve",
-      "--reason", "spike feature passes spec-lock", "--feature", F,
+      "gate",
+      "decide",
+      "spec-lock",
+      "--approve",
+      "--reason",
+      "spike feature passes spec-lock",
+      "--feature",
+      F,
     ]);
     await step("advance EXECUTE.work", ["advance", "EXECUTE.work", "--feature", F]);
     await step("tasks claim T-001", ["tasks", "claim", "T-001", "--feature", F]);
     for (const stp of ["explore", "prototype", "record"]) {
       await step(`step start ${stp}`, [
-        "tasks", "step", "start", "--task", "T-001", "--step", stp, "--feature", F,
+        "tasks",
+        "step",
+        "start",
+        "--task",
+        "T-001",
+        "--step",
+        stp,
+        "--feature",
+        F,
       ]);
       await step(`step done ${stp}`, [
-        "tasks", "step", "done", "--task", "T-001", "--step", stp, "--feature", F,
+        "tasks",
+        "step",
+        "done",
+        "--task",
+        "T-001",
+        "--step",
+        stp,
+        "--feature",
+        F,
       ]);
     }
     await step("advance EXECUTE.done", ["advance", "EXECUTE.done", "--feature", F]);
     for (const ss of [
-      "VERIFY.plan", "VERIFY.run", "VERIFY.review",
-      "VERIFY.acceptance", "VERIFY.visual", "VERIFY.accept",
+      "VERIFY.plan",
+      "VERIFY.run",
+      "VERIFY.review",
+      "VERIFY.acceptance",
+      "VERIFY.visual",
+      "VERIFY.accept",
     ]) {
       await step(`advance ${ss}`, ["advance", ss, "--feature", F]);
     }
     const tsEvidence = await writeInput("ev-task-summary.json", {
-      kind: "task-summary", iteration: 1, actor: "cli:loaf", result: "passed",
-      summary: "spike exploration recorded for T-001", task_id: "T-001", covers: ["T-001"],
-      cmd: "bun test", exit: 0,
+      kind: "task-summary",
+      iteration: 1,
+      actor: "cli:loaf",
+      result: "passed",
+      summary: "spike exploration recorded for T-001",
+      task_id: "T-001",
+      covers: ["T-001"],
+      cmd: "bun test",
+      exit: 0,
     });
-    await step("evidence add task-summary", ["evidence", "add", "--input", tsEvidence, "--feature", F]);
+    await step("evidence add task-summary", [
+      "evidence",
+      "add",
+      "--input",
+      tsEvidence,
+      "--feature",
+      F,
+    ]);
     const vrEvidence = await writeInput("ev-verify-review.json", {
-      kind: "verify-review", iteration: 1, actor: "cli:loaf", result: "approved",
-      summary: "spec-fit review passed", check: "review", covers: ["REQ-CORE-001"],
+      kind: "verify-review",
+      iteration: 1,
+      actor: "cli:loaf",
+      result: "approved",
+      summary: "spec-fit review passed",
+      check: "review",
+      covers: ["REQ-CORE-001"],
     });
-    await step("evidence add verify-review", ["evidence", "add", "--input", vrEvidence, "--feature", F]);
+    await step("evidence add verify-review", [
+      "evidence",
+      "add",
+      "--input",
+      vrEvidence,
+      "--feature",
+      F,
+    ]);
     await step("gate verify-accept", [
-      "gate", "decide", "verify-accept", "--approve",
-      "--reason", "verify-accept checks pass for the spike feature", "--feature", F,
+      "gate",
+      "decide",
+      "verify-accept",
+      "--approve",
+      "--reason",
+      "verify-accept checks pass for the spike feature",
+      "--feature",
+      F,
     ]);
 
     // ── deliver is hard-blocked while a non-abandoned spike task exists ──
@@ -1266,7 +1758,10 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     const ENV = { LOAF_USER: "e2e@test.invalid" };
     const cli = makeCli(dir, ENV);
     await seedToVerifyAccept(
-      cli, F, "E2E settle disabled", "exercise the standard-ceremony settle rejection",
+      cli,
+      F,
+      "E2E settle disabled",
+      "exercise the standard-ceremony settle rejection",
     );
 
     // standard ceremony has settle_phase=false → settle is rejected.
@@ -1295,7 +1790,14 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
       adr_refs: [],
       needs_clarification: [],
     });
-    const submitted = await step("spec submit", ["spec", "submit", "--input", submitInput, "--feature", F]);
+    const submitted = await step("spec submit", [
+      "spec",
+      "submit",
+      "--input",
+      submitInput,
+      "--feature",
+      F,
+    ]);
     expect(submitted.spec_version).toBe(1);
     await step("advance SPEC.spec", ["advance", "SPEC.spec", "--feature", F]);
 
@@ -1328,7 +1830,14 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
         acceptance_na_reason: "structural allocator coverage only",
       },
     ]);
-    const r2 = await step("add-req batch", ["spec", "add-req", "--input", reqBatch, "--feature", F]);
+    const r2 = await step("add-req batch", [
+      "spec",
+      "add-req",
+      "--input",
+      reqBatch,
+      "--feature",
+      F,
+    ]);
     expect(r2.ids).toEqual(["REQ-CORE-002", "REQ-CORE-003"]);
     expect(r2.spec_version).toBe(3); // a two-item batch bumps the version exactly once
 
@@ -1341,16 +1850,34 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
       when: ["a scenario is appended"],
       then: ["it receives the first SCEN id in its own namespace"],
     });
-    const s1 = await step("add-scenario", ["spec", "add-scenario", "--input", scen1, "--feature", F]);
+    const s1 = await step("add-scenario", [
+      "spec",
+      "add-scenario",
+      "--input",
+      scen1,
+      "--feature",
+      F,
+    ]);
     expect(s1.ids).toEqual(["SCEN-CORE-001"]);
     expect(s1.spec_version).toBe(4);
 
     // ── visual namespace, batch — VIS ids start at 001 in their namespace
     const visBatch = await writeInput("vis-batch.json", [
       { id_namespace: "VIS-CORE", target: "the header region", checks: ["renders the title"] },
-      { id_namespace: "VIS-CORE", target: "the footer region", checks: ["renders the status line"] },
+      {
+        id_namespace: "VIS-CORE",
+        target: "the footer region",
+        checks: ["renders the status line"],
+      },
     ]);
-    const v1 = await step("add-visual batch", ["spec", "add-visual", "--input", visBatch, "--feature", F]);
+    const v1 = await step("add-visual batch", [
+      "spec",
+      "add-visual",
+      "--input",
+      visBatch,
+      "--feature",
+      F,
+    ]);
     expect(v1.ids).toEqual(["VIS-CORE-001", "VIS-CORE-002"]);
     expect(v1.spec_version).toBe(5);
 
@@ -1411,29 +1938,48 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     });
     await step("spec submit", ["spec", "submit", "--input", submitInput, "--feature", F]);
     await step("spec add-req", [
-      "spec", "add-req",
-      "--input", await reqInput("req1.json", "the system shall complete the amend-spec smoke"),
-      "--feature", F,
+      "spec",
+      "add-req",
+      "--input",
+      await reqInput("req1.json", "the system shall complete the amend-spec smoke"),
+      "--feature",
+      F,
     ]);
     await step("advance SPEC.spec", ["advance", "SPEC.spec", "--feature", F]);
     await step("advance SPEC.plan", ["advance", "SPEC.plan", "--feature", F]);
     await step("advance SPEC.design", ["advance", "SPEC.design", "--feature", F]);
     await step("tasks submit", [
-      "tasks", "submit", "--input",
+      "tasks",
+      "submit",
+      "--input",
       await writeInput("tasks-v2.json", tasksPayload(2, ["REQ-CORE-001"])),
-      "--feature", F,
+      "--feature",
+      F,
     ]);
     await step("gate spec-lock", [
-      "gate", "decide", "spec-lock", "--approve",
-      "--reason", "spec and task graph complete for the first lock", "--feature", F,
+      "gate",
+      "decide",
+      "spec-lock",
+      "--approve",
+      "--reason",
+      "spec and task graph complete for the first lock",
+      "--feature",
+      F,
     ]);
     await step("advance EXECUTE.work", ["advance", "EXECUTE.work", "--feature", F]);
 
     // ── amend-spec back-edge: cursor → SPEC.spec, spec_locked → false ────
     const raised = await step("finding raise amend-spec", [
-      "finding", "raise", "--category", "spec-gap", "--action", "amend-spec",
-      "--summary", "the spec omits a requirement surfaced during execution",
-      "--feature", F,
+      "finding",
+      "raise",
+      "--category",
+      "spec-gap",
+      "--action",
+      "amend-spec",
+      "--summary",
+      "the spec omits a requirement surfaced during execution",
+      "--feature",
+      F,
     ]);
     expect(raised.id).toMatch(/^FND-\d{3,}$/);
     expect(raised.back_edge.to).toBe("SPEC.spec");
@@ -1443,22 +1989,34 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
 
     // ── amend the spec: a new requirement bumps spec_version ────────────
     await step("spec add-req (amended)", [
-      "spec", "add-req",
-      "--input", await reqInput("req2.json", "the system shall cover the requirement added post back-edge"),
-      "--feature", F,
+      "spec",
+      "add-req",
+      "--input",
+      await reqInput("req2.json", "the system shall cover the requirement added post back-edge"),
+      "--feature",
+      F,
     ]);
 
     // ── re-plan against the bumped spec, then re-lock ───────────────────
     await step("advance SPEC.plan", ["advance", "SPEC.plan", "--feature", F]);
     await step("advance SPEC.design", ["advance", "SPEC.design", "--feature", F]);
     await step("tasks submit (re-plan)", [
-      "tasks", "submit", "--input",
+      "tasks",
+      "submit",
+      "--input",
       await writeInput("tasks-v3.json", tasksPayload(3, ["REQ-CORE-001", "REQ-CORE-002"])),
-      "--feature", F,
+      "--feature",
+      F,
     ]);
     const reLock = await step("gate spec-lock (re-lock)", [
-      "gate", "decide", "spec-lock", "--approve",
-      "--reason", "amended spec and re-planned task graph are complete", "--feature", F,
+      "gate",
+      "decide",
+      "spec-lock",
+      "--approve",
+      "--reason",
+      "amended spec and re-planned task graph are complete",
+      "--feature",
+      F,
     ]);
     expect(reLock.sub_state ?? reLock.state?.sub_state).toBe("EXECUTE.plan");
 
@@ -1469,34 +2027,84 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     await step("tasks claim T-001", ["tasks", "claim", "T-001", "--feature", F]);
     for (const stp of ["red", "implement"]) {
       await step(`step start ${stp}`, [
-        "tasks", "step", "start", "--task", "T-001", "--step", stp, "--feature", F,
+        "tasks",
+        "step",
+        "start",
+        "--task",
+        "T-001",
+        "--step",
+        stp,
+        "--feature",
+        F,
       ]);
       await step(`step done ${stp}`, [
-        "tasks", "step", "done", "--task", "T-001", "--step", stp, "--feature", F,
+        "tasks",
+        "step",
+        "done",
+        "--task",
+        "T-001",
+        "--step",
+        stp,
+        "--feature",
+        F,
       ]);
     }
     await step("advance EXECUTE.done", ["advance", "EXECUTE.done", "--feature", F]);
     for (const ss of [
-      "VERIFY.plan", "VERIFY.run", "VERIFY.review",
-      "VERIFY.acceptance", "VERIFY.visual", "VERIFY.accept",
+      "VERIFY.plan",
+      "VERIFY.run",
+      "VERIFY.review",
+      "VERIFY.acceptance",
+      "VERIFY.visual",
+      "VERIFY.accept",
     ]) {
       await step(`advance ${ss}`, ["advance", ss, "--feature", F]);
     }
     const tsEvidence = await writeInput("ev-task-summary.json", {
-      kind: "task-summary", iteration: 1, actor: "cli:loaf", result: "passed",
-      summary: "unit tests pass for T-001 against the amended spec", task_id: "T-001",
-      covers: ["T-001"], cmd: "bun test", exit: 0,
+      kind: "task-summary",
+      iteration: 1,
+      actor: "cli:loaf",
+      result: "passed",
+      summary: "unit tests pass for T-001 against the amended spec",
+      task_id: "T-001",
+      covers: ["T-001"],
+      cmd: "bun test",
+      exit: 0,
     });
-    await step("evidence add task-summary", ["evidence", "add", "--input", tsEvidence, "--feature", F]);
+    await step("evidence add task-summary", [
+      "evidence",
+      "add",
+      "--input",
+      tsEvidence,
+      "--feature",
+      F,
+    ]);
     const vrEvidence = await writeInput("ev-verify-review.json", {
-      kind: "verify-review", iteration: 1, actor: "cli:loaf", result: "approved",
-      summary: "spec-fit review passed against the amended spec", check: "review",
+      kind: "verify-review",
+      iteration: 1,
+      actor: "cli:loaf",
+      result: "approved",
+      summary: "spec-fit review passed against the amended spec",
+      check: "review",
       covers: ["REQ-CORE-001", "REQ-CORE-002"],
     });
-    await step("evidence add verify-review", ["evidence", "add", "--input", vrEvidence, "--feature", F]);
+    await step("evidence add verify-review", [
+      "evidence",
+      "add",
+      "--input",
+      vrEvidence,
+      "--feature",
+      F,
+    ]);
     await step("gate verify-accept", [
-      "gate", "decide", "verify-accept", "--approve",
-      "--reason", "all verify-accept checks pass after the amend-spec cycle", "--feature", F,
+      "gate",
+      "decide",
+      "verify-accept",
+      "--approve",
+      "--reason",
+      "all verify-accept checks pass after the amend-spec cycle",
+      "--feature",
+      F,
     ]);
     const delivered = await step("deliver", ["deliver", "--feature", F]);
     expect(delivered.sub_state ?? delivered.state?.sub_state).toBe("DONE.delivered");
@@ -1513,9 +2121,14 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
 
     // ── a profile_escalation head blocks `loaf advance` ─────────────────
     const pe = await step("pending raise profile_escalation", [
-      "pending", "raise", "--kind", "profile_escalation",
-      "--question", "should this feature escalate to a deeper ceremony profile?",
-      "--feature", F,
+      "pending",
+      "raise",
+      "--kind",
+      "profile_escalation",
+      "--question",
+      "should this feature escalate to a deeper ceremony profile?",
+      "--feature",
+      F,
     ]);
     expect(pe.id).toMatch(/^PEND-\d{4,}$/);
 
@@ -1528,21 +2141,37 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
 
     // ── resolving the head clears the block ─────────────────────────────
     await step("pending resolve", [
-      "pending", "resolve",
-      "--answer", "no escalation needed; the standard ceremony profile stands",
-      "--feature", F,
+      "pending",
+      "resolve",
+      "--answer",
+      "no escalation needed; the standard ceremony profile stands",
+      "--feature",
+      F,
     ]);
-    const advanced = await step("advance TRIAGE.confirm", ["advance", "TRIAGE.confirm", "--feature", F]);
+    const advanced = await step("advance TRIAGE.confirm", [
+      "advance",
+      "TRIAGE.confirm",
+      "--feature",
+      F,
+    ]);
     expect(advanced.sub_state).toBe("TRIAGE.confirm");
 
     // ── a spec_clarification head is FIFO-visible but never blocks ──────
     await step("pending raise spec_clarification", [
-      "pending", "raise", "--kind", "spec_clarification",
-      "--question", "which downstream module owns the projection write path?",
-      "--feature", F,
+      "pending",
+      "raise",
+      "--kind",
+      "spec_clarification",
+      "--question",
+      "which downstream module owns the projection write path?",
+      "--feature",
+      F,
     ]);
     const stillAdvances = await step("advance SPEC.proposal", [
-      "advance", "SPEC.proposal", "--feature", F,
+      "advance",
+      "SPEC.proposal",
+      "--feature",
+      F,
     ]);
     expect(stillAdvances.sub_state).toBe("SPEC.proposal");
   });
@@ -1599,22 +2228,46 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     });
     await step("tasks submit", ["tasks", "submit", "--input", tasksFile, "--feature", F]);
     await step("gate spec-lock", [
-      "gate", "decide", "spec-lock", "--approve",
-      "--reason", "spec and task graph complete", "--feature", F,
+      "gate",
+      "decide",
+      "spec-lock",
+      "--approve",
+      "--reason",
+      "spec and task graph complete",
+      "--feature",
+      F,
     ]);
     await step("advance EXECUTE.work", ["advance", "EXECUTE.work", "--feature", F]);
     await step("tasks claim T-001", ["tasks", "claim", "T-001", "--feature", F]);
     await step("step start red", [
-      "tasks", "step", "start", "--task", "T-001", "--step", "red", "--feature", F,
+      "tasks",
+      "step",
+      "start",
+      "--task",
+      "T-001",
+      "--step",
+      "red",
+      "--feature",
+      F,
     ]);
 
     // ── one CLI call closes the step AND registers its proof ────────────
     const done = await step("step done red + evidence", [
-      "tasks", "step", "done", "--task", "T-001", "--step", "red",
-      "--evidence-kind", "task-summary",
-      "--evidence-summary", "the red test reproduces the targeted behavior gap",
-      "--evidence-covers", "T-001",
-      "--feature", F,
+      "tasks",
+      "step",
+      "done",
+      "--task",
+      "T-001",
+      "--step",
+      "red",
+      "--evidence-kind",
+      "task-summary",
+      "--evidence-summary",
+      "the red test reproduces the targeted behavior gap",
+      "--evidence-covers",
+      "T-001",
+      "--feature",
+      F,
     ]);
     // the step is closed — its status reflects the terminal-positive result.
     expect(done.step_status).toBe("passed");
@@ -1708,17 +2361,39 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     });
     await step("tasks submit", ["tasks", "submit", "--input", tasksFile, "--feature", F]);
     await step("gate spec-lock", [
-      "gate", "decide", "spec-lock", "--approve",
-      "--reason", "spec and task graph complete for the light feature", "--feature", F,
+      "gate",
+      "decide",
+      "spec-lock",
+      "--approve",
+      "--reason",
+      "spec and task graph complete for the light feature",
+      "--feature",
+      F,
     ]);
     await step("advance EXECUTE.work", ["advance", "EXECUTE.work", "--feature", F]);
     await step("tasks claim T-001", ["tasks", "claim", "T-001", "--feature", F]);
     for (const stp of ["red", "implement"]) {
       await step(`step start ${stp}`, [
-        "tasks", "step", "start", "--task", "T-001", "--step", stp, "--feature", F,
+        "tasks",
+        "step",
+        "start",
+        "--task",
+        "T-001",
+        "--step",
+        stp,
+        "--feature",
+        F,
       ]);
       await step(`step done ${stp}`, [
-        "tasks", "step", "done", "--task", "T-001", "--step", stp, "--feature", F,
+        "tasks",
+        "step",
+        "done",
+        "--task",
+        "T-001",
+        "--step",
+        stp,
+        "--feature",
+        F,
       ]);
     }
     await step("advance EXECUTE.done", ["advance", "EXECUTE.done", "--feature", F]);
@@ -1788,8 +2463,14 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     });
     await step("tasks submit", ["tasks", "submit", "--input", tasksFile, "--feature", F]);
     await step("gate spec-lock", [
-      "gate", "decide", "spec-lock", "--approve",
-      "--reason", "spec and task graph complete", "--feature", F,
+      "gate",
+      "decide",
+      "spec-lock",
+      "--approve",
+      "--reason",
+      "spec and task graph complete",
+      "--feature",
+      F,
     ]);
 
     // cursor is EXECUTE.plan, spec_locked=true — a direct spec append is
@@ -1807,7 +2488,18 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
       acceptance_na_reason: "this requirement is never recorded; the append is expected to fail",
     });
     const rejected = await runCli(
-      ["spec", "add-req", "--input", lateReq, "--feature", F, "--feature-dir", dir, "--format", "json"],
+      [
+        "spec",
+        "add-req",
+        "--input",
+        lateReq,
+        "--feature",
+        F,
+        "--feature-dir",
+        dir,
+        "--format",
+        "json",
+      ],
       { env: ENV },
     );
     expect(rejected.exit).toBe(2);
@@ -1822,22 +2514,43 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     const cli = makeCli(dir, ENV);
     const { step } = cli;
     await seedToVerifyAccept(
-      cli, F, "E2E open finding gate", "exercise the open-finding block on verify-accept",
+      cli,
+      F,
+      "E2E open finding gate",
+      "exercise the open-finding block on verify-accept",
     );
 
     // a defer finding raised at VERIFY.accept is open and carries no back-edge.
     const fnd = await step("finding raise defer", [
-      "finding", "raise", "--category", "risk-escalation", "--action", "defer",
-      "--summary", "a follow-up risk is deferred to a later cycle",
-      "--feature", F,
+      "finding",
+      "raise",
+      "--category",
+      "risk-escalation",
+      "--action",
+      "defer",
+      "--summary",
+      "a follow-up risk is deferred to a later cycle",
+      "--feature",
+      F,
     ]);
     expect(fnd.id).toMatch(/^FND-\d{3,}$/);
 
     // verify-accept is blocked while the finding is open
     const blocked = await runCli(
-      ["gate", "decide", "verify-accept", "--approve",
-        "--reason", "attempting approval while an open finding is present",
-        "--feature", F, "--feature-dir", dir, "--format", "json"],
+      [
+        "gate",
+        "decide",
+        "verify-accept",
+        "--approve",
+        "--reason",
+        "attempting approval while an open finding is present",
+        "--feature",
+        F,
+        "--feature-dir",
+        dir,
+        "--format",
+        "json",
+      ],
       { env: ENV },
     );
     expect(blocked.exit).toBe(2);
@@ -1846,8 +2559,14 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     // closing the finding unblocks the gate; the feature still delivers
     await step("finding close", ["finding", "close", fnd.id, "--feature", F]);
     await step("gate verify-accept", [
-      "gate", "decide", "verify-accept", "--approve",
-      "--reason", "all verify-accept checks pass once the finding is closed", "--feature", F,
+      "gate",
+      "decide",
+      "verify-accept",
+      "--approve",
+      "--reason",
+      "all verify-accept checks pass once the finding is closed",
+      "--feature",
+      F,
     ]);
     const delivered = await step("deliver", ["deliver", "--feature", F]);
     expect(delivered.sub_state ?? delivered.state?.sub_state).toBe("DONE.delivered");
@@ -1873,21 +2592,33 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     // ── drive a standard feature to VERIFY.accept (REQ / task / evidence
     //    all in place so verify-accept CAN eventually pass) ──────────────
     await seedToVerifyAccept(
-      cli, F, "E2E fix-impl repair loop",
+      cli,
+      F,
+      "E2E fix-impl repair loop",
       "carry a fix-impl back-edge repair finding through to delivery",
     );
-    const iterBefore = (await step("status pre-back-edge", ["status", "--feature", F]))
-      .state.iteration;
+    const iterBefore = (await step("status pre-back-edge", ["status", "--feature", F])).state
+      .iteration;
 
     // ── fix-impl back-edge raised from a VERIFY sub_state (VERIFY.accept) ─
     // co-emits [finding:raised, event:task_step_reset, event:phase_advanced(
     // back_edge → EXECUTE.work)]: cursor → EXECUTE.work, iteration +1, the
     // implement step resets to pending, the task reopens to in_progress.
     const raised = await step("finding raise fix-impl", [
-      "finding", "raise", "--category", "impl-defect", "--action", "fix-impl",
-      "--summary", "the implementation regressed against REQ-CORE-001",
-      "--target-task", "T-001", "--target-step", "implement",
-      "--feature", F,
+      "finding",
+      "raise",
+      "--category",
+      "impl-defect",
+      "--action",
+      "fix-impl",
+      "--summary",
+      "the implementation regressed against REQ-CORE-001",
+      "--target-task",
+      "T-001",
+      "--target-step",
+      "implement",
+      "--feature",
+      F,
     ]);
     expect(raised.id).toMatch(/^FND-\d{3,}$/);
     expect(raised.back_edge.to).toBe("EXECUTE.work");
@@ -1906,11 +2637,28 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
 
     // ── re-run the reset implement step to a terminal status ─────────────
     await step("step start implement (rerun)", [
-      "tasks", "step", "start", "--task", "T-001", "--step", "implement", "--feature", F,
+      "tasks",
+      "step",
+      "start",
+      "--task",
+      "T-001",
+      "--step",
+      "implement",
+      "--feature",
+      F,
     ]);
     await step("step done implement (rerun)", [
-      "tasks", "step", "done", "--task", "T-001", "--step", "implement",
-      "--result", "passed", "--feature", F,
+      "tasks",
+      "step",
+      "done",
+      "--task",
+      "T-001",
+      "--step",
+      "implement",
+      "--result",
+      "passed",
+      "--feature",
+      F,
     ]);
     const repairedTasks = await step("tasks list post-repair", ["tasks", "list", "--feature", F]);
     const t001Repaired = repairedTasks.tasks.find((t: { id: string }) => t.id === "T-001");
@@ -1919,8 +2667,12 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     // ── re-advance EXECUTE.work → EXECUTE.done → VERIFY.* → VERIFY.accept ─
     await step("advance EXECUTE.done", ["advance", "EXECUTE.done", "--feature", F]);
     for (const ss of [
-      "VERIFY.plan", "VERIFY.run", "VERIFY.review",
-      "VERIFY.acceptance", "VERIFY.visual", "VERIFY.accept",
+      "VERIFY.plan",
+      "VERIFY.run",
+      "VERIFY.review",
+      "VERIFY.acceptance",
+      "VERIFY.visual",
+      "VERIFY.accept",
     ]) {
       await step(`advance ${ss}`, ["advance", ss, "--feature", F]);
     }
@@ -1928,9 +2680,20 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     // ── verify-accept --approve is BLOCKED while the fix-impl finding is
     //    open — verify-accept check 2 surfaces OPEN_FINDINGS_PRESENT ──────
     const blocked = await runCli(
-      ["gate", "decide", "verify-accept", "--approve",
-        "--reason", "attempting approval while the fix-impl finding is open",
-        "--feature", F, "--feature-dir", dir, "--format", "json"],
+      [
+        "gate",
+        "decide",
+        "verify-accept",
+        "--approve",
+        "--reason",
+        "attempting approval while the fix-impl finding is open",
+        "--feature",
+        F,
+        "--feature-dir",
+        dir,
+        "--format",
+        "json",
+      ],
       { env: ENV },
     );
     expect(blocked.exit).toBe(2);
@@ -1941,9 +2704,14 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
 
     // ── verify-accept --approve now succeeds ────────────────────────────
     await step("gate verify-accept", [
-      "gate", "decide", "verify-accept", "--approve",
-      "--reason", "all verify-accept checks pass once the fix-impl finding is closed",
-      "--feature", F,
+      "gate",
+      "decide",
+      "verify-accept",
+      "--approve",
+      "--reason",
+      "all verify-accept checks pass once the fix-impl finding is closed",
+      "--feature",
+      F,
     ]);
 
     // ── deliver reaches DONE.delivered ──────────────────────────────────
@@ -2014,16 +2782,26 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     // batch co-emits pending:resolved before its phase_advanced, so the
     // approve clears the head and advances the cursor in one transaction.
     const pend = await step("pending raise gate_decision", [
-      "pending", "raise", "--kind", "gate_decision",
-      "--question", "approve the spec-lock gate for this feature?",
-      "--feature", F,
+      "pending",
+      "raise",
+      "--kind",
+      "gate_decision",
+      "--question",
+      "approve the spec-lock gate for this feature?",
+      "--feature",
+      F,
     ]);
     expect(pend.id).toMatch(/^PEND-\d{4,}$/);
 
     const approved = await step("gate spec-lock approve", [
-      "gate", "decide", "spec-lock", "--approve",
-      "--reason", "spec and task graph complete; co-resolves the gate pending",
-      "--feature", F,
+      "gate",
+      "decide",
+      "spec-lock",
+      "--approve",
+      "--reason",
+      "spec and task graph complete; co-resolves the gate pending",
+      "--feature",
+      F,
     ]);
     expect(approved.sub_state ?? approved.state?.sub_state).toBe("EXECUTE.plan");
 
@@ -2043,12 +2821,24 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
 
     await step("start", ["start", F, "--ceremony", "standard"]);
     const p1 = await step("raise pending 1", [
-      "pending", "raise", "--kind", "ask_user_question",
-      "--question", "the first question raised into the queue?", "--feature", F,
+      "pending",
+      "raise",
+      "--kind",
+      "ask_user_question",
+      "--question",
+      "the first question raised into the queue?",
+      "--feature",
+      F,
     ]);
     const p2 = await step("raise pending 2", [
-      "pending", "raise", "--kind", "ask_user_question",
-      "--question", "the second question raised into the queue?", "--feature", F,
+      "pending",
+      "raise",
+      "--kind",
+      "ask_user_question",
+      "--question",
+      "the second question raised into the queue?",
+      "--feature",
+      F,
     ]);
 
     // FIFO: the first-raised entry is the head.
@@ -2057,9 +2847,19 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
 
     // `pending resolve` has no --id flag — it pops the head only.
     await step("resolve head", [
-      "pending", "resolve", "--answer", "answering the first queued question", "--feature", F,
+      "pending",
+      "resolve",
+      "--answer",
+      "answering the first queued question",
+      "--feature",
+      F,
     ]);
-    const list1 = await step("pending list (after first resolve)", ["pending", "list", "--feature", F]);
+    const list1 = await step("pending list (after first resolve)", [
+      "pending",
+      "list",
+      "--feature",
+      F,
+    ]);
     expect(list1.pending.find((p: any) => p.id === p1.id)?.resolved).toBe(true);
     const second = list1.pending.find((p: any) => p.id === p2.id);
     expect(second?.resolved).toBe(false);
@@ -2067,7 +2867,12 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
 
     // resolving again pops the second; the queue drains in raise order.
     await step("resolve second", [
-      "pending", "resolve", "--answer", "answering the second queued question", "--feature", F,
+      "pending",
+      "resolve",
+      "--answer",
+      "answering the second queued question",
+      "--feature",
+      F,
     ]);
     const list2 = await step("pending list (drained)", ["pending", "list", "--feature", F]);
     expect(list2.pending.every((p: any) => p.resolved)).toBe(true);
@@ -2125,8 +2930,14 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     });
     await step("tasks submit", ["tasks", "submit", "--input", tasksFile, "--feature", F]);
     await step("gate spec-lock", [
-      "gate", "decide", "spec-lock", "--approve",
-      "--reason", "spec and independent task graph complete", "--feature", F,
+      "gate",
+      "decide",
+      "spec-lock",
+      "--approve",
+      "--reason",
+      "spec and independent task graph complete",
+      "--feature",
+      F,
     ]);
     await step("advance EXECUTE.work", ["advance", "EXECUTE.work", "--feature", F]);
 
@@ -2141,10 +2952,26 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
 
     // each task has an in-flight red step before either completes.
     await step("step start red T-001", [
-      "tasks", "step", "start", "--task", "T-001", "--step", "red", "--feature", F,
+      "tasks",
+      "step",
+      "start",
+      "--task",
+      "T-001",
+      "--step",
+      "red",
+      "--feature",
+      F,
     ]);
     await step("step start red T-002", [
-      "tasks", "step", "start", "--task", "T-002", "--step", "red", "--feature", F,
+      "tasks",
+      "step",
+      "start",
+      "--task",
+      "T-002",
+      "--step",
+      "red",
+      "--feature",
+      F,
     ]);
 
     // EXECUTE.done is legal only after every task is terminal (F-016) —
@@ -2159,13 +2986,37 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     // both tasks complete; EXECUTE.done is then reached with both terminal.
     for (const id of ["T-001", "T-002"]) {
       await step(`step done red ${id}`, [
-        "tasks", "step", "done", "--task", id, "--step", "red", "--feature", F,
+        "tasks",
+        "step",
+        "done",
+        "--task",
+        id,
+        "--step",
+        "red",
+        "--feature",
+        F,
       ]);
       await step(`step start implement ${id}`, [
-        "tasks", "step", "start", "--task", id, "--step", "implement", "--feature", F,
+        "tasks",
+        "step",
+        "start",
+        "--task",
+        id,
+        "--step",
+        "implement",
+        "--feature",
+        F,
       ]);
       await step(`step done implement ${id}`, [
-        "tasks", "step", "done", "--task", id, "--step", "implement", "--feature", F,
+        "tasks",
+        "step",
+        "done",
+        "--task",
+        id,
+        "--step",
+        "implement",
+        "--feature",
+        F,
       ]);
     }
     const done = await step("tasks list (both done)", ["tasks", "list", "--feature", F]);
@@ -2220,54 +3071,127 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     });
     await step("tasks add visual-ui", ["tasks", "add", "--input", tVisual, "--feature", F]);
     await step("gate spec-lock", [
-      "gate", "decide", "spec-lock", "--approve",
-      "--reason", "visual-ui feature passes spec-lock", "--feature", F,
+      "gate",
+      "decide",
+      "spec-lock",
+      "--approve",
+      "--reason",
+      "visual-ui feature passes spec-lock",
+      "--feature",
+      F,
     ]);
     await step("advance EXECUTE.work", ["advance", "EXECUTE.work", "--feature", F]);
     await step("tasks claim T-001", ["tasks", "claim", "T-001", "--feature", F]);
     for (const stp of ["mockup", "implement", "screenshot-compare"]) {
       await step(`step start ${stp}`, [
-        "tasks", "step", "start", "--task", "T-001", "--step", stp, "--feature", F,
+        "tasks",
+        "step",
+        "start",
+        "--task",
+        "T-001",
+        "--step",
+        stp,
+        "--feature",
+        F,
       ]);
       await step(`step done ${stp}`, [
-        "tasks", "step", "done", "--task", "T-001", "--step", stp, "--feature", F,
+        "tasks",
+        "step",
+        "done",
+        "--task",
+        "T-001",
+        "--step",
+        stp,
+        "--feature",
+        F,
       ]);
     }
     await step("advance EXECUTE.done", ["advance", "EXECUTE.done", "--feature", F]);
     for (const ss of [
-      "VERIFY.plan", "VERIFY.run", "VERIFY.review",
-      "VERIFY.acceptance", "VERIFY.visual", "VERIFY.accept",
+      "VERIFY.plan",
+      "VERIFY.run",
+      "VERIFY.review",
+      "VERIFY.acceptance",
+      "VERIFY.visual",
+      "VERIFY.accept",
     ]) {
       await step(`advance ${ss}`, ["advance", ss, "--feature", F]);
     }
     const tsEvidence = await writeInput("ev-task-summary.json", {
-      kind: "task-summary", iteration: 1, actor: "cli:loaf", result: "passed",
-      summary: "the visual-ui task is verified", task_id: "T-001", covers: ["T-001"],
-      cmd: "bun test", exit: 0,
+      kind: "task-summary",
+      iteration: 1,
+      actor: "cli:loaf",
+      result: "passed",
+      summary: "the visual-ui task is verified",
+      task_id: "T-001",
+      covers: ["T-001"],
+      cmd: "bun test",
+      exit: 0,
     });
-    await step("evidence add task-summary", ["evidence", "add", "--input", tsEvidence, "--feature", F]);
+    await step("evidence add task-summary", [
+      "evidence",
+      "add",
+      "--input",
+      tsEvidence,
+      "--feature",
+      F,
+    ]);
     const vrEvidence = await writeInput("ev-verify-review.json", {
-      kind: "verify-review", iteration: 1, actor: "cli:loaf", result: "approved",
-      summary: "spec-fit review passed", check: "review", covers: ["REQ-CORE-001"],
+      kind: "verify-review",
+      iteration: 1,
+      actor: "cli:loaf",
+      result: "approved",
+      summary: "spec-fit review passed",
+      check: "review",
+      covers: ["REQ-CORE-001"],
     });
-    await step("evidence add verify-review", ["evidence", "add", "--input", vrEvidence, "--feature", F]);
+    await step("evidence add verify-review", [
+      "evidence",
+      "add",
+      "--input",
+      vrEvidence,
+      "--feature",
+      F,
+    ]);
     // visual-review evidence carries a pre-hashed attachment payload — the
     // CLI does not stat/hash/copy the file in this slice, it is passthrough
     // metadata. The visual-review covers VIS-CORE-001 so VIS coverage holds.
     const vsEvidence = await writeInput("ev-visual-review.json", {
-      kind: "visual-review", iteration: 1, actor: "cli:loaf", result: "approved",
-      summary: "visual contract VIS-CORE-001 matches the mockup", check: "visual",
+      kind: "visual-review",
+      iteration: 1,
+      actor: "cli:loaf",
+      result: "approved",
+      summary: "visual contract VIS-CORE-001 matches the mockup",
+      check: "visual",
       covers: ["VIS-CORE-001"],
       attachments: [
-        { path: "screenshots/vis-core-001.png", sha256: "b".repeat(64), mime: "image/png", bytes: 2048 },
+        {
+          path: "screenshots/vis-core-001.png",
+          sha256: "b".repeat(64),
+          mime: "image/png",
+          bytes: 2048,
+        },
       ],
     });
-    await step("evidence add visual-review", ["evidence", "add", "--input", vsEvidence, "--feature", F]);
+    await step("evidence add visual-review", [
+      "evidence",
+      "add",
+      "--input",
+      vsEvidence,
+      "--feature",
+      F,
+    ]);
 
     // VIS coverage from the visual-review attachment satisfies verify-accept.
     await step("gate verify-accept", [
-      "gate", "decide", "verify-accept", "--approve",
-      "--reason", "visual evidence covers VIS-CORE-001; all verify-accept checks pass", "--feature", F,
+      "gate",
+      "decide",
+      "verify-accept",
+      "--approve",
+      "--reason",
+      "visual evidence covers VIS-CORE-001; all verify-accept checks pass",
+      "--feature",
+      F,
     ]);
     const delivered = await step("deliver", ["deliver", "--feature", F]);
     expect(delivered.sub_state ?? delivered.state?.sub_state).toBe("DONE.delivered");
@@ -2332,9 +3256,20 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     // git fallback → NO_HUMAN_ACTOR (the CI-safety guard never derives a
     // human: actor from git config in a non-interactive context).
     const noActor = await runCli(
-      ["gate", "decide", "spec-lock", "--approve", "--reason",
+      [
+        "gate",
+        "decide",
+        "spec-lock",
+        "--approve",
+        "--reason",
         "attempting the gate with no resolvable human actor",
-        "--feature", F, "--feature-dir", dir, "--format", "json"],
+        "--feature",
+        F,
+        "--feature-dir",
+        dir,
+        "--format",
+        "json",
+      ],
       { env: { LOAF_USER: undefined } },
     );
     expect(noActor.exit).toBe(2);
@@ -2342,9 +3277,20 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
 
     // with LOAF_USER set the gate resolves a human: actor and advances.
     const withActor = await runCli(
-      ["gate", "decide", "spec-lock", "--approve", "--reason",
+      [
+        "gate",
+        "decide",
+        "spec-lock",
+        "--approve",
+        "--reason",
         "spec and task graph complete; human actor resolved from LOAF_USER",
-        "--feature", F, "--feature-dir", dir, "--format", "json"],
+        "--feature",
+        F,
+        "--feature-dir",
+        dir,
+        "--format",
+        "json",
+      ],
       { env: { LOAF_USER: "reviewer@test.invalid" } },
     );
     expect(withActor.exit).toBe(0);
@@ -2412,21 +3358,33 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     });
     await step("spec submit", ["spec", "submit", "--input", submitInput, "--feature", F]);
     await step("spec add-req", [
-      "spec", "add-req",
-      "--input", await reqInput("req1.json", "the system shall complete the amend-tasks smoke"),
-      "--feature", F,
+      "spec",
+      "add-req",
+      "--input",
+      await reqInput("req1.json", "the system shall complete the amend-tasks smoke"),
+      "--feature",
+      F,
     ]);
     await step("advance SPEC.spec", ["advance", "SPEC.spec", "--feature", F]);
     await step("advance SPEC.plan", ["advance", "SPEC.plan", "--feature", F]);
     await step("advance SPEC.design", ["advance", "SPEC.design", "--feature", F]);
     await step("tasks submit", [
-      "tasks", "submit", "--input",
+      "tasks",
+      "submit",
+      "--input",
       await writeInput("tasks-v2.json", tasksPayload),
-      "--feature", F,
+      "--feature",
+      F,
     ]);
     await step("gate spec-lock", [
-      "gate", "decide", "spec-lock", "--approve",
-      "--reason", "spec and task graph complete for the lock", "--feature", F,
+      "gate",
+      "decide",
+      "spec-lock",
+      "--approve",
+      "--reason",
+      "spec and task graph complete for the lock",
+      "--feature",
+      F,
     ]);
     await step("advance EXECUTE.work", ["advance", "EXECUTE.work", "--feature", F]);
 
@@ -2438,8 +3396,16 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
 
     // ── amend-tasks back-edge: cursor → EXECUTE.work, iteration +1 ───────
     const raised = await step("finding raise amend-tasks", [
-      "finding", "raise", "--category", "new-scope", "--action", "amend-tasks",
-      "--summary", "execution surfaced a missing task step", "--feature", F,
+      "finding",
+      "raise",
+      "--category",
+      "new-scope",
+      "--action",
+      "amend-tasks",
+      "--summary",
+      "execution surfaced a missing task step",
+      "--feature",
+      F,
     ]);
     expect(raised.id).toMatch(/^FND-\d{3,}$/);
     expect(raised.back_edge.to).toBe("EXECUTE.work");
@@ -2455,7 +3421,10 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
 
     // ── the journal carries the atomic 2-entry back-edge batch ──────────
     const journal = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
-    const entries = journal.trim().split("\n").map((l) => JSON.parse(l));
+    const entries = journal
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l));
     const tail = entries.slice(-2);
     expect(tail[0].kind).toBe("finding:raised");
     expect(tail[0].payload.action).toBe("amend-tasks");
@@ -2500,21 +3469,26 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     });
     await step("spec submit", ["spec", "submit", "--input", submitInput, "--feature", F]);
     await step("spec add-req", [
-      "spec", "add-req",
-      "--input", await writeInput("req.json", {
+      "spec",
+      "add-req",
+      "--input",
+      await writeInput("req.json", {
         id_namespace: "REQ-CORE",
         type: "ubiquitous",
         response: "the system shall complete the fix-impl smoke",
         acceptance_na: true,
         acceptance_na_reason: "exercised by this end-to-end lifecycle integration test",
       }),
-      "--feature", F,
+      "--feature",
+      F,
     ]);
     await step("advance SPEC.spec", ["advance", "SPEC.spec", "--feature", F]);
     await step("advance SPEC.plan", ["advance", "SPEC.plan", "--feature", F]);
     await step("advance SPEC.design", ["advance", "SPEC.design", "--feature", F]);
     await step("tasks submit", [
-      "tasks", "submit", "--input",
+      "tasks",
+      "submit",
+      "--input",
       await writeInput("tasks.json", {
         based_on: { spec: 2 },
         tasks: [
@@ -2534,11 +3508,18 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
           },
         ],
       }),
-      "--feature", F,
+      "--feature",
+      F,
     ]);
     await step("gate spec-lock", [
-      "gate", "decide", "spec-lock", "--approve",
-      "--reason", "spec and task graph complete for the lock", "--feature", F,
+      "gate",
+      "decide",
+      "spec-lock",
+      "--approve",
+      "--reason",
+      "spec and task graph complete for the lock",
+      "--feature",
+      F,
     ]);
     await step("advance EXECUTE.work", ["advance", "EXECUTE.work", "--feature", F]);
 
@@ -2546,11 +3527,28 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     await step("claim T-001", ["tasks", "claim", "T-001", "--feature", F]);
     for (const stepName of ["red", "implement"]) {
       await step(`step start ${stepName}`, [
-        "tasks", "step", "start", "--task", "T-001", "--step", stepName, "--feature", F,
+        "tasks",
+        "step",
+        "start",
+        "--task",
+        "T-001",
+        "--step",
+        stepName,
+        "--feature",
+        F,
       ]);
       await step(`step done ${stepName}`, [
-        "tasks", "step", "done", "--task", "T-001", "--step", stepName,
-        "--result", "passed", "--feature", F,
+        "tasks",
+        "step",
+        "done",
+        "--task",
+        "T-001",
+        "--step",
+        stepName,
+        "--result",
+        "passed",
+        "--feature",
+        F,
       ]);
     }
     const beforeTasks = await step("tasks list before", ["tasks", "list", "--feature", F]);
@@ -2562,17 +3560,30 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
 
     // ── fix-impl back-edge: an open finding targeting {T-001, implement} ─
     const raised = await step("finding raise fix-impl", [
-      "finding", "raise", "--category", "impl-defect", "--action", "fix-impl",
-      "--summary", "the implementation regressed against REQ-CORE-001",
-      "--target-task", "T-001", "--target-step", "implement",
-      "--feature", F,
+      "finding",
+      "raise",
+      "--category",
+      "impl-defect",
+      "--action",
+      "fix-impl",
+      "--summary",
+      "the implementation regressed against REQ-CORE-001",
+      "--target-task",
+      "T-001",
+      "--target-step",
+      "implement",
+      "--feature",
+      F,
     ]);
     expect(raised.id).toMatch(/^FND-\d{3,}$/);
     expect(raised.back_edge.to).toBe("EXECUTE.work");
 
     // ── the journal carries the atomic 3-entry batch in order ───────────
     const journal = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
-    const entries = journal.trim().split("\n").map((l) => JSON.parse(l));
+    const entries = journal
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l));
     const tail = entries.slice(-3);
     expect(tail.map((e) => e.kind)).toEqual([
       "finding:raised",
@@ -2636,21 +3647,26 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     });
     await step("spec submit", ["spec", "submit", "--input", submitInput, "--feature", F]);
     await step("spec add-req", [
-      "spec", "add-req",
-      "--input", await writeInput("req.json", {
+      "spec",
+      "add-req",
+      "--input",
+      await writeInput("req.json", {
         id_namespace: "REQ-CORE",
         type: "ubiquitous",
         response: "the system shall complete the fix-test smoke",
         acceptance_na: true,
         acceptance_na_reason: "exercised by this end-to-end lifecycle integration test",
       }),
-      "--feature", F,
+      "--feature",
+      F,
     ]);
     await step("advance SPEC.spec", ["advance", "SPEC.spec", "--feature", F]);
     await step("advance SPEC.plan", ["advance", "SPEC.plan", "--feature", F]);
     await step("advance SPEC.design", ["advance", "SPEC.design", "--feature", F]);
     await step("tasks submit", [
-      "tasks", "submit", "--input",
+      "tasks",
+      "submit",
+      "--input",
       await writeInput("tasks.json", {
         based_on: { spec: 2 },
         tasks: [
@@ -2670,11 +3686,18 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
           },
         ],
       }),
-      "--feature", F,
+      "--feature",
+      F,
     ]);
     await step("gate spec-lock", [
-      "gate", "decide", "spec-lock", "--approve",
-      "--reason", "spec and task graph complete for the lock", "--feature", F,
+      "gate",
+      "decide",
+      "spec-lock",
+      "--approve",
+      "--reason",
+      "spec and task graph complete for the lock",
+      "--feature",
+      F,
     ]);
     await step("advance EXECUTE.work", ["advance", "EXECUTE.work", "--feature", F]);
 
@@ -2682,11 +3705,28 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     await step("claim T-001", ["tasks", "claim", "T-001", "--feature", F]);
     for (const stepName of ["red", "implement"]) {
       await step(`step start ${stepName}`, [
-        "tasks", "step", "start", "--task", "T-001", "--step", stepName, "--feature", F,
+        "tasks",
+        "step",
+        "start",
+        "--task",
+        "T-001",
+        "--step",
+        stepName,
+        "--feature",
+        F,
       ]);
       await step(`step done ${stepName}`, [
-        "tasks", "step", "done", "--task", "T-001", "--step", stepName,
-        "--result", "passed", "--feature", F,
+        "tasks",
+        "step",
+        "done",
+        "--task",
+        "T-001",
+        "--step",
+        stepName,
+        "--result",
+        "passed",
+        "--feature",
+        F,
       ]);
     }
     const beforeTasks = await step("tasks list before", ["tasks", "list", "--feature", F]);
@@ -2698,17 +3738,30 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
 
     // ── fix-test back-edge: an open finding targeting {T-001, red} ──────
     const raised = await step("finding raise fix-test", [
-      "finding", "raise", "--category", "test-defect", "--action", "fix-test",
-      "--summary", "the red test asserts the wrong contract for REQ-CORE-001",
-      "--target-task", "T-001", "--target-step", "red",
-      "--feature", F,
+      "finding",
+      "raise",
+      "--category",
+      "test-defect",
+      "--action",
+      "fix-test",
+      "--summary",
+      "the red test asserts the wrong contract for REQ-CORE-001",
+      "--target-task",
+      "T-001",
+      "--target-step",
+      "red",
+      "--feature",
+      F,
     ]);
     expect(raised.id).toMatch(/^FND-\d{3,}$/);
     expect(raised.back_edge.to).toBe("EXECUTE.work");
 
     // ── the journal carries the atomic 3-entry batch in order ───────────
     const journal = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
-    const entries = journal.trim().split("\n").map((l) => JSON.parse(l));
+    const entries = journal
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l));
     const tail = entries.slice(-3);
     expect(tail.map((e) => e.kind)).toEqual([
       "finding:raised",
@@ -2756,7 +3809,11 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     expect(started.sub_state).toBe("TRIAGE.score");
 
     const archived = await step("archive", [
-      "archive", "--reason", "spike concluded; nothing to deliver", "--feature", F,
+      "archive",
+      "--reason",
+      "spike concluded; nothing to deliver",
+      "--feature",
+      F,
     ]);
     expect(archived.ok).toBe(true);
     expect(archived.from).toBe("TRIAGE.score");
@@ -2778,7 +3835,11 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     expect(started.sub_state).toBe("TRIAGE.score");
 
     const abandoned = await step("abandon", [
-      "abandon", "--reason", "no value; dropping the feature", "--feature", F,
+      "abandon",
+      "--reason",
+      "no value; dropping the feature",
+      "--feature",
+      F,
     ]);
     expect(abandoned.ok).toBe(true);
     expect(abandoned.from).toBe("TRIAGE.score");
@@ -2843,10 +3904,14 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
 
     // ── spike convert: record-only exit — archives the session, records to_feature ──
     const converted = await step("spike convert", [
-      "spike", "convert",
-      "--to-feature", "F-002",
-      "--reason", "spike learnings carry forward to F-002",
-      "--feature", F,
+      "spike",
+      "convert",
+      "--to-feature",
+      "F-002",
+      "--reason",
+      "spike learnings carry forward to F-002",
+      "--feature",
+      F,
     ]);
     expect(converted.ok).toBe(true);
     expect(converted.from).toBe("SPEC.design");
@@ -2861,7 +3926,10 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     // The journal carries the spike:converted record entry, and the terminal
     // session:archived is the final entry (the cursor mover, ordered last).
     const journal = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
-    const entries = journal.trim().split("\n").map((l) => JSON.parse(l));
+    const entries = journal
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l));
     const kinds = entries.map((e) => e.kind);
     expect(kinds).toContain("spike:converted");
     expect(kinds[kinds.length - 1]).toBe("session:archived");

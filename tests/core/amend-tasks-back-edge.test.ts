@@ -234,8 +234,11 @@ async function seedRealJournalAt(
     bootstrap.push(mk("event:phase_advanced", { from, to }));
   }
   bootstrap.push(
-    mk("gate:decided", { gate_kind: "spec-lock", decision: "approved", reason: "fixture" },
-      "human:engineer@test.local"),
+    mk(
+      "gate:decided",
+      { gate_kind: "spec-lock", decision: "approved", reason: "fixture" },
+      "human:engineer@test.local",
+    ),
   );
   bootstrap.push(mk("event:phase_advanced", { from: "SPEC.design", to: "EXECUTE.plan" }));
   bootstrap.push(mk("event:phase_advanced", { from: "EXECUTE.plan", to: "EXECUTE.work" }));
@@ -254,7 +257,8 @@ async function seedRealJournalAt(
   for (const e of bootstrap) meta = await appendEntry(journalPath, e, meta, { fsync: false });
 
   const replay = await replayJournal(journalPath, { collect_entries: true });
-  if (!replay.ok) throw new Error(`seedRealJournalAt replay failed: ${replay.code} ${replay.message}`);
+  if (!replay.ok)
+    throw new Error(`seedRealJournalAt replay failed: ${replay.code} ${replay.message}`);
   return {
     snapshot: replay.snapshot,
     tailSeq: replay.meta.last_applied_seq,
@@ -382,7 +386,14 @@ describe("mutateBatch — Item 3 SC1 amend-tasks batch integration", () => {
           },
         },
       ],
-      { feature_dir: dir, snapshot: baseSnap, tail_seq: -1, entries: [], meta: emptyMeta(), fsync: false },
+      {
+        feature_dir: dir,
+        snapshot: baseSnap,
+        tail_seq: -1,
+        entries: [],
+        meta: emptyMeta(),
+        fsync: false,
+      },
     );
     expect(r.ok).toBe(false);
     if (!r.ok) {

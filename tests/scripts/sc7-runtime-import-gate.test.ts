@@ -14,10 +14,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const REPO_ROOT = path.join(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "..", "..",
-);
+const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 async function readRepo(rel: string): Promise<string> {
   return await fs.readFile(path.join(REPO_ROOT, rel), "utf8");

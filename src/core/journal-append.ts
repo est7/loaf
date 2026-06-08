@@ -211,11 +211,9 @@ export async function appendMany(
   for (const entry of entries) {
     const parsed = JournalEntry.safeParse(entry);
     if (!parsed.success) {
-      throw new AppendError(
-        "INVALID_ENVELOPE",
-        "JournalEntry failed envelope schema validation",
-        { issues: parsed.error.issues },
-      );
+      throw new AppendError("INVALID_ENVELOPE", "JournalEntry failed envelope schema validation", {
+        issues: parsed.error.issues,
+      });
     }
     const payloadSchema = PER_KIND_PAYLOAD[parsed.data.kind];
     const payloadParsed = payloadSchema.safeParse(parsed.data.payload);

@@ -24,7 +24,9 @@ describe("TUI chrome localization", () => {
     expect(formatTuiListHelp(DEFAULT_I18N)).toBe(
       "[↑/↓] move · [space] fold · [a] active/all · [s] sort · [r] refresh · [q] quit",
     );
-    expect(formatTuiDetailField(DEFAULT_I18N, "feature", "auth-refresh")).toBe("feature: auth-refresh");
+    expect(formatTuiDetailField(DEFAULT_I18N, "feature", "auth-refresh")).toBe(
+      "feature: auth-refresh",
+    );
     expect(formatTuiDetailSectionTitle(DEFAULT_I18N, "tasks", 3)).toBe("tasks (3)");
     expect(formatTuiDetailEvidenceBadge(DEFAULT_I18N, "pass")).toBe("pass");
   });
@@ -39,7 +41,9 @@ describe("TUI chrome localization", () => {
     expect(formatTuiDetailHelp(ZH_I18N)).toBe("[Esc] 返回 · [q] 退出");
     expect(formatTuiDetailNone(ZH_I18N)).toBe("(无)");
     expect(formatTuiDetailField(ZH_I18N, "feature", "auth-refresh")).toBe("功能: auth-refresh");
-    expect(formatTuiDetailField(ZH_I18N, "spec_locked", formatTuiBoolean(ZH_I18N, true))).toBe("规格已锁定: 是");
+    expect(formatTuiDetailField(ZH_I18N, "spec_locked", formatTuiBoolean(ZH_I18N, true))).toBe(
+      "规格已锁定: 是",
+    );
     expect(formatTuiDetailSectionTitle(ZH_I18N, "open_findings", 1)).toBe("未关闭发现 (1)");
     expect(formatTuiDetailEvidenceBadge(ZH_I18N, "waived")).toBe("已豁免");
   });

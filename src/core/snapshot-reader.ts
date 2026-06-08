@@ -89,10 +89,7 @@ export async function checkSnapshotFresh(
     // Locate the last complete line.
     const withoutTrailingNl = trailingText.slice(0, -1);
     const lastNl = withoutTrailingNl.lastIndexOf("\n");
-    const tailLine =
-      lastNl === -1
-        ? withoutTrailingNl
-        : withoutTrailingNl.slice(lastNl + 1);
+    const tailLine = lastNl === -1 ? withoutTrailingNl : withoutTrailingNl.slice(lastNl + 1);
     const tailLineBytes = Buffer.byteLength(tailLine + "\n", "utf8");
     const tailLineOffset = stat.size - tailLineBytes;
 

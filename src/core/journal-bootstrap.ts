@@ -244,9 +244,7 @@ export async function tailRecovery(filePath: string): Promise<TailRecoveryResult
   const segments = contents.split("\n");
   const trailingTerminated = segments[segments.length - 1] === "";
   const partialLine = trailingTerminated ? null : segments[segments.length - 1]!;
-  const completeLines = trailingTerminated
-    ? segments.slice(0, -1)
-    : segments.slice(0, -1);
+  const completeLines = trailingTerminated ? segments.slice(0, -1) : segments.slice(0, -1);
 
   // Phase 1: drop trailing partial line if present.
   let truncated_bytes = 0;

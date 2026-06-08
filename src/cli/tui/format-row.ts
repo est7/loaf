@@ -22,10 +22,10 @@ import { statusBucket } from "./list-model.js";
 
 /** Minimum widths per column (header width floors). */
 export const COLUMN_MIN_WIDTHS = {
-  label: 12,      // "LABEL"
-  phase_sub: 12,  // "PHASE.SUB"
-  iter: 4,        // "ITER"
-  status: 12,     // "STATUS"
+  label: 12, // "LABEL"
+  phase_sub: 12, // "PHASE.SUB"
+  iter: 4, // "ITER"
+  status: 12, // "STATUS"
 } as const;
 
 /** Choose the LABEL column source: session_label if set, else feature. */

@@ -84,15 +84,32 @@ async function seedFeatureWithSpecMd(): Promise<{ featureDir: string }> {
   await fs.mkdir(featureDir, { recursive: true });
   // start to bootstrap journal at TRIAGE.score
   const start = await runCli(
-    ["start", "auth-refresh", "--ceremony", "standard",
-     "--feature-dir", featureDir, "--format", "json"],
+    [
+      "start",
+      "auth-refresh",
+      "--ceremony",
+      "standard",
+      "--feature-dir",
+      featureDir,
+      "--format",
+      "json",
+    ],
     { env: SEED_ENV },
   );
   if (start.exit !== 0) throw new Error(`seed start failed: ${start.stderr}`);
   // walk to SPEC.proposal (where event:spec_submitted is allowed)
   for (const sub of ["TRIAGE.confirm", "SPEC.proposal"]) {
     const adv = await runCli(
-      ["advance", sub, "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "advance",
+        sub,
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { env: SEED_ENV },
     );
     if (adv.exit !== 0) throw new Error(`seed advance ${sub} failed: ${adv.stderr}`);
@@ -102,7 +119,10 @@ async function seedFeatureWithSpecMd(): Promise<{ featureDir: string }> {
 }
 
 /** runEditor stub that writes `newContent` to filePath before resolving. */
-function stubEditor(newContent: string | null, exit: { code: number; signal: string | null; error?: string }): RunEditor {
+function stubEditor(
+  newContent: string | null,
+  exit: { code: number; signal: string | null; error?: string },
+): RunEditor {
   return async (args): Promise<RunEditorResult> => {
     if (newContent !== null) {
       await fs.writeFile(args.filePath, newContent);
@@ -121,7 +141,16 @@ describe("SC-12a-2 — spec edit happy paths", () => {
     const { featureDir } = await seedFeatureWithSpecMd();
     const journalBefore = await fs.readFile(path.join(featureDir, "journal.jsonl"), "utf8");
     const result = await runCli(
-      ["spec", "edit", "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "spec",
+        "edit",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { env: SEED_ENV, deps: { runEditor: NOOP_EDITOR } },
     );
     expect(result.exit).toBe(0);
@@ -137,9 +166,21 @@ describe("SC-12a-2 — spec edit happy paths", () => {
     const { featureDir } = await seedFeatureWithSpecMd();
     const journalBefore = await fs.readFile(path.join(featureDir, "journal.jsonl"), "utf8");
     // Editor stub writes a slightly different content (different intent)
-    const modified = VALID_SPEC_MD.replace("auth recovery flows in flight", "auth recovery flows in flight (revised)");
+    const modified = VALID_SPEC_MD.replace(
+      "auth recovery flows in flight",
+      "auth recovery flows in flight (revised)",
+    );
     const result = await runCli(
-      ["spec", "edit", "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "spec",
+        "edit",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { env: SEED_ENV, deps: { runEditor: stubEditor(modified, { code: 0, signal: null }) } },
     );
     expect(result.exit).toBe(0);
@@ -157,7 +198,16 @@ describe("SC-12a-2 — spec edit happy paths", () => {
     const { featureDir } = await seedFeatureWithSpecMd();
     const stale = VALID_SPEC_MD.replace("spec_version: 1", "spec_version: 99");
     const result = await runCli(
-      ["spec", "edit", "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "spec",
+        "edit",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { env: SEED_ENV, deps: { runEditor: stubEditor(stale, { code: 0, signal: null }) } },
     );
     expect(result.exit).toBe(0);
@@ -175,7 +225,16 @@ describe("SC-12a-2 — editor exit semantics", () => {
     const { featureDir } = await seedFeatureWithSpecMd();
     const journalBefore = await fs.readFile(path.join(featureDir, "journal.jsonl"), "utf8");
     const result = await runCli(
-      ["spec", "edit", "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "spec",
+        "edit",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { env: SEED_ENV, deps: { runEditor: async () => ({ code: 130, signal: "SIGINT" }) } },
     );
     expect(result.exit).toBe(130);
@@ -186,7 +245,16 @@ describe("SC-12a-2 — editor exit semantics", () => {
   test("non-zero exit (no signal) → exit 2 USAGE, no journal write", async () => {
     const { featureDir } = await seedFeatureWithSpecMd();
     const result = await runCli(
-      ["spec", "edit", "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "spec",
+        "edit",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { env: SEED_ENV, deps: { runEditor: async () => ({ code: 1, signal: null }) } },
     );
     expect(result.exit).toBe(2);
@@ -198,8 +266,20 @@ describe("SC-12a-2 — editor exit semantics", () => {
   test("spawn error → exit 2 USAGE + detail.spawn_error", async () => {
     const { featureDir } = await seedFeatureWithSpecMd();
     const result = await runCli(
-      ["spec", "edit", "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
-      { env: SEED_ENV, deps: { runEditor: async () => ({ code: 127, signal: null, error: "ENOENT" }) } },
+      [
+        "spec",
+        "edit",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
+      {
+        env: SEED_ENV,
+        deps: { runEditor: async () => ({ code: 127, signal: null, error: "ENOENT" }) },
+      },
     );
     expect(result.exit).toBe(2);
     const err = JSON.parse(result.stderr);
@@ -217,7 +297,16 @@ describe("SC-12a-2 — frontmatter subcode taxonomy", () => {
     const specPath = path.join(featureDir, "spec.md");
     const noFrontmatter = "no frontmatter here\nprose only\n";
     const result = await runCli(
-      ["spec", "edit", "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "spec",
+        "edit",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { env: SEED_ENV, deps: { runEditor: stubEditor(noFrontmatter, { code: 0, signal: null }) } },
     );
     expect(result.exit).toBe(2);
@@ -234,7 +323,16 @@ describe("SC-12a-2 — frontmatter subcode taxonomy", () => {
     const specPath = path.join(featureDir, "spec.md");
     const brokenYaml = "---\n: : not valid yaml @ :\n---\nbody\n";
     const result = await runCli(
-      ["spec", "edit", "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "spec",
+        "edit",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { env: SEED_ENV, deps: { runEditor: stubEditor(brokenYaml, { code: 0, signal: null }) } },
     );
     expect(result.exit).toBe(2);
@@ -251,7 +349,16 @@ describe("SC-12a-2 — frontmatter subcode taxonomy", () => {
     // Valid YAML but doesn't match SpecFrontmatter (missing required fields)
     const zodFail = "---\nschema_version: 2\n---\nbody\n";
     const result = await runCli(
-      ["spec", "edit", "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "spec",
+        "edit",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { env: SEED_ENV, deps: { runEditor: stubEditor(zodFail, { code: 0, signal: null }) } },
     );
     expect(result.exit).toBe(2);
@@ -267,7 +374,16 @@ describe("SC-12a-2 — frontmatter subcode taxonomy", () => {
     const { featureDir } = await seedFeatureWithSpecMd();
     await fs.unlink(path.join(featureDir, "spec.md"));
     const result = await runCli(
-      ["spec", "edit", "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "spec",
+        "edit",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { env: SEED_ENV, deps: { runEditor: NOOP_EDITOR } },
     );
     expect(result.exit).toBe(2);
@@ -284,7 +400,16 @@ describe("SC-12a-2 — frontmatter subcode taxonomy", () => {
       return { code: 0, signal: null };
     };
     const result = await runCli(
-      ["spec", "edit", "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "spec",
+        "edit",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { env: SEED_ENV, deps: { runEditor: deletingEditor } },
     );
     expect(result.exit).toBe(2);
@@ -306,7 +431,17 @@ describe("SC-12a-2 — flags + actor", () => {
       return { code: 0, signal: null };
     };
     const result = await runCli(
-      ["spec", "edit", "--dry-run", "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "spec",
+        "edit",
+        "--dry-run",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { env: SEED_ENV, deps: { runEditor: trackingEditor } },
     );
     expect(result.exit).toBe(2);
@@ -320,7 +455,16 @@ describe("SC-12a-2 — flags + actor", () => {
     const { featureDir } = await seedFeatureWithSpecMd();
     const journalBefore = await fs.readFile(path.join(featureDir, "journal.jsonl"), "utf8");
     const result = await runCli(
-      ["spec", "edit", "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "spec",
+        "edit",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { env: { ...SEED_ENV, EDITOR: `node "<unmatched` } },
     );
     expect(result.exit).toBe(2);
@@ -346,7 +490,16 @@ describe("SC-12a-2 — flags + actor", () => {
     // via existing CLI surface (mirror tests/cli/sc11-end-to-end.ts
     // seedAtExecuteWork pattern, abridged to just the lock).
     const advSpec = await runCli(
-      ["advance", "SPEC.spec", "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "advance",
+        "SPEC.spec",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { env: SEED_ENV },
     );
     expect(advSpec.exit).toBe(0);
@@ -361,64 +514,114 @@ describe("SC-12a-2 — flags + actor", () => {
     //   - tasks submit
     //   - gate decide spec-lock approve → spec_locked=true
     const submit = await runCli(
-      ["spec", "submit", "--input",
-       JSON.stringify({
-         spec_version: 1,
-         feature: { id: "F-001", name: "OAuth token refresh" },
-         intent: "users should not perceive auth recovery flows in flight",
-         adr_refs: [],
-         needs_clarification: [],
-       }),
-       "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "spec",
+        "submit",
+        "--input",
+        JSON.stringify({
+          spec_version: 1,
+          feature: { id: "F-001", name: "OAuth token refresh" },
+          intent: "users should not perceive auth recovery flows in flight",
+          adr_refs: [],
+          needs_clarification: [],
+        }),
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { env: SEED_ENV },
     );
     expect(submit.exit).toBe(0);
     const addReq = await runCli(
-      ["spec", "add-req", "--input",
-       JSON.stringify({
-         id_namespace: "REQ-AUTH",
-         type: "ubiquitous",
-         response: "the system shall do something measurably here",
-         acceptance_na: true,
-         acceptance_na_reason: "covered by manual UX testing scope outside automation",
-       }),
-       "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "spec",
+        "add-req",
+        "--input",
+        JSON.stringify({
+          id_namespace: "REQ-AUTH",
+          type: "ubiquitous",
+          response: "the system shall do something measurably here",
+          acceptance_na: true,
+          acceptance_na_reason: "covered by manual UX testing scope outside automation",
+        }),
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { env: SEED_ENV },
     );
     expect(addReq.exit).toBe(0);
     for (const sub of ["SPEC.plan", "SPEC.design"]) {
       const adv = await runCli(
-        ["advance", sub, "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+        [
+          "advance",
+          sub,
+          "--feature",
+          "auth-refresh",
+          "--feature-dir",
+          featureDir,
+          "--format",
+          "json",
+        ],
         { env: SEED_ENV },
       );
       expect(adv.exit).toBe(0);
     }
     const submitTasks = await runCli(
-      ["tasks", "submit", "--input",
-       JSON.stringify({
-         based_on: { spec: 2 },
-         tasks: [{
-           id: "T-001",
-           kind: "behavioral",
-           drives: ["REQ-AUTH-001"],
-           tests: ["TokenCoord.refreshOnce"],
-           status: "pending",
-           depends_on: [],
-           labels: [],
-           execution: {
-             red: { applicability: "must", status: "pending", evidence_refs: [] },
-             implement: { applicability: "must", status: "pending", evidence_refs: [] },
-             refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
-           },
-         }],
-       }),
-       "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "tasks",
+        "submit",
+        "--input",
+        JSON.stringify({
+          based_on: { spec: 2 },
+          tasks: [
+            {
+              id: "T-001",
+              kind: "behavioral",
+              drives: ["REQ-AUTH-001"],
+              tests: ["TokenCoord.refreshOnce"],
+              status: "pending",
+              depends_on: [],
+              labels: [],
+              execution: {
+                red: { applicability: "must", status: "pending", evidence_refs: [] },
+                implement: { applicability: "must", status: "pending", evidence_refs: [] },
+                refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+              },
+            },
+          ],
+        }),
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { env: SEED_ENV },
     );
     expect(submitTasks.exit).toBe(0);
     const lock = await runCli(
-      ["gate", "decide", "spec-lock", "--approve", "--reason", "seed: spec ready for execution",
-       "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "gate",
+        "decide",
+        "spec-lock",
+        "--approve",
+        "--reason",
+        "seed: spec ready for execution",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { env: SEED_ENV },
     );
     expect(lock.exit).toBe(0);
@@ -432,7 +635,16 @@ describe("SC-12a-2 — flags + actor", () => {
     const journalBefore = await fs.readFile(path.join(featureDir, "journal.jsonl"), "utf8");
     const specBefore = await fs.readFile(path.join(featureDir, "spec.md"), "utf8");
     const result = await runCli(
-      ["spec", "edit", "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "spec",
+        "edit",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { env: SEED_ENV, deps: { runEditor: trackingEditor } },
     );
     expect(result.exit).toBe(2);
@@ -448,7 +660,17 @@ describe("SC-12a-2 — flags + actor", () => {
   test("NO_HUMAN_ACTOR via --no-input + no LOAF_USER", async () => {
     const { featureDir } = await seedFeatureWithSpecMd();
     const result = await runCli(
-      ["spec", "edit", "--no-input", "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "spec",
+        "edit",
+        "--no-input",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { env: { LOAF_USER: undefined }, deps: { runEditor: NOOP_EDITOR } },
     );
     expect(result.exit).toBe(2);

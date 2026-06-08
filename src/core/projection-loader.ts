@@ -46,11 +46,7 @@ import {
   TasksJson,
 } from "./projection-schema.js";
 import { checkSnapshotFresh } from "./snapshot-reader.js";
-import {
-  SnapshotMeta,
-  isEmptyMeta,
-  type SnapshotMeta as SnapshotMetaType,
-} from "./snapshot.js";
+import { SnapshotMeta, isEmptyMeta, type SnapshotMeta as SnapshotMetaType } from "./snapshot.js";
 
 export type ProjectionKind = "state" | "tasks" | "evidence" | "findings" | "pending";
 

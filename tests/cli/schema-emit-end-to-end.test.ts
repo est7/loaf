@@ -121,7 +121,14 @@ describe("SC-10 — --dry-run rejection", () => {
 // ───────────────────────────────────────────────────────────────────────
 describe("SC-10 — selector rejection (--feature / $LOAF_FEATURE)", () => {
   test("mutator --schema + --feature → USAGE conflicting", async () => {
-    const result = await runCli(["spec", "add-req", "--schema", "--feature", "foo", "--format=json"]);
+    const result = await runCli([
+      "spec",
+      "add-req",
+      "--schema",
+      "--feature",
+      "foo",
+      "--format=json",
+    ]);
     expect(result.exit).toBe(2);
     const err = JSON.parse(result.stderr);
     expect(err.code).toBe("USAGE");
@@ -129,8 +136,9 @@ describe("SC-10 — selector rejection (--feature / $LOAF_FEATURE)", () => {
   });
 
   test("mutator --schema + $LOAF_FEATURE env → USAGE conflicting", async () => {
-    const result = await runCli(["tasks", "add", "--schema", "--format=json"],
-      { env: { LOAF_FEATURE: "foo" } });
+    const result = await runCli(["tasks", "add", "--schema", "--format=json"], {
+      env: { LOAF_FEATURE: "foo" },
+    });
     expect(result.exit).toBe(2);
     const err = JSON.parse(result.stderr);
     expect(err.code).toBe("USAGE");
@@ -146,8 +154,9 @@ describe("SC-10 — selector rejection (--feature / $LOAF_FEATURE)", () => {
   });
 
   test("<kind> schema + $LOAF_FEATURE env → USAGE conflicting", async () => {
-    const result = await runCli(["state", "schema", "--format=json"],
-      { env: { LOAF_FEATURE: "foo" } });
+    const result = await runCli(["state", "schema", "--format=json"], {
+      env: { LOAF_FEATURE: "foo" },
+    });
     expect(result.exit).toBe(2);
     const err = JSON.parse(result.stderr);
     expect(err.code).toBe("USAGE");
@@ -183,9 +192,15 @@ describe("SC-10 — selector guard scoped to --schema mode only", () => {
     // be rejected by SC-10's pre-parse guard. Will fail downstream
     // (no .loaf/foo or no input shape), but NOT with SC-10's "schema
     // does not accept --feature" wording.
-    const result = await runCli(
-      ["tasks", "add", "--input", "{}", "--feature", "fooX", "--format=json"],
-    );
+    const result = await runCli([
+      "tasks",
+      "add",
+      "--input",
+      "{}",
+      "--feature",
+      "fooX",
+      "--format=json",
+    ]);
     expect(result.exit).toBe(2);
     const err = JSON.parse(result.stderr);
     // Must NOT be the SC-10 USAGE conflict message

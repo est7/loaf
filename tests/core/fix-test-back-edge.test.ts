@@ -81,8 +81,7 @@ function snapshotAt(
   snap.state = {
     session_id: "550e8400-e29b-41d4-a716-446655440000",
     feature: "auth-refresh",
-    phase: subState.split(".")[0]! as
-      | "TRIAGE" | "SPEC" | "EXECUTE" | "VERIFY" | "SETTLE" | "DONE",
+    phase: subState.split(".")[0]! as "TRIAGE" | "SPEC" | "EXECUTE" | "VERIFY" | "SETTLE" | "DONE",
     sub_state: subState,
     iteration: 0,
     spec_locked: true,
@@ -103,9 +102,7 @@ function snapshotAt(
 }
 
 // An open fix-test finding targeting T-001's red step (the TDD failure lane).
-function fixTestFinding(
-  overrides: Partial<FindingState> = {},
-): FindingState {
+function fixTestFinding(overrides: Partial<FindingState> = {}): FindingState {
   return {
     id: "FND-001",
     category: "test-defect",
@@ -240,30 +237,24 @@ describe("preflight — event:task_step_reset for a fix-test finding (Item 3 SC3
   }
 
   test("happy: open fix-test finding + matching {task_id, step:red} → ok", () => {
-    const r = preflight(
-      resetEntry({ task_id: "T-001", step: "red", finding_id: "FND-001" }),
-      {
-        snapshot: snapshotAt("EXECUTE.work", {
-          tasks: [mkTask()],
-          findings: [fixTestFinding()],
-        }),
-        tail_seq: 0,
-      },
-    );
+    const r = preflight(resetEntry({ task_id: "T-001", step: "red", finding_id: "FND-001" }), {
+      snapshot: snapshotAt("EXECUTE.work", {
+        tasks: [mkTask()],
+        findings: [fixTestFinding()],
+      }),
+      tail_seq: 0,
+    });
     expect(r.ok).toBe(true);
   });
 
   test("happy: fix-test reset from VERIFY.review on a done task → ok", () => {
-    const r = preflight(
-      resetEntry({ task_id: "T-001", step: "red", finding_id: "FND-001" }),
-      {
-        snapshot: snapshotAt("VERIFY.review", {
-          tasks: [mkTask({ status: "done" })],
-          findings: [fixTestFinding()],
-        }),
-        tail_seq: 0,
-      },
-    );
+    const r = preflight(resetEntry({ task_id: "T-001", step: "red", finding_id: "FND-001" }), {
+      snapshot: snapshotAt("VERIFY.review", {
+        tasks: [mkTask({ status: "done" })],
+        findings: [fixTestFinding()],
+      }),
+      tail_seq: 0,
+    });
     expect(r.ok).toBe(true);
   });
 
@@ -275,9 +266,7 @@ describe("preflight — event:task_step_reset for a fix-test finding (Item 3 SC3
       {
         snapshot: snapshotAt("EXECUTE.work", {
           tasks: [mkTask()],
-          findings: [
-            fixTestFinding({ target: { task_id: "T-001", step: "implement" } }),
-          ],
+          findings: [fixTestFinding({ target: { task_id: "T-001", step: "implement" } })],
         }),
         tail_seq: 0,
       },
@@ -294,16 +283,13 @@ describe("preflight — event:task_step_reset for a fix-test finding (Item 3 SC3
   test("action-mismatch finding (defer) → FINDING_NOT_FOUND reason=action_mismatch", () => {
     // A `defer` finding cannot sponsor a step reset — only fix-impl /
     // fix-test (the generalized action set).
-    const r = preflight(
-      resetEntry({ task_id: "T-001", step: "red", finding_id: "FND-001" }),
-      {
-        snapshot: snapshotAt("EXECUTE.work", {
-          tasks: [mkTask()],
-          findings: [fixTestFinding({ action: "defer" })],
-        }),
-        tail_seq: 0,
-      },
-    );
+    const r = preflight(resetEntry({ task_id: "T-001", step: "red", finding_id: "FND-001" }), {
+      snapshot: snapshotAt("EXECUTE.work", {
+        tasks: [mkTask()],
+        findings: [fixTestFinding({ action: "defer" })],
+      }),
+      tail_seq: 0,
+    });
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.code).toBe("FINDING_NOT_FOUND");
@@ -314,16 +300,13 @@ describe("preflight — event:task_step_reset for a fix-test finding (Item 3 SC3
   test("abandoned target task → MUTATION_OUT_OF_RIGHTS task_step_reset_task_abandoned (r141 guard, fix-test path)", () => {
     // The r141 abandoned guard is action-agnostic — a fix-test step reset
     // must not resurrect a terminal task either.
-    const r = preflight(
-      resetEntry({ task_id: "T-001", step: "red", finding_id: "FND-001" }),
-      {
-        snapshot: snapshotAt("EXECUTE.work", {
-          tasks: [mkTask({ status: "abandoned" })],
-          findings: [fixTestFinding()],
-        }),
-        tail_seq: 0,
-      },
-    );
+    const r = preflight(resetEntry({ task_id: "T-001", step: "red", finding_id: "FND-001" }), {
+      snapshot: snapshotAt("EXECUTE.work", {
+        tasks: [mkTask({ status: "abandoned" })],
+        findings: [fixTestFinding()],
+      }),
+      tail_seq: 0,
+    });
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.code).toBe("MUTATION_OUT_OF_RIGHTS");
@@ -380,30 +363,37 @@ async function seedRealJournalAt(
     bootstrap.push(mk("event:phase_advanced", { from, to }));
   }
   bootstrap.push(
-    mk("gate:decided", { gate_kind: "spec-lock", decision: "approved", reason: "fixture" },
-      "human:engineer@test.local"),
+    mk(
+      "gate:decided",
+      { gate_kind: "spec-lock", decision: "approved", reason: "fixture" },
+      "human:engineer@test.local",
+    ),
   );
   bootstrap.push(mk("event:phase_advanced", { from: "SPEC.design", to: "EXECUTE.plan" }));
   bootstrap.push(
-    mk("event:tasks_planned", {
-      based_on: { spec: 1 },
-      tasks: [
-        {
-          id: "T-001",
-          kind: "behavioral",
-          drives: ["REQ-CORE-001"],
-          tests: ["Core.regressOnce"],
-          status: "pending",
-          depends_on: [],
-          labels: [],
-          execution: {
-            red: { applicability: "must", status: "pending", evidence_refs: [] },
-            implement: { applicability: "must", status: "pending", evidence_refs: [] },
-            refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+    mk(
+      "event:tasks_planned",
+      {
+        based_on: { spec: 1 },
+        tasks: [
+          {
+            id: "T-001",
+            kind: "behavioral",
+            drives: ["REQ-CORE-001"],
+            tests: ["Core.regressOnce"],
+            status: "pending",
+            depends_on: [],
+            labels: [],
+            execution: {
+              red: { applicability: "must", status: "pending", evidence_refs: [] },
+              implement: { applicability: "must", status: "pending", evidence_refs: [] },
+              refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+            },
           },
-        },
-      ],
-    }, "human:engineer@test.local"),
+        ],
+      },
+      "human:engineer@test.local",
+    ),
   );
   bootstrap.push(mk("event:phase_advanced", { from: "EXECUTE.plan", to: "EXECUTE.work" }));
   bootstrap.push(mk("event:task_claimed", { task_id: "T-001" }));
@@ -426,7 +416,8 @@ async function seedRealJournalAt(
   for (const e of bootstrap) meta = await appendEntry(journalPath, e, meta, { fsync: false });
 
   const replay = await replayJournal(journalPath, { collect_entries: true });
-  if (!replay.ok) throw new Error(`seedRealJournalAt replay failed: ${replay.code} ${replay.message}`);
+  if (!replay.ok)
+    throw new Error(`seedRealJournalAt replay failed: ${replay.code} ${replay.message}`);
   return {
     snapshot: replay.snapshot,
     tailSeq: replay.meta.last_applied_seq,

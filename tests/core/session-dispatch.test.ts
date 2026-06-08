@@ -40,7 +40,9 @@ async function seedFeatureWithRegistry(
   registryDir: string,
   sessionIdOverride?: string,
 ): Promise<string> {
-  const sessionId = sessionIdOverride ?? `550e8400-e29b-41d4-a716-${Math.random().toString(16).slice(2, 14).padStart(12, "0")}`;
+  const sessionId =
+    sessionIdOverride ??
+    `550e8400-e29b-41d4-a716-${Math.random().toString(16).slice(2, 14).padStart(12, "0")}`;
   const featureDir = path.join(cwd, ".loaf", feature);
   await fs.mkdir(featureDir, { recursive: true });
 
@@ -194,7 +196,12 @@ describe("SC-8 — session dispatch resolver, session sources", () => {
     const sid = "550e8400-e29b-41d4-a716-0000000000cc";
     await fs.writeFile(path.join(regDir, `${sid}.json`), "{ not json");
 
-    const result = await resolveDispatch({ argv: ["--session", sid], env: {}, cwd, registryDir: regDir });
+    const result = await resolveDispatch({
+      argv: ["--session", sid],
+      env: {},
+      cwd,
+      registryDir: regDir,
+    });
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe("SESSION_NOT_FOUND");
@@ -208,7 +215,12 @@ describe("SC-8 — session dispatch resolver, session sources", () => {
     const sid = "550e8400-e29b-41d4-a716-0000000000dd";
     await fs.writeFile(path.join(regDir, `${sid}.json`), JSON.stringify({ session_id: sid }));
 
-    const result = await resolveDispatch({ argv: ["--session", sid], env: {}, cwd, registryDir: regDir });
+    const result = await resolveDispatch({
+      argv: ["--session", sid],
+      env: {},
+      cwd,
+      registryDir: regDir,
+    });
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe("SESSION_NOT_FOUND");

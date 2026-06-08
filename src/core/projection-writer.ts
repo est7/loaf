@@ -303,21 +303,13 @@ export function composePendingJson(entries: readonly JournalEntry[]): PendingJso
  *   3. rename tmp → final (atomic on same FS)
  *   4. best-effort fsync parent dir (durability across power loss)
  */
-async function writeJsonAtomic(
-  filePath: string,
-  value: unknown,
-  fsync: boolean,
-): Promise<void> {
+async function writeJsonAtomic(filePath: string, value: unknown, fsync: boolean): Promise<void> {
   await writeTextAtomic(filePath, JSON.stringify(value, null, 2), fsync);
 }
 
 /** Atomic raw-text write — the markdown projection (lessons.md, F-024)
  *  shares the exact tmp+fsync+rename boundary as the JSON leaves. */
-async function writeTextAtomic(
-  filePath: string,
-  body: string,
-  fsync: boolean,
-): Promise<void> {
+async function writeTextAtomic(filePath: string, body: string, fsync: boolean): Promise<void> {
   const tmp = `${filePath}.tmp-${randomBytes(6).toString("hex")}`;
   await fsp.writeFile(tmp, body, { mode: 0o644 });
 

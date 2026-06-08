@@ -13,10 +13,7 @@ import path from "node:path";
 import os from "node:os";
 
 import { main } from "../../src/cli.js";
-import {
-  createCommandContext,
-  type CommandContext,
-} from "../../src/cli/command-context.js";
+import { createCommandContext, type CommandContext } from "../../src/cli/command-context.js";
 
 async function tmpFeatureDir(): Promise<string> {
   return await fs.mkdtemp(path.join(os.tmpdir(), "loaf-sc5a-format-test-"));
@@ -126,10 +123,14 @@ describe("Phase 16 SC-5a — RED #1-#3: --format integration happy paths", () =>
   test("RED #1: --format json → JSON on stdout for `loaf status` success", async () => {
     const dir = await tmpFeatureDir();
     const result = await runCli([
-      "start", "auth-refresh",
-      "--ceremony", "standard",
-      "--feature-dir", dir,
-      "--format", "json",
+      "start",
+      "auth-refresh",
+      "--ceremony",
+      "standard",
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
     ]);
     expect(result.exit).toBe(0);
     const parsed = JSON.parse(result.stdout) as { ok: boolean };
@@ -139,10 +140,14 @@ describe("Phase 16 SC-5a — RED #1-#3: --format integration happy paths", () =>
   test("RED #2: --format text (explicit) → text on stdout", async () => {
     const dir = await tmpFeatureDir();
     const result = await runCli([
-      "start", "auth-refresh",
-      "--ceremony", "quick",
-      "--feature-dir", dir,
-      "--format", "text",
+      "start",
+      "auth-refresh",
+      "--ceremony",
+      "quick",
+      "--feature-dir",
+      dir,
+      "--format",
+      "text",
     ]);
     expect(result.exit).toBe(0);
     // SC-5b1 pilot: `loaf start` text-mode stdout is `<UUID>\n` (just
@@ -155,9 +160,12 @@ describe("Phase 16 SC-5a — RED #1-#3: --format integration happy paths", () =>
   test("RED #3: --format absent → defaults to text", async () => {
     const dir = await tmpFeatureDir();
     const result = await runCli([
-      "start", "auth-refresh",
-      "--ceremony", "quick",
-      "--feature-dir", dir,
+      "start",
+      "auth-refresh",
+      "--ceremony",
+      "quick",
+      "--feature-dir",
+      dir,
     ]);
     expect(result.exit).toBe(0);
     expect(() => JSON.parse(result.stdout)).toThrow();
@@ -166,10 +174,7 @@ describe("Phase 16 SC-5a — RED #1-#3: --format integration happy paths", () =>
 
 describe("Phase 16 SC-5a — RED #4 + #16: invalid --format value rejected with INVALID_FORMAT", () => {
   test("RED #4: --format yaml → exit 2 INVALID_FORMAT (text-mode stderr, no stdout)", async () => {
-    const result = await runCli([
-      "status",
-      "--format", "yaml",
-    ]);
+    const result = await runCli(["status", "--format", "yaml"]);
     expect(result.exit).toBe(2);
     expect(result.stdout).toBe("");
     expect(result.stderr).toContain("INVALID_FORMAT");
@@ -178,10 +183,7 @@ describe("Phase 16 SC-5a — RED #4 + #16: invalid --format value rejected with 
   });
 
   test("RED #16: --format=yaml → same shape as --format yaml", async () => {
-    const result = await runCli([
-      "status",
-      "--format=yaml",
-    ]);
+    const result = await runCli(["status", "--format=yaml"]);
     expect(result.exit).toBe(2);
     expect(result.stdout).toBe("");
     expect(result.stderr).toContain("INVALID_FORMAT");
@@ -189,10 +191,7 @@ describe("Phase 16 SC-5a — RED #4 + #16: invalid --format value rejected with 
   });
 
   test("RED #17: --format= (empty equals form) → INVALID_FORMAT with detail.value=''", async () => {
-    const result = await runCli([
-      "status",
-      "--format=",
-    ]);
+    const result = await runCli(["status", "--format="]);
     expect(result.exit).toBe(2);
     expect(result.stdout).toBe("");
     expect(result.stderr).toContain("INVALID_FORMAT");
@@ -220,9 +219,12 @@ describe("Phase 16 SC-5a — RED #5: --json flag removed under A1", () => {
     // that doesn't carry per-command required flags.
     const dir = await tmpFeatureDir();
     const result = await runCli([
-      "start", "ga-smoke",
-      "--ceremony", "quick",
-      "--feature-dir", dir,
+      "start",
+      "ga-smoke",
+      "--ceremony",
+      "quick",
+      "--feature-dir",
+      dir,
       "--json",
     ]);
     // SC-2 normalization at src/cli.tsx:3888-3891 maps Commander's parse
@@ -352,7 +354,9 @@ describe("ADR-0006 P0 — INVALID_LOCALE CLI guard", () => {
     expect(result.stderr).toBe(defaultResult.stderr);
     const parsed = JSON.parse(result.stderr);
     expect(parsed.code).toBe("FEATURE_NOT_FOUND");
-    expect(parsed.message).toBe("no feature found in cwd (.loaf/ is empty or missing, or no projection has phase != DONE)");
+    expect(parsed.message).toBe(
+      "no feature found in cwd (.loaf/ is empty or missing, or no projection has phase != DONE)",
+    );
   });
 
   test("valid LOAF_LANG=zh localizes dispatch text failure", async () => {

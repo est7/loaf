@@ -35,10 +35,7 @@ import type { Snapshot } from "./reducer.js";
  * by SPEC_EMITTING_KINDS, so an unexpected null here signals projection
  * corruption and gets surfaced as PROJECTION_WRITE_FAILED.
  */
-export function composeSpecMdFrontmatter(
-  snapshot: Snapshot,
-  existingBody: string = "",
-): string {
+export function composeSpecMdFrontmatter(snapshot: Snapshot, existingBody: string = ""): string {
   if (snapshot.state === null) {
     throw new Error(
       "composeSpecMdFrontmatter: snapshot.state is null (no session) — cannot project spec.md without spec_version",
@@ -88,10 +85,7 @@ export function composeSpecMdFrontmatter(
  * within the outer mutateBatch critical section (MVP single-writer
  * assumption — see TODO at journal-mutate.ts Pass 5).
  */
-export async function writeDerivedSpecMd(
-  snapshot: Snapshot,
-  featureDir: string,
-): Promise<void> {
+export async function writeDerivedSpecMd(snapshot: Snapshot, featureDir: string): Promise<void> {
   const specPath = path.join(featureDir, "spec.md");
 
   // Preserve existing body across re-write.

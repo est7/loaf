@@ -25,8 +25,16 @@ async function tmpRegDir(): Promise<string> {
 async function tmpCwdAndSeed(featureName: string, registryDir: string): Promise<{ cwd: string }> {
   const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "loaf-sc9b-cli-cwd-"));
   await runCli(
-    ["start", featureName, "--ceremony", "standard",
-     "--feature-dir", path.join(cwd, ".loaf", featureName), "--format", "json"],
+    [
+      "start",
+      featureName,
+      "--ceremony",
+      "standard",
+      "--feature-dir",
+      path.join(cwd, ".loaf", featureName),
+      "--format",
+      "json",
+    ],
     { deps: { registryDir, registryCwd: () => cwd }, cwd },
   );
   return { cwd };
@@ -79,13 +87,16 @@ describe("SC-9b — sessions list happy paths", () => {
     const registryDir = await tmpRegDir();
     await tmpCwdAndSeed("feature-a", registryDir);
     await tmpCwdAndSeed("feature-b", registryDir);
-    const result = await runCli(["sessions", "list", "--format", "json"], { deps: { registryDir } });
+    const result = await runCli(["sessions", "list", "--format", "json"], {
+      deps: { registryDir },
+    });
     expect(result.exit).toBe(0);
     const out = JSON.parse(result.stdout);
     expect(out.ok).toBe(true);
     expect(out.count).toBe(2);
     expect(out.sessions.map((s: { feature: string }) => s.feature).sort()).toEqual([
-      "feature-a", "feature-b",
+      "feature-a",
+      "feature-b",
     ]);
   });
 
@@ -93,8 +104,10 @@ describe("SC-9b — sessions list happy paths", () => {
     const registryDir = await tmpRegDir();
     const { cwd: cwdA } = await tmpCwdAndSeed("feature-a", registryDir);
     await tmpCwdAndSeed("feature-b", registryDir);
-    const result = await runCli(["sessions", "list", "--in-cwd", "--format", "json"],
-      { deps: { registryDir }, cwd: cwdA });
+    const result = await runCli(["sessions", "list", "--in-cwd", "--format", "json"], {
+      deps: { registryDir },
+      cwd: cwdA,
+    });
     expect(result.exit).toBe(0);
     const out = JSON.parse(result.stdout);
     expect(out.count).toBe(1);
@@ -124,7 +137,9 @@ describe("SC-9b — sessions list happy paths", () => {
   test("LOAF_LANG=zh leaves JSON output byte-stable", async () => {
     const registryDir = await tmpRegDir();
     await tmpCwdAndSeed("auth-refresh", registryDir);
-    const enResult = await runCli(["sessions", "list", "--format", "json"], { deps: { registryDir } });
+    const enResult = await runCli(["sessions", "list", "--format", "json"], {
+      deps: { registryDir },
+    });
     const zhResult = await runCli(["sessions", "list", "--format", "json"], {
       env: { LOAF_LANG: "zh" },
       deps: { registryDir },
@@ -143,8 +158,9 @@ describe("SC-9b — sessions list happy paths", () => {
 
   test("T13: --dry-run sessions list → DRY_RUN_NOT_APPLICABLE", async () => {
     const registryDir = await tmpRegDir();
-    const result = await runCli(["--dry-run", "sessions", "list", "--format", "json"],
-      { deps: { registryDir } });
+    const result = await runCli(["--dry-run", "sessions", "list", "--format", "json"], {
+      deps: { registryDir },
+    });
     expect(result.exit).toBe(2);
     const err = JSON.parse(result.stderr.trim());
     expect(err.code).toBe("DRY_RUN_NOT_APPLICABLE");
@@ -154,9 +170,14 @@ describe("SC-9b — sessions list happy paths", () => {
 
 describe("SC-9b — dispatch selector rejection (codex r292 P1 v3)", () => {
   test("T-reject-1: loaf --session UUID sessions list → USAGE", async () => {
-    const result = await runCli(
-      ["--session", "550e8400-e29b-41d4-a716-aaaaaaaaaaaa", "sessions", "list", "--format", "json"],
-    );
+    const result = await runCli([
+      "--session",
+      "550e8400-e29b-41d4-a716-aaaaaaaaaaaa",
+      "sessions",
+      "list",
+      "--format",
+      "json",
+    ]);
     expect(result.exit).toBe(2);
     const err = JSON.parse(result.stderr.trim());
     expect(err.code).toBe("USAGE");
@@ -165,10 +186,9 @@ describe("SC-9b — dispatch selector rejection (codex r292 P1 v3)", () => {
   });
 
   test("T-reject-2: LOAF_SESSION=UUID loaf sessions list → USAGE", async () => {
-    const result = await runCli(
-      ["sessions", "list", "--format", "json"],
-      { env: { LOAF_SESSION: "550e8400-e29b-41d4-a716-aaaaaaaaaaaa" } },
-    );
+    const result = await runCli(["sessions", "list", "--format", "json"], {
+      env: { LOAF_SESSION: "550e8400-e29b-41d4-a716-aaaaaaaaaaaa" },
+    });
     expect(result.exit).toBe(2);
     const err = JSON.parse(result.stderr.trim());
     expect(err.detail.conflicting).toEqual(["$LOAF_SESSION"]);
@@ -192,18 +212,30 @@ describe("SC-9b — dispatch selector rejection (codex r292 P1 v3)", () => {
   });
 
   test("T-reject-5: loaf sessions list --feature X --feature-dir /tmp/x → USAGE listing both", async () => {
-    const result = await runCli(
-      ["sessions", "list", "--feature", "X", "--feature-dir", "/tmp/x", "--format", "json"],
-    );
+    const result = await runCli([
+      "sessions",
+      "list",
+      "--feature",
+      "X",
+      "--feature-dir",
+      "/tmp/x",
+      "--format",
+      "json",
+    ]);
     expect(result.exit).toBe(2);
     const err = JSON.parse(result.stderr.trim());
     expect(err.detail.conflicting).toEqual(["--feature", "--feature-dir"]);
   });
 
   test("T-reject-7: loaf sessions list --feature-dir /tmp/x → SC-9b USAGE (NOT SC-8 'requires --feature')", async () => {
-    const result = await runCli(
-      ["sessions", "list", "--feature-dir", "/tmp/x", "--format", "json"],
-    );
+    const result = await runCli([
+      "sessions",
+      "list",
+      "--feature-dir",
+      "/tmp/x",
+      "--format",
+      "json",
+    ]);
     expect(result.exit).toBe(2);
     const err = JSON.parse(result.stderr.trim());
     expect(err.code).toBe("USAGE");
@@ -213,18 +245,26 @@ describe("SC-9b — dispatch selector rejection (codex r292 P1 v3)", () => {
   });
 
   test("T-reject-8: loaf --feature-dir /tmp/x sessions list → SC-9b USAGE (global position; SC-9b owns)", async () => {
-    const result = await runCli(
-      ["--feature-dir", "/tmp/x", "sessions", "list", "--format", "json"],
-    );
+    const result = await runCli([
+      "--feature-dir",
+      "/tmp/x",
+      "sessions",
+      "list",
+      "--format",
+      "json",
+    ]);
     expect(result.exit).toBe(2);
     const err = JSON.parse(result.stderr.trim());
     expect(err.message).toContain("sessions list does not accept");
   });
 
   test("T-reject-9: text mode rejection renders 'error: USAGE — ...'", async () => {
-    const result = await runCli(
-      ["--session", "550e8400-e29b-41d4-a716-aaaaaaaaaaaa", "sessions", "list"],
-    );
+    const result = await runCli([
+      "--session",
+      "550e8400-e29b-41d4-a716-aaaaaaaaaaaa",
+      "sessions",
+      "list",
+    ]);
     expect(result.exit).toBe(2);
     expect(result.stderr).toMatch(/^error: USAGE —/);
   });
@@ -256,7 +296,9 @@ describe("SC-9b — dispatch selector rejection (codex r292 P1 v3)", () => {
 
   test("T-reject-sanity: plain `loaf sessions list` (no selectors) → runs normally", async () => {
     const registryDir = await tmpRegDir();
-    const result = await runCli(["sessions", "list", "--format", "json"], { deps: { registryDir } });
+    const result = await runCli(["sessions", "list", "--format", "json"], {
+      deps: { registryDir },
+    });
     expect(result.exit).toBe(0);
   });
 });
@@ -280,8 +322,9 @@ describe("SC-9b — corrupt registry observable skip (codex r290 P2)", () => {
     await tmpCwdAndSeed("auth-refresh", registryDir);
     await fs.writeFile(path.join(registryDir, "corrupt-id.json"), "garbage", "utf8");
 
-    const result = await runCli(["sessions", "list", "--format", "json"],
-      { deps: { registryDir } });
+    const result = await runCli(["sessions", "list", "--format", "json"], {
+      deps: { registryDir },
+    });
     expect(result.exit).toBe(0);
     const out = JSON.parse(result.stdout);
     expect(out.count).toBe(1);
@@ -295,24 +338,30 @@ describe("SC-9b — corrupt registry observable skip (codex r290 P2)", () => {
     // entry pointing at a non-existent directory.
     await tmpCwdAndSeed("valid-feat", registryDir);
     const orphanFile = path.join(registryDir, "550e8400-e29b-41d4-a716-deadbeefcafe.json");
-    await fs.writeFile(orphanFile, JSON.stringify({
-      schema_version: 2,
-      at: "2026-05-28T14:00:00.000Z",
-      session_id: "550e8400-e29b-41d4-a716-deadbeefcafe",
-      session_label: "",
-      feature: "orphan-feat",
-      cwd: "/tmp/loaf-sc9b-ORPHAN-DELETED-DIR-DOES-NOT-EXIST",
-      workspace: "default",
-      phase: "TRIAGE",
-      sub_state: "TRIAGE.score",
-      iteration: 1,
-      active_tasks: [],
-      pending: null,
-      pending_queue_depth: 0,
-      ceremony_label: "standard",
-    }), "utf8");
+    await fs.writeFile(
+      orphanFile,
+      JSON.stringify({
+        schema_version: 2,
+        at: "2026-05-28T14:00:00.000Z",
+        session_id: "550e8400-e29b-41d4-a716-deadbeefcafe",
+        session_label: "",
+        feature: "orphan-feat",
+        cwd: "/tmp/loaf-sc9b-ORPHAN-DELETED-DIR-DOES-NOT-EXIST",
+        workspace: "default",
+        phase: "TRIAGE",
+        sub_state: "TRIAGE.score",
+        iteration: 1,
+        active_tasks: [],
+        pending: null,
+        pending_queue_depth: 0,
+        ceremony_label: "standard",
+      }),
+      "utf8",
+    );
 
-    const result = await runCli(["sessions", "list", "--format", "json"], { deps: { registryDir } });
+    const result = await runCli(["sessions", "list", "--format", "json"], {
+      deps: { registryDir },
+    });
     expect(result.exit).toBe(0);
     const out = JSON.parse(result.stdout);
     // Orphan row IS listed in no-filter mode
@@ -331,22 +380,26 @@ describe("SC-9b — corrupt registry observable skip (codex r290 P2)", () => {
     const registryDir = await tmpRegDir();
     const { cwd } = await tmpCwdAndSeed("valid-feat", registryDir);
     const orphanFile = path.join(registryDir, "550e8400-e29b-41d4-a716-cafe0badbeef.json");
-    await fs.writeFile(orphanFile, JSON.stringify({
-      schema_version: 2,
-      at: "2026-05-28T14:00:00.000Z",
-      session_id: "550e8400-e29b-41d4-a716-cafe0badbeef",
-      session_label: "",
-      feature: "orphan-filtered",
-      cwd: "/tmp/loaf-sc9b-ANOTHER-ORPHAN-DELETED",
-      workspace: "default",
-      phase: "TRIAGE",
-      sub_state: "TRIAGE.score",
-      iteration: 1,
-      active_tasks: [],
-      pending: null,
-      pending_queue_depth: 0,
-      ceremony_label: "standard",
-    }), "utf8");
+    await fs.writeFile(
+      orphanFile,
+      JSON.stringify({
+        schema_version: 2,
+        at: "2026-05-28T14:00:00.000Z",
+        session_id: "550e8400-e29b-41d4-a716-cafe0badbeef",
+        session_label: "",
+        feature: "orphan-filtered",
+        cwd: "/tmp/loaf-sc9b-ANOTHER-ORPHAN-DELETED",
+        workspace: "default",
+        phase: "TRIAGE",
+        sub_state: "TRIAGE.score",
+        iteration: 1,
+        active_tasks: [],
+        pending: null,
+        pending_queue_depth: 0,
+        ceremony_label: "standard",
+      }),
+      "utf8",
+    );
 
     const result = await runCli(["sessions", "list", "--in-cwd"], { deps: { registryDir }, cwd });
     expect(result.exit).toBe(0);

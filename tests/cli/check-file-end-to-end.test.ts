@@ -154,8 +154,10 @@ describe("SC-9c — schema failure rendering", () => {
     const file = path.join(dir, "spec.md");
     // Build a spec.md with 25 invalid REQ ids — SpecFrontmatter regex
     // enforcement at requirements[*].id triggers a Zod issue per invalid.
-    const badReqs = Array.from({ length: 25 }, (_, i) =>
-      `  - id: not-a-valid-req-id-${i}\n    type: ubiquitous\n    response: the system shall do something here measurably\n    acceptance_na: true\n    acceptance_na_reason: subjective UX validated`,
+    const badReqs = Array.from(
+      { length: 25 },
+      (_, i) =>
+        `  - id: not-a-valid-req-id-${i}\n    type: ubiquitous\n    response: the system shall do something here measurably\n    acceptance_na: true\n    acceptance_na_reason: subjective UX validated`,
     ).join("\n");
     const fm = `---
 schema_version: 2
@@ -278,10 +280,7 @@ describe("SC-9c — pre-parse guard rejects feature selectors", () => {
     const dir = await tmp();
     const file = path.join(dir, "tasks.json");
     await fs.writeFile(file, VALID_TASKS_JSON);
-    const result = await runCli(
-      ["check", file, "--feature-dir", "/tmp/x", "--format", "json"],
-      {},
-    );
+    const result = await runCli(["check", file, "--feature-dir", "/tmp/x", "--format", "json"], {});
     expect(result.exit).toBe(2);
     const err = JSON.parse(result.stderr);
     expect(err.code).toBe("USAGE");
@@ -292,10 +291,7 @@ describe("SC-9c — pre-parse guard rejects feature selectors", () => {
     const dir = await tmp();
     const file = path.join(dir, "tasks.json");
     await fs.writeFile(file, VALID_TASKS_JSON);
-    const result = await runCli(
-      ["check", file, "--session", "abcdefgh", "--format", "json"],
-      {},
-    );
+    const result = await runCli(["check", file, "--session", "abcdefgh", "--format", "json"], {});
     expect(result.exit).toBe(2);
     const err = JSON.parse(result.stderr);
     expect(err.code).toBe("USAGE");
@@ -306,10 +302,9 @@ describe("SC-9c — pre-parse guard rejects feature selectors", () => {
     const dir = await tmp();
     const file = path.join(dir, "tasks.json");
     await fs.writeFile(file, VALID_TASKS_JSON);
-    const result = await runCli(
-      ["check", file, "--format", "json"],
-      { env: { LOAF_FEATURE: "foo" } },
-    );
+    const result = await runCli(["check", file, "--format", "json"], {
+      env: { LOAF_FEATURE: "foo" },
+    });
     expect(result.exit).toBe(2);
     const err = JSON.parse(result.stderr);
     expect(err.code).toBe("USAGE");
@@ -332,10 +327,7 @@ describe("SC-9c — flags", () => {
     const dir = await tmp();
     const file = path.join(dir, "scratch.json");
     await fs.writeFile(file, VALID_TASKS_JSON);
-    const result = await runCli(
-      ["check", file, "--kind", "tasks", "--format", "json"],
-      {},
-    );
+    const result = await runCli(["check", file, "--kind", "tasks", "--format", "json"], {});
     expect(result.exit).toBe(0);
     const out = JSON.parse(result.stdout);
     expect(out.kind).toBe("tasks");
@@ -345,10 +337,7 @@ describe("SC-9c — flags", () => {
     const dir = await tmp();
     const file = path.join(dir, "tasks.json");
     await fs.writeFile(file, VALID_TASKS_JSON);
-    const result = await runCli(
-      ["check", file, "--kind", "nonsense", "--format", "json"],
-      {},
-    );
+    const result = await runCli(["check", file, "--kind", "nonsense", "--format", "json"], {});
     expect(result.exit).toBe(2);
     const err = JSON.parse(result.stderr);
     expect(err.code).toBe("USAGE");
@@ -358,10 +347,9 @@ describe("SC-9c — flags", () => {
     const dir = await tmp();
     const file = path.join(dir, "tasks.json");
     await fs.writeFile(file, VALID_TASKS_JSON);
-    const result = await runCli(
-      ["check", file, "--kind", "nonsense"],
-      { env: { LOAF_LANG: "zh" } },
-    );
+    const result = await runCli(["check", file, "--kind", "nonsense"], {
+      env: { LOAF_LANG: "zh" },
+    });
     expect(result.exit).toBe(2);
     expect(result.stderr).toContain("--kind 必须是");
   });

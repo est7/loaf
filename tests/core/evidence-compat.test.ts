@@ -72,7 +72,7 @@ describe("parseIdKind", () => {
 
   test("rejects empty / non-string-shaped input", () => {
     expect(parseIdKind("")).toBeNull();
-    expect(parseIdKind("gate")).toBeNull();  // case-sensitive — must be literal GATE
+    expect(parseIdKind("gate")).toBeNull(); // case-sensitive — must be literal GATE
   });
 });
 
@@ -98,11 +98,7 @@ describe("EVIDENCE_COMPAT table mirror (docs §16:1800-1824)", () => {
   });
 
   test("VIS allows visual-review / manual / waiver + requires attachment for visual-review", () => {
-    expect([...EVIDENCE_COMPAT.VIS.allowed]).toEqual([
-      "visual-review",
-      "manual",
-      "waiver",
-    ]);
+    expect([...EVIDENCE_COMPAT.VIS.allowed]).toEqual(["visual-review", "manual", "waiver"]);
     expect(EVIDENCE_COMPAT.VIS.manual_requires_reason).toBe(true);
     expect(EVIDENCE_COMPAT.VIS.requires_attachment_for_visual_review).toBe(true);
   });
@@ -162,10 +158,7 @@ describe("canSatisfy — happy paths (allowed evidence kinds)", () => {
 
   test("gate-decision satisfies GATE", () => {
     expect(
-      canSatisfy(
-        ev({ kind: "gate-decision", actor: "human:reviewer@example.com" }),
-        "GATE",
-      ),
+      canSatisfy(ev({ kind: "gate-decision", actor: "human:reviewer@example.com" }), "GATE"),
     ).toBe(true);
   });
 
@@ -284,10 +277,7 @@ describe("canSatisfy — manual/waiver actor + reason invariants", () => {
 
   test("manual with missing reason rejects (REQ-*)", () => {
     expect(
-      canSatisfy(
-        ev({ kind: "manual", actor: "human:tester@example.com" }),
-        "REQ-AUTH-001",
-      ),
+      canSatisfy(ev({ kind: "manual", actor: "human:tester@example.com" }), "REQ-AUTH-001"),
     ).toBe(false);
   });
 
@@ -308,12 +298,7 @@ describe("canSatisfy — manual/waiver actor + reason invariants", () => {
     // T table per docs §16:1815-1818 sets manual_requires_reason=false; this
     // means the actor+reason gate does NOT fire for T-* + manual. Future
     // tightening would need to update both docs and this test together.
-    expect(
-      canSatisfy(
-        ev({ kind: "manual", actor: "cli:loaf" }),
-        "T-001",
-      ),
-    ).toBe(true);
+    expect(canSatisfy(ev({ kind: "manual", actor: "cli:loaf" }), "T-001")).toBe(true);
   });
 });
 
@@ -323,15 +308,11 @@ describe("canSatisfy — manual/waiver actor + reason invariants", () => {
 
 describe("canSatisfy — VIS visual-review attachment invariant", () => {
   test("visual-review on VIS-* without attachments rejects", () => {
-    expect(
-      canSatisfy(ev({ kind: "visual-review" }), "VIS-AUTH-001"),
-    ).toBe(false);
+    expect(canSatisfy(ev({ kind: "visual-review" }), "VIS-AUTH-001")).toBe(false);
   });
 
   test("visual-review on VIS-* with empty attachments rejects", () => {
-    expect(
-      canSatisfy(ev({ kind: "visual-review", attachments: [] }), "VIS-AUTH-001"),
-    ).toBe(false);
+    expect(canSatisfy(ev({ kind: "visual-review", attachments: [] }), "VIS-AUTH-001")).toBe(false);
   });
 
   test("visual-review on VIS-* with ≥1 attachment passes", () => {

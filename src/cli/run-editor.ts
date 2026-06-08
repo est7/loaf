@@ -40,7 +40,10 @@ export interface RunEditorResult {
 
 export class EditorTokenizeError extends Error {
   readonly code = "EDITOR_TOKENIZE_ERROR" as const;
-  constructor(message: string, readonly editor: string) {
+  constructor(
+    message: string,
+    readonly editor: string,
+  ) {
     super(message);
     this.name = "EditorTokenizeError";
   }

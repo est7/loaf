@@ -64,8 +64,16 @@ async function seedSession(registryDir: string): Promise<{ featureDir: string }>
   const featureDir = path.join(cwd, ".loaf", "auth-refresh");
   await fs.mkdir(featureDir, { recursive: true });
   const result = await runCli(
-    ["start", "auth-refresh", "--ceremony", "standard",
-     "--feature-dir", featureDir, "--format", "json"],
+    [
+      "start",
+      "auth-refresh",
+      "--ceremony",
+      "standard",
+      "--feature-dir",
+      featureDir,
+      "--format",
+      "json",
+    ],
     { deps: { registryDir, registryCwd: () => cwd }, cwd },
   );
   if (result.exit !== 0) throw new Error(`seed start failed: ${result.stderr}`);
@@ -83,14 +91,27 @@ function makeRenderStub() {
     locale?: string | undefined;
   } = {};
   const renderTui: MainDeps["renderTui"] = async (app) => {
-    const props = (app as { props: { initialRows?: unknown; loadRows?: () => Promise<unknown>; loadDetail?: (row: unknown) => Promise<unknown>; i18n?: { locale: string } } }).props;
+    const props = (
+      app as {
+        props: {
+          initialRows?: unknown;
+          loadRows?: () => Promise<unknown>;
+          loadDetail?: (row: unknown) => Promise<unknown>;
+          i18n?: { locale: string };
+        };
+      }
+    ).props;
     captured.initialRows = (props.initialRows as ReadonlyArray<unknown>) ?? undefined;
     if (typeof props.loadRows === "function") {
       captured.loadRowsCalled = true;
     }
     captured.loadDetailPresent = typeof props.loadDetail === "function";
     captured.locale = props.i18n?.locale;
-    if (captured.initialRows !== undefined && captured.initialRows.length > 0 && typeof props.loadDetail === "function") {
+    if (
+      captured.initialRows !== undefined &&
+      captured.initialRows.length > 0 &&
+      typeof props.loadDetail === "function"
+    ) {
       captured.detailResult = await props.loadDetail(captured.initialRows[0]!);
     }
     // Resolve immediately to simulate user pressing q.
@@ -159,30 +180,21 @@ describe("SC-14 — loaf tui TTY guard", () => {
 
 describe("SC-14 — loaf tui pre-parse guards", () => {
   test("--session → USAGE conflicting", async () => {
-    const result = await runCli(
-      ["tui", "--session", "abcdefgh"],
-      { deps: BOTH_TTY },
-    );
+    const result = await runCli(["tui", "--session", "abcdefgh"], { deps: BOTH_TTY });
     expect(result.exit).toBe(2);
     expect(result.stderr).toContain("USAGE");
     expect(result.stderr).toContain("--session");
   });
 
   test("--feature → USAGE conflicting", async () => {
-    const result = await runCli(
-      ["tui", "--feature", "foo"],
-      { deps: BOTH_TTY },
-    );
+    const result = await runCli(["tui", "--feature", "foo"], { deps: BOTH_TTY });
     expect(result.exit).toBe(2);
     expect(result.stderr).toContain("USAGE");
     expect(result.stderr).toContain("--feature");
   });
 
   test("--feature-dir → USAGE conflicting", async () => {
-    const result = await runCli(
-      ["tui", "--feature-dir", "/tmp/x"],
-      { deps: BOTH_TTY },
-    );
+    const result = await runCli(["tui", "--feature-dir", "/tmp/x"], { deps: BOTH_TTY });
     expect(result.exit).toBe(2);
     expect(result.stderr).toContain("USAGE");
     expect(result.stderr).toContain("--feature-dir");
@@ -199,20 +211,14 @@ describe("SC-14 — loaf tui pre-parse guards", () => {
   });
 
   test("--format → USAGE tui-interactive-only", async () => {
-    const result = await runCli(
-      ["tui", "--format", "json"],
-      { deps: BOTH_TTY },
-    );
+    const result = await runCli(["tui", "--format", "json"], { deps: BOTH_TTY });
     expect(result.exit).toBe(2);
     expect(result.stderr).toContain("USAGE");
     expect(result.stderr).toContain("interactive-only");
   });
 
   test("--dry-run → DRY_RUN_NOT_APPLICABLE (read-only)", async () => {
-    const result = await runCli(
-      ["tui", "--dry-run", "--format=json"],
-      { deps: BOTH_TTY },
-    );
+    const result = await runCli(["tui", "--dry-run", "--format=json"], { deps: BOTH_TTY });
     expect(result.exit).toBe(2);
     // --format=json is rejected pre-parse BEFORE --dry-run sees this,
     // so we may get the format USAGE instead. Drop the --format-json
@@ -243,10 +249,9 @@ describe("SC-14 — sessions list still works (active_tasks + session_label addi
   test("sessions list JSON envelope grows session_label + active_tasks fields", async () => {
     const registryDir = await tmpRegDir();
     await seedSession(registryDir);
-    const result = await runCli(
-      ["sessions", "list", "--format", "json"],
-      { deps: { registryDir } },
-    );
+    const result = await runCli(["sessions", "list", "--format", "json"], {
+      deps: { registryDir },
+    });
     expect(result.exit).toBe(0);
     const out = JSON.parse(result.stdout);
     expect(out.sessions).toHaveLength(1);

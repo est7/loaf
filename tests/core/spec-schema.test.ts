@@ -48,7 +48,10 @@ describe("hasVerifiability — single source of three-way rule (protocol §4.2)"
 
   test("returns true when acceptance_na=true with reason ≥10 chars", () => {
     expect(
-      hasVerifiability({ acceptance_na: true, acceptance_na_reason: "ten char minimum reason here" }),
+      hasVerifiability({
+        acceptance_na: true,
+        acceptance_na_reason: "ten char minimum reason here",
+      }),
     ).toBe(true);
   });
 

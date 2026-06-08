@@ -63,8 +63,17 @@ describe("SC-6c — --dry-run mutating: short-circuit before disk write", () => 
   test("T15: loaf --dry-run start <f> → exit 0, JSON would-shape, no journal.jsonl", async () => {
     const dir = await tmpFeatureDir();
     const result = await runCli(
-      ["--dry-run", "start", "auth-refresh", "--ceremony", "standard",
-       "--feature-dir", dir, "--format", "json"],
+      [
+        "--dry-run",
+        "start",
+        "auth-refresh",
+        "--ceremony",
+        "standard",
+        "--feature-dir",
+        dir,
+        "--format",
+        "json",
+      ],
       { env: { LOAF_USER: "tester@example.invalid" } },
     );
     expect(result.exit).toBe(0);
@@ -73,14 +82,25 @@ describe("SC-6c — --dry-run mutating: short-circuit before disk write", () => 
     expect(out.dry_run).toBe(true);
     expect(out.would.kind).toBe("session:started");
     // No journal written
-    await expect(fs.stat(path.join(dir, "journal.jsonl"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(fs.stat(path.join(dir, "journal.jsonl"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
   });
 
   test("T16: -n short form parses identically", async () => {
     const dir = await tmpFeatureDir();
     const result = await runCli(
-      ["-n", "start", "auth-refresh", "--ceremony", "standard",
-       "--feature-dir", dir, "--format", "json"],
+      [
+        "-n",
+        "start",
+        "auth-refresh",
+        "--ceremony",
+        "standard",
+        "--feature-dir",
+        dir,
+        "--format",
+        "json",
+      ],
       { env: { LOAF_USER: "tester@example.invalid" } },
     );
     expect(result.exit).toBe(0);
@@ -91,8 +111,7 @@ describe("SC-6c — --dry-run mutating: short-circuit before disk write", () => 
   test("T17: text-mode dry-run line on stdout", async () => {
     const dir = await tmpFeatureDir();
     const result = await runCli(
-      ["--dry-run", "start", "auth-refresh", "--ceremony", "standard",
-       "--feature-dir", dir],
+      ["--dry-run", "start", "auth-refresh", "--ceremony", "standard", "--feature-dir", dir],
       { env: { LOAF_USER: "tester@example.invalid" } },
     );
     expect(result.exit).toBe(0);
@@ -105,14 +124,22 @@ describe("SC-6c — --dry-run mutating: short-circuit before disk write", () => 
     // TRANSITION_ILLEGAL (preflight win, not silent success).
     const dir = await tmpFeatureDir();
     await runCli(
-      ["start", "auth-refresh", "--ceremony", "standard",
-       "--feature-dir", dir, "--format", "json"],
+      ["start", "auth-refresh", "--ceremony", "standard", "--feature-dir", dir, "--format", "json"],
       { env: { LOAF_USER: "tester@example.invalid" } },
     );
 
     const result = await runCli(
-      ["--dry-run", "advance", "DONE.delivered",
-       "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json"],
+      [
+        "--dry-run",
+        "advance",
+        "DONE.delivered",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        dir,
+        "--format",
+        "json",
+      ],
       { env: { LOAF_USER: "tester@example.invalid" } },
     );
     expect(result.exit).toBe(2);
@@ -125,13 +152,25 @@ describe("SC-6c — --dry-run + --debug: trace.jsonl also suppressed (P1)", () =
   test("T19: dry-run + --debug → no trace.jsonl on disk", async () => {
     const dir = await tmpFeatureDir();
     const result = await runCli(
-      ["--dry-run", "start", "auth-refresh", "--ceremony", "standard",
-       "--feature-dir", dir, "--debug", "--format", "json"],
+      [
+        "--dry-run",
+        "start",
+        "auth-refresh",
+        "--ceremony",
+        "standard",
+        "--feature-dir",
+        dir,
+        "--debug",
+        "--format",
+        "json",
+      ],
       { env: { LOAF_USER: "tester@example.invalid", LOAF_DEBUG: undefined, DEBUG: undefined } },
     );
     expect(result.exit).toBe(0);
     // Neither journal nor trace
-    await expect(fs.stat(path.join(dir, "journal.jsonl"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(fs.stat(path.join(dir, "journal.jsonl"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
     await expect(fs.stat(path.join(dir, "trace.jsonl"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 });
@@ -144,8 +183,17 @@ describe("SC-6c — --dry-run does NOT create feature dir (mkdir leak, P6)", () 
     await expect(fs.stat(featureDir)).rejects.toMatchObject({ code: "ENOENT" });
 
     const result = await runCli(
-      ["--dry-run", "start", "auth-refresh", "--ceremony", "standard",
-       "--feature-dir", featureDir, "--format", "json"],
+      [
+        "--dry-run",
+        "start",
+        "auth-refresh",
+        "--ceremony",
+        "standard",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { env: { LOAF_USER: "tester@example.invalid" } },
     );
     expect(result.exit).toBe(0);
@@ -156,10 +204,16 @@ describe("SC-6c — --dry-run does NOT create feature dir (mkdir leak, P6)", () 
 
 describe("SC-6c — read-only commands reject --dry-run (DRY_RUN_NOT_APPLICABLE)", () => {
   test("T21: loaf --dry-run status → exit 2 DRY_RUN_NOT_APPLICABLE", async () => {
-    const result = await runCli(
-      ["--dry-run", "status", "--feature", "auth-refresh",
-       "--feature-dir", "/tmp/nonexistent", "--format", "json"],
-    );
+    const result = await runCli([
+      "--dry-run",
+      "status",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      "/tmp/nonexistent",
+      "--format",
+      "json",
+    ]);
     expect(result.exit).toBe(2);
     const err = JSON.parse(result.stderr.trim());
     expect(err.code).toBe("DRY_RUN_NOT_APPLICABLE");
@@ -168,36 +222,65 @@ describe("SC-6c — read-only commands reject --dry-run (DRY_RUN_NOT_APPLICABLE)
   });
 
   test("T22: loaf -n tasks list → DRY_RUN_NOT_APPLICABLE", async () => {
-    const result = await runCli(
-      ["-n", "tasks", "list", "--feature", "f", "--feature-dir", "/tmp/x", "--format", "json"],
-    );
+    const result = await runCli([
+      "-n",
+      "tasks",
+      "list",
+      "--feature",
+      "f",
+      "--feature-dir",
+      "/tmp/x",
+      "--format",
+      "json",
+    ]);
     expect(result.exit).toBe(2);
     const err = JSON.parse(result.stderr.trim());
     expect(err.code).toBe("DRY_RUN_NOT_APPLICABLE");
   });
 
   test("T23: loaf --dry-run finding list → DRY_RUN_NOT_APPLICABLE", async () => {
-    const result = await runCli(
-      ["--dry-run", "finding", "list", "--feature", "f", "--feature-dir", "/tmp/x", "--format", "json"],
-    );
+    const result = await runCli([
+      "--dry-run",
+      "finding",
+      "list",
+      "--feature",
+      "f",
+      "--feature-dir",
+      "/tmp/x",
+      "--format",
+      "json",
+    ]);
     expect(result.exit).toBe(2);
     const err = JSON.parse(result.stderr.trim());
     expect(err.code).toBe("DRY_RUN_NOT_APPLICABLE");
   });
 
   test("T24: loaf --dry-run pending list → DRY_RUN_NOT_APPLICABLE", async () => {
-    const result = await runCli(
-      ["--dry-run", "pending", "list", "--feature", "f", "--feature-dir", "/tmp/x", "--format", "json"],
-    );
+    const result = await runCli([
+      "--dry-run",
+      "pending",
+      "list",
+      "--feature",
+      "f",
+      "--feature-dir",
+      "/tmp/x",
+      "--format",
+      "json",
+    ]);
     expect(result.exit).toBe(2);
     const err = JSON.parse(result.stderr.trim());
     expect(err.code).toBe("DRY_RUN_NOT_APPLICABLE");
   });
 
   test("T25: text-mode read-only reject — proper renderer shape", async () => {
-    const result = await runCli(
-      ["--dry-run", "status", "--feature", "f", "--feature-dir", "/tmp/x"],
-    );
+    const result = await runCli([
+      "--dry-run",
+      "status",
+      "--feature",
+      "f",
+      "--feature-dir",
+      "/tmp/x",
+    ]);
     expect(result.exit).toBe(2);
     expect(result.stderr).toContain("error: DRY_RUN_NOT_APPLICABLE");
     expect(result.stderr).toContain("`status`");
@@ -215,11 +298,27 @@ describe("SC-6c — read-only commands reject --dry-run (DRY_RUN_NOT_APPLICABLE)
   });
 
   test("LOAF_LANG=zh leaves JSON read-only reject byte-stable", async () => {
-    const defaultResult = await runCli(
-      ["--dry-run", "status", "--feature", "auth-refresh", "--feature-dir", "/tmp/nonexistent", "--format", "json"],
-    );
+    const defaultResult = await runCli([
+      "--dry-run",
+      "status",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      "/tmp/nonexistent",
+      "--format",
+      "json",
+    ]);
     const zhResult = await runCli(
-      ["--dry-run", "status", "--feature", "auth-refresh", "--feature-dir", "/tmp/nonexistent", "--format", "json"],
+      [
+        "--dry-run",
+        "status",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        "/tmp/nonexistent",
+        "--format",
+        "json",
+      ],
       { env: { LOAF_LANG: "zh" } },
     );
     expect(defaultResult.exit).toBe(2);
@@ -230,10 +329,17 @@ describe("SC-6c — read-only commands reject --dry-run (DRY_RUN_NOT_APPLICABLE)
 
 describe("SC-6c — doctor --rebuild rejects --dry-run (P2)", () => {
   test("T26: loaf --dry-run doctor --rebuild → DRY_RUN_NOT_APPLICABLE", async () => {
-    const result = await runCli(
-      ["--dry-run", "doctor", "--rebuild", "--feature", "auth-refresh",
-       "--feature-dir", "/tmp/x", "--format", "json"],
-    );
+    const result = await runCli([
+      "--dry-run",
+      "doctor",
+      "--rebuild",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      "/tmp/x",
+      "--format",
+      "json",
+    ]);
     expect(result.exit).toBe(2);
     const err = JSON.parse(result.stderr.trim());
     expect(err.code).toBe("DRY_RUN_NOT_APPLICABLE");
@@ -241,9 +347,7 @@ describe("SC-6c — doctor --rebuild rejects --dry-run (P2)", () => {
   });
 
   test("T27: loaf --dry-run doctor (bare) → DRY_RUN_NOT_APPLICABLE", async () => {
-    const result = await runCli(
-      ["--dry-run", "doctor", "--format", "json"],
-    );
+    const result = await runCli(["--dry-run", "doctor", "--format", "json"]);
     expect(result.exit).toBe(2);
     const err = JSON.parse(result.stderr.trim());
     expect(err.code).toBe("DRY_RUN_NOT_APPLICABLE");

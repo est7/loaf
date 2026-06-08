@@ -37,12 +37,8 @@ export const ResumePack = z
     reason: z.string().min(5),
     state_snapshot: StateProjection,
     tasks_active_summary: z.array(TasksActiveSummary).default([]),
-    recent_evidence: z
-      .array(z.string().regex(/^EV-\d{6,}$/))
-      .max(RESUME_PACK_RECENT_CAP),
-    recent_findings: z
-      .array(z.string().regex(/^FND-\d{3,}$/))
-      .max(RESUME_PACK_RECENT_CAP),
+    recent_evidence: z.array(z.string().regex(/^EV-\d{6,}$/)).max(RESUME_PACK_RECENT_CAP),
+    recent_findings: z.array(z.string().regex(/^FND-\d{3,}$/)).max(RESUME_PACK_RECENT_CAP),
     open_pending: PendingQueueEntry.nullable(),
     notes: z.string().optional(),
   })

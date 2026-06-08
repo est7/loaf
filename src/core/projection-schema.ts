@@ -30,11 +30,7 @@
 import { z } from "zod";
 
 import { TaskFullPayload } from "./task-schema.js";
-import {
-  EvidenceFullShape,
-  EvidenceKind,
-  EvidenceResult,
-} from "./evidence-schema.js";
+import { EvidenceFullShape, EvidenceKind, EvidenceResult } from "./evidence-schema.js";
 import { FindingAction, FindingCategory } from "./finding-schema.js";
 import { Ceremony, PendingId, PendingPromptKind, SubState } from "./journal-entry.js";
 
@@ -147,7 +143,10 @@ export const PendingQueueEntry = z
     raised_at: z.string().datetime(),
     raised_by: z.string().min(1),
     at: z.string().datetime(),
-    raised_by_task_id: z.string().regex(/^T-\d{3,}$/).optional(),
+    raised_by_task_id: z
+      .string()
+      .regex(/^T-\d{3,}$/)
+      .optional(),
   })
   .strict();
 export type PendingQueueEntry = z.infer<typeof PendingQueueEntry>;
@@ -184,9 +183,7 @@ export type PendingJson = z.infer<typeof PendingJson>;
 // `loaf_version_required` → null. `complexity_score` has no journal
 // source at all (codex r167 Q2) so it is `null` until a future
 // TRIAGE-scoring slice — nullable here, never invented.
-const StateProjectionPhase = z.enum([
-  "TRIAGE", "SPEC", "EXECUTE", "VERIFY", "SETTLE", "DONE",
-]);
+const StateProjectionPhase = z.enum(["TRIAGE", "SPEC", "EXECUTE", "VERIFY", "SETTLE", "DONE"]);
 
 // `pending` is the LIVE FIFO queue — only entries with no matching
 // `pending:resolved`, carried as `PendingQueueEntry` (NO `resolved` flag —

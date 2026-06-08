@@ -21,7 +21,10 @@ async function tmpRegDir(): Promise<string> {
   return await fs.mkdtemp(path.join(os.tmpdir(), "loaf-sc8-cli-reg-"));
 }
 
-async function tmpCwdAndFeature(featureName: string, registryDir: string): Promise<{
+async function tmpCwdAndFeature(
+  featureName: string,
+  registryDir: string,
+): Promise<{
   cwd: string;
   featureDir: string;
   sessionId: string;
@@ -30,12 +33,23 @@ async function tmpCwdAndFeature(featureName: string, registryDir: string): Promi
   const featureDir = path.join(cwd, ".loaf", featureName);
   // Use real `loaf start` to seed + populate registry.
   await runCli(
-    ["start", featureName, "--ceremony", "standard", "--feature-dir", featureDir, "--format", "json"],
+    [
+      "start",
+      featureName,
+      "--ceremony",
+      "standard",
+      "--feature-dir",
+      featureDir,
+      "--format",
+      "json",
+    ],
     { deps: { registryDir, registryCwd: () => cwd }, cwd },
   );
   const files = await fs.readdir(registryDir);
   expect(files.length).toBeGreaterThanOrEqual(1);
-  const reg = JSON.parse(await fs.readFile(path.join(registryDir, files[files.length - 1]!), "utf8"));
+  const reg = JSON.parse(
+    await fs.readFile(path.join(registryDir, files[files.length - 1]!), "utf8"),
+  );
   return { cwd, featureDir, sessionId: reg.session_id };
 }
 
@@ -86,10 +100,10 @@ describe("SC-8 — CLI dispatch integration", () => {
     const registryDir = await tmpRegDir();
     const { cwd, sessionId } = await tmpCwdAndFeature("auth-refresh", registryDir);
 
-    const result = await runCli(
-      ["--session", sessionId, "status", "--format", "json"],
-      { deps: { registryDir }, cwd },
-    );
+    const result = await runCli(["--session", sessionId, "status", "--format", "json"], {
+      deps: { registryDir },
+      cwd,
+    });
     expect(result.exit).toBe(0);
     const out = JSON.parse(result.stdout);
     expect(out.feature).toBe("auth-refresh");
@@ -99,10 +113,11 @@ describe("SC-8 — CLI dispatch integration", () => {
     const registryDir = await tmpRegDir();
     const { cwd, sessionId } = await tmpCwdAndFeature("auth-refresh", registryDir);
 
-    const result = await runCli(
-      ["status", "--format", "json"],
-      { deps: { registryDir }, cwd, env: { LOAF_SESSION: sessionId } },
-    );
+    const result = await runCli(["status", "--format", "json"], {
+      deps: { registryDir },
+      cwd,
+      env: { LOAF_SESSION: sessionId },
+    });
     expect(result.exit).toBe(0);
   });
 
@@ -110,10 +125,7 @@ describe("SC-8 — CLI dispatch integration", () => {
     const registryDir = await tmpRegDir();
     const { cwd } = await tmpCwdAndFeature("auth-refresh", registryDir);
 
-    const result = await runCli(
-      ["status", "--format", "json"],
-      { deps: { registryDir }, cwd },
-    );
+    const result = await runCli(["status", "--format", "json"], { deps: { registryDir }, cwd });
     expect(result.exit).toBe(0);
     expect(result.stderr).toContain("auto-picked 'auth-refresh'");
   });
@@ -122,10 +134,10 @@ describe("SC-8 — CLI dispatch integration", () => {
     const registryDir = await tmpRegDir();
     const { cwd } = await tmpCwdAndFeature("auth-refresh", registryDir);
 
-    const result = await runCli(
-      ["status", "--quiet", "--format", "json"],
-      { deps: { registryDir }, cwd },
-    );
+    const result = await runCli(["status", "--quiet", "--format", "json"], {
+      deps: { registryDir },
+      cwd,
+    });
     expect(result.exit).toBe(0);
     expect(result.stderr).not.toContain("auto-picked");
   });
@@ -134,14 +146,14 @@ describe("SC-8 — CLI dispatch integration", () => {
     const registryDir = await tmpRegDir();
     const { cwd, sessionId } = await tmpCwdAndFeature("auth-refresh", registryDir);
 
-    const r1 = await runCli(
-      ["--session", sessionId, "status", "--format", "json"],
-      { deps: { registryDir }, cwd },
-    );
-    const r2 = await runCli(
-      ["status", "--session", sessionId, "--format", "json"],
-      { deps: { registryDir }, cwd },
-    );
+    const r1 = await runCli(["--session", sessionId, "status", "--format", "json"], {
+      deps: { registryDir },
+      cwd,
+    });
+    const r2 = await runCli(["status", "--session", sessionId, "--format", "json"], {
+      deps: { registryDir },
+      cwd,
+    });
     expect(r1.exit).toBe(0);
     expect(r2.exit).toBe(0);
     expect(JSON.parse(r1.stdout).feature).toBe(JSON.parse(r2.stdout).feature);
@@ -150,7 +162,15 @@ describe("SC-8 — CLI dispatch integration", () => {
   test("T-usage-1: --session + --feature-dir → USAGE", async () => {
     const registryDir = await tmpRegDir();
     const result = await runCli(
-      ["--session", "550e8400-e29b-41d4-a716-aaaaaaaaaaaa", "--feature-dir", "/tmp/x", "status", "--format", "json"],
+      [
+        "--session",
+        "550e8400-e29b-41d4-a716-aaaaaaaaaaaa",
+        "--feature-dir",
+        "/tmp/x",
+        "status",
+        "--format",
+        "json",
+      ],
       { deps: { registryDir } },
     );
     expect(result.exit).toBe(2);
@@ -160,10 +180,10 @@ describe("SC-8 — CLI dispatch integration", () => {
 
   test("T-usage-2: $LOAF_SESSION + --feature-dir → USAGE", async () => {
     const registryDir = await tmpRegDir();
-    const result = await runCli(
-      ["--feature-dir", "/tmp/x", "status", "--format", "json"],
-      { deps: { registryDir }, env: { LOAF_SESSION: "550e8400-e29b-41d4-a716-aaaaaaaaaaaa" } },
-    );
+    const result = await runCli(["--feature-dir", "/tmp/x", "status", "--format", "json"], {
+      deps: { registryDir },
+      env: { LOAF_SESSION: "550e8400-e29b-41d4-a716-aaaaaaaaaaaa" },
+    });
     expect(result.exit).toBe(2);
     const err = JSON.parse(result.stderr.trim());
     expect(err.code).toBe("USAGE");
@@ -174,10 +194,9 @@ describe("SC-8 — CLI dispatch integration", () => {
     // Per-command position; Commander accepts (status has --feature-dir
     // option). Then ctx.resolveDispatch catches bare-feature-dir +
     // no-feature → USAGE.
-    const result = await runCli(
-      ["status", "--feature-dir", "/tmp/x", "--format", "json"],
-      { deps: { registryDir } },
-    );
+    const result = await runCli(["status", "--feature-dir", "/tmp/x", "--format", "json"], {
+      deps: { registryDir },
+    });
     expect(result.exit).toBe(2);
     const err = JSON.parse(result.stderr.trim());
     expect(err.code).toBe("USAGE");
@@ -185,10 +204,9 @@ describe("SC-8 — CLI dispatch integration", () => {
 
   test("T-usage-4: bare --feature-dir (global position) → USAGE via pre-parse (codex r287 P2)", async () => {
     const registryDir = await tmpRegDir();
-    const result = await runCli(
-      ["--feature-dir", "/tmp/x", "status", "--format", "json"],
-      { deps: { registryDir } },
-    );
+    const result = await runCli(["--feature-dir", "/tmp/x", "status", "--format", "json"], {
+      deps: { registryDir },
+    });
     expect(result.exit).toBe(2);
     const err = JSON.parse(result.stderr.trim());
     expect(err.code).toBe("USAGE");
@@ -209,10 +227,7 @@ describe("SC-8 — CLI dispatch integration", () => {
 
   test("T-usage-6 (text mode): bare --feature-dir global → text-rendered USAGE", async () => {
     const registryDir = await tmpRegDir();
-    const result = await runCli(
-      ["--feature-dir", "/tmp/x", "status"],
-      { deps: { registryDir } },
-    );
+    const result = await runCli(["--feature-dir", "/tmp/x", "status"], { deps: { registryDir } });
     expect(result.exit).toBe(2);
     expect(result.stderr).toMatch(/^error: USAGE —/);
   });
@@ -247,10 +262,10 @@ describe("SC-8 — CLI dispatch integration", () => {
 
   test("LOAF_LANG=zh localizes bare feature-dir text failure", async () => {
     const registryDir = await tmpRegDir();
-    const result = await runCli(
-      ["--feature-dir", "/tmp/x", "status"],
-      { deps: { registryDir }, env: { LOAF_LANG: "zh" } },
-    );
+    const result = await runCli(["--feature-dir", "/tmp/x", "status"], {
+      deps: { registryDir },
+      env: { LOAF_LANG: "zh" },
+    });
     expect(result.exit).toBe(2);
     expect(result.stderr).toContain("--feature-dir 需要 --feature <name> 或 $LOAF_FEATURE");
   });
@@ -259,7 +274,16 @@ describe("SC-8 — CLI dispatch integration", () => {
     const registryDir = await tmpRegDir();
     const featureDir = await fs.mkdtemp(path.join(os.tmpdir(), "loaf-sc8-start-"));
     const result = await runCli(
-      ["start", "auth-refresh", "--ceremony", "standard", "--feature-dir", featureDir, "--format", "json"],
+      [
+        "start",
+        "auth-refresh",
+        "--ceremony",
+        "standard",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { deps: { registryDir } },
     );
     expect(result.exit).toBe(0);
@@ -280,9 +304,7 @@ describe("SC-8 — CLI dispatch integration", () => {
     }
 
     // Run with no deps.registryDir; dispatch uses default which honors env.
-    const result = await runCli(
-      ["--session", sessionId, "status", "--format", "json"],
-    );
+    const result = await runCli(["--session", sessionId, "status", "--format", "json"]);
     expect(result.exit).toBe(2);
     const err = JSON.parse(result.stderr.trim());
     expect(err.code).toBe("SESSION_NOT_FOUND");
@@ -299,10 +321,10 @@ describe("SC-8 — CLI dispatch integration", () => {
   test("LOAF_LANG=zh localizes SESSION_NOT_FOUND text mode", async () => {
     const registryDir = await tmpRegDir();
     const sessionId = "550e8400-e29b-41d4-a716-deadbeefcafe";
-    const result = await runCli(
-      ["--session", sessionId, "status"],
-      { env: { LOAF_LANG: "zh" }, deps: { registryDir } },
-    );
+    const result = await runCli(["--session", sessionId, "status"], {
+      env: { LOAF_LANG: "zh" },
+      deps: { registryDir },
+    });
 
     expect(result.exit).toBe(2);
     expect(result.stdout).toBe("");
@@ -313,14 +335,13 @@ describe("SC-8 — CLI dispatch integration", () => {
   test("LOAF_LANG=zh leaves SESSION_NOT_FOUND JSON message byte-stable", async () => {
     const registryDir = await tmpRegDir();
     const sessionId = "550e8400-e29b-41d4-a716-deadbeefcafe";
-    const defaultResult = await runCli(
-      ["--session", sessionId, "status", "--format", "json"],
-      { deps: { registryDir } },
-    );
-    const zhResult = await runCli(
-      ["--session", sessionId, "status", "--format", "json"],
-      { env: { LOAF_LANG: "zh" }, deps: { registryDir } },
-    );
+    const defaultResult = await runCli(["--session", sessionId, "status", "--format", "json"], {
+      deps: { registryDir },
+    });
+    const zhResult = await runCli(["--session", sessionId, "status", "--format", "json"], {
+      env: { LOAF_LANG: "zh" },
+      deps: { registryDir },
+    });
 
     expect(defaultResult.exit).toBe(2);
     expect(zhResult.exit).toBe(2);

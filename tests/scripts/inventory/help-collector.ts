@@ -93,15 +93,11 @@ export function collectInventory(): Inventory {
 }
 
 function runHelp(args: string[]): string {
-  const result: SpawnSyncReturns<string> = spawnSync(
-    "bun",
-    ["run", CLI_ENTRY, ...args, "--help"],
-    {
-      cwd: REPO_ROOT,
-      encoding: "utf8",
-      timeout: 30_000,
-    },
-  );
+  const result: SpawnSyncReturns<string> = spawnSync("bun", ["run", CLI_ENTRY, ...args, "--help"], {
+    cwd: REPO_ROOT,
+    encoding: "utf8",
+    timeout: 30_000,
+  });
   // Commander prints help to stdout. Older help impls go to stderr; concat for safety.
   // Exit code is typically 0 for --help.
   return `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
@@ -133,7 +129,10 @@ function parseTopLevelHelp(text: string): {
 
 type SubcommandHeader = { name: string; description: string };
 
-function parseCommandHelp(text: string, _argv: string[]): {
+function parseCommandHelp(
+  text: string,
+  _argv: string[],
+): {
   flags: InventoryFlag[];
   subcommandHeaders: SubcommandHeader[];
 } {
@@ -207,7 +206,9 @@ function parseOptionsBlock(block: string): InventoryFlag[] {
     //   --json                     Emit JSON output on stdout
     //   --ceremony <preset>        Preset label: quick / light / standard / deep
     //   --feature-dir <path>       Override default .loaf/<feature> directory
-    const m = joined.match(/^(?:(-[a-zA-Z]),\s+)?(--[a-zA-Z][-a-zA-Z0-9]*)(\s+[<\[][^>\]]+[>\]])?\s+(.*)$/);
+    const m = joined.match(
+      /^(?:(-[a-zA-Z]),\s+)?(--[a-zA-Z][-a-zA-Z0-9]*)(\s+[<\[][^>\]]+[>\]])?\s+(.*)$/,
+    );
     if (!m) continue;
     flags.push({
       name: m[2] ?? "",

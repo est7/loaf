@@ -56,7 +56,11 @@ export function evaluateTaskProof(snapshot: Snapshot, policy: TaskProofPolicy): 
         (accepted.includes(ev.kind) || ev.kind === "waiver"),
     );
     if (!proven) gaps.push("no-passing-evidence");
-    if (task.kind === "behavioral" && task.labels.includes("bug") && task.red_test_registered !== true) {
+    if (
+      task.kind === "behavioral" &&
+      task.labels.includes("bug") &&
+      task.red_test_registered !== true
+    ) {
       gaps.push("bug-red-unregistered");
     }
     if (gaps.length > 0) findings.push({ task, gaps });
@@ -68,7 +72,11 @@ export function evaluateTaskProof(snapshot: Snapshot, policy: TaskProofPolicy): 
 
 // verify-accept check 4: kind-UNIFORM allow-list (was TASK_ALLOWED_EVIDENCE_KINDS
 // in verify-accept-check.ts), waiver-free since waiver is universal here.
-const VERIFY_ACCEPT_KINDS: readonly EvidenceState["kind"][] = ["task-summary", "local-check", "manual"];
+const VERIFY_ACCEPT_KINDS: readonly EvidenceState["kind"][] = [
+  "task-summary",
+  "local-check",
+  "manual",
+];
 
 export const verifyAcceptPolicy: TaskProofPolicy = {
   acceptedKinds: () => VERIFY_ACCEPT_KINDS,

@@ -50,9 +50,7 @@ export type FailedCheck = {
   detail?: Record<string, unknown>;
 };
 
-export type SpecLockResult =
-  | { ok: true }
-  | { ok: false; checks: FailedCheck[] };
+export type SpecLockResult = { ok: true } | { ok: false; checks: FailedCheck[] };
 
 const KINDS_REQUIRING_RATIONALE: ReadonlyArray<TaskState["kind"]> = [
   "structural",
@@ -61,10 +59,7 @@ const KINDS_REQUIRING_RATIONALE: ReadonlyArray<TaskState["kind"]> = [
   "chore",
 ];
 
-export function specLockCheck(
-  snapshot: Snapshot,
-  frontmatter: SpecFrontmatter,
-): SpecLockResult {
+export function specLockCheck(snapshot: Snapshot, frontmatter: SpecFrontmatter): SpecLockResult {
   const failures: FailedCheck[] = [];
 
   // Failure ordering follows protocol §5.1: 2 → 3 → 4 → 5 → 6 → 7 → 8.
@@ -139,8 +134,7 @@ export function specLockCheck(
       if (scenario.tag !== "e2e") continue;
       if (scenario.acceptance_na !== undefined) continue;
       const bound = snapshot.tasks.some(
-        (t) =>
-          t.requires_acceptance === true && t.drives.includes(scenario.id),
+        (t) => t.requires_acceptance === true && t.drives.includes(scenario.id),
       );
       if (!bound) {
         failures.push({
@@ -160,9 +154,7 @@ export function specLockCheck(
     for (const visual of frontmatter.visual_contracts ?? []) {
       if (visual.visual_na !== undefined) continue;
       const bound = snapshot.tasks.some(
-        (t) =>
-          t.kind === "visual-ui" &&
-          (t.visual_contract_refs ?? []).includes(visual.id),
+        (t) => t.kind === "visual-ui" && (t.visual_contract_refs ?? []).includes(visual.id),
       );
       if (!bound) {
         failures.push({

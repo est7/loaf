@@ -20,8 +20,9 @@ export function allocateNextEvidenceIds(snapshot: Snapshot, count: number): stri
     if (!m) return max;
     return Math.max(max, Number.parseInt(m[1]!, 10));
   }, 0);
-  return Array.from({ length: count }, (_, i) =>
-    `EV-${String(maxSerial + 1 + i).padStart(6, "0")}`,
+  return Array.from(
+    { length: count },
+    (_, i) => `EV-${String(maxSerial + 1 + i).padStart(6, "0")}`,
   );
 }
 

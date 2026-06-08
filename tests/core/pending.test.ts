@@ -50,9 +50,14 @@ async function startFresh(): Promise<{ dir: string; feature: string }> {
   const dir = await tmpFeatureDir();
   const feature = "F1";
   const r = await runCli([
-    "start", feature,
-    "--ceremony", "quick",
-    "--feature-dir", dir, "--format", "json",
+    "start",
+    feature,
+    "--ceremony",
+    "quick",
+    "--feature-dir",
+    dir,
+    "--format",
+    "json",
   ]);
   if (r.exit !== 0) throw new Error(`start failed: exit=${r.exit} stderr=${r.stderr}`);
   return { dir, feature };
@@ -88,7 +93,13 @@ async function injectPending(
         ...extra,
       },
     },
-    { feature_dir: dir, snapshot: s.snapshot, tail_seq: s.tail_seq, entries: s.entries, meta: s.meta },
+    {
+      feature_dir: dir,
+      snapshot: s.snapshot,
+      tail_seq: s.tail_seq,
+      entries: s.entries,
+      meta: s.meta,
+    },
   );
   if (!r.ok) throw new Error(`injectPending failed: ${r.code} ${r.message}`);
 }
@@ -97,18 +108,30 @@ describe("loaf pending — SC1 raise/list", () => {
   test("raise --kind ask_user_question emits pending:added; list shows it as head", async () => {
     const { dir, feature } = await startFresh();
     const raised = await runCli([
-      "pending", "raise",
-      "--kind", "ask_user_question",
-      "--question", "Should we adopt approach X?",
-      "--feature", feature, "--feature-dir", dir,
+      "pending",
+      "raise",
+      "--kind",
+      "ask_user_question",
+      "--question",
+      "Should we adopt approach X?",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(raised.exit).toBe(0);
     // codex review focus #1: stdout is bare PEND-id (scriptable)
     expect(raised.stdout.trim()).toBe("PEND-0001");
 
     const listed = await runCli([
-      "pending", "list", "--format", "json",
-      "--feature", feature, "--feature-dir", dir,
+      "pending",
+      "list",
+      "--format",
+      "json",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(listed.exit).toBe(0);
     const parsed = JSON.parse(listed.stdout) as {
@@ -130,19 +153,41 @@ describe("loaf pending — SC1 raise/list", () => {
   test("raise twice → FIFO order preserved; only first is head", async () => {
     const { dir, feature } = await startFresh();
     const r1 = await runCli([
-      "pending", "raise", "--kind", "ask_user_question",
-      "--question", "Q1?", "--feature", feature, "--feature-dir", dir,
+      "pending",
+      "raise",
+      "--kind",
+      "ask_user_question",
+      "--question",
+      "Q1?",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r1.stdout.trim()).toBe("PEND-0001");
     const r2 = await runCli([
-      "pending", "raise", "--kind", "gate_decision",
-      "--question", "Approve spec-lock?", "--feature", feature, "--feature-dir", dir,
+      "pending",
+      "raise",
+      "--kind",
+      "gate_decision",
+      "--question",
+      "Approve spec-lock?",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r2.stdout.trim()).toBe("PEND-0002");
 
     const listed = await runCli([
-      "pending", "list", "--format", "json",
-      "--feature", feature, "--feature-dir", dir,
+      "pending",
+      "list",
+      "--format",
+      "json",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     const parsed = JSON.parse(listed.stdout);
     expect(parsed.pending.map((p: any) => p.id)).toEqual(["PEND-0001", "PEND-0002"]);
@@ -153,20 +198,33 @@ describe("loaf pending — SC1 raise/list", () => {
   test("raise without --question rejected as USAGE (Strict over Postel; codex r63 a)", async () => {
     const { dir, feature } = await startFresh();
     const r = await runCli([
-      "pending", "raise", "--kind", "ask_user_question",
-      "--feature", feature, "--feature-dir", dir,
+      "pending",
+      "raise",
+      "--kind",
+      "ask_user_question",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).not.toBe(0);
     // commander's required-option failure or our USAGE diagnostic
     expect(r.stderr).toMatch(/question/i);
   });
 
-  test("raise --question \"\" rejected (PendingAddedPayload.question min length; codex r64 fix 3)", async () => {
+  test('raise --question "" rejected (PendingAddedPayload.question min length; codex r64 fix 3)', async () => {
     const { dir, feature } = await startFresh();
     const r = await runCli([
-      "pending", "raise", "--kind", "ask_user_question",
-      "--question", "",
-      "--feature", feature, "--feature-dir", dir,
+      "pending",
+      "raise",
+      "--kind",
+      "ask_user_question",
+      "--question",
+      "",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).not.toBe(0);
     expect(r.stderr).toMatch(/INVALID_PAYLOAD/);
@@ -178,9 +236,16 @@ describe("loaf pending — SC1 raise/list", () => {
     // because preflight's PENDING_BLOCKS_ADVANCE only matches the exact
     // enum value, so a typo would silently bypass the head-block invariant.
     const r = await runCli([
-      "pending", "raise", "--kind", "gate-decision",
-      "--question", "Approve spec-lock?",
-      "--feature", feature, "--feature-dir", dir,
+      "pending",
+      "raise",
+      "--kind",
+      "gate-decision",
+      "--question",
+      "Approve spec-lock?",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).not.toBe(0);
     expect(r.stderr).toMatch(/INVALID_PAYLOAD/);
@@ -189,18 +254,31 @@ describe("loaf pending — SC1 raise/list", () => {
   test("list text mode shows 4 fixed columns: <PEND-id> <kind> <open|resolved> <head|->", async () => {
     const { dir, feature } = await startFresh();
     await runCli([
-      "pending", "raise", "--kind", "ask_user_question",
-      "--question", "stub question for test", "--feature", feature, "--feature-dir", dir,
+      "pending",
+      "raise",
+      "--kind",
+      "ask_user_question",
+      "--question",
+      "stub question for test",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     await runCli([
-      "pending", "raise", "--kind", "gate_decision",
-      "--question", "stub gate question", "--feature", feature, "--feature-dir", dir,
+      "pending",
+      "raise",
+      "--kind",
+      "gate_decision",
+      "--question",
+      "stub gate question",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
 
-    const listed = await runCli([
-      "pending", "list",
-      "--feature", feature, "--feature-dir", dir,
-    ]);
+    const listed = await runCli(["pending", "list", "--feature", feature, "--feature-dir", dir]);
     expect(listed.exit).toBe(0);
     const lines = listed.stdout.trim().split("\n");
     // Two rows, four whitespace-separated columns each. Head marker `*` is
@@ -217,17 +295,39 @@ describe("loaf pending — SC1 resolve (strict FIFO)", () => {
   test("resolve --answer X marks head resolved; next entry promotes to head", async () => {
     const { dir, feature } = await startFresh();
     await runCli([
-      "pending", "raise", "--kind", "ask_user_question",
-      "--question", "Q1?", "--feature", feature, "--feature-dir", dir,
+      "pending",
+      "raise",
+      "--kind",
+      "ask_user_question",
+      "--question",
+      "Q1?",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     await runCli([
-      "pending", "raise", "--kind", "gate_decision",
-      "--question", "stub gate question", "--feature", feature, "--feature-dir", dir,
+      "pending",
+      "raise",
+      "--kind",
+      "gate_decision",
+      "--question",
+      "stub gate question",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
 
     const resolved = await runCli([
-      "pending", "resolve", "--answer", "yes",
-      "--feature", feature, "--feature-dir", dir,
+      "pending",
+      "resolve",
+      "--answer",
+      "yes",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(resolved.exit).toBe(0);
 
@@ -240,8 +340,14 @@ describe("loaf pending — SC1 resolve (strict FIFO)", () => {
 
     // List reflects projection: PEND-0001 resolved, PEND-0002 new head.
     const listed = await runCli([
-      "pending", "list", "--format", "json",
-      "--feature", feature, "--feature-dir", dir,
+      "pending",
+      "list",
+      "--format",
+      "json",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     const parsed = JSON.parse(listed.stdout);
     expect(parsed.pending[0]).toMatchObject({ id: "PEND-0001", resolved: true, head: false });
@@ -251,12 +357,28 @@ describe("loaf pending — SC1 resolve (strict FIFO)", () => {
   test("resolve --id PEND-N rejected as USAGE (FIFO strict; codex r63 RED #4)", async () => {
     const { dir, feature } = await startFresh();
     await runCli([
-      "pending", "raise", "--kind", "ask_user_question",
-      "--question", "stub question for test", "--feature", feature, "--feature-dir", dir,
+      "pending",
+      "raise",
+      "--kind",
+      "ask_user_question",
+      "--question",
+      "stub question for test",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     const r = await runCli([
-      "pending", "resolve", "--id", "PEND-0001", "--answer", "yes",
-      "--feature", feature, "--feature-dir", dir,
+      "pending",
+      "resolve",
+      "--id",
+      "PEND-0001",
+      "--answer",
+      "yes",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).not.toBe(0);
     expect(r.stderr).toMatch(/--id|unknown option/i);
@@ -265,8 +387,14 @@ describe("loaf pending — SC1 resolve (strict FIFO)", () => {
   test("resolve on empty queue → PENDING_NOT_FOUND (codex r63 RED #7 replacement)", async () => {
     const { dir, feature } = await startFresh();
     const r = await runCli([
-      "pending", "resolve", "--answer", "yes",
-      "--feature", feature, "--feature-dir", dir,
+      "pending",
+      "resolve",
+      "--answer",
+      "yes",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).not.toBe(0);
     expect(r.stderr).toMatch(/PENDING_NOT_FOUND/);
@@ -277,12 +405,26 @@ describe("loaf pending — SC1 status", () => {
   test("status default returns head projection", async () => {
     const { dir, feature } = await startFresh();
     await runCli([
-      "pending", "raise", "--kind", "ask_user_question",
-      "--question", "stub question for test", "--feature", feature, "--feature-dir", dir,
+      "pending",
+      "raise",
+      "--kind",
+      "ask_user_question",
+      "--question",
+      "stub question for test",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     const r = await runCli([
-      "pending", "status", "--format", "json",
-      "--feature", feature, "--feature-dir", dir,
+      "pending",
+      "status",
+      "--format",
+      "json",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(0);
     const parsed = JSON.parse(r.stdout);
@@ -298,16 +440,40 @@ describe("loaf pending — SC1 status", () => {
   test("status --id PEND-N returns that specific entry", async () => {
     const { dir, feature } = await startFresh();
     await runCli([
-      "pending", "raise", "--kind", "ask_user_question",
-      "--question", "Q1?", "--feature", feature, "--feature-dir", dir,
+      "pending",
+      "raise",
+      "--kind",
+      "ask_user_question",
+      "--question",
+      "Q1?",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     await runCli([
-      "pending", "raise", "--kind", "gate_decision",
-      "--question", "stub gate question", "--feature", feature, "--feature-dir", dir,
+      "pending",
+      "raise",
+      "--kind",
+      "gate_decision",
+      "--question",
+      "stub gate question",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     const r = await runCli([
-      "pending", "status", "--id", "PEND-0002", "--format", "json",
-      "--feature", feature, "--feature-dir", dir,
+      "pending",
+      "status",
+      "--id",
+      "PEND-0002",
+      "--format",
+      "json",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(0);
     const parsed = JSON.parse(r.stdout);
@@ -321,12 +487,26 @@ describe("loaf pending — SC1 status", () => {
   test("status --id miss → PENDING_NOT_FOUND (codex r63 d, reuse code)", async () => {
     const { dir, feature } = await startFresh();
     await runCli([
-      "pending", "raise", "--kind", "ask_user_question",
-      "--question", "stub question for test", "--feature", feature, "--feature-dir", dir,
+      "pending",
+      "raise",
+      "--kind",
+      "ask_user_question",
+      "--question",
+      "stub question for test",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     const r = await runCli([
-      "pending", "status", "--id", "PEND-0099",
-      "--feature", feature, "--feature-dir", dir,
+      "pending",
+      "status",
+      "--id",
+      "PEND-0099",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).not.toBe(0);
     expect(r.stderr).toMatch(/PENDING_NOT_FOUND/);
@@ -335,8 +515,14 @@ describe("loaf pending — SC1 status", () => {
   test("status default on empty queue → null head (script-friendly)", async () => {
     const { dir, feature } = await startFresh();
     const r = await runCli([
-      "pending", "status", "--format", "json",
-      "--feature", feature, "--feature-dir", dir,
+      "pending",
+      "status",
+      "--format",
+      "json",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(0);
     const parsed = JSON.parse(r.stdout);
@@ -349,8 +535,12 @@ describe("PENDING_BLOCKS_ADVANCE — preflight gate", () => {
     const { dir, feature } = await startFresh();
     await injectPending(dir, "PEND-0001", "gate_decision");
     const r = await runCli([
-      "advance", "TRIAGE.confirm",
-      "--feature", feature, "--feature-dir", dir,
+      "advance",
+      "TRIAGE.confirm",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(2);
     expect(r.stderr).toMatch(/PENDING_BLOCKS_ADVANCE/);
@@ -362,8 +552,12 @@ describe("PENDING_BLOCKS_ADVANCE — preflight gate", () => {
     const { dir, feature } = await startFresh();
     await injectPending(dir, "PEND-0001", "profile_escalation");
     const r = await runCli([
-      "advance", "TRIAGE.confirm",
-      "--feature", feature, "--feature-dir", dir,
+      "advance",
+      "TRIAGE.confirm",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(2);
     expect(r.stderr).toMatch(/PENDING_BLOCKS_ADVANCE/);
@@ -373,8 +567,12 @@ describe("PENDING_BLOCKS_ADVANCE — preflight gate", () => {
     const { dir, feature } = await startFresh();
     await injectPending(dir, "PEND-0001", "ask_user_question");
     const r = await runCli([
-      "advance", "TRIAGE.confirm",
-      "--feature", feature, "--feature-dir", dir,
+      "advance",
+      "TRIAGE.confirm",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(0);
   });
@@ -387,13 +585,23 @@ describe("PENDING_BLOCKS_ADVANCE — preflight gate", () => {
     await injectPending(dir, "PEND-0001", "gate_decision");
     // Resolve via CLI (this also exercises resolve's FIFO pop).
     const resolved = await runCli([
-      "pending", "resolve", "--answer", "approved",
-      "--feature", feature, "--feature-dir", dir,
+      "pending",
+      "resolve",
+      "--answer",
+      "approved",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(resolved.exit).toBe(0);
     const r = await runCli([
-      "advance", "TRIAGE.confirm",
-      "--feature", feature, "--feature-dir", dir,
+      "advance",
+      "TRIAGE.confirm",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(r.exit).toBe(0);
   });
@@ -404,32 +612,62 @@ describe("loaf pending — E2E head promotion + advance gating", () => {
     const { dir, feature } = await startFresh();
     // Raise non-blocking head (ask_user_question), then blocking entry (gate).
     await runCli([
-      "pending", "raise", "--kind", "ask_user_question",
-      "--question", "Confirm scope?", "--feature", feature, "--feature-dir", dir,
+      "pending",
+      "raise",
+      "--kind",
+      "ask_user_question",
+      "--question",
+      "Confirm scope?",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     await runCli([
-      "pending", "raise", "--kind", "gate_decision",
-      "--question", "Approve spec-lock?", "--feature", feature, "--feature-dir", dir,
+      "pending",
+      "raise",
+      "--kind",
+      "gate_decision",
+      "--question",
+      "Approve spec-lock?",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
 
     // Initial head is ask_user_question — advance allowed.
     const adv1 = await runCli([
-      "advance", "TRIAGE.confirm",
-      "--feature", feature, "--feature-dir", dir,
+      "advance",
+      "TRIAGE.confirm",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(adv1.exit).toBe(0);
 
     // Resolve the asking head; gate_decision promotes to new head.
     const resolved = await runCli([
-      "pending", "resolve", "--answer", "yes",
-      "--feature", feature, "--feature-dir", dir,
+      "pending",
+      "resolve",
+      "--answer",
+      "yes",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(resolved.exit).toBe(0);
 
     // Now head is gate_decision — next advance must be blocked.
     const adv2 = await runCli([
-      "advance", "SPEC.proposal",
-      "--feature", feature, "--feature-dir", dir,
+      "advance",
+      "SPEC.proposal",
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
     ]);
     expect(adv2.exit).toBe(2);
     expect(adv2.stderr).toMatch(/PENDING_BLOCKS_ADVANCE/);

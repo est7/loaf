@@ -8,12 +8,16 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 
-export const UserConfig = z.object({
-  schema_version: z.literal(1),
-  locale: z.object({
-    default_lang: z.enum(["en", "zh"]),
-  }).strict(),
-}).strict();
+export const UserConfig = z
+  .object({
+    schema_version: z.literal(1),
+    locale: z
+      .object({
+        default_lang: z.enum(["en", "zh"]),
+      })
+      .strict(),
+  })
+  .strict();
 export type UserConfig = z.infer<typeof UserConfig>;
 
 export type UserConfigLoad =

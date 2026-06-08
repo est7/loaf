@@ -55,11 +55,11 @@ describe("emitInputSchema — 5 mutators with root anyOf (batchOrSingle)", () =>
     key: Parameters<typeof emitInputSchema>[0];
     descendantKey: string;
   }> = [
-    { key: "spec:add-req",      descendantKey: "id_namespace" },
+    { key: "spec:add-req", descendantKey: "id_namespace" },
     { key: "spec:add-scenario", descendantKey: "id_namespace" },
-    { key: "spec:add-visual",   descendantKey: "id_namespace" },
-    { key: "tasks:add",         descendantKey: "kind" },
-    { key: "evidence:add",      descendantKey: "kind" },
+    { key: "spec:add-visual", descendantKey: "id_namespace" },
+    { key: "tasks:add", descendantKey: "kind" },
+    { key: "evidence:add", descendantKey: "kind" },
   ];
 
   for (const { key, descendantKey } of expectations) {
@@ -80,11 +80,11 @@ describe("emitArtifactSchema — 5 artifact kinds with root object schemas", () 
     kind: ArtifactSchemaKind;
     expectedRootProperty: string;
   }> = [
-    { kind: "spec",     expectedRootProperty: "requirements" },
-    { kind: "tasks",    expectedRootProperty: "tasks" },
+    { kind: "spec", expectedRootProperty: "requirements" },
+    { kind: "tasks", expectedRootProperty: "tasks" },
     { kind: "evidence", expectedRootProperty: "evidence" },
-    { kind: "finding",  expectedRootProperty: "findings" }, // PLURAL projection field
-    { kind: "state",    expectedRootProperty: "phase" },
+    { kind: "finding", expectedRootProperty: "findings" }, // PLURAL projection field
+    { kind: "state", expectedRootProperty: "phase" },
   ];
 
   for (const { kind, expectedRootProperty } of expectations) {
@@ -104,13 +104,7 @@ describe("emitArtifactSchema — 5 artifact kinds with root object schemas", () 
 // ───────────────────────────────────────────────────────────────────────
 describe("ARTIFACT_SCHEMA_KINDS — canonical 5 closed kinds per protocol §1947", () => {
   test("includes 5 kinds: spec / tasks / evidence / finding / state", () => {
-    expect([...ARTIFACT_SCHEMA_KINDS]).toEqual([
-      "spec",
-      "tasks",
-      "evidence",
-      "finding",
-      "state",
-    ]);
+    expect([...ARTIFACT_SCHEMA_KINDS]).toEqual(["spec", "tasks", "evidence", "finding", "state"]);
   });
 
   test("excludes pending (intentional per protocol §1947)", () => {
@@ -143,17 +137,12 @@ describe("hasPropertyDeep — schema walker", () => {
 
   test("finds property in anyOf branch", () => {
     expect(
-      hasPropertyDeep(
-        { anyOf: [{ properties: { a: {} } }, { properties: { b: {} } }] },
-        "b",
-      ),
+      hasPropertyDeep({ anyOf: [{ properties: { a: {} } }, { properties: { b: {} } }] }, "b"),
     ).toBe(true);
   });
 
   test("finds property under items in array schema", () => {
-    expect(
-      hasPropertyDeep({ items: { properties: { tag: {} } } }, "tag"),
-    ).toBe(true);
+    expect(hasPropertyDeep({ items: { properties: { tag: {} } } }, "tag")).toBe(true);
   });
 
   test("returns false when missing", () => {

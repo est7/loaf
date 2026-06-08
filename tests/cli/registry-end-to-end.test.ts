@@ -69,10 +69,16 @@ describe("SC-7 — CLI registry writer integration (DI safe)", () => {
     const featureDir = await tmpFeatureDir();
     const registryDir = await tmpRegistryDir();
     const result = await runCli(
-      ["start", "auth-refresh",
-       "--ceremony", "standard",
-       "--feature-dir", featureDir,
-       "--format", "json"],
+      [
+        "start",
+        "auth-refresh",
+        "--ceremony",
+        "standard",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { deps: { registryDir } },
     );
     expect(result.exit).toBe(0);
@@ -93,10 +99,16 @@ describe("SC-7 — CLI registry writer integration (DI safe)", () => {
     const featureDir = await tmpFeatureDir();
     const registryDir = await tmpRegistryDir();
     await runCli(
-      ["start", "auth-refresh",
-       "--ceremony", "standard",
-       "--feature-dir", featureDir,
-       "--format", "json"],
+      [
+        "start",
+        "auth-refresh",
+        "--ceremony",
+        "standard",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { deps: { registryDir } },
     );
 
@@ -107,10 +119,16 @@ describe("SC-7 — CLI registry writer integration (DI safe)", () => {
 
     // Advance to TRIAGE.confirm
     const result = await runCli(
-      ["advance", "TRIAGE.confirm",
-       "--feature", "auth-refresh",
-       "--feature-dir", featureDir,
-       "--format", "json"],
+      [
+        "advance",
+        "TRIAGE.confirm",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { deps: { registryDir } },
     );
     expect(result.exit).toBe(0);
@@ -124,10 +142,17 @@ describe("SC-7 — CLI registry writer integration (DI safe)", () => {
     const featureDir = await tmpFeatureDir();
     const registryDir = await tmpRegistryDir();
     const result = await runCli(
-      ["--dry-run", "start", "auth-refresh",
-       "--ceremony", "standard",
-       "--feature-dir", featureDir,
-       "--format", "json"],
+      [
+        "--dry-run",
+        "start",
+        "auth-refresh",
+        "--ceremony",
+        "standard",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
       { deps: { registryDir } },
     );
     expect(result.exit).toBe(0);

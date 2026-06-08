@@ -23,15 +23,9 @@ import {
   evaluateAllChecks,
   verifyAcceptCheck,
 } from "../../src/core/gates/verify-accept-check.js";
-import {
-  buildEnvelope,
-} from "../../src/cli/verify-status.js";
+import { buildEnvelope } from "../../src/cli/verify-status.js";
 import { initialSnapshot } from "../../src/core/reducer.js";
-import type {
-  EvidenceState,
-  Snapshot,
-  TaskState,
-} from "../../src/core/reducer.js";
+import type { EvidenceState, Snapshot, TaskState } from "../../src/core/reducer.js";
 import type { SpecFrontmatter } from "../../src/core/spec-schema.js";
 
 const SHA = "a".repeat(64);
@@ -74,7 +68,10 @@ function makeFrontmatter(overrides: Partial<SpecFrontmatter> = {}): SpecFrontmat
   };
 }
 
-function step(applicability: "must" | "optional" | "na" = "must", status: TaskState["steps"][string]["status"] = "passed") {
+function step(
+  applicability: "must" | "optional" | "na" = "must",
+  status: TaskState["steps"][string]["status"] = "passed",
+) {
   return { applicability, status };
 }
 
@@ -145,8 +142,19 @@ function happySnapshot(frontmatter: SpecFrontmatter): Snapshot {
     evidence: [
       evidence({ id: "EV-000001", kind: "task-summary", covers: ["T-001"], check: "run" }),
       evidence({ id: "EV-000002", kind: "task-summary", covers: ["T-200"], check: "run" }),
-      evidence({ id: "EV-000003", kind: "verify-review", covers: ["REQ-AUTH-001"], check: "review", result: "approved" }),
-      evidence({ id: "EV-000004", kind: "acceptance", covers: ["SCEN-AUTH-E2E-001"], check: "acceptance" }),
+      evidence({
+        id: "EV-000003",
+        kind: "verify-review",
+        covers: ["REQ-AUTH-001"],
+        check: "review",
+        result: "approved",
+      }),
+      evidence({
+        id: "EV-000004",
+        kind: "acceptance",
+        covers: ["SCEN-AUTH-E2E-001"],
+        check: "acceptance",
+      }),
       evidence({
         id: "EV-000005",
         kind: "visual-review",
@@ -201,9 +209,7 @@ describe("evaluateAllChecks — lane_status", () => {
   test("multi-fail: run + visual lanes both missing → 2+ failures with distinct detail.lane", () => {
     const fm = makeFrontmatter();
     const snap = happySnapshot(fm);
-    snap.evidence = snap.evidence.filter(
-      (e) => e.check !== "run" && e.check !== "visual",
-    );
+    snap.evidence = snap.evidence.filter((e) => e.check !== "run" && e.check !== "visual");
     const rows = evaluateAllChecks(snap, fm);
     const lane = rows.find((r) => r.check === "lane_status")!;
     expect(lane.status).toBe("fail");
@@ -445,14 +451,16 @@ describe("evaluateAllChecks — mixed multi-check failure", () => {
     const snap = happySnapshot(fm);
     snap.evidence = snap.evidence.filter((e) => e.check !== "acceptance"); // lane fail
     snap.evidence = snap.evidence.filter((e) => !e.covers.includes("REQ-AUTH-001")); // coverage fail
-    snap.findings = [{
-      id: "FND-001",
-      category: "spec_quality",
-      action: "amend-spec",
-      summary: "x",
-      reason: "y",
-      status: "open",
-    }]; // findings fail
+    snap.findings = [
+      {
+        id: "FND-001",
+        category: "spec_quality",
+        action: "amend-spec",
+        summary: "x",
+        reason: "y",
+        status: "open",
+      },
+    ]; // findings fail
     const rows = evaluateAllChecks(snap, fm);
     const failingChecks = rows.filter((r) => r.status === "fail").map((r) => r.check);
     expect(failingChecks).toContain("lane_status");
@@ -487,14 +495,16 @@ describe("invariant — verifyAcceptCheck === flatMap failures", () => {
     snap.state!.ceremony.strict_spec_review = true;
     snap.evidence = snap.evidence.filter((e) => e.check !== "acceptance");
     snap.evidence = snap.evidence.filter((e) => !e.covers.includes("REQ-AUTH-001"));
-    snap.findings = [{
-      id: "FND-001",
-      category: "spec_quality",
-      action: "amend-spec",
-      summary: "x",
-      reason: "y",
-      status: "open",
-    }];
+    snap.findings = [
+      {
+        id: "FND-001",
+        category: "spec_quality",
+        action: "amend-spec",
+        summary: "x",
+        reason: "y",
+        status: "open",
+      },
+    ];
     const vac = verifyAcceptCheck(snap, fm);
     const all = evaluateAllChecks(snap, fm).flatMap((r) => r.failures);
     if (vac.ok) {
@@ -566,14 +576,16 @@ describe("buildEnvelope — all_pass semantics", () => {
     const env = buildEnvelope(evaluateAllChecks(snap, fm));
     expect(env.all_pass).toBe(true); // strict_spec_review off → spec_review=na, still all_pass
 
-    snap.findings = [{
-      id: "FND-001",
-      category: "spec_quality",
-      action: "amend-spec",
-      summary: "x",
-      reason: "y",
-      status: "open",
-    }];
+    snap.findings = [
+      {
+        id: "FND-001",
+        category: "spec_quality",
+        action: "amend-spec",
+        summary: "x",
+        reason: "y",
+        status: "open",
+      },
+    ];
     const env2 = buildEnvelope(evaluateAllChecks(snap, fm));
     expect(env2.all_pass).toBe(false);
   });

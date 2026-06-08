@@ -50,7 +50,9 @@ describe("STEP_WRITE_PATHS / categories runtime/docs lockstep", () => {
   test("every kind/step in PATHS has a matching CATEGORIES entry", () => {
     for (const [kind, steps] of Object.entries(STEP_WRITE_PATHS_BY_KIND)) {
       for (const step of Object.keys(steps)) {
-        const cats = (STEP_WRITE_CATEGORIES_BY_KIND as Record<string, Record<string, unknown>>)[kind]?.[step];
+        const cats = (STEP_WRITE_CATEGORIES_BY_KIND as Record<string, Record<string, unknown>>)[
+          kind
+        ]?.[step];
         expect(cats, `${kind}.${step} missing category entry`).toBeDefined();
       }
     }

@@ -54,10 +54,7 @@ describe("allocateNextEvidenceIds — single + batch allocation", () => {
 
   test("max-serial from middle of list (not sorted) → next-after-max", () => {
     expect(
-      allocateNextEvidenceIds(
-        snapshotWith(["EV-000003", "EV-000010", "EV-000005"]),
-        1,
-      ),
+      allocateNextEvidenceIds(snapshotWith(["EV-000003", "EV-000010", "EV-000005"]), 1),
     ).toEqual(["EV-000011"]);
   });
 
@@ -67,9 +64,9 @@ describe("allocateNextEvidenceIds — single + batch allocation", () => {
 
   test("non-conforming ids skipped from max calc", () => {
     // ids that don't match /^EV-\d+$/ shouldn't count toward max
-    expect(
-      allocateNextEvidenceIds(snapshotWith(["EV-foo", "EV-000004"]), 1),
-    ).toEqual(["EV-000005"]);
+    expect(allocateNextEvidenceIds(snapshotWith(["EV-foo", "EV-000004"]), 1)).toEqual([
+      "EV-000005",
+    ]);
   });
 });
 

@@ -11,11 +11,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
-import {
-  CrashLogEnvelope,
-  UNEXPECTED_ERROR,
-  writeCrashLog,
-} from "../../src/core/crash-log.js";
+import { CrashLogEnvelope, UNEXPECTED_ERROR, writeCrashLog } from "../../src/core/crash-log.js";
 
 async function tmpHome(): Promise<string> {
   return await fs.mkdtemp(path.join(os.tmpdir(), "loaf-crashlog-"));
@@ -50,13 +46,7 @@ describe("Phase 16 SC-2 — crash-log writer", () => {
       expect(envelope.error.name).toBe("Error");
       expect(envelope.error.message).toBe("boom");
       expect(envelope.error.stack).toContain("synthetic:1:1");
-      expect(envelope.argv).toEqual([
-        "loaf",
-        "advance",
-        "EXECUTE.work",
-        "--feature",
-        "F-042",
-      ]);
+      expect(envelope.argv).toEqual(["loaf", "advance", "EXECUTE.work", "--feature", "F-042"]);
       expect(envelope.cwd).toBe("/tmp/repo");
       expect(envelope.version).toBe("0.1.0");
       // best-effort feature extraction from argv `--feature <NAME>`

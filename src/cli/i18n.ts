@@ -22,7 +22,11 @@ export type I18n = {
 };
 
 export type LocaleResolution =
-  | { ok: true; locale: Locale; source: "argv" | "env" | "user-config" | "project-config" | "ambient" | "default" }
+  | {
+      ok: true;
+      locale: Locale;
+      source: "argv" | "env" | "user-config" | "project-config" | "ambient" | "default";
+    }
   | {
       ok: false;
       code: "INVALID_LOCALE";
@@ -147,17 +151,11 @@ function interpolate(
   });
 }
 
-export function createI18n(
-  locale: Locale,
-  bundles: Record<Locale, LocaleBundle>,
-): I18n {
+export function createI18n(locale: Locale, bundles: Record<Locale, LocaleBundle>): I18n {
   return {
     locale,
     t(keyPath, vars) {
-      const template =
-        lookup(bundles[locale], keyPath) ??
-        lookup(bundles.en, keyPath) ??
-        keyPath;
+      const template = lookup(bundles[locale], keyPath) ?? lookup(bundles.en, keyPath) ?? keyPath;
       return interpolate(template, vars);
     },
   };

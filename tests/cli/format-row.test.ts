@@ -45,7 +45,9 @@ function makeRow(overrides: Partial<SessionRow> = {}): SessionRow {
 // ───────────────────────────────────────────────────────────────────────
 describe("chooseLabelSource — session_label fallback to feature", () => {
   test("non-empty session_label wins", () => {
-    expect(chooseLabelSource(makeRow({ session_label: "popposhell · auth refresh" }))).toBe("popposhell · auth refresh");
+    expect(chooseLabelSource(makeRow({ session_label: "popposhell · auth refresh" }))).toBe(
+      "popposhell · auth refresh",
+    );
   });
 
   test("empty session_label falls back to feature", () => {
@@ -71,7 +73,9 @@ describe("formatLabel — truncation with ellipsis", () => {
   });
 
   test("uses session_label when present", () => {
-    expect(formatLabel(makeRow({ session_label: "popposhell · auth", feature: "auth-refresh" }), 20)).toBe("popposhell · auth");
+    expect(
+      formatLabel(makeRow({ session_label: "popposhell · auth", feature: "auth-refresh" }), 20),
+    ).toBe("popposhell · auth");
   });
 });
 
@@ -80,11 +84,16 @@ describe("formatLabel — truncation with ellipsis", () => {
 // ───────────────────────────────────────────────────────────────────────
 describe("formatStatus — codex r354 P2 precedence order", () => {
   test("DONE.* wins over everything (✓ done)", () => {
-    expect(formatStatus(makeRow({
-      sub_state: "DONE.delivered",
-      pending_queue_depth: 5,
-      active_tasks: ["T-001", "T-002"],
-    }), DEFAULT_I18N)).toBe("✓ done");
+    expect(
+      formatStatus(
+        makeRow({
+          sub_state: "DONE.delivered",
+          pending_queue_depth: 5,
+          active_tasks: ["T-001", "T-002"],
+        }),
+        DEFAULT_I18N,
+      ),
+    ).toBe("✓ done");
   });
 
   test("DONE.archived also wins", () => {
@@ -100,10 +109,15 @@ describe("formatStatus — codex r354 P2 precedence order", () => {
   });
 
   test("pending wins over active_tasks (gate-blocking semantic)", () => {
-    expect(formatStatus(makeRow({
-      pending_queue_depth: 1,
-      active_tasks: ["T-001", "T-002"],
-    }), DEFAULT_I18N)).toBe("‖ ask");
+    expect(
+      formatStatus(
+        makeRow({
+          pending_queue_depth: 1,
+          active_tasks: ["T-001", "T-002"],
+        }),
+        DEFAULT_I18N,
+      ),
+    ).toBe("‖ ask");
   });
 
   test("active_tasks 1 → '▶ run'", () => {
@@ -111,11 +125,15 @@ describe("formatStatus — codex r354 P2 precedence order", () => {
   });
 
   test("active_tasks 3 → '▶ run [×3]'", () => {
-    expect(formatStatus(makeRow({ active_tasks: ["T-001", "T-002", "T-003"] }), DEFAULT_I18N)).toBe("▶ run [×3]");
+    expect(formatStatus(makeRow({ active_tasks: ["T-001", "T-002", "T-003"] }), DEFAULT_I18N)).toBe(
+      "▶ run [×3]",
+    );
   });
 
   test("idle (no pending, no active, non-DONE) → localized sub_state", () => {
-    expect(formatStatus(makeRow({ sub_state: "VERIFY.accept" }), DEFAULT_I18N)).toBe("Verify / accept gate");
+    expect(formatStatus(makeRow({ sub_state: "VERIFY.accept" }), DEFAULT_I18N)).toBe(
+      "Verify / accept gate",
+    );
   });
 
   test("zh localizes status labels", () => {
@@ -131,27 +149,17 @@ describe("formatStatusBadge — display badge without idle sub_state duplication
       makeRow({ sub_state: "DONE.delivered", pending_queue_depth: 5, active_tasks: ["T-001"] }),
       "✓ done",
     ],
-    [
-      "blocked",
-      makeRow({ pending_queue_depth: 3, active_tasks: ["T-001"] }),
-      "‖ ask [×3]",
-    ],
-    [
-      "running",
-      makeRow({ active_tasks: ["T-001", "T-002"] }),
-      "▶ run [×2]",
-    ],
-    [
-      "idle",
-      makeRow({ sub_state: "EXECUTE.work" }),
-      "idle",
-    ],
+    ["blocked", makeRow({ pending_queue_depth: 3, active_tasks: ["T-001"] }), "‖ ask [×3]"],
+    ["running", makeRow({ active_tasks: ["T-001", "T-002"] }), "▶ run [×2]"],
+    ["idle", makeRow({ sub_state: "EXECUTE.work" }), "idle"],
   ] as const)("%s badge", (_name, row, expected) => {
     expect(formatStatusBadge(row, DEFAULT_I18N)).toBe(expected);
   });
 
   test("idle badge does not repeat sub_state", () => {
-    expect(formatStatusBadge(makeRow({ sub_state: "VERIFY.accept" }), DEFAULT_I18N)).not.toBe("Verify / accept gate");
+    expect(formatStatusBadge(makeRow({ sub_state: "VERIFY.accept" }), DEFAULT_I18N)).not.toBe(
+      "Verify / accept gate",
+    );
   });
 
   test("zh idle badge localizes", () => {
@@ -164,8 +172,12 @@ describe("formatStatusBadge — display badge without idle sub_state duplication
 // ───────────────────────────────────────────────────────────────────────
 describe("formatPhaseSub + formatIteration", () => {
   test("formatPhaseSub returns localized sub_state label", () => {
-    expect(formatPhaseSub(makeRow({ sub_state: "EXECUTE.work" }), DEFAULT_I18N)).toBe("Execute / running task");
-    expect(formatPhaseSub(makeRow({ sub_state: "EXECUTE.work" }), ZH_I18N)).toBe("执行 / 任务进行中");
+    expect(formatPhaseSub(makeRow({ sub_state: "EXECUTE.work" }), DEFAULT_I18N)).toBe(
+      "Execute / running task",
+    );
+    expect(formatPhaseSub(makeRow({ sub_state: "EXECUTE.work" }), ZH_I18N)).toBe(
+      "执行 / 任务进行中",
+    );
   });
 
   test("formatIteration returns decimal string", () => {
@@ -196,16 +208,16 @@ describe("computeColumnWidths — sizing across rows", () => {
   });
 
   test("respects maxLabelWidth cap", () => {
-    const rows = [
-      makeRow({ feature: "a".repeat(100) }),
-    ];
+    const rows = [makeRow({ feature: "a".repeat(100) })];
     const widths = computeColumnWidths(rows, DEFAULT_I18N, 20);
     expect(widths.label).toBe(20);
   });
 
   test("status column expands to fit longest status text", () => {
     const rows = [
-      makeRow({ active_tasks: Array.from({ length: 99 }, (_, i) => `T-${String(i + 1).padStart(3, "0")}`) }),
+      makeRow({
+        active_tasks: Array.from({ length: 99 }, (_, i) => `T-${String(i + 1).padStart(3, "0")}`),
+      }),
     ];
     const widths = computeColumnWidths(rows, DEFAULT_I18N);
     // Status "▶ run [×99]" is longer than the min 12, but may still be
