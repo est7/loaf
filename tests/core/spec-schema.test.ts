@@ -9,6 +9,7 @@ import {
   RequirementEarsShape,
   RequirementEarsVerifiable,
   SpecFrontmatter,
+  SpecSubmitInput,
   hasVerifiability,
 } from "../../src/core/spec-schema.js";
 
@@ -152,6 +153,35 @@ describe("SpecFrontmatter — uses structural shape so missing verifiability sli
       schema_version: 3,
       requirements: [],
     });
+    expect(parsed.success).toBe(false);
+  });
+});
+
+// ── W7 — SpecSubmitInput is .strict() at the CLI input boundary ─────────
+describe("SpecSubmitInput — strict input boundary (W7)", () => {
+  const VALID_SUBMIT = {
+    feature: { id: "F-001", name: "OAuth token refresh" },
+    intent: "users should not perceive auth recovery flows in flight here",
+    adr_refs: [],
+    requirements: [],
+    scenarios: [],
+    visual_contracts: [],
+    needs_clarification: [],
+  };
+
+  test("ACCEPTS a fully-specified submit input", () => {
+    expect(SpecSubmitInput.safeParse(VALID_SUBMIT).success).toBe(true);
+  });
+
+  test("REJECTS an unknown top-level key (caller typo, not silently dropped)", () => {
+    // `requirments` is a misspelling of `requirements` — under the prior
+    // .passthrough() it slipped through and the real field defaulted to [].
+    const parsed = SpecSubmitInput.safeParse({ ...VALID_SUBMIT, requirments: [] });
+    expect(parsed.success).toBe(false);
+  });
+
+  test("REJECTS an arbitrary extra field", () => {
+    const parsed = SpecSubmitInput.safeParse({ ...VALID_SUBMIT, surprise: true });
     expect(parsed.success).toBe(false);
   });
 });
