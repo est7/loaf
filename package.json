@@ -21,7 +21,7 @@
     "lint": "biome check --formatter-enabled=false --assist-enabled=false src tests tsdown.config.ts package.json tsconfig.json biome.json",
     "format": "biome format --write src tests tsdown.config.ts package.json tsconfig.json biome.json",
     "test": "vitest run",
-    "check": "bun run typecheck && bun run test && bun run build",
+    "check": "bun run lint && bun run typecheck && bun run test && bun run build",
     "ga:pack-smoke": "bash scripts/ga-package-smoke.sh",
     "ga:consistency": "bash scripts/ga-consistency-check.sh",
     "ga:check": "bun run build && bun run ga:pack-smoke && bun run ga:consistency",

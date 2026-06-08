@@ -221,6 +221,8 @@ export function withTreePrefixes(plan: ReadonlyArray<TuiListItem>): TuiTreeListI
         return { item, prefix: `${vertical}${isLastSession(plan, index) ? "└─" : "├─"} ` };
       }
     }
+    const _exhaustive: never = item;
+    return _exhaustive;
   });
 }
 

@@ -29,7 +29,7 @@ function hasPropertyDeep(node: unknown, key: string): boolean {
   const obj = node as JsonSchemaNode;
   const props = obj["properties"];
   if (props !== undefined && typeof props === "object" && props !== null) {
-    if (Object.prototype.hasOwnProperty.call(props, key)) return true;
+    if (Object.hasOwn(props, key)) return true;
     for (const v of Object.values(props as Record<string, unknown>)) {
       if (hasPropertyDeep(v, key)) return true;
     }

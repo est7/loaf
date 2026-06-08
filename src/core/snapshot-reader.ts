@@ -11,7 +11,7 @@
 // a trailing newline; the contract says the reader must NOT proceed in that
 // state.
 
-import { promises as fsp } from "node:fs";
+import { promises as fsp, type Stats } from "node:fs";
 
 import { ENTRY_BYTE_LIMIT } from "./journal-entry.js";
 import { computeLineHash, type SnapshotMeta } from "./snapshot.js";
@@ -39,7 +39,7 @@ export async function checkSnapshotFresh(
   meta: SnapshotMeta,
   journalPath: string,
 ): Promise<SnapshotReaderResult> {
-  let stat;
+  let stat: Stats;
   try {
     stat = await fsp.stat(journalPath);
   } catch (err) {

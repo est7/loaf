@@ -138,7 +138,7 @@ import {
   type LoadResult,
   type ProjectionKind,
 } from "./core/projection-loader.js";
-import { PendingPromptKind, type Ceremony, type SubState } from "./core/journal-entry.js";
+import { PendingPromptKind, type Ceremony } from "./core/journal-entry.js";
 import {
   carryForwardStepProgress,
   latestCanonicalTaskBody,

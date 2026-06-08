@@ -259,15 +259,11 @@ export async function tailRecovery(filePath: string): Promise<TailRecoveryResult
   // Phase 2: validate every complete line; drop trailing invalid lines.
   // We walk backwards stripping bad tail lines.
   const goodEntries: JE[] = [];
-  let invalidTrailing = 0;
-  let invalidTrailingBytes = 0;
   for (const line of completeLines) {
     try {
       const parsed = JournalEntry.safeParse(JSON.parse(line));
       if (!parsed.success) {
         // From this point forward, every line is treated as corrupt tail.
-        invalidTrailing++;
-        invalidTrailingBytes += Buffer.byteLength(line + "\n", "utf8");
         continue;
       }
       // Reset trailing invalidation buffer if a good line follows? No —
@@ -277,8 +273,6 @@ export async function tailRecovery(filePath: string): Promise<TailRecoveryResult
       // For minimum viable, count only the trailing run.
       goodEntries.push(parsed.data);
     } catch {
-      invalidTrailing++;
-      invalidTrailingBytes += Buffer.byteLength(line + "\n", "utf8");
     }
   }
 

@@ -586,13 +586,16 @@ export function extractEmittedCodes(text: string): Set<string> {
   //   ctx.failure("CODE", ...) / context.failure("CODE", ...) (SC-3)
   const emitRe =
     /\b(?:fail(?:[A-Z][A-Za-z0-9]*)?|emit\w*|(?:ctx|context)\.failure)\(\s*["']([A-Z][A-Z0-9_]+)["']/g;
-  let m: RegExpExecArray | null;
-  while ((m = emitRe.exec(text)) !== null) {
+  let m: RegExpExecArray | null = emitRe.exec(text);
+  while (m !== null) {
     codes.add(m[1] ?? "");
+    m = emitRe.exec(text);
   }
   const codeFieldRe = /\bcode:\s*["']([A-Z][A-Z0-9_]+)["']/g;
-  while ((m = codeFieldRe.exec(text)) !== null) {
+  m = codeFieldRe.exec(text);
+  while (m !== null) {
     codes.add(m[1] ?? "");
+    m = codeFieldRe.exec(text);
   }
   return codes;
 }
