@@ -167,6 +167,15 @@ async function readJournal(dir: string): Promise<Array<Record<string, any>>> {
   return raw.trim().split("\n").map((l) => JSON.parse(l));
 }
 
+async function readJournalIfExists(dir: string): Promise<Array<Record<string, any>>> {
+  try {
+    return await readJournal(dir);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw err;
+  }
+}
+
 describe("SC1b — sponsored `tasks add --finding` at EXECUTE.work", () => {
   test("happy path: a new task is appended via sponsored event:tasks_amended mode=add", async () => {
     const dir = await tmpFeatureDir();
@@ -337,6 +346,54 @@ describe("SC1b — sponsored `tasks amend --input --finding` at EXECUTE.work", (
     // The finding stays open.
     const findings = await cli.step("finding list", ["finding", "list", "--feature", F]);
     expect(findings.findings.find((f: any) => f.id === fnd).status).toBe("open");
+  });
+
+  test("feature-dir dispatch writes sponsored amend to the dispatched feature dir", async () => {
+    const dispatchedDir = await tmpFeatureDir();
+    const F = "sc1b-amend-feature-dir-dispatch";
+    const wrongDefaultDir = path.join(process.cwd(), ".loaf", F);
+    expect(dispatchedDir).not.toBe(wrongDefaultDir);
+
+    const cli = makeCli(dispatchedDir, ENV);
+    const fnd = await seedToAmendTasksAtWork(cli, F);
+
+    const newGraph = await cli.writeInput("amend-feature-dir.json", {
+      kind: "behavioral",
+      drives: ["REQ-CORE-001"],
+      tests: ["sc1b.feature-dir-dispatch"],
+      labels: ["feature-dir-dispatch"],
+    });
+    const result = await runCli([
+      "tasks", "amend", "T-001",
+      "--input", newGraph,
+      "--finding", fnd,
+      "--feature", F,
+      "--feature-dir", dispatchedDir,
+      "--format", "json",
+    ], { env: ENV });
+
+    expect(result.exit).toBe(0);
+    const amended = JSON.parse(result.stdout);
+    expect(amended.ok).toBe(true);
+    expect(amended.task_id).toBe("T-001");
+    expect(amended.sponsored_by_finding_id).toBe(fnd);
+
+    const dispatchedEntries = await readJournal(dispatchedDir);
+    const dispatchedAmends = dispatchedEntries.filter((entry) =>
+      entry.kind === "event:tasks_amended" &&
+      entry.payload.mode === "replace" &&
+      entry.payload.sponsored_by_finding_id === fnd
+    );
+    expect(dispatchedAmends.length).toBe(1);
+    expect(dispatchedAmends[0]!.payload.task.labels).toEqual(["feature-dir-dispatch"]);
+
+    const wrongDefaultEntries = await readJournalIfExists(wrongDefaultDir);
+    const wrongDefaultAmends = wrongDefaultEntries.filter((entry) =>
+      entry.kind === "event:tasks_amended" &&
+      entry.payload.mode === "replace" &&
+      entry.payload.sponsored_by_finding_id === fnd
+    );
+    expect(wrongDefaultAmends).toEqual([]);
   });
 
   test("--policy and --input together → USAGE reject", async () => {

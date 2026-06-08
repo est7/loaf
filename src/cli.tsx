@@ -3345,7 +3345,7 @@ export async function main(
             return;
           }
           // (b3) Load session via ctx; the task being replaced must exist.
-          const sFeatureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+          const sFeatureDir = earlyFeatureDir;
           const sSession = await ctx.resolveSession(sFeatureDir);
           if (!sSession.snapshot.state) {
             emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
