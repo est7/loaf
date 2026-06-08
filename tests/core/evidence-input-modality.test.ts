@@ -329,25 +329,23 @@ describe("Phase 16 SC-4c — `loaf evidence add` error paths", () => {
     // docs/references/loaf-cli-i18n.md). actor=human:* + reason≥10 isolate the
     // waived refine from the manual/waiver human-actor refine.
     const { dir, feature } = await seedQuickAtExecuteWork();
-    const r = await runCli(
-      [
-        "evidence",
-        "add",
-        "--input",
-        JSON.stringify({
-          ...baseInput("manual"),
-          actor: "human:tester@example.invalid",
-          result: "waived",
-          reason: "manual review intentionally waived with sufficient justification",
-        }),
-        "--feature",
-        feature,
-        "--feature-dir",
-        dir,
-        "--format",
-        "json",
-      ],
-    );
+    const r = await runCli([
+      "evidence",
+      "add",
+      "--input",
+      JSON.stringify({
+        ...baseInput("manual"),
+        actor: "human:tester@example.invalid",
+        result: "waived",
+        reason: "manual review intentionally waived with sufficient justification",
+      }),
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
+    ]);
     expect(r.exit).toBe(2);
     const lines = r.stderr.split("\n").filter((l) => l.startsWith("{"));
     const obj = JSON.parse(lines[0]!);

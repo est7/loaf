@@ -27,7 +27,10 @@ import {
   ApplicabilityPayload as RtApplicability,
   StepStatusPayload as RtStepStatus,
 } from "../../src/core/task-schema.js";
-import { GateName as RtGateName, PendingPromptKind as RtPendingPromptKind } from "../../src/core/journal-entry.js";
+import {
+  GateName as RtGateName,
+  PendingPromptKind as RtPendingPromptKind,
+} from "../../src/core/journal-entry.js";
 
 type ZEnum = { options: readonly string[] };
 

@@ -251,10 +251,7 @@ const PRECEDENCE_PAIRS: PrecedenceRow[] = [
       kind: "event:tasks_planned",
       payload: {
         based_on: { spec: 1 },
-        tasks: [
-          behavioralFull(),
-          behavioralFull({ id: "T-001", red_test_registered: true }),
-        ],
+        tasks: [behavioralFull(), behavioralFull({ id: "T-001", red_test_registered: true })],
       },
     }),
     ctx: { snapshot: mkSnapshot("SPEC.design"), tail_seq: -1 },

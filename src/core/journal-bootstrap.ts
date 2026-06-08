@@ -293,8 +293,7 @@ export async function tailRecovery(filePath: string): Promise<TailRecoveryResult
       // self-repair (would need replay; doctor --rebuild surfaces).
       // For minimum viable, count only the trailing run.
       goodEntries.push(parsed.data);
-    } catch {
-    }
+    } catch {}
   }
 
   // Restrict invalid handling to a trailing run — i.e. counter resets when a
