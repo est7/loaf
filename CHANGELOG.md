@@ -5,6 +5,46 @@ All notable changes to `loaf-cli` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] — 2026-06-08
+
+Code-quality deduction closure (P2–P7). Behavior-preserving refactor plus one
+evidence-validation tightening; reviewed three ways (kernel / schemas+gates /
+CLI surface) — APPROVE.
+
+### Changed
+
+- **biome lint/format toolchain** — `bun run lint` (formatter-disabled rule
+  gate) wired into `bun run check`; repo-wide format pass.
+- **Stable-core leaf-module extraction** — `projection-types.ts` (13 projection
+  types lifted out of `reducer.ts`, re-exported) and `tui/types.ts`
+  (`TuiStatusBucket`) break import cycles; pure moves.
+- **Single-source spec-version mode** — `resolveSpecVersionMode` in
+  `reducer/invariants.ts`, delegated by both reducer and preflight (L3 parity).
+- **`apply()` in-place contract** — documented (`prev` consumed) without
+  behavioral change.
+- **Key-order-insensitive drift check** — `journal-mutate.ts` swaps
+  `JSON.stringify` comparison for `isDeepStrictEqual`.
+- **Human-actor resolution dedup** — 10 inlined sites collapse into
+  `resolveHumanActorOrFail`, preserving the `$LOAF_USER → git email →
+  NO_HUMAN_ACTOR` order and the non-interactive CI-safety guard; selector
+  pre-parse helpers extracted.
+
+### Fixed
+
+- **Reject manual evidence with `result=waived`** — `kind=manual` must use
+  `kind=waiver` to waive; surfaces as `INVALID_PAYLOAD` at preflight, consistent
+  with its sibling evidence semantic refines.
+- Remove 5 stale-rename diagnostic i18n keys (dead; live replacements present in
+  ERROR_CATALOG).
+- Exclude generated/runtime dirs from the event-drift CI gate.
+
+### Tests
+
+- Preflight error-precedence contract (table-driven) and `reducer.apply()`
+  in-place contract pinned.
+- `manual≠waived` rejection locked end-to-end (`loaf evidence add` → exit 2 +
+  `INVALID_PAYLOAD`) and at the ceremony-independent preflight unit level.
+
 ## [0.3.0] — 2026-06-03
 
 Adds `loaf next`, the read-side dual of the transition kernel: given the
@@ -114,6 +154,7 @@ migration.
 - Both fixes RED→GREEN independently reproduced (revert only the predicate with the new tests present → exactly the new negative cases fail; restore → green).
 - `dist/cli.mjs --version` → `0.1.2`.
 
+[0.3.1]: https://github.com/est7/loaf/releases/tag/v0.3.1
 [0.3.0]: https://github.com/est7/loaf/releases/tag/v0.3.0
 [0.2.0]: https://github.com/est7/loaf/releases/tag/v0.2.0
 [0.1.2]: https://github.com/est7/loaf/releases/tag/v0.1.2

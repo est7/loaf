@@ -16,7 +16,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { O_APPEND, O_CREAT, O_WRONLY } from "node:constants";
 import { isDeepStrictEqual } from "node:util";
 //#region package.json
-var version = "0.3.0";
+var version = "0.3.1";
 //#endregion
 //#region src/core/crash-log.ts
 /** Sentinel code stamped into the JSON envelope and (when
