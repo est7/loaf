@@ -112,12 +112,14 @@ export async function executePrune(opts: ExecuteOptions): Promise<ExecuteResult>
                 error:
                   `registry deregister failed (${(regErr as Error).message}); ` +
                   `feature rollback also failed (${(rollbackErr as Error).message}); ` +
-                  // Honest recovery path (codex prune-core BLOCK 5): `loaf prune
-                  // restore` CANNOT reconnect this state — the registry entry is
-                  // still at origin and the bucket has no registry.json, so restore
-                  // returns PRUNE_RESTORE_INCOMPLETE. Recovery is manual / doctor.
+                  // Honest recovery path (codex prune-core BLOCK 5/6): point ONLY
+                  // at the manual move that actually works. `loaf prune restore`
+                  // returns PRUNE_RESTORE_INCOMPLETE for this state (bucket has no
+                  // registry.json; registry entry is still at origin), and bare
+                  // `loaf doctor` is DOCTOR_MODE_NOT_IMPLEMENTED this release — so
+                  // claim neither. A command-based recovery is a later-slice item.
                   `feature data retained in ${bucket} (registry entry still at origin) — ` +
-                  `recover manually: move ${path.join(bucket, "feature")} back to ${t.feature_dir}, or run \`loaf doctor\``,
+                  `recover manually: move ${path.join(bucket, "feature")} back to ${t.feature_dir}`,
               });
               continue; // bucket preserved; do NOT remove it
             }
