@@ -8,7 +8,11 @@ import {
   type TaskState,
 } from "../../src/core/reducer.js";
 import type { Ceremony, SubState } from "../../src/core/journal-entry.js";
-import { preflight, type PreflightFailureCode } from "../../src/core/reducer/preflight.js";
+import {
+  ORDERED_CHECKS,
+  preflight,
+  type PreflightFailureCode,
+} from "../../src/core/reducer/preflight.js";
 
 const STANDARD_CEREMONY: Ceremony = {
   spec_phase: true,
@@ -482,5 +486,38 @@ describe("preflight — error precedence characterization", () => {
 
   test("PRECEDENCE_PAIRS keeps the converged row count (SC-10: 22 + W9a: 4)", () => {
     expect(PRECEDENCE_PAIRS).toHaveLength(26);
+  });
+});
+
+// W9b — the ordered pipeline IS the precedence contract. Pin the sequence by
+// name so a reorder (or an inserted / dropped check) fails loudly, even for a
+// pair the PRECEDENCE_PAIRS rows above don't happen to cover. The two checks
+// that run inline in preflight() before the pipeline (envelope parse, per-kind
+// payload parse — they build the check context) are intentionally absent here;
+// INVALID_PAYLOAD's precedence slot is held by checkPerKindPayload below.
+describe("preflight — ORDERED_CHECKS pipeline order", () => {
+  test("the check sequence is the load-bearing precedence order", () => {
+    expect(ORDERED_CHECKS.map((c) => c.name)).toEqual([
+      "checkSeqMonotonic", // (2)
+      "checkSubStateAuthority", // (3)
+      "checkActorAuthority", // (4)
+      "checkPerKindPayload", // (4b)
+      "checkGateDecided", // (5a)
+      "checkPhaseAdvanced", // (5b)
+      "checkSessionDelivered", // (5c)
+      "checkSpikeConverted", // (5c.3)
+      "checkCeremonySet", // (5c.4)
+      "checkSessionTerminalReason", // (5c.2)
+      "checkTasksPlanned", // (5d.1)
+      "checkTasksAmended", // (5d.2)
+      "checkTaskLifecycle", // (5e)
+      "checkTaskAbandoned", // (5e.3)
+      "checkTaskStepReset", // (5e.4)
+      "checkFindingRaised", // (5g)
+      "checkSpecContentPhase", // (5i)
+      "checkSpecDuplicateIds", // (5h)
+      "checkSpecVersion", // (5j)
+      "checkTransitionEdge", // (5f)
+    ]);
   });
 });

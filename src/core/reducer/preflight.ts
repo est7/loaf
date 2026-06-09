@@ -449,6 +449,58 @@ function firstAddFreshnessViolation(
   return null;
 }
 
+// ── W9b: ordered-pipeline extraction ───────────────────────────────────────
+// preflight() is an ORDERED sequence of independent checks; the ORDER is a
+// load-bearing error-precedence contract (first failure wins), pinned by
+// tests/core/preflight-precedence.test.ts. The monolith below was extracted
+// into one named predicate per check + an explicit ORDERED_CHECKS array so the
+// precedence is readable in one place and a reorder fails loudly. Behavior is
+// preserved verbatim — each predicate carries its original block body.
+
+/** The `ok:false` arm of PreflightResult — what a failing check returns. */
+type PreflightFailure = Extract<PreflightResult, { ok: false }>;
+
+/** Parsed JournalEntry envelope (the success branch of JournalEntry.safeParse). */
+type ParsedEntry = Extract<ReturnType<typeof JournalEntry.safeParse>, { success: true }>["data"];
+
+/** Per-kind payload parse result (success → data; failure → error.issues). */
+type PayloadParse = ReturnType<(typeof PER_KIND_PAYLOAD)[EntryKind]["safeParse"]>;
+
+/**
+ * Everything an ordered check reads. Built once in preflight() before the
+ * pipeline runs: `entry` (envelope parse), `payloadParsed` (per-kind payload
+ * parse, full result for the INVALID_PAYLOAD check), `payloadData` (the
+ * validated payload, defined only when payloadParsed.success — downstream
+ * checks read it AFTER checkPerKindPayload has gated on success), plus the four
+ * snapshot-derived scalars.
+ */
+interface PreflightCheckCtx {
+  rawEntry: unknown;
+  entry: ParsedEntry;
+  payloadParsed: PayloadParse;
+  payloadData: unknown;
+  ctx: PreflightContext;
+  sub_state: SubState;
+  ceremony: Ceremony;
+  verify_accepted: boolean;
+  spec_locked: boolean;
+}
+
+// SPEC content / version kinds — hoisted to module scope (were preflight-local
+// consts). Pure constants; hoisting is behavior-preserving.
+const SPEC_CONTENT_KINDS = new Set<EntryKind>([
+  "event:spec_submitted",
+  "event:spec_req_added",
+  "event:spec_scenario_added",
+  "event:spec_visual_added",
+]);
+const SPEC_VERSION_KINDS = new Set<EntryKind>([
+  "event:spec_submitted",
+  "event:spec_req_added",
+  "event:spec_scenario_added",
+  "event:spec_visual_added",
+]);
+
 export function preflight(rawEntry: unknown, ctx: PreflightContext): PreflightResult {
   // Derive validation scalars from the snapshot single-source (codex r51).
   // Bootstrap kinds (session:started / migration:snapshot_imported) arrive
@@ -458,7 +510,9 @@ export function preflight(rawEntry: unknown, ctx: PreflightContext): PreflightRe
   const verify_accepted: boolean = ctx.snapshot.state?.verify_accepted ?? false;
   const spec_locked: boolean = ctx.snapshot.state?.spec_locked ?? false;
 
-  // (1) Envelope schema parse.
+  // (1) Envelope schema parse — the only check that PRODUCES `entry`, so it
+  // stays inline ahead of the ordered pipeline (the pipeline is typed over a
+  // fully-built check context).
   const parsed = JournalEntry.safeParse(rawEntry);
   if (!parsed.success) {
     return {
@@ -470,7 +524,43 @@ export function preflight(rawEntry: unknown, ctx: PreflightContext): PreflightRe
   }
   const entry = parsed.data;
 
-  // (2) Monotonic seq.
+  // (4b) Per-kind payload schema (audit r1 fix #4 — Gate #2 / Gate #3 wiring).
+  // PER_KIND_PAYLOAD lookup is total — every EntryKind has at least
+  // RecordPayload (object-shape) as fallback. A literal string / array /
+  // scalar fails here, preventing 'inline artifact body in migration' and
+  // similar bypasses of the envelope. Parsed up-front so downstream checks can
+  // read the validated `payloadData`, but the FAILURE is reported at its
+  // precedence slot inside ORDERED_CHECKS (checkPerKindPayload, after seq /
+  // sub_state / actor authority) — NOT here — so a malformed-payload entry that
+  // also violates seq still reports SEQ_NOT_MONOTONIC first.
+  const payloadParsed = PER_KIND_PAYLOAD[entry.kind].safeParse(entry.payload);
+  const payloadData: unknown = payloadParsed.success ? payloadParsed.data : undefined;
+
+  const checkCtx: PreflightCheckCtx = {
+    rawEntry,
+    entry,
+    payloadParsed,
+    payloadData,
+    ctx,
+    sub_state,
+    ceremony,
+    verify_accepted,
+    spec_locked,
+  };
+
+  // The ORDERED pipeline IS the error-precedence contract. First failure wins;
+  // reordering ORDERED_CHECKS changes which diagnostic a caller sees and is
+  // caught by tests/core/preflight-precedence.test.ts.
+  for (const check of ORDERED_CHECKS) {
+    const failure = check(checkCtx);
+    if (failure) return failure;
+  }
+  return { ok: true };
+}
+
+// (2) Monotonic seq.
+function checkSeqMonotonic(c: PreflightCheckCtx): PreflightFailure | null {
+  const { entry, ctx } = c;
   const expectedSeq = ctx.tail_seq + 1;
   if (entry.seq !== expectedSeq) {
     return {
@@ -484,8 +574,12 @@ export function preflight(rawEntry: unknown, ctx: PreflightContext): PreflightRe
       },
     };
   }
+  return null;
+}
 
-  // (3) Per-kind sub_state authority.
+// (3) Per-kind sub_state authority.
+function checkSubStateAuthority(c: PreflightCheckCtx): PreflightFailure | null {
+  const { entry, sub_state } = c;
   if (!isSubStateAllowed(entry.kind, sub_state)) {
     return {
       ok: false,
@@ -494,8 +588,12 @@ export function preflight(rawEntry: unknown, ctx: PreflightContext): PreflightRe
       detail: { kind: entry.kind, sub_state },
     };
   }
+  return null;
+}
 
-  // (4) Per-kind actor authority.
+// (4) Per-kind actor authority.
+function checkActorAuthority(c: PreflightCheckCtx): PreflightFailure | null {
+  const { entry } = c;
   if (!isActorAllowed(entry.kind, entry.actor)) {
     return {
       ok: false,
@@ -504,14 +602,13 @@ export function preflight(rawEntry: unknown, ctx: PreflightContext): PreflightRe
       detail: { kind: entry.kind, actor: entry.actor },
     };
   }
+  return null;
+}
 
-  // (4b) Per-kind payload schema (audit r1 fix #4 — Gate #2 / Gate #3 wiring).
-  // PER_KIND_PAYLOAD lookup is total — every EntryKind has at least
-  // RecordPayload (object-shape) as fallback. A literal string / array /
-  // scalar fails here, preventing 'inline artifact body in migration' and
-  // similar bypasses of the envelope.
-  const payloadSchema = PER_KIND_PAYLOAD[entry.kind];
-  const payloadParsed = payloadSchema.safeParse(entry.payload);
+// (4b) Per-kind payload schema validation. Reports the failure parsed up-front
+// in preflight(); sits AFTER seq / sub_state / actor in the precedence order.
+function checkPerKindPayload(c: PreflightCheckCtx): PreflightFailure | null {
+  const { entry, payloadParsed } = c;
   if (!payloadParsed.success) {
     return {
       ok: false,
@@ -520,15 +617,19 @@ export function preflight(rawEntry: unknown, ctx: PreflightContext): PreflightRe
       detail: { kind: entry.kind, issues: payloadParsed.error.issues },
     };
   }
+  return null;
+}
 
-  // (5a) Slice 1.A fix: payload-aware sub_state authority for gate:decided.
-  // PER_KIND_SUB_STATE allows the KIND at both SPEC.design and VERIFY.accept,
-  // but each gate_kind pins to one source: spec-lock requires SPEC.design,
-  // verify-accept requires VERIFY.accept. Without this refine, a `gate:decided
-  // gate_kind=spec-lock` at VERIFY.accept (or vice versa) would silently pass
-  // preflight even though the protocol requires source-specific filing.
+// (5a) Slice 1.A fix: payload-aware sub_state authority for gate:decided.
+// PER_KIND_SUB_STATE allows the KIND at both SPEC.design and VERIFY.accept,
+// but each gate_kind pins to one source: spec-lock requires SPEC.design,
+// verify-accept requires VERIFY.accept. Without this refine, a `gate:decided
+// gate_kind=spec-lock` at VERIFY.accept (or vice versa) would silently pass
+// preflight even though the protocol requires source-specific filing.
+function checkGateDecided(c: PreflightCheckCtx): PreflightFailure | null {
+  const { entry, payloadData, sub_state, ctx } = c;
   if (entry.kind === "gate:decided") {
-    const gateKind = (payloadParsed.data as { gate_kind?: string }).gate_kind;
+    const gateKind = (payloadData as { gate_kind?: string }).gate_kind;
     if (gateKind === "spec-lock" && sub_state !== "SPEC.design") {
       return {
         ok: false,
@@ -553,7 +654,7 @@ export function preflight(rawEntry: unknown, ctx: PreflightContext): PreflightRe
     // in the same batch); absent head also passes (no co-emission).
     // Rejected decisions bypass this guard — rejecting a gate is itself
     // an answer that does not require resolving a parallel pending.
-    const decision = (payloadParsed.data as { decision?: string }).decision;
+    const decision = (payloadData as { decision?: string }).decision;
     if (decision === "approved") {
       const pendingHead = ctx.snapshot.pending.find((p) => !p.resolved);
       if (pendingHead && pendingHead.kind !== "gate_decision") {
@@ -572,12 +673,16 @@ export function preflight(rawEntry: unknown, ctx: PreflightContext): PreflightRe
       }
     }
   }
+  return null;
+}
 
-  // (5b) Audit r1 fix: for event:phase_advanced, payload.from MUST match
-  // the current cursor. validateTransition only checks edge legality; cursor
-  // coherence is preflight's job. Without this gate a caller can pass any
-  // valid LEGAL_TRANSITIONS edge (e.g. EXECUTE.work → EXECUTE.done) even
-  // though the cursor sits at TRIAGE, and preflight returns ok.
+// (5b) Audit r1 fix: for event:phase_advanced, payload.from MUST match
+// the current cursor. validateTransition only checks edge legality; cursor
+// coherence is preflight's job. Without this gate a caller can pass any
+// valid LEGAL_TRANSITIONS edge (e.g. EXECUTE.work → EXECUTE.done) even
+// though the cursor sits at TRIAGE, and preflight returns ok.
+function checkPhaseAdvanced(c: PreflightCheckCtx): PreflightFailure | null {
+  const { entry, rawEntry, sub_state, ctx } = c;
   if (entry.kind === "event:phase_advanced") {
     const payload = (rawEntry as { payload?: Record<string, unknown> }).payload ?? {};
     const from = payload["from"] as SubState | undefined;
@@ -678,20 +783,24 @@ export function preflight(rawEntry: unknown, ctx: PreflightContext): PreflightRe
       }
     }
   }
+  return null;
+}
 
-  // (5c) Slice 1.D — `loaf deliver` preflight refines.
-  //
-  // `session:delivered` is the only kind that flips the cursor to
-  // DONE.delivered (reducer.ts:706-712 applies it directly, not via
-  // `event:phase_advanced`). So validateTransition does NOT gate this kind
-  // — instead, preflight enforces the ceremony / verify_accepted / spike-
-  // tasks preconditions of `loaf deliver` here.
-  //
-  // Spike-tasks block (protocol §703 / §1298): any non-abandoned spike task
-  // blocks delivery for the entire session, regardless of source sub_state.
-  // Done spikes still block per literal protocol wording ("spike 永远不允许
-  // loaf deliver"); abandoned spikes are ignored only because abandoned
-  // tasks have no remaining lifecycle obligation.
+// (5c) Slice 1.D — `loaf deliver` preflight refines.
+//
+// `session:delivered` is the only kind that flips the cursor to
+// DONE.delivered (reducer.ts:706-712 applies it directly, not via
+// `event:phase_advanced`). So validateTransition does NOT gate this kind
+// — instead, preflight enforces the ceremony / verify_accepted / spike-
+// tasks preconditions of `loaf deliver` here.
+//
+// Spike-tasks block (protocol §703 / §1298): any non-abandoned spike task
+// blocks delivery for the entire session, regardless of source sub_state.
+// Done spikes still block per literal protocol wording ("spike 永远不允许
+// loaf deliver"); abandoned spikes are ignored only because abandoned
+// tasks have no remaining lifecycle obligation.
+function checkSessionDelivered(c: PreflightCheckCtx): PreflightFailure | null {
+  const { entry, sub_state, ceremony, verify_accepted, ctx } = c;
   if (entry.kind === "session:delivered") {
     const activeSpike = ctx.snapshot.tasks.find(
       (t) => t.kind === "spike" && t.status !== "abandoned",
@@ -810,16 +919,20 @@ export function preflight(rawEntry: unknown, ctx: PreflightContext): PreflightRe
       }
     }
   }
+  return null;
+}
 
-  // (5c.3) Phase 12 — `loaf spike convert` precondition.
-  //
-  // `spike:converted` is a record-only audit entry; the sponsored
-  // `session:archived` in the same batch owns the terminal cursor flip.
-  // `loaf spike convert` is specifically a spike-task exit (protocol §8.3),
-  // so the session must hold at least one non-abandoned kind=spike task.
-  // Otherwise a non-spike session could emit a spike:converted entry and
-  // archive itself, making the journal misrepresent the session. Done
-  // spikes count; abandoned spikes do not (mirrors DELIVER_SPIKE_TASKS).
+// (5c.3) Phase 12 — `loaf spike convert` precondition.
+//
+// `spike:converted` is a record-only audit entry; the sponsored
+// `session:archived` in the same batch owns the terminal cursor flip.
+// `loaf spike convert` is specifically a spike-task exit (protocol §8.3),
+// so the session must hold at least one non-abandoned kind=spike task.
+// Otherwise a non-spike session could emit a spike:converted entry and
+// archive itself, making the journal misrepresent the session. Done
+// spikes count; abandoned spikes do not (mirrors DELIVER_SPIKE_TASKS).
+function checkSpikeConverted(c: PreflightCheckCtx): PreflightFailure | null {
+  const { entry, ctx } = c;
   if (entry.kind === "spike:converted") {
     const hasActiveSpike = ctx.snapshot.tasks.some(
       (t) => t.kind === "spike" && t.status !== "abandoned",
@@ -833,16 +946,20 @@ export function preflight(rawEntry: unknown, ctx: PreflightContext): PreflightRe
       };
     }
   }
+  return null;
+}
 
-  // (5c.4) Phase 13 — `loaf profile escalate` authorization for a non-TRIAGE
-  // `event:ceremony_set`.
-  //
-  // `event:ceremony_set` is freely legal at TRIAGE (the initial ceremony
-  // pick). Outside TRIAGE it is legal ONLY as the resolution of a
-  // profile_escalation pending — `loaf profile escalate` emits it as the
-  // FIRST entry of a [event:ceremony_set, pending:resolved] batch, so this
-  // guard still sees the unresolved head before pending:resolved pops it.
-  // detail.actual_head feeds the ERROR_CATALOG {actual_head} placeholder.
+// (5c.4) Phase 13 — `loaf profile escalate` authorization for a non-TRIAGE
+// `event:ceremony_set`.
+//
+// `event:ceremony_set` is freely legal at TRIAGE (the initial ceremony
+// pick). Outside TRIAGE it is legal ONLY as the resolution of a
+// profile_escalation pending — `loaf profile escalate` emits it as the
+// FIRST entry of a [event:ceremony_set, pending:resolved] batch, so this
+// guard still sees the unresolved head before pending:resolved pops it.
+// detail.actual_head feeds the ERROR_CATALOG {actual_head} placeholder.
+function checkCeremonySet(c: PreflightCheckCtx): PreflightFailure | null {
+  const { entry, sub_state, ctx } = c;
   if (entry.kind === "event:ceremony_set") {
     const isTriage = sub_state === "TRIAGE.score" || sub_state === "TRIAGE.confirm";
     if (!isTriage) {
@@ -860,19 +977,23 @@ export function preflight(rawEntry: unknown, ctx: PreflightContext): PreflightRe
       }
     }
   }
+  return null;
+}
 
-  // (5c.2) Item 2 — `loaf archive` / `loaf abandon` reason-required refine.
-  //
-  // `session:archived` / `session:abandoned` carry their own cursor
-  // authority (reducer flips directly to DONE.archived / DONE.abandoned,
-  // not via `event:phase_advanced`). Both share `SessionReasonPayload`
-  // with `session:delivered`, where `reason` is OPTIONAL — deliver
-  // legitimately allows no rationale. archive / abandon tighten it to
-  // required (protocol §10.8: "reason required"). An empty-string reason
-  // is rejected upstream by the PER_KIND_PAYLOAD parse (`z.string().min(1)`)
-  // as INVALID_PAYLOAD; this refine handles only the absent case (no
-  // whitespace-trimming — that would be stricter than the repo's
-  // `z.string().min(1)` convention).
+// (5c.2) Item 2 — `loaf archive` / `loaf abandon` reason-required refine.
+//
+// `session:archived` / `session:abandoned` carry their own cursor
+// authority (reducer flips directly to DONE.archived / DONE.abandoned,
+// not via `event:phase_advanced`). Both share `SessionReasonPayload`
+// with `session:delivered`, where `reason` is OPTIONAL — deliver
+// legitimately allows no rationale. archive / abandon tighten it to
+// required (protocol §10.8: "reason required"). An empty-string reason
+// is rejected upstream by the PER_KIND_PAYLOAD parse (`z.string().min(1)`)
+// as INVALID_PAYLOAD; this refine handles only the absent case (no
+// whitespace-trimming — that would be stricter than the repo's
+// `z.string().min(1)` convention).
+function checkSessionTerminalReason(c: PreflightCheckCtx): PreflightFailure | null {
+  const { entry, rawEntry } = c;
   if (entry.kind === "session:archived" || entry.kind === "session:abandoned") {
     const payload = (rawEntry as { payload?: Record<string, unknown> }).payload ?? {};
     if (payload["reason"] === undefined) {
@@ -884,13 +1005,17 @@ export function preflight(rawEntry: unknown, ctx: PreflightContext): PreflightRe
       };
     }
   }
+  return null;
+}
 
-  // (5d.1) Slice 2 SC4 — DUPLICATE_TASK_ID for event:tasks_planned (codex
-  // r59 P2.1 closure). Promoted from reducer-side invalidPayload (which
-  // mutate's Pass 1 wraps as REDUCER_ERROR) to top-level preflight so the
-  // user-facing CLI surface returns the actionable diagnostic directly.
-  // Reducer keeps its defensive duplicate-id sweep as fallback for raw
-  // mutate paths that bypass preflight.
+// (5d.1) Slice 2 SC4 — DUPLICATE_TASK_ID for event:tasks_planned (codex
+// r59 P2.1 closure). Promoted from reducer-side invalidPayload (which
+// mutate's Pass 1 wraps as REDUCER_ERROR) to top-level preflight so the
+// user-facing CLI surface returns the actionable diagnostic directly.
+// Reducer keeps its defensive duplicate-id sweep as fallback for raw
+// mutate paths that bypass preflight.
+function checkTasksPlanned(c: PreflightCheckCtx): PreflightFailure | null {
+  const { entry, rawEntry } = c;
   if (entry.kind === "event:tasks_planned") {
     const tasksPayload = (rawEntry as { payload?: Record<string, unknown> }).payload ?? {};
     const incoming = tasksPayload["tasks"] as
@@ -926,37 +1051,41 @@ export function preflight(rawEntry: unknown, ctx: PreflightContext): PreflightRe
       }
     }
   }
+  return null;
+}
 
-  // (5d.2) Slice C SC-C2b + Phase 11 Item 3 SC1b — event:tasks_amended §8.6
-  // mutation rights.
-  //
-  // UNSPONSORED `tasks amend` (mode=replace at EXECUTE.plan) may change only
-  // execution[].applicability and advance status pending→ready; every
-  // graph / kind-flag / step-set / step-status field is frozen. An
-  // unsponsored mode=add or a mode=replace outside EXECUTE.plan is rejected.
-  //
-  // SPONSORED `tasks_amended` (SC1b) carries `sponsored_by_finding_id` — the
-  // journal-derivable marker that authorizes a post-back-edge graph amend at
-  // EXECUTE.work. The sponsored branch runs FIRST (before the unsponsored
-  // mode=add / replace-outside-EXECUTE.plan rejections): it verifies the
-  // marker against snapshot.findings exactly like the back-edge sponsorship
-  // precedent (step 5b: missing / closed / action-mismatch → FINDING_NOT_FOUND),
-  // pins the surface to EXECUTE.work (Q3), and under valid sponsorship enforces
-  // the Q4 frozen-field split — identity + execution PROGRESS frozen, graph /
-  // definition fields + step set mutable.
-  //
-  // Enforcement is option B (codex r108, reaffirmed for SC1b at r136):
-  // the frozen diff runs against the slim Snapshot.tasks projection. Body-only
-  // fields — `tests` / `test_layer` / per-step `evidence_refs` / `reason` /
-  // `started_at` — are NOT in the slim projection, so stable-core preflight
-  // does NOT independently re-verify their preservation. The CLI sponsored
-  // `tasks amend --input` path carries those body-only progress fields
-  // forward from the current canonical body via `carryForwardStepProgress`
-  // (task-history.ts) for every retained step; that carry-forward is the
-  // body-only-field guard. This is a deliberate locus split, not a preflight
-  // capability gap.
+// (5d.2) Slice C SC-C2b + Phase 11 Item 3 SC1b — event:tasks_amended §8.6
+// mutation rights.
+//
+// UNSPONSORED `tasks amend` (mode=replace at EXECUTE.plan) may change only
+// execution[].applicability and advance status pending→ready; every
+// graph / kind-flag / step-set / step-status field is frozen. An
+// unsponsored mode=add or a mode=replace outside EXECUTE.plan is rejected.
+//
+// SPONSORED `tasks_amended` (SC1b) carries `sponsored_by_finding_id` — the
+// journal-derivable marker that authorizes a post-back-edge graph amend at
+// EXECUTE.work. The sponsored branch runs FIRST (before the unsponsored
+// mode=add / replace-outside-EXECUTE.plan rejections): it verifies the
+// marker against snapshot.findings exactly like the back-edge sponsorship
+// precedent (step 5b: missing / closed / action-mismatch → FINDING_NOT_FOUND),
+// pins the surface to EXECUTE.work (Q3), and under valid sponsorship enforces
+// the Q4 frozen-field split — identity + execution PROGRESS frozen, graph /
+// definition fields + step set mutable.
+//
+// Enforcement is option B (codex r108, reaffirmed for SC1b at r136):
+// the frozen diff runs against the slim Snapshot.tasks projection. Body-only
+// fields — `tests` / `test_layer` / per-step `evidence_refs` / `reason` /
+// `started_at` — are NOT in the slim projection, so stable-core preflight
+// does NOT independently re-verify their preservation. The CLI sponsored
+// `tasks amend --input` path carries those body-only progress fields
+// forward from the current canonical body via `carryForwardStepProgress`
+// (task-history.ts) for every retained step; that carry-forward is the
+// body-only-field guard. This is a deliberate locus split, not a preflight
+// capability gap.
+function checkTasksAmended(c: PreflightCheckCtx): PreflightFailure | null {
+  const { entry, payloadData, sub_state, ctx } = c;
   if (entry.kind === "event:tasks_amended") {
-    const amended = payloadParsed.data as {
+    const amended = payloadData as {
       mode?: "add" | "replace";
       task: TaskFullProjection;
       sponsored_by_finding_id?: string;
@@ -1075,7 +1204,7 @@ export function preflight(rawEntry: unknown, ctx: PreflightContext): PreflightRe
         }
       }
       // Sponsored path validated — fall through (no unsponsored rejection).
-      return { ok: true };
+      return null;
     }
 
     if (mode === "add") {
@@ -1129,27 +1258,31 @@ export function preflight(rawEntry: unknown, ctx: PreflightContext): PreflightRe
       };
     }
   }
+  return null;
+}
 
-  // (5e) Slice 2 SC1 — task lifecycle preflight refines.
-  //
-  // `event:task_claimed` / `event:task_step_started` / `event:task_step_done`
-  // payloads carry a task_id (+ step). Reducer-side checks today report
-  // TASK_NOT_FOUND / TASK_STEP_NOT_FOUND after dry-run, and `task_claimed`
-  // historically silently no-opped on unknown ids (codex r56 BLOCK 3a).
-  // This step lifts those checks into preflight where they belong, and
-  // adds the claim/status/deps refines the reducer never enforced:
-  //   * task_claimed:
-  //       - task exists in snapshot.tasks → else TASK_NOT_FOUND
-  //       - task.status ∈ {pending, ready} → else
-  //         * status=in_progress → TASK_ALREADY_CLAIMED
-  //         * status=done/abandoned → TASK_NOT_CLAIMABLE
-  //       - all deps_on tasks have status=done → else TASK_DEPS_NOT_SATISFIED
-  //   * task_step_started / task_step_done:
-  //       - task exists → TASK_NOT_FOUND
-  //       - task.status === "in_progress" → else TASK_NOT_CLAIMED
-  // Reducer keeps its TASK_NOT_FOUND / TASK_STEP_NOT_FOUND fallbacks as
-  // defense-in-depth (preflight is authoritative, reducer must not silently
-  // no-op).
+// (5e) Slice 2 SC1 — task lifecycle preflight refines.
+//
+// `event:task_claimed` / `event:task_step_started` / `event:task_step_done`
+// payloads carry a task_id (+ step). Reducer-side checks today report
+// TASK_NOT_FOUND / TASK_STEP_NOT_FOUND after dry-run, and `task_claimed`
+// historically silently no-opped on unknown ids (codex r56 BLOCK 3a).
+// This step lifts those checks into preflight where they belong, and
+// adds the claim/status/deps refines the reducer never enforced:
+//   * task_claimed:
+//       - task exists in snapshot.tasks → else TASK_NOT_FOUND
+//       - task.status ∈ {pending, ready} → else
+//         * status=in_progress → TASK_ALREADY_CLAIMED
+//         * status=done/abandoned → TASK_NOT_CLAIMABLE
+//       - all deps_on tasks have status=done → else TASK_DEPS_NOT_SATISFIED
+//   * task_step_started / task_step_done:
+//       - task exists → TASK_NOT_FOUND
+//       - task.status === "in_progress" → else TASK_NOT_CLAIMED
+// Reducer keeps its TASK_NOT_FOUND / TASK_STEP_NOT_FOUND fallbacks as
+// defense-in-depth (preflight is authoritative, reducer must not silently
+// no-op).
+function checkTaskLifecycle(c: PreflightCheckCtx): PreflightFailure | null {
+  const { entry, rawEntry, ctx } = c;
   if (
     entry.kind === "event:task_claimed" ||
     entry.kind === "event:task_step_started" ||
@@ -1270,21 +1403,25 @@ export function preflight(rawEntry: unknown, ctx: PreflightContext): PreflightRe
       }
     }
   }
+  return null;
+}
 
-  // (5e.3) Item 1 — event:task_abandoned refines.
-  //
-  // `loaf tasks abandon <T-N> --reason "..."` emits event:task_abandoned.
-  // Per-kind already gates actor (ALL_NON_MIGRATION) + sub_state
-  // (EXECUTE.work) — this step adds the task-graph refines the reducer
-  // never enforced (the reducer flips status→abandoned unconditionally):
-  //   - task exists in snapshot.tasks → else TASK_NOT_FOUND
-  //   - task.status ∉ {done, abandoned} → else TASK_NOT_ABANDONABLE
-  //     (abandoning a terminal task is a no-op contract error)
-  //   - no non-terminal task lists this task in depends_on → else
-  //     TASK_ABANDON_BLOCKED_DEPENDENTS (abandoning the parent strands
-  //     the child: task_claimed preflight requires deps status=done).
-  // INVALID_PAYLOAD for missing / empty reason rides the PER_KIND_PAYLOAD
-  // parse above (TaskAbandonedPayload requires reason: z.string().min(1)).
+// (5e.3) Item 1 — event:task_abandoned refines.
+//
+// `loaf tasks abandon <T-N> --reason "..."` emits event:task_abandoned.
+// Per-kind already gates actor (ALL_NON_MIGRATION) + sub_state
+// (EXECUTE.work) — this step adds the task-graph refines the reducer
+// never enforced (the reducer flips status→abandoned unconditionally):
+//   - task exists in snapshot.tasks → else TASK_NOT_FOUND
+//   - task.status ∉ {done, abandoned} → else TASK_NOT_ABANDONABLE
+//     (abandoning a terminal task is a no-op contract error)
+//   - no non-terminal task lists this task in depends_on → else
+//     TASK_ABANDON_BLOCKED_DEPENDENTS (abandoning the parent strands
+//     the child: task_claimed preflight requires deps status=done).
+// INVALID_PAYLOAD for missing / empty reason rides the PER_KIND_PAYLOAD
+// parse above (TaskAbandonedPayload requires reason: z.string().min(1)).
+function checkTaskAbandoned(c: PreflightCheckCtx): PreflightFailure | null {
+  const { entry, rawEntry, ctx } = c;
   if (entry.kind === "event:task_abandoned") {
     const payload = (rawEntry as { payload?: Record<string, unknown> }).payload ?? {};
     const task_id = payload["task_id"] as string | undefined;
@@ -1331,31 +1468,35 @@ export function preflight(rawEntry: unknown, ctx: PreflightContext): PreflightRe
       };
     }
   }
+  return null;
+}
 
-  // (5e.4) Phase 11 Item 3 SC2/SC3 — event:task_step_reset refines (codex
-  // r139 Q3, r142). `loaf finding raise --action fix-impl|fix-test` co-emits
-  // this inside its 3-entry back-edge batch. Per-kind already gates actor
-  // (cli-only) + sub_state (the shared fix back-edge from-set). This step
-  // adds the sponsorship + target-authority refines:
-  //   - finding_id exists / open / action ∈ {fix-impl, fix-test} → else
-  //     FINDING_NOT_FOUND (detail.reason ∈ {not_found, already_closed,
-  //     action_mismatch}), mirroring the back-edge sponsorship precedent
-  //     (step 5b).
-  //   - the finding's `target` must equal the reset payload's {task_id,
-  //     step}, and `step` must equal the finding action's canonical step
-  //     FIX_ACTION_STEP[finding.action] (fix-impl → "implement", fix-test →
-  //     "red"). A structurally-valid-but-unauthorized payload is
-  //     MUTATION_OUT_OF_RIGHTS (reason task_step_reset_target_mismatch /
-  //     task_step_reset_step_mismatch) — the payload parsed, but it is not
-  //     authorized by its sponsoring finding.
-  //   - the task + step must exist in the projection (a step absent from
-  //     the task is a target mismatch — the finding cannot legitimately
-  //     target a step the task does not carry).
-  //   - the target task must not be `abandoned` (r141 guard — see below).
-  // No new DiagnosticCode — FINDING_NOT_FOUND + MUTATION_OUT_OF_RIGHTS
-  // are reused (codex r139 Q3).
+// (5e.4) Phase 11 Item 3 SC2/SC3 — event:task_step_reset refines (codex
+// r139 Q3, r142). `loaf finding raise --action fix-impl|fix-test` co-emits
+// this inside its 3-entry back-edge batch. Per-kind already gates actor
+// (cli-only) + sub_state (the shared fix back-edge from-set). This step
+// adds the sponsorship + target-authority refines:
+//   - finding_id exists / open / action ∈ {fix-impl, fix-test} → else
+//     FINDING_NOT_FOUND (detail.reason ∈ {not_found, already_closed,
+//     action_mismatch}), mirroring the back-edge sponsorship precedent
+//     (step 5b).
+//   - the finding's `target` must equal the reset payload's {task_id,
+//     step}, and `step` must equal the finding action's canonical step
+//     FIX_ACTION_STEP[finding.action] (fix-impl → "implement", fix-test →
+//     "red"). A structurally-valid-but-unauthorized payload is
+//     MUTATION_OUT_OF_RIGHTS (reason task_step_reset_target_mismatch /
+//     task_step_reset_step_mismatch) — the payload parsed, but it is not
+//     authorized by its sponsoring finding.
+//   - the task + step must exist in the projection (a step absent from
+//     the task is a target mismatch — the finding cannot legitimately
+//     target a step the task does not carry).
+//   - the target task must not be `abandoned` (r141 guard — see below).
+// No new DiagnosticCode — FINDING_NOT_FOUND + MUTATION_OUT_OF_RIGHTS
+// are reused (codex r139 Q3).
+function checkTaskStepReset(c: PreflightCheckCtx): PreflightFailure | null {
+  const { entry, payloadData, ctx } = c;
   if (entry.kind === "event:task_step_reset") {
-    const payload = payloadParsed.data as {
+    const payload = payloadData as {
       task_id: string;
       step: string;
       finding_id: string;
@@ -1469,18 +1610,22 @@ export function preflight(rawEntry: unknown, ctx: PreflightContext): PreflightRe
       };
     }
   }
+  return null;
+}
 
-  // (5g) Slice 3 SC3 — finding:raised refines (FINDING_ACTION_GRID +
-  // target_payload). Runs after PER_KIND_PAYLOAD parse so `parsed.data`
-  // is the typed FindingRaisedPayload. Order:
-  //   1. INCOHERENT grid cells block first (no transition target).
-  //   2. UNUSUAL cells require --reason ≥20 chars.
-  //   3. Target shape (fix-impl/fix-test require {task_id, step}; step
-  //      must equal action's canonical step; task must exist; step must
-  //      exist in task.steps; amend-tasks accepts absence but validates
-  //      if present).
+// (5g) Slice 3 SC3 — finding:raised refines (FINDING_ACTION_GRID +
+// target_payload). Runs after PER_KIND_PAYLOAD parse so `payloadData`
+// is the typed FindingRaisedPayload. Order:
+//   1. INCOHERENT grid cells block first (no transition target).
+//   2. UNUSUAL cells require --reason ≥20 chars.
+//   3. Target shape (fix-impl/fix-test require {task_id, step}; step
+//      must equal action's canonical step; task must exist; step must
+//      exist in task.steps; amend-tasks accepts absence but validates
+//      if present).
+function checkFindingRaised(c: PreflightCheckCtx): PreflightFailure | null {
+  const { entry, payloadData, sub_state, ctx } = c;
   if (entry.kind === "finding:raised") {
-    const payload = payloadParsed.data as {
+    const payload = payloadData as {
       category: FindingCategory;
       action: FindingAction;
       reason?: string;
@@ -1617,28 +1762,26 @@ export function preflight(rawEntry: unknown, ctx: PreflightContext): PreflightRe
       };
     }
   }
+  return null;
+}
 
-  // (5i) Slice 4 SC3 — SPEC content phase gating (rev 4.3 ADR-0004 A4 /
-  // protocol §10.8). Two guards on the 4 SPEC content kinds:
-  //   - SPEC_LOCKED_NO_DIRECT_EDIT (fires first): state.spec_locked
-  //     === true blocks ALL spec content kinds including spec_submitted
-  //     (whole-replacement). Defensive — production cannot reach
-  //     spec_locked=true with sub_state ∈ ALL_SPEC under the normal
-  //     gate-decide spec-lock approve path (the cursor advance moves
-  //     out of ALL_SPEC). amend-spec back-edge resets spec_locked to
-  //     false before re-entering SPEC.spec, so this check protects
-  //     against raw mutate / hand-edited journal scenarios.
-  //   - SPEC_NOT_INITIALIZED: state.spec_version === 0 blocks the 3
-  //     add-* kinds (spec_req_added / spec_scenario_added /
-  //     spec_visual_added). event:spec_submitted is the init step and
-  //     is exempt. Catches the natural "user typed `spec add-req` at
-  //     SPEC.proposal before running spec submit" mistake.
-  const SPEC_CONTENT_KINDS = new Set<EntryKind>([
-    "event:spec_submitted",
-    "event:spec_req_added",
-    "event:spec_scenario_added",
-    "event:spec_visual_added",
-  ]);
+// (5i) Slice 4 SC3 — SPEC content phase gating (rev 4.3 ADR-0004 A4 /
+// protocol §10.8). Two guards on the 4 SPEC content kinds:
+//   - SPEC_LOCKED_NO_DIRECT_EDIT (fires first): state.spec_locked
+//     === true blocks ALL spec content kinds including spec_submitted
+//     (whole-replacement). Defensive — production cannot reach
+//     spec_locked=true with sub_state ∈ ALL_SPEC under the normal
+//     gate-decide spec-lock approve path (the cursor advance moves
+//     out of ALL_SPEC). amend-spec back-edge resets spec_locked to
+//     false before re-entering SPEC.spec, so this check protects
+//     against raw mutate / hand-edited journal scenarios.
+//   - SPEC_NOT_INITIALIZED: state.spec_version === 0 blocks the 3
+//     add-* kinds (spec_req_added / spec_scenario_added /
+//     spec_visual_added). event:spec_submitted is the init step and
+//     is exempt. Catches the natural "user typed `spec add-req` at
+//     SPEC.proposal before running spec submit" mistake.
+function checkSpecContentPhase(c: PreflightCheckCtx): PreflightFailure | null {
+  const { entry, ctx } = c;
   if (SPEC_CONTENT_KINDS.has(entry.kind)) {
     if (ctx.snapshot.state?.spec_locked === true) {
       return {
@@ -1661,20 +1804,24 @@ export function preflight(rawEntry: unknown, ctx: PreflightContext): PreflightRe
       };
     }
   }
+  return null;
+}
 
-  // (5h) Slice 4 SC1 — DUPLICATE_REQ_ID / DUPLICATE_SCEN_ID /
-  // DUPLICATE_VIS_ID preflight promotion. Mirrors the DUPLICATE_TASK_ID
-  // pattern from Slice 2 SC4: reducer keeps its defensive message-string
-  // check as fallback for raw mutate paths, but the public surface code
-  // surfaces here so CLI can emit it directly (not wrapped as REDUCER_ERROR).
-  // Within a submit batch the second occurrence sees the first already in
-  // ctx.snapshot via mutateBatch dry-run accumulation; cross-invocation
-  // collisions hit the same path. Note: only entries with batch_index >= 1
-  // OR standalone add-* invocations should hit projection collision; the
-  // batch head (spec_submitted, batch_index=0) does not carry req/scen/vis
-  // payload, so this check only fires on the three add-* kinds.
+// (5h) Slice 4 SC1 — DUPLICATE_REQ_ID / DUPLICATE_SCEN_ID /
+// DUPLICATE_VIS_ID preflight promotion. Mirrors the DUPLICATE_TASK_ID
+// pattern from Slice 2 SC4: reducer keeps its defensive message-string
+// check as fallback for raw mutate paths, but the public surface code
+// surfaces here so CLI can emit it directly (not wrapped as REDUCER_ERROR).
+// Within a submit batch the second occurrence sees the first already in
+// ctx.snapshot via mutateBatch dry-run accumulation; cross-invocation
+// collisions hit the same path. Note: only entries with batch_index >= 1
+// OR standalone add-* invocations should hit projection collision; the
+// batch head (spec_submitted, batch_index=0) does not carry req/scen/vis
+// payload, so this check only fires on the three add-* kinds.
+function checkSpecDuplicateIds(c: PreflightCheckCtx): PreflightFailure | null {
+  const { entry, payloadData, ctx } = c;
   if (entry.kind === "event:spec_req_added") {
-    const payload = payloadParsed.data as { req: { id: string } };
+    const payload = payloadData as { req: { id: string } };
     if (findCollision(payload.req.id, ctx.snapshot.requirements, (r) => r.id)) {
       return {
         ok: false,
@@ -1685,7 +1832,7 @@ export function preflight(rawEntry: unknown, ctx: PreflightContext): PreflightRe
     }
   }
   if (entry.kind === "event:spec_scenario_added") {
-    const payload = payloadParsed.data as { scenario: { id: string } };
+    const payload = payloadData as { scenario: { id: string } };
     if (findCollision(payload.scenario.id, ctx.snapshot.scenarios, (s) => s.id)) {
       return {
         ok: false,
@@ -1696,7 +1843,7 @@ export function preflight(rawEntry: unknown, ctx: PreflightContext): PreflightRe
     }
   }
   if (entry.kind === "event:spec_visual_added") {
-    const payload = payloadParsed.data as { visual: { id: string } };
+    const payload = payloadData as { visual: { id: string } };
     if (findCollision(payload.visual.id, ctx.snapshot.visual_contracts, (v) => v.id)) {
       return {
         ok: false,
@@ -1706,25 +1853,23 @@ export function preflight(rawEntry: unknown, ctx: PreflightContext): PreflightRe
       };
     }
   }
+  return null;
+}
 
-  // (5j) Slice E — SPEC_VERSION_NOT_MONOTONIC / SPEC_VERSION_BATCH_MISMATCH
-  // preflight promotion. Mirrors Slice 2 SC4 DUPLICATE_TASK_ID + Slice 4
-  // SC1 DUPLICATE_REQ_ID/SCEN/VIS pattern: reducer keeps its message-
-  // string checkSpecVersionHead/checkSpecVersion as defense-in-depth for
-  // raw apply paths; preflight surfaces the public code so CLI users
-  // see the actionable diagnostic instead of INVALID_PAYLOAD wrap.
-  //
-  // Ordering inside spec_submitted: batch_index gate (head must be 0)
-  // runs BEFORE the version check so a misplaced spec_submitted in the
-  // middle of a batch returns the structurally meaningful code.
-  const SPEC_VERSION_KINDS = new Set<EntryKind>([
-    "event:spec_submitted",
-    "event:spec_req_added",
-    "event:spec_scenario_added",
-    "event:spec_visual_added",
-  ]);
+// (5j) Slice E — SPEC_VERSION_NOT_MONOTONIC / SPEC_VERSION_BATCH_MISMATCH
+// preflight promotion. Mirrors Slice 2 SC4 DUPLICATE_TASK_ID + Slice 4
+// SC1 DUPLICATE_REQ_ID/SCEN/VIS pattern: reducer keeps its message-
+// string checkSpecVersionHead/checkSpecVersion as defense-in-depth for
+// raw apply paths; preflight surfaces the public code so CLI users
+// see the actionable diagnostic instead of INVALID_PAYLOAD wrap.
+//
+// Ordering inside spec_submitted: batch_index gate (head must be 0)
+// runs BEFORE the version check so a misplaced spec_submitted in the
+// middle of a batch returns the structurally meaningful code.
+function checkSpecVersion(c: PreflightCheckCtx): PreflightFailure | null {
+  const { entry, payloadData, ctx } = c;
   if (SPEC_VERSION_KINDS.has(entry.kind)) {
-    const payload = payloadParsed.data as { spec_version: number };
+    const payload = payloadData as { spec_version: number };
     const payloadVersion = payload.spec_version;
     const currentVersion = ctx.snapshot.state?.spec_version ?? 0;
 
@@ -1794,8 +1939,12 @@ export function preflight(rawEntry: unknown, ctx: PreflightContext): PreflightRe
       }
     }
   }
+  return null;
+}
 
-  // (5f) Transition (for kinds carrying a state-machine edge).
+// (5f) Transition (for kinds carrying a state-machine edge).
+function checkTransitionEdge(c: PreflightCheckCtx): PreflightFailure | null {
+  const { entry, rawEntry, sub_state, ceremony, verify_accepted, spec_locked } = c;
   const transitionResult = checkTransition(entry.kind, rawEntry as Record<string, unknown>, {
     sub_state,
     ceremony,
@@ -1811,9 +1960,35 @@ export function preflight(rawEntry: unknown, ctx: PreflightContext): PreflightRe
       detail: transitionResult.detail ?? {},
     };
   }
-
-  return { ok: true };
+  return null;
 }
+
+// The ORDERED error-precedence contract. Exported so the precedence test can
+// pin the sequence (a reorder fails loudly). First failure wins. The envelope
+// parse (1) and per-kind payload parse (producing `payloadData`) run inline in
+// preflight() before this pipeline because they build the check context.
+export const ORDERED_CHECKS: ReadonlyArray<(c: PreflightCheckCtx) => PreflightFailure | null> = [
+  checkSeqMonotonic, // (2)
+  checkSubStateAuthority, // (3)
+  checkActorAuthority, // (4)
+  checkPerKindPayload, // (4b)
+  checkGateDecided, // (5a)
+  checkPhaseAdvanced, // (5b)
+  checkSessionDelivered, // (5c)
+  checkSpikeConverted, // (5c.3)
+  checkCeremonySet, // (5c.4)
+  checkSessionTerminalReason, // (5c.2)
+  checkTasksPlanned, // (5d.1)
+  checkTasksAmended, // (5d.2)
+  checkTaskLifecycle, // (5e)
+  checkTaskAbandoned, // (5e.3)
+  checkTaskStepReset, // (5e.4)
+  checkFindingRaised, // (5g)
+  checkSpecContentPhase, // (5i)
+  checkSpecDuplicateIds, // (5h)
+  checkSpecVersion, // (5j)
+  checkTransitionEdge, // (5f)
+];
 
 // Cosmetic ceremony label for error detail. Not authoritative — full label
 // derivation lives in cli.tsx PRESETS map. Used only for diagnostic hint
