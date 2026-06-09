@@ -240,6 +240,10 @@ describe("executePrune — robustness", () => {
     expect(r.done).toEqual([]);
     expect(r.failed).toHaveLength(1);
     expect(r.failed[0]?.error).toContain("retained in");
+    // Honest recovery contract (codex BLOCK 5): must NOT claim `loaf prune
+    // restore` (it returns INCOMPLETE for this state); point at manual / doctor.
+    expect(r.failed[0]?.error).not.toContain("loaf prune restore");
+    expect(r.failed[0]?.error).toContain("loaf doctor");
     // the only feature copy is preserved in the bucket — NOT deleted
     expect(await fs.readFile(path.join(trashDir, TS, U(1), "feature", "journal.jsonl"), "utf8")).toBe(
       "DATA",
