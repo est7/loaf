@@ -5,6 +5,52 @@ All notable changes to `loaf-cli` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] — 2026-06-08
+
+Enforcement-integrity quality closure (W1–W10) + the `loaf board` browser view.
+Internal kernel hardening and a large behavior-preserving CLI refactor (cli.tsx
+5952 → 943 lines) with one new user-facing command. Every change codex-signed-off
+on an independent cold-audit thread; the W8 refactor is goldens-identical for all
+existing commands.
+
+### Added
+
+- **`loaf board`** — open a local, read-only board of all sessions in the browser
+  (`--once` for a one-shot snapshot, `--in-cwd` to scope to the current project,
+  `--open` to launch the browser, `--port` for the loopback port). Read-only: walks
+  the session registry, never mutates the journal.
+
+### Changed
+
+- **W8 — cli.tsx deep-module split.** The ~15-helper `main()` cluster folded into
+  `CommandContext` (presentation shims) + a new `CommandMutator` (mutation
+  orchestration); ~30 commands moved into 13 `src/cli/commands/<family>.tsx` files.
+  `command-context.ts` no longer imports `mutate`/`mutateBatch` (layer boundary).
+  Behavior-preserving — the 43-probe `--help`/JSON/stderr golden set is identical.
+- **W9b — preflight ORDERED_CHECKS pipeline.** The ~1.3k-line `preflight()` is now an
+  explicit ordered predicate array; the error-precedence order is a named, tested
+  contract.
+
+### Fixed
+
+- **W1 — spec-lock write-path gate.** `SPEC.design → EXECUTE.plan` now requires
+  `spec_locked` (new `SPEC_LOCK_NOT_SATISFIED`); the write path can no longer bypass
+  the gate the read path enforced.
+- **W2 — replay seq-monotonicity.** `replayJournal` asserts contiguous `seq` before
+  apply (`INVALID_ENTRY` with expected/got), closing a silent-corruption gap.
+- **W3 — per-feature write-contention fence.** Throw-only `.lock` acquisition around
+  the mutate write window (`WRITE_CONTENTION`).
+- **W8 follow-up — production hook stdin.** `loaf hook scope-track` / `write-guard`
+  piped-stdin path restored after the Phase 0 helper move (codex BLOCK; child-process
+  regression test added).
+
+### Tests / CI
+
+- **W9a** — error-precedence characterization (26 simultaneous-violation rows) +
+  `ORDERED_CHECKS` order pin.
+- **W10** — unattended GitHub Actions gate (lint · typecheck · test · committed-dist
+  guard · pack-smoke · build · madge · event-drift) + tag-only release-consistency.
+
 ## [0.3.1] — 2026-06-08
 
 Code-quality deduction closure (P2–P7). Behavior-preserving refactor plus one
