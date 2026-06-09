@@ -69,6 +69,9 @@ import { registerIntegrations } from "./cli/commands/integrations.js";
 import { registerFinding } from "./cli/commands/finding.js";
 import { registerSpec } from "./cli/commands/spec.js";
 import { registerState } from "./cli/commands/state.js";
+import { registerBoard } from "./cli/commands/board.js";
+import { collectPresentSelectors } from "./cli/selectors.js";
+import type { OpenUrl } from "./cli/board/open-url.js";
 
 // Phase 16 SC-2 — SIGINT handler (protocol §10.9 exit 130).
 //
@@ -151,6 +154,11 @@ export type MainDeps = {
   // ADR-0006 P0 — test-injectable home for ~/.loaf/config.json so
   // locale config tests never touch a real user's home directory.
   userConfigHomeDir?: string;
+  // `loaf board` seams. Production opens the browser via platform tools and
+  // keeps the server process alive until SIGINT; tests inject no-op functions
+  // so the command stays deterministic.
+  openUrl?: OpenUrl;
+  boardKeepAlive?: (url: string) => Promise<void>;
 };
 
 function preparseI18nFromEnv(
@@ -202,26 +210,6 @@ function writePreContextSiteFailure(input: {
   } else {
     process.stderr.write(`error: ${input.code} — ${message}\n`);
   }
-}
-
-function collectPresentSelectors(argv: string[], env: NodeJS.ProcessEnv): string[] {
-  const selectors: string[] = [];
-  if (argv.includes("--session") || argv.some((a) => a.startsWith("--session="))) {
-    selectors.push("--session");
-  }
-  if (argv.includes("--feature") || argv.some((a) => a.startsWith("--feature="))) {
-    selectors.push("--feature");
-  }
-  if (argv.includes("--feature-dir") || argv.some((a) => a.startsWith("--feature-dir="))) {
-    selectors.push("--feature-dir");
-  }
-  if (env["LOAF_SESSION"] !== undefined && env["LOAF_SESSION"].length > 0) {
-    selectors.push("$LOAF_SESSION");
-  }
-  if (env["LOAF_FEATURE"] !== undefined && env["LOAF_FEATURE"].length > 0) {
-    selectors.push("$LOAF_FEATURE");
-  }
-  return selectors;
 }
 
 function detectRenderAsJson(argv: string[]): boolean {
@@ -790,6 +778,13 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
     deps.registryDir,
     deps.now,
   );
+  registerBoard(program, ctx, {
+    i18n,
+    now,
+    ...(deps.registryDir !== undefined && { registryDir: deps.registryDir }),
+    ...(deps.openUrl !== undefined && { openUrl: deps.openUrl }),
+    ...(deps.boardKeepAlive !== undefined && { boardKeepAlive: deps.boardKeepAlive }),
+  });
 
   const { findingCmd } = registerFinding(program, ctx, mutator, actor);
 

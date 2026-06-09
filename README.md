@@ -50,12 +50,18 @@ loaf advance <sub_state> --feature <feature>
 loaf deliver
 loaf settle
 loaf resume | handoff --reason <…>                                   # session lifecycle (resume marker / handoff pack)
-loaf tui | sessions list [--in-cwd] | check <path>                   # session manager (Ink TUI / list) + standalone schema check (CI)
+loaf tui | board | sessions list [--in-cwd] | check <path>           # session manager (Ink TUI / browser board / list) + standalone schema check (CI)
 loaf hook <session-start|write-guard|scope-track|closure-check>      # Claude Code hook entry points
 loaf doctor [--rebuild]
 ```
 
 The authoritative command surface lives in [`docs/protocol.md`](docs/protocol.md) §10.8.
+
+`loaf board` starts a read-only local browser board on loopback
+(`http://127.0.0.1:41738/` by default). It reads the same registry and snapshot
+projections as `loaf tui`; workflow writes still go through existing `loaf`
+mutator commands. Use `loaf board --once --format json` for a one-shot
+scriptable snapshot.
 
 ## Local development
 
