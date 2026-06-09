@@ -115,6 +115,87 @@ describe("replayJournal — Stage 3 §3.6", () => {
     }
   });
 
+  // ── W2 — replay seq-monotonicity validation ───────────────────────────
+  // replayJournal must reject a journal whose seq column is not strictly
+  // `lastSeq + 1`, even when each entry's transition is individually legal.
+  // appendEntry enforces this on the write path; replay did not (apply() calls
+  // preflight with tail_seq = entry.seq - 1, making its monotonicity gate
+  // tautological). Raw file writes bypass appendEntry to construct the
+  // corrupt journals.
+  function phaseAdvancedLine(seq: number, entryId: string): string {
+    const e: JournalEntry = {
+      seq,
+      entry_id: entryId,
+      at: "2026-05-15T10:00:05.000Z",
+      actor: "cli:loaf",
+      entry_schema_version: 1,
+      kind: "event:phase_advanced",
+      payload: { from: "TRIAGE.score", to: "TRIAGE.confirm" },
+    };
+    return JSON.stringify(e);
+  }
+
+  test("duplicate seq → INVALID_ENTRY (monotonicity), not silently applied", async () => {
+    const filePath = await tmpJournal();
+    // seq 0 (session:started), then a legal phase_advanced re-using seq 0.
+    const lines = [JSON.stringify(startEntry(0, "JE-000001")), phaseAdvancedLine(0, "JE-000002")];
+    await fs.writeFile(filePath, lines.join("\n") + "\n");
+
+    const result = await replayJournal(filePath);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("INVALID_ENTRY");
+      expect(result.detail?.expected_seq).toBe(1);
+      expect(result.detail?.got_seq).toBe(0);
+    }
+  });
+
+  test("seq gap → INVALID_ENTRY at the skipped position", async () => {
+    const filePath = await tmpJournal();
+    // seq 0, then seq 2 (1 is skipped).
+    const lines = [JSON.stringify(startEntry(0, "JE-000001")), phaseAdvancedLine(2, "JE-000003")];
+    await fs.writeFile(filePath, lines.join("\n") + "\n");
+
+    const result = await replayJournal(filePath);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("INVALID_ENTRY");
+      expect(result.detail?.expected_seq).toBe(1);
+      expect(result.detail?.got_seq).toBe(2);
+    }
+  });
+
+  test("out-of-order seq → INVALID_ENTRY at the first violation", async () => {
+    const filePath = await tmpJournal();
+    // seq 0, seq 2, seq 1 — the violation is the seq-2 line (expected 1).
+    const lines = [
+      JSON.stringify(startEntry(0, "JE-000001")),
+      phaseAdvancedLine(2, "JE-000003"),
+      phaseAdvancedLine(1, "JE-000002"),
+    ];
+    await fs.writeFile(filePath, lines.join("\n") + "\n");
+
+    const result = await replayJournal(filePath);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("INVALID_ENTRY");
+      expect(result.detail?.got_seq).toBe(2);
+    }
+  });
+
+  test("contiguous monotonic journal still replays ok (W2 regression guard)", async () => {
+    const filePath = await tmpJournal();
+    const lines = [JSON.stringify(startEntry(0, "JE-000001")), phaseAdvancedLine(1, "JE-000002")];
+    await fs.writeFile(filePath, lines.join("\n") + "\n");
+
+    const result = await replayJournal(filePath);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.entries_applied).toBe(2);
+      expect(result.snapshot.state!.sub_state).toBe("TRIAGE.confirm");
+    }
+  });
+
   // ── Slice C SC-C2a — opt-in entry collection ──────────────────────────
   // `collect_entries` lets callers (loadSession → tasks amend) recover the
   // canonical full task body, which the slim Snapshot.tasks drops. Off by

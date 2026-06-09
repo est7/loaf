@@ -5,6 +5,9 @@
 // This mirrors the SC-6c P12 audit shape (codex r277 lesson — multi-line
 // ctx variants were missed by naive `replace_all`). Catches the same bug
 // class for the SC-7 `registryWriter` field.
+//
+// Phase W8 update: mctxFor factory moved to src/cli/command-mutator.ts;
+// runMutator renamed to mutator.run in cli.tsx. Patterns updated accordingly.
 
 import { describe, expect, test } from "vitest";
 import { promises as fs } from "node:fs";
@@ -19,14 +22,20 @@ async function readRepo(rel: string): Promise<string> {
 
 describe("SC-7 — every mutator call carries registryWriter in MutateContext", () => {
   test("static: each await mutate(Batch) site's ctx contains registryWriter: registryWriterDeps", async () => {
-    const source = await readRepo("src/cli.tsx");
+    // Phase W8 P1: command registrations moved to per-family files. Scan all of them.
+    const familyDir = path.join(REPO_ROOT, "src", "cli", "commands");
+    const familyFiles = (await fs.readdir(familyDir)).filter((f) => f.endsWith(".tsx") || f.endsWith(".ts"));
+    const familySources = await Promise.all(familyFiles.map((f) => fs.readFile(path.join(familyDir, f), "utf8")));
+    const source = familySources.join("\n");
 
-    // The single wired-ctx factory: every mutator ctx now flows through
-    // `mctxFor(...)`. Verify the factory wires the field once, then accept any
-    // site whose ctx arg is mctxFor(...) or a var assigned from it.
+    // Phase W8: mctxFor factory now lives in src/cli/command-mutator.ts.
+    // Verify the factory wires the field there.
+    const mutatorSource = await readRepo("src/cli/command-mutator.ts");
     expect(
-      /const\s+mctxFor\s*=[\s\S]{0,400}?registryWriter\s*:\s*registryWriterDeps/.test(source),
-      "mctxFor factory must wire `registryWriter: registryWriterDeps`",
+      /const\s+mctxFor\s*=[\s\S]{0,400}?registryWriter\s*:\s*registryWriterDeps/.test(
+        mutatorSource,
+      ),
+      "mctxFor factory must wire `registryWriter: registryWriterDeps` in command-mutator.ts",
     ).toBe(true);
 
     // Collect names of locally-defined ctx variables that carry
@@ -38,7 +47,8 @@ describe("SC-7 — every mutator call carries registryWriter in MutateContext", 
     for (const m of source.matchAll(ctxDefRe)) {
       KNOWN_GOOD_CTX_NAMES.add(m[1]!);
     }
-    for (const m of source.matchAll(/const\s+(\w+)\s*=\s*mctxFor\(/g)) {
+    // Phase W8: bypass sites use mutator.mctxFor(...)
+    for (const m of source.matchAll(/const\s+(\w+)\s*=\s*(?:mutator\.)?mctxFor\(/g)) {
       KNOWN_GOOD_CTX_NAMES.add(m[1]!);
     }
 
@@ -74,8 +84,9 @@ describe("SC-7 — every mutator call carries registryWriter in MutateContext", 
       // Inline literal check
       if (/registryWriter\s*:\s*registryWriterDeps/.test(slice)) continue;
 
-      // Direct factory call as the ctx arg: `mutateBatch(batch, mctxFor(...))`
-      if (/\bmctxFor\(/.test(slice)) continue;
+      // Direct factory call as the ctx arg: `mutateBatch(batch, mctxFor(...))` or
+      // `mutateBatch(batch, mutator.mctxFor(...))` (Phase W8 bypass sites)
+      if (/(?:mutator\.)?mctxFor\(/.test(slice)) continue;
 
       // Named-ctx check
       const tailMatch = /(\w+)\s*,?\s*\)\s*$/.exec(slice.trim());
@@ -85,14 +96,12 @@ describe("SC-7 — every mutator call carries registryWriter in MutateContext", 
     }
 
     expect(misses).toEqual([]);
-    // Sanity: the mutator pipeline is centralized behind `runMutator`, which
-    // builds the wired `mctx` once. The remaining textual `await mutate(Batch)`
-    // sites are the helper internals, the two pre-stamped buildSpecSubmitBatch
-    // sites, and the sponsored tasks-add exclusion (per-entry `at`) — all
-    // covered by the `misses` check above.
+    // Sanity: the mutator pipeline is centralized behind `mutator.run` (was:
+    // `runMutator` pre-W8). The remaining textual `await mutate(Batch)` sites
+    // are the helper internals and the sponsored tasks-add bypass sites.
     // Guard that a representative number of call sites route through the
-    // centralized helper (was: ≥30 inline ctx literals pre-L1 migration).
-    const runMutatorCalls = source.match(/await\s+runMutator\s*\(/g)?.length ?? 0;
-    expect(runMutatorCalls).toBeGreaterThanOrEqual(25);
+    // centralized helper.
+    const mutatorRunCalls = source.match(/await\s+mutator\.run\s*\(/g)?.length ?? 0;
+    expect(mutatorRunCalls).toBeGreaterThanOrEqual(25);
   });
 });

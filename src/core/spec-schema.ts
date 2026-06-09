@@ -195,13 +195,19 @@ export type SpecFrontmatter = z.infer<typeof SpecFrontmatter>;
 //   - companions use the strict VERIFIABLE variant (RequirementEarsVerifiable)
 //     because they round-trip through journal payloads that already gate
 //     on verifiability.
-//   - `.passthrough()` (not `.strict()`) so forward-compat extra fields
-//     don't break callers; typed fields must match types or surface
-//     SCHEMA_VALIDATION_FAILED before mutateBatch.
+//   - `.strict()` (W7): this schema declares the FULL submit contract — every
+//     legal top-level field is enumerated below and the consumers
+//     (spec-submit-batch builder, the spec.md re-parse at cli.tsx) read named
+//     fields, never a `...rest` spread. So an unknown key is always a caller
+//     typo, never a forwarded payload; reject it per "Strict over Postel at
+//     every CLI input boundary" (CLAUDE.md) rather than silently dropping it.
+//     (Contrast SpecAddReqInput/Scenario/Visual below, which intentionally
+//     `.passthrough()` to FORWARD content fields downstream — that fence holds.)
 //
-// A caller typo like `spec_version: "2"` or `requirements: "oops"` would
-// previously have silently degraded (drop to current+1 / treat as empty)
-// — codex r75 BLOCK forces this schema to reject those cases instead.
+// A caller typo like `spec_version: "2"`, `requirements: "oops"`, or
+// `requirments: [...]` would previously have silently degraded (wrong type /
+// dropped field). codex r75 BLOCK forced type rejection; W7 extends that to
+// unknown-key rejection.
 
 export const SpecSubmitInput = z
   .object({
@@ -217,7 +223,7 @@ export const SpecSubmitInput = z
     visual_contracts: z.array(VisualContract).default([]),
     needs_clarification: z.array(NeedsClarification).default([]),
   })
-  .passthrough();
+  .strict();
 export type SpecSubmitInput = z.infer<typeof SpecSubmitInput>;
 
 // ── Slice 4 SC2 — id_namespace input regexes (rev 4.3 / ADR-0004 A5) ────

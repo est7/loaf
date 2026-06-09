@@ -95,12 +95,17 @@ function structuralTask(overrides: Record<string, unknown> = {}): Record<string,
   };
 }
 
-function entry(seq: number, kind: JournalEntry["kind"], payload: unknown): JournalEntry {
+function entry(
+  seq: number,
+  kind: JournalEntry["kind"],
+  payload: unknown,
+  actor = "cli:loaf",
+): JournalEntry {
   return {
     seq,
     entry_id: `JE-${String(seq + 1).padStart(6, "0")}`,
     at: `2026-05-15T10:00:${String(seq).padStart(2, "0")}.000Z`,
-    actor: "cli:loaf",
+    actor,
     entry_schema_version: 1,
     kind,
     payload,
@@ -119,19 +124,36 @@ function seedAtExecutePlan(): Snapshot {
       }),
     ),
   );
-  const transitions: Array<[string, string]> = [
+  // Walk to SPEC.design, lock the spec (gate:decided spec-lock approved at
+  // SPEC.design — human actor, does NOT move cursor per Slice 1.A), then
+  // advance SPEC.design → EXECUTE.plan. W1: the spec-lock gate is now enforced
+  // on the write-path advance, so the gate entry is required before crossing.
+  const toDesign: Array<[string, string]> = [
     ["TRIAGE.score", "TRIAGE.confirm"],
     ["TRIAGE.confirm", "SPEC.proposal"],
     ["SPEC.proposal", "SPEC.spec"],
     ["SPEC.spec", "SPEC.plan"],
     ["SPEC.plan", "SPEC.design"],
-    ["SPEC.design", "EXECUTE.plan"],
   ];
   let seq = 1;
-  for (const [from, to] of transitions) {
+  for (const [from, to] of toDesign) {
     snap = mustOk(apply(snap, entry(seq, "event:phase_advanced", { from, to })));
     seq++;
   }
+  snap = mustOk(
+    apply(
+      snap,
+      entry(
+        seq++,
+        "gate:decided",
+        { gate_kind: "spec-lock", decision: "approved", reason: "seed bootstrap" },
+        "human:engineer@test.local",
+      ),
+    ),
+  );
+  snap = mustOk(
+    apply(snap, entry(seq++, "event:phase_advanced", { from: "SPEC.design", to: "EXECUTE.plan" })),
+  );
   return snap;
 }
 

@@ -24,12 +24,25 @@
 // Test surface: tests/cli/command-context.test.ts.
 
 import type { ProjectionKind, LoadResult } from "../core/projection-loader.js";
+import { SnapshotStaleError, NoSessionError } from "../core/projection-loader.js";
 import type { SessionLoad } from "../core/cli-runtime.js";
+import { getGitEmail } from "../core/cli-runtime.js";
 import { DEFAULT_I18N, type I18n } from "./i18n.js";
 import {
   resolveDispatch as realResolveDispatch,
   type DispatchResult,
 } from "../core/session-dispatch.js";
+import { resolveHumanActor } from "../core/actor-resolver.js";
+import { parseHookStdinPath } from "../core/write-guard.js";
+import {
+  diagnosticKey,
+  FAILURE_SITE_KEYS,
+  type MigratedDiagnosticCode,
+  type FailureSiteKey,
+} from "./runtime-i18n-keys.js";
+import { diagnosticVarsFor } from "./diagnostic-failure.js";
+// Note: diagnostic-failure.ts intentionally does NOT import from command-context.ts
+// to avoid a circular dependency. Its local I18nVars is structurally identical.
 
 export type OutputMode = "json" | "text";
 export type I18nVars = Record<string, string | number | boolean | null | undefined>;
@@ -357,6 +370,25 @@ export type CommandContextDeps = {
   /** ADR-0006 P0 — selected presentation locale. Production wires the
    *  resolved CLI i18n; tests may inject a tiny fake. */
   i18n?: I18n;
+  /** Phase W8 0a — injectable git-config reader for resolveHumanActorOrFail.
+   *  Production omits (defaults to getGitEmail); tests inject canned values. */
+  readGitConfig?: () => string | null;
+  /** Phase W8 0a — injectable TTY check for resolveHumanActorOrFail.
+   *  Production omits (defaults to process.stdin.isTTY === true). */
+  isInteractiveHuman?: () => boolean;
+  /** Phase W8 0a — injectable stdin reader for resolveHookPath.
+   *  Production omits (defaults to reading process.stdin). */
+  readStdin?: () => Promise<string>;
+  /** Phase W8 0a — injectable stdin TTY check for resolveHookPath.
+   *  Production omits (defaults to process.stdin.isTTY === true). */
+  isStdinTty?: () => boolean;
+  /** Phase W8 0a — injectable projection loader for loadProjectionsOrFail.
+   *  When absent, ctx.loadProjectionsOrFail throws. Tests may inject a
+   *  loader that doesn't require real FS. */
+  loadProjectionsDirect?: <K extends ProjectionKind>(opts: {
+    feature_dir: string;
+    kinds: readonly K[];
+  }) => Promise<LoadResult<K>>;
 };
 
 /** Phase 16 SC-5b1 — advisory metadata for state-change + next hint.
@@ -452,6 +484,53 @@ export type CommandContext = {
     detail?: Record<string, unknown>,
   ) => void;
   snapshotCrashContext: () => CrashContext;
+  /** Phase W8 0a — try keyed-failure first, fall back to plain failure.
+   *  Returns the resolved actor string on success; null on failure (already
+   *  emitted). */
+  fail: (code: string, message: string) => void;
+  /** Phase W8 0a — try keyed-failure first, fall back to plain failure.
+   *  Mirrors the old bare `emitFailure` closure in main(). */
+  emitFailure: (code: string, message: string, detail?: Record<string, unknown>) => void;
+  /** Phase W8 0a — emit a NO_SESSION failure keyed to a site-specific key. */
+  emitNoSessionFailure: (
+    keyPath: FailureSiteKey,
+    feature: string,
+    detail?: Record<string, unknown>,
+  ) => void;
+  /** Phase W8 0a — resolve the human actor or emit failure + return null. */
+  resolveHumanActorOrFail: () => string | null;
+  /** Phase W8 0a — resolve dispatch or emit failure + return null. */
+  dispatchOrFail: (opts: { feature?: string; featureDir?: string }) => Promise<string | null>;
+  /** Phase W8 0a — hook-optional dispatch (absence = silent skip). */
+  dispatchForHookOptional: (opts: {
+    feature?: string;
+    featureDir?: string;
+  }) => Promise<
+    { featureDir: string } | { skip: true; stale?: { code: string; message: string } }
+  >;
+  /** Phase W8 0a — resolve the path for a write-side hook or return null. */
+  resolveHookPath: (opts: { path?: string }) => Promise<string | null>;
+  /** Phase W8 0a — fail-closed dispatch for write-guard. */
+  resolveDispatchForWriteGuard: (opts: {
+    feature?: string;
+    featureDir?: string;
+  }) => Promise<
+    | { featureDir: string }
+    | { allow: true }
+    | { failClosed: true; code: string; message: string }
+  >;
+  /** Phase W8 0a — reject if dry-run (read-only / wrapping / etc.). */
+  rejectIfDryRun: (
+    command: string,
+    commandType?: "read-only" | "wrapping" | "projection-writer" | "scaffold-writer",
+  ) => boolean;
+  /** Phase W8 0a — load projections or emit failure + return null. */
+  loadProjectionsOrFail: <K extends ProjectionKind>(
+    featureDir: string,
+    kinds: readonly K[],
+    feature: string,
+    noSessionKey: FailureSiteKey,
+  ) => Promise<LoadResult<K> | null>;
 };
 
 /** Pre-resolve `--feature <NAME>` from argv. Best-effort; null on miss.
@@ -644,7 +723,190 @@ export function createCommandContext(
       if (quiet) return;
       deps.writeStderr(`loaf: ${line}\n`);
     },
+
+    fail(code: string, message: string): void {
+      if (!emitKeyedFailure(code, undefined)) {
+        writeFailure(code, message);
+      }
+    },
+
+    emitFailure(code: string, message: string, detail?: Record<string, unknown>): void {
+      if (!emitKeyedFailure(code, detail)) {
+        writeFailure(code, message, detail);
+      }
+    },
+
+    emitNoSessionFailure(
+      keyPath: FailureSiteKey,
+      feature: string,
+      detail?: Record<string, unknown>,
+    ): void {
+      ctx.failureKeyed("NO_SESSION", keyPath, { feature }, detail);
+    },
+
+    resolveHumanActorOrFail(): string | null {
+      const isInteractive =
+        (deps.isInteractiveHuman?.() ?? process.stdin.isTTY === true) && !noInput;
+      const readGitConfig = deps.readGitConfig ?? getGitEmail;
+      const r = resolveHumanActor({
+        env: process.env,
+        readGitConfig,
+        isInteractiveHuman: isInteractive,
+      });
+      if (!r.ok) {
+        ctx.emitFailure(r.code, r.message);
+        return null;
+      }
+      return r.actor;
+    },
+
+    async dispatchOrFail(opts: { feature?: string; featureDir?: string }): Promise<string | null> {
+      const dispatch = await ctx.resolveDispatch();
+      if (!dispatch.ok) {
+        ctx.emitFailure(dispatch.code, dispatch.message, dispatch.detail);
+        return null;
+      }
+      if (dispatch.autoPickAdvisory) ctx.advisory(dispatch.autoPickAdvisory);
+      opts.feature = dispatch.feature;
+      opts.featureDir = dispatch.featureDir;
+      ctx.recordTraceTarget(dispatch.feature, dispatch.featureDir);
+      return dispatch.featureDir;
+    },
+
+    async dispatchForHookOptional(opts: {
+      feature?: string;
+      featureDir?: string;
+    }): Promise<
+      { featureDir: string } | { skip: true; stale?: { code: string; message: string } }
+    > {
+      let dispatch: Awaited<ReturnType<typeof ctx.resolveDispatch>>;
+      try {
+        dispatch = await ctx.resolveDispatch();
+      } catch {
+        return { skip: true };
+      }
+      if (dispatch.ok) {
+        opts.feature = dispatch.feature;
+        opts.featureDir = dispatch.featureDir;
+        ctx.recordTraceTarget(dispatch.feature, dispatch.featureDir);
+        return { featureDir: dispatch.featureDir };
+      }
+      if (dispatch.code === "SNAPSHOT_STALE_REBUILD_REQUIRED") {
+        return { skip: true, stale: { code: dispatch.code, message: dispatch.message } };
+      }
+      return { skip: true };
+    },
+
+    async resolveHookPath(opts: { path?: string }): Promise<string | null> {
+      if (opts.path !== undefined && opts.path.length > 0) return opts.path;
+      const isStdinTty = deps.isStdinTty ?? ((): boolean => process.stdin.isTTY === true);
+      if (!isStdinTty()) {
+        const readStdin = deps.readStdin;
+        if (!readStdin) {
+          throw new Error(
+            "CommandContext: readStdin dep not provided; cannot resolveHookPath from stdin",
+          );
+        }
+        const raw = await readStdin();
+        const parsed = parseHookStdinPath(raw);
+        if (!parsed.ok) {
+          ctx.failureKeyed(
+            "SCHEMA_VALIDATION_FAILED",
+            FAILURE_SITE_KEYS.hookStdinParseFailed,
+            { reason: parsed.reason },
+            { source: "hook-stdin" },
+          );
+          return null;
+        }
+        return parsed.path;
+      }
+      ctx.failureKeyed("USAGE", FAILURE_SITE_KEYS.hookWritePathMissing, {}, {});
+      return null;
+    },
+
+    async resolveDispatchForWriteGuard(opts: {
+      feature?: string;
+      featureDir?: string;
+    }): Promise<
+      | { featureDir: string }
+      | { allow: true }
+      | { failClosed: true; code: string; message: string }
+    > {
+      let dispatch: Awaited<ReturnType<typeof ctx.resolveDispatch>>;
+      try {
+        dispatch = await ctx.resolveDispatch();
+      } catch (err) {
+        return {
+          failClosed: true,
+          code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
+          message: `write-guard cannot resolve the session: ${(err as Error).message}`,
+        };
+      }
+      if (dispatch.ok) {
+        opts.feature = dispatch.feature;
+        opts.featureDir = dispatch.featureDir;
+        ctx.recordTraceTarget(dispatch.feature, dispatch.featureDir);
+        return { featureDir: dispatch.featureDir };
+      }
+      if (dispatch.code === "FEATURE_NOT_FOUND") return { allow: true };
+      return { failClosed: true, code: dispatch.code, message: dispatch.message };
+    },
+
+    rejectIfDryRun(
+      command: string,
+      commandType: "read-only" | "wrapping" | "projection-writer" | "scaffold-writer" = "read-only",
+    ): boolean {
+      if (dryRun) {
+        ctx.emitFailure(
+          "DRY_RUN_NOT_APPLICABLE",
+          `--dry-run not applicable to ${commandType} command \`${command}\``,
+          { command, command_type: commandType },
+        );
+        return true;
+      }
+      return false;
+    },
+
+    async loadProjectionsOrFail<K extends ProjectionKind>(
+      featureDir: string,
+      kinds: readonly K[],
+      feature: string,
+      noSessionKey: FailureSiteKey,
+    ): Promise<LoadResult<K> | null> {
+      const loader = deps.loadProjectionsDirect ?? deps.loadProjections;
+      if (!loader) {
+        throw new Error(
+          "CommandContext: loadProjections dep not provided; cannot loadProjectionsOrFail",
+        );
+      }
+      try {
+        return await loader({ feature_dir: featureDir, kinds });
+      } catch (err) {
+        if (err instanceof NoSessionError) {
+          ctx.emitNoSessionFailure(noSessionKey, feature, err.detail);
+          return null;
+        }
+        if (err instanceof SnapshotStaleError) {
+          ctx.emitFailure(
+            err.code,
+            `snapshot stale (reason=${err.reason}) — run \`loaf doctor --rebuild --feature ${feature}\` to re-serialize from journal truth`,
+            err.detail,
+          );
+          return null;
+        }
+        throw err;
+      }
+    },
   };
+
+  // Private helper: attempt keyed failure (try to map code → i18n vars).
+  // Returns true if keyed failure was emitted, false if caller must fall back.
+  function emitKeyedFailure(code: string, detail: Record<string, unknown> | undefined): boolean {
+    const vars = diagnosticVarsFor(code, detail);
+    if (vars === null) return false;
+    ctx.failureKeyed(code, diagnosticKey(code as MigratedDiagnosticCode), vars, detail);
+    return true;
+  }
 
   function writeFailure(code: string, message: string, detail?: Record<string, unknown>): void {
     if (output === "json") {

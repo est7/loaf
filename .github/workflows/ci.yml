@@ -1,0 +1,94 @@
+name: CI
+
+# W10 (docs/plans/quality-closure-refactors.md) — unattended gate. Runs the
+# same checks the project runs locally so `main` can't go red. Depends on the
+# round-2 flake fix (testTimeout 20s) — full-parallel `bun run test` is stable.
+
+on:
+  push:
+    branches: [main, develop]
+    tags: ["v*"]
+  pull_request:
+
+# Cancel superseded runs on the same ref (saves CI minutes on rapid pushes).
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13 # matches package.json packageManager
+
+      - name: Install (frozen lockfile)
+        run: bun install --frozen-lockfile
+
+      # Discrete steps so a failure names the exact gate (not a fused `check`).
+      - name: Lint (biome)
+        run: bun run lint
+
+      - name: Typecheck (tsc --noEmit)
+        run: bun run typecheck
+
+      - name: Test (vitest, full parallel)
+        run: bun run test
+
+      # dist/cli.mjs is the COMMITTED shipped artifact (no prepare script — git
+      # consumers run the committed binary directly). Guard the documented
+      # release hazard — version bump without rebuilding+committing dist — by
+      # checking the COMMITTED blob via `git show HEAD:`, NOT the working tree.
+      # Reading the working tree after a CI `bun run build` would mask a stale
+      # committed dist (the build regenerates it) — codex W10 BLOCK. Runs BEFORE
+      # build for the same reason. Version-grep, not byte-diff: tsdown output is
+      # not guaranteed byte-deterministic; matches CLAUDE.md's manual
+      # `git show HEAD:dist/cli.mjs | grep '"X.Y.Z"'`.
+      - name: Committed dist/cli.mjs embeds package.json version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if ! git show HEAD:dist/cli.mjs | grep -q "\"$VERSION\""; then
+            echo "::error::committed dist/cli.mjs does not embed version $VERSION — run \`bun run build\` and commit the rebuilt dist."
+            exit 1
+          fi
+
+      # Smoke the SHIPPED artifact = the committed dist, so run BEFORE build
+      # (after build it would pack the rebuilt dist, not what git consumers get).
+      - name: Package smoke (pack + import the committed shipped surface)
+        run: bash scripts/ga-package-smoke.sh
+
+      - name: Build (tsdown → dist/cli.mjs) — verifies the build still succeeds
+        run: bun run build
+
+      - name: No circular dependencies
+        run: bunx madge --circular --extensions ts,tsx src
+
+      - name: Event-drift check
+        run: bash scripts/check-event-drift.sh
+
+  # ga-consistency-check asserts HEAD == origin/main AND the expected tag — a
+  # RELEASE gate, not a per-PR gate (it fails by design on any feature branch).
+  # Scope it to tag pushes, where HEAD==origin/main holds.
+  release-consistency:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # ga-consistency compares HEAD against origin/main
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+
+      - name: Install (frozen lockfile)
+        run: bun install --frozen-lockfile
+
+      - name: Build
+        run: bun run build
+
+      - name: GA consistency (tag ↔ origin/main ↔ dist)
+        run: bash scripts/ga-consistency-check.sh --expected-tag "${GITHUB_REF_NAME}"

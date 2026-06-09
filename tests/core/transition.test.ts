@@ -160,6 +160,40 @@ describe("validateTransition — Gate #1", () => {
     if (!result.ok) expect(result.code).toBe("SETTLE_PHASE_DISABLED");
   });
 
+  // ── 2A.3c: W1 — SPEC.design → EXECUTE.plan spec_locked guard ────────────
+  // Symmetric to the 2A.3b verify_accepted refine above. The spec-lock gate
+  // must be enforced on the write-path cursor advance, not only when a
+  // `gate:decided` approval rides in the batch (mutateBatch Pass 1.5). A bare
+  // `loaf advance EXECUTE.plan` with spec_locked=false crosses the spec-lock
+  // boundary without the 8 spec-lock checks ever running — this pins the fix.
+  test("2A.3c. SPEC.design → EXECUTE.plan rejected when spec_locked=false", () => {
+    const result = validateTransition("SPEC.design", "EXECUTE.plan", {
+      ceremony: STANDARD_CEREMONY,
+      actor: ACTOR,
+      spec_locked: false,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("SPEC_LOCK_NOT_SATISFIED");
+  });
+
+  test("2A.3c. SPEC.design → EXECUTE.plan allowed when spec_locked=true", () => {
+    const result = validateTransition("SPEC.design", "EXECUTE.plan", {
+      ceremony: STANDARD_CEREMONY,
+      actor: ACTOR,
+      spec_locked: true,
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  test("2A.3c. SPEC.design → EXECUTE.plan rejected when spec_locked omitted (defaults false)", () => {
+    const result = validateTransition("SPEC.design", "EXECUTE.plan", {
+      ceremony: STANDARD_CEREMONY,
+      actor: ACTOR,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("SPEC_LOCK_NOT_SATISFIED");
+  });
+
   test("2A.3. VERIFY.accept → DONE.archived always TRANSITION_ILLEGAL (Item 2 — `loaf archive` territory)", () => {
     // pre-Item-2 this returned OK (DONE.archived was an always-legal eject
     // target). The edge was removed so `loaf archive --reason` owns the path

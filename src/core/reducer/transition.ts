@@ -324,6 +324,14 @@ export interface TransitionContext {
    */
   verify_accepted?: boolean;
   /**
+   * W1: snapshot.state.spec_locked, threaded through preflight. Required by
+   * the SPEC.design → EXECUTE.plan refine (the spec-lock gate must hold on
+   * the write-path cursor advance, symmetric to the verify_accepted refine
+   * for VERIFY.accept → SETTLE.reconcile). Optional for callers outside the
+   * SPEC.design fork — defaults to false (which only matters for that edge).
+   */
+  spec_locked?: boolean;
+  /**
    * Slice B: back-edge sponsorship extracted from
    * `event:phase_advanced.payload.back_edge`. When set, validateTransition
    * enforces the action's target+from contract and bypasses forward-edge
@@ -347,6 +355,7 @@ export type TransitionResult =
         | "TRANSITION_ILLEGAL"
         | "SETTLE_PHASE_DISABLED"
         | "SETTLE_NOT_ACCEPTED"
+        | "SPEC_LOCK_NOT_SATISFIED"
         | "SPEC_PHASE_FORK_VIOLATION"
         | "VERIFY_PHASE_FORK_VIOLATION";
       message: string;
@@ -589,6 +598,26 @@ export function validateTransition(
   //   DONE.delivered from VERIFY.accept is no longer an `event:phase_advanced`
   //   edge — `loaf deliver` owns that path with its own preflight ceremony /
   //   verify_accepted refines (preflight step 5c).
+  // W1 — SPEC.design → EXECUTE.plan spec-lock guard. Symmetric to the
+  // verify_accepted refine below. The spec-lock gate (8 checks in
+  // evaluateSpecLock) is enforced in mutateBatch Pass 1.5 ONLY when a
+  // `gate:decided spec-lock approved` rides in the batch; a bare
+  // `loaf advance EXECUTE.plan` carries no gate entry, so without this guard
+  // the cursor crosses the spec-lock boundary with spec_locked=false and the
+  // checks never run. The kernel is the enforcement authority (ADR-0005) and
+  // must not depend on the skill layer staging a gate prompt. spec_locked is
+  // flipped by `gate decide spec-lock --approve` (which does NOT move the
+  // cursor — Slice 1.A), so the legal order is: decide, then advance.
+  if (prev === "SPEC.design" && target === "EXECUTE.plan" && !ctx.spec_locked) {
+    return {
+      ok: false,
+      code: "SPEC_LOCK_NOT_SATISFIED",
+      message:
+        "SPEC.design → EXECUTE.plan requires spec_locked=true (run `loaf gate decide spec-lock --approve` first)",
+      detail: { from: prev, to: target, spec_locked: !!ctx.spec_locked },
+    };
+  }
+
   if (prev === "VERIFY.accept" && target === "SETTLE.reconcile") {
     if (!ctx.ceremony.settle_phase) {
       return {

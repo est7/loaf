@@ -371,8 +371,15 @@ export interface WriteProjectionsInput {
  * neither present the file is removed, so a `--rebuild` never leaves a
  * stale projection behind.
  *
- * Does NOT acquire the per-feature lock — the caller (`loaf doctor
- * --rebuild`, SC2) drives this from within its own critical section.
+ * Does NOT acquire the per-feature `.lock`. When called from the W3-fenced
+ * mutateBatch path the lock is already held by the caller. But the other
+ * callers — `loaf doctor --rebuild` (cli.tsx) and `loaf handoff`
+ * (resume-pack) — invoke this WITHOUT the lock, so those projection writes are
+ * outside the write-contention fence and can race a concurrent mutateBatch
+ * (codex W3 nit). That is the named partial-fence boundary of the single-writer
+ * MVP: the lock guards the journal-append + in-band projection sync, not every
+ * out-of-band projection writer. Widening the fence to those callers is a
+ * follow-up, not a W3 deliverable.
  *
  * Returns the basenames of the files present after the rebuild, in write
  * order — `state.json` first (skipped only for an empty journal), then

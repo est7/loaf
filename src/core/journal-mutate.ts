@@ -5,7 +5,10 @@
 // shorthand for `mutateBatch([partial], ctx)`.
 //
 // Step mapping inside one batch:
-//   step 1 (lock acquire)     — deferred (single-writer scope)
+//   step 1 (lock acquire)     — IMPLEMENTED (W3): O_EXCL `.lock` in feature_dir,
+//                               acquired after the dry-run early-return and
+//                               before the first disk write (Pass 2);
+//                               throw-only (WRITE_CONTENTION on EEXIST, no wait)
 //   step 2 (read tail/_meta)  — caller supplies ctx.tail_seq + ctx.snapshot
 //   step 3 (preflight)        — per-entry; runs against the snapshot
 //                               INCREMENTALLY mutated by prior entries in
@@ -38,7 +41,9 @@
 //                               schema-derivation failure surfaces as a
 //                               mutate failure (NOT silent ok, NOT CLI
 //                               crash — codex r280 P4 split).
-//   step 10 (lock release)    — deferred with step 1
+//   step 10 (lock release)    — IMPLEMENTED (W3): finally-released on every
+//                               exit path (success / mid-span error / throw);
+//                               best-effort unlink, stale lock cleared by doctor
 //
 // Atomicity (preserves audit r1-r5 invariants):
 //   - r1 strict per-kind payload (preflight + appendMany final validate)
@@ -56,6 +61,8 @@
 // audit-sanctioned end-to-end path.
 
 import path from "node:path";
+import { promises as fsp } from "node:fs";
+import { O_CREAT, O_EXCL, O_WRONLY } from "node:constants";
 import { isDeepStrictEqual } from "node:util";
 
 import { AppendError, appendMany } from "./journal-append.js";
@@ -98,11 +105,11 @@ export interface MutateContext {
    *  MutateContext integrity check (Pass A), then SHORT-CIRCUIT before
    *  Pass 2 (sidecar promote), Pass 3 (final reducer + drift), Pass 4
    *  (`appendMany`), Pass 5 (spec.md projection), and step 8 (snapshots).
-   *  No disk write. Returns the same ok-shape with the would-be snapshot
-   *  + stamped (but unpromoted) candidates + unchanged ctx.meta. v0.1.0
-   *  inherits the MVP mutator's lack of §11.2 step 1/10 lock acquire/
-   *  release; future versions may also stage sidecars to `.tmp-*` per
-   *  protocol §10.7. */
+   *  No disk write — so dryRun runs BEFORE the W3 write lock is acquired and
+   *  is never blocked by it (a held `.lock` does not fence a read-only
+   *  preview). Returns the same ok-shape with the would-be snapshot +
+   *  stamped (but unpromoted) candidates + unchanged ctx.meta. Future
+   *  versions may also stage sidecars to `.tmp-*` per protocol §10.7. */
   dryRun?: boolean;
   /** Phase 16 SC-7 — registry-writer DI seam. Production omits; defaults
    *  to `defaultRegistryDir()` (~/.loaf/registry/) + `new Date()` +
@@ -127,7 +134,8 @@ export type MutateFailureCode =
   | "INVALID_BATCH"
   | "GATE_PRECONDITION_VIOLATION"
   | "MULTIPLE_GATE_DECISIONS"
-  | "PROJECTION_WRITE_FAILED";
+  | "PROJECTION_WRITE_FAILED"
+  | "WRITE_CONTENTION";
 
 export type MutateResult =
   | { ok: true; snapshot: Snapshot; entry: JournalEntry; meta: SnapshotMeta }
@@ -402,225 +410,261 @@ export async function mutateBatch(
     };
   }
 
-  // Pass 2: sidecar promotion. All entries validated; from here we accept
-  // that any failure may leave on-disk residue (sidecar attachments) that
-  // `loaf doctor --orphan-attachment` will GC. Planned validation failures
-  // (the kind users hit constantly while iterating) DO NOT reach this pass.
-  const promoted: JournalEntry[] = [];
-  for (let i = 0; i < candidates.length; i++) {
-    try {
-      const p = await promoteSidecars(candidates[i]!, ctx.feature_dir, {
-        fsync: ctx.fsync ?? true,
-      });
-      promoted.push(p);
-    } catch (err) {
+  // W3 — per-feature write-contention fence (§11.2 step 1/10, throw-only).
+  // Everything past this point touches disk (sidecar promote → append →
+  // projections → registry). The MVP single-writer assumption was previously
+  // unenforced: two concurrent CLI invocations could both pass the prior-meta
+  // check, build entries at the same seq, and O_APPEND-interleave. Acquire an
+  // O_EXCL lock file BEFORE the first write; on contention throw-fail fast
+  // (no wait loop, no PID-stealing, no timeout machinery, no lock manager —
+  // the caller retries). Released in the finally below on EVERY exit path.
+  // Placed AFTER the dry-run early-return: a dry run writes nothing, so it
+  // must neither acquire nor be blocked by the lock.
+  const lockPath = path.join(ctx.feature_dir, ".lock");
+  let lockFh: fsp.FileHandle;
+  try {
+    lockFh = await fsp.open(lockPath, O_CREAT | O_EXCL | O_WRONLY, 0o644);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "EEXIST") {
       return {
         ok: false,
-        code: "SIDECAR_ERROR",
-        message: `sidecar finalize failed: ${String(err)}`,
-        failed_index: i,
-        detail: { err: String(err) },
+        code: "WRITE_CONTENTION",
+        message: `another writer holds the per-feature lock at ${lockPath}; retry after it releases (if no writer is active, a prior run crashed mid-write — remove the lock and run 'loaf doctor')`,
+        detail: { lock_path: lockPath },
       };
     }
+    throw err;
   }
 
-  // Pass 3 (protocol §11.2 step 5c, codex r13): final reducer dry-run on
-  // PROMOTED entries against a fresh clone of ctx.snapshot. Asserts that
-  // the promoted form produces the same projection as Pass 1's accumulator.
-  // Today's reducers do not read LongTextField bodies, so this is a no-op
-  // success; but the gate is a forward-compatibility guard against a
-  // future reducer that DOES dereference sidecar refs (which would silently
-  // drift in-memory snapshot from replay-from-journal snapshot).
-  let finalSnapshot: Snapshot = structuredClone(ctx.snapshot);
-  for (let i = 0; i < promoted.length; i++) {
-    const dryRun = apply(finalSnapshot, promoted[i]!);
-    if (!dryRun.ok) {
+  try {
+    // Pass 2: sidecar promotion. All entries validated; from here we accept
+    // that any failure may leave on-disk residue (sidecar attachments) that
+    // `loaf doctor --orphan-attachment` will GC. Planned validation failures
+    // (the kind users hit constantly while iterating) DO NOT reach this pass.
+    const promoted: JournalEntry[] = [];
+    for (let i = 0; i < candidates.length; i++) {
+      try {
+        const p = await promoteSidecars(candidates[i]!, ctx.feature_dir, {
+          fsync: ctx.fsync ?? true,
+        });
+        promoted.push(p);
+      } catch (err) {
+        return {
+          ok: false,
+          code: "SIDECAR_ERROR",
+          message: `sidecar finalize failed: ${String(err)}`,
+          failed_index: i,
+          detail: { err: String(err) },
+        };
+      }
+    }
+
+    // Pass 3 (protocol §11.2 step 5c, codex r13): final reducer dry-run on
+    // PROMOTED entries against a fresh clone of ctx.snapshot. Asserts that
+    // the promoted form produces the same projection as Pass 1's accumulator.
+    // Today's reducers do not read LongTextField bodies, so this is a no-op
+    // success; but the gate is a forward-compatibility guard against a
+    // future reducer that DOES dereference sidecar refs (which would silently
+    // drift in-memory snapshot from replay-from-journal snapshot).
+    let finalSnapshot: Snapshot = structuredClone(ctx.snapshot);
+    for (let i = 0; i < promoted.length; i++) {
+      const dryRun = apply(finalSnapshot, promoted[i]!);
+      if (!dryRun.ok) {
+        return {
+          ok: false,
+          code: "REDUCER_ERROR",
+          message: `final dry-run on promoted entries failed at index ${i}: ${dryRun.message}`,
+          failed_index: i,
+          detail: { code: dryRun.code, phase: "post-sidecar", ...(dryRun.detail ?? {}) },
+        };
+      }
+      finalSnapshot = dryRun.snapshot;
+    }
+    if (!isDeepStrictEqual(finalSnapshot, snapshotAcc)) {
       return {
         ok: false,
         code: "REDUCER_ERROR",
-        message: `final dry-run on promoted entries failed at index ${i}: ${dryRun.message}`,
-        failed_index: i,
-        detail: { code: dryRun.code, phase: "post-sidecar", ...(dryRun.detail ?? {}) },
+        message:
+          "snapshot drift between unpromoted and promoted dry-runs — a reducer is reading LongTextField content; the batch is unsafe to append",
+        detail: { phase: "drift-check" },
       };
     }
-    finalSnapshot = dryRun.snapshot;
-  }
-  if (!isDeepStrictEqual(finalSnapshot, snapshotAcc)) {
-    return {
-      ok: false,
-      code: "REDUCER_ERROR",
-      message:
-        "snapshot drift between unpromoted and promoted dry-runs — a reducer is reading LongTextField content; the batch is unsafe to append",
-      detail: { phase: "drift-check" },
-    };
-  }
 
-  // Single fsync'd batch append (appendMany handles envelope + per-kind
-  // payload + per-entry + batch-total byte caps internally). `appendMany`
-  // also validates `ctx.meta` against the on-disk journal tail and returns
-  // the post-append `SnapshotMeta` step 8 writes to `_meta.json`.
-  const journalPath = path.join(ctx.feature_dir, "journal.jsonl");
-  let appendMeta: SnapshotMeta;
-  try {
-    appendMeta = await appendMany(journalPath, promoted, ctx.meta, {
-      fsync: ctx.fsync ?? true,
-    });
-  } catch (err) {
-    if (err instanceof AppendError) {
+    // Single fsync'd batch append (appendMany handles envelope + per-kind
+    // payload + per-entry + batch-total byte caps internally). `appendMany`
+    // also validates `ctx.meta` against the on-disk journal tail and returns
+    // the post-append `SnapshotMeta` step 8 writes to `_meta.json`.
+    const journalPath = path.join(ctx.feature_dir, "journal.jsonl");
+    let appendMeta: SnapshotMeta;
+    try {
+      appendMeta = await appendMany(journalPath, promoted, ctx.meta, {
+        fsync: ctx.fsync ?? true,
+      });
+    } catch (err) {
+      if (err instanceof AppendError) {
+        return {
+          ok: false,
+          code: "APPEND_ERROR",
+          message: err.message,
+          detail: { code: err.code, ...(err.detail ?? {}) },
+        };
+      }
       return {
         ok: false,
         code: "APPEND_ERROR",
-        message: err.message,
-        detail: { code: err.code, ...(err.detail ?? {}) },
+        message: `append failed: ${String(err)}`,
+        detail: { err: String(err) },
       };
     }
-    return {
-      ok: false,
-      code: "APPEND_ERROR",
-      message: `append failed: ${String(err)}`,
-      detail: { err: String(err) },
-    };
-  }
 
-  // Pass 5 — post-appendMany spec.md projection sync (Slice A SC-A2).
-  // Journal is authoritative (Pass 4 already succeeded). spec.md is a
-  // derived projection; sync it from finalSnapshot. On failure surface
-  // PROJECTION_WRITE_FAILED — `loaf doctor --rebuild` (Slice 5 D) is
-  // the recovery path; retrying the same payload would hit
-  // DUPLICATE_*_ID against the already-appended journal entry.
-  //
-  // TODO(slice 5 — lock acquire): Pass 5 MUST live inside the per-feature
-  // lock window. mutateBatch defers step 1 lock acquire / step 10 lock
-  // release per the MVP single-writer assumption (see protocol §11.2 +
-  // module header). When the lock lands, projection sync runs before
-  // release so concurrent CLI invocations cannot race spec.md.
-  if (promoted.some((entry) => SPEC_EMITTING_KINDS.has(entry.kind))) {
-    try {
-      await writeDerivedSpecMd(finalSnapshot, ctx.feature_dir);
-    } catch (err) {
-      const lastSeq = promoted[promoted.length - 1]!.seq;
-      const failSpecVer = finalSnapshot.state?.spec_version ?? "unknown";
-      return {
-        ok: false,
-        code: "PROJECTION_WRITE_FAILED",
-        message: `spec.md projection write failed after journal append at last_seq=${lastSeq} (spec_version=${failSpecVer}); journal is authoritative — run 'loaf doctor --rebuild' to resync. Cause: ${(err as Error).message}`,
-        detail: {
-          projection: "spec.md",
-          path: path.join(ctx.feature_dir, "spec.md"),
-          journal_appended: true,
-          last_seq: lastSeq,
-          spec_version: finalSnapshot.state?.spec_version ?? null,
-          error: (err as Error).message,
-        },
-      };
+    // Pass 5 — post-appendMany spec.md projection sync (Slice A SC-A2).
+    // Journal is authoritative (Pass 4 already succeeded). spec.md is a
+    // derived projection; sync it from finalSnapshot. On failure surface
+    // PROJECTION_WRITE_FAILED — `loaf doctor --rebuild` (Slice 5 D) is
+    // the recovery path; retrying the same payload would hit
+    // DUPLICATE_*_ID against the already-appended journal entry.
+    //
+    // W3: Pass 5 now runs INSIDE the per-feature lock window (acquired before
+    // Pass 2, released in the finally), so concurrent CLI invocations cannot
+    // race spec.md between append and projection sync.
+    if (promoted.some((entry) => SPEC_EMITTING_KINDS.has(entry.kind))) {
+      try {
+        await writeDerivedSpecMd(finalSnapshot, ctx.feature_dir);
+      } catch (err) {
+        const lastSeq = promoted[promoted.length - 1]!.seq;
+        const failSpecVer = finalSnapshot.state?.spec_version ?? "unknown";
+        return {
+          ok: false,
+          code: "PROJECTION_WRITE_FAILED",
+          message: `spec.md projection write failed after journal append at last_seq=${lastSeq} (spec_version=${failSpecVer}); journal is authoritative — run 'loaf doctor --rebuild' to resync. Cause: ${(err as Error).message}`,
+          detail: {
+            projection: "spec.md",
+            path: path.join(ctx.feature_dir, "spec.md"),
+            journal_appended: true,
+            last_seq: lastSeq,
+            spec_version: finalSnapshot.state?.spec_version ?? null,
+            error: (err as Error).message,
+          },
+        };
+      }
     }
-  }
 
-  // Step 8 — post-appendMany snapshot projection sync (Phase 15 SC2).
-  // Re-serialize all five `snapshots/*.json` projection files + `_meta.json`
-  // via the shared `writeProjections` — the same serializer `loaf doctor
-  // --rebuild` drives. Runs unconditionally: every mutation refreshes all
-  // five projections (no affected-file filter — Q3), so snapshots stay fresh
-  // on every write, not just on `doctor --rebuild`.
-  //
-  // The entry prefix is authoritative — `ctx.entries` (the journal as of
-  // tail_seq, validated above) concatenated with the just-appended
-  // `promoted` batch. `appendMeta` is the post-append meta `appendMany`
-  // returned; `writeProjections` records it verbatim in `_meta.json`,
-  // metadata strictly after data.
-  //
-  // On failure surface PROJECTION_WRITE_FAILED — mirrors the spec.md Pass-5
-  // failure shape: the journal is authoritative (the append already
-  // succeeded), `loaf doctor --rebuild` is the recovery path; retrying the
-  // same payload would hit a duplicate-id rejection against the
-  // already-appended journal entry.
-  //
-  // TODO(slice 5 — lock acquire): step 8, like Pass 5, MUST live inside the
-  // per-feature lock window once the lock lands, so concurrent CLI
-  // invocations cannot race the projection files.
-  try {
-    await writeProjections(ctx.feature_dir, {
-      snapshot: finalSnapshot,
-      entries: ctx.entries.concat(promoted),
-      meta: appendMeta,
-      fsync: ctx.fsync ?? true,
-    });
-  } catch (err) {
-    const lastSeq = promoted[promoted.length - 1]!.seq;
-    return {
-      ok: false,
-      code: "PROJECTION_WRITE_FAILED",
-      message:
-        `snapshot projection write failed after journal append at last_seq=${lastSeq}; ` +
-        `journal is authoritative — run 'loaf doctor --rebuild' to resync. ` +
-        `Cause: ${(err as Error).message}`,
-      detail: {
-        projection: "snapshots",
-        path: path.join(ctx.feature_dir, "snapshots"),
-        journal_appended: true,
-        last_seq: lastSeq,
-        error: (err as Error).message,
-      },
-    };
-  }
-
-  // Step 9 — Phase 16 SC-7 registry refresh (~/.loaf/registry/<id>.json).
-  //
-  // Two-layer guard per codex r280 P4:
-  //   - buildRegistryFile() can throw on schema-derivation failure
-  //     (corrupt session:started payload, etc.). NOT silenced — surfaces
-  //     as a mutate failure result so the bug is visible (not laundered
-  //     as "registry stale").
-  //   - writeRegistryFile() IO failure is best-effort per §4.12 —
-  //     swallowed silently; `loaf doctor --rebuild-registry` (future SC)
-  //     recovers from canonical artifacts.
-  //
-  // Skipped when snapshot.state.session_id is null (pre-session:started
-  // edge case — shouldn't happen post-MVP but defensive).
-  if (finalSnapshot.state?.session_id) {
-    let registryFile: RegistryFile | null;
+    // Step 8 — post-appendMany snapshot projection sync (Phase 15 SC2).
+    // Re-serialize all five `snapshots/*.json` projection files + `_meta.json`
+    // via the shared `writeProjections` — the same serializer `loaf doctor
+    // --rebuild` drives. Runs unconditionally: every mutation refreshes all
+    // five projections (no affected-file filter — Q3), so snapshots stay fresh
+    // on every write, not just on `doctor --rebuild`.
+    //
+    // The entry prefix is authoritative — `ctx.entries` (the journal as of
+    // tail_seq, validated above) concatenated with the just-appended
+    // `promoted` batch. `appendMeta` is the post-append meta `appendMany`
+    // returned; `writeProjections` records it verbatim in `_meta.json`,
+    // metadata strictly after data.
+    //
+    // On failure surface PROJECTION_WRITE_FAILED — mirrors the spec.md Pass-5
+    // failure shape: the journal is authoritative (the append already
+    // succeeded), `loaf doctor --rebuild` is the recovery path; retrying the
+    // same payload would hit a duplicate-id rejection against the
+    // already-appended journal entry.
+    //
+    // W3: step 8, like Pass 5, now runs inside the per-feature lock window, so
+    // concurrent CLI invocations cannot race the projection files.
     try {
-      registryFile = buildRegistryFile({
+      await writeProjections(ctx.feature_dir, {
         snapshot: finalSnapshot,
         entries: ctx.entries.concat(promoted),
-        now: ctx.registryWriter?.now?.() ?? new Date(),
-        cwd: ctx.registryWriter?.cwd?.() ?? process.cwd(),
+        meta: appendMeta,
+        fsync: ctx.fsync ?? true,
       });
     } catch (err) {
-      // Pure derivation failure — code defect, NOT silent. Surfaces as
-      // a mutate failure with the parse cause (codex r280 P4).
+      const lastSeq = promoted[promoted.length - 1]!.seq;
       return {
         ok: false,
         code: "PROJECTION_WRITE_FAILED",
         message:
-          `registry derivation failed after journal append; ` +
-          `journal is authoritative — run 'loaf doctor --rebuild-registry' (future). ` +
+          `snapshot projection write failed after journal append at last_seq=${lastSeq}; ` +
+          `journal is authoritative — run 'loaf doctor --rebuild' to resync. ` +
           `Cause: ${(err as Error).message}`,
         detail: {
-          projection: "registry",
-          phase: "derivation",
+          projection: "snapshots",
+          path: path.join(ctx.feature_dir, "snapshots"),
           journal_appended: true,
+          last_seq: lastSeq,
           error: (err as Error).message,
         },
       };
     }
 
-    if (registryFile) {
+    // Step 9 — Phase 16 SC-7 registry refresh (~/.loaf/registry/<id>.json).
+    //
+    // Two-layer guard per codex r280 P4:
+    //   - buildRegistryFile() can throw on schema-derivation failure
+    //     (corrupt session:started payload, etc.). NOT silenced — surfaces
+    //     as a mutate failure result so the bug is visible (not laundered
+    //     as "registry stale").
+    //   - writeRegistryFile() IO failure is best-effort per §4.12 —
+    //     swallowed silently; `loaf doctor --rebuild-registry` (future SC)
+    //     recovers from canonical artifacts.
+    //
+    // Skipped when snapshot.state.session_id is null (pre-session:started
+    // edge case — shouldn't happen post-MVP but defensive).
+    if (finalSnapshot.state?.session_id) {
+      let registryFile: RegistryFile | null;
       try {
-        await writeRegistryFile(registryFile.session_id, registryFile, {
-          ...(ctx.registryWriter?.registryDir !== undefined && {
-            registryDir: ctx.registryWriter.registryDir,
-          }),
+        registryFile = buildRegistryFile({
+          snapshot: finalSnapshot,
+          entries: ctx.entries.concat(promoted),
+          now: ctx.registryWriter?.now?.() ?? new Date(),
+          cwd: ctx.registryWriter?.cwd?.() ?? process.cwd(),
         });
-      } catch {
-        // Silent — §4.12 best-effort IO. Registry is a TUI projection,
-        // not gate authority; readers tolerate stale; doctor --rebuild-
-        // registry recovers from canonical artifacts.
+      } catch (err) {
+        // Pure derivation failure — code defect, NOT silent. Surfaces as
+        // a mutate failure with the parse cause (codex r280 P4).
+        return {
+          ok: false,
+          code: "PROJECTION_WRITE_FAILED",
+          message:
+            `registry derivation failed after journal append; ` +
+            `journal is authoritative — run 'loaf doctor --rebuild-registry' (future). ` +
+            `Cause: ${(err as Error).message}`,
+          detail: {
+            projection: "registry",
+            phase: "derivation",
+            journal_appended: true,
+            error: (err as Error).message,
+          },
+        };
+      }
+
+      if (registryFile) {
+        try {
+          await writeRegistryFile(registryFile.session_id, registryFile, {
+            ...(ctx.registryWriter?.registryDir !== undefined && {
+              registryDir: ctx.registryWriter.registryDir,
+            }),
+          });
+        } catch {
+          // Silent — §4.12 best-effort IO. Registry is a TUI projection,
+          // not gate authority; readers tolerate stale; doctor --rebuild-
+          // registry recovers from canonical artifacts.
+        }
       }
     }
-  }
 
-  return { ok: true, snapshot: finalSnapshot, entries: promoted, meta: appendMeta };
+    return { ok: true, snapshot: finalSnapshot, entries: promoted, meta: appendMeta };
+  } finally {
+    // Release the write lock on EVERY exit path — the success return above, any
+    // mid-span error return (SIDECAR_ERROR / REDUCER_ERROR drift / APPEND_ERROR
+    // / PROJECTION_WRITE_FAILED), or an unexpected throw. Both close and unlink
+    // are independently best-effort: a failing close() must NOT skip the unlink
+    // (codex W3 nit), and a crash anywhere here leaves a stale `.lock` that the
+    // next writer hits as WRITE_CONTENTION — the user removes it manually
+    // (doctor does not yet auto-clear stale locks); the honest single-writer-MVP
+    // recovery story.
+    await lockFh.close().catch(() => {});
+    await fsp.unlink(lockPath).catch(() => {});
+  }
 }
 
 /**

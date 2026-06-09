@@ -75,18 +75,55 @@ async function advanceToExecuteWork(
   journalPath: string,
   priorMeta: SnapshotMeta,
 ): Promise<{ seq: number; meta: SnapshotMeta }> {
-  const path = [
+  const preGatePath = [
     ["TRIAGE.score", "TRIAGE.confirm"],
     ["TRIAGE.confirm", "SPEC.proposal"],
     ["SPEC.proposal", "SPEC.spec"],
     ["SPEC.spec", "SPEC.plan"],
     ["SPEC.plan", "SPEC.design"],
+  ] as const;
+  const postGatePath = [
     ["SPEC.design", "EXECUTE.plan"],
     ["EXECUTE.plan", "EXECUTE.work"],
   ] as const;
   let seq = 1;
   let meta = priorMeta;
-  for (const [from, to] of path) {
+  for (const [from, to] of preGatePath) {
+    meta = await appendEntry(
+      journalPath,
+      {
+        seq,
+        entry_id: `JE-${String(seq + 1).padStart(6, "0")}`,
+        at: new Date(2026, 4, 15, 10, 0, seq).toISOString(),
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "event:phase_advanced",
+        payload: { from, to },
+      },
+      meta,
+      { fsync: false },
+    );
+    seq++;
+  }
+  // Gate: approve spec-lock so SPEC.design → EXECUTE.plan is legal.
+  // appendEntry skips preflight/Pass1.5 — the 8 spec-lock checks are
+  // not run here; spec_locked=true on replay is sufficient for the guard.
+  meta = await appendEntry(
+    journalPath,
+    {
+      seq,
+      entry_id: `JE-${String(seq + 1).padStart(6, "0")}`,
+      at: new Date(2026, 4, 15, 10, 0, seq).toISOString(),
+      actor: "human:est9",
+      entry_schema_version: 1,
+      kind: "gate:decided",
+      payload: { gate_kind: "spec-lock", decision: "approved", reason: "seed" },
+    },
+    meta,
+    { fsync: false },
+  );
+  seq++;
+  for (const [from, to] of postGatePath) {
     meta = await appendEntry(
       journalPath,
       {

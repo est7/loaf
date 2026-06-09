@@ -8,7 +8,11 @@ import {
   type TaskState,
 } from "../../src/core/reducer.js";
 import type { Ceremony, SubState } from "../../src/core/journal-entry.js";
-import { preflight, type PreflightFailureCode } from "../../src/core/reducer/preflight.js";
+import {
+  ORDERED_CHECKS,
+  preflight,
+  type PreflightFailureCode,
+} from "../../src/core/reducer/preflight.js";
 
 const STANDARD_CEREMONY: Ceremony = {
   spec_phase: true,
@@ -251,10 +255,7 @@ const PRECEDENCE_PAIRS: PrecedenceRow[] = [
       kind: "event:tasks_planned",
       payload: {
         based_on: { spec: 1 },
-        tasks: [
-          behavioralFull(),
-          behavioralFull({ id: "T-001", red_test_registered: true }),
-        ],
+        tasks: [behavioralFull(), behavioralFull({ id: "T-001", red_test_registered: true })],
       },
     }),
     ctx: { snapshot: mkSnapshot("SPEC.design"), tail_seq: -1 },
@@ -420,6 +421,61 @@ const PRECEDENCE_PAIRS: PrecedenceRow[] = [
     ctx: { snapshot: mkSnapshot("EXECUTE.work", QUICK_CEREMONY), tail_seq: -1 },
     expected: "ACTOR_AUTHORITY_VIOLATION",
   },
+  // W9a — pin the round-2 W1 transition code SPEC_LOCK_NOT_SATISFIED's
+  // precedence position (it post-dates the original SC-10 row set). These lock
+  // the order the W9b extraction must preserve.
+  {
+    name: "spec-lock advance + bad actor -> ACTOR_AUTHORITY_VIOLATION because actor authority runs before the transition spec-lock refine",
+    entry: baseEntry({
+      actor: "migration:fixture",
+      kind: "event:phase_advanced",
+      payload: { from: "SPEC.design", to: "EXECUTE.plan" },
+    }),
+    ctx: {
+      snapshot: mkSnapshot("SPEC.design", STANDARD_CEREMONY, { spec_locked: false }),
+      tail_seq: -1,
+    },
+    expected: "ACTOR_AUTHORITY_VIOLATION",
+  },
+  {
+    name: "spec-lock advance + pending head -> PENDING_BLOCKS_ADVANCE because the pending guard runs before the transition spec-lock refine",
+    entry: baseEntry({
+      kind: "event:phase_advanced",
+      payload: { from: "SPEC.design", to: "EXECUTE.plan" },
+    }),
+    ctx: {
+      snapshot: mkSnapshot("SPEC.design", STANDARD_CEREMONY, {
+        spec_locked: false,
+        pending: pendingGateHead,
+      }),
+      tail_seq: -1,
+    },
+    expected: "PENDING_BLOCKS_ADVANCE",
+  },
+  {
+    name: "spec-lock advance illegal target + unlocked -> TRANSITION_ILLEGAL because edge legality runs before the spec-lock refine inside validateTransition",
+    entry: baseEntry({
+      kind: "event:phase_advanced",
+      payload: { from: "SPEC.design", to: "VERIFY.run" },
+    }),
+    ctx: {
+      snapshot: mkSnapshot("SPEC.design", STANDARD_CEREMONY, { spec_locked: false }),
+      tail_seq: -1,
+    },
+    expected: "TRANSITION_ILLEGAL",
+  },
+  {
+    name: "spec-lock advance, legal edge, unlocked, nothing higher -> SPEC_LOCK_NOT_SATISFIED (positive: the W1 refine fires when no earlier check does)",
+    entry: baseEntry({
+      kind: "event:phase_advanced",
+      payload: { from: "SPEC.design", to: "EXECUTE.plan" },
+    }),
+    ctx: {
+      snapshot: mkSnapshot("SPEC.design", STANDARD_CEREMONY, { spec_locked: false }),
+      tail_seq: -1,
+    },
+    expected: "SPEC_LOCK_NOT_SATISFIED",
+  },
 ];
 
 describe("preflight — error precedence characterization", () => {
@@ -428,7 +484,40 @@ describe("preflight — error precedence characterization", () => {
     expect(r).toMatchObject({ ok: false, code: expected });
   });
 
-  test("PRECEDENCE_PAIRS keeps the converged SC-10 row count", () => {
-    expect(PRECEDENCE_PAIRS).toHaveLength(22);
+  test("PRECEDENCE_PAIRS keeps the converged row count (SC-10: 22 + W9a: 4)", () => {
+    expect(PRECEDENCE_PAIRS).toHaveLength(26);
+  });
+});
+
+// W9b — the ordered pipeline IS the precedence contract. Pin the sequence by
+// name so a reorder (or an inserted / dropped check) fails loudly, even for a
+// pair the PRECEDENCE_PAIRS rows above don't happen to cover. The two checks
+// that run inline in preflight() before the pipeline (envelope parse, per-kind
+// payload parse — they build the check context) are intentionally absent here;
+// INVALID_PAYLOAD's precedence slot is held by checkPerKindPayload below.
+describe("preflight — ORDERED_CHECKS pipeline order", () => {
+  test("the check sequence is the load-bearing precedence order", () => {
+    expect(ORDERED_CHECKS.map((c) => c.name)).toEqual([
+      "checkSeqMonotonic", // (2)
+      "checkSubStateAuthority", // (3)
+      "checkActorAuthority", // (4)
+      "checkPerKindPayload", // (4b)
+      "checkGateDecided", // (5a)
+      "checkPhaseAdvanced", // (5b)
+      "checkSessionDelivered", // (5c)
+      "checkSpikeConverted", // (5c.3)
+      "checkCeremonySet", // (5c.4)
+      "checkSessionTerminalReason", // (5c.2)
+      "checkTasksPlanned", // (5d.1)
+      "checkTasksAmended", // (5d.2)
+      "checkTaskLifecycle", // (5e)
+      "checkTaskAbandoned", // (5e.3)
+      "checkTaskStepReset", // (5e.4)
+      "checkFindingRaised", // (5g)
+      "checkSpecContentPhase", // (5i)
+      "checkSpecDuplicateIds", // (5h)
+      "checkSpecVersion", // (5j)
+      "checkTransitionEdge", // (5f)
+    ]);
   });
 });

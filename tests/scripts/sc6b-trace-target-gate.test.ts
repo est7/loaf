@@ -33,7 +33,11 @@ async function readRepo(rel: string): Promise<string> {
 
 describe("SC-6b — static guard: every .action( records trace target", () => {
   test("every .action( block has ctx.recordTraceTarget(...) or // no-feature within 80 lines", async () => {
-    const source = await readRepo("src/cli.tsx");
+    // Phase W8 P1: command registrations moved to per-family files. Scan all of them.
+    const familyDir = path.join(REPO_ROOT, "src", "cli", "commands");
+    const familyFiles = (await fs.readdir(familyDir)).filter((f) => f.endsWith(".tsx") || f.endsWith(".ts"));
+    const familySources = await Promise.all(familyFiles.map((f) => fs.readFile(path.join(familyDir, f), "utf8")));
+    const source = familySources.join("\n");
     const lines = source.split("\n");
     const actionLines = lines
       .map((line, index) => ({ line, index }))

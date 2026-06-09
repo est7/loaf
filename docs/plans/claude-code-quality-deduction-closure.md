@@ -7,13 +7,96 @@ subsystem audits (cli.tsx / reducer+preflight / gates+schema+i18n) plus direct
 verification of the transactional core, release gates, and two refuted "high
 severity" claims.
 
-**Current score basis:** **7.5 / 10 overall.** The protocol kernel subsystem
-(mutator / reducer / journal / gates pure-core / tests / types) is ~8.5; the
-repo is dragged to 7.5 by release-gate hygiene, dependency cycles, CLI
-duplication residue, an untested preflight error-priority, and the absence of any
-lint/format toolchain. (Note: file *length* — `cli.tsx` 6.4k, `preflight.ts`
-1.9k — is explicitly NOT a deduction; see the P4 design principle.) **No BLOCK-severity live bug was found in any of the
-three audited subsystems.**
+**Current score basis (refreshed 2026-06-08):** **8.6 / 10 overall.** The
+protocol kernel subsystem (mutator / reducer / journal / gates pure-core / tests
+/ types) is ~8.8-9.0. The earlier 7.5 deductions for red release gates,
+dependency cycles, event-drift false positives, and missing lint gate are
+resolved on current `main`. The remaining deductions are not file length as such;
+they are exactly the five numbered closures below: (1) command-surface
+reviewability (`cli.tsx`), (2) preflight precedence change risk, (3) the
+single-writer write-contention gap (`journal-mutate`), (4) the absence of a CI
+gate, and (5) this document's own refresh. (Earlier drafts of this paragraph
+listed a non-matching set — "local-only gate enforcement" instead of the CI
+gate — reconciled here so the prose and the numbered list agree.)
+
+Verified on 2026-06-08:
+
+```bash
+bun run lint
+bun run typecheck
+bun run test
+bunx madge --circular --extensions ts,tsx src
+bun run build
+bash scripts/ga-package-smoke.sh
+bash scripts/ga-consistency-check.sh --no-fetch
+bash scripts/check-event-drift.sh
+bun audit
+bun run inventory
+git status --short
+```
+
+Observed result: all gates passed; `bun run test` reported 133 test files / 2268
+tests passed; madge reported no circular dependency; `bun audit` reported no
+vulnerabilities; worktree was clean.
+
+**If the five remaining deductions are closed correctly:** expected score becomes
+**9.1 / 10**, with a possible **9.2 / 10** if the CLI and preflight changes
+materially improve locality without introducing a shallow command framework. This
+does not reach 9.5 because 9.5 requires mechanical proof that the protocol can
+evolve safely, not only that today's code is clean.
+
+The five scored 8.6 -> 9.1/9.2 closures are:
+
+1. `src/cli.tsx` command-surface refactor: split by real command domain / vertical
+   slice only. Each slice should own input reading, dispatch, mutation, and output
+   routing for that command family. A mechanical file split is not scored.
+2. `src/core/reducer/preflight.ts` policy-cluster refactor: extract only coherent
+   policy clusters and add precedence tests that fail if error ordering changes.
+   A jump-table split without stronger tests is not scored.
+3. `src/core/journal-mutate.ts` write contention fence: add a throw-only `O_EXCL`
+   or equivalent guard for the disk-touching span. Do not add wait loops,
+   PID-stealing, timeout machinery, or a full lock manager.
+4. CI gate: add an unattended workflow (or equivalent CI) that runs lint,
+   typecheck, tests, build, madge, GA consistency, pack smoke, and event drift.
+5. Audit-doc refresh: keep this plan's current score, closed deductions, and next
+   score ladder aligned with the actual HEAD gates.
+
+9.5 remains gated by contract-evolution proof: a public contract manifest,
+golden CLI behavior suite, property / sequence tests for protocol transitions,
+and mutation or fault-injection checks for stable-core invariants.
+
+**Round-1 audit found no BLOCK-severity live bug in the three audited
+subsystems** — but that scope did not include the cross-module enforcement and
+replay paths. A round-2 independent review (2026-06-08) found two real gaps the
+round-1 sweep missed, both now closed (see "Round-2 closures" below). So the
+original unqualified "no BLOCK found" line was scoped too confidently; corrected
+here.
+
+### Round-2 closures (2026-06-08, branch `fix/enforcement-integrity-closure`)
+
+Tracked in `quality-closure-round2.md`. Closed on top of the 8.6 baseline:
+
+- **W1 — spec-lock write-path bypass (enforcement gap, ~BLOCK).** `validateTransition`
+  gated `VERIFY.accept→SETTLE.reconcile` on `verify_accepted` but had no symmetric
+  `spec_locked` guard on `SPEC.design→EXECUTE.plan`; a bare `loaf advance EXECUTE.plan`
+  crossed the spec-lock boundary without the 8 checks. Fixed (`SPEC_LOCK_NOT_SATISFIED`),
+  codex-signed-off.
+- **W2 — replay seq-monotonicity (silent-corruption gap).** `replayJournal` never
+  asserted `seq === lastSeq+1` (preflight's gate was tautological on replay), so a
+  duplicated/gapped/reordered journal replayed clean. Fixed, codex-signed-off.
+- **W5a** — removed 10 phantom i18n diagnostic keys + exhaustive `diagnostic.* ⊆
+  DiagnosticCode` gate.
+- **W6** — schema mirror-drift test pins runtime `*-schema.ts` enums against
+  `docs/schemas.ts` (the unenforced source-of-truth contract).
+- **W7** — `SpecSubmitInput` tightened to `.strict()` (the add-* schemas keep
+  load-bearing passthrough; documented).
+- **flake** — `testTimeout` raised to 20s for subprocess-heavy integration tests.
+
+W6 + W5a are the first installments of the 9.5 "contract-evolution proof" ladder
+(schema-drift guards). W1/W2 raise the live floor; the five numbered closures
+above (W3 write fence, W8 cli split, W9 preflight cluster, W10 CI gate, doc
+refresh) remain the 8.6→9.1/9.2 path. Verified after round-2: `bun run test` →
+134 files / 2290 passed; `tsc --noEmit` clean.
 
 This is a sibling document to `code-quality-deduction-closure.md` (the earlier
 third-party-draft plan). The two AGREE on P0 release gates and dependency cycles.
@@ -719,6 +802,13 @@ evidence, NEVER for line count, and they must not raise the score by themselves:
   code is wanted; `PRIOR_META_STALE` already covers sequential contention).
 
 ## Score impact estimate
+
+> **2026-06-08 refresh.** The table below is retained as historical closure
+> accounting for the 2026-06-07 audit. On current `main`, P0 through P6.1 are
+> materially closed and the live score is 8.6. The remaining scored path is:
+> correctly close the five refreshed deductions above -> 9.1 / 10, or 9.2 / 10
+> if the CLI/preflight locality improvements are deep and behavior-preserving.
+> Anything above that follows the 9 / 9.5 / 10 ladder below.
 
 | Work | Expected score effect |
 | --- | --- |
