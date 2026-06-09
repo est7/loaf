@@ -96,12 +96,28 @@ export async function executePrune(opts: ExecuteOptions): Promise<ExecuteResult>
           // Deregister failed AFTER the feature moved → ROLL THE FEATURE BACK so
           // the session stays whole; never strand feature data in a bucket the
           // registry entry no longer points into (codex prune-core BLOCK 3). The
-          // registry entry was never moved, so rolling the feature back to its
-          // original path restores the pre-prune state. Best-effort: a rollback
-          // failure is a double fault left for `loaf doctor`.
+          // registry entry was never moved, so rolling the feature back restores
+          // the pre-prune state.
           if (featureMoved) {
-            await moveDir(path.join(bucket, "feature"), t.feature_dir).catch(() => undefined);
+            try {
+              await moveDir(path.join(bucket, "feature"), t.feature_dir);
+            } catch (rollbackErr) {
+              // DOUBLE FAULT (codex prune-core BLOCK 4): the rollback ALSO failed,
+              // so `bucket/feature` is now the ONLY copy of the feature data.
+              // PRESERVE the bucket (never rm it here) and surface both errors +
+              // the retained path. Invariant: either the feature is back at
+              // origin, OR the trash bucket remains recoverable — never neither.
+              failed.push({
+                session_id: t.session_id,
+                error:
+                  `registry deregister failed (${(regErr as Error).message}); ` +
+                  `feature rollback also failed (${(rollbackErr as Error).message}); ` +
+                  `feature data retained in ${bucket} — recover via \`loaf prune restore\` or doctor`,
+              });
+              continue; // bucket preserved; do NOT remove it
+            }
           }
+          // Rollback succeeded (or nothing was moved) → the bucket is now empty.
           await fs.rm(bucket, { recursive: true, force: true }).catch(() => undefined);
           throw regErr; // → outer catch → `failed`, session intact
         }

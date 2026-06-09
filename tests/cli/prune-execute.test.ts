@@ -11,7 +11,7 @@
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { executePrune } from "../../src/cli/prune/execute.js";
 import type { PruneTarget } from "../../src/cli/prune/resolve.js";
@@ -33,6 +33,7 @@ beforeEach(async () => {
   await fs.mkdir(projects, { recursive: true });
 });
 afterEach(async () => {
+  vi.restoreAllMocks();
   await fs.rm(root, { recursive: true, force: true });
 });
 
@@ -209,6 +210,42 @@ describe("executePrune — robustness", () => {
     expect(await exists(path.join(registryDir, `${U(1)}.json`))).toBe(true);
     // no stranded feature data in the trash bucket
     expect(await exists(path.join(trashDir, TS, U(1), "feature"))).toBe(false);
+  });
+
+  // codex prune-core BLOCK 4: if the rollback ALSO fails (double fault), the
+  // bucket holds the only feature copy — it must be PRESERVED, never removed.
+  test("double fault (rollback also fails) preserves the bucket — no data loss", async () => {
+    const cwd = path.join(projects, "p1");
+    await writeEntry(U(1), "feat-a", cwd);
+    await makeFeatureDir(cwd, "feat-a", "DATA");
+
+    // Inject: 1st rename (feature → bucket) succeeds; the registry move (2nd) and
+    // the rollback (3rd) both fail with a non-EXDEV/ENOENT error.
+    const realRename = fs.rename.bind(fs);
+    let n = 0;
+    vi.spyOn(fs, "rename").mockImplementation(((src: string, dest: string) => {
+      n += 1;
+      if (n === 1) return realRename(src, dest);
+      return Promise.reject(Object.assign(new Error("EIO injected"), { code: "EIO" }));
+    }) as typeof fs.rename);
+
+    const r = await executePrune({
+      registryDir,
+      trashDir,
+      targets: [target(U(1), "feat-a", cwd, false)],
+      mode: "trash",
+      timestamp: TS,
+    });
+
+    expect(r.done).toEqual([]);
+    expect(r.failed).toHaveLength(1);
+    expect(r.failed[0]?.error).toContain("retained in");
+    // the only feature copy is preserved in the bucket — NOT deleted
+    expect(await fs.readFile(path.join(trashDir, TS, U(1), "feature", "journal.jsonl"), "utf8")).toBe(
+      "DATA",
+    );
+    // registry entry never moved
+    expect(await exists(path.join(registryDir, `${U(1)}.json`))).toBe(true);
   });
 
   test("non-orphan whose feature dir vanished between resolve and execute degrades to registry-only", async () => {
