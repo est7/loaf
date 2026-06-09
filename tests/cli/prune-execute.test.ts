@@ -183,6 +183,34 @@ describe("executePrune — robustness", () => {
     expect(await exists(path.join(registryDir, `${U(1)}.json`))).toBe(true);
   });
 
+  // codex prune-core BLOCK 3: a registry-move failure AFTER the feature moved
+  // must roll the feature back, never strand it in an unreconnectable bucket.
+  test("registry-move failure after feature move rolls back — no stranded feature data", async () => {
+    const cwd = path.join(projects, "p1");
+    await writeEntry(U(1), "feat-a", cwd);
+    const fdir = await makeFeatureDir(cwd, "feat-a", "DATA");
+    // Sabotage: pre-create bucket/registry.json as a directory → the registry
+    // rename fails AFTER the feature has already moved into the bucket.
+    await fs.mkdir(path.join(trashDir, TS, U(1), "registry.json"), { recursive: true });
+
+    const r = await executePrune({
+      registryDir,
+      trashDir,
+      targets: [target(U(1), "feat-a", cwd, false)],
+      mode: "trash",
+      timestamp: TS,
+    });
+
+    expect(r.failed).toHaveLength(1);
+    expect(r.done).toEqual([]);
+    // rolled back: feature restored at its original path with content intact
+    expect(await fs.readFile(path.join(fdir, "journal.jsonl"), "utf8")).toBe("DATA");
+    // registry entry never moved (still at origin) → session is whole
+    expect(await exists(path.join(registryDir, `${U(1)}.json`))).toBe(true);
+    // no stranded feature data in the trash bucket
+    expect(await exists(path.join(trashDir, TS, U(1), "feature"))).toBe(false);
+  });
+
   test("non-orphan whose feature dir vanished between resolve and execute degrades to registry-only", async () => {
     const cwd = path.join(projects, "p1");
     await writeEntry(U(1), "feat-a", cwd); // entry exists, but feature dir never created

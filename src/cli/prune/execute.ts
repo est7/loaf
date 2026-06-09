@@ -85,11 +85,26 @@ export async function executePrune(opts: ExecuteOptions): Promise<ExecuteResult>
         await writeManifest(!t.orphan);
 
         // M5: feature dir before registry deregister.
+        let featureMoved = false;
         if (!t.orphan) {
-          const moved = await moveDir(t.feature_dir, path.join(bucket, "feature"));
-          if (!moved) await writeManifest(false); // TOCTOU: dir gone since resolve
+          featureMoved = await moveDir(t.feature_dir, path.join(bucket, "feature"));
+          if (!featureMoved) await writeManifest(false); // TOCTOU: dir gone since resolve
         }
-        await moveFile(registryEntryPath, path.join(bucket, "registry.json"));
+        try {
+          await moveFile(registryEntryPath, path.join(bucket, "registry.json"));
+        } catch (regErr) {
+          // Deregister failed AFTER the feature moved → ROLL THE FEATURE BACK so
+          // the session stays whole; never strand feature data in a bucket the
+          // registry entry no longer points into (codex prune-core BLOCK 3). The
+          // registry entry was never moved, so rolling the feature back to its
+          // original path restores the pre-prune state. Best-effort: a rollback
+          // failure is a double fault left for `loaf doctor`.
+          if (featureMoved) {
+            await moveDir(path.join(bucket, "feature"), t.feature_dir).catch(() => undefined);
+          }
+          await fs.rm(bucket, { recursive: true, force: true }).catch(() => undefined);
+          throw regErr; // → outer catch → `failed`, session intact
+        }
 
         done.push({
           session_id: t.session_id,
