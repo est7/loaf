@@ -70,6 +70,8 @@ import { registerFinding } from "./cli/commands/finding.js";
 import { registerSpec } from "./cli/commands/spec.js";
 import { registerState } from "./cli/commands/state.js";
 import { registerBoard } from "./cli/commands/board.js";
+import { registerPrune } from "./cli/commands/prune.js";
+import { defaultRegistryDir } from "./core/registry-writer.js";
 import { collectPresentSelectors } from "./cli/selectors.js";
 import type { OpenUrl } from "./cli/board/open-url.js";
 
@@ -784,6 +786,11 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
     ...(deps.registryDir !== undefined && { registryDir: deps.registryDir }),
     ...(deps.openUrl !== undefined && { openUrl: deps.openUrl }),
     ...(deps.boardKeepAlive !== undefined && { boardKeepAlive: deps.boardKeepAlive }),
+  });
+  registerPrune(program, ctx, {
+    registryDir: deps.registryDir ?? defaultRegistryDir(),
+    now,
+    actor,
   });
 
   const { findingCmd } = registerFinding(program, ctx, mutator, actor);

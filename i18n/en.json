@@ -264,7 +264,11 @@
     "FEATURE_AMBIGUOUS":          "current working directory has {count} active features and no dispatch context: {feature_list}",
     "SESSION_CWD_MISMATCH":       "--session {uuid} is registered against cwd={registered_cwd}, but the current cwd is {current_cwd}",
     "SESSION_SHORT_AMBIGUOUS":    "--session {prefix} matches {match_count} sessions in the registry: {candidate_list}",
-    "SESSION_NOT_FOUND":          "--session {uuid_or_prefix} matches no entry in the registry"
+    "SESSION_NOT_FOUND":          "--session {uuid_or_prefix} matches no entry in the registry",
+    "PRUNE_RESTORE_NOT_FOUND":    "no trashed session matches the given id",
+    "PRUNE_RESTORE_AMBIGUOUS":    "the session id was trashed more than once; pass --at <ts> to pick one",
+    "PRUNE_RESTORE_INCOMPLETE":   "the trash bucket is incomplete (missing a required artifact); not restoring",
+    "PRUNE_PATH_OCCUPIED":        "a restore destination already exists; refusing to overwrite"
   },
 
   "failure": {
