@@ -264,7 +264,12 @@
     "FEATURE_AMBIGUOUS":          "当前 cwd 有 {count} 个 active feature 但无 dispatch 上下文:{feature_list}",
     "SESSION_CWD_MISMATCH":       "--session {uuid} 注册的 cwd={registered_cwd},当前 cwd 是 {current_cwd}",
     "SESSION_SHORT_AMBIGUOUS":    "--session {prefix} 在 registry 匹配 {match_count} 个 session:{candidate_list}",
-    "SESSION_NOT_FOUND":          "--session {uuid_or_prefix} 在 registry 找不到任何匹配"
+    "SESSION_NOT_FOUND":          "--session {uuid_or_prefix} 在 registry 找不到任何匹配",
+    "PRUNE_RESTORE_NOT_FOUND":    "没有匹配该 id 的已回收 session",
+    "PRUNE_RESTORE_AMBIGUOUS":    "该 session id 被回收过多次;用 --at <ts> 指定其一",
+    "PRUNE_RESTORE_INCOMPLETE":   "trash 桶不完整(缺必要文件),不予恢复",
+    "PRUNE_PATH_OCCUPIED":        "恢复目标已存在,拒绝覆盖",
+    "PRUNE_PARTIAL_FAILURE":      "prune 部分失败:有 session 未能删除"
   },
 
   "failure": {

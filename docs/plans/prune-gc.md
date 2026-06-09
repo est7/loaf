@@ -1,9 +1,30 @@
 # `loaf prune` — session GC (recoverable trash + audited purge)
 
-**Status:** DESIGN — approved direction, awaiting implementation cycle. NOT started.
+**Status:** IMPLEMENTED (slices 1–7) on `feat/prune-gc`; codex-signed across the
+prune-audit rounds (core 1–4: 6 BLOCK rounds → LGTM; 6a partial-failure BLOCK → LGTM;
+6b restore --dry-run BLOCK → LGTM).
 **Type:** new top-level command (destructive ops; PUBLIC_IMPACT=true).
 **Reviewed with:** the `create-cli` rubric — the 3 HIGH findings + M1/M2 are folded in
 below (they are MVP requirements, not follow-ups).
+
+## As-built (what landed)
+
+- core: `src/cli/prune/{resolve,execute,restore,fs-move,audit,trash-gc,trash-ts}.ts`
+  — status + ABSOLUTE lock gate, recoverable-trash execute (manifest-first,
+  move-then-deregister, rollback on registry-move failure, bucket preserved on
+  double-fault), restore (source/dest preflight, all-or-nothing, --dry-run preview),
+  append-only audit log, retention sweep, fs-safe timestamp.
+- surface: `src/cli/commands/prune.tsx` — `loaf prune <scope>` (preview/--yes/
+  --force/--purge, partial failure → exit 2 `PRUNE_PARTIAL_FAILURE`), `prune restore
+  <id> [--at]`, `--history`, `--trash --older-than <N>d`; honors the global
+  `--session` / `--dry-run`. one-way resolve→execute; cwd realpath symmetry in resolve.
+- catalog: `PRUNE_RESTORE_{NOT_FOUND,AMBIGUOUS,INCOMPLETE}` + `PRUNE_PATH_OCCUPIED` +
+  `PRUNE_PARTIAL_FAILURE` in DiagnosticCode + ERROR_CATALOG + i18n; protocol §10.8 row.
+- tests: prune-{resolve,execute,restore,audit,trash-gc,cli,help}.test.ts.
+
+**Still tracked (non-blocking, post-v0.5.0):** `--history` surfacing for EACCES /
+corrupt log lines (currently collapses to empty / skips silently); an optional
+`loaf doctor` recovery for a retained double-fault bucket (manual move documented).
 
 ## Why
 

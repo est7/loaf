@@ -4048,6 +4048,12 @@ export const DiagnosticCode = z.enum([
   "FINDING_ACTION_UNUSUAL_REASON_REQUIRED",// A7
   "FINDING_ACTION_INCOHERENT",             // A7
   "FINDING_TARGET_REQUIRED",               // Slice 3 SC3 (rev 4.3 §37 target_payload preflight)
+  // ── prune session GC (loaf prune restore — slice 3 core; surfaced slice 6b) ──
+  "PRUNE_RESTORE_NOT_FOUND",               // restorePrune: no trash bucket for the id
+  "PRUNE_RESTORE_AMBIGUOUS",               // restorePrune: id trashed multiple times (need --at)
+  "PRUNE_RESTORE_INCOMPLETE",              // restorePrune: bucket missing a required artifact
+  "PRUNE_PATH_OCCUPIED",                   // restorePrune: a restore destination already exists
+  "PRUNE_PARTIAL_FAILURE",                 // loaf prune: some targets errored mid-execute (exit 2)
   // SPEC_LOCKED_NO_DIRECT_EDIT + SPEC_NOT_INITIALIZED were pre-registered
   // in the rev 4.3 ADR-0004 A4 block above. Slice 4 SC3 wires them
   // through preflight refines (5i); no DiagnosticCode/ERROR_CATALOG
@@ -4639,6 +4645,42 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
       "run `loaf sessions list --in-cwd` to see registered sessions " +
       "(future SC-9b), or run `loaf start <name>` to create one",
     doc_anchor: "protocol.md#§10.3",
+  },
+  // ── prune session GC — `loaf prune restore` (core slice 3; surfaced slice 6b).
+  // Static messages (no placeholders): the restore CLI surface builds the
+  // detailed, id-specific message at emit time via ctx.failure(code, msg, detail).
+  PRUNE_RESTORE_NOT_FOUND: {
+    exit_code: 2,
+    message_template: "no trashed session matches the given id",
+    fix_template: "run `loaf prune --history` to list trashed sessions (slice 6b)",
+    doc_anchor: "protocol.md#§10.8",
+  },
+  PRUNE_RESTORE_AMBIGUOUS: {
+    exit_code: 2,
+    message_template: "the session id was trashed more than once; pass --at <ts> to pick one",
+    fix_template: "re-run `loaf prune restore <id> --at <ts>` with one of the listed timestamps",
+    doc_anchor: "protocol.md#§10.8",
+  },
+  PRUNE_RESTORE_INCOMPLETE: {
+    exit_code: 2,
+    message_template: "the trash bucket is incomplete (missing a required artifact); not restoring",
+    fix_template: "inspect the trash bucket; a complete bucket has manifest.json + registry.json",
+    doc_anchor: "protocol.md#§10.8",
+  },
+  PRUNE_PATH_OCCUPIED: {
+    exit_code: 2,
+    message_template: "a restore destination already exists; refusing to overwrite",
+    fix_template: "move or remove the occupying registry entry / feature dir, then retry restore",
+    doc_anchor: "protocol.md#§10.8",
+  },
+  PRUNE_PARTIAL_FAILURE: {
+    // `loaf prune --yes` where some targets errored mid-execute. NOT a success:
+    // exit 2 so scripts don't proceed as if prune fully completed. detail carries
+    // pruned / skipped / failed for inspection; the audit log records failed too.
+    exit_code: 2,
+    message_template: "prune partially failed: one or more sessions could not be removed",
+    fix_template: "inspect detail.failed; rerun prune for the failed sessions after resolving the error",
+    doc_anchor: "protocol.md#§10.8",
   },
   PENDING_BLOCKS_ADVANCE: {
     exit_code: 2,

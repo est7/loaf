@@ -1,0 +1,238 @@
+// prune slice 6a — `loaf prune <scope>` CLI surface (RED-first, e2e via runCli).
+//
+// Wires resolve → (preview | execute) → audit. Safety surface: exactly one scope
+// (USAGE otherwise); preview by default (no side effects), --yes executes;
+// --session <prefix> ambiguity is gated (SESSION_SHORT_AMBIGUOUS); destructive
+// only on terminal sessions unless --force.
+
+import { promises as fs } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
+
+import { main, type MainDeps } from "../../src/cli.js";
+
+let root: string;
+let registryDir: string;
+let projects: string;
+
+beforeEach(async () => {
+  root = await fs.mkdtemp(path.join(os.tmpdir(), "prune-cli-"));
+  registryDir = path.join(root, ".loaf", "registry"); // trash/log derive as siblings
+  projects = path.join(root, "projects");
+  await fs.mkdir(registryDir, { recursive: true });
+  await fs.mkdir(projects, { recursive: true });
+});
+afterEach(async () => {
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+const U = (n: number): string => `0000000${n}-0000-4000-8000-00000000000${n}`.slice(-36);
+
+async function seed(id: string, feature: string, cwd: string, sub_state: string): Promise<void> {
+  await fs.writeFile(
+    path.join(registryDir, `${id}.json`),
+    JSON.stringify({
+      schema_version: 2,
+      at: "2026-06-01T00:00:00.000Z",
+      session_id: id,
+      session_label: "",
+      feature,
+      cwd,
+      workspace: "default",
+      phase: sub_state.split(".")[0],
+      sub_state,
+      iteration: 1,
+      active_tasks: [],
+      pending: null,
+      pending_queue_depth: 0,
+      ceremony_label: "standard",
+    }),
+  );
+  await fs.mkdir(path.join(cwd, ".loaf", feature), { recursive: true });
+  await fs.writeFile(path.join(cwd, ".loaf", feature, "journal.jsonl"), "J");
+}
+
+const exists = async (p: string): Promise<boolean> => {
+  try {
+    await fs.stat(p);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+function run(argv: string[]): Promise<{ exit: number; stdout: string; stderr: string }> {
+  const deps: MainDeps = { registryDir, now: () => new Date("2026-06-09T00:00:00.000Z") };
+  // capture
+  const out: string[] = [];
+  const err: string[] = [];
+  const o = process.stdout.write.bind(process.stdout);
+  const e = process.stderr.write.bind(process.stderr);
+  (process.stdout.write as unknown) = (s: string) => (out.push(s), true);
+  (process.stderr.write as unknown) = (s: string) => (err.push(s), true);
+  return main(["node", "loaf", ...argv], deps)
+    .then((exit) => ({ exit, stdout: out.join(""), stderr: err.join("") }))
+    .finally(() => {
+      process.stdout.write = o;
+      process.stderr.write = e;
+    });
+}
+
+describe("loaf prune — scope + safety surface", () => {
+  test("no scope → USAGE exit 2", async () => {
+    const r = await run(["prune", "--format", "json"]);
+    expect(r.exit).toBe(2);
+    expect(JSON.parse(r.stderr).code).toBe("USAGE");
+  });
+
+  test("more than one scope → USAGE exit 2", async () => {
+    const r = await run(["prune", "--all", "--in-cwd", "--format", "json"]);
+    expect(r.exit).toBe(2);
+    expect(JSON.parse(r.stderr).code).toBe("USAGE");
+  });
+
+  test("--all without --yes previews (no side effects)", async () => {
+    const cwd = path.join(projects, "p1");
+    await seed(U(1), "done-a", cwd, "DONE.delivered");
+    const r = await run(["prune", "--all", "--format", "json"]);
+    expect(r.exit).toBe(0);
+    const body = JSON.parse(r.stdout);
+    expect(body.dry_run).toBe(true);
+    expect(body.pruned.map((p: { session_id: string }) => p.session_id)).toEqual([U(1)]);
+    // nothing deleted
+    expect(await exists(path.join(registryDir, `${U(1)}.json`))).toBe(true);
+  });
+
+  test("--all --yes prunes terminal sessions to trash + writes audit log", async () => {
+    const cwd = path.join(projects, "p1");
+    await seed(U(1), "done-a", cwd, "DONE.delivered");
+    await seed(U(2), "active-b", cwd, "EXECUTE.work"); // active → skipped (no --force)
+
+    const r = await run(["prune", "--all", "--yes", "--format", "json"]);
+    expect(r.exit).toBe(0);
+    const body = JSON.parse(r.stdout);
+    expect(body.pruned.map((p: { session_id: string }) => p.session_id)).toEqual([U(1)]);
+    expect(body.skipped.map((s: { session_id: string }) => s.session_id)).toEqual([U(2)]);
+    // terminal pruned, active untouched
+    expect(await exists(path.join(registryDir, `${U(1)}.json`))).toBe(false);
+    expect(await exists(path.join(registryDir, `${U(2)}.json`))).toBe(true);
+    // trashed + audit logged (siblings of registry dir)
+    const base = path.dirname(registryDir);
+    expect(await exists(path.join(base, "trash"))).toBe(true);
+    expect(await exists(path.join(base, "prune-log.jsonl"))).toBe(true);
+  });
+
+  // codex 6a BLOCK: a partial execute failure must NOT exit 0, and the audit
+  // log must record the failure (not just the successful deletions).
+  test("partial execute failure → exit 2 PRUNE_PARTIAL_FAILURE + failed[] + audit", async () => {
+    const cwd = path.join(projects, "p1");
+    await seed(U(1), "fail-a", cwd, "DONE.delivered");
+    await seed(U(2), "ok-b", cwd, "DONE.delivered");
+    // Sabotage U(1)'s trash bucket: manifest.json path is a directory → its
+    // executePrune write fails (now() is fixed → bucket ts is deterministic).
+    const base = path.dirname(registryDir);
+    const ts = "2026-06-09T00-00-00.000Z";
+    await fs.mkdir(path.join(base, "trash", ts, U(1), "manifest.json"), { recursive: true });
+
+    const r = await run(["prune", "--all", "--yes", "--format", "json"]);
+    expect(r.exit).toBe(2);
+    const body = JSON.parse(r.stderr);
+    expect(body.code).toBe("PRUNE_PARTIAL_FAILURE");
+    expect(body.detail.failed.map((f: { session_id: string }) => f.session_id)).toEqual([U(1)]);
+    expect(body.detail.pruned.map((p: { session_id: string }) => p.session_id)).toEqual([U(2)]);
+    // U(1) untouched (failed before any move); U(2) pruned
+    expect(await exists(path.join(registryDir, `${U(1)}.json`))).toBe(true);
+    expect(await exists(path.join(registryDir, `${U(2)}.json`))).toBe(false);
+    // audit log records the failure, not just the success
+    const log = await fs.readFile(path.join(base, "prune-log.jsonl"), "utf8");
+    const entry = JSON.parse(log.trim().split("\n").at(-1)!);
+    expect(entry.failed.map((f: { session_id: string }) => f.session_id)).toEqual([U(1)]);
+    expect(entry.pruned.map((p: { session_id: string }) => p.session_id)).toEqual([U(2)]);
+  });
+
+  test("--session <ambiguous-prefix> → SESSION_SHORT_AMBIGUOUS exit 2", async () => {
+    const cwd = path.join(projects, "p1");
+    // two uuids share the prefix "0000000" (U(1) and U(2) both start with it)
+    await seed(U(1), "a", cwd, "DONE.delivered");
+    await seed(U(2), "b", cwd, "DONE.delivered");
+    const r = await run(["prune", "--session", "0000000", "--format", "json"]);
+    expect(r.exit).toBe(2);
+    expect(JSON.parse(r.stderr).code).toBe("SESSION_SHORT_AMBIGUOUS");
+  });
+});
+
+describe("loaf prune — 6b restore / history / trash retention", () => {
+  test("restore round-trips a trashed session (registry entry + feature dir)", async () => {
+    const cwd = path.join(projects, "p1");
+    await seed(U(1), "feat-a", cwd, "DONE.delivered");
+
+    const t = await run(["prune", "--session", U(1), "--yes", "--format", "json"]);
+    expect(t.exit).toBe(0);
+    expect(await exists(path.join(registryDir, `${U(1)}.json`))).toBe(false);
+
+    const r = await run(["prune", "restore", U(1), "--format", "json"]);
+    expect(r.exit).toBe(0);
+    expect(JSON.parse(r.stdout).session_id).toBe(U(1));
+    expect(await exists(path.join(registryDir, `${U(1)}.json`))).toBe(true);
+    expect(await exists(path.join(cwd, ".loaf", "feat-a", "journal.jsonl"))).toBe(true);
+  });
+
+  test("--dry-run prune restore is a preview — no state change (codex 6b BLOCK)", async () => {
+    const cwd = path.join(projects, "p1");
+    await seed(U(1), "feat-a", cwd, "DONE.delivered");
+    await run(["prune", "--session", U(1), "--yes"]); // trash it
+    const base = path.dirname(registryDir);
+    const bucketTs = "2026-06-09T00-00-00.000Z";
+
+    const r = await run(["--dry-run", "prune", "restore", U(1), "--format", "json"]);
+    expect(r.exit).toBe(0);
+    expect(JSON.parse(r.stdout).dry_run).toBe(true);
+    // nothing restored: registry still absent, bucket still present
+    expect(await exists(path.join(registryDir, `${U(1)}.json`))).toBe(false);
+    expect(await exists(path.join(base, "trash", bucketTs, U(1)))).toBe(true);
+  });
+
+  test("restore unknown id → PRUNE_RESTORE_NOT_FOUND exit 2", async () => {
+    const r = await run(["prune", "restore", U(9), "--format", "json"]);
+    expect(r.exit).toBe(2);
+    expect(JSON.parse(r.stderr).code).toBe("PRUNE_RESTORE_NOT_FOUND");
+  });
+
+  test("--history prints audit entries after a prune", async () => {
+    const cwd = path.join(projects, "p1");
+    await seed(U(1), "feat-a", cwd, "DONE.delivered");
+    await run(["prune", "--all", "--yes"]);
+
+    const r = await run(["prune", "--history", "--format", "json"]);
+    expect(r.exit).toBe(0);
+    const body = JSON.parse(r.stdout);
+    expect(body.count).toBe(1);
+    expect(body.entries[0].pruned.map((p: { session_id: string }) => p.session_id)).toEqual([U(1)]);
+  });
+
+  test("--trash --older-than removes old buckets; preview (no --yes) is a no-op", async () => {
+    const base = path.dirname(registryDir);
+    const oldTs = "2026-01-01T00-00-00.000Z"; // well older than 30d before the fixed now
+    const recentTs = "2026-06-08T00-00-00.000Z"; // 1 day old
+    await fs.mkdir(path.join(base, "trash", oldTs, "x"), { recursive: true });
+    await fs.mkdir(path.join(base, "trash", recentTs, "y"), { recursive: true });
+
+    const preview = await run(["prune", "--trash", "--older-than", "30", "--format", "json"]);
+    expect(preview.exit).toBe(0);
+    expect(JSON.parse(preview.stdout).dry_run).toBe(true);
+    expect(await exists(path.join(base, "trash", oldTs))).toBe(true); // preview removed nothing
+
+    const exec = await run(["prune", "--trash", "--older-than", "30", "--yes", "--format", "json"]);
+    expect(exec.exit).toBe(0);
+    expect(JSON.parse(exec.stdout).removed.map((x: { ts: string }) => x.ts)).toEqual([oldTs]);
+    expect(await exists(path.join(base, "trash", oldTs))).toBe(false);
+    expect(await exists(path.join(base, "trash", recentTs))).toBe(true);
+  });
+
+  test("--trash without --older-than → USAGE exit 2", async () => {
+    const r = await run(["prune", "--trash", "--format", "json"]);
+    expect(r.exit).toBe(2);
+    expect(JSON.parse(r.stderr).code).toBe("USAGE");
+  });
+});
