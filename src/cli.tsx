@@ -46,7 +46,6 @@ import {
 import {
   ARTIFACT_SCHEMA_KINDS,
   emitArtifactSchema,
-  emitInputSchema,
   formatSchema,
   type ArtifactSchemaKind,
 } from "./cli/schema-emit.js";
@@ -79,7 +78,7 @@ import {
   type WriteCategory,
   type VerifyCheckKind,
 } from "./core/step-write-paths.js";
-import { evaluateWritePath, parseHookStdinPath } from "./core/write-guard.js";
+import { evaluateWritePath } from "./core/write-guard.js";
 import {
   defaultLoafConfig,
   LoafConfig,
@@ -118,16 +117,19 @@ import { parseInputSource } from "./cli/input-source.js";
 import { readJsonInput } from "./cli/input-read.js";
 import { defaultReadStdin, defaultIsStdinTty } from "./cli/stdin.js";
 
-import { resolveHumanActor } from "./core/actor-resolver.js";
 import {
   LOAF_DOCS_URL,
   LOAF_ISSUE_URL,
   defaultFeatureDir,
-  getGitEmail,
   helpFooter,
   loadSession,
 } from "./core/cli-runtime.js";
-import { mutate, mutateBatch, type MutateContext } from "./core/journal-mutate.js";
+import { mutateBatch, type MutateContext } from "./core/journal-mutate.js";
+import {
+  createCommandMutator,
+  type MutateOkSingle,
+  type MutateOkBatch,
+} from "./cli/command-mutator.js";
 import { replayJournal } from "./core/journal-bootstrap.js";
 import type { TaskState } from "./core/reducer.js";
 import { writeProjections } from "./core/projection-writer.js";
@@ -136,7 +138,6 @@ import {
   SnapshotStaleError,
   NoSessionError,
   type LoadResult,
-  type ProjectionKind,
 } from "./core/projection-loader.js";
 import { PendingPromptKind, type Ceremony } from "./core/journal-entry.js";
 import {
@@ -406,73 +407,6 @@ function writePreContextSiteFailure(input: {
   } else {
     process.stderr.write(`error: ${input.code} — ${message}\n`);
   }
-}
-
-function diagnosticVarsFor(
-  code: string,
-  detail: Record<string, unknown> | undefined,
-): I18nVars | null {
-  switch (code) {
-    case "INVALID_FORMAT":
-      return varsIfDefined({
-        value: stringVar(detail?.["value"]),
-        allowed_values_human: stringVar(detail?.["allowed_values_human"]) ?? FORMAT_MODES_HUMAN,
-      });
-    case "MUTUALLY_EXCLUSIVE_FLAGS":
-      return varsIfDefined({ flags: listVar(detail?.["conflicting"]) });
-    case "DRY_RUN_NOT_APPLICABLE":
-      return varsIfDefined({
-        command_type: stringVar(detail?.["command_type"]),
-        command: stringVar(detail?.["command"]),
-      });
-    case "CONFIG_ALREADY_INITIALIZED":
-      return varsIfDefined({ config_path: stringVar(detail?.["config_path"]) });
-    case "FEATURE_NOT_FOUND":
-      return {};
-    case "FEATURE_AMBIGUOUS":
-      return varsIfDefined({
-        count: numberVar(detail?.["count"]),
-        feature_list: listVar(detail?.["feature_list"]),
-      });
-    case "SESSION_CWD_MISMATCH":
-      return varsIfDefined({
-        uuid: stringVar(detail?.["uuid"]),
-        registered_cwd: stringVar(detail?.["registered_cwd"]),
-        current_cwd: stringVar(detail?.["current_cwd"]),
-      });
-    case "SESSION_SHORT_AMBIGUOUS":
-      return varsIfDefined({
-        prefix: stringVar(detail?.["prefix"]),
-        match_count: numberVar(detail?.["match_count"]),
-        candidate_list: listVar(detail?.["candidate_list"]),
-      });
-    case "SESSION_NOT_FOUND":
-      return varsIfDefined({ uuid_or_prefix: stringVar(detail?.["uuid_or_prefix"]) });
-    default:
-      return null;
-  }
-}
-
-function varsIfDefined(vars: Record<string, string | number | null>): I18nVars | null {
-  for (const value of Object.values(vars)) {
-    if (value === null) return null;
-  }
-  return vars as I18nVars;
-}
-
-function stringVar(value: unknown): string | null {
-  if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-  return null;
-}
-
-function numberVar(value: unknown): number | null {
-  return typeof value === "number" ? value : null;
-}
-
-function listVar(value: unknown): string | null {
-  if (Array.isArray(value)) return value.map((item) => String(item)).join(", ");
-  return stringVar(value);
 }
 
 function collectPresentSelectors(argv: string[], env: NodeJS.ProcessEnv): string[] {
@@ -978,197 +912,31 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
 
   // Phase 16 SC-3 — CommandContext is the presentation-layer plumbing
   // that owns output channel + lazy session/projection cache + failure
-  // routing + crash-log context snapshot. fail()/emitFailure() become
-  // thin shims so all 28 unmigrated commands transparently route through
-  // ctx without per-call-site changes (codex r206 axis G: 1 representative
-  // command migrated; rest follow in SC-4..SC-15 as each is touched).
+  // routing + crash-log context snapshot. Phase W8 0a folds the former
+  // main() helper cluster (fail / emitFailure / emitNoSessionFailure /
+  // resolveHumanActorOrFail / dispatchOrFail / dispatchForHookOptional /
+  // resolveHookPath / resolveDispatchForWriteGuard / rejectIfDryRun /
+  // loadProjectionsOrFail) into ctx methods.
   const ctx = createCommandContext(argv, {
     writeStdout: writeStdoutCaptured,
     writeStderr: (s) => process.stderr.write(s),
     loadSession,
     loadProjections,
+    loadProjectionsDirect: loadProjections,
     i18n,
+    // Phase W8 0a: actor-resolution injection points (formerly isInteractiveHumanForActor
+    // / readGitConfigForActor in main() helper cluster).
+    ...(deps.isInteractiveHuman !== undefined && { isInteractiveHuman: deps.isInteractiveHuman }),
+    ...(deps.readGitConfig !== undefined && { readGitConfig: deps.readGitConfig }),
+    // Phase W8 0a: hook-path stdin injection points.
+    ...(deps.readStdin !== undefined && { readStdin: deps.readStdin }),
+    ...(deps.isStdinTty !== undefined && { isStdinTty: deps.isStdinTty }),
     // Phase 16 SC-8: thread MainDeps.registryDir through to the
     // CommandContext so ctx.resolveDispatch() uses the tmp dir in
     // CLI e2e tests. Production omits → defaultRegistryDir() honors
     // LOAF_REGISTRY_DIR env (set by vitest setup file).
     ...(deps.registryDir !== undefined && { registryDir: deps.registryDir }),
   });
-  // SC-5b2 closed the legacy presentation shim — all sites now route
-  // through ctx.success / ctx.failure. Single source of truth =
-  // ctx.output (parsePresentation via createCommandContext).
-  function emitKeyedFailure(code: string, detail: Record<string, unknown> | undefined): boolean {
-    const vars = diagnosticVarsFor(code, detail);
-    if (vars === null) return false;
-    ctx.failureKeyed(code, diagnosticKey(code as MigratedDiagnosticCode), vars, detail);
-    return true;
-  }
-
-  const fail = (code: string, message: string): void => {
-    if (!emitKeyedFailure(code, undefined)) {
-      ctx.failure(code, message);
-    }
-  };
-  const emitFailure = (code: string, message: string, detail?: Record<string, unknown>): void => {
-    if (!emitKeyedFailure(code, detail)) {
-      ctx.failure(code, message, detail);
-    }
-  };
-
-  const emitNoSessionFailure = (
-    keyPath: FailureSiteKey,
-    feature: string,
-    detail?: Record<string, unknown>,
-  ): void => {
-    ctx.failureKeyed("NO_SESSION", keyPath, { feature }, detail);
-  };
-
-  // Phase 16 SC-6a — actor-resolution boundary helpers. Both injection
-  // points live in MainDeps so tests can drive deterministic TTY-up /
-  // git-config values; production omits both and falls back to the
-  // pre-SC-6a literals (process.stdin.isTTY === true, getGitEmail).
-  // The closure re-evaluates `ctx.noInput` on every invocation so a
-  // shared helper works for sub-commands resolved later in main().
-  const isInteractiveHumanForActor = (): boolean =>
-    (deps.isInteractiveHuman?.() ?? process.stdin.isTTY === true) && !ctx.noInput;
-  const readGitConfigForActor: () => string | null = deps.readGitConfig ?? getGitEmail;
-  const resolveHumanActorOrFail = (): string | null => {
-    const r = resolveHumanActor({
-      env: process.env,
-      readGitConfig: readGitConfigForActor,
-      isInteractiveHuman: isInteractiveHumanForActor(),
-    });
-    if (!r.ok) {
-      emitFailure(r.code, r.message);
-      return null;
-    }
-    return r.actor;
-  };
-
-  // Phase 16 SC-8 — dispatch resolution wrapper. Each feature-addressed
-  // action handler calls this at the top instead of the SC-6b
-  // `featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature)` +
-  // `ctx.recordTraceTarget(...)` pattern. Resolves protocol §10.3
-  // 5-level precedence; on failure emits the dispatch diagnostic and
-  // returns null (caller early-returns). On success mutates `opts` so
-  // downstream `opts.feature` / `opts.featureDir` references resolve to
-  // the dispatched values (existing code path stays valid).
-  const dispatchOrFail = async (opts: {
-    feature?: string;
-    featureDir?: string;
-  }): Promise<string | null> => {
-    const dispatch = await ctx.resolveDispatch();
-    if (!dispatch.ok) {
-      emitFailure(dispatch.code, dispatch.message, dispatch.detail);
-      return null;
-    }
-    if (dispatch.autoPickAdvisory) ctx.advisory(dispatch.autoPickAdvisory);
-    opts.feature = dispatch.feature;
-    opts.featureDir = dispatch.featureDir;
-    ctx.recordTraceTarget(dispatch.feature, dispatch.featureDir);
-    return dispatch.featureDir;
-  };
-
-  // Phase 16 SC-15b — hook-optional dispatch for the read-side handlers
-  // (session-start / closure-check). Unlike dispatchOrFail (fail-closed:
-  // emits a diagnostic + exit 2 on no-session), hooks fire in non-loaf
-  // projects too, so ABSENCE must be a SILENT exit 0 — never a failure.
-  //
-  // Codex GO nuance: silent skip is ONLY for absence (FEATURE_NOT_FOUND /
-  // FEATURE_AMBIGUOUS / no .loaf). A SNAPSHOT_STALE result means a feature
-  // IS selected but its projection is stale — do NOT silently swallow it;
-  // surface `stale` so closure-check can warn (session-start stays silent
-  // to avoid emitting misleading context). All other dispatch failures
-  // (explicit bad --session etc.) also skip silently — a hook must never
-  // break the host tool's lifecycle.
-  const dispatchForHookOptional = async (opts: {
-    feature?: string;
-    featureDir?: string;
-  }): Promise<
-    { featureDir: string } | { skip: true; stale?: { code: string; message: string } }
-  > => {
-    let dispatch: Awaited<ReturnType<typeof ctx.resolveDispatch>>;
-    try {
-      dispatch = await ctx.resolveDispatch();
-    } catch {
-      // Unexpected resolution failure (IO error outside the dispatch
-      // taxonomy). A hook must never break the host tool, so degrade to
-      // "no active session" rather than escaping to the UNEXPECTED_ERROR
-      // boundary (codex SC-15b PATCH — same contract as the closure-check
-      // load guard).
-      return { skip: true };
-    }
-    if (dispatch.ok) {
-      opts.feature = dispatch.feature;
-      opts.featureDir = dispatch.featureDir;
-      ctx.recordTraceTarget(dispatch.feature, dispatch.featureDir);
-      return { featureDir: dispatch.featureDir };
-    }
-    if (dispatch.code === "SNAPSHOT_STALE_REBUILD_REQUIRED") {
-      return { skip: true, stale: { code: dispatch.code, message: dispatch.message } };
-    }
-    return { skip: true };
-  };
-
-  // Phase 16 SC-15c — strict path resolution for the write-side hooks
-  // (write-guard / scope-track). --path explicit wins; else a non-TTY stdin
-  // must parse as the Claude Code hook JSON envelope (tool_input.file_path);
-  // else (TTY + no --path) → USAGE. Fail closed (codex Q4): missing /
-  // malformed input is exit 2, never a guessed path. On failure the helper
-  // emits the diagnostic and returns null.
-  const resolveHookPath = async (opts: { path?: string }): Promise<string | null> => {
-    if (opts.path !== undefined && opts.path.length > 0) return opts.path;
-    if (!isStdinTty()) {
-      const raw = await readStdin();
-      const parsed = parseHookStdinPath(raw);
-      if (!parsed.ok) {
-        ctx.failureKeyed(
-          "SCHEMA_VALIDATION_FAILED",
-          FAILURE_SITE_KEYS.hookStdinParseFailed,
-          { reason: parsed.reason },
-          { source: "hook-stdin" },
-        );
-        return null;
-      }
-      return parsed.path;
-    }
-    ctx.failureKeyed("USAGE", FAILURE_SITE_KEYS.hookWritePathMissing, {}, {});
-    return null;
-  };
-
-  // Phase 16 SC-15c — fail-closed dispatch for write-guard. Unlike the
-  // read-side dispatchForHookOptional (absence → silent allow), the write
-  // boundary inverts the safety polarity (codex Q5): only a genuine
-  // FEATURE_NOT_FOUND (no .loaf / no active feature / non-loaf project)
-  // means "no session to guard" → allow. ANY other resolution outcome
-  // (ambiguous / stale / explicit-selector miss / unexpected throw) is a
-  // session context we cannot cleanly resolve → fail closed (exit 2),
-  // never authorize blindly.
-  const resolveDispatchForWriteGuard = async (opts: {
-    feature?: string;
-    featureDir?: string;
-  }): Promise<
-    { featureDir: string } | { allow: true } | { failClosed: true; code: string; message: string }
-  > => {
-    let dispatch: Awaited<ReturnType<typeof ctx.resolveDispatch>>;
-    try {
-      dispatch = await ctx.resolveDispatch();
-    } catch (err) {
-      return {
-        failClosed: true,
-        code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
-        message: `write-guard cannot resolve the session: ${(err as Error).message}`,
-      };
-    }
-    if (dispatch.ok) {
-      opts.feature = dispatch.feature;
-      opts.featureDir = dispatch.featureDir;
-      ctx.recordTraceTarget(dispatch.feature, dispatch.featureDir);
-      return { featureDir: dispatch.featureDir };
-    }
-    if (dispatch.code === "FEATURE_NOT_FOUND") return { allow: true };
-    return { failClosed: true, code: dispatch.code, message: dispatch.message };
-  };
 
   // Phase 16 SC-7 — registry-writer DI bundle for MutateContext literals.
   // Built once at main() entry; threaded into every mutate ctx so the
@@ -1186,171 +954,9 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         }
       : undefined;
 
-  // Phase 16 SC-6c — `--dry-run` helpers. `emitDryRunSuccess` formats
-  // the "would do" summary after a mutator returns ok:true under
-  // `ctx.dryRun`. `rejectIfDryRun` short-circuits read-only / wrapping
-  // command handlers with a typed `DRY_RUN_NOT_APPLICABLE` failure.
-  // Both presentation-layer closures over `ctx`; stable-core behavior
-  // lives in `MutateContext.dryRun` (codex r275 D / r276 acceptance).
-  // SC-6c stdout "would do" summary. Reads the kind from the mutator
-  // result (entry for single mutate, entries[0] for batch). The
-  // discriminator + ok shape matches r271 D5 (next-id enumeration
-  // deferred — kind only for v0.1.0).
-  const emitDryRunSuccess = (
-    result: { entry: { kind: string } } | { entries: readonly { kind: string }[] },
-  ): void => {
-    const kind = "entry" in result ? result.entry.kind : (result.entries[0]?.kind ?? "(empty)");
-    ctx.success({ ok: true, dry_run: true, would: { kind } }, () => `dry-run: would ${kind}\n`);
-  };
-  const rejectIfDryRun = (
-    command: string,
-    commandType: "read-only" | "wrapping" | "projection-writer" | "scaffold-writer" = "read-only",
-  ): boolean => {
-    if (ctx.dryRun) {
-      emitFailure(
-        "DRY_RUN_NOT_APPLICABLE",
-        `--dry-run not applicable to ${commandType} command \`${command}\``,
-        { command, command_type: commandType },
-      );
-      return true;
-    }
-    return false;
-  };
-
-  // Phase 16 SC-10 — `--schema` bypass emitter for the 5 batch-capable
-  // mutator commands (codex r316 lock). Caller pre-checks opts.schema
-  // and rejectIfDryRun(<literal label>) at the action site so the
-  // SC-6c static guard can scan the literal strings; this helper only
-  // emits the schema once those gates have passed.
-  const emitMutatorSchemaAndExit = (commandKey: MutatorCommand): void => {
-    const schema = emitInputSchema(commandKey) as Record<string, unknown>;
-    ctx.success(schema, () => formatSchema(schema));
-  };
-
-  // L1 — runMutator: collapse the per-command envelope (at + version),
-  // MutateContext construction, dry-run branch, and result-failure routing
-  // into one inline helper. Caller owns loadSession, command pre-validation,
-  // batch construction/ordering, and command-specific success formatting.
-  // Returns the ok result on real success (caller formats); returns null when
-  // it already emitted a failure or a dry-run success (caller early-returns).
-  //
-  // Three failure routes are preserved 1:1 (behavior-preserving — L1 does NOT
-  // normalize them): "emit-failure" (default; keyed + detail), "legacy-fail"
-  // (detail SUPPRESSED), "raw-ctx-failure" (direct ctx.failure, no keyed). Does
-  // NOT build batches, choose ordering, or touch gate Pass 1.5 (that is L9 /
-  // mutateBatch). `at` is one `now` per invocation; actor stays per entry so
-  // batches with mixed actors (gate approve) are preserved.
-  type RunPartial = Parameters<typeof mutate>[0];
-  type FailureRoute = "emit-failure" | "legacy-fail" | "raw-ctx-failure";
-  type MutateOkSingle = Extract<Awaited<ReturnType<typeof mutate>>, { ok: true }>;
-  type MutateOkBatch = Extract<Awaited<ReturnType<typeof mutateBatch>>, { ok: true }>;
-  type RunSession = Awaited<ReturnType<typeof loadSession>>;
-
-  const routeMutateFailure = (
-    route: FailureRoute,
-    r: { code: string; message: string; detail?: Record<string, unknown> },
-  ): void => {
-    if (route === "legacy-fail") fail(r.code, r.message);
-    else if (route === "raw-ctx-failure") ctx.failure(r.code, r.message, r.detail);
-    else emitFailure(r.code, r.message, r.detail);
-  };
-
-  // The MutateContext is identical for every mutation — derive it from the
-  // resolved session in one place so runMutator and the few bypass sites that
-  // build their own batch don't each re-spell the 7-field literal.
-  const mctxFor = (featureDir: string, session: RunSession): MutateContext => ({
-    feature_dir: featureDir,
-    snapshot: session.snapshot,
-    tail_seq: session.tail_seq,
-    entries: session.entries,
-    meta: session.meta,
-    dryRun: ctx.dryRun,
-    registryWriter: registryWriterDeps,
-  });
-
-  // Shared result tail for any mutate/mutateBatch outcome: route the failure,
-  // swallow a dry-run (emitting the would-be success), else hand back the ok
-  // result. runMutator uses it; so do the bypass sites that must build the batch
-  // themselves (per-entry `at` / extra envelope fields MutatorEntry can't model).
-  function finishMutate<Ok extends MutateOkSingle | MutateOkBatch>(
-    result: Ok | { ok: false; code: string; message: string; detail?: Record<string, unknown> },
-    route: FailureRoute,
-  ): Ok | null {
-    if (!result.ok) {
-      routeMutateFailure(route, result);
-      return null;
-    }
-    if (ctx.dryRun) {
-      emitDryRunSuccess(result);
-      return null;
-    }
-    return result;
-  }
-
-  function runMutator(
-    featureDir: string,
-    session: RunSession,
-    entry: MutatorEntry,
-    route?: FailureRoute,
-  ): Promise<MutateOkSingle | null>;
-  function runMutator(
-    featureDir: string,
-    session: RunSession,
-    entries: readonly MutatorEntry[],
-    route?: FailureRoute,
-  ): Promise<MutateOkBatch | null>;
-  async function runMutator(
-    featureDir: string,
-    session: RunSession,
-    input: MutatorEntry | readonly MutatorEntry[],
-    route: FailureRoute = "emit-failure",
-  ): Promise<MutateOkSingle | MutateOkBatch | null> {
-    const now = new Date().toISOString();
-    const stamp = (e: MutatorEntry): RunPartial => ({
-      at: now,
-      actor: e.actor,
-      entry_schema_version: 1,
-      kind: e.kind,
-      payload: e.payload,
-    });
-    const mctx = mctxFor(featureDir, session);
-    const result = Array.isArray(input)
-      ? await mutateBatch(input.map(stamp), mctx)
-      : await mutate(stamp(input as MutatorEntry), mctx);
-    return finishMutate(result, route);
-  }
-
-  // loadProjectionsOrFail — projection-loader wrapper for the four
-  // SC3-wired read-only commands (status / tasks list / pending list /
-  // finding list). On NoSessionError / SnapshotStaleError, routes through
-  // emitFailure (exit 2 + structured stderr per Q5 contract) and returns
-  // null — caller must early-return without touching stdout. The 9-reason
-  // stale taxonomy rides err.detail.reason; CLI does not interpret it,
-  // just forwards the loader-built envelope verbatim.
-  const loadProjectionsOrFail = async <K extends ProjectionKind>(
-    featureDir: string,
-    kinds: readonly K[],
-    feature: string,
-    noSessionKey: FailureSiteKey,
-  ): Promise<LoadResult<K> | null> => {
-    try {
-      return await loadProjections({ feature_dir: featureDir, kinds });
-    } catch (err) {
-      if (err instanceof NoSessionError) {
-        emitNoSessionFailure(noSessionKey, feature, err.detail);
-        return null;
-      }
-      if (err instanceof SnapshotStaleError) {
-        emitFailure(
-          err.code,
-          `snapshot stale (reason=${err.reason}) — run \`loaf doctor --rebuild --feature ${feature}\` to re-serialize from journal truth`,
-          err.detail,
-        );
-        return null;
-      }
-      throw err;
-    }
-  };
+  // Phase W8 0b — CommandMutator owns mutation orchestration: runMutator /
+  // mctxFor / finishMutate / routeMutateFailure / emitMutatorSchemaAndExit.
+  const mutator = createCommandMutator(ctx, { registryWriter: registryWriterDeps });
 
   // ── loaf start <feature> ────────────────────────────────────────────
   program
@@ -1367,7 +973,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
       ) => {
         const ceremony = PRESETS[opts.ceremony];
         if (!ceremony) {
-          fail(
+          ctx.fail(
             "INVALID_PRESET",
             `unknown ceremony preset "${opts.ceremony}" — known: ${Object.keys(PRESETS).join(", ")}`,
           );
@@ -1393,7 +999,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         ctx.recordTraceTarget(feature, featureDir);
         const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
         const sessionId = crypto.randomUUID();
-        const result = await runMutator(
+        const result = await mutator.run(
           featureDir,
           session,
           {
@@ -1446,15 +1052,15 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
     .option("--feature <name>", "Feature whose session to advance")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (to: string, opts: { feature: string; featureDir?: string }) => {
-      const featureDir = await dispatchOrFail(opts);
+      const featureDir = await ctx.dispatchOrFail(opts);
       if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       const from = session.snapshot.state?.sub_state;
       if (!from) {
-        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionAdvance, opts.feature);
+        ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionAdvance, opts.feature);
         return;
       }
-      const result = await runMutator(
+      const result = await mutator.run(
         featureDir,
         session,
         { kind: "event:phase_advanced", payload: { from, to }, actor },
@@ -1482,10 +1088,10 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
     .option("--feature <name>", "Feature whose status to show")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { feature: string; featureDir?: string }) => {
-      if (rejectIfDryRun("status")) return;
-      const featureDir = await dispatchOrFail(opts);
+      if (ctx.rejectIfDryRun("status")) return;
+      const featureDir = await ctx.dispatchOrFail(opts);
       if (featureDir === null) return;
-      const loaded = await loadProjectionsOrFail(
+      const loaded = await ctx.loadProjectionsOrFail(
         featureDir,
         ["state", "tasks", "evidence", "findings", "pending"] as const,
         opts.feature,
@@ -1553,10 +1159,10 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
     .option("--feature <name>", "Feature whose next action to compute")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { feature?: string; featureDir?: string }) => {
-      if (rejectIfDryRun("next")) return;
-      const featureDir = await dispatchOrFail(opts);
+      if (ctx.rejectIfDryRun("next")) return;
+      const featureDir = await ctx.dispatchOrFail(opts);
       if (featureDir === null) return;
-      const loaded = await loadProjectionsOrFail(
+      const loaded = await ctx.loadProjectionsOrFail(
         featureDir,
         ["state", "tasks", "pending"] as const,
         opts.feature!,
@@ -1568,7 +1174,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
       if (loaded.state.sub_state.startsWith("VERIFY.")) {
         const read = await readSpecFrontmatter(featureDir);
         if (!read.ok) {
-          emitFailure("SPEC_FRONTMATTER_INVALID", read.message, {
+          ctx.emitFailure("SPEC_FRONTMATTER_INVALID", read.message, {
             subcode: read.code,
             ...(read.detail ?? {}),
           });
@@ -1655,12 +1261,12 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         const approve = opts.approve === true;
         const reject = opts.reject === true;
         if (approve === reject) {
-          emitFailure("USAGE", "exactly one of --approve | --reject is required");
+          ctx.emitFailure("USAGE", "exactly one of --approve | --reject is required");
           return;
         }
         // (2) gate name validation — must be in GateName enum
         if (gateName !== "spec-lock" && gateName !== "verify-accept") {
-          emitFailure(
+          ctx.emitFailure(
             "GATE_NOT_IMPLEMENTED",
             `gate=${gateName} is not recognized; protocol GateName enum is closed at {spec-lock, verify-accept}`,
             { gate: gateName },
@@ -1668,15 +1274,15 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
           return;
         }
         // (3) resolve human actor (gate is human-only per per-kind actor policy)
-        const humanActor = resolveHumanActorOrFail();
+        const humanActor = ctx.resolveHumanActorOrFail();
         if (humanActor === null) return;
         // (4) load session
-        const featureDir = await dispatchOrFail(opts);
+        const featureDir = await ctx.dispatchOrFail(opts);
         if (featureDir === null) return;
         const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
         const from = session.snapshot.state?.sub_state;
         if (!from) {
-          emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+          ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
           return;
         }
         // (5) build entries + execute per-gate
@@ -1697,7 +1303,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
             // the gate decision and the cursor advance — order matters for
             // reducer dry-run (pending head must still be unresolved when
             // pending:resolved applies; phase_advanced runs after).
-            const result = await runMutator(
+            const result = await mutator.run(
               featureDir,
               session,
               buildGateApprovalBatch({
@@ -1738,7 +1344,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
           // / deep spec-review). Gate does NOT move cursor — cursor stays at
           // VERIFY.accept; `loaf deliver` / `loaf settle` advance cursor later
           // per ceremony.settle_phase.
-          const result = await runMutator(
+          const result = await mutator.run(
             featureDir,
             session,
             buildGateApprovalBatch({
@@ -1777,7 +1383,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         }
         // reject: single entry, no cursor side-effect, no Pass 1.5 eval.
         // Shared between spec-lock and verify-accept.
-        const result = await runMutator(featureDir, session, {
+        const result = await mutator.run(featureDir, session, {
           kind: "gate:decided",
           payload: { gate_kind: gateName, decision: "rejected", reason: opts.reason },
           actor: humanActor,
@@ -1839,17 +1445,17 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
       // each command group gets touched.
 
       // (1) Human-only actor — `session:delivered` is HUMAN_ONLY per PER_KIND_ACTOR.
-      const humanActor = resolveHumanActorOrFail();
+      const humanActor = ctx.resolveHumanActorOrFail();
       if (humanActor === null) return;
 
       // (2) Load session via ctx (caches per featureDir; ctx also captures
       //     the resolved sub_state for snapshotCrashContext enrichment).
-      const featureDir = await dispatchOrFail(opts);
+      const featureDir = await ctx.dispatchOrFail(opts);
       if (featureDir === null) return;
       const session = await ctx.resolveSession(featureDir);
       const from = session.snapshot.state?.sub_state;
       if (!from) {
-        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+        ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
         return;
       }
 
@@ -1859,7 +1465,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
 
       // (4) Mutate. preflight step 5c enforces all delivery preconditions;
       //     reducer flips cursor to DONE.delivered.
-      const result = await runMutator(
+      const result = await mutator.run(
         featureDir,
         session,
         { kind: "session:delivered", payload, actor: humanActor },
@@ -1915,22 +1521,22 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { feature: string; reason: string; featureDir?: string }) => {
       // (1) Human-only actor — `session:archived` is HUMAN_ONLY per PER_KIND_ACTOR.
-      const humanActor = resolveHumanActorOrFail();
+      const humanActor = ctx.resolveHumanActorOrFail();
       if (humanActor === null) return;
 
       // (2) Load session.
-      const featureDir = await dispatchOrFail(opts);
+      const featureDir = await ctx.dispatchOrFail(opts);
       if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       const from = session.snapshot.state?.sub_state;
       if (!from) {
-        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+        ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
         return;
       }
 
       // (3) Mutate. preflight step 5c.2 enforces reason-required; reducer
       //     flips cursor to DONE.archived.
-      const result = await runMutator(featureDir, session, {
+      const result = await mutator.run(featureDir, session, {
         kind: "session:archived",
         payload: { reason: opts.reason },
         actor: humanActor,
@@ -1967,22 +1573,22 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { feature: string; reason: string; featureDir?: string }) => {
       // (1) Human-only actor — `session:abandoned` is HUMAN_ONLY per PER_KIND_ACTOR.
-      const humanActor = resolveHumanActorOrFail();
+      const humanActor = ctx.resolveHumanActorOrFail();
       if (humanActor === null) return;
 
       // (2) Load session.
-      const featureDir = await dispatchOrFail(opts);
+      const featureDir = await ctx.dispatchOrFail(opts);
       if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       const from = session.snapshot.state?.sub_state;
       if (!from) {
-        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+        ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
         return;
       }
 
       // (3) Mutate. preflight step 5c.2 enforces reason-required; reducer
       //     flips cursor to DONE.abandoned.
-      const result = await runMutator(featureDir, session, {
+      const result = await mutator.run(featureDir, session, {
         kind: "session:abandoned",
         payload: { reason: opts.reason },
         actor: humanActor,
@@ -2033,16 +1639,16 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
     .action(
       async (opts: { feature: string; toFeature: string; reason: string; featureDir?: string }) => {
         // (1) Human-only actor — `spike:converted` is HUMAN_ONLY per PER_KIND_ACTOR.
-        const humanActor = resolveHumanActorOrFail();
+        const humanActor = ctx.resolveHumanActorOrFail();
         if (humanActor === null) return;
 
         // (2) Load session.
-        const featureDir = await dispatchOrFail(opts);
+        const featureDir = await ctx.dispatchOrFail(opts);
         if (featureDir === null) return;
         const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
         const from = session.snapshot.state?.sub_state;
         if (!from) {
-          emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+          ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
           return;
         }
 
@@ -2050,7 +1656,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         //     precede session:archived: it carries ANY_NON_DONE authority and
         //     would be rejected against the post-archive DONE snapshot. The
         //     sponsored session:archived performs the terminal cursor flip.
-        const result = await runMutator(featureDir, session, [
+        const result = await mutator.run(featureDir, session, [
           {
             kind: "spike:converted",
             payload: { to_feature: opts.toFeature, reason: opts.reason },
@@ -2117,10 +1723,10 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         // schema-parse failures still trace. SC-8: dispatchOrFail
         // resolves §10.3 precedence + mutates opts.feature/featureDir
         // + records traceTarget (replaces the SC-6b raw recordTraceTarget).
-        const earlyFeatureDir = await dispatchOrFail(opts);
+        const earlyFeatureDir = await ctx.dispatchOrFail(opts);
         if (earlyFeatureDir === null) return;
         // (1) Human-only acceptance — escalation is a human decision.
-        const humanActor = resolveHumanActorOrFail();
+        const humanActor = ctx.resolveHumanActorOrFail();
         if (humanActor === null) return;
 
         // (2) Read + parse the escalated Ceremony. Schema validation is the
@@ -2150,7 +1756,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         try {
           ceremony = JSON.parse(content);
         } catch (err) {
-          emitFailure(
+          ctx.emitFailure(
             "SCHEMA_VALIDATION_FAILED",
             `input is not valid JSON: ${(err as Error).message}`,
           );
@@ -2158,12 +1764,12 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         }
 
         // (3) Load session.
-        const featureDir = await dispatchOrFail(opts);
+        const featureDir = await ctx.dispatchOrFail(opts);
         if (featureDir === null) return;
         const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
         const from = session.snapshot.state?.sub_state;
         if (!from) {
-          emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+          ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
           return;
         }
 
@@ -2173,7 +1779,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         //     no PEND-id exists to build the pending:resolved entry.
         const head = session.snapshot.pending.find((p) => !p.resolved);
         if (!head) {
-          emitFailure(
+          ctx.emitFailure(
             "ESCALATION_NOT_PENDING",
             "`loaf profile escalate --confirm --input <ceremony.json>` requires pending head kind=profile_escalation; current head: (none)",
             { actual_head: "(none)" },
@@ -2183,7 +1789,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
 
         // (5) Mutate — 2-entry batch. event:ceremony_set MUST precede
         //     pending:resolved so preflight 5c.4 sees the unresolved head.
-        const result = await runMutator(featureDir, session, [
+        const result = await mutator.run(featureDir, session, [
           {
             kind: "event:ceremony_set",
             payload: ceremony as Record<string, unknown>,
@@ -2225,7 +1831,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
   }
 
   const refuseConfigExists = (configPath: string): void =>
-    emitFailure(
+    ctx.emitFailure(
       "CONFIG_ALREADY_INITIALIZED",
       `loaf config already exists at ${configPath}; refusing to overwrite`,
       { config_path: configPath },
@@ -2252,7 +1858,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
     .option("--global", "Write user config at ~/.loaf/config.json instead of project config")
     .action(async (opts: { global?: boolean }) => {
       // no-feature: config init writes project/user config, not a feature session target.
-      if (rejectIfDryRun("config init", "scaffold-writer")) return;
+      if (ctx.rejectIfDryRun("config init", "scaffold-writer")) return;
 
       const configPath = opts.global
         ? userConfigPath(deps.userConfigHomeDir ?? os.homedir())
@@ -2310,10 +1916,10 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
       // need a real in-memory replay precheck — out-of-scope per
       // codex r275 P2). Both bare doctor and --rebuild reject under
       // --dry-run with the same code.
-      if (rejectIfDryRun(opts.rebuild ? "doctor --rebuild" : "doctor")) return;
+      if (ctx.rejectIfDryRun(opts.rebuild ? "doctor --rebuild" : "doctor")) return;
 
       if (!opts.rebuild) {
-        emitFailure(
+        ctx.emitFailure(
           "DOCTOR_MODE_NOT_IMPLEMENTED",
           "only --rebuild is implemented for loaf doctor in this release",
         );
@@ -2325,7 +1931,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
       // missing-feature error — `--feature` is a Commander `.option`, not
       // `.requiredOption`, precisely so mode is checked first (codex r161).
       if (!opts.feature) {
-        emitFailure("DOCTOR_FEATURE_REQUIRED", "doctor --rebuild requires --feature <name>");
+        ctx.emitFailure("DOCTOR_FEATURE_REQUIRED", "doctor --rebuild requires --feature <name>");
         return;
       }
 
@@ -2344,7 +1950,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         feature_dir: featureDir,
       });
       if (!replay.ok) {
-        emitFailure(
+        ctx.emitFailure(
           replay.code,
           `journal at ${journalPath} cannot be replayed — ${replay.message}`,
         );
@@ -2352,7 +1958,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
       }
       const entries = replay.entries;
       if (entries === undefined) {
-        emitFailure(
+        ctx.emitFailure(
           "DOCTOR_REBUILD_FAILED",
           "internal invariant: replay returned ok without collected entries",
         );
@@ -2365,7 +1971,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
       // intersecting `doctor --migrate-v2` (F-018). Fail cleanly before
       // writeProjections rather than let composeTasksJson throw.
       if (entries.some((e) => e.kind === "migration:snapshot_imported")) {
-        emitFailure(
+        ctx.emitFailure(
           "DOCTOR_REBUILD_MIGRATED_UNSUPPORTED",
           "doctor --rebuild does not yet support v0.0.x-migrated journals (intersects doctor --migrate-v2)",
         );
@@ -2380,7 +1986,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
           meta: replay.meta,
         });
       } catch (err) {
-        emitFailure("DOCTOR_REBUILD_FAILED", `snapshot rebuild failed — ${(err as Error).message}`);
+        ctx.emitFailure("DOCTOR_REBUILD_FAILED", `snapshot rebuild failed — ${(err as Error).message}`);
         return;
       }
 
@@ -2477,18 +2083,18 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
       }
       const payload = read.value;
 
-      const featureDir = await dispatchOrFail(opts);
+      const featureDir = await ctx.dispatchOrFail(opts);
       if (featureDir === null) return;
       const session = await ctx.resolveSession(featureDir);
       if (!session.snapshot.state) {
-        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
+        ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
         return;
       }
 
       // Mutate. Preflight validates TasksPlannedPayload + sub_state +
       // duplicate task ids + reducer dry-run + final-validate. CLI does
       // not duplicate any of that.
-      const result = await runMutator(
+      const result = await mutator.run(
         featureDir,
         session,
         { kind: "event:tasks_planned", payload: payload as Record<string, unknown>, actor },
@@ -2574,14 +2180,14 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         featureDir?: string;
         finding?: string;
       }) => {
-        // dispatchOrFail(opts) below records the trace target after input pre-validation.
+        // ctx.dispatchOrFail(opts) below records the trace target after input pre-validation.
         if (rawOpts.schema === true) {
-          if (rejectIfDryRun("tasks add --schema")) return;
-          emitMutatorSchemaAndExit("tasks:add");
+          if (ctx.rejectIfDryRun("tasks add --schema")) return;
+          mutator.emitSchemaAndExit("tasks:add");
           return;
         }
         if (rawOpts.input === undefined) {
-          emitFailure(
+          ctx.emitFailure(
             "MISSING_INPUT",
             "loaf tasks add requires --input <src> (or pass --schema to dump the input JSON Schema)",
           );
@@ -2640,11 +2246,11 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         }
 
         // Load session; resolve the surface (unsponsored vs sponsored).
-        const featureDir = await dispatchOrFail(opts);
+        const featureDir = await ctx.dispatchOrFail(opts);
         if (featureDir === null) return;
         const session = await ctx.resolveSession(featureDir);
         if (!session.snapshot.state) {
-          emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
+          ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
           return;
         }
         const subState = session.snapshot.state.sub_state;
@@ -2715,8 +2321,8 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
               sponsored_by_finding_id: opts.finding,
             },
           }));
-          const result = finishMutate(
-            await mutateBatch(sponsoredBatch, mctxFor(featureDir, session)),
+          const result = mutator.finishMutate(
+            await mutateBatch(sponsoredBatch, mutator.mctxFor(featureDir, session)),
             "raw-ctx-failure",
           );
           if (!result) return;
@@ -2774,7 +2380,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         const based_on = session.snapshot.tasks_based_on ?? {
           spec: session.snapshot.state.spec_version,
         };
-        const result = await runMutator(
+        const result = await mutator.run(
           featureDir,
           session,
           {
@@ -2827,14 +2433,14 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
     .option("--feature <name>", "Feature whose task to claim")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (taskId: string, opts: { feature: string; featureDir?: string }) => {
-      const featureDir = await dispatchOrFail(opts);
+      const featureDir = await ctx.dispatchOrFail(opts);
       if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       if (!session.snapshot.state) {
-        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
+        ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
         return;
       }
-      const result = await runMutator(featureDir, session, {
+      const result = await mutator.run(featureDir, session, {
         kind: "event:task_claimed",
         payload: { task_id: taskId },
         actor,
@@ -2848,7 +2454,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
       // falling back to a hardcoded status.
       const claimed = result.snapshot.tasks.find((t) => t.id === taskId);
       if (!claimed) {
-        emitFailure(
+        ctx.emitFailure(
           "REDUCER_ERROR",
           `internal: task ${taskId} missing from snapshot after successful task_claimed apply`,
         );
@@ -2890,14 +2496,14 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(
       async (taskId: string, opts: { reason: string; feature: string; featureDir?: string }) => {
-        const featureDir = await dispatchOrFail(opts);
+        const featureDir = await ctx.dispatchOrFail(opts);
         if (featureDir === null) return;
         const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
         if (!session.snapshot.state) {
-          emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
+          ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
           return;
         }
-        const result = await runMutator(featureDir, session, {
+        const result = await mutator.run(featureDir, session, {
           kind: "event:task_abandoned",
           payload: { task_id: taskId, reason: opts.reason },
           actor,
@@ -2908,7 +2514,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         // guarantee the task exists on success — same pattern as claim).
         const abandoned = result.snapshot.tasks.find((t) => t.id === taskId);
         if (!abandoned) {
-          emitFailure(
+          ctx.emitFailure(
             "REDUCER_ERROR",
             `internal: task ${taskId} missing from snapshot after successful task_abandoned apply`,
           );
@@ -2951,15 +2557,15 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .option("--status <s>", "Filter by task status (pending|ready|in_progress|done|abandoned)")
     .action(async (opts: { feature: string; featureDir?: string; status?: string }) => {
-      if (rejectIfDryRun("tasks list")) return;
-      const featureDir = await dispatchOrFail(opts);
+      if (ctx.rejectIfDryRun("tasks list")) return;
+      const featureDir = await ctx.dispatchOrFail(opts);
       if (featureDir === null) return;
       // Phase 15 SC3 — projection-loader read-path. Adapter: TasksJson
       // (TaskFullPayload[]) → slim TaskState via the same `extractTaskSlim`
       // the reducer uses, preserving byte-equal output with the prior
       // loadSession-derived shape. tasks: null (writer skips when no plan)
       // surfaces as count=0 + tasks:[] — codex r173 minimum case.
-      const loaded = await loadProjectionsOrFail(
+      const loaded = await ctx.loadProjectionsOrFail(
         featureDir,
         ["state", "tasks"] as const,
         opts.feature,
@@ -2985,7 +2591,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         opts.status !== undefined &&
         !(validStatuses as readonly string[]).includes(opts.status)
       ) {
-        emitFailure(
+        ctx.emitFailure(
           "USAGE",
           `--status must be one of: ${validStatuses.join(" | ")} (got ${opts.status})`,
         );
@@ -3041,12 +2647,12 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
     .option("--feature <name>", "Feature whose ready task to compute")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { feature: string; featureDir?: string }) => {
-      if (rejectIfDryRun("tasks next")) return;
-      const featureDir = await dispatchOrFail(opts);
+      if (ctx.rejectIfDryRun("tasks next")) return;
+      const featureDir = await ctx.dispatchOrFail(opts);
       if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       if (!session.snapshot.state) {
-        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
+        ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
         return;
       }
       const tasks = session.snapshot.tasks;
@@ -3088,17 +2694,17 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
     .option("--feature <name>", "Feature whose task to confirm")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (taskId: string, opts: { feature: string; featureDir?: string }) => {
-      if (rejectIfDryRun("tasks complete")) return;
-      const featureDir = await dispatchOrFail(opts);
+      if (ctx.rejectIfDryRun("tasks complete")) return;
+      const featureDir = await ctx.dispatchOrFail(opts);
       if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       if (!session.snapshot.state) {
-        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
+        ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
         return;
       }
       const task = session.snapshot.tasks.find((t) => t.id === taskId);
       if (!task) {
-        emitFailure("TASK_NOT_FOUND", `task ${taskId} is not in the current tasks projection`, {
+        ctx.emitFailure("TASK_NOT_FOUND", `task ${taskId} is not in the current tasks projection`, {
           task_id: taskId,
         });
         return;
@@ -3110,7 +2716,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         const blockingSteps = Object.entries(task.steps)
           .filter(([, s]) => s.applicability === "must" && !TERMINAL_POSITIVE.includes(s.status))
           .map(([name]) => name);
-        emitFailure(
+        ctx.emitFailure(
           "TASK_COMPLETE_PRECONDITION_VIOLATED",
           `task ${taskId} is not complete (status=${task.status}); must-applicable steps not terminal-positive: ${blockingSteps.join(", ") || "(none — task has no must steps to auto-promote)"}`,
           { task_id: taskId, status: task.status, blocking_steps: blockingSteps },
@@ -3198,7 +2804,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         // SC-6b — record trace target at action entry so long pre-validation
         // failures (input parse, policy/finding mutex) still trace.
         // SC-8: dispatchOrFail resolves §10.3 + records traceTarget.
-        const earlyFeatureDir = await dispatchOrFail(opts);
+        const earlyFeatureDir = await ctx.dispatchOrFail(opts);
         if (earlyFeatureDir === null) return;
         // (0) Resolve the surface — --policy and --input are mutually
         // exclusive; --finding pairs with --input.
@@ -3207,21 +2813,21 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         const hasInput = opts.input !== undefined;
         const hasFinding = opts.finding !== undefined;
         if (hasPolicy && hasInput) {
-          emitFailure(
+          ctx.emitFailure(
             "USAGE",
             "--policy and --input are mutually exclusive: --policy narrows applicability at EXECUTE.plan, --input replaces the task graph (sponsored) at EXECUTE.work",
           );
           return;
         }
         if (hasInput !== hasFinding) {
-          emitFailure(
+          ctx.emitFailure(
             "USAGE",
             "--input and --finding must be specified together — a sponsored graph replacement needs the sponsoring amend-tasks finding",
           );
           return;
         }
         if (!hasPolicy && !hasInput) {
-          emitFailure(
+          ctx.emitFailure(
             "USAGE",
             "tasks amend needs either --policy <step>=<applicability> or --input <src> --finding <FND-N>",
           );
@@ -3262,7 +2868,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
           const sFeatureDir = earlyFeatureDir;
           const sSession = await ctx.resolveSession(sFeatureDir);
           if (!sSession.snapshot.state) {
-            emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
+            ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
             return;
           }
           const sCurrent = sSession.snapshot.tasks.find((t) => t.id === taskId);
@@ -3280,7 +2886,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
           // the --policy path).
           const sCanonical = latestCanonicalTaskBody(sSession.entries, taskId);
           if (!sCanonical) {
-            emitFailure(
+            ctx.emitFailure(
               "CANONICAL_TASK_BODY_UNAVAILABLE",
               `task ${taskId} is in the projection but has no canonical body in the journal (migration-imported); cannot amend in place`,
               { task_id: taskId, source: "migration" },
@@ -3331,7 +2937,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
           const sMaterialized = materializeTaskForAmend(sWithProgress, sCurrent);
           // (b6) Emit event:tasks_amended mode="replace" + sponsorship
           // marker. Preflight §8.6 sponsored branch does the rest.
-          const sResult = await runMutator(
+          const sResult = await mutator.run(
             sFeatureDir,
             sSession,
             {
@@ -3374,7 +2980,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         for (const p of policies) {
           const eq = p.indexOf("=");
           if (eq <= 0 || eq === p.length - 1) {
-            emitFailure(
+            ctx.emitFailure(
               "SCHEMA_VALIDATION_FAILED",
               `malformed --policy '${p}' — expected <step>=<applicability>`,
             );
@@ -3383,14 +2989,14 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
           const step = p.slice(0, eq);
           const applicability = p.slice(eq + 1);
           if (!APPLICABILITY.includes(applicability)) {
-            emitFailure(
+            ctx.emitFailure(
               "SCHEMA_VALIDATION_FAILED",
               `--policy '${p}': applicability must be one of must | optional | na`,
             );
             return;
           }
           if (policyMap.has(step)) {
-            emitFailure(
+            ctx.emitFailure(
               "SCHEMA_VALIDATION_FAILED",
               `--policy step '${step}' specified more than once`,
             );
@@ -3400,18 +3006,18 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         }
 
         // (2) Load session.
-        const featureDir = await dispatchOrFail(opts);
+        const featureDir = await ctx.dispatchOrFail(opts);
         if (featureDir === null) return;
         const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
         if (!session.snapshot.state) {
-          emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
+          ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
           return;
         }
 
         // (3) Current task must be in the projection.
         const current = session.snapshot.tasks.find((t) => t.id === taskId);
         if (!current) {
-          emitFailure("TASK_NOT_FOUND", `task ${taskId} is not in the current tasks projection`, {
+          ctx.emitFailure("TASK_NOT_FOUND", `task ${taskId} is not in the current tasks projection`, {
             task_id: taskId,
           });
           return;
@@ -3424,7 +3030,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         // (codex r107 #3 — distinct from TASK_NOT_FOUND).
         const base = latestCanonicalTaskBody(session.entries, taskId);
         if (!base) {
-          emitFailure(
+          ctx.emitFailure(
             "CANONICAL_TASK_BODY_UNAVAILABLE",
             `task ${taskId} is in the projection but has no canonical body in the journal (migration-imported); cannot amend in place`,
             { task_id: taskId, source: "migration" },
@@ -3439,7 +3045,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         for (const [step, applicability] of policyMap) {
           const seeded = execution[step];
           if (!seeded) {
-            emitFailure(
+            ctx.emitFailure(
               "TASK_STEP_NOT_FOUND",
               `step '${step}' is not in task ${taskId}'s execution set`,
               { task_id: taskId, step },
@@ -3451,7 +3057,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
 
         // (6) Emit event:tasks_amended (mode=replace). Preflight §8.6
         // validates the change is applicability-only.
-        const result = await runMutator(featureDir, session, {
+        const result = await mutator.run(featureDir, session, {
           kind: "event:tasks_amended",
           payload: { mode: "replace", task: materialized },
           actor,
@@ -3498,14 +3104,14 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
     .option("--feature <name>", "Feature whose task to register")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (taskId: string, opts: { feature: string; featureDir?: string }) => {
-      const featureDir = await dispatchOrFail(opts);
+      const featureDir = await ctx.dispatchOrFail(opts);
       if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       if (!session.snapshot.state) {
-        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
+        ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
         return;
       }
-      const result = await runMutator(featureDir, session, {
+      const result = await mutator.run(featureDir, session, {
         kind: "event:task_step_done",
         payload: { task_id: taskId, step: "red", result: "passed", red_test_registered: true },
         actor,
@@ -3552,14 +3158,14 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
     .option("--feature <name>", "Feature whose task lifecycle to advance")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { task: string; step: string; feature: string; featureDir?: string }) => {
-      const featureDir = await dispatchOrFail(opts);
+      const featureDir = await ctx.dispatchOrFail(opts);
       if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       if (!session.snapshot.state) {
-        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
+        ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
         return;
       }
-      const result = await runMutator(featureDir, session, {
+      const result = await mutator.run(featureDir, session, {
         kind: "event:task_step_started",
         payload: { task_id: opts.task, step: opts.step },
         actor,
@@ -3570,7 +3176,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
       // output schema never silently drops `step_status` to undefined.
       const updated = result.snapshot.tasks.find((t) => t.id === opts.task);
       if (!updated) {
-        emitFailure(
+        ctx.emitFailure(
           "REDUCER_ERROR",
           `internal: task ${opts.task} missing from snapshot after successful step_started apply`,
         );
@@ -3578,7 +3184,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
       }
       const stepInfo = updated.steps[opts.step];
       if (!stepInfo) {
-        emitFailure(
+        ctx.emitFailure(
           "REDUCER_ERROR",
           `internal: step ${opts.step} missing from task ${opts.task} after successful step_started apply`,
         );
@@ -3663,7 +3269,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         // Validate --result client-side (payload schema also enforces).
         const validResults = ["passed", "failed", "waived", "na"] as const;
         if (!(validResults as readonly string[]).includes(opts.result)) {
-          emitFailure(
+          ctx.emitFailure(
             "USAGE",
             `--result must be one of: passed | failed | waived | na (got ${opts.result})`,
           );
@@ -3681,18 +3287,18 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
           opts.evidenceActor !== undefined;
         if (evidenceFlagSet) {
           if (opts.evidenceKind === undefined || opts.evidenceSummary === undefined) {
-            emitFailure(
+            ctx.emitFailure(
               "USAGE",
               "--evidence-kind and --evidence-summary must be specified together when any --evidence-* flag is present",
             );
             return;
           }
         }
-        const featureDir = await dispatchOrFail(opts);
+        const featureDir = await ctx.dispatchOrFail(opts);
         if (featureDir === null) return;
         const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
         if (!session.snapshot.state) {
-          emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
+          ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
           return;
         }
         // Build the step_done entry. SC4 batch path adds evidence:added
@@ -3740,19 +3346,19 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
           // trail aligns with the adjacent event:task_step_done entry.
           // Payload.actor inside evidencePayload can still carry `human:*`
           // for manual/waiver evidence (preserved above).
-          result = await runMutator(featureDir, session, [
+          result = await mutator.run(featureDir, session, [
             stepDoneEntry,
             { kind: "evidence:added", payload: evidencePayload, actor },
           ]);
         } else {
-          result = await runMutator(featureDir, session, stepDoneEntry);
+          result = await mutator.run(featureDir, session, stepDoneEntry);
         }
         if (!result) return;
         // Slice 2 SC4 (codex r60 P2.2 closure): same fail-fast assertions
         // as step start — concrete step_status / task_status in output.
         const updated = result.snapshot.tasks.find((t) => t.id === opts.task);
         if (!updated) {
-          emitFailure(
+          ctx.emitFailure(
             "REDUCER_ERROR",
             `internal: task ${opts.task} missing from snapshot after successful step_done apply`,
           );
@@ -3760,7 +3366,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         }
         const stepInfo = updated.steps[opts.step];
         if (!stepInfo) {
-          emitFailure(
+          ctx.emitFailure(
             "REDUCER_ERROR",
             `internal: step ${opts.step} missing from task ${opts.task} after successful step_done apply`,
           );
@@ -3834,18 +3440,18 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
     .option("--feature <name>", "Feature whose session to settle")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { feature: string; featureDir?: string }) => {
-      const featureDir = await dispatchOrFail(opts);
+      const featureDir = await ctx.dispatchOrFail(opts);
       if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       const from = session.snapshot.state?.sub_state;
       if (!from) {
-        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+        ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
         return;
       }
 
       // mutate. preflight + transition validator enforce all preconditions
       // (settle_phase / verify_accepted / cursor edge legality).
-      const result = await runMutator(
+      const result = await mutator.run(
         featureDir,
         session,
         // module-level cli:loaf actor — settle is machine-driven
@@ -3889,11 +3495,11 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
     .option("--feature <name>", "Feature whose resume pack to consume")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { feature: string; featureDir?: string }) => {
-      const featureDir = await dispatchOrFail(opts);
+      const featureDir = await ctx.dispatchOrFail(opts);
       if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: false });
       if (!session.snapshot.state) {
-        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+        ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
         return;
       }
       const packPath = path.join(featureDir, "snapshots", "resume-pack.json");
@@ -3902,7 +3508,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         raw = await fsP.readFile(packPath, "utf8");
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-          emitFailure(
+          ctx.emitFailure(
             "INPUT_FILE_NOT_FOUND",
             `resume pack not found at ${packPath}; run \`loaf handoff --reason "..."\` first to create one`,
             { path: packPath },
@@ -3915,7 +3521,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
       try {
         parsedPack = JSON.parse(raw);
       } catch (err) {
-        emitFailure(
+        ctx.emitFailure(
           "SCHEMA_VALIDATION_FAILED",
           `resume pack at ${packPath} is not valid JSON: ${(err as Error).message}`,
           { subcode: "invalid-json", path: packPath },
@@ -3924,7 +3530,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
       }
       const packParse = RuntimeResumePack.safeParse(parsedPack);
       if (!packParse.success) {
-        emitFailure(
+        ctx.emitFailure(
           "SCHEMA_VALIDATION_FAILED",
           `resume pack at ${packPath} failed ResumePack schema validation`,
           { subcode: "zod", path: packPath, issues: packParse.error.issues },
@@ -3934,7 +3540,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
       const pack = packParse.data;
       // Default cli actor — PER_KIND_ACTOR allows human|skill|ci|cli.
       const actor = `cli:loaf@${process.env["USER"] ?? "unknown"}`;
-      const result = await runMutator(featureDir, session, {
+      const result = await mutator.run(featureDir, session, {
         kind: "session:resumed",
         payload: {
           resumed_from_pack: {
@@ -3984,7 +3590,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(
       async (opts: { reason: string; notes?: string; feature: string; featureDir?: string }) => {
-        if (rejectIfDryRun("handoff", "projection-writer")) return;
+        if (ctx.rejectIfDryRun("handoff", "projection-writer")) return;
         if (opts.reason.length < 5) {
           ctx.failureKeyed(
             "USAGE",
@@ -3997,13 +3603,13 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         // Handoff is a deliberate human decision (codex r345 P4 — actor is
         // a gate not persisted in the pack, per ResumePack having no actor
         // field; documented residual).
-        const humanActor = resolveHumanActorOrFail();
+        const humanActor = ctx.resolveHumanActorOrFail();
         if (humanActor === null) return;
-        const featureDir = await dispatchOrFail(opts);
+        const featureDir = await ctx.dispatchOrFail(opts);
         if (featureDir === null) return;
         const session = await loadSession(featureDir, { ensureDir: false });
         if (!session.snapshot.state) {
-          emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+          ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
           return;
         }
         const pack = buildResumePack({
@@ -4091,11 +3697,11 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         feature: string;
         featureDir?: string;
       }) => {
-        const featureDir = await dispatchOrFail(opts);
+        const featureDir = await ctx.dispatchOrFail(opts);
         if (featureDir === null) return;
         const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
         if (!session.snapshot.state) {
-          emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionPending, opts.feature);
+          ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionPending, opts.feature);
           return;
         }
         // Single-writer PEND-id allocator: max-serial+1, zero-padded to ≥4
@@ -4121,7 +3727,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
             .filter((s) => s.length > 0);
         }
         if (opts.taskId !== undefined) payload["task_id"] = opts.taskId;
-        const result = await runMutator(featureDir, session, {
+        const result = await mutator.run(featureDir, session, {
           kind: "pending:added",
           payload,
           actor,
@@ -4146,13 +3752,13 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
     .option("--feature <name>", "Feature whose pending to list")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { feature: string; featureDir?: string }) => {
-      if (rejectIfDryRun("pending list")) return;
-      const featureDir = await dispatchOrFail(opts);
+      if (ctx.rejectIfDryRun("pending list")) return;
+      const featureDir = await ctx.dispatchOrFail(opts);
       if (featureDir === null) return;
       // Phase 15 SC3 — projection-loader. Adapter: PendingProjectionEntry
       // (pending.json native — pending_id + rich fields) → slim row
       // {id, kind, resolved, head} matching the prior PendingState shape.
-      const loaded = await loadProjectionsOrFail(
+      const loaded = await ctx.loadProjectionsOrFail(
         featureDir,
         ["pending"] as const,
         opts.feature,
@@ -4198,12 +3804,12 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
     .option("--id <id>", "Lookup a specific PEND-id (default: head)")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { feature: string; id?: string; featureDir?: string }) => {
-      if (rejectIfDryRun("pending status")) return;
-      const featureDir = await dispatchOrFail(opts);
+      if (ctx.rejectIfDryRun("pending status")) return;
+      const featureDir = await ctx.dispatchOrFail(opts);
       if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       if (!session.snapshot.state) {
-        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionPending, opts.feature);
+        ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionPending, opts.feature);
         return;
       }
       const headIdx = session.snapshot.pending.findIndex((p) => !p.resolved);
@@ -4211,7 +3817,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
       if (opts.id !== undefined) {
         const idx = session.snapshot.pending.findIndex((p) => p.id === opts.id);
         if (idx === -1) {
-          emitFailure("PENDING_NOT_FOUND", `pending id=${opts.id} not found in queue`, {
+          ctx.emitFailure("PENDING_NOT_FOUND", `pending id=${opts.id} not found in queue`, {
             pending_id: opts.id,
           });
           return;
@@ -4254,22 +3860,22 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
     .option("--feature <name>", "Feature whose pending to resolve")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { answer: string; feature: string; featureDir?: string }) => {
-      const featureDir = await dispatchOrFail(opts);
+      const featureDir = await ctx.dispatchOrFail(opts);
       if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       if (!session.snapshot.state) {
-        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionPending, opts.feature);
+        ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionPending, opts.feature);
         return;
       }
       const head = session.snapshot.pending.find((p) => !p.resolved);
       if (!head) {
-        emitFailure(
+        ctx.emitFailure(
           "PENDING_NOT_FOUND",
           "pending:resolved called but the queue has no unresolved head",
         );
         return;
       }
-      const result = await runMutator(featureDir, session, {
+      const result = await mutator.run(featureDir, session, {
         kind: "pending:resolved",
         payload: { id: head.id, answer: opts.answer },
         actor,
@@ -4347,12 +3953,12 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         featureDir?: string;
       }) => {
         if (rawOpts.schema === true) {
-          if (rejectIfDryRun("evidence add --schema")) return;
-          emitMutatorSchemaAndExit("evidence:add");
+          if (ctx.rejectIfDryRun("evidence add --schema")) return;
+          mutator.emitSchemaAndExit("evidence:add");
           return;
         }
         if (rawOpts.input === undefined) {
-          emitFailure(
+          ctx.emitFailure(
             "MISSING_INPUT",
             "loaf evidence add requires --input <src> (or pass --schema to dump the input JSON Schema)",
           );
@@ -4362,7 +3968,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         // SC-6b — record trace target at action entry so long input-validation
         // failures still trace. SC-8: dispatchOrFail handles §10.3 precedence
         // + traceTarget in one call.
-        const earlyFeatureDir = await dispatchOrFail(opts);
+        const earlyFeatureDir = await ctx.dispatchOrFail(opts);
         if (earlyFeatureDir === null) return;
         // Phase 16 SC-4c — unified --input modality (protocol §10.7) +
         // array (batch) input enabled (was USAGE reject).
@@ -4414,11 +4020,11 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         }
 
         // Load session via ctx.
-        const featureDir = await dispatchOrFail(opts);
+        const featureDir = await ctx.dispatchOrFail(opts);
         if (featureDir === null) return;
         const session = await ctx.resolveSession(featureDir);
         if (!session.snapshot.state) {
-          emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+          ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
           return;
         }
 
@@ -4436,7 +4042,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
           actor,
         }));
 
-        const result = await runMutator(featureDir, session, entries, "raw-ctx-failure");
+        const result = await mutator.run(featureDir, session, entries, "raw-ctx-failure");
         if (!result) return;
 
         // Output preserves single-input bare-EV-id text (back-compat per
@@ -4507,7 +4113,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         //     (no parallel local regex; codex r322 P5 lock)
         const idCheck = CoversRefPayload.safeParse(obligationId);
         if (!idCheck.success) {
-          emitFailure(
+          ctx.emitFailure(
             "USAGE",
             `invalid obligation id '${obligationId}' — expected REQ-NS-NNN / SCEN-NS-NNN / VIS-NS-NNN / T-NNN form`,
             { argument: obligationId },
@@ -4526,13 +4132,13 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
           return;
         }
         // (3) resolve human actor (waiver requires human:* per refine)
-        const actor = resolveHumanActorOrFail();
+        const actor = ctx.resolveHumanActorOrFail();
         if (actor === null) return;
-        const featureDir = await dispatchOrFail(opts);
+        const featureDir = await ctx.dispatchOrFail(opts);
         if (featureDir === null) return;
         const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
         if (!session.snapshot.state) {
-          emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+          ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
           return;
         }
         // (4) allocate EV-id + build payload (pure builder, payload only)
@@ -4545,7 +4151,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
           iteration: session.snapshot.state.iteration,
         });
         // (5) wrap in journal envelope (codex r325 P1 Option A boundary)
-        const result = await runMutator(featureDir, session, {
+        const result = await mutator.run(featureDir, session, {
           kind: "evidence:added",
           payload,
           actor,
@@ -4654,13 +4260,13 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
           return;
         }
         // (3) resolve human actor (manual requires human:* per refine)
-        const actor = resolveHumanActorOrFail();
+        const actor = ctx.resolveHumanActorOrFail();
         if (actor === null) return;
-        const featureDir = await dispatchOrFail(opts);
+        const featureDir = await ctx.dispatchOrFail(opts);
         if (featureDir === null) return;
         const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
         if (!session.snapshot.state) {
-          emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+          ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
           return;
         }
         // (5) allocate EV-id + build payload
@@ -4672,7 +4278,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
           actor,
           iteration: session.snapshot.state.iteration,
         });
-        const result = await runMutator(featureDir, session, {
+        const result = await mutator.run(featureDir, session, {
           kind: "evidence:added",
           payload,
           actor,
@@ -4733,7 +4339,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         //    Claude Code SessionStart hook. No active session (non-loaf
         //    project / empty .loaf / stale) → silent exit 0, empty output. ──
         if (event === "session-start") {
-          const d = await dispatchForHookOptional(opts);
+          const d = await ctx.dispatchForHookOptional(opts);
           if ("skip" in d) return; // absence OR stale → silent (avoid misleading context)
           let loaded: LoadResult<"state" | "findings" | "pending">;
           try {
@@ -4761,7 +4367,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         //    Claude Code Stop event. ALWAYS exit 0 (warnings to stderr);
         //    blocking Stop is a regression. ──
         if (event === "closure-check") {
-          const d = await dispatchForHookOptional(opts);
+          const d = await ctx.dispatchForHookOptional(opts);
           if ("skip" in d) {
             if (d.stale) {
               process.stderr.write(`warning: closure-check skipped — ${d.stale.message}\n`);
@@ -4805,7 +4411,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         // no journal, no side-file. The actual_scope / heartbeat writer is
         // F-027's (codex Q3 lock). exit 0.
         if (event === "scope-track") {
-          const target = await resolveHookPath(opts);
+          const target = await ctx.resolveHookPath(opts);
           if (target === null) return; // USAGE / SCHEMA_VALIDATION_FAILED exit 2
           return; // stub — accept + exit 0, write nothing
         }
@@ -4816,13 +4422,13 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         // categories. SAFETY BOUNDARY: fail closed on any ambiguity/error;
         // allow only when there is genuinely no loaf session to guard
         // (codex Q5). exit 0 = allowed; exit 2 = denied.
-        const target = await resolveHookPath(opts);
+        const target = await ctx.resolveHookPath(opts);
         if (target === null) return; // USAGE / SCHEMA exit 2 (already emitted)
 
-        const wd = await resolveDispatchForWriteGuard(opts);
+        const wd = await ctx.resolveDispatchForWriteGuard(opts);
         if ("allow" in wd) return; // no loaf session here → allow, exit 0
         if ("failClosed" in wd) {
-          emitFailure(wd.code, `write-guard blocked: ${wd.message}`, { reason: wd.message });
+          ctx.emitFailure(wd.code, `write-guard blocked: ${wd.message}`, { reason: wd.message });
           return;
         }
 
@@ -4856,7 +4462,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         } catch (err) {
           const code =
             err instanceof SnapshotStaleError ? err.code : "SNAPSHOT_STALE_REBUILD_REQUIRED";
-          emitFailure(code, `write-guard blocked: ${(err as Error).message}`, {
+          ctx.emitFailure(code, `write-guard blocked: ${(err as Error).message}`, {
             reason: (err as Error).message,
           });
           return;
@@ -4900,7 +4506,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
 
         if (decision.allowed) return; // exit 0 — write permitted
         if (decision.code === "PROTECTED_FILE_WRITE") {
-          emitFailure(
+          ctx.emitFailure(
             "PROTECTED_FILE_WRITE",
             `write blocked: \`${decision.normalizedPath}\` matches protected_files entry \`${decision.matchedDeny}\` — protected files are never writable`,
             {
@@ -4912,7 +4518,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
           return;
         }
         // WRITE_PATH_VIOLATION — bound the allow_set for the detail envelope.
-        emitFailure(
+        ctx.emitFailure(
           "WRITE_PATH_VIOLATION",
           `write blocked: \`${decision.normalizedPath}\` is outside the allowed write paths for sub_state \`${state.sub_state}\``,
           {
@@ -4946,12 +4552,12 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
     .description("Interactive session manager TUI (Ink; read-only, MVP)")
     .action(async () => {
       // no-feature — tui walks across all sessions
-      if (rejectIfDryRun("tui")) return;
+      if (ctx.rejectIfDryRun("tui")) return;
       // TTY guard — BOTH stdin and stdout must be TTY (codex r355 P4).
       const stdinTty = isStdinTty();
       const stdoutTty = isStdoutTtyForTui();
       if (!stdinTty || !stdoutTty) {
-        emitFailure("USAGE", "TUI requires an interactive terminal (stdin/stdout TTY)", {
+        ctx.emitFailure("USAGE", "TUI requires an interactive terminal (stdin/stdout TTY)", {
           stdin_tty: stdinTty,
           stdout_tty: stdoutTty,
         });
@@ -4991,7 +4597,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
     .option("--in-cwd", "Only list sessions whose registered cwd matches the current cwd")
     .action(async (opts: { inCwd?: boolean }) => {
       // no-feature — sessions list walks across all features
-      if (rejectIfDryRun("sessions list")) return;
+      if (ctx.rejectIfDryRun("sessions list")) return;
 
       const filterCwd = opts.inCwd
         ? await fsPromises.realpath(process.cwd()).catch(() => process.cwd())
@@ -5072,7 +4678,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
     )
     .action(async (filePath: string, opts: { kind?: string }) => {
       // no-feature — check is feature-agnostic per protocol §1891
-      if (rejectIfDryRun("check")) return;
+      if (ctx.rejectIfDryRun("check")) return;
 
       // --kind validation
       let kind: CheckKind | undefined;
@@ -5137,7 +4743,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         );
         return;
       }
-      emitFailure(result.code, result.message, result.detail);
+      ctx.emitFailure(result.code, result.message, result.detail);
     });
 
   // ── loaf verify status ───────────────────────────────────────────────
@@ -5165,8 +4771,8 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
     .option("--feature <name>", "Feature whose verify status to show")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { feature?: string; featureDir?: string }) => {
-      if (rejectIfDryRun("verify status")) return;
-      const featureDir = await dispatchOrFail(opts);
+      if (ctx.rejectIfDryRun("verify status")) return;
+      const featureDir = await ctx.dispatchOrFail(opts);
       if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       const diag = await evaluateVerifyAcceptDiagnostic(session.snapshot, featureDir);
@@ -5174,7 +4780,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         // IO-boundary divergence: frontmatter unreadable → exit 2,
         // structured envelope on stderr. Does NOT synthesize a check-1
         // row (codex r302 lock).
-        emitFailure(diag.code, diag.message, diag.detail);
+        ctx.emitFailure(diag.code, diag.message, diag.detail);
         return;
       }
       const env = buildVerifyStatusEnvelope(diag.checks);
@@ -5242,17 +4848,17 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         const hasTask = opts.targetTask !== undefined;
         const hasStep = opts.targetStep !== undefined;
         if (hasTask !== hasStep) {
-          emitFailure(
+          ctx.emitFailure(
             "USAGE",
             "--target-task and --target-step must be specified together (or both omitted)",
           );
           return;
         }
-        const featureDir = await dispatchOrFail(opts);
+        const featureDir = await ctx.dispatchOrFail(opts);
         if (featureDir === null) return;
         const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
         if (!session.snapshot.state) {
-          emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionFinding, opts.feature);
+          ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionFinding, opts.feature);
           return;
         }
         // FND-NNN allocator: scan numeric FND ids in projection, max+1,
@@ -5296,7 +4902,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
           ...(hasTask && hasStep ? { target: { taskId: opts.targetTask! } } : {}),
         });
         if (findingBatch.kind === "none") {
-          const result = await runMutator(featureDir, session, {
+          const result = await mutator.run(featureDir, session, {
             kind: "finding:raised",
             payload,
             actor,
@@ -5317,7 +4923,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
           );
           return;
         }
-        const batchResult = await runMutator(featureDir, session, findingBatch.entries);
+        const batchResult = await mutator.run(featureDir, session, findingBatch.entries);
         if (!batchResult) return;
         ctx.success(
           {
@@ -5349,7 +4955,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
     .option("--status <s>", "Filter by status (open | closed)")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { feature: string; status?: string; featureDir?: string }) => {
-      if (rejectIfDryRun("finding list")) return;
+      if (ctx.rejectIfDryRun("finding list")) return;
       if (opts.status !== undefined && opts.status !== "open" && opts.status !== "closed") {
         ctx.failureKeyed(
           "USAGE",
@@ -5359,13 +4965,13 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         );
         return;
       }
-      const featureDir = await dispatchOrFail(opts);
+      const featureDir = await ctx.dispatchOrFail(opts);
       if (featureDir === null) return;
       // Phase 15 SC3 — projection-loader. findings.json's FindingStateShape
       // is already byte-equal to the reducer's FindingState slim shape (id,
       // category, action, status, summary?, reason?, target?) — no adapter
       // beyond the array unwrap.
-      const loaded = await loadProjectionsOrFail(
+      const loaded = await ctx.loadProjectionsOrFail(
         featureDir,
         ["findings"] as const,
         opts.feature,
@@ -5408,18 +5014,18 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
       // contract at the journal boundary.
       const idParse = FindingId.safeParse(fndId);
       if (!idParse.success) {
-        emitFailure(
+        ctx.emitFailure(
           "INVALID_PAYLOAD",
           `finding close id must match FindingId regex /^FND-\\d{3,}$/ (got ${fndId})`,
           { id: fndId, issues: idParse.error.issues },
         );
         return;
       }
-      const featureDir = await dispatchOrFail(opts);
+      const featureDir = await ctx.dispatchOrFail(opts);
       if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       if (!session.snapshot.state) {
-        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionFinding, opts.feature);
+        ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionFinding, opts.feature);
         return;
       }
       // CLI-side pre-check surfaces FINDING_NOT_FOUND directly (instead of
@@ -5429,21 +5035,21 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
       // that want to react programmatically (codex r68 #4).
       const existing = session.snapshot.findings.find((f) => f.id === fndId);
       if (!existing) {
-        emitFailure("FINDING_NOT_FOUND", `finding:closed references unknown finding id=${fndId}`, {
+        ctx.emitFailure("FINDING_NOT_FOUND", `finding:closed references unknown finding id=${fndId}`, {
           id: fndId,
           reason: "unknown",
         });
         return;
       }
       if (existing.status === "closed") {
-        emitFailure(
+        ctx.emitFailure(
           "FINDING_NOT_FOUND",
           `finding:closed references finding id=${fndId} that is already closed`,
           { id: fndId, reason: "already_closed" },
         );
         return;
       }
-      const result = await runMutator(featureDir, session, {
+      const result = await mutator.run(featureDir, session, {
         kind: "finding:closed",
         payload: { id: fndId },
         actor,
@@ -5506,7 +5112,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
       // SC-6b — record trace target at action entry so long input-validation
       // failures still trace. SC-8: dispatchOrFail handles §10.3 precedence
       // + traceTarget in one call.
-      const earlyFeatureDir = await dispatchOrFail(opts);
+      const earlyFeatureDir = await ctx.dispatchOrFail(opts);
       if (earlyFeatureDir === null) return;
       // Phase 16 SC-4a — unified --input modality (protocol §10.7 +
       // ADR-0004 A11): parseInputSource discriminates stdin / inline /
@@ -5549,11 +5155,11 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
       }
       const input = inputParse.data;
       // Load session via ctx (caches; captures sub_state for crash context).
-      const featureDir = await dispatchOrFail(opts);
+      const featureDir = await ctx.dispatchOrFail(opts);
       if (featureDir === null) return;
       const session = await ctx.resolveSession(featureDir);
       if (!session.snapshot.state) {
-        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+        ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
         return;
       }
       // (4-6) Build the spec-submit batch via shared SC-12a-1 helper.
@@ -5569,8 +5175,8 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         now,
       });
       // (7) Mutate.
-      const result = finishMutate(
-        await mutateBatch(entries, mctxFor(featureDir, session)),
+      const result = mutator.finishMutate(
+        await mutateBatch(entries, mutator.mctxFor(featureDir, session)),
         "raw-ctx-failure",
       );
       if (!result) return;
@@ -5716,7 +5322,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         featureName?: string;
         intent?: string;
       }) => {
-        const featureDir = await dispatchOrFail(opts);
+        const featureDir = await ctx.dispatchOrFail(opts);
         if (featureDir === null) return;
         const specMdPath = path.join(featureDir, "spec.md");
         // SPEC_ALREADY_INITIALIZED guard: refuse to overwrite. Check
@@ -5725,7 +5331,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         try {
           await fsP.access(specMdPath);
           // File exists — refuse.
-          emitFailure(
+          ctx.emitFailure(
             "SPEC_ALREADY_INITIALIZED",
             `spec.md already exists at ${specMdPath}; edit it directly or remove before re-init`,
             { spec_md_path: specMdPath },
@@ -5778,7 +5384,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         };
         const scaffoldParse = SpecFrontmatter.safeParse(scaffoldObj);
         if (!scaffoldParse.success) {
-          emitFailure(
+          ctx.emitFailure(
             "SCHEMA_VALIDATION_FAILED",
             "spec init scaffold failed SpecFrontmatter validation; check --feature-id (/^F-\\d{3,}$/), --feature-name (≥3 chars), --intent (≥20 chars)",
             { issues: scaffoldParse.error.issues },
@@ -5839,15 +5445,15 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
     .option("--feature <name>", "Feature whose spec.md to edit")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { feature: string; featureDir?: string }) => {
-      if (rejectIfDryRun("spec edit", "wrapping")) return;
-      const featureDir = await dispatchOrFail(opts);
+      if (ctx.rejectIfDryRun("spec edit", "wrapping")) return;
+      const featureDir = await ctx.dispatchOrFail(opts);
       if (featureDir === null) return;
       // (1) actor — `event:spec_submitted` is human:* per PER_KIND_AUTHORITY
-      const actor = resolveHumanActorOrFail();
+      const actor = ctx.resolveHumanActorOrFail();
       if (actor === null) return;
       const session = await loadSession(featureDir, { ensureDir: false });
       if (!session.snapshot.state) {
-        emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+        ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
         return;
       }
       // (1.5) pre-editor lock gate (codex r339 P2): post-lock direct
@@ -5856,7 +5462,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
       // stay coherent. Reject BEFORE spawning $EDITOR so the user is
       // not deceived by an open editor whose contents will be discarded.
       if (session.snapshot.state.spec_locked === true) {
-        emitFailure(
+        ctx.emitFailure(
           "SPEC_LOCKED_NO_DIRECT_EDIT",
           `spec is locked; direct edits via \`loaf spec edit\` are rejected post-lock — use \`loaf finding raise --category spec-gap --action amend-spec --summary "..."\` to roll back to SPEC.spec and amend through the finding flow`,
           { kind: "event:spec_submitted" },
@@ -5870,7 +5476,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         beforeContent = await fsP.readFile(specMdPath, "utf8");
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-          emitFailure(
+          ctx.emitFailure(
             "SCHEMA_VALIDATION_FAILED",
             `spec.md not found at ${specMdPath}; run \`loaf spec init\` to scaffold one first`,
             { subcode: "spec-not-found", path: specMdPath },
@@ -5889,7 +5495,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
       });
       // (4a) spawn error → USAGE (codex r335 P1)
       if (result.error !== undefined) {
-        emitFailure("USAGE", `editor '${editor}' could not be launched (${result.error})`, {
+        ctx.emitFailure("USAGE", `editor '${editor}' could not be launched (${result.error})`, {
           editor,
           spawn_error: result.error,
         });
@@ -5902,7 +5508,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
       }
       // (4c) non-zero exit → USAGE (user aborted via :q! or similar)
       if (result.code !== 0) {
-        emitFailure("USAGE", `editor exited with code=${result.code}`, {
+        ctx.emitFailure("USAGE", `editor exited with code=${result.code}`, {
           editor,
           editor_exit: result.code,
         });
@@ -5914,7 +5520,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         afterContent = await fsP.readFile(specMdPath, "utf8");
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-          emitFailure(
+          ctx.emitFailure(
             "SCHEMA_VALIDATION_FAILED",
             `spec.md was deleted during edit at ${specMdPath}`,
             { subcode: "spec-not-found", path: specMdPath },
@@ -5935,7 +5541,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
       //     subcode taxonomy (codex r336 P3)
       const { frontmatter } = splitFrontmatter(afterContent);
       if (frontmatter === null) {
-        emitFailure(
+        ctx.emitFailure(
           "SCHEMA_VALIDATION_FAILED",
           `spec.md is missing a YAML frontmatter block fenced by \`---\` on the first line; work copy preserved at ${specMdPath} for you to fix and re-run \`loaf spec edit\``,
           { subcode: "missing-frontmatter", path: specMdPath },
@@ -5946,7 +5552,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
       try {
         parsedYaml = parseYaml(frontmatter);
       } catch (err) {
-        emitFailure(
+        ctx.emitFailure(
           "SCHEMA_VALIDATION_FAILED",
           `spec.md frontmatter YAML failed to parse: ${(err as Error).message}; work copy preserved at ${specMdPath} for you to fix and re-run \`loaf spec edit\``,
           { subcode: "invalid-yaml", path: specMdPath },
@@ -5956,7 +5562,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
       const zodResult = SpecFrontmatter.safeParse(parsedYaml);
       if (!zodResult.success) {
         const issues = mapZodIssues(zodResult.error);
-        emitFailure(
+        ctx.emitFailure(
           "SCHEMA_VALIDATION_FAILED",
           `spec.md frontmatter failed schema validation (${issues.error_count} errors); work copy preserved at ${specMdPath} for you to fix and re-run \`loaf spec edit\``,
           {
@@ -5983,7 +5589,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         needs_clarification: fm.needs_clarification,
       });
       if (!submitParse.success) {
-        emitFailure(
+        ctx.emitFailure(
           "SCHEMA_VALIDATION_FAILED",
           `spec.md frontmatter passed SpecFrontmatter but failed SpecSubmitInput shape (unusual cross-schema drift); work copy preserved at ${specMdPath}`,
           { subcode: "zod", path: specMdPath, issues: submitParse.error.issues },
@@ -6000,9 +5606,9 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
       });
       // `spec edit` rejects --dry-run upfront (rejectIfDryRun above), so
       // finishMutate's dry-run branch is unreachable here; the route is the
-      // default emit-failure, matching the prior inline emitFailure(...).
-      const mutateResult = finishMutate(
-        await mutateBatch(entries, mctxFor(featureDir, session)),
+      // default emit-failure, matching the prior inline ctx.emitFailure(...).
+      const mutateResult = mutator.finishMutate(
+        await mutateBatch(entries, mutator.mctxFor(featureDir, session)),
         "emit-failure",
       );
       if (!mutateResult) return;
@@ -6050,19 +5656,19 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
           // Phase 16 SC-10 — --schema bypass MUST be first (no input read,
           // no session resolve). Pre-parse guard already rejected selectors
           // when --schema is present. Literal labels per cfg.name so the
-          // SC-6c static guard can scan rejectIfDryRun("<label>") strings.
+          // SC-6c static guard can scan ctx.rejectIfDryRun("<label>") strings.
           if (rawOpts.schema === true) {
             let rejected = false;
-            if (cfg.name === "req") rejected = rejectIfDryRun("spec add-req --schema");
+            if (cfg.name === "req") rejected = ctx.rejectIfDryRun("spec add-req --schema");
             else if (cfg.name === "scenario")
-              rejected = rejectIfDryRun("spec add-scenario --schema");
-            else rejected = rejectIfDryRun("spec add-visual --schema");
+              rejected = ctx.rejectIfDryRun("spec add-scenario --schema");
+            else rejected = ctx.rejectIfDryRun("spec add-visual --schema");
             if (rejected) return;
-            emitMutatorSchemaAndExit(mutatorKey);
+            mutator.emitSchemaAndExit(mutatorKey);
             return;
           }
           if (rawOpts.input === undefined) {
-            emitFailure(
+            ctx.emitFailure(
               "MISSING_INPUT",
               `loaf spec add-${cfg.name} requires --input <src> (or pass --schema to dump the input JSON Schema)`,
             );
@@ -6100,11 +5706,11 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
           const items: ReadonlyArray<{ id_namespace: string; [k: string]: unknown }> =
             Array.isArray(inputParse.data) ? inputParse.data : [inputParse.data];
           // Load session via ctx (caches; captures sub_state for crash context).
-          const featureDir = await dispatchOrFail(opts);
+          const featureDir = await ctx.dispatchOrFail(opts);
           if (featureDir === null) return;
           const session = await ctx.resolveSession(featureDir);
           if (!session.snapshot.state) {
-            emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+            ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
             return;
           }
           // (4) Per-namespace allocator. Track counter across the batch so
@@ -6142,7 +5748,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
             },
             actor,
           }));
-          const result = await runMutator(featureDir, session, entries, "raw-ctx-failure");
+          const result = await mutator.run(featureDir, session, entries, "raw-ctx-failure");
           if (!result) return;
           const specVersion = result.snapshot.state?.spec_version;
           ctx.success(
@@ -6179,7 +5785,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
   // findingCmd); `state` is a NEW top-level parent (no other v0.1.0
   // state subs). Feature-agnostic — pre-parse guard already rejected
   // --feature / --feature-dir / --session / $LOAF_*. Read-only —
-  // `--dry-run` rejected via rejectIfDryRun(<label>).
+  // `--dry-run` rejected via ctx.rejectIfDryRun(<label>).
   const stateCmd = program.command("state").description("Session state schema dump (SC-10)");
 
   const ARTIFACT_PARENTS: Record<ArtifactSchemaKind, ReturnType<typeof program.command>> = {
@@ -6195,13 +5801,13 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
       .description(`Dump the ${kind} artifact JSON Schema (Phase 16 SC-10; read-only)`)
       .action(async () => {
         // no-feature — schema dump is feature-agnostic. Literal label
-        // per kind so the SC-6c static guard finds rejectIfDryRun("<kind> schema").
+        // per kind so the SC-6c static guard finds ctx.rejectIfDryRun("<kind> schema").
         let rejected = false;
-        if (kind === "spec") rejected = rejectIfDryRun("spec schema");
-        else if (kind === "tasks") rejected = rejectIfDryRun("tasks schema");
-        else if (kind === "evidence") rejected = rejectIfDryRun("evidence schema");
-        else if (kind === "finding") rejected = rejectIfDryRun("finding schema");
-        else rejected = rejectIfDryRun("state schema");
+        if (kind === "spec") rejected = ctx.rejectIfDryRun("spec schema");
+        else if (kind === "tasks") rejected = ctx.rejectIfDryRun("tasks schema");
+        else if (kind === "evidence") rejected = ctx.rejectIfDryRun("evidence schema");
+        else if (kind === "finding") rejected = ctx.rejectIfDryRun("finding schema");
+        else rejected = ctx.rejectIfDryRun("state schema");
         if (rejected) return;
         const schema = emitArtifactSchema(kind) as Record<string, unknown>;
         ctx.success(schema, () => formatSchema(schema));

@@ -195,13 +195,12 @@ describe("SC-6c — every mutator call carries dryRun in MutateContext", () => {
   test("static: each await mutate(Batch) site's ctx arg contains dryRun: ctx.dryRun", async () => {
     const source = await readRepo("src/cli.tsx");
 
-    // The single wired-ctx factory: every mutator ctx now flows through
-    // `mctxFor(...)` (runMutator's `mctx = mctxFor(...)` + the bypass sites
-    // pass it directly). Verify the factory wires the field once, then accept
-    // any site whose ctx arg is mctxFor(...) or a var assigned from it.
+    // Phase W8: mctxFor factory moved to src/cli/command-mutator.ts.
+    // Verify the factory wires the field there.
+    const mutatorSource = await readRepo("src/cli/command-mutator.ts");
     expect(
-      /const\s+mctxFor\s*=[\s\S]{0,400}?dryRun\s*:\s*ctx\.dryRun/.test(source),
-      "mctxFor factory must wire `dryRun: ctx.dryRun`",
+      /const\s+mctxFor\s*=[\s\S]{0,400}?dryRun\s*:\s*ctx\.dryRun/.test(mutatorSource),
+      "mctxFor factory must wire `dryRun: ctx.dryRun` in command-mutator.ts",
     ).toBe(true);
 
     // Collect names of locally-defined ctx variables that carry
@@ -213,7 +212,8 @@ describe("SC-6c — every mutator call carries dryRun in MutateContext", () => {
     for (const m of source.matchAll(ctxDefRe)) {
       KNOWN_GOOD_CTX_NAMES.add(m[1]!);
     }
-    for (const m of source.matchAll(/const\s+(\w+)\s*=\s*mctxFor\(/g)) {
+    // Phase W8: bypass sites use mutator.mctxFor(...)
+    for (const m of source.matchAll(/const\s+(\w+)\s*=\s*(?:mutator\.)?mctxFor\(/g)) {
       KNOWN_GOOD_CTX_NAMES.add(m[1]!);
     }
 
@@ -233,7 +233,7 @@ describe("SC-6c — every mutator call carries dryRun in MutateContext", () => {
       // Walk forward, accumulating until we close the outermost paren.
       let depth = 0;
       let slice = "";
-      let startCol = callMatch.index + callMatch[0].length - 1; // at the '('
+      const startCol = callMatch.index + callMatch[0].length - 1; // at the '('
       let scan = true;
       for (let j = i; j < lines.length && scan; j++) {
         const text = j === i ? lines[j]!.slice(startCol) : lines[j]!;
@@ -255,8 +255,9 @@ describe("SC-6c — every mutator call carries dryRun in MutateContext", () => {
       // Inline literal check
       if (/dryRun\s*:\s*ctx\.dryRun/.test(slice)) continue;
 
-      // Direct factory call as the ctx arg: `mutateBatch(batch, mctxFor(...))`
-      if (/\bmctxFor\(/.test(slice)) continue;
+      // Direct factory call as the ctx arg: `mutateBatch(batch, mctxFor(...))` or
+      // `mutateBatch(batch, mutator.mctxFor(...))` (Phase W8 bypass sites)
+      if (/(?:mutator\.)?mctxFor\(/.test(slice)) continue;
 
       // Named-ctx check: find the last identifier before the closing
       // `)`. Allow optional trailing comma (multi-line call style).
@@ -270,15 +271,13 @@ describe("SC-6c — every mutator call carries dryRun in MutateContext", () => {
     }
 
     expect(misses).toEqual([]);
-    // Sanity: the mutator pipeline is centralized behind `runMutator`, which
-    // builds the wired `mctx` once. The remaining textual `await mutate(Batch)`
-    // sites are the helper internals, the two pre-stamped buildSpecSubmitBatch
-    // sites, and the sponsored tasks-add exclusion (per-entry `at`) — all
-    // covered by the `misses` check above.
+    // Sanity: the mutator pipeline is centralized behind `mutator.run` (Phase
+    // W8 rename from `runMutator`). The remaining textual `await mutate(Batch)`
+    // sites are the helper internals and the sponsored tasks-add bypass sites.
     // Guard that a representative number of call sites route through the
-    // centralized helper (was: ≥30 inline ctx literals pre-L1 migration).
-    const runMutatorCalls = source.match(/await\s+runMutator\s*\(/g)?.length ?? 0;
-    expect(runMutatorCalls).toBeGreaterThanOrEqual(25);
+    // centralized helper.
+    const mutatorRunCalls = source.match(/await\s+mutator\.run\s*\(/g)?.length ?? 0;
+    expect(mutatorRunCalls).toBeGreaterThanOrEqual(25);
   });
 });
 
