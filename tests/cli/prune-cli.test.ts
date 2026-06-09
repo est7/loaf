@@ -178,6 +178,21 @@ describe("loaf prune — 6b restore / history / trash retention", () => {
     expect(await exists(path.join(cwd, ".loaf", "feat-a", "journal.jsonl"))).toBe(true);
   });
 
+  test("--dry-run prune restore is a preview — no state change (codex 6b BLOCK)", async () => {
+    const cwd = path.join(projects, "p1");
+    await seed(U(1), "feat-a", cwd, "DONE.delivered");
+    await run(["prune", "--session", U(1), "--yes"]); // trash it
+    const base = path.dirname(registryDir);
+    const bucketTs = "2026-06-09T00-00-00.000Z";
+
+    const r = await run(["--dry-run", "prune", "restore", U(1), "--format", "json"]);
+    expect(r.exit).toBe(0);
+    expect(JSON.parse(r.stdout).dry_run).toBe(true);
+    // nothing restored: registry still absent, bucket still present
+    expect(await exists(path.join(registryDir, `${U(1)}.json`))).toBe(false);
+    expect(await exists(path.join(base, "trash", bucketTs, U(1)))).toBe(true);
+  });
+
   test("restore unknown id → PRUNE_RESTORE_NOT_FOUND exit 2", async () => {
     const r = await run(["prune", "restore", U(9), "--format", "json"]);
     expect(r.exit).toBe(2);

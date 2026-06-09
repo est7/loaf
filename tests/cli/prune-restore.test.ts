@@ -101,6 +101,24 @@ describe("restorePrune", () => {
     expect(await exists(path.join(cwd, ".loaf", "gone"))).toBe(false);
   });
 
+  test("dryRun validates but moves nothing (preview)", async () => {
+    const cwd = path.join(projects, "p1");
+    const bucket = await seedBucket({ ts: "T1", id: U(1), feature: "feat-a", cwd, orphan: false, content: "X" });
+
+    const r = await restorePrune({ registryDir, trashDir, sessionId: U(1), dryRun: true });
+    expect(r.ok).toBe(true);
+    // nothing moved: registry not recreated, feature not restored, bucket intact
+    expect(await exists(path.join(registryDir, `${U(1)}.json`))).toBe(false);
+    expect(await exists(path.join(cwd, ".loaf", "feat-a"))).toBe(false);
+    expect(await exists(path.join(bucket, "registry.json"))).toBe(true);
+    expect(await exists(path.join(bucket, "feature"))).toBe(true);
+  });
+
+  test("dryRun still surfaces validation failures (e.g. not-found)", async () => {
+    const r = await restorePrune({ registryDir, trashDir, sessionId: U(9), dryRun: true });
+    expect(r).toMatchObject({ ok: false, code: "PRUNE_RESTORE_NOT_FOUND" });
+  });
+
   test("unknown session → PRUNE_RESTORE_NOT_FOUND", async () => {
     const r = await restorePrune({ registryDir, trashDir, sessionId: U(9) });
     expect(r).toMatchObject({ ok: false, code: "PRUNE_RESTORE_NOT_FOUND" });

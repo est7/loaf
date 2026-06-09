@@ -18,6 +18,10 @@ export interface RestoreOptions {
   sessionId: string;
   /** Disambiguator when the uuid was trashed more than once. */
   at?: string;
+  /** Preview: run all validation (NOT_FOUND / AMBIGUOUS / INCOMPLETE /
+   *  PATH_OCCUPIED) but DO NOT move anything (honors the global --dry-run;
+   *  restore is destructive/stateful, so dry-run must not persist state). */
+  dryRun?: boolean;
 }
 
 export type RestoreResult =
@@ -147,16 +151,20 @@ export async function restorePrune(opts: RestoreOptions): Promise<RestoreResult>
     };
   }
 
-  // Sources preflighted present above → these moves succeed.
-  // Restore feature dir first (if any), then the registry entry.
-  if (manifest.feature_trashed) {
-    await fs.mkdir(path.dirname(manifest.feature_dir), { recursive: true });
-    await moveDir(featureSrc, manifest.feature_dir);
+  // Preview (--dry-run): all validation above has passed; report what WOULD be
+  // restored WITHOUT moving anything (codex 6b BLOCK — restore is stateful, so
+  // dry-run must not persist state).
+  if (!opts.dryRun) {
+    // Sources preflighted present above → these moves succeed.
+    // Restore feature dir first (if any), then the registry entry.
+    if (manifest.feature_trashed) {
+      await fs.mkdir(path.dirname(manifest.feature_dir), { recursive: true });
+      await moveDir(featureSrc, manifest.feature_dir);
+    }
+    await moveFile(registrySrc, registryDest);
+    // Consume the bucket (manifest + now-empty dir).
+    await fs.rm(bucket, { recursive: true, force: true });
   }
-  await moveFile(registrySrc, registryDest);
-
-  // Consume the bucket (manifest + now-empty dir).
-  await fs.rm(bucket, { recursive: true, force: true });
 
   return {
     ok: true,

@@ -299,14 +299,19 @@ export function registerPrune(program: Command, ctx: CommandContext, deps: Prune
     .command("restore <session-id>")
     .description("Restore a trashed session (registry entry + feature dir) from the prune trash")
     .option("--at <ts>", "Disambiguate when the session was trashed more than once")
-    .action(async (sessionId: string, localOpts: { at?: string }) => {
+    .action(async (sessionId: string, _localOpts: { at?: string }, command: Command) => {
       // no-feature — restore addresses a trashed session by uuid, not a feature.
+      // --at is local; --dry-run is the GLOBAL flag (restore is stateful, so it
+      // must honor dry-run: validate + preview, never move — codex 6b BLOCK).
+      const opts = command.optsWithGlobals() as { at?: string; dryRun?: boolean };
+      const dryRun = opts.dryRun === true;
       const trashDir = path.join(path.dirname(deps.registryDir), "trash");
       const result = await restorePrune({
         registryDir: deps.registryDir,
         trashDir,
         sessionId,
-        ...(localOpts.at !== undefined && { at: localOpts.at }),
+        dryRun,
+        ...(opts.at !== undefined && { at: opts.at }),
       });
       if (!result.ok) {
         ctx.emitFailure(result.code, result.message, result.detail ?? {});
@@ -315,11 +320,13 @@ export function registerPrune(program: Command, ctx: CommandContext, deps: Prune
       ctx.success(
         {
           ok: true,
+          dry_run: dryRun,
           session_id: result.session_id,
           feature: result.feature,
           cwd: result.cwd,
         },
-        () => `restored ${result.session_id} (${result.feature})\n`,
+        () =>
+          `${dryRun ? "would restore" : "restored"} ${result.session_id} (${result.feature})\n`,
       );
     });
 }
