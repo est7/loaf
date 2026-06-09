@@ -14,6 +14,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
+import { moveDir, moveFile } from "./fs-move.js";
 import type { PruneTarget } from "./resolve.js";
 
 export type PruneMode = "trash" | "purge";
@@ -45,37 +46,6 @@ export interface PruneFailure {
 export interface ExecuteResult {
   done: PruneOutcome[];
   failed: PruneFailure[];
-}
-
-/** Rename a dir; fall back to copy+rm across devices; report ENOENT as "gone". */
-async function moveDir(src: string, dest: string): Promise<boolean> {
-  try {
-    await fs.rename(src, dest);
-    return true;
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
-    if (code === "ENOENT") return false; // vanished between resolve and execute (TOCTOU)
-    if (code === "EXDEV") {
-      await fs.cp(src, dest, { recursive: true });
-      await fs.rm(src, { recursive: true, force: true });
-      return true;
-    }
-    throw err;
-  }
-}
-
-/** Rename a file; fall back to copy+unlink across devices. */
-async function moveFile(src: string, dest: string): Promise<void> {
-  try {
-    await fs.rename(src, dest);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "EXDEV") {
-      await fs.copyFile(src, dest);
-      await fs.rm(src, { force: true });
-    } else {
-      throw err;
-    }
-  }
 }
 
 export async function executePrune(opts: ExecuteOptions): Promise<ExecuteResult> {
