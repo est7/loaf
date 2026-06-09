@@ -1,13 +1,13 @@
-// `loaf prune <scope>` — session GC CLI surface (slice 6a).
+// `loaf prune` — session GC CLI surface.
 //
-// One-way pipeline: resolve → (preview | execute) → audit. Targets ALWAYS come
+// Main path (6a): resolve → (preview | execute) → audit. Targets ALWAYS come
 // from resolvePruneTargets (never hand-built) so the status + lock safety gates
 // can't be bypassed. Preview by default (no side effects); --yes executes.
 //
-// Deferred to slice 6b (codex prune-core notes): resolve matches a session's
-// stored cwd literally, so --in-cwd / --project canonicalize the SCOPE side here
-// but full realpath symmetry on the stored side is 6b; --history / restore /
-// --trash --older-than subcommands; audit EACCES/corrupt surfacing.
+// 6b modes/subcommands: `prune --history` (read the audit log), `prune --trash
+// --older-than <N>d` (trash retention sweep, preview/--yes), and the `prune
+// restore <id>` subcommand (surfaces the 4 PRUNE_RESTORE_* / PRUNE_PATH_OCCUPIED
+// codes via ctx.failure).
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -15,9 +15,11 @@ import path from "node:path";
 import type { Command } from "commander";
 import { tryRealpath } from "../../core/registry-read.js";
 import type { CommandContext } from "../command-context.js";
-import { appendPruneLog } from "../prune/audit.js";
+import { appendPruneLog, readPruneLog } from "../prune/audit.js";
 import { executePrune } from "../prune/execute.js";
 import { resolvePruneTargets, type PruneScope } from "../prune/resolve.js";
+import { restorePrune } from "../prune/restore.js";
+import { gcTrash } from "../prune/trash-gc.js";
 import { toTrashTs } from "../prune/trash-ts.js";
 
 export interface PruneDeps {
@@ -42,7 +44,9 @@ interface PruneOpts {
 async function resolveSessionPrefix(
   registryDir: string,
   prefix: string,
-): Promise<{ kind: "found"; id: string } | { kind: "not-found" } | { kind: "ambiguous"; matches: string[] }> {
+): Promise<
+  { kind: "found"; id: string } | { kind: "not-found" } | { kind: "ambiguous"; matches: string[] }
+> {
   let files: string[];
   try {
     files = await fs.readdir(registryDir);
@@ -56,6 +60,15 @@ async function resolveSessionPrefix(
   if (matches.length === 0) return { kind: "not-found" };
   if (matches.length > 1) return { kind: "ambiguous", matches };
   return { kind: "found", id: matches[0]! };
+}
+
+/** Commander coercion for `--older-than <days>`: positive integer or throws. */
+function parseDaysOption(value: string): number {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 0) {
+    throw new Error(`--older-than must be a non-negative integer number of days (got ${value})`);
+  }
+  return n;
 }
 
 function describeScope(scope: PruneScope): string {
@@ -72,7 +85,7 @@ function describeScope(scope: PruneScope): string {
 }
 
 export function registerPrune(program: Command, ctx: CommandContext, deps: PruneDeps): void {
-  program
+  const pruneCmd = program
     .command("prune")
     .description(
       "Garbage-collect finished sessions (terminal-only; recoverable trash). Scope with the global --session <id> or one of --in-cwd / --project / --all / --orphans.",
@@ -84,6 +97,13 @@ export function registerPrune(program: Command, ctx: CommandContext, deps: Prune
     .option("--force", "Include active (non-terminal) sessions — never overrides a held lock")
     .option("--purge", "Hard-delete instead of moving to recoverable trash")
     .option("--yes", "Execute; without it, prune previews and changes nothing")
+    .option("--history", "Print the prune audit log (~/.loaf/prune-log.jsonl) and exit")
+    .option("--trash", "Trash retention sweep: remove trash buckets older than --older-than")
+    .option(
+      "--older-than <days>",
+      "(with --trash) remove buckets older than N days",
+      parseDaysOption,
+    )
     .action(async (_localOpts: PruneOpts, command: Command) => {
       // no-feature — prune GCs the session registry across all sessions; it is
       // not feature-addressed and records no trace target.
@@ -93,7 +113,47 @@ export function registerPrune(program: Command, ctx: CommandContext, deps: Prune
       const opts = command.optsWithGlobals() as PruneOpts & {
         session?: string;
         dryRun?: boolean;
+        history?: boolean;
+        trash?: boolean;
+        olderThan?: number;
       };
+      const base = path.dirname(deps.registryDir);
+
+      // ── mode: --history (read the audit log) ───────────────────────
+      if (opts.history === true) {
+        const entries = await readPruneLog(path.join(base, "prune-log.jsonl"));
+        ctx.success({ ok: true, count: entries.length, entries }, () => {
+          if (entries.length === 0) return "prune history: (empty)\n";
+          return `${entries
+            .map((e) => `${e.at}  ${e.mode}  ${e.scope}  pruned=${e.pruned.length}`)
+            .join("\n")}\n`;
+        });
+        return;
+      }
+
+      // ── mode: --trash --older-than <N> (retention sweep) ───────────
+      if (opts.trash === true) {
+        if (opts.olderThan === undefined) {
+          ctx.emitFailure("USAGE", "loaf prune --trash requires --older-than <days>", {});
+          return;
+        }
+        const previewTrash = opts.yes !== true || opts.dryRun === true;
+        const r = await gcTrash({
+          trashDir: path.join(base, "trash"),
+          olderThanDays: opts.olderThan,
+          now: deps.now(),
+          dryRun: previewTrash,
+        });
+        ctx.success(
+          { ok: true, dry_run: previewTrash, removed: r.removed, kept: r.kept },
+          () =>
+            `${previewTrash ? "would remove" : "removed"} ${r.removed.length} trash bucket(s), kept ${r.kept.length}` +
+            (previewTrash ? " — re-run with --yes to execute" : "") +
+            "\n",
+        );
+        return;
+      }
+
       // Exactly one scope.
       const scopeCount =
         (opts.session !== undefined ? 1 : 0) +
@@ -178,7 +238,6 @@ export function registerPrune(program: Command, ctx: CommandContext, deps: Prune
         return;
       }
 
-      const base = path.dirname(deps.registryDir);
       const trashDir = path.join(base, "trash");
       const logPath = path.join(base, "prune-log.jsonl");
       const timestamp = toTrashTs(deps.now());
@@ -229,6 +288,38 @@ export function registerPrune(program: Command, ctx: CommandContext, deps: Prune
           `${mode === "purge" ? "purged" : "pruned"} ${result.done.length} session(s)` +
           (skipped.length > 0 ? `, skipped ${skipped.length}` : "") +
           "\n",
+      );
+    });
+
+  // ── loaf prune restore <id> [--at <ts>] ──────────────────────────
+  // Inverse of trash: surfaces the 4 PRUNE_RESTORE_* / PRUNE_PATH_OCCUPIED
+  // codes via ctx.failure. Takes the FULL session uuid (shown by --history /
+  // preview); a partial id would not match a trash bucket dir name.
+  pruneCmd
+    .command("restore <session-id>")
+    .description("Restore a trashed session (registry entry + feature dir) from the prune trash")
+    .option("--at <ts>", "Disambiguate when the session was trashed more than once")
+    .action(async (sessionId: string, localOpts: { at?: string }) => {
+      // no-feature — restore addresses a trashed session by uuid, not a feature.
+      const trashDir = path.join(path.dirname(deps.registryDir), "trash");
+      const result = await restorePrune({
+        registryDir: deps.registryDir,
+        trashDir,
+        sessionId,
+        ...(localOpts.at !== undefined && { at: localOpts.at }),
+      });
+      if (!result.ok) {
+        ctx.emitFailure(result.code, result.message, result.detail ?? {});
+        return;
+      }
+      ctx.success(
+        {
+          ok: true,
+          session_id: result.session_id,
+          feature: result.feature,
+          cwd: result.cwd,
+        },
+        () => `restored ${result.session_id} (${result.feature})\n`,
       );
     });
 }

@@ -14,7 +14,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
-import { readRegistryEntry } from "../../core/registry-read.js";
+import { readRegistryEntry, tryRealpath } from "../../core/registry-read.js";
 
 /** Terminal sub_states — the only sessions prune touches without --force. */
 const TERMINAL_SUB_STATES: ReadonlySet<string> = new Set([
@@ -96,6 +96,17 @@ export async function resolvePruneTargets(opts: ResolveOptions): Promise<Resolve
   const targets: PruneTarget[] = [];
   const skipped: PruneSkip[] = [];
 
+  // cwd scopes canonicalize BOTH sides so a symlinked / trailing-slash cwd still
+  // matches the stored registry cwd (tracked 6b symmetry) — resolve owns the
+  // canonicalization so callers may pass a raw or already-realpath'd cwd. Falls
+  // back to the literal value when a path can't be resolved (e.g. dir deleted).
+  let scopeCwd: string | undefined;
+  if (scope.kind === "cwd") {
+    scopeCwd = (await tryRealpath(scope.cwd)) ?? scope.cwd;
+  } else if (scope.kind === "orphans" && scope.cwd !== undefined) {
+    scopeCwd = (await tryRealpath(scope.cwd)) ?? scope.cwd;
+  }
+
   for (const id of ids) {
     const read = await readRegistryEntry(registryDir, id);
     if (!read.ok) continue; // corrupt / unreadable entry — out of this slice's scope
@@ -103,8 +114,10 @@ export async function resolvePruneTargets(opts: ResolveOptions): Promise<Resolve
 
     // ── scope filter ───────────────────────────────────────────────
     if (scope.kind === "session" && !e.session_id.startsWith(scope.id)) continue;
-    if (scope.kind === "cwd" && e.cwd !== scope.cwd) continue;
-    if (scope.kind === "orphans" && scope.cwd !== undefined && e.cwd !== scope.cwd) continue;
+    if (scopeCwd !== undefined) {
+      const canon = (await tryRealpath(e.cwd)) ?? e.cwd;
+      if (canon !== scopeCwd) continue;
+    }
 
     const feature_dir = path.join(e.cwd, ".loaf", e.feature);
     const featProbe = await probePath(feature_dir);

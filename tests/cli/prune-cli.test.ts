@@ -161,3 +161,63 @@ describe("loaf prune — scope + safety surface", () => {
     expect(JSON.parse(r.stderr).code).toBe("SESSION_SHORT_AMBIGUOUS");
   });
 });
+
+describe("loaf prune — 6b restore / history / trash retention", () => {
+  test("restore round-trips a trashed session (registry entry + feature dir)", async () => {
+    const cwd = path.join(projects, "p1");
+    await seed(U(1), "feat-a", cwd, "DONE.delivered");
+
+    const t = await run(["prune", "--session", U(1), "--yes", "--format", "json"]);
+    expect(t.exit).toBe(0);
+    expect(await exists(path.join(registryDir, `${U(1)}.json`))).toBe(false);
+
+    const r = await run(["prune", "restore", U(1), "--format", "json"]);
+    expect(r.exit).toBe(0);
+    expect(JSON.parse(r.stdout).session_id).toBe(U(1));
+    expect(await exists(path.join(registryDir, `${U(1)}.json`))).toBe(true);
+    expect(await exists(path.join(cwd, ".loaf", "feat-a", "journal.jsonl"))).toBe(true);
+  });
+
+  test("restore unknown id → PRUNE_RESTORE_NOT_FOUND exit 2", async () => {
+    const r = await run(["prune", "restore", U(9), "--format", "json"]);
+    expect(r.exit).toBe(2);
+    expect(JSON.parse(r.stderr).code).toBe("PRUNE_RESTORE_NOT_FOUND");
+  });
+
+  test("--history prints audit entries after a prune", async () => {
+    const cwd = path.join(projects, "p1");
+    await seed(U(1), "feat-a", cwd, "DONE.delivered");
+    await run(["prune", "--all", "--yes"]);
+
+    const r = await run(["prune", "--history", "--format", "json"]);
+    expect(r.exit).toBe(0);
+    const body = JSON.parse(r.stdout);
+    expect(body.count).toBe(1);
+    expect(body.entries[0].pruned.map((p: { session_id: string }) => p.session_id)).toEqual([U(1)]);
+  });
+
+  test("--trash --older-than removes old buckets; preview (no --yes) is a no-op", async () => {
+    const base = path.dirname(registryDir);
+    const oldTs = "2026-01-01T00-00-00.000Z"; // well older than 30d before the fixed now
+    const recentTs = "2026-06-08T00-00-00.000Z"; // 1 day old
+    await fs.mkdir(path.join(base, "trash", oldTs, "x"), { recursive: true });
+    await fs.mkdir(path.join(base, "trash", recentTs, "y"), { recursive: true });
+
+    const preview = await run(["prune", "--trash", "--older-than", "30", "--format", "json"]);
+    expect(preview.exit).toBe(0);
+    expect(JSON.parse(preview.stdout).dry_run).toBe(true);
+    expect(await exists(path.join(base, "trash", oldTs))).toBe(true); // preview removed nothing
+
+    const exec = await run(["prune", "--trash", "--older-than", "30", "--yes", "--format", "json"]);
+    expect(exec.exit).toBe(0);
+    expect(JSON.parse(exec.stdout).removed.map((x: { ts: string }) => x.ts)).toEqual([oldTs]);
+    expect(await exists(path.join(base, "trash", oldTs))).toBe(false);
+    expect(await exists(path.join(base, "trash", recentTs))).toBe(true);
+  });
+
+  test("--trash without --older-than → USAGE exit 2", async () => {
+    const r = await run(["prune", "--trash", "--format", "json"]);
+    expect(r.exit).toBe(2);
+    expect(JSON.parse(r.stderr).code).toBe("USAGE");
+  });
+});

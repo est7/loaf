@@ -16,6 +16,8 @@ export interface TrashGcOptions {
   trashDir: string;
   olderThanDays: number;
   now: Date;
+  /** When true, classify but do NOT remove (preview). `removed` lists what WOULD go. */
+  dryRun?: boolean;
 }
 
 export interface TrashGcResult {
@@ -24,7 +26,7 @@ export interface TrashGcResult {
 }
 
 export async function gcTrash(opts: TrashGcOptions): Promise<TrashGcResult> {
-  const { trashDir, olderThanDays, now } = opts;
+  const { trashDir, olderThanDays, now, dryRun } = opts;
   const cutoff = now.getTime() - olderThanDays * DAY_MS;
 
   let entries: string[];
@@ -45,7 +47,7 @@ export async function gcTrash(opts: TrashGcOptions): Promise<TrashGcResult> {
     }
     if (when.getTime() < cutoff) {
       const p = path.join(trashDir, ts);
-      await fs.rm(p, { recursive: true, force: true });
+      if (!dryRun) await fs.rm(p, { recursive: true, force: true });
       removed.push({ ts, path: p });
     } else {
       kept.push({ ts });
