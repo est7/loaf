@@ -268,7 +268,8 @@
     "PRUNE_RESTORE_NOT_FOUND":    "no trashed session matches the given id",
     "PRUNE_RESTORE_AMBIGUOUS":    "the session id was trashed more than once; pass --at <ts> to pick one",
     "PRUNE_RESTORE_INCOMPLETE":   "the trash bucket is incomplete (missing a required artifact); not restoring",
-    "PRUNE_PATH_OCCUPIED":        "a restore destination already exists; refusing to overwrite"
+    "PRUNE_PATH_OCCUPIED":        "a restore destination already exists; refusing to overwrite",
+    "PRUNE_PARTIAL_FAILURE":      "prune partially failed: one or more sessions could not be removed"
   },
 
   "failure": {

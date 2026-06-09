@@ -123,6 +123,34 @@ describe("loaf prune — scope + safety surface", () => {
     expect(await exists(path.join(base, "prune-log.jsonl"))).toBe(true);
   });
 
+  // codex 6a BLOCK: a partial execute failure must NOT exit 0, and the audit
+  // log must record the failure (not just the successful deletions).
+  test("partial execute failure → exit 2 PRUNE_PARTIAL_FAILURE + failed[] + audit", async () => {
+    const cwd = path.join(projects, "p1");
+    await seed(U(1), "fail-a", cwd, "DONE.delivered");
+    await seed(U(2), "ok-b", cwd, "DONE.delivered");
+    // Sabotage U(1)'s trash bucket: manifest.json path is a directory → its
+    // executePrune write fails (now() is fixed → bucket ts is deterministic).
+    const base = path.dirname(registryDir);
+    const ts = "2026-06-09T00-00-00.000Z";
+    await fs.mkdir(path.join(base, "trash", ts, U(1), "manifest.json"), { recursive: true });
+
+    const r = await run(["prune", "--all", "--yes", "--format", "json"]);
+    expect(r.exit).toBe(2);
+    const body = JSON.parse(r.stderr);
+    expect(body.code).toBe("PRUNE_PARTIAL_FAILURE");
+    expect(body.detail.failed.map((f: { session_id: string }) => f.session_id)).toEqual([U(1)]);
+    expect(body.detail.pruned.map((p: { session_id: string }) => p.session_id)).toEqual([U(2)]);
+    // U(1) untouched (failed before any move); U(2) pruned
+    expect(await exists(path.join(registryDir, `${U(1)}.json`))).toBe(true);
+    expect(await exists(path.join(registryDir, `${U(2)}.json`))).toBe(false);
+    // audit log records the failure, not just the success
+    const log = await fs.readFile(path.join(base, "prune-log.jsonl"), "utf8");
+    const entry = JSON.parse(log.trim().split("\n").at(-1)!);
+    expect(entry.failed.map((f: { session_id: string }) => f.session_id)).toEqual([U(1)]);
+    expect(entry.pruned.map((p: { session_id: string }) => p.session_id)).toEqual([U(2)]);
+  });
+
   test("--session <ambiguous-prefix> → SESSION_SHORT_AMBIGUOUS exit 2", async () => {
     const cwd = path.join(projects, "p1");
     // two uuids share the prefix "0000000" (U(1) and U(2) both start with it)

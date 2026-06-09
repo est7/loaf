@@ -19,6 +19,9 @@ export interface PruneAuditEntry {
   actor: string;
   pruned: { session_id: string; feature: string; orphan: boolean }[];
   skipped?: { session_id: string; reason: string }[];
+  /** Targets that errored mid-execute — the durable record must preserve a
+   *  partial failure, not just the successful deletions (codex 6a BLOCK). */
+  failed?: { session_id: string; error: string }[];
 }
 
 export async function appendPruneLog(logPath: string, entry: PruneAuditEntry): Promise<void> {

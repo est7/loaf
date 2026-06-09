@@ -4053,6 +4053,7 @@ export const DiagnosticCode = z.enum([
   "PRUNE_RESTORE_AMBIGUOUS",               // restorePrune: id trashed multiple times (need --at)
   "PRUNE_RESTORE_INCOMPLETE",              // restorePrune: bucket missing a required artifact
   "PRUNE_PATH_OCCUPIED",                   // restorePrune: a restore destination already exists
+  "PRUNE_PARTIAL_FAILURE",                 // loaf prune: some targets errored mid-execute (exit 2)
   // SPEC_LOCKED_NO_DIRECT_EDIT + SPEC_NOT_INITIALIZED were pre-registered
   // in the rev 4.3 ADR-0004 A4 block above. Slice 4 SC3 wires them
   // through preflight refines (5i); no DiagnosticCode/ERROR_CATALOG
@@ -4670,6 +4671,15 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
     exit_code: 2,
     message_template: "a restore destination already exists; refusing to overwrite",
     fix_template: "move or remove the occupying registry entry / feature dir, then retry restore",
+    doc_anchor: "protocol.md#§10.8",
+  },
+  PRUNE_PARTIAL_FAILURE: {
+    // `loaf prune --yes` where some targets errored mid-execute. NOT a success:
+    // exit 2 so scripts don't proceed as if prune fully completed. detail carries
+    // pruned / skipped / failed for inspection; the audit log records failed too.
+    exit_code: 2,
+    message_template: "prune partially failed: one or more sessions could not be removed",
+    fix_template: "inspect detail.failed; rerun prune for the failed sessions after resolving the error",
     doc_anchor: "protocol.md#§10.8",
   },
   PENDING_BLOCKS_ADVANCE: {

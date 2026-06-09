@@ -205,14 +205,29 @@ export function registerPrune(program: Command, ctx: CommandContext, deps: Prune
           orphan: d.orphan,
         })),
         skipped: skipped.map((s) => ({ session_id: s.session_id, reason: s.reason })),
+        // Preserve a partial failure in the durable record (codex 6a BLOCK).
+        ...(result.failed.length > 0 && { failed: result.failed }),
       });
 
+      const body = { dry_run: false, mode, pruned: result.done, skipped, failed: result.failed };
+
+      // A partial failure is NOT a successful command outcome — exit non-zero so
+      // scripts don't proceed as if prune fully succeeded (codex 6a BLOCK). The
+      // structured body still carries pruned/skipped/failed for inspection.
+      if (result.failed.length > 0) {
+        ctx.emitFailure(
+          "PRUNE_PARTIAL_FAILURE",
+          `prune partially failed: ${result.failed.length} of ${result.done.length + result.failed.length} session(s) could not be removed`,
+          body,
+        );
+        return;
+      }
+
       ctx.success(
-        { ok: true, dry_run: false, mode, pruned: result.done, skipped, failed: result.failed },
+        { ok: true, ...body },
         () =>
           `${mode === "purge" ? "purged" : "pruned"} ${result.done.length} session(s)` +
           (skipped.length > 0 ? `, skipped ${skipped.length}` : "") +
-          (result.failed.length > 0 ? `, ${result.failed.length} FAILED` : "") +
           "\n",
       );
     });
