@@ -22,7 +22,11 @@ async function readRepo(rel: string): Promise<string> {
 
 describe("SC-7 — every mutator call carries registryWriter in MutateContext", () => {
   test("static: each await mutate(Batch) site's ctx contains registryWriter: registryWriterDeps", async () => {
-    const source = await readRepo("src/cli.tsx");
+    // Phase W8 P1: command registrations moved to per-family files. Scan all of them.
+    const familyDir = path.join(REPO_ROOT, "src", "cli", "commands");
+    const familyFiles = (await fs.readdir(familyDir)).filter((f) => f.endsWith(".tsx") || f.endsWith(".ts"));
+    const familySources = await Promise.all(familyFiles.map((f) => fs.readFile(path.join(familyDir, f), "utf8")));
+    const source = familySources.join("\n");
 
     // Phase W8: mctxFor factory now lives in src/cli/command-mutator.ts.
     // Verify the factory wires the field there.

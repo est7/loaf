@@ -60,7 +60,11 @@ function escapeRegex(s: string): string {
 
 describe("SC-6c — positive table: every read-only command has rejectIfDryRun marker", () => {
   test('static: each table entry has rejectIfDryRun("<label>"...) in src/cli.tsx', async () => {
-    const source = await readRepo("src/cli.tsx");
+    // Phase W8 P1: command registrations moved to per-family files. Scan all of them.
+    const familyDir = path.join(REPO_ROOT, "src", "cli", "commands");
+    const familyFiles = (await fs.readdir(familyDir)).filter((f) => f.endsWith(".tsx") || f.endsWith(".ts"));
+    const familySources = await Promise.all(familyFiles.map((f) => fs.readFile(path.join(familyDir, f), "utf8")));
+    const source = familySources.join("\n");
     const misses: string[] = [];
     for (const label of READ_ONLY_COMMANDS) {
       // Codex r336 P4: strict regex boundary check. The label must be
@@ -193,7 +197,11 @@ describe("SC-13b — §10.7 dry-run classification ↔ runtime/SC-6c drift gate 
 
 describe("SC-6c — every mutator call carries dryRun in MutateContext", () => {
   test("static: each await mutate(Batch) site's ctx arg contains dryRun: ctx.dryRun", async () => {
-    const source = await readRepo("src/cli.tsx");
+    // Phase W8 P1: command registrations moved to per-family files. Scan all of them.
+    const familyDir = path.join(REPO_ROOT, "src", "cli", "commands");
+    const familyFiles = (await fs.readdir(familyDir)).filter((f) => f.endsWith(".tsx") || f.endsWith(".ts"));
+    const familySources = await Promise.all(familyFiles.map((f) => fs.readFile(path.join(familyDir, f), "utf8")));
+    const source = familySources.join("\n");
 
     // Phase W8: mctxFor factory moved to src/cli/command-mutator.ts.
     // Verify the factory wires the field there.

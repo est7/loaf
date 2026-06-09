@@ -53,7 +53,11 @@ describe("SC-8 — protocol + schema invariants", () => {
 
 describe("SC-8 — feature-addressed actions go through dispatchOrFail", () => {
   test("static: every .action( block referencing opts.feature now calls dispatchOrFail", async () => {
-    const source = await readRepo("src/cli.tsx");
+    // Phase W8 P1: command registrations moved to per-family files. Scan all of them.
+    const familyDir = path.join(REPO_ROOT, "src", "cli", "commands");
+    const familyFiles = (await fs.readdir(familyDir)).filter((f) => f.endsWith(".tsx") || f.endsWith(".ts"));
+    const familySources = await Promise.all(familyFiles.map((f) => fs.readFile(path.join(familyDir, f), "utf8")));
+    const source = familySources.join("\n");
     const lines = source.split("\n");
     const actionStarts = lines
       .map((line, index) => ({ line, index }))
