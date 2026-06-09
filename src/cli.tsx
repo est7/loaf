@@ -70,11 +70,6 @@ import { registerFinding } from "./cli/commands/finding.js";
 import { registerSpec } from "./cli/commands/spec.js";
 import { registerState } from "./cli/commands/state.js";
 
-// Phase 16 SC-5b2 — evidence add stateChange helper per protocol §10.12.
-// Set-semantics covers: sort + dedupe before compare AND render
-// (codex r262 OQ7). Heterogeneous batches drop kind/covers (codex
-// r261 P26 + r262 nit absorption).
-
 // Phase 16 SC-2 — SIGINT handler (protocol §10.9 exit 130).
 //
 // Module-scope `_sigintInstalled` + DI-shaped factory `installSigintHandler`
