@@ -40,7 +40,7 @@ export interface PruneTarget {
   orphan: boolean;
 }
 
-export type PruneSkipReason = "non-terminal" | "locked";
+export type PruneSkipReason = "non-terminal" | "locked" | "inaccessible";
 
 export interface PruneSkip {
   session_id: string;
@@ -60,12 +60,24 @@ export interface ResolveOptions {
   includeActive: boolean;
 }
 
-async function pathExists(p: string): Promise<boolean> {
+/**
+ * Three-way path probe. The boolean `exists ? : ` collapse is unsafe for the
+ * lock/orphan gates (codex prune-slice-1 BLOCK): an `fs.stat` failure that is
+ * NOT "the path is absent" (EACCES, EIO, …) must never be read as "missing" —
+ * that would treat a held-but-unstatable `.lock` as unlocked (pruning live
+ * work) or a present-but-unreadable feature dir as an orphan (registry-only
+ * deletion). Only ENOENT / ENOTDIR are genuinely "missing"; everything else is
+ * "error" and the caller stays conservative.
+ */
+type PathProbe = "exists" | "missing" | "error";
+
+async function probePath(p: string): Promise<PathProbe> {
   try {
     await fs.stat(p);
-    return true;
-  } catch {
-    return false;
+    return "exists";
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    return code === "ENOENT" || code === "ENOTDIR" ? "missing" : "error";
   }
 }
 
@@ -95,7 +107,15 @@ export async function resolvePruneTargets(opts: ResolveOptions): Promise<Resolve
     if (scope.kind === "orphans" && scope.cwd !== undefined && e.cwd !== scope.cwd) continue;
 
     const feature_dir = path.join(e.cwd, ".loaf", e.feature);
-    const orphan = !(await pathExists(feature_dir));
+    const featProbe = await probePath(feature_dir);
+
+    // Cannot determine existence ⇒ cannot verify it is safe to remove (it may
+    // exist with a live lock we just can't read). Never target; report it.
+    if (featProbe === "error") {
+      skipped.push({ session_id: e.session_id, reason: "inaccessible", sub_state: e.sub_state });
+      continue;
+    }
+    const orphan = featProbe === "missing"; // PROVEN missing only
 
     const target: PruneTarget = {
       session_id: e.session_id,
@@ -118,10 +138,19 @@ export async function resolvePruneTargets(opts: ResolveOptions): Promise<Resolve
       continue;
     }
 
-    // ── lock gate (absolute; only meaningful when the dir exists) ────
-    if (!orphan && (await pathExists(path.join(feature_dir, ".lock")))) {
-      skipped.push({ session_id: e.session_id, reason: "locked", sub_state: e.sub_state });
-      continue;
+    // ── lock gate (ABSOLUTE; only meaningful when the dir exists) ────
+    // A held `.lock` → "locked"; a lock probe we cannot read → "inaccessible".
+    // Both skip — `--force` widens the status gate above, never this one.
+    if (!orphan) {
+      const lockProbe = await probePath(path.join(feature_dir, ".lock"));
+      if (lockProbe === "exists") {
+        skipped.push({ session_id: e.session_id, reason: "locked", sub_state: e.sub_state });
+        continue;
+      }
+      if (lockProbe === "error") {
+        skipped.push({ session_id: e.session_id, reason: "inaccessible", sub_state: e.sub_state });
+        continue;
+      }
     }
 
     targets.push(target);

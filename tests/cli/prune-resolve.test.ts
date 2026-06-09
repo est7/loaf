@@ -115,6 +115,31 @@ describe("resolvePruneTargets — lock gate is absolute", () => {
     expect(ids(r)).toEqual([]);
     expect(skipReasons(r)).toEqual({ [U(1)]: "locked" });
   });
+
+  // codex prune-slice-1 BLOCK: a `.lock` that exists but cannot be stat'd (e.g.
+  // the feature dir is chmod 000) must NOT be read as "unlocked". A catch-all
+  // `pathExists → false` would target a LOCKED terminal session.
+  test.skipIf(process.getuid?.() === 0)(
+    "lock-probe I/O error is conservative (inaccessible), never a target",
+    async () => {
+      const cwd = path.join(projects, "p1");
+      await writeEntry({ id: U(1), feature: "inacc", cwd, sub_state: "DONE.delivered" });
+      await makeFeatureDir(cwd, "inacc", { locked: true });
+      const fdir = path.join(cwd, ".loaf", "inacc");
+      await fs.chmod(fdir, 0o000); // stat(<fdir>/.lock) now → EACCES
+      try {
+        const r = await resolvePruneTargets({
+          registryDir,
+          scope: { kind: "all" },
+          includeActive: false,
+        });
+        expect(ids(r)).toEqual([]); // the held lock was not silently lost
+        expect(skipReasons(r)[U(1)]).toBe("inaccessible");
+      } finally {
+        await fs.chmod(fdir, 0o755); // restore so afterEach rm can recurse
+      }
+    },
+  );
 });
 
 describe("resolvePruneTargets — scope selectors", () => {
