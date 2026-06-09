@@ -159,6 +159,30 @@ describe("executePrune — purge mode (hard, irreversible)", () => {
 });
 
 describe("executePrune — robustness", () => {
+  // codex prune-core BLOCK 1: a manifest-write failure must not strand
+  // already-moved feature data in a manifest-less (unrecoverable) bucket.
+  test("manifest-write failure does not move feature data (manifest written first)", async () => {
+    const cwd = path.join(projects, "p1");
+    await writeEntry(U(1), "feat-a", cwd);
+    const fdir = await makeFeatureDir(cwd, "feat-a", "DATA");
+    // Sabotage: pre-create the manifest PATH as a directory → writeFile EISDIR.
+    await fs.mkdir(path.join(trashDir, TS, U(1), "manifest.json"), { recursive: true });
+
+    const r = await executePrune({
+      registryDir,
+      trashDir,
+      targets: [target(U(1), "feat-a", cwd, false)],
+      mode: "trash",
+      timestamp: TS,
+    });
+
+    expect(r.failed).toHaveLength(1);
+    expect(r.done).toEqual([]);
+    // feature + registry untouched — the write failed BEFORE any move
+    expect(await fs.readFile(path.join(fdir, "journal.jsonl"), "utf8")).toBe("DATA");
+    expect(await exists(path.join(registryDir, `${U(1)}.json`))).toBe(true);
+  });
+
   test("non-orphan whose feature dir vanished between resolve and execute degrades to registry-only", async () => {
     const cwd = path.join(projects, "p1");
     await writeEntry(U(1), "feat-a", cwd); // entry exists, but feature dir never created

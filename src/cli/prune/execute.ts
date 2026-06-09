@@ -59,29 +59,36 @@ export async function executePrune(opts: ExecuteOptions): Promise<ExecuteResult>
       if (mode === "trash") {
         const bucket = path.join(trashDir, timestamp, t.session_id);
         await fs.mkdir(bucket, { recursive: true });
+        const manifestPath = path.join(bucket, "manifest.json");
+        const writeManifest = (featureTrashed: boolean): Promise<void> =>
+          fs.writeFile(
+            manifestPath,
+            `${JSON.stringify(
+              {
+                session_id: t.session_id,
+                feature: t.feature,
+                cwd: t.cwd,
+                feature_dir: t.feature_dir,
+                orphan: t.orphan,
+                feature_trashed: featureTrashed,
+                at: timestamp,
+              },
+              null,
+              2,
+            )}\n`,
+          );
 
-        // manifest first → bucket is self-describing even on a partial failure.
-        let featureTrashed = false;
+        // Manifest FIRST — BEFORE any move (codex prune-core BLOCK 1). If the
+        // manifest write fails, nothing has moved yet, so no data is stranded in
+        // an unrecoverable (manifest-less) bucket. Provisional feature_trashed
+        // reflects intent; corrected below if the feature dir vanished.
+        await writeManifest(!t.orphan);
+
         // M5: feature dir before registry deregister.
         if (!t.orphan) {
-          featureTrashed = await moveDir(t.feature_dir, path.join(bucket, "feature"));
+          const moved = await moveDir(t.feature_dir, path.join(bucket, "feature"));
+          if (!moved) await writeManifest(false); // TOCTOU: dir gone since resolve
         }
-        await fs.writeFile(
-          path.join(bucket, "manifest.json"),
-          `${JSON.stringify(
-            {
-              session_id: t.session_id,
-              feature: t.feature,
-              cwd: t.cwd,
-              feature_dir: t.feature_dir,
-              orphan: t.orphan,
-              feature_trashed: featureTrashed,
-              at: timestamp,
-            },
-            null,
-            2,
-          )}\n`,
-        );
         await moveFile(registryEntryPath, path.join(bucket, "registry.json"));
 
         done.push({

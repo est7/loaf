@@ -24,7 +24,11 @@ export type RestoreResult =
   | { ok: true; session_id: string; feature: string; cwd: string; restored_from: string }
   | {
       ok: false;
-      code: "PRUNE_RESTORE_NOT_FOUND" | "PRUNE_RESTORE_AMBIGUOUS" | "PRUNE_PATH_OCCUPIED";
+      code:
+        | "PRUNE_RESTORE_NOT_FOUND"
+        | "PRUNE_RESTORE_AMBIGUOUS"
+        | "PRUNE_RESTORE_INCOMPLETE"
+        | "PRUNE_PATH_OCCUPIED";
       message: string;
       detail?: Record<string, unknown>;
     };
@@ -101,6 +105,29 @@ export async function restorePrune(opts: RestoreOptions): Promise<RestoreResult>
   ) as BucketManifest;
 
   const registryDest = path.join(registryDir, `${sessionId}.json`);
+  const registrySrc = path.join(bucket, "registry.json");
+  const featureSrc = path.join(bucket, "feature");
+
+  // SOURCE preflight (codex prune-core BLOCK 2) — never START a restore that
+  // cannot complete. A bucket missing a required artifact is INCOMPLETE; we move
+  // nothing and keep the bucket, rather than half-applying or (worse) reporting
+  // success with the feature data silently absent.
+  if (!(await pathExists(registrySrc))) {
+    return {
+      ok: false,
+      code: "PRUNE_RESTORE_INCOMPLETE",
+      message: `trash bucket for ${sessionId} is missing registry.json; not restoring`,
+      detail: { bucket, missing: "registry.json" },
+    };
+  }
+  if (manifest.feature_trashed && !(await pathExists(featureSrc))) {
+    return {
+      ok: false,
+      code: "PRUNE_RESTORE_INCOMPLETE",
+      message: `trash bucket for ${sessionId} claims a feature dir but feature/ is missing; not restoring`,
+      detail: { bucket, missing: "feature/" },
+    };
+  }
 
   // Occupied checks BEFORE any move → all-or-nothing per session.
   if (await pathExists(registryDest)) {
@@ -120,12 +147,13 @@ export async function restorePrune(opts: RestoreOptions): Promise<RestoreResult>
     };
   }
 
+  // Sources preflighted present above → these moves succeed.
   // Restore feature dir first (if any), then the registry entry.
   if (manifest.feature_trashed) {
     await fs.mkdir(path.dirname(manifest.feature_dir), { recursive: true });
-    await moveDir(path.join(bucket, "feature"), manifest.feature_dir);
+    await moveDir(featureSrc, manifest.feature_dir);
   }
-  await moveFile(path.join(bucket, "registry.json"), registryDest);
+  await moveFile(registrySrc, registryDest);
 
   // Consume the bucket (manifest + now-empty dir).
   await fs.rm(bucket, { recursive: true, force: true });

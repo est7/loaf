@@ -132,6 +132,56 @@ describe("restorePrune", () => {
     expect(await exists(path.join(trashDir, "T1", U(1)))).toBe(true); // other left
   });
 
+  // codex prune-core BLOCK 2: a bucket missing a required artifact must NOT
+  // half-apply or report success with the feature silently absent.
+  test("incomplete bucket (feature_trashed but no feature/) → INCOMPLETE, nothing moved", async () => {
+    const cwd = path.join(projects, "p1");
+    const bucket = path.join(trashDir, "T1", U(1));
+    await fs.mkdir(bucket, { recursive: true });
+    await fs.writeFile(path.join(bucket, "registry.json"), JSON.stringify({ session_id: U(1) }));
+    await fs.writeFile(
+      path.join(bucket, "manifest.json"),
+      JSON.stringify({
+        session_id: U(1),
+        feature: "feat-a",
+        cwd,
+        feature_dir: path.join(cwd, ".loaf", "feat-a"),
+        orphan: false,
+        feature_trashed: true, // claims a feature dir...
+        at: "T1",
+      }),
+    ); // ...but no feature/ in the bucket
+
+    const r = await restorePrune({ registryDir, trashDir, sessionId: U(1) });
+    expect(r).toMatchObject({ ok: false, code: "PRUNE_RESTORE_INCOMPLETE" });
+    expect(await exists(path.join(registryDir, `${U(1)}.json`))).toBe(false); // registry NOT created
+    expect(await exists(bucket)).toBe(true); // bucket intact
+  });
+
+  test("incomplete bucket (missing registry.json) → INCOMPLETE, feature not moved", async () => {
+    const cwd = path.join(projects, "p1");
+    const bucket = path.join(trashDir, "T1", U(1));
+    await fs.mkdir(path.join(bucket, "feature"), { recursive: true });
+    await fs.writeFile(path.join(bucket, "feature", "journal.jsonl"), "DATA");
+    await fs.writeFile(
+      path.join(bucket, "manifest.json"),
+      JSON.stringify({
+        session_id: U(1),
+        feature: "feat-a",
+        cwd,
+        feature_dir: path.join(cwd, ".loaf", "feat-a"),
+        orphan: false,
+        feature_trashed: true,
+        at: "T1",
+      }),
+    ); // no registry.json
+
+    const r = await restorePrune({ registryDir, trashDir, sessionId: U(1) });
+    expect(r).toMatchObject({ ok: false, code: "PRUNE_RESTORE_INCOMPLETE" });
+    expect(await exists(path.join(cwd, ".loaf", "feat-a"))).toBe(false); // feature NOT moved back
+    expect(await exists(path.join(bucket, "feature"))).toBe(true); // bucket intact
+  });
+
   test("occupied destination → PRUNE_PATH_OCCUPIED, nothing moved", async () => {
     const cwd = path.join(projects, "p1");
     await seedBucket({ ts: "T1", id: U(1), feature: "feat-a", cwd, orphan: false });
