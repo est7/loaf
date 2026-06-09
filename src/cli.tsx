@@ -728,9 +728,15 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
     // / readGitConfigForActor in main() helper cluster).
     ...(deps.isInteractiveHuman !== undefined && { isInteractiveHuman: deps.isInteractiveHuman }),
     ...(deps.readGitConfig !== undefined && { readGitConfig: deps.readGitConfig }),
-    // Phase W8 0a: hook-path stdin injection points.
-    ...(deps.readStdin !== undefined && { readStdin: deps.readStdin }),
-    ...(deps.isStdinTty !== undefined && { isStdinTty: deps.isStdinTty }),
+    // Phase W8 0a: hook-path stdin injection points. Pass the RESOLVED locals
+    // (deps.* ?? production default, lines 631-632) — NOT the conditional
+    // `deps.readStdin` spread. ctx.resolveHookPath has no internal readStdin
+    // default and throws when it is absent; the pre-split `resolveHookPath`
+    // closed over `deps.readStdin ?? defaultReadStdin`, so production must keep
+    // receiving the default reader (codex W8 BLOCK: `loaf hook scope-track`
+    // piped-stdin regression).
+    readStdin,
+    isStdinTty,
     // Phase 16 SC-8: thread MainDeps.registryDir through to the
     // CommandContext so ctx.resolveDispatch() uses the tmp dir in
     // CLI e2e tests. Production omits → defaultRegistryDir() honors
