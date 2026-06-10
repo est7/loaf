@@ -18,7 +18,7 @@ import { jsx, jsxs } from "react/jsx-runtime";
 import process$1 from "node:process";
 import { createServer } from "node:http";
 //#region package.json
-var version = "0.4.0";
+var version = "0.5.0";
 //#endregion
 //#region src/core/crash-log.ts
 /** Sentinel code stamped into the JSON envelope and (when
@@ -4888,7 +4888,12 @@ var en_default = {
 		"FEATURE_AMBIGUOUS": "current working directory has {count} active features and no dispatch context: {feature_list}",
 		"SESSION_CWD_MISMATCH": "--session {uuid} is registered against cwd={registered_cwd}, but the current cwd is {current_cwd}",
 		"SESSION_SHORT_AMBIGUOUS": "--session {prefix} matches {match_count} sessions in the registry: {candidate_list}",
-		"SESSION_NOT_FOUND": "--session {uuid_or_prefix} matches no entry in the registry"
+		"SESSION_NOT_FOUND": "--session {uuid_or_prefix} matches no entry in the registry",
+		"PRUNE_RESTORE_NOT_FOUND": "no trashed session matches the given id",
+		"PRUNE_RESTORE_AMBIGUOUS": "the session id was trashed more than once; pass --at <ts> to pick one",
+		"PRUNE_RESTORE_INCOMPLETE": "the trash bucket is incomplete (missing a required artifact); not restoring",
+		"PRUNE_PATH_OCCUPIED": "a restore destination already exists; refusing to overwrite",
+		"PRUNE_PARTIAL_FAILURE": "prune partially failed: one or more sessions could not be removed"
 	},
 	failure: {
 		"sessions_list": { "selector_conflict": "sessions list does not accept {conflicting} — it lists across all sessions; use --in-cwd to filter" },
@@ -5450,7 +5455,12 @@ var zh_default = {
 		"FEATURE_AMBIGUOUS": "当前 cwd 有 {count} 个 active feature 但无 dispatch 上下文:{feature_list}",
 		"SESSION_CWD_MISMATCH": "--session {uuid} 注册的 cwd={registered_cwd},当前 cwd 是 {current_cwd}",
 		"SESSION_SHORT_AMBIGUOUS": "--session {prefix} 在 registry 匹配 {match_count} 个 session:{candidate_list}",
-		"SESSION_NOT_FOUND": "--session {uuid_or_prefix} 在 registry 找不到任何匹配"
+		"SESSION_NOT_FOUND": "--session {uuid_or_prefix} 在 registry 找不到任何匹配",
+		"PRUNE_RESTORE_NOT_FOUND": "没有匹配该 id 的已回收 session",
+		"PRUNE_RESTORE_AMBIGUOUS": "该 session id 被回收过多次;用 --at <ts> 指定其一",
+		"PRUNE_RESTORE_INCOMPLETE": "trash 桶不完整(缺必要文件),不予恢复",
+		"PRUNE_PATH_OCCUPIED": "恢复目标已存在,拒绝覆盖",
+		"PRUNE_PARTIAL_FAILURE": "prune 部分失败:有 session 未能删除"
 	},
 	failure: {
 		"sessions_list": { "selector_conflict": "sessions list 不接受 {conflicting} —— 它会跨全部 session 列表;如需过滤当前 cwd,使用 --in-cwd" },
@@ -9997,6 +10007,11 @@ const DiagnosticCode = z.enum([
 	"FINDING_ACTION_UNUSUAL_REASON_REQUIRED",
 	"FINDING_ACTION_INCOHERENT",
 	"FINDING_TARGET_REQUIRED",
+	"PRUNE_RESTORE_NOT_FOUND",
+	"PRUNE_RESTORE_AMBIGUOUS",
+	"PRUNE_RESTORE_INCOMPLETE",
+	"PRUNE_PATH_OCCUPIED",
+	"PRUNE_PARTIAL_FAILURE",
 	"MUTUALLY_EXCLUSIVE_FLAGS",
 	"INVALID_ENV_VALUE",
 	"INVALID_FORMAT",
@@ -16114,6 +16129,603 @@ function registerBoard(program, ctx, deps) {
 	});
 }
 //#endregion
+//#region src/cli/prune/audit.ts
+async function appendPruneLog(logPath, entry) {
+	await promises.mkdir(path.dirname(logPath), { recursive: true });
+	await promises.appendFile(logPath, `${JSON.stringify(entry)}\n`, "utf8");
+}
+async function readPruneLog(logPath) {
+	let raw;
+	try {
+		raw = await promises.readFile(logPath, "utf8");
+	} catch {
+		return [];
+	}
+	const out = [];
+	for (const line of raw.split("\n")) {
+		const trimmed = line.trim();
+		if (trimmed.length === 0) continue;
+		try {
+			out.push(JSON.parse(trimmed));
+		} catch {}
+	}
+	return out;
+}
+//#endregion
+//#region src/cli/prune/fs-move.ts
+/**
+* Rename a directory; copy+rm across devices. Returns false (not an error) when
+* the source is already gone (ENOENT) so callers can degrade gracefully.
+*/
+async function moveDir(src, dest) {
+	try {
+		await promises.rename(src, dest);
+		return true;
+	} catch (err) {
+		const code = err.code;
+		if (code === "ENOENT") return false;
+		if (code === "EXDEV") {
+			await promises.cp(src, dest, { recursive: true });
+			await promises.rm(src, {
+				recursive: true,
+				force: true
+			});
+			return true;
+		}
+		throw err;
+	}
+}
+/** Rename a file; copy+unlink across devices. */
+async function moveFile(src, dest) {
+	try {
+		await promises.rename(src, dest);
+	} catch (err) {
+		if (err.code === "EXDEV") {
+			await promises.copyFile(src, dest);
+			await promises.rm(src, { force: true });
+		} else throw err;
+	}
+}
+//#endregion
+//#region src/cli/prune/execute.ts
+async function executePrune(opts) {
+	const { registryDir, trashDir, targets, mode, timestamp } = opts;
+	const done = [];
+	const failed = [];
+	for (const t of targets) {
+		const registryEntryPath = path.join(registryDir, `${t.session_id}.json`);
+		try {
+			if (mode === "trash") {
+				const bucket = path.join(trashDir, timestamp, t.session_id);
+				await promises.mkdir(bucket, { recursive: true });
+				const manifestPath = path.join(bucket, "manifest.json");
+				const writeManifest = (featureTrashed) => promises.writeFile(manifestPath, `${JSON.stringify({
+					session_id: t.session_id,
+					feature: t.feature,
+					cwd: t.cwd,
+					feature_dir: t.feature_dir,
+					orphan: t.orphan,
+					feature_trashed: featureTrashed,
+					at: timestamp
+				}, null, 2)}\n`);
+				await writeManifest(!t.orphan);
+				let featureMoved = false;
+				if (!t.orphan) {
+					featureMoved = await moveDir(t.feature_dir, path.join(bucket, "feature"));
+					if (!featureMoved) await writeManifest(false);
+				}
+				try {
+					await moveFile(registryEntryPath, path.join(bucket, "registry.json"));
+				} catch (regErr) {
+					if (featureMoved) try {
+						await moveDir(path.join(bucket, "feature"), t.feature_dir);
+					} catch (rollbackErr) {
+						failed.push({
+							session_id: t.session_id,
+							error: `registry deregister failed (${regErr.message}); feature rollback also failed (${rollbackErr.message}); feature data retained in ${bucket} (registry entry still at origin) — recover manually: move ${path.join(bucket, "feature")} back to ${t.feature_dir}`
+						});
+						continue;
+					}
+					await promises.rm(bucket, {
+						recursive: true,
+						force: true
+					}).catch(() => void 0);
+					throw regErr;
+				}
+				done.push({
+					session_id: t.session_id,
+					feature: t.feature,
+					cwd: t.cwd,
+					mode: "trash",
+					orphan: t.orphan,
+					trash_path: bucket
+				});
+			} else {
+				if (!t.orphan) await promises.rm(t.feature_dir, {
+					recursive: true,
+					force: true
+				});
+				await promises.rm(registryEntryPath, { force: true });
+				done.push({
+					session_id: t.session_id,
+					feature: t.feature,
+					cwd: t.cwd,
+					mode: "purge",
+					orphan: t.orphan
+				});
+			}
+		} catch (err) {
+			failed.push({
+				session_id: t.session_id,
+				error: err.message
+			});
+		}
+	}
+	return {
+		done,
+		failed
+	};
+}
+//#endregion
+//#region src/cli/prune/resolve.ts
+/** Terminal sub_states — the only sessions prune touches without --force. */
+const TERMINAL_SUB_STATES = new Set([
+	"DONE.delivered",
+	"DONE.archived",
+	"DONE.abandoned"
+]);
+async function probePath(p) {
+	try {
+		await promises.stat(p);
+		return "exists";
+	} catch (err) {
+		const code = err.code;
+		return code === "ENOENT" || code === "ENOTDIR" ? "missing" : "error";
+	}
+}
+async function resolvePruneTargets(opts) {
+	const { registryDir, scope, includeActive } = opts;
+	let files;
+	try {
+		files = await promises.readdir(registryDir);
+	} catch {
+		return {
+			targets: [],
+			skipped: []
+		};
+	}
+	const ids = files.filter((f) => f.endsWith(".json")).map((f) => f.slice(0, -5));
+	const targets = [];
+	const skipped = [];
+	let scopeCwd;
+	if (scope.kind === "cwd") scopeCwd = await tryRealpath(scope.cwd) ?? scope.cwd;
+	else if (scope.kind === "orphans" && scope.cwd !== void 0) scopeCwd = await tryRealpath(scope.cwd) ?? scope.cwd;
+	for (const id of ids) {
+		const read = await readRegistryEntry(registryDir, id);
+		if (!read.ok) continue;
+		const e = read.file;
+		if (scope.kind === "session" && !e.session_id.startsWith(scope.id)) continue;
+		if (scopeCwd !== void 0) {
+			if ((await tryRealpath(e.cwd) ?? e.cwd) !== scopeCwd) continue;
+		}
+		const feature_dir = path.join(e.cwd, ".loaf", e.feature);
+		const featProbe = await probePath(feature_dir);
+		if (featProbe === "error") {
+			skipped.push({
+				session_id: e.session_id,
+				reason: "inaccessible",
+				sub_state: e.sub_state
+			});
+			continue;
+		}
+		const orphan = featProbe === "missing";
+		const target = {
+			session_id: e.session_id,
+			feature: e.feature,
+			cwd: e.cwd,
+			sub_state: e.sub_state,
+			feature_dir,
+			orphan
+		};
+		if (scope.kind === "orphans") {
+			if (orphan) targets.push(target);
+			continue;
+		}
+		if (!TERMINAL_SUB_STATES.has(e.sub_state) && !includeActive) {
+			skipped.push({
+				session_id: e.session_id,
+				reason: "non-terminal",
+				sub_state: e.sub_state
+			});
+			continue;
+		}
+		if (!orphan) {
+			const lockProbe = await probePath(path.join(feature_dir, ".lock"));
+			if (lockProbe === "exists") {
+				skipped.push({
+					session_id: e.session_id,
+					reason: "locked",
+					sub_state: e.sub_state
+				});
+				continue;
+			}
+			if (lockProbe === "error") {
+				skipped.push({
+					session_id: e.session_id,
+					reason: "inaccessible",
+					sub_state: e.sub_state
+				});
+				continue;
+			}
+		}
+		targets.push(target);
+	}
+	return {
+		targets,
+		skipped
+	};
+}
+//#endregion
+//#region src/cli/prune/restore.ts
+async function pathExists(p) {
+	try {
+		await promises.stat(p);
+		return true;
+	} catch {
+		return false;
+	}
+}
+/** Timestamps whose bucket holds a manifest for this session. */
+async function bucketsFor(trashDir, sessionId) {
+	let tsDirs;
+	try {
+		tsDirs = await promises.readdir(trashDir);
+	} catch {
+		return [];
+	}
+	const found = [];
+	for (const ts of tsDirs) if (await pathExists(path.join(trashDir, ts, sessionId, "manifest.json"))) found.push(ts);
+	return found;
+}
+async function restorePrune(opts) {
+	const { registryDir, trashDir, sessionId, at } = opts;
+	const timestamps = await bucketsFor(trashDir, sessionId);
+	if (timestamps.length === 0) return {
+		ok: false,
+		code: "PRUNE_RESTORE_NOT_FOUND",
+		message: `no trashed session ${sessionId} found`,
+		detail: { session_id: sessionId }
+	};
+	let chosen;
+	if (at !== void 0) {
+		if (!timestamps.includes(at)) return {
+			ok: false,
+			code: "PRUNE_RESTORE_NOT_FOUND",
+			message: `no trashed session ${sessionId} at ${at}`,
+			detail: {
+				session_id: sessionId,
+				at,
+				timestamps
+			}
+		};
+		chosen = at;
+	} else if (timestamps.length > 1) return {
+		ok: false,
+		code: "PRUNE_RESTORE_AMBIGUOUS",
+		message: `session ${sessionId} was trashed ${timestamps.length} times; pass --at <ts>`,
+		detail: {
+			session_id: sessionId,
+			timestamps
+		}
+	};
+	else chosen = timestamps[0];
+	const bucket = path.join(trashDir, chosen, sessionId);
+	const manifest = JSON.parse(await promises.readFile(path.join(bucket, "manifest.json"), "utf8"));
+	const registryDest = path.join(registryDir, `${sessionId}.json`);
+	const registrySrc = path.join(bucket, "registry.json");
+	const featureSrc = path.join(bucket, "feature");
+	if (!await pathExists(registrySrc)) return {
+		ok: false,
+		code: "PRUNE_RESTORE_INCOMPLETE",
+		message: `trash bucket for ${sessionId} is missing registry.json; not restoring`,
+		detail: {
+			bucket,
+			missing: "registry.json"
+		}
+	};
+	if (manifest.feature_trashed && !await pathExists(featureSrc)) return {
+		ok: false,
+		code: "PRUNE_RESTORE_INCOMPLETE",
+		message: `trash bucket for ${sessionId} claims a feature dir but feature/ is missing; not restoring`,
+		detail: {
+			bucket,
+			missing: "feature/"
+		}
+	};
+	if (await pathExists(registryDest)) return {
+		ok: false,
+		code: "PRUNE_PATH_OCCUPIED",
+		message: `registry entry ${sessionId} already exists; refusing to overwrite`,
+		detail: { path: registryDest }
+	};
+	if (manifest.feature_trashed && await pathExists(manifest.feature_dir)) return {
+		ok: false,
+		code: "PRUNE_PATH_OCCUPIED",
+		message: `feature dir ${manifest.feature_dir} already exists; refusing to overwrite`,
+		detail: { path: manifest.feature_dir }
+	};
+	if (!opts.dryRun) {
+		if (manifest.feature_trashed) {
+			await promises.mkdir(path.dirname(manifest.feature_dir), { recursive: true });
+			await moveDir(featureSrc, manifest.feature_dir);
+		}
+		await moveFile(registrySrc, registryDest);
+		await promises.rm(bucket, {
+			recursive: true,
+			force: true
+		});
+	}
+	return {
+		ok: true,
+		session_id: sessionId,
+		feature: manifest.feature,
+		cwd: manifest.cwd,
+		restored_from: bucket
+	};
+}
+//#endregion
+//#region src/cli/prune/trash-ts.ts
+/** ISO 8601 with `:` → `-` (e.g. 2026-06-09T12-34-56.789Z). Path-segment safe. */
+function toTrashTs(d) {
+	return d.toISOString().replace(/:/g, "-");
+}
+/**
+* Reverse `toTrashTs`. Only the HH-MM-SS dashes in the time part are turned back
+* into colons (the date part keeps its dashes; the `.sssZ` millis has no dash).
+* Returns null for anything that does not parse — callers must not GC a bucket
+* they cannot date.
+*/
+function fromTrashTs(name) {
+	const tIdx = name.indexOf("T");
+	if (tIdx < 0) return null;
+	const datePart = name.slice(0, tIdx);
+	const timePart = name.slice(tIdx + 1).replace(/-/g, ":");
+	const ms = Date.parse(`${datePart}T${timePart}`);
+	return Number.isNaN(ms) ? null : new Date(ms);
+}
+//#endregion
+//#region src/cli/prune/trash-gc.ts
+const DAY_MS = 864e5;
+async function gcTrash(opts) {
+	const { trashDir, olderThanDays, now, dryRun } = opts;
+	const cutoff = now.getTime() - olderThanDays * DAY_MS;
+	let entries;
+	try {
+		entries = await promises.readdir(trashDir);
+	} catch {
+		return {
+			removed: [],
+			kept: []
+		};
+	}
+	const removed = [];
+	const kept = [];
+	for (const ts of entries) {
+		const when = fromTrashTs(ts);
+		if (when === null) {
+			kept.push({ ts });
+			continue;
+		}
+		if (when.getTime() < cutoff) {
+			const p = path.join(trashDir, ts);
+			if (!dryRun) await promises.rm(p, {
+				recursive: true,
+				force: true
+			});
+			removed.push({
+				ts,
+				path: p
+			});
+		} else kept.push({ ts });
+	}
+	return {
+		removed,
+		kept
+	};
+}
+//#endregion
+//#region src/cli/commands/prune.tsx
+/** Resolve a uuid prefix against the registry (mirrors SESSION_SHORT_AMBIGUOUS). */
+async function resolveSessionPrefix(registryDir, prefix) {
+	let files;
+	try {
+		files = await promises.readdir(registryDir);
+	} catch {
+		return { kind: "not-found" };
+	}
+	const matches = files.filter((f) => f.endsWith(".json")).map((f) => f.slice(0, -5)).filter((id) => id.startsWith(prefix));
+	if (matches.length === 0) return { kind: "not-found" };
+	if (matches.length > 1) return {
+		kind: "ambiguous",
+		matches
+	};
+	return {
+		kind: "found",
+		id: matches[0]
+	};
+}
+/** Commander coercion for `--older-than <days>`: positive integer or throws. */
+function parseDaysOption(value) {
+	const n = Number(value);
+	if (!Number.isInteger(n) || n < 0) throw new Error(`--older-than must be a non-negative integer number of days (got ${value})`);
+	return n;
+}
+function describeScope(scope) {
+	switch (scope.kind) {
+		case "session": return `session:${scope.id}`;
+		case "cwd": return `cwd:${scope.cwd}`;
+		case "orphans": return scope.cwd === void 0 ? "orphans" : `orphans:${scope.cwd}`;
+		default: return "all";
+	}
+}
+function registerPrune(program, ctx, deps) {
+	program.command("prune").description("Garbage-collect finished sessions (terminal-only; recoverable trash). Scope with the global --session <id> or one of --in-cwd / --project / --all / --orphans.").option("--in-cwd", "Prune sessions registered under the current cwd").option("--project <path>", "Prune sessions registered under <path>").option("--all", "Prune across all sessions (global)").option("--orphans", "Remove only dangling registry entries (feature dir gone)").option("--force", "Include active (non-terminal) sessions — never overrides a held lock").option("--purge", "Hard-delete instead of moving to recoverable trash").option("--yes", "Execute; without it, prune previews and changes nothing").option("--history", "Print the prune audit log (~/.loaf/prune-log.jsonl) and exit").option("--trash", "Trash retention sweep: remove trash buckets older than --older-than").option("--older-than <days>", "(with --trash) remove buckets older than N days", parseDaysOption).action(async (_localOpts, command) => {
+		const opts = command.optsWithGlobals();
+		const base = path.dirname(deps.registryDir);
+		if (opts.history === true) {
+			const entries = await readPruneLog(path.join(base, "prune-log.jsonl"));
+			ctx.success({
+				ok: true,
+				count: entries.length,
+				entries
+			}, () => {
+				if (entries.length === 0) return "prune history: (empty)\n";
+				return `${entries.map((e) => `${e.at}  ${e.mode}  ${e.scope}  pruned=${e.pruned.length}`).join("\n")}\n`;
+			});
+			return;
+		}
+		if (opts.trash === true) {
+			if (opts.olderThan === void 0) {
+				ctx.emitFailure("USAGE", "loaf prune --trash requires --older-than <days>", {});
+				return;
+			}
+			const previewTrash = opts.yes !== true || opts.dryRun === true;
+			const r = await gcTrash({
+				trashDir: path.join(base, "trash"),
+				olderThanDays: opts.olderThan,
+				now: deps.now(),
+				dryRun: previewTrash
+			});
+			ctx.success({
+				ok: true,
+				dry_run: previewTrash,
+				removed: r.removed,
+				kept: r.kept
+			}, () => `${previewTrash ? "would remove" : "removed"} ${r.removed.length} trash bucket(s), kept ${r.kept.length}` + (previewTrash ? " — re-run with --yes to execute" : "") + "\n");
+			return;
+		}
+		const scopeCount = (opts.session !== void 0 ? 1 : 0) + (opts.inCwd ? 1 : 0) + (opts.project !== void 0 ? 1 : 0) + (opts.all ? 1 : 0) + (opts.orphans ? 1 : 0);
+		if (scopeCount !== 1) {
+			ctx.emitFailure("USAGE", "loaf prune requires exactly one scope: --session <id> | --in-cwd | --project <path> | --all | --orphans", { scope_count: scopeCount });
+			return;
+		}
+		let scope;
+		if (opts.session !== void 0) {
+			const resolved = await resolveSessionPrefix(deps.registryDir, opts.session);
+			if (resolved.kind === "not-found") {
+				ctx.emitFailure("SESSION_NOT_FOUND", `no session matches '${opts.session}'`, { uuid_or_prefix: opts.session });
+				return;
+			}
+			if (resolved.kind === "ambiguous") {
+				ctx.emitFailure("SESSION_SHORT_AMBIGUOUS", `prefix '${opts.session}' matches ${resolved.matches.length} sessions; use a longer prefix`, {
+					prefix: opts.session,
+					match_count: resolved.matches.length,
+					candidate_list: resolved.matches
+				});
+				return;
+			}
+			scope = {
+				kind: "session",
+				id: resolved.id
+			};
+		} else if (opts.inCwd) scope = {
+			kind: "cwd",
+			cwd: await tryRealpath(process.cwd()) ?? process.cwd()
+		};
+		else if (opts.project !== void 0) scope = {
+			kind: "cwd",
+			cwd: await tryRealpath(opts.project) ?? opts.project
+		};
+		else if (opts.all) scope = { kind: "all" };
+		else scope = { kind: "orphans" };
+		const { targets, skipped } = await resolvePruneTargets({
+			registryDir: deps.registryDir,
+			scope,
+			includeActive: opts.force === true
+		});
+		const mode = opts.purge === true ? "purge" : "trash";
+		if (opts.yes !== true || opts.dryRun === true) {
+			ctx.success({
+				ok: true,
+				dry_run: true,
+				mode,
+				pruned: targets.map((t) => ({
+					session_id: t.session_id,
+					feature: t.feature,
+					cwd: t.cwd,
+					sub_state: t.sub_state,
+					orphan: t.orphan
+				})),
+				skipped
+			}, () => `would ${mode} ${targets.length} session(s)` + (skipped.length > 0 ? `, skip ${skipped.length}` : "") + ` — re-run with --yes to execute\n`);
+			return;
+		}
+		const trashDir = path.join(base, "trash");
+		const logPath = path.join(base, "prune-log.jsonl");
+		const timestamp = toTrashTs(deps.now());
+		const result = await executePrune({
+			registryDir: deps.registryDir,
+			trashDir,
+			targets,
+			mode,
+			timestamp
+		});
+		await appendPruneLog(logPath, {
+			at: deps.now().toISOString(),
+			scope: describeScope(scope),
+			mode,
+			actor: deps.actor,
+			pruned: result.done.map((d) => ({
+				session_id: d.session_id,
+				feature: d.feature,
+				orphan: d.orphan
+			})),
+			skipped: skipped.map((s) => ({
+				session_id: s.session_id,
+				reason: s.reason
+			})),
+			...result.failed.length > 0 && { failed: result.failed }
+		});
+		const body = {
+			dry_run: false,
+			mode,
+			pruned: result.done,
+			skipped,
+			failed: result.failed
+		};
+		if (result.failed.length > 0) {
+			ctx.emitFailure("PRUNE_PARTIAL_FAILURE", `prune partially failed: ${result.failed.length} of ${result.done.length + result.failed.length} session(s) could not be removed`, body);
+			return;
+		}
+		ctx.success({
+			ok: true,
+			...body
+		}, () => `${mode === "purge" ? "purged" : "pruned"} ${result.done.length} session(s)` + (skipped.length > 0 ? `, skipped ${skipped.length}` : "") + "\n");
+	}).command("restore <session-id>").description("Restore a trashed session (registry entry + feature dir) from the prune trash").option("--at <ts>", "Disambiguate when the session was trashed more than once").action(async (sessionId, _localOpts, command) => {
+		const opts = command.optsWithGlobals();
+		const dryRun = opts.dryRun === true;
+		const trashDir = path.join(path.dirname(deps.registryDir), "trash");
+		const result = await restorePrune({
+			registryDir: deps.registryDir,
+			trashDir,
+			sessionId,
+			dryRun,
+			...opts.at !== void 0 && { at: opts.at }
+		});
+		if (!result.ok) {
+			ctx.emitFailure(result.code, result.message, result.detail ?? {});
+			return;
+		}
+		ctx.success({
+			ok: true,
+			dry_run: dryRun,
+			session_id: result.session_id,
+			feature: result.feature,
+			cwd: result.cwd
+		}, () => `${dryRun ? "would restore" : "restored"} ${result.session_id} (${result.feature})\n`);
+	});
+}
+//#endregion
 //#region src/cli.tsx
 let _sigintInstalled = false;
 function installSigintHandler(deps) {
@@ -16477,6 +17089,11 @@ async function main(argv = process.argv, deps = {}) {
 		...deps.registryDir !== void 0 && { registryDir: deps.registryDir },
 		...deps.openUrl !== void 0 && { openUrl: deps.openUrl },
 		...deps.boardKeepAlive !== void 0 && { boardKeepAlive: deps.boardKeepAlive }
+	});
+	registerPrune(program, ctx, {
+		registryDir: deps.registryDir ?? defaultRegistryDir(),
+		now,
+		actor
 	});
 	const { findingCmd } = registerFinding(program, ctx, mutator, actor);
 	const { specCmd } = registerSpec(program, ctx, mutator, actor, isStdinTty, readStdin, deps.runEditor ?? runEditor);

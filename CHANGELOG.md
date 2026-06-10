@@ -5,6 +5,35 @@ All notable changes to `loaf-cli` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] — 2026-06-09
+
+Session garbage collection — the `loaf prune` command line. Finished (terminal)
+sessions can be reclaimed to recoverable trash, restored, hard-purged, or swept
+by retention age, with a persisted audit log. Every change codex-signed-off on an
+independent cold-audit thread; each data-loss and double-fault path is guarded by
+an explicit rollback.
+
+### Added
+
+- **`loaf prune`** — garbage-collect finished sessions (terminal-only by default;
+  recoverable trash). Scope with `--in-cwd` / `--project <path>` / `--all` /
+  `--orphans`, or the global `--session <id>`. Previews by default — `--yes`
+  executes. Flags: `--force` (include active sessions, never overrides a held
+  lock), `--purge` (hard-delete instead of trash), `--history` (print the audit
+  log at `~/.loaf/prune-log.jsonl`), `--trash --older-than <days>` (retention
+  sweep of old trash buckets).
+- **`loaf prune restore <session-id>`** — restore a trashed session (registry
+  entry + feature dir) from the prune trash; `--dry-run` previews without
+  changing state.
+
+### Changed
+
+- Prune execution is transactional: a registry-move or feature-move failure rolls
+  back the whole operation, partial failure exits `2` and is recorded as failed in
+  the audit log, and the trash bucket is preserved on a rollback double-fault.
+- Session resolution under `--in-cwd` / `--project` uses `realpath` symmetry so
+  symlinked and canonical cwds resolve to the same registered session.
+
 ## [0.4.0] — 2026-06-08
 
 Enforcement-integrity quality closure (W1–W10) + the `loaf board` browser view.

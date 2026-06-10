@@ -18,15 +18,15 @@ A sibling layer `loaf-skill` (separate codebase, post-v0.1.0) handles workflow o
 Run directly from a GitHub release tag via `bunx` or `npx`:
 
 ```bash
-bunx github:est7/loaf#v0.4.0 --version
-npx  github:est7/loaf#v0.4.0 --version
+bunx github:est7/loaf#v0.5.0 --version
+npx  github:est7/loaf#v0.5.0 --version
 ```
 
 Or add as a dependency:
 
 ```bash
-bun add github:est7/loaf#v0.4.0
-npm install github:est7/loaf#v0.4.0
+bun add github:est7/loaf#v0.5.0
+npm install github:est7/loaf#v0.5.0
 ```
 
 The built `dist/cli.mjs` is committed for github-install support — consumers do not need bun, tsdown, or any post-install build step. Requires Node ≥ 22 to run.
