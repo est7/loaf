@@ -52,6 +52,7 @@ loaf settle
 loaf resume | handoff --reason <…>                                   # session lifecycle (resume marker / handoff pack)
 loaf tui | board | sessions list [--in-cwd] | check <path>           # session manager (Ink TUI / browser board / list) + standalone schema check (CI)
 loaf hook <session-start|write-guard|scope-track|closure-check>      # Claude Code hook entry points
+loaf prune [restore <id>] [--in-cwd|--project <p>|--all|--orphans] [--purge|--history|--trash] [--yes]  # GC finished sessions → recoverable trash (previews unless --yes)
 loaf doctor [--rebuild]
 ```
 
