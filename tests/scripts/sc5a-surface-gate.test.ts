@@ -79,6 +79,14 @@ describe("Phase 16 SC-5a/SC-5b1 — RED #12: placeholder symmetry across catalog
     { code: "INVALID_FORMAT", canonical: new Set(["value", "allowed_values_human"]) },
     { code: "MUTUALLY_EXCLUSIVE_FLAGS", canonical: new Set(["flags"]) },
     { code: "CONFIG_ALREADY_INITIALIZED", canonical: new Set(["config_path"]) },
+    { code: "TASK_DEP_NOT_FOUND", canonical: new Set(["task_id", "field", "ref"]) },
+    { code: "TASK_DEP_SELF", canonical: new Set(["task_id"]) },
+    { code: "TASK_DEP_DUPLICATE", canonical: new Set(["task_id", "ref", "indexes"]) },
+    { code: "TASK_DEP_CYCLE", canonical: new Set(["cycle"]) },
+    {
+      code: "TASK_DEP_ABANDONED",
+      canonical: new Set(["task_id", "field", "ref", "hint"]),
+    },
   ];
 
   for (const { code, canonical } of SYMMETRY_CODES) {

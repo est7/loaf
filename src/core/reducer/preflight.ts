@@ -38,6 +38,7 @@ import type { Ceremony, EntryKind, SubState } from "../journal-entry.js";
 import type { Snapshot, TaskState } from "../projection-types.js";
 import { evaluateTaskProof, verifyMinPolicy } from "../gates/task-proof.js";
 import { extractTaskSlim, type TaskFullProjection } from "../task-schema.js";
+import { areTaskDependenciesSatisfied } from "../task-graph.js";
 import { validateTransition, type TransitionContext, type TransitionResult } from "./transition.js";
 import { isActorAllowed, isSubStateAllowed } from "./per-kind.js";
 import {
@@ -1327,27 +1328,26 @@ function checkTaskLifecycle(c: PreflightCheckCtx): PreflightFailure | null {
         };
       }
       // status ∈ {pending, ready} — check deps_on.
-      for (const depId of task.depends_on) {
-        const dep = ctx.snapshot.tasks.find((t) => t.id === depId);
-        if (!dep) {
-          // Unknown dep — treat as unsatisfied (CLI/reducer caller's
-          // problem; tasks_planned should have enforced graph closure
-          // earlier).
-          return {
-            ok: false,
-            code: "TASK_DEPS_NOT_SATISFIED",
-            message: `task ${task_id} cannot be claimed: dependency ${depId} is not in the tasks projection`,
-            detail: { task_id, blocking_dep: depId, blocking_status: "missing" },
-          };
-        }
-        if (dep.status !== "done") {
-          return {
-            ok: false,
-            code: "TASK_DEPS_NOT_SATISFIED",
-            message: `task ${task_id} cannot be claimed: dependency ${depId} is not done (status=${dep.status})`,
-            detail: { task_id, blocking_dep: depId, blocking_status: dep.status },
-          };
-        }
+      const tasksById = new Map(ctx.snapshot.tasks.map((candidate) => [candidate.id, candidate]));
+      if (!areTaskDependenciesSatisfied(task, tasksById)) {
+        const blockingDepId = task.depends_on.find(
+          (dependencyId) => tasksById.get(dependencyId)?.status !== "done",
+        )!;
+        const blockingDep = tasksById.get(blockingDepId);
+        const blockingStatus = blockingDep?.status ?? "missing";
+        return {
+          ok: false,
+          code: "TASK_DEPS_NOT_SATISFIED",
+          message:
+            blockingDep === undefined
+              ? `task ${task_id} cannot be claimed: dependency ${blockingDepId} is not in the tasks projection`
+              : `task ${task_id} cannot be claimed: dependency ${blockingDepId} is not done (status=${blockingStatus})`,
+          detail: {
+            task_id,
+            blocking_dep: blockingDepId,
+            blocking_status: blockingStatus,
+          },
+        };
       }
     } else {
       // task_step_started or task_step_done

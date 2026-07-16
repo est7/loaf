@@ -4,6 +4,7 @@ import type { CommandMutator, MutateOkBatch, MutateOkSingle } from "../command-m
 import { FAILURE_SITE_KEYS, SUCCESS_KEYS, CHROME_KEYS, taskKindKey, taskStatusKey, type TaskStatus } from "../runtime-i18n-keys.js";
 import { loadSession } from "../../core/cli-runtime.js";
 import { mutateBatch } from "../../core/journal-mutate.js";
+import { areTaskDependenciesSatisfied } from "../../core/task-graph.js";
 import { parseInputSource } from "../input-source.js";
 import { readJsonInput } from "../input-read.js";
 import type { MutatorEntry } from "../mutator-entry.js";
@@ -527,12 +528,11 @@ export function registerTasks(
       const slimTasks = loaded.tasks ? loaded.tasks.tasks.map((t) => extractTaskSlim(t)) : [];
       const tasksById = new Map(slimTasks.map((t) => [t.id, t]));
       const withDerived = slimTasks.map((t) => {
-        const depsAllDone =
-          t.depends_on.length === 0 ||
-          t.depends_on.every((d) => tasksById.get(d)?.status === "done");
         return {
           ...t,
-          ready: t.status === "pending" && depsAllDone,
+          ready:
+            (t.status === "pending" || t.status === "ready") &&
+            areTaskDependenciesSatisfied(t, tasksById),
         };
       });
 
@@ -549,8 +549,8 @@ export function registerTasks(
         );
         return;
       }
-      // "ready" status filter matches derived ready=true (since no task
-      // ever persists status="ready" per Option C arch — codex r57).
+      // "ready" status filter matches the shared readiness rule, including
+      // the persisted ready status admitted by tasks amendments.
       const filtered = withDerived.filter((t) => {
         if (!opts.status) return true;
         if (opts.status === "ready") return t.ready;
@@ -605,13 +605,11 @@ export function registerTasks(
       }
       const tasks = session.snapshot.tasks;
       const tasksById = new Map(tasks.map((t) => [t.id, t]));
-      const ready = tasks.find((t) => {
-        if (t.status !== "pending") return false;
-        return (
-          t.depends_on.length === 0 ||
-          t.depends_on.every((d) => tasksById.get(d)?.status === "done")
-        );
-      });
+      const ready = tasks.find(
+        (task) =>
+          (task.status === "pending" || task.status === "ready") &&
+          areTaskDependenciesSatisfied(task, tasksById),
+      );
       ctx.success(
         {
           ok: true,

@@ -4163,6 +4163,11 @@ export const DiagnosticCode = z.enum([
   // ── Slice 2 SC1 — task lifecycle preflight (codex r56/r57) ──
   "TASK_NOT_CLAIMABLE",                    // src/core/reducer/preflight.ts step 5e — event:task_claimed for task with status ∈ {done, abandoned} (terminal — cannot be reclaimed)
   "TASK_ALREADY_CLAIMED",                  // src/core/reducer/preflight.ts step 5e — event:task_claimed for task with status=in_progress
+  "TASK_DEP_NOT_FOUND",                    // src/core/task-graph.ts admission-only — depends_on[i] references no task in the batch-final graph
+  "TASK_DEP_SELF",                         // src/core/task-graph.ts admission-only — task depends on itself
+  "TASK_DEP_DUPLICATE",                    // src/core/task-graph.ts admission-only — one depends_on array repeats a task id
+  "TASK_DEP_CYCLE",                        // src/core/task-graph.ts admission-only — deterministic DFS found a closed dependency path
+  "TASK_DEP_ABANDONED",                    // src/core/task-graph.ts admission-only — non-terminal task depends on an abandoned task
   "TASK_DEPS_NOT_SATISFIED",               // src/core/reducer/preflight.ts step 5e — event:task_claimed but some task in deps_on is not status=done
   "TASK_NOT_CLAIMED",                      // src/core/reducer/preflight.ts step 5e — event:task_step_started or event:task_step_done but task.status ≠ in_progress (must claim before mutating steps)
   // ── Item 1 — `loaf tasks abandon` preflight (codex r127) ──
@@ -5215,6 +5220,38 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
       "task {task_id} is already claimed (status=in_progress); claim is idempotent only for the holding worker",
     fix_template:
       "another worker may already hold this task; run `loaf tasks list` to inspect active claims. Stale-claim release is handled in a future slice (no CLI surface for abandon in v0.1.0 yet) — raise a finding with action=fix-impl if needed",
+    doc_anchor: "protocol.md#§10.8",
+  },
+  TASK_DEP_NOT_FOUND: {
+    exit_code: 2,
+    message_template: "task {task_id} field {field} references missing task {ref}",
+    fix_template:
+      "add the referenced task in the same atomic batch, or amend the dependency to an existing task, then retry",
+    doc_anchor: "protocol.md#§10.8",
+  },
+  TASK_DEP_SELF: {
+    exit_code: 2,
+    message_template: "task {task_id} cannot depend on itself",
+    fix_template: "remove the self-reference from depends_on, then retry the task graph mutation",
+    doc_anchor: "protocol.md#§10.8",
+  },
+  TASK_DEP_DUPLICATE: {
+    exit_code: 2,
+    message_template: "task {task_id} repeats dependency {ref} at indexes {indexes}",
+    fix_template: "keep each dependency id only once in depends_on, then retry",
+    doc_anchor: "protocol.md#§10.8",
+  },
+  TASK_DEP_CYCLE: {
+    exit_code: 2,
+    message_template: "task dependency graph contains cycle {cycle}",
+    fix_template: "remove or redirect one dependency in the reported closed path, then retry",
+    doc_anchor: "protocol.md#§10.8",
+  },
+  TASK_DEP_ABANDONED: {
+    exit_code: 2,
+    message_template: "task {task_id} field {field} references abandoned task {ref}; {hint}",
+    fix_template:
+      "use an amend-tasks-sponsored task amendment to replace the abandoned dependency, then retry",
     doc_anchor: "protocol.md#§10.8",
   },
   TASK_DEPS_NOT_SATISFIED: {

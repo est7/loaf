@@ -3417,6 +3417,48 @@ describe("loaf tasks abandon — Item 1", () => {
 //   - r60 P2.3 — step start idempotency contract pinned
 // ─────────────────────────────────────────────────────────────────────────
 
+async function persistReadyTaskAtSpecDesign(dir: string): Promise<void> {
+  const tasksFile = path.join(dir, ".tasks-ready.json");
+  await fsP.writeFile(
+    tasksFile,
+    JSON.stringify({
+      based_on: { spec: 1 },
+      tasks: [
+        {
+          id: "T-001",
+          kind: "behavioral",
+          drives: ["REQ-AUTH-001"],
+          tests: ["TokenCoord.refreshOnce"],
+          status: "ready",
+          depends_on: [],
+          labels: [],
+          execution: {
+            red: { applicability: "must", status: "pending", evidence_refs: [] },
+            implement: { applicability: "must", status: "pending", evidence_refs: [] },
+            refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+          },
+        },
+      ],
+    }),
+  );
+  const result = await runCli([
+    "tasks",
+    "submit",
+    "--input",
+    tasksFile,
+    "--feature",
+    "auth-refresh",
+    "--feature-dir",
+    dir,
+    "--format",
+    "json",
+  ]);
+  await fsP.unlink(tasksFile).catch(() => {});
+  if (result.exit !== 0) {
+    throw new Error(`ready task seed failed: ${result.stderr || result.stdout}`);
+  }
+}
+
 describe("loaf tasks list — Slice 2 SC4 (MVP)", () => {
   test("happy: list empty projection (no tasks) → 0 count, hint message", async () => {
     const dir = await tmpFeatureDir();
@@ -3484,6 +3526,31 @@ describe("loaf tasks list — Slice 2 SC4 (MVP)", () => {
     expect(out.tasks[0].id).toBe("T-001");
     expect(out.tasks[0].status).toBe("pending");
     expect(out.tasks[0].ready).toBe(true);
+  });
+
+  test("persisted ready status remains derived-ready when dependencies are satisfied", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtSpecDesign(dir);
+    await persistReadyTaskAtSpecDesign(dir);
+
+    const result = await runCli([
+      "tasks",
+      "list",
+      "--status",
+      "ready",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
+    ]);
+
+    expect(result.exit).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      count: 1,
+      tasks: [{ id: "T-001", status: "ready", ready: true }],
+    });
   });
 
   test("text-mode renders T-id + kind + status + ready columns", async () => {
@@ -3795,6 +3862,26 @@ describe("loaf tasks next — Slice 2 SC4 (MVP)", () => {
     const out = JSON.parse(r.stdout);
     expect(out.task_id).toBe("T-001");
     expect(out.kind).toBe("behavioral");
+  });
+
+  test("returns a persisted ready task whose dependencies are satisfied", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtSpecDesign(dir);
+    await persistReadyTaskAtSpecDesign(dir);
+
+    const result = await runCli([
+      "tasks",
+      "next",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
+    ]);
+
+    expect(result.exit).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({ task_id: "T-001", kind: "behavioral" });
   });
 
   test("text-mode prints bare T-id (or empty if none)", async () => {

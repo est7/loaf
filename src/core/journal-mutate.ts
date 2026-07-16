@@ -78,6 +78,10 @@ import { isEmptyMeta, type SnapshotMeta } from "./snapshot.js";
 import { buildRegistryFile, writeRegistryFile } from "./registry-writer.js";
 import type { RegistryFile } from "./projection-schema.js";
 import { writeDerivedSpecMd } from "./spec-projection.js";
+import {
+  checkTaskGraph,
+  type TaskGraphFailureCode,
+} from "./task-graph.js";
 
 export interface MutateContext {
   /** Feature directory; journal.jsonl + attachments/ + snapshots/ live here */
@@ -128,6 +132,7 @@ export interface MutateContext {
 
 export type MutateFailureCode =
   | PreflightFailureCode
+  | TaskGraphFailureCode
   | "APPEND_ERROR"
   | "SIDECAR_ERROR"
   | "REDUCER_ERROR"
@@ -308,8 +313,10 @@ export async function mutateBatch(
   // checks. Runs AFTER Pass 1 preflight + reducer dry-run so stable-core
   // error priority (invalid payload / sub_state / actor) is preserved, and
   // BEFORE Pass 2 sidecar promotion so a failing gate leaves no on-disk
-  // residue. Uses ctx.snapshot (pre-batch), not snapshotAcc — a batch must
-  // not satisfy its own gate preconditions with earlier entries.
+  // residue. Task-graph admission validates snapshotAcc (the batch-final
+  // projection) once so intra-batch references are order-independent.
+  // Gate approvals below deliberately use ctx.snapshot (pre-batch) — a
+  // batch must not satisfy its own gate preconditions with earlier entries.
   //
   // Detection rule: count ALL `gate:decided` entries whose decision is
   // "approved" across the batch (any gate_kind). Protocol §10.8 makes
@@ -317,6 +324,22 @@ export async function mutateBatch(
   // ≥2 gate approvals — even with different gate_kinds — is invalid.
   // Rejected gate decisions pass through (rejection requires no gate
   // satisfaction; preflight + reducer dry-run still validates them).
+  const taskGraphChanged = candidates.some(
+    (candidate) =>
+      candidate.kind === "event:tasks_planned" || candidate.kind === "event:tasks_amended",
+  );
+  if (taskGraphChanged) {
+    const graphFailure = checkTaskGraph(snapshotAcc.tasks);
+    if (graphFailure !== null) {
+      return {
+        ok: false,
+        code: graphFailure.code,
+        message: graphFailure.message,
+        detail: graphFailure.detail,
+      };
+    }
+  }
+
   const gateApprovals = candidates.filter(
     (c) =>
       c.kind === "gate:decided" && (c.payload as { decision?: string }).decision === "approved",
