@@ -1,4 +1,4 @@
-// Task schema — runtime mirror of docs/schemas.ts §14 (Task discriminated union).
+// Task schema — canonical Zod owner for the Task discriminated union.
 //
 // Sub-cycle 3a closes F-010 ripple #1+#2: event:tasks_amended gains a strict
 // payload (replacing RecordPayload), event:tasks_planned gains the full
@@ -17,6 +17,19 @@
 import { z } from "zod";
 
 import { ReqIdPayload, ScenIdPayload, VisIdPayload } from "./spec-schema.js";
+
+export const TaskKind = z.enum(["behavioral", "structural", "visual-ui", "docs", "spike", "chore"]);
+export type TaskKind = z.infer<typeof TaskKind>;
+
+export const RECOMMENDED_TASK_LABELS = [
+  "bug",
+  "feature",
+  "tech-debt",
+  "security",
+  "performance",
+  "migration",
+  "integration",
+] as const;
 
 // ── ID + cross-reference regexes ────────────────────────────────────────
 
@@ -78,6 +91,43 @@ export const ChoreExecutionPayload = z.object({
   execute: TaskExecutionStepPayload,
 });
 
+export const BehavioralStep = BehavioralExecutionPayload.keyof();
+export type BehavioralStep = z.infer<typeof BehavioralStep>;
+export const StructuralStep = StructuralExecutionPayload.keyof();
+export type StructuralStep = z.infer<typeof StructuralStep>;
+export const VisualUiStep = VisualUiExecutionPayload.keyof();
+export type VisualUiStep = z.infer<typeof VisualUiStep>;
+export const DocsStep = DocsExecutionPayload.keyof();
+export type DocsStep = z.infer<typeof DocsStep>;
+export const SpikeStep = SpikeExecutionPayload.keyof();
+export type SpikeStep = z.infer<typeof SpikeStep>;
+export const ChoreStep = ChoreExecutionPayload.keyof();
+export type ChoreStep = z.infer<typeof ChoreStep>;
+
+export const AnyStep = z.union([
+  BehavioralStep,
+  StructuralStep,
+  VisualUiStep,
+  DocsStep,
+  SpikeStep,
+  ChoreStep,
+]);
+export type AnyStep = z.infer<typeof AnyStep>;
+
+export const STEP_TO_KIND: Record<string, TaskKind[]> = {
+  red: ["behavioral"],
+  implement: ["behavioral", "structural", "visual-ui"],
+  refactor: ["behavioral", "structural"],
+  mockup: ["visual-ui"],
+  "screenshot-compare": ["visual-ui"],
+  draft: ["docs"],
+  review: ["docs"],
+  explore: ["spike"],
+  prototype: ["spike"],
+  record: ["spike"],
+  execute: ["chore"],
+};
+
 // ── TaskBase shared fields ──────────────────────────────────────────────
 
 const TaskStatusPayload = z.enum(["pending", "ready", "in_progress", "done", "abandoned"]);
@@ -101,7 +151,7 @@ const TaskBase = z.object({
 // step) — see src/core/reducer/preflight.ts. The field stays optional on
 // the full payload so the reducer can set it and it round-trips on replay.
 export const TaskBehavioralPayload = TaskBase.extend({
-  kind: z.literal("behavioral"),
+  kind: z.literal(TaskKind.enum.behavioral),
   drives: z.array(RawDrivesRef).min(1),
   tests: z.array(z.string().min(3)).min(1),
   test_layer: z.enum(["unit", "integration", "e2e"]).optional(),
@@ -115,14 +165,14 @@ export const TaskBehavioralPayload = TaskBase.extend({
 });
 
 export const TaskStructuralPayload = TaskBase.extend({
-  kind: z.literal("structural"),
+  kind: z.literal(TaskKind.enum.structural),
   drives: z.array(RawDrivesRef).optional(),
   no_test_rationale: z.string().min(10),
   execution: StructuralExecutionPayload,
 });
 
 export const TaskVisualUiPayload = TaskBase.extend({
-  kind: z.literal("visual-ui"),
+  kind: z.literal(TaskKind.enum["visual-ui"]),
   drives: z.array(RawDrivesRef).optional(),
   visual_contract_refs: z.array(VisIdPayload).min(1),
   no_test_rationale: z.string().min(10).optional(),
@@ -130,21 +180,21 @@ export const TaskVisualUiPayload = TaskBase.extend({
 });
 
 export const TaskDocsPayload = TaskBase.extend({
-  kind: z.literal("docs"),
+  kind: z.literal(TaskKind.enum.docs),
   drives: z.array(RawDrivesRef).optional(),
   no_test_rationale: z.string().min(10),
   execution: DocsExecutionPayload,
 });
 
 export const TaskSpikePayload = TaskBase.extend({
-  kind: z.literal("spike"),
+  kind: z.literal(TaskKind.enum.spike),
   drives: z.array(RawDrivesRef).optional(),
   no_test_rationale: z.string().min(10),
   execution: SpikeExecutionPayload,
 });
 
 export const TaskChorePayload = TaskBase.extend({
-  kind: z.literal("chore"),
+  kind: z.literal(TaskKind.enum.chore),
   drives: z.array(RawDrivesRef).optional(),
   no_test_rationale: z.string().min(10),
   execution: ChoreExecutionPayload,
@@ -282,7 +332,7 @@ const TaskInputBaseShape = {
 export const TaskBehavioralInput = z
   .object({
     ...TaskInputBaseShape,
-    kind: z.literal("behavioral"),
+    kind: z.literal(TaskKind.enum.behavioral),
     drives: z.array(RawDrivesRef).min(1),
     tests: z.array(z.string().min(3)).min(1),
     test_layer: z.enum(["unit", "integration", "e2e"]).optional(),
@@ -294,7 +344,7 @@ export const TaskBehavioralInput = z
 export const TaskStructuralInput = z
   .object({
     ...TaskInputBaseShape,
-    kind: z.literal("structural"),
+    kind: z.literal(TaskKind.enum.structural),
     no_test_rationale: z.string().min(10),
   })
   .strict();
@@ -302,20 +352,24 @@ export const TaskStructuralInput = z
 export const TaskVisualUiInput = z
   .object({
     ...TaskInputBaseShape,
-    kind: z.literal("visual-ui"),
+    kind: z.literal(TaskKind.enum["visual-ui"]),
     visual_contract_refs: z.array(VisIdPayload).min(1),
     no_test_rationale: z.string().min(10).optional(),
   })
   .strict();
 
 export const TaskDocsInput = z
-  .object({ ...TaskInputBaseShape, kind: z.literal("docs"), no_test_rationale: z.string().min(10) })
+  .object({
+    ...TaskInputBaseShape,
+    kind: z.literal(TaskKind.enum.docs),
+    no_test_rationale: z.string().min(10),
+  })
   .strict();
 
 export const TaskSpikeInput = z
   .object({
     ...TaskInputBaseShape,
-    kind: z.literal("spike"),
+    kind: z.literal(TaskKind.enum.spike),
     no_test_rationale: z.string().min(10),
   })
   .strict();
@@ -323,7 +377,7 @@ export const TaskSpikeInput = z
 export const TaskChoreInput = z
   .object({
     ...TaskInputBaseShape,
-    kind: z.literal("chore"),
+    kind: z.literal(TaskKind.enum.chore),
     no_test_rationale: z.string().min(10),
   })
   .strict();
@@ -341,6 +395,8 @@ export const TaskInput = z.union([
   TaskChoreInput,
 ]);
 export type TaskInput = z.infer<typeof TaskInput>;
+
+export const TaskInputBatched = z.union([TaskInput, z.array(TaskInput).nonempty()]);
 
 // Per-kind execution step set, derived from the *ExecutionPayload schemas
 // so it cannot drift from them.

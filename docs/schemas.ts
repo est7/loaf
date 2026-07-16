@@ -1,6 +1,8 @@
 // loaf-cli Protocol Schemas — v1 (rev 5.0)
 //
-// Single source of truth for all artifact contracts.
+// Temporary compatibility facade for artifact contracts. Payload-domain
+// schemas are owned by src/core/{finding,evidence,task,spec}-schema.ts and
+// re-exported here while the remaining domains are dissolved incrementally.
 // JSON Schema is derived at runtime via Zod v4 built-in `z.toJSONSchema()`
 // (no external dependency); never hand-written. Phase 16 SC-10.
 //
@@ -421,12 +423,137 @@
 
 import { z } from "zod";
 
+import {
+  AttachmentPayload as Attachment,
+  EvidenceAddInput,
+  EvidenceAddInputBatched,
+  EvidenceKind,
+  EvidenceResult,
+  VerifyCheckKind,
+} from "../src/core/evidence-schema.js";
+import {
+  FINDING_ACTION_GRID,
+  FINDING_UNUSUAL_REASON_MIN_LENGTH,
+  FindingAction,
+  FindingActionRisk,
+  FindingCategory,
+  FindingsEvent,
+  FindingTarget as FindingResolutionPayload,
+} from "../src/core/finding-schema.js";
+import {
+  EarsType,
+  MeasurablePayload as Measurable,
+  NeedsClarification,
+  RequirementEarsVerifiable as RequirementEars,
+  RequirementEventDrivenShape as RequirementEventDriven,
+  RequirementOptionalShape as RequirementOptional,
+  RequirementStateDrivenShape as RequirementStateDriven,
+  RequirementUbiquitousShape as RequirementUbiquitous,
+  RequirementUnwantedShape as RequirementUnwanted,
+  ScenarioGherkin,
+  SchemaVersionPayload as SchemaVersion,
+  SpecFrontmatter,
+  VisualContract,
+} from "../src/core/spec-schema.js";
+import {
+  AnyStep,
+  ApplicabilityPayload as Applicability,
+  BehavioralExecutionPayload as BehavioralExecution,
+  BehavioralStep,
+  ChoreExecutionPayload as ChoreExecution,
+  ChoreStep,
+  DocsExecutionPayload as DocsExecution,
+  DocsStep,
+  RECOMMENDED_TASK_LABELS,
+  STEP_TO_KIND,
+  SpikeExecutionPayload as SpikeExecution,
+  SpikeStep,
+  StepStatusPayload as StepStatus,
+  StructuralExecutionPayload as StructuralExecution,
+  StructuralStep,
+  TaskBehavioralPayload as TaskBehavioral,
+  TaskChorePayload as TaskChore,
+  TaskDocsPayload as TaskDocs,
+  TaskExecutionStepPayload as TaskExecutionStep,
+  TaskFullPayload as Task,
+  TaskInput,
+  TaskInputBatched,
+  TaskKind,
+  TaskSpikePayload as TaskSpike,
+  TaskStructuralPayload as TaskStructural,
+  TaskVisualUiPayload as TaskVisualUi,
+  VisualUiExecutionPayload as VisualUiExecution,
+  VisualUiStep,
+} from "../src/core/task-schema.js";
+
+export {
+  AttachmentPayload as Attachment,
+  EvidenceAddInput,
+  EvidenceAddInputBatched,
+  EvidenceKind,
+  EvidenceResult,
+  VerifyCheckKind,
+} from "../src/core/evidence-schema.js";
+export {
+  FINDING_ACTION_GRID,
+  FINDING_UNUSUAL_REASON_MIN_LENGTH,
+  FindingAction,
+  FindingActionRisk,
+  FindingCategory,
+  FindingsEvent,
+  FindingTarget as FindingResolutionPayload,
+} from "../src/core/finding-schema.js";
+export {
+  EarsType,
+  MeasurablePayload as Measurable,
+  NeedsClarification,
+  RequirementEarsVerifiable as RequirementEars,
+  RequirementEventDrivenShape as RequirementEventDriven,
+  RequirementOptionalShape as RequirementOptional,
+  RequirementStateDrivenShape as RequirementStateDriven,
+  RequirementUbiquitousShape as RequirementUbiquitous,
+  RequirementUnwantedShape as RequirementUnwanted,
+  ScenarioGherkin,
+  SchemaVersionPayload as SchemaVersion,
+  SpecFrontmatter,
+  VisualContract,
+} from "../src/core/spec-schema.js";
+export {
+  AnyStep,
+  ApplicabilityPayload as Applicability,
+  BehavioralExecutionPayload as BehavioralExecution,
+  BehavioralStep,
+  ChoreExecutionPayload as ChoreExecution,
+  ChoreStep,
+  DocsExecutionPayload as DocsExecution,
+  DocsStep,
+  RECOMMENDED_TASK_LABELS,
+  STEP_TO_KIND,
+  SpikeExecutionPayload as SpikeExecution,
+  SpikeStep,
+  StepStatusPayload as StepStatus,
+  StructuralExecutionPayload as StructuralExecution,
+  StructuralStep,
+  TaskBehavioralPayload as TaskBehavioral,
+  TaskChorePayload as TaskChore,
+  TaskDocsPayload as TaskDocs,
+  TaskExecutionStepPayload as TaskExecutionStep,
+  TaskFullPayload as Task,
+  TaskInput,
+  TaskInputBatched,
+  TaskKind,
+  TaskSpikePayload as TaskSpike,
+  TaskStructuralPayload as TaskStructural,
+  TaskVisualUiPayload as TaskVisualUi,
+  VisualUiExecutionPayload as VisualUiExecution,
+  VisualUiStep,
+} from "../src/core/task-schema.js";
+
 // ─────────────────────────────────────────────────────────────────
 // 0. Schema version
 // ─────────────────────────────────────────────────────────────────
 
 const SCHEMA_VERSION = 2;
-export const SchemaVersion = z.literal(SCHEMA_VERSION);
 
 // ─────────────────────────────────────────────────────────────────
 // §0a. Journal envelope + EntryKind + sidecar shapes (rev 5.0, ADR-0005 §3.2)
@@ -924,27 +1051,9 @@ export type CeremonyLabel = z.infer<typeof CeremonyLabel>;
 // 6 task kinds. Each kind has its OWN step enum (see §3).
 // rev 3.1: bug-fix folded into behavioral (use task.labels: ["bug"]).
 // rev 3.1: chore added for low-ceremony tasks (version bump / config edit).
-export const TaskKind = z.enum([
-  "behavioral",   // new feature OR bug-fix (use labels[]) — TDD red→implement→refactor
-  "structural",   // refactor/rename — implement+refactor (no red)
-  "visual-ui",    // UI change — mockup → implement → screenshot-compare
-  "docs",         // documentation only — draft → review
-  "spike",        // exploration — explore → prototype → record; FORBIDDEN to deliver
-  "chore",        // version bump / config edit / single-shot — one-step execute
-]);
-export type TaskKind = z.infer<typeof TaskKind>;
 
 // Recommended orthogonal labels (informational, not gate-bearing).
 // Skills SHOULD use these for cross-cutting categorization.
-export const RECOMMENDED_TASK_LABELS = [
-  "bug",
-  "feature",
-  "tech-debt",
-  "security",
-  "performance",
-  "migration",
-  "integration",
-] as const;
 
 // ─────────────────────────────────────────────────────────────────
 // 3. Per-task-kind Step enums (Q6 — A1 / K1 decision)
@@ -958,43 +1067,11 @@ export const RECOMMENDED_TASK_LABELS = [
 // AnyStep (union of all step values) is used by snapshots and
 // transitions; STEP_TO_KIND below validates kind/step compatibility.
 
-export const BehavioralStep = z.enum([
-  "red",          // write failing test (TDD red)
-  "implement",    // write impl to make test pass (TDD green)
-  "refactor",     // improve without changing behavior
-]);
-export type BehavioralStep = z.infer<typeof BehavioralStep>;
 
-export const StructuralStep = z.enum([
-  "implement",    // perform the refactor
-  "refactor",     // polish
-]);
-export type StructuralStep = z.infer<typeof StructuralStep>;
 
-export const VisualUiStep = z.enum([
-  "mockup",              // capture target visual contract / reference
-  "implement",           // build/wire UI
-  "screenshot-compare",  // capture screenshot, compare to contract
-]);
-export type VisualUiStep = z.infer<typeof VisualUiStep>;
 
-export const DocsStep = z.enum([
-  "draft",        // write docs
-  "review",       // peer review
-]);
-export type DocsStep = z.infer<typeof DocsStep>;
 
-export const SpikeStep = z.enum([
-  "explore",      // research / read code
-  "prototype",    // throwaway exploratory code
-  "record",       // capture spike-finding evidence
-]);
-export type SpikeStep = z.infer<typeof SpikeStep>;
 
-export const ChoreStep = z.enum([
-  "execute",      // one-shot operation (bump version / edit config)
-]);
-export type ChoreStep = z.infer<typeof ChoreStep>;
 
 // Union of all step values across kinds. Used by snapshots
 // (tasks_active_summary.current_step in gate-diagnostic/resume-pack) and
@@ -1002,67 +1079,22 @@ export type ChoreStep = z.infer<typeof ChoreStep>;
 // state-level current_step field (rev 4.0): per-step status lives in
 // task.execution.<step>.status. Per-kind validity enforced at runtime
 // via STEP_TO_KIND lookup.
-export const AnyStep = z.union([
-  BehavioralStep,
-  StructuralStep,
-  VisualUiStep,
-  DocsStep,
-  SpikeStep,
-  ChoreStep,
-]);
-export type AnyStep = z.infer<typeof AnyStep>;
 
 // Reverse map: which kinds is a step name valid in?
 // Used by canTransitionStep + diff-guard for runtime validation.
-export const STEP_TO_KIND: Record<string, TaskKind[]> = {
-  red: ["behavioral"],
-  implement: ["behavioral", "structural", "visual-ui"],
-  refactor: ["behavioral", "structural"],
-  mockup: ["visual-ui"],
-  "screenshot-compare": ["visual-ui"],
-  draft: ["docs"],
-  review: ["docs"],
-  explore: ["spike"],
-  prototype: ["spike"],
-  record: ["spike"],
-  execute: ["chore"],
-};
 
 // ─────────────────────────────────────────────────────────────────
 // 4. VerifyCheckKind / Applicability / StepStatus / GateName
 // ─────────────────────────────────────────────────────────────────
 
 // VERIFY check kinds — data, not sub-state. Extensible without protocol bumps.
-export const VerifyCheckKind = z.enum([
-  "run",          // test + lint + type-check
-  "review",       // quality reviewer (spec_fit + quality_fit)
-  "acceptance",   // selected Gherkin E2E scenarios
-  "visual",       // visual contract verification
-  // future v1.x: "security" | "performance" | "accessibility"
-]);
-export type VerifyCheckKind = z.infer<typeof VerifyCheckKind>;
 
 // Applicability — 3-tier (Q5 dropped `should`).
 // Soft-suggestion semantics live in loaf-skill, not protocol.
-export const Applicability = z.enum([
-  "must",         // required; blocks gate when not passed/waived
-  "optional",     // user choice; never blocks gate
-  "na",           // computed: not applicable to this task/profile/scope
-]);
-export type Applicability = z.infer<typeof Applicability>;
 
 // Step / check execution status.
 // Q5: MUST obligations can only be `passed` or `waived`, never silently `skipped`.
 // `skipped` removed entirely from protocol.
-export const StepStatus = z.enum([
-  "na",           // applicability=na (computed)
-  "pending",      // applicable but not started
-  "running",      // in-flight
-  "passed",       // satisfied
-  "failed",       // attempted, did not satisfy
-  "waived",       // explicit human waiver via `loaf waive` (requires reason)
-]);
-export type StepStatus = z.infer<typeof StepStatus>;
 
 export const GateName = z.enum(["spec-lock", "verify-accept"]);
 export type GateName = z.infer<typeof GateName>;
@@ -1072,26 +1104,8 @@ export type GateName = z.infer<typeof GateName>;
 // ─────────────────────────────────────────────────────────────────
 
 // Q11: 6 categories. risk-escalation split from new-scope.
-export const FindingCategory = z.enum([
-  "spec-gap",          // spec silent on this aspect
-  "spec-defect",       // spec wrong (covers design-gap)
-  "impl-defect",       // implementation wrong (covers visual-defect)
-  "test-defect",       // test or test-env wrong (env detail goes in cause)
-  "new-scope",         // out of current scope, needs new task
-  "risk-escalation",   // task complexity exceeds current profile; triggers profile escalation
-]);
-export type FindingCategory = z.infer<typeof FindingCategory>;
 
 // 6 finding actions.
-export const FindingAction = z.enum([
-  "amend-spec",   // → SPEC.spec, spec_version+1, re-pass spec-lock, iter+1
-  "amend-tasks",  // → EXECUTE.work, tasks.version+1; auto re-lock if scope/risk escalates
-  "fix-impl",     // → EXECUTE.work; event:task_step_reset sets execution.implement.status=pending, iter+1, no version change
-  "fix-test",     // → EXECUTE.work; event:task_step_reset sets execution.red.status=pending, iter+1
-  "defer",        // close finding, drift recorded in reconcile (current run)
-  "backlog",      // close finding, candidate for next feature/lessons.md
-]);
-export type FindingAction = z.infer<typeof FindingAction>;
 
 // ─────────────────────────────────────────────────────────────────
 // 6. EvidenceKind / EvidenceResult
@@ -1101,29 +1115,8 @@ export type FindingAction = z.infer<typeof FindingAction>;
 //   manual:  human-attested verification (I checked it, it works)
 //   waiver:  human-attested risk acceptance (I will NOT verify; reason required)
 // Both can satisfy obligations (subject to canSatisfy compatibility — §17).
-export const EvidenceKind = z.enum([
-  "task-summary",   // per-task closing summary
-  "verify-review",  // emitted during VERIFY.review (rev 4.0)
-  "spec-review",    // deep profile: independent spec reviewer
-  "acceptance",     // emitted during VERIFY.acceptance (rev 4.0; Gherkin E2E)
-  "visual-review",  // emitted during VERIFY.visual (rev 4.0)
-  "gate-decision",  // human gate approval/rejection
-  "local-check",    // local test/lint/typecheck run (Q6: was a step, now an evidence kind)
-  "manual",         // human verification (kind=manual implies result≠waived)
-  "waiver",         // human waiver; actor MUST start with "human:"; reason required
-  "spike-finding",  // spike task: explore/prototype output
-]);
-export type EvidenceKind = z.infer<typeof EvidenceKind>;
 
 // Q5: waived joins as a first-class result. skipped removed.
-export const EvidenceResult = z.enum([
-  "passed",
-  "failed",
-  "approved",
-  "rejected",
-  "waived",
-]);
-export type EvidenceResult = z.infer<typeof EvidenceResult>;
 
 // ─────────────────────────────────────────────────────────────────
 // 7. EARS Requirement — structured + three-way verifiability (Q12)
@@ -1142,16 +1135,18 @@ const ReqId = z.string().regex(/^REQ-[A-Z][A-Z0-9]*-\d{3,}$/);
 const ScenId = z.string().regex(/^SCEN-[A-Z][A-Z0-9-]*-\d{3,}$/);
 const VisId  = z.string().regex(/^VIS-[A-Z][A-Z0-9-]*-\d{3,}$/);
 
-export const Measurable = z.object({
-  metric: z.string().min(3),       // e.g. "time_to_dashboard_visible"
+// Temporary schema-emission copy. The public Measurable export now comes
+// from spec-schema.ts, while §40 remains frozen until input-schema dissolution.
+const SchemaEmitMeasurable = z.object({
+  metric: z.string().min(3),
   threshold: z.union([z.string(), z.number()]),
-  unit: z.string().optional(),     // "ms", "MB", "rps", ...
+  unit: z.string().optional(),
   direction: z.enum(["lte", "gte", "eq"]).default("lte"),
 });
 
 // Three-way verifiability tagged onto every requirement.
 const VerifiabilityFields = z.object({
-  measurable: Measurable.optional(),
+  measurable: SchemaEmitMeasurable.optional(),
   verified_by_scenarios: z.array(ScenId).optional(),
   acceptance_na: z.literal(true).optional(),
   acceptance_na_reason: z.string().min(10).optional(),
@@ -1169,116 +1164,30 @@ const ReqBase = z.object({
   id: ReqId,
 });
 
-export const RequirementUbiquitous = ReqBase.extend({
-  type: z.literal("ubiquitous"),
-  response: z.string().min(10),
-}).and(VerifiabilityFields);
 
-export const RequirementEventDriven = ReqBase.extend({
-  type: z.literal("event-driven"),
-  trigger: z.string().min(5),
-  response: z.string().min(10),
-}).and(VerifiabilityFields);
 
-export const RequirementStateDriven = ReqBase.extend({
-  type: z.literal("state-driven"),
-  while_: z.string().min(5),       // `while` reserved
-  behavior: z.string().min(10),
-}).and(VerifiabilityFields);
 
-export const RequirementOptional = ReqBase.extend({
-  type: z.literal("optional"),
-  feature: z.string().min(5),
-  response: z.string().min(10),
-}).and(VerifiabilityFields);
 
-export const RequirementUnwanted = ReqBase.extend({
-  type: z.literal("unwanted"),
-  condition: z.string().min(5),
-  response: z.string().min(10),
-}).and(VerifiabilityFields);
 
 // EARS — 5 canonical types (Mavin/Wilkinson 2009).
-export const EarsType = z.enum([
-  "ubiquitous",
-  "event-driven",
-  "state-driven",
-  "optional",
-  "unwanted",
-]);
-export type EarsType = z.infer<typeof EarsType>;
 
 // Note: zod discriminatedUnion does not combine with .and(); we use union for runtime.
-export const RequirementEars = z.union([
-  RequirementUbiquitous,
-  RequirementEventDriven,
-  RequirementStateDriven,
-  RequirementOptional,
-  RequirementUnwanted,
-]);
-export type RequirementEars = z.infer<typeof RequirementEars>;
 
 // ─────────────────────────────────────────────────────────────────
 // 8. Gherkin Scenario
 // ─────────────────────────────────────────────────────────────────
 
-export const ScenarioGherkin = z
-  .object({
-    id: ScenId,
-    name: z.string().min(3),
-    tag: z.enum(["happy", "edge", "error", "e2e"]).optional(),
-    requires_acceptance: z.boolean().optional(),
-    acceptance_na: z.string().min(5).optional(),
-    given: z.array(z.string().min(3)).min(1),
-    when: z.array(z.string().min(3)).min(1),
-    then: z.array(z.string().min(3)).min(1),
-  })
-  .refine(
-    (s) => !(s.tag === "e2e" && s.acceptance_na && s.requires_acceptance),
-    { message: "cannot set both requires_acceptance and acceptance_na" },
-  );
-export type ScenarioGherkin = z.infer<typeof ScenarioGherkin>;
 
 // ─────────────────────────────────────────────────────────────────
 // 9. Visual Contract
 // ─────────────────────────────────────────────────────────────────
 
-export const VisualContract = z.object({
-  id: VisId,
-  target: z.string().min(3),
-  checks: z.array(z.string().min(3)).min(1),
-  requires_visual: z.boolean().optional(),
-  visual_na: z.string().min(5).optional(),
-});
-export type VisualContract = z.infer<typeof VisualContract>;
 
 // ─────────────────────────────────────────────────────────────────
 // 10. SpecFrontmatter (rev 3.1 batch: adr_refs[])
 // ─────────────────────────────────────────────────────────────────
 
-export const NeedsClarification = z.object({
-  id: z.string().regex(/^NC-\d{3,}$/),
-  question: z.string().min(5),
-  context: z.string().optional(),
-  options: z.array(z.string()).optional(),
-});
 
-export const SpecFrontmatter = z.object({
-  schema_version: SchemaVersion,
-  spec_version: z.number().int().positive(),
-  feature: z.object({
-    id: z.string().regex(/^F-\d{3,}$/),
-    name: z.string().min(3),
-  }),
-  intent: z.string().min(20),
-  // rev 3.1: external ADR references; loaf does not track architecture, only references it.
-  adr_refs: z.array(z.string()).default([]),
-  requirements: z.array(RequirementEars),
-  scenarios: z.array(ScenarioGherkin),
-  visual_contracts: z.array(VisualContract).optional(),
-  needs_clarification: z.array(NeedsClarification),
-});
-export type SpecFrontmatter = z.infer<typeof SpecFrontmatter>;
 
 // ─────────────────────────────────────────────────────────────────
 // 11. PendingPrompt — TUI signal for "session blocked on user input"
@@ -1621,50 +1530,12 @@ export type RegistryFile = z.infer<typeof RegistryFile>;
 //   - tasks.execution.status is CACHE; evidence.jsonl is proof source.
 //     `loaf tasks check` reconciles them. Don't trust execution.status alone.
 
-export const TaskExecutionStep = z.object({
-  applicability: Applicability,
-  status: StepStatus,
-  reason: z.string().optional(),
-  evidence_refs: z.array(z.string().regex(/^EV-\d{6,}$/)).default([]),  // Q7: stable IDs
-  // rev 4.1: worker fan-out 时记录 step 开始时间;`loaf doctor`
-  // stale-claim check 用(started_at > 30 min + 无 evidence 新增 =
-  // worker 死了或卡住,可 --fix 回 ready 让其它 worker 重 claim)
-  // CLI 在 `loaf tasks step start` 时写入;status 离开 "running" 时清空
-  started_at: z.string().datetime().optional(),
-});
-export type TaskExecutionStep = z.infer<typeof TaskExecutionStep>;
 
-export const BehavioralExecution = z.object({
-  red: TaskExecutionStep,
-  implement: TaskExecutionStep,
-  refactor: TaskExecutionStep,
-});
 
-export const StructuralExecution = z.object({
-  implement: TaskExecutionStep,
-  refactor: TaskExecutionStep,
-});
 
-export const VisualUiExecution = z.object({
-  mockup: TaskExecutionStep,
-  implement: TaskExecutionStep,
-  "screenshot-compare": TaskExecutionStep,
-});
 
-export const DocsExecution = z.object({
-  draft: TaskExecutionStep,
-  review: TaskExecutionStep,
-});
 
-export const SpikeExecution = z.object({
-  explore: TaskExecutionStep,
-  prototype: TaskExecutionStep,
-  record: TaskExecutionStep,
-});
 
-export const ChoreExecution = z.object({
-  execute: TaskExecutionStep,
-});
 
 const TaskId = z.string().regex(/^T-\d{3,}$/);
 const DrivesRef = z
@@ -1691,63 +1562,15 @@ const TaskBase = z.object({
 // step) + verify-accept (BUG_TASK_RED_NOT_REGISTERED). The field stays
 // optional on the full payload so the reducer can set it and it round-trips
 // on replay. See protocol.md §9.3 + src/core/reducer/preflight.ts.
-export const TaskBehavioral = TaskBase.extend({
-  kind: z.literal("behavioral"),
-  drives: z.array(DrivesRef).min(1),
-  tests: z.array(z.string().min(3)).min(1),
-  test_layer: z.enum(["unit", "integration", "e2e"]).optional(),
-  red_test_registered: z.boolean().optional(),
-  execution: BehavioralExecution,
-  requires_acceptance: z.boolean().optional(),
-  requires_visual: z.boolean().optional(),
-});
 
-export const TaskStructural = TaskBase.extend({
-  kind: z.literal("structural"),
-  no_test_rationale: z.string().min(10),
-  execution: StructuralExecution,
-});
 
-export const TaskVisualUi = TaskBase.extend({
-  kind: z.literal("visual-ui"),
-  visual_contract_refs: z.array(VisId).min(1),
-  no_test_rationale: z.string().min(10).optional(),
-  execution: VisualUiExecution,
-});
 
-export const TaskDocs = TaskBase.extend({
-  kind: z.literal("docs"),
-  no_test_rationale: z.string().min(10),
-  execution: DocsExecution,
-});
 
-export const TaskSpike = TaskBase.extend({
-  kind: z.literal("spike"),
-  no_test_rationale: z.string().min(10),
-  execution: SpikeExecution,
-  // Note: spike tasks may NOT result in DONE.delivered.
-  // Exits: DONE.archived, or `loaf spike convert` (records to_feature +
-  // archives the spike session; the new feature is opened separately).
-});
 
-export const TaskChore = TaskBase.extend({
-  kind: z.literal("chore"),
-  no_test_rationale: z.string().min(10),
-  execution: ChoreExecution,
-});
 
 // Zod 4: `.refine()` returns a ZodObject, so discriminatedUnion accepts the
 // schema directly — no `.sourceType()` unwrap (a removed Zod 3 ZodEffects
 // method). TaskBehavioral no longer carries a refine post-R2 either.
-export const Task = z.discriminatedUnion("kind", [
-  TaskBehavioral,
-  TaskStructural,
-  TaskVisualUi,
-  TaskDocs,
-  TaskSpike,
-  TaskChore,
-]);
-export type Task = z.infer<typeof Task>;
 
 export const TasksJson = z.object({
   schema_version: SchemaVersion,
@@ -1786,12 +1609,6 @@ const FeatureId = z.string().regex(/^F-\d{3,}$/);
 const CoversRef = z.union([ReqId, ScenId, VisId, TaskId]);
 
 // Q14: attachment is now an object with hash + mime, not just a path.
-export const Attachment = z.object({
-  path: z.string().min(3),                              // relative to feature dir
-  sha256: z.string().regex(/^[a-f0-9]{64}$/),
-  mime: z.string().min(3),
-  bytes: z.number().int().positive().optional(),
-});
 
 export const EvidenceEntry = z.object({
   schema_version: SchemaVersion,
@@ -1845,6 +1662,15 @@ export const EvidenceEntry = z.object({
 });
 export type EvidenceEntry = z.infer<typeof EvidenceEntry>;
 
+// Temporary schema-emission copy. The public EvidenceAddInput export now
+// comes from the runtime domain home, but INPUT_SCHEMAS must remain byte-for-
+// byte stable until the dedicated input-schema dissolution sub-cycle.
+const SchemaEmitEvidenceAddInput = EvidenceEntry.omit({
+  schema_version: true,
+  evidence_id: true,
+  at: true,
+}).strict();
+
 // rev 4.1 + Phase 16 SC-4c: EvidenceAddInput — the shape accepted by
 // `loaf evidence add --input <src>`. CLI assigns `evidence_id` (monotonic
 // per feature; runtime field `id`) and stamps `at`/`schema_version`
@@ -1867,12 +1693,6 @@ export type EvidenceEntry = z.infer<typeof EvidenceEntry>;
 // transform runs BEFORE schema validation — the input schema below
 // will update + INPUT_SCHEMAS swap; the A6 simplification annotation
 // here is the future-shape spec, NOT current public contract.
-export const EvidenceAddInput = EvidenceEntry.omit({
-  schema_version: true,  // envelope-owned (codex r234)
-  evidence_id: true,     // CLI-allocated (renamed `id` at runtime)
-  at: true,              // CLI-stamped during per-session-lock txn
-}).strict();             // rejects caller-supplied id / evidence_id / unknown keys
-export type EvidenceAddInput = z.infer<typeof EvidenceAddInput>;
 
 // ─────────────────────────────────────────────────────────────────
 // 16. Evidence compatibility (Q8) — canSatisfy(evidence, coveredId)
@@ -1933,45 +1753,6 @@ export const EVIDENCE_COMPAT = {
 // finding-STATE list, not an event log. `FindingsEvent` is retained for
 // historical / migration reference; the projection writer never emits it.
 
-export const FindingsEvent = z.discriminatedUnion("event", [
-  z
-    .object({
-      schema_version: SchemaVersion,
-      id: z.string().regex(/^FND-\d{3,}$/),
-      event: z.literal("opened"),
-      at: z.string().datetime(),
-      raised_in: SubState,
-      raised_by: z.string(),
-      iteration: z.number().int().positive(),
-      category: FindingCategory,
-      action: FindingAction,
-      summary: z.string().min(5),
-      // findings can point at REQ/SCEN/VIS (spec items), T-NNN (task that
-      // surfaced the finding), or F-NNN (feature-scope finding).
-      refs: z
-        .array(z.union([ReqId, ScenId, VisId, TaskId, FeatureId]))
-        .default([]),
-      evidence_refs: z.array(z.string().regex(/^EV-\d{6,}$/)).default([]),
-      cause: z.string().optional(),                  // for test-defect: "env" | "assertion" | ...
-    })
-    .refine(
-      (f) =>
-        f.raised_in.startsWith("VERIFY.") ||
-        f.raised_in.startsWith("EXECUTE."),
-      { message: "findings only in VERIFY.* or post-lock EXECUTE.*" },
-    ),
-  z.object({
-    schema_version: SchemaVersion,
-    id: z.string().regex(/^FND-\d{3,}$/),
-    event: z.literal("closed"),
-    at: z.string().datetime(),
-    iteration: z.number().int().positive(),
-    resolution: z.string().min(3),
-    drift_index: z.number().int().nonnegative().optional(),
-    evidence_refs: z.array(z.string().regex(/^EV-\d{6,}$/)).default([]),
-  }),
-]);
-export type FindingsEvent = z.infer<typeof FindingsEvent>;
 
 // ─────────────────────────────────────────────────────────────────
 // 30. snapshots/*.json — `loaf doctor --rebuild` projection containers
@@ -2469,91 +2250,8 @@ export const ESCALATION_DETECTIONS: Array<z.infer<typeof EscalationDetection>> =
 // `requires_target_payload` field is "task_id_step". loaf-cli applies
 // it as a mutation on tasks.json before/together with the state
 // transition (inside the per-session lock; see §34).
-export const FindingResolutionPayload = z.object({
-  task_id: z.string().regex(/^T-\d{3,}$/),
-  step: z.string().min(1),   // valid step set is enforced per task.kind by transitions.ts
-});
-export type FindingResolutionPayload = z.infer<typeof FindingResolutionPayload>;
 
-export const FindingActionEffect = z.object({
-  action: FindingAction,
-  next_sub_state: SubState.nullable(),
-  iteration_delta: z.union([z.literal(0), z.literal(1)]),
-  spec_version_delta: z.union([z.literal(0), z.literal(1)]),
-  tasks_version_delta: z.union([z.literal(0), z.literal(1)]),
-  resets_spec_locked: z.boolean(),
-  may_trigger_relock: z.boolean(),
-  // rev 4.1: when set to "task_id_step", `loaf finding raise/close`
-  // requires a FindingResolutionPayload. fix-impl/fix-test target a
-  // specific task step; amend-tasks may target a task (optional
-  // narrowing). Other actions take no payload.
-  requires_target_payload: z.enum(["task_id_step", "task_id_optional", "none"]),
-});
 
-export const FINDING_ACTION_EFFECTS: Array<
-  z.infer<typeof FindingActionEffect>
-> = [
-  {
-    action: "amend-spec",
-    next_sub_state: "SPEC.spec",
-    iteration_delta: 1,
-    spec_version_delta: 1,
-    tasks_version_delta: 1,
-    resets_spec_locked: true,                 // rev 3.1 batch: enforced invariant
-    may_trigger_relock: false,
-    requires_target_payload: "none",
-  },
-  {
-    action: "amend-tasks",
-    next_sub_state: "EXECUTE.work",
-    iteration_delta: 1,
-    spec_version_delta: 0,
-    tasks_version_delta: 1,
-    resets_spec_locked: false,
-    may_trigger_relock: true,
-    requires_target_payload: "task_id_optional",
-  },
-  {
-    action: "fix-impl",
-    next_sub_state: "EXECUTE.work",
-    iteration_delta: 1,
-    spec_version_delta: 0,
-    tasks_version_delta: 0,
-    resets_spec_locked: false,
-    may_trigger_relock: false,
-    requires_target_payload: "task_id_step",   // step must be "implement"
-  },
-  {
-    action: "fix-test",
-    next_sub_state: "EXECUTE.work",
-    iteration_delta: 1,
-    spec_version_delta: 0,
-    tasks_version_delta: 0,
-    resets_spec_locked: false,
-    may_trigger_relock: false,
-    requires_target_payload: "task_id_step",   // step must be "red"
-  },
-  {
-    action: "defer",
-    next_sub_state: null,
-    iteration_delta: 0,
-    spec_version_delta: 0,
-    tasks_version_delta: 0,
-    resets_spec_locked: false,
-    may_trigger_relock: false,
-    requires_target_payload: "none",
-  },
-  {
-    action: "backlog",
-    next_sub_state: null,
-    iteration_delta: 0,
-    spec_version_delta: 0,
-    tasks_version_delta: 0,
-    resets_spec_locked: false,
-    may_trigger_relock: false,
-    requires_target_payload: "none",
-  },
-];
 
 // ─────────────────────────────────────────────────────────────────
 // 26. SubState contracts — entry / exit / write_paths / mutation_rights / prompt_inject
@@ -3756,65 +3454,9 @@ export const HOOK_EVENT_TO_CLAUDE_CODE = {
 // reconcile.json carries unusual_findings_count so reviewers see the
 // non-typical band without scanning findings.jsonl line by line.
 
-export const FindingActionRisk = z.enum(["typical", "unusual", "incoherent"]);
-export type FindingActionRisk = z.infer<typeof FindingActionRisk>;
 
-export const FINDING_ACTION_GRID: Record<
-  z.infer<typeof FindingCategory>,
-  Record<z.infer<typeof FindingAction>, FindingActionRisk>
-> = {
-  "spec-gap": {
-    "amend-spec":  "typical",
-    "amend-tasks": "unusual",
-    "fix-impl":    "incoherent",
-    "fix-test":    "incoherent",
-    "defer":       "typical",
-    "backlog":     "typical",
-  },
-  "spec-defect": {
-    "amend-spec":  "typical",
-    "amend-tasks": "unusual",
-    "fix-impl":    "unusual",
-    "fix-test":    "unusual",
-    "defer":       "typical",
-    "backlog":     "typical",
-  },
-  "impl-defect": {
-    "amend-spec":  "unusual",
-    "amend-tasks": "typical",
-    "fix-impl":    "typical",
-    "fix-test":    "unusual",
-    "defer":       "typical",
-    "backlog":     "typical",
-  },
-  "test-defect": {
-    "amend-spec":  "unusual",
-    "amend-tasks": "typical",
-    "fix-impl":    "unusual",
-    "fix-test":    "typical",
-    "defer":       "typical",
-    "backlog":     "typical",
-  },
-  "new-scope": {
-    "amend-spec":  "typical",
-    "amend-tasks": "typical",
-    "fix-impl":    "incoherent",
-    "fix-test":    "incoherent",
-    "defer":       "typical",
-    "backlog":     "typical",
-  },
-  "risk-escalation": {
-    "amend-spec":  "unusual",
-    "amend-tasks": "typical",
-    "fix-impl":    "unusual",
-    "fix-test":    "unusual",
-    "defer":       "typical",
-    "backlog":     "typical",
-  },
-} as const;
 
 // Minimum --reason length when ActionRisk = unusual.
-export const FINDING_UNUSUAL_REASON_MIN_LENGTH = 20;
 
 // §38 ContextPackProjection + CONTEXT_PACK_TEMPLATES (rev 4.3 / ADR-0004 A8)
 // ─────────────────────────────────────────────────────────────────
@@ -5647,7 +5289,7 @@ const TaskChoreInput = TaskInputBase.extend({
 // Zod 4: discriminatedUnion accepts each `.strict()` ZodObject directly —
 // `.sourceType()` (a removed Zod 3 ZodEffects method) is no longer needed
 // now that the R2 bug-RED refine is gone.
-export const TaskInput = z.discriminatedUnion("kind", [
+const SchemaEmitTaskInput = z.discriminatedUnion("kind", [
   TaskBehavioralInput,
   TaskStructuralInput,
   TaskVisualUiInput,
@@ -5655,7 +5297,6 @@ export const TaskInput = z.discriminatedUnion("kind", [
   TaskSpikeInput,
   TaskChoreInput,
 ]);
-export type TaskInput = z.infer<typeof TaskInput>;
 
 // ── Batch helper: each Tier 1 input accepts a single object OR a
 // non-empty array. Atomicity discipline (A10):
@@ -5670,8 +5311,8 @@ const batchOrSingle = <T extends z.ZodTypeAny>(schema: T) =>
 export const SpecReqInputBatched      = batchOrSingle(SpecReqInput);
 export const SpecScenarioInputBatched = batchOrSingle(SpecScenarioInput);
 export const SpecVisualInputBatched   = batchOrSingle(SpecVisualInput);
-export const TaskInputBatched         = batchOrSingle(TaskInput);
-export const EvidenceAddInputBatched  = batchOrSingle(EvidenceAddInput);
+const SchemaEmitTaskInputBatched = batchOrSingle(SchemaEmitTaskInput);
+const SchemaEmitEvidenceAddInputBatched = batchOrSingle(SchemaEmitEvidenceAddInput);
 
 // ── MutatorCommand: the closed set of CLI commands that consume
 // structured JSON via --input. Keys for INPUT_SCHEMAS.
@@ -5693,8 +5334,8 @@ export const INPUT_SCHEMAS: Record<MutatorCommand, z.ZodTypeAny> = {
   "spec:add-req":      SpecReqInputBatched,
   "spec:add-scenario": SpecScenarioInputBatched,
   "spec:add-visual":   SpecVisualInputBatched,
-  "tasks:add":         TaskInputBatched,
-  "evidence:add":      EvidenceAddInputBatched,
+  "tasks:add":         SchemaEmitTaskInputBatched,
+  "evidence:add":      SchemaEmitEvidenceAddInputBatched,
 } as const;
 
 // ── InputSourceResolver: the discriminated shape the CLI uses internally

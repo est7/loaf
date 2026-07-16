@@ -16,6 +16,8 @@ import {
   JournalEntry as RuntimeJournalEntry,
 } from "../../src/core/journal-entry.js";
 import {
+  RequirementEarsShape as RuntimeRequirementEarsShape,
+  RequirementEarsVerifiable as RuntimeRequirementEarsVerifiable,
   SpecFrontmatter as RuntimeSpecFrontmatter,
   VisualContract as RuntimeVisualContract,
 } from "../../src/core/spec-schema.js";
@@ -39,16 +41,12 @@ describe("schemas dissolution divergence characterization", () => {
     const runtimeFixture = { ...BASE_EVIDENCE, id: "EV-000001" };
 
     expect(docs.EvidenceEntry.safeParse(docsFixture).success).toBe(true);
-    expect(RuntimeEvidenceFullPayload.safeParse(docsFixture).success).toBe(
-      false,
-    );
-    expect(RuntimeEvidenceFullPayload.safeParse(runtimeFixture).success).toBe(
-      true,
-    );
+    expect(RuntimeEvidenceFullPayload.safeParse(docsFixture).success).toBe(false);
+    expect(RuntimeEvidenceFullPayload.safeParse(runtimeFixture).success).toBe(true);
     expect(docs.EvidenceEntry.safeParse(runtimeFixture).success).toBe(false);
   });
 
-  test("evidence add input accepts sidecar summary only at runtime", () => {
+  test("evidence add input converges on the runtime sidecar-capable schema", () => {
     const fixture = {
       ...BASE_EVIDENCE,
       summary: {
@@ -61,11 +59,12 @@ describe("schemas dissolution divergence characterization", () => {
       },
     };
 
-    expect(docs.EvidenceAddInput.safeParse(fixture).success).toBe(false);
+    expect(docs.EvidenceAddInput).toBe(RuntimeEvidenceAddInput);
+    expect(docs.EvidenceAddInput.safeParse(fixture).success).toBe(true);
     expect(RuntimeEvidenceAddInput.safeParse(fixture).success).toBe(true);
   });
 
-  test("VisualContract strips unknown fields in docs and preserves them at runtime", () => {
+  test("VisualContract converges on runtime passthrough behavior", () => {
     const fixture = {
       id: "VIS-UI-001",
       target: "settings screen",
@@ -76,15 +75,16 @@ describe("schemas dissolution divergence characterization", () => {
     const docsResult = docs.VisualContract.safeParse(fixture);
     const runtimeResult = RuntimeVisualContract.safeParse(fixture);
 
+    expect(docs.VisualContract).toBe(RuntimeVisualContract);
     expect(docsResult.success).toBe(true);
     expect(runtimeResult.success).toBe(true);
     if (docsResult.success && runtimeResult.success) {
-      expect(docsResult.data).not.toHaveProperty("adr_refs");
+      expect(docsResult.data).toHaveProperty("adr_refs", ["ADR-0042"]);
       expect(runtimeResult.data).toHaveProperty("adr_refs", ["ADR-0042"]);
     }
   });
 
-  test("SpecFrontmatter defaults missing adr_refs only in docs", () => {
+  test("SpecFrontmatter converges on runtime-required adr_refs", () => {
     const fixture = {
       schema_version: 2,
       spec_version: 1,
@@ -96,9 +96,21 @@ describe("schemas dissolution divergence characterization", () => {
     };
 
     const docsResult = docs.SpecFrontmatter.safeParse(fixture);
-    expect(docsResult.success).toBe(true);
-    if (docsResult.success) expect(docsResult.data.adr_refs).toEqual([]);
+    expect(docs.SpecFrontmatter).toBe(RuntimeSpecFrontmatter);
+    expect(docsResult.success).toBe(false);
     expect(RuntimeSpecFrontmatter.safeParse(fixture).success).toBe(false);
+  });
+
+  test("RequirementEars keeps the runtime structural and verifiable split", () => {
+    const fixture = {
+      id: "REQ-SCHEMA-001",
+      type: "ubiquitous" as const,
+      response: "The schema owner remains explicit.",
+    };
+
+    expect(docs.RequirementEars).toBe(RuntimeRequirementEarsVerifiable);
+    expect(RuntimeRequirementEarsShape.safeParse(fixture).success).toBe(true);
+    expect(RuntimeRequirementEarsVerifiable.safeParse(fixture).success).toBe(false);
   });
 
   test("Ceremony accepts an empty object with defaults only in docs", () => {
@@ -153,13 +165,7 @@ describe("current public schema output baseline", () => {
     expect(formatSchema(emitInputSchema(surface))).toMatchSnapshot();
   });
 
-  const artifactSurfaces: ArtifactSchemaKind[] = [
-    "spec",
-    "tasks",
-    "evidence",
-    "finding",
-    "state",
-  ];
+  const artifactSurfaces: ArtifactSchemaKind[] = ["spec", "tasks", "evidence", "finding", "state"];
 
   test.each(artifactSurfaces)("artifact:%s", (surface) => {
     expect(formatSchema(emitArtifactSchema(surface))).toMatchSnapshot();

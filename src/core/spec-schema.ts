@@ -15,8 +15,8 @@
 
 import { z } from "zod";
 
-// Runtime schema-version pin (mirrored from docs/schemas.ts:417-418, codex
-// r21 fix). spec-lock check 1 only accepts the current contract version;
+// Canonical schema-version pin. spec-lock check 1 only accepts the current
+// contract version;
 // future / legacy values must fail at frontmatter parse so sub-cycle 3
 // gate wiring can't approve an incompatible spec.
 export const SCHEMA_VERSION = 2 as const;
@@ -75,30 +75,30 @@ export function hasVerifiability(req: {
 
 const ReqBase = z.object({ id: ReqIdPayload });
 
-const RequirementUbiquitousShape = ReqBase.extend({
+export const RequirementUbiquitousShape = ReqBase.extend({
   type: z.literal("ubiquitous"),
   response: z.string().min(10),
 }).and(VerifiabilityFields);
 
-const RequirementEventDrivenShape = ReqBase.extend({
+export const RequirementEventDrivenShape = ReqBase.extend({
   type: z.literal("event-driven"),
   trigger: z.string().min(5),
   response: z.string().min(10),
 }).and(VerifiabilityFields);
 
-const RequirementStateDrivenShape = ReqBase.extend({
+export const RequirementStateDrivenShape = ReqBase.extend({
   type: z.literal("state-driven"),
   while_: z.string().min(5),
   behavior: z.string().min(10),
 }).and(VerifiabilityFields);
 
-const RequirementOptionalShape = ReqBase.extend({
+export const RequirementOptionalShape = ReqBase.extend({
   type: z.literal("optional"),
   feature: z.string().min(5),
   response: z.string().min(10),
 }).and(VerifiabilityFields);
 
-const RequirementUnwantedShape = ReqBase.extend({
+export const RequirementUnwantedShape = ReqBase.extend({
   type: z.literal("unwanted"),
   condition: z.string().min(5),
   response: z.string().min(10),
@@ -112,6 +112,16 @@ export const RequirementEarsShape = z.union([
   RequirementUnwantedShape,
 ]);
 export type RequirementEarsShape = z.infer<typeof RequirementEarsShape>;
+
+/** Closed EARS discriminator set for schema consumers that need the enum itself. */
+export const EarsType = z.enum([
+  "ubiquitous",
+  "event-driven",
+  "state-driven",
+  "optional",
+  "unwanted",
+]);
+export type EarsType = z.infer<typeof EarsType>;
 
 // ── EARS variants — VERIFIABLE variant (shape + refine) ─────────────────
 // Used by journal payloads (SpecReqAddedPayload). Refine fails the parse

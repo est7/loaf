@@ -1,9 +1,8 @@
-// Finding schema — shared zod shapes for finding journal payloads
-// and the FINDING_ACTION_GRID 6×6 policy matrix (rev 4.3 / ADR-0004 A7).
+// Finding schema — canonical Zod owner for finding payloads and the
+// FINDING_ACTION_GRID 6×6 policy matrix (rev 4.3 / ADR-0004 A7).
 //
-// Slice 3 SC3 (codex r68 sign-off): mirrors docs/schemas.ts §5 (FindingCategory
-// / FindingAction) + §37 (FindingActionRisk + FINDING_ACTION_GRID) to a
-// neutral runtime module so:
+// Slice 3 SC3 introduced the runtime module; wayfinder #6 dissolved the
+// docs mirror into this canonical domain home so:
 //
 //   - journal-entry.ts imports FindingId / FindingCategory / FindingAction
 //     for tightening FindingRaisedPayload + FindingClosedPayload.
@@ -19,6 +18,13 @@
 
 import { z } from "zod";
 
+import {
+  FeatureIdPayload,
+  ReqIdPayload,
+  ScenIdPayload,
+  SchemaVersionPayload,
+  VisIdPayload,
+} from "./spec-schema.js";
 import { TaskIdPayload } from "./task-schema.js";
 
 // ── FindingId (mirror docs/schemas.ts §16:1836 — `/^FND-\d{3,}$/`) ──────
@@ -169,3 +175,49 @@ export const FindingTarget = z
   })
   .strict();
 export type FindingTarget = z.infer<typeof FindingTarget>;
+
+// Legacy findings.jsonl event contract retained for migration/reference readers.
+// Kept local instead of importing journal-entry.SubState: journal-entry already
+// depends on this module, and reversing that edge would create a runtime cycle.
+const FindingRaisedIn = z.enum([
+  "EXECUTE.plan",
+  "EXECUTE.work",
+  "EXECUTE.done",
+  "VERIFY.plan",
+  "VERIFY.run",
+  "VERIFY.review",
+  "VERIFY.acceptance",
+  "VERIFY.visual",
+  "VERIFY.accept",
+]);
+
+export const FindingsEvent = z.discriminatedUnion("event", [
+  z.object({
+    schema_version: SchemaVersionPayload,
+    id: FindingId,
+    event: z.literal("opened"),
+    at: z.string().datetime(),
+    raised_in: FindingRaisedIn,
+    raised_by: z.string(),
+    iteration: z.number().int().positive(),
+    category: FindingCategory,
+    action: FindingAction,
+    summary: z.string().min(5),
+    refs: z
+      .array(z.union([ReqIdPayload, ScenIdPayload, VisIdPayload, TaskIdPayload, FeatureIdPayload]))
+      .default([]),
+    evidence_refs: z.array(z.string().regex(/^EV-\d{6,}$/)).default([]),
+    cause: z.string().optional(),
+  }),
+  z.object({
+    schema_version: SchemaVersionPayload,
+    id: FindingId,
+    event: z.literal("closed"),
+    at: z.string().datetime(),
+    iteration: z.number().int().positive(),
+    resolution: z.string().min(3),
+    drift_index: z.number().int().nonnegative().optional(),
+    evidence_refs: z.array(z.string().regex(/^EV-\d{6,}$/)).default([]),
+  }),
+]);
+export type FindingsEvent = z.infer<typeof FindingsEvent>;

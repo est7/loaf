@@ -1,9 +1,7 @@
-// Evidence schema — shared zod shapes for evidence journal payloads.
+// Evidence schema — canonical Zod owner for evidence journal payloads.
 //
-// Slice 1.C sub-cycle 1 (codex r33 Q2 + r34 BLOCK 2 lock): mirrors
-// docs/schemas.ts §4/§6/§16 (EvidenceKind / EvidenceResult /
-// VerifyCheckKind / Attachment / EvidenceEntry full shape) to a neutral
-// runtime module so:
+// Slice 1.C introduced the runtime module; wayfinder #6 dissolved the docs
+// mirror into this canonical domain home so:
 //
 //   - journal-entry.ts imports EvidenceFullPayload for PER_KIND_PAYLOAD
 //   - evidence-compat.ts (Slice 1.C sub-cycle 2) imports
