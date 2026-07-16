@@ -10,10 +10,15 @@
 // PATCH F: classification and reading deliberately separated so neither
 // becomes a shallow module).
 
-export type InputSource =
-  | { kind: "stdin" }
-  | { kind: "inline"; value: string }
-  | { kind: "file"; path: string };
+import { z } from "zod";
+
+export const InputSourceResolver = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("stdin") }),
+  z.object({ kind: z.literal("inline"), value: z.string() }),
+  z.object({ kind: z.literal("file"), path: z.string() }),
+]);
+export type InputSourceResolver = z.infer<typeof InputSourceResolver>;
+export type InputSource = InputSourceResolver;
 
 const INLINE_RE = /^[{[]/;
 

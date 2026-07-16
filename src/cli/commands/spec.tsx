@@ -5,7 +5,7 @@ import { FAILURE_SITE_KEYS, SUCCESS_KEYS } from "../runtime-i18n-keys.js";
 import { loadSession } from "../../core/cli-runtime.js";
 import { buildSpecSubmitBatch } from "../spec-submit-batch.js";
 import type { MutatorEntry } from "../mutator-entry.js";
-import type { MutatorCommand } from "../../../docs/schemas.js";
+import type { MutatorCommand } from "../input-schemas.js";
 import { mutateBatch } from "../../core/journal-mutate.js";
 import { parseInputSource } from "../input-source.js";
 import { readJsonInput } from "../input-read.js";

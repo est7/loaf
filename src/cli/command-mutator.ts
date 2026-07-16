@@ -11,7 +11,7 @@
 
 import { mutate, mutateBatch, type MutateContext } from "../core/journal-mutate.js";
 import { emitInputSchema, formatSchema } from "./schema-emit.js";
-import type { MutatorCommand } from "../../docs/schemas.js";
+import type { MutatorCommand } from "./input-schemas.js";
 import type { MutatorEntry } from "./mutator-entry.js";
 import type { SessionLoad } from "../core/cli-runtime.js";
 import type { CommandContext } from "./command-context.js";

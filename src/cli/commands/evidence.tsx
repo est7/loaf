@@ -86,7 +86,7 @@ export function registerEvidence(
   //   - Attachments still require full AttachmentPayload {path, sha256,
   //     mime, bytes?} in SC-4c. ADR-0004 A6 auto-hash materialization
   //     (path → full Attachment) is DEFERRED to a future SC; runtime +
-  //     docs/schemas.ts INPUT_SCHEMAS["evidence:add"] machine schema +
+  //     input-schemas.ts INPUT_SCHEMAS["evidence:add"] machine schema +
   //     this CLI handler all match on the full-metadata requirement.
   //   - No `--external-ref` CLI flag; `external_ref` is allowed only
   //     as an --input field (passthrough via EvidenceFullPayload).

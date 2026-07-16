@@ -11,9 +11,16 @@
 
 import { describe, expect, test } from "vitest";
 
-import { parseInputSource } from "../../src/cli/input-source.js";
+import { InputSourceResolver, parseInputSource } from "../../src/cli/input-source.js";
 
 describe("Phase 16 SC-3 — parseInputSource (pure classification)", () => {
+  test("canonical schema accepts runtime shapes and rejects the retired docs discriminant", () => {
+    expect(InputSourceResolver.safeParse({ kind: "stdin" }).success).toBe(true);
+    expect(InputSourceResolver.safeParse({ kind: "inline", value: "{}" }).success).toBe(true);
+    expect(InputSourceResolver.safeParse({ kind: "file", path: "input.json" }).success).toBe(true);
+    expect(InputSourceResolver.safeParse({ source: "inline", raw: "{}" }).success).toBe(false);
+  });
+
   test("`-` → { kind: 'stdin' }", () => {
     expect(parseInputSource("-")).toEqual({ kind: "stdin" });
   });

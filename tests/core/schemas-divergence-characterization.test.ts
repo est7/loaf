@@ -7,8 +7,10 @@ import {
   formatSchema,
   type ArtifactSchemaKind,
 } from "../../src/cli/schema-emit.js";
+import { INPUT_SCHEMAS } from "../../src/cli/input-schemas.js";
 import {
   EvidenceAddInput as RuntimeEvidenceAddInput,
+  EvidenceAddInputBatched as RuntimeEvidenceAddInputBatched,
   EvidenceFullPayload as RuntimeEvidenceFullPayload,
 } from "../../src/core/evidence-schema.js";
 import {
@@ -22,9 +24,13 @@ import {
 import {
   RequirementEarsShape as RuntimeRequirementEarsShape,
   RequirementEarsVerifiable as RuntimeRequirementEarsVerifiable,
+  SpecAddReqInput,
+  SpecAddScenarioInput,
+  SpecAddVisualInput,
   SpecFrontmatter as RuntimeSpecFrontmatter,
   VisualContract as RuntimeVisualContract,
 } from "../../src/core/spec-schema.js";
+import { TaskInputBatched } from "../../src/core/task-schema.js";
 
 const BASE_EVIDENCE = {
   kind: "local-check" as const,
@@ -181,6 +187,19 @@ describe("schemas dissolution divergence characterization", () => {
 });
 
 describe("current public schema output baseline", () => {
+  // Tier 2 --schema output diff summary (wayfinder #6 sub-cycle 4):
+  // - spec:add-req now publishes the runtime allocation boundary
+  //   (id_namespace + EARS type, passthrough body) instead of a closed copy
+  //   that required per-variant body + measurable/verifiability fields.
+  // - spec:add-scenario now requires id_namespace + name and permits the
+  //   scenario body consumed later, instead of falsely requiring given/when/then.
+  // - spec:add-visual now requires id_namespace + target and permits the
+  //   remaining body, instead of falsely requiring checks at this boundary.
+  // - tasks:add switches oneOf to anyOf because the mutation path uses z.union;
+  //   the six strict task variant shapes are otherwise unchanged.
+  // - evidence:add adds the runtime summary union: string or inline/sidecar
+  //   LongTextField (including path/sha256/size AttachmentRef metadata).
+  // - artifact:spec/tasks/evidence/finding/state are unchanged.
   const inputSurfaces: Array<Parameters<typeof emitInputSchema>[0]> = [
     "spec:add-req",
     "spec:add-scenario",
@@ -188,6 +207,14 @@ describe("current public schema output baseline", () => {
     "tasks:add",
     "evidence:add",
   ];
+
+  test("input registry reuses the exact mutation-path schemas", () => {
+    expect(INPUT_SCHEMAS["spec:add-req"]).toBe(SpecAddReqInput);
+    expect(INPUT_SCHEMAS["spec:add-scenario"]).toBe(SpecAddScenarioInput);
+    expect(INPUT_SCHEMAS["spec:add-visual"]).toBe(SpecAddVisualInput);
+    expect(INPUT_SCHEMAS["tasks:add"]).toBe(TaskInputBatched);
+    expect(INPUT_SCHEMAS["evidence:add"]).toBe(RuntimeEvidenceAddInputBatched);
+  });
 
   test.each(inputSurfaces)("input:%s", (surface) => {
     expect(formatSchema(emitInputSchema(surface))).toMatchSnapshot();

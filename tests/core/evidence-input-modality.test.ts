@@ -356,15 +356,13 @@ describe("Phase 16 SC-4c — `loaf evidence add` error paths", () => {
   });
 });
 
-describe("Phase 16 SC-4c — machine-schema regression (docs/schemas.ts INPUT_SCHEMAS['evidence:add'])", () => {
-  // Codex r232 + r234: docs/schemas.ts is the surface --schema --json
-  // dumps to callers. The published contract MUST match runtime SC-4c
-  // discipline. These 5 assertions catch the false-close risk where
-  // docs schema drifts from runtime.
+describe("Phase 16 SC-4c — machine-schema regression (runtime INPUT_SCHEMAS['evidence:add'])", () => {
+  // The published --schema contract and mutation path share this table.
+  // These 5 assertions catch false-close drift at the runtime owner.
 
-  test("docs INPUT_SCHEMAS['evidence:add'] accepts minimal valid input (no schema_version / id / evidence_id)", async () => {
-    const docsSchema: any = await import("../../docs/schemas.js");
-    const schema = docsSchema.INPUT_SCHEMAS["evidence:add"];
+  test("runtime INPUT_SCHEMAS['evidence:add'] accepts minimal valid input (no schema_version / id / evidence_id)", async () => {
+    const runtimeSchema = await import("../../src/cli/input-schemas.js");
+    const schema = runtimeSchema.INPUT_SCHEMAS["evidence:add"];
     const r = schema.safeParse({
       kind: "local-check",
       iteration: 1,
@@ -375,9 +373,9 @@ describe("Phase 16 SC-4c — machine-schema regression (docs/schemas.ts INPUT_SC
     expect(r.success).toBe(true);
   });
 
-  test("docs schema REJECTS {attachments:[{path:...}]} without sha256/mime (full metadata required)", async () => {
-    const docsSchema: any = await import("../../docs/schemas.js");
-    const schema = docsSchema.INPUT_SCHEMAS["evidence:add"];
+  test("runtime schema REJECTS {attachments:[{path:...}]} without sha256/mime (full metadata required)", async () => {
+    const runtimeSchema = await import("../../src/cli/input-schemas.js");
+    const schema = runtimeSchema.INPUT_SCHEMAS["evidence:add"];
     const r = schema.safeParse({
       kind: "visual-review",
       iteration: 1,
@@ -389,9 +387,9 @@ describe("Phase 16 SC-4c — machine-schema regression (docs/schemas.ts INPUT_SC
     expect(r.success).toBe(false);
   });
 
-  test("docs schema REJECTS caller-supplied runtime `id`", async () => {
-    const docsSchema: any = await import("../../docs/schemas.js");
-    const schema = docsSchema.INPUT_SCHEMAS["evidence:add"];
+  test("runtime schema REJECTS caller-supplied runtime `id`", async () => {
+    const runtimeSchema = await import("../../src/cli/input-schemas.js");
+    const schema = runtimeSchema.INPUT_SCHEMAS["evidence:add"];
     const r = schema.safeParse({
       ...baseInput(),
       id: "EV-DEADBEEF",
@@ -399,9 +397,9 @@ describe("Phase 16 SC-4c — machine-schema regression (docs/schemas.ts INPUT_SC
     expect(r.success).toBe(false);
   });
 
-  test("docs schema REJECTS caller-supplied docs `evidence_id` (alias path)", async () => {
-    const docsSchema: any = await import("../../docs/schemas.js");
-    const schema = docsSchema.INPUT_SCHEMAS["evidence:add"];
+  test("runtime schema REJECTS caller-supplied docs `evidence_id` (alias path)", async () => {
+    const runtimeSchema = await import("../../src/cli/input-schemas.js");
+    const schema = runtimeSchema.INPUT_SCHEMAS["evidence:add"];
     const r = schema.safeParse({
       ...baseInput(),
       evidence_id: "EV-DEADBEEF",
@@ -409,9 +407,9 @@ describe("Phase 16 SC-4c — machine-schema regression (docs/schemas.ts INPUT_SC
     expect(r.success).toBe(false);
   });
 
-  test("docs schema REJECTS unknown keys (.strict() public contract)", async () => {
-    const docsSchema: any = await import("../../docs/schemas.js");
-    const schema = docsSchema.INPUT_SCHEMAS["evidence:add"];
+  test("runtime schema REJECTS unknown keys (.strict() public contract)", async () => {
+    const runtimeSchema = await import("../../src/cli/input-schemas.js");
+    const schema = runtimeSchema.INPUT_SCHEMAS["evidence:add"];
     const r = schema.safeParse({
       ...baseInput(),
       bogus_field: "should be rejected",

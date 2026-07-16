@@ -4,8 +4,8 @@
 //
 //   A. Mutator input schema via `--schema` modifier on 5 batch-capable
 //      mutators (spec add-req / spec add-scenario / spec add-visual /
-//      tasks add / evidence add). Source: INPUT_SCHEMAS table in
-//      docs/schemas.ts:5339. Each entry wraps `T | nonempty T[]` so the
+//      tasks add / evidence add). Source: the runtime-owned INPUT_SCHEMAS
+//      table in input-schemas.ts. Each entry accepts `T | nonempty T[]` so the
 //      emitted JSON Schema has root `anyOf`.
 //
 //   B. Artifact projection schema via literal `<kind> schema` subcommand
@@ -21,7 +21,7 @@
 
 import { z } from "zod";
 
-import { INPUT_SCHEMAS, type MutatorCommand } from "../../docs/schemas.js";
+import { INPUT_SCHEMAS, type MutatorCommand } from "./input-schemas.js";
 import { SpecFrontmatter } from "../core/spec-schema.js";
 import {
   EvidenceJson,

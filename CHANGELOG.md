@@ -5,6 +5,28 @@ All notable changes to `loaf-cli` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **`loaf spec add-req --schema`** now emits the actual runtime allocation
+  boundary: `id_namespace` plus the EARS `type`, with the remaining requirement
+  body passed through for downstream validation. The former closed schema that
+  advertised per-variant body and verifiability fields at this boundary is gone.
+- **`loaf spec add-scenario --schema`** now matches runtime parsing by requiring
+  only `id_namespace` and `name` at allocation time and allowing the remaining
+  scenario body, rather than advertising `given` / `when` / `then` as required
+  by this earlier boundary.
+- **`loaf spec add-visual --schema`** now matches runtime parsing by requiring
+  only `id_namespace` and `target` at allocation time and allowing the remaining
+  visual-contract body, rather than advertising `checks` as required here.
+- **`loaf tasks add --schema`** now emits the runtime `z.union` composition as
+  JSON Schema `anyOf` instead of the former compatibility copy's `oneOf`; the six
+  strict task variant shapes are unchanged.
+- **`loaf evidence add --schema`** now exposes the runtime `summary` contract:
+  either a non-empty string or an inline/sidecar `LongTextField`, including the
+  sidecar attachment reference fields (`path`, `sha256`, and `size`).
+
 ## [0.5.0] — 2026-06-09
 
 Session garbage collection — the `loaf prune` command line. Finished (terminal)

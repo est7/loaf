@@ -2453,8 +2453,71 @@ exports[`current public schema output baseline > input:evidence:add 1`] = `
           ]
         },
         "summary": {
-          "type": "string",
-          "minLength": 3
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 3
+            },
+            {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "mode": {
+                      "type": "string",
+                      "const": "inline"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "mode",
+                    "text"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "mode": {
+                      "type": "string",
+                      "const": "sidecar"
+                    },
+                    "ref": {
+                      "type": "object",
+                      "properties": {
+                        "path": {
+                          "type": "string",
+                          "minLength": 3
+                        },
+                        "sha256": {
+                          "type": "string",
+                          "pattern": "^[a-f0-9]{64}$"
+                        },
+                        "size": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": [
+                        "path",
+                        "sha256",
+                        "size"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "mode",
+                    "ref"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          ]
         },
         "covers": {
           "default": [],
@@ -2628,8 +2691,71 @@ exports[`current public schema output baseline > input:evidence:add 1`] = `
             ]
           },
           "summary": {
-            "type": "string",
-            "minLength": 3
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 3
+              },
+              {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "mode": {
+                        "type": "string",
+                        "const": "inline"
+                      },
+                      "text": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "mode",
+                      "text"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "mode": {
+                        "type": "string",
+                        "const": "sidecar"
+                      },
+                      "ref": {
+                        "type": "object",
+                        "properties": {
+                          "path": {
+                            "type": "string",
+                            "minLength": 3
+                          },
+                          "sha256": {
+                            "type": "string",
+                            "pattern": "^[a-f0-9]{64}$"
+                          },
+                          "size": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "path",
+                          "sha256",
+                          "size"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "mode",
+                      "ref"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              }
+            ]
           },
           "covers": {
             "default": [],
@@ -2773,905 +2899,55 @@ exports[`current public schema output baseline > input:spec:add-req 1`] = `
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "anyOf": [
     {
-      "anyOf": [
-        {
-          "allOf": [
-            {
-              "type": "object",
-              "properties": {
-                "id_namespace": {
-                  "type": "string",
-                  "pattern": "^REQ-[A-Z][A-Z0-9]*$"
-                },
-                "type": {
-                  "type": "string",
-                  "const": "ubiquitous"
-                },
-                "response": {
-                  "type": "string",
-                  "minLength": 10
-                }
-              },
-              "required": [
-                "id_namespace",
-                "type",
-                "response"
-              ],
-              "additionalProperties": false
-            },
-            {
-              "type": "object",
-              "properties": {
-                "measurable": {
-                  "type": "object",
-                  "properties": {
-                    "metric": {
-                      "type": "string",
-                      "minLength": 3
-                    },
-                    "threshold": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "number"
-                        }
-                      ]
-                    },
-                    "unit": {
-                      "type": "string"
-                    },
-                    "direction": {
-                      "default": "lte",
-                      "type": "string",
-                      "enum": [
-                        "lte",
-                        "gte",
-                        "eq"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "metric",
-                    "threshold",
-                    "direction"
-                  ],
-                  "additionalProperties": false
-                },
-                "verified_by_scenarios": {
-                  "type": "array",
-                  "items": {
-                    "type": "string",
-                    "pattern": "^SCEN-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
-                  }
-                },
-                "acceptance_na": {
-                  "type": "boolean",
-                  "const": true
-                },
-                "acceptance_na_reason": {
-                  "type": "string",
-                  "minLength": 10
-                }
-              },
-              "additionalProperties": false
-            }
-          ]
+      "type": "object",
+      "properties": {
+        "id_namespace": {
+          "type": "string",
+          "pattern": "^REQ-[A-Z][A-Z0-9]*$"
         },
-        {
-          "allOf": [
-            {
-              "type": "object",
-              "properties": {
-                "id_namespace": {
-                  "type": "string",
-                  "pattern": "^REQ-[A-Z][A-Z0-9]*$"
-                },
-                "type": {
-                  "type": "string",
-                  "const": "event-driven"
-                },
-                "trigger": {
-                  "type": "string",
-                  "minLength": 5
-                },
-                "response": {
-                  "type": "string",
-                  "minLength": 10
-                }
-              },
-              "required": [
-                "id_namespace",
-                "type",
-                "trigger",
-                "response"
-              ],
-              "additionalProperties": false
-            },
-            {
-              "type": "object",
-              "properties": {
-                "measurable": {
-                  "type": "object",
-                  "properties": {
-                    "metric": {
-                      "type": "string",
-                      "minLength": 3
-                    },
-                    "threshold": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "number"
-                        }
-                      ]
-                    },
-                    "unit": {
-                      "type": "string"
-                    },
-                    "direction": {
-                      "default": "lte",
-                      "type": "string",
-                      "enum": [
-                        "lte",
-                        "gte",
-                        "eq"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "metric",
-                    "threshold",
-                    "direction"
-                  ],
-                  "additionalProperties": false
-                },
-                "verified_by_scenarios": {
-                  "type": "array",
-                  "items": {
-                    "type": "string",
-                    "pattern": "^SCEN-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
-                  }
-                },
-                "acceptance_na": {
-                  "type": "boolean",
-                  "const": true
-                },
-                "acceptance_na_reason": {
-                  "type": "string",
-                  "minLength": 10
-                }
-              },
-              "additionalProperties": false
-            }
-          ]
-        },
-        {
-          "allOf": [
-            {
-              "type": "object",
-              "properties": {
-                "id_namespace": {
-                  "type": "string",
-                  "pattern": "^REQ-[A-Z][A-Z0-9]*$"
-                },
-                "type": {
-                  "type": "string",
-                  "const": "state-driven"
-                },
-                "while_": {
-                  "type": "string",
-                  "minLength": 5
-                },
-                "behavior": {
-                  "type": "string",
-                  "minLength": 10
-                }
-              },
-              "required": [
-                "id_namespace",
-                "type",
-                "while_",
-                "behavior"
-              ],
-              "additionalProperties": false
-            },
-            {
-              "type": "object",
-              "properties": {
-                "measurable": {
-                  "type": "object",
-                  "properties": {
-                    "metric": {
-                      "type": "string",
-                      "minLength": 3
-                    },
-                    "threshold": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "number"
-                        }
-                      ]
-                    },
-                    "unit": {
-                      "type": "string"
-                    },
-                    "direction": {
-                      "default": "lte",
-                      "type": "string",
-                      "enum": [
-                        "lte",
-                        "gte",
-                        "eq"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "metric",
-                    "threshold",
-                    "direction"
-                  ],
-                  "additionalProperties": false
-                },
-                "verified_by_scenarios": {
-                  "type": "array",
-                  "items": {
-                    "type": "string",
-                    "pattern": "^SCEN-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
-                  }
-                },
-                "acceptance_na": {
-                  "type": "boolean",
-                  "const": true
-                },
-                "acceptance_na_reason": {
-                  "type": "string",
-                  "minLength": 10
-                }
-              },
-              "additionalProperties": false
-            }
-          ]
-        },
-        {
-          "allOf": [
-            {
-              "type": "object",
-              "properties": {
-                "id_namespace": {
-                  "type": "string",
-                  "pattern": "^REQ-[A-Z][A-Z0-9]*$"
-                },
-                "type": {
-                  "type": "string",
-                  "const": "optional"
-                },
-                "feature": {
-                  "type": "string",
-                  "minLength": 5
-                },
-                "response": {
-                  "type": "string",
-                  "minLength": 10
-                }
-              },
-              "required": [
-                "id_namespace",
-                "type",
-                "feature",
-                "response"
-              ],
-              "additionalProperties": false
-            },
-            {
-              "type": "object",
-              "properties": {
-                "measurable": {
-                  "type": "object",
-                  "properties": {
-                    "metric": {
-                      "type": "string",
-                      "minLength": 3
-                    },
-                    "threshold": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "number"
-                        }
-                      ]
-                    },
-                    "unit": {
-                      "type": "string"
-                    },
-                    "direction": {
-                      "default": "lte",
-                      "type": "string",
-                      "enum": [
-                        "lte",
-                        "gte",
-                        "eq"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "metric",
-                    "threshold",
-                    "direction"
-                  ],
-                  "additionalProperties": false
-                },
-                "verified_by_scenarios": {
-                  "type": "array",
-                  "items": {
-                    "type": "string",
-                    "pattern": "^SCEN-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
-                  }
-                },
-                "acceptance_na": {
-                  "type": "boolean",
-                  "const": true
-                },
-                "acceptance_na_reason": {
-                  "type": "string",
-                  "minLength": 10
-                }
-              },
-              "additionalProperties": false
-            }
-          ]
-        },
-        {
-          "allOf": [
-            {
-              "type": "object",
-              "properties": {
-                "id_namespace": {
-                  "type": "string",
-                  "pattern": "^REQ-[A-Z][A-Z0-9]*$"
-                },
-                "type": {
-                  "type": "string",
-                  "const": "unwanted"
-                },
-                "condition": {
-                  "type": "string",
-                  "minLength": 5
-                },
-                "response": {
-                  "type": "string",
-                  "minLength": 10
-                }
-              },
-              "required": [
-                "id_namespace",
-                "type",
-                "condition",
-                "response"
-              ],
-              "additionalProperties": false
-            },
-            {
-              "type": "object",
-              "properties": {
-                "measurable": {
-                  "type": "object",
-                  "properties": {
-                    "metric": {
-                      "type": "string",
-                      "minLength": 3
-                    },
-                    "threshold": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "number"
-                        }
-                      ]
-                    },
-                    "unit": {
-                      "type": "string"
-                    },
-                    "direction": {
-                      "default": "lte",
-                      "type": "string",
-                      "enum": [
-                        "lte",
-                        "gte",
-                        "eq"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "metric",
-                    "threshold",
-                    "direction"
-                  ],
-                  "additionalProperties": false
-                },
-                "verified_by_scenarios": {
-                  "type": "array",
-                  "items": {
-                    "type": "string",
-                    "pattern": "^SCEN-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
-                  }
-                },
-                "acceptance_na": {
-                  "type": "boolean",
-                  "const": true
-                },
-                "acceptance_na_reason": {
-                  "type": "string",
-                  "minLength": 10
-                }
-              },
-              "additionalProperties": false
-            }
+        "type": {
+          "type": "string",
+          "enum": [
+            "ubiquitous",
+            "event-driven",
+            "state-driven",
+            "optional",
+            "unwanted"
           ]
         }
-      ]
+      },
+      "required": [
+        "id_namespace",
+        "type"
+      ],
+      "additionalProperties": {}
     },
     {
       "minItems": 1,
       "type": "array",
       "items": {
-        "anyOf": [
-          {
-            "allOf": [
-              {
-                "type": "object",
-                "properties": {
-                  "id_namespace": {
-                    "type": "string",
-                    "pattern": "^REQ-[A-Z][A-Z0-9]*$"
-                  },
-                  "type": {
-                    "type": "string",
-                    "const": "ubiquitous"
-                  },
-                  "response": {
-                    "type": "string",
-                    "minLength": 10
-                  }
-                },
-                "required": [
-                  "id_namespace",
-                  "type",
-                  "response"
-                ],
-                "additionalProperties": false
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "measurable": {
-                    "type": "object",
-                    "properties": {
-                      "metric": {
-                        "type": "string",
-                        "minLength": 3
-                      },
-                      "threshold": {
-                        "anyOf": [
-                          {
-                            "type": "string"
-                          },
-                          {
-                            "type": "number"
-                          }
-                        ]
-                      },
-                      "unit": {
-                        "type": "string"
-                      },
-                      "direction": {
-                        "default": "lte",
-                        "type": "string",
-                        "enum": [
-                          "lte",
-                          "gte",
-                          "eq"
-                        ]
-                      }
-                    },
-                    "required": [
-                      "metric",
-                      "threshold",
-                      "direction"
-                    ],
-                    "additionalProperties": false
-                  },
-                  "verified_by_scenarios": {
-                    "type": "array",
-                    "items": {
-                      "type": "string",
-                      "pattern": "^SCEN-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
-                    }
-                  },
-                  "acceptance_na": {
-                    "type": "boolean",
-                    "const": true
-                  },
-                  "acceptance_na_reason": {
-                    "type": "string",
-                    "minLength": 10
-                  }
-                },
-                "additionalProperties": false
-              }
-            ]
+        "type": "object",
+        "properties": {
+          "id_namespace": {
+            "type": "string",
+            "pattern": "^REQ-[A-Z][A-Z0-9]*$"
           },
-          {
-            "allOf": [
-              {
-                "type": "object",
-                "properties": {
-                  "id_namespace": {
-                    "type": "string",
-                    "pattern": "^REQ-[A-Z][A-Z0-9]*$"
-                  },
-                  "type": {
-                    "type": "string",
-                    "const": "event-driven"
-                  },
-                  "trigger": {
-                    "type": "string",
-                    "minLength": 5
-                  },
-                  "response": {
-                    "type": "string",
-                    "minLength": 10
-                  }
-                },
-                "required": [
-                  "id_namespace",
-                  "type",
-                  "trigger",
-                  "response"
-                ],
-                "additionalProperties": false
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "measurable": {
-                    "type": "object",
-                    "properties": {
-                      "metric": {
-                        "type": "string",
-                        "minLength": 3
-                      },
-                      "threshold": {
-                        "anyOf": [
-                          {
-                            "type": "string"
-                          },
-                          {
-                            "type": "number"
-                          }
-                        ]
-                      },
-                      "unit": {
-                        "type": "string"
-                      },
-                      "direction": {
-                        "default": "lte",
-                        "type": "string",
-                        "enum": [
-                          "lte",
-                          "gte",
-                          "eq"
-                        ]
-                      }
-                    },
-                    "required": [
-                      "metric",
-                      "threshold",
-                      "direction"
-                    ],
-                    "additionalProperties": false
-                  },
-                  "verified_by_scenarios": {
-                    "type": "array",
-                    "items": {
-                      "type": "string",
-                      "pattern": "^SCEN-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
-                    }
-                  },
-                  "acceptance_na": {
-                    "type": "boolean",
-                    "const": true
-                  },
-                  "acceptance_na_reason": {
-                    "type": "string",
-                    "minLength": 10
-                  }
-                },
-                "additionalProperties": false
-              }
-            ]
-          },
-          {
-            "allOf": [
-              {
-                "type": "object",
-                "properties": {
-                  "id_namespace": {
-                    "type": "string",
-                    "pattern": "^REQ-[A-Z][A-Z0-9]*$"
-                  },
-                  "type": {
-                    "type": "string",
-                    "const": "state-driven"
-                  },
-                  "while_": {
-                    "type": "string",
-                    "minLength": 5
-                  },
-                  "behavior": {
-                    "type": "string",
-                    "minLength": 10
-                  }
-                },
-                "required": [
-                  "id_namespace",
-                  "type",
-                  "while_",
-                  "behavior"
-                ],
-                "additionalProperties": false
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "measurable": {
-                    "type": "object",
-                    "properties": {
-                      "metric": {
-                        "type": "string",
-                        "minLength": 3
-                      },
-                      "threshold": {
-                        "anyOf": [
-                          {
-                            "type": "string"
-                          },
-                          {
-                            "type": "number"
-                          }
-                        ]
-                      },
-                      "unit": {
-                        "type": "string"
-                      },
-                      "direction": {
-                        "default": "lte",
-                        "type": "string",
-                        "enum": [
-                          "lte",
-                          "gte",
-                          "eq"
-                        ]
-                      }
-                    },
-                    "required": [
-                      "metric",
-                      "threshold",
-                      "direction"
-                    ],
-                    "additionalProperties": false
-                  },
-                  "verified_by_scenarios": {
-                    "type": "array",
-                    "items": {
-                      "type": "string",
-                      "pattern": "^SCEN-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
-                    }
-                  },
-                  "acceptance_na": {
-                    "type": "boolean",
-                    "const": true
-                  },
-                  "acceptance_na_reason": {
-                    "type": "string",
-                    "minLength": 10
-                  }
-                },
-                "additionalProperties": false
-              }
-            ]
-          },
-          {
-            "allOf": [
-              {
-                "type": "object",
-                "properties": {
-                  "id_namespace": {
-                    "type": "string",
-                    "pattern": "^REQ-[A-Z][A-Z0-9]*$"
-                  },
-                  "type": {
-                    "type": "string",
-                    "const": "optional"
-                  },
-                  "feature": {
-                    "type": "string",
-                    "minLength": 5
-                  },
-                  "response": {
-                    "type": "string",
-                    "minLength": 10
-                  }
-                },
-                "required": [
-                  "id_namespace",
-                  "type",
-                  "feature",
-                  "response"
-                ],
-                "additionalProperties": false
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "measurable": {
-                    "type": "object",
-                    "properties": {
-                      "metric": {
-                        "type": "string",
-                        "minLength": 3
-                      },
-                      "threshold": {
-                        "anyOf": [
-                          {
-                            "type": "string"
-                          },
-                          {
-                            "type": "number"
-                          }
-                        ]
-                      },
-                      "unit": {
-                        "type": "string"
-                      },
-                      "direction": {
-                        "default": "lte",
-                        "type": "string",
-                        "enum": [
-                          "lte",
-                          "gte",
-                          "eq"
-                        ]
-                      }
-                    },
-                    "required": [
-                      "metric",
-                      "threshold",
-                      "direction"
-                    ],
-                    "additionalProperties": false
-                  },
-                  "verified_by_scenarios": {
-                    "type": "array",
-                    "items": {
-                      "type": "string",
-                      "pattern": "^SCEN-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
-                    }
-                  },
-                  "acceptance_na": {
-                    "type": "boolean",
-                    "const": true
-                  },
-                  "acceptance_na_reason": {
-                    "type": "string",
-                    "minLength": 10
-                  }
-                },
-                "additionalProperties": false
-              }
-            ]
-          },
-          {
-            "allOf": [
-              {
-                "type": "object",
-                "properties": {
-                  "id_namespace": {
-                    "type": "string",
-                    "pattern": "^REQ-[A-Z][A-Z0-9]*$"
-                  },
-                  "type": {
-                    "type": "string",
-                    "const": "unwanted"
-                  },
-                  "condition": {
-                    "type": "string",
-                    "minLength": 5
-                  },
-                  "response": {
-                    "type": "string",
-                    "minLength": 10
-                  }
-                },
-                "required": [
-                  "id_namespace",
-                  "type",
-                  "condition",
-                  "response"
-                ],
-                "additionalProperties": false
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "measurable": {
-                    "type": "object",
-                    "properties": {
-                      "metric": {
-                        "type": "string",
-                        "minLength": 3
-                      },
-                      "threshold": {
-                        "anyOf": [
-                          {
-                            "type": "string"
-                          },
-                          {
-                            "type": "number"
-                          }
-                        ]
-                      },
-                      "unit": {
-                        "type": "string"
-                      },
-                      "direction": {
-                        "default": "lte",
-                        "type": "string",
-                        "enum": [
-                          "lte",
-                          "gte",
-                          "eq"
-                        ]
-                      }
-                    },
-                    "required": [
-                      "metric",
-                      "threshold",
-                      "direction"
-                    ],
-                    "additionalProperties": false
-                  },
-                  "verified_by_scenarios": {
-                    "type": "array",
-                    "items": {
-                      "type": "string",
-                      "pattern": "^SCEN-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
-                    }
-                  },
-                  "acceptance_na": {
-                    "type": "boolean",
-                    "const": true
-                  },
-                  "acceptance_na_reason": {
-                    "type": "string",
-                    "minLength": 10
-                  }
-                },
-                "additionalProperties": false
-              }
+          "type": {
+            "type": "string",
+            "enum": [
+              "ubiquitous",
+              "event-driven",
+              "state-driven",
+              "optional",
+              "unwanted"
             ]
           }
-        ]
+        },
+        "required": [
+          "id_namespace",
+          "type"
+        ],
+        "additionalProperties": {}
       }
     }
   ]
@@ -3693,56 +2969,13 @@ exports[`current public schema output baseline > input:spec:add-scenario 1`] = `
         "name": {
           "type": "string",
           "minLength": 3
-        },
-        "tag": {
-          "type": "string",
-          "enum": [
-            "happy",
-            "edge",
-            "error",
-            "e2e"
-          ]
-        },
-        "requires_acceptance": {
-          "type": "boolean"
-        },
-        "acceptance_na": {
-          "type": "string",
-          "minLength": 5
-        },
-        "given": {
-          "minItems": 1,
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 3
-          }
-        },
-        "when": {
-          "minItems": 1,
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 3
-          }
-        },
-        "then": {
-          "minItems": 1,
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 3
-          }
         }
       },
       "required": [
         "id_namespace",
-        "name",
-        "given",
-        "when",
-        "then"
+        "name"
       ],
-      "additionalProperties": false
+      "additionalProperties": {}
     },
     {
       "minItems": 1,
@@ -3757,56 +2990,13 @@ exports[`current public schema output baseline > input:spec:add-scenario 1`] = `
           "name": {
             "type": "string",
             "minLength": 3
-          },
-          "tag": {
-            "type": "string",
-            "enum": [
-              "happy",
-              "edge",
-              "error",
-              "e2e"
-            ]
-          },
-          "requires_acceptance": {
-            "type": "boolean"
-          },
-          "acceptance_na": {
-            "type": "string",
-            "minLength": 5
-          },
-          "given": {
-            "minItems": 1,
-            "type": "array",
-            "items": {
-              "type": "string",
-              "minLength": 3
-            }
-          },
-          "when": {
-            "minItems": 1,
-            "type": "array",
-            "items": {
-              "type": "string",
-              "minLength": 3
-            }
-          },
-          "then": {
-            "minItems": 1,
-            "type": "array",
-            "items": {
-              "type": "string",
-              "minLength": 3
-            }
           }
         },
         "required": [
           "id_namespace",
-          "name",
-          "given",
-          "when",
-          "then"
+          "name"
         ],
-        "additionalProperties": false
+        "additionalProperties": {}
       }
     }
   ]
@@ -3828,29 +3018,13 @@ exports[`current public schema output baseline > input:spec:add-visual 1`] = `
         "target": {
           "type": "string",
           "minLength": 3
-        },
-        "checks": {
-          "minItems": 1,
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 3
-          }
-        },
-        "requires_visual": {
-          "type": "boolean"
-        },
-        "visual_na": {
-          "type": "string",
-          "minLength": 5
         }
       },
       "required": [
         "id_namespace",
-        "target",
-        "checks"
+        "target"
       ],
-      "additionalProperties": false
+      "additionalProperties": {}
     },
     {
       "minItems": 1,
@@ -3865,29 +3039,13 @@ exports[`current public schema output baseline > input:spec:add-visual 1`] = `
           "target": {
             "type": "string",
             "minLength": 3
-          },
-          "checks": {
-            "minItems": 1,
-            "type": "array",
-            "items": {
-              "type": "string",
-              "minLength": 3
-            }
-          },
-          "requires_visual": {
-            "type": "boolean"
-          },
-          "visual_na": {
-            "type": "string",
-            "minLength": 5
           }
         },
         "required": [
           "id_namespace",
-          "target",
-          "checks"
+          "target"
         ],
-        "additionalProperties": false
+        "additionalProperties": {}
       }
     }
   ]
@@ -3900,7 +3058,7 @@ exports[`current public schema output baseline > input:tasks:add 1`] = `
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "anyOf": [
     {
-      "oneOf": [
+      "anyOf": [
         {
           "type": "object",
           "properties": {
@@ -4187,7 +3345,7 @@ exports[`current public schema output baseline > input:tasks:add 1`] = `
       "minItems": 1,
       "type": "array",
       "items": {
-        "oneOf": [
+        "anyOf": [
           {
             "type": "object",
             "properties": {

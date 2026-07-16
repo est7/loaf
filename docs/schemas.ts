@@ -964,35 +964,6 @@ const ReqId = z.string().regex(/^REQ-[A-Z][A-Z0-9]*-\d{3,}$/);
 const ScenId = z.string().regex(/^SCEN-[A-Z][A-Z0-9-]*-\d{3,}$/);
 const VisId  = z.string().regex(/^VIS-[A-Z][A-Z0-9-]*-\d{3,}$/);
 
-// Temporary schema-emission copy. The public Measurable export now comes
-// from spec-schema.ts, while §40 remains frozen until input-schema dissolution.
-const SchemaEmitMeasurable = z.object({
-  metric: z.string().min(3),
-  threshold: z.union([z.string(), z.number()]),
-  unit: z.string().optional(),
-  direction: z.enum(["lte", "gte", "eq"]).default("lte"),
-});
-
-// Three-way verifiability tagged onto every requirement.
-const VerifiabilityFields = z.object({
-  measurable: SchemaEmitMeasurable.optional(),
-  verified_by_scenarios: z.array(ScenId).optional(),
-  acceptance_na: z.literal(true).optional(),
-  acceptance_na_reason: z.string().min(10).optional(),
-}).refine(
-  (v) => {
-    const hasMeasurable = v.measurable !== undefined;
-    const hasScenarios  = v.verified_by_scenarios && v.verified_by_scenarios.length > 0;
-    const hasNa         = v.acceptance_na === true && (v.acceptance_na_reason?.length ?? 0) >= 10;
-    return hasMeasurable || hasScenarios || hasNa;
-  },
-  { message: "every REQ must declare measurable, verified_by_scenarios[], or acceptance_na+reason" },
-);
-
-const ReqBase = z.object({
-  id: ReqId,
-});
-
 
 
 
@@ -1483,15 +1454,6 @@ export const EvidenceEntry = z.object({
 });
 export type EvidenceEntry = z.infer<typeof EvidenceEntry>;
 
-// Temporary schema-emission copy. The public EvidenceAddInput export now
-// comes from the runtime domain home, but INPUT_SCHEMAS must remain byte-for-
-// byte stable until the dedicated input-schema dissolution sub-cycle.
-const SchemaEmitEvidenceAddInput = EvidenceEntry.omit({
-  schema_version: true,
-  evidence_id: true,
-  at: true,
-}).strict();
-
 // rev 4.1 + Phase 16 SC-4c: EvidenceAddInput — the shape accepted by
 // `loaf evidence add --input <src>`. CLI assigns `evidence_id` (monotonic
 // per feature; runtime field `id`) and stamps `at`/`schema_version`
@@ -1507,12 +1469,12 @@ const SchemaEmitEvidenceAddInput = EvidenceEntry.omit({
 // rev 4.3 (ADR-0004 A6) — DEFERRED to a future SC: `attachments` will
 // simplify to `Array<{ path }>` once CLI gains auto-hash materialization
 // (stat + sha256 + mime-infer + canonical-path bucketing). NOT active
-// in SC-4c: runtime + this docs machine contract both require full
+// in SC-4c: the runtime machine contract requires full
 // Attachment metadata `{path, sha256, mime, bytes?}` as enforced by
 // `EvidenceEntry.attachments` (`EvidenceFullShape` mirror in
 // `src/core/evidence-schema.ts`). When A6 lands, the materialization
-// transform runs BEFORE schema validation — the input schema below
-// will update + INPUT_SCHEMAS swap; the A6 simplification annotation
+// transform runs BEFORE schema validation — the runtime input schema and
+// INPUT_SCHEMAS table will update together; the A6 simplification annotation
 // here is the future-shape spec, NOT current public contract.
 
 // ─────────────────────────────────────────────────────────────────
@@ -3460,224 +3422,9 @@ export const CONTEXT_PACK_TEMPLATES: Record<
 
 // §40 Input schemas + INPUT_SCHEMAS + InputSourceResolver (rev 4.3 / ADR-0004 A2/A3/A5/A10/A11)
 // ─────────────────────────────────────────────────────────────────
-//
-// Tier 1 structured mutator input schemas. Five commands consume JSON
-// via the unified `--input <-|inline|path>` flag (A3, A11). Each accepts
-// either a single object or a non-empty array (A10 batch).
-//
-// Identity discipline (A5):
-//   REQ / SCEN / VIS: input carries `id_namespace` (a stem regex with no
-//     -NNN serial). CLI scans the locked spec for max serial under that
-//     namespace and allocates the next, then writes the full `id` (output
-//     regex with serial) into spec.md. Two regex are intentionally
-//     distinct — input MUST NOT match output, and vice versa.
-//   T / EV: CLI allocates the full id; input carries no id field.
-//
-// ADR labelled this §38; renumbered to §40 (see §37 note).
-
-// Namespace regex (stem only; no -NNN serial). The CLI's allocator
-// composes a full id by appending '-' + zero-padded next-serial; the
-// composed id matches the existing output regex (ReqId / ScenId / VisId
-// defined earlier).
-const ReqIdNamespace  = z.string().regex(/^REQ-[A-Z][A-Z0-9]*$/);
-const ScenIdNamespace = z.string().regex(/^SCEN-[A-Z][A-Z0-9-]*$/);
-const VisIdNamespace  = z.string().regex(/^VIS-[A-Z][A-Z0-9-]*$/);
-
-// ── SpecReqInput (5 EARS variants, mirrors RequirementEars but with
-// id_namespace in place of id, dropped at output time when CLI composes
-// the full id). VerifiabilityFields is shared with the entry schema.
-
-const SpecReqInputUbiquitous = z.object({
-  id_namespace: ReqIdNamespace,
-  type: z.literal("ubiquitous"),
-  response: z.string().min(10),
-}).and(VerifiabilityFields);
-
-const SpecReqInputEventDriven = z.object({
-  id_namespace: ReqIdNamespace,
-  type: z.literal("event-driven"),
-  trigger: z.string().min(5),
-  response: z.string().min(10),
-}).and(VerifiabilityFields);
-
-const SpecReqInputStateDriven = z.object({
-  id_namespace: ReqIdNamespace,
-  type: z.literal("state-driven"),
-  while_: z.string().min(5),
-  behavior: z.string().min(10),
-}).and(VerifiabilityFields);
-
-const SpecReqInputOptional = z.object({
-  id_namespace: ReqIdNamespace,
-  type: z.literal("optional"),
-  feature: z.string().min(5),
-  response: z.string().min(10),
-}).and(VerifiabilityFields);
-
-const SpecReqInputUnwanted = z.object({
-  id_namespace: ReqIdNamespace,
-  type: z.literal("unwanted"),
-  condition: z.string().min(5),
-  response: z.string().min(10),
-}).and(VerifiabilityFields);
-
-export const SpecReqInput = z.union([
-  SpecReqInputUbiquitous,
-  SpecReqInputEventDriven,
-  SpecReqInputStateDriven,
-  SpecReqInputOptional,
-  SpecReqInputUnwanted,
-]);
-export type SpecReqInput = z.infer<typeof SpecReqInput>;
-
-// ── SpecScenarioInput / SpecVisualInput: mirror existing entry shapes
-// with id replaced by id_namespace.
-
-export const SpecScenarioInput = z
-  .object({
-    id_namespace: ScenIdNamespace,
-    name: z.string().min(3),
-    tag: z.enum(["happy", "edge", "error", "e2e"]).optional(),
-    requires_acceptance: z.boolean().optional(),
-    acceptance_na: z.string().min(5).optional(),
-    given: z.array(z.string().min(3)).min(1),
-    when: z.array(z.string().min(3)).min(1),
-    then: z.array(z.string().min(3)).min(1),
-  })
-  .refine(
-    (s) => !(s.tag === "e2e" && s.acceptance_na && s.requires_acceptance),
-    { message: "cannot set both requires_acceptance and acceptance_na" },
-  );
-export type SpecScenarioInput = z.infer<typeof SpecScenarioInput>;
-
-export const SpecVisualInput = z.object({
-  id_namespace: VisIdNamespace,
-  target: z.string().min(3),
-  checks: z.array(z.string().min(3)).min(1),
-  requires_visual: z.boolean().optional(),
-  visual_na: z.string().min(5).optional(),
-});
-export type SpecVisualInput = z.infer<typeof SpecVisualInput>;
-
-// ── TaskInput: mirrors Task discriminated union but omits id (CLI
-// allocates), execution (CLI initializes all steps to status=pending,
-// applicability=must), and status (CLI sets to "pending" on create).
-// Slice C SC-C4 (R2): no red_test_registered — it is runtime state set by
-// `loaf tasks register-red` after the task exists, never a creation-time
-// input. Every variant is `.strict()`: a caller supplying id / status /
-// execution / red_test_registered / any unknown key is rejected, not
-// silently stripped (ADR-0004 shape enforcement).
-
-const TaskInputBase = z.object({
-  drives: z.array(DrivesRef).optional(),
-  depends_on: z.array(TaskId).default([]),
-  labels: z.array(z.string()).default([]),
-});
-
-const TaskBehavioralInput = TaskInputBase.extend({
-  kind: z.literal("behavioral"),
-  drives: z.array(DrivesRef).min(1),
-  tests: z.array(z.string().min(3)).min(1),
-  test_layer: z.enum(["unit", "integration", "e2e"]).optional(),
-  requires_acceptance: z.boolean().optional(),
-  requires_visual: z.boolean().optional(),
-}).strict();
-
-const TaskStructuralInput = TaskInputBase.extend({
-  kind: z.literal("structural"),
-  no_test_rationale: z.string().min(10),
-}).strict();
-
-const TaskVisualUiInput = TaskInputBase.extend({
-  kind: z.literal("visual-ui"),
-  visual_contract_refs: z.array(VisId).min(1),
-  no_test_rationale: z.string().min(10).optional(),
-}).strict();
-
-const TaskDocsInput = TaskInputBase.extend({
-  kind: z.literal("docs"),
-  no_test_rationale: z.string().min(10),
-}).strict();
-
-const TaskSpikeInput = TaskInputBase.extend({
-  kind: z.literal("spike"),
-  no_test_rationale: z.string().min(10),
-}).strict();
-
-const TaskChoreInput = TaskInputBase.extend({
-  kind: z.literal("chore"),
-  no_test_rationale: z.string().min(10),
-}).strict();
-
-// Zod 4: discriminatedUnion accepts each `.strict()` ZodObject directly —
-// `.sourceType()` (a removed Zod 3 ZodEffects method) is no longer needed
-// now that the R2 bug-RED refine is gone.
-const SchemaEmitTaskInput = z.discriminatedUnion("kind", [
-  TaskBehavioralInput,
-  TaskStructuralInput,
-  TaskVisualUiInput,
-  TaskDocsInput,
-  TaskSpikeInput,
-  TaskChoreInput,
-]);
-
-// ── Batch helper: each Tier 1 input accepts a single object OR a
-// non-empty array. Atomicity discipline (A10):
-//   1a — validate-all-or-reject-all in memory before any append
-//   1b — spec_version += 1 per invocation (not per item)
-//   1c — atomic id allocation under the per-session lock
-// CLI normalizes single vs array internally; both forms surface here.
-
-const batchOrSingle = <T extends z.ZodTypeAny>(schema: T) =>
-  z.union([schema, z.array(schema).nonempty()]);
-
-export const SpecReqInputBatched      = batchOrSingle(SpecReqInput);
-export const SpecScenarioInputBatched = batchOrSingle(SpecScenarioInput);
-export const SpecVisualInputBatched   = batchOrSingle(SpecVisualInput);
-const SchemaEmitTaskInputBatched = batchOrSingle(SchemaEmitTaskInput);
-const SchemaEmitEvidenceAddInputBatched = batchOrSingle(SchemaEmitEvidenceAddInput);
-
-// ── MutatorCommand: the closed set of CLI commands that consume
-// structured JSON via --input. Keys for INPUT_SCHEMAS.
-export const MutatorCommand = z.enum([
-  "spec:add-req",
-  "spec:add-scenario",
-  "spec:add-visual",
-  "tasks:add",
-  "evidence:add",
-]);
-export type MutatorCommand = z.infer<typeof MutatorCommand>;
-
-// ── INPUT_SCHEMAS: command → batched input Zod schema. CLI looks up
-// the schema for the invoked command, parses --input (after resolving
-// stdin / inline / path via InputSourceResolver), and either accepts a
-// single record or a non-empty array. `loaf <cmd> --schema --format=json`
-// dumps the JSON Schema derived from this entry (clig.dev §5).
-export const INPUT_SCHEMAS: Record<MutatorCommand, z.ZodTypeAny> = {
-  "spec:add-req":      SpecReqInputBatched,
-  "spec:add-scenario": SpecScenarioInputBatched,
-  "spec:add-visual":   SpecVisualInputBatched,
-  "tasks:add":         SchemaEmitTaskInputBatched,
-  "evidence:add":      SchemaEmitEvidenceAddInputBatched,
-} as const;
-
-// ── InputSourceResolver: the discriminated shape the CLI uses internally
-// to represent how a --input value was sourced. Pure data; the actual
-// resolution logic lives in the CLI input-source code path.
-//
-// Resolution order (A11):
-//   1. value === "-"          → InputSource = { source: "stdin" }
-//   2. value matches /^[\{\[]/ → InputSource = { source: "inline", raw }
-//   3. otherwise              → InputSource = { source: "path", path }
-//                                CLI validates existence; missing path
-//                                emits INPUT_FILE_NOT_FOUND (exit 2).
-
-export const InputSourceResolver = z.discriminatedUnion("source", [
-  z.object({ source: z.literal("stdin") }),
-  z.object({ source: z.literal("inline"), raw: z.string().min(1) }),
-  z.object({ source: z.literal("path"),   path: z.string().min(1) }),
-]);
-export type InputSourceResolver = z.infer<typeof InputSourceResolver>;
+// Compatibility index only: runtime input schemas live in
+// src/cli/input-schemas.ts; input-source classification lives in
+// src/cli/input-source.ts.
 
 // §41 Event-name registry — canonical homes (rev 4.3 drift sweep)
 // ─────────────────────────────────────────────────────────────────

@@ -205,7 +205,7 @@ export type EvidenceFull = z.infer<typeof EvidenceFullPayload>;
 
 // ── EvidenceAddInput[Batched] — Phase 16 SC-4c runtime mirror ───────
 //
-// Mirror of docs/schemas.ts §40 INPUT_SCHEMAS["evidence:add"]. Used by
+// Canonical input for src/cli/input-schemas.ts INPUT_SCHEMAS["evidence:add"]. Used by
 // `loaf evidence add --input <src>` to validate caller payload BEFORE
 // CLI allocates EV-id. After id injection, the full payload is re-
 // validated through EvidenceFullPayload so the kind-specific refines
