@@ -45,6 +45,18 @@ function startEntry(seq = 0, entryId = "JE-000001"): JournalEntry {
   };
 }
 
+function phaseAdvancedEntry(seq: number, from: string, to: string): JournalEntry {
+  return {
+    seq,
+    entry_id: `JE-${String(seq + 1).padStart(6, "0")}`,
+    at: "2026-05-15T10:00:00.000Z",
+    actor: "cli:loaf",
+    entry_schema_version: 1,
+    kind: "event:phase_advanced",
+    payload: { from, to },
+  } as JournalEntry;
+}
+
 describe("replayJournal — Stage 3 §3.6", () => {
   test("absent journal returns empty initial snapshot", async () => {
     const filePath = path.join(
@@ -118,10 +130,9 @@ describe("replayJournal — Stage 3 §3.6", () => {
   // ── W2 — replay seq-monotonicity validation ───────────────────────────
   // replayJournal must reject a journal whose seq column is not strictly
   // `lastSeq + 1`, even when each entry's transition is individually legal.
-  // appendEntry enforces this on the write path; replay did not (apply() calls
-  // preflight with tail_seq = entry.seq - 1, making its monotonicity gate
-  // tautological). Raw file writes bypass appendEntry to construct the
-  // corrupt journals.
+  // appendEntry enforces this on the write path; replay owns the read-path
+  // continuity check because apply() has no journal-tail context. Raw file
+  // writes bypass appendEntry to construct the corrupt journals.
   function phaseAdvancedLine(seq: number, entryId: string): string {
     const e: JournalEntry = {
       seq,
@@ -193,6 +204,51 @@ describe("replayJournal — Stage 3 §3.6", () => {
     if (result.ok) {
       expect(result.entries_applied).toBe(2);
       expect(result.snapshot.state!.sub_state).toBe("TRIAGE.confirm");
+    }
+  });
+
+  test("reducer rejection preserves the typed inner failure code", async () => {
+    const filePath = await tmpJournal();
+    const entries: JournalEntry[] = [
+      startEntry(),
+      phaseAdvancedEntry(1, "TRIAGE.score", "TRIAGE.confirm"),
+      phaseAdvancedEntry(2, "TRIAGE.confirm", "SPEC.proposal"),
+      phaseAdvancedEntry(3, "SPEC.proposal", "SPEC.spec"),
+      phaseAdvancedEntry(4, "SPEC.spec", "SPEC.plan"),
+      phaseAdvancedEntry(5, "SPEC.plan", "SPEC.design"),
+      {
+        seq: 6,
+        entry_id: "JE-000007",
+        at: "2026-05-15T10:00:00.000Z",
+        actor: "human:est9",
+        entry_schema_version: 1,
+        kind: "gate:decided",
+        payload: { gate_kind: "spec-lock", decision: "approved", reason: "approved" },
+      },
+      phaseAdvancedEntry(7, "SPEC.design", "EXECUTE.plan"),
+      {
+        seq: 8,
+        entry_id: "JE-000009",
+        at: "2026-05-15T10:00:00.000Z",
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "finding:closed",
+        payload: { id: "FND-999" },
+      },
+    ];
+    await fs.writeFile(filePath, `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
+
+    const result = await replayJournal(filePath);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("REDUCER_REJECTED");
+      expect(result.at_seq).toBe(8);
+      expect(result.detail).toMatchObject({
+        inner_code: "FINDING_NOT_FOUND",
+        id: "FND-999",
+        reason: "unknown",
+      });
     }
   });
 

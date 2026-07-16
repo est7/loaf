@@ -94,6 +94,76 @@ describe("mutate — transactional journal write (audit r1 Blocker #3)", () => {
     expect(journal.trim().split("\n")).toHaveLength(1);
   });
 
+  test("mutateBatch preflights bootstrap actor authority", async () => {
+    const dir = await tmpFeatureDir();
+    const result = await mutateBatch(
+      [
+        {
+          at: "2026-05-15T10:00:00.000Z",
+          actor: "migration:test",
+          entry_schema_version: 1,
+          kind: "session:started",
+          payload: {
+            session_id: "550e8400-e29b-41d4-a716-446655440000",
+            feature: "auth-refresh",
+            ceremony: STANDARD,
+          },
+        },
+      ],
+      {
+        feature_dir: dir,
+        snapshot: initialSnapshot(),
+        tail_seq: -1,
+        entries: [],
+        meta: emptyMeta(),
+        fsync: false,
+      },
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      code: "ACTOR_AUTHORITY_VIOLATION",
+      failed_index: 0,
+    });
+    await expect(fs.readFile(path.join(dir, "journal.jsonl"), "utf8")).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+
+  test("mutateBatch wraps NO_SESSION after preflight on an empty snapshot", async () => {
+    const dir = await tmpFeatureDir();
+    const result = await mutateBatch(
+      [
+        {
+          at: "2026-05-15T10:00:00.000Z",
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "event:phase_advanced",
+          payload: { from: "TRIAGE.score", to: "TRIAGE.confirm" },
+        },
+      ],
+      {
+        feature_dir: dir,
+        snapshot: initialSnapshot(),
+        tail_seq: -1,
+        entries: [],
+        meta: emptyMeta(),
+        fsync: false,
+      },
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      code: "REDUCER_ERROR",
+      message: "kind=event:phase_advanced requires a started session",
+      failed_index: 0,
+      detail: { code: "NO_SESSION" },
+    });
+    await expect(fs.readFile(path.join(dir, "journal.jsonl"), "utf8")).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+
   test("preflight rejection (FROM_CURSOR_MISMATCH) — journal unchanged", async () => {
     const dir = await tmpFeatureDir();
     // Bootstrap first.

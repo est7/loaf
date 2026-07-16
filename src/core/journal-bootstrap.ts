@@ -17,7 +17,13 @@
 import { promises as fsp } from "node:fs";
 
 import { JournalEntry, type JournalEntry as JE } from "./journal-entry.js";
-import { apply, initialSnapshot, type ApplyResult, type Snapshot } from "./reducer.js";
+import {
+  apply,
+  initialSnapshot,
+  type ApplyFailureCode,
+  type ApplyResult,
+  type Snapshot,
+} from "./reducer.js";
 import { rehydrateMigration } from "./migration.js";
 import {
   computeLineHash,
@@ -45,7 +51,7 @@ export interface ReplayError {
   code: "JOURNAL_READ_FAILED" | "INVALID_ENTRY" | "REDUCER_REJECTED";
   message: string;
   at_seq?: number;
-  detail?: Record<string, unknown>;
+  detail?: Record<string, unknown> & { inner_code?: ApplyFailureCode };
 }
 
 export interface ReplayOptions {
@@ -136,15 +142,10 @@ export async function replayJournal(
     }
 
     // W2 — seq monotonicity. appendMany enforces `seq === tail + 1` on the
-    // write path, but replay never re-checked it: apply() delegates to
-    // preflight with `tail_seq = entry.seq - 1`, which makes preflight's
-    // monotonicity gate tautological (expectedSeq === entry.seq always). So a
-    // journal with a duplicated / gapped / reordered seq replayed clean as
-    // long as each entry's transition was individually legal — a corrupt or
-    // tampered journal projected to a plausible-but-wrong state. Assert strict
-    // contiguity here, BEFORE apply, so even a reducer-legal entry at the
-    // wrong seq is rejected. (`doctor --verify-checksum` remains the deeper
-    // rolling-chain check; this is the cheap structural guard on every read.)
+    // write path; replay owns the corresponding read-path continuity check.
+    // apply() deliberately omits tail_seq because independent callers do not
+    // own journal continuity. Assert strict contiguity here, BEFORE apply, so
+    // even a reducer-legal entry at the wrong seq is rejected.
     const expectedSeq = lastSeq + 1;
     if (entry.seq !== expectedSeq) {
       return {
@@ -189,7 +190,7 @@ export async function replayJournal(
           code: "REDUCER_REJECTED",
           message: result.message,
           at_seq: entry.seq,
-          detail: result.detail ?? {},
+          detail: { ...(result.detail ?? {}), inner_code: result.code },
         };
       }
       snapshot = result.snapshot;

@@ -93,6 +93,8 @@ export type ApplyResult =
       detail?: Record<string, unknown>;
     };
 
+export type ApplyFailureCode = Extract<ApplyResult, { ok: false }>["code"];
+
 function extractPhase(sub: SubState): SessionState["phase"] {
   const idx = sub.indexOf(".");
   return sub.slice(0, idx) as SessionState["phase"];
@@ -110,14 +112,42 @@ const MIGRATION_BOOTSTRAP_CEREMONY: Ceremony = {
 };
 
 /**
- * Applies one already-validated journal entry into a snapshot projection.
- *
- * Contract: `prev` is consumed. Some cases mutate projection arrays in place and
- * may return the same snapshot object/array references. Callers that need to
- * keep observing the pre-apply snapshot must pass a clone. `mutateBatch` and
- * replay-style callers own that clone boundary.
+ * Applies one journal entry with the public validation order preserved:
+ * bootstrap bypass, NO_SESSION, preflight, then projection mutation.
  */
 export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
+  if (
+    entry.kind === "migration:snapshot_imported" ||
+    entry.kind === "session:started"
+  ) {
+    return applyValidated(prev, entry);
+  }
+
+  if (prev.state === null) {
+    return {
+      ok: false,
+      code: "NO_SESSION",
+      message: `kind=${entry.kind} requires a started session`,
+    };
+  }
+
+  const pre = preflight(entry, { snapshot: prev });
+  if (!pre.ok) {
+    return { ok: false, code: pre.code, message: pre.message, detail: pre.detail ?? {} };
+  }
+
+  return applyValidated(prev, entry);
+}
+
+/**
+ * Applies an entry whose external validation has already succeeded.
+ *
+ * `prev` is consumed. Some cases mutate projection arrays in place and may
+ * return the same snapshot object or array references.
+ *
+ * @internal Only validation-owning core paths may call this directly.
+ */
+export function applyValidated(prev: Snapshot, entry: JournalEntry): ApplyResult {
   // migration:snapshot_imported is also a bootstrap kind — it initializes
   // state from a v0.0.x legacy projection. Stage 5 MVP records the entry but
   // defers full projection rehydration (state stays at TRIAGE.score with a
@@ -190,32 +220,17 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
     };
   }
 
-  // All other kinds require an initialized session.
-  if (prev.state === null) {
-    return {
-      ok: false,
-      code: "NO_SESSION",
-      message: `kind=${entry.kind} requires a started session`,
-    };
-  }
-
-  // Preflight (authority + transition) before mutation. Slice 1.D refactor:
-  // PreflightContext now carries the full snapshot single-source; sub_state /
-  // ceremony / verify_accepted / tasks all derive inside preflight().
-  const pre = preflight(entry, {
-    snapshot: prev,
-    tail_seq: entry.seq - 1, // sequence already validated by journal-append
-  });
-  if (!pre.ok) {
-    return { ok: false, code: pre.code, message: pre.message, detail: pre.detail ?? {} };
-  }
+  // applyValidated is an internal post-validation seam. Bootstrap kinds
+  // returned above; validation-owning callers guarantee initialized state
+  // for every remaining kind.
+  const state = prev.state!;
 
   // Apply per-kind state mutations.
   switch (entry.kind) {
     case "event:phase_advanced": {
       const payload = entry.payload as { to: SubState; back_edge?: { action: string } };
       const next: SessionState = {
-        ...prev.state,
+        ...state,
         sub_state: payload.to,
         phase: extractPhase(payload.to),
         // Slice B: reset spec_locked on any transition into SPEC.spec
@@ -225,12 +240,12 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
         // back-edge case lifts the lock so subsequent spec_*_added
         // events can fire (SPEC_LOCKED_NO_DIRECT_EDIT preflight gates
         // those when locked).
-        spec_locked: payload.to === "SPEC.spec" ? false : prev.state.spec_locked,
+        spec_locked: payload.to === "SPEC.spec" ? false : state.spec_locked,
         // Phase 11 Item 3 SC0: every finding back-edge increments
         // iteration by 1 (protocol.md §1 L210-212). A plain forward
         // `advance` carries no `back_edge` and leaves iteration alone.
         iteration:
-          payload.back_edge !== undefined ? prev.state.iteration + 1 : prev.state.iteration,
+          payload.back_edge !== undefined ? state.iteration + 1 : state.iteration,
       };
       return { ok: true, snapshot: { ...prev, state: next } };
     }
@@ -239,7 +254,7 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
       const payload = entry.payload as Ceremony;
       return {
         ok: true,
-        snapshot: { ...prev, state: { ...prev.state, ceremony: payload } },
+        snapshot: { ...prev, state: { ...state, ceremony: payload } },
       };
     }
 
@@ -259,7 +274,7 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
         if (payload.decision === "approved") {
           return {
             ok: true,
-            snapshot: { ...prev, state: { ...prev.state, spec_locked: true } },
+            snapshot: { ...prev, state: { ...state, spec_locked: true } },
           };
         }
         return { ok: true, snapshot: prev };
@@ -268,7 +283,7 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
         if (payload.decision === "approved") {
           return {
             ok: true,
-            snapshot: { ...prev, state: { ...prev.state, verify_accepted: true } },
+            snapshot: { ...prev, state: { ...state, verify_accepted: true } },
           };
         }
         return { ok: true, snapshot: prev };
@@ -567,7 +582,7 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
       const versionCheck = checkSpecVersionHead(
         entry,
         payload.spec_version,
-        prev.state.spec_version,
+        state.spec_version,
       );
       if (!versionCheck.ok) {
         return invalidPayload(entry.kind, versionCheck.message);
@@ -585,7 +600,7 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
         ok: true,
         snapshot: {
           ...prev,
-          state: { ...prev.state, spec_version: versionCheck.nextVersion },
+          state: { ...state, spec_version: versionCheck.nextVersion },
           spec_header: specHeader,
           requirements: [],
           scenarios: [],
@@ -599,7 +614,7 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
       if (typeof payload.spec_version !== "number" || !payload.req) {
         return invalidPayload(entry.kind, "missing spec_version or req");
       }
-      const versionCheck = checkSpecVersion(entry, payload.spec_version, prev.state.spec_version);
+      const versionCheck = checkSpecVersion(entry, payload.spec_version, state.spec_version);
       if (!versionCheck.ok) {
         return invalidPayload(entry.kind, versionCheck.message);
       }
@@ -616,9 +631,9 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
       return {
         ok: true,
         snapshot:
-          versionCheck.nextVersion === prev.state.spec_version
+          versionCheck.nextVersion === state.spec_version
             ? prev
-            : { ...prev, state: { ...prev.state, spec_version: versionCheck.nextVersion } },
+            : { ...prev, state: { ...state, spec_version: versionCheck.nextVersion } },
       };
     }
 
@@ -627,7 +642,7 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
       if (typeof payload.spec_version !== "number" || !payload.scenario) {
         return invalidPayload(entry.kind, "missing spec_version or scenario");
       }
-      const versionCheck = checkSpecVersion(entry, payload.spec_version, prev.state.spec_version);
+      const versionCheck = checkSpecVersion(entry, payload.spec_version, state.spec_version);
       if (!versionCheck.ok) {
         return invalidPayload(entry.kind, versionCheck.message);
       }
@@ -641,9 +656,9 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
       return {
         ok: true,
         snapshot:
-          versionCheck.nextVersion === prev.state.spec_version
+          versionCheck.nextVersion === state.spec_version
             ? prev
-            : { ...prev, state: { ...prev.state, spec_version: versionCheck.nextVersion } },
+            : { ...prev, state: { ...state, spec_version: versionCheck.nextVersion } },
       };
     }
 
@@ -652,7 +667,7 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
       if (typeof payload.spec_version !== "number" || !payload.visual) {
         return invalidPayload(entry.kind, "missing spec_version or visual");
       }
-      const versionCheck = checkSpecVersion(entry, payload.spec_version, prev.state.spec_version);
+      const versionCheck = checkSpecVersion(entry, payload.spec_version, state.spec_version);
       if (!versionCheck.ok) {
         return invalidPayload(entry.kind, versionCheck.message);
       }
@@ -666,9 +681,9 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
       return {
         ok: true,
         snapshot:
-          versionCheck.nextVersion === prev.state.spec_version
+          versionCheck.nextVersion === state.spec_version
             ? prev
-            : { ...prev, state: { ...prev.state, spec_version: versionCheck.nextVersion } },
+            : { ...prev, state: { ...state, spec_version: versionCheck.nextVersion } },
       };
     }
 
@@ -807,7 +822,7 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
         ok: true,
         snapshot: {
           ...prev,
-          state: { ...prev.state, sub_state: "DONE.delivered", phase: "DONE" },
+          state: { ...state, sub_state: "DONE.delivered", phase: "DONE" },
         },
       };
     }
@@ -816,7 +831,7 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
         ok: true,
         snapshot: {
           ...prev,
-          state: { ...prev.state, sub_state: "DONE.archived", phase: "DONE" },
+          state: { ...state, sub_state: "DONE.archived", phase: "DONE" },
         },
       };
     }
@@ -825,7 +840,7 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
         ok: true,
         snapshot: {
           ...prev,
-          state: { ...prev.state, sub_state: "DONE.abandoned", phase: "DONE" },
+          state: { ...state, sub_state: "DONE.abandoned", phase: "DONE" },
         },
       };
     }

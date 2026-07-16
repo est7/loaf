@@ -45,7 +45,46 @@ function pendingAddedEntry(): JournalEntry {
   };
 }
 
+function sessionStartedEntry(actor = "cli:loaf"): JournalEntry {
+  return {
+    seq: 0,
+    entry_id: "JE-000001",
+    at: "2026-05-15T10:00:00.000Z",
+    actor,
+    entry_schema_version: 1,
+    kind: "session:started",
+    payload: {
+      session_id: "550e8400-e29b-41d4-a716-446655440000",
+      feature: "auth-refresh",
+      ceremony: STANDARD_CEREMONY,
+    },
+  };
+}
+
 describe("reducer.apply — consumed snapshot contract", () => {
+  test("session:started bypasses preflight actor authority", () => {
+    const result = apply(initialSnapshot(), sessionStartedEntry("migration:test"));
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.snapshot.state?.feature).toBe("auth-refresh");
+  });
+
+  test("NO_SESSION takes priority over preflight failures", () => {
+    const entry = {
+      ...pendingAddedEntry(),
+      seq: 99,
+      actor: "migration:test",
+    } as JournalEntry;
+
+    const result = apply(initialSnapshot(), entry);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("NO_SESSION");
+      expect(result.message).toBe("kind=pending:added requires a started session");
+    }
+  });
+
   test("clone-first callers keep the pre-apply snapshot while apply mutates the consumed snapshot", () => {
     const before = startedSnapshot();
     const working = structuredClone(before);

@@ -76,8 +76,8 @@ export interface PreflightContext {
    * sub_state defaults to TRIAGE.score and ceremony to the standard preset.
    */
   snapshot: Snapshot;
-  /** Last seq in the journal; -1 if the journal is empty/absent. */
-  tail_seq: number;
+  /** Last seq in the journal; absent when the caller does not own continuity validation. */
+  tail_seq?: number;
 }
 
 export type PreflightFailureCode =
@@ -561,6 +561,7 @@ export function preflight(rawEntry: unknown, ctx: PreflightContext): PreflightRe
 // (2) Monotonic seq.
 function checkSeqMonotonic(c: PreflightCheckCtx): PreflightFailure | null {
   const { entry, ctx } = c;
+  if (ctx.tail_seq === undefined) return null;
   const expectedSeq = ctx.tail_seq + 1;
   if (entry.seq !== expectedSeq) {
     return {

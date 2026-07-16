@@ -19,7 +19,7 @@
 //   step 5 (final validate)   — inside appendMany (envelope + per-kind payload
 //                               + per-entry byte cap + batch-total byte cap)
 //   step 6 (journal append)   — appendMany single fsync'd write for whole batch
-//   step 7 (post-apply)       — reducer.apply already ran during dry-run on
+//   step 7 (post-apply)       — reducer.applyValidated already ran during dry-run on
 //                               the cloned snapshot accumulator; that IS the
 //                               new state (apply mutates in place)
 //   step 8 (snapshot rebuild) — IMPLEMENTED (Phase 15 SC2): after the append,
@@ -71,7 +71,7 @@ import { evaluateVerifyAccept } from "./gates/verify-accept-eval.js";
 import { type JournalEntry } from "./journal-entry.js";
 import { REDUCER_IMPLEMENTED_KINDS, SPEC_EMITTING_KINDS } from "./kind-registry.js";
 import { writeProjections } from "./projection-writer.js";
-import { apply, type Snapshot } from "./reducer.js";
+import { applyValidated, type Snapshot } from "./reducer.js";
 import { preflight, type PreflightFailureCode } from "./reducer/preflight.js";
 import { promoteSidecars } from "./sidecar.js";
 import { isEmptyMeta, type SnapshotMeta } from "./snapshot.js";
@@ -169,6 +169,20 @@ type PartialEntry = Omit<
   JournalEntry,
   "seq" | "entry_id" | "batch_id" | "batch_index" | "batch_count"
 >;
+
+function isBootstrapEntry(entry: JournalEntry): boolean {
+  return entry.kind === "session:started" || entry.kind === "migration:snapshot_imported";
+}
+
+function noSessionResult(entry: JournalEntry, failedIndex: number): MutateBatchResult {
+  return {
+    ok: false,
+    code: "REDUCER_ERROR",
+    message: `kind=${entry.kind} requires a started session`,
+    failed_index: failedIndex,
+    detail: { code: "NO_SESSION" },
+  };
+}
 
 // Slice 1.D: DEFAULT_BOOTSTRAP_CEREMONY moved into preflight() — single-source
 // derivation now lives alongside its consumer instead of being injected by
@@ -272,7 +286,11 @@ export async function mutateBatch(
       };
     }
 
-    const dryRun = apply(snapshotAcc, candidate);
+    if (!isBootstrapEntry(candidate) && snapshotAcc.state === null) {
+      return noSessionResult(candidate, i);
+    }
+
+    const dryRun = applyValidated(snapshotAcc, candidate);
     if (!dryRun.ok) {
       return {
         ok: false,
@@ -468,7 +486,27 @@ export async function mutateBatch(
     // drift in-memory snapshot from replay-from-journal snapshot).
     let finalSnapshot: Snapshot = structuredClone(ctx.snapshot);
     for (let i = 0; i < promoted.length; i++) {
-      const dryRun = apply(finalSnapshot, promoted[i]!);
+      const entry = promoted[i]!;
+      const isBootstrap = isBootstrapEntry(entry);
+      if (!isBootstrap) {
+        const pre = preflight(entry, {
+          snapshot: finalSnapshot,
+          tail_seq: ctx.tail_seq + i,
+        });
+        if (!pre.ok) {
+          return {
+            ok: false,
+            code: "REDUCER_ERROR",
+            message: `final dry-run on promoted entries failed at index ${i}: ${pre.message}`,
+            failed_index: i,
+            detail: { code: pre.code, phase: "post-sidecar", ...(pre.detail ?? {}) },
+          };
+        }
+        if (finalSnapshot.state === null) {
+          return noSessionResult(entry, i);
+        }
+      }
+      const dryRun = applyValidated(finalSnapshot, entry);
       if (!dryRun.ok) {
         return {
           ok: false,

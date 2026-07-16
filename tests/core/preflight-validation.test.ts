@@ -110,6 +110,25 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
     if (!result.ok) expect(result.code).toBe("SEQ_NOT_MONOTONIC");
   });
 
+  test("tail_seq=0 still enforces seq monotonicity", () => {
+    const result = preflight(baseEntry({ seq: 0 }), {
+      snapshot: mkSnapshot("TRIAGE.score", STANDARD_CEREMONY),
+      tail_seq: 0,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("SEQ_NOT_MONOTONIC");
+      expect(result.detail).toMatchObject({ got: 0, expected: 1, tail_seq: 0 });
+    }
+  });
+
+  test("absent tail_seq skips seq monotonicity", () => {
+    const result = preflight(baseEntry({ seq: 5 }), {
+      snapshot: mkSnapshot("TRIAGE.score", STANDARD_CEREMONY),
+    });
+    expect(result.ok).toBe(true);
+  });
+
   // ── 3. Per-kind sub_state authority ──────────────────────────────────
   test("event:task_step_done in TRIAGE.score → SUB_STATE_AUTHORITY_VIOLATION", () => {
     const result = preflight(
