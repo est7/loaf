@@ -12,6 +12,7 @@ import { describe, expect, test } from "vitest";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { DiagnosticCode, ERROR_CATALOG } from "../../src/core/error-catalog.js";
 
 const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -297,10 +298,9 @@ describe("SC-6c — protocol + schema invariants", () => {
     expect(row![0]).not.toContain("inventory:future");
   });
 
-  test("schema: DRY_RUN_NOT_APPLICABLE in DiagnosticCode enum + ERROR_CATALOG", async () => {
-    const catalog = await readRepo("src/core/error-catalog.ts");
-    expect(catalog).toMatch(/"DRY_RUN_NOT_APPLICABLE"/);
-    expect(catalog).toMatch(/DRY_RUN_NOT_APPLICABLE:\s*\{/);
+  test("schema: DRY_RUN_NOT_APPLICABLE in ERROR_CATALOG + derived DiagnosticCode", () => {
+    expect(ERROR_CATALOG).toHaveProperty("DRY_RUN_NOT_APPLICABLE");
+    expect(DiagnosticCode.options).toContain("DRY_RUN_NOT_APPLICABLE");
   });
 
   test("i18n: DRY_RUN_NOT_APPLICABLE flat-string in both en + zh", async () => {

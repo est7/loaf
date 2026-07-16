@@ -8,6 +8,7 @@ import {
   type ParserResult,
 } from "./inventory/protocol-parser.js";
 import { collectInventory, type Inventory } from "./inventory/help-collector.js";
+import { ERROR_CATALOG } from "../../src/core/error-catalog.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..", "..");
@@ -21,12 +22,11 @@ const CLI_PATH = path.join(REPO_ROOT, "src", "cli.tsx");
 const CLI_DIR = path.join(REPO_ROOT, "src", "cli");
 const I18N_EN_PATH = path.join(REPO_ROOT, "i18n", "en.json");
 const I18N_ZH_PATH = path.join(REPO_ROOT, "i18n", "zh.json");
-const ERROR_CATALOG_PATH = path.join(REPO_ROOT, "src", "core", "error-catalog.ts");
 
 // Phase 16 SC-1 — the 7 DiagnosticCodes registered into ERROR_CATALOG +
 // i18n bundles by this slice (was the SC-0 baseline contents). Tests below
-// enforce parity strictly for THIS set, not full enum↔i18n parity (codex
-// r193 BLOCKER 2: existing enum/i18n drift is out-of-scope for SC-1).
+// enforce parity strictly for THIS set, not full catalog↔i18n parity (codex
+// r193 BLOCKER 2: existing catalog/i18n drift is out-of-scope for SC-1).
 const SC1_TOUCHED_CODES = [
   "INVALID_PRESET",
   "USAGE",
@@ -399,7 +399,7 @@ describe("Phase 16 SC-1 — DiagnosticCode catalog hygiene", () => {
   test("diagnostic-baseline.json is empty (SC-1 retires the long-lived allowlist)", () => {
     expect(
       baseline.entries,
-      "SC-1 must empty tests/scripts/inventory/diagnostic-baseline.json — every code that was previously baselined must now be in src/core/error-catalog.ts ERROR_CATALOG + DiagnosticCode enum + i18n bundles",
+      "SC-1 must empty tests/scripts/inventory/diagnostic-baseline.json — every code that was previously baselined must now be in src/core/error-catalog.ts ERROR_CATALOG (which derives DiagnosticCode) + i18n bundles",
     ).toEqual([]);
   });
 
@@ -655,31 +655,14 @@ function diffDiagnostics(bl: Baseline): Finding[] {
       name: code,
       doc_location: "src/core/error-catalog.ts ERROR_CATALOG",
       runtime_location: `${rel} (and possibly other presentation files)`,
-      suggestion: `Either register ${code} in src/core/error-catalog.ts DiagnosticCode + ERROR_CATALOG + i18n bundles, or add it to tests/scripts/inventory/diagnostic-baseline.json with a removal_sc target.`,
+      suggestion: `Either register ${code} in src/core/error-catalog.ts ERROR_CATALOG (which derives DiagnosticCode) + generated i18n bundles, or add it to tests/scripts/inventory/diagnostic-baseline.json with a removal_sc target.`,
     });
   }
   return findings;
 }
 
 function loadCatalogCodes(): Set<string> {
-  const text = readFileSync(ERROR_CATALOG_PATH, "utf8");
-  // Anchor on the actual enum declaration — `DiagnosticCode` appears in
-  // comments before the declaration, so first-match is wrong. The pattern
-  // is `export const DiagnosticCode = z.enum([` followed by quoted strings
-  // until `]);`.
-  const declRe = /export\s+const\s+DiagnosticCode\s*=\s*z\.enum\(\[/;
-  const declMatch = text.match(declRe);
-  if (!declMatch || declMatch.index === undefined) return new Set();
-  const startIdx = declMatch.index + declMatch[0].length;
-  const after = text.slice(startIdx);
-  const endIdx = after.indexOf("]);");
-  if (endIdx < 0) return new Set();
-  const block = after.slice(0, endIdx);
-  const codes = new Set<string>();
-  for (const m of block.matchAll(/["']([A-Z][A-Z0-9_]+)["']/g)) {
-    codes.add(m[1] ?? "");
-  }
-  return codes;
+  return new Set(Object.keys(ERROR_CATALOG));
 }
 
 function formatFindings(findings: Finding[]): string {

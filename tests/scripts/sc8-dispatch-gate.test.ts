@@ -6,13 +6,13 @@
 //      (FEATURE_NOT_FOUND, FEATURE_AMBIGUOUS, SESSION_CWD_MISMATCH,
 //       SESSION_SHORT_AMBIGUOUS, SESSION_NOT_FOUND — the last is
 //       the new SC-8 code)
-//   3. SESSION_NOT_FOUND present in error-catalog.ts DiagnosticCode +
-//      ERROR_CATALOG
+//   3. SESSION_NOT_FOUND present in ERROR_CATALOG and its derived DiagnosticCode
 
 import { describe, expect, test } from "vitest";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { DiagnosticCode, ERROR_CATALOG } from "../../src/core/error-catalog.js";
 
 const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -28,10 +28,9 @@ describe("SC-8 — protocol + schema invariants", () => {
     expect(row![0]).not.toContain("inventory:future");
   });
 
-  test("schemas: SESSION_NOT_FOUND in DiagnosticCode enum + ERROR_CATALOG", async () => {
-    const catalog = await readRepo("src/core/error-catalog.ts");
-    expect(catalog).toMatch(/"SESSION_NOT_FOUND"/);
-    expect(catalog).toMatch(/SESSION_NOT_FOUND:\s*\{/);
+  test("schemas: SESSION_NOT_FOUND in ERROR_CATALOG + derived DiagnosticCode", () => {
+    expect(ERROR_CATALOG).toHaveProperty("SESSION_NOT_FOUND");
+    expect(DiagnosticCode.options).toContain("SESSION_NOT_FOUND");
   });
 
   test("i18n: all 5 SC-8 codes flat-string in en + zh diagnostic namespace", async () => {
