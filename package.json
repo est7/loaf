@@ -17,6 +17,7 @@
   "scripts": {
     "dev": "bun run src/cli.tsx",
     "build": "tsdown",
+    "gen:fsm": "bun run scripts/gen-fsm-artifacts.ts",
     "typecheck": "tsc --noEmit",
     "lint": "biome check --formatter-enabled=false --assist-enabled=false src tests tsdown.config.ts package.json tsconfig.json biome.json",
     "format": "biome format --write src tests tsdown.config.ts package.json tsconfig.json biome.json",

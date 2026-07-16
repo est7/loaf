@@ -1,0 +1,68 @@
+stateDiagram-v2
+
+  state TRIAGE {
+    state "score" as TRIAGE_score
+    state "confirm" as TRIAGE_confirm
+  }
+
+  state SPEC {
+    state "proposal" as SPEC_proposal
+    state "spec" as SPEC_spec
+    state "plan" as SPEC_plan
+    state "design" as SPEC_design
+  }
+
+  state EXECUTE {
+    state "plan" as EXECUTE_plan
+    state "work" as EXECUTE_work
+    state "done" as EXECUTE_done
+  }
+
+  state VERIFY {
+    state "plan" as VERIFY_plan
+    state "run" as VERIFY_run
+    state "review" as VERIFY_review
+    state "acceptance" as VERIFY_acceptance
+    state "visual" as VERIFY_visual
+    state "accept" as VERIFY_accept
+  }
+
+  state SETTLE {
+    state "reconcile" as SETTLE_reconcile
+    state "lessons" as SETTLE_lessons
+  }
+
+  state DONE {
+    state "delivered" as DONE_delivered
+    state "archived" as DONE_archived
+    state "abandoned" as DONE_abandoned
+  }
+
+  TRIAGE_score --> TRIAGE_confirm
+  TRIAGE_confirm --> SPEC_proposal : spec_phase_required
+  TRIAGE_confirm --> EXECUTE_plan : spec_phase_forbidden
+  SPEC_proposal --> SPEC_spec
+  SPEC_spec --> SPEC_plan
+  SPEC_plan --> SPEC_design
+  SPEC_design --> EXECUTE_plan : spec_locked_required
+  EXECUTE_plan --> EXECUTE_work
+  EXECUTE_work --> EXECUTE_done
+  EXECUTE_done --> VERIFY_plan : verify_phase_required
+  EXECUTE_done --> DONE_delivered : session:delivered
+  VERIFY_plan --> VERIFY_run
+  VERIFY_run --> VERIFY_review
+  VERIFY_run --> VERIFY_acceptance
+  VERIFY_run --> VERIFY_visual
+  VERIFY_run --> VERIFY_accept
+  VERIFY_review --> VERIFY_acceptance
+  VERIFY_review --> VERIFY_visual
+  VERIFY_review --> VERIFY_accept
+  VERIFY_acceptance --> VERIFY_visual
+  VERIFY_acceptance --> VERIFY_accept
+  VERIFY_visual --> VERIFY_accept
+  VERIFY_accept --> SETTLE_reconcile : settle_phase_required && verify_accepted_required
+  VERIFY_accept --> DONE_delivered : session:delivered
+  SETTLE_reconcile --> SETTLE_lessons
+  SETTLE_lessons --> DONE_delivered : session:delivered
+  SETTLE_lessons --> DONE_archived : session:archived
+  SETTLE_lessons --> DONE_abandoned : session:abandoned
