@@ -15,6 +15,7 @@ import {
   FindingClosedPayload,
   FindingRaisedPayload,
   GateDecidedPayload,
+  LessonRecordedPayload,
   MigrationSnapshotImportedPayload,
   PendingAddedPayload,
   PendingResolvedPayload,
@@ -48,9 +49,9 @@ import { ANY_NON_DONE, ANY_SUB_STATE } from "../../src/core/kind-guards.js";
 const sorted = (s: Iterable<string>): string[] => [...s].sort();
 
 describe("kind-registry — totality + invariants", () => {
-  test("registry keys == the EntryKind enum (26 kinds)", () => {
+  test("registry keys == the EntryKind enum (27 kinds)", () => {
     expect(sorted(Object.keys(KIND_REGISTRY))).toEqual(sorted(EntryKind.options));
-    expect(Object.keys(KIND_REGISTRY)).toHaveLength(26);
+    expect(Object.keys(KIND_REGISTRY)).toHaveLength(27);
   });
 
   test("every emitsSpec kind is reducerImplemented", () => {
@@ -61,7 +62,7 @@ describe("kind-registry — totality + invariants", () => {
 });
 
 describe("preservation — set surfaces (legacy fixtures)", () => {
-  test("REDUCER_IMPLEMENTED_KINDS == the 26 pre-L2 members (all kinds)", () => {
+  test("REDUCER_IMPLEMENTED_KINDS == all 27 kinds", () => {
     expect(sorted(REDUCER_IMPLEMENTED_KINDS)).toEqual(
       sorted([
         "event:phase_advanced",
@@ -78,6 +79,7 @@ describe("preservation — set surfaces (legacy fixtures)", () => {
         "event:spec_visual_added",
         "event:spec_submitted",
         "evidence:added",
+        "lesson:recorded",
         "finding:raised",
         "finding:closed",
         "pending:added",
@@ -104,7 +106,7 @@ describe("preservation — set surfaces (legacy fixtures)", () => {
   });
 });
 
-describe("preservation — PER_KIND_PAYLOAD reference identity (all 26)", () => {
+describe("preservation — PER_KIND_PAYLOAD reference identity (all 27)", () => {
   // Each entry must reuse the SAME journal-entry schema const (===), not a clone.
   const EXPECTED: Record<string, unknown> = {
     "event:phase_advanced": PhaseAdvancedPayload,
@@ -121,6 +123,7 @@ describe("preservation — PER_KIND_PAYLOAD reference identity (all 26)", () => 
     "event:spec_visual_added": SpecVisualAddedPayload,
     "event:spec_submitted": SpecSubmittedPayload,
     "evidence:added": EvidenceAddedPayload,
+    "lesson:recorded": LessonRecordedPayload,
     "finding:raised": FindingRaisedPayload,
     "finding:closed": FindingClosedPayload,
     "pending:added": PendingAddedPayload,
@@ -139,7 +142,7 @@ describe("preservation — PER_KIND_PAYLOAD reference identity (all 26)", () => 
   });
 });
 
-describe("preservation — PER_KIND_ACTOR (exact arrays, all 26)", () => {
+describe("preservation — PER_KIND_ACTOR (exact arrays, all 27)", () => {
   const ALL_NON_MIGRATION = ["human", "skill", "ci", "cli"];
   const EXPECTED: Record<string, string[]> = {
     "event:phase_advanced": ALL_NON_MIGRATION,
@@ -156,6 +159,7 @@ describe("preservation — PER_KIND_ACTOR (exact arrays, all 26)", () => {
     "event:spec_visual_added": ALL_NON_MIGRATION,
     "event:spec_submitted": ALL_NON_MIGRATION,
     "evidence:added": ALL_NON_MIGRATION,
+    "lesson:recorded": ["human"],
     "finding:raised": ALL_NON_MIGRATION,
     "finding:closed": ALL_NON_MIGRATION,
     "pending:added": ALL_NON_MIGRATION,
@@ -188,7 +192,12 @@ describe("preservation — PER_KIND_SUB_STATE (sentinels + sorted members)", () 
     }
   });
   test("ANY_NON_DONE sentinels", () => {
-    for (const k of ["session:archived", "session:abandoned", "spike:converted"] as const) {
+    for (const k of [
+      "lesson:recorded",
+      "session:archived",
+      "session:abandoned",
+      "spike:converted",
+    ] as const) {
       expect(PER_KIND_SUB_STATE[k], k).toBe(ANY_NON_DONE);
     }
   });

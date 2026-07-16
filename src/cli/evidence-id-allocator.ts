@@ -1,9 +1,8 @@
-// Phase 16 SC-11 — shared EV-id allocator for the 3 commands that emit
+// Shared EV-id allocator for commands that emit
 // `evidence:added` entries (codex r324 P1 lock):
 //
 //   - `loaf evidence add` (existing; batch-capable)
 //   - `loaf waive`        (new wrapper, single-shot, kind=waiver)
-//   - `loaf lessons add`  (new wrapper, single-shot, kind=manual)
 //
 // Single source of monotonic allocation per session — scans
 // snapshot.evidence for the max EV-NNN serial, returns the next N ids.
@@ -26,7 +25,7 @@ export function allocateNextEvidenceIds(snapshot: Snapshot, count: number): stri
   );
 }
 
-/** Single-id convenience for SC-11 wrappers (waive / lessons add). */
+/** Single-id convenience for evidence wrappers such as `loaf waive`. */
 export function allocateNextEvidenceId(snapshot: Snapshot): string {
   return allocateNextEvidenceIds(snapshot, 1)[0]!;
 }

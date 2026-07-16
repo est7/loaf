@@ -5,6 +5,7 @@ import {
   Ceremony,
   CeremonyLabel,
   JournalEntry,
+  LessonRecordedPayload,
   Phase,
   SignatureEnvelope,
 } from "../../src/core/journal-entry.js";
@@ -51,5 +52,27 @@ describe("journal-entry machine contracts", () => {
     expect(Phase.safeParse("EXECUTE").success).toBe(true);
     expect(Phase.safeParse("UNKNOWN").success).toBe(false);
     expect(CeremonyLabel.safeParse("").success).toBe(true);
+  });
+
+  test("LessonRecordedPayload@1 accepts only the strict lesson contract", () => {
+    const valid = {
+      id: "LSN-001",
+      iteration: 2,
+      reason: "captured during retry analysis",
+      summary: "share the refresh lock across callers",
+    };
+
+    expect(LessonRecordedPayload.safeParse(valid).success).toBe(true);
+    expect(LessonRecordedPayload.safeParse({ ...valid, id: "EV-000001" }).success).toBe(false);
+    expect(LessonRecordedPayload.safeParse({ ...valid, id: "LSN-01" }).success).toBe(false);
+    expect(LessonRecordedPayload.safeParse({ ...valid, actor: "human:tester" }).success).toBe(
+      false,
+    );
+    expect(
+      LessonRecordedPayload.safeParse({
+        ...valid,
+        summary: { mode: "inline", text: "x".repeat(9_000) },
+      }).success,
+    ).toBe(true);
   });
 });

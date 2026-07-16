@@ -13,8 +13,7 @@
 //   - lessons add (neither) → USAGE
 //   - lessons add --file ENOENT → INPUT_FILE_NOT_FOUND
 //   - lessons add --reason <10 → USAGE
-//   - cross-wrapper monotonic allocation: evidence add → waive → lessons add
-//     emits sequential EV-ids
+//   - independent namespaces: waive emits EV-NNN; lessons add emits LSN-NNN
 
 import { describe, expect, test } from "vitest";
 import { promises as fs } from "node:fs";
@@ -417,7 +416,7 @@ describe("SC-11 — loaf waive", () => {
 // lessons add — happy paths
 // ───────────────────────────────────────────────────────────────────────
 describe("SC-11 — loaf lessons add (happy)", () => {
-  test("--text inline → exit 0, journal entry kind=manual", async () => {
+  test("--text inline → exit 0, emits lesson:recorded with an LSN id", async () => {
     const { featureDir } = await seedAtExecuteWork();
     const result = await runCli(
       [
@@ -438,15 +437,30 @@ describe("SC-11 — loaf lessons add (happy)", () => {
     );
     expect(result.exit).toBe(0);
     const out = JSON.parse(result.stdout);
-    expect(out.kind).toBe("manual");
-    expect(out.id).toMatch(/^EV-\d{6,}$/);
+    expect(out.kind).toBe("lesson:recorded");
+    expect(out.id).toMatch(/^LSN-\d{3,}$/);
 
     const entries = await readJournalEntries(featureDir);
-    const lesson = entries.find(
-      (e: any) => e.kind === "evidence:added" && e.payload?.kind === "manual",
-    ) as any;
+    const lesson = entries.find((e: any) => e.kind === "lesson:recorded") as any;
     expect(lesson).toBeDefined();
+    expect(lesson.actor).toMatch(/^human:/);
+    expect(lesson.payload.actor).toBeUndefined();
     expect(typeof lesson.payload.summary).toBe("string");
+
+    const status = await runCli(
+      [
+        "status",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
+      { env: SEED_ENV },
+    );
+    expect(status.exit).toBe(0);
+    expect(JSON.parse(status.stdout).evidence_count).toBe(0);
   });
 
   // ── F-024 (v0.1.1): lessons.md projection writer ──
@@ -473,7 +487,8 @@ describe("SC-11 — loaf lessons add (happy)", () => {
     expect(md).toContain("- single-flight refresh requires global lock");
     // advisory wording flipped (F-024): no longer "deferred"
     const advisory = result.stdout + result.stderr;
-    expect(advisory).toContain("lessons.md updated");
+    expect(advisory).toContain("lessons.md");
+    expect(advisory).not.toContain("{lesson_id}");
     expect(advisory).not.toContain("projection writer deferred");
   });
 
@@ -505,9 +520,74 @@ describe("SC-11 — loaf lessons add (happy)", () => {
     expect(md).toContain("SENTINEL_BODY"); // sidecar body resolved + inlined
   });
 
+  test("doctor --rebuild preserves mixed legacy and lesson:recorded history", async () => {
+    const { featureDir } = await seedAtExecuteWork();
+    const legacy = await runCli(
+      [
+        "evidence",
+        "add",
+        "--input",
+        JSON.stringify({
+          kind: "manual",
+          iteration: 1,
+          actor: "human:legacy@example.invalid",
+          result: "passed",
+          reason: "captured before lesson recorded kind",
+          summary: "legacy lesson body",
+          covers: [],
+        }),
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
+      { env: SEED_ENV },
+    );
+    expect(legacy.exit).toBe(0);
+
+    const current = await runCli(
+      [
+        "lessons",
+        "add",
+        "--text",
+        "new lesson body",
+        "--reason",
+        "captured after kind separation",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
+      { env: SEED_ENV },
+    );
+    expect(current.exit).toBe(0);
+
+    await fs.rm(path.join(featureDir, "lessons.md"));
+    const rebuild = await runCli(
+      [
+        "doctor",
+        "--rebuild",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
+      { env: SEED_ENV },
+    );
+    expect(rebuild.exit).toBe(0);
+    const md = await fs.readFile(path.join(featureDir, "lessons.md"), "utf8");
+    expect(md.indexOf("legacy lesson body")).toBeLessThan(md.indexOf("new lesson body"));
+  });
+
   test("F-024: no lesson entries → lessons.md is absent (not written empty)", async () => {
     const { featureDir } = await seedAtExecuteWork();
-    // seed has task-step evidence but no kind=manual lesson → file must not exist
+    // seed has task-step evidence but no lesson entry → file must not exist
     await expect(fs.access(path.join(featureDir, "lessons.md"))).rejects.toThrow();
   });
 
@@ -535,9 +615,7 @@ describe("SC-11 — loaf lessons add (happy)", () => {
     );
     expect(result.exit).toBe(0);
     const entries = await readJournalEntries(featureDir);
-    const lesson = entries.find(
-      (e: any) => e.kind === "evidence:added" && e.payload?.kind === "manual",
-    ) as any;
+    const lesson = entries.find((e: any) => e.kind === "lesson:recorded") as any;
     expect(typeof lesson.payload.summary).toBe("string");
     expect(lesson.payload.summary as string).toContain("Insight");
   });
@@ -566,9 +644,7 @@ describe("SC-11 — loaf lessons add (happy)", () => {
     );
     expect(result.exit).toBe(0);
     const entries = await readJournalEntries(featureDir);
-    const lesson = entries.find(
-      (e: any) => e.kind === "evidence:added" && e.payload?.kind === "manual",
-    ) as any;
+    const lesson = entries.find((e: any) => e.kind === "lesson:recorded") as any;
     expect(typeof lesson.payload.summary).toBe("object");
     expect(lesson.payload.summary.mode).toBe("sidecar");
     // Verify attachment file actually written
@@ -753,8 +829,8 @@ describe("SC-11 — loaf lessons add (errors)", () => {
 // ───────────────────────────────────────────────────────────────────────
 // Cross-wrapper monotonic allocation regression (codex r324 P1 tail)
 // ───────────────────────────────────────────────────────────────────────
-describe("SC-11 — cross-wrapper EV-id monotonic allocation", () => {
-  test("waive then lessons add emits sequential EV-ids (single allocator source)", async () => {
+describe("SC-11 — independent evidence and lesson id namespaces", () => {
+  test("waive then lessons add starts independent EV and LSN sequences", async () => {
     const { featureDir } = await seedAtExecuteWork();
 
     // (1) waive → EV-000001 (first evidence in fresh feature)
@@ -777,7 +853,7 @@ describe("SC-11 — cross-wrapper EV-id monotonic allocation", () => {
     const waiveOut = JSON.parse(waive.stdout);
     const waiveId = waiveOut.id as string;
 
-    // (2) lessons add → EV-000002 (next-after-waiver)
+    // (2) lessons add → LSN-001 (independent namespace)
     const lesson = await runCli(
       [
         "lessons",
@@ -799,11 +875,32 @@ describe("SC-11 — cross-wrapper EV-id monotonic allocation", () => {
     const lessonOut = JSON.parse(lesson.stdout);
     const lessonId = lessonOut.id as string;
 
-    // Both should match /EV-\d{6,}/ and lesson > waive sequentially
     expect(waiveId).toMatch(/^EV-\d{6,}$/);
-    expect(lessonId).toMatch(/^EV-\d{6,}$/);
-    const waiveNum = Number.parseInt(waiveId.slice(3), 10);
-    const lessonNum = Number.parseInt(lessonId.slice(3), 10);
-    expect(lessonNum).toBe(waiveNum + 1);
+    expect(lessonId).toBe("LSN-001");
+
+    const secondLesson = await runCli(
+      [
+        "lessons",
+        "add",
+        "--text",
+        "second lesson body",
+        "--reason",
+        "proves journal-backed lesson allocation",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
+      { env: SEED_ENV },
+    );
+    expect(secondLesson.exit).toBe(0);
+    expect(JSON.parse(secondLesson.stdout).id).toBe("LSN-002");
+
+    const evidenceProjection = JSON.parse(
+      await fs.readFile(path.join(featureDir, "snapshots", "evidence.json"), "utf8"),
+    );
+    expect(evidenceProjection.evidence.map((e: { id: string }) => e.id)).toEqual([waiveId]);
   });
 });

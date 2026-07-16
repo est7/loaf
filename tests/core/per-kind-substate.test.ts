@@ -13,6 +13,7 @@ import { describe, expect, test } from "vitest";
 import { preflight } from "../../src/core/reducer/preflight.js";
 import { initialSnapshot, type Snapshot } from "../../src/core/reducer.js";
 import type { Ceremony, SubState } from "../../src/core/journal-entry.js";
+import { PER_KIND_ACTOR } from "../../src/core/kind-registry.js";
 import { kindActorFixtures, kindSubStateFixtures } from "./per-kind-fixture-builder.js";
 
 const DEEP_CEREMONY: Ceremony = {
@@ -116,6 +117,13 @@ function payloadFor(kind: string): Record<string, unknown> {
         result: "passed",
         summary: "stub local-check evidence",
       };
+    case "lesson:recorded":
+      return {
+        id: "LSN-001",
+        iteration: 1,
+        reason: "captured during authority testing",
+        summary: "stub lesson entry",
+      };
     case "finding:raised":
       return { id: "FND-001", category: "spec-gap", action: "amend-spec" };
     case "finding:closed":
@@ -202,14 +210,9 @@ describe("per-kind sub_state authority (Cartesian matrix)", () => {
     if (fx.kind === "event:phase_advanced" || fx.kind === "gate:decided") continue;
 
     test(`kind=${fx.kind} in ${fx.sub_state} → ${fx.expected}`, () => {
-      const allowedActor =
-        fx.kind === "migration:snapshot_imported"
-          ? "migration:test"
-          : fx.kind === "gate:decided" ||
-              fx.kind.startsWith("session:") ||
-              fx.kind === "spike:converted"
-            ? "human:tester"
-            : "cli:loaf";
+      const allowedPrefix = PER_KIND_ACTOR[fx.kind][0];
+      if (allowedPrefix === undefined) throw new Error(`no legal actor for kind=${fx.kind}`);
+      const allowedActor = `${allowedPrefix}:tester`;
 
       const result = preflight(
         {

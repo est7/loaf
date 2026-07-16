@@ -3,8 +3,8 @@ import type { CommandContext } from "../command-context.js";
 import type { CommandMutator } from "../command-mutator.js";
 import { FAILURE_SITE_KEYS, SUCCESS_KEYS } from "../runtime-i18n-keys.js";
 import { loadSession } from "../../core/cli-runtime.js";
-import { allocateNextEvidenceId } from "../evidence-id-allocator.js";
-import { buildLessonsEvidencePayload } from "../lessons-add.js";
+import { allocateNextLessonId } from "../lesson-id-allocator.js";
+import { buildLessonRecordedPayload } from "../lessons-add.js";
 import { promises as fsPromises } from "node:fs";
 
 export function registerLessons(
@@ -13,24 +13,21 @@ export function registerLessons(
   mutator: CommandMutator,
   _actor: string,
 ): void {
-  // ── loaf lessons add — Phase 16 SC-11 ────────────────────────────────
-  // Sugar wrapper over `evidence:added` payload.kind=manual. Records a
-  // human:* manual evidence entry whose summary holds the lesson body.
-  // v0.1.1 (F-024): the `lessons.md` projection writer landed — every
-  // mutate rebuilds `.loaf/<feature>/lessons.md` from the lesson entries
-  // (writeProjections), so the advisory now claims lessons.md updated.
+  // ── loaf lessons add ────────────────────────────────────────────────
+  // Records an independent `lesson:recorded` entry. Human authority lives
+  // on the envelope; the payload carries the LSN id and lesson content.
+  // Every mutate rebuilds `.loaf/<feature>/lessons.md` from new and legacy
+  // lesson entries through the single compatibility selector.
   // LongTextField sidecar promotion fires when lesson body bytes >
   // SIDECAR_THRESHOLD_BYTES (Pass 2 sidecar promote); the lessons.md
   // writer resolves those sidecars back inline.
   const lessonsCmd = program
     .command("lessons")
-    .description("Lessons-learned evidence commands (Phase 16 SC-11: add)");
+    .description("Lessons-learned journal commands");
 
   lessonsCmd
     .command("add")
-    .description(
-      "Record a lessons-learned evidence entry (kind=manual; --text inline OR --file <path>)",
-    )
+    .description("Record a lesson entry (--text inline OR --file <path>)")
     .option("--text <inline>", "Lesson body text (inline). Mutex with --file.")
     .option("--file <path>", "Read lesson body from file. Mutex with --text.")
     .requiredOption(
@@ -96,7 +93,7 @@ export function registerLessons(
           );
           return;
         }
-        // (3) resolve human actor (manual requires human:* per refine)
+        // (3) resolve human actor (lesson:recorded is HUMAN_ONLY)
         const actor = ctx.resolveHumanActorOrFail();
         if (actor === null) return;
         const featureDir = await ctx.dispatchOrFail(opts);
@@ -106,17 +103,16 @@ export function registerLessons(
           ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
           return;
         }
-        // (5) allocate EV-id + build payload
-        const evidenceId = allocateNextEvidenceId(session.snapshot);
-        const payload = buildLessonsEvidencePayload({
-          evidenceId,
+        // (5) allocate LSN-id from canonical entries + build payload
+        const lessonId = allocateNextLessonId(session.entries);
+        const payload = buildLessonRecordedPayload({
+          lessonId,
           lessonText,
           reason: opts.reason,
-          actor,
           iteration: session.snapshot.state.iteration,
         });
         const result = await mutator.run(featureDir, session, {
-          kind: "evidence:added",
+          kind: "lesson:recorded",
           payload,
           actor,
         });
@@ -129,12 +125,12 @@ export function registerLessons(
           {
             ok: true,
             feature: opts.feature,
-            id: evidenceId,
-            kind: "manual" as const,
+            id: lessonId,
+            kind: "lesson:recorded" as const,
           },
-          () => `${evidenceId}\n`,
+          () => `${lessonId}\n`,
           (i18n) => ({
-            stateChange: i18n.t(SUCCESS_KEYS.lessonsAddStateChange, { evidence_id: evidenceId }),
+            stateChange: i18n.t(SUCCESS_KEYS.lessonsAddStateChange, { lesson_id: lessonId }),
           }),
         );
       },

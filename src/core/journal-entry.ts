@@ -183,6 +183,7 @@ export const EntryKind = z.enum([
   "event:spec_submitted",
   // ── Domain ledger entries ──
   "evidence:added",
+  "lesson:recorded",
   "finding:raised",
   "finding:closed",
   "pending:added",
@@ -488,6 +489,21 @@ export const TasksAmendedPayload = z
 //   - visual-review: attachments[] must be non-empty
 // All 17 documented EvidenceEntry payload fields are validated.
 export const EvidenceAddedPayload = EvidenceFullPayload;
+
+/**
+ * `lesson:recorded` payload v1. The actor belongs to the journal envelope;
+ * keeping it out of this strict payload prevents the two authority sources
+ * from drifting. Long summaries use the shared sidecar-capable field shape.
+ */
+export const LessonRecordedPayload = z
+  .object({
+    id: z.string().regex(/^LSN-\d{3,}$/),
+    iteration: z.number().int().positive(),
+    reason: z.string().min(10),
+    summary: z.union([z.string().min(3), LongTextField]),
+  })
+  .strict();
+export type LessonRecordedPayload = z.infer<typeof LessonRecordedPayload>;
 
 // Slice 3 SC3 (codex r68): canonical finding/evidence payload shapes.
 // Closed category/action enums + canonical FindingId regex catch typos

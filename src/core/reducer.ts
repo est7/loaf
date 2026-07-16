@@ -723,6 +723,13 @@ export function applyValidated(prev: Snapshot, entry: JournalEntry): ApplyResult
       return { ok: true, snapshot: prev };
     }
 
+    case "lesson:recorded": {
+      // Lessons are projected directly from journal history. Keep this an
+      // explicit no-op so they cannot leak into evidence-derived gates,
+      // counts, board, TUI, or resume-pack surfaces.
+      return { ok: true, snapshot: prev };
+    }
+
     case "finding:raised": {
       // Payload schema strict-validated at preflight (PER_KIND_PAYLOAD →
       // FindingRaisedPayload). Defense-in-depth id/category/action check

@@ -5,7 +5,7 @@
 // positive + one negative anchor per EntryKind — enough to assert the
 // PER_KIND_SUB_STATE / PER_KIND_ACTOR tables are wired into preflight, but
 // NOT a guarantee that every (kind × sub_state × actor) combination is
-// observed. The 25×20 sub_state matrix + 25×5 actor matrix is left as a
+// observed. The 27×20 sub_state matrix + 27×5 actor matrix is left as a
 // follow-up — to be added if a regression surfaces a coverage hole.
 //
 // For each EntryKind we emit:

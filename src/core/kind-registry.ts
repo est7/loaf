@@ -21,6 +21,7 @@ import {
   FindingClosedPayload,
   FindingRaisedPayload,
   GateDecidedPayload,
+  LessonRecordedPayload,
   MigrationSnapshotImportedPayload,
   PendingAddedPayload,
   PendingResolvedPayload,
@@ -173,6 +174,13 @@ export const KIND_REGISTRY: Record<EntryKind, KindMeta> = {
       ...VERIFY_OR_POST_LOCK_EXECUTE.filter((s) => s.startsWith("VERIFY")),
     ]),
     actors: ALL_NON_MIGRATION,
+    emitsSpec: false,
+  },
+  "lesson:recorded": {
+    payload: LessonRecordedPayload,
+    reducerImplemented: true,
+    subStates: ANY_NON_DONE,
+    actors: HUMAN_ONLY,
     emitsSpec: false,
   },
   "finding:raised": {

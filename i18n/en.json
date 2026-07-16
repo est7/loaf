@@ -429,7 +429,7 @@
       "state_change": "waive: {evidence_id} obligation={obligation_id}"
     },
     "lessons": {
-      "add_state_change": "lessons add: {evidence_id} recorded (kind=manual; lessons.md updated)"
+      "add_state_change": "lessons add: {lesson_id} recorded (kind=lesson:recorded; lessons.md updated)"
     },
     "evidence": {
       "covers_none": "<none>",

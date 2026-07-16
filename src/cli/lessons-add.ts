@@ -1,35 +1,31 @@
-// Phase 16 SC-11 — `loaf lessons add (--text "..." | --file <path>)
-// --reason "..."` sugar over `evidence:added` payload.kind=`manual`.
+// `loaf lessons add (--text "..." | --file <path>) --reason "..."`
+// payload builder for the independent `lesson:recorded` journal kind.
 //
 // Per protocol §10.8:1958:
-//   - actor MUST be human:* (existing EvidenceFullPayload refine)
-//   - reason MUST be ≥10 chars (existing refine; separate from lesson body)
-//   - result defaults to "passed" (manual evidence semantic)
+//   - actor authority lives on the journal envelope, not in this payload
+//   - reason MUST be ≥10 chars (separate from lesson body)
 //   - lesson body → `summary` field; LongTextField sidecar promotion
 //     fires when body bytes > SIDECAR_THRESHOLD_BYTES (Pass 2 sidecar
 //     promote in journal-mutate.ts; threshold imported from core for
 //     single-source consistency per codex r325 P2)
-//   - covers = [] (lessons aren't tied to specific obligations)
-//
-// v0.1.1 (F-024): the `lessons.md` projection writer landed — this builder
-// still only produces the evidence payload, but writeProjections rebuilds
-// `.loaf/<feature>/lessons.md` from the lesson entries on every mutate, so
-// the CLI advisory now claims `lessons.md updated`. See F-024 (CLOSED).
+// The lessons.md projection rebuilds from both this kind and legacy lesson-
+// shaped evidence entries.
 //
 // PURE payload builder (codex r325 P1 Option A): returns payload object;
 // caller wraps in journal envelope before mutate().
 
-import { SIDECAR_THRESHOLD_BYTES } from "../core/journal-entry.js";
+import {
+  SIDECAR_THRESHOLD_BYTES,
+  type LessonRecordedPayload,
+} from "../core/journal-entry.js";
 
-export interface BuildLessonsEvidenceArgs {
-  /** Pre-allocated EV-id (via allocateNextEvidenceId). */
-  evidenceId: string;
+export interface BuildLessonRecordedArgs {
+  /** Pre-allocated LSN-id from canonical journal history. */
+  lessonId: string;
   /** Lesson body text (from --text inline or --file content read). */
   lessonText: string;
   /** ≥10-char reason — independent from lesson body per codex r321 Q4a. */
   reason: string;
-  /** Resolved human:* actor (via resolveHumanActor). */
-  actor: string;
   /** Current session iteration. */
   iteration: number;
 }
@@ -47,24 +43,13 @@ function chooseSummary(lessonText: string): SummaryFieldValue {
     : lessonText;
 }
 
-export function buildLessonsEvidencePayload(args: BuildLessonsEvidenceArgs): {
-  id: string;
-  kind: "manual";
-  iteration: number;
-  actor: string;
-  result: "passed";
-  reason: string;
-  summary: SummaryFieldValue;
-  covers: never[];
-} {
+export function buildLessonRecordedPayload(
+  args: BuildLessonRecordedArgs,
+): LessonRecordedPayload {
   return {
-    id: args.evidenceId,
-    kind: "manual",
+    id: args.lessonId,
     iteration: args.iteration,
-    actor: args.actor,
-    result: "passed",
     reason: args.reason,
     summary: chooseSummary(args.lessonText),
-    covers: [],
   };
 }

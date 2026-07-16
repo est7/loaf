@@ -1,8 +1,6 @@
-// Phase v0.1.1 / F-024 — lessons.md projection unit tests.
-//
-// The load-bearing case is the lesson SELECTOR (codex F-024 r2): only
-// `loaf lessons add` output is a lesson; `loaf evidence add --kind manual`
-// verification evidence (covers / task_id / check / gate) must be EXCLUDED.
+// lessons.md projection unit tests. The load-bearing compatibility case is
+// mixed `lesson:recorded` + legacy manual evidence; ordinary verification
+// evidence (covers / task_id / check / gate) must be excluded.
 
 import { describe, expect, test } from "vitest";
 import { promises as fsp } from "node:fs";
@@ -77,6 +75,23 @@ describe("selectLessonEntries", () => {
     } as unknown as JournalEntry;
   }
 
+  function lessonEntry(id: string, lessonId: string, summary: string): JournalEntry {
+    return {
+      seq: 0,
+      entry_id: id,
+      actor: "human:dev@test.invalid",
+      at: "2026-05-15T10:00:00.000Z",
+      entry_schema_version: 1,
+      kind: "lesson:recorded",
+      payload: {
+        id: lessonId,
+        iteration: 1,
+        reason: "captured during projection testing",
+        summary,
+      },
+    } as JournalEntry;
+  }
+
   test("keeps lessons in journal order, drops verification evidence", () => {
     const entries = [
       evEntry("JE-000001", { id: "EV-000001", summary: "lesson one" }),
@@ -85,6 +100,21 @@ describe("selectLessonEntries", () => {
     ];
     const lessons = selectLessonEntries(entries);
     expect(lessons.map((l) => l.summary)).toEqual(["lesson one", "lesson two"]);
+  });
+
+  test("dual-reads legacy evidence lessons and lesson:recorded in journal order", () => {
+    const entries = [
+      evEntry("JE-000001", { id: "EV-000001", summary: "legacy lesson" }),
+      lessonEntry("JE-000002", "LSN-001", "new lesson"),
+      evEntry("JE-000003", { id: "EV-000002", summary: "verification", task_id: "T-001" }),
+      lessonEntry("JE-000004", "LSN-002", "new lesson two"),
+    ];
+
+    expect(selectLessonEntries(entries).map((lesson) => lesson.summary)).toEqual([
+      "legacy lesson",
+      "new lesson",
+      "new lesson two",
+    ]);
   });
 });
 

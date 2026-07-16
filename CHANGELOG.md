@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking protocol change (protocol rev 5.1; next release must bump the
+  package version):** `loaf lessons add`
+  now emits the independent `lesson:recorded` journal kind with CLI-allocated
+  `LSN-NNN` ids. JSON output keeps the stable `id` key. `lessons.md` permanently
+  dual-reads the new kind and legacy lesson-shaped `evidence:added` entries;
+  new lessons no longer enter evidence projections, coverage, status/board/TUI
+  evidence counts, or resume packs.
 - **`loaf spec add-req --schema`** now emits the actual runtime allocation
   boundary: `id_namespace` plus the EARS `type`, with the remaining requirement
   body passed through for downstream validation. The former closed schema that

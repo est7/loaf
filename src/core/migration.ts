@@ -55,6 +55,7 @@ export const ENTRY_SCHEMA_VERSIONS = {
   "event:spec_visual_added": 1,
   "event:spec_submitted": 1,
   "evidence:added": 1,
+  "lesson:recorded": 1,
   "finding:raised": 1,
   "finding:closed": 1,
   "pending:added": 1,

@@ -1,7 +1,5 @@
-// Phase v0.1.1 / F-024 — `lessons.md` projection writer.
-//
-// `loaf lessons add` emits an `evidence:added` payload with kind=manual.
-// `lessons.md` is the user-facing markdown projection of those lesson
+// `lessons.md` is the user-facing markdown projection of independent
+// `lesson:recorded` entries plus legacy lesson-shaped `evidence:added`
 // entries (top-level `.loaf/<feature>/lessons.md`, like `spec.md` — NOT a
 // `snapshots/*.json` machine leaf). Advisory tier (§4.7): free-form, not
 // strictly validated.
@@ -19,17 +17,16 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 
 import { EvidenceFullPayload } from "./evidence-schema.js";
-import type { JournalEntry } from "./journal-entry.js";
+import { LessonRecordedPayload, type JournalEntry } from "./journal-entry.js";
 import type { Snapshot } from "./reducer.js";
 
 /**
- * Lesson selector (codex F-024 r2): NOT every kind=manual evidence is a
+ * Legacy lesson selector (codex F-024 r2): NOT every kind=manual evidence is a
  * lesson — `loaf evidence add --kind manual` is a legitimate verification
- * path that covers REQ/SCEN/VIS/T. A lesson (from `loaf lessons add`,
- * `buildLessonsEvidencePayload`) is shaped EXACTLY as: kind=manual,
+ * path that covers REQ/SCEN/VIS/T. A legacy lesson is shaped EXACTLY as: kind=manual,
  * result=passed, empty covers, no task_id / check / gate linkage, human
- * actor. The shape heuristic is exact for the current emitter; an explicit
- * payload marker is future hardening (needs an evidence-schema rev).
+ * actor. New emitters use the independent `lesson:recorded` kind; this
+ * heuristic remains permanently for backward-compatible reads only.
  */
 export function isLesson(payload: ReturnType<typeof EvidenceFullPayload.parse>): boolean {
   return (
@@ -46,22 +43,29 @@ export function isLesson(payload: ReturnType<typeof EvidenceFullPayload.parse>):
 export interface LessonEntry {
   entry_id: string;
   at: string;
-  /** EvidenceFullPayload.summary — `string` (short) or a LongTextField. */
+  /** Lesson summary — `string` (short) or a LongTextField. */
   summary: ReturnType<typeof EvidenceFullPayload.parse>["summary"];
 }
 
 /**
  * Select lesson entries from the journal stream (journal order = seq order).
- * Operates on the FULL journal payloads (codex F-024 r2: NOT the slim
- * `Snapshot.evidence`, which drops summary / task_id / gate).
+ * This is the sole compatibility bridge: new kind + legacy heuristic.
+ * Operates on FULL journal payloads, not the slim `Snapshot.evidence`.
  */
 export function selectLessonEntries(entries: readonly JournalEntry[]): LessonEntry[] {
   const lessons: LessonEntry[] = [];
   for (const e of entries) {
-    if (e.kind !== "evidence:added") continue;
-    const payload = EvidenceFullPayload.parse(e.payload);
-    if (!isLesson(payload)) continue;
-    lessons.push({ entry_id: e.entry_id, at: e.at, summary: payload.summary });
+    if (e.kind === "lesson:recorded") {
+      const payload = LessonRecordedPayload.parse(e.payload);
+      lessons.push({ entry_id: e.entry_id, at: e.at, summary: payload.summary });
+      continue;
+    }
+    if (e.kind === "evidence:added") {
+      const payload = EvidenceFullPayload.parse(e.payload);
+      if (isLesson(payload)) {
+        lessons.push({ entry_id: e.entry_id, at: e.at, summary: payload.summary });
+      }
+    }
   }
   return lessons;
 }
