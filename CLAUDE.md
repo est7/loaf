@@ -88,10 +88,10 @@ The reducer **mutates in place** — don't hold a pre-`mutate()` snapshot refere
 
 ### Schema source of truth
 
-`docs/schemas.ts` is the **Zod source of truth + ERROR_CATALOG**. The runtime `src/core/*-schema.ts` files mirror a subset for type inference. When adding a `DiagnosticCode` / `PreflightFailureCode` / `MutateFailureCode`:
+Runtime source IS the machine contract (wayfinder #6, `docs/machine-contract.md` is the index): domain Zod schemas live in `src/core/*-schema.ts` / `src/cli/input-schemas.ts`, and `src/core/error-catalog.ts` owns `DiagnosticCode` + `ERROR_CATALOG`. There is no docs mirror — a Biome `noRestrictedImports` rule and `tests/scripts/docs-runtime-boundary.test.ts` forbid runtime `.ts` under `docs/`. When adding a `DiagnosticCode` / `PreflightFailureCode` / `MutateFailureCode`:
 
 1. Add to the union in `src/core/reducer/preflight.ts` (or wherever it's surfaced).
-2. Register in `docs/schemas.ts` `DiagnosticCode` enum + `ERROR_CATALOG` (with `message_template`, `fix_template`, `doc_anchor`).
+2. Register in `src/core/error-catalog.ts` `DiagnosticCode` enum + `ERROR_CATALOG` (with `message_template`, `fix_template`, `doc_anchor`).
 3. Add `i18n/en.json` + `i18n/zh.json` template entries — placeholders must match the `detail.*` keys actually emitted at runtime (codex r45/r80 catch this).
 4. Avoid literal `{` in templates that are NOT placeholders — `ERROR_CATALOG` placeholder substituter collides with set notation `{a, b, c}` (use backticks / `X or Y`).
 
@@ -181,7 +181,7 @@ Not published to npm (`npm view loaf-cli` → 404). The CLI is distributed **str
 ## Key references
 
 - `docs/protocol.md` — protocol spec rev 5.0 (~200KB, §10.8 CLI command table is the authoritative surface)
-- `docs/schemas.ts` — Zod source of truth + `ERROR_CATALOG` + `DiagnosticCode` enum + `PER_KIND_PAYLOAD` table
+- `docs/machine-contract.md` — index mapping the machine contract to its runtime owners (`src/core/error-catalog.ts` = `ERROR_CATALOG` + `DiagnosticCode`; `src/core/kind-registry.ts` = `PER_KIND_PAYLOAD`; `src/core/machine.ts` = state axis)
 - `docs/adr/0005-truth-model-single-typed-journal.md` — current truth model
 - `docs/adr/0001..0004` — earlier ADRs (deprecated parts marked in 0005)
 - `docs/archive/moni-review.md` / `docs/plan.md` — earlier review artifacts
