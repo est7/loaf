@@ -230,7 +230,7 @@
     "SESSION_SHORT_AMBIGUOUS": "--session {prefix} matches {match_count} sessions in the registry: {candidate_list}",
     "SESSION_NOT_FOUND": "--session {uuid_or_prefix} matches no entry in the registry",
     "PENDING_BLOCKS_ADVANCE": "pending head {pending_id} (kind={kind}) blocks `loaf advance` until resolved",
-    "GATE_NOT_PENDING": "`loaf gate decide {gate}` requires pending head kind=gate_decision; current head: {actual_head}",
+    "GATE_NOT_PENDING": "`loaf gate decide {gate_kind}` requires pending head kind=gate_decision; current head kind: {head_kind}",
     "ESCALATION_NOT_PENDING": "`loaf profile escalate --confirm --input <ceremony.json>` requires pending head kind=profile_escalation; current head: {actual_head}",
     "EXECUTE_DONE_TASKS_NOT_FINAL": "cannot advance EXECUTE.work → EXECUTE.done: {count} task(s) are not in a final status (done or abandoned); finish their remaining steps or abandon out-of-scope tasks with `loaf tasks abandon <T-N> --reason \"...\"`",
     "NO_SESSION": "no session at {feature_dir} — run `loaf start <feature>` first",

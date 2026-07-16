@@ -30,6 +30,7 @@
 //
 // Pure, zero-IO. Tests inject parsed SpecFrontmatter + Snapshot fixtures.
 
+import { diagnostic } from "../error-catalog.js";
 import type { Snapshot, TaskState } from "../projection-types.js";
 import { hasVerifiability } from "../spec-schema.js";
 import type { SpecFrontmatter } from "../spec-schema.js";
@@ -80,11 +81,11 @@ export function specLockCheck(snapshot: Snapshot, frontmatter: SpecFrontmatter):
   if (frontmatter.needs_clarification.length > 0) {
     failures.push({
       check: 2,
-      code: "SPEC_HAS_UNCLARIFIED",
-      message: `spec has ${frontmatter.needs_clarification.length} unresolved needs_clarification entries; resolve or remove them before spec-lock`,
-      detail: {
+      ...diagnostic("SPEC_HAS_UNCLARIFIED", {
+        count: frontmatter.needs_clarification.length,
         ids: frontmatter.needs_clarification.map((nc) => nc.id),
-      },
+      }),
+      message: `spec has ${frontmatter.needs_clarification.length} unresolved needs_clarification entries; resolve or remove them before spec-lock`,
     });
   }
 

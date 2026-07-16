@@ -47,6 +47,103 @@ import { z } from "zod";
 
 const TemplateKey = z.string().regex(/^[A-Za-z0-9_]+$/);
 
+type TemplateIdentifierChar =
+  | "A"
+  | "B"
+  | "C"
+  | "D"
+  | "E"
+  | "F"
+  | "G"
+  | "H"
+  | "I"
+  | "J"
+  | "K"
+  | "L"
+  | "M"
+  | "N"
+  | "O"
+  | "P"
+  | "Q"
+  | "R"
+  | "S"
+  | "T"
+  | "U"
+  | "V"
+  | "W"
+  | "X"
+  | "Y"
+  | "Z"
+  | "a"
+  | "b"
+  | "c"
+  | "d"
+  | "e"
+  | "f"
+  | "g"
+  | "h"
+  | "i"
+  | "j"
+  | "k"
+  | "l"
+  | "m"
+  | "n"
+  | "o"
+  | "p"
+  | "q"
+  | "r"
+  | "s"
+  | "t"
+  | "u"
+  | "v"
+  | "w"
+  | "x"
+  | "y"
+  | "z"
+  | "0"
+  | "1"
+  | "2"
+  | "3"
+  | "4"
+  | "5"
+  | "6"
+  | "7"
+  | "8"
+  | "9"
+  | "_";
+
+type PlaceholderAt<S extends string, Acc extends string = ""> = S extends `}${string}`
+  ? Acc extends ""
+    ? never
+    : Acc
+  : S extends `${infer Head}${infer Tail}`
+    ? Head extends TemplateIdentifierChar
+      ? PlaceholderAt<Tail, `${Acc}${Head}`>
+      : never
+    : never;
+
+type TemplatePlaceholders<S extends string> = S extends `${infer _Before}{${infer Rest}`
+  ? PlaceholderAt<Rest> | TemplatePlaceholders<Rest>
+  : never;
+
+type StringProperty<E, K extends PropertyKey> = K extends keyof E ? Extract<E[K], string> : never;
+
+type EntryTemplatePlaceholders<E> =
+  | TemplatePlaceholders<StringProperty<E, "message_template">>
+  | TemplatePlaceholders<StringProperty<E, "zh_message_template">>
+  | TemplatePlaceholders<StringProperty<E, "fix_template">>
+  | TemplatePlaceholders<StringProperty<E, "zh_fix_template">>;
+
+type EntryTemplateKeys<E> = E extends { template_keys: readonly (infer K extends string)[] }
+  ? K
+  : never;
+
+/** Placeholder identifiers present in an entry's templates but absent from template_keys. */
+export type UncoveredTemplatePlaceholders<E> = Exclude<
+  EntryTemplatePlaceholders<E>,
+  EntryTemplateKeys<E>
+>;
+
 export const ErrorEntry = z.object({
   exit_code: z.literal(2),
   // Rendered into the `error:` line. May contain {placeholder} tokens
@@ -62,8 +159,8 @@ export const ErrorEntry = z.object({
   // Exact identifier-style placeholders used by this entry's templates.
   // Batch 2 adds the compile-time subset proof over these literal tuples.
   template_keys: z.array(TemplateKey).readonly(),
-  // Emitter-detail contracts and rename adapters land in batch 2. Keeping
-  // them optional here makes the shape ready without asserting false data.
+  // Required minimum emitter-detail keys. Emitters may carry extra machine
+  // context; adapter maps template_key -> detail_key for deliberate renames.
   detail_keys: z.array(TemplateKey).readonly().optional(),
   adapter: z.record(TemplateKey, TemplateKey).optional(),
   // Rendered into the `see:` line. Anchor into protocol.md or a doc URL.
@@ -155,6 +252,7 @@ export const ERROR_CATALOG = {
     fix_template:
       "edit the existing config file directly, or remove it before re-running `loaf config init` (no --force flag)",
     template_keys: ["config_path"],
+    detail_keys: ["config_path"],
     doc_anchor: "protocol.md#§10.8",
   },
   ATTACHMENT_NOT_FOUND: {
@@ -177,10 +275,11 @@ export const ERROR_CATALOG = {
   FINDING_ACTION_UNUSUAL_REASON_REQUIRED: {
     exit_code: 2,
     message_template:
-      "finding category={category} × action={action} is 'unusual'; --reason of at least {min_length} characters is required",
+      "finding category={category} × action={action} is 'unusual'; --reason of at least {min_reason_length} characters is required",
     fix_template:
       "rerun with --reason explaining why this non-typical combination applies (see references/finding-matrix-rationale.md)",
-    template_keys: ["action", "category", "min_length"],
+    template_keys: ["action", "category", "min_reason_length"],
+    detail_keys: ["action", "category", "current_reason_length", "min_reason_length"],
     doc_anchor: "protocol.md#§4.5",
   },
   FINDING_ACTION_INCOHERENT: {
@@ -266,6 +365,8 @@ export const ERROR_CATALOG = {
     fix_template:
       "pass at most one of the flags from each exclusion set; see `loaf <cmd> --help` for the canonical flag list",
     template_keys: ["flags"],
+    detail_keys: ["conflicting"],
+    adapter: { flags: "conflicting" },
     doc_anchor: "protocol.md#§10.7",
   },
   INVALID_ENV_VALUE: {
@@ -295,6 +396,8 @@ export const ERROR_CATALOG = {
     fix_template:
       "pass --format text or --format json (the only allowed values for this release); --format=<value> equals form is accepted",
     template_keys: ["allowed_values_human", "value"],
+    detail_keys: ["allowed_values", "value"],
+    adapter: { allowed_values_human: "allowed_values" },
     doc_anchor: "protocol.md#§10.7",
   },
   INVALID_LOCALE: {
@@ -325,6 +428,7 @@ export const ERROR_CATALOG = {
     fix_template:
       "--dry-run only applies to mutating commands; re-run without --dry-run (or -n) to invoke the {command_type} command",
     template_keys: ["command", "command_type"],
+    detail_keys: ["command", "command_type"],
     doc_anchor: "protocol.md#§10.7-dry-run",
   },
   HOOK_EVENT_NOT_IMPLEMENTED: {
@@ -431,6 +535,7 @@ export const ERROR_CATALOG = {
     fix_template:
       "run `loaf start <description>` to create a new feature, or cd into a directory that already has a .loaf/<feature>/ subtree",
     template_keys: [],
+    detail_keys: [],
     doc_anchor: "protocol.md#§10.3",
   },
   FEATURE_AMBIGUOUS: {
@@ -441,6 +546,7 @@ export const ERROR_CATALOG = {
     fix_template:
       "disambiguate with --feature <name>, --session <UUID>, or set $LOAF_FEATURE / $LOAF_SESSION in the environment",
     template_keys: ["count", "feature_list"],
+    detail_keys: ["count", "feature_list"],
     doc_anchor: "protocol.md#§10.3",
   },
   SESSION_CWD_MISMATCH: {
@@ -451,6 +557,7 @@ export const ERROR_CATALOG = {
     fix_template:
       "cd to the registered cwd before issuing the command, or pass a different --session, or drop --session to auto-pick a session in the current cwd",
     template_keys: ["current_cwd", "registered_cwd", "uuid"],
+    detail_keys: ["current_cwd", "registered_cwd", "uuid"],
     doc_anchor: "protocol.md#§10.3",
   },
   SESSION_SHORT_AMBIGUOUS: {
@@ -461,6 +568,7 @@ export const ERROR_CATALOG = {
     fix_template:
       "pass a longer UUID prefix (≥8 chars are required; use more to disambiguate) or pass the full UUID",
     template_keys: ["candidate_list", "match_count", "prefix"],
+    detail_keys: ["candidate_list", "match_count", "prefix"],
     doc_anchor: "protocol.md#§10.3",
   },
   SESSION_NOT_FOUND: {
@@ -476,6 +584,7 @@ export const ERROR_CATALOG = {
     fix_template:
       "run `loaf sessions list --in-cwd` to see registered sessions (future SC-9b), or run `loaf start <name>` to create one",
     template_keys: ["uuid_or_prefix"],
+    detail_keys: ["uuid_or_prefix"],
     doc_anchor: "protocol.md#§10.3",
   },
   PENDING_BLOCKS_ADVANCE: {
@@ -491,11 +600,12 @@ export const ERROR_CATALOG = {
   GATE_NOT_PENDING: {
     exit_code: 2,
     message_template:
-      "`loaf gate decide {gate}` requires pending head kind=gate_decision; current head: {actual_head}",
-    zh_message_template: "`loaf gate decide {gate}` 要求 pending head kind=gate_decision;当前 head:{actual_head}",
+      "`loaf gate decide {gate_kind}` requires pending head kind=gate_decision; current head kind: {head_kind}",
+    zh_message_template: "`loaf gate decide {gate_kind}` 要求 pending head kind=gate_decision;当前 head kind:{head_kind}",
     fix_template:
       "resolve the current head first via the kind-appropriate command, or wait for the gate_decision pending to appear",
-    template_keys: ["actual_head", "gate"],
+    template_keys: ["gate_kind", "head_kind"],
+    detail_keys: ["gate_kind", "head_id", "head_kind"],
     doc_anchor: "protocol.md#§10.7",
   },
   ESCALATION_NOT_PENDING: {
@@ -623,6 +733,7 @@ export const ERROR_CATALOG = {
     fix_template:
       "resume the existing session or create a new feature directory instead of starting/migrating over initialized state",
     template_keys: ["kind"],
+    detail_keys: ["kind"],
     doc_anchor: "protocol.md#§11.2",
   },
   FINDING_NOT_FOUND: {
@@ -648,6 +759,7 @@ export const ERROR_CATALOG = {
     fix_template:
       "resolve the current pending head only; list pending items and retry with the head id",
     template_keys: ["reason"],
+    detail_keys: ["reason"],
     doc_anchor: "protocol.md#§10.7",
   },
   REDUCER_NOT_IMPLEMENTED: {
@@ -787,6 +899,7 @@ export const ERROR_CATALOG = {
     fix_template:
       "edit spec.md to remove resolved needs_clarification entries, or run `loaf finding raise --category spec-gap --action clarify` to formalize the resolution flow; spec-lock check 2 requires needs_clarification === []",
     template_keys: ["count", "ids"],
+    detail_keys: ["count", "ids"],
     doc_anchor: "protocol.md#§5.1",
   },
   TASK_NOT_FOUND: {
@@ -1435,6 +1548,35 @@ export const ERROR_CATALOG = {
 } as const satisfies Record<string, ErrorEntry>;
 
 export type DiagnosticCode = keyof typeof ERROR_CATALOG;
+type CatalogUncoveredTemplatePlaceholders = {
+  [Code in DiagnosticCode]: UncoveredTemplatePlaceholders<(typeof ERROR_CATALOG)[Code]>;
+}[DiagnosticCode];
+type AssertAllCatalogPlaceholdersCovered<T extends never> = T;
+type _CatalogPlaceholdersAreCovered =
+  AssertAllCatalogPlaceholdersCovered<CatalogUncoveredTemplatePlaceholders>;
+
+type DetailKeyFor<Code extends DiagnosticCode> = (typeof ERROR_CATALOG)[Code] extends {
+  detail_keys: readonly (infer Key extends string)[];
+}
+  ? Key
+  : never;
+
+export type DiagnosticDetail<Code extends DiagnosticCode> = [DetailKeyFor<Code>] extends [never]
+  ? Record<string, never>
+  : { [Key in DetailKeyFor<Code>]: unknown };
+
+export type Diagnostic<Code extends DiagnosticCode> = {
+  code: Code;
+  detail: DiagnosticDetail<Code>;
+};
+
+/** Constructs a catalog diagnostic while checking its required detail keys. */
+export function diagnostic<const Code extends DiagnosticCode>(
+  code: Code,
+  detail: DiagnosticDetail<Code>,
+): Diagnostic<Code> {
+  return { code, detail };
+}
 const DIAGNOSTIC_CODE_VALUES = Object.keys(ERROR_CATALOG) as [
   DiagnosticCode,
   ...DiagnosticCode[],

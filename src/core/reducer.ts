@@ -10,6 +10,7 @@
 // — land incrementally in Stages 2-4 alongside their projections.
 
 import type { Ceremony, EntryKind, JournalEntry, SubState } from "./journal-entry.js";
+import { diagnostic } from "./error-catalog.js";
 import { preflight } from "./reducer/preflight.js";
 import type { PreflightFailureCode } from "./reducer/preflight.js";
 import {
@@ -157,7 +158,7 @@ export function applyValidated(prev: Snapshot, entry: JournalEntry): ApplyResult
     if (prev.state !== null) {
       return {
         ok: false,
-        code: "ALREADY_STARTED",
+        ...diagnostic("ALREADY_STARTED", { kind: entry.kind }),
         message: "migration:snapshot_imported after state already initialized",
       };
     }
@@ -185,7 +186,7 @@ export function applyValidated(prev: Snapshot, entry: JournalEntry): ApplyResult
     if (prev.state !== null) {
       return {
         ok: false,
-        code: "ALREADY_STARTED",
+        ...diagnostic("ALREADY_STARTED", { kind: entry.kind }),
         message: "session:started after state already initialized",
       };
     }
@@ -801,7 +802,7 @@ export function applyValidated(prev: Snapshot, entry: JournalEntry): ApplyResult
       if (headIdx === -1) {
         return {
           ok: false,
-          code: "PENDING_NOT_FOUND",
+          ...diagnostic("PENDING_NOT_FOUND", { reason: "no pending head" }),
           message: `pending:resolved with no pending head`,
         };
       }
@@ -809,7 +810,9 @@ export function applyValidated(prev: Snapshot, entry: JournalEntry): ApplyResult
       if (head.id !== payload.id) {
         return {
           ok: false,
-          code: "PENDING_NOT_FOUND",
+          ...diagnostic("PENDING_NOT_FOUND", {
+            reason: `id=${payload.id} does not match head id=${head.id} (FIFO violation)`,
+          }),
           message: `pending:resolved id=${payload.id} does not match head id=${head.id} (FIFO violation)`,
         };
       }

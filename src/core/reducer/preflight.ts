@@ -33,6 +33,7 @@
 // session entries). `tasks` flows for the spike-block check at step 5c.
 
 import { JournalEntry } from "../journal-entry.js";
+import { diagnostic } from "../error-catalog.js";
 import { PER_KIND_PAYLOAD } from "../kind-registry.js";
 import type { Ceremony, EntryKind, SubState } from "../journal-entry.js";
 import type { Snapshot, TaskState } from "../projection-types.js";
@@ -662,15 +663,14 @@ function checkGateDecided(c: PreflightCheckCtx): PreflightFailure | null {
       if (pendingHead && pendingHead.kind !== "gate_decision") {
         return {
           ok: false,
-          code: "GATE_NOT_PENDING",
-          message:
-            `gate:decided ${gateKind} approve blocked: pending head ${pendingHead.id} ` +
-            `(kind=${pendingHead.kind}) is not a gate_decision prompt; resolve it first`,
-          detail: {
+          ...diagnostic("GATE_NOT_PENDING", {
             gate_kind: gateKind,
             head_id: pendingHead.id,
             head_kind: pendingHead.kind,
-          },
+          }),
+          message:
+            `gate:decided ${gateKind} approve blocked: pending head ${pendingHead.id} ` +
+            `(kind=${pendingHead.kind}) is not a gate_decision prompt; resolve it first`,
         };
       }
     }
@@ -1648,16 +1648,15 @@ function checkFindingRaised(c: PreflightCheckCtx): PreflightFailure | null {
       if (reasonLength < FINDING_UNUSUAL_REASON_MIN_LENGTH) {
         return {
           ok: false,
-          code: "FINDING_ACTION_UNUSUAL_REASON_REQUIRED",
-          message:
-            `finding raise category=${payload.category} × action=${payload.action} is an unusual cell; ` +
-            `--reason ≥${FINDING_UNUSUAL_REASON_MIN_LENGTH} chars required (got ${reasonLength})`,
-          detail: {
+          ...diagnostic("FINDING_ACTION_UNUSUAL_REASON_REQUIRED", {
             category: payload.category,
             action: payload.action,
             current_reason_length: reasonLength,
             min_reason_length: FINDING_UNUSUAL_REASON_MIN_LENGTH,
-          },
+          }),
+          message:
+            `finding raise category=${payload.category} × action=${payload.action} is an unusual cell; ` +
+            `--reason ≥${FINDING_UNUSUAL_REASON_MIN_LENGTH} chars required (got ${reasonLength})`,
         };
       }
     }

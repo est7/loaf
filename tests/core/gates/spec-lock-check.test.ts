@@ -161,6 +161,7 @@ describe("specLockCheck check 2 — needs_clarification", () => {
     if (!result.ok) {
       const check2 = result.checks.find((c) => c.check === 2);
       expect(check2?.code).toBe("SPEC_HAS_UNCLARIFIED");
+      expect(check2?.detail).toEqual({ count: 1, ids: ["NC-001"] });
     }
   });
 });

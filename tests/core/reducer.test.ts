@@ -9,7 +9,7 @@
 
 import { describe, expect, test } from "vitest";
 
-import { apply, initialSnapshot } from "../../src/core/reducer.js";
+import { apply, applyValidated, initialSnapshot } from "../../src/core/reducer.js";
 import type { Ceremony } from "../../src/core/journal-entry.js";
 
 const STANDARD_CEREMONY: Ceremony = {
@@ -572,6 +572,45 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
       }),
     );
     expect(snap.pending[0]!.resolved).toBe(true);
+  });
+
+  test("bootstrap and pending failures carry catalog-required detail", () => {
+    const startedEntry = {
+      seq: 0,
+      entry_id: "JE-000001",
+      at: "2026-05-15T10:00:00.000Z",
+      actor: "cli:loaf",
+      entry_schema_version: 1,
+      kind: "session:started" as const,
+      payload: {
+        session_id: "550e8400-e29b-41d4-a716-446655440000",
+        feature: "auth-refresh",
+        ceremony: STANDARD_CEREMONY,
+      },
+    };
+    const started = apply(initialSnapshot(), startedEntry);
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+
+    const duplicate = applyValidated(started.snapshot, startedEntry);
+    expect(duplicate).toMatchObject({
+      ok: false,
+      code: "ALREADY_STARTED",
+      detail: { kind: "session:started" },
+    });
+
+    const missing = applyValidated(started.snapshot, {
+      ...startedEntry,
+      seq: 1,
+      entry_id: "JE-000002",
+      kind: "pending:resolved",
+      payload: { id: "PEND-404" },
+    });
+    expect(missing).toMatchObject({
+      ok: false,
+      code: "PENDING_NOT_FOUND",
+      detail: { reason: "no pending head" },
+    });
   });
 });
 

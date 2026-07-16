@@ -230,7 +230,7 @@
     "SESSION_SHORT_AMBIGUOUS": "--session {prefix} 在 registry 匹配 {match_count} 个 session:{candidate_list}",
     "SESSION_NOT_FOUND": "--session {uuid_or_prefix} 在 registry 找不到任何匹配",
     "PENDING_BLOCKS_ADVANCE": "pending head {pending_id}(kind={kind})阻塞 `loaf advance`,需先 resolve",
-    "GATE_NOT_PENDING": "`loaf gate decide {gate}` 要求 pending head kind=gate_decision;当前 head:{actual_head}",
+    "GATE_NOT_PENDING": "`loaf gate decide {gate_kind}` 要求 pending head kind=gate_decision;当前 head kind:{head_kind}",
     "ESCALATION_NOT_PENDING": "`loaf profile escalate --confirm --input <ceremony.json>` 要求 pending head kind=profile_escalation;当前 head:{actual_head}",
     "EXECUTE_DONE_TASKS_NOT_FINAL": "无法从 EXECUTE.work 推进到 EXECUTE.done:{count} 个 task 未处于终态(done 或 abandoned);跑完剩余 step,或用 `loaf tasks abandon <T-N> --reason \"...\"` 放弃超出范围的 task",
     "NO_SESSION": "{feature_dir} 下没有 session — 先跑 `loaf start <feature>`",
