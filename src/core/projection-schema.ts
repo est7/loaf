@@ -39,6 +39,17 @@ import { Ceremony, PendingId, PendingPromptKind, SubState } from "./journal-entr
 export const PROJECTION_SCHEMA_VERSION = 2 as const;
 const SchemaVersionLiteral = z.literal(PROJECTION_SCHEMA_VERSION);
 
+export const SessionRuntimeFile = z
+  .object({
+    schema_version: SchemaVersionLiteral,
+    session_id: z.string().min(1),
+    cwd: z.string(),
+    debug: z.boolean(),
+    heartbeat_at: z.string().datetime(),
+  })
+  .strict();
+export type SessionRuntimeFile = z.infer<typeof SessionRuntimeFile>;
+
 // ── tasks.json — TasksJson (mirror docs/schemas.ts §14:1672-1678) ───────
 //
 // Whole-replacement task-plan contract: `version` counts the

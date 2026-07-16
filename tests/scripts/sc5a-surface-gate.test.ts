@@ -24,7 +24,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { FLAG_EXCLUSIONS } from "../../docs/schemas.js";
+import { FLAG_EXCLUSIONS } from "../../src/cli/flag-exclusions.js";
 import { DiagnosticCode, ERROR_CATALOG } from "../../src/core/error-catalog.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -184,6 +184,7 @@ describe("Phase 16 SC-5a — RED #19: surface-wide '--json' grep gate", () => {
     "scripts/ga-package-smoke.sh",
     "src/cli.tsx",
     "src/cli/command-context.ts",
+    "src/cli/flag-exclusions.ts",
     "src/core/reducer.ts",
     "src/core/crash-log.ts",
     "src/core/error-catalog.ts",

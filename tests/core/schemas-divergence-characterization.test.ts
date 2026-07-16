@@ -13,6 +13,7 @@ import {
   EvidenceAddInputBatched as RuntimeEvidenceAddInputBatched,
   EvidenceFullPayload as RuntimeEvidenceFullPayload,
 } from "../../src/core/evidence-schema.js";
+import { EvidenceEntry as RuntimeEvidenceEntry } from "../../src/core/projection-schema.js";
 import {
   BatchId as RuntimeBatchId,
   Ceremony as RuntimeCeremony,
@@ -41,19 +42,18 @@ const BASE_EVIDENCE = {
 };
 
 describe("schemas dissolution divergence characterization", () => {
-  test("evidence full schemas use evidence_id in docs and id at runtime", () => {
-    const docsFixture = {
+  test("EvidenceEntry converges on the runtime projection schema", () => {
+    const fixture = {
       ...BASE_EVIDENCE,
       schema_version: 2,
-      evidence_id: "EV-000001",
+      id: "EV-000001",
       at: "2026-07-16T08:19:00.000Z",
     };
-    const runtimeFixture = { ...BASE_EVIDENCE, id: "EV-000001" };
 
-    expect(docs.EvidenceEntry.safeParse(docsFixture).success).toBe(true);
-    expect(RuntimeEvidenceFullPayload.safeParse(docsFixture).success).toBe(false);
-    expect(RuntimeEvidenceFullPayload.safeParse(runtimeFixture).success).toBe(true);
-    expect(docs.EvidenceEntry.safeParse(runtimeFixture).success).toBe(false);
+    expect(docs.EvidenceEntry).toBe(RuntimeEvidenceEntry);
+    expect(docs.EvidenceEntry.safeParse(fixture).success).toBe(true);
+    expect(RuntimeEvidenceEntry.safeParse(fixture).success).toBe(true);
+    expect(RuntimeEvidenceFullPayload.safeParse(BASE_EVIDENCE).success).toBe(false);
   });
 
   test("evidence add input converges on the runtime sidecar-capable schema", () => {

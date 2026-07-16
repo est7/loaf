@@ -13,6 +13,13 @@ import { z } from "zod";
 import type { WriteGuardConfig } from "./loaf-config.js";
 import type { WriteCategory } from "./step-write-paths.js";
 
+export const ChangedPath = z.object({
+  path: z.string(),
+  status: z.enum(["added", "modified", "deleted", "renamed", "untracked", "submodule"]),
+  source: z.enum(["worktree", "index", "untracked"]),
+});
+export type ChangedPath = z.infer<typeof ChangedPath>;
+
 // picomatch options: `dot:true` so `.loaf/**` and other dot-prefixed repo
 // paths match (default picomatch excludes dotfiles).
 const MATCH_OPTS = { dot: true } as const;

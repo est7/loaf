@@ -46,6 +46,14 @@ import { canSatisfy } from "../evidence-compat.js";
 import { isPassingResult } from "./evidence-result.js";
 import { evaluateTaskProof, verifyAcceptPolicy } from "./task-proof.js";
 
+export const VERIFY_ACCEPT_CHECKS = [
+  "all_applicable_checks_passed_or_waived",
+  "no_open_findings",
+  "all_required_coverage_satisfied",
+  "all_done_tasks_have_evidence",
+  "spec_reviewer_independence_if_deep",
+] as const;
+
 export type FailedCheck = {
   check: 1 | 2 | 3 | 4 | 5;
   code: // Slice 1.C sub-cycle 4: caller's responsibility (spec.md read failures

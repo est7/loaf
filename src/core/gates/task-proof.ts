@@ -18,6 +18,13 @@
 import type { Snapshot, TaskState, EvidenceState } from "../projection-types.js";
 import { isPassingResult } from "./evidence-result.js";
 
+export const TASK_CACHE_CONSISTENCY_CHECKS = [
+  "every_passed_step_has_at_least_one_passed_evidence",
+  "every_waived_step_has_at_least_one_waiver_evidence_with_reason",
+  "every_failed_step_has_at_least_one_failed_or_no_evidence",
+  "no_evidence_for_na_step",
+] as const;
+
 export type TaskProofGap = "no-passing-evidence" | "bug-red-unregistered";
 
 export interface TaskProofPolicy {

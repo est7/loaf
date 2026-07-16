@@ -9,6 +9,21 @@ import zhBundle from "../../i18n/zh.json" with { type: "json" };
 export const LOCALES = ["en", "zh"] as const;
 export type Locale = (typeof LOCALES)[number];
 
+export const I18N_BUNDLE_CATEGORIES = [
+  "evidence_kind",
+  "phase",
+  "sub_state",
+  "task_kind",
+  "step",
+  "verify_check_kind",
+  "finding_category",
+  "finding_action",
+  "gate",
+  "applicability",
+  "diagnostic",
+  "help",
+] as const;
+
 export type LocaleBundle = {
   readonly [key: string]: unknown;
 };

@@ -34,6 +34,17 @@ import type { Snapshot, TaskState } from "../projection-types.js";
 import { hasVerifiability } from "../spec-schema.js";
 import type { SpecFrontmatter } from "../spec-schema.js";
 
+export const SPEC_LOCK_CHECKS = [
+  "frontmatter_schema_valid",
+  "no_open_clarifications",
+  "tasks_based_on_current_spec",
+  "every_req_has_task",
+  "every_req_has_verifiability",
+  "every_e2e_scenario_acceptance_resolved",
+  "every_visual_contract_resolved",
+  "task_kind_schema_valid",
+] as const;
+
 export type FailedCheck = {
   check: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
   code:

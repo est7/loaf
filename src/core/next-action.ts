@@ -1,10 +1,12 @@
-import type { Ceremony, SubState } from "./journal-entry.js";
+import { z } from "zod";
+
+import { Ceremony, Phase, SubState } from "./journal-entry.js";
 import type { PendingQueueEntry } from "./projection-schema.js";
 import {
   buildGateDecideAction,
   gateNameForCursor,
+  NextAction,
   transitionOwnerFor,
-  type NextAction,
 } from "./reducer/transition.js";
 import type { VerifyCheckKind } from "./evidence-schema.js";
 
@@ -22,6 +24,24 @@ const VERIFY_LANE_BY_STATE = {
   "VERIFY.visual": "visual",
 } as const satisfies Partial<Record<SubState, VerifyCheckKind>>;
 
+export const NextOutput = z
+  .object({
+    ok: z.literal(true),
+    feature: z.string().min(1),
+    feature_dir: z.string().min(1),
+    cursor: z.object({ phase: Phase, sub_state: SubState }).strict(),
+    ceremony: Ceremony,
+    terminal: z.boolean(),
+    blocked: z.boolean(),
+    next_action: NextAction.optional(),
+  })
+  .strict()
+  .refine((output) => output.terminal || output.next_action !== undefined, {
+    message: "next_action is required for non-terminal states",
+  })
+  .refine((output) => !output.terminal || output.next_action === undefined, {
+    message: "next_action is omitted iff terminal=true",
+  });
 export type NextOutput = {
   ok: true;
   feature: string;

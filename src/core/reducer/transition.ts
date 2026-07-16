@@ -39,13 +39,10 @@
 //
 // Spec source: protocol.md §2.1 / §5.2, ADR-0005 §10.
 
-import type { Ceremony, GateName, SubState } from "../journal-entry.js";
-import {
-  gateNameForCursor,
-  MACHINE,
-  type MachineGuardName,
-  type MachineNode,
-} from "../machine.js";
+import { z } from "zod";
+
+import { GateName, PendingPromptKind, SubState, type Ceremony } from "../journal-entry.js";
+import { gateNameForCursor, MACHINE, type MachineGuardName, type MachineNode } from "../machine.js";
 
 export { gateNameForCursor };
 
@@ -63,6 +60,15 @@ function deriveLegalTransitions(): Record<SubState, readonly SubState[]> {
 
 export const LEGAL_TRANSITIONS = deriveLegalTransitions();
 
+export const NextOwnerVerb = z.enum([
+  "advance",
+  "deliver",
+  "settle",
+  "gate decide",
+  "profile escalate",
+  "pending resolve",
+  "tasks next",
+]);
 export type NextOwnerVerb =
   | "advance"
   | "deliver"
@@ -79,6 +85,15 @@ type PendingPromptKindValue =
   | "finding_decision"
   | "profile_escalation";
 
+export const NextAction = z
+  .object({
+    command: z.string().min(1),
+    owner_verb: NextOwnerVerb,
+    target: z.union([SubState, GateName, PendingPromptKind, z.literal("task-level")]).optional(),
+    blocking: z.boolean(),
+    reason: z.string().min(1),
+  })
+  .strict();
 export type NextAction = {
   command: string;
   owner_verb: NextOwnerVerb;
@@ -466,11 +481,12 @@ export function validateTransition(
 
   const node: MachineNode = MACHINE[prev];
   const edge = node.edges.find(
-    (candidate) =>
-      candidate.owner_kind === "event:phase_advanced" && candidate.target === target,
+    (candidate) => candidate.owner_kind === "event:phase_advanced" && candidate.target === target,
   );
   if (edge === undefined) {
-    throw new Error(`MACHINE forward edge missing after LEGAL_TRANSITIONS accepted ${prev} → ${target}`);
+    throw new Error(
+      `MACHINE forward edge missing after LEGAL_TRANSITIONS accepted ${prev} → ${target}`,
+    );
   }
 
   for (const guardName of edge.guards ?? []) {

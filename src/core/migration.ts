@@ -28,6 +28,7 @@ import { z } from "zod";
 import { appendEntry } from "./journal-append.js";
 import { emptyMeta } from "./snapshot.js";
 import { EvidenceKind, EvidenceResult } from "./evidence-schema.js";
+import { EntryKind } from "./journal-entry.js";
 import type { AttachmentRef, Ceremony, JournalEntry, SubState } from "./journal-entry.js";
 import type {
   EvidenceState,
@@ -38,6 +39,88 @@ import type {
   TaskState,
   TaskStepStatus,
 } from "./reducer.js";
+
+export const ENTRY_SCHEMA_VERSIONS = {
+  "event:phase_advanced": 1,
+  "event:ceremony_set": 1,
+  "event:tasks_planned": 1,
+  "event:tasks_amended": 1,
+  "event:task_claimed": 1,
+  "event:task_step_started": 1,
+  "event:task_step_done": 1,
+  "event:task_step_reset": 1,
+  "event:task_abandoned": 1,
+  "event:spec_req_added": 1,
+  "event:spec_scenario_added": 1,
+  "event:spec_visual_added": 1,
+  "event:spec_submitted": 1,
+  "evidence:added": 1,
+  "finding:raised": 1,
+  "finding:closed": 1,
+  "pending:added": 1,
+  "pending:resolved": 1,
+  "gate:decided": 1,
+  "session:started": 1,
+  "session:resumed": 1,
+  "session:delivered": 1,
+  "session:archived": 1,
+  "session:abandoned": 1,
+  "spike:converted": 1,
+  "migration:snapshot_imported": 1,
+} as const satisfies Record<z.infer<typeof EntryKind>, number>;
+
+export type Upcaster = (prevPayload: unknown) => unknown;
+
+export const UPCASTER_REGISTRY: Record<`${z.infer<typeof EntryKind>}@${number}`, Upcaster> = {};
+
+export const MIGRATION_V1_TO_V2_BOUNDARY = {
+  source_schema_version: 1,
+  target_schema_version: 2,
+
+  // v0.0.x file → migration sidecar path (relative to `.loaf/<feature>/`).
+  // The doctor copies each file to its sidecar path with tmp+rename, fsyncs
+  // file + parent dir, then computes sha256.
+  sidecar_layout: {
+    "state.json": "attachments/JE-000000/migration/state.json",
+    "tasks.json": "attachments/JE-000000/migration/tasks.json",
+    "spec.md": "attachments/JE-000000/migration/spec.md",
+    "evidence.jsonl": "attachments/JE-000000/migration/evidence.jsonl",
+    "findings.jsonl": "attachments/JE-000000/migration/findings.jsonl",
+    "pending.json": "attachments/JE-000000/migration/pending.json",
+  },
+
+  // Backup location for the original v0.0.x files. The doctor refuses to
+  // run unless this directory can be created adjacent to `.loaf/<feature>/`
+  // (MIGRATION_BACKUP_MISSING exit 2 if it cannot be made).
+  backup_path: "../<feature>.backup-v1/",
+
+  // The lone journal entry emitted at migration completion. Payload manifest
+  // shape is enforced by `.strict()` Zod in src/core/reducer (Gate #3).
+  journal_entry: {
+    seq: 0,
+    entry_id: "JE-000000",
+    actor_prefix: "migration:",
+    kind: "migration:snapshot_imported" as const,
+    payload_manifest_keys: ["state", "tasks", "spec_md", "evidence", "findings", "pending"],
+  },
+
+  // Legacy enum mapping: where each v0.0.x enum value lands after migration.
+  // The reducer DOES project legacy gate-decision evidence into a derived
+  // gate view, but DOES NOT fabricate new `gate:decided` history entries —
+  // this avoids the rev 2 "dual truth source" problem (ADR-0005 §5.2).
+  legacy_enum_routing: {
+    "evidence.jsonl.kind=gate-decision":
+      "migration sidecar → projected to evidence view + derived gate view (no new gate:decided)",
+    "evidence.jsonl.kind=test|review|visual|manual|waiver":
+      "migration sidecar → projected to evidence view",
+    "findings.jsonl.event=raised|closed": "migration sidecar → projected to findings view",
+    "pending.json.kind=ask_user_question|gate_decision|spec_clarification|finding_decision|profile_escalation":
+      "migration sidecar → projected to pending view",
+    "state.json.*": "migration sidecar → copied verbatim to in-memory state, then projected",
+    "tasks.json.tasks[]": "migration sidecar → copied to tasks projection",
+    "spec.md": "migration sidecar → copied to spec.md projection (post-submit shape)",
+  },
+} as const;
 
 // ── Legacy v0.0.x runtime validators (audit r4 fix) ─────────────────────
 // Legacy artifacts are free-form JSON / JSONL — TypeScript type assertions

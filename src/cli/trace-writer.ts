@@ -23,6 +23,24 @@
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { z } from "zod";
+
+import { SubState } from "../core/journal-entry.js";
+
+export const TraceEvent = z.object({
+  schema_version: z.literal(2),
+  at: z.string().datetime(),
+  session_id: z.string().uuid(),
+  iteration: z.number().int().positive(),
+  sub_state: SubState,
+  cmd: z.string(),
+  argv: z.array(z.string()),
+  exit: z.number().int(),
+  wall_ms: z.number().int().nonnegative(),
+  stdout_summary: z.string().optional(),
+  stderr_summary: z.string().optional(),
+});
+export type TraceEvent = z.infer<typeof TraceEvent>;
 
 export type TraceEntry = {
   schema_version: 2;
