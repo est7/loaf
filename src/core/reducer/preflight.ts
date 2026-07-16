@@ -131,7 +131,7 @@ export type PreflightFailureCode =
   // boundary unenforced (verify-accept check 4 only scans done tasks).
   | "EXECUTE_DONE_TASKS_NOT_FINAL"
   // Slice 3 SC3 — FINDING_ACTION_GRID + target_payload preflight
-  // (protocol §4.5 / docs/schemas.ts §37 / codex r68 sign-off).
+  // (protocol §4.5 / src/core/finding-schema.ts / codex r68 sign-off).
   // INCOHERENT: 4 grid cells where structure offers no transition
   // target (spec-gap × {fix-impl,fix-test}, new-scope × same).
   // UNUSUAL_REASON_REQUIRED: unusual cells require --reason ≥20 chars.
@@ -206,7 +206,7 @@ export type PreflightFailureCode =
   | "SPEC_VERSION_NOT_MONOTONIC"
   | "SPEC_VERSION_BATCH_MISMATCH"
   // Slice C SC-C2b — event:tasks_amended §8.6 mutation rights. Promoted
-  // from the protocol-named code (docs/schemas.ts §8.6) to a preflight
+  // from the protocol-named code to a preflight
   // failure so `tasks amend` surfaces the actionable diagnostic. Fires
   // when: a mode=replace amend at EXECUTE.plan changes a frozen field
   // (graph / kind-flag / step set / step status / illegal status move);
@@ -1592,7 +1592,7 @@ function checkTaskStepReset(c: PreflightCheckCtx): PreflightFailure | null {
     // codex r140 P1 — a fix-impl/fix-test step reset may reopen a `done`
     // task (r139 Q5: a done task's step cannot otherwise be re-run), but
     // `abandoned` is a TERMINAL status and must NOT be reactivated
-    // (protocol.md — abandoned is a final task status; docs/schemas.ts —
+    // (protocol.md — abandoned is a final task status; task-schema.ts —
     // abandoned tasks cannot be reactivated). The reducer rewrites the target
     // task to `in_progress`; without this guard a fix finding targeting an
     // abandoned task would resurrect it. The guard is action-agnostic — it

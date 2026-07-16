@@ -15,6 +15,7 @@ import path from "node:path";
 import os from "node:os";
 
 import { main } from "../../src/cli.js";
+import { FLAG_EXCLUSIONS } from "../../src/cli/flag-exclusions.js";
 import {
   createCommandContext,
   parsePresentation,
@@ -447,8 +448,7 @@ describe("Phase 16 SC-5b1 — RED #24: parsePresentation + parsePlain helpers", 
 // ───────────────────────────────────────────────────────────────────
 
 describe("Phase 16 SC-5b1 — RED #25: FLAG_EXCLUSIONS.output_format normalization", () => {
-  test("FLAG_EXCLUSIONS.output_format contains --plain key and --format=text/json", async () => {
-    const { FLAG_EXCLUSIONS } = await import("../../docs/schemas.js");
+  test("FLAG_EXCLUSIONS.output_format contains --plain key and --format=text/json", () => {
     const outputFormat = FLAG_EXCLUSIONS.sets.find((s) => s.name === "output_format");
     expect(outputFormat).toBeDefined();
     const keys = Object.keys(outputFormat!.normalization);

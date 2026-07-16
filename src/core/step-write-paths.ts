@@ -1,17 +1,16 @@
-// Phase 16 SC-15c — runtime mirror of the canonical write-path + write-
-// category tables in `docs/schemas.ts`:
+// Phase 16 SC-15c — canonical write-path and category tables owned by
+// this module:
 //   - STEP_WRITE_PATHS_BY_KIND        (§27)
 //   - VERIFY_CHECK_WRITE_PATHS        (§27)
 //   - STEP_WRITE_CATEGORIES_BY_KIND   (§27b)
 //   - VERIFY_CHECK_WRITE_CATEGORIES   (§27b)
 //
 // Stable-core does NOT import from docs/ (project pattern, same as
-// hook-events.ts / sub-state-contracts.ts). The lockstep test at
-// `tests/cli/step-write-paths-runtime-lockstep.test.ts` catches drift.
+// hook-events.ts / sub-state-contracts.ts).
 //
 // The category tables are the write-guard SECURITY BOUNDARY: they decide
 // which `loaf.config.json paths.<category>` keys may widen a given step's
-// built-in globs. They are canonical in docs/schemas.ts (§27b) precisely
+// built-in globs. They are canonical here precisely
 // because they are a public authorization rule, not an implementation
 // detail.
 

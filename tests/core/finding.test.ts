@@ -10,7 +10,7 @@
 //   - 3 CLI verbs: raise / list / close (positional <FND-id>).
 //   - Schema tighten: FindingId `^FND-\d{3,}$`, FindingCategory (6 enum),
 //     FindingAction (6 enum), summary/reason/target as typed optional
-//     payload fields (mirror docs/schemas.ts §5/§37).
+//     payload fields (src/core/finding-schema.ts).
 //   - FINDING_ACTION_GRID 6×6 (typical/unusual/incoherent per
 //     FindingActionRisk; rev 4.3 ADR-0004 A7); incoherent block →
 //     FINDING_ACTION_INCOHERENT; unusual requires --reason ≥20 →

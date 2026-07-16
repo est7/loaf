@@ -197,7 +197,7 @@ const LegacyPendingSchema = z
 // runtime checks, `covers:"not-array"` / `status:"nonsense"` enter the
 // typed Snapshot. JSONL is parsed per-line so the schema applies per-record.
 // Slice 1.C sub-cycle 1 (codex r34 BLOCK 1 + r35 fix): kind stays loose
-// at parse time because docs/schemas.ts:741-749 + ADR-0005:716-720
+// at parse time because the legacy contract + ADR-0005:716-720
 // document v0.0.x evidence.jsonl.kind values (`test/review/visual/manual/
 // waiver/gate-decision`) that DO NOT all match the new EvidenceKind enum.
 // Normalized via LEGACY_EVIDENCE_KIND_MAP at migration time; truly unknown
@@ -215,7 +215,7 @@ const LegacyEvidenceSchema = z
   })
   .passthrough();
 
-// v0.0.x → v2 evidence kind normalization (docs/schemas.ts:741-749 +
+// v0.0.x → v2 evidence kind normalization (legacy contract +
 // ADR-0005:720). The 3 renamed kinds map to their new spelling; the 3
 // already-valid kinds pass through; anything else throws below.
 const LEGACY_EVIDENCE_KIND_MAP: Record<string, EvidenceKind | undefined> = {
@@ -695,7 +695,7 @@ export async function rehydrateMigration(
     if (normalizedKind === undefined) {
       throw new MigrationError(
         "MIGRATION_INCOMPLETE",
-        `legacy evidence.jsonl line ${idx + 1} has unknown kind=${JSON.stringify(e.kind)}; expected one of ${Object.keys(LEGACY_EVIDENCE_KIND_MAP).join("/")} (docs/schemas.ts:741-749 + ADR-0005:716-720)`,
+        `legacy evidence.jsonl line ${idx + 1} has unknown kind=${JSON.stringify(e.kind)}; expected one of ${Object.keys(LEGACY_EVIDENCE_KIND_MAP).join("/")} (ADR-0005:716-720)`,
         { sidecar: "evidence.jsonl", line: idx + 1, legacy_kind: e.kind },
       );
     }

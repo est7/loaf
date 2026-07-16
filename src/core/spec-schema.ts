@@ -10,7 +10,7 @@
 // Single source of truth: hasVerifiability() — both the refine in
 // RequirementEarsVerifiable AND spec-lock check 5 call this helper, so the
 // three-way rule (measurable | verified_by_scenarios[] | acceptance_na +
-// reason ≥ 10 chars) is mirrored from docs/schemas.ts §7 in exactly one
+// reason ≥ 10 chars) is owned here in exactly one
 // place at runtime.
 
 import { z } from "zod";
@@ -22,7 +22,7 @@ import { z } from "zod";
 export const SCHEMA_VERSION = 2 as const;
 export const SchemaVersionPayload = z.literal(SCHEMA_VERSION);
 
-// ── ID regexes (mirrored from docs/schemas.ts §7-9) ─────────────────────
+// ── ID regexes (protocol §§4.2-4.3) ─────────────────────────────────────
 
 export const ReqIdPayload = z.string().regex(/^REQ-[A-Z][A-Z0-9]*-\d{3,}$/);
 export const ScenIdPayload = z.string().regex(/^SCEN-[A-Z][A-Z0-9-]*-\d{3,}$/);

@@ -1,9 +1,7 @@
 // Phase 16 SC-7 — runtime import-boundary guard.
 //
-// Per codex r280 P1: runtime core modules must NOT import from
-// `docs/schemas.ts`. The canonical Zod source lives in docs/, but
-// `src/core/*` mirrors the subset it needs in `src/core/projection-schema.ts`
-// (matching the existing StateProjection / TasksJson / etc. pattern).
+// Per codex r280 P1: runtime core modules must NOT import from docs/.
+// Canonical Zod sources live with their runtime domain owners.
 //
 // This guard scans src/core/registry-writer.ts (the SC-7 new module)
 // AND src/core/journal-mutate.ts (which gained registry imports) +
@@ -27,7 +25,7 @@ describe("SC-7 — runtime ↔ docs import boundary", () => {
     expect(source).not.toMatch(/import\s+["'][^"']*docs\//);
   });
 
-  test("src/core/projection-schema.ts (the runtime mirror) does NOT import from docs/", async () => {
+  test("src/core/projection-schema.ts (the runtime owner) does NOT import from docs/", async () => {
     const source = await readRepo("src/core/projection-schema.ts");
     expect(source).not.toMatch(/from\s+["'][^"']*docs\//);
   });

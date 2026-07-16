@@ -1,23 +1,18 @@
-// Phase 16 SC-13a — runtime mirror of `docs/schemas.ts:ResumePack`.
+// Phase 16 SC-13a — canonical ResumePack runtime contract.
 //
 // Stable-core layer does not import from docs/ directly (per project
-// pattern). Drift between this mirror and docs is caught by
-// `tests/cli/resume-pack-runtime-lockstep.test.ts` which feeds the same
-// fixtures through both schemas.
+// pattern). `tests/cli/resume-pack-schema.test.ts` pins this owner directly.
 //
-// Field-level naming asymmetry preserved:
-//   - docs uses `PendingPromptEntry` (defined in docs/schemas.ts)
-//   - runtime uses `PendingQueueEntry` (from projection-schema.ts)
-// Both have the same JSON shape; the lockstep test exercises that.
+// PendingQueueEntry comes from projection-schema.ts and carries the public JSON shape.
 
 import { z } from "zod";
 import { PendingQueueEntry, StateProjection } from "./projection-schema.js";
 
 /** Cap on `recent_evidence` / `recent_findings` arrays per ResumePack.
- *  Mirrored in `docs/schemas.ts:RESUME_PACK_RECENT_CAP`. */
+ *  Shared by both recent-id arrays below. */
 export const RESUME_PACK_RECENT_CAP = 10;
 
-/** TasksActiveSummary — mirror of docs/schemas.ts §20.
+/** TasksActiveSummary — resume-pack active-task projection.
  *  current_step is null when no step on the in_progress/ready task is
  *  currently running (i.e. between steps or paused). */
 export const TasksActiveSummary = z

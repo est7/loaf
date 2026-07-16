@@ -10,6 +10,7 @@ import {
   RequirementEarsVerifiable,
   SpecFrontmatter,
   SpecSubmitInput,
+  VisualContract,
   hasVerifiability,
 } from "../../src/core/spec-schema.js";
 
@@ -154,6 +155,19 @@ describe("SpecFrontmatter — uses structural shape so missing verifiability sli
       requirements: [],
     });
     expect(parsed.success).toBe(false);
+  });
+});
+
+describe("VisualContract — extensible projection shape", () => {
+  test("preserves compatible unknown fields", () => {
+    const parsed = VisualContract.parse({
+      id: "VIS-UI-001",
+      target: "settings screen",
+      checks: ["matches approved layout"],
+      adr_refs: ["ADR-0042"],
+    });
+
+    expect(parsed).toHaveProperty("adr_refs", ["ADR-0042"]);
   });
 });
 

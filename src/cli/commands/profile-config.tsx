@@ -18,7 +18,7 @@ import os from "node:os";
 
 // ── loaf config init — scaffold project/user config (no journal entry) ──
 const CONFIG_INIT_COMMENT =
-  "Scaffolded by `loaf config init`. Semantic schema: docs/schemas.ts §21 LoafConfig. " +
+  "Scaffolded by `loaf config init`. Machine contract: src/core/loaf-config.ts LoafConfig. " +
   "This _comment key is an output affordance only; loaf-cli parses the semantic config without it.";
 
 function serializeStableJson(value: unknown): string {
@@ -112,7 +112,7 @@ export function registerProfileConfig(
   // ── loaf profile <subcommand> ───────────────────────────────────────
   // Phase 13 — `profile escalate` applies a ceremony escalation (protocol
   // §10.8 / §1918). Escalation POLICY (which preset to escalate to) is a
-  // skill concern (schemas.ts §24): the skill computes the new 6-flag
+  // skill concern (src/core/escalation-schema.ts): the skill computes the new 6-flag
   // Ceremony and passes it via --input. This command does the atomic
   // [event:ceremony_set, pending:resolved] batch + the ESCALATION_NOT_PENDING
   // head guard. event:ceremony_set is ordered FIRST so preflight 5c.4 still
@@ -304,7 +304,7 @@ export function registerProfileConfig(
   //       migrated journal, serialization/write failure, missing --feature,
   //       bare `doctor` without an implemented mode). All routed through
   //       emitFailure to keep ERROR_CATALOG ⇔ runtime exit_code in agreement
-  //       (docs/schemas.ts:5042-5063 lists DOCTOR_REBUILD_FAILED /
+  //       (src/core/error-catalog.ts lists DOCTOR_REBUILD_FAILED /
   //       DOCTOR_REBUILD_MIGRATED_UNSUPPORTED with exit_code: 2).
   //   Exit 1 is reserved for unhandled throws caught by the top-level
   //   boundary at the end of main(), which also writes ~/.loaf/crashes/.

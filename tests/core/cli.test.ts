@@ -4485,7 +4485,7 @@ describe("loaf config init", () => {
 
     const written = JSON.parse(await fs.readFile(configPath, "utf8")) as Record<string, unknown>;
     expect(typeof written["_comment"]).toBe("string");
-    expect(written["_comment"]).toContain("docs/schemas.ts");
+    expect(written["_comment"]).toContain("src/core/loaf-config.ts");
     delete written["_comment"];
     expect(LoafConfig.parse(written)).toEqual(defaultLoafConfig());
     await expect(fs.stat(path.join(repo, ".loaf", "journal.jsonl"))).rejects.toMatchObject({

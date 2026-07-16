@@ -177,7 +177,6 @@ describe("Phase 16 SC-5a — RED #19: surface-wide '--json' grep gate", () => {
   // matches one of the entries in `allowedHistoryLineFragments`.
   const inGateFiles: string[] = [
     "docs/protocol.md",
-    "docs/schemas.ts",
     "docs/e2e-scenarios.md",
     "docs/index.html",
     "docs/references/incremental-construction.md",

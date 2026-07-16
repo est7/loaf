@@ -6,21 +6,20 @@
 // snapshots/`. The on-disk read contracts these schemas validate:
 //
 //   state.json     → StateProjection (Phase 15 SC1 — F-019)
-//   tasks.json     → TasksJson      (mirrors docs/schemas.ts §14)
+//   tasks.json     → TasksJson
 //   evidence.json  → EvidenceJson   (new container, codex r156 Q2)
 //   findings.json  → FindingsJson   (new container — finding-state list)
 //   pending.json   → PendingJson    (new container — projection entries)
 //
 // Phase 15 SC1 split the old monolithic `StateJson` into `StateProjection`
 // (the journal-derived half, below) and `SessionRuntimeFile`
-// (docs/schemas.ts §11b — machine-local `cwd` / `debug` / `heartbeat_at`,
+// (machine-local `cwd` / `debug` / `heartbeat_at`,
 // never replay-derived, never written by `--rebuild`). `complexity_score`
 // has no journal source yet and stays `null` in the projection (F-019).
 //
 // Layering mirrors the other neutral `*-schema.ts` modules: this module
 // imports the per-domain payload shapes (TaskFullPayload / EvidenceFullShape)
-// and composes the container schemas. The canonical mirror of these schemas
-// lives in docs/schemas.ts §14/§16/§17 (Zod source-of-truth doc).
+// and composes the canonical container schemas.
 //
 // `EvidenceJson` / `FindingsJson` / `PendingJson` carry NO `version` field:
 // only `TasksJson.version` is justified (whole-replacement task-plan
@@ -34,8 +33,7 @@ import { EvidenceFullShape, EvidenceKind, EvidenceResult } from "./evidence-sche
 import { FindingAction, FindingCategory } from "./finding-schema.js";
 import { Ceremony, PendingId, PendingPromptKind, SubState } from "./journal-entry.js";
 
-// Projection schema-version pin — mirrors docs/schemas.ts:417-418
-// (SchemaVersion = z.literal(2)) and snapshot.ts FEATURE_SCHEMA_VERSION.
+// Projection schema-version pin shared with snapshot.ts FEATURE_SCHEMA_VERSION.
 export const PROJECTION_SCHEMA_VERSION = 2 as const;
 const SchemaVersionLiteral = z.literal(PROJECTION_SCHEMA_VERSION);
 
@@ -50,7 +48,7 @@ export const SessionRuntimeFile = z
   .strict();
 export type SessionRuntimeFile = z.infer<typeof SessionRuntimeFile>;
 
-// ── tasks.json — TasksJson (mirror docs/schemas.ts §14:1672-1678) ───────
+// ── tasks.json — TasksJson ──────────────────────────────────────────────
 //
 // Whole-replacement task-plan contract: `version` counts the
 // `event:tasks_planned` + `event:tasks_amended` entries on the journal.
@@ -92,8 +90,8 @@ export type EvidenceJson = z.infer<typeof EvidenceJson>;
 // The slim `FindingState` projection IS the findings.json item shape —
 // the reducer already projects every field a reader needs (id / category /
 // action / status + payload-derived summary / reason / target). NOT the
-// legacy §17 `FindingsEvent` jsonl event schema (see docs/schemas.ts §17
-// annotation): that is the per-event journal/jsonl form; this is the
+// legacy `FindingsEvent` jsonl event schema: that is the per-event
+// journal/jsonl form; this is the
 // finding-STATE list a `--rebuild` materializes.
 //
 // category / action use the closed `FindingCategory` / `FindingAction`
@@ -178,12 +176,12 @@ export type PendingJson = z.infer<typeof PendingJson>;
 // ── state.json — StateProjection (Phase 15 SC1, F-019) ──────────────────
 //
 // The journal-derived half of the rev-4.0 `StateJson` read contract
-// (docs/schemas.ts §11). `loaf doctor --rebuild` re-serializes this from
+// `loaf doctor --rebuild` re-serializes this from
 // journal truth alone; mutate step 8 (Phase 15 SC3) will maintain it live.
 //
 // The non-journal half of the old monolith — `cwd` / `debug` /
-// `heartbeat_at` — split out to `SessionRuntimeFile` (docs/schemas.ts
-// §11b): machine-local liveness, never replay-derived, never written by
+// `heartbeat_at` — split out to `SessionRuntimeFile`: machine-local liveness,
+// never replay-derived, never written by
 // `--rebuild` (codex r167 Q3).
 //
 // Bucket-C identity fields (`session_label` / `workspace` /
@@ -250,20 +248,20 @@ export type StateProjection = z.infer<typeof StateProjection>;
 
 // ── ~/.loaf/registry/<session_id>.json — RegistryFile (Phase 16 SC-7) ──
 //
-// Per-session TUI projection (protocol §4.12 + schemas.ts §RegistryFile
+// Per-session TUI projection (protocol §4.12 + RegistryFile
 // canonical). Atomic temp+rename write at `~/.loaf/registry/<id>.json`,
 // mode 0o600. Best-effort derived projection — NEVER gate authority;
 // readers (TUI / sessions list) tolerate stale, doctor --rebuild-registry
 // reconstructs from canonical artifacts (future SC).
 //
-// Runtime mirror of docs/schemas.ts §RegistryFile. Lives here to keep the
-// runtime ↔ docs boundary clean (no src/ imports from docs/, enforced by
+// Canonical RegistryFile runtime contract. Lives here to keep the
+// runtime dependency boundary clean (no src/ imports from docs/, enforced by
 // tests/scripts/sc7-runtime-import-gate.test.ts per codex r280 P1).
 //
 // Field derivation contract (mirrors composeStateProjection from
 // projection-writer.ts):
 //   - session_label = SessionStartedPayload.session_label ?? ""
-//     (NOT nullable per docs/schemas.ts:1552-1557 — empty-string fallback
+//     (NOT nullable — empty-string fallback
 //     is the narrowest schema-valid choice; codex r280 P2)
 //   - workspace = SessionStartedPayload.workspace ?? "default"
 //   - ceremony_label = SessionStartedPayload.ceremony_label ?? ""
@@ -283,7 +281,7 @@ export const RegistryFile = z
     session_id: z.string().uuid(),
     // Non-nullable string with empty-string fallback (codex r280 P2).
     session_label: z.string(),
-    // Phase 16 SC-7 (codex r281 P2 — runtime + docs/schemas.ts in lockstep):
+    // Phase 16 SC-7 (codex r281 P2):
     // `.min(1)` matches `SessionStartedPayload.feature`. Kebab-case is
     // convention for production users but not enforced at journal level,
     // so the registry projection accepts whatever the journal carries.

@@ -12,7 +12,7 @@ import { z } from "zod";
 // rev 4.3 first added 9 new codes (A3/A4/A6/A7) + canonicalized a
 // handful of pre-existing codes (MUTUALLY_EXCLUSIVE_FLAGS /
 // INVALID_ENV_VALUE / TASK_STATUS_WITHOUT_PROOF) referenced from
-// schemas.ts. The subsequent drift sweep (rev 4.3 refactor C; see
+// the former schema monolith. The subsequent drift sweep (rev 4.3 refactor C; see
 // ADR-0004 「未在本 ADR 处理的项」) migrates all remaining
 // protocol.md §10.5 codes into this enum: spec-lock checks
 // (MISSING_VERIFIABILITY / VAGUE_NO_SCENARIO / DRIVES_NOT_BOUND),
@@ -68,7 +68,7 @@ export const DiagnosticCode = z.enum([
   // in the rev 4.3 ADR-0004 A4 block above. Slice 4 SC3 wires them
   // through preflight refines (5i); no DiagnosticCode/ERROR_CATALOG
   // additions needed here.
-  // ── pre-rev-4.3 codes already referenced from schemas.ts ──
+  // ── pre-rev-4.3 codes already referenced from the former contract ──
   "MUTUALLY_EXCLUSIVE_FLAGS",              // §35 FLAG_EXCLUSIONS
   "INVALID_ENV_VALUE",                     // §35 commentary
   "INVALID_FORMAT",                        // Phase 16 SC-5a — --format <text|json> validation
@@ -128,7 +128,7 @@ export const DiagnosticCode = z.enum([
   // promoted them to PreflightFailureCode and registered the canonical
   // public catalog entries below alongside the other Slice E codes
   // (search for "Slice E — SPEC_VERSION_*"); duplicate rows here have
-  // been removed so docs/schemas.ts represents a single source of truth.
+  // been removed so this catalog represents a single source of truth.
   "DUPLICATE_REQ_ID",                      // src/core/reducer.ts spec_req_added — id already in requirements[]
   "DUPLICATE_SCEN_ID",                     // src/core/reducer.ts spec_scenario_added — id already in scenarios[]
   "DUPLICATE_VIS_ID",                      // src/core/reducer.ts spec_visual_added — id already in visual_contracts[]
@@ -1077,7 +1077,7 @@ export const ERROR_CATALOG: Record<DiagnosticCode, ErrorEntry> = {
   GATE_NOT_IMPLEMENTED: {
     exit_code: 2,
     // NOTE on placeholder syntax (codex r45 catch): {curly} is mustache-style
-    // placeholder syntax (docs/schemas.ts:2821-2822). Avoid literal curly
+    // placeholder syntax. Avoid literal curly
     // braces in templates; use backticks for inline code instead.
     message_template:
       "gate={gate} is not recognized; protocol GateName enum is closed at `spec-lock` or `verify-accept` for v0.1.0",

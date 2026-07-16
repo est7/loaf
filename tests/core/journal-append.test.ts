@@ -1,6 +1,6 @@
 // Stage 1 — journal-append acceptance tests (TDD vertical slices).
 //
-// Spec source: docs/protocol.md §11.2 + docs/schemas.ts §0a + ADR-0005 §3.2 / §3.5.
+// Spec source: docs/protocol.md §11.2 + src/core/journal-entry.ts + ADR-0005 §3.2 / §3.5.
 // Tests verify behavior through the public `appendEntry` API, not implementation
 // details. Each test is a vertical slice (one behavior → one impl cycle).
 

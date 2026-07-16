@@ -1,7 +1,7 @@
 // Evidence compatibility — canSatisfy() + EVIDENCE_COMPAT table.
 //
-// Slice 1.C sub-cycle 2 (codex r33 Q2 lock): port of docs/schemas.ts §16
-// (lines 1781-1824) to a stable core module. Used by:
+// Slice 1.C sub-cycle 2 (codex r33 Q2 lock): canonical compatibility
+// policy in a stable core module. Used by:
 //   - gates/verify-accept-check.ts (Slice 1.C sub-cycle 3) check 3:
 //     every REQ/SCEN/VIS (non *_na) has ≥1 evidence passing canSatisfy()
 //   - loaf evidence add CLI (Slice 3 ledger surface) for input-time
@@ -39,7 +39,7 @@ export interface CompatRule {
   readonly requires_attachment_for_visual_review?: boolean;
 }
 
-// 1:1 mirror of docs/schemas.ts §16:1800-1824. Update both in lockstep if
+// Canonical compatibility table. Update this owner if
 // the protocol adds an evidence kind or a coverage-id family.
 export const EVIDENCE_COMPAT: Record<IdKind, CompatRule> = {
   REQ: {

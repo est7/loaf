@@ -16,6 +16,14 @@ import {
   formatSchema,
   type ArtifactSchemaKind,
 } from "../../src/cli/schema-emit.js";
+import { INPUT_SCHEMAS } from "../../src/cli/input-schemas.js";
+import { EvidenceAddInputBatched } from "../../src/core/evidence-schema.js";
+import {
+  SpecAddReqInput,
+  SpecAddScenarioInput,
+  SpecAddVisualInput,
+} from "../../src/core/spec-schema.js";
+import { TaskInputBatched } from "../../src/core/task-schema.js";
 
 const DRAFT = "https://json-schema.org/draft/2020-12/schema";
 
@@ -147,5 +155,31 @@ describe("hasPropertyDeep — schema walker", () => {
 
   test("returns false when missing", () => {
     expect(hasPropertyDeep({ properties: { a: {} } }, "z")).toBe(false);
+  });
+});
+
+describe("current public schema output baseline", () => {
+  const inputSurfaces: Array<Parameters<typeof emitInputSchema>[0]> = [
+    "spec:add-req",
+    "spec:add-scenario",
+    "spec:add-visual",
+    "tasks:add",
+    "evidence:add",
+  ];
+
+  test("input registry reuses the exact mutation-path schemas", () => {
+    expect(INPUT_SCHEMAS["spec:add-req"]).toBe(SpecAddReqInput);
+    expect(INPUT_SCHEMAS["spec:add-scenario"]).toBe(SpecAddScenarioInput);
+    expect(INPUT_SCHEMAS["spec:add-visual"]).toBe(SpecAddVisualInput);
+    expect(INPUT_SCHEMAS["tasks:add"]).toBe(TaskInputBatched);
+    expect(INPUT_SCHEMAS["evidence:add"]).toBe(EvidenceAddInputBatched);
+  });
+
+  test.each(inputSurfaces)("input:%s", (surface) => {
+    expect(formatSchema(emitInputSchema(surface))).toMatchSnapshot();
+  });
+
+  test.each(ARTIFACT_SCHEMA_KINDS)("artifact:%s", (surface) => {
+    expect(formatSchema(emitArtifactSchema(surface))).toMatchSnapshot();
   });
 });

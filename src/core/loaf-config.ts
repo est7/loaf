@@ -20,7 +20,7 @@ import { Ceremony } from "./journal-entry.js";
 
 const CONFIG_SCHEMA_VERSION = 2;
 
-// Mirror of docs/schemas.ts:LoafConfig.paths (§21). Defaults match the
+// Canonical LoafConfig.paths contract. Defaults match the
 // canonical schema so an omitted key behaves identically to docs semantics
 // (and the defaults overlap the built-in step globs, so they widen nothing
 // new). public_api / schema / security default empty — dormant in v0.1.0.
@@ -46,7 +46,7 @@ export const WriteGuardConfig = z.object({
 });
 export type WriteGuardConfig = z.infer<typeof WriteGuardConfig>;
 
-// Runtime mirror of docs/schemas.ts:LoafConfig (§21). loaf-cli owns the
+// Canonical LoafConfig contract. loaf-cli owns the
 // config file syntax and default serialization, but only slice-specific
 // readers interpret their own sections. Keep WriteGuardConfig separate so a
 // malformed skill-owned section cannot block the write-guard slice parser.

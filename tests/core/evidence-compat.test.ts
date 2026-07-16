@@ -1,6 +1,6 @@
 // evidence-compat — Slice 1.C sub-cycle 2.
 //
-// Port of docs/schemas.ts §16 EVIDENCE_COMPAT + canSatisfy() helper to the
+// EVIDENCE_COMPAT + canSatisfy() canonical runtime tests for the
 // stable core. Used by gates/verify-accept-check.ts (Slice 1.C sub-cycle 3)
 // check 3 (REQ/SCEN/VIS canSatisfy) and future loaf evidence add CLI (Slice 3
 // ledger surface).
@@ -77,7 +77,7 @@ describe("parseIdKind", () => {
 });
 
 // ───────────────────────────────────────────────────────────────────────
-// EVIDENCE_COMPAT table mirror — matches docs/schemas.ts §16:1800-1824
+// EVIDENCE_COMPAT table contract
 // ───────────────────────────────────────────────────────────────────────
 
 describe("EVIDENCE_COMPAT table mirror (docs §16:1800-1824)", () => {

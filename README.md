@@ -113,7 +113,7 @@ tests/core/    # real-FS integration + unit tests (no mocking)
 ## References
 
 - [`docs/protocol.md`](docs/protocol.md) — protocol spec rev 5.0 (§10.8 = CLI surface)
-- [`docs/schemas.ts`](docs/schemas.ts) — Zod source of truth + `ERROR_CATALOG` + `DiagnosticCode` enum
+- [`docs/machine-contract.md`](docs/machine-contract.md) — runtime machine-contract owner index + schema emission entry points
 - [`docs/adr/0005-truth-model-single-typed-journal.md`](docs/adr/0005-truth-model-single-typed-journal.md) — current truth model
 - [`skills/CONTRACT.md`](skills/CONTRACT.md) — loaf-cli ↔ loaf-skill boundary
 - [`CHANGELOG.md`](CHANGELOG.md) — release notes

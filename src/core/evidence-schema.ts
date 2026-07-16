@@ -34,7 +34,7 @@ import { z } from "zod";
 import { ReqIdPayload, ScenIdPayload, VisIdPayload } from "./spec-schema.js";
 import { TaskIdPayload } from "./task-schema.js";
 
-// ── EvidenceKind / EvidenceResult enums (mirror docs/schemas.ts §6) ─────
+// ── EvidenceKind / EvidenceResult enums ─────────────────────────────────
 
 export const EvidenceKind = z.enum([
   "task-summary", // per-task closing summary
@@ -53,7 +53,7 @@ export type EvidenceKind = z.infer<typeof EvidenceKind>;
 export const EvidenceResult = z.enum(["passed", "failed", "approved", "rejected", "waived"]);
 export type EvidenceResult = z.infer<typeof EvidenceResult>;
 
-// ── VerifyCheckKind (mirror docs/schemas.ts §4) ─────────────────────────
+// ── VerifyCheckKind ─────────────────────────────────────────────────────
 
 export const VerifyCheckKind = z.enum([
   "run", // test + lint + type-check
@@ -63,7 +63,7 @@ export const VerifyCheckKind = z.enum([
 ]);
 export type VerifyCheckKind = z.infer<typeof VerifyCheckKind>;
 
-// ── GateName (colocated mirror of docs/schemas.ts §4 GateName) ──────────
+// ── GateName (colocated protocol enum) ──────────────────────────────────
 //
 // journal-entry.ts also exports a GateName enum. We colocate here to avoid
 // a journal-entry → evidence-schema reverse import cycle. The two enums
@@ -72,7 +72,7 @@ export type VerifyCheckKind = z.infer<typeof VerifyCheckKind>;
 export const GateNamePayload = z.enum(["spec-lock", "verify-accept"]);
 export type GateNamePayload = z.infer<typeof GateNamePayload>;
 
-// ── Attachment (mirror docs/schemas.ts §16:1695-1700) ───────────────────
+// ── Attachment ──────────────────────────────────────────────────────────
 
 export const AttachmentPayload = z
   .object({
@@ -84,7 +84,7 @@ export const AttachmentPayload = z
   .strict();
 export type AttachmentPayload = z.infer<typeof AttachmentPayload>;
 
-// ── LongTextField (mirror docs/schemas.ts §0a:487-491) ──────────────────
+// ── LongTextField ───────────────────────────────────────────────────────
 //
 // Inline values stay below sidecar threshold; oversized inline values are
 // promoted to sidecar form by `promoteSidecars()` during Pass 2 of
@@ -111,7 +111,7 @@ export type LongTextFieldPayload = z.infer<typeof LongTextFieldPayload>;
 // feeds a >sidecar-threshold body that Pass 2 promotes to a sidecar file.
 const SummaryField = z.union([z.string().min(3), LongTextFieldPayload]);
 
-// ── ID + CoversRef (mirror docs/schemas.ts §16:1692, §16 EvidenceEntry) ─
+// ── ID + CoversRef ──────────────────────────────────────────────────────
 
 export const EvidenceIdPayload = z.string().regex(/^EV-\d{6,}$/);
 

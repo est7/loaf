@@ -6,8 +6,8 @@
 // progressively alongside the reducer (src/core/reducer/* — Stage 2+); Stage 1
 // treats payload as z.unknown() and only enforces the envelope.
 //
-// This module is the canonical runtime owner. docs/schemas.ts is a compatibility
-// facade; protocol.md §11.2 defines the observable transaction contract.
+// This module is the canonical runtime owner; protocol.md §11.2 defines the
+// observable transaction contract.
 
 import { z } from "zod";
 
@@ -481,7 +481,7 @@ export const TasksAmendedPayload = z
   .strict();
 
 // Slice 1.C sub-cycle 1 (codex r34 BLOCK 2 fix): EvidenceAddedPayload is the
-// strict, full mirror of docs/schemas.ts §16 EvidenceEntry (modulo
+// strict, full evidence-entry payload shape (modulo
 // schema_version + at which live on the envelope). `.strict()` rejects
 // unknown keys at append time. Cross-field refines fire here:
 //   - manual/waiver: actor must start with human:*, reason ≥10 chars
@@ -489,7 +489,7 @@ export const TasksAmendedPayload = z
 // All 17 documented EvidenceEntry payload fields are validated.
 export const EvidenceAddedPayload = EvidenceFullPayload;
 
-// Slice 3 SC3 (codex r68): mirror docs/schemas.ts §5/§16 canonical shapes.
+// Slice 3 SC3 (codex r68): canonical finding/evidence payload shapes.
 // Closed category/action enums + canonical FindingId regex catch typos
 // at append time — preflight grid + target refines (see preflight.ts) run
 // against the parsed typed payload. summary/reason/target are accepted as
@@ -512,7 +512,7 @@ export const FindingClosedPayload = z
   })
   .passthrough();
 
-// Slice 3 SC1 (codex r64 BLOCK 1+2+3 fix): mirror docs/schemas.ts canonical
+// Slice 3 SC1 (codex r64 BLOCK 1+2+3 fix): canonical
 // shapes for PendingId / PendingPromptKind / question min length. Closed
 // schema at journal-append means a typo kind (e.g. "gate-decision" vs
 // "gate_decision") or empty question never reach the projection — where

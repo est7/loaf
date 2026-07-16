@@ -27,12 +27,12 @@ import {
 } from "./spec-schema.js";
 import { TaskIdPayload } from "./task-schema.js";
 
-// ── FindingId (mirror docs/schemas.ts §16:1836 — `/^FND-\d{3,}$/`) ──────
+// ── FindingId (`/^FND-\d{3,}$/`) ────────────────────────────────────────
 
 export const FindingId = z.string().regex(/^FND-\d{3,}$/);
 export type FindingId = z.infer<typeof FindingId>;
 
-// ── FindingCategory / FindingAction (mirror docs/schemas.ts §5) ─────────
+// ── FindingCategory / FindingAction ─────────────────────────────────────
 
 export const FindingCategory = z.enum([
   "spec-gap", // spec silent on this aspect
@@ -54,7 +54,7 @@ export const FindingAction = z.enum([
 ]);
 export type FindingAction = z.infer<typeof FindingAction>;
 
-// ── FindingActionRisk + 6×6 grid (mirror docs/schemas.ts §37) ────────────
+// ── FindingActionRisk + 6×6 grid ────────────────────────────────────────
 
 export const FindingActionRisk = z.enum(["typical", "unusual", "incoherent"]);
 export type FindingActionRisk = z.infer<typeof FindingActionRisk>;
@@ -63,8 +63,7 @@ export type FindingActionRisk = z.infer<typeof FindingActionRisk>;
  * FINDING_ACTION_GRID — per-cell risk classification.
  * 4 `incoherent` cells (rev 4.3 ADR-0004 A7): structurally there is no
  * task target a transition can land on, so block early at preflight.
- * Mirrors `docs/protocol.md §4.5 finding matrix` and `docs/schemas.ts §37
- * FINDING_ACTION_GRID`.
+ * Implements the `docs/protocol.md §4.5` finding matrix.
  */
 export const FINDING_ACTION_GRID: Record<
   FindingCategory,
@@ -166,7 +165,7 @@ export const FIX_ACTION_STEP: Partial<Record<FindingAction, string>> = {
   "fix-test": "red",
 };
 
-// ── Target payload shape (mirror docs/schemas.ts FindingResolutionPayload) ──
+// ── Target payload shape ────────────────────────────────────────────────
 
 export const FindingTarget = z
   .object({

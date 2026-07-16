@@ -116,7 +116,7 @@ describe("Phase 16 SC-2 — crash-log writer", () => {
 
   test("UNEXPECTED_ERROR sentinel is exported as a string constant (NOT a DiagnosticCode)", () => {
     // Codex r196 PATCH E: sentinel lives in src/core/crash-log.ts, not in
-    // docs/schemas.ts DiagnosticCode (that union is exit-2-only). Inventory
+    // runtime DiagnosticCode (that union is exit-2-only). Inventory
     // test scans `src/cli.tsx` for `code: "..."` patterns; placing it here
     // means it does NOT get picked up as an uncataloged emit.
     expect(UNEXPECTED_ERROR).toBe("UNEXPECTED_ERROR");

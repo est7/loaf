@@ -39,7 +39,7 @@ export function registerFinding(
 ): { findingCmd: Command } {
   // ── loaf finding raise / list / close ────────────────────────────────
   // Slice 3 SC3 — finding ledger CLI + FINDING_ACTION_GRID + target_payload
-  // preflight (protocol §4.5 + §10.8 / docs/schemas.ts §5 / §37).
+  // preflight (protocol §4.5 + §10.8 / src/core/finding-schema.ts).
   //
   // Scope per codex r68 conditional sign-off:
   //   - raise: closed FindingCategory / FindingAction enums via schema;

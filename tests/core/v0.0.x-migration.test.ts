@@ -44,7 +44,7 @@ async function buildFixture(): Promise<string> {
     "spec.md": "## REQ-AUTH-001\nWHEN user logs in, system shall issue a session token.\n",
     "evidence.jsonl":
       // v0.0.x legacy kind="test" exercises the migration normalization
-      // path (test → local-check per docs/schemas.ts:741-749 +
+      // path (test → local-check per the legacy contract +
       // ADR-0005:720). Restored from r34 fixture churn after r35 noted
       // the documented legacy values must round-trip.
       JSON.stringify({ id: "EV-000001", kind: "test", result: "passed" }) + "\n",

@@ -7,7 +7,7 @@
 // EvidenceEntry.check) + check 3 (canSatisfy reason/attachments) without
 // reading journal payload at gate time (preserves projection layering).
 //
-// New module src/core/evidence-schema.ts mirrors docs/schemas.ts §4/§6/§16
+// src/core/evidence-schema.ts owns the §4/§6/§16 evidence contracts
 // (EvidenceKind / EvidenceResult / VerifyCheckKind / Attachment +
 // EvidenceFullPayload strict). Parallels spec-schema.ts (1.B 2) +
 // task-schema.ts (1.B 3a) neutral module placement so verify-accept-check
@@ -23,11 +23,28 @@ import {
   VerifyCheckKind,
   AttachmentPayload,
 } from "../../src/core/evidence-schema.js";
+import { EvidenceEntry } from "../../src/core/projection-schema.js";
 import { apply, initialSnapshot } from "../../src/core/reducer.js";
 import type { EvidenceState, Snapshot } from "../../src/core/reducer.js";
 import type { JournalEntry } from "../../src/core/journal-entry.js";
 
 const SHA = "a".repeat(64);
+
+test("EvidenceEntry uses runtime id and accepts sidecar-capable summary", () => {
+  const result = EvidenceEntry.safeParse({
+    ...fullPayload({
+      id: "EV-000001",
+      summary: {
+        mode: "sidecar",
+        ref: { path: "attachments/JE-000001/summary.txt", sha256: SHA, size: 42 },
+      },
+    }),
+    schema_version: 2,
+    at: "2026-07-16T08:19:00.000Z",
+  });
+
+  expect(result.success).toBe(true);
+});
 
 // Codex r34 BLOCK 2 fix: EvidenceFullPayload is now strict full mirror.
 // Required fields: id / kind / iteration / actor / result / summary.
@@ -86,10 +103,10 @@ function execSnapshot(): Snapshot {
 
 // ───────────────────────────────────────────────────────────────────────
 // Module mirror — protocol-level enums are co-located, not re-exported
-// from docs/schemas.ts to keep runtime import-graph free of doc files.
+// to keep runtime imports within canonical domain owners.
 // ───────────────────────────────────────────────────────────────────────
 
-describe("evidence-schema enums (docs/schemas.ts §4/§6 mirror)", () => {
+describe("evidence-schema enums", () => {
   test("EvidenceKind enum lists protocol §6 kinds", () => {
     expect(EvidenceKind.options).toEqual([
       "task-summary",
@@ -193,9 +210,8 @@ describe("EvidenceFullPayload — happy paths", () => {
   });
 
   // Slice 1.C sub-cycle 1 r35 optional polish: summary accepts LongTextField
-  // inline (pre-promote) + sidecar (post-promote) per docs/schemas.ts §0a
-  // LongTextField discriminated union. Documents the intentional divergence
-  // from docs §16:1712 (`summary: z.string().min(3)`) for the sidecar
+  // inline (pre-promote) + sidecar (post-promote) per the LongTextField
+  // discriminated union. Documents the sidecar
   // promotion model wire (journal-mutate Pass 2).
   test("summary as LongTextField inline (mode=inline + text) parses", () => {
     const parsed = EvidenceFullPayload.parse(

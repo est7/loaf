@@ -100,7 +100,7 @@ describe("readLoafConfig", () => {
     expect((await readLoafConfig(repo)).status).toBe("ok");
   });
 
-  test("WriteGuardConfig.paths keys mirror docs LoafConfig.paths (drift guard)", async () => {
+  test("WriteGuardConfig.paths exposes every canonical path category", async () => {
     const parsed = WriteGuardConfig.parse({ schema_version: 2 });
     expect(Object.keys(parsed.paths).sort()).toEqual([
       "docs",

@@ -150,7 +150,7 @@ fi
 # ── 8. PIN_MISMATCH ──────────────────────────────────────────────
 # `--feature-dir <path>` makes <path> the literal feature dir; state.json
 # lives at $workdir/snapshots/state.json (verified against current
-# dist/cli.mjs on 2026-05-25, schemas.ts §10.8 surface).
+# dist/cli.mjs on 2026-05-25, src/core/projection-schema.ts state surface).
 state_path="$workdir/snapshots/state.json"
 if [ ! -f "$state_path" ]; then
   fail "PIN_MISMATCH" "state.json not found at $state_path after lifecycle smoke"

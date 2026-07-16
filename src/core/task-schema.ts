@@ -36,7 +36,7 @@ export const RECOMMENDED_TASK_LABELS = [
 export const TaskIdPayload = z.string().regex(/^T-\d{3,}$/);
 export const EvidenceRefPayload = z.string().regex(/^EV-\d{6,}$/);
 
-// drives[] accepts any of REQ-* / SCEN-* / VIS-* (per docs/schemas.ts §14
+// drives[] accepts any of REQ-* / SCEN-* / VIS-* (per protocol §4.3
 // `DrivesRef`). Spec-lock check 4/6/7 cross-refs against requirements /
 // scenarios / visual_contracts projections respectively.
 const RawDrivesRef = z.string().regex(/^(REQ|SCEN|VIS)-[A-Z][A-Z0-9-]*-\d{3,}$/);
@@ -308,7 +308,7 @@ export function shouldPromoteToDone(
 }
 
 // ── TaskInput — `loaf tasks add` input shape (Slice C SC-C3) ─────────────
-// Runtime mirror of docs/schemas.ts §40 TaskInput. The input shape OMITS
+// Canonical TaskInput runtime contract. The input shape OMITS
 // the three CLI-owned fields:
 //   - id         — CLI allocates the next T-NNN serial
 //   - status     — CLI sets "pending" on create
@@ -413,7 +413,7 @@ const KIND_EXECUTION_STEPS: Record<TaskFullProjection["kind"], readonly string[]
  * Materialize a validated `TaskInput` into a full `TaskFullPayload` by
  * stamping the three CLI-owned fields: the allocated `id`, `status="pending"`,
  * and a per-kind `execution` map whose every step starts at
- * applicability="must", status="pending" (docs/schemas.ts §40 — `tasks
+ * applicability="must", status="pending" (`tasks
  * amend --policy` is the path to narrow applicability afterward).
  */
 export function materializeTaskInput(input: TaskInput, id: string): TaskFullPayload {

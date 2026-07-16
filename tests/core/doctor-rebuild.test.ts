@@ -402,7 +402,7 @@ describe("loaf doctor --rebuild — Phase 14 SC2", () => {
 
   test("a v0.0.x-migrated journal is rejected cleanly — exit 2, no fresh _meta.json", async () => {
     // Phase 16 SC-2 PATCH A: DOCTOR_REBUILD_MIGRATED_UNSUPPORTED is a SC-1
-    // catalogued code with exit_code: 2 (docs/schemas.ts:5042-5055). The
+    // catalogued code with exit_code: 2 (src/core/error-catalog.ts). The
     // pre-SC-2 failRebuild() path emitted exit 1 here, which contradicted
     // the catalog and the protocol §10.9 contract (exit 1 reserved for
     // unexpected internal errors + crash log). SC-2 normalizes the helper

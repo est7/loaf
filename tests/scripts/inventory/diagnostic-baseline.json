@@ -1,5 +1,5 @@
 {
-  "$comment": "Known-drift baseline for DiagnosticCodes emitted by src/cli.tsx but NOT yet registered in docs/schemas.ts DiagnosticCode / ERROR_CATALOG. Phase 16 SC-1 (commit registering the 7 codes from r187 BLOCKER 4) emptied this allowlist; the catalog is now the sole admission gate for cli.tsx-emitted codes. New uncataloged codes MUST land in catalog + i18n in the same commit — adding new baseline entries is a regression unless the entry carries a removal_sc target in the next 1-2 SCs.",
+  "$comment": "Known-drift baseline for DiagnosticCodes emitted by src/cli.tsx but NOT yet registered in src/core/error-catalog.ts. Phase 16 SC-1 emptied this allowlist; the runtime catalog is now the sole admission gate for cli.tsx-emitted codes. New uncataloged codes MUST land in catalog + i18n in the same commit — adding new baseline entries is a regression unless the entry carries a removal_sc target in the next 1-2 SCs.",
   "$schema_note": "Each entry: { code: string, emit_locations: [{file, line}], removal_sc: string, reason: string }. Generated from codex r187 finding + manual grep on cli.tsx at 0a159c0; emptied at SC-1.",
   "entries": []
 }

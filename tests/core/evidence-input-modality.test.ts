@@ -11,7 +11,7 @@
 //   - runtime mirror: src/core/evidence-schema.ts EvidenceAddInput[Batched]
 //     via EvidenceFullShape.omit({id:true}).strict() — full attachment
 //     metadata required (ADR-0004 A6 auto-hash materialization deferred)
-//   - docs/schemas.ts EvidenceAddInput: omit {schema_version,
+//   - evidence-schema.ts EvidenceAddInput: omit {schema_version,
 //     evidence_id, at} + .strict() — machine schema honest
 //   - caller-supplied id: SCHEMA_VALIDATION_FAILED + detail.index
 //     (not USAGE; codex r230 PATCH D consistency with tasks add strict)

@@ -2,8 +2,8 @@
 # check-event-drift.sh — flag canonical-event-name drift across design docs.
 #
 # Background:
-#   schemas.ts §41 (Event-name registry — canonical homes) is the single
-#   source of truth for event-style names. moni-review.md §2 surfaced
+#   machine-contract.md maps event-style names to their canonical runtime
+#   owners. moni-review.md §2 surfaced
 #   three drift names that appeared in external docs (plan.md M1 /
 #   design.html) but do NOT exist in any canonical home:
 #
@@ -37,7 +37,7 @@ set -euo pipefail
 # The drift name is what we grep for; the canonical hint is shown
 # alongside any hit so the reader knows the fix immediately.
 # Add new entries here when a future audit surfaces additional drift.
-# Keep in lockstep with schemas.ts §41 "Known drift names" block.
+# Keep in lockstep with the canonical owners indexed by machine-contract.md.
 # ──────────────────────────────────────────────────────────────────
 
 DRIFT_ENTRIES=(
@@ -47,13 +47,11 @@ DRIFT_ENTRIES=(
 )
 
 # Files / paths that LEGITIMATELY mention the drift names because they
-# are documenting the drift itself (this script, the §41 block in
-# schemas.ts, the moni-review audit source, the matching ADR
-# annotation, and these script comments themselves). Exclude them
+# are documenting the drift itself (this script, the moni-review audit
+# source, the matching ADR annotation, and these script comments). Exclude them
 # from grep — otherwise the script is permanently red.
 EXCLUDE_PATHS=(
   "scripts/check-event-drift.sh"
-  "schemas.ts"
   "moni-review.md"
   "adr/0004-moni-audit-resolution.md"
 )
@@ -63,10 +61,11 @@ EXCLUDE_PATHS=(
 #      (i18n/<lang>.json CLI-help keys like "spec_init" — translation keys, NOT events);
 #  (b) generated or runtime output that is not canonical source and may echo a
 #      documented drift term (dist/ bundles+sourcemaps, coverage/ reports, .agent-mail/
-#      AMQ message store). Canonical src/ docs/ tests/ stay scanned.
+#      AMQ message store, .claude/ worktrees). Canonical src/ docs/ tests/ stay scanned.
 EXCLUDE_DIRS=(
   ".git"
   ".agent-mail"
+  ".claude"
   "dist"
   "coverage"
   "i18n"
@@ -125,7 +124,7 @@ fi
 echo "check-event-drift: FAIL — canonical event-name drift detected"
 echo
 echo "Scanned root: $SCAN_ROOT"
-echo "Canonical registry: schemas.ts §41 (Event-name registry — canonical homes)"
+echo "Canonical registry: docs/machine-contract.md (runtime-owner index)"
 echo
 
 for entry in "${DRIFT_ENTRIES[@]}"; do
@@ -144,5 +143,5 @@ done
 
 echo
 echo "Fix: replace each drift name with the canonical form above. See"
-echo "schemas.ts §41 for the full registry of canonical event names."
+echo "docs/machine-contract.md for the runtime owners of canonical event names."
 exit 1
