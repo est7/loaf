@@ -1,0 +1,4477 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`current public schema output baseline > artifact:evidence 1`] = `
+"{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "number",
+      "const": 2
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^EV-\\\\d{6,}$"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "task-summary",
+              "verify-review",
+              "spec-review",
+              "acceptance",
+              "visual-review",
+              "gate-decision",
+              "local-check",
+              "manual",
+              "waiver",
+              "spike-finding"
+            ]
+          },
+          "iteration": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "actor": {
+            "type": "string",
+            "minLength": 1
+          },
+          "result": {
+            "type": "string",
+            "enum": [
+              "passed",
+              "failed",
+              "approved",
+              "rejected",
+              "waived"
+            ]
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 3
+              },
+              {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "mode": {
+                        "type": "string",
+                        "const": "inline"
+                      },
+                      "text": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "mode",
+                      "text"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "mode": {
+                        "type": "string",
+                        "const": "sidecar"
+                      },
+                      "ref": {
+                        "type": "object",
+                        "properties": {
+                          "path": {
+                            "type": "string",
+                            "minLength": 3
+                          },
+                          "sha256": {
+                            "type": "string",
+                            "pattern": "^[a-f0-9]{64}$"
+                          },
+                          "size": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "path",
+                          "sha256",
+                          "size"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "mode",
+                      "ref"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              }
+            ]
+          },
+          "covers": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^REQ-[A-Z][A-Z0-9]*-\\\\d{3,}$"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^SCEN-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^VIS-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^T-\\\\d{3,}$"
+                }
+              ]
+            }
+          },
+          "task_id": {
+            "type": "string",
+            "pattern": "^T-\\\\d{3,}$"
+          },
+          "check": {
+            "type": "string",
+            "enum": [
+              "run",
+              "review",
+              "acceptance",
+              "visual"
+            ]
+          },
+          "cmd": {
+            "type": "string"
+          },
+          "exit": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "wall_ms": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "gate": {
+            "type": "string",
+            "enum": [
+              "spec-lock",
+              "verify-accept"
+            ]
+          },
+          "decided_by": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "based_on": {
+            "type": "object",
+            "properties": {
+              "spec": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "tasks": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "spec",
+              "tasks"
+            ],
+            "additionalProperties": false
+          },
+          "attachments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "minLength": 3
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "mime": {
+                  "type": "string",
+                  "minLength": 3
+                },
+                "bytes": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "path",
+                "sha256",
+                "mime"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "waiver_obligation_id": {
+            "type": "string"
+          },
+          "external_ref": {
+            "type": "string"
+          },
+          "schema_version": {
+            "type": "number",
+            "const": 2
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\\\d\\\\d[2468][048]|\\\\d\\\\d[13579][26]|\\\\d\\\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\\\d|30)|(?:02)-(?:0[1-9]|1\\\\d|2[0-8])))T(?:(?:[01]\\\\d|2[0-3]):[0-5]\\\\d(?::[0-5]\\\\d(?:\\\\.\\\\d+)?)?(?:Z))$"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "iteration",
+          "actor",
+          "result",
+          "summary",
+          "covers",
+          "schema_version",
+          "at"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "evidence"
+  ],
+  "additionalProperties": false
+}
+"
+`;
+
+exports[`current public schema output baseline > artifact:finding 1`] = `
+"{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "number",
+      "const": 2
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^FND-\\\\d{3,}$"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "spec-gap",
+              "spec-defect",
+              "impl-defect",
+              "test-defect",
+              "new-scope",
+              "risk-escalation"
+            ]
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "amend-spec",
+              "amend-tasks",
+              "fix-impl",
+              "fix-test",
+              "defer",
+              "backlog"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "closed"
+            ]
+          },
+          "summary": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "target": {
+            "type": "object",
+            "properties": {
+              "task_id": {
+                "type": "string",
+                "pattern": "^T-\\\\d{3,}$"
+              },
+              "step": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "task_id",
+              "step"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "id",
+          "category",
+          "action",
+          "status"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "findings"
+  ],
+  "additionalProperties": false
+}
+"
+`;
+
+exports[`current public schema output baseline > artifact:spec 1`] = `
+"{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "number",
+      "const": 2
+    },
+    "spec_version": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "feature": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^F-\\\\d{3,}$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 3
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "intent": {
+      "type": "string",
+      "minLength": 20
+    },
+    "adr_refs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "requirements": {
+      "type": "array",
+      "items": {
+        "anyOf": [
+          {
+            "allOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^REQ-[A-Z][A-Z0-9]*-\\\\d{3,}$"
+                  },
+                  "type": {
+                    "type": "string",
+                    "const": "ubiquitous"
+                  },
+                  "response": {
+                    "type": "string",
+                    "minLength": 10
+                  }
+                },
+                "required": [
+                  "id",
+                  "type",
+                  "response"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "measurable": {
+                    "type": "object",
+                    "properties": {
+                      "metric": {
+                        "type": "string",
+                        "minLength": 3
+                      },
+                      "threshold": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "number"
+                          }
+                        ]
+                      },
+                      "unit": {
+                        "type": "string"
+                      },
+                      "direction": {
+                        "default": "lte",
+                        "type": "string",
+                        "enum": [
+                          "lte",
+                          "gte",
+                          "eq"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "metric",
+                      "threshold",
+                      "direction"
+                    ],
+                    "additionalProperties": {}
+                  },
+                  "verified_by_scenarios": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^SCEN-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+                    }
+                  },
+                  "acceptance_na": {
+                    "type": "boolean",
+                    "const": true
+                  },
+                  "acceptance_na_reason": {
+                    "type": "string",
+                    "minLength": 10
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^REQ-[A-Z][A-Z0-9]*-\\\\d{3,}$"
+                  },
+                  "type": {
+                    "type": "string",
+                    "const": "event-driven"
+                  },
+                  "trigger": {
+                    "type": "string",
+                    "minLength": 5
+                  },
+                  "response": {
+                    "type": "string",
+                    "minLength": 10
+                  }
+                },
+                "required": [
+                  "id",
+                  "type",
+                  "trigger",
+                  "response"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "measurable": {
+                    "type": "object",
+                    "properties": {
+                      "metric": {
+                        "type": "string",
+                        "minLength": 3
+                      },
+                      "threshold": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "number"
+                          }
+                        ]
+                      },
+                      "unit": {
+                        "type": "string"
+                      },
+                      "direction": {
+                        "default": "lte",
+                        "type": "string",
+                        "enum": [
+                          "lte",
+                          "gte",
+                          "eq"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "metric",
+                      "threshold",
+                      "direction"
+                    ],
+                    "additionalProperties": {}
+                  },
+                  "verified_by_scenarios": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^SCEN-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+                    }
+                  },
+                  "acceptance_na": {
+                    "type": "boolean",
+                    "const": true
+                  },
+                  "acceptance_na_reason": {
+                    "type": "string",
+                    "minLength": 10
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^REQ-[A-Z][A-Z0-9]*-\\\\d{3,}$"
+                  },
+                  "type": {
+                    "type": "string",
+                    "const": "state-driven"
+                  },
+                  "while_": {
+                    "type": "string",
+                    "minLength": 5
+                  },
+                  "behavior": {
+                    "type": "string",
+                    "minLength": 10
+                  }
+                },
+                "required": [
+                  "id",
+                  "type",
+                  "while_",
+                  "behavior"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "measurable": {
+                    "type": "object",
+                    "properties": {
+                      "metric": {
+                        "type": "string",
+                        "minLength": 3
+                      },
+                      "threshold": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "number"
+                          }
+                        ]
+                      },
+                      "unit": {
+                        "type": "string"
+                      },
+                      "direction": {
+                        "default": "lte",
+                        "type": "string",
+                        "enum": [
+                          "lte",
+                          "gte",
+                          "eq"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "metric",
+                      "threshold",
+                      "direction"
+                    ],
+                    "additionalProperties": {}
+                  },
+                  "verified_by_scenarios": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^SCEN-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+                    }
+                  },
+                  "acceptance_na": {
+                    "type": "boolean",
+                    "const": true
+                  },
+                  "acceptance_na_reason": {
+                    "type": "string",
+                    "minLength": 10
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^REQ-[A-Z][A-Z0-9]*-\\\\d{3,}$"
+                  },
+                  "type": {
+                    "type": "string",
+                    "const": "optional"
+                  },
+                  "feature": {
+                    "type": "string",
+                    "minLength": 5
+                  },
+                  "response": {
+                    "type": "string",
+                    "minLength": 10
+                  }
+                },
+                "required": [
+                  "id",
+                  "type",
+                  "feature",
+                  "response"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "measurable": {
+                    "type": "object",
+                    "properties": {
+                      "metric": {
+                        "type": "string",
+                        "minLength": 3
+                      },
+                      "threshold": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "number"
+                          }
+                        ]
+                      },
+                      "unit": {
+                        "type": "string"
+                      },
+                      "direction": {
+                        "default": "lte",
+                        "type": "string",
+                        "enum": [
+                          "lte",
+                          "gte",
+                          "eq"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "metric",
+                      "threshold",
+                      "direction"
+                    ],
+                    "additionalProperties": {}
+                  },
+                  "verified_by_scenarios": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^SCEN-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+                    }
+                  },
+                  "acceptance_na": {
+                    "type": "boolean",
+                    "const": true
+                  },
+                  "acceptance_na_reason": {
+                    "type": "string",
+                    "minLength": 10
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^REQ-[A-Z][A-Z0-9]*-\\\\d{3,}$"
+                  },
+                  "type": {
+                    "type": "string",
+                    "const": "unwanted"
+                  },
+                  "condition": {
+                    "type": "string",
+                    "minLength": 5
+                  },
+                  "response": {
+                    "type": "string",
+                    "minLength": 10
+                  }
+                },
+                "required": [
+                  "id",
+                  "type",
+                  "condition",
+                  "response"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "measurable": {
+                    "type": "object",
+                    "properties": {
+                      "metric": {
+                        "type": "string",
+                        "minLength": 3
+                      },
+                      "threshold": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "number"
+                          }
+                        ]
+                      },
+                      "unit": {
+                        "type": "string"
+                      },
+                      "direction": {
+                        "default": "lte",
+                        "type": "string",
+                        "enum": [
+                          "lte",
+                          "gte",
+                          "eq"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "metric",
+                      "threshold",
+                      "direction"
+                    ],
+                    "additionalProperties": {}
+                  },
+                  "verified_by_scenarios": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^SCEN-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+                    }
+                  },
+                  "acceptance_na": {
+                    "type": "boolean",
+                    "const": true
+                  },
+                  "acceptance_na_reason": {
+                    "type": "string",
+                    "minLength": 10
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "scenarios": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^SCEN-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 3
+          },
+          "tag": {
+            "type": "string",
+            "enum": [
+              "happy",
+              "edge",
+              "error",
+              "e2e"
+            ]
+          },
+          "requires_acceptance": {
+            "type": "boolean"
+          },
+          "acceptance_na": {
+            "type": "string",
+            "minLength": 5
+          },
+          "given": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 3
+            }
+          },
+          "when": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 3
+            }
+          },
+          "then": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 3
+            }
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "given",
+          "when",
+          "then"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "visual_contracts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^VIS-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+          },
+          "target": {
+            "type": "string",
+            "minLength": 3
+          },
+          "checks": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 3
+            }
+          },
+          "requires_visual": {
+            "type": "boolean"
+          },
+          "visual_na": {
+            "type": "string",
+            "minLength": 5
+          }
+        },
+        "required": [
+          "id",
+          "target",
+          "checks"
+        ],
+        "additionalProperties": {}
+      }
+    },
+    "needs_clarification": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^NC-\\\\d{3,}$"
+          },
+          "question": {
+            "type": "string",
+            "minLength": 5
+          },
+          "context": {
+            "type": "string"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "question"
+        ],
+        "additionalProperties": {}
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "spec_version",
+    "feature",
+    "intent",
+    "adr_refs",
+    "requirements",
+    "scenarios",
+    "needs_clarification"
+  ],
+  "additionalProperties": false
+}
+"
+`;
+
+exports[`current public schema output baseline > artifact:state 1`] = `
+"{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "number",
+      "const": 2
+    },
+    "session_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "session_label": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 3
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "workspace": {
+      "type": "string",
+      "minLength": 1
+    },
+    "loaf_version_required": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[\\\\^~]?\\\\d+\\\\.\\\\d+(\\\\.\\\\d+)?(-[0-9A-Za-z.-]+)?(\\\\+[0-9A-Za-z.-]+)?$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "phase": {
+      "type": "string",
+      "enum": [
+        "TRIAGE",
+        "SPEC",
+        "EXECUTE",
+        "VERIFY",
+        "SETTLE",
+        "DONE"
+      ]
+    },
+    "sub_state": {
+      "type": "string",
+      "enum": [
+        "TRIAGE.score",
+        "TRIAGE.confirm",
+        "SPEC.proposal",
+        "SPEC.spec",
+        "SPEC.plan",
+        "SPEC.design",
+        "EXECUTE.plan",
+        "EXECUTE.work",
+        "EXECUTE.done",
+        "VERIFY.plan",
+        "VERIFY.run",
+        "VERIFY.review",
+        "VERIFY.acceptance",
+        "VERIFY.visual",
+        "VERIFY.accept",
+        "SETTLE.reconcile",
+        "SETTLE.lessons",
+        "DONE.delivered",
+        "DONE.archived",
+        "DONE.abandoned"
+      ]
+    },
+    "iteration": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "spec_locked": {
+      "type": "boolean"
+    },
+    "verify_accepted": {
+      "type": "boolean"
+    },
+    "pending": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "pending_id": {
+            "type": "string",
+            "pattern": "^PEND-\\\\d{4,}$"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "ask_user_question",
+              "gate_decision",
+              "spec_clarification",
+              "finding_decision",
+              "profile_escalation"
+            ]
+          },
+          "question": {
+            "type": "string",
+            "minLength": 3
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "blocks": {
+            "type": "string",
+            "enum": [
+              "advance",
+              "gate",
+              "deliver",
+              "all"
+            ]
+          },
+          "raised_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\\\d\\\\d[2468][048]|\\\\d\\\\d[13579][26]|\\\\d\\\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\\\d|30)|(?:02)-(?:0[1-9]|1\\\\d|2[0-8])))T(?:(?:[01]\\\\d|2[0-3]):[0-5]\\\\d(?::[0-5]\\\\d(?:\\\\.\\\\d+)?)?(?:Z))$"
+          },
+          "raised_by": {
+            "type": "string",
+            "minLength": 1
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\\\d\\\\d[2468][048]|\\\\d\\\\d[13579][26]|\\\\d\\\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\\\d|30)|(?:02)-(?:0[1-9]|1\\\\d|2[0-8])))T(?:(?:[01]\\\\d|2[0-3]):[0-5]\\\\d(?::[0-5]\\\\d(?:\\\\.\\\\d+)?)?(?:Z))$"
+          },
+          "raised_by_task_id": {
+            "type": "string",
+            "pattern": "^T-\\\\d{3,}$"
+          }
+        },
+        "required": [
+          "pending_id",
+          "kind",
+          "question",
+          "blocks",
+          "raised_at",
+          "raised_by",
+          "at"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "ceremony": {
+      "type": "object",
+      "properties": {
+        "spec_phase": {
+          "type": "boolean"
+        },
+        "verify_phase": {
+          "type": "boolean"
+        },
+        "settle_phase": {
+          "type": "boolean"
+        },
+        "strict_spec_review": {
+          "type": "boolean"
+        },
+        "lessons_required": {
+          "type": "string",
+          "enum": [
+            "must",
+            "may",
+            "skip"
+          ]
+        },
+        "strict_drift_check": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "spec_phase",
+        "verify_phase",
+        "settle_phase",
+        "strict_spec_review",
+        "lessons_required",
+        "strict_drift_check"
+      ],
+      "additionalProperties": false
+    },
+    "ceremony_label": {
+      "type": "string"
+    },
+    "complexity_score": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "based_on": {
+      "type": "object",
+      "properties": {
+        "spec": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "tasks": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "spec",
+        "tasks"
+      ],
+      "additionalProperties": false
+    },
+    "spec_version": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\\\d\\\\d[2468][048]|\\\\d\\\\d[13579][26]|\\\\d\\\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\\\d|30)|(?:02)-(?:0[1-9]|1\\\\d|2[0-8])))T(?:(?:[01]\\\\d|2[0-3]):[0-5]\\\\d(?::[0-5]\\\\d(?:\\\\.\\\\d+)?)?(?:Z))$"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\\\d\\\\d[2468][048]|\\\\d\\\\d[13579][26]|\\\\d\\\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\\\d|30)|(?:02)-(?:0[1-9]|1\\\\d|2[0-8])))T(?:(?:[01]\\\\d|2[0-3]):[0-5]\\\\d(?::[0-5]\\\\d(?:\\\\.\\\\d+)?)?(?:Z))$"
+    }
+  },
+  "required": [
+    "schema_version",
+    "session_id",
+    "session_label",
+    "workspace",
+    "loaf_version_required",
+    "phase",
+    "sub_state",
+    "iteration",
+    "spec_locked",
+    "verify_accepted",
+    "pending",
+    "ceremony",
+    "ceremony_label",
+    "complexity_score",
+    "based_on",
+    "spec_version",
+    "created_at",
+    "updated_at"
+  ],
+  "additionalProperties": false
+}
+"
+`;
+
+exports[`current public schema output baseline > artifact:tasks 1`] = `
+"{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "number",
+      "const": 2
+    },
+    "version": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "based_on": {
+      "type": "object",
+      "properties": {
+        "spec": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "spec"
+      ],
+      "additionalProperties": false
+    },
+    "tasks": {
+      "type": "array",
+      "items": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^T-\\\\d{3,}$"
+              },
+              "depends_on": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^T-\\\\d{3,}$"
+                }
+              },
+              "labels": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "ready",
+                  "in_progress",
+                  "done",
+                  "abandoned"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "const": "behavioral"
+              },
+              "drives": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^(REQ|SCEN|VIS)-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+                }
+              },
+              "tests": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 3
+                }
+              },
+              "test_layer": {
+                "type": "string",
+                "enum": [
+                  "unit",
+                  "integration",
+                  "e2e"
+                ]
+              },
+              "red_test_registered": {
+                "type": "boolean"
+              },
+              "execution": {
+                "type": "object",
+                "properties": {
+                  "red": {
+                    "type": "object",
+                    "properties": {
+                      "applicability": {
+                        "type": "string",
+                        "enum": [
+                          "must",
+                          "optional",
+                          "na"
+                        ]
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "na",
+                          "pending",
+                          "running",
+                          "passed",
+                          "failed",
+                          "waived"
+                        ]
+                      },
+                      "reason": {
+                        "type": "string"
+                      },
+                      "evidence_refs": {
+                        "default": [],
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^EV-\\\\d{6,}$"
+                        }
+                      },
+                      "started_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\\\d\\\\d[2468][048]|\\\\d\\\\d[13579][26]|\\\\d\\\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\\\d|30)|(?:02)-(?:0[1-9]|1\\\\d|2[0-8])))T(?:(?:[01]\\\\d|2[0-3]):[0-5]\\\\d(?::[0-5]\\\\d(?:\\\\.\\\\d+)?)?(?:Z))$"
+                      }
+                    },
+                    "required": [
+                      "applicability",
+                      "status",
+                      "evidence_refs"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "implement": {
+                    "type": "object",
+                    "properties": {
+                      "applicability": {
+                        "type": "string",
+                        "enum": [
+                          "must",
+                          "optional",
+                          "na"
+                        ]
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "na",
+                          "pending",
+                          "running",
+                          "passed",
+                          "failed",
+                          "waived"
+                        ]
+                      },
+                      "reason": {
+                        "type": "string"
+                      },
+                      "evidence_refs": {
+                        "default": [],
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^EV-\\\\d{6,}$"
+                        }
+                      },
+                      "started_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\\\d\\\\d[2468][048]|\\\\d\\\\d[13579][26]|\\\\d\\\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\\\d|30)|(?:02)-(?:0[1-9]|1\\\\d|2[0-8])))T(?:(?:[01]\\\\d|2[0-3]):[0-5]\\\\d(?::[0-5]\\\\d(?:\\\\.\\\\d+)?)?(?:Z))$"
+                      }
+                    },
+                    "required": [
+                      "applicability",
+                      "status",
+                      "evidence_refs"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "refactor": {
+                    "type": "object",
+                    "properties": {
+                      "applicability": {
+                        "type": "string",
+                        "enum": [
+                          "must",
+                          "optional",
+                          "na"
+                        ]
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "na",
+                          "pending",
+                          "running",
+                          "passed",
+                          "failed",
+                          "waived"
+                        ]
+                      },
+                      "reason": {
+                        "type": "string"
+                      },
+                      "evidence_refs": {
+                        "default": [],
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^EV-\\\\d{6,}$"
+                        }
+                      },
+                      "started_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\\\d\\\\d[2468][048]|\\\\d\\\\d[13579][26]|\\\\d\\\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\\\d|30)|(?:02)-(?:0[1-9]|1\\\\d|2[0-8])))T(?:(?:[01]\\\\d|2[0-3]):[0-5]\\\\d(?::[0-5]\\\\d(?:\\\\.\\\\d+)?)?(?:Z))$"
+                      }
+                    },
+                    "required": [
+                      "applicability",
+                      "status",
+                      "evidence_refs"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "red",
+                  "implement",
+                  "refactor"
+                ],
+                "additionalProperties": false
+              },
+              "requires_acceptance": {
+                "type": "boolean"
+              },
+              "requires_visual": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "depends_on",
+              "labels",
+              "status",
+              "kind",
+              "drives",
+              "tests",
+              "execution"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^T-\\\\d{3,}$"
+              },
+              "depends_on": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^T-\\\\d{3,}$"
+                }
+              },
+              "labels": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "ready",
+                  "in_progress",
+                  "done",
+                  "abandoned"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "const": "structural"
+              },
+              "drives": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^(REQ|SCEN|VIS)-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+                }
+              },
+              "no_test_rationale": {
+                "type": "string",
+                "minLength": 10
+              },
+              "execution": {
+                "type": "object",
+                "properties": {
+                  "implement": {
+                    "type": "object",
+                    "properties": {
+                      "applicability": {
+                        "type": "string",
+                        "enum": [
+                          "must",
+                          "optional",
+                          "na"
+                        ]
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "na",
+                          "pending",
+                          "running",
+                          "passed",
+                          "failed",
+                          "waived"
+                        ]
+                      },
+                      "reason": {
+                        "type": "string"
+                      },
+                      "evidence_refs": {
+                        "default": [],
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^EV-\\\\d{6,}$"
+                        }
+                      },
+                      "started_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\\\d\\\\d[2468][048]|\\\\d\\\\d[13579][26]|\\\\d\\\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\\\d|30)|(?:02)-(?:0[1-9]|1\\\\d|2[0-8])))T(?:(?:[01]\\\\d|2[0-3]):[0-5]\\\\d(?::[0-5]\\\\d(?:\\\\.\\\\d+)?)?(?:Z))$"
+                      }
+                    },
+                    "required": [
+                      "applicability",
+                      "status",
+                      "evidence_refs"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "refactor": {
+                    "type": "object",
+                    "properties": {
+                      "applicability": {
+                        "type": "string",
+                        "enum": [
+                          "must",
+                          "optional",
+                          "na"
+                        ]
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "na",
+                          "pending",
+                          "running",
+                          "passed",
+                          "failed",
+                          "waived"
+                        ]
+                      },
+                      "reason": {
+                        "type": "string"
+                      },
+                      "evidence_refs": {
+                        "default": [],
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^EV-\\\\d{6,}$"
+                        }
+                      },
+                      "started_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\\\d\\\\d[2468][048]|\\\\d\\\\d[13579][26]|\\\\d\\\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\\\d|30)|(?:02)-(?:0[1-9]|1\\\\d|2[0-8])))T(?:(?:[01]\\\\d|2[0-3]):[0-5]\\\\d(?::[0-5]\\\\d(?:\\\\.\\\\d+)?)?(?:Z))$"
+                      }
+                    },
+                    "required": [
+                      "applicability",
+                      "status",
+                      "evidence_refs"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "implement",
+                  "refactor"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "id",
+              "depends_on",
+              "labels",
+              "status",
+              "kind",
+              "no_test_rationale",
+              "execution"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^T-\\\\d{3,}$"
+              },
+              "depends_on": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^T-\\\\d{3,}$"
+                }
+              },
+              "labels": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "ready",
+                  "in_progress",
+                  "done",
+                  "abandoned"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "const": "visual-ui"
+              },
+              "drives": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^(REQ|SCEN|VIS)-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+                }
+              },
+              "visual_contract_refs": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^VIS-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+                }
+              },
+              "no_test_rationale": {
+                "type": "string",
+                "minLength": 10
+              },
+              "execution": {
+                "type": "object",
+                "properties": {
+                  "mockup": {
+                    "type": "object",
+                    "properties": {
+                      "applicability": {
+                        "type": "string",
+                        "enum": [
+                          "must",
+                          "optional",
+                          "na"
+                        ]
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "na",
+                          "pending",
+                          "running",
+                          "passed",
+                          "failed",
+                          "waived"
+                        ]
+                      },
+                      "reason": {
+                        "type": "string"
+                      },
+                      "evidence_refs": {
+                        "default": [],
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^EV-\\\\d{6,}$"
+                        }
+                      },
+                      "started_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\\\d\\\\d[2468][048]|\\\\d\\\\d[13579][26]|\\\\d\\\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\\\d|30)|(?:02)-(?:0[1-9]|1\\\\d|2[0-8])))T(?:(?:[01]\\\\d|2[0-3]):[0-5]\\\\d(?::[0-5]\\\\d(?:\\\\.\\\\d+)?)?(?:Z))$"
+                      }
+                    },
+                    "required": [
+                      "applicability",
+                      "status",
+                      "evidence_refs"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "implement": {
+                    "type": "object",
+                    "properties": {
+                      "applicability": {
+                        "type": "string",
+                        "enum": [
+                          "must",
+                          "optional",
+                          "na"
+                        ]
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "na",
+                          "pending",
+                          "running",
+                          "passed",
+                          "failed",
+                          "waived"
+                        ]
+                      },
+                      "reason": {
+                        "type": "string"
+                      },
+                      "evidence_refs": {
+                        "default": [],
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^EV-\\\\d{6,}$"
+                        }
+                      },
+                      "started_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\\\d\\\\d[2468][048]|\\\\d\\\\d[13579][26]|\\\\d\\\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\\\d|30)|(?:02)-(?:0[1-9]|1\\\\d|2[0-8])))T(?:(?:[01]\\\\d|2[0-3]):[0-5]\\\\d(?::[0-5]\\\\d(?:\\\\.\\\\d+)?)?(?:Z))$"
+                      }
+                    },
+                    "required": [
+                      "applicability",
+                      "status",
+                      "evidence_refs"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "screenshot-compare": {
+                    "type": "object",
+                    "properties": {
+                      "applicability": {
+                        "type": "string",
+                        "enum": [
+                          "must",
+                          "optional",
+                          "na"
+                        ]
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "na",
+                          "pending",
+                          "running",
+                          "passed",
+                          "failed",
+                          "waived"
+                        ]
+                      },
+                      "reason": {
+                        "type": "string"
+                      },
+                      "evidence_refs": {
+                        "default": [],
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^EV-\\\\d{6,}$"
+                        }
+                      },
+                      "started_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\\\d\\\\d[2468][048]|\\\\d\\\\d[13579][26]|\\\\d\\\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\\\d|30)|(?:02)-(?:0[1-9]|1\\\\d|2[0-8])))T(?:(?:[01]\\\\d|2[0-3]):[0-5]\\\\d(?::[0-5]\\\\d(?:\\\\.\\\\d+)?)?(?:Z))$"
+                      }
+                    },
+                    "required": [
+                      "applicability",
+                      "status",
+                      "evidence_refs"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "mockup",
+                  "implement",
+                  "screenshot-compare"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "id",
+              "depends_on",
+              "labels",
+              "status",
+              "kind",
+              "visual_contract_refs",
+              "execution"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^T-\\\\d{3,}$"
+              },
+              "depends_on": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^T-\\\\d{3,}$"
+                }
+              },
+              "labels": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "ready",
+                  "in_progress",
+                  "done",
+                  "abandoned"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "const": "docs"
+              },
+              "drives": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^(REQ|SCEN|VIS)-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+                }
+              },
+              "no_test_rationale": {
+                "type": "string",
+                "minLength": 10
+              },
+              "execution": {
+                "type": "object",
+                "properties": {
+                  "draft": {
+                    "type": "object",
+                    "properties": {
+                      "applicability": {
+                        "type": "string",
+                        "enum": [
+                          "must",
+                          "optional",
+                          "na"
+                        ]
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "na",
+                          "pending",
+                          "running",
+                          "passed",
+                          "failed",
+                          "waived"
+                        ]
+                      },
+                      "reason": {
+                        "type": "string"
+                      },
+                      "evidence_refs": {
+                        "default": [],
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^EV-\\\\d{6,}$"
+                        }
+                      },
+                      "started_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\\\d\\\\d[2468][048]|\\\\d\\\\d[13579][26]|\\\\d\\\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\\\d|30)|(?:02)-(?:0[1-9]|1\\\\d|2[0-8])))T(?:(?:[01]\\\\d|2[0-3]):[0-5]\\\\d(?::[0-5]\\\\d(?:\\\\.\\\\d+)?)?(?:Z))$"
+                      }
+                    },
+                    "required": [
+                      "applicability",
+                      "status",
+                      "evidence_refs"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "review": {
+                    "type": "object",
+                    "properties": {
+                      "applicability": {
+                        "type": "string",
+                        "enum": [
+                          "must",
+                          "optional",
+                          "na"
+                        ]
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "na",
+                          "pending",
+                          "running",
+                          "passed",
+                          "failed",
+                          "waived"
+                        ]
+                      },
+                      "reason": {
+                        "type": "string"
+                      },
+                      "evidence_refs": {
+                        "default": [],
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^EV-\\\\d{6,}$"
+                        }
+                      },
+                      "started_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\\\d\\\\d[2468][048]|\\\\d\\\\d[13579][26]|\\\\d\\\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\\\d|30)|(?:02)-(?:0[1-9]|1\\\\d|2[0-8])))T(?:(?:[01]\\\\d|2[0-3]):[0-5]\\\\d(?::[0-5]\\\\d(?:\\\\.\\\\d+)?)?(?:Z))$"
+                      }
+                    },
+                    "required": [
+                      "applicability",
+                      "status",
+                      "evidence_refs"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "draft",
+                  "review"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "id",
+              "depends_on",
+              "labels",
+              "status",
+              "kind",
+              "no_test_rationale",
+              "execution"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^T-\\\\d{3,}$"
+              },
+              "depends_on": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^T-\\\\d{3,}$"
+                }
+              },
+              "labels": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "ready",
+                  "in_progress",
+                  "done",
+                  "abandoned"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "const": "spike"
+              },
+              "drives": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^(REQ|SCEN|VIS)-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+                }
+              },
+              "no_test_rationale": {
+                "type": "string",
+                "minLength": 10
+              },
+              "execution": {
+                "type": "object",
+                "properties": {
+                  "explore": {
+                    "type": "object",
+                    "properties": {
+                      "applicability": {
+                        "type": "string",
+                        "enum": [
+                          "must",
+                          "optional",
+                          "na"
+                        ]
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "na",
+                          "pending",
+                          "running",
+                          "passed",
+                          "failed",
+                          "waived"
+                        ]
+                      },
+                      "reason": {
+                        "type": "string"
+                      },
+                      "evidence_refs": {
+                        "default": [],
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^EV-\\\\d{6,}$"
+                        }
+                      },
+                      "started_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\\\d\\\\d[2468][048]|\\\\d\\\\d[13579][26]|\\\\d\\\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\\\d|30)|(?:02)-(?:0[1-9]|1\\\\d|2[0-8])))T(?:(?:[01]\\\\d|2[0-3]):[0-5]\\\\d(?::[0-5]\\\\d(?:\\\\.\\\\d+)?)?(?:Z))$"
+                      }
+                    },
+                    "required": [
+                      "applicability",
+                      "status",
+                      "evidence_refs"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "prototype": {
+                    "type": "object",
+                    "properties": {
+                      "applicability": {
+                        "type": "string",
+                        "enum": [
+                          "must",
+                          "optional",
+                          "na"
+                        ]
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "na",
+                          "pending",
+                          "running",
+                          "passed",
+                          "failed",
+                          "waived"
+                        ]
+                      },
+                      "reason": {
+                        "type": "string"
+                      },
+                      "evidence_refs": {
+                        "default": [],
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^EV-\\\\d{6,}$"
+                        }
+                      },
+                      "started_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\\\d\\\\d[2468][048]|\\\\d\\\\d[13579][26]|\\\\d\\\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\\\d|30)|(?:02)-(?:0[1-9]|1\\\\d|2[0-8])))T(?:(?:[01]\\\\d|2[0-3]):[0-5]\\\\d(?::[0-5]\\\\d(?:\\\\.\\\\d+)?)?(?:Z))$"
+                      }
+                    },
+                    "required": [
+                      "applicability",
+                      "status",
+                      "evidence_refs"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "record": {
+                    "type": "object",
+                    "properties": {
+                      "applicability": {
+                        "type": "string",
+                        "enum": [
+                          "must",
+                          "optional",
+                          "na"
+                        ]
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "na",
+                          "pending",
+                          "running",
+                          "passed",
+                          "failed",
+                          "waived"
+                        ]
+                      },
+                      "reason": {
+                        "type": "string"
+                      },
+                      "evidence_refs": {
+                        "default": [],
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^EV-\\\\d{6,}$"
+                        }
+                      },
+                      "started_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\\\d\\\\d[2468][048]|\\\\d\\\\d[13579][26]|\\\\d\\\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\\\d|30)|(?:02)-(?:0[1-9]|1\\\\d|2[0-8])))T(?:(?:[01]\\\\d|2[0-3]):[0-5]\\\\d(?::[0-5]\\\\d(?:\\\\.\\\\d+)?)?(?:Z))$"
+                      }
+                    },
+                    "required": [
+                      "applicability",
+                      "status",
+                      "evidence_refs"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "explore",
+                  "prototype",
+                  "record"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "id",
+              "depends_on",
+              "labels",
+              "status",
+              "kind",
+              "no_test_rationale",
+              "execution"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^T-\\\\d{3,}$"
+              },
+              "depends_on": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^T-\\\\d{3,}$"
+                }
+              },
+              "labels": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "ready",
+                  "in_progress",
+                  "done",
+                  "abandoned"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "const": "chore"
+              },
+              "drives": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^(REQ|SCEN|VIS)-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+                }
+              },
+              "no_test_rationale": {
+                "type": "string",
+                "minLength": 10
+              },
+              "execution": {
+                "type": "object",
+                "properties": {
+                  "execute": {
+                    "type": "object",
+                    "properties": {
+                      "applicability": {
+                        "type": "string",
+                        "enum": [
+                          "must",
+                          "optional",
+                          "na"
+                        ]
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "na",
+                          "pending",
+                          "running",
+                          "passed",
+                          "failed",
+                          "waived"
+                        ]
+                      },
+                      "reason": {
+                        "type": "string"
+                      },
+                      "evidence_refs": {
+                        "default": [],
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^EV-\\\\d{6,}$"
+                        }
+                      },
+                      "started_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\\\d\\\\d[2468][048]|\\\\d\\\\d[13579][26]|\\\\d\\\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\\\d|30)|(?:02)-(?:0[1-9]|1\\\\d|2[0-8])))T(?:(?:[01]\\\\d|2[0-3]):[0-5]\\\\d(?::[0-5]\\\\d(?:\\\\.\\\\d+)?)?(?:Z))$"
+                      }
+                    },
+                    "required": [
+                      "applicability",
+                      "status",
+                      "evidence_refs"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "execute"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "id",
+              "depends_on",
+              "labels",
+              "status",
+              "kind",
+              "no_test_rationale",
+              "execution"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "version",
+    "based_on",
+    "tasks"
+  ],
+  "additionalProperties": false
+}
+"
+`;
+
+exports[`current public schema output baseline > input:evidence:add 1`] = `
+"{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "task-summary",
+            "verify-review",
+            "spec-review",
+            "acceptance",
+            "visual-review",
+            "gate-decision",
+            "local-check",
+            "manual",
+            "waiver",
+            "spike-finding"
+          ]
+        },
+        "iteration": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "actor": {
+          "type": "string",
+          "minLength": 1
+        },
+        "result": {
+          "type": "string",
+          "enum": [
+            "passed",
+            "failed",
+            "approved",
+            "rejected",
+            "waived"
+          ]
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 3
+        },
+        "covers": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^REQ-[A-Z][A-Z0-9]*-\\\\d{3,}$"
+              },
+              {
+                "type": "string",
+                "pattern": "^SCEN-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+              },
+              {
+                "type": "string",
+                "pattern": "^VIS-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+              },
+              {
+                "type": "string",
+                "pattern": "^T-\\\\d{3,}$"
+              }
+            ]
+          }
+        },
+        "task_id": {
+          "type": "string",
+          "pattern": "^T-\\\\d{3,}$"
+        },
+        "check": {
+          "type": "string",
+          "enum": [
+            "run",
+            "review",
+            "acceptance",
+            "visual"
+          ]
+        },
+        "cmd": {
+          "type": "string"
+        },
+        "exit": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "wall_ms": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "gate": {
+          "type": "string",
+          "enum": [
+            "spec-lock",
+            "verify-accept"
+          ]
+        },
+        "decided_by": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "based_on": {
+          "type": "object",
+          "properties": {
+            "spec": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "tasks": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "spec",
+            "tasks"
+          ],
+          "additionalProperties": false
+        },
+        "attachments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 3
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "mime": {
+                "type": "string",
+                "minLength": 3
+              },
+              "bytes": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "path",
+              "sha256",
+              "mime"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "waiver_obligation_id": {
+          "type": "string"
+        },
+        "external_ref": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "iteration",
+        "actor",
+        "result",
+        "summary",
+        "covers"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "task-summary",
+              "verify-review",
+              "spec-review",
+              "acceptance",
+              "visual-review",
+              "gate-decision",
+              "local-check",
+              "manual",
+              "waiver",
+              "spike-finding"
+            ]
+          },
+          "iteration": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "actor": {
+            "type": "string",
+            "minLength": 1
+          },
+          "result": {
+            "type": "string",
+            "enum": [
+              "passed",
+              "failed",
+              "approved",
+              "rejected",
+              "waived"
+            ]
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 3
+          },
+          "covers": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^REQ-[A-Z][A-Z0-9]*-\\\\d{3,}$"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^SCEN-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^VIS-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^T-\\\\d{3,}$"
+                }
+              ]
+            }
+          },
+          "task_id": {
+            "type": "string",
+            "pattern": "^T-\\\\d{3,}$"
+          },
+          "check": {
+            "type": "string",
+            "enum": [
+              "run",
+              "review",
+              "acceptance",
+              "visual"
+            ]
+          },
+          "cmd": {
+            "type": "string"
+          },
+          "exit": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "wall_ms": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "gate": {
+            "type": "string",
+            "enum": [
+              "spec-lock",
+              "verify-accept"
+            ]
+          },
+          "decided_by": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "based_on": {
+            "type": "object",
+            "properties": {
+              "spec": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "tasks": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "spec",
+              "tasks"
+            ],
+            "additionalProperties": false
+          },
+          "attachments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "minLength": 3
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "mime": {
+                  "type": "string",
+                  "minLength": 3
+                },
+                "bytes": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "path",
+                "sha256",
+                "mime"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "waiver_obligation_id": {
+            "type": "string"
+          },
+          "external_ref": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "iteration",
+          "actor",
+          "result",
+          "summary",
+          "covers"
+        ],
+        "additionalProperties": false
+      }
+    }
+  ]
+}
+"
+`;
+
+exports[`current public schema output baseline > input:spec:add-req 1`] = `
+"{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "anyOf": [
+        {
+          "allOf": [
+            {
+              "type": "object",
+              "properties": {
+                "id_namespace": {
+                  "type": "string",
+                  "pattern": "^REQ-[A-Z][A-Z0-9]*$"
+                },
+                "type": {
+                  "type": "string",
+                  "const": "ubiquitous"
+                },
+                "response": {
+                  "type": "string",
+                  "minLength": 10
+                }
+              },
+              "required": [
+                "id_namespace",
+                "type",
+                "response"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "measurable": {
+                  "type": "object",
+                  "properties": {
+                    "metric": {
+                      "type": "string",
+                      "minLength": 3
+                    },
+                    "threshold": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "number"
+                        }
+                      ]
+                    },
+                    "unit": {
+                      "type": "string"
+                    },
+                    "direction": {
+                      "default": "lte",
+                      "type": "string",
+                      "enum": [
+                        "lte",
+                        "gte",
+                        "eq"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "metric",
+                    "threshold",
+                    "direction"
+                  ],
+                  "additionalProperties": false
+                },
+                "verified_by_scenarios": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^SCEN-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+                  }
+                },
+                "acceptance_na": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "acceptance_na_reason": {
+                  "type": "string",
+                  "minLength": 10
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "type": "object",
+              "properties": {
+                "id_namespace": {
+                  "type": "string",
+                  "pattern": "^REQ-[A-Z][A-Z0-9]*$"
+                },
+                "type": {
+                  "type": "string",
+                  "const": "event-driven"
+                },
+                "trigger": {
+                  "type": "string",
+                  "minLength": 5
+                },
+                "response": {
+                  "type": "string",
+                  "minLength": 10
+                }
+              },
+              "required": [
+                "id_namespace",
+                "type",
+                "trigger",
+                "response"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "measurable": {
+                  "type": "object",
+                  "properties": {
+                    "metric": {
+                      "type": "string",
+                      "minLength": 3
+                    },
+                    "threshold": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "number"
+                        }
+                      ]
+                    },
+                    "unit": {
+                      "type": "string"
+                    },
+                    "direction": {
+                      "default": "lte",
+                      "type": "string",
+                      "enum": [
+                        "lte",
+                        "gte",
+                        "eq"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "metric",
+                    "threshold",
+                    "direction"
+                  ],
+                  "additionalProperties": false
+                },
+                "verified_by_scenarios": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^SCEN-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+                  }
+                },
+                "acceptance_na": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "acceptance_na_reason": {
+                  "type": "string",
+                  "minLength": 10
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "type": "object",
+              "properties": {
+                "id_namespace": {
+                  "type": "string",
+                  "pattern": "^REQ-[A-Z][A-Z0-9]*$"
+                },
+                "type": {
+                  "type": "string",
+                  "const": "state-driven"
+                },
+                "while_": {
+                  "type": "string",
+                  "minLength": 5
+                },
+                "behavior": {
+                  "type": "string",
+                  "minLength": 10
+                }
+              },
+              "required": [
+                "id_namespace",
+                "type",
+                "while_",
+                "behavior"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "measurable": {
+                  "type": "object",
+                  "properties": {
+                    "metric": {
+                      "type": "string",
+                      "minLength": 3
+                    },
+                    "threshold": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "number"
+                        }
+                      ]
+                    },
+                    "unit": {
+                      "type": "string"
+                    },
+                    "direction": {
+                      "default": "lte",
+                      "type": "string",
+                      "enum": [
+                        "lte",
+                        "gte",
+                        "eq"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "metric",
+                    "threshold",
+                    "direction"
+                  ],
+                  "additionalProperties": false
+                },
+                "verified_by_scenarios": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^SCEN-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+                  }
+                },
+                "acceptance_na": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "acceptance_na_reason": {
+                  "type": "string",
+                  "minLength": 10
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "type": "object",
+              "properties": {
+                "id_namespace": {
+                  "type": "string",
+                  "pattern": "^REQ-[A-Z][A-Z0-9]*$"
+                },
+                "type": {
+                  "type": "string",
+                  "const": "optional"
+                },
+                "feature": {
+                  "type": "string",
+                  "minLength": 5
+                },
+                "response": {
+                  "type": "string",
+                  "minLength": 10
+                }
+              },
+              "required": [
+                "id_namespace",
+                "type",
+                "feature",
+                "response"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "measurable": {
+                  "type": "object",
+                  "properties": {
+                    "metric": {
+                      "type": "string",
+                      "minLength": 3
+                    },
+                    "threshold": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "number"
+                        }
+                      ]
+                    },
+                    "unit": {
+                      "type": "string"
+                    },
+                    "direction": {
+                      "default": "lte",
+                      "type": "string",
+                      "enum": [
+                        "lte",
+                        "gte",
+                        "eq"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "metric",
+                    "threshold",
+                    "direction"
+                  ],
+                  "additionalProperties": false
+                },
+                "verified_by_scenarios": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^SCEN-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+                  }
+                },
+                "acceptance_na": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "acceptance_na_reason": {
+                  "type": "string",
+                  "minLength": 10
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "type": "object",
+              "properties": {
+                "id_namespace": {
+                  "type": "string",
+                  "pattern": "^REQ-[A-Z][A-Z0-9]*$"
+                },
+                "type": {
+                  "type": "string",
+                  "const": "unwanted"
+                },
+                "condition": {
+                  "type": "string",
+                  "minLength": 5
+                },
+                "response": {
+                  "type": "string",
+                  "minLength": 10
+                }
+              },
+              "required": [
+                "id_namespace",
+                "type",
+                "condition",
+                "response"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "measurable": {
+                  "type": "object",
+                  "properties": {
+                    "metric": {
+                      "type": "string",
+                      "minLength": 3
+                    },
+                    "threshold": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "number"
+                        }
+                      ]
+                    },
+                    "unit": {
+                      "type": "string"
+                    },
+                    "direction": {
+                      "default": "lte",
+                      "type": "string",
+                      "enum": [
+                        "lte",
+                        "gte",
+                        "eq"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "metric",
+                    "threshold",
+                    "direction"
+                  ],
+                  "additionalProperties": false
+                },
+                "verified_by_scenarios": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^SCEN-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+                  }
+                },
+                "acceptance_na": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "acceptance_na_reason": {
+                  "type": "string",
+                  "minLength": 10
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "anyOf": [
+          {
+            "allOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id_namespace": {
+                    "type": "string",
+                    "pattern": "^REQ-[A-Z][A-Z0-9]*$"
+                  },
+                  "type": {
+                    "type": "string",
+                    "const": "ubiquitous"
+                  },
+                  "response": {
+                    "type": "string",
+                    "minLength": 10
+                  }
+                },
+                "required": [
+                  "id_namespace",
+                  "type",
+                  "response"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "measurable": {
+                    "type": "object",
+                    "properties": {
+                      "metric": {
+                        "type": "string",
+                        "minLength": 3
+                      },
+                      "threshold": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "number"
+                          }
+                        ]
+                      },
+                      "unit": {
+                        "type": "string"
+                      },
+                      "direction": {
+                        "default": "lte",
+                        "type": "string",
+                        "enum": [
+                          "lte",
+                          "gte",
+                          "eq"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "metric",
+                      "threshold",
+                      "direction"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "verified_by_scenarios": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^SCEN-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+                    }
+                  },
+                  "acceptance_na": {
+                    "type": "boolean",
+                    "const": true
+                  },
+                  "acceptance_na_reason": {
+                    "type": "string",
+                    "minLength": 10
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id_namespace": {
+                    "type": "string",
+                    "pattern": "^REQ-[A-Z][A-Z0-9]*$"
+                  },
+                  "type": {
+                    "type": "string",
+                    "const": "event-driven"
+                  },
+                  "trigger": {
+                    "type": "string",
+                    "minLength": 5
+                  },
+                  "response": {
+                    "type": "string",
+                    "minLength": 10
+                  }
+                },
+                "required": [
+                  "id_namespace",
+                  "type",
+                  "trigger",
+                  "response"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "measurable": {
+                    "type": "object",
+                    "properties": {
+                      "metric": {
+                        "type": "string",
+                        "minLength": 3
+                      },
+                      "threshold": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "number"
+                          }
+                        ]
+                      },
+                      "unit": {
+                        "type": "string"
+                      },
+                      "direction": {
+                        "default": "lte",
+                        "type": "string",
+                        "enum": [
+                          "lte",
+                          "gte",
+                          "eq"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "metric",
+                      "threshold",
+                      "direction"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "verified_by_scenarios": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^SCEN-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+                    }
+                  },
+                  "acceptance_na": {
+                    "type": "boolean",
+                    "const": true
+                  },
+                  "acceptance_na_reason": {
+                    "type": "string",
+                    "minLength": 10
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id_namespace": {
+                    "type": "string",
+                    "pattern": "^REQ-[A-Z][A-Z0-9]*$"
+                  },
+                  "type": {
+                    "type": "string",
+                    "const": "state-driven"
+                  },
+                  "while_": {
+                    "type": "string",
+                    "minLength": 5
+                  },
+                  "behavior": {
+                    "type": "string",
+                    "minLength": 10
+                  }
+                },
+                "required": [
+                  "id_namespace",
+                  "type",
+                  "while_",
+                  "behavior"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "measurable": {
+                    "type": "object",
+                    "properties": {
+                      "metric": {
+                        "type": "string",
+                        "minLength": 3
+                      },
+                      "threshold": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "number"
+                          }
+                        ]
+                      },
+                      "unit": {
+                        "type": "string"
+                      },
+                      "direction": {
+                        "default": "lte",
+                        "type": "string",
+                        "enum": [
+                          "lte",
+                          "gte",
+                          "eq"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "metric",
+                      "threshold",
+                      "direction"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "verified_by_scenarios": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^SCEN-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+                    }
+                  },
+                  "acceptance_na": {
+                    "type": "boolean",
+                    "const": true
+                  },
+                  "acceptance_na_reason": {
+                    "type": "string",
+                    "minLength": 10
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id_namespace": {
+                    "type": "string",
+                    "pattern": "^REQ-[A-Z][A-Z0-9]*$"
+                  },
+                  "type": {
+                    "type": "string",
+                    "const": "optional"
+                  },
+                  "feature": {
+                    "type": "string",
+                    "minLength": 5
+                  },
+                  "response": {
+                    "type": "string",
+                    "minLength": 10
+                  }
+                },
+                "required": [
+                  "id_namespace",
+                  "type",
+                  "feature",
+                  "response"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "measurable": {
+                    "type": "object",
+                    "properties": {
+                      "metric": {
+                        "type": "string",
+                        "minLength": 3
+                      },
+                      "threshold": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "number"
+                          }
+                        ]
+                      },
+                      "unit": {
+                        "type": "string"
+                      },
+                      "direction": {
+                        "default": "lte",
+                        "type": "string",
+                        "enum": [
+                          "lte",
+                          "gte",
+                          "eq"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "metric",
+                      "threshold",
+                      "direction"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "verified_by_scenarios": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^SCEN-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+                    }
+                  },
+                  "acceptance_na": {
+                    "type": "boolean",
+                    "const": true
+                  },
+                  "acceptance_na_reason": {
+                    "type": "string",
+                    "minLength": 10
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id_namespace": {
+                    "type": "string",
+                    "pattern": "^REQ-[A-Z][A-Z0-9]*$"
+                  },
+                  "type": {
+                    "type": "string",
+                    "const": "unwanted"
+                  },
+                  "condition": {
+                    "type": "string",
+                    "minLength": 5
+                  },
+                  "response": {
+                    "type": "string",
+                    "minLength": 10
+                  }
+                },
+                "required": [
+                  "id_namespace",
+                  "type",
+                  "condition",
+                  "response"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "measurable": {
+                    "type": "object",
+                    "properties": {
+                      "metric": {
+                        "type": "string",
+                        "minLength": 3
+                      },
+                      "threshold": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "number"
+                          }
+                        ]
+                      },
+                      "unit": {
+                        "type": "string"
+                      },
+                      "direction": {
+                        "default": "lte",
+                        "type": "string",
+                        "enum": [
+                          "lte",
+                          "gte",
+                          "eq"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "metric",
+                      "threshold",
+                      "direction"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "verified_by_scenarios": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^SCEN-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+                    }
+                  },
+                  "acceptance_na": {
+                    "type": "boolean",
+                    "const": true
+                  },
+                  "acceptance_na_reason": {
+                    "type": "string",
+                    "minLength": 10
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
+"
+`;
+
+exports[`current public schema output baseline > input:spec:add-scenario 1`] = `
+"{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "type": "object",
+      "properties": {
+        "id_namespace": {
+          "type": "string",
+          "pattern": "^SCEN-[A-Z][A-Z0-9-]*$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 3
+        },
+        "tag": {
+          "type": "string",
+          "enum": [
+            "happy",
+            "edge",
+            "error",
+            "e2e"
+          ]
+        },
+        "requires_acceptance": {
+          "type": "boolean"
+        },
+        "acceptance_na": {
+          "type": "string",
+          "minLength": 5
+        },
+        "given": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 3
+          }
+        },
+        "when": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 3
+          }
+        },
+        "then": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 3
+          }
+        }
+      },
+      "required": [
+        "id_namespace",
+        "name",
+        "given",
+        "when",
+        "then"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id_namespace": {
+            "type": "string",
+            "pattern": "^SCEN-[A-Z][A-Z0-9-]*$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 3
+          },
+          "tag": {
+            "type": "string",
+            "enum": [
+              "happy",
+              "edge",
+              "error",
+              "e2e"
+            ]
+          },
+          "requires_acceptance": {
+            "type": "boolean"
+          },
+          "acceptance_na": {
+            "type": "string",
+            "minLength": 5
+          },
+          "given": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 3
+            }
+          },
+          "when": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 3
+            }
+          },
+          "then": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 3
+            }
+          }
+        },
+        "required": [
+          "id_namespace",
+          "name",
+          "given",
+          "when",
+          "then"
+        ],
+        "additionalProperties": false
+      }
+    }
+  ]
+}
+"
+`;
+
+exports[`current public schema output baseline > input:spec:add-visual 1`] = `
+"{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "type": "object",
+      "properties": {
+        "id_namespace": {
+          "type": "string",
+          "pattern": "^VIS-[A-Z][A-Z0-9-]*$"
+        },
+        "target": {
+          "type": "string",
+          "minLength": 3
+        },
+        "checks": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 3
+          }
+        },
+        "requires_visual": {
+          "type": "boolean"
+        },
+        "visual_na": {
+          "type": "string",
+          "minLength": 5
+        }
+      },
+      "required": [
+        "id_namespace",
+        "target",
+        "checks"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id_namespace": {
+            "type": "string",
+            "pattern": "^VIS-[A-Z][A-Z0-9-]*$"
+          },
+          "target": {
+            "type": "string",
+            "minLength": 3
+          },
+          "checks": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 3
+            }
+          },
+          "requires_visual": {
+            "type": "boolean"
+          },
+          "visual_na": {
+            "type": "string",
+            "minLength": 5
+          }
+        },
+        "required": [
+          "id_namespace",
+          "target",
+          "checks"
+        ],
+        "additionalProperties": false
+      }
+    }
+  ]
+}
+"
+`;
+
+exports[`current public schema output baseline > input:tasks:add 1`] = `
+"{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "drives": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^(REQ|SCEN|VIS)-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+              }
+            },
+            "depends_on": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^T-\\\\d{3,}$"
+              }
+            },
+            "labels": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "kind": {
+              "type": "string",
+              "const": "behavioral"
+            },
+            "tests": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 3
+              }
+            },
+            "test_layer": {
+              "type": "string",
+              "enum": [
+                "unit",
+                "integration",
+                "e2e"
+              ]
+            },
+            "requires_acceptance": {
+              "type": "boolean"
+            },
+            "requires_visual": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "drives",
+            "depends_on",
+            "labels",
+            "kind",
+            "tests"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "drives": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^(REQ|SCEN|VIS)-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+              }
+            },
+            "depends_on": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^T-\\\\d{3,}$"
+              }
+            },
+            "labels": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "kind": {
+              "type": "string",
+              "const": "structural"
+            },
+            "no_test_rationale": {
+              "type": "string",
+              "minLength": 10
+            }
+          },
+          "required": [
+            "depends_on",
+            "labels",
+            "kind",
+            "no_test_rationale"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "drives": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^(REQ|SCEN|VIS)-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+              }
+            },
+            "depends_on": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^T-\\\\d{3,}$"
+              }
+            },
+            "labels": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "kind": {
+              "type": "string",
+              "const": "visual-ui"
+            },
+            "visual_contract_refs": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^VIS-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+              }
+            },
+            "no_test_rationale": {
+              "type": "string",
+              "minLength": 10
+            }
+          },
+          "required": [
+            "depends_on",
+            "labels",
+            "kind",
+            "visual_contract_refs"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "drives": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^(REQ|SCEN|VIS)-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+              }
+            },
+            "depends_on": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^T-\\\\d{3,}$"
+              }
+            },
+            "labels": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "kind": {
+              "type": "string",
+              "const": "docs"
+            },
+            "no_test_rationale": {
+              "type": "string",
+              "minLength": 10
+            }
+          },
+          "required": [
+            "depends_on",
+            "labels",
+            "kind",
+            "no_test_rationale"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "drives": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^(REQ|SCEN|VIS)-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+              }
+            },
+            "depends_on": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^T-\\\\d{3,}$"
+              }
+            },
+            "labels": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "kind": {
+              "type": "string",
+              "const": "spike"
+            },
+            "no_test_rationale": {
+              "type": "string",
+              "minLength": 10
+            }
+          },
+          "required": [
+            "depends_on",
+            "labels",
+            "kind",
+            "no_test_rationale"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "drives": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^(REQ|SCEN|VIS)-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+              }
+            },
+            "depends_on": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^T-\\\\d{3,}$"
+              }
+            },
+            "labels": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "kind": {
+              "type": "string",
+              "const": "chore"
+            },
+            "no_test_rationale": {
+              "type": "string",
+              "minLength": 10
+            }
+          },
+          "required": [
+            "depends_on",
+            "labels",
+            "kind",
+            "no_test_rationale"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "drives": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^(REQ|SCEN|VIS)-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+                }
+              },
+              "depends_on": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^T-\\\\d{3,}$"
+                }
+              },
+              "labels": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "const": "behavioral"
+              },
+              "tests": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 3
+                }
+              },
+              "test_layer": {
+                "type": "string",
+                "enum": [
+                  "unit",
+                  "integration",
+                  "e2e"
+                ]
+              },
+              "requires_acceptance": {
+                "type": "boolean"
+              },
+              "requires_visual": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "drives",
+              "depends_on",
+              "labels",
+              "kind",
+              "tests"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "drives": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^(REQ|SCEN|VIS)-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+                }
+              },
+              "depends_on": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^T-\\\\d{3,}$"
+                }
+              },
+              "labels": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "const": "structural"
+              },
+              "no_test_rationale": {
+                "type": "string",
+                "minLength": 10
+              }
+            },
+            "required": [
+              "depends_on",
+              "labels",
+              "kind",
+              "no_test_rationale"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "drives": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^(REQ|SCEN|VIS)-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+                }
+              },
+              "depends_on": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^T-\\\\d{3,}$"
+                }
+              },
+              "labels": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "const": "visual-ui"
+              },
+              "visual_contract_refs": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^VIS-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+                }
+              },
+              "no_test_rationale": {
+                "type": "string",
+                "minLength": 10
+              }
+            },
+            "required": [
+              "depends_on",
+              "labels",
+              "kind",
+              "visual_contract_refs"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "drives": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^(REQ|SCEN|VIS)-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+                }
+              },
+              "depends_on": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^T-\\\\d{3,}$"
+                }
+              },
+              "labels": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "const": "docs"
+              },
+              "no_test_rationale": {
+                "type": "string",
+                "minLength": 10
+              }
+            },
+            "required": [
+              "depends_on",
+              "labels",
+              "kind",
+              "no_test_rationale"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "drives": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^(REQ|SCEN|VIS)-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+                }
+              },
+              "depends_on": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^T-\\\\d{3,}$"
+                }
+              },
+              "labels": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "const": "spike"
+              },
+              "no_test_rationale": {
+                "type": "string",
+                "minLength": 10
+              }
+            },
+            "required": [
+              "depends_on",
+              "labels",
+              "kind",
+              "no_test_rationale"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "drives": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^(REQ|SCEN|VIS)-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+                }
+              },
+              "depends_on": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^T-\\\\d{3,}$"
+                }
+              },
+              "labels": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "const": "chore"
+              },
+              "no_test_rationale": {
+                "type": "string",
+                "minLength": 10
+              }
+            },
+            "required": [
+              "depends_on",
+              "labels",
+              "kind",
+              "no_test_rationale"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      }
+    }
+  ]
+}
+"
+`;
