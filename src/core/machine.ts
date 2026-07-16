@@ -1,17 +1,27 @@
 import type { EntryKind, GateName, SubState } from "./journal-entry.js";
 
+// `contract:next` preserves contract-only navigation hints that are not
+// legal `event:phase_advanced` transitions. It has no journal apply owner.
 export type MachineEdgeOwnerKind = Extract<
   EntryKind,
   | "event:phase_advanced"
   | "session:delivered"
   | "session:archived"
   | "session:abandoned"
->;
+> | "contract:next";
+
+export type MachineGuardName =
+  | "spec_phase_required"
+  | "spec_phase_forbidden"
+  | "verify_phase_required"
+  | "spec_locked_required"
+  | "settle_phase_required"
+  | "verify_accepted_required";
 
 export type MachineEdge = {
   target: SubState;
   owner_kind: MachineEdgeOwnerKind;
-  guards?: readonly string[];
+  guards?: readonly MachineGuardName[];
 };
 
 export type MachineNode = {
@@ -50,8 +60,16 @@ export const MACHINE = defineMachine({
     exit: "user accepts or overrides profile",
     write_paths: [".loaf/<feature>/state.json"],
     edges: [
-      { target: "SPEC.proposal", owner_kind: "event:phase_advanced" },
-      { target: "EXECUTE.plan", owner_kind: "event:phase_advanced" },
+      {
+        target: "SPEC.proposal",
+        owner_kind: "event:phase_advanced",
+        guards: ["spec_phase_required"],
+      },
+      {
+        target: "EXECUTE.plan",
+        owner_kind: "event:phase_advanced",
+        guards: ["spec_phase_forbidden"],
+      },
     ],
     prompt_inject:
       "Confirm proposed profile (quick/light/standard/deep — see skill PRESETS) or override.",
@@ -102,7 +120,13 @@ export const MACHINE = defineMachine({
         "spec.md:frontmatter.visual_contracts",
       ],
     },
-    edges: [{ target: "EXECUTE.plan", owner_kind: "event:phase_advanced" }],
+    edges: [
+      {
+        target: "EXECUTE.plan",
+        owner_kind: "event:phase_advanced",
+        guards: ["spec_locked_required"],
+      },
+    ],
     prompt_inject:
       "Design + decompose into tasks bound to REQ/SCEN/VIS via task.drives[]. Use labels[] for bug/security/etc.",
     gate: "spec-lock",
@@ -155,7 +179,7 @@ export const MACHINE = defineMachine({
       ],
     },
     edges: [
-      { target: "EXECUTE.work", owner_kind: "event:phase_advanced" },
+      { target: "EXECUTE.work", owner_kind: "contract:next" },
       { target: "EXECUTE.done", owner_kind: "event:phase_advanced" },
     ],
     prompt_inject:
@@ -168,7 +192,11 @@ export const MACHINE = defineMachine({
       " OR DONE.delivered (verify_phase=false: quick / light non-spike via `loaf deliver`: verify-min runs at this boundary, on pass transition direct to DONE.delivered, on fail exit 2 — see protocol.md §3.2 + §10.14)",
     write_paths: [],
     edges: [
-      { target: "VERIFY.plan", owner_kind: "event:phase_advanced" },
+      {
+        target: "VERIFY.plan",
+        owner_kind: "event:phase_advanced",
+        guards: ["verify_phase_required"],
+      },
       { target: "DONE.delivered", owner_kind: "session:delivered" },
     ],
     prompt_inject:
@@ -182,10 +210,10 @@ export const MACHINE = defineMachine({
     write_paths: [".loaf/<feature>/state.json"],
     edges: [
       { target: "VERIFY.run", owner_kind: "event:phase_advanced" },
-      { target: "VERIFY.review", owner_kind: "event:phase_advanced" },
-      { target: "VERIFY.acceptance", owner_kind: "event:phase_advanced" },
-      { target: "VERIFY.visual", owner_kind: "event:phase_advanced" },
-      { target: "VERIFY.accept", owner_kind: "event:phase_advanced" },
+      { target: "VERIFY.review", owner_kind: "contract:next" },
+      { target: "VERIFY.acceptance", owner_kind: "contract:next" },
+      { target: "VERIFY.visual", owner_kind: "contract:next" },
+      { target: "VERIFY.accept", owner_kind: "contract:next" },
     ],
     prompt_inject:
       "Compute which verify checks apply: run/review/acceptance/visual. Output reasoning + N/A justifications.",
@@ -210,7 +238,7 @@ export const MACHINE = defineMachine({
     exit: "review check passed or explicitly waived",
     write_paths: [".loaf/<feature>/evidence.jsonl", ".loaf/<feature>/findings.jsonl"],
     edges: [
-      { target: "VERIFY.run", owner_kind: "event:phase_advanced" },
+      { target: "VERIFY.run", owner_kind: "contract:next" },
       { target: "VERIFY.acceptance", owner_kind: "event:phase_advanced" },
       { target: "VERIFY.visual", owner_kind: "event:phase_advanced" },
       { target: "VERIFY.accept", owner_kind: "event:phase_advanced" },
@@ -224,8 +252,8 @@ export const MACHINE = defineMachine({
     exit: "acceptance check passed or explicitly waived",
     write_paths: [".loaf/<feature>/evidence.jsonl", ".loaf/<feature>/findings.jsonl"],
     edges: [
-      { target: "VERIFY.run", owner_kind: "event:phase_advanced" },
-      { target: "VERIFY.review", owner_kind: "event:phase_advanced" },
+      { target: "VERIFY.run", owner_kind: "contract:next" },
+      { target: "VERIFY.review", owner_kind: "contract:next" },
       { target: "VERIFY.visual", owner_kind: "event:phase_advanced" },
       { target: "VERIFY.accept", owner_kind: "event:phase_advanced" },
     ],
@@ -238,9 +266,9 @@ export const MACHINE = defineMachine({
     exit: "visual check passed or explicitly waived",
     write_paths: [".loaf/<feature>/evidence.jsonl", ".loaf/<feature>/findings.jsonl"],
     edges: [
-      { target: "VERIFY.run", owner_kind: "event:phase_advanced" },
-      { target: "VERIFY.review", owner_kind: "event:phase_advanced" },
-      { target: "VERIFY.acceptance", owner_kind: "event:phase_advanced" },
+      { target: "VERIFY.run", owner_kind: "contract:next" },
+      { target: "VERIFY.review", owner_kind: "contract:next" },
+      { target: "VERIFY.acceptance", owner_kind: "contract:next" },
       { target: "VERIFY.accept", owner_kind: "event:phase_advanced" },
     ],
     prompt_inject:
@@ -254,7 +282,11 @@ export const MACHINE = defineMachine({
       " settle_phase=false (standard) → DONE.delivered via `loaf deliver`",
     write_paths: [".loaf/<feature>/evidence.jsonl"],
     edges: [
-      { target: "SETTLE.reconcile", owner_kind: "event:phase_advanced" },
+      {
+        target: "SETTLE.reconcile",
+        owner_kind: "event:phase_advanced",
+        guards: ["settle_phase_required", "verify_accepted_required"],
+      },
       { target: "DONE.delivered", owner_kind: "session:delivered" },
     ],
     prompt_inject:

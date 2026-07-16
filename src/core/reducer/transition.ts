@@ -40,49 +40,28 @@
 // Spec source: protocol.md §2.1 / §5.2, ADR-0005 §10.
 
 import type { Ceremony, GateName, SubState } from "../journal-entry.js";
-import { gateNameForCursor } from "../machine.js";
+import {
+  gateNameForCursor,
+  MACHINE,
+  type MachineGuardName,
+  type MachineNode,
+} from "../machine.js";
 
 export { gateNameForCursor };
 
-// Forward edges of the state-machine graph. Empty = terminal. Back-edges
-// (finding amend-spec / amend-tasks / fix-impl / fix-test) are NOT here;
-// they travel as separate event kinds with their own apply paths.
-//
-// Slice 1.D: removed 3 `→ DONE.delivered` edges (VERIFY.accept, EXECUTE.done,
-// SETTLE.lessons). DONE.delivered is reached exclusively via `session:delivered`
-// (reducer direct cursor flip) — `loaf deliver`'s territory. `loaf advance
-// DONE.delivered` from any sub_state now returns TRANSITION_ILLEGAL.
-//
-// Item 2: removed the 2 `SETTLE.lessons → DONE.archived/abandoned` edges
-// and dropped both terminals from ALWAYS_LEGAL_TARGETS. DONE.archived /
-// DONE.abandoned are now reached exclusively via `session:archived` /
-// `session:abandoned` (reducer direct cursor flip) — `loaf archive` /
-// `loaf abandon`'s territory, which carry the required `reason`. `loaf
-// advance DONE.archived` / `loaf advance DONE.abandoned` from any
-// sub_state now return TRANSITION_ILLEGAL. SETTLE.lessons is therefore a
-// terminal of the `event:phase_advanced` graph.
-const LEGAL_TRANSITIONS: Record<SubState, readonly SubState[]> = {
-  "TRIAGE.score": ["TRIAGE.confirm"],
-  "TRIAGE.confirm": ["SPEC.proposal", "EXECUTE.plan"], // spec_phase fork
-  "SPEC.proposal": ["SPEC.spec"],
-  "SPEC.spec": ["SPEC.plan"],
-  "SPEC.plan": ["SPEC.design"],
-  "SPEC.design": ["EXECUTE.plan"],
-  "EXECUTE.plan": ["EXECUTE.work"],
-  "EXECUTE.work": ["EXECUTE.done"],
-  "EXECUTE.done": ["VERIFY.plan"], // Slice 1.D: DONE.delivered now via `loaf deliver`
-  "VERIFY.plan": ["VERIFY.run"],
-  "VERIFY.run": ["VERIFY.review", "VERIFY.acceptance", "VERIFY.visual", "VERIFY.accept"],
-  "VERIFY.review": ["VERIFY.acceptance", "VERIFY.visual", "VERIFY.accept"],
-  "VERIFY.acceptance": ["VERIFY.visual", "VERIFY.accept"],
-  "VERIFY.visual": ["VERIFY.accept"],
-  "VERIFY.accept": ["SETTLE.reconcile"], // Slice 1.D: DONE.delivered now via `loaf deliver`
-  "SETTLE.reconcile": ["SETTLE.lessons"],
-  "SETTLE.lessons": [], // Item 2: DONE.archived/abandoned now via `loaf archive` / `loaf abandon`
-  "DONE.delivered": [],
-  "DONE.archived": [],
-  "DONE.abandoned": [],
-};
+// `event:phase_advanced` owns only its machine edges. Dedicated session
+// owners keep DONE.* targets out of this projection.
+function deriveLegalTransitions(): Record<SubState, readonly SubState[]> {
+  const transitions = {} as Record<SubState, readonly SubState[]>;
+  for (const subState of Object.keys(MACHINE) as SubState[]) {
+    transitions[subState] = MACHINE[subState].edges
+      .filter((edge) => edge.owner_kind === "event:phase_advanced")
+      .map((edge) => edge.target);
+  }
+  return transitions;
+}
+
+export const LEGAL_TRANSITIONS = deriveLegalTransitions();
 
 export type NextOwnerVerb =
   | "advance"
@@ -227,76 +206,73 @@ export function transitionOwnerFor(input: TransitionOwnerInput): NextAction | nu
 // `amend-tasks` at SC1, `fix-impl` at SC2, `fix-test` at SC3.
 type BackEdgeAction = "amend-spec" | "amend-tasks" | "fix-impl" | "fix-test";
 
-// Per-action back-edge from-state table (Phase 11 Item 3 SC0). Reshaped
-// from the single `BACK_EDGE_AMEND_SPEC_FROM` constant so SC1-SC3 add a
-// row each instead of a parallel constant each.
-//
-// The `amend-spec` row covers every sub_state where state.spec_locked
-// can legally be true after `gate decide spec-lock --approve` (which
-// fires at SPEC.design and flips the lock). SETTLE.* deliberately
-// excluded: finding:raised is not authorized at SETTLE per
-// PER_KIND_SUB_STATE, so the lookup never happens at SETTLE; widening
-// this set without widening finding authority would be misleading
-// (codex r94 Finding 2 ack).
-const BACK_EDGE_FROM: Record<BackEdgeAction, ReadonlySet<SubState>> = {
-  "amend-spec": new Set([
-    "EXECUTE.plan",
-    "EXECUTE.work",
-    "EXECUTE.done",
-    "VERIFY.plan",
-    "VERIFY.run",
-    "VERIFY.review",
-    "VERIFY.acceptance",
-    "VERIFY.visual",
-    "VERIFY.accept",
-  ]),
-  // The `amend-tasks` row (Phase 11 Item 3 SC1) is the `amend-spec`
-  // row minus `EXECUTE.plan`: at the planning surface a task-graph
-  // change is the plain forward edge to EXECUTE.work, not a back-edge
-  // (codex r134 Q1). `EXECUTE.work → EXECUTE.work` is an intentional
-  // self-loop (mid-work drift; the iteration bump is cursor-
-  // independent since SC0). SETTLE.* stays excluded — finding:raised
-  // is not authorized there per PER_KIND_SUB_STATE.
-  "amend-tasks": new Set([
-    "EXECUTE.work",
-    "EXECUTE.done",
-    "VERIFY.plan",
-    "VERIFY.run",
-    "VERIFY.review",
-    "VERIFY.acceptance",
-    "VERIFY.visual",
-    "VERIFY.accept",
-  ]),
-  // The `fix-impl` row (Phase 11 Item 3 SC2, codex r139 Q6) is identical
-  // to the `amend-tasks` row — the same EXECUTE.work/done + VERIFY.* band,
-  // EXECUTE.plan excluded (at the planning surface a step is restructured
-  // directly, not via a finding back-edge). The `EXECUTE.work →
-  // EXECUTE.work` self-loop is intentional (mid-work impl-defect repair).
-  "fix-impl": new Set([
-    "EXECUTE.work",
-    "EXECUTE.done",
-    "VERIFY.plan",
-    "VERIFY.run",
-    "VERIFY.review",
-    "VERIFY.acceptance",
-    "VERIFY.visual",
-    "VERIFY.accept",
-  ]),
-  // The `fix-test` row (Phase 11 Item 3 SC3, codex r142) is identical to
-  // the `fix-impl` row — same EXECUTE.work/done + VERIFY.* band, EXECUTE.plan
-  // excluded, intentional `EXECUTE.work → EXECUTE.work` self-loop (mid-work
-  // test-defect / TDD repair).
-  "fix-test": new Set([
-    "EXECUTE.work",
-    "EXECUTE.done",
-    "VERIFY.plan",
-    "VERIFY.run",
-    "VERIFY.review",
-    "VERIFY.acceptance",
-    "VERIFY.visual",
-    "VERIFY.accept",
-  ]),
+type BackEdgeRule = {
+  expected_target: SubState;
+  allowed_from: ReadonlySet<SubState>;
+  allowed_from_label: string;
 };
+
+// Ordered sets are observable in TRANSITION_ILLEGAL detail.allowed_from.
+// Keep each action's source order and diagnostic label stable.
+const BACK_EDGE_FROM = {
+  "amend-spec": {
+    expected_target: "SPEC.spec",
+    allowed_from: new Set<SubState>([
+      "EXECUTE.plan",
+      "EXECUTE.work",
+      "EXECUTE.done",
+      "VERIFY.plan",
+      "VERIFY.run",
+      "VERIFY.review",
+      "VERIFY.acceptance",
+      "VERIFY.visual",
+      "VERIFY.accept",
+    ]),
+    allowed_from_label: "EXECUTE.* + VERIFY.*",
+  },
+  "amend-tasks": {
+    expected_target: "EXECUTE.work",
+    allowed_from: new Set<SubState>([
+      "EXECUTE.work",
+      "EXECUTE.done",
+      "VERIFY.plan",
+      "VERIFY.run",
+      "VERIFY.review",
+      "VERIFY.acceptance",
+      "VERIFY.visual",
+      "VERIFY.accept",
+    ]),
+    allowed_from_label: "EXECUTE.work / EXECUTE.done + VERIFY.*",
+  },
+  "fix-impl": {
+    expected_target: "EXECUTE.work",
+    allowed_from: new Set<SubState>([
+      "EXECUTE.work",
+      "EXECUTE.done",
+      "VERIFY.plan",
+      "VERIFY.run",
+      "VERIFY.review",
+      "VERIFY.acceptance",
+      "VERIFY.visual",
+      "VERIFY.accept",
+    ]),
+    allowed_from_label: "EXECUTE.work / EXECUTE.done + VERIFY.*",
+  },
+  "fix-test": {
+    expected_target: "EXECUTE.work",
+    allowed_from: new Set<SubState>([
+      "EXECUTE.work",
+      "EXECUTE.done",
+      "VERIFY.plan",
+      "VERIFY.run",
+      "VERIFY.review",
+      "VERIFY.acceptance",
+      "VERIFY.visual",
+      "VERIFY.accept",
+    ]),
+    allowed_from_label: "EXECUTE.work / EXECUTE.done + VERIFY.*",
+  },
+} satisfies Record<BackEdgeAction, BackEdgeRule>;
 
 export interface TransitionContext {
   ceremony: Ceremony;
@@ -349,179 +325,130 @@ export type TransitionResult =
       detail?: Record<string, unknown>;
     };
 
+type TransitionFailure = Extract<TransitionResult, { ok: false }>;
+
+type TransitionGuard = {
+  passes: (ctx: TransitionContext) => boolean;
+  failure: (prev: SubState, target: SubState, ctx: TransitionContext) => TransitionFailure;
+};
+
+const TRANSITION_GUARDS = {
+  spec_phase_required: {
+    passes: (ctx) => ctx.ceremony.spec_phase,
+    failure: (prev, target, ctx) => ({
+      ok: false,
+      code: "SPEC_PHASE_FORK_VIOLATION",
+      message: `${prev} → ${target} requires ceremony.spec_phase=true`,
+      detail: { from: prev, to: target, spec_phase: ctx.ceremony.spec_phase },
+    }),
+  },
+  spec_phase_forbidden: {
+    passes: (ctx) => !ctx.ceremony.spec_phase,
+    failure: (prev, target, ctx) => ({
+      ok: false,
+      code: "SPEC_PHASE_FORK_VIOLATION",
+      message:
+        `${prev} → ${target} requires ceremony.spec_phase=false (quick); ` +
+        "profiles with spec_phase=true must traverse SPEC.*",
+      detail: { from: prev, to: target, spec_phase: ctx.ceremony.spec_phase },
+    }),
+  },
+  verify_phase_required: {
+    passes: (ctx) => ctx.ceremony.verify_phase,
+    failure: (prev, target, ctx) => ({
+      ok: false,
+      code: "VERIFY_PHASE_FORK_VIOLATION",
+      message: `${prev} → ${target} requires ceremony.verify_phase=true (standard / deep)`,
+      detail: { from: prev, to: target, verify_phase: ctx.ceremony.verify_phase },
+    }),
+  },
+  spec_locked_required: {
+    passes: (ctx) => !!ctx.spec_locked,
+    failure: (prev, target, ctx) => ({
+      ok: false,
+      code: "SPEC_LOCK_NOT_SATISFIED",
+      message: `${prev} → ${target} requires spec_locked=true (run \`loaf gate decide spec-lock --approve\` first)`,
+      detail: { from: prev, to: target, spec_locked: !!ctx.spec_locked },
+    }),
+  },
+  settle_phase_required: {
+    passes: (ctx) => ctx.ceremony.settle_phase,
+    failure: (prev, target, ctx) => ({
+      ok: false,
+      code: "SETTLE_PHASE_DISABLED",
+      message: `${prev} → ${target} requires ceremony.settle_phase=true (deep only)`,
+      detail: { from: prev, to: target, settle_phase: ctx.ceremony.settle_phase },
+    }),
+  },
+  verify_accepted_required: {
+    passes: (ctx) => !!ctx.verify_accepted,
+    failure: (prev, target, ctx) => ({
+      ok: false,
+      code: "SETTLE_NOT_ACCEPTED",
+      message: `${prev} → ${target} requires verify_accepted=true (run \`loaf gate decide verify-accept --approve\` first)`,
+      detail: { from: prev, to: target, verify_accepted: !!ctx.verify_accepted },
+    }),
+  },
+} satisfies Record<MachineGuardName, TransitionGuard>;
+
+function validateBackEdge(
+  prev: SubState,
+  target: SubState,
+  backEdge: NonNullable<TransitionContext["back_edge"]>,
+): TransitionResult {
+  const action = (backEdge as { action: string }).action;
+  const rule = Object.hasOwn(BACK_EDGE_FROM, action)
+    ? BACK_EDGE_FROM[action as BackEdgeAction]
+    : undefined;
+
+  if (rule === undefined) {
+    return {
+      ok: false,
+      code: "TRANSITION_ILLEGAL",
+      message: `unknown back_edge.action ${action}`,
+      detail: { back_edge: backEdge, reason: "back_edge_action_unknown" },
+    };
+  }
+
+  if (target !== rule.expected_target) {
+    return {
+      ok: false,
+      code: "TRANSITION_ILLEGAL",
+      message: `back_edge action=${action} requires target=${rule.expected_target}, got ${target}`,
+      detail: {
+        from: prev,
+        to: target,
+        back_edge_action: action,
+        expected_target: rule.expected_target,
+        reason: "back_edge_target_mismatch",
+      },
+    };
+  }
+
+  if (!rule.allowed_from.has(prev)) {
+    return {
+      ok: false,
+      code: "TRANSITION_ILLEGAL",
+      message: `back_edge action=${action} is not legal from ${prev}; allowed from ${rule.allowed_from_label}`,
+      detail: {
+        from: prev,
+        to: target,
+        back_edge_action: action,
+        allowed_from: [...rule.allowed_from],
+        reason: "back_edge_from_not_allowed",
+      },
+    };
+  }
+
+  return { ok: true };
+}
+
 export function validateTransition(
   prev: SubState,
   target: SubState,
   ctx: TransitionContext,
 ): TransitionResult {
-  // Slice B back-edge sponsorship — enforces the action→target contract
-  // before the forward-edge legality check below. A malformed payload
-  // like `{back_edge:{action:"amend-spec"}, to:"SPEC.spec"}` from a
-  // disallowed `from` state is still rejected here.
-  if (ctx.back_edge !== undefined) {
-    if (ctx.back_edge.action === "amend-spec") {
-      if (target !== "SPEC.spec") {
-        return {
-          ok: false,
-          code: "TRANSITION_ILLEGAL",
-          message: `back_edge action=amend-spec requires target=SPEC.spec, got ${target}`,
-          detail: {
-            from: prev,
-            to: target,
-            back_edge_action: ctx.back_edge.action,
-            expected_target: "SPEC.spec",
-            reason: "back_edge_target_mismatch",
-          },
-        };
-      }
-      const allowedFrom = BACK_EDGE_FROM["amend-spec"];
-      if (!allowedFrom.has(prev)) {
-        return {
-          ok: false,
-          code: "TRANSITION_ILLEGAL",
-          message: `back_edge action=amend-spec is not legal from ${prev}; allowed from EXECUTE.* + VERIFY.*`,
-          detail: {
-            from: prev,
-            to: target,
-            back_edge_action: ctx.back_edge.action,
-            allowed_from: [...allowedFrom],
-            reason: "back_edge_from_not_allowed",
-          },
-        };
-      }
-      // Back-edge legal at the transition layer; preflight verifies the
-      // referenced finding_id against snapshot.findings (existence +
-      // action match + status=open).
-      return { ok: true };
-    }
-    if (ctx.back_edge.action === "amend-tasks") {
-      // Phase 11 Item 3 SC1 — amend-tasks back-edge targets EXECUTE.work
-      // (codex r134 Q2). `EXECUTE.work → EXECUTE.work` is an intentional
-      // self-loop; the iteration bump stays cursor-independent.
-      if (target !== "EXECUTE.work") {
-        return {
-          ok: false,
-          code: "TRANSITION_ILLEGAL",
-          message: `back_edge action=amend-tasks requires target=EXECUTE.work, got ${target}`,
-          detail: {
-            from: prev,
-            to: target,
-            back_edge_action: ctx.back_edge.action,
-            expected_target: "EXECUTE.work",
-            reason: "back_edge_target_mismatch",
-          },
-        };
-      }
-      const allowedFrom = BACK_EDGE_FROM["amend-tasks"];
-      if (!allowedFrom.has(prev)) {
-        return {
-          ok: false,
-          code: "TRANSITION_ILLEGAL",
-          message: `back_edge action=amend-tasks is not legal from ${prev}; allowed from EXECUTE.work / EXECUTE.done + VERIFY.*`,
-          detail: {
-            from: prev,
-            to: target,
-            back_edge_action: ctx.back_edge.action,
-            allowed_from: [...allowedFrom],
-            reason: "back_edge_from_not_allowed",
-          },
-        };
-      }
-      // Back-edge legal at the transition layer; preflight verifies the
-      // referenced finding_id against snapshot.findings (existence +
-      // action match + status=open).
-      return { ok: true };
-    }
-    if (ctx.back_edge.action === "fix-impl") {
-      // Phase 11 Item 3 SC2 — fix-impl back-edge targets EXECUTE.work
-      // (codex r139 Q6). The step reset travels as a sibling
-      // `event:task_step_reset` entry in the same batch; this arm only
-      // gates the cursor edge.
-      if (target !== "EXECUTE.work") {
-        return {
-          ok: false,
-          code: "TRANSITION_ILLEGAL",
-          message: `back_edge action=fix-impl requires target=EXECUTE.work, got ${target}`,
-          detail: {
-            from: prev,
-            to: target,
-            back_edge_action: ctx.back_edge.action,
-            expected_target: "EXECUTE.work",
-            reason: "back_edge_target_mismatch",
-          },
-        };
-      }
-      const allowedFrom = BACK_EDGE_FROM["fix-impl"];
-      if (!allowedFrom.has(prev)) {
-        return {
-          ok: false,
-          code: "TRANSITION_ILLEGAL",
-          message: `back_edge action=fix-impl is not legal from ${prev}; allowed from EXECUTE.work / EXECUTE.done + VERIFY.*`,
-          detail: {
-            from: prev,
-            to: target,
-            back_edge_action: ctx.back_edge.action,
-            allowed_from: [...allowedFrom],
-            reason: "back_edge_from_not_allowed",
-          },
-        };
-      }
-      // Back-edge legal at the transition layer; preflight verifies the
-      // referenced finding_id against snapshot.findings (existence +
-      // action match + status=open) and the task_step_reset entry's
-      // target authority.
-      return { ok: true };
-    }
-    if (ctx.back_edge.action === "fix-test") {
-      // Phase 11 Item 3 SC3 — fix-test back-edge targets EXECUTE.work
-      // (codex r142). Mirrors the fix-impl arm exactly; the step reset
-      // (step="red") travels as a sibling `event:task_step_reset` entry
-      // in the same batch — this arm only gates the cursor edge.
-      if (target !== "EXECUTE.work") {
-        return {
-          ok: false,
-          code: "TRANSITION_ILLEGAL",
-          message: `back_edge action=fix-test requires target=EXECUTE.work, got ${target}`,
-          detail: {
-            from: prev,
-            to: target,
-            back_edge_action: ctx.back_edge.action,
-            expected_target: "EXECUTE.work",
-            reason: "back_edge_target_mismatch",
-          },
-        };
-      }
-      const allowedFrom = BACK_EDGE_FROM["fix-test"];
-      if (!allowedFrom.has(prev)) {
-        return {
-          ok: false,
-          code: "TRANSITION_ILLEGAL",
-          message: `back_edge action=fix-test is not legal from ${prev}; allowed from EXECUTE.work / EXECUTE.done + VERIFY.*`,
-          detail: {
-            from: prev,
-            to: target,
-            back_edge_action: ctx.back_edge.action,
-            allowed_from: [...allowedFrom],
-            reason: "back_edge_from_not_allowed",
-          },
-        };
-      }
-      // Back-edge legal at the transition layer; preflight verifies the
-      // referenced finding_id against snapshot.findings (existence +
-      // action match + status=open) and the task_step_reset entry's
-      // target authority.
-      return { ok: true };
-    }
-    // Future back_edge variants land here additively. The
-    // discriminatedUnion in journal-entry.ts catches unknown actions
-    // at payload parse time, so this branch is defensive.
-    return {
-      ok: false,
-      code: "TRANSITION_ILLEGAL",
-      message: `unknown back_edge.action ${(ctx.back_edge as { action: string }).action}`,
-      detail: { back_edge: ctx.back_edge, reason: "back_edge_action_unknown" },
-    };
-  }
+  if (ctx.back_edge !== undefined) return validateBackEdge(prev, target, ctx.back_edge);
 
   const allowed = LEGAL_TRANSITIONS[prev] ?? [];
   if (!allowed.includes(target)) {
@@ -537,92 +464,18 @@ export function validateTransition(
     };
   }
 
-  // rev 5.x — TRIAGE.confirm fork ceremony guard (audit r1 follow-up).
-  //   spec_phase=true  (light / standard / deep) → SPEC.proposal
-  //   spec_phase=false (quick)                   → EXECUTE.plan
-  if (prev === "TRIAGE.confirm") {
-    const specPhase = ctx.ceremony.spec_phase;
-    if (target === "SPEC.proposal" && !specPhase) {
-      return {
-        ok: false,
-        code: "SPEC_PHASE_FORK_VIOLATION",
-        message: "TRIAGE.confirm → SPEC.proposal requires ceremony.spec_phase=true",
-        detail: { from: prev, to: target, spec_phase: specPhase },
-      };
-    }
-    if (target === "EXECUTE.plan" && specPhase) {
-      return {
-        ok: false,
-        code: "SPEC_PHASE_FORK_VIOLATION",
-        message:
-          "TRIAGE.confirm → EXECUTE.plan requires ceremony.spec_phase=false (quick); profiles with spec_phase=true must traverse SPEC.*",
-        detail: { from: prev, to: target, spec_phase: specPhase },
-      };
-    }
+  const node: MachineNode = MACHINE[prev];
+  const edge = node.edges.find(
+    (candidate) =>
+      candidate.owner_kind === "event:phase_advanced" && candidate.target === target,
+  );
+  if (edge === undefined) {
+    throw new Error(`MACHINE forward edge missing after LEGAL_TRANSITIONS accepted ${prev} → ${target}`);
   }
 
-  // rev 5.x — EXECUTE.done fork ceremony guard (audit r1 follow-up).
-  //   verify_phase=true  (standard / deep) → VERIFY.plan (required entry into VERIFY)
-  //   verify_phase=false (quick / light)   → no `event:phase_advanced` target;
-  //                                          `loaf deliver` owns the EXECUTE.done →
-  //                                          DONE.delivered transition through verify-min,
-  //                                          gated at preflight step 5c (Slice 1.D).
-  if (prev === "EXECUTE.done") {
-    const verifyPhase = ctx.ceremony.verify_phase;
-    if (target === "VERIFY.plan" && !verifyPhase) {
-      return {
-        ok: false,
-        code: "VERIFY_PHASE_FORK_VIOLATION",
-        message: "EXECUTE.done → VERIFY.plan requires ceremony.verify_phase=true (standard / deep)",
-        detail: { from: prev, to: target, verify_phase: verifyPhase },
-      };
-    }
-  }
-
-  // Slice 1.D — VERIFY.accept → SETTLE.reconcile fork (loaf settle command).
-  //   ceremony.settle_phase=false → SETTLE_PHASE_DISABLED
-  //   verify_accepted=false       → SETTLE_NOT_ACCEPTED (gate must approve first)
-  //   DONE.delivered from VERIFY.accept is no longer an `event:phase_advanced`
-  //   edge — `loaf deliver` owns that path with its own preflight ceremony /
-  //   verify_accepted refines (preflight step 5c).
-  // W1 — SPEC.design → EXECUTE.plan spec-lock guard. Symmetric to the
-  // verify_accepted refine below. The spec-lock gate (8 checks in
-  // evaluateSpecLock) is enforced in mutateBatch Pass 1.5 ONLY when a
-  // `gate:decided spec-lock approved` rides in the batch; a bare
-  // `loaf advance EXECUTE.plan` carries no gate entry, so without this guard
-  // the cursor crosses the spec-lock boundary with spec_locked=false and the
-  // checks never run. The kernel is the enforcement authority (ADR-0005) and
-  // must not depend on the skill layer staging a gate prompt. spec_locked is
-  // flipped by `gate decide spec-lock --approve` (which does NOT move the
-  // cursor — Slice 1.A), so the legal order is: decide, then advance.
-  if (prev === "SPEC.design" && target === "EXECUTE.plan" && !ctx.spec_locked) {
-    return {
-      ok: false,
-      code: "SPEC_LOCK_NOT_SATISFIED",
-      message:
-        "SPEC.design → EXECUTE.plan requires spec_locked=true (run `loaf gate decide spec-lock --approve` first)",
-      detail: { from: prev, to: target, spec_locked: !!ctx.spec_locked },
-    };
-  }
-
-  if (prev === "VERIFY.accept" && target === "SETTLE.reconcile") {
-    if (!ctx.ceremony.settle_phase) {
-      return {
-        ok: false,
-        code: "SETTLE_PHASE_DISABLED",
-        message: "VERIFY.accept → SETTLE.reconcile requires ceremony.settle_phase=true (deep only)",
-        detail: { from: prev, to: target, settle_phase: ctx.ceremony.settle_phase },
-      };
-    }
-    if (!ctx.verify_accepted) {
-      return {
-        ok: false,
-        code: "SETTLE_NOT_ACCEPTED",
-        message:
-          "VERIFY.accept → SETTLE.reconcile requires verify_accepted=true (run `loaf gate decide verify-accept --approve` first)",
-        detail: { from: prev, to: target, verify_accepted: !!ctx.verify_accepted },
-      };
-    }
+  for (const guardName of edge.guards ?? []) {
+    const guard = TRANSITION_GUARDS[guardName];
+    if (!guard.passes(ctx)) return guard.failure(prev, target, ctx);
   }
 
   return { ok: true };
