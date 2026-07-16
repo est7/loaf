@@ -9,6 +9,11 @@
 // circular dependency (command-context imports this module). FORMAT_MODES_HUMAN
 // is inlined; I18nVars is defined locally as an equivalent alias.
 
+import {
+  MIGRATED_DIAGNOSTIC_CODES,
+  type MigratedDiagnosticCode,
+} from "./runtime-i18n-keys.js";
+
 /** Local equivalent of CommandContext's I18nVars — avoids a circular import. */
 export type I18nVars = Record<string, string | number | boolean | null | undefined>;
 
@@ -37,8 +42,8 @@ function listVar(value: unknown): string | null {
   return stringVar(value);
 }
 
-export function diagnosticVarsFor(
-  code: string,
+function migratedDiagnosticVarsFor(
+  code: MigratedDiagnosticCode,
   detail: Record<string, unknown> | undefined,
 ): I18nVars | null {
   switch (code) {
@@ -77,7 +82,18 @@ export function diagnosticVarsFor(
       });
     case "SESSION_NOT_FOUND":
       return varsIfDefined({ uuid_or_prefix: stringVar(detail?.["uuid_or_prefix"]) });
-    default:
-      return null;
   }
+
+  const exhaustive: never = code;
+  return exhaustive;
+}
+
+const MIGRATED_DIAGNOSTIC_CODE_SET = new Set<string>(MIGRATED_DIAGNOSTIC_CODES);
+
+export function diagnosticVarsFor(
+  code: string,
+  detail: Record<string, unknown> | undefined,
+): I18nVars | null {
+  if (!MIGRATED_DIAGNOSTIC_CODE_SET.has(code)) return null;
+  return migratedDiagnosticVarsFor(code as MigratedDiagnosticCode, detail);
 }

@@ -1516,6 +1516,39 @@ export const ERROR_CATALOG = {
     template_keys: [],
     doc_anchor: "protocol.md#§10.5",
   },
+  APPEND_ERROR: {
+    // journal-mutate preserves heterogeneous AppendError detail (code plus
+    // code-specific fields) and uses {err} only for unknown exceptions, so
+    // this catalog contract intentionally has no required detail key.
+    exit_code: 2,
+    message_template: "journal append failed",
+    fix_template:
+      "preserve journal.jsonl and the emitted detail, then inspect the append error before retrying; if a write may have started, run `loaf doctor` to verify journal integrity",
+    template_keys: [],
+    detail_keys: [],
+    doc_anchor: "protocol.md#§11.2",
+  },
+  SIDECAR_ERROR: {
+    exit_code: 2,
+    message_template: "sidecar finalize failed: {err}",
+    fix_template:
+      "inspect the emitted error and attachment path permissions; validation already passed, so remove any orphan sidecar residue before retrying",
+    template_keys: ["err"],
+    detail_keys: ["err"],
+    doc_anchor: "protocol.md#§11.2",
+  },
+  INVALID_BATCH: {
+    // Empty input, forbidden caller-owned fields, and stale MutateContext
+    // carry disjoint details. The catalog records their common stable
+    // contract; journal-mutate's emitted message retains the exact reason.
+    exit_code: 2,
+    message_template: "mutation batch is invalid",
+    fix_template:
+      "rebuild the batch through the CLI mutator without caller-owned envelope fields and with entries + meta matching the current journal tail",
+    template_keys: [],
+    detail_keys: [],
+    doc_anchor: "protocol.md#§11.2",
+  },
 
   WRITE_PATH_VIOLATION: {
     // Phase 16 SC-15c — `loaf hook write-guard`: the tool's target path is

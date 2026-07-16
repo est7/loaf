@@ -1,4 +1,5 @@
 import type { EvidenceKind } from "../core/evidence-schema.js";
+import type { DiagnosticCode } from "../core/error-catalog.js";
 import type { FindingAction, FindingCategory } from "../core/finding-schema.js";
 import type { SubState } from "../core/journal-entry.js";
 import type { TaskFullProjection } from "../core/task-schema.js";
@@ -14,17 +15,6 @@ export type PendingKind =
   | "spec_clarification"
   | "finding_decision"
   | "profile_escalation";
-export type MigratedDiagnosticCode =
-  | "INVALID_FORMAT"
-  | "MUTUALLY_EXCLUSIVE_FLAGS"
-  | "DRY_RUN_NOT_APPLICABLE"
-  | "CONFIG_ALREADY_INITIALIZED"
-  | "FEATURE_NOT_FOUND"
-  | "FEATURE_AMBIGUOUS"
-  | "SESSION_CWD_MISMATCH"
-  | "SESSION_SHORT_AMBIGUOUS"
-  | "SESSION_NOT_FOUND";
-
 export type FailureSiteDiagnosticCode =
   | "USAGE"
   | "SCHEMA_VALIDATION_FAILED"
@@ -150,6 +140,8 @@ const SUB_STATE_KEYS = {
   "DONE.abandoned": "sub_state.DONE.abandoned",
 } as const satisfies Record<SubState, string>;
 
+// Sole adapter/identity subset registry. Its member type and diagnostic key
+// map derive below; diagnostic-failure.ts exhaustively covers this same set.
 export const MIGRATED_DIAGNOSTIC_CODES = [
   "INVALID_FORMAT",
   "MUTUALLY_EXCLUSIVE_FLAGS",
@@ -160,19 +152,17 @@ export const MIGRATED_DIAGNOSTIC_CODES = [
   "SESSION_CWD_MISMATCH",
   "SESSION_SHORT_AMBIGUOUS",
   "SESSION_NOT_FOUND",
-] as const satisfies readonly MigratedDiagnosticCode[];
+] as const satisfies readonly DiagnosticCode[];
 
-const DIAGNOSTIC_KEYS = {
-  INVALID_FORMAT: "diagnostic.INVALID_FORMAT",
-  MUTUALLY_EXCLUSIVE_FLAGS: "diagnostic.MUTUALLY_EXCLUSIVE_FLAGS",
-  DRY_RUN_NOT_APPLICABLE: "diagnostic.DRY_RUN_NOT_APPLICABLE",
-  CONFIG_ALREADY_INITIALIZED: "diagnostic.CONFIG_ALREADY_INITIALIZED",
-  FEATURE_NOT_FOUND: "diagnostic.FEATURE_NOT_FOUND",
-  FEATURE_AMBIGUOUS: "diagnostic.FEATURE_AMBIGUOUS",
-  SESSION_CWD_MISMATCH: "diagnostic.SESSION_CWD_MISMATCH",
-  SESSION_SHORT_AMBIGUOUS: "diagnostic.SESSION_SHORT_AMBIGUOUS",
-  SESSION_NOT_FOUND: "diagnostic.SESSION_NOT_FOUND",
-} as const satisfies Record<MigratedDiagnosticCode, string>;
+export type MigratedDiagnosticCode = (typeof MIGRATED_DIAGNOSTIC_CODES)[number];
+export type DiagnosticI18nKey = `diagnostic.${MigratedDiagnosticCode}`;
+type DiagnosticKeyMap = {
+  readonly [Code in MigratedDiagnosticCode]: `diagnostic.${Code}`;
+};
+
+const DIAGNOSTIC_KEYS = Object.fromEntries(
+  MIGRATED_DIAGNOSTIC_CODES.map((code) => [code, `diagnostic.${code}`]),
+) as DiagnosticKeyMap;
 
 export const FAILURE_SITE_KEYS = {
   sessionsListSelectorConflict: "failure.sessions_list.selector_conflict",
@@ -656,6 +646,6 @@ export function subStateKey(subState: SubState): RuntimeI18nKey {
   return SUB_STATE_KEYS[subState];
 }
 
-export function diagnosticKey(code: MigratedDiagnosticCode): RuntimeI18nKey {
+export function diagnosticKey(code: MigratedDiagnosticCode): DiagnosticI18nKey {
   return DIAGNOSTIC_KEYS[code];
 }
