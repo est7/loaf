@@ -9,7 +9,8 @@
     ".env*",
     "**/*.keystore",
     "**/google-services.json",
-    "**/AuthService.private.kt"
+    "**/AuthService.private.kt",
+    "src/core/machine.ts"
   ],
 
   "stable_core": [

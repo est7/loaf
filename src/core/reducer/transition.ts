@@ -40,6 +40,9 @@
 // Spec source: protocol.md §2.1 / §5.2, ADR-0005 §10.
 
 import type { Ceremony, GateName, SubState } from "../journal-entry.js";
+import { gateNameForCursor } from "../machine.js";
+
+export { gateNameForCursor };
 
 // Forward edges of the state-machine graph. Empty = terminal. Back-edges
 // (finding amend-spec / amend-tasks / fix-impl / fix-test) are NOT here;
@@ -104,22 +107,6 @@ export type NextAction = {
   blocking: boolean;
   reason: string;
 };
-
-// Single source for the cursor → gate mapping. Both the forward-route
-// owner (`transitionOwnerFor`, flag-gated) and the pending-precedence
-// composer (`next-action.ts` gateFromCursor, unconditional on a pending
-// gate_decision head) route through this so the mapping is not re-encoded
-// in two files (audit Finding 3).
-export function gateNameForCursor(subState: SubState): GateName | null {
-  switch (subState) {
-    case "SPEC.design":
-      return "spec-lock";
-    case "VERIFY.accept":
-      return "verify-accept";
-    default:
-      return null;
-  }
-}
 
 export function buildGateDecideAction(gate: GateName): NextAction {
   return {
