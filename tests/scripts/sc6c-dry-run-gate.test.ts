@@ -298,9 +298,9 @@ describe("SC-6c — protocol + schema invariants", () => {
   });
 
   test("schema: DRY_RUN_NOT_APPLICABLE in DiagnosticCode enum + ERROR_CATALOG", async () => {
-    const schemas = await readRepo("docs/schemas.ts");
-    expect(schemas).toMatch(/"DRY_RUN_NOT_APPLICABLE"/);
-    expect(schemas).toMatch(/DRY_RUN_NOT_APPLICABLE:\s*\{/);
+    const catalog = await readRepo("src/core/error-catalog.ts");
+    expect(catalog).toMatch(/"DRY_RUN_NOT_APPLICABLE"/);
+    expect(catalog).toMatch(/DRY_RUN_NOT_APPLICABLE:\s*\{/);
   });
 
   test("i18n: DRY_RUN_NOT_APPLICABLE flat-string in both en + zh", async () => {

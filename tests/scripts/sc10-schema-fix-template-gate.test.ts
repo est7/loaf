@@ -14,6 +14,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+const ERROR_CATALOG_PATH = path.join(REPO_ROOT, "src/core/error-catalog.ts");
 
 const COMMANDS_WITHOUT_SCHEMA: ReadonlyArray<string> = [
   // input-consuming commands NOT in the 5 batch-capable mutator set
@@ -23,9 +24,9 @@ const COMMANDS_WITHOUT_SCHEMA: ReadonlyArray<string> = [
   "profile escalate",
 ];
 
-describe("SC-10 — docs/schemas.ts fix_template hygiene", () => {
+describe("SC-10 — error-catalog.ts fix_template hygiene", () => {
   test("no fix_template recommends `<cmd> --schema` for a command that doesn't support it", async () => {
-    const source = await fs.readFile(path.join(REPO_ROOT, "docs/schemas.ts"), "utf8");
+    const source = await fs.readFile(ERROR_CATALOG_PATH, "utf8");
     const offenders: string[] = [];
     for (const cmd of COMMANDS_WITHOUT_SCHEMA) {
       const literal = `${cmd} --schema`;
@@ -39,7 +40,7 @@ describe("SC-10 — docs/schemas.ts fix_template hygiene", () => {
   });
 
   test("MISSING_INPUT and SCHEMA_VALIDATION_FAILED fix_templates qualify `--schema` scope", async () => {
-    const source = await fs.readFile(path.join(REPO_ROOT, "docs/schemas.ts"), "utf8");
+    const source = await fs.readFile(ERROR_CATALOG_PATH, "utf8");
     // Find the two catalog entries and check their wording acknowledges
     // the SC-10 scope: either mentions "5 batch-capable mutators" /
     // "Phase 16 SC-10" / "when supported by the command", OR enumerates

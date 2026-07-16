@@ -11,7 +11,7 @@
 //   - File extension: `.json` (the envelope IS JSON; the older `.log`
 //     suffix in protocol.md is updated in the same SC).
 //   - Sentinel code: `UNEXPECTED_ERROR` (NOT a DiagnosticCode). The
-//     `ErrorEntry` schema in docs/schemas.ts is locked at
+//     `ErrorEntry` schema in src/core/error-catalog.ts is locked at
 //     `exit_code: z.literal(2)`, and §39 explicitly scopes
 //     DiagnosticCode to user-recoverable exit-2 failures. Widening that
 //     schema is out of SC-2 scope.

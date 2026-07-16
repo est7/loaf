@@ -21,6 +21,7 @@ const CLI_PATH = path.join(REPO_ROOT, "src", "cli.tsx");
 const CLI_DIR = path.join(REPO_ROOT, "src", "cli");
 const I18N_EN_PATH = path.join(REPO_ROOT, "i18n", "en.json");
 const I18N_ZH_PATH = path.join(REPO_ROOT, "i18n", "zh.json");
+const ERROR_CATALOG_PATH = path.join(REPO_ROOT, "src", "core", "error-catalog.ts");
 
 // Phase 16 SC-1 — the 7 DiagnosticCodes registered into ERROR_CATALOG +
 // i18n bundles by this slice (was the SC-0 baseline contents). Tests below
@@ -398,7 +399,7 @@ describe("Phase 16 SC-1 — DiagnosticCode catalog hygiene", () => {
   test("diagnostic-baseline.json is empty (SC-1 retires the long-lived allowlist)", () => {
     expect(
       baseline.entries,
-      "SC-1 must empty tests/scripts/inventory/diagnostic-baseline.json — every code that was previously baselined must now be in docs/schemas.ts ERROR_CATALOG + DiagnosticCode enum + i18n bundles",
+      "SC-1 must empty tests/scripts/inventory/diagnostic-baseline.json — every code that was previously baselined must now be in src/core/error-catalog.ts ERROR_CATALOG + DiagnosticCode enum + i18n bundles",
     ).toEqual([]);
   });
 
@@ -652,17 +653,16 @@ function diffDiagnostics(bl: Baseline): Finding[] {
     findings.push({
       kind: "uncataloged-code",
       name: code,
-      doc_location: "docs/schemas.ts §39 ERROR_CATALOG",
+      doc_location: "src/core/error-catalog.ts ERROR_CATALOG",
       runtime_location: `${rel} (and possibly other presentation files)`,
-      suggestion: `Either register ${code} in docs/schemas.ts DiagnosticCode + ERROR_CATALOG + i18n bundles, or add it to tests/scripts/inventory/diagnostic-baseline.json with a removal_sc target.`,
+      suggestion: `Either register ${code} in src/core/error-catalog.ts DiagnosticCode + ERROR_CATALOG + i18n bundles, or add it to tests/scripts/inventory/diagnostic-baseline.json with a removal_sc target.`,
     });
   }
   return findings;
 }
 
 function loadCatalogCodes(): Set<string> {
-  const schemasPath = path.join(REPO_ROOT, "docs", "schemas.ts");
-  const text = readFileSync(schemasPath, "utf8");
+  const text = readFileSync(ERROR_CATALOG_PATH, "utf8");
   // Anchor on the actual enum declaration — `DiagnosticCode` appears in
   // comments before the declaration, so first-match is wrong. The pattern
   // is `export const DiagnosticCode = z.enum([` followed by quoted strings

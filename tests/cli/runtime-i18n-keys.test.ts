@@ -26,9 +26,9 @@ import {
   MIGRATED_DIAGNOSTIC_CODES,
 } from "../../src/cli/runtime-i18n-keys.js";
 import { EvidenceKind } from "../../src/core/evidence-schema.js";
+import { ERROR_CATALOG, DiagnosticCode } from "../../src/core/error-catalog.js";
 import { FindingAction, FindingCategory } from "../../src/core/finding-schema.js";
 import { PendingPromptKind, SubState } from "../../src/core/journal-entry.js";
-import { ERROR_CATALOG, DiagnosticCode } from "../../docs/schemas.js";
 
 const PHASE_VALUES = ["TRIAGE", "SPEC", "EXECUTE", "VERIFY", "SETTLE", "DONE"] as const;
 const STATUS_BUCKETS = ["done", "blocked", "running", "idle"] as const;

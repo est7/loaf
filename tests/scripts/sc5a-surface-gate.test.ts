@@ -4,7 +4,7 @@
 //   - RED #8  : INVALID_FORMAT is registered in DiagnosticCode + ERROR_CATALOG
 //               + both i18n bundles; diagnostic-baseline.json unchanged.
 //   - RED #12 : placeholder symmetry — INVALID_FORMAT template placeholder
-//               set is identical across docs/schemas.ts, i18n/en.json,
+//               set is identical across error-catalog.ts, i18n/en.json,
 //               i18n/zh.json. Generalized to any single DiagnosticCode.
 //   - RED #18 : FLAG_EXCLUSIONS (JSON-stringified) contains no "--json"
 //               substring after the A1-honestly sweep.
@@ -24,7 +24,8 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { DiagnosticCode, ERROR_CATALOG, FLAG_EXCLUSIONS } from "../../docs/schemas.js";
+import { FLAG_EXCLUSIONS } from "../../docs/schemas.js";
+import { DiagnosticCode, ERROR_CATALOG } from "../../src/core/error-catalog.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..", "..");
@@ -90,7 +91,7 @@ describe("Phase 16 SC-5a/SC-5b1 — RED #12: placeholder symmetry across catalog
   ];
 
   for (const { code, canonical } of SYMMETRY_CODES) {
-    test(`${code}: placeholders match across docs/schemas.ts + i18n/en + i18n/zh`, () => {
+    test(`${code}: placeholders match across error-catalog.ts + i18n/en + i18n/zh`, () => {
       const catalogTemplate = ERROR_CATALOG[code].message_template;
       const en = JSON.parse(readRepo("i18n/en.json")) as { diagnostic: Record<string, string> };
       const zh = JSON.parse(readRepo("i18n/zh.json")) as { diagnostic: Record<string, string> };
@@ -185,6 +186,7 @@ describe("Phase 16 SC-5a — RED #19: surface-wide '--json' grep gate", () => {
     "src/cli/command-context.ts",
     "src/core/reducer.ts",
     "src/core/crash-log.ts",
+    "src/core/error-catalog.ts",
   ];
 
   // Exact-content allowlist. A `--json` hit is allowed only if its line

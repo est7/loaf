@@ -6,7 +6,7 @@
 //      (FEATURE_NOT_FOUND, FEATURE_AMBIGUOUS, SESSION_CWD_MISMATCH,
 //       SESSION_SHORT_AMBIGUOUS, SESSION_NOT_FOUND — the last is
 //       the new SC-8 code)
-//   3. SESSION_NOT_FOUND present in docs/schemas.ts DiagnosticCode +
+//   3. SESSION_NOT_FOUND present in error-catalog.ts DiagnosticCode +
 //      ERROR_CATALOG
 
 import { describe, expect, test } from "vitest";
@@ -29,9 +29,9 @@ describe("SC-8 — protocol + schema invariants", () => {
   });
 
   test("schemas: SESSION_NOT_FOUND in DiagnosticCode enum + ERROR_CATALOG", async () => {
-    const schemas = await readRepo("docs/schemas.ts");
-    expect(schemas).toMatch(/"SESSION_NOT_FOUND"/);
-    expect(schemas).toMatch(/SESSION_NOT_FOUND:\s*\{/);
+    const catalog = await readRepo("src/core/error-catalog.ts");
+    expect(catalog).toMatch(/"SESSION_NOT_FOUND"/);
+    expect(catalog).toMatch(/SESSION_NOT_FOUND:\s*\{/);
   });
 
   test("i18n: all 5 SC-8 codes flat-string in en + zh diagnostic namespace", async () => {
