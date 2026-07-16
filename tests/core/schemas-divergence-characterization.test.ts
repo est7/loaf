@@ -12,8 +12,12 @@ import {
   EvidenceFullPayload as RuntimeEvidenceFullPayload,
 } from "../../src/core/evidence-schema.js";
 import {
+  BatchId as RuntimeBatchId,
   Ceremony as RuntimeCeremony,
+  CeremonyLabel as RuntimeCeremonyLabel,
   JournalEntry as RuntimeJournalEntry,
+  Phase as RuntimePhase,
+  SignatureEnvelope as RuntimeSignatureEnvelope,
 } from "../../src/core/journal-entry.js";
 import {
   RequirementEarsShape as RuntimeRequirementEarsShape,
@@ -113,24 +117,25 @@ describe("schemas dissolution divergence characterization", () => {
     expect(RuntimeRequirementEarsVerifiable.safeParse(fixture).success).toBe(false);
   });
 
-  test("Ceremony accepts an empty object with defaults only in docs", () => {
+  test("Ceremony converges on the runtime six-field-required schema", () => {
     const docsResult = docs.Ceremony.safeParse({});
 
-    expect(docsResult.success).toBe(true);
-    if (docsResult.success) {
-      expect(docsResult.data).toEqual({
+    expect(docs.Ceremony).toBe(RuntimeCeremony);
+    expect(docsResult.success).toBe(false);
+    expect(RuntimeCeremony.safeParse({}).success).toBe(false);
+    expect(
+      RuntimeCeremony.safeParse({
         spec_phase: false,
         verify_phase: false,
         settle_phase: false,
         strict_spec_review: false,
         lessons_required: "skip",
         strict_drift_check: false,
-      });
-    }
-    expect(RuntimeCeremony.safeParse({}).success).toBe(false);
+      }).success,
+    ).toBe(true);
   });
 
-  test("JournalEntry accepts the reserved signature field only in docs", () => {
+  test("JournalEntry converges on the runtime signature-rejecting envelope", () => {
     const fixture = {
       seq: 0,
       entry_id: "JE-000001",
@@ -147,8 +152,31 @@ describe("schemas dissolution divergence characterization", () => {
       },
     };
 
-    expect(docs.JournalEntry.safeParse(fixture).success).toBe(true);
+    expect(docs.JournalEntry).toBe(RuntimeJournalEntry);
+    expect(docs.JournalEntry.safeParse(fixture).success).toBe(false);
     expect(RuntimeJournalEntry.safeParse(fixture).success).toBe(false);
+    const { signature: _, ...unsignedFixture } = fixture;
+    expect(RuntimeJournalEntry.safeParse(unsignedFixture).success).toBe(true);
+  });
+
+  test("new journal-domain exports are owned by the runtime module", () => {
+    expect(docs.BatchId).toBe(RuntimeBatchId);
+    expect(docs.Phase).toBe(RuntimePhase);
+    expect(docs.CeremonyLabel).toBe(RuntimeCeremonyLabel);
+    expect(docs.SignatureEnvelope).toBe(RuntimeSignatureEnvelope);
+
+    expect(RuntimeBatchId.safeParse("facade-only").success).toBe(false);
+    expect(RuntimePhase.safeParse("EXECUTE").success).toBe(true);
+    expect(RuntimePhase.safeParse("UNKNOWN").success).toBe(false);
+    expect(RuntimeCeremonyLabel.safeParse("").success).toBe(true);
+    expect(
+      RuntimeSignatureEnvelope.safeParse({
+        alg: "ed25519",
+        key_id: "key-1",
+        sig: "base64-signature",
+        signed_at: "2026-07-16T08:19:00.000Z",
+      }).success,
+    ).toBe(true);
   });
 });
 

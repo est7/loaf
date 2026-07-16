@@ -6,7 +6,8 @@
 // progressively alongside the reducer (src/core/reducer/* — Stage 2+); Stage 1
 // treats payload as z.unknown() and only enforces the envelope.
 //
-// Spec source: docs/schemas.ts §0a (Zod source of truth) + protocol.md §11.2.
+// This module is the canonical runtime owner. docs/schemas.ts is a compatibility
+// facade; protocol.md §11.2 defines the observable transaction contract.
 
 import { z } from "zod";
 
@@ -32,6 +33,9 @@ export const EntryId = z.string().regex(/^JE-\d{6,}$/, {
   message: "entry_id must match /^JE-\\d{6,}$/ (e.g. JE-000123)",
 });
 export type EntryId = z.infer<typeof EntryId>;
+
+export const BatchId = z.string().uuid();
+export type BatchId = z.infer<typeof BatchId>;
 
 export const ActorString = z.string().regex(/^(human|skill|ci|cli|migration):[^\s].*$/, {
   message:
@@ -62,6 +66,20 @@ export const LongTextField = z.discriminatedUnion("mode", [
 ]);
 export type LongTextField = z.infer<typeof LongTextField>;
 
+/**
+ * Reserved signature payload shape. JournalEntry does not accept a signature
+ * field until a future envelope-version ADR activates it.
+ */
+export const SignatureEnvelope = z
+  .object({
+    alg: z.string().min(1),
+    key_id: z.string().min(1),
+    sig: z.string().min(1),
+    signed_at: z.string().datetime(),
+  })
+  .strict();
+export type SignatureEnvelope = z.infer<typeof SignatureEnvelope>;
+
 // migration:snapshot_imported payload (Stage 5, ADR-0005 §5.2).
 // Gate #3 — schema is .strict() with ONLY AttachmentRef manifest fields.
 // Inline artifact bodies are rejected at Zod parse, preventing a v0.0.x
@@ -83,6 +101,9 @@ export const MigrationSnapshotImportedPayload = z
   })
   .strict();
 export type MigrationSnapshotImportedPayload = z.infer<typeof MigrationSnapshotImportedPayload>;
+
+export const Phase = z.enum(["TRIAGE", "SPEC", "EXECUTE", "VERIFY", "SETTLE", "DONE"]);
+export type Phase = z.infer<typeof Phase>;
 
 // SubState — closed set per protocol.md §2.1 (20 sub-states across 6 phases).
 // State machine cursor; reducer projects this from `event:phase_advanced` /
@@ -137,6 +158,10 @@ export const Ceremony = z
   });
 export type Ceremony = z.infer<typeof Ceremony>;
 
+/** Cosmetic preset label; runtime never interprets its value. */
+export const CeremonyLabel = z.string();
+export type CeremonyLabel = z.infer<typeof CeremonyLabel>;
+
 // GateName — closed set per protocol.md §5 (two human gates).
 export const GateName = z.enum(["spec-lock", "verify-accept"]);
 export type GateName = z.infer<typeof GateName>;
@@ -186,7 +211,7 @@ export const JournalEntry = z
     entry_schema_version: z.number().int().positive(),
     kind: EntryKind,
     payload: z.unknown(),
-    batch_id: z.string().uuid().optional(),
+    batch_id: BatchId.optional(),
     batch_index: z.number().int().nonnegative().optional(),
     batch_count: z.number().int().positive().optional(),
   })

@@ -441,6 +441,23 @@ import {
   FindingTarget as FindingResolutionPayload,
 } from "../src/core/finding-schema.js";
 import {
+  ActorString,
+  AttachmentRef,
+  BatchId,
+  Ceremony,
+  CeremonyLabel,
+  EntryId,
+  EntryKind,
+  GateName,
+  JournalEntry,
+  LongTextField,
+  PendingId,
+  PendingPromptKind,
+  Phase,
+  SignatureEnvelope,
+  SubState,
+} from "../src/core/journal-entry.js";
+import {
   EarsType,
   MeasurablePayload as Measurable,
   NeedsClarification,
@@ -504,6 +521,23 @@ export {
   FindingTarget as FindingResolutionPayload,
 } from "../src/core/finding-schema.js";
 export {
+  ActorString,
+  AttachmentRef,
+  BatchId,
+  Ceremony,
+  CeremonyLabel,
+  EntryId,
+  EntryKind,
+  GateName,
+  JournalEntry,
+  LongTextField,
+  PendingId,
+  PendingPromptKind,
+  Phase,
+  SignatureEnvelope,
+  SubState,
+} from "../src/core/journal-entry.js";
+export {
   EarsType,
   MeasurablePayload as Measurable,
   NeedsClarification,
@@ -566,7 +600,9 @@ const SCHEMA_VERSION = 2;
 // markdown (spec.md / lessons.md). Their schemas remain authoritative for
 // reader / TUI / CI consumption, but mutation goes through journal entries.
 //
-// Runtime registry cross-reference (audit r1-r5 catch-up): per-kind payload
+// Runtime journal-envelope schemas are re-exported above from the canonical
+// `src/core/journal-entry.ts` owner. Runtime registry cross-reference (audit
+// r1-r5 catch-up): per-kind payload
 // schemas are executable runtime policy, not duplicated here. The canonical
 // tables are derived from `KIND_REGISTRY` in `src/core/kind-registry.ts` (L2
 // single-source); the per-kind Zod payload schema consts they map to live in
@@ -584,170 +620,38 @@ const SCHEMA_VERSION = 2;
 // `sidecar_threshold_kb` (8KB) MUST be externalized to attachments/<entry_id>/
 // and replaced in payload by an AttachmentRef.
 
-export const EntryId = z
-  .string()
-  .regex(/^JE-\d{6,}$/, {
-    message: "entry_id must match /^JE-\\d{6,}$/ (e.g. JE-000123)",
-  });
-export type EntryId = z.infer<typeof EntryId>;
 
-export const BatchId = z.string().uuid();
-export type BatchId = z.infer<typeof BatchId>;
 
 // Actor namespace (ADR-0005 §3.4). CLI auto-injects; never accepted as
 // `--actor` flag. The trailing free-form segment after the colon identifies
 // the actor instance (e.g. `human:est9`, `skill:loaf-cli/sdd-execute`,
 // `cli:loaf`, `ci:github-actions`, `migration:v0.0.x→v2`).
-export const ActorString = z
-  .string()
-  .regex(/^(human|skill|ci|cli|migration):[^\s].*$/, {
-    message:
-      "actor must be of form '<prefix>:<id>' where prefix ∈ {human, skill, ci, cli, migration}",
-  });
-export type ActorString = z.infer<typeof ActorString>;
 
 // AttachmentRef — per-entry sidecar pointer. The `path` is relative to
 // `.loaf/<feature>/` (e.g. "attachments/JE-000123/summary.txt"). The reducer
 // verifies `sha256` matches the on-disk file when applying the entry.
-export const AttachmentRef = z
-  .object({
-    path: z.string().min(1),
-    sha256: z.string().regex(/^[a-f0-9]{64}$/, {
-      message: "sha256 must be 64 lowercase hex chars",
-    }),
-    size: z.number().int().nonnegative(),
-  })
-  .strict();
-export type AttachmentRef = z.infer<typeof AttachmentRef>;
 
 // LongTextField — discriminated by `mode`. Inline values must stay below the
 // sidecar threshold; oversized values MUST be promoted to sidecar form
 // during §11.2 step 4 (sidecar finalize) and emitted as
 // `{ mode: "sidecar", ref: AttachmentRef }`.
-export const LongTextField = z.discriminatedUnion("mode", [
-  z.object({ mode: z.literal("inline"), text: z.string() }).strict(),
-  z.object({ mode: z.literal("sidecar"), ref: AttachmentRef }).strict(),
-]);
-export type LongTextField = z.infer<typeof LongTextField>;
 
-// SignatureEnvelope — v0.1.0 reserve slot. No enforcement in rev 5.0; the
-// field is structurally typed so future ADR-0006 (signature scheme) can land
-// without an envelope shape bump. Today the only contract is "if present,
-// MUST conform to this shape"; the reducer ignores it.
-export const SignatureEnvelope = z
-  .object({
-    alg: z.string().min(1),
-    key_id: z.string().min(1),
-    sig: z.string().min(1),
-    signed_at: z.string().datetime(),
-  })
-  .strict();
-export type SignatureEnvelope = z.infer<typeof SignatureEnvelope>;
+// SignatureEnvelope is a reserved payload shape. The current canonical strict
+// JournalEntry envelope rejects `signature`; a future envelope-version ADR
+// must explicitly activate the field before callers may emit it.
 
 // EntryKind namespace — closed set per ADR-0005 §3.3. Per-kind reducer
 // invariants live in `src/core/reducer.ts` (per-kind apply table). New kinds
 // require an ADR + §15 freeze review (rev 5.0 GA tag freezes this enum).
-export const EntryKind = z.enum([
-  // ── State machine transitions ──
-  "event:phase_advanced",
-  "event:ceremony_set",
-  "event:tasks_planned",
-  "event:tasks_amended",
-  "event:task_claimed",
-  "event:task_step_started",
-  "event:task_step_done",
-  // event:task_step_reset (Phase 11 Item 3 SC2/SC3) — co-emitted by
-  // `loaf finding raise --action fix-impl|fix-test` inside the 3-entry
-  // back-edge batch; resets a task's repair step to `pending` (fix-impl →
-  // "implement", fix-test → "red").
-  "event:task_step_reset",
-  "event:task_abandoned",
-  "event:spec_req_added",
-  "event:spec_scenario_added",
-  "event:spec_visual_added",
-  "event:spec_submitted",
-
-  // ── Domain ledger entries ──
-  "evidence:added",
-  "finding:raised",
-  "finding:closed",
-  "pending:added",
-  "pending:resolved",
-
-  // ── Human gates (REQUIRE human: actor) ──
-  // gate:decided records an approval flag (spec_locked / verify_accepted)
-  // ONLY — it does NOT drive a state transition (Slice 1.A normalization).
-  // Cursor movement rides on a separate `event:phase_advanced` in the same
-  // batch. Source-state pairing is enforced at preflight step 5a:
-  // gate_kind=spec-lock @ SPEC.design only; verify-accept @ VERIFY.accept only.
-  "gate:decided",
-
-  // ── Session lifecycle ──
-  "session:started",
-  "session:resumed",
-  "session:delivered",
-  "session:archived",
-  "session:abandoned",
-
-  // ── Spike branch closure ──
-  "spike:converted",
-
-  // ── Migration (v0.0.x → v0.1.0 lossy snapshot import; §0c) ──
-  "migration:snapshot_imported",
-]);
-export type EntryKind = z.infer<typeof EntryKind>;
 
 // JournalEntry — the SSoT envelope. Every line in `journal.jsonl` is one
 // JournalEntry. Batch markers appear only when a single mutator emits ≥2
 // entries inside one §11.2 transaction (ADR-0005 §3.2 / §4.16).
 //
-// payload is typed as z.unknown() here; per-kind payload Zod schemas land
-// progressively in src/core (Stage 1-5). At runtime the reducer narrows on
-// `kind` and validates `payload` against the per-kind schema; preflight
-// (§11.2 step 3) and final validate (§11.2 step 5) both apply this narrowing.
-export const JournalEntry = z
-  .object({
-    // Identity & ordering
-    seq: z.number().int().nonnegative(),
-    entry_id: EntryId,
-    at: z.string().datetime(),
-    actor: ActorString,
-    entry_schema_version: z.number().int().positive(),
-
-    // Domain
-    kind: EntryKind,
-    payload: z.unknown(),
-
-    // Batch markers (only present in multi-entry batches; ADR-0005 §3.2)
-    batch_id: BatchId.optional(),
-    batch_index: z.number().int().nonnegative().optional(),
-    batch_count: z.number().int().positive().optional(),
-
-    // Optional crypto (v0.1.0 reserve)
-    signature: SignatureEnvelope.optional(),
-  })
-  .strict()
-  .refine(
-    (e) => {
-      // Batch markers travel as a triple or none at all.
-      const present = [e.batch_id, e.batch_index, e.batch_count].filter(
-        (v) => v !== undefined,
-      ).length;
-      return present === 0 || present === 3;
-    },
-    {
-      message:
-        "batch_id, batch_index, batch_count must be all-present or all-absent",
-    },
-  )
-  .refine(
-    (e) =>
-      e.batch_index === undefined ||
-      e.batch_count === undefined ||
-      e.batch_index < e.batch_count,
-    { message: "batch_index must be < batch_count" },
-  );
-export type JournalEntry = z.infer<typeof JournalEntry>;
+// payload is typed as z.unknown() in the canonical envelope. At runtime the
+// reducer narrows on `kind` and validates `payload` against the per-kind
+// schema; preflight (§11.2 step 3) and final validate (§11.2 step 5) both
+// apply this narrowing.
 
 // SnapshotMeta — sits at `.loaf/<feature>/snapshots/_meta.json`. Readers
 // (CLI commands that consume snapshots/*.json) MUST check `last_entry_offset`
@@ -938,44 +842,12 @@ export const MIGRATION_V1_TO_V2_BOUNDARY = {
 // SubState format: `<Phase>.<step>` so hooks can parse via split(".").
 // Invariant (enforced by StateProjection.refine): sub_state.startsWith(phase + ".")
 
-export const Phase = z.enum([
-  "TRIAGE",
-  "SPEC",
-  "EXECUTE",
-  "VERIFY",
-  "SETTLE",
-  "DONE",
-]);
-export type Phase = z.infer<typeof Phase>;
 
 // rev 4.0: VERIFY.check split into 4 check-specific sub_states (C8).
 //   Intent ("which check is running") now lives in sub_state, not in a
 //   state.current_check field. Aligns with worker/control phase typology:
 //   VERIFY is a control phase, master skill runs 4 checks serially,
 //   sub_state carries the cursor. 17 → 20 sub_states.
-export const SubState = z.enum([
-  "TRIAGE.score",
-  "TRIAGE.confirm",
-  "SPEC.proposal",
-  "SPEC.spec",
-  "SPEC.plan",
-  "SPEC.design",
-  "EXECUTE.plan",         // derive per-task execution policy
-  "EXECUTE.work",         // worker active set lives in tasks.json (filter status="in_progress")
-  "EXECUTE.done",         // all tasks reached final status
-  "VERIFY.plan",          // compute applicable verify checks
-  "VERIFY.run",           // rev 4.0: running `run` check (test + lint + typecheck)
-  "VERIFY.review",        // rev 4.0: running `review` check (quality reviewer)
-  "VERIFY.acceptance",    // rev 4.0: running `acceptance` check (Gherkin E2E)
-  "VERIFY.visual",        // rev 4.0: running `visual` check (visual contract)
-  "VERIFY.accept",        // machine + human gate
-  "SETTLE.reconcile",
-  "SETTLE.lessons",
-  "DONE.delivered",       // terminal: after `loaf deliver`
-  "DONE.archived",        // terminal: after `loaf archive`
-  "DONE.abandoned",       // terminal: after `loaf abandon`
-]);
-export type SubState = z.infer<typeof SubState>;
 
 // ─────────────────────────────────────────────────────────────────
 // 2. Ceremony / TaskKind
@@ -998,55 +870,12 @@ export type SubState = z.infer<typeof SubState>;
 // skill 可叫 fast-fix/full-feature/regulatory,各自 PRESETS 表内部映射,
 // 不动协议。
 
-export const Ceremony = z.object({
-  // 跑 SPEC.* sub_states 吗?(false → TRIAGE.confirm 直接进 EXECUTE.plan,
-  // 跟 rev 4.1 quick 行为一致)
-  spec_phase: z.boolean().default(false),
-
-  // 跑 VERIFY.* sub_states 吗?(false → EXECUTE.done 跳过 VERIFY,
-  // verify-min 在 `loaf deliver` 入口跑,跟 rev 4.1 quick 行为一致)
-  verify_phase: z.boolean().default(false),
-
-  // 跑 SETTLE.* sub_states 吗?(false → 不产 reconcile.json,
-  // 跟 rev 4.1 quick 行为一致)。invariant: settle_phase=true 蕴含
-  // verify_phase=true(SETTLE.reconcile 入口要求 verify-accept passed)
-  settle_phase: z.boolean().default(false),
-
-  // spec-lock gate 时额外校验存在 `kind=spec-review` evidence 且
-  // `actor ≠ implementer`?(rev 4.1 deep 行为)。要求 spec_phase=true
-  strict_spec_review: z.boolean().default(false),
-
-  // SETTLE.lessons 强制 append?(rev 5.x: deep MUST = "must";
-  // quick / light / standard skip = "skip" — standard 不再走 SETTLE,
-  // 故 "may" 在内置 PRESETS 里不再被使用,但 enum 保留以便 3rd-party
-  // skill 自定义 preset 选择)。要求 settle_phase=true 当值非 "skip"
-  lessons_required: z.enum(["must", "may", "skip"]).default("skip"),
-
-  // SETTLE.reconcile 严格 drift?(rev 4.1 deep 行为)。
-  // 要求 settle_phase=true
-  strict_drift_check: z.boolean().default(false),
-})
-  .refine((c) => !c.settle_phase || c.verify_phase, {
-    message: "ceremony.settle_phase=true requires verify_phase=true (SETTLE.reconcile entry 需要 verify-accept passed)",
-  })
-  .refine((c) => !c.strict_spec_review || c.spec_phase, {
-    message: "ceremony.strict_spec_review=true requires spec_phase=true (no spec, no reviewer)",
-  })
-  .refine((c) => c.lessons_required === "skip" || c.settle_phase, {
-    message: "ceremony.lessons_required ≠ 'skip' requires settle_phase=true (SETTLE.lessons 才能 append)",
-  })
-  .refine((c) => !c.strict_drift_check || c.settle_phase, {
-    message: "ceremony.strict_drift_check=true requires settle_phase=true (SETTLE.reconcile 才能 drift check)",
-  });
-export type Ceremony = z.infer<typeof Ceremony>;
 
 // ceremony_label is COSMETIC ONLY — CLI does not parse it.
 // Skill writes whatever name its PRESETS uses ("quick" / "standard" /
 // "deep" / "rapid-fix" / "release-candidate" / etc.). CLI passes it
 // through to TUI / state-change line / stderr error messages for
 // human readability. Empty string allowed (skill chose no label).
-export const CeremonyLabel = z.string();
-export type CeremonyLabel = z.infer<typeof CeremonyLabel>;
 
 // 6 task kinds. Each kind has its OWN step enum (see §3).
 // rev 3.1: bug-fix folded into behavioral (use task.labels: ["bug"]).
@@ -1096,8 +925,6 @@ export type CeremonyLabel = z.infer<typeof CeremonyLabel>;
 // Q5: MUST obligations can only be `passed` or `waived`, never silently `skipped`.
 // `skipped` removed entirely from protocol.
 
-export const GateName = z.enum(["spec-lock", "verify-accept"]);
-export type GateName = z.infer<typeof GateName>;
 
 // ─────────────────────────────────────────────────────────────────
 // 5. FindingCategory (6) / FindingAction (6)
@@ -1217,15 +1044,7 @@ const ReqBase = z.object({
 // rev 4.1: pending-id allocated by CLI, monotonic per feature, under
 // per-session .lock (same discipline as EvidenceId). Callers MUST NOT
 // supply --id flag; CLI rejects with exit 2.
-export const PendingId = z.string().regex(/^PEND-\d{4,}$/);
 
-export const PendingPromptKind = z.enum([
-  "ask_user_question",
-  "gate_decision",
-  "spec_clarification",
-  "finding_decision",
-  "profile_escalation",
-]);
 
 // PendingPrompt is the shape callers (hooks / sub-agents / CLI) build
 // when they need to raise a blocker. CLI wraps it into a
