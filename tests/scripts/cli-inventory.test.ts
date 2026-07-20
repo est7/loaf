@@ -7,7 +7,12 @@ import {
   parseProtocolMarkersFromText,
   type ParserResult,
 } from "./inventory/protocol-parser.js";
-import { collectInventory, type Inventory } from "./inventory/help-collector.js";
+import {
+  collectInventory,
+  type Inventory,
+  type InventoryArgument,
+  type InventoryFlag,
+} from "./inventory/help-collector.js";
 import { ERROR_CATALOG } from "../../src/core/error-catalog.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -58,8 +63,8 @@ let inventory: Inventory;
 let protocolParse: ParserResult;
 let baseline: Baseline;
 
-beforeAll(() => {
-  inventory = collectInventory();
+beforeAll(async () => {
+  inventory = await collectInventory();
   protocolParse = parseProtocolMarkers(PROTOCOL_PATH);
   baseline = JSON.parse(readFileSync(BASELINE_PATH, "utf8")) as Baseline;
 }, 120_000);
@@ -296,11 +301,17 @@ describe("drift gate: protocol §10.8 current-surface ↔ cli.tsx command set", 
     expect(findings).toEqual([]);
   });
 
-  test("Direction B — every runtime leaf command is documented (current or future-tagged)", () => {
+  test("Direction B — every runtime executable command is classified current, never future", () => {
     const findings = diffCommands(protocolParse, inventory).filter(
       (f) => f.kind === "extra-command",
     );
     if (findings.length > 0) throw new Error(formatFindings(findings));
+    expect(findings).toEqual([]);
+  });
+
+  test("every enforced row matches live Commander positionals, options, requiredness, and aliases", () => {
+    const findings = diffCommandSignatures(protocolParse, inventory);
+    if (findings.length > 0) throw new Error(formatSignatureFindings(findings));
     expect(findings).toEqual([]);
   });
 
@@ -312,7 +323,10 @@ describe("drift gate: protocol §10.8 current-surface ↔ cli.tsx command set", 
         ...inventory.commands,
         {
           path: "phantom-cmd",
+          aliases: [],
           isGroup: false,
+          isExecutable: true,
+          arguments: [],
           flags: [],
           description: "synthetic test command",
         },
@@ -322,6 +336,59 @@ describe("drift gate: protocol §10.8 current-surface ↔ cli.tsx command set", 
       (f) => f.kind === "extra-command",
     );
     expect(findings.some((f) => f.name === "loaf phantom-cmd")).toBe(true);
+  });
+
+  test("regression: a future-tagged row becoming live triggers classification drift", () => {
+    const parsed = parseProtocolMarkersFromText(
+      [
+        "<!-- inventory:current-begin v0.1.0 commands -->",
+        "| Command | Use |",
+        "|---|---|",
+        '| `loaf later` <!-- inventory:future reason="not shipped" --> | future |',
+        "<!-- inventory:current-end -->",
+      ].join("\n"),
+    );
+    const synthetic: Inventory = {
+      globalFlags: [],
+      commands: [
+        {
+          path: "later",
+          aliases: [],
+          isGroup: false,
+          isExecutable: true,
+          arguments: [],
+          flags: [],
+          description: "now live",
+        },
+      ],
+    };
+    expect(
+      diffCommands(parsed, synthetic).some((finding) => finding.kind === "extra-command"),
+    ).toBe(true);
+  });
+
+  test("regression: signature gate detects argument, mandatory option, and alias drift", () => {
+    const start = inventory.commands.find((command) => command.path === "start");
+    expect(start).toBeDefined();
+    const synthetic: Inventory = {
+      globalFlags: inventory.globalFlags,
+      commands: inventory.commands.map((command) =>
+        command.path === "start"
+          ? {
+              ...command,
+              aliases: ["begin"],
+              arguments: [{ name: "different", required: true, variadic: false }],
+              flags: command.flags.map((flag) =>
+                flag.name === "--label" ? { ...flag, short: "-l", required: true } : flag,
+              ),
+            }
+          : command,
+      ),
+    };
+    const findings = diffCommandSignatures(protocolParse, synthetic);
+    expect(findings.some((finding) => finding.includes("aliases"))).toBe(true);
+    expect(findings.some((finding) => finding.includes("positionals"))).toBe(true);
+    expect(findings.some((finding) => finding.includes("options"))).toBe(true);
   });
 });
 
@@ -448,75 +515,172 @@ function diffCommands(parsed: ParserResult, inv: Inventory): Finding[] {
   // Build name sets for diffing.
   //   docEnforced — non-skipped rows; runtime MUST have these
   //   docAll      — every row in the block (incl. future/placeholder skips);
-  //                  runtime MAY have these but doesn't have to
+  //                  used to diagnose a stale future classification
   const docEnforced = new Set<string>();
   const docAll = new Set<string>();
+  const docCurrent = new Set<string>();
   for (const row of commandBlock.rows) {
     if (!row.name.startsWith("loaf ")) continue;
     const cmdPath = row.name.slice(5);
     if (cmdPath === "") continue;
     docAll.add(cmdPath);
-    if (!row.skipReason) docEnforced.add(cmdPath);
+    if (!row.skipReason) {
+      docEnforced.add(cmdPath);
+      docCurrent.add(cmdPath);
+    }
   }
 
   const runtimePaths = new Set(inv.commands.map((c) => c.path));
 
   // Direction A: protocol → runtime. Every enforced doc command must appear
-  // in the Commander tree. Allow group→leaf prefix match (e.g. docs say
-  // `tasks step done`; runtime emits that exact path).
+  // exactly in the Commander tree.
   for (const docName of docEnforced) {
     if (runtimePaths.has(docName)) continue;
-    let foundPrefix = false;
-    for (const rp of runtimePaths) {
-      if (rp === docName || rp.startsWith(docName + " ")) {
-        foundPrefix = true;
-        break;
-      }
-    }
-    if (!foundPrefix) {
-      findings.push({
-        kind: "missing-command",
-        name: `loaf ${docName}`,
-        doc_location: `docs/protocol.md §10.8`,
-        runtime_location: "absent",
-        suggestion: `Either implement \`loaf ${docName}\` in src/cli.tsx, or move the row to the future-surface section with <!-- inventory:future reason="SC-N" -->.`,
-      });
-    }
+    findings.push({
+      kind: "missing-command",
+      name: `loaf ${docName}`,
+      doc_location: `docs/protocol.md §10.8`,
+      runtime_location: "absent",
+      suggestion: `Either implement \`loaf ${docName}\` in src/cli.tsx, or move the row to the future-surface section with <!-- inventory:future reason="SC-N" -->.`,
+    });
   }
 
-  // Direction B: runtime → protocol. Every runtime LEAF command must have
-  // some doc row (current or skipped). Groups (namespaces like `spec`,
-  // `tasks`, `gate`) are exempt — their leaves carry the documentation.
+  // Direction B: runtime → protocol. Every executable command must have a
+  // current row. Pure namespace groups are exempt; actionable groups such as
+  // `prune` are not.
   // (codex r191 BLOCKER 2)
   for (const cmd of inv.commands) {
-    if (cmd.isGroup) continue;
-    if (docAll.has(cmd.path)) continue;
-    // Accept docs that document a strict prefix (e.g. doc has `tasks amend`,
-    // runtime exposes `tasks amend` directly OR as `tasks amend <T-N>` form).
-    let foundDocPrefix = false;
-    for (const docName of docAll) {
-      if (cmd.path === docName) {
-        foundDocPrefix = true;
-        break;
-      }
-      // Doc names should not normally be longer than runtime paths, but allow
-      // both directions of prefix match for safety with placeholder rows.
-      if (cmd.path.startsWith(docName + " ") || docName.startsWith(cmd.path + " ")) {
-        foundDocPrefix = true;
-        break;
-      }
-    }
-    if (!foundDocPrefix) {
+    if (cmd.isGroup && !cmd.isExecutable) continue;
+    if (docCurrent.has(cmd.path)) continue;
+    if (!docCurrent.has(cmd.path)) {
       findings.push({
         kind: "extra-command",
         name: `loaf ${cmd.path}`,
         doc_location: "absent",
         runtime_location: "src/cli.tsx",
-        suggestion: `Add a row in docs/protocol.md §10.8 current-surface block for \`loaf ${cmd.path}\`, OR explicitly mark its row as future/placeholder if it's not part of v0.1.0.`,
+        suggestion: docAll.has(cmd.path)
+          ? `Remove the inventory:future/placeholder classification from \`loaf ${cmd.path}\`; it is live in Commander.`
+          : `Add a current row in docs/protocol.md §10.8 for \`loaf ${cmd.path}\`.`,
       });
     }
   }
   return findings;
+}
+
+type ParsedCommandSignature = {
+  path: string;
+  aliases: string[];
+  arguments: InventoryArgument[];
+  flags: Array<Pick<InventoryFlag, "name" | "short" | "argMode" | "required">>;
+};
+
+function diffCommandSignatures(parsed: ParserResult, inv: Inventory): string[] {
+  const block = parsed.blocks.find((candidate) => candidate.tag === "v0.1.0 commands");
+  if (!block) return ["missing v0.1.0 commands block"];
+
+  const runtimeLeaves = new Map(
+    inv.commands
+      .filter((command) => !command.isGroup || command.isExecutable)
+      .map((command) => [command.path, command]),
+  );
+  const findings: string[] = [];
+  for (const row of block.rows) {
+    if (row.skipReason || !row.name.startsWith("loaf ")) continue;
+    const doc = parseCommandSignature(row.rawFirstCell, row.name.slice(5));
+    const runtime = runtimeLeaves.get(doc.path);
+    if (!runtime) continue; // Path parity gate reports this with its richer diagnostic.
+
+    const location = `docs/protocol.md:${row.lineNumber} (${row.name})`;
+    if (JSON.stringify(doc.aliases) !== JSON.stringify([...runtime.aliases].sort())) {
+      findings.push(
+        `${location} aliases doc=${JSON.stringify(doc.aliases)} runtime=${JSON.stringify(runtime.aliases)}`,
+      );
+    }
+    if (JSON.stringify(doc.arguments) !== JSON.stringify(runtime.arguments)) {
+      findings.push(
+        `${location} positionals doc=${JSON.stringify(doc.arguments)} runtime=${JSON.stringify(runtime.arguments)}`,
+      );
+    }
+    const docFlags = [...doc.flags].sort(compareFlags);
+    const runtimeFlags = runtime.flags
+      .filter((flag) => flag.name !== "--help")
+      .map(({ name, short, argMode, required }) => ({ name, short, argMode, required }))
+      .sort(compareFlags);
+    if (JSON.stringify(docFlags) !== JSON.stringify(runtimeFlags)) {
+      findings.push(
+        `${location} options doc=${JSON.stringify(docFlags)} runtime=${JSON.stringify(runtimeFlags)}`,
+      );
+    }
+  }
+  return findings;
+}
+
+function parseCommandSignature(
+  rawFirstCell: string,
+  pathFromParser: string,
+): ParsedCommandSignature {
+  const code = rawFirstCell.match(/`([^`]+)`/)?.[1]?.trim() ?? "";
+  const prefix = `loaf ${pathFromParser}`;
+  if (!code.startsWith(prefix)) {
+    throw new Error(`command row does not start with ${prefix}: ${rawFirstCell}`);
+  }
+  const tail = code.slice(prefix.length);
+  const flags: ParsedCommandSignature["flags"] = [];
+  const optionRanges: Array<[number, number]> = [];
+  const optionPattern =
+    /(\[)?(?:(-[A-Za-z0-9]),\s*)?(--[A-Za-z0-9][A-Za-z0-9-]*)(?:\s+(<[^>]+>|\[[^\]]+\]))?(\])?/g;
+  let match: RegExpExecArray | null = optionPattern.exec(tail);
+  while (match !== null) {
+    const outerOptional = match[1] === "[";
+    flags.push({
+      name: match[3] ?? "",
+      short: match[2] ?? null,
+      argMode: match[4] === undefined ? "none" : match[4].startsWith("<") ? "required" : "optional",
+      required: !outerOptional,
+    });
+    optionRanges.push([match.index, match.index + match[0].length]);
+    match = optionPattern.exec(tail);
+  }
+
+  const positionalText = [...tail]
+    .map((character, index) =>
+      optionRanges.some(([start, end]) => index >= start && index < end) ? " " : character,
+    )
+    .join("");
+  const arguments_: InventoryArgument[] = [];
+  const argumentPattern = /<([^>]+)>|\[([A-Za-z0-9][A-Za-z0-9-]*)(\.\.\.)?\]/g;
+  match = argumentPattern.exec(positionalText);
+  while (match !== null) {
+    const required = match[1] !== undefined;
+    const rawName = (match[1] ?? match[2] ?? "").replace(/\.\.\.$/, "");
+    arguments_.push({
+      name: rawName,
+      required,
+      variadic: Boolean(match[3]) || /\.\.\.$/.test(match[1] ?? ""),
+    });
+    match = argumentPattern.exec(positionalText);
+  }
+
+  const aliasesMatch = rawFirstCell.match(/<!--\s*inventory:aliases\s+([^>]+?)\s*-->/);
+  const aliases = aliasesMatch
+    ? (aliasesMatch[1] ?? "")
+        .split(",")
+        .map((alias) => alias.trim())
+        .filter(Boolean)
+        .sort()
+    : [];
+  return { path: pathFromParser, aliases, arguments: arguments_, flags };
+}
+
+function compareFlags(
+  left: Pick<InventoryFlag, "name" | "short" | "argMode" | "required">,
+  right: Pick<InventoryFlag, "name" | "short" | "argMode" | "required">,
+): number {
+  return left.name.localeCompare(right.name);
+}
+
+function formatSignatureFindings(findings: string[]): string {
+  return `command signature drift findings:\n  ${findings.join("\n  ")}`;
 }
 
 function diffGlobalFlags(parsed: ParserResult, inv: Inventory): Finding[] {

@@ -429,7 +429,7 @@ export const ERROR_CATALOG = {
       "--dry-run only applies to mutating commands; re-run without --dry-run (or -n) to invoke the {command_type} command",
     template_keys: ["command", "command_type"],
     detail_keys: ["command", "command_type"],
-    doc_anchor: "protocol.md#§10.7-dry-run",
+    doc_anchor: "protocol.md#§10.7",
   },
   HOOK_EVENT_NOT_IMPLEMENTED: {
     // Phase 16 SC-15a — known hook event recognized by HookEvent enum
@@ -859,7 +859,7 @@ export const ERROR_CATALOG = {
     fix_template:
       "allocate a fresh REQ id under the same id_namespace (the CLI scans for max serial + 1 inside the per-session lock) or `loaf finding raise --category spec-gap --action amend-spec` if you need to retire the existing REQ",
     template_keys: ["id"],
-    doc_anchor: "protocol.md#§600",
+    doc_anchor: "protocol.md#§4.2",
   },
   DUPLICATE_SCEN_ID: {
     exit_code: 2,
@@ -868,7 +868,7 @@ export const ERROR_CATALOG = {
     fix_template:
       "allocate a fresh SCEN id under the same id_namespace, or amend via finding mechanism if retiring an existing scenario",
     template_keys: ["id"],
-    doc_anchor: "protocol.md#§600",
+    doc_anchor: "protocol.md#§4.2",
   },
   DUPLICATE_VIS_ID: {
     exit_code: 2,
@@ -877,7 +877,7 @@ export const ERROR_CATALOG = {
     fix_template:
       "allocate a fresh VIS id under the same id_namespace, or amend via finding mechanism if retiring an existing visual contract",
     template_keys: ["id"],
-    doc_anchor: "protocol.md#§600",
+    doc_anchor: "protocol.md#§4.2",
   },
   SPEC_FRONTMATTER_INVALID: {
     exit_code: 2,
@@ -1120,7 +1120,7 @@ export const ERROR_CATALOG = {
     fix_template:
       "upgrade to v0.1.1+ where quick / light deliver runs the verify-min per-task evidence check; on failure see DELIVER_VERIFY_MIN_INCOMPLETE",
     template_keys: ["ceremony_label"],
-    doc_anchor: "protocol.md#§3.2",
+    doc_anchor: "protocol.md#§3",
   },
   DELIVER_VERIFY_MIN_INCOMPLETE: {
     // v0.1.1 — verify-min landed. quick/light `loaf deliver` from
@@ -1136,7 +1136,7 @@ export const ERROR_CATALOG = {
     fix_template:
       "for each listed task add evidence covering it — code tasks need a `local-check` (test/lint/typecheck) run, visual-ui needs visual-review or manual, docs needs task-summary or manual — or `loaf waive` it; then `loaf deliver` again",
     template_keys: ["ceremony_label", "count"],
-    doc_anchor: "protocol.md#§3.2",
+    doc_anchor: "protocol.md#§3",
   },
   DELIVER_SPIKE_TASKS: {
     exit_code: 2,
@@ -1146,7 +1146,7 @@ export const ERROR_CATALOG = {
     fix_template:
       "abandon the spike task (`loaf tasks abandon {task_id} --reason \"...\"`) or convert it to a feature (`loaf spike convert --to-feature F-N --reason \"...\"`); spike tasks must not remain in non-abandoned status when the session delivers",
     template_keys: ["status", "task_id"],
-    doc_anchor: "protocol.md#§703",
+    doc_anchor: "protocol.md#§8.3",
   },
   SETTLE_NOT_ACCEPTED: {
     exit_code: 2,
