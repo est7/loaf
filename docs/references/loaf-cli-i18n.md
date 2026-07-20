@@ -69,11 +69,10 @@ single-token enums, scriptable); actionable command strings (the command itself
 is data); `INVALID_LOCALE` (locale-resolution failure cannot depend on a
 resolved i18n instance).
 
-## Open drift — user config path
+## Resolved drift — user config path
 
 ADR-0006 places the user **locale** preference at `~/.loaf/config.json`
 (matching the `~/.loaf/` registry/crashes estate; a set-once display
-preference). But `protocol.md` §10.3 documents the **general** user config at
-`~/.config/loaf/config.json` (XDG). The general XDG config is unimplemented. If
-it ever lands, reconcile the two paths then — flagged in the `docs(protocol):
-revise §18.3` commit.
+preference). `protocol.md` §10.3 now defines that same path as the single
+user-level loaf estate root, so locale resolution and general user config no
+longer disagree.

@@ -282,3 +282,23 @@ catalog abstraction.
 - Update `protocol.md` §18 to reference this ADR and remove the stale locale
   resolution order.
 - Add runtime key inventory tests before P1 TUI/enum migration.
+
+## Amendment — 2026-07-19
+
+Issue [#13](https://github.com/est7/loaf/issues/13) supersedes the path-related
+parts of Decision §3 and resolves the documentation drift:
+
+- `protocol.md` §10.3 no longer specifies an XDG user-config contract.
+  `~/.loaf/config.json` is the user config within the established `~/.loaf/`
+  estate for config, crashes, and registry state.
+- `LOAF_CONFIG` is explicitly deprecated. It was never implemented and has zero
+  runtime readers, so it does not override project config or participate in
+  locale resolution.
+- Platform convention, a customizable config root, config/state separation,
+  and expectations created by published documentation were considered. The
+  established `~/.loaf/` de-facto standard, including `config init --global`,
+  outweighed those benefits.
+
+This amendment records the correction without rewriting the historical
+decision text above. The project-config path remains
+`<cwd>/.loaf/.config/loaf.config.json`.

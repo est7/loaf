@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Documentation correction:** removed the XDG/`LOAF_CONFIG` contract from the
+  protocol; `~/.loaf/` is the user-level estate, with no runtime-reachable data
+  to migrate from the abandoned contract.
 - **Breaking protocol change (protocol rev 5.1; next release must bump the
   package version):** `loaf lessons add`
   now emits the independent `lesson:recorded` journal kind with CLI-allocated

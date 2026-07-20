@@ -96,7 +96,7 @@ protected_files+stable_core+paths).
   `LoafConfig` zod before writing — zero partial-write risk.
 - Output: `ctx.success({ ok:true, config_path }, text)`; JSON mode same shape.
 - `repoRoot = process.cwd()` (test-injectable; comment it **cwd-root**, NOT
-  git-root discovery — current precedence is cwd / `LOAF_CONFIG`).
+  git-root discovery — project config resolution is fixed to cwd).
 - `--global` uses `os.homedir()` (test-injectable home, per existing
   `userConfigPath(homeDir)`).
 - Pretty, stable JSON (sorted/deterministic) so re-scaffolds diff cleanly.
@@ -152,6 +152,8 @@ protected_files+stable_core+paths).
   `tasksCmd`/`specCmd`. `runMutator`/`mctxFor` NOT used (no journal entry).
 - `src/core/loaf-config.ts` — `WriteGuardConfig` slice, `loafConfigPath(repoRoot)`
   = `<repoRoot>/.loaf/.config/loaf.config.json`. Add full-schema source here/sibling.
+- `LOAF_CONFIG` was never implemented and is deprecated; it is not a project-config
+  path override.
 - `src/core/user-config.ts` — `UserConfig` ({schema_version, locale}),
   `userConfigPath(homeDir)` = `<home>/.loaf/config.json`.
 - `docs/schemas.ts:2273` — §21 `LoafConfig` (the full schema to mirror).

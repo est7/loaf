@@ -1572,8 +1572,8 @@ skill / hook 把 loaf 输出 pipe 时依赖这条约定:
 ```
 1. CLI flag                         (highest, per-invocation)
 2. shell env (LOAF_* + 通用 env)    (per-user / per-session)
-3. project config (loaf.config.json — cwd 或 $LOAF_CONFIG override)
-4. user config (~/.config/loaf/config.json,XDG_CONFIG_HOME fallback)
+3. project config (loaf.config.json — cwd)
+4. user config (~/.loaf/config.json — user-level loaf estate)
 5. built-in defaults                (lowest)
 ```
 
@@ -1586,7 +1586,6 @@ skill / hook 把 loaf 输出 pipe 时依赖这条约定:
 | `LOAF_LANG` | i18n 语言(`en` / `zh`,见 §18) | ✅ |
 | `LOAF_NO_COLOR` | 禁用颜色(等价 `--no-color`) | ✅ |
 | `LOAF_DEBUG` | 等价 `--debug`(写 trace.jsonl) | ✅ |
-| `LOAF_CONFIG` | 覆盖 `loaf.config.json` path | ✅ |
 | `LOAF_SESSION` | **rev 4.1**:per-shell-session sticky session_id(UUID);CLI 默认 dispatch key,被 `--session` 覆盖 | ✅ |
 | `LOAF_FEATURE` | **rev 4.1**:per-shell-session sticky feature 名(`.loaf/<name>/` dir basename);`LOAF_SESSION` 缺失时 fallback,被 `--feature` 覆盖 | ✅ |
 | `LOAF_FORMAT` <!-- inventory:future reason="env-layer follow-up after SC-5b" --> | **rev 4.2**:`json` / `text` 二选一,等价 `--format=<v>` flag 默认;CI / 脚本环境一次 export 不用每命令带 flag。precedence:显式 `--format` flag > `LOAF_FORMAT` > TTY-derived default(`--plain` alias 走 SC-5b)。值不在 enum 内 → exit 2 `INVALID_ENV_VALUE` + 提示合法值 | ✅ |
@@ -1596,9 +1595,16 @@ skill / hook 把 loaf 输出 pipe 时依赖这条约定:
 | `EDITOR` | `loaf spec edit` / `loaf lessons add` 调用 | 通用 |
 | `PAGER` | 长输出走 pager(默认 `less -FIRX`) | 通用 |
 | `TERM` / `TERMINFO` | 颜色 / TTY capability | 通用 |
-| `XDG_CONFIG_HOME` | 用户级配置 fallback(无 `LOAF_CONFIG` 时) | 通用 |
 
 **`LOAF_*` 命名**:UPPER_SNAKE,单行。**Secrets 不走 env**(loaf 不处理 secret,future-proof)。
+
+`~/.loaf/` 是单一用户级 loaf estate root，统一容纳 config、crashes、registry
+等用户级状态；项目配置仍固定为 `<cwd>/.loaf/.config/loaf.config.json`，不受此
+规则影响。
+
+> **XDG tradeoff(issue #13,2026-07-19):** 平台约定、可定制 config root、
+> config/state 分离与已发布文档预期均已纳入权衡。`config init --global` 和现有
+> runtime 已形成 `~/.loaf/` 的事实标准，因此这些收益不足以推翻单一 estate。
 
 #### Session dispatch precedence(rev 4.1,multi-feature in cwd 支持)
 
@@ -2707,8 +2713,8 @@ Bundle lookup(运行时 `t(keyPath, vars)` 单 key 查找):
 
 1. `--lang <en|zh>`(未来 flag)
 2. `$LOAF_LANG`
-3. `~/.loaf/config.json` 的 `locale.default_lang`（用户偏好；**有意放在 `~/.loaf/`
-   estate 而非 §10.3 的 XDG 通用用户配置 —— locale 是展示偏好,设一次记住**)
+3. `~/.loaf/config.json` 的 `locale.default_lang`（用户偏好；位于 §10.3 的
+   user-level loaf estate 中 —— locale 是展示偏好,设一次记住）
 4. project `loaf.config.json` 的 `locale.default_lang`（仅 repo 默认,**低于**用户偏好
    —— ADR-0006 标注的「项目配置高于用户配置」通用序的例外）
 5. 解析 `$LANG` / `$LC_ALL` / `$LC_MESSAGES`（`zh_CN.UTF-8` → `zh`;`C` / `POSIX` /
@@ -2716,7 +2722,8 @@ Bundle lookup(运行时 `t(keyPath, vars)` 单 key 查找):
 6. `"en"`
 
 显式非法 locale（`$LOAF_LANG` 或用户配置)→ `INVALID_LOCALE` exit 2;ambient `$LANG`
-不支持 → 静默回退 `en`。`LOAF_CONFIG` 只覆盖项目配置 path,**不**参与用户 locale 解析。
+不支持 → 静默回退 `en`。`LOAF_CONFIG` 已废弃且从未实现；runtime 中不存在 reader，
+不得用于项目配置 path 或用户 locale 解析。
 JSON 输出(payload + failure `message`)**永不本地化**(机器契约)。
 
 ### 18.4 与 gate-diagnostic.json 的关系
