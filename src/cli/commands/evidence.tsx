@@ -1,11 +1,16 @@
 import type { Command } from "commander";
 import type { CommandContext } from "../command-context.js";
 import type { CommandMutator } from "../command-mutator.js";
-import { FAILURE_SITE_KEYS, SUCCESS_KEYS } from "../runtime-i18n-keys.js";
+import { CHROME_KEYS, FAILURE_SITE_KEYS, SUCCESS_KEYS } from "../runtime-i18n-keys.js";
 import { loadSession } from "../../core/cli-runtime.js";
 import { allocateNextEvidenceId, allocateNextEvidenceIds } from "../evidence-id-allocator.js";
 import { buildWaiveEvidencePayload } from "../waive.js";
-import { CoversRefPayload, EvidenceAddInput } from "../../core/evidence-schema.js";
+import {
+  CoversRefPayload,
+  EvidenceAddInput,
+  EvidenceKind,
+} from "../../core/evidence-schema.js";
+import { TaskIdPayload } from "../../core/task-schema.js";
 import { parseInputSource } from "../input-source.js";
 import { readJsonInput } from "../input-read.js";
 import type { MutatorEntry } from "../mutator-entry.js";
@@ -92,7 +97,7 @@ export function registerEvidence(
   //     as an --input field (passthrough via EvidenceFullPayload).
   const evidenceCmd = program
     .command("evidence")
-    .description("Evidence ledger commands (Slice 3 SC2 MVP: add)");
+    .description("Evidence ledger commands (add, list)");
 
   evidenceCmd
     .command("add")
@@ -244,6 +249,106 @@ export function registerEvidence(
             (i18n) => ({ stateChange: evidenceAddStateChange(i18n, evidenceItems) }),
           );
         }
+      },
+    );
+
+  // ── loaf evidence list ────────────────────────────────────────────────
+  evidenceCmd
+    .command("list")
+    .description("List evidence coverage fields from the evidence projection (read-only)")
+    .option("--covers <id>", "Filter entries whose covers array contains id")
+    .option("--task <T-N>", "Filter entries linked to a task id")
+    .option("--kind <kind>", "Filter by the closed EvidenceKind enum")
+    .option("--feature <name>", "Feature whose evidence to list")
+    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
+    .action(
+      async (opts: {
+        covers?: string;
+        task?: string;
+        kind?: string;
+        feature: string;
+        featureDir?: string;
+      }) => {
+        if (ctx.rejectIfDryRun("evidence list")) return;
+
+        if (opts.covers !== undefined && !CoversRefPayload.safeParse(opts.covers).success) {
+          ctx.failureKeyed(
+            "USAGE",
+            FAILURE_SITE_KEYS.evidenceCoversInvalid,
+            { value: opts.covers },
+            { value: opts.covers },
+          );
+          return;
+        }
+        if (opts.task !== undefined && !TaskIdPayload.safeParse(opts.task).success) {
+          ctx.failureKeyed(
+            "USAGE",
+            FAILURE_SITE_KEYS.evidenceTaskInvalid,
+            { value: opts.task },
+            { value: opts.task },
+          );
+          return;
+        }
+        if (opts.kind !== undefined && !EvidenceKind.safeParse(opts.kind).success) {
+          ctx.failureKeyed(
+            "USAGE",
+            FAILURE_SITE_KEYS.evidenceKindInvalid,
+            { value: opts.kind, allowed_kinds_human: EvidenceKind.options.join(" | ") },
+            { value: opts.kind, allowed: EvidenceKind.options },
+          );
+          return;
+        }
+
+        const featureDir = await ctx.dispatchOrFail(opts);
+        if (featureDir === null) return;
+        const loaded = await ctx.loadProjectionsOrFail(
+          featureDir,
+          ["evidence"] as const,
+          opts.feature,
+          FAILURE_SITE_KEYS.noSessionGeneric,
+        );
+        if (loaded === null) return;
+
+        const rows = loaded.evidence.evidence
+          .filter(
+            (entry) =>
+              (opts.covers === undefined || entry.covers.includes(opts.covers)) &&
+              (opts.task === undefined || entry.task_id === opts.task) &&
+              (opts.kind === undefined || entry.kind === opts.kind),
+          )
+          .map((entry) => ({
+            id: entry.id,
+            kind: entry.kind,
+            covers: entry.covers,
+            task_id: entry.task_id ?? null,
+            at: entry.at,
+            actor: entry.actor,
+          }));
+
+        ctx.success(
+          {
+            ok: true,
+            feature: opts.feature,
+            count: rows.length,
+            evidence: rows,
+          },
+          (i18n) => {
+            if (rows.length === 0) return i18n.t(CHROME_KEYS.evidenceListEmpty) + "\n";
+            return rows
+              .map(
+                (row) =>
+                  i18n.t(CHROME_KEYS.evidenceListRow, {
+                    id: row.id,
+                    kind: row.kind,
+                    covers: row.covers.join(",") || "-",
+                    task_id: row.task_id ?? "-",
+                    at: row.at,
+                    actor: row.actor,
+                  }) + "\n",
+              )
+              .join("");
+          },
+        );
       },
     );
 

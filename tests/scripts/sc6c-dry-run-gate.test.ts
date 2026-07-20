@@ -32,6 +32,8 @@ const READ_ONLY_COMMANDS: readonly string[] = [
   "pending list",
   "pending status",
   "finding list",
+  "journal list",
+  "evidence list",
   "doctor", // bare + --rebuild both go through the same handler
   "sessions list", // Phase 16 SC-9b
   "verify status", // Phase 16 SC-9a-1

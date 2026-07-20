@@ -329,6 +329,16 @@
     "finding": {
       "status_invalid": "--status 必须是:{allowed_statuses_human}(当前 {value})"
     },
+    "journal": {
+      "integer_invalid": "{flag} 必须是 >= {minimum} 的整数(当前 {value})",
+      "kind_invalid": "--kind 必须是已注册的 journal kind(当前 {value})",
+      "actor_invalid": "--actor 必须是非空 actor 前缀或完整 actor 字符串"
+    },
+    "evidence": {
+      "covers_invalid": "--covers 必须是有效的 coverage id(当前 {value})",
+      "task_invalid": "--task 必须是有效的 task id(当前 {value})",
+      "kind_invalid": "--kind 必须是:{allowed_kinds_human}"
+    },
     "write_guard": {
       "config_invalid": "write-guard 被拦截:{reason}"
     },
@@ -491,6 +501,15 @@
     },
     "finding": {
       "list_row": "{finding_id} {category} {action} {status}"
+    },
+    "journal": {
+      "list_row": "序号={seq} 条目={entry_id} 时间={at} 操作者={actor} 类型={kind}",
+      "list_row_batch": "序号={seq} 条目={entry_id} 时间={at} 操作者={actor} 类型={kind} 批次={batch_id} 批次索引={batch_index} 批次数量={batch_count}",
+      "list_empty": "没有日志条目。"
+    },
+    "evidence": {
+      "list_row": "id={id} 类型={kind} 覆盖={covers} 任务={task_id} 时间={at} 操作者={actor}",
+      "list_empty": "没有证据条目。"
     },
     "sessions": {
       "empty": "(没有 session)",

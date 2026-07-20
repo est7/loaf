@@ -1,6 +1,6 @@
-// projection-loader — Phase 15 SC3 read-side bootstrap for the four
-// snapshot-consuming CLI commands (status / tasks list / pending list /
-// finding list). Parallel to `loadSession` (full replay) but reads the
+// projection-loader — Phase 15 SC3 read-side bootstrap for snapshot-
+// consuming CLI commands (status / tasks list / pending list / finding list /
+// evidence list). Parallel to `loadSession` (full replay) but reads the
 // persisted `snapshots/*.json` after a Gate #5 fast-check (ADR-0005 §3.6
 // + §10.15).
 //

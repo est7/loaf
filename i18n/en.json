@@ -329,6 +329,16 @@
     "finding": {
       "status_invalid": "--status must be one of: {allowed_statuses_human} (got {value})"
     },
+    "journal": {
+      "integer_invalid": "{flag} must be an integer >= {minimum} (got {value})",
+      "kind_invalid": "--kind must be a registered journal kind (got {value})",
+      "actor_invalid": "--actor must be a non-empty actor prefix or full actor string"
+    },
+    "evidence": {
+      "covers_invalid": "--covers must be a valid coverage id (got {value})",
+      "task_invalid": "--task must be a valid task id (got {value})",
+      "kind_invalid": "--kind must be one of: {allowed_kinds_human}"
+    },
     "write_guard": {
       "config_invalid": "write-guard blocked: {reason}"
     },
@@ -491,6 +501,15 @@
     },
     "finding": {
       "list_row": "{finding_id} {category} {action} {status}"
+    },
+    "journal": {
+      "list_row": "seq={seq} entry_id={entry_id} at={at} actor={actor} kind={kind}",
+      "list_row_batch": "seq={seq} entry_id={entry_id} at={at} actor={actor} kind={kind} batch_id={batch_id} batch_index={batch_index} batch_count={batch_count}",
+      "list_empty": "No journal entries."
+    },
+    "evidence": {
+      "list_row": "id={id} kind={kind} covers={covers} task={task_id} at={at} actor={actor}",
+      "list_empty": "No evidence entries."
     },
     "sessions": {
       "empty": "(no sessions found)",

@@ -3,13 +3,15 @@
 // Drives the loaf CLI through the start / advance / status surface to
 // verify the full transactional path end-to-end (CLI → mutate → journal).
 
-import { describe, expect, test } from "vitest";
+import { beforeAll, describe, expect, test } from "vitest";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
 import { main, type MainDeps } from "../../src/cli.js";
 import { LOAF_DOCS_URL, LOAF_ISSUE_URL } from "../../src/core/cli-runtime.js";
+import { EvidenceKind } from "../../src/core/evidence-schema.js";
+import { KIND_REGISTRY } from "../../src/core/kind-registry.js";
 import { defaultLoafConfig, LoafConfig, loafConfigPath } from "../../src/core/loaf-config.js";
 import { UserConfig, userConfigPath } from "../../src/core/user-config.js";
 
@@ -7421,6 +7423,373 @@ describe("loaf spike convert — Phase 12", () => {
     );
     expect(r.exit).not.toBe(0);
     expect(r.stderr + r.stdout).toContain("FEATURE_NOT_FOUND");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Ticket #12 sub-cycle A — read-only observability lists.
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("loaf journal list + evidence list — ticket #12A", () => {
+  let dir: string;
+
+  beforeAll(async () => {
+    dir = await tmpFeatureDir();
+    await seedFeatureAtExecuteWork(dir);
+    const added = await runCli([
+      "evidence",
+      "add",
+      "--input",
+      JSON.stringify([
+        {
+          kind: "task-summary",
+          iteration: 1,
+          actor: "ci:coverage",
+          result: "passed",
+          summary: "task implementation completed",
+          covers: ["T-001"],
+          task_id: "T-001",
+        },
+        {
+          kind: "local-check",
+          iteration: 1,
+          actor: "ci:checks",
+          result: "passed",
+          summary: "targeted test suite passed",
+          covers: ["REQ-AUTH-001"],
+          cmd: "bunx vitest run",
+        },
+      ]),
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
+    ]);
+    if (added.exit !== 0) throw new Error(`evidence fixture failed: ${added.stderr}`);
+  });
+
+  test("journal list JSON exposes envelope-only exact keys including optional batch trio", async () => {
+    const result = await runCli([
+      "journal",
+      "list",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
+    ]);
+    expect(result.exit).toBe(0);
+    expect(result.stderr).toBe("");
+    const out = JSON.parse(result.stdout);
+    expect(Object.keys(out).sort()).toEqual(["count", "entries", "feature", "ok"]);
+    expect(out.ok).toBe(true);
+    expect(out.feature).toBe("auth-refresh");
+    expect(out.count).toBeGreaterThan(2);
+    expect(Object.keys(out.entries[0]).sort()).toEqual(["actor", "at", "entry_id", "kind", "seq"]);
+    expect(out.entries[0]).not.toHaveProperty("payload");
+
+    const batchRows = out.entries.filter(
+      (entry: { kind: string }) => entry.kind === "evidence:added",
+    );
+    expect(batchRows).toHaveLength(2);
+    for (const row of batchRows) {
+      expect(Object.keys(row).sort()).toEqual([
+        "actor",
+        "at",
+        "batch_count",
+        "batch_id",
+        "batch_index",
+        "entry_id",
+        "kind",
+        "seq",
+      ]);
+      expect(row).not.toHaveProperty("payload");
+    }
+  });
+
+  test("journal filters page in journal order and loaf log is the same action", async () => {
+    const filtered = await runCli([
+      "journal",
+      "list",
+      "--kind",
+      "evidence:added",
+      "--actor",
+      "cli:",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
+    ]);
+    expect(filtered.exit).toBe(0);
+    const all = JSON.parse(filtered.stdout);
+    expect(all.count).toBe(2);
+
+    const argv = [
+      "--after-seq",
+      String(all.entries[0].seq),
+      "--limit",
+      "1",
+      "--kind",
+      "evidence:added",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
+    ];
+    const canonical = await runCli(["journal", "list", ...argv]);
+    const alias = await runCli(["log", ...argv]);
+    expect(alias).toEqual(canonical);
+    const page = JSON.parse(canonical.stdout);
+    expect(page.count).toBe(1);
+    expect(page.entries[0].seq).toBeGreaterThan(all.entries[0].seq);
+
+    const empty = await runCli([
+      "journal",
+      "list",
+      "--kind",
+      "lesson:recorded",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
+    ]);
+    expect(JSON.parse(empty.stdout)).toMatchObject({ ok: true, count: 0, entries: [] });
+  });
+
+  test("evidence list JSON exposes coverage fields with exact stable keys", async () => {
+    const result = await runCli([
+      "evidence",
+      "list",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
+    ]);
+    expect(result.exit).toBe(0);
+    expect(result.stderr).toBe("");
+    const out = JSON.parse(result.stdout);
+    expect(Object.keys(out).sort()).toEqual(["count", "evidence", "feature", "ok"]);
+    expect(out.count).toBe(2);
+    expect(out.evidence.map((row: { id: string }) => row.id)).toEqual(["EV-000001", "EV-000002"]);
+    for (const row of out.evidence) {
+      expect(Object.keys(row).sort()).toEqual(["actor", "at", "covers", "id", "kind", "task_id"]);
+      expect(row).not.toHaveProperty("payload");
+      expect(row).not.toHaveProperty("summary");
+      expect(row).not.toHaveProperty("result");
+    }
+    expect(out.evidence[0]).toMatchObject({
+      kind: "task-summary",
+      covers: ["T-001"],
+      task_id: "T-001",
+      actor: "ci:coverage",
+    });
+    expect(out.evidence[1]).toMatchObject({
+      kind: "local-check",
+      covers: ["REQ-AUTH-001"],
+      task_id: null,
+      actor: "ci:checks",
+    });
+  });
+
+  test("evidence list applies covers, task, and closed kind filters; empty is success", async () => {
+    const selectors: Array<[string[], string]> = [
+      [["--covers", "T-001"], "EV-000001"],
+      [["--task", "T-001"], "EV-000001"],
+      [["--kind", "local-check"], "EV-000002"],
+    ];
+    for (const [flags, expectedId] of selectors) {
+      const result = await runCli([
+        "evidence",
+        "list",
+        ...flags,
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        dir,
+        "--format",
+        "json",
+      ]);
+      expect(result.exit).toBe(0);
+      expect(JSON.parse(result.stdout).evidence.map((row: { id: string }) => row.id)).toEqual([
+        expectedId,
+      ]);
+    }
+
+    const empty = await runCli([
+      "evidence",
+      "list",
+      "--covers",
+      "REQ-NONE-999",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
+    ]);
+    expect(JSON.parse(empty.stdout)).toMatchObject({ ok: true, count: 0, evidence: [] });
+  });
+
+  test("text output is one line per row and never exposes raw payload fields", async () => {
+    const journal = await runCli([
+      "journal",
+      "list",
+      "--kind",
+      "evidence:added",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      dir,
+    ]);
+    expect(journal.exit).toBe(0);
+    expect(journal.stdout.trim().split("\n")).toHaveLength(2);
+    expect(journal.stdout).not.toContain("summary");
+    expect(journal.stdout).not.toContain("payload");
+
+    const evidence = await runCli([
+      "evidence",
+      "list",
+      "--kind",
+      "task-summary",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      dir,
+    ]);
+    expect(evidence.exit).toBe(0);
+    expect(evidence.stdout.trim().split("\n")).toHaveLength(1);
+    expect(evidence.stdout).toContain("EV-000001");
+    expect(evidence.stdout).not.toContain("task implementation completed");
+  });
+
+  test("LOAF_LANG=zh localizes journal and evidence list rows", async () => {
+    const journalArgv = [
+      "journal",
+      "list",
+      "--kind",
+      "evidence:added",
+      "--limit",
+      "1",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      dir,
+    ];
+    const journalEn = await runCli(journalArgv, { env: { LOAF_LANG: "en" } });
+    const journalZh = await runCli(journalArgv, { env: { LOAF_LANG: "zh" } });
+    expect(journalEn.exit).toBe(0);
+    expect(journalZh.exit).toBe(0);
+    expect(journalEn.stdout).toContain("seq=");
+    expect(journalZh.stdout).toContain("序号=");
+    expect(journalZh.stdout).not.toBe(journalEn.stdout);
+
+    const evidenceArgv = [
+      "evidence",
+      "list",
+      "--kind",
+      "task-summary",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      dir,
+    ];
+    const evidenceEn = await runCli(evidenceArgv, { env: { LOAF_LANG: "en" } });
+    const evidenceZh = await runCli(evidenceArgv, { env: { LOAF_LANG: "zh" } });
+    expect(evidenceEn.exit).toBe(0);
+    expect(evidenceZh.exit).toBe(0);
+    expect(evidenceEn.stdout).toContain("kind=task-summary");
+    expect(evidenceZh.stdout).toContain("类型=task-summary");
+    expect(evidenceZh.stdout).not.toBe(evidenceEn.stdout);
+  });
+
+  test("invalid closed filters and numeric bounds fail with USAGE", async () => {
+    const cases: Array<{ argv: string[]; detail: Record<string, unknown> }> = [
+      {
+        argv: ["journal", "list", "--kind", "not:a-kind"],
+        detail: { value: "not:a-kind", allowed: Object.keys(KIND_REGISTRY) },
+      },
+      {
+        argv: ["journal", "list", "--after-seq", "nan"],
+        detail: { flag: "--after-seq", value: "nan", minimum: 0 },
+      },
+      {
+        argv: ["journal", "list", "--limit", "0"],
+        detail: { flag: "--limit", value: "0", minimum: 1 },
+      },
+      {
+        argv: ["evidence", "list", "--kind", "not-a-kind"],
+        detail: { value: "not-a-kind", allowed: EvidenceKind.options },
+      },
+      {
+        argv: ["evidence", "list", "--task", "T-bad"],
+        detail: { value: "T-bad" },
+      },
+      {
+        argv: ["evidence", "list", "--covers", "REQ-bad"],
+        detail: { value: "REQ-bad" },
+      },
+    ];
+    for (const { argv, detail } of cases) {
+      const result = await runCli([
+        ...argv,
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        dir,
+        "--format",
+        "json",
+      ]);
+      expect(result.exit, argv.join(" ")).toBe(2);
+      expect(JSON.parse(result.stderr), argv.join(" ")).toMatchObject({ code: "USAGE", detail });
+    }
+  });
+
+  test("both commands reject dry-run and surface no-session failures", async () => {
+    for (const argv of [["journal", "list"], ["evidence", "list"]]) {
+      const dryRun = await runCli([
+        ...argv,
+        "--dry-run",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        dir,
+        "--format",
+        "json",
+      ]);
+      expect(dryRun.exit).toBe(2);
+      expect(JSON.parse(dryRun.stderr)).toMatchObject({
+        ok: false,
+        code: "DRY_RUN_NOT_APPLICABLE",
+        detail: { command_type: "read-only" },
+      });
+
+      const emptyDir = await tmpFeatureDir();
+      const noSession = await runCli([
+        ...argv,
+        "--feature",
+        "ghost",
+        "--feature-dir",
+        emptyDir,
+        "--format",
+        "json",
+      ]);
+      expect(noSession.exit).toBe(2);
+      expect(JSON.parse(noSession.stderr)).toMatchObject({
+        ok: false,
+        code: "FEATURE_NOT_FOUND",
+      });
+    }
   });
 });
 

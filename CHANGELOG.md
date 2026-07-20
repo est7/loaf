@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Read-only observability lists:** added canonical `loaf journal list` with
+  the `loaf log` Commander alias and envelope-only timeline filters, plus
+  `loaf evidence list` for coverage, task, and evidence-kind queries over the
+  freshness-checked evidence projection. Both commands expose exact bounded
+  JSON row shapes and never pass through raw journal payloads.
+
 ### Changed
 
 - **Documentation correction:** removed the XDG/`LOAF_CONFIG` contract from the

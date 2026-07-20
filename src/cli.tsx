@@ -64,6 +64,7 @@ import { registerTasks } from "./cli/commands/tasks.js";
 import { registerTerminalSettle } from "./cli/commands/terminal-settle.js";
 import { registerPending } from "./cli/commands/pending.js";
 import { registerEvidence } from "./cli/commands/evidence.js";
+import { registerJournal } from "./cli/commands/journal.js";
 import { registerLessons } from "./cli/commands/lessons.js";
 import { registerIntegrations } from "./cli/commands/integrations.js";
 import { registerFinding } from "./cli/commands/finding.js";
@@ -764,6 +765,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
   registerTerminalSettle(program, ctx, mutator, actor);
   registerPending(program, ctx, mutator, actor);
   const { evidenceCmd } = registerEvidence(program, ctx, mutator, actor, isStdinTty, readStdin);
+  registerJournal(program, ctx);
   registerLessons(program, ctx, mutator, actor);
 
   const renderTuiImpl: RenderTui = deps.renderTui ?? defaultRenderTui;
