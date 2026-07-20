@@ -10,11 +10,12 @@
 >     → 3rd-party workflow skill (domain dialogue)
 > ```
 >
-> The capabilities described below are deliberately **NOT** implemented in
-> loaf-cli. They are future `loaf-skill` responsibilities, recorded here so
-> the loaf-cli ↔ loaf-skill boundary stays explicit. When the loaf-skill
-> codebase boots up (post-v0.1.0 GA of loaf-cli, which shipped 2026-05-25),
-> the requirements below are the starting contract.
+> The thinker capabilities described below are deliberately **NOT** implemented
+> in loaf-cli. They are future `loaf-skill` responsibilities, recorded here so
+> the loaf-cli ↔ loaf-skill boundary stays explicit. Kernel validators named
+> below are landed loaf-cli guarantees, not orchestration behavior. When the
+> loaf-skill codebase boots up (post-v0.1.0 GA of loaf-cli, which shipped
+> 2026-05-25), the requirements below are the starting contract.
 
 ## Source-of-truth note (ADR-0005)
 
@@ -76,6 +77,41 @@ Flat `Task[]`:
 - All members carry `labels: ["group:G-007"]`
 - Integration task additionally carries `labels: ["integration"]`
 
+### DAG authorship and kernel admission contract
+
+`loaf-skill` is the thinker and authors the graph. Each task node carries the
+existing `depends_on: TaskId[]` adjacency list; there is no separate edge
+record and no schema change. loaf-cli is the kernel/validator: it validates
+the submitted graph but never invents, removes, deduplicates, or redirects
+dependencies.
+
+Graph validation is **admission-only**. For a graph-changing batch,
+`mutateBatch` runs `checkTaskGraph` once at Pass 1.5 against the batch-final
+projected `Task[]`, after all entries have passed preflight and reducer dry-run
+and before any disk write. It is never called by `apply()` or journal replay.
+Replay compatibility is a policy: historical journal entries are not
+retrospectively checked against graph invariants added later. Future graph
+invariants gate new admissions; historical graph shapes remain replayable.
+
+The batch-final view makes intra-batch forward references legal: an earlier
+entry may depend on a task introduced by a later entry in the same atomic
+batch. If graph admission fails, the entire batch is rejected before write;
+no prefix is accepted.
+
+The structured semantic error surface is:
+
+| invariant | diagnostic | detail |
+|---|---|---|
+| Every reference exists in the batch-final graph | `TASK_DEP_NOT_FOUND` | `{task_id, field: "depends_on[i]", ref}` |
+| A task cannot depend on itself | `TASK_DEP_SELF` | `{task_id}` |
+| One adjacency list cannot repeat a dependency | `TASK_DEP_DUPLICATE` | `{task_id, ref, indexes: [i, j]}` |
+| The graph is acyclic | `TASK_DEP_CYCLE` | `{cycle: ["T-A", ..., "T-A"]}` as an ordered closed path |
+| A non-terminal task cannot depend on an abandoned task | `TASK_DEP_ABANDONED` | `{task_id, field: "depends_on[i]", ref, hint}`; applies to `pending`, `ready`, and `in_progress` tasks only |
+
+On any semantic rejection, loaf-skill rewrites the authored graph through the
+`amend-tasks` loop and resubmits it. The kernel reports the defect and never
+repairs the graph.
+
 ### `labels[]` namespace registry (maintained by loaf-skill)
 
 | namespace prefix | meaning | example |
@@ -95,6 +131,9 @@ When a workflow skill decides an in-progress task is too large:
 - Original task → `status: "abandoned"` (existing enum, no new state)
 - New leaf tasks + integration task emitted via `flatten`
 - Finding raised with `action: "amend-tasks"` (§1 principle 13)
+- Any non-terminal dependent is amended to reference the replacement task(s);
+  `TASK_DEP_ABANDONED` sends an invalid adjacency back through this rewrite
+  loop rather than allowing the kernel to repair it
 - Original evidence preserved in `evidence.jsonl` (append-only invariant)
 - Reconcile coverage counts only the new children; abandoned task drops
   out of coverage by virtue of `status="abandoned"`
@@ -157,15 +196,15 @@ The main skill, when fanning out during EXECUTE, **must follow this
 
 1. **Pick a batch of ready leaves** (skill-internal decision, protocol
    does not observe)
-   - Read tasks from `tasks.json` with `status="pending"` and all
-     `depends_on` set to `done`
+   - Read tasks from `tasks.json` with `status` in `pending | ready` and
+     every referenced dependency in `status="done"`
    - Confirm mutually non-conflicting write scopes (derived from
      `STEP_WRITE_PATHS_BY_KIND[kind][step]` ∪ `loaf.config.json.paths.*`)
    - Pick N (typically 2–4; Wang convention; configurable in loaf-skill)
 2. **Atomic batch transition**: main skill serially calls
    `loaf tasks step start --task T-X --step <s>` N times, moving N tasks
-   from `status="pending"` → `"in_progress"` and setting each starting
-   step's `task.execution.<step>.status="running"`. This step is
+   from `status="pending" | "ready"` → `"in_progress"` and setting each
+   starting step's `task.execution.<step>.status="running"`. This step is
    **single-threaded**, with no race; `loaf advance` validates transition
    legality.
 3. **Fan-out N sub-agents**: main skill starts N sub-agents (LLM
@@ -184,6 +223,12 @@ The main skill, when fanning out during EXECUTE, **must follow this
 
 ### Key invariants (loaf-skill documents and self-checks)
 
+- **One kernel-ready rule**: `(status === "pending" || status === "ready") &&
+  areTaskDependenciesSatisfied(task, tasksById)`, where the shared predicate
+  requires every dependency to be `done`. loaf-cli enforces this at claim with
+  `TASK_DEPS_NOT_SATISFIED`; loaf-skill may rank or select eligible tasks but
+  must not widen eligibility. Richer trigger-rule vocabulary remains entirely
+  thinker-side and does not alter kernel readiness.
 - **Side effects truly concurrent** (step 3, sub-agents run code / tests)
 - **loaf-artifact writes always serial** (steps 2 + 4, main skill
   single-threaded)
