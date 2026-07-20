@@ -41,302 +41,88 @@ import {
   type FailureSiteKey,
 } from "./runtime-i18n-keys.js";
 import { diagnosticVarsFor } from "./diagnostic-failure.js";
+import {
+  FORMAT_MODES as ARGV_FORMAT_MODES,
+  FORMAT_MODES_HUMAN as ARGV_FORMAT_MODES_HUMAN,
+  findFirstInvalidFormat as parseFindFirstInvalidFormat,
+  parseDebugFromArgv as parseArgvDebug,
+  parseDryRunFromArgv as parseArgvDryRun,
+  parseFormatFromArgv as parseArgvFormat,
+  parseNoColorFromArgv as parseArgvNoColor,
+  parseNoInputFromArgv as parseArgvNoInput,
+  parsePlainFromArgv as parseArgvPlain,
+  parsePresentation as parseArgvPresentation,
+  parseQuietFromArgv as parseArgvQuiet,
+  parseVerboseFromArgv as parseArgvVerbose,
+  type FormatParseResult as ArgvFormatParseResult,
+  type OutputMode as ArgvOutputMode,
+  type PresentationEnv,
+  type PresentationFail as ArgvPresentationFail,
+  type PresentationOk as ArgvPresentationOk,
+  type PresentationResult as ArgvPresentationResult,
+} from "./argv-presentation.js";
 // Note: diagnostic-failure.ts intentionally does NOT import from command-context.ts
 // to avoid a circular dependency. Its local I18nVars is structurally identical.
 
-export type OutputMode = "json" | "text";
+export type OutputMode = ArgvOutputMode;
 export type I18nVars = Record<string, string | number | boolean | null | undefined>;
 
-/** Closed value set for `--format`. Single source of truth for both the
- *  argv parser and the human-readable error template. Order is
- *  intentional: matches the `text|json` rendering in user-facing
- *  diagnostics. */
-export const FORMAT_MODES: readonly OutputMode[] = ["text", "json"] as const;
+export const FORMAT_MODES: readonly OutputMode[] = ARGV_FORMAT_MODES;
+export const FORMAT_MODES_HUMAN: string = ARGV_FORMAT_MODES_HUMAN;
 
-/** Pipe-joined human form for INVALID_FORMAT i18n templates.
- *  Derived explicitly — never `Array.toString()` — to keep the
- *  catalog/i18n/runtime placeholder symmetry deterministic
- *  (per RED #12 in tests/scripts/sc5a-surface-gate.test.ts). */
-export const FORMAT_MODES_HUMAN: string = FORMAT_MODES.join("|");
+export type FormatParseResult = ArgvFormatParseResult;
+export type PresentationOk = ArgvPresentationOk;
+export type PresentationFail = ArgvPresentationFail;
+export type PresentationResult = ArgvPresentationResult;
 
-export type FormatParseResult = { ok: true; format: OutputMode } | { ok: false; rawValue: string };
-
-/** Parse `--format <v>` or `--format=<v>` from argv. Returns OK 'text'
- *  on absent. Bare `--format` (no value, or followed by another flag)
- *  is intentionally OK-text — Commander's mandatory-arg path catches
- *  the missing value during `program.parseAsync(argv)` and reports a
- *  USAGE error (per RED #13).
- *
- *  Used both by `createCommandContext` (to derive `ctx.output`) and by
- *  `cli.tsx main()`'s pre-parse guard. Both readers MUST share this
- *  function to guarantee a single source of truth (no Commander
- *  default; argv-scan owns the decision). */
+/** Compatibility facade for existing command-context import sites. */
 export function parseFormatFromArgv(argv: readonly string[]): FormatParseResult {
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i]!;
-    if (arg === "--format") {
-      const v = argv[i + 1];
-      // Bare or trailing flag-like value: defer to Commander's
-      // missing-argument USAGE path. Return text default so ctx.output
-      // is well-defined if main() forgot to bail.
-      if (v === undefined || v.startsWith("--")) {
-        return { ok: true, format: "text" };
-      }
-      if ((FORMAT_MODES as readonly string[]).includes(v)) {
-        return { ok: true, format: v as OutputMode };
-      }
-      return { ok: false, rawValue: v };
-    }
-    if (arg.startsWith("--format=")) {
-      const v = arg.slice("--format=".length);
-      if ((FORMAT_MODES as readonly string[]).includes(v)) {
-        return { ok: true, format: v as OutputMode };
-      }
-      return { ok: false, rawValue: v };
-    }
-  }
-  return { ok: true, format: "text" };
+  return parseArgvFormat(argv);
 }
 
-// ─────────────────────────────────────────────────────────────────
-// Phase 16 SC-5b1 — presentation flag helpers + parsePresentation
-// unified guard. Each helper is raw-argv-only (NOT Commander opts)
-// because createCommandContext runs BEFORE program.parseAsync(argv).
-// ─────────────────────────────────────────────────────────────────
-
-/** Scan EVERY `--format <v>` and `--format=<v>` occurrence and return
- *  the first one with a value outside FORMAT_MODES. Returns null when
- *  all occurrences are valid (or absent). Used by parsePresentation
- *  to honor INVALID_FORMAT precedence over mutex regardless of
- *  position (codex r258 F1: an invalid value AFTER a valid one must
- *  still raise INVALID_FORMAT). */
 export function findFirstInvalidFormat(argv: readonly string[]): { rawValue: string } | null {
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i]!;
-    if (arg === "--format") {
-      const v = argv[i + 1];
-      // Bare or trailing flag-like value: SC-5a defers to Commander's
-      // mandatory-arg USAGE path. Don't treat it as INVALID_FORMAT.
-      if (v === undefined || v.startsWith("--")) continue;
-      if (!(FORMAT_MODES as readonly string[]).includes(v)) {
-        return { rawValue: v };
-      }
-      // Valid: skip both arg and the consumed value.
-      i++;
-      continue;
-    }
-    if (arg.startsWith("--format=")) {
-      const v = arg.slice("--format=".length);
-      if (!(FORMAT_MODES as readonly string[]).includes(v)) {
-        return { rawValue: v };
-      }
-    }
-  }
-  return null;
+  return parseFindFirstInvalidFormat(argv);
 }
 
-/** Returns true if `--plain` flag appears in argv. */
 export function parsePlainFromArgv(argv: readonly string[]): boolean {
-  return argv.includes("--plain");
+  return parseArgvPlain(argv);
 }
 
-/** Returns true if `--quiet` OR `-q` flag appears in argv. */
 export function parseQuietFromArgv(argv: readonly string[]): boolean {
-  return argv.includes("--quiet") || argv.includes("-q");
+  return parseArgvQuiet(argv);
 }
 
-/** Phase 16 SC-6a — returns true if `--no-input` appears in argv.
- *  Orthogonal to output_format / quiet / verbose / color (no mutex).
- *  Declares non-interactive context — actor resolver refuses git-config
- *  fallback; any future prompt entry must exit 2. Explicit actor input
- *  via `$LOAF_USER` is NOT disabled by this flag. */
 export function parseNoInputFromArgv(argv: readonly string[]): boolean {
-  return argv.includes("--no-input");
+  return parseArgvNoInput(argv);
 }
 
-/** Phase 16 SC-6b — returns true if `--debug` flag OR a non-empty
- *  `LOAF_DEBUG` / `DEBUG` env var triggers debug mode. Precedence:
- *  `--debug` flag > `LOAF_DEBUG` > `DEBUG` (any non-empty value
- *  is truthy per protocol §1547; no `0`/`false` magic). Orthogonal
- *  to all other presentation flags. */
 export function parseDebugFromArgv(
   argv: readonly string[],
-  env: { LOAF_DEBUG?: string | undefined; DEBUG?: string | undefined } = process.env as never,
+  env: Pick<PresentationEnv, "LOAF_DEBUG" | "DEBUG"> = process.env,
 ): boolean {
-  if (argv.includes("--debug")) return true;
-  if (env.LOAF_DEBUG && env.LOAF_DEBUG.length > 0) return true;
-  if (env.DEBUG && env.DEBUG.length > 0) return true;
-  return false;
+  return parseArgvDebug(argv, env);
 }
 
-/** Phase 16 SC-6c — returns true if `--dry-run` or `-n` appears in argv.
- *  Orthogonal to all other presentation flags (no mutex). When true,
- *  mutating commands short-circuit before journal append + projection
- *  refresh; read-only commands reject with DRY_RUN_NOT_APPLICABLE. */
 export function parseDryRunFromArgv(argv: readonly string[]): boolean {
-  return argv.includes("--dry-run") || argv.includes("-n");
+  return parseArgvDryRun(argv);
 }
 
-/** Returns cumulative verbose count: `-v` = 1, `-vv` = 2,
- *  `--verbose` = 1, and multiple occurrences sum. E.g.
- *  `-v --verbose` = 2, `-vv --verbose` = 3. Per protocol §10.7 +
- *  codex r254 OQ3 verdict. */
 export function parseVerboseFromArgv(argv: readonly string[]): number {
-  let count = 0;
-  for (const arg of argv) {
-    if (arg === "--verbose") {
-      count += 1;
-      continue;
-    }
-    // `-v`, `-vv`, `-vvv`, ... — N v's = N. Reject mixed
-    // short-form (e.g. `-vq`); only pure v-runs count.
-    if (/^-v+$/.test(arg)) {
-      count += arg.length - 1;
-    }
-  }
-  return count;
+  return parseArgvVerbose(argv);
 }
 
-/** Returns true if any of these is true:
- *  - `--no-color` in argv
- *  - `env.NO_COLOR` non-empty
- *  - `env.LOAF_NO_COLOR` non-empty
- *  - `env.TERM === "dumb"`
- *  Per protocol §10.2 (`docs/protocol.md:1512-1513`). */
 export function parseNoColorFromArgv(
   argv: readonly string[],
-  env: {
-    NO_COLOR?: string | undefined;
-    LOAF_NO_COLOR?: string | undefined;
-    TERM?: string | undefined;
-  } = process.env as never,
+  env: Pick<PresentationEnv, "NO_COLOR" | "LOAF_NO_COLOR" | "TERM"> = process.env,
 ): boolean {
-  if (argv.includes("--no-color")) return true;
-  if (env.NO_COLOR && env.NO_COLOR.length > 0) return true;
-  if (env.LOAF_NO_COLOR && env.LOAF_NO_COLOR.length > 0) return true;
-  if (env.TERM === "dumb") return true;
-  return false;
-}
-
-/** parsePresentation — unified pre-parse guard for SC-5a INVALID_FORMAT
- *  + SC-5b1 MUTUALLY_EXCLUSIVE_FLAGS. Runs BEFORE Commander parse.
- *
- *  Precedence:
- *  - INVALID_FORMAT wins over MUTUALLY_EXCLUSIVE_FLAGS (no canonical
- *    value computable from invalid input — per codex r252 Q3 verdict).
- *
- *  Mutex rule (codex r255 P17): a conflict exists if 2+ entries from
- *  the output_format normalization set appear in argv with non-
- *  equivalent canonical values. The error renders as JSON if ANY
- *  `--format json` / `--format=json` appears in argv (renderAsJson),
- *  else text. Order- and spelling-independent.
- */
-export type PresentationOk = {
-  ok: true;
-  format: OutputMode;
-  plain: boolean;
-  quiet: boolean;
-  verbose: number;
-  noColor: boolean;
-  /** Phase 16 SC-6a — non-interactive mode declaration. Orthogonal to
-   *  output_format normalization; does not participate in the
-   *  MUTUALLY_EXCLUSIVE_FLAGS check. See `parseNoInputFromArgv`. */
-  noInput: boolean;
-  /** Phase 16 SC-6b — debug observability. Orthogonal to all other
-   *  flags; does not participate in MUTUALLY_EXCLUSIVE_FLAGS. See
-   *  `parseDebugFromArgv` (env-aware). */
-  debug: boolean;
-  /** Phase 16 SC-6c — dry-run mode. Orthogonal to all other flags.
-   *  When true: mutating commands short-circuit before disk writes;
-   *  read-only commands reject. See `parseDryRunFromArgv`. */
-  dryRun: boolean;
-};
-export type PresentationFail =
-  | { ok: false; kind: "INVALID_FORMAT"; rawValue: string }
-  | { ok: false; kind: "MUTUALLY_EXCLUSIVE_FLAGS"; conflicting: string[]; renderAsJson: boolean };
-export type PresentationResult = PresentationOk | PresentationFail;
-
-/** Internal: collect every (entry, canonicalValue) pair from argv
- *  using the FLAG_EXCLUSIONS.output_format normalization. Used to
- *  detect non-equivalent multi-flag conflicts. */
-function collectOutputFormatEntries(
-  argv: readonly string[],
-): Array<{ entry: string; canonical: OutputMode }> {
-  const out: Array<{ entry: string; canonical: OutputMode }> = [];
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i]!;
-    if (arg === "--plain") {
-      out.push({ entry: "--plain", canonical: "text" });
-      continue;
-    }
-    if (arg === "--format") {
-      const v = argv[i + 1];
-      if (v && !v.startsWith("--") && (FORMAT_MODES as readonly string[]).includes(v)) {
-        out.push({ entry: `--format ${v}`, canonical: v as OutputMode });
-      }
-      // bare --format or invalid value: not a normalization entry
-      // (Commander or INVALID_FORMAT handles it elsewhere)
-      continue;
-    }
-    if (arg.startsWith("--format=")) {
-      const v = arg.slice("--format=".length);
-      if ((FORMAT_MODES as readonly string[]).includes(v)) {
-        out.push({ entry: arg, canonical: v as OutputMode });
-      }
-      continue;
-    }
-  }
-  return out;
+  return parseArgvNoColor(argv, env);
 }
 
 export function parsePresentation(
   argv: readonly string[],
-  env: {
-    NO_COLOR?: string | undefined;
-    LOAF_NO_COLOR?: string | undefined;
-    TERM?: string | undefined;
-    LOAF_DEBUG?: string | undefined;
-    DEBUG?: string | undefined;
-  } = process.env as never,
+  env: PresentationEnv = process.env,
 ): PresentationResult {
-  // Pass 1: INVALID_FORMAT precedence — scan EVERY `--format` /
-  // `--format=` occurrence (not just the first) so a later invalid
-  // value isn't masked by an earlier valid one (codex r258 F1 fix).
-  const invalid = findFirstInvalidFormat(argv);
-  if (invalid) {
-    return { ok: false, kind: "INVALID_FORMAT", rawValue: invalid.rawValue };
-  }
-
-  // Pass 2: multi-entry mutex check on output_format normalization.
-  // Build the unique canonical-value set; if size > 1, conflict.
-  const entries = collectOutputFormatEntries(argv);
-  const canonicals = new Set(entries.map((e) => e.canonical));
-  if (canonicals.size > 1) {
-    // Mutex: render shape per renderAsJson rule (any --format json
-    // / --format=json present in argv → JSON shape).
-    const renderAsJson = entries.some((e) => e.canonical === "json");
-    // Collect the offending entries (those NOT matching the
-    // first canonical) for the diagnostic payload. Use stable
-    // dedup of spellings to keep error scripting predictable.
-    const conflicting = Array.from(new Set(entries.map((e) => e.entry)));
-    return { ok: false, kind: "MUTUALLY_EXCLUSIVE_FLAGS", conflicting, renderAsJson };
-  }
-
-  // Resolve final format: --plain alias maps to text; explicit
-  // --format wins. With no conflict, the single canonical is the
-  // result. If no output_format entry at all, default text.
-  const format: OutputMode = entries.length > 0 ? entries[0]!.canonical : "text";
-  return {
-    ok: true,
-    format,
-    plain: parsePlainFromArgv(argv),
-    quiet: parseQuietFromArgv(argv),
-    verbose: parseVerboseFromArgv(argv),
-    noColor: parseNoColorFromArgv(argv, env),
-    noInput: parseNoInputFromArgv(argv),
-    debug: parseDebugFromArgv(argv, env),
-    dryRun: parseDryRunFromArgv(argv),
-  };
+  return parseArgvPresentation(argv, env);
 }
 
 export type CrashContext = {
@@ -562,7 +348,7 @@ export function createCommandContext(
   // pre-parse guard is the canonical rejector and is responsible for
   // emitting INVALID_FORMAT / MUTUALLY_EXCLUSIVE_FLAGS +
   // short-circuiting before this code path runs.
-  const presentation = parsePresentation(argv);
+  const presentation = parsePresentation(argv, process.env);
   const output: OutputMode = presentation.ok ? presentation.format : "text";
   const i18n = deps.i18n ?? DEFAULT_I18N;
   const plain: boolean = presentation.ok ? presentation.plain : false;

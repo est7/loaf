@@ -15,6 +15,7 @@ import path from "node:path";
 import os from "node:os";
 
 import { main } from "../../src/cli.js";
+import { parsePresentation as parseArgvPresentation } from "../../src/cli/argv-presentation.js";
 import { FLAG_EXCLUSIONS } from "../../src/cli/flag-exclusions.js";
 import {
   createCommandContext,
@@ -183,6 +184,15 @@ describe("Phase 16 SC-5b1 — RED #4-#11: MUTUALLY_EXCLUSIVE_FLAGS rendering", (
     expect(result.ok).toBe(true);
   });
 
+  test("parsePresentation gives INVALID_FORMAT precedence over a mutex conflict", () => {
+    expect(
+      parsePresentation(
+        ["loaf", "status", "--plain", "--format=json", "--format=yaml"],
+        {},
+      ),
+    ).toEqual({ ok: false, kind: "INVALID_FORMAT", rawValue: "yaml" });
+  });
+
   test("RED #11: --format=yaml --plain → INVALID_FORMAT text shape (precedence)", async () => {
     const result = await runCli(["status", "--format=yaml", "--plain"]);
     expect(result.exit).toBe(2);
@@ -259,6 +269,33 @@ describe("Phase 16 SC-5b1 — RED #12: --no-color flag + env equivalents", () =>
 
   test("no flag + no env → noColor=false", () => {
     expect(parseNoColorFromArgv([], {})).toBe(false);
+  });
+
+  test("command-context facade defaults parsePresentation env to process.env", () => {
+    const previous = process.env.LOAF_NO_COLOR;
+    process.env.LOAF_NO_COLOR = "characterization";
+    try {
+      const result = parsePresentation(["loaf", "status"]);
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.noColor).toBe(true);
+    } finally {
+      if (previous === undefined) delete process.env.LOAF_NO_COLOR;
+      else process.env.LOAF_NO_COLOR = previous;
+    }
+  });
+
+  test("argv-presentation uses only the explicitly injected env", () => {
+    const previous = process.env.LOAF_NO_COLOR;
+    process.env.LOAF_NO_COLOR = "ambient";
+    try {
+      const withoutColorEnv = parseArgvPresentation(["loaf", "status"], {});
+      const withColorEnv = parseArgvPresentation(["loaf", "status"], { LOAF_NO_COLOR: "1" });
+      expect(withoutColorEnv.ok && withoutColorEnv.noColor).toBe(false);
+      expect(withColorEnv.ok && withColorEnv.noColor).toBe(true);
+    } finally {
+      if (previous === undefined) delete process.env.LOAF_NO_COLOR;
+      else process.env.LOAF_NO_COLOR = previous;
+    }
   });
 });
 
