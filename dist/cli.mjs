@@ -18,7 +18,7 @@ import { jsx, jsxs } from "react/jsx-runtime";
 import process$1 from "node:process";
 import { createServer } from "node:http";
 //#region package.json
-var version = "0.5.0";
+var version = "0.6.0";
 //#endregion
 //#region src/core/crash-log.ts
 /** Sentinel code stamped into the JSON envelope and (when
@@ -121,7 +121,7 @@ const MeasurablePayload = z.object({
 		"eq"
 	]).default("lte")
 }).passthrough();
-const VerifiabilityFields$1 = z.object({
+const VerifiabilityFields = z.object({
 	measurable: MeasurablePayload.optional(),
 	verified_by_scenarios: z.array(ScenIdPayload).optional(),
 	acceptance_na: z.literal(true).optional(),
@@ -133,31 +133,31 @@ function hasVerifiability(req) {
 	const hasNa = req.acceptance_na === true && (req.acceptance_na_reason?.length ?? 0) >= 10;
 	return hasMeasurable || hasScenarios || hasNa;
 }
-const ReqBase$1 = z.object({ id: ReqIdPayload });
-const RequirementUbiquitousShape = ReqBase$1.extend({
+const ReqBase = z.object({ id: ReqIdPayload });
+const RequirementUbiquitousShape = ReqBase.extend({
 	type: z.literal("ubiquitous"),
 	response: z.string().min(10)
-}).and(VerifiabilityFields$1);
-const RequirementEventDrivenShape = ReqBase$1.extend({
+}).and(VerifiabilityFields);
+const RequirementEventDrivenShape = ReqBase.extend({
 	type: z.literal("event-driven"),
 	trigger: z.string().min(5),
 	response: z.string().min(10)
-}).and(VerifiabilityFields$1);
-const RequirementStateDrivenShape = ReqBase$1.extend({
+}).and(VerifiabilityFields);
+const RequirementStateDrivenShape = ReqBase.extend({
 	type: z.literal("state-driven"),
 	while_: z.string().min(5),
 	behavior: z.string().min(10)
-}).and(VerifiabilityFields$1);
-const RequirementOptionalShape = ReqBase$1.extend({
+}).and(VerifiabilityFields);
+const RequirementOptionalShape = ReqBase.extend({
 	type: z.literal("optional"),
 	feature: z.string().min(5),
 	response: z.string().min(10)
-}).and(VerifiabilityFields$1);
-const RequirementUnwantedShape = ReqBase$1.extend({
+}).and(VerifiabilityFields);
+const RequirementUnwantedShape = ReqBase.extend({
 	type: z.literal("unwanted"),
 	condition: z.string().min(5),
 	response: z.string().min(10)
-}).and(VerifiabilityFields$1);
+}).and(VerifiabilityFields);
 const RequirementEarsShape = z.union([
 	RequirementUbiquitousShape,
 	RequirementEventDrivenShape,
@@ -165,8 +165,15 @@ const RequirementEarsShape = z.union([
 	RequirementOptionalShape,
 	RequirementUnwantedShape
 ]);
+z.enum([
+	"ubiquitous",
+	"event-driven",
+	"state-driven",
+	"optional",
+	"unwanted"
+]);
 const RequirementEarsVerifiable = RequirementEarsShape.refine(hasVerifiability, { message: "REQ must declare measurable, verified_by_scenarios[], or acceptance_na+reason (≥10 chars)" });
-const ScenarioGherkin$1 = z.object({
+const ScenarioGherkin = z.object({
 	id: ScenIdPayload,
 	name: z.string().min(3),
 	tag: z.enum([
@@ -181,20 +188,20 @@ const ScenarioGherkin$1 = z.object({
 	when: z.array(z.string().min(3)).min(1),
 	then: z.array(z.string().min(3)).min(1)
 }).refine((s) => !(s.tag === "e2e" && s.acceptance_na !== void 0 && s.requires_acceptance), { message: "cannot set both requires_acceptance and acceptance_na" });
-const VisualContract$1 = z.object({
+const VisualContract = z.object({
 	id: VisIdPayload,
 	target: z.string().min(3),
 	checks: z.array(z.string().min(3)).min(1),
 	requires_visual: z.boolean().optional(),
 	visual_na: z.string().min(5).optional()
 }).passthrough();
-const NeedsClarification$1 = z.object({
+const NeedsClarification = z.object({
 	id: NcIdPayload,
 	question: z.string().min(5),
 	context: z.string().optional(),
 	options: z.array(z.string()).optional()
 }).passthrough();
-const SpecFrontmatter$1 = z.object({
+const SpecFrontmatter = z.object({
 	schema_version: SchemaVersionPayload,
 	spec_version: z.number().int().positive(),
 	feature: z.object({
@@ -204,9 +211,9 @@ const SpecFrontmatter$1 = z.object({
 	intent: z.string().min(20),
 	adr_refs: z.array(z.string()),
 	requirements: z.array(RequirementEarsShape),
-	scenarios: z.array(ScenarioGherkin$1),
-	visual_contracts: z.array(VisualContract$1).optional(),
-	needs_clarification: z.array(NeedsClarification$1)
+	scenarios: z.array(ScenarioGherkin),
+	visual_contracts: z.array(VisualContract).optional(),
+	needs_clarification: z.array(NeedsClarification)
 });
 const SpecSubmitInput = z.object({
 	spec_version: z.number().int().positive().optional(),
@@ -217,17 +224,17 @@ const SpecSubmitInput = z.object({
 	intent: z.string().min(20),
 	adr_refs: z.array(z.string()).default([]),
 	requirements: z.array(RequirementEarsVerifiable).default([]),
-	scenarios: z.array(ScenarioGherkin$1).default([]),
-	visual_contracts: z.array(VisualContract$1).default([]),
-	needs_clarification: z.array(NeedsClarification$1).default([])
+	scenarios: z.array(ScenarioGherkin).default([]),
+	visual_contracts: z.array(VisualContract).default([]),
+	needs_clarification: z.array(NeedsClarification).default([])
 }).strict();
-const ReqIdNamespace$1 = z.string().regex(/^REQ-[A-Z][A-Z0-9]*$/);
-const ScenIdNamespace$1 = z.string().regex(/^SCEN-[A-Z][A-Z0-9-]*$/);
-const VisIdNamespace$1 = z.string().regex(/^VIS-[A-Z][A-Z0-9-]*$/);
+const ReqIdNamespace = z.string().regex(/^REQ-[A-Z][A-Z0-9]*$/);
+const ScenIdNamespace = z.string().regex(/^SCEN-[A-Z][A-Z0-9-]*$/);
+const VisIdNamespace = z.string().regex(/^VIS-[A-Z][A-Z0-9-]*$/);
 const rejectCallerSuppliedId = (v) => !("id" in v);
 const ID_REJECTION_MESSAGE = "id_namespace expected; full id is CLI-allocated and must not be supplied in input";
 const SpecAddReqInputItemShape = z.object({
-	id_namespace: ReqIdNamespace$1,
+	id_namespace: ReqIdNamespace,
 	type: z.enum([
 		"ubiquitous",
 		"event-driven",
@@ -238,12 +245,12 @@ const SpecAddReqInputItemShape = z.object({
 }).passthrough().refine(rejectCallerSuppliedId, { message: ID_REJECTION_MESSAGE });
 const SpecAddReqInput = z.union([SpecAddReqInputItemShape, z.array(SpecAddReqInputItemShape).min(1)]);
 const SpecAddScenarioInputItemShape = z.object({
-	id_namespace: ScenIdNamespace$1,
+	id_namespace: ScenIdNamespace,
 	name: z.string().min(3)
 }).passthrough().refine(rejectCallerSuppliedId, { message: ID_REJECTION_MESSAGE });
 const SpecAddScenarioInput = z.union([SpecAddScenarioInputItemShape, z.array(SpecAddScenarioInputItemShape).min(1)]);
 const SpecAddVisualInputItemShape = z.object({
-	id_namespace: VisIdNamespace$1,
+	id_namespace: VisIdNamespace,
 	target: z.string().min(3)
 }).passthrough().refine(rejectCallerSuppliedId, { message: ID_REJECTION_MESSAGE });
 const SpecAddVisualInput = z.union([SpecAddVisualInputItemShape, z.array(SpecAddVisualInputItemShape).min(1)]);
@@ -266,6 +273,14 @@ function nextSerialInNamespace(existing, namespace) {
 }
 //#endregion
 //#region src/core/task-schema.ts
+const TaskKind = z.enum([
+	"behavioral",
+	"structural",
+	"visual-ui",
+	"docs",
+	"spike",
+	"chore"
+]);
 const TaskIdPayload = z.string().regex(/^T-\d{3,}$/);
 const EvidenceRefPayload = z.string().regex(/^EV-\d{6,}$/);
 const RawDrivesRef = z.string().regex(/^(REQ|SCEN|VIS)-[A-Z][A-Z0-9-]*-\d{3,}$/);
@@ -318,6 +333,20 @@ const SpikeExecutionPayload = z.object({
 	record: TaskExecutionStepPayload
 });
 const ChoreExecutionPayload = z.object({ execute: TaskExecutionStepPayload });
+const BehavioralStep = BehavioralExecutionPayload.keyof();
+const StructuralStep = StructuralExecutionPayload.keyof();
+const VisualUiStep = VisualUiExecutionPayload.keyof();
+const DocsStep = DocsExecutionPayload.keyof();
+const SpikeStep = SpikeExecutionPayload.keyof();
+const ChoreStep = ChoreExecutionPayload.keyof();
+z.union([
+	BehavioralStep,
+	StructuralStep,
+	VisualUiStep,
+	DocsStep,
+	SpikeStep,
+	ChoreStep
+]);
 const TaskStatusPayload = z.enum([
 	"pending",
 	"ready",
@@ -325,14 +354,14 @@ const TaskStatusPayload = z.enum([
 	"done",
 	"abandoned"
 ]);
-const TaskBase$1 = z.object({
+const TaskBase = z.object({
 	id: TaskIdPayload,
 	depends_on: z.array(TaskIdPayload).default([]),
 	labels: z.array(z.string()).default([]),
 	status: TaskStatusPayload
 });
-const TaskBehavioralPayload = TaskBase$1.extend({
-	kind: z.literal("behavioral"),
+const TaskBehavioralPayload = TaskBase.extend({
+	kind: z.literal(TaskKind.enum.behavioral),
 	drives: z.array(RawDrivesRef).min(1),
 	tests: z.array(z.string().min(3)).min(1),
 	test_layer: z.enum([
@@ -345,33 +374,33 @@ const TaskBehavioralPayload = TaskBase$1.extend({
 	requires_acceptance: z.boolean().optional(),
 	requires_visual: z.boolean().optional()
 });
-const TaskStructuralPayload = TaskBase$1.extend({
-	kind: z.literal("structural"),
+const TaskStructuralPayload = TaskBase.extend({
+	kind: z.literal(TaskKind.enum.structural),
 	drives: z.array(RawDrivesRef).optional(),
 	no_test_rationale: z.string().min(10),
 	execution: StructuralExecutionPayload
 });
-const TaskVisualUiPayload = TaskBase$1.extend({
-	kind: z.literal("visual-ui"),
+const TaskVisualUiPayload = TaskBase.extend({
+	kind: z.literal(TaskKind.enum["visual-ui"]),
 	drives: z.array(RawDrivesRef).optional(),
 	visual_contract_refs: z.array(VisIdPayload).min(1),
 	no_test_rationale: z.string().min(10).optional(),
 	execution: VisualUiExecutionPayload
 });
-const TaskDocsPayload = TaskBase$1.extend({
-	kind: z.literal("docs"),
+const TaskDocsPayload = TaskBase.extend({
+	kind: z.literal(TaskKind.enum.docs),
 	drives: z.array(RawDrivesRef).optional(),
 	no_test_rationale: z.string().min(10),
 	execution: DocsExecutionPayload
 });
-const TaskSpikePayload = TaskBase$1.extend({
-	kind: z.literal("spike"),
+const TaskSpikePayload = TaskBase.extend({
+	kind: z.literal(TaskKind.enum.spike),
 	drives: z.array(RawDrivesRef).optional(),
 	no_test_rationale: z.string().min(10),
 	execution: SpikeExecutionPayload
 });
-const TaskChorePayload = TaskBase$1.extend({
-	kind: z.literal("chore"),
+const TaskChorePayload = TaskBase.extend({
+	kind: z.literal(TaskKind.enum.chore),
 	drives: z.array(RawDrivesRef).optional(),
 	no_test_rationale: z.string().min(10),
 	execution: ChoreExecutionPayload
@@ -430,9 +459,9 @@ const TaskInputBaseShape = {
 	depends_on: z.array(TaskIdPayload).default([]),
 	labels: z.array(z.string()).default([])
 };
-const TaskBehavioralInput$1 = z.object({
+const TaskBehavioralInput = z.object({
 	...TaskInputBaseShape,
-	kind: z.literal("behavioral"),
+	kind: z.literal(TaskKind.enum.behavioral),
 	drives: z.array(RawDrivesRef).min(1),
 	tests: z.array(z.string().min(3)).min(1),
 	test_layer: z.enum([
@@ -443,40 +472,41 @@ const TaskBehavioralInput$1 = z.object({
 	requires_acceptance: z.boolean().optional(),
 	requires_visual: z.boolean().optional()
 }).strict();
-const TaskStructuralInput$1 = z.object({
+const TaskStructuralInput = z.object({
 	...TaskInputBaseShape,
-	kind: z.literal("structural"),
+	kind: z.literal(TaskKind.enum.structural),
 	no_test_rationale: z.string().min(10)
 }).strict();
-const TaskVisualUiInput$1 = z.object({
+const TaskVisualUiInput = z.object({
 	...TaskInputBaseShape,
-	kind: z.literal("visual-ui"),
+	kind: z.literal(TaskKind.enum["visual-ui"]),
 	visual_contract_refs: z.array(VisIdPayload).min(1),
 	no_test_rationale: z.string().min(10).optional()
 }).strict();
-const TaskDocsInput$1 = z.object({
+const TaskDocsInput = z.object({
 	...TaskInputBaseShape,
-	kind: z.literal("docs"),
+	kind: z.literal(TaskKind.enum.docs),
 	no_test_rationale: z.string().min(10)
 }).strict();
-const TaskSpikeInput$1 = z.object({
+const TaskSpikeInput = z.object({
 	...TaskInputBaseShape,
-	kind: z.literal("spike"),
+	kind: z.literal(TaskKind.enum.spike),
 	no_test_rationale: z.string().min(10)
 }).strict();
-const TaskChoreInput$1 = z.object({
+const TaskChoreInput = z.object({
 	...TaskInputBaseShape,
-	kind: z.literal("chore"),
+	kind: z.literal(TaskKind.enum.chore),
 	no_test_rationale: z.string().min(10)
 }).strict();
-const TaskInput$1 = z.union([
-	TaskBehavioralInput$1,
-	TaskStructuralInput$1,
-	TaskVisualUiInput$1,
-	TaskDocsInput$1,
-	TaskSpikeInput$1,
-	TaskChoreInput$1
+const TaskInput = z.union([
+	TaskBehavioralInput,
+	TaskStructuralInput,
+	TaskVisualUiInput,
+	TaskDocsInput,
+	TaskSpikeInput,
+	TaskChoreInput
 ]);
+const TaskInputBatched = z.union([TaskInput, z.array(TaskInput).nonempty()]);
 const KIND_EXECUTION_STEPS = {
 	behavioral: Object.keys(BehavioralExecutionPayload.shape),
 	structural: Object.keys(StructuralExecutionPayload.shape),
@@ -489,7 +519,7 @@ const KIND_EXECUTION_STEPS = {
 * Materialize a validated `TaskInput` into a full `TaskFullPayload` by
 * stamping the three CLI-owned fields: the allocated `id`, `status="pending"`,
 * and a per-kind `execution` map whose every step starts at
-* applicability="must", status="pending" (docs/schemas.ts §40 — `tasks
+* applicability="must", status="pending" (`tasks
 * amend --policy` is the path to narrow applicability afterward).
 */
 function materializeTaskInput(input, id) {
@@ -508,7 +538,7 @@ function materializeTaskInput(input, id) {
 }
 //#endregion
 //#region src/core/evidence-schema.ts
-const EvidenceKind$1 = z.enum([
+const EvidenceKind = z.enum([
 	"task-summary",
 	"verify-review",
 	"spec-review",
@@ -520,14 +550,14 @@ const EvidenceKind$1 = z.enum([
 	"waiver",
 	"spike-finding"
 ]);
-const EvidenceResult$1 = z.enum([
+const EvidenceResult = z.enum([
 	"passed",
 	"failed",
 	"approved",
 	"rejected",
 	"waived"
 ]);
-const VerifyCheckKind$1 = z.enum([
+const VerifyCheckKind = z.enum([
 	"run",
 	"review",
 	"acceptance",
@@ -562,14 +592,14 @@ const CoversRefPayload = z.union([
 ]);
 const EvidenceFullShape = z.object({
 	id: EvidenceIdPayload,
-	kind: EvidenceKind$1,
+	kind: EvidenceKind,
 	iteration: z.number().int().positive(),
 	actor: z.string().min(1),
-	result: EvidenceResult$1,
+	result: EvidenceResult,
 	summary: SummaryField,
 	covers: z.array(CoversRefPayload).default([]),
 	task_id: TaskIdPayload.optional(),
-	check: VerifyCheckKind$1.optional(),
+	check: VerifyCheckKind.optional(),
 	cmd: z.string().optional(),
 	exit: z.number().int().optional(),
 	wall_ms: z.number().int().optional(),
@@ -596,12 +626,12 @@ const EvidenceFullPayload = EvidenceFullShape.refine((e) => {
 	}
 	return true;
 }, { message: "evidence kind=visual-review requires ≥1 attachment (per §5.4 + §1695-1700)" });
-const EvidenceAddInput$1 = EvidenceFullShape.omit({ id: true }).strict();
-z.union([EvidenceAddInput$1, z.array(EvidenceAddInput$1).nonempty()]);
+const EvidenceAddInput = EvidenceFullShape.omit({ id: true }).strict();
+const EvidenceAddInputBatched = z.union([EvidenceAddInput, z.array(EvidenceAddInput).nonempty()]);
 //#endregion
 //#region src/core/finding-schema.ts
 const FindingId = z.string().regex(/^FND-\d{3,}$/);
-const FindingCategory$1 = z.enum([
+const FindingCategory = z.enum([
 	"spec-gap",
 	"spec-defect",
 	"impl-defect",
@@ -609,7 +639,7 @@ const FindingCategory$1 = z.enum([
 	"new-scope",
 	"risk-escalation"
 ]);
-const FindingAction$1 = z.enum([
+const FindingAction = z.enum([
 	"amend-spec",
 	"amend-tasks",
 	"fix-impl",
@@ -626,8 +656,7 @@ z.enum([
 * FINDING_ACTION_GRID — per-cell risk classification.
 * 4 `incoherent` cells (rev 4.3 ADR-0004 A7): structurally there is no
 * task target a transition can land on, so block early at preflight.
-* Mirrors `docs/protocol.md §4.5 finding matrix` and `docs/schemas.ts §37
-* FINDING_ACTION_GRID`.
+* Implements the `docs/protocol.md §4.5` finding matrix.
 */
 const FINDING_ACTION_GRID = {
 	"spec-gap": {
@@ -704,36 +733,152 @@ const FindingTarget = z.object({
 	task_id: TaskIdPayload,
 	step: z.string().min(1)
 }).strict();
+const FindingRaisedIn = z.enum([
+	"EXECUTE.plan",
+	"EXECUTE.work",
+	"EXECUTE.done",
+	"VERIFY.plan",
+	"VERIFY.run",
+	"VERIFY.review",
+	"VERIFY.acceptance",
+	"VERIFY.visual",
+	"VERIFY.accept"
+]);
+z.discriminatedUnion("event", [z.object({
+	schema_version: SchemaVersionPayload,
+	id: FindingId,
+	event: z.literal("opened"),
+	at: z.string().datetime(),
+	raised_in: FindingRaisedIn,
+	raised_by: z.string(),
+	iteration: z.number().int().positive(),
+	category: FindingCategory,
+	action: FindingAction,
+	summary: z.string().min(5),
+	refs: z.array(z.union([
+		ReqIdPayload,
+		ScenIdPayload,
+		VisIdPayload,
+		TaskIdPayload,
+		FeatureIdPayload
+	])).default([]),
+	evidence_refs: z.array(z.string().regex(/^EV-\d{6,}$/)).default([]),
+	cause: z.string().optional()
+}), z.object({
+	schema_version: SchemaVersionPayload,
+	id: FindingId,
+	event: z.literal("closed"),
+	at: z.string().datetime(),
+	iteration: z.number().int().positive(),
+	resolution: z.string().min(3),
+	drift_index: z.number().int().nonnegative().optional(),
+	evidence_refs: z.array(z.string().regex(/^EV-\d{6,}$/)).default([])
+})]);
 //#endregion
 //#region src/core/journal-entry.ts
 const ENTRY_BYTE_LIMIT = 64e3;
-const EntryId$1 = z.string().regex(/^JE-\d{6,}$/, { message: "entry_id must match /^JE-\\d{6,}$/ (e.g. JE-000123)" });
-const ActorString$1 = z.string().regex(/^(human|skill|ci|cli|migration):[^\s].*$/, { message: "actor must be of form '<prefix>:<id>' where prefix ∈ {human, skill, ci, cli, migration}" });
-const AttachmentRef$1 = z.object({
+const EntryId = z.string().regex(/^JE-\d{6,}$/, { message: "entry_id must match /^JE-\\d{6,}$/ (e.g. JE-000123)" });
+const BatchId = z.string().uuid();
+const ActorString = z.string().regex(/^(human|skill|ci|cli|migration):[^\s].*$/, { message: "actor must be of form '<prefix>:<id>' where prefix ∈ {human, skill, ci, cli, migration}" });
+const AttachmentRef = z.object({
 	path: z.string().min(1),
 	sha256: z.string().regex(/^[a-f0-9]{64}$/),
 	size: z.number().int().nonnegative()
 }).strict();
-const LongTextField$1 = z.discriminatedUnion("mode", [z.object({
+const LongTextField = z.discriminatedUnion("mode", [z.object({
 	mode: z.literal("inline"),
 	text: z.string()
 }).strict(), z.object({
 	mode: z.literal("sidecar"),
-	ref: AttachmentRef$1
+	ref: AttachmentRef
 }).strict()]);
+/** One concrete repo-relative POSIX path recorded for actual-scope audit. */
+const ScopePath = z.string().min(1).superRefine((value, ctx) => {
+	if (value.includes("\0")) ctx.addIssue({
+		code: "custom",
+		message: "scope path must not contain NUL"
+	});
+	if (value.includes("\\")) ctx.addIssue({
+		code: "custom",
+		message: "scope path must use POSIX separators"
+	});
+	if (path.posix.isAbsolute(value) || path.win32.isAbsolute(value)) ctx.addIssue({
+		code: "custom",
+		message: "scope path must be repo-relative"
+	});
+	const segments = value.split("/");
+	if (segments.some((segment) => segment === "" || segment === "." || segment === "..")) ctx.addIssue({
+		code: "custom",
+		message: "scope path must not contain empty, '.' or '..' segments"
+	});
+	if (segments[0] === ".loaf") ctx.addIssue({
+		code: "custom",
+		message: "scope path must not target .loaf"
+	});
+});
+/** UTF-8 byte ordering is the canonical cross-runtime scope-path order. */
+function compareScopePathBytes(left, right) {
+	return Buffer.compare(Buffer.from(left, "utf8"), Buffer.from(right, "utf8"));
+}
+const CanonicalScopePaths = z.array(ScopePath).superRefine((paths, ctx) => {
+	for (let index = 1; index < paths.length; index += 1) if (compareScopePathBytes(paths[index - 1], paths[index]) >= 0) ctx.addIssue({
+		code: "custom",
+		path: [index],
+		message: "scope paths must be strictly bytewise-sorted and duplicate-free"
+	});
+});
+const CanonicalScopePathsLongText = LongTextField.superRefine((field, ctx) => {
+	if (field.mode === "sidecar") return;
+	let decoded;
+	try {
+		decoded = JSON.parse(field.text);
+	} catch {
+		ctx.addIssue({
+			code: "custom",
+			message: "inline scope paths must be valid JSON"
+		});
+		return;
+	}
+	const parsed = CanonicalScopePaths.safeParse(decoded);
+	if (!parsed.success) {
+		ctx.addIssue({
+			code: "custom",
+			message: "inline scope paths must be canonical"
+		});
+		return;
+	}
+	if (field.text !== JSON.stringify(parsed.data)) ctx.addIssue({
+		code: "custom",
+		message: "inline scope paths must use the canonical JSON encoding"
+	});
+});
+z.object({
+	alg: z.string().min(1),
+	key_id: z.string().min(1),
+	sig: z.string().min(1),
+	signed_at: z.string().datetime()
+}).strict();
 const MigrationSnapshotImportedPayload = z.object({
 	source_schema_version: z.number().int().positive(),
 	migrated_at: z.string().datetime(),
 	artifacts: z.object({
-		state: AttachmentRef$1,
-		tasks: AttachmentRef$1,
-		spec_md: AttachmentRef$1,
-		evidence: AttachmentRef$1,
-		findings: AttachmentRef$1,
-		pending: AttachmentRef$1
+		state: AttachmentRef,
+		tasks: AttachmentRef,
+		spec_md: AttachmentRef,
+		evidence: AttachmentRef,
+		findings: AttachmentRef,
+		pending: AttachmentRef
 	}).strict()
 }).strict();
-const SubState$1 = z.enum([
+const Phase = z.enum([
+	"TRIAGE",
+	"SPEC",
+	"EXECUTE",
+	"VERIFY",
+	"SETTLE",
+	"DONE"
+]);
+const SubState = z.enum([
 	"TRIAGE.score",
 	"TRIAGE.confirm",
 	"SPEC.proposal",
@@ -755,7 +900,7 @@ const SubState$1 = z.enum([
 	"DONE.archived",
 	"DONE.abandoned"
 ]);
-const Ceremony$1 = z.object({
+const Ceremony = z.object({
 	spec_phase: z.boolean(),
 	verify_phase: z.boolean(),
 	settle_phase: z.boolean(),
@@ -767,8 +912,9 @@ const Ceremony$1 = z.object({
 	]),
 	strict_drift_check: z.boolean()
 }).refine((c) => !c.settle_phase || c.verify_phase, { message: "settle_phase=true requires verify_phase=true" }).refine((c) => !c.strict_spec_review || c.spec_phase, { message: "strict_spec_review=true requires spec_phase=true" }).refine((c) => c.lessons_required === "skip" || c.settle_phase, { message: "lessons_required!=skip requires settle_phase=true" }).refine((c) => !c.strict_drift_check || c.settle_phase, { message: "strict_drift_check=true requires settle_phase=true" });
-const GateName$1 = z.enum(["spec-lock", "verify-accept"]);
-const EntryKind$1 = z.enum([
+z.string();
+const GateName = z.enum(["spec-lock", "verify-accept"]);
+const EntryKind = z.enum([
 	"event:phase_advanced",
 	"event:ceremony_set",
 	"event:tasks_planned",
@@ -783,6 +929,8 @@ const EntryKind$1 = z.enum([
 	"event:spec_visual_added",
 	"event:spec_submitted",
 	"evidence:added",
+	"lesson:recorded",
+	"scope:recorded",
 	"finding:raised",
 	"finding:closed",
 	"pending:added",
@@ -796,15 +944,15 @@ const EntryKind$1 = z.enum([
 	"spike:converted",
 	"migration:snapshot_imported"
 ]);
-const JournalEntry$1 = z.object({
+const JournalEntry = z.object({
 	seq: z.number().int().nonnegative(),
-	entry_id: EntryId$1,
+	entry_id: EntryId,
 	at: z.string().datetime(),
-	actor: ActorString$1,
+	actor: ActorString,
 	entry_schema_version: z.number().int().positive(),
-	kind: EntryKind$1,
+	kind: EntryKind,
 	payload: z.unknown(),
-	batch_id: z.string().uuid().optional(),
+	batch_id: BatchId.optional(),
 	batch_index: z.number().int().nonnegative().optional(),
 	batch_count: z.number().int().positive().optional()
 }).strict().refine((e) => {
@@ -864,8 +1012,8 @@ const BackEdge = z.discriminatedUnion("action", [
 	BackEdgeFixTest
 ]);
 const PhaseAdvancedPayload = z.object({
-	from: SubState$1,
-	to: SubState$1,
+	from: SubState,
+	to: SubState,
 	/**
 	* Back-edge sponsorship (Slice B / Phase 11 Item 3). When set, `to`
 	* MUST be the target dictated by `action` (amend-spec → SPEC.spec;
@@ -877,7 +1025,7 @@ const PhaseAdvancedPayload = z.object({
 	back_edge: BackEdge.optional()
 }).passthrough();
 const GateDecidedPayload = z.object({
-	gate_kind: GateName$1,
+	gate_kind: GateName,
 	decision: z.enum(["approved", "rejected"]),
 	reason: z.string().min(1)
 }).passthrough();
@@ -917,17 +1065,37 @@ const TasksAmendedPayload = z.object({
 	sponsored_by_finding_id: FindingId.optional()
 }).strict();
 const EvidenceAddedPayload = EvidenceFullPayload;
+/**
+* `lesson:recorded` payload v1. The actor belongs to the journal envelope;
+* keeping it out of this strict payload prevents the two authority sources
+* from drifting. Long summaries use the shared sidecar-capable field shape.
+*/
+const LessonRecordedPayload = z.object({
+	id: z.string().regex(/^LSN-\d{3,}$/),
+	iteration: z.number().int().positive(),
+	reason: z.string().min(10),
+	summary: z.union([z.string().min(3), LongTextField])
+}).strict();
+/**
+* `scope:recorded` payload v1. Small sets remain a canonical array; large
+* sets use canonical JSON in LongTextField so the shared sidecar pipeline can
+* keep the journal entry below its byte ceiling.
+*/
+const ScopeRecordedPayload = z.object({
+	iteration: z.number().int().positive(),
+	paths: z.union([CanonicalScopePaths, CanonicalScopePathsLongText])
+}).strict();
 const FindingRaisedPayload = z.object({
 	id: FindingId,
-	category: FindingCategory$1,
-	action: FindingAction$1,
+	category: FindingCategory,
+	action: FindingAction,
 	summary: z.string().min(3).optional(),
 	reason: z.string().optional(),
 	target: FindingTarget.optional()
 }).passthrough();
 const FindingClosedPayload = z.object({ id: FindingId }).passthrough();
-const PendingId$1 = z.string().regex(/^PEND-\d{4,}$/);
-const PendingPromptKind$1 = z.enum([
+const PendingId = z.string().regex(/^PEND-\d{4,}$/);
+const PendingPromptKind = z.enum([
 	"ask_user_question",
 	"gate_decision",
 	"spec_clarification",
@@ -935,11 +1103,11 @@ const PendingPromptKind$1 = z.enum([
 	"profile_escalation"
 ]);
 const PendingAddedPayload = z.object({
-	id: PendingId$1,
-	kind: PendingPromptKind$1,
+	id: PendingId,
+	kind: PendingPromptKind,
 	question: z.string().min(3)
 }).passthrough();
-const PendingResolvedPayload = z.object({ id: PendingId$1 }).passthrough();
+const PendingResolvedPayload = z.object({ id: PendingId }).passthrough();
 const SessionReasonPayload = z.object({ reason: z.string().min(1).optional() }).passthrough();
 const SpikeConvertedPayload = z.object({
 	to_feature: FeatureIdPayload,
@@ -954,7 +1122,7 @@ const SpecSubmittedPayload = z.object({
 	}).passthrough(),
 	intent: z.string().min(20),
 	adr_refs: z.array(z.string()),
-	needs_clarification: z.array(NeedsClarification$1)
+	needs_clarification: z.array(NeedsClarification)
 }).passthrough();
 const SpecReqAddedPayload = z.object({
 	spec_version: BatchSpecVersion,
@@ -962,31 +1130,42 @@ const SpecReqAddedPayload = z.object({
 }).passthrough();
 const SpecScenarioAddedPayload = z.object({
 	spec_version: BatchSpecVersion,
-	scenario: ScenarioGherkin$1
+	scenario: ScenarioGherkin
 }).passthrough();
 const SpecVisualAddedPayload = z.object({
 	spec_version: BatchSpecVersion,
-	visual: VisualContract$1
+	visual: VisualContract
 }).passthrough();
 const SchemaVersionLiteral = z.literal(2);
-const TasksJson$1 = z.object({
+const SessionRuntimeFile = z.object({
+	schema_version: SchemaVersionLiteral,
+	session_id: z.string().min(1),
+	cwd: z.string(),
+	debug: z.boolean(),
+	heartbeat_at: z.string().datetime(),
+	pending_scope: z.object({
+		iteration: z.number().int().positive(),
+		paths: CanonicalScopePaths
+	}).strict().nullable()
+}).strict();
+const TasksJson = z.object({
 	schema_version: SchemaVersionLiteral,
 	version: z.number().int().positive(),
 	based_on: z.object({ spec: z.number().int().positive() }),
 	tasks: z.array(TaskFullPayload)
 }).strict();
-const EvidenceEntry$1 = EvidenceFullShape.extend({
+const EvidenceEntry = EvidenceFullShape.extend({
 	schema_version: SchemaVersionLiteral,
 	at: z.string().datetime()
 }).strict();
-const EvidenceJson$1 = z.object({
+const EvidenceJson = z.object({
 	schema_version: SchemaVersionLiteral,
-	evidence: z.array(EvidenceEntry$1)
+	evidence: z.array(EvidenceEntry)
 }).strict();
 const FindingStateShape = z.object({
 	id: z.string().regex(/^FND-\d{3,}$/),
-	category: FindingCategory$1,
-	action: FindingAction$1,
+	category: FindingCategory,
+	action: FindingAction,
 	status: z.enum(["open", "closed"]),
 	summary: z.string().optional(),
 	reason: z.string().optional(),
@@ -995,13 +1174,13 @@ const FindingStateShape = z.object({
 		step: z.string().min(1)
 	}).strict().optional()
 }).strict();
-const FindingsJson$1 = z.object({
+const FindingsJson = z.object({
 	schema_version: SchemaVersionLiteral,
 	findings: z.array(FindingStateShape)
 }).strict();
 const PendingQueueEntry = z.object({
-	pending_id: PendingId$1,
-	kind: PendingPromptKind$1,
+	pending_id: PendingId,
+	kind: PendingPromptKind,
 	question: z.string().min(3),
 	options: z.array(z.string()).optional(),
 	blocks: z.enum([
@@ -1015,10 +1194,10 @@ const PendingQueueEntry = z.object({
 	at: z.string().datetime(),
 	raised_by_task_id: z.string().regex(/^T-\d{3,}$/).optional()
 }).strict();
-const PendingProjectionEntry$1 = PendingQueueEntry.extend({ resolved: z.boolean() }).strict();
-const PendingJson$1 = z.object({
+const PendingProjectionEntry = PendingQueueEntry.extend({ resolved: z.boolean() }).strict();
+const PendingJson = z.object({
 	schema_version: SchemaVersionLiteral,
-	pending: z.array(PendingProjectionEntry$1)
+	pending: z.array(PendingProjectionEntry)
 }).strict();
 const StateProjectionPhase = z.enum([
 	"TRIAGE",
@@ -1028,19 +1207,19 @@ const StateProjectionPhase = z.enum([
 	"SETTLE",
 	"DONE"
 ]);
-const StateProjection$1 = z.object({
+const StateProjection = z.object({
 	schema_version: SchemaVersionLiteral,
 	session_id: z.string().min(1),
 	session_label: z.string().min(3).nullable(),
 	workspace: z.string().min(1),
 	loaf_version_required: z.string().regex(/^[\^~]?\d+\.\d+(\.\d+)?(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/).nullable(),
 	phase: StateProjectionPhase,
-	sub_state: SubState$1,
+	sub_state: SubState,
 	iteration: z.number().int().positive(),
 	spec_locked: z.boolean(),
 	verify_accepted: z.boolean(),
 	pending: z.array(PendingQueueEntry),
-	ceremony: Ceremony$1,
+	ceremony: Ceremony,
 	ceremony_label: z.string(),
 	complexity_score: z.number().int().min(0).max(100).nullable(),
 	based_on: z.object({
@@ -1051,7 +1230,7 @@ const StateProjection$1 = z.object({
 	created_at: z.string().datetime(),
 	updated_at: z.string().datetime()
 }).strict().refine((s) => s.sub_state.startsWith(s.phase + "."), { message: "sub_state must start with phase + '.'" }).refine((s) => !s.phase.startsWith("DONE") || s.pending.length === 0, { message: "DONE.* requires pending = [] (live queue empty at terminal)" });
-const RegistryFile$1 = z.object({
+const RegistryFile = z.object({
 	schema_version: SchemaVersionLiteral,
 	at: z.string().datetime(),
 	session_id: z.string().uuid(),
@@ -1060,7 +1239,7 @@ const RegistryFile$1 = z.object({
 	cwd: z.string(),
 	workspace: z.string().min(1),
 	phase: StateProjectionPhase,
-	sub_state: SubState$1,
+	sub_state: SubState,
 	iteration: z.number().int().positive(),
 	active_tasks: z.array(z.string().regex(/^T-\d{3,}$/)).default([]),
 	pending: PendingQueueEntry.nullable(),
@@ -1068,10 +1247,61 @@ const RegistryFile$1 = z.object({
 	ceremony_label: z.string().default("")
 }).strict();
 //#endregion
+//#region src/core/reconcile-schema.ts
+const SchemaVersion = z.literal(2);
+const VerifyCheckSnapshot = z.object({
+	applicability: ApplicabilityPayload,
+	status: StepStatusPayload,
+	reason: z.string().optional(),
+	evidence_refs: z.array(z.string().regex(/^EV-\d{6,}$/)).default([])
+});
+const IterationStats = z.object({
+	total: z.number().int().positive(),
+	findings_total: z.number().int().nonnegative(),
+	findings_by_action: z.record(FindingAction, z.number().int().nonnegative()),
+	findings_by_category: z.record(FindingCategory, z.number().int().nonnegative())
+});
+const Drift = z.object({
+	path: z.string(),
+	category: z.enum(["out_of_planned", "planned_not_touched"]),
+	reason: z.string().min(5),
+	resolution: z.enum([
+		"spec_amended",
+		"carried_forward",
+		"abandoned",
+		"deferred"
+	]),
+	finding_id: z.string().regex(/^FND-\d{3,}$/).optional()
+});
+const AcCoverage = z.object({
+	ac_id: z.string().regex(/^(REQ|SCEN|VIS)-[A-Z][A-Z0-9-]*-\d{3,}$/),
+	evidence_refs: z.array(z.string().regex(/^EV-\d{6,}$/)),
+	status: z.enum([
+		"passed",
+		"failed",
+		"waived",
+		"na"
+	])
+});
+const ReconcileJson = z.object({
+	schema_version: SchemaVersion,
+	based_on: z.object({
+		spec: z.number().int().positive(),
+		tasks: z.number().int().positive()
+	}),
+	planned_scope: z.array(z.string()),
+	actual_scope: CanonicalScopePaths,
+	drift: z.array(Drift),
+	ac_coverage: z.array(AcCoverage),
+	verify_checks_status: z.record(VerifyCheckKind, VerifyCheckSnapshot),
+	iteration_stats: IterationStats,
+	unusual_findings_count: z.number().int().nonnegative().default(0)
+});
+//#endregion
 //#region src/core/snapshot.ts
 const HEX64 = /^[a-f0-9]{64}$/;
 const ZERO_HASH = "0".repeat(64);
-const SnapshotMeta$1 = z.object({
+const SnapshotMeta = z.object({
 	last_applied_seq: z.number().int().gte(-1),
 	last_entry_offset: z.number().int().nonnegative(),
 	last_entry_line_hash: z.string().regex(HEX64),
@@ -1235,11 +1465,12 @@ var NoSessionError = class extends Error {
 	}
 };
 const LEAF_SCHEMA = {
-	state: StateProjection$1,
-	tasks: TasksJson$1,
-	evidence: EvidenceJson$1,
-	findings: FindingsJson$1,
-	pending: PendingJson$1
+	state: StateProjection,
+	tasks: TasksJson,
+	evidence: EvidenceJson,
+	findings: FindingsJson,
+	pending: PendingJson,
+	reconcile: ReconcileJson
 };
 function fixForFeatureDir(featureDir) {
 	return `run \`loaf doctor --rebuild --feature ${path.basename(featureDir)}\``;
@@ -1270,7 +1501,7 @@ async function readMetaOrThrow(metaPath, featureDir) {
 			cause: "json_parse"
 		});
 	}
-	const result = SnapshotMeta$1.safeParse(parsed);
+	const result = SnapshotMeta.safeParse(parsed);
 	if (!result.success) throw new SnapshotStaleError("meta_invalid", {
 		feature_dir: featureDir,
 		fix: fixForFeatureDir(featureDir),
@@ -1397,6 +1628,1189 @@ async function _loadProjectionsImpl(input, hooks) {
 	result.meta = M0;
 	return result;
 }
+//#endregion
+//#region src/core/error-catalog.ts
+const TemplateKey = z.string().regex(/^[A-Za-z0-9_]+$/);
+z.object({
+	exit_code: z.literal(2),
+	message_template: z.string().min(3),
+	zh_message_template: z.string().min(3).optional(),
+	fix_template: z.string().min(3).optional(),
+	zh_fix_template: z.string().min(3).optional(),
+	template_keys: z.array(TemplateKey).readonly(),
+	detail_keys: z.array(TemplateKey).readonly().optional(),
+	adapter: z.record(TemplateKey, TemplateKey).optional(),
+	doc_anchor: z.string().min(3).optional()
+});
+const ERROR_CATALOG = {
+	INPUT_FILE_NOT_FOUND: {
+		exit_code: 2,
+		message_template: "input file does not exist: {path}",
+		fix_template: "verify the path, or pass '-' to read from stdin / inline JSON starting with a JSON object or array — see `loaf <cmd> --help` for examples",
+		template_keys: ["path"],
+		doc_anchor: "protocol.md#§10.7"
+	},
+	MISSING_INPUT: {
+		exit_code: 2,
+		message_template: "required input source missing or unreadable: --input not provided OR stdin could not be read (--input - failed)",
+		fix_template: "pass --input with one of: a JSON file path, '-' for stdin (with valid piped JSON), or inline JSON; for stdin failures, pass valid JSON to `loaf <cmd> --input -` on stdin; when supported by the command (Phase 16 SC-10: the 5 batch-capable mutators spec add-req / spec add-scenario / spec add-visual / tasks add / evidence add), run `loaf <cmd> --schema --format=json` to view the input schema",
+		template_keys: [],
+		doc_anchor: "protocol.md#§10.7"
+	},
+	SCHEMA_VALIDATION_FAILED: {
+		exit_code: 2,
+		message_template: "input does not satisfy schema for {command}: {zod_path}: {zod_message}",
+		fix_template: "for the 5 batch-capable mutators (spec add-req / spec add-scenario / spec add-visual / tasks add / evidence add), run `loaf {command} --schema --format=json` to dump the input JSON Schema; for artifact projection files, run `loaf <kind> schema --format=json` (kind ∈ spec / tasks / evidence / finding / state). Fix the offending field and retry",
+		template_keys: [
+			"command",
+			"zod_message",
+			"zod_path"
+		],
+		doc_anchor: "protocol.md#§10.5"
+	},
+	SPEC_LOCKED_NO_DIRECT_EDIT: {
+		exit_code: 2,
+		message_template: "{kind} blocked: spec_locked=true; use `loaf finding raise --category spec-gap --action amend-spec` to back-edge into SPEC.spec",
+		zh_message_template: "{kind} 被拒:spec_locked=true;用 `loaf finding raise --category spec-gap --action amend-spec` 走 amend-spec 回退到 SPEC.spec",
+		fix_template: "raise a finding with category=spec-gap (or spec-defect) and action=amend-spec to back-edge into SPEC.spec (the finding's resets_spec_locked effect lifts the gate); then retry the spec add/submit",
+		template_keys: ["kind"],
+		doc_anchor: "protocol.md#§5.3"
+	},
+	SPEC_NOT_INITIALIZED: {
+		exit_code: 2,
+		message_template: "{kind} blocked: spec_version=0; run `loaf spec submit` first to bump spec_version to 1",
+		zh_message_template: "{kind} 被拒:spec_version=0;先跑 `loaf spec submit` 把 spec_version 升到 1",
+		fix_template: "run `loaf spec submit --input <file>` first to bump spec_version to 1, then retry the add-* command (SC4 will add `loaf spec init` as a separate scaffold helper that chains into submit)",
+		template_keys: ["kind"],
+		doc_anchor: "protocol.md#§4.2"
+	},
+	SPEC_ALREADY_INITIALIZED: {
+		exit_code: 2,
+		message_template: "spec.md already exists at {spec_md_path}; refusing to overwrite",
+		zh_message_template: "spec.md 已存在于 {spec_md_path};拒绝覆盖",
+		fix_template: "edit the existing spec.md directly, or remove it before re-running `loaf spec init` (no --force flag in Slice 4)",
+		template_keys: ["spec_md_path"],
+		doc_anchor: "protocol.md#§4.2"
+	},
+	CONFIG_ALREADY_INITIALIZED: {
+		exit_code: 2,
+		message_template: "loaf config already exists at {config_path}; refusing to overwrite",
+		zh_message_template: "loaf config 已存在于 {config_path};拒绝覆盖",
+		fix_template: "edit the existing config file directly, or remove it before re-running `loaf config init` (no --force flag)",
+		template_keys: ["config_path"],
+		detail_keys: ["config_path"],
+		doc_anchor: "protocol.md#§10.8"
+	},
+	ATTACHMENT_NOT_FOUND: {
+		exit_code: 2,
+		message_template: "attachment path does not exist: {path}",
+		fix_template: "verify the path is reachable from the working directory and readable by the current user",
+		template_keys: ["path"],
+		doc_anchor: "protocol.md#§4.4"
+	},
+	ATTACHMENT_NOT_FILE: {
+		exit_code: 2,
+		message_template: "attachment path is not a regular file: {path} ({kind})",
+		fix_template: "attachments must be regular files; directories, symlinks to directories, sockets, and FIFOs are rejected",
+		template_keys: ["kind", "path"],
+		doc_anchor: "protocol.md#§4.4"
+	},
+	FINDING_ACTION_UNUSUAL_REASON_REQUIRED: {
+		exit_code: 2,
+		message_template: "finding category={category} × action={action} is 'unusual'; --reason of at least {min_reason_length} characters is required",
+		fix_template: "rerun with --reason explaining why this non-typical combination applies (see references/finding-matrix-rationale.md)",
+		template_keys: [
+			"action",
+			"category",
+			"min_reason_length"
+		],
+		detail_keys: [
+			"action",
+			"category",
+			"current_reason_length",
+			"min_reason_length"
+		],
+		doc_anchor: "protocol.md#§4.5"
+	},
+	FINDING_ACTION_INCOHERENT: {
+		exit_code: 2,
+		message_template: "finding category={category} × action={action} is incoherent: no target task exists to apply this transition to",
+		fix_template: "amend the spec first (category=spec-gap / new-scope × action=amend-spec) so a target task can be planned, then raise the fix-impl / fix-test finding against that task",
+		template_keys: ["action", "category"],
+		doc_anchor: "protocol.md#§4.5"
+	},
+	FINDING_TARGET_REQUIRED: {
+		exit_code: 2,
+		message_template: "finding action={action} target validation failed ({reason}): task_id={task_id}, step={step}",
+		zh_message_template: "finding action={action} target 校验失败({reason}):task_id={task_id}, step={step}",
+		fix_template: "fix-impl/fix-test require --target-task + --target-step matching the action's canonical step (fix-impl=implement, fix-test=red); amend-tasks accepts an optional but valid target; amend-spec / defer / backlog must not carry a target",
+		template_keys: [
+			"action",
+			"reason",
+			"step",
+			"task_id"
+		],
+		doc_anchor: "protocol.md#§4.5"
+	},
+	PRUNE_RESTORE_NOT_FOUND: {
+		exit_code: 2,
+		message_template: "no trashed session matches the given id",
+		zh_message_template: "没有匹配该 id 的已回收 session",
+		fix_template: "run `loaf prune --history` to list trashed sessions (slice 6b)",
+		template_keys: [],
+		doc_anchor: "protocol.md#§10.8"
+	},
+	PRUNE_RESTORE_AMBIGUOUS: {
+		exit_code: 2,
+		message_template: "the session id was trashed more than once; pass --at <ts> to pick one",
+		zh_message_template: "该 session id 被回收过多次;用 --at <ts> 指定其一",
+		fix_template: "re-run `loaf prune restore <id> --at <ts>` with one of the listed timestamps",
+		template_keys: [],
+		doc_anchor: "protocol.md#§10.8"
+	},
+	PRUNE_RESTORE_INCOMPLETE: {
+		exit_code: 2,
+		message_template: "the trash bucket is incomplete (missing a required artifact); not restoring",
+		zh_message_template: "trash 桶不完整(缺必要文件),不予恢复",
+		fix_template: "inspect the trash bucket; a complete bucket has manifest.json + registry.json",
+		template_keys: [],
+		doc_anchor: "protocol.md#§10.8"
+	},
+	PRUNE_PATH_OCCUPIED: {
+		exit_code: 2,
+		message_template: "a restore destination already exists; refusing to overwrite",
+		zh_message_template: "恢复目标已存在,拒绝覆盖",
+		fix_template: "move or remove the occupying registry entry / feature dir, then retry restore",
+		template_keys: [],
+		doc_anchor: "protocol.md#§10.8"
+	},
+	PRUNE_PARTIAL_FAILURE: {
+		exit_code: 2,
+		message_template: "prune partially failed: one or more sessions could not be removed",
+		zh_message_template: "prune 部分失败:有 session 未能删除",
+		fix_template: "inspect detail.failed; rerun prune for the failed sessions after resolving the error",
+		template_keys: [],
+		doc_anchor: "protocol.md#§10.8"
+	},
+	MUTUALLY_EXCLUSIVE_FLAGS: {
+		exit_code: 2,
+		message_template: "mutually exclusive flags in the same invocation: {flags}",
+		zh_message_template: "同一次调用使用了互斥的 flags:{flags}",
+		fix_template: "pass at most one of the flags from each exclusion set; see `loaf <cmd> --help` for the canonical flag list",
+		template_keys: ["flags"],
+		detail_keys: ["conflicting"],
+		adapter: { flags: "conflicting" },
+		doc_anchor: "protocol.md#§10.7"
+	},
+	INVALID_ENV_VALUE: {
+		exit_code: 2,
+		message_template: "environment variable {env_name}={value} is not in the accepted enum: {accepted}",
+		fix_template: "unset {env_name} or set it to one of: {accepted}",
+		template_keys: [
+			"accepted",
+			"env_name",
+			"value"
+		],
+		doc_anchor: "protocol.md#§10.3"
+	},
+	INVALID_FORMAT: {
+		exit_code: 2,
+		message_template: "invalid --format value '{value}'; allowed: {allowed_values_human}",
+		zh_message_template: "无效的 --format 值 '{value}';合法值:{allowed_values_human}",
+		fix_template: "pass --format text or --format json (the only allowed values for this release); --format=<value> equals form is accepted",
+		template_keys: ["allowed_values_human", "value"],
+		detail_keys: ["allowed_values", "value"],
+		adapter: { allowed_values_human: "allowed_values" },
+		doc_anchor: "protocol.md#§10.7"
+	},
+	INVALID_LOCALE: {
+		exit_code: 2,
+		message_template: "invalid locale from {source}: {value} (expected {accepted})",
+		zh_message_template: "locale 来源 {source} 的值无效:{value}(期望:{accepted})",
+		fix_template: "unset the locale override or set it to one of: {accepted}; user preferences live in ~/.loaf/config.json locale.default_lang",
+		template_keys: [
+			"accepted",
+			"source",
+			"value"
+		],
+		doc_anchor: "docs/adr/0006-runtime-i18n-and-user-config.md"
+	},
+	DRY_RUN_NOT_APPLICABLE: {
+		exit_code: 2,
+		message_template: "--dry-run not applicable to {command_type} command `{command}`",
+		zh_message_template: "--dry-run 不适用于{command_type}命令 `{command}`",
+		fix_template: "--dry-run only applies to mutating commands; re-run without --dry-run (or -n) to invoke the {command_type} command",
+		template_keys: ["command", "command_type"],
+		detail_keys: ["command", "command_type"],
+		doc_anchor: "protocol.md#§10.7"
+	},
+	HOOK_EVENT_NOT_IMPLEMENTED: {
+		exit_code: 2,
+		message_template: "hook event `{event}` is not implemented in this loaf version (Phase 16 SC-15{sub_cycle} pending; see protocol §11)",
+		zh_message_template: "hook event `{event}` 在当前 loaf 版本未实装(Phase 16 SC-15{sub_cycle} 待实现;详 protocol §11)",
+		fix_template: "upgrade to a loaf release that implements this hook event, OR skip this hook surface for now — `loaf hook --list-events` shows the canonical 4-event enum",
+		template_keys: ["event", "sub_cycle"],
+		doc_anchor: "protocol.md#§11"
+	},
+	TASK_STATUS_WITHOUT_PROOF: {
+		exit_code: 2,
+		message_template: "task {task_id} status change requires evidence: status={status} has no PASSING covering evidence proof in evidence.jsonl",
+		fix_template: "emit `loaf evidence add` covering task_id={task_id} before advancing status (task-evidence is otherwise enforced later at verify-min / verify-accept)",
+		template_keys: ["status", "task_id"],
+		doc_anchor: "protocol.md#§4.4"
+	},
+	MISSING_VERIFIABILITY: {
+		exit_code: 2,
+		message_template: "REQ {req_id} must declare measurable, verified_by_scenarios[], or acceptance_na+reason",
+		zh_message_template: "需求 {req_id} 必须声明 measurable、verified_by_scenarios[] 或 acceptance_na+reason 三选一",
+		fix_template: "add one of: measurable with metric, threshold, and optional unit/direction; verified_by_scenarios: [SCEN-...]; or acceptance_na: true with acceptance_na_reason of at least 10 characters",
+		template_keys: ["req_id"],
+		doc_anchor: "protocol.md#§4.2"
+	},
+	VAGUE_NO_SCENARIO: {
+		exit_code: 2,
+		message_template: "requirement {req_id} reads as vague but is not anchored to a measurable threshold or to a verifying scenario",
+		fix_template: "either add measurable with a numeric threshold and direction, or add the verifying SCEN-id to verified_by_scenarios",
+		template_keys: ["req_id"],
+		doc_anchor: "protocol.md#§4.2"
+	},
+	DRIVES_NOT_BOUND: {
+		exit_code: 2,
+		message_template: "REQ {req_id} is not referenced by any task.drives[]",
+		zh_message_template: "需求 {req_id} 没有被任何 task.drives[] 引用",
+		fix_template: "add a task whose drives[] contains {req_id} (loaf tasks add --input ...), or remove the REQ if it is intentionally out-of-scope for this feature",
+		template_keys: ["req_id"],
+		doc_anchor: "protocol.md#§4.3"
+	},
+	MUTATION_OUT_OF_RIGHTS: {
+		exit_code: 2,
+		message_template: "event:tasks_amended on task {task_id} is not permitted at sub_state {sub_state} — §8.6 grants no mutation right for this change",
+		zh_message_template: "task {task_id} 的 event:tasks_amended 在 sub_state {sub_state} 不被允许 —— §8.6 未授予该改动的 mutation right",
+		fix_template: "the mutation rights matrix (protocol.md §8.6) limits EXECUTE.plan `tasks amend` to execution[].applicability changes plus a status pending→ready advance; graph/kind-flag fields are frozen. To restructure the task graph, raise a `finding raise --action amend-tasks` back-edge, then run the sponsored `tasks add --finding` / `tasks amend --input --finding` at EXECUTE.work — a sponsored amend may change graph/definition fields but never erases execution progress (task/step status is frozen)",
+		template_keys: ["sub_state", "task_id"],
+		doc_anchor: "protocol.md#§8.6"
+	},
+	LOCK_TIMEOUT: {
+		exit_code: 2,
+		message_template: "could not acquire .loaf/<feature>/.lock within {timeout_seconds}s",
+		fix_template: "another loaf process is holding the lock (see LOCK_HELD_BY for details); wait for it to release, or run `loaf doctor` to unlink the lock if its PID has exited",
+		template_keys: ["timeout_seconds"],
+		doc_anchor: "protocol.md#§11.2"
+	},
+	LOCK_HELD_BY: {
+		exit_code: 2,
+		message_template: "lock held by PID {pid} (cmd={cmd}, acquired_at={acquired_at})",
+		fix_template: "wait for the holder to finish, or if the PID has exited run `loaf doctor` to clear the stale lock",
+		template_keys: [
+			"acquired_at",
+			"cmd",
+			"pid"
+		],
+		doc_anchor: "protocol.md#§11.2"
+	},
+	FEATURE_NOT_FOUND: {
+		exit_code: 2,
+		message_template: "no feature found in cwd (.loaf/ is empty or missing, or no projection has phase != DONE)",
+		zh_message_template: "当前 cwd 找不到 feature(.loaf/ 为空或缺失,或所有 projection 已 DONE)",
+		fix_template: "run `loaf start <description>` to create a new feature, or cd into a directory that already has a .loaf/<feature>/ subtree",
+		template_keys: [],
+		detail_keys: [],
+		doc_anchor: "protocol.md#§10.3"
+	},
+	FEATURE_AMBIGUOUS: {
+		exit_code: 2,
+		message_template: "current working directory has {count} active features and no dispatch context: {feature_list}",
+		zh_message_template: "当前 cwd 有 {count} 个 active feature 但无 dispatch 上下文:{feature_list}",
+		fix_template: "disambiguate with --feature <name>, --session <UUID>, or set $LOAF_FEATURE / $LOAF_SESSION in the environment",
+		template_keys: ["count", "feature_list"],
+		detail_keys: ["count", "feature_list"],
+		doc_anchor: "protocol.md#§10.3"
+	},
+	SESSION_CWD_MISMATCH: {
+		exit_code: 2,
+		message_template: "--session {uuid} is registered against cwd={registered_cwd}, but the current cwd is {current_cwd}",
+		zh_message_template: "--session {uuid} 注册的 cwd={registered_cwd},当前 cwd 是 {current_cwd}",
+		fix_template: "cd to the registered cwd before issuing the command, or pass a different --session, or drop --session to auto-pick a session in the current cwd",
+		template_keys: [
+			"current_cwd",
+			"registered_cwd",
+			"uuid"
+		],
+		detail_keys: [
+			"current_cwd",
+			"registered_cwd",
+			"uuid"
+		],
+		doc_anchor: "protocol.md#§10.3"
+	},
+	SESSION_SHORT_AMBIGUOUS: {
+		exit_code: 2,
+		message_template: "--session {prefix} matches {match_count} sessions in the registry: {candidate_list}",
+		zh_message_template: "--session {prefix} 在 registry 匹配 {match_count} 个 session:{candidate_list}",
+		fix_template: "pass a longer UUID prefix (≥8 chars are required; use more to disambiguate) or pass the full UUID",
+		template_keys: [
+			"candidate_list",
+			"match_count",
+			"prefix"
+		],
+		detail_keys: [
+			"candidate_list",
+			"match_count",
+			"prefix"
+		],
+		doc_anchor: "protocol.md#§10.3"
+	},
+	SESSION_NOT_FOUND: {
+		exit_code: 2,
+		message_template: "--session {uuid_or_prefix} matches no entry in the registry",
+		zh_message_template: "--session {uuid_or_prefix} 在 registry 找不到任何匹配",
+		fix_template: "run `loaf sessions list --in-cwd` to see registered sessions (future SC-9b), or run `loaf start <name>` to create one",
+		template_keys: ["uuid_or_prefix"],
+		detail_keys: ["uuid_or_prefix"],
+		doc_anchor: "protocol.md#§10.3"
+	},
+	PENDING_BLOCKS_ADVANCE: {
+		exit_code: 2,
+		message_template: "pending head {pending_id} (kind={kind}) blocks `loaf advance` until resolved",
+		zh_message_template: "pending head {pending_id}(kind={kind})阻塞 `loaf advance`,需先 resolve",
+		fix_template: "resolve the head with the kind-appropriate command: `loaf gate decide <G>` for kind=gate_decision; `loaf profile escalate --confirm --input <ceremony.json>` for kind=profile_escalation; `loaf pending resolve --answer <a>` for the rest",
+		template_keys: ["kind", "pending_id"],
+		doc_anchor: "protocol.md#§10.7"
+	},
+	GATE_NOT_PENDING: {
+		exit_code: 2,
+		message_template: "`loaf gate decide {gate_kind}` requires pending head kind=gate_decision; current head kind: {head_kind}",
+		zh_message_template: "`loaf gate decide {gate_kind}` 要求 pending head kind=gate_decision;当前 head kind:{head_kind}",
+		fix_template: "resolve the current head first via the kind-appropriate command, or wait for the gate_decision pending to appear",
+		template_keys: ["gate_kind", "head_kind"],
+		detail_keys: [
+			"gate_kind",
+			"head_id",
+			"head_kind"
+		],
+		doc_anchor: "protocol.md#§10.7"
+	},
+	ESCALATION_NOT_PENDING: {
+		exit_code: 2,
+		message_template: "`loaf profile escalate --confirm --input <ceremony.json>` requires pending head kind=profile_escalation; current head: {actual_head}",
+		zh_message_template: "`loaf profile escalate --confirm --input <ceremony.json>` 要求 pending head kind=profile_escalation;当前 head:{actual_head}",
+		fix_template: "resolve the current head first via the kind-appropriate command, or wait for the profile_escalation pending to appear",
+		template_keys: ["actual_head"],
+		doc_anchor: "protocol.md#§10.7"
+	},
+	ACTOR_AUTHORITY_VIOLATION: {
+		exit_code: 2,
+		message_template: "actor {actor} is not allowed for journal kind {kind}",
+		fix_template: "use the command surface that owns this kind; human-only kinds require an interactive human actor resolved by LOAF_USER or git user.email",
+		template_keys: ["actor", "kind"],
+		doc_anchor: "protocol.md#§10.8"
+	},
+	FROM_CURSOR_MISMATCH: {
+		exit_code: 2,
+		message_template: "entry payload.from={payload_from} does not match current sub_state={current_sub_state}",
+		fix_template: "refresh the current session state and emit the transition from the actual cursor; do not replay a stale transition candidate",
+		template_keys: ["current_sub_state", "payload_from"],
+		doc_anchor: "protocol.md#§11.2"
+	},
+	INVALID_ENVELOPE: {
+		exit_code: 2,
+		message_template: "journal entry failed envelope validation: {reason}",
+		fix_template: "rebuild the entry through the CLI mutator so seq, entry_id, actor, kind, payload, and batch markers satisfy JournalEntry",
+		template_keys: ["reason"],
+		doc_anchor: "protocol.md#§11.2"
+	},
+	INVALID_PAYLOAD: {
+		exit_code: 2,
+		message_template: "payload for kind {kind} failed validation: {reason}",
+		fix_template: "fix the payload to match the PER_KIND_PAYLOAD schema for this kind and retry the mutator",
+		template_keys: ["kind", "reason"],
+		doc_anchor: "protocol.md#§11.2"
+	},
+	SEQ_NOT_MONOTONIC: {
+		exit_code: 2,
+		message_template: "entry seq {got} does not extend journal tail {tail_seq}; expected {expected}",
+		fix_template: "refresh tail_seq under the session lock and retry; if the tail is corrupt run `loaf doctor --check-tail`",
+		template_keys: [
+			"expected",
+			"got",
+			"tail_seq"
+		],
+		doc_anchor: "protocol.md#§11.2"
+	},
+	SETTLE_PHASE_BYPASS: {
+		exit_code: 2,
+		message_template: "VERIFY.accept → DONE.delivered requires ceremony.settle_phase=false (quick / light / standard); deep profile must enter SETTLE.reconcile first; current settle_phase={settle_phase}",
+		fix_template: "for deep profile, advance from VERIFY.accept to SETTLE.reconcile via `loaf settle`; if SETTLE is not desired, start/continue a standard ceremony flow instead",
+		template_keys: ["settle_phase"],
+		doc_anchor: "protocol.md#§5.2"
+	},
+	SETTLE_PHASE_DISABLED: {
+		exit_code: 2,
+		message_template: "VERIFY.accept → SETTLE.reconcile requires ceremony.settle_phase=true (deep profile only after rev 5.x); current settle_phase={settle_phase}",
+		fix_template: "for non-deep profiles (quick / light / standard), advance from VERIFY.accept to DONE.delivered via `loaf deliver`; to enter SETTLE, escalate ceremony to deep",
+		template_keys: ["settle_phase"],
+		doc_anchor: "protocol.md#§5.2"
+	},
+	SPEC_PHASE_FORK_VIOLATION: {
+		exit_code: 2,
+		message_template: "transition {from} → {to} violates ceremony.spec_phase={spec_phase}",
+		fix_template: "follow the ceremony fork: spec_phase=true traverses SPEC.*, spec_phase=false goes directly to EXECUTE.plan",
+		template_keys: [
+			"from",
+			"spec_phase",
+			"to"
+		],
+		doc_anchor: "protocol.md#§5.2"
+	},
+	SUB_STATE_AUTHORITY_VIOLATION: {
+		exit_code: 2,
+		message_template: "kind {kind} is not allowed in sub_state {sub_state}",
+		fix_template: "advance/back-edge to a sub_state that permits this journal kind, or use the command valid for the current state",
+		template_keys: ["kind", "sub_state"],
+		doc_anchor: "protocol.md#§10.8"
+	},
+	TRANSITION_ILLEGAL: {
+		exit_code: 2,
+		message_template: "cannot transition {from} → {to}",
+		fix_template: "choose one of the allowed forward transitions for the current sub_state, or use an explicit terminal/archive path when supported",
+		template_keys: ["from", "to"],
+		doc_anchor: "protocol.md#§5.2"
+	},
+	VERIFY_PHASE_FORK_VIOLATION: {
+		exit_code: 2,
+		message_template: "transition {from} → {to} violates ceremony.verify_phase={verify_phase}",
+		fix_template: "follow the ceremony fork: verify_phase=true enters VERIFY.plan, verify_phase=false can deliver after minimal verification",
+		template_keys: [
+			"from",
+			"to",
+			"verify_phase"
+		],
+		doc_anchor: "protocol.md#§5.2"
+	},
+	EXECUTE_DONE_TASKS_NOT_FINAL: {
+		exit_code: 2,
+		message_template: "cannot advance EXECUTE.work → EXECUTE.done: {count} task(s) are not in a final status (done or abandoned); finish their remaining steps or abandon out-of-scope tasks with `loaf tasks abandon <T-N> --reason \"...\"`",
+		zh_message_template: "无法从 EXECUTE.work 推进到 EXECUTE.done:{count} 个 task 未处于终态(done 或 abandoned);跑完剩余 step,或用 `loaf tasks abandon <T-N> --reason \"...\"` 放弃超出范围的 task",
+		fix_template: "finish the remaining steps — run each task's steps via `loaf tasks step` until it auto-promotes to status=done — OR abandon out-of-scope tasks with `loaf tasks abandon <T-N> --reason \"...\"`, then retry `loaf advance EXECUTE.done`; see detail.non_final for the tasks still pending or in progress",
+		template_keys: ["count"],
+		doc_anchor: "protocol.md#§10.5"
+	},
+	ALREADY_STARTED: {
+		exit_code: 2,
+		message_template: "session bootstrap kind {kind} cannot run after state already exists",
+		fix_template: "resume the existing session or create a new feature directory instead of starting/migrating over initialized state",
+		template_keys: ["kind"],
+		detail_keys: ["kind"],
+		doc_anchor: "protocol.md#§11.2"
+	},
+	FINDING_NOT_FOUND: {
+		exit_code: 2,
+		message_template: "finding close references unknown finding id {id}",
+		fix_template: "list open findings and close an existing id, or raise the finding before closing it",
+		template_keys: ["id"],
+		doc_anchor: "protocol.md#§10.8"
+	},
+	NO_SESSION: {
+		exit_code: 2,
+		message_template: "no session at {feature_dir} — run `loaf start <feature>` first",
+		zh_message_template: "{feature_dir} 下没有 session — 先跑 `loaf start <feature>`",
+		fix_template: "run `loaf start` or `loaf doctor --migrate-v2` before emitting non-bootstrap journal entries",
+		template_keys: ["feature_dir"],
+		doc_anchor: "protocol.md#§10.8"
+	},
+	PENDING_NOT_FOUND: {
+		exit_code: 2,
+		message_template: "pending resolve failed: {reason}",
+		fix_template: "resolve the current pending head only; list pending items and retry with the head id",
+		template_keys: ["reason"],
+		detail_keys: ["reason"],
+		doc_anchor: "protocol.md#§10.7"
+	},
+	REDUCER_NOT_IMPLEMENTED: {
+		exit_code: 2,
+		message_template: "reducer has no handler for journal kind {kind}",
+		fix_template: "do not append this kind until REDUCER_IMPLEMENTED_KINDS and reducer.apply both support it",
+		template_keys: ["kind"],
+		doc_anchor: "protocol.md#§11.2"
+	},
+	ENTRY_OVERSIZE: {
+		exit_code: 2,
+		message_template: "journal entry serialized to {bytes} bytes; limit is {limit}",
+		fix_template: "move long text into sidecar form via LongTextField instead of embedding it inline",
+		template_keys: ["bytes", "limit"],
+		doc_anchor: "protocol.md#§11.2"
+	},
+	SHORT_WRITE: {
+		exit_code: 2,
+		message_template: "journal append wrote {wrote} of {want} bytes",
+		fix_template: "stop writing, preserve the journal, and run `loaf doctor --check-tail` before retrying",
+		template_keys: ["want", "wrote"],
+		doc_anchor: "protocol.md#§11.2"
+	},
+	TAIL_CORRUPTION: {
+		exit_code: 2,
+		message_template: "journal tail is corrupt: {reason}",
+		fix_template: "run `loaf doctor --check-tail`; do not append until the tail has been repaired or quarantined",
+		template_keys: ["reason"],
+		doc_anchor: "protocol.md#§10.15"
+	},
+	MIGRATION_BACKUP_MISSING: {
+		exit_code: 2,
+		message_template: "migration backup target is unavailable: {backup_dir}",
+		fix_template: "move or remove the existing backup target, then rerun `loaf doctor --migrate-v2`",
+		template_keys: ["backup_dir"],
+		doc_anchor: "protocol.md#§10.15"
+	},
+	MIGRATION_INCOMPLETE: {
+		exit_code: 2,
+		message_template: "migration cannot complete: {reason}",
+		fix_template: "fix the legacy v0.0.x artifact or restore from backup; rerun migration only after validation passes",
+		template_keys: ["reason"],
+		doc_anchor: "protocol.md#§10.15"
+	},
+	MIGRATION_REPLAY_ATTEMPT: {
+		exit_code: 2,
+		message_template: "journal.jsonl already has entries; migration must run on a fresh journal",
+		fix_template: "do not rerun migration over an initialized journal; inspect the existing journal or start from the original v0.0.x backup",
+		template_keys: [],
+		doc_anchor: "protocol.md#§10.15"
+	},
+	MIGRATION_SIDECAR_MISSING: {
+		exit_code: 2,
+		message_template: "migration sidecar is missing: {artifact}",
+		fix_template: "restore the missing legacy artifact or sidecar, then rerun migration/doctor verification",
+		template_keys: ["artifact"],
+		doc_anchor: "protocol.md#§10.15"
+	},
+	INVALID_ACTOR_FORMAT: {
+		exit_code: 2,
+		message_template: "human actor value is invalid: {reason}",
+		fix_template: "set LOAF_USER to the raw human identifier without a namespace prefix, or unset it to allow interactive git user.email fallback",
+		template_keys: ["reason"],
+		doc_anchor: "protocol.md#§10.8"
+	},
+	NO_HUMAN_ACTOR: {
+		exit_code: 2,
+		message_template: "no human actor could be resolved for a human-only command",
+		fix_template: "run interactively with git user.email configured, or set LOAF_USER explicitly",
+		template_keys: [],
+		doc_anchor: "protocol.md#§10.8"
+	},
+	DUPLICATE_REQ_ID: {
+		exit_code: 2,
+		message_template: "REQ id {id} is already in the spec projection",
+		fix_template: "allocate a fresh REQ id under the same id_namespace (the CLI scans for max serial + 1 inside the per-session lock) or `loaf finding raise --category spec-gap --action amend-spec` if you need to retire the existing REQ",
+		template_keys: ["id"],
+		doc_anchor: "protocol.md#§4.2"
+	},
+	DUPLICATE_SCEN_ID: {
+		exit_code: 2,
+		message_template: "SCEN id {id} is already in the spec projection",
+		fix_template: "allocate a fresh SCEN id under the same id_namespace, or amend via finding mechanism if retiring an existing scenario",
+		template_keys: ["id"],
+		doc_anchor: "protocol.md#§4.2"
+	},
+	DUPLICATE_VIS_ID: {
+		exit_code: 2,
+		message_template: "VIS id {id} is already in the spec projection",
+		fix_template: "allocate a fresh VIS id under the same id_namespace, or amend via finding mechanism if retiring an existing visual contract",
+		template_keys: ["id"],
+		doc_anchor: "protocol.md#§4.2"
+	},
+	SPEC_FRONTMATTER_INVALID: {
+		exit_code: 2,
+		message_template: "spec.md frontmatter failed gate check 1 (subcode={subcode})",
+		fix_template: "subcode=SPEC_NOT_FOUND: run `loaf spec init` then `loaf spec submit` to seed spec.md; subcode=SPEC_YAML_INVALID: check the `---`-fenced YAML block at the top of spec.md for syntax errors; subcode=SPEC_FRONTMATTER_INVALID: run `loaf spec schema --format=json` to dump the SpecFrontmatter JSON Schema (Phase 16 SC-10) and fix the offending field. Both spec-lock and verify-accept require a valid spec.md at check 1.",
+		template_keys: ["subcode"],
+		doc_anchor: "protocol.md#§5.1"
+	},
+	SPEC_HAS_UNCLARIFIED: {
+		exit_code: 2,
+		message_template: "spec has {count} unresolved needs_clarification entries (ids={ids}); resolve or remove them before spec-lock can pass",
+		fix_template: "edit spec.md to remove resolved needs_clarification entries, or run `loaf finding raise --category spec-gap --action clarify` to formalize the resolution flow; spec-lock check 2 requires needs_clarification === []",
+		template_keys: ["count", "ids"],
+		detail_keys: ["count", "ids"],
+		doc_anchor: "protocol.md#§5.1"
+	},
+	TASK_NOT_FOUND: {
+		exit_code: 2,
+		message_template: "task {task_id} is not in the current tasks projection",
+		fix_template: "run `loaf tasks list` to see live ids; if you meant to add a new task, use `loaf tasks add` instead of amend/step; if you expected the id to exist, the projection may be stale — run `loaf doctor --rebuild` to rebuild from journal",
+		template_keys: ["task_id"],
+		doc_anchor: "protocol.md#§10.8"
+	},
+	TASK_STEP_NOT_FOUND: {
+		exit_code: 2,
+		message_template: "step {step} is not seeded on task {task_id} — seeded steps are derived from the task's kind execution schema (§14)",
+		fix_template: "use only the per-kind step names — behavioral: red/implement/refactor; structural: implement/refactor; visual-ui: mockup/implement/screenshot-compare; docs: draft/review; spike: explore/prototype/record; chore: execute. Running an unseeded step name was a silent add bug in v0.0.x — sub-cycle 3a fails fast instead",
+		template_keys: ["step", "task_id"],
+		doc_anchor: "protocol.md#§10.8"
+	},
+	DUPLICATE_TASK_ID: {
+		exit_code: 2,
+		message_template: "task id {task_id} appears more than once in tasks_planned payload",
+		fix_template: "tasks_planned is whole-replacement — each task id must be unique within the batch. Rename one or merge them in the planning input",
+		template_keys: ["task_id"],
+		doc_anchor: "protocol.md#§10.8"
+	},
+	TASKS_NOT_PLANNED: {
+		exit_code: 2,
+		message_template: "gate task-graph check: tasks have not been planned (snapshot.tasks_based_on is null)",
+		fix_template: "run `loaf tasks submit --input <plan-file>` to emit event:tasks_planned and seed the task graph; spec-lock check 3 and verify-accept check 4 both require tasks_based_on.spec to match the current spec.spec_version",
+		template_keys: [],
+		doc_anchor: "protocol.md#§5.1"
+	},
+	TASKS_BASED_ON_STALE: {
+		exit_code: 2,
+		message_template: "gate task-graph check: tasks_based_on.spec={tasks_based_on_spec} but current spec.spec_version={current_spec_version} — the task graph was planned against an older spec",
+		fix_template: "either re-plan tasks against the current spec via `loaf tasks submit` (whole-replacement), or amend individual tasks via `loaf tasks add/amend` + raise a `loaf finding raise --category spec-gap --action amend-spec` if a spec roll-back is needed. Surfaces for spec-lock (check 3) and verify-accept (check 4 precondition).",
+		template_keys: ["current_spec_version", "tasks_based_on_spec"],
+		doc_anchor: "protocol.md#§5.1"
+	},
+	REQ_NOT_DRIVEN: {
+		exit_code: 2,
+		message_template: "spec-lock check 4: requirement {req_id} is not referenced by any task.drives[]",
+		fix_template: "add a task whose drives[] array includes {req_id}, or remove the requirement from spec.md if it is no longer in scope. Note: this is the REQ-side coverage code (distinct from legacy DRIVES_NOT_BOUND which named the inverse direction)",
+		template_keys: ["req_id"],
+		doc_anchor: "protocol.md#§5.1"
+	},
+	E2E_SCENARIO_UNBOUND: {
+		exit_code: 2,
+		message_template: "spec-lock check 6: e2e scenario {scenario_id} has no binding task (requires task with requires_acceptance=true AND drives includes {scenario_id})",
+		fix_template: "either (a) add a task with requires_acceptance=true and drives including {scenario_id}, or (b) mark the scenario with acceptance_na=<reason ≥5 chars> in spec.md if e2e acceptance is intentionally skipped for this iteration",
+		template_keys: ["scenario_id"],
+		doc_anchor: "protocol.md#§5.1"
+	},
+	VISUAL_CONTRACT_UNBOUND: {
+		exit_code: 2,
+		message_template: "spec-lock check 7: visual_contract {visual_id} has no visual-ui task whose visual_contract_refs includes it",
+		fix_template: "either (a) add a visual-ui task with visual_contract_refs including {visual_id}, or (b) mark the visual_contract with visual_na=<reason ≥5 chars> in spec.md if visual verification is intentionally deferred",
+		template_keys: ["visual_id"],
+		doc_anchor: "protocol.md#§5.1"
+	},
+	TASK_KIND_SCHEMA_VIOLATION: {
+		exit_code: 2,
+		message_template: "spec-lock check 8: task {task_id} (kind={kind}) violates projected kind-specific obligations: {reasons}",
+		fix_template: "amend the task to satisfy its kind contract: structural/docs/spike/chore require no_test_rationale (string ≥10 chars); visual-ui requires visual_contract_refs[] with ≥1 entry. Most commonly surfaces after migration:snapshot_imported when legacy v0.0.x projections lack the required fields. Slice C R2: bug-task RED is execution discipline, not a spec-lock obligation — a behavioral task with labels=['bug'] is born unregistered, and RED registration is enforced at runtime by BUG_TASK_REQUIRES_RED (preflight, implement step) and BUG_TASK_RED_NOT_REGISTERED (verify-accept), never by this check",
+		template_keys: [
+			"kind",
+			"reasons",
+			"task_id"
+		],
+		doc_anchor: "protocol.md#§5.1"
+	},
+	GATE_PRECONDITION_VIOLATION: {
+		exit_code: 2,
+		message_template: "gate:decided {gate} approval rejected at the mutate layer: {failure_count} check(s) failed",
+		fix_template: "this is a mutate-layer envelope around the underlying gate checks (see detail.checks for the list). spec-lock failure codes: MISSING_VERIFIABILITY / REQ_NOT_DRIVEN / E2E_SCENARIO_UNBOUND / VISUAL_CONTRACT_UNBOUND / TASKS_NOT_PLANNED / TASKS_BASED_ON_STALE / TASK_KIND_SCHEMA_VIOLATION / SPEC_HAS_UNCLARIFIED. verify-accept failure codes: VERIFY_LANE_NOT_PASSED / OPEN_FINDINGS_PRESENT / COVERAGE_NOT_SATISFIED / TASK_DONE_NO_EVIDENCE / SPEC_REVIEW_MISSING / SPEC_REVIEW_IMPLEMENTER_CONFLICT / SPEC_REVIEW_IMPLEMENTER_UNKNOWN / TASKS_NOT_PLANNED (precondition) / TASKS_BASED_ON_STALE (precondition). Fix each listed check then retry the gate decision. Pass 1.5 runs after preflight + reducer dry-run + before sidecar promotion, so a rejected gate batch leaves no on-disk residue.",
+		template_keys: ["failure_count", "gate"],
+		doc_anchor: "protocol.md#§5.1"
+	},
+	MULTIPLE_GATE_DECISIONS: {
+		exit_code: 2,
+		message_template: "batch contains {count} approved gate:decided entries (gate_kinds={gate_kinds}); protocol §10.8 requires one gate decision per atomic operation",
+		fix_template: "split the batch — emit each gate decision as its own mutation. A batch carrying ≥2 gate approvals (even with different gate_kinds, e.g. spec-lock + verify-accept) is not a valid atomic operation. Rejected gate decisions are not counted; only approvals trigger this rule",
+		template_keys: ["count", "gate_kinds"],
+		doc_anchor: "protocol.md#§10.8"
+	},
+	GATE_NOT_IMPLEMENTED: {
+		exit_code: 2,
+		message_template: "gate={gate} is not recognized; protocol GateName enum is closed at `spec-lock` or `verify-accept` for v0.1.0",
+		fix_template: "use `loaf gate decide spec-lock` or `loaf gate decide verify-accept`. Future gates beyond v0.1.0 would extend the GateName enum in journal-entry.ts + evidence-schema.ts (lockstep) and wire here.",
+		template_keys: ["gate"],
+		doc_anchor: "protocol.md#§10.8"
+	},
+	VERIFY_LANE_NOT_PASSED: {
+		exit_code: 2,
+		message_template: "verify-accept check 1: applicable VERIFY lane={lane} has no evidence with passing/approved/waived result",
+		fix_template: "add an evidence:added entry with check={lane} (or a matching kind via the narrow fallback map: local-check/task-summary→run, verify-review/spec-review→review, acceptance→acceptance, visual-review→visual) and result one of `passed`, `approved`, or `waived`. Applicable lanes derive from spec: REQ ⇒ REVIEW, SCEN.tag=e2e ⇒ ACCEPTANCE, VIS ⇒ VISUAL, done task ⇒ RUN+REVIEW.",
+		template_keys: ["lane"],
+		doc_anchor: "protocol.md#§5.2"
+	},
+	OPEN_FINDINGS_PRESENT: {
+		exit_code: 2,
+		message_template: "verify-accept check 2: {count} finding(s) still open (ids={open_ids}); resolve or close before verify-accept",
+		fix_template: "run `loaf finding close <FND-id> --resolution <text>` for each listed finding, OR add evidence + raise a follow-up finding if the gap is real. verify-accept check 2 requires snapshot.findings to have no entries with status=open.",
+		template_keys: ["count", "open_ids"],
+		doc_anchor: "protocol.md#§5.2"
+	},
+	COVERAGE_NOT_SATISFIED: {
+		exit_code: 2,
+		message_template: "{covered_id} has no evidence that satisfies it (canSatisfy failed for all candidates)",
+		zh_message_template: "{covered_id} 没有任何证据满足覆盖(canSatisfy 对所有候选 evidence 都失败)",
+		fix_template: "add evidence:added covering {covered_id} per protocol §5.4: REQ allows task-summary/verify-review/spec-review/manual+reason/waiver+reason; SCEN.tag=e2e allows acceptance/manual+reason/waiver+reason; VIS allows visual-review+attachment/manual+reason/waiver+reason. Result must be passed/approved/waived per §1035.",
+		template_keys: ["covered_id"],
+		doc_anchor: "protocol.md#§5.2"
+	},
+	TASK_DONE_NO_EVIDENCE: {
+		exit_code: 2,
+		message_template: "verify-accept check 4: task {task_id} is status=done but has no evidence covering it (kind one of `task-summary`, `local-check`, `manual`, or `waiver`)",
+		fix_template: "add evidence:added with covers including {task_id} and kind in the T-allowed set. Most commonly: a task-summary written on closing the task; alternatively local-check (test/lint/typecheck run), manual (human attest), or waiver (human waiver with reason ≥10 chars).",
+		template_keys: ["task_id"],
+		doc_anchor: "protocol.md#§5.2"
+	},
+	SPEC_REVIEW_MISSING: {
+		exit_code: 2,
+		message_template: "verify-accept check 5: ceremony.strict_spec_review=true requires ≥1 evidence kind=spec-review with result `passed` or `approved` from an actor ≠ implementer; none found",
+		fix_template: "have an independent reviewer (not the implementer of done tasks; not a cli:* automation actor) run a spec review and add an evidence:added with kind=spec-review and result `passed` or `approved`. Note: result=waived does NOT count for spec-review (kind=spec-review + result=waived bypasses the human+reason refine guarantee that kind=manual or kind=waiver provides).",
+		template_keys: [],
+		doc_anchor: "protocol.md#§5.2"
+	},
+	SPEC_REVIEW_IMPLEMENTER_CONFLICT: {
+		exit_code: 2,
+		message_template: "verify-accept check 5: every passing spec-review actor is in the implementer set; no independent reviewer signed off (actors={spec_review_actors}, implementers={implementers})",
+		fix_template: "have a non-implementer (someone other than the actors on done-task task-summary/local-check evidence) submit an additional evidence with kind=spec-review and result `passed` or `approved`. One independent reviewer is sufficient — implementer self-reviews can coexist.",
+		template_keys: ["implementers", "spec_review_actors"],
+		doc_anchor: "protocol.md#§5.2"
+	},
+	SPEC_REVIEW_IMPLEMENTER_UNKNOWN: {
+		exit_code: 2,
+		message_template: "verify-accept check 5: cannot establish implementer set (all done-task evidence actors are cli:* automation); strict_spec_review fails closed",
+		fix_template: "ensure at least one done-task evidence (task-summary or local-check) carries a non-cli:* actor (e.g. human:dev@example.com); the strict_spec_review comparison requires a real implementer identity to compare against. Without it, the gate cannot prove the spec reviewer is independent.",
+		template_keys: [],
+		doc_anchor: "protocol.md#§5.2"
+	},
+	DELIVER_NOT_ACCEPTED: {
+		exit_code: 2,
+		message_template: "deliver requires verify_accepted=true at sub_state={sub_state}; run `loaf gate decide verify-accept --approve` first",
+		zh_message_template: "deliver 要求 verify_accepted=true(sub_state={sub_state});先运行 `loaf gate decide verify-accept --approve`",
+		fix_template: "run `loaf gate decide verify-accept --approve --reason \"...\"` first; the gate flips snapshot.state.verify_accepted before `loaf deliver` will accept the session:delivered entry",
+		template_keys: ["sub_state"],
+		doc_anchor: "protocol.md#§5.2"
+	},
+	DELIVER_SETTLE_PHASE_BYPASS: {
+		exit_code: 2,
+		message_template: "deliver from VERIFY.accept requires ceremony.settle_phase=false (standard); deep ceremony must run `loaf settle` first",
+		zh_message_template: "VERIFY.accept 直接 deliver 要求 ceremony.settle_phase=false(standard);deep ceremony 必须先运行 `loaf settle`",
+		fix_template: "for ceremony.settle_phase=true (deep), run `loaf settle` to enter SETTLE.reconcile, complete reconcile + lessons, then `loaf deliver` from SETTLE.lessons; only standard ceremony delivers directly from VERIFY.accept",
+		template_keys: [],
+		doc_anchor: "protocol.md#§5.2"
+	},
+	DELIVER_VERIFY_MIN_UNAVAILABLE: {
+		exit_code: 2,
+		message_template: "verify-min was unavailable in this build (ceremony_label={ceremony_label}) — superseded at v0.1.1 by DELIVER_VERIFY_MIN_INCOMPLETE; no longer emitted",
+		zh_message_template: "verify-min 在此 build 不可用(ceremony_label={ceremony_label})—— v0.1.1 起由 DELIVER_VERIFY_MIN_INCOMPLETE 取代,已不再触发",
+		fix_template: "upgrade to v0.1.1+ where quick / light deliver runs the verify-min per-task evidence check; on failure see DELIVER_VERIFY_MIN_INCOMPLETE",
+		template_keys: ["ceremony_label"],
+		doc_anchor: "protocol.md#§3"
+	},
+	DELIVER_VERIFY_MIN_INCOMPLETE: {
+		exit_code: 2,
+		message_template: "verify-min: {count} done task(s) lack required evidence to deliver (ceremony_label={ceremony_label}); add evidence or waive, then re-deliver",
+		zh_message_template: "verify-min:{count} 个 done task 缺少 deliver 所需 evidence(ceremony_label={ceremony_label});补 evidence 或 waive 后重试 deliver",
+		fix_template: "for each listed task add evidence covering it — code tasks need a `local-check` (test/lint/typecheck) run, visual-ui needs visual-review or manual, docs needs task-summary or manual — or `loaf waive` it; then `loaf deliver` again",
+		template_keys: ["ceremony_label", "count"],
+		doc_anchor: "protocol.md#§3"
+	},
+	DELIVER_SPIKE_TASKS: {
+		exit_code: 2,
+		message_template: "cannot deliver: task {task_id} is kind=spike (status={status}); spike tasks block delivery for the entire session",
+		zh_message_template: "无法 deliver:task {task_id} 是 kind=spike(status={status});spike 任务阻塞整 session 的交付",
+		fix_template: "abandon the spike task (`loaf tasks abandon {task_id} --reason \"...\"`) or convert it to a feature (`loaf spike convert --to-feature F-N --reason \"...\"`); spike tasks must not remain in non-abandoned status when the session delivers",
+		template_keys: ["status", "task_id"],
+		doc_anchor: "protocol.md#§8.3"
+	},
+	SETTLE_NOT_ACCEPTED: {
+		exit_code: 2,
+		message_template: "VERIFY.accept → SETTLE.reconcile requires verify_accepted=true; run `loaf gate decide verify-accept --approve` before `loaf settle`",
+		zh_message_template: "VERIFY.accept → SETTLE.reconcile 要求 verify_accepted=true;先运行 `loaf gate decide verify-accept --approve` 再 `loaf settle`",
+		fix_template: "run `loaf gate decide verify-accept --approve --reason \"...\"` before `loaf settle`; the gate flips snapshot.state.verify_accepted before the transition validator will admit the SETTLE entry",
+		template_keys: [],
+		doc_anchor: "protocol.md#§5.2"
+	},
+	SPEC_LOCK_NOT_SATISFIED: {
+		exit_code: 2,
+		message_template: "SPEC.design → EXECUTE.plan requires spec_locked=true; run `loaf gate decide spec-lock --approve` before `loaf advance EXECUTE.plan`",
+		zh_message_template: "SPEC.design → EXECUTE.plan 要求 spec_locked=true;先运行 `loaf gate decide spec-lock --approve` 再 `loaf advance EXECUTE.plan`",
+		fix_template: "run `loaf gate decide spec-lock --approve --reason \"...\"` before `loaf advance EXECUTE.plan`; the gate runs the 8 spec-lock checks and flips snapshot.state.spec_locked before the transition validator will admit the EXECUTE.plan entry",
+		template_keys: [],
+		doc_anchor: "protocol.md#§5.1"
+	},
+	TASK_NOT_CLAIMABLE: {
+		exit_code: 2,
+		message_template: "task {task_id} cannot be claimed (status={status} — terminal state)",
+		zh_message_template: "task {task_id} 无法 claim(status={status} — 终态)",
+		fix_template: "tasks with status=done are already complete; status=abandoned tasks cannot be reactivated. Run `loaf tasks list` to inspect the task graph, or `loaf tasks next` to pick a different ready task",
+		template_keys: ["status", "task_id"],
+		doc_anchor: "protocol.md#§10.8"
+	},
+	TASK_ALREADY_CLAIMED: {
+		exit_code: 2,
+		message_template: "task {task_id} is already claimed (status=in_progress)",
+		zh_message_template: "task {task_id} 已被 claim(status=in_progress)",
+		fix_template: "another worker may already hold this task; run `loaf tasks list` to inspect active claims. Stale-claim release is handled in a future slice (no CLI surface for abandon in v0.1.0 yet) — raise a finding with action=fix-impl if needed",
+		template_keys: ["task_id"],
+		doc_anchor: "protocol.md#§10.8"
+	},
+	TASK_DEP_NOT_FOUND: {
+		exit_code: 2,
+		message_template: "task {task_id} field {field} references missing task {ref}",
+		zh_message_template: "task {task_id} 的 {field} 引用了不存在的 task {ref}",
+		fix_template: "add the referenced task in the same atomic batch, or amend the dependency to an existing task, then retry",
+		template_keys: [
+			"field",
+			"ref",
+			"task_id"
+		],
+		doc_anchor: "protocol.md#§10.8"
+	},
+	TASK_DEP_SELF: {
+		exit_code: 2,
+		message_template: "task {task_id} cannot depend on itself",
+		zh_message_template: "task {task_id} 不能依赖自身",
+		fix_template: "remove the self-reference from depends_on, then retry the task graph mutation",
+		template_keys: ["task_id"],
+		doc_anchor: "protocol.md#§10.8"
+	},
+	TASK_DEP_DUPLICATE: {
+		exit_code: 2,
+		message_template: "task {task_id} repeats dependency {ref} at indexes {indexes}",
+		zh_message_template: "task {task_id} 在下标 {indexes} 重复声明依赖 {ref}",
+		fix_template: "keep each dependency id only once in depends_on, then retry",
+		template_keys: [
+			"indexes",
+			"ref",
+			"task_id"
+		],
+		doc_anchor: "protocol.md#§10.8"
+	},
+	TASK_DEP_CYCLE: {
+		exit_code: 2,
+		message_template: "task dependency graph contains cycle {cycle}",
+		zh_message_template: "task 依赖图包含环 {cycle}",
+		fix_template: "remove or redirect one dependency in the reported closed path, then retry",
+		template_keys: ["cycle"],
+		doc_anchor: "protocol.md#§10.8"
+	},
+	TASK_DEP_ABANDONED: {
+		exit_code: 2,
+		message_template: "task {task_id} field {field} references abandoned task {ref}; {hint}",
+		zh_message_template: "task {task_id} 的 {field} 引用了已 abandoned 的 task {ref};{hint}",
+		fix_template: "use an amend-tasks-sponsored task amendment to replace the abandoned dependency, then retry",
+		template_keys: [
+			"field",
+			"hint",
+			"ref",
+			"task_id"
+		],
+		doc_anchor: "protocol.md#§10.8"
+	},
+	TASK_DEPS_NOT_SATISFIED: {
+		exit_code: 2,
+		message_template: "task {task_id} cannot be claimed: dependency {blocking_dep} is not done (status={blocking_status})",
+		zh_message_template: "task {task_id} 无法 claim:依赖 {blocking_dep} 未 done(status={blocking_status})",
+		fix_template: "complete deps_on tasks first (run `loaf tasks list --status pending` to see what is blocking), or use `loaf tasks next` to pick a task with all deps satisfied",
+		template_keys: [
+			"blocking_dep",
+			"blocking_status",
+			"task_id"
+		],
+		doc_anchor: "protocol.md#§10.8"
+	},
+	TASK_NOT_CLAIMED: {
+		exit_code: 2,
+		message_template: "task {task_id} step {step} mutation requires task.status=in_progress (got status={status}); claim the task first",
+		zh_message_template: "task {task_id} step {step} 变更要求 task.status=in_progress(实际 status={status});先 `loaf tasks claim`",
+		fix_template: "run `loaf tasks claim {task_id}` to move the task from pending/ready to in_progress before emitting task_step_started or task_step_done; once auto-promoted to done, steps cannot be re-mutated",
+		template_keys: [
+			"status",
+			"step",
+			"task_id"
+		],
+		doc_anchor: "protocol.md#§10.8"
+	},
+	TASK_NOT_ABANDONABLE: {
+		exit_code: 2,
+		message_template: "task {task_id} cannot be abandoned (status={status} — already in a final status)",
+		zh_message_template: "task {task_id} 无法 abandon(status={status} — 已处于终态)",
+		fix_template: "tasks with status=done are already complete and status=abandoned tasks are already abandoned; run `loaf tasks list` to inspect the task graph and abandon a non-terminal task instead",
+		template_keys: ["status", "task_id"],
+		doc_anchor: "protocol.md#§10.8"
+	},
+	TASK_ABANDON_BLOCKED_DEPENDENTS: {
+		exit_code: 2,
+		message_template: "task {task_id} cannot be abandoned: non-terminal task(s) {blocking_dependents} depend on it; abandon or complete the dependents first",
+		zh_message_template: "task {task_id} 无法 abandon:非终态 task {blocking_dependents} 依赖它;先 abandon 或完成这些依赖方",
+		fix_template: "abandon or complete the dependent tasks first (see detail.blocking_dependents), then retry `loaf tasks abandon {task_id} --reason \"...\"`; abandoning a parent would strand a pending child",
+		template_keys: ["blocking_dependents", "task_id"],
+		doc_anchor: "protocol.md#§10.8"
+	},
+	SESSION_REASON_REQUIRED: {
+		exit_code: 2,
+		message_template: "{kind}: --reason is required (the session-terminal entry must record why)",
+		zh_message_template: "{kind}:必须提供 --reason(会话终态 entry 必须记录原因)",
+		fix_template: "re-run with `--reason \"...\"`; `loaf archive` and `loaf abandon` both require a rationale on the journal entry",
+		template_keys: ["kind"],
+		doc_anchor: "protocol.md#§10.8"
+	},
+	PROJECTION_WRITE_FAILED: {
+		exit_code: 2,
+		message_template: "{projection} projection write failed after journal append at last_seq={last_seq} (spec_version={spec_version}): {error}",
+		zh_message_template: "{projection} 派生投影在 journal append (last_seq={last_seq}, spec_version={spec_version}) 后写盘失败:{error}",
+		fix_template: "the journal already records the change; do NOT retry the same command. Run `loaf doctor --rebuild` (when available) to resync derived projections from journal truth, or inspect `.loaf/<feature>/journal.jsonl` tail manually.",
+		template_keys: [
+			"error",
+			"last_seq",
+			"projection",
+			"spec_version"
+		],
+		doc_anchor: "protocol.md#§10.15"
+	},
+	WRITE_CONTENTION: {
+		exit_code: 2,
+		message_template: "another writer holds the per-feature lock at {lock_path}; retry after it releases",
+		zh_message_template: "另一个写入者正持有该 feature 的锁 {lock_path};待其释放后重试",
+		fix_template: "a concurrent `loaf` invocation is mid-write on this feature — retry once it finishes. If no writer is active, a prior run crashed mid-write: remove the stale `.lock` and run `loaf doctor` to verify journal integrity.",
+		template_keys: ["lock_path"],
+		doc_anchor: "protocol.md#§11.2"
+	},
+	FINDING_AMEND_SPEC_NOT_LOCKED: {
+		exit_code: 2,
+		message_template: "finding raise action=amend-spec requires state.spec_locked=true; spec is not locked at sub_state={current_sub_state}, edit directly via `loaf spec submit / add-*`",
+		zh_message_template: "finding raise action=amend-spec 要求 state.spec_locked=true;当前 sub_state={current_sub_state} 下 spec 未锁,请直接使用 `loaf spec submit / add-*`",
+		fix_template: "drop --action amend-spec and use `loaf spec submit` / `loaf spec add-req` / etc. directly while spec is unlocked; amend-spec is reserved for post-`gate decide spec-lock --approve` recovery.",
+		template_keys: ["current_sub_state"],
+		doc_anchor: "protocol.md#§6.1"
+	},
+	SPEC_VERSION_NOT_MONOTONIC: {
+		exit_code: 2,
+		message_template: "{kind}: spec_version must be {expected_spec_version} (current+1), got {payload_spec_version}",
+		zh_message_template: "{kind}: spec_version 必须等于 {expected_spec_version}(current+1),实际为 {payload_spec_version}",
+		fix_template: "set spec_version to {expected_spec_version} in the input payload (or omit it and let `loaf spec submit` fill the current+1 default).",
+		template_keys: [
+			"expected_spec_version",
+			"kind",
+			"payload_spec_version"
+		],
+		doc_anchor: "protocol.md#§4.2"
+	},
+	SPEC_VERSION_BATCH_MISMATCH: {
+		exit_code: 2,
+		message_template: "{kind}: spec_version must be {current_spec_version} at batch_index={batch_index}, got {payload_spec_version}",
+		zh_message_template: "{kind}: batch_index={batch_index} 处 spec_version 必须等于 {current_spec_version},实际为 {payload_spec_version}",
+		fix_template: "in a multi-entry spec batch, the head (batch_index=0) bumps spec_version to current+1 and all continuation entries (batch_index≥1) must set spec_version to that same value. Check the head entry's payload.spec_version and align companions.",
+		template_keys: [
+			"batch_index",
+			"current_spec_version",
+			"kind",
+			"payload_spec_version"
+		],
+		doc_anchor: "protocol.md#§4.2"
+	},
+	TASK_COMPLETE_PRECONDITION_VIOLATED: {
+		exit_code: 2,
+		message_template: "task {task_id} is not complete (status={status}); must-applicable steps not terminal-positive: {blocking_steps}",
+		zh_message_template: "task {task_id} 尚未完成(status={status});以下 must 级 step 未达 terminal-positive:{blocking_steps}",
+		fix_template: "finish each blocking step via `loaf tasks step start/done`; a task auto-promotes to status=done once every must-applicable step is passed/waived/na, and `loaf tasks complete` then confirms it. Run `loaf tasks list` to inspect step status.",
+		template_keys: [
+			"blocking_steps",
+			"status",
+			"task_id"
+		],
+		doc_anchor: "protocol.md#§10.8"
+	},
+	CANONICAL_TASK_BODY_UNAVAILABLE: {
+		exit_code: 2,
+		message_template: "task {task_id} is in the projection but has no canonical body in the journal (migration-imported); a whole-task amend cannot be reconstructed",
+		zh_message_template: "task {task_id} 在投影中存在,但 journal 里没有 canonical body(migration 导入);无法重建整 task 的 amend",
+		fix_template: "the task was rehydrated from a v0.0.x migration snapshot, so its full body never landed as a journal tasks_planned/tasks_amended entry. Re-plan the task graph via `loaf tasks submit`, or wait for the history-aware doctor path that will reconstruct migrated task bodies.",
+		template_keys: ["task_id"],
+		doc_anchor: "protocol.md#§10.8"
+	},
+	BUG_TASK_REQUIRES_RED: {
+		exit_code: 2,
+		message_template: "behavioral bug task {task_id} cannot start or complete its implement step before its RED test is registered",
+		zh_message_template: "behavioral bug task {task_id} 在注册 RED 测试前不能开始或完成 implement step",
+		fix_template: "run `loaf tasks register-red {task_id}` once the failing RED test is in place; protocol §9.3 requires RED registration before the implement step of a behavioral task labelled `bug`.",
+		template_keys: ["task_id"],
+		doc_anchor: "protocol.md#§9.3"
+	},
+	BUG_TASK_FLAG_MISUSE: {
+		exit_code: 2,
+		message_template: "task {task_id}: red_test_registered=true is valid only on a red-step task_step_done for a behavioral bug task (passed/waived result) — not on this entry",
+		zh_message_template: "task {task_id}:red_test_registered=true 只在 behavioral bug task 的 red-step task_step_done(passed/waived)上有效 —— 不能用在本 entry",
+		fix_template: "do not set red_test_registered in a planned task or on a non-red step; the flag is owned by `loaf tasks register-red`, which the reducer promotes to task-level registration.",
+		template_keys: ["task_id"],
+		doc_anchor: "protocol.md#§9.3"
+	},
+	BUG_TASK_RED_NOT_REGISTERED: {
+		exit_code: 2,
+		message_template: "behavioral bug task {task_id} is done but never registered its RED test (red_test_registered≠true)",
+		zh_message_template: "behavioral bug task {task_id} 已 done 但从未注册 RED 测试(red_test_registered≠true)",
+		fix_template: "a done behavioral bug task must have registered its RED test via `loaf tasks register-red`; this is a verify-accept defense-in-depth check for migration / raw-API journals — rebuild the journal or register RED retroactively before re-running the gate.",
+		template_keys: ["task_id"],
+		doc_anchor: "protocol.md#§9.3"
+	},
+	SPIKE_CONVERT_NO_SPIKE_TASK: {
+		exit_code: 2,
+		message_template: "cannot convert: the session has no non-abandoned spike task; `loaf spike convert` is a spike-task exit (protocol §8.3)",
+		zh_message_template: "无法 convert:session 没有非-abandoned 的 spike task;`loaf spike convert` 是 spike-task 出口(protocol §8.3)",
+		fix_template: "run `loaf spike convert` only from a session that holds a kind=spike task; for a non-spike session close it with `loaf archive --reason \"...\"` or `loaf abandon --reason \"...\"`",
+		template_keys: [],
+		doc_anchor: "protocol.md#§8.3"
+	},
+	SNAPSHOT_STALE_REBUILD_REQUIRED: {
+		exit_code: 2,
+		message_template: "snapshot stale (reason={reason}) at {feature_dir}; run `loaf doctor --rebuild --feature <feature>` to re-serialize from journal truth",
+		zh_message_template: "snapshot 失效(reason={reason}) at {feature_dir};跑 `loaf doctor --rebuild --feature <feature>` 从 journal 重建",
+		fix_template: "snapshot meta/leaves no longer agree with the journal tail; run `loaf doctor --rebuild --feature <feature>` to re-serialize from journal truth, then retry. Inspect detail.reason + reason-specific fields (meta_path / projection_kind / cause) to triage corruption source before rebuilding.",
+		template_keys: ["feature_dir", "reason"],
+		doc_anchor: "protocol.md#§10.15"
+	},
+	JOURNAL_TAIL_REQUIRES_NEWER_LOAF: {
+		exit_code: 2,
+		message_template: "tail recovery refused at seq {seq}: journal kind {kind} uses entry schema {entry_schema_version} ({reason})",
+		zh_message_template: "tail recovery 已拒绝:seq {seq} 的 journal kind {kind} 使用 entry schema {entry_schema_version} ({reason})",
+		fix_template: "preserve journal.jsonl byte-for-byte and upgrade loaf to a version that understands this entry before running tail recovery again",
+		zh_fix_template: "保持 journal.jsonl 字节不变，升级到能识别该 entry 的 loaf 版本后再运行 tail recovery",
+		template_keys: [
+			"entry_schema_version",
+			"kind",
+			"reason",
+			"seq"
+		],
+		detail_keys: [
+			"entry_schema_version",
+			"kind",
+			"reason",
+			"seq"
+		],
+		doc_anchor: "protocol.md#§10.15"
+	},
+	INVALID_PRESET: {
+		exit_code: 2,
+		message_template: "invalid ceremony preset",
+		zh_message_template: "ceremony preset 不合法",
+		fix_template: "Use one of quick, light, standard, or deep.",
+		template_keys: [],
+		doc_anchor: "protocol.md#§10.5"
+	},
+	USAGE: {
+		exit_code: 2,
+		message_template: "invalid CLI usage",
+		zh_message_template: "CLI 用法不合法",
+		fix_template: "Run the command with --help and retry with the required flags/arguments.",
+		template_keys: [],
+		doc_anchor: "protocol.md#§10.5"
+	},
+	DOCTOR_MODE_NOT_IMPLEMENTED: {
+		exit_code: 2,
+		message_template: "requested loaf doctor mode is not implemented in this release",
+		zh_message_template: "当前发布版本未实现该 loaf doctor 模式",
+		fix_template: "Use loaf doctor --rebuild --feature <name>; other doctor modes are deferred.",
+		template_keys: [],
+		doc_anchor: "protocol.md#§10.15"
+	},
+	DOCTOR_FEATURE_REQUIRED: {
+		exit_code: 2,
+		message_template: "loaf doctor --rebuild requires --feature <name>",
+		zh_message_template: "loaf doctor --rebuild 必须带 --feature <name>",
+		fix_template: "Pass --feature <name> or --feature-dir <path> for the session to rebuild.",
+		template_keys: [],
+		doc_anchor: "protocol.md#§10.15"
+	},
+	DOCTOR_REBUILD_FAILED: {
+		exit_code: 2,
+		message_template: "doctor --rebuild failed",
+		zh_message_template: "doctor --rebuild 失败",
+		fix_template: "Inspect the emitted error message; fix the journal/projection issue, then rerun doctor --rebuild.",
+		template_keys: [],
+		doc_anchor: "protocol.md#§10.15"
+	},
+	DOCTOR_REBUILD_MIGRATED_UNSUPPORTED: {
+		exit_code: 2,
+		message_template: "doctor --rebuild does not support v0.0.x-migrated journals in this release",
+		zh_message_template: "当前发布版本的 doctor --rebuild 不支持 v0.0.x-migrated journal",
+		fix_template: "Use the existing migrated snapshots, or wait for migrate-v2/rebuild support.",
+		template_keys: [],
+		doc_anchor: "protocol.md#§10.15"
+	},
+	REDUCER_ERROR: {
+		exit_code: 2,
+		message_template: "internal reducer invariant failed",
+		zh_message_template: "reducer 内部不变量失败",
+		fix_template: "Preserve the journal and command stderr; this indicates a loaf-cli bug or inconsistent projection state.",
+		template_keys: [],
+		doc_anchor: "protocol.md#§10.5"
+	},
+	APPEND_ERROR: {
+		exit_code: 2,
+		message_template: "journal append failed",
+		fix_template: "preserve journal.jsonl and the emitted detail, then inspect the append error before retrying; if a write may have started, run `loaf doctor` to verify journal integrity",
+		template_keys: [],
+		detail_keys: [],
+		doc_anchor: "protocol.md#§11.2"
+	},
+	SIDECAR_ERROR: {
+		exit_code: 2,
+		message_template: "sidecar finalize failed: {err}",
+		fix_template: "inspect the emitted error and attachment path permissions; validation already passed, so remove any orphan sidecar residue before retrying",
+		template_keys: ["err"],
+		detail_keys: ["err"],
+		doc_anchor: "protocol.md#§11.2"
+	},
+	INVALID_BATCH: {
+		exit_code: 2,
+		message_template: "mutation batch is invalid",
+		fix_template: "rebuild the batch through the CLI mutator without caller-owned envelope fields and with entries + meta matching the current journal tail",
+		template_keys: [],
+		detail_keys: [],
+		doc_anchor: "protocol.md#§11.2"
+	},
+	SCOPE_RECORDED_BATCH_INVALID: {
+		exit_code: 2,
+		message_template: "scope:recorded batch is invalid: {reason}",
+		zh_message_template: "scope:recorded 批次无效:{reason}",
+		fix_template: "emit at most one scope:recorded immediately before exactly one EXECUTE.work to EXECUTE.done transition in the same batch",
+		template_keys: ["reason"],
+		detail_keys: ["reason"],
+		doc_anchor: "protocol.md#§4.6"
+	},
+	SCOPE_RECORDED_ITERATION_DUPLICATE: {
+		exit_code: 2,
+		message_template: "scope:recorded already exists for iteration {iteration}",
+		zh_message_template: "iteration {iteration} 已存在 scope:recorded",
+		fix_template: "reuse the recorded closure result for this iteration or advance through a finding back-edge before recording a new closure",
+		template_keys: ["iteration"],
+		detail_keys: ["iteration"],
+		doc_anchor: "protocol.md#§4.6"
+	},
+	ACTUAL_SCOPE_HISTORY_INCOMPLETE: {
+		exit_code: 2,
+		message_template: "actual scope history is incomplete: EXECUTE closure transition(s) at seq {transition_seqs} have no same-batch scope:recorded marker",
+		zh_message_template: "actual scope 历史不完整:seq {transition_seqs} 的 EXECUTE closure transition 缺少同批 scope:recorded marker",
+		fix_template: "do not fabricate an empty actual_scope; preserve the journal and rerun the feature's EXECUTE work with an F-027-capable loaf version before requesting reconcile. Pre-F-027 closure scope cannot be reconstructed from journal history.",
+		zh_fix_template: "不要伪造空 actual_scope;保留 journal,使用支持 F-027 的 loaf 版本重新执行该 feature 的 EXECUTE work 后再请求 reconcile。pre-F-027 closure scope 无法从 journal 历史重建。",
+		template_keys: ["transition_seqs"],
+		detail_keys: ["transition_seqs"],
+		doc_anchor: "protocol.md#§4.6"
+	},
+	WRITE_PATH_VIOLATION: {
+		exit_code: 2,
+		message_template: "write blocked: `{normalized_path}` is outside the allowed write paths for sub_state `{sub_state}`",
+		zh_message_template: "写入被拦截:`{normalized_path}` 不在 sub_state `{sub_state}` 的允许写入路径内",
+		fix_template: "write within the current step's contract, advance to the right sub_state/step first, or widen the matching `paths.*` category in .loaf/.config/loaf.config.json",
+		template_keys: ["normalized_path", "sub_state"],
+		doc_anchor: "protocol.md#§11.1"
+	},
+	PROTECTED_FILE_WRITE: {
+		exit_code: 2,
+		message_template: "write blocked: `{normalized_path}` matches protected_files entry `{matched_deny}` — protected files are never writable",
+		zh_message_template: "写入被拦截:`{normalized_path}` 命中 protected_files 条目 `{matched_deny}` —— 受保护文件永不可写",
+		fix_template: "remove the entry from protected_files in .loaf/.config/loaf.config.json if the protection is wrong, otherwise write a different file",
+		template_keys: ["matched_deny", "normalized_path"],
+		doc_anchor: "protocol.md#§11.1"
+	}
+};
+/** Constructs a catalog diagnostic while checking its required detail keys. */
+function diagnostic$2(code, detail) {
+	return {
+		code,
+		detail
+	};
+}
+const DIAGNOSTIC_CODE_VALUES = Object.keys(ERROR_CATALOG);
+z.enum(DIAGNOSTIC_CODE_VALUES);
 //#endregion
 //#region src/core/kind-guards.ts
 const ANY_SUB_STATE = Symbol("any-sub-state");
@@ -1552,6 +2966,20 @@ const KIND_REGISTRY = {
 		actors: ALL_NON_MIGRATION,
 		emitsSpec: false
 	},
+	"lesson:recorded": {
+		payload: LessonRecordedPayload,
+		reducerImplemented: true,
+		subStates: ANY_NON_DONE,
+		actors: HUMAN_ONLY,
+		emitsSpec: false
+	},
+	"scope:recorded": {
+		payload: ScopeRecordedPayload,
+		reducerImplemented: true,
+		subStates: new Set(["EXECUTE.work"]),
+		actors: CLI_ONLY,
+		emitsSpec: false
+	},
 	"finding:raised": {
 		payload: FindingRaisedPayload,
 		reducerImplemented: true,
@@ -1659,420 +3087,61 @@ function isActorAllowed(kind, actor) {
 	return KIND_REGISTRY[kind].actors.includes(prefix);
 }
 //#endregion
-//#region src/core/gates/evidence-result.ts
-/** Evidence results that count as a positive proof signal. `waived` is a human
-*  escape; spec-review uses a STRICTER notion (passed/approved only) and does
-*  NOT go through this set. */
-const PASSING_RESULTS = new Set([
-	"passed",
-	"approved",
-	"waived"
-]);
-/** True when an evidence result is a positive proof signal (passed / approved /
-*  waived). undefined (no result yet) is never passing. */
-function isPassingResult(result) {
-	return result !== void 0 && PASSING_RESULTS.has(result);
-}
-//#endregion
-//#region src/core/gates/task-proof.ts
-/**
-* Per done task in `snapshot.tasks` (snapshot order, NOT sorted), compute the
-* proof gaps under `policy`. A task is evidence-proven when some evidence is
-* passing, covers the task, and has an accepted kind (or is a waiver). Returns
-* one finding per done task that has ≥1 gap; proven tasks produce no finding.
-* Iteration order is preserved so callers relying on first-gap-wins
-* (verify-min's bug-RED short-circuit) stay behavior-identical.
-*/
-function evaluateTaskProof(snapshot, policy) {
-	const findings = [];
-	for (const task of snapshot.tasks) {
-		if (task.status !== "done") continue;
-		const accepted = policy.acceptedKinds(task);
-		const gaps = [];
-		if (!snapshot.evidence.some((ev) => isPassingResult(ev.result) && ev.covers.includes(task.id) && (accepted.includes(ev.kind) || ev.kind === "waiver"))) gaps.push("no-passing-evidence");
-		if (task.kind === "behavioral" && task.labels.includes("bug") && task.red_test_registered !== true) gaps.push("bug-red-unregistered");
-		if (gaps.length > 0) findings.push({
-			task,
-			gaps
-		});
-	}
-	return findings;
-}
-const VERIFY_ACCEPT_KINDS = [
-	"task-summary",
-	"local-check",
-	"manual"
-];
-const verifyAcceptPolicy = { acceptedKinds: () => VERIFY_ACCEPT_KINDS };
-const VERIFY_MIN_REQUIRED_KINDS = {
-	behavioral: ["local-check"],
-	structural: ["local-check"],
-	"visual-ui": ["visual-review", "manual"],
-	docs: ["task-summary", "manual"],
-	chore: [
-		"local-check",
-		"manual",
-		"task-summary"
-	]
-};
-const verifyMinPolicy = { acceptedKinds: (task) => VERIFY_MIN_REQUIRED_KINDS[task.kind] ?? [] };
-//#endregion
-//#region src/core/reducer/transition.ts
-const LEGAL_TRANSITIONS = {
-	"TRIAGE.score": ["TRIAGE.confirm"],
-	"TRIAGE.confirm": ["SPEC.proposal", "EXECUTE.plan"],
-	"SPEC.proposal": ["SPEC.spec"],
-	"SPEC.spec": ["SPEC.plan"],
-	"SPEC.plan": ["SPEC.design"],
-	"SPEC.design": ["EXECUTE.plan"],
-	"EXECUTE.plan": ["EXECUTE.work"],
-	"EXECUTE.work": ["EXECUTE.done"],
-	"EXECUTE.done": ["VERIFY.plan"],
-	"VERIFY.plan": ["VERIFY.run"],
-	"VERIFY.run": [
-		"VERIFY.review",
-		"VERIFY.acceptance",
-		"VERIFY.visual",
-		"VERIFY.accept"
-	],
-	"VERIFY.review": [
-		"VERIFY.acceptance",
-		"VERIFY.visual",
-		"VERIFY.accept"
-	],
-	"VERIFY.acceptance": ["VERIFY.visual", "VERIFY.accept"],
-	"VERIFY.visual": ["VERIFY.accept"],
-	"VERIFY.accept": ["SETTLE.reconcile"],
-	"SETTLE.reconcile": ["SETTLE.lessons"],
-	"SETTLE.lessons": [],
-	"DONE.delivered": [],
-	"DONE.archived": [],
-	"DONE.abandoned": []
-};
-function gateNameForCursor(subState) {
-	switch (subState) {
-		case "SPEC.design": return "spec-lock";
-		case "VERIFY.accept": return "verify-accept";
-		default: return null;
-	}
-}
-function buildGateDecideAction(gate) {
-	return {
-		command: `loaf gate decide ${gate} --approve|--reject --reason "<reason>"`,
-		owner_verb: "gate decide",
-		target: gate,
-		blocking: true,
-		reason: gate === "spec-lock" ? "SPEC_LOCK_GATE_DECISION_REQUIRED" : "VERIFY_ACCEPT_GATE_DECISION_REQUIRED"
-	};
-}
-function nextLegalTargets(prev, ceremony, verifyAccepted = false) {
-	return (LEGAL_TRANSITIONS[prev] ?? []).filter((target) => validateTransition(prev, target, {
-		ceremony,
-		actor: "cli:loaf",
-		verify_accepted: verifyAccepted
-	}).ok);
-}
-function transitionOwnerFor(input) {
-	const { sub_state, ceremony, spec_locked, verify_accepted, verify_next_target } = input;
-	const gate = gateNameForCursor(sub_state);
-	if (gate === "spec-lock" && !spec_locked) return buildGateDecideAction(gate);
-	if (sub_state === "VERIFY.accept") {
-		if (gate !== null && !verify_accepted) return buildGateDecideAction(gate);
-		if (ceremony.settle_phase) return {
-			command: "loaf settle",
-			owner_verb: "settle",
-			target: "SETTLE.reconcile",
-			blocking: false,
-			reason: "VERIFY_ACCEPTED_NEEDS_SETTLE"
-		};
-		return {
-			command: "loaf deliver",
-			owner_verb: "deliver",
-			target: "DONE.delivered",
-			blocking: false,
-			reason: "VERIFY_ACCEPTED_READY_TO_DELIVER"
-		};
-	}
-	if (sub_state === "EXECUTE.work") return {
-		command: "loaf tasks next",
-		owner_verb: "tasks next",
-		target: "task-level",
-		blocking: false,
-		reason: "EXECUTE_WORK_TASK_ROUTING"
-	};
-	if (sub_state === "EXECUTE.done" && !ceremony.verify_phase) return {
-		command: "loaf deliver",
-		owner_verb: "deliver",
-		target: "DONE.delivered",
-		blocking: false,
-		reason: "VERIFY_PHASE_DISABLED_READY_TO_DELIVER"
-	};
-	if (sub_state === "SETTLE.lessons") return {
-		command: "loaf deliver",
-		owner_verb: "deliver",
-		target: "DONE.delivered",
-		blocking: false,
-		reason: "SETTLE_COMPLETE_READY_TO_DELIVER"
-	};
-	if (sub_state.startsWith("DONE.")) return null;
-	const targets = nextLegalTargets(sub_state, ceremony, verify_accepted);
-	const target = verify_next_target !== void 0 && targets.includes(verify_next_target) ? verify_next_target : targets[0];
-	if (target === void 0) throw new Error(`No legal next action for non-terminal sub_state=${sub_state}`);
-	return {
-		command: `loaf advance ${target}`,
-		owner_verb: "advance",
-		target,
-		blocking: false,
-		reason: "ADVANCE_TO_NEXT_SUB_STATE"
-	};
-}
-const BACK_EDGE_FROM = {
-	"amend-spec": new Set([
-		"EXECUTE.plan",
-		"EXECUTE.work",
-		"EXECUTE.done",
-		"VERIFY.plan",
-		"VERIFY.run",
-		"VERIFY.review",
-		"VERIFY.acceptance",
-		"VERIFY.visual",
-		"VERIFY.accept"
-	]),
-	"amend-tasks": new Set([
-		"EXECUTE.work",
-		"EXECUTE.done",
-		"VERIFY.plan",
-		"VERIFY.run",
-		"VERIFY.review",
-		"VERIFY.acceptance",
-		"VERIFY.visual",
-		"VERIFY.accept"
-	]),
-	"fix-impl": new Set([
-		"EXECUTE.work",
-		"EXECUTE.done",
-		"VERIFY.plan",
-		"VERIFY.run",
-		"VERIFY.review",
-		"VERIFY.acceptance",
-		"VERIFY.visual",
-		"VERIFY.accept"
-	]),
-	"fix-test": new Set([
-		"EXECUTE.work",
-		"EXECUTE.done",
-		"VERIFY.plan",
-		"VERIFY.run",
-		"VERIFY.review",
-		"VERIFY.acceptance",
-		"VERIFY.visual",
-		"VERIFY.accept"
-	])
-};
-function validateTransition(prev, target, ctx) {
-	if (ctx.back_edge !== void 0) {
-		if (ctx.back_edge.action === "amend-spec") {
-			if (target !== "SPEC.spec") return {
-				ok: false,
-				code: "TRANSITION_ILLEGAL",
-				message: `back_edge action=amend-spec requires target=SPEC.spec, got ${target}`,
-				detail: {
-					from: prev,
-					to: target,
-					back_edge_action: ctx.back_edge.action,
-					expected_target: "SPEC.spec",
-					reason: "back_edge_target_mismatch"
-				}
-			};
-			const allowedFrom = BACK_EDGE_FROM["amend-spec"];
-			if (!allowedFrom.has(prev)) return {
-				ok: false,
-				code: "TRANSITION_ILLEGAL",
-				message: `back_edge action=amend-spec is not legal from ${prev}; allowed from EXECUTE.* + VERIFY.*`,
-				detail: {
-					from: prev,
-					to: target,
-					back_edge_action: ctx.back_edge.action,
-					allowed_from: [...allowedFrom],
-					reason: "back_edge_from_not_allowed"
-				}
-			};
-			return { ok: true };
-		}
-		if (ctx.back_edge.action === "amend-tasks") {
-			if (target !== "EXECUTE.work") return {
-				ok: false,
-				code: "TRANSITION_ILLEGAL",
-				message: `back_edge action=amend-tasks requires target=EXECUTE.work, got ${target}`,
-				detail: {
-					from: prev,
-					to: target,
-					back_edge_action: ctx.back_edge.action,
-					expected_target: "EXECUTE.work",
-					reason: "back_edge_target_mismatch"
-				}
-			};
-			const allowedFrom = BACK_EDGE_FROM["amend-tasks"];
-			if (!allowedFrom.has(prev)) return {
-				ok: false,
-				code: "TRANSITION_ILLEGAL",
-				message: `back_edge action=amend-tasks is not legal from ${prev}; allowed from EXECUTE.work / EXECUTE.done + VERIFY.*`,
-				detail: {
-					from: prev,
-					to: target,
-					back_edge_action: ctx.back_edge.action,
-					allowed_from: [...allowedFrom],
-					reason: "back_edge_from_not_allowed"
-				}
-			};
-			return { ok: true };
-		}
-		if (ctx.back_edge.action === "fix-impl") {
-			if (target !== "EXECUTE.work") return {
-				ok: false,
-				code: "TRANSITION_ILLEGAL",
-				message: `back_edge action=fix-impl requires target=EXECUTE.work, got ${target}`,
-				detail: {
-					from: prev,
-					to: target,
-					back_edge_action: ctx.back_edge.action,
-					expected_target: "EXECUTE.work",
-					reason: "back_edge_target_mismatch"
-				}
-			};
-			const allowedFrom = BACK_EDGE_FROM["fix-impl"];
-			if (!allowedFrom.has(prev)) return {
-				ok: false,
-				code: "TRANSITION_ILLEGAL",
-				message: `back_edge action=fix-impl is not legal from ${prev}; allowed from EXECUTE.work / EXECUTE.done + VERIFY.*`,
-				detail: {
-					from: prev,
-					to: target,
-					back_edge_action: ctx.back_edge.action,
-					allowed_from: [...allowedFrom],
-					reason: "back_edge_from_not_allowed"
-				}
-			};
-			return { ok: true };
-		}
-		if (ctx.back_edge.action === "fix-test") {
-			if (target !== "EXECUTE.work") return {
-				ok: false,
-				code: "TRANSITION_ILLEGAL",
-				message: `back_edge action=fix-test requires target=EXECUTE.work, got ${target}`,
-				detail: {
-					from: prev,
-					to: target,
-					back_edge_action: ctx.back_edge.action,
-					expected_target: "EXECUTE.work",
-					reason: "back_edge_target_mismatch"
-				}
-			};
-			const allowedFrom = BACK_EDGE_FROM["fix-test"];
-			if (!allowedFrom.has(prev)) return {
-				ok: false,
-				code: "TRANSITION_ILLEGAL",
-				message: `back_edge action=fix-test is not legal from ${prev}; allowed from EXECUTE.work / EXECUTE.done + VERIFY.*`,
-				detail: {
-					from: prev,
-					to: target,
-					back_edge_action: ctx.back_edge.action,
-					allowed_from: [...allowedFrom],
-					reason: "back_edge_from_not_allowed"
-				}
-			};
-			return { ok: true };
-		}
-		return {
-			ok: false,
-			code: "TRANSITION_ILLEGAL",
-			message: `unknown back_edge.action ${ctx.back_edge.action}`,
-			detail: {
-				back_edge: ctx.back_edge,
-				reason: "back_edge_action_unknown"
-			}
-		};
-	}
-	const allowed = LEGAL_TRANSITIONS[prev] ?? [];
-	if (!allowed.includes(target)) return {
+//#region src/core/reducer/preflight/checks-common.ts
+function checkSeqMonotonic(c) {
+	const { entry, ctx } = c;
+	if (ctx.tail_seq === void 0) return null;
+	const expectedSeq = ctx.tail_seq + 1;
+	if (entry.seq !== expectedSeq) return {
 		ok: false,
-		code: "TRANSITION_ILLEGAL",
-		message: `cannot transition ${prev} → ${target}`,
+		code: "SEQ_NOT_MONOTONIC",
+		message: `entry.seq=${entry.seq} but expected ${expectedSeq} (tail seq=${ctx.tail_seq})`,
 		detail: {
-			from: prev,
-			to: target,
-			allowed_forward: [...allowed]
+			got: entry.seq,
+			expected: expectedSeq,
+			tail_seq: ctx.tail_seq
 		}
 	};
-	if (prev === "TRIAGE.confirm") {
-		const specPhase = ctx.ceremony.spec_phase;
-		if (target === "SPEC.proposal" && !specPhase) return {
-			ok: false,
-			code: "SPEC_PHASE_FORK_VIOLATION",
-			message: "TRIAGE.confirm → SPEC.proposal requires ceremony.spec_phase=true",
-			detail: {
-				from: prev,
-				to: target,
-				spec_phase: specPhase
-			}
-		};
-		if (target === "EXECUTE.plan" && specPhase) return {
-			ok: false,
-			code: "SPEC_PHASE_FORK_VIOLATION",
-			message: "TRIAGE.confirm → EXECUTE.plan requires ceremony.spec_phase=false (quick); profiles with spec_phase=true must traverse SPEC.*",
-			detail: {
-				from: prev,
-				to: target,
-				spec_phase: specPhase
-			}
-		};
-	}
-	if (prev === "EXECUTE.done") {
-		const verifyPhase = ctx.ceremony.verify_phase;
-		if (target === "VERIFY.plan" && !verifyPhase) return {
-			ok: false,
-			code: "VERIFY_PHASE_FORK_VIOLATION",
-			message: "EXECUTE.done → VERIFY.plan requires ceremony.verify_phase=true (standard / deep)",
-			detail: {
-				from: prev,
-				to: target,
-				verify_phase: verifyPhase
-			}
-		};
-	}
-	if (prev === "SPEC.design" && target === "EXECUTE.plan" && !ctx.spec_locked) return {
+	return null;
+}
+function checkSubStateAuthority(c) {
+	const { entry, sub_state } = c;
+	if (!isSubStateAllowed(entry.kind, sub_state)) return {
 		ok: false,
-		code: "SPEC_LOCK_NOT_SATISFIED",
-		message: "SPEC.design → EXECUTE.plan requires spec_locked=true (run `loaf gate decide spec-lock --approve` first)",
+		code: "SUB_STATE_AUTHORITY_VIOLATION",
+		message: `kind=${entry.kind} not allowed in sub_state=${sub_state}`,
 		detail: {
-			from: prev,
-			to: target,
-			spec_locked: !!ctx.spec_locked
+			kind: entry.kind,
+			sub_state
 		}
 	};
-	if (prev === "VERIFY.accept" && target === "SETTLE.reconcile") {
-		if (!ctx.ceremony.settle_phase) return {
-			ok: false,
-			code: "SETTLE_PHASE_DISABLED",
-			message: "VERIFY.accept → SETTLE.reconcile requires ceremony.settle_phase=true (deep only)",
-			detail: {
-				from: prev,
-				to: target,
-				settle_phase: ctx.ceremony.settle_phase
-			}
-		};
-		if (!ctx.verify_accepted) return {
-			ok: false,
-			code: "SETTLE_NOT_ACCEPTED",
-			message: "VERIFY.accept → SETTLE.reconcile requires verify_accepted=true (run `loaf gate decide verify-accept --approve` first)",
-			detail: {
-				from: prev,
-				to: target,
-				verify_accepted: !!ctx.verify_accepted
-			}
-		};
-	}
-	return { ok: true };
+	return null;
+}
+function checkActorAuthority(c) {
+	const { entry } = c;
+	if (!isActorAllowed(entry.kind, entry.actor)) return {
+		ok: false,
+		code: "ACTOR_AUTHORITY_VIOLATION",
+		message: `actor=${entry.actor} not allowed for kind=${entry.kind}`,
+		detail: {
+			kind: entry.kind,
+			actor: entry.actor
+		}
+	};
+	return null;
+}
+function checkPerKindPayload(c) {
+	const { entry, payloadParsed } = c;
+	if (!payloadParsed.success) return {
+		ok: false,
+		code: "INVALID_PAYLOAD",
+		message: `payload schema validation failed for kind=${entry.kind}`,
+		detail: {
+			kind: entry.kind,
+			issues: payloadParsed.error.issues
+		}
+	};
+	return null;
 }
 //#endregion
 //#region src/core/reducer/invariants.ts
@@ -2133,16 +3202,137 @@ function findCollision(incomingId, existing, selectId) {
 	return null;
 }
 //#endregion
-//#region src/core/reducer/preflight.ts
-const DEFAULT_SUB_STATE = "TRIAGE.score";
-const DEFAULT_CEREMONY = {
-	spec_phase: true,
-	verify_phase: true,
-	settle_phase: false,
-	strict_spec_review: false,
-	lessons_required: "skip",
-	strict_drift_check: false
-};
+//#region src/core/reducer/preflight/checks-spec.ts
+const SPEC_CONTENT_KINDS = new Set([
+	"event:spec_submitted",
+	"event:spec_req_added",
+	"event:spec_scenario_added",
+	"event:spec_visual_added"
+]);
+const SPEC_VERSION_KINDS = new Set([
+	"event:spec_submitted",
+	"event:spec_req_added",
+	"event:spec_scenario_added",
+	"event:spec_visual_added"
+]);
+function checkSpecContentPhase(c) {
+	const { entry, ctx } = c;
+	if (SPEC_CONTENT_KINDS.has(entry.kind)) {
+		if (ctx.snapshot.state?.spec_locked === true) return {
+			ok: false,
+			code: "SPEC_LOCKED_NO_DIRECT_EDIT",
+			message: `${entry.kind} blocked: spec_locked=true; walk back via \`loaf finding raise --category spec-gap --action amend-spec\` to re-enter SPEC.spec`,
+			detail: {
+				kind: entry.kind,
+				spec_locked: true
+			}
+		};
+		if (entry.kind !== "event:spec_submitted" && (ctx.snapshot.state?.spec_version ?? 0) === 0) return {
+			ok: false,
+			code: "SPEC_NOT_INITIALIZED",
+			message: `${entry.kind} blocked: spec is not initialized (spec_version=0); run \`loaf spec submit --input <file>\` first to bump spec_version to 1`,
+			detail: {
+				kind: entry.kind,
+				spec_version: ctx.snapshot.state?.spec_version ?? 0
+			}
+		};
+	}
+	return null;
+}
+function checkSpecDuplicateIds(c) {
+	const { entry, payloadData, ctx } = c;
+	if (entry.kind === "event:spec_req_added") {
+		const payload = payloadData;
+		if (findCollision(payload.req.id, ctx.snapshot.requirements, (r) => r.id)) return {
+			ok: false,
+			code: "DUPLICATE_REQ_ID",
+			message: `spec_req_added: REQ ${payload.req.id} already in projection`,
+			detail: { id: payload.req.id }
+		};
+	}
+	if (entry.kind === "event:spec_scenario_added") {
+		const payload = payloadData;
+		if (findCollision(payload.scenario.id, ctx.snapshot.scenarios, (s) => s.id)) return {
+			ok: false,
+			code: "DUPLICATE_SCEN_ID",
+			message: `spec_scenario_added: SCEN ${payload.scenario.id} already in projection`,
+			detail: { id: payload.scenario.id }
+		};
+	}
+	if (entry.kind === "event:spec_visual_added") {
+		const payload = payloadData;
+		if (findCollision(payload.visual.id, ctx.snapshot.visual_contracts, (v) => v.id)) return {
+			ok: false,
+			code: "DUPLICATE_VIS_ID",
+			message: `spec_visual_added: VIS ${payload.visual.id} already in projection`,
+			detail: { id: payload.visual.id }
+		};
+	}
+	return null;
+}
+function checkSpecVersion$1(c) {
+	const { entry, payloadData, ctx } = c;
+	if (SPEC_VERSION_KINDS.has(entry.kind)) {
+		const payloadVersion = payloadData.spec_version;
+		const currentVersion = ctx.snapshot.state?.spec_version ?? 0;
+		if (entry.kind === "event:spec_submitted") {
+			if (entry.batch_index !== void 0 && entry.batch_index !== 0) return {
+				ok: false,
+				code: "SPEC_VERSION_BATCH_MISMATCH",
+				message: `spec_submitted must appear at batch_index=0 (got ${entry.batch_index}); it is the whole-replacement entrypoint`,
+				detail: {
+					kind: entry.kind,
+					batch_index: entry.batch_index,
+					expected_batch_index: 0
+				}
+			};
+			const v = checkSpecVersion$2(payloadVersion, currentVersion, "head");
+			if (!v.ok) return {
+				ok: false,
+				code: "SPEC_VERSION_NOT_MONOTONIC",
+				message: `spec_submitted: spec_version must be ${v.expected} (current+1), got ${payloadVersion}`,
+				detail: {
+					kind: entry.kind,
+					payload_spec_version: payloadVersion,
+					current_spec_version: currentVersion,
+					expected_spec_version: v.expected
+				}
+			};
+		} else {
+			const mode = resolveSpecVersionMode(entry.batch_index);
+			const v = checkSpecVersion$2(payloadVersion, currentVersion, mode);
+			if (!v.ok) {
+				if (mode === "head") return {
+					ok: false,
+					code: "SPEC_VERSION_NOT_MONOTONIC",
+					message: `${entry.kind}: spec_version must be ${v.expected} (current+1) at batch head, got ${payloadVersion}`,
+					detail: {
+						kind: entry.kind,
+						payload_spec_version: payloadVersion,
+						current_spec_version: currentVersion,
+						expected_spec_version: v.expected,
+						batch_position: "head"
+					}
+				};
+				return {
+					ok: false,
+					code: "SPEC_VERSION_BATCH_MISMATCH",
+					message: `${entry.kind}: spec_version must be ${v.expected} at batch_index=${entry.batch_index} (batch continuation), got ${payloadVersion}`,
+					detail: {
+						kind: entry.kind,
+						payload_spec_version: payloadVersion,
+						current_spec_version: currentVersion,
+						batch_index: entry.batch_index,
+						batch_position: "continuation"
+					}
+				};
+			}
+		}
+	}
+	return null;
+}
+//#endregion
+//#region src/core/task-amend-policy.ts
 function arraysEqual(a, b) {
 	if (a === void 0 || b === void 0) return a === b;
 	return a.length === b.length && a.every((v, i) => v === b[i]);
@@ -2266,103 +3456,1216 @@ function firstAddFreshnessViolation(task) {
 	}
 	return null;
 }
-const SPEC_CONTENT_KINDS = new Set([
-	"event:spec_submitted",
-	"event:spec_req_added",
-	"event:spec_scenario_added",
-	"event:spec_visual_added"
-]);
-const SPEC_VERSION_KINDS = new Set([
-	"event:spec_submitted",
-	"event:spec_req_added",
-	"event:spec_scenario_added",
-	"event:spec_visual_added"
-]);
-function preflight(rawEntry, ctx) {
-	const sub_state = ctx.snapshot.state?.sub_state ?? DEFAULT_SUB_STATE;
-	const ceremony = ctx.snapshot.state?.ceremony ?? DEFAULT_CEREMONY;
-	const verify_accepted = ctx.snapshot.state?.verify_accepted ?? false;
-	const spec_locked = ctx.snapshot.state?.spec_locked ?? false;
-	const parsed = JournalEntry$1.safeParse(rawEntry);
-	if (!parsed.success) return {
-		ok: false,
-		code: "INVALID_ENVELOPE",
-		message: "JournalEntry failed envelope schema validation",
-		detail: { issues: parsed.error.issues }
+//#endregion
+//#region src/core/task-graph.ts
+function areTaskDependenciesSatisfied(task, tasksById) {
+	return task.depends_on.every((dependencyId) => tasksById.get(dependencyId)?.status === "done");
+}
+/** Validate the batch-final task projection at the admission boundary. */
+function checkTaskGraph(tasks) {
+	const tasksById = new Map(tasks.map((task) => [task.id, task]));
+	for (const task of tasks) for (let index = 0; index < task.depends_on.length; index++) {
+		const dependencyId = task.depends_on[index];
+		if (!tasksById.has(dependencyId)) return {
+			code: "TASK_DEP_NOT_FOUND",
+			message: `task ${task.id} dependency ${dependencyId} at depends_on[${index}] does not exist in the batch-final task graph`,
+			detail: {
+				task_id: task.id,
+				field: `depends_on[${index}]`,
+				ref: dependencyId
+			}
+		};
+	}
+	for (const task of tasks) if (task.depends_on.includes(task.id)) return {
+		code: "TASK_DEP_SELF",
+		message: `task ${task.id} cannot depend on itself`,
+		detail: { task_id: task.id }
 	};
-	const entry = parsed.data;
-	const payloadParsed = PER_KIND_PAYLOAD[entry.kind].safeParse(entry.payload);
-	const checkCtx = {
-		rawEntry,
-		entry,
-		payloadParsed,
-		payloadData: payloadParsed.success ? payloadParsed.data : void 0,
-		ctx,
-		sub_state,
+	for (const task of tasks) {
+		const firstIndexByDependency = /* @__PURE__ */ new Map();
+		for (let index = 0; index < task.depends_on.length; index++) {
+			const dependencyId = task.depends_on[index];
+			const firstIndex = firstIndexByDependency.get(dependencyId);
+			if (firstIndex !== void 0) return {
+				code: "TASK_DEP_DUPLICATE",
+				message: `task ${task.id} dependency ${dependencyId} is duplicated at depends_on indexes ${firstIndex} and ${index}`,
+				detail: {
+					task_id: task.id,
+					ref: dependencyId,
+					indexes: [firstIndex, index]
+				}
+			};
+			firstIndexByDependency.set(dependencyId, index);
+		}
+	}
+	const visited = /* @__PURE__ */ new Set();
+	const active = /* @__PURE__ */ new Set();
+	const stack = [];
+	const findCycle = (taskId) => {
+		visited.add(taskId);
+		active.add(taskId);
+		stack.push(taskId);
+		const task = tasksById.get(taskId);
+		for (const dependencyId of task.depends_on) if (!visited.has(dependencyId)) {
+			const cycle = findCycle(dependencyId);
+			if (cycle !== null) return cycle;
+		} else if (active.has(dependencyId)) {
+			const cycleStart = stack.indexOf(dependencyId);
+			return [...stack.slice(cycleStart), dependencyId];
+		}
+		stack.pop();
+		active.delete(taskId);
+		return null;
+	};
+	for (const task of tasks) {
+		if (visited.has(task.id)) continue;
+		const cycle = findCycle(task.id);
+		if (cycle !== null) return {
+			code: "TASK_DEP_CYCLE",
+			message: `task dependency graph contains cycle ${cycle.join(" -> ")}`,
+			detail: { cycle }
+		};
+	}
+	for (const task of tasks) {
+		if (task.status === "done" || task.status === "abandoned") continue;
+		for (let index = 0; index < task.depends_on.length; index++) {
+			const dependencyId = task.depends_on[index];
+			if (tasksById.get(dependencyId).status === "abandoned") return {
+				code: "TASK_DEP_ABANDONED",
+				message: `non-terminal task ${task.id} dependency ${dependencyId} at depends_on[${index}] is abandoned; replace it via amend-tasks`,
+				detail: {
+					task_id: task.id,
+					field: `depends_on[${index}]`,
+					ref: dependencyId,
+					hint: "replace the abandoned dependency via amend-tasks"
+				}
+			};
+		}
+	}
+	return null;
+}
+//#endregion
+//#region src/core/reducer/preflight/checks-task.ts
+function checkTasksPlanned(c) {
+	const { entry, rawEntry } = c;
+	if (entry.kind === "event:tasks_planned") {
+		const incoming = (rawEntry.payload ?? {})["tasks"];
+		if (Array.isArray(incoming)) {
+			const seenIds = /* @__PURE__ */ new Set();
+			for (const t of incoming) {
+				if (typeof t?.id === "string") {
+					if (seenIds.has(t.id)) return {
+						ok: false,
+						code: "DUPLICATE_TASK_ID",
+						message: `tasks_planned: task id ${t.id} appears more than once in payload`,
+						detail: { task_id: t.id }
+					};
+					seenIds.add(t.id);
+				}
+				if (t?.red_test_registered === true) return {
+					ok: false,
+					code: "BUG_TASK_FLAG_MISUSE",
+					message: `tasks_planned: task ${t.id ?? "?"} carries red_test_registered=true — a planned task is born unregistered; use \`loaf tasks register-red\` after creation`,
+					detail: {
+						task_id: t.id,
+						kind: "event:tasks_planned"
+					}
+				};
+			}
+		}
+	}
+	return null;
+}
+function checkTasksAmended(c) {
+	const { entry, payloadData, sub_state, ctx } = c;
+	if (entry.kind === "event:tasks_amended") {
+		const amended = payloadData;
+		const mode = amended.mode ?? "replace";
+		const taskId = amended.task.id;
+		const sponsorId = amended.sponsored_by_finding_id;
+		if (sponsorId !== void 0) {
+			const finding = ctx.snapshot.findings.find((f) => f.id === sponsorId);
+			if (!finding) return {
+				ok: false,
+				code: "FINDING_NOT_FOUND",
+				message: `event:tasks_amended.sponsored_by_finding_id=${sponsorId} not found in projection`,
+				detail: {
+					id: sponsorId,
+					reason: "not_found"
+				}
+			};
+			if (finding.status === "closed") return {
+				ok: false,
+				code: "FINDING_NOT_FOUND",
+				message: `event:tasks_amended.sponsored_by_finding_id=${sponsorId} is already_closed; only open findings can sponsor a tasks amend`,
+				detail: {
+					id: sponsorId,
+					reason: "already_closed"
+				}
+			};
+			if (finding.action !== "amend-tasks") return {
+				ok: false,
+				code: "FINDING_NOT_FOUND",
+				message: `event:tasks_amended.sponsored_by_finding_id=${sponsorId} has action=${finding.action} but only amend-tasks findings can sponsor a tasks amend`,
+				detail: {
+					id: sponsorId,
+					reason: "action_mismatch",
+					expected_action: "amend-tasks",
+					actual_action: finding.action
+				}
+			};
+			if (sub_state !== "EXECUTE.work") return {
+				ok: false,
+				code: "MUTATION_OUT_OF_RIGHTS",
+				message: `sponsored event:tasks_amended is permitted only at EXECUTE.work (current sub_state=${sub_state})`,
+				detail: {
+					task_id: taskId,
+					mode,
+					sub_state,
+					reason: "sponsored_tasks_amended_wrong_sub_state"
+				}
+			};
+			if (mode === "add") {
+				const violation = firstAddFreshnessViolation(amended.task);
+				if (violation) return {
+					ok: false,
+					code: "MUTATION_OUT_OF_RIGHTS",
+					message: `sponsored event:tasks_amended mode=add must introduce a fresh task — '${violation.field}' carries execution progress (§8.6: a sponsored amend may not fabricate completed work)`,
+					detail: {
+						task_id: taskId,
+						mode,
+						sub_state,
+						field: violation.field,
+						reason: "sponsored_add_not_fresh"
+					}
+				};
+			}
+			if (mode === "replace") {
+				const currentTask = ctx.snapshot.tasks.find((t) => t.id === taskId);
+				if (!currentTask) return {
+					ok: false,
+					code: "TASK_NOT_FOUND",
+					message: `tasks_amended: task ${taskId} is not in the current tasks projection`,
+					detail: { task_id: taskId }
+				};
+				const violation = firstSponsoredFrozenViolation(currentTask, extractTaskSlim(amended.task));
+				if (violation) return {
+					ok: false,
+					code: "MUTATION_OUT_OF_RIGHTS",
+					message: `sponsored event:tasks_amended on task ${taskId} changes frozen field '${violation.field}' — a graph amend may not erase or rewrite execution progress (§8.6)`,
+					detail: {
+						task_id: taskId,
+						mode,
+						sub_state,
+						field: violation.field,
+						from: violation.from,
+						to: violation.to
+					}
+				};
+			}
+			return null;
+		}
+		if (mode === "add") return {
+			ok: false,
+			code: "MUTATION_OUT_OF_RIGHTS",
+			message: `event:tasks_amended mode=add on task ${taskId} is not authorized — an add must be sponsored by an amend-tasks finding (sponsored_by_finding_id)`,
+			detail: {
+				task_id: taskId,
+				mode,
+				sub_state,
+				reason: "unsponsored_add"
+			}
+		};
+		if (sub_state !== "EXECUTE.plan") return {
+			ok: false,
+			code: "MUTATION_OUT_OF_RIGHTS",
+			message: `event:tasks_amended mode=replace is permitted only at EXECUTE.plan (current sub_state=${sub_state})`,
+			detail: {
+				task_id: taskId,
+				mode,
+				sub_state,
+				reason: "replace_outside_execute_plan"
+			}
+		};
+		const currentTask = ctx.snapshot.tasks.find((t) => t.id === taskId);
+		if (!currentTask) return {
+			ok: false,
+			code: "TASK_NOT_FOUND",
+			message: `tasks_amended: task ${taskId} is not in the current tasks projection`,
+			detail: { task_id: taskId }
+		};
+		const violation = firstFrozenViolation(currentTask, extractTaskSlim(amended.task));
+		if (violation) return {
+			ok: false,
+			code: "MUTATION_OUT_OF_RIGHTS",
+			message: `event:tasks_amended on task ${taskId} changes frozen field '${violation.field}' — §8.6 forbids it at EXECUTE.plan`,
+			detail: {
+				task_id: taskId,
+				mode,
+				sub_state,
+				field: violation.field,
+				from: violation.from,
+				to: violation.to
+			}
+		};
+	}
+	return null;
+}
+function checkTaskLifecycle(c) {
+	const { entry, rawEntry, ctx } = c;
+	if (entry.kind === "event:task_claimed" || entry.kind === "event:task_step_started" || entry.kind === "event:task_step_done") {
+		const payload = rawEntry.payload ?? {};
+		const task_id = payload["task_id"];
+		if (!task_id) return {
+			ok: false,
+			code: "INVALID_PAYLOAD",
+			message: `${entry.kind}: missing task_id`,
+			detail: { kind: entry.kind }
+		};
+		const task = ctx.snapshot.tasks.find((t) => t.id === task_id);
+		if (!task) return {
+			ok: false,
+			code: "TASK_NOT_FOUND",
+			message: `${entry.kind}: task ${task_id} is not in the current tasks projection`,
+			detail: {
+				task_id,
+				kind: entry.kind
+			}
+		};
+		if (entry.kind === "event:task_claimed") {
+			if (task.status === "in_progress") return {
+				ok: false,
+				code: "TASK_ALREADY_CLAIMED",
+				message: `task ${task_id} is already claimed (status=in_progress)`,
+				detail: {
+					task_id,
+					status: task.status
+				}
+			};
+			if (task.status === "done" || task.status === "abandoned") return {
+				ok: false,
+				code: "TASK_NOT_CLAIMABLE",
+				message: `task ${task_id} cannot be claimed (status=${task.status} — terminal state)`,
+				detail: {
+					task_id,
+					status: task.status
+				}
+			};
+			const tasksById = new Map(ctx.snapshot.tasks.map((candidate) => [candidate.id, candidate]));
+			if (!areTaskDependenciesSatisfied(task, tasksById)) {
+				const blockingDepId = task.depends_on.find((dependencyId) => tasksById.get(dependencyId)?.status !== "done");
+				const blockingDep = tasksById.get(blockingDepId);
+				const blockingStatus = blockingDep?.status ?? "missing";
+				return {
+					ok: false,
+					code: "TASK_DEPS_NOT_SATISFIED",
+					message: blockingDep === void 0 ? `task ${task_id} cannot be claimed: dependency ${blockingDepId} is not in the tasks projection` : `task ${task_id} cannot be claimed: dependency ${blockingDepId} is not done (status=${blockingStatus})`,
+					detail: {
+						task_id,
+						blocking_dep: blockingDepId,
+						blocking_status: blockingStatus
+					}
+				};
+			}
+		} else {
+			const step = payload["step"];
+			if (task.status !== "in_progress") return {
+				ok: false,
+				code: "TASK_NOT_CLAIMED",
+				message: `task ${task_id} step ${step ?? "?"} mutation requires task.status=in_progress (got status=${task.status}); claim the task first`,
+				detail: {
+					task_id,
+					step,
+					status: task.status,
+					kind: entry.kind
+				}
+			};
+			if (step === "implement" && task.kind === "behavioral" && task.labels.includes("bug") && task.red_test_registered !== true) return {
+				ok: false,
+				code: "BUG_TASK_REQUIRES_RED",
+				message: `behavioral bug task ${task_id} must register its RED test before the implement step — run \`loaf tasks register-red ${task_id}\` first`,
+				detail: {
+					task_id,
+					step,
+					kind: entry.kind
+				}
+			};
+			if (entry.kind === "event:task_step_done" && payload["red_test_registered"] === true) {
+				const result = payload["result"];
+				const okResult = result === void 0 || result === "passed" || result === "waived";
+				if (!(step === "red" && task.kind === "behavioral" && task.labels.includes("bug") && okResult)) return {
+					ok: false,
+					code: "BUG_TASK_FLAG_MISUSE",
+					message: `red_test_registered=true is valid only on a red-step task_step_done for a behavioral bug task with a passed/waived result (task ${task_id}, step=${step ?? "?"}, result=${result ?? "passed"}, kind=${task.kind})`,
+					detail: {
+						task_id,
+						step,
+						result: result ?? "passed",
+						kind: task.kind,
+						labels: task.labels
+					}
+				};
+			}
+		}
+	}
+	return null;
+}
+function checkTaskAbandoned(c) {
+	const { entry, rawEntry, ctx } = c;
+	if (entry.kind === "event:task_abandoned") {
+		const task_id = (rawEntry.payload ?? {})["task_id"];
+		if (!task_id) return {
+			ok: false,
+			code: "INVALID_PAYLOAD",
+			message: `${entry.kind}: missing task_id`,
+			detail: { kind: entry.kind }
+		};
+		const task = ctx.snapshot.tasks.find((t) => t.id === task_id);
+		if (!task) return {
+			ok: false,
+			code: "TASK_NOT_FOUND",
+			message: `${entry.kind}: task ${task_id} is not in the current tasks projection`,
+			detail: {
+				task_id,
+				kind: entry.kind
+			}
+		};
+		if (task.status === "done" || task.status === "abandoned") return {
+			ok: false,
+			code: "TASK_NOT_ABANDONABLE",
+			message: `task ${task_id} cannot be abandoned (status=${task.status} — already in a final status)`,
+			detail: {
+				task_id,
+				status: task.status
+			}
+		};
+		const blockingDependents = ctx.snapshot.tasks.filter((t) => t.depends_on.includes(task_id) && t.status !== "done" && t.status !== "abandoned").map((t) => t.id);
+		if (blockingDependents.length > 0) return {
+			ok: false,
+			code: "TASK_ABANDON_BLOCKED_DEPENDENTS",
+			message: `task ${task_id} cannot be abandoned: ${blockingDependents.length} non-terminal task(s) depend on it (${blockingDependents.join(", ")}); abandon or complete the dependents first`,
+			detail: {
+				task_id,
+				blocking_dependents: blockingDependents
+			}
+		};
+	}
+	return null;
+}
+function checkTaskStepReset(c) {
+	const { entry, payloadData, ctx } = c;
+	if (entry.kind === "event:task_step_reset") {
+		const payload = payloadData;
+		const finding = ctx.snapshot.findings.find((f) => f.id === payload.finding_id);
+		if (!finding) return {
+			ok: false,
+			code: "FINDING_NOT_FOUND",
+			message: `event:task_step_reset.finding_id=${payload.finding_id} not found in projection`,
+			detail: {
+				id: payload.finding_id,
+				reason: "not_found"
+			}
+		};
+		if (finding.status === "closed") return {
+			ok: false,
+			code: "FINDING_NOT_FOUND",
+			message: `event:task_step_reset.finding_id=${payload.finding_id} is already_closed; only open findings can sponsor a step reset`,
+			detail: {
+				id: payload.finding_id,
+				reason: "already_closed"
+			}
+		};
+		if (finding.action !== "fix-impl" && finding.action !== "fix-test") return {
+			ok: false,
+			code: "FINDING_NOT_FOUND",
+			message: `event:task_step_reset.finding_id=${payload.finding_id} has action=${finding.action} but only fix-impl / fix-test findings can sponsor a step reset`,
+			detail: {
+				id: payload.finding_id,
+				reason: "action_mismatch",
+				expected_action: ["fix-impl", "fix-test"],
+				actual_action: finding.action
+			}
+		};
+		const expectedStep = FIX_ACTION_STEP[finding.action];
+		if (payload.step !== expectedStep) return {
+			ok: false,
+			code: "MUTATION_OUT_OF_RIGHTS",
+			message: `event:task_step_reset step="${payload.step}" but ${finding.action} resets step="${expectedStep}"`,
+			detail: {
+				finding_id: payload.finding_id,
+				task_id: payload.task_id,
+				step: payload.step,
+				expected_step: expectedStep,
+				reason: "task_step_reset_step_mismatch"
+			}
+		};
+		const expectedTarget = finding.target;
+		if (expectedTarget === void 0 || expectedTarget.task_id !== payload.task_id || expectedTarget.step !== payload.step) return {
+			ok: false,
+			code: "MUTATION_OUT_OF_RIGHTS",
+			message: `event:task_step_reset target {task_id=${payload.task_id}, step=${payload.step}} does not match finding ${payload.finding_id}'s target`,
+			detail: {
+				finding_id: payload.finding_id,
+				expected_target: expectedTarget ?? null,
+				actual_target: {
+					task_id: payload.task_id,
+					step: payload.step
+				},
+				reason: "task_step_reset_target_mismatch"
+			}
+		};
+		const task = ctx.snapshot.tasks.find((t) => t.id === payload.task_id);
+		if (!task || !(payload.step in task.steps)) return {
+			ok: false,
+			code: "MUTATION_OUT_OF_RIGHTS",
+			message: `event:task_step_reset target {task_id=${payload.task_id}, step=${payload.step}} is not present in the tasks projection`,
+			detail: {
+				finding_id: payload.finding_id,
+				task_id: payload.task_id,
+				step: payload.step,
+				reason: "task_step_reset_target_mismatch"
+			}
+		};
+		if (task.status === "abandoned") return {
+			ok: false,
+			code: "MUTATION_OUT_OF_RIGHTS",
+			message: `event:task_step_reset cannot reset task ${payload.task_id}: status=abandoned is terminal and cannot be reactivated (a fix step reset may reopen a done task, never an abandoned one)`,
+			detail: {
+				finding_id: payload.finding_id,
+				task_id: payload.task_id,
+				status: task.status,
+				reason: "task_step_reset_task_abandoned"
+			}
+		};
+	}
+	return null;
+}
+//#endregion
+//#region src/core/gates/evidence-result.ts
+/** Evidence results that count as a positive proof signal. `waived` is a human
+*  escape; spec-review uses a STRICTER notion (passed/approved only) and does
+*  NOT go through this set. */
+const PASSING_RESULTS = new Set([
+	"passed",
+	"approved",
+	"waived"
+]);
+/** True when an evidence result is a positive proof signal (passed / approved /
+*  waived). undefined (no result yet) is never passing. */
+function isPassingResult(result) {
+	return result !== void 0 && PASSING_RESULTS.has(result);
+}
+//#endregion
+//#region src/core/gates/task-proof.ts
+/**
+* Per done task in `snapshot.tasks` (snapshot order, NOT sorted), compute the
+* proof gaps under `policy`. A task is evidence-proven when some evidence is
+* passing, covers the task, and has an accepted kind (or is a waiver). Returns
+* one finding per done task that has ≥1 gap; proven tasks produce no finding.
+* Iteration order is preserved so callers relying on first-gap-wins
+* (verify-min's bug-RED short-circuit) stay behavior-identical.
+*/
+function evaluateTaskProof(snapshot, policy) {
+	const findings = [];
+	for (const task of snapshot.tasks) {
+		if (task.status !== "done") continue;
+		const accepted = policy.acceptedKinds(task);
+		const gaps = [];
+		if (!snapshot.evidence.some((ev) => isPassingResult(ev.result) && ev.covers.includes(task.id) && (accepted.includes(ev.kind) || ev.kind === "waiver"))) gaps.push("no-passing-evidence");
+		if (task.kind === "behavioral" && task.labels.includes("bug") && task.red_test_registered !== true) gaps.push("bug-red-unregistered");
+		if (gaps.length > 0) findings.push({
+			task,
+			gaps
+		});
+	}
+	return findings;
+}
+const VERIFY_ACCEPT_KINDS = [
+	"task-summary",
+	"local-check",
+	"manual"
+];
+const verifyAcceptPolicy = { acceptedKinds: () => VERIFY_ACCEPT_KINDS };
+const VERIFY_MIN_REQUIRED_KINDS = {
+	behavioral: ["local-check"],
+	structural: ["local-check"],
+	"visual-ui": ["visual-review", "manual"],
+	docs: ["task-summary", "manual"],
+	chore: [
+		"local-check",
+		"manual",
+		"task-summary"
+	]
+};
+const verifyMinPolicy = { acceptedKinds: (task) => VERIFY_MIN_REQUIRED_KINDS[task.kind] ?? [] };
+//#endregion
+//#region src/core/machine.ts
+/** Preserve literal inference while rejecting missing and extra state keys. */
+function defineMachine(machine) {
+	return machine;
+}
+/** Canonical state-axis definition. Keep declaration order aligned with SubState. */
+const MACHINE = defineMachine({
+	"TRIAGE.score": {
+		entry: "loaf start <desc> invoked",
+		exit: "complexity_score computed (0-100)",
+		write_paths: [".loaf/<feature>/state.json"],
+		edges: [{
+			target: "TRIAGE.confirm",
+			owner_kind: "event:phase_advanced"
+		}],
+		prompt_inject: "Score 0-100 across files/api/schema/concurrency/security. Suggest profile."
+	},
+	"TRIAGE.confirm": {
+		entry: "score computed",
+		exit: "user accepts or overrides profile",
+		write_paths: [".loaf/<feature>/state.json"],
+		edges: [{
+			target: "SPEC.proposal",
+			owner_kind: "event:phase_advanced",
+			guards: ["spec_phase_required"]
+		}, {
+			target: "EXECUTE.plan",
+			owner_kind: "event:phase_advanced",
+			guards: ["spec_phase_forbidden"]
+		}],
+		prompt_inject: "Confirm proposed profile (quick/light/standard/deep — see skill PRESETS) or override."
+	},
+	"SPEC.proposal": {
+		entry: "ceremony.spec_phase=true && TRIAGE.confirm done; OR Q9 escalation backfill (ceremony.spec_phase 由 false 改 true)",
+		exit: "spec.md body has Proposal section",
+		write_paths: [".loaf/<feature>/spec.md", ".loaf/<feature>/spec-draft-context.md"],
+		edges: [{
+			target: "SPEC.spec",
+			owner_kind: "event:phase_advanced"
+		}],
+		prompt_inject: "Write Proposal: why / scope / anti-scope. If backfill, read spec-draft-context.md."
+	},
+	"SPEC.spec": {
+		entry: "proposal section exists OR amend-spec back-edge",
+		exit: "frontmatter has requirements (each with three-way verifiability) + scenarios (+visual_contracts if UI); needs_clarification empty",
+		write_paths: [".loaf/<feature>/spec.md"],
+		edges: [{
+			target: "SPEC.plan",
+			owner_kind: "event:phase_advanced"
+		}],
+		prompt_inject: "Author EARS REQ-* with measurable / verified_by_scenarios / acceptance_na+reason. Add Gherkin SCEN-* and VIS-* as needed."
+	},
+	"SPEC.plan": {
+		entry: "spec section complete && needs_clarification empty",
+		exit: "spec.md body has Plan section",
+		write_paths: [".loaf/<feature>/spec.md"],
+		mutation_rights: {
+			writable_fields: ["spec.md:body.plan"],
+			forbidden_fields: [
+				"spec.md:frontmatter.requirements",
+				"spec.md:frontmatter.scenarios",
+				"spec.md:frontmatter.visual_contracts",
+				"tasks.json:*"
+			]
+		},
+		edges: [{
+			target: "SPEC.design",
+			owner_kind: "event:phase_advanced"
+		}],
+		prompt_inject: "Plan: risks / dependencies / milestones."
+	},
+	"SPEC.design": {
+		entry: "plan section complete",
+		exit: "design section + tasks.json generated; every REQ/SCEN/VIS bound to ≥1 task",
+		write_paths: [".loaf/<feature>/spec.md", ".loaf/<feature>/tasks.json"],
+		mutation_rights: {
+			writable_fields: ["spec.md:body.design", "tasks.json:*"],
+			forbidden_fields: [
+				"spec.md:frontmatter.requirements",
+				"spec.md:frontmatter.scenarios",
+				"spec.md:frontmatter.visual_contracts"
+			]
+		},
+		edges: [{
+			target: "EXECUTE.plan",
+			owner_kind: "event:phase_advanced",
+			guards: ["spec_locked_required"]
+		}],
+		prompt_inject: "Design + decompose into tasks bound to REQ/SCEN/VIS via task.drives[]. Use labels[] for bug/security/etc.",
+		gate: "spec-lock"
+	},
+	"EXECUTE.plan": {
+		entry: "spec-lock passed (or quick: TRIAGE.confirm done)",
+		exit: "every task has execution policy populated per its kind",
+		write_paths: [".loaf/<feature>/tasks.json"],
+		mutation_rights: {
+			writable_fields: ["tasks.json:tasks[].execution[].applicability", "tasks.json:tasks[].status"],
+			forbidden_fields: [
+				"tasks.json:tasks[].id",
+				"tasks.json:tasks[].kind",
+				"tasks.json:tasks[].drives",
+				"tasks.json:tasks[].depends_on",
+				"tasks.json:tasks[].labels",
+				"spec.md:*"
+			]
+		},
+		edges: [{
+			target: "EXECUTE.work",
+			owner_kind: "event:phase_advanced"
+		}],
+		prompt_inject: "Derive execution policy for each task from kind × profile. Set step.applicability accordingly."
+	},
+	"EXECUTE.work": {
+		entry: "EXECUTE.plan done OR fix-impl/fix-test/amend-tasks back-edge",
+		exit: "every task.status = done OR abandoned, with all required steps passed/waived/na",
+		write_paths: [
+			".loaf/<feature>/tasks.json",
+			".loaf/<feature>/evidence.jsonl",
+			".loaf/<feature>/findings.jsonl"
+		],
+		mutation_rights: {
+			writable_fields: [
+				"tasks.json:tasks[].execution[].status",
+				"tasks.json:tasks[].execution[].evidence_refs",
+				"tasks.json:tasks[].status",
+				"evidence.jsonl:*",
+				"findings.jsonl:*"
+			],
+			forbidden_fields: [
+				"tasks.json:tasks[].id",
+				"tasks.json:tasks[].kind",
+				"tasks.json:tasks[].drives",
+				"tasks.json:tasks[].depends_on",
+				"tasks.json:tasks[].labels",
+				"spec.md:*"
+			]
+		},
+		edges: [{
+			target: "EXECUTE.work",
+			owner_kind: "contract:next"
+		}, {
+			target: "EXECUTE.done",
+			owner_kind: "event:phase_advanced"
+		}],
+		prompt_inject: "Execute each in-progress task at its currently-running step. Append evidence with covers[]."
+	},
+	"EXECUTE.done": {
+		entry: "all tasks status ∈ {done, abandoned}",
+		exit: "advance to VERIFY.plan (verify_phase=true); OR DONE.delivered (verify_phase=false: quick / light non-spike via `loaf deliver`: verify-min runs at this boundary, on pass transition direct to DONE.delivered, on fail exit 2 — see protocol.md §3.2 + §10.14)",
+		write_paths: [],
+		edges: [{
+			target: "VERIFY.plan",
+			owner_kind: "event:phase_advanced",
+			guards: ["verify_phase_required"]
+		}, {
+			target: "DONE.delivered",
+			owner_kind: "session:delivered"
+		}],
+		prompt_inject: "All tasks complete. verify_phase=true → advance to VERIFY.plan. verify_phase=false non-spike → run `loaf deliver` (verify-min then DONE.delivered). spike (any profile) → deliver blocked; pick archive / spike convert / abandon per §8.3."
+	},
+	"VERIFY.plan": {
+		entry: "EXECUTE.done && ceremony.verify_phase=true",
+		exit: "applicability computed for each VerifyCheckKind (must/optional/na with reasons)",
+		write_paths: [".loaf/<feature>/state.json"],
+		edges: [
+			{
+				target: "VERIFY.run",
+				owner_kind: "event:phase_advanced"
+			},
+			{
+				target: "VERIFY.review",
+				owner_kind: "contract:next"
+			},
+			{
+				target: "VERIFY.acceptance",
+				owner_kind: "contract:next"
+			},
+			{
+				target: "VERIFY.visual",
+				owner_kind: "contract:next"
+			},
+			{
+				target: "VERIFY.accept",
+				owner_kind: "contract:next"
+			}
+		],
+		prompt_inject: "Compute which verify checks apply: run/review/acceptance/visual. Output reasoning + N/A justifications."
+	},
+	"VERIFY.run": {
+		entry: "VERIFY.plan done with run applicability ∈ {must, optional-elected}; OR amend back-edge",
+		exit: "run check passed or explicitly waived",
+		write_paths: [".loaf/<feature>/evidence.jsonl", ".loaf/<feature>/findings.jsonl"],
+		edges: [
+			{
+				target: "VERIFY.review",
+				owner_kind: "event:phase_advanced"
+			},
+			{
+				target: "VERIFY.acceptance",
+				owner_kind: "event:phase_advanced"
+			},
+			{
+				target: "VERIFY.visual",
+				owner_kind: "event:phase_advanced"
+			},
+			{
+				target: "VERIFY.accept",
+				owner_kind: "event:phase_advanced"
+			}
+		],
+		prompt_inject: "Run the `run` check (test + lint + typecheck). Append evidence with kind=local-check or task-summary. Raise findings as needed."
+	},
+	"VERIFY.review": {
+		entry: "VERIFY.plan or prior check done with review applicability ∈ {must, optional-elected}",
+		exit: "review check passed or explicitly waived",
+		write_paths: [".loaf/<feature>/evidence.jsonl", ".loaf/<feature>/findings.jsonl"],
+		edges: [
+			{
+				target: "VERIFY.run",
+				owner_kind: "contract:next"
+			},
+			{
+				target: "VERIFY.acceptance",
+				owner_kind: "event:phase_advanced"
+			},
+			{
+				target: "VERIFY.visual",
+				owner_kind: "event:phase_advanced"
+			},
+			{
+				target: "VERIFY.accept",
+				owner_kind: "event:phase_advanced"
+			}
+		],
+		prompt_inject: "Run quality review (spec_fit + quality_fit). Append evidence with kind=verify-review. Raise findings as needed."
+	},
+	"VERIFY.acceptance": {
+		entry: "VERIFY.plan or prior check done with acceptance applicability ∈ {must, optional-elected}",
+		exit: "acceptance check passed or explicitly waived",
+		write_paths: [".loaf/<feature>/evidence.jsonl", ".loaf/<feature>/findings.jsonl"],
+		edges: [
+			{
+				target: "VERIFY.run",
+				owner_kind: "contract:next"
+			},
+			{
+				target: "VERIFY.review",
+				owner_kind: "contract:next"
+			},
+			{
+				target: "VERIFY.visual",
+				owner_kind: "event:phase_advanced"
+			},
+			{
+				target: "VERIFY.accept",
+				owner_kind: "event:phase_advanced"
+			}
+		],
+		prompt_inject: "Run selected Gherkin acceptance scenarios. Append evidence with kind=acceptance. Raise findings as needed."
+	},
+	"VERIFY.visual": {
+		entry: "VERIFY.plan or prior check done with visual applicability ∈ {must, optional-elected}",
+		exit: "visual check passed or explicitly waived",
+		write_paths: [".loaf/<feature>/evidence.jsonl", ".loaf/<feature>/findings.jsonl"],
+		edges: [
+			{
+				target: "VERIFY.run",
+				owner_kind: "contract:next"
+			},
+			{
+				target: "VERIFY.review",
+				owner_kind: "contract:next"
+			},
+			{
+				target: "VERIFY.acceptance",
+				owner_kind: "contract:next"
+			},
+			{
+				target: "VERIFY.accept",
+				owner_kind: "event:phase_advanced"
+			}
+		],
+		prompt_inject: "Run visual contract verification. Append evidence with kind=visual-review (attachments required). Raise findings as needed."
+	},
+	"VERIFY.accept": {
+		entry: "all applicable checks passed/waived + no open findings",
+		exit: "verify-accept gate approved. settle_phase=true (deep) → SETTLE.reconcile via `loaf settle`; settle_phase=false (standard) → DONE.delivered via `loaf deliver`",
+		write_paths: [".loaf/<feature>/evidence.jsonl"],
+		edges: [{
+			target: "SETTLE.reconcile",
+			owner_kind: "event:phase_advanced",
+			guards: ["settle_phase_required", "verify_accepted_required"]
+		}, {
+			target: "DONE.delivered",
+			owner_kind: "session:delivered"
+		}],
+		prompt_inject: "Verify-accept gate. Review check status + open findings. Approve or reject. On approve: settle_phase=true → `loaf settle` enters SETTLE.reconcile; settle_phase=false → `loaf deliver` enters DONE.delivered.",
+		gate: "verify-accept"
+	},
+	"SETTLE.reconcile": {
+		entry: "verify-accept passed && ceremony.settle_phase=true (deep only after rev 5.x; quick/light/standard skip SETTLE)",
+		exit: "reconcile.json valid",
+		write_paths: [".loaf/<feature>/reconcile.json"],
+		edges: [{
+			target: "SETTLE.lessons",
+			owner_kind: "event:phase_advanced"
+		}],
+		prompt_inject: "Compare planned_scope vs actual_scope. Resolve every drift. Snapshot verify_checks_status."
+	},
+	"SETTLE.lessons": {
+		entry: "reconcile valid (deep only after rev 5.x; quick/light/standard skip SETTLE)",
+		exit: "lessons.md appended (deep: lessons_required=must)",
+		write_paths: [".loaf/<feature>/lessons.md"],
+		edges: [
+			{
+				target: "DONE.delivered",
+				owner_kind: "session:delivered"
+			},
+			{
+				target: "DONE.archived",
+				owner_kind: "session:archived"
+			},
+			{
+				target: "DONE.abandoned",
+				owner_kind: "session:abandoned"
+			}
+		],
+		prompt_inject: "Append lessons (deep: MUST). User then runs `loaf deliver` / `loaf archive` / `loaf abandon`."
+	},
+	"DONE.delivered": {
+		entry: "loaf deliver succeeded (Q4: advisory only — no git/gh side effects)",
+		exit: "terminal",
+		write_paths: [],
+		edges: [],
+		prompt_inject: ""
+	},
+	"DONE.archived": {
+		entry: "loaf archive --reason '...'",
+		exit: "terminal",
+		write_paths: [],
+		edges: [],
+		prompt_inject: ""
+	},
+	"DONE.abandoned": {
+		entry: "loaf abandon --reason '...' (reason required)",
+		exit: "terminal",
+		write_paths: [],
+		edges: [],
+		prompt_inject: ""
+	}
+});
+/** Compatibility projection consumed by the runtime contract shim. */
+const SUB_STATE_CONTRACTS$1 = Object.entries(MACHINE).map(([subState, node]) => ({
+	sub_state: subState,
+	entry: node.entry,
+	exit: node.exit,
+	write_paths: [...node.write_paths],
+	..."mutation_rights" in node ? { mutation_rights: {
+		writable_fields: [...node.mutation_rights.writable_fields],
+		forbidden_fields: [...node.mutation_rights.forbidden_fields]
+	} } : {},
+	next: node.edges.map((edge) => edge.target),
+	prompt_inject: node.prompt_inject
+}));
+/** Cursor-owned human gate, if the current node declares one. */
+function gateNameForCursor(subState) {
+	return MACHINE[subState].gate ?? null;
+}
+//#endregion
+//#region src/core/reducer/transition.ts
+function deriveLegalTransitions() {
+	const transitions = {};
+	for (const subState of Object.keys(MACHINE)) transitions[subState] = MACHINE[subState].edges.filter((edge) => edge.owner_kind === "event:phase_advanced").map((edge) => edge.target);
+	return transitions;
+}
+const LEGAL_TRANSITIONS = deriveLegalTransitions();
+const NextOwnerVerb = z.enum([
+	"advance",
+	"deliver",
+	"settle",
+	"gate decide",
+	"profile escalate",
+	"pending resolve",
+	"tasks next"
+]);
+const NextAction = z.object({
+	command: z.string().min(1),
+	owner_verb: NextOwnerVerb,
+	target: z.union([
+		SubState,
+		GateName,
+		PendingPromptKind,
+		z.literal("task-level")
+	]).optional(),
+	blocking: z.boolean(),
+	reason: z.string().min(1)
+}).strict();
+function buildGateDecideAction(gate) {
+	return {
+		command: `loaf gate decide ${gate} --approve|--reject --reason "<reason>"`,
+		owner_verb: "gate decide",
+		target: gate,
+		blocking: true,
+		reason: gate === "spec-lock" ? "SPEC_LOCK_GATE_DECISION_REQUIRED" : "VERIFY_ACCEPT_GATE_DECISION_REQUIRED"
+	};
+}
+function nextLegalTargets(prev, ceremony, verifyAccepted = false) {
+	return (LEGAL_TRANSITIONS[prev] ?? []).filter((target) => validateTransition(prev, target, {
 		ceremony,
-		verify_accepted,
-		spec_locked
+		actor: "cli:loaf",
+		verify_accepted: verifyAccepted
+	}).ok);
+}
+function transitionOwnerFor(input) {
+	const { sub_state, ceremony, spec_locked, verify_accepted, verify_next_target } = input;
+	const gate = gateNameForCursor(sub_state);
+	if (gate === "spec-lock" && !spec_locked) return buildGateDecideAction(gate);
+	if (sub_state === "VERIFY.accept") {
+		if (gate !== null && !verify_accepted) return buildGateDecideAction(gate);
+		if (ceremony.settle_phase) return {
+			command: "loaf settle",
+			owner_verb: "settle",
+			target: "SETTLE.reconcile",
+			blocking: false,
+			reason: "VERIFY_ACCEPTED_NEEDS_SETTLE"
+		};
+		return {
+			command: "loaf deliver",
+			owner_verb: "deliver",
+			target: "DONE.delivered",
+			blocking: false,
+			reason: "VERIFY_ACCEPTED_READY_TO_DELIVER"
+		};
+	}
+	if (sub_state === "EXECUTE.work") return {
+		command: "loaf tasks next",
+		owner_verb: "tasks next",
+		target: "task-level",
+		blocking: false,
+		reason: "EXECUTE_WORK_TASK_ROUTING"
 	};
-	for (const check of ORDERED_CHECKS) {
-		const failure = check(checkCtx);
-		if (failure) return failure;
+	if (sub_state === "EXECUTE.done" && !ceremony.verify_phase) return {
+		command: "loaf deliver",
+		owner_verb: "deliver",
+		target: "DONE.delivered",
+		blocking: false,
+		reason: "VERIFY_PHASE_DISABLED_READY_TO_DELIVER"
+	};
+	if (sub_state === "SETTLE.lessons") return {
+		command: "loaf deliver",
+		owner_verb: "deliver",
+		target: "DONE.delivered",
+		blocking: false,
+		reason: "SETTLE_COMPLETE_READY_TO_DELIVER"
+	};
+	if (sub_state.startsWith("DONE.")) return null;
+	const targets = nextLegalTargets(sub_state, ceremony, verify_accepted);
+	const target = verify_next_target !== void 0 && targets.includes(verify_next_target) ? verify_next_target : targets[0];
+	if (target === void 0) throw new Error(`No legal next action for non-terminal sub_state=${sub_state}`);
+	return {
+		command: `loaf advance ${target}`,
+		owner_verb: "advance",
+		target,
+		blocking: false,
+		reason: "ADVANCE_TO_NEXT_SUB_STATE"
+	};
+}
+const BACK_EDGE_FROM = {
+	"amend-spec": {
+		expected_target: "SPEC.spec",
+		allowed_from: new Set([
+			"EXECUTE.plan",
+			"EXECUTE.work",
+			"EXECUTE.done",
+			"VERIFY.plan",
+			"VERIFY.run",
+			"VERIFY.review",
+			"VERIFY.acceptance",
+			"VERIFY.visual",
+			"VERIFY.accept"
+		]),
+		allowed_from_label: "EXECUTE.* + VERIFY.*"
+	},
+	"amend-tasks": {
+		expected_target: "EXECUTE.work",
+		allowed_from: new Set([
+			"EXECUTE.work",
+			"EXECUTE.done",
+			"VERIFY.plan",
+			"VERIFY.run",
+			"VERIFY.review",
+			"VERIFY.acceptance",
+			"VERIFY.visual",
+			"VERIFY.accept"
+		]),
+		allowed_from_label: "EXECUTE.work / EXECUTE.done + VERIFY.*"
+	},
+	"fix-impl": {
+		expected_target: "EXECUTE.work",
+		allowed_from: new Set([
+			"EXECUTE.work",
+			"EXECUTE.done",
+			"VERIFY.plan",
+			"VERIFY.run",
+			"VERIFY.review",
+			"VERIFY.acceptance",
+			"VERIFY.visual",
+			"VERIFY.accept"
+		]),
+		allowed_from_label: "EXECUTE.work / EXECUTE.done + VERIFY.*"
+	},
+	"fix-test": {
+		expected_target: "EXECUTE.work",
+		allowed_from: new Set([
+			"EXECUTE.work",
+			"EXECUTE.done",
+			"VERIFY.plan",
+			"VERIFY.run",
+			"VERIFY.review",
+			"VERIFY.acceptance",
+			"VERIFY.visual",
+			"VERIFY.accept"
+		]),
+		allowed_from_label: "EXECUTE.work / EXECUTE.done + VERIFY.*"
+	}
+};
+const TRANSITION_GUARDS = {
+	spec_phase_required: {
+		passes: (ctx) => ctx.ceremony.spec_phase,
+		failure: (prev, target, ctx) => ({
+			ok: false,
+			code: "SPEC_PHASE_FORK_VIOLATION",
+			message: `${prev} → ${target} requires ceremony.spec_phase=true`,
+			detail: {
+				from: prev,
+				to: target,
+				spec_phase: ctx.ceremony.spec_phase
+			}
+		})
+	},
+	spec_phase_forbidden: {
+		passes: (ctx) => !ctx.ceremony.spec_phase,
+		failure: (prev, target, ctx) => ({
+			ok: false,
+			code: "SPEC_PHASE_FORK_VIOLATION",
+			message: `${prev} → ${target} requires ceremony.spec_phase=false (quick); profiles with spec_phase=true must traverse SPEC.*`,
+			detail: {
+				from: prev,
+				to: target,
+				spec_phase: ctx.ceremony.spec_phase
+			}
+		})
+	},
+	verify_phase_required: {
+		passes: (ctx) => ctx.ceremony.verify_phase,
+		failure: (prev, target, ctx) => ({
+			ok: false,
+			code: "VERIFY_PHASE_FORK_VIOLATION",
+			message: `${prev} → ${target} requires ceremony.verify_phase=true (standard / deep)`,
+			detail: {
+				from: prev,
+				to: target,
+				verify_phase: ctx.ceremony.verify_phase
+			}
+		})
+	},
+	spec_locked_required: {
+		passes: (ctx) => !!ctx.spec_locked,
+		failure: (prev, target, ctx) => ({
+			ok: false,
+			code: "SPEC_LOCK_NOT_SATISFIED",
+			message: `${prev} → ${target} requires spec_locked=true (run \`loaf gate decide spec-lock --approve\` first)`,
+			detail: {
+				from: prev,
+				to: target,
+				spec_locked: !!ctx.spec_locked
+			}
+		})
+	},
+	settle_phase_required: {
+		passes: (ctx) => ctx.ceremony.settle_phase,
+		failure: (prev, target, ctx) => ({
+			ok: false,
+			code: "SETTLE_PHASE_DISABLED",
+			message: `${prev} → ${target} requires ceremony.settle_phase=true (deep only)`,
+			detail: {
+				from: prev,
+				to: target,
+				settle_phase: ctx.ceremony.settle_phase
+			}
+		})
+	},
+	verify_accepted_required: {
+		passes: (ctx) => !!ctx.verify_accepted,
+		failure: (prev, target, ctx) => ({
+			ok: false,
+			code: "SETTLE_NOT_ACCEPTED",
+			message: `${prev} → ${target} requires verify_accepted=true (run \`loaf gate decide verify-accept --approve\` first)`,
+			detail: {
+				from: prev,
+				to: target,
+				verify_accepted: !!ctx.verify_accepted
+			}
+		})
+	}
+};
+function validateBackEdge(prev, target, backEdge) {
+	const action = backEdge.action;
+	const rule = Object.hasOwn(BACK_EDGE_FROM, action) ? BACK_EDGE_FROM[action] : void 0;
+	if (rule === void 0) return {
+		ok: false,
+		code: "TRANSITION_ILLEGAL",
+		message: `unknown back_edge.action ${action}`,
+		detail: {
+			back_edge: backEdge,
+			reason: "back_edge_action_unknown"
+		}
+	};
+	if (target !== rule.expected_target) return {
+		ok: false,
+		code: "TRANSITION_ILLEGAL",
+		message: `back_edge action=${action} requires target=${rule.expected_target}, got ${target}`,
+		detail: {
+			from: prev,
+			to: target,
+			back_edge_action: action,
+			expected_target: rule.expected_target,
+			reason: "back_edge_target_mismatch"
+		}
+	};
+	if (!rule.allowed_from.has(prev)) return {
+		ok: false,
+		code: "TRANSITION_ILLEGAL",
+		message: `back_edge action=${action} is not legal from ${prev}; allowed from ${rule.allowed_from_label}`,
+		detail: {
+			from: prev,
+			to: target,
+			back_edge_action: action,
+			allowed_from: [...rule.allowed_from],
+			reason: "back_edge_from_not_allowed"
+		}
+	};
+	return { ok: true };
+}
+function validateTransition(prev, target, ctx) {
+	if (ctx.back_edge !== void 0) return validateBackEdge(prev, target, ctx.back_edge);
+	const allowed = LEGAL_TRANSITIONS[prev] ?? [];
+	if (!allowed.includes(target)) return {
+		ok: false,
+		code: "TRANSITION_ILLEGAL",
+		message: `cannot transition ${prev} → ${target}`,
+		detail: {
+			from: prev,
+			to: target,
+			allowed_forward: [...allowed]
+		}
+	};
+	const edge = MACHINE[prev].edges.find((candidate) => candidate.owner_kind === "event:phase_advanced" && candidate.target === target);
+	if (edge === void 0) throw new Error(`MACHINE forward edge missing after LEGAL_TRANSITIONS accepted ${prev} → ${target}`);
+	for (const guardName of edge.guards ?? []) {
+		const guard = TRANSITION_GUARDS[guardName];
+		if (!guard.passes(ctx)) return guard.failure(prev, target, ctx);
 	}
 	return { ok: true };
 }
-function checkSeqMonotonic(c) {
-	const { entry, ctx } = c;
-	const expectedSeq = ctx.tail_seq + 1;
-	if (entry.seq !== expectedSeq) return {
-		ok: false,
-		code: "SEQ_NOT_MONOTONIC",
-		message: `entry.seq=${entry.seq} but expected ${expectedSeq} (tail seq=${ctx.tail_seq})`,
-		detail: {
-			got: entry.seq,
-			expected: expectedSeq,
-			tail_seq: ctx.tail_seq
-		}
-	};
-	return null;
-}
-function checkSubStateAuthority(c) {
-	const { entry, sub_state } = c;
-	if (!isSubStateAllowed(entry.kind, sub_state)) return {
-		ok: false,
-		code: "SUB_STATE_AUTHORITY_VIOLATION",
-		message: `kind=${entry.kind} not allowed in sub_state=${sub_state}`,
-		detail: {
-			kind: entry.kind,
-			sub_state
-		}
-	};
-	return null;
-}
-function checkActorAuthority(c) {
-	const { entry } = c;
-	if (!isActorAllowed(entry.kind, entry.actor)) return {
-		ok: false,
-		code: "ACTOR_AUTHORITY_VIOLATION",
-		message: `actor=${entry.actor} not allowed for kind=${entry.kind}`,
-		detail: {
-			kind: entry.kind,
-			actor: entry.actor
-		}
-	};
-	return null;
-}
-function checkPerKindPayload(c) {
-	const { entry, payloadParsed } = c;
-	if (!payloadParsed.success) return {
-		ok: false,
-		code: "INVALID_PAYLOAD",
-		message: `payload schema validation failed for kind=${entry.kind}`,
-		detail: {
-			kind: entry.kind,
-			issues: payloadParsed.error.issues
-		}
-	};
-	return null;
-}
+//#endregion
+//#region src/core/reducer/preflight/checks-workflow.ts
 function checkGateDecided(c) {
 	const { entry, payloadData, sub_state, ctx } = c;
 	if (entry.kind === "gate:decided") {
@@ -2391,13 +4694,12 @@ function checkGateDecided(c) {
 			const pendingHead = ctx.snapshot.pending.find((p) => !p.resolved);
 			if (pendingHead && pendingHead.kind !== "gate_decision") return {
 				ok: false,
-				code: "GATE_NOT_PENDING",
-				message: `gate:decided ${gateKind} approve blocked: pending head ${pendingHead.id} (kind=${pendingHead.kind}) is not a gate_decision prompt; resolve it first`,
-				detail: {
+				...diagnostic$2("GATE_NOT_PENDING", {
 					gate_kind: gateKind,
 					head_id: pendingHead.id,
 					head_kind: pendingHead.kind
-				}
+				}),
+				message: `gate:decided ${gateKind} approve blocked: pending head ${pendingHead.id} (kind=${pendingHead.kind}) is not a gate_decision prompt; resolve it first`
 			};
 		}
 	}
@@ -2604,407 +4906,6 @@ function checkSessionTerminalReason(c) {
 	}
 	return null;
 }
-function checkTasksPlanned(c) {
-	const { entry, rawEntry } = c;
-	if (entry.kind === "event:tasks_planned") {
-		const incoming = (rawEntry.payload ?? {})["tasks"];
-		if (Array.isArray(incoming)) {
-			const seenIds = /* @__PURE__ */ new Set();
-			for (const t of incoming) {
-				if (typeof t?.id === "string") {
-					if (seenIds.has(t.id)) return {
-						ok: false,
-						code: "DUPLICATE_TASK_ID",
-						message: `tasks_planned: task id ${t.id} appears more than once in payload`,
-						detail: { task_id: t.id }
-					};
-					seenIds.add(t.id);
-				}
-				if (t?.red_test_registered === true) return {
-					ok: false,
-					code: "BUG_TASK_FLAG_MISUSE",
-					message: `tasks_planned: task ${t.id ?? "?"} carries red_test_registered=true — a planned task is born unregistered; use \`loaf tasks register-red\` after creation`,
-					detail: {
-						task_id: t.id,
-						kind: "event:tasks_planned"
-					}
-				};
-			}
-		}
-	}
-	return null;
-}
-function checkTasksAmended(c) {
-	const { entry, payloadData, sub_state, ctx } = c;
-	if (entry.kind === "event:tasks_amended") {
-		const amended = payloadData;
-		const mode = amended.mode ?? "replace";
-		const taskId = amended.task.id;
-		const sponsorId = amended.sponsored_by_finding_id;
-		if (sponsorId !== void 0) {
-			const finding = ctx.snapshot.findings.find((f) => f.id === sponsorId);
-			if (!finding) return {
-				ok: false,
-				code: "FINDING_NOT_FOUND",
-				message: `event:tasks_amended.sponsored_by_finding_id=${sponsorId} not found in projection`,
-				detail: {
-					id: sponsorId,
-					reason: "not_found"
-				}
-			};
-			if (finding.status === "closed") return {
-				ok: false,
-				code: "FINDING_NOT_FOUND",
-				message: `event:tasks_amended.sponsored_by_finding_id=${sponsorId} is already_closed; only open findings can sponsor a tasks amend`,
-				detail: {
-					id: sponsorId,
-					reason: "already_closed"
-				}
-			};
-			if (finding.action !== "amend-tasks") return {
-				ok: false,
-				code: "FINDING_NOT_FOUND",
-				message: `event:tasks_amended.sponsored_by_finding_id=${sponsorId} has action=${finding.action} but only amend-tasks findings can sponsor a tasks amend`,
-				detail: {
-					id: sponsorId,
-					reason: "action_mismatch",
-					expected_action: "amend-tasks",
-					actual_action: finding.action
-				}
-			};
-			if (sub_state !== "EXECUTE.work") return {
-				ok: false,
-				code: "MUTATION_OUT_OF_RIGHTS",
-				message: `sponsored event:tasks_amended is permitted only at EXECUTE.work (current sub_state=${sub_state})`,
-				detail: {
-					task_id: taskId,
-					mode,
-					sub_state,
-					reason: "sponsored_tasks_amended_wrong_sub_state"
-				}
-			};
-			if (mode === "add") {
-				const violation = firstAddFreshnessViolation(amended.task);
-				if (violation) return {
-					ok: false,
-					code: "MUTATION_OUT_OF_RIGHTS",
-					message: `sponsored event:tasks_amended mode=add must introduce a fresh task — '${violation.field}' carries execution progress (§8.6: a sponsored amend may not fabricate completed work)`,
-					detail: {
-						task_id: taskId,
-						mode,
-						sub_state,
-						field: violation.field,
-						reason: "sponsored_add_not_fresh"
-					}
-				};
-			}
-			if (mode === "replace") {
-				const currentTask = ctx.snapshot.tasks.find((t) => t.id === taskId);
-				if (!currentTask) return {
-					ok: false,
-					code: "TASK_NOT_FOUND",
-					message: `tasks_amended: task ${taskId} is not in the current tasks projection`,
-					detail: { task_id: taskId }
-				};
-				const violation = firstSponsoredFrozenViolation(currentTask, extractTaskSlim(amended.task));
-				if (violation) return {
-					ok: false,
-					code: "MUTATION_OUT_OF_RIGHTS",
-					message: `sponsored event:tasks_amended on task ${taskId} changes frozen field '${violation.field}' — a graph amend may not erase or rewrite execution progress (§8.6)`,
-					detail: {
-						task_id: taskId,
-						mode,
-						sub_state,
-						field: violation.field,
-						from: violation.from,
-						to: violation.to
-					}
-				};
-			}
-			return null;
-		}
-		if (mode === "add") return {
-			ok: false,
-			code: "MUTATION_OUT_OF_RIGHTS",
-			message: `event:tasks_amended mode=add on task ${taskId} is not authorized — an add must be sponsored by an amend-tasks finding (sponsored_by_finding_id)`,
-			detail: {
-				task_id: taskId,
-				mode,
-				sub_state,
-				reason: "unsponsored_add"
-			}
-		};
-		if (sub_state !== "EXECUTE.plan") return {
-			ok: false,
-			code: "MUTATION_OUT_OF_RIGHTS",
-			message: `event:tasks_amended mode=replace is permitted only at EXECUTE.plan (current sub_state=${sub_state})`,
-			detail: {
-				task_id: taskId,
-				mode,
-				sub_state,
-				reason: "replace_outside_execute_plan"
-			}
-		};
-		const currentTask = ctx.snapshot.tasks.find((t) => t.id === taskId);
-		if (!currentTask) return {
-			ok: false,
-			code: "TASK_NOT_FOUND",
-			message: `tasks_amended: task ${taskId} is not in the current tasks projection`,
-			detail: { task_id: taskId }
-		};
-		const violation = firstFrozenViolation(currentTask, extractTaskSlim(amended.task));
-		if (violation) return {
-			ok: false,
-			code: "MUTATION_OUT_OF_RIGHTS",
-			message: `event:tasks_amended on task ${taskId} changes frozen field '${violation.field}' — §8.6 forbids it at EXECUTE.plan`,
-			detail: {
-				task_id: taskId,
-				mode,
-				sub_state,
-				field: violation.field,
-				from: violation.from,
-				to: violation.to
-			}
-		};
-	}
-	return null;
-}
-function checkTaskLifecycle(c) {
-	const { entry, rawEntry, ctx } = c;
-	if (entry.kind === "event:task_claimed" || entry.kind === "event:task_step_started" || entry.kind === "event:task_step_done") {
-		const payload = rawEntry.payload ?? {};
-		const task_id = payload["task_id"];
-		if (!task_id) return {
-			ok: false,
-			code: "INVALID_PAYLOAD",
-			message: `${entry.kind}: missing task_id`,
-			detail: { kind: entry.kind }
-		};
-		const task = ctx.snapshot.tasks.find((t) => t.id === task_id);
-		if (!task) return {
-			ok: false,
-			code: "TASK_NOT_FOUND",
-			message: `${entry.kind}: task ${task_id} is not in the current tasks projection`,
-			detail: {
-				task_id,
-				kind: entry.kind
-			}
-		};
-		if (entry.kind === "event:task_claimed") {
-			if (task.status === "in_progress") return {
-				ok: false,
-				code: "TASK_ALREADY_CLAIMED",
-				message: `task ${task_id} is already claimed (status=in_progress)`,
-				detail: {
-					task_id,
-					status: task.status
-				}
-			};
-			if (task.status === "done" || task.status === "abandoned") return {
-				ok: false,
-				code: "TASK_NOT_CLAIMABLE",
-				message: `task ${task_id} cannot be claimed (status=${task.status} — terminal state)`,
-				detail: {
-					task_id,
-					status: task.status
-				}
-			};
-			for (const depId of task.depends_on) {
-				const dep = ctx.snapshot.tasks.find((t) => t.id === depId);
-				if (!dep) return {
-					ok: false,
-					code: "TASK_DEPS_NOT_SATISFIED",
-					message: `task ${task_id} cannot be claimed: dependency ${depId} is not in the tasks projection`,
-					detail: {
-						task_id,
-						blocking_dep: depId,
-						blocking_status: "missing"
-					}
-				};
-				if (dep.status !== "done") return {
-					ok: false,
-					code: "TASK_DEPS_NOT_SATISFIED",
-					message: `task ${task_id} cannot be claimed: dependency ${depId} is not done (status=${dep.status})`,
-					detail: {
-						task_id,
-						blocking_dep: depId,
-						blocking_status: dep.status
-					}
-				};
-			}
-		} else {
-			const step = payload["step"];
-			if (task.status !== "in_progress") return {
-				ok: false,
-				code: "TASK_NOT_CLAIMED",
-				message: `task ${task_id} step ${step ?? "?"} mutation requires task.status=in_progress (got status=${task.status}); claim the task first`,
-				detail: {
-					task_id,
-					step,
-					status: task.status,
-					kind: entry.kind
-				}
-			};
-			if (step === "implement" && task.kind === "behavioral" && task.labels.includes("bug") && task.red_test_registered !== true) return {
-				ok: false,
-				code: "BUG_TASK_REQUIRES_RED",
-				message: `behavioral bug task ${task_id} must register its RED test before the implement step — run \`loaf tasks register-red ${task_id}\` first`,
-				detail: {
-					task_id,
-					step,
-					kind: entry.kind
-				}
-			};
-			if (entry.kind === "event:task_step_done" && payload["red_test_registered"] === true) {
-				const result = payload["result"];
-				const okResult = result === void 0 || result === "passed" || result === "waived";
-				if (!(step === "red" && task.kind === "behavioral" && task.labels.includes("bug") && okResult)) return {
-					ok: false,
-					code: "BUG_TASK_FLAG_MISUSE",
-					message: `red_test_registered=true is valid only on a red-step task_step_done for a behavioral bug task with a passed/waived result (task ${task_id}, step=${step ?? "?"}, result=${result ?? "passed"}, kind=${task.kind})`,
-					detail: {
-						task_id,
-						step,
-						result: result ?? "passed",
-						kind: task.kind,
-						labels: task.labels
-					}
-				};
-			}
-		}
-	}
-	return null;
-}
-function checkTaskAbandoned(c) {
-	const { entry, rawEntry, ctx } = c;
-	if (entry.kind === "event:task_abandoned") {
-		const task_id = (rawEntry.payload ?? {})["task_id"];
-		if (!task_id) return {
-			ok: false,
-			code: "INVALID_PAYLOAD",
-			message: `${entry.kind}: missing task_id`,
-			detail: { kind: entry.kind }
-		};
-		const task = ctx.snapshot.tasks.find((t) => t.id === task_id);
-		if (!task) return {
-			ok: false,
-			code: "TASK_NOT_FOUND",
-			message: `${entry.kind}: task ${task_id} is not in the current tasks projection`,
-			detail: {
-				task_id,
-				kind: entry.kind
-			}
-		};
-		if (task.status === "done" || task.status === "abandoned") return {
-			ok: false,
-			code: "TASK_NOT_ABANDONABLE",
-			message: `task ${task_id} cannot be abandoned (status=${task.status} — already in a final status)`,
-			detail: {
-				task_id,
-				status: task.status
-			}
-		};
-		const blockingDependents = ctx.snapshot.tasks.filter((t) => t.depends_on.includes(task_id) && t.status !== "done" && t.status !== "abandoned").map((t) => t.id);
-		if (blockingDependents.length > 0) return {
-			ok: false,
-			code: "TASK_ABANDON_BLOCKED_DEPENDENTS",
-			message: `task ${task_id} cannot be abandoned: ${blockingDependents.length} non-terminal task(s) depend on it (${blockingDependents.join(", ")}); abandon or complete the dependents first`,
-			detail: {
-				task_id,
-				blocking_dependents: blockingDependents
-			}
-		};
-	}
-	return null;
-}
-function checkTaskStepReset(c) {
-	const { entry, payloadData, ctx } = c;
-	if (entry.kind === "event:task_step_reset") {
-		const payload = payloadData;
-		const finding = ctx.snapshot.findings.find((f) => f.id === payload.finding_id);
-		if (!finding) return {
-			ok: false,
-			code: "FINDING_NOT_FOUND",
-			message: `event:task_step_reset.finding_id=${payload.finding_id} not found in projection`,
-			detail: {
-				id: payload.finding_id,
-				reason: "not_found"
-			}
-		};
-		if (finding.status === "closed") return {
-			ok: false,
-			code: "FINDING_NOT_FOUND",
-			message: `event:task_step_reset.finding_id=${payload.finding_id} is already_closed; only open findings can sponsor a step reset`,
-			detail: {
-				id: payload.finding_id,
-				reason: "already_closed"
-			}
-		};
-		if (finding.action !== "fix-impl" && finding.action !== "fix-test") return {
-			ok: false,
-			code: "FINDING_NOT_FOUND",
-			message: `event:task_step_reset.finding_id=${payload.finding_id} has action=${finding.action} but only fix-impl / fix-test findings can sponsor a step reset`,
-			detail: {
-				id: payload.finding_id,
-				reason: "action_mismatch",
-				expected_action: ["fix-impl", "fix-test"],
-				actual_action: finding.action
-			}
-		};
-		const expectedStep = FIX_ACTION_STEP[finding.action];
-		if (payload.step !== expectedStep) return {
-			ok: false,
-			code: "MUTATION_OUT_OF_RIGHTS",
-			message: `event:task_step_reset step="${payload.step}" but ${finding.action} resets step="${expectedStep}"`,
-			detail: {
-				finding_id: payload.finding_id,
-				task_id: payload.task_id,
-				step: payload.step,
-				expected_step: expectedStep,
-				reason: "task_step_reset_step_mismatch"
-			}
-		};
-		const expectedTarget = finding.target;
-		if (expectedTarget === void 0 || expectedTarget.task_id !== payload.task_id || expectedTarget.step !== payload.step) return {
-			ok: false,
-			code: "MUTATION_OUT_OF_RIGHTS",
-			message: `event:task_step_reset target {task_id=${payload.task_id}, step=${payload.step}} does not match finding ${payload.finding_id}'s target`,
-			detail: {
-				finding_id: payload.finding_id,
-				expected_target: expectedTarget ?? null,
-				actual_target: {
-					task_id: payload.task_id,
-					step: payload.step
-				},
-				reason: "task_step_reset_target_mismatch"
-			}
-		};
-		const task = ctx.snapshot.tasks.find((t) => t.id === payload.task_id);
-		if (!task || !(payload.step in task.steps)) return {
-			ok: false,
-			code: "MUTATION_OUT_OF_RIGHTS",
-			message: `event:task_step_reset target {task_id=${payload.task_id}, step=${payload.step}} is not present in the tasks projection`,
-			detail: {
-				finding_id: payload.finding_id,
-				task_id: payload.task_id,
-				step: payload.step,
-				reason: "task_step_reset_target_mismatch"
-			}
-		};
-		if (task.status === "abandoned") return {
-			ok: false,
-			code: "MUTATION_OUT_OF_RIGHTS",
-			message: `event:task_step_reset cannot reset task ${payload.task_id}: status=abandoned is terminal and cannot be reactivated (a fix step reset may reopen a done task, never an abandoned one)`,
-			detail: {
-				finding_id: payload.finding_id,
-				task_id: payload.task_id,
-				status: task.status,
-				reason: "task_step_reset_task_abandoned"
-			}
-		};
-	}
-	return null;
-}
 function checkFindingRaised(c) {
 	const { entry, payloadData, sub_state, ctx } = c;
 	if (entry.kind === "finding:raised") {
@@ -3023,14 +4924,13 @@ function checkFindingRaised(c) {
 			const reasonLength = payload.reason?.length ?? 0;
 			if (reasonLength < 20) return {
 				ok: false,
-				code: "FINDING_ACTION_UNUSUAL_REASON_REQUIRED",
-				message: `finding raise category=${payload.category} × action=${payload.action} is an unusual cell; --reason ≥20 chars required (got ${reasonLength})`,
-				detail: {
+				...diagnostic$2("FINDING_ACTION_UNUSUAL_REASON_REQUIRED", {
 					category: payload.category,
 					action: payload.action,
 					current_reason_length: reasonLength,
 					min_reason_length: 20
-				}
+				}),
+				message: `finding raise category=${payload.category} × action=${payload.action} is an unusual cell; --reason ≥20 chars required (got ${reasonLength})`
 			};
 		}
 		const mode = FINDING_ACTION_TARGET_MODE[payload.action];
@@ -3109,122 +5009,6 @@ function checkFindingRaised(c) {
 	}
 	return null;
 }
-function checkSpecContentPhase(c) {
-	const { entry, ctx } = c;
-	if (SPEC_CONTENT_KINDS.has(entry.kind)) {
-		if (ctx.snapshot.state?.spec_locked === true) return {
-			ok: false,
-			code: "SPEC_LOCKED_NO_DIRECT_EDIT",
-			message: `${entry.kind} blocked: spec_locked=true; walk back via \`loaf finding raise --category spec-gap --action amend-spec\` to re-enter SPEC.spec`,
-			detail: {
-				kind: entry.kind,
-				spec_locked: true
-			}
-		};
-		if (entry.kind !== "event:spec_submitted" && (ctx.snapshot.state?.spec_version ?? 0) === 0) return {
-			ok: false,
-			code: "SPEC_NOT_INITIALIZED",
-			message: `${entry.kind} blocked: spec is not initialized (spec_version=0); run \`loaf spec submit --input <file>\` first to bump spec_version to 1`,
-			detail: {
-				kind: entry.kind,
-				spec_version: ctx.snapshot.state?.spec_version ?? 0
-			}
-		};
-	}
-	return null;
-}
-function checkSpecDuplicateIds(c) {
-	const { entry, payloadData, ctx } = c;
-	if (entry.kind === "event:spec_req_added") {
-		const payload = payloadData;
-		if (findCollision(payload.req.id, ctx.snapshot.requirements, (r) => r.id)) return {
-			ok: false,
-			code: "DUPLICATE_REQ_ID",
-			message: `spec_req_added: REQ ${payload.req.id} already in projection`,
-			detail: { id: payload.req.id }
-		};
-	}
-	if (entry.kind === "event:spec_scenario_added") {
-		const payload = payloadData;
-		if (findCollision(payload.scenario.id, ctx.snapshot.scenarios, (s) => s.id)) return {
-			ok: false,
-			code: "DUPLICATE_SCEN_ID",
-			message: `spec_scenario_added: SCEN ${payload.scenario.id} already in projection`,
-			detail: { id: payload.scenario.id }
-		};
-	}
-	if (entry.kind === "event:spec_visual_added") {
-		const payload = payloadData;
-		if (findCollision(payload.visual.id, ctx.snapshot.visual_contracts, (v) => v.id)) return {
-			ok: false,
-			code: "DUPLICATE_VIS_ID",
-			message: `spec_visual_added: VIS ${payload.visual.id} already in projection`,
-			detail: { id: payload.visual.id }
-		};
-	}
-	return null;
-}
-function checkSpecVersion$1(c) {
-	const { entry, payloadData, ctx } = c;
-	if (SPEC_VERSION_KINDS.has(entry.kind)) {
-		const payloadVersion = payloadData.spec_version;
-		const currentVersion = ctx.snapshot.state?.spec_version ?? 0;
-		if (entry.kind === "event:spec_submitted") {
-			if (entry.batch_index !== void 0 && entry.batch_index !== 0) return {
-				ok: false,
-				code: "SPEC_VERSION_BATCH_MISMATCH",
-				message: `spec_submitted must appear at batch_index=0 (got ${entry.batch_index}); it is the whole-replacement entrypoint`,
-				detail: {
-					kind: entry.kind,
-					batch_index: entry.batch_index,
-					expected_batch_index: 0
-				}
-			};
-			const v = checkSpecVersion$2(payloadVersion, currentVersion, "head");
-			if (!v.ok) return {
-				ok: false,
-				code: "SPEC_VERSION_NOT_MONOTONIC",
-				message: `spec_submitted: spec_version must be ${v.expected} (current+1), got ${payloadVersion}`,
-				detail: {
-					kind: entry.kind,
-					payload_spec_version: payloadVersion,
-					current_spec_version: currentVersion,
-					expected_spec_version: v.expected
-				}
-			};
-		} else {
-			const mode = resolveSpecVersionMode(entry.batch_index);
-			const v = checkSpecVersion$2(payloadVersion, currentVersion, mode);
-			if (!v.ok) {
-				if (mode === "head") return {
-					ok: false,
-					code: "SPEC_VERSION_NOT_MONOTONIC",
-					message: `${entry.kind}: spec_version must be ${v.expected} (current+1) at batch head, got ${payloadVersion}`,
-					detail: {
-						kind: entry.kind,
-						payload_spec_version: payloadVersion,
-						current_spec_version: currentVersion,
-						expected_spec_version: v.expected,
-						batch_position: "head"
-					}
-				};
-				return {
-					ok: false,
-					code: "SPEC_VERSION_BATCH_MISMATCH",
-					message: `${entry.kind}: spec_version must be ${v.expected} at batch_index=${entry.batch_index} (batch continuation), got ${payloadVersion}`,
-					detail: {
-						kind: entry.kind,
-						payload_spec_version: payloadVersion,
-						current_spec_version: currentVersion,
-						batch_index: entry.batch_index,
-						batch_position: "continuation"
-					}
-				};
-			}
-		}
-	}
-	return null;
-}
 function checkTransitionEdge(c) {
 	const { entry, rawEntry, sub_state, ceremony, verify_accepted, spec_locked } = c;
 	const transitionResult = checkTransition(entry.kind, rawEntry, {
@@ -3242,28 +5026,6 @@ function checkTransitionEdge(c) {
 	};
 	return null;
 }
-const ORDERED_CHECKS = [
-	checkSeqMonotonic,
-	checkSubStateAuthority,
-	checkActorAuthority,
-	checkPerKindPayload,
-	checkGateDecided,
-	checkPhaseAdvanced,
-	checkSessionDelivered,
-	checkSpikeConverted,
-	checkCeremonySet,
-	checkSessionTerminalReason,
-	checkTasksPlanned,
-	checkTasksAmended,
-	checkTaskLifecycle,
-	checkTaskAbandoned,
-	checkTaskStepReset,
-	checkFindingRaised,
-	checkSpecContentPhase,
-	checkSpecDuplicateIds,
-	checkSpecVersion$1,
-	checkTransitionEdge
-];
 function deriveCeremonyLabel(c) {
 	if (!c.spec_phase && !c.verify_phase) return "quick";
 	if (c.spec_phase && !c.verify_phase) return "light";
@@ -3294,6 +5056,70 @@ function checkTransition(kind, raw, ctx) {
 	return null;
 }
 //#endregion
+//#region src/core/reducer/preflight.ts
+const DEFAULT_SUB_STATE = "TRIAGE.score";
+const DEFAULT_CEREMONY = {
+	spec_phase: true,
+	verify_phase: true,
+	settle_phase: false,
+	strict_spec_review: false,
+	lessons_required: "skip",
+	strict_drift_check: false
+};
+function preflight(rawEntry, ctx) {
+	const sub_state = ctx.snapshot.state?.sub_state ?? DEFAULT_SUB_STATE;
+	const ceremony = ctx.snapshot.state?.ceremony ?? DEFAULT_CEREMONY;
+	const verify_accepted = ctx.snapshot.state?.verify_accepted ?? false;
+	const spec_locked = ctx.snapshot.state?.spec_locked ?? false;
+	const parsed = JournalEntry.safeParse(rawEntry);
+	if (!parsed.success) return {
+		ok: false,
+		code: "INVALID_ENVELOPE",
+		message: "JournalEntry failed envelope schema validation",
+		detail: { issues: parsed.error.issues }
+	};
+	const entry = parsed.data;
+	const payloadParsed = PER_KIND_PAYLOAD[entry.kind].safeParse(entry.payload);
+	const checkCtx = {
+		rawEntry,
+		entry,
+		payloadParsed,
+		payloadData: payloadParsed.success ? payloadParsed.data : void 0,
+		ctx,
+		sub_state,
+		ceremony,
+		verify_accepted,
+		spec_locked
+	};
+	for (const check of ORDERED_CHECKS) {
+		const failure = check(checkCtx);
+		if (failure) return failure;
+	}
+	return { ok: true };
+}
+const ORDERED_CHECKS = [
+	checkSeqMonotonic,
+	checkSubStateAuthority,
+	checkActorAuthority,
+	checkPerKindPayload,
+	checkGateDecided,
+	checkPhaseAdvanced,
+	checkSessionDelivered,
+	checkSpikeConverted,
+	checkCeremonySet,
+	checkSessionTerminalReason,
+	checkTasksPlanned,
+	checkTasksAmended,
+	checkTaskLifecycle,
+	checkTaskAbandoned,
+	checkTaskStepReset,
+	checkFindingRaised,
+	checkSpecContentPhase,
+	checkSpecDuplicateIds,
+	checkSpecVersion$1,
+	checkTransitionEdge
+];
+//#endregion
 //#region src/core/reducer.ts
 function initialSnapshot() {
 	return {
@@ -3322,18 +5148,38 @@ const MIGRATION_BOOTSTRAP_CEREMONY = {
 	strict_drift_check: false
 };
 /**
-* Applies one already-validated journal entry into a snapshot projection.
-*
-* Contract: `prev` is consumed. Some cases mutate projection arrays in place and
-* may return the same snapshot object/array references. Callers that need to
-* keep observing the pre-apply snapshot must pass a clone. `mutateBatch` and
-* replay-style callers own that clone boundary.
+* Applies one journal entry with the public validation order preserved:
+* bootstrap bypass, NO_SESSION, preflight, then projection mutation.
 */
 function apply(prev, entry) {
+	if (entry.kind === "migration:snapshot_imported" || entry.kind === "session:started") return applyValidated(prev, entry);
+	if (prev.state === null) return {
+		ok: false,
+		code: "NO_SESSION",
+		message: `kind=${entry.kind} requires a started session`
+	};
+	const pre = preflight(entry, { snapshot: prev });
+	if (!pre.ok) return {
+		ok: false,
+		code: pre.code,
+		message: pre.message,
+		detail: pre.detail ?? {}
+	};
+	return applyValidated(prev, entry);
+}
+/**
+* Applies an entry whose external validation has already succeeded.
+*
+* `prev` is consumed. Some cases mutate projection arrays in place and may
+* return the same snapshot object or array references.
+*
+* @internal Only validation-owning core paths may call this directly.
+*/
+function applyValidated(prev, entry) {
 	if (entry.kind === "migration:snapshot_imported") {
 		if (prev.state !== null) return {
 			ok: false,
-			code: "ALREADY_STARTED",
+			...diagnostic$2("ALREADY_STARTED", { kind: entry.kind }),
 			message: "migration:snapshot_imported after state already initialized"
 		};
 		return {
@@ -3357,7 +5203,7 @@ function apply(prev, entry) {
 	if (entry.kind === "session:started") {
 		if (prev.state !== null) return {
 			ok: false,
-			code: "ALREADY_STARTED",
+			...diagnostic$2("ALREADY_STARTED", { kind: entry.kind }),
 			message: "session:started after state already initialized"
 		};
 		const payload = entry.payload;
@@ -3384,30 +5230,16 @@ function apply(prev, entry) {
 			}
 		};
 	}
-	if (prev.state === null) return {
-		ok: false,
-		code: "NO_SESSION",
-		message: `kind=${entry.kind} requires a started session`
-	};
-	const pre = preflight(entry, {
-		snapshot: prev,
-		tail_seq: entry.seq - 1
-	});
-	if (!pre.ok) return {
-		ok: false,
-		code: pre.code,
-		message: pre.message,
-		detail: pre.detail ?? {}
-	};
+	const state = prev.state;
 	switch (entry.kind) {
 		case "event:phase_advanced": {
 			const payload = entry.payload;
 			const next = {
-				...prev.state,
+				...state,
 				sub_state: payload.to,
 				phase: extractPhase(payload.to),
-				spec_locked: payload.to === "SPEC.spec" ? false : prev.state.spec_locked,
-				iteration: payload.back_edge !== void 0 ? prev.state.iteration + 1 : prev.state.iteration
+				spec_locked: payload.to === "SPEC.spec" ? false : state.spec_locked,
+				iteration: payload.back_edge !== void 0 ? state.iteration + 1 : state.iteration
 			};
 			return {
 				ok: true,
@@ -3424,7 +5256,7 @@ function apply(prev, entry) {
 				snapshot: {
 					...prev,
 					state: {
-						...prev.state,
+						...state,
 						ceremony: payload
 					}
 				}
@@ -3438,7 +5270,7 @@ function apply(prev, entry) {
 					snapshot: {
 						...prev,
 						state: {
-							...prev.state,
+							...state,
 							spec_locked: true
 						}
 					}
@@ -3454,7 +5286,7 @@ function apply(prev, entry) {
 					snapshot: {
 						...prev,
 						state: {
-							...prev.state,
+							...state,
 							verify_accepted: true
 						}
 					}
@@ -3682,7 +5514,7 @@ function apply(prev, entry) {
 		case "event:spec_submitted": {
 			const payload = entry.payload;
 			if (typeof payload.spec_version !== "number") return invalidPayload(entry.kind, "missing spec_version");
-			const versionCheck = checkSpecVersionHead(entry, payload.spec_version, prev.state.spec_version);
+			const versionCheck = checkSpecVersionHead(entry, payload.spec_version, state.spec_version);
 			if (!versionCheck.ok) return invalidPayload(entry.kind, versionCheck.message);
 			const specHeader = structuredClone({
 				feature: {
@@ -3698,7 +5530,7 @@ function apply(prev, entry) {
 				snapshot: {
 					...prev,
 					state: {
-						...prev.state,
+						...state,
 						spec_version: versionCheck.nextVersion
 					},
 					spec_header: specHeader,
@@ -3711,16 +5543,16 @@ function apply(prev, entry) {
 		case "event:spec_req_added": {
 			const payload = entry.payload;
 			if (typeof payload.spec_version !== "number" || !payload.req) return invalidPayload(entry.kind, "missing spec_version or req");
-			const versionCheck = checkSpecVersion(entry, payload.spec_version, prev.state.spec_version);
+			const versionCheck = checkSpecVersion(entry, payload.spec_version, state.spec_version);
 			if (!versionCheck.ok) return invalidPayload(entry.kind, versionCheck.message);
 			if (findCollision(payload.req.id, prev.requirements, (r) => r.id)) return invalidPayload(entry.kind, `DUPLICATE_REQ_ID: ${payload.req.id} already in projection`);
 			prev.requirements.push(structuredClone(payload.req));
 			return {
 				ok: true,
-				snapshot: versionCheck.nextVersion === prev.state.spec_version ? prev : {
+				snapshot: versionCheck.nextVersion === state.spec_version ? prev : {
 					...prev,
 					state: {
-						...prev.state,
+						...state,
 						spec_version: versionCheck.nextVersion
 					}
 				}
@@ -3729,16 +5561,16 @@ function apply(prev, entry) {
 		case "event:spec_scenario_added": {
 			const payload = entry.payload;
 			if (typeof payload.spec_version !== "number" || !payload.scenario) return invalidPayload(entry.kind, "missing spec_version or scenario");
-			const versionCheck = checkSpecVersion(entry, payload.spec_version, prev.state.spec_version);
+			const versionCheck = checkSpecVersion(entry, payload.spec_version, state.spec_version);
 			if (!versionCheck.ok) return invalidPayload(entry.kind, versionCheck.message);
 			if (findCollision(payload.scenario.id, prev.scenarios, (s) => s.id)) return invalidPayload(entry.kind, `DUPLICATE_SCEN_ID: ${payload.scenario.id} already in projection`);
 			prev.scenarios.push(structuredClone(payload.scenario));
 			return {
 				ok: true,
-				snapshot: versionCheck.nextVersion === prev.state.spec_version ? prev : {
+				snapshot: versionCheck.nextVersion === state.spec_version ? prev : {
 					...prev,
 					state: {
-						...prev.state,
+						...state,
 						spec_version: versionCheck.nextVersion
 					}
 				}
@@ -3747,16 +5579,16 @@ function apply(prev, entry) {
 		case "event:spec_visual_added": {
 			const payload = entry.payload;
 			if (typeof payload.spec_version !== "number" || !payload.visual) return invalidPayload(entry.kind, "missing spec_version or visual");
-			const versionCheck = checkSpecVersion(entry, payload.spec_version, prev.state.spec_version);
+			const versionCheck = checkSpecVersion(entry, payload.spec_version, state.spec_version);
 			if (!versionCheck.ok) return invalidPayload(entry.kind, versionCheck.message);
 			if (findCollision(payload.visual.id, prev.visual_contracts, (v) => v.id)) return invalidPayload(entry.kind, `DUPLICATE_VIS_ID: ${payload.visual.id} already in projection`);
 			prev.visual_contracts.push(structuredClone(payload.visual));
 			return {
 				ok: true,
-				snapshot: versionCheck.nextVersion === prev.state.spec_version ? prev : {
+				snapshot: versionCheck.nextVersion === state.spec_version ? prev : {
 					...prev,
 					state: {
-						...prev.state,
+						...state,
 						spec_version: versionCheck.nextVersion
 					}
 				}
@@ -3781,6 +5613,14 @@ function apply(prev, entry) {
 				snapshot: prev
 			};
 		}
+		case "lesson:recorded": return {
+			ok: true,
+			snapshot: prev
+		};
+		case "scope:recorded": return {
+			ok: true,
+			snapshot: prev
+		};
 		case "finding:raised": {
 			const payload = entry.payload;
 			if (!payload.id || !payload.category || !payload.action) return invalidPayload(entry.kind, "missing id/category/action");
@@ -3853,13 +5693,13 @@ function apply(prev, entry) {
 			const headIdx = prev.pending.findIndex((p) => !p.resolved);
 			if (headIdx === -1) return {
 				ok: false,
-				code: "PENDING_NOT_FOUND",
+				...diagnostic$2("PENDING_NOT_FOUND", { reason: "no pending head" }),
 				message: `pending:resolved with no pending head`
 			};
 			const head = prev.pending[headIdx];
 			if (head.id !== payload.id) return {
 				ok: false,
-				code: "PENDING_NOT_FOUND",
+				...diagnostic$2("PENDING_NOT_FOUND", { reason: `id=${payload.id} does not match head id=${head.id} (FIFO violation)` }),
 				message: `pending:resolved id=${payload.id} does not match head id=${head.id} (FIFO violation)`
 			};
 			const pending = prev.pending.map((p, i) => i === headIdx ? {
@@ -3879,7 +5719,7 @@ function apply(prev, entry) {
 			snapshot: {
 				...prev,
 				state: {
-					...prev.state,
+					...state,
 					sub_state: "DONE.delivered",
 					phase: "DONE"
 				}
@@ -3890,7 +5730,7 @@ function apply(prev, entry) {
 			snapshot: {
 				...prev,
 				state: {
-					...prev.state,
+					...state,
 					sub_state: "DONE.archived",
 					phase: "DONE"
 				}
@@ -3901,7 +5741,7 @@ function apply(prev, entry) {
 			snapshot: {
 				...prev,
 				state: {
-					...prev.state,
+					...state,
 					sub_state: "DONE.abandoned",
 					phase: "DONE"
 				}
@@ -4059,7 +5899,7 @@ async function appendMany(filePath, entries, priorMeta, opts = {}) {
 	const lineBuffers = [];
 	const lineStrings = [];
 	for (const entry of entries) {
-		const parsed = JournalEntry$1.safeParse(entry);
+		const parsed = JournalEntry.safeParse(entry);
 		if (!parsed.success) throw new AppendError("INVALID_ENVELOPE", "JournalEntry failed envelope schema validation", { issues: parsed.error.issues });
 		const payloadParsed = PER_KIND_PAYLOAD[parsed.data.kind].safeParse(parsed.data.payload);
 		if (!payloadParsed.success) throw new AppendError("INVALID_PAYLOAD", `payload schema validation failed for kind=${parsed.data.kind}`, {
@@ -4173,7 +6013,7 @@ const LegacyPendingSchema = z.object({ pending: z.array(LegacyPendingItemSchema)
 const LegacyEvidenceSchema = z.object({
 	id: z.string().min(1),
 	kind: z.string().min(1),
-	result: EvidenceResult$1.optional(),
+	result: EvidenceResult.optional(),
 	covers: z.array(z.string()).optional(),
 	actor: z.string().optional()
 }).passthrough();
@@ -4350,7 +6190,7 @@ async function rehydrateMigration(featureDir, entry) {
 		});
 		const e = parsed.data;
 		const normalizedKind = LEGACY_EVIDENCE_KIND_MAP[e.kind];
-		if (normalizedKind === void 0) throw new MigrationError("MIGRATION_INCOMPLETE", `legacy evidence.jsonl line ${idx + 1} has unknown kind=${JSON.stringify(e.kind)}; expected one of ${Object.keys(LEGACY_EVIDENCE_KIND_MAP).join("/")} (docs/schemas.ts:741-749 + ADR-0005:716-720)`, {
+		if (normalizedKind === void 0) throw new MigrationError("MIGRATION_INCOMPLETE", `legacy evidence.jsonl line ${idx + 1} has unknown kind=${JSON.stringify(e.kind)}; expected one of ${Object.keys(LEGACY_EVIDENCE_KIND_MAP).join("/")} (ADR-0005:716-720)`, {
 			sidecar: "evidence.jsonl",
 			line: idx + 1,
 			legacy_kind: e.kind
@@ -4502,7 +6342,7 @@ async function replayJournal(filePath, opts = {}) {
 		const lineBytes = Buffer.byteLength(line + "\n", "utf8");
 		let entry;
 		try {
-			const parsed = JournalEntry$1.safeParse(JSON.parse(line));
+			const parsed = JournalEntry.safeParse(JSON.parse(line));
 			if (!parsed.success) return {
 				ok: false,
 				code: "INVALID_ENTRY",
@@ -4559,7 +6399,10 @@ async function replayJournal(filePath, opts = {}) {
 				code: "REDUCER_REJECTED",
 				message: result.message,
 				at_seq: entry.seq,
-				detail: result.detail ?? {}
+				detail: {
+					...result.detail ?? {},
+					inner_code: result.code
+				}
 			};
 			snapshot = result.snapshot;
 		}
@@ -4586,6 +6429,25 @@ async function replayJournal(filePath, opts = {}) {
 		...collected ? { entries: collected } : {}
 	};
 }
+z.object({
+	seq: z.number().int().nonnegative(),
+	entry_id: EntryId,
+	at: z.string().datetime(),
+	actor: ActorString,
+	entry_schema_version: z.number().int().positive(),
+	kind: z.string().min(1),
+	payload: z.unknown(),
+	batch_id: BatchId.optional(),
+	batch_index: z.number().int().nonnegative().optional(),
+	batch_count: z.number().int().positive().optional()
+}).passthrough().refine((entry) => {
+	const present = [
+		entry.batch_id,
+		entry.batch_index,
+		entry.batch_count
+	].filter((value) => value !== void 0).length;
+	return present === 0 || present === 3;
+}, { message: "batch_id, batch_index, batch_count must be all-present or all-absent" }).refine((entry) => entry.batch_index === void 0 || entry.batch_count === void 0 || entry.batch_index < entry.batch_count, { message: "batch_index must be < batch_count" });
 //#endregion
 //#region src/core/cli-runtime.ts
 const LOAF_DOCS_URL = "https://docs.loaf.invalid";
@@ -4830,26 +6692,49 @@ var en_default = {
 		}
 	},
 	diagnostic: {
-		"MISSING_VERIFIABILITY": "REQ {req_id} must declare measurable, verified_by_scenarios[], or acceptance_na+reason",
-		"DRIVES_NOT_BOUND": "REQ {req_id} is not referenced by any task.drives[]",
-		"PENDING_BLOCKS_ADVANCE": "pending head {pending_id} (kind={kind}) blocks `loaf advance` until resolved",
-		"GATE_NOT_PENDING": "`loaf gate decide {gate}` requires pending head kind=gate_decision; current head: {actual_head}",
-		"ESCALATION_NOT_PENDING": "`loaf profile escalate --confirm --input <ceremony.json>` requires pending head kind=profile_escalation; current head: {actual_head}",
-		"FINDING_TARGET_REQUIRED": "finding action={action} target validation failed ({reason}): task_id={task_id}, step={step}",
+		"SPEC_LOCKED_NO_DIRECT_EDIT": "{kind} blocked: spec_locked=true; use `loaf finding raise --category spec-gap --action amend-spec` to back-edge into SPEC.spec",
 		"SPEC_NOT_INITIALIZED": "{kind} blocked: spec_version=0; run `loaf spec submit` first to bump spec_version to 1",
 		"SPEC_ALREADY_INITIALIZED": "spec.md already exists at {spec_md_path}; refusing to overwrite",
 		"CONFIG_ALREADY_INITIALIZED": "loaf config already exists at {config_path}; refusing to overwrite",
-		"SPEC_LOCKED_NO_DIRECT_EDIT": "{kind} blocked: spec_locked=true; use `loaf finding raise --category spec-gap --action amend-spec` to back-edge into SPEC.spec",
+		"FINDING_TARGET_REQUIRED": "finding action={action} target validation failed ({reason}): task_id={task_id}, step={step}",
+		"PRUNE_RESTORE_NOT_FOUND": "no trashed session matches the given id",
+		"PRUNE_RESTORE_AMBIGUOUS": "the session id was trashed more than once; pass --at <ts> to pick one",
+		"PRUNE_RESTORE_INCOMPLETE": "the trash bucket is incomplete (missing a required artifact); not restoring",
+		"PRUNE_PATH_OCCUPIED": "a restore destination already exists; refusing to overwrite",
+		"PRUNE_PARTIAL_FAILURE": "prune partially failed: one or more sessions could not be removed",
+		"MUTUALLY_EXCLUSIVE_FLAGS": "mutually exclusive flags in the same invocation: {flags}",
+		"INVALID_FORMAT": "invalid --format value '{value}'; allowed: {allowed_values_human}",
+		"INVALID_LOCALE": "invalid locale from {source}: {value} (expected {accepted})",
+		"DRY_RUN_NOT_APPLICABLE": "--dry-run not applicable to {command_type} command `{command}`",
+		"HOOK_EVENT_NOT_IMPLEMENTED": "hook event `{event}` is not implemented in this loaf version (Phase 16 SC-15{sub_cycle} pending; see protocol §11)",
+		"MISSING_VERIFIABILITY": "REQ {req_id} must declare measurable, verified_by_scenarios[], or acceptance_na+reason",
+		"DRIVES_NOT_BOUND": "REQ {req_id} is not referenced by any task.drives[]",
+		"MUTATION_OUT_OF_RIGHTS": "event:tasks_amended on task {task_id} is not permitted at sub_state {sub_state} — §8.6 grants no mutation right for this change",
+		"FEATURE_NOT_FOUND": "no feature found in cwd (.loaf/ is empty or missing, or no projection has phase != DONE)",
+		"FEATURE_AMBIGUOUS": "current working directory has {count} active features and no dispatch context: {feature_list}",
+		"SESSION_CWD_MISMATCH": "--session {uuid} is registered against cwd={registered_cwd}, but the current cwd is {current_cwd}",
+		"SESSION_SHORT_AMBIGUOUS": "--session {prefix} matches {match_count} sessions in the registry: {candidate_list}",
+		"SESSION_NOT_FOUND": "--session {uuid_or_prefix} matches no entry in the registry",
+		"PENDING_BLOCKS_ADVANCE": "pending head {pending_id} (kind={kind}) blocks `loaf advance` until resolved",
+		"GATE_NOT_PENDING": "`loaf gate decide {gate_kind}` requires pending head kind=gate_decision; current head kind: {head_kind}",
+		"ESCALATION_NOT_PENDING": "`loaf profile escalate --confirm --input <ceremony.json>` requires pending head kind=profile_escalation; current head: {actual_head}",
+		"EXECUTE_DONE_TASKS_NOT_FINAL": "cannot advance EXECUTE.work → EXECUTE.done: {count} task(s) are not in a final status (done or abandoned); finish their remaining steps or abandon out-of-scope tasks with `loaf tasks abandon <T-N> --reason \"...\"`",
+		"NO_SESSION": "no session at {feature_dir} — run `loaf start <feature>` first",
+		"COVERAGE_NOT_SATISFIED": "{covered_id} has no evidence that satisfies it (canSatisfy failed for all candidates)",
 		"DELIVER_NOT_ACCEPTED": "deliver requires verify_accepted=true at sub_state={sub_state}; run `loaf gate decide verify-accept --approve` first",
 		"DELIVER_SETTLE_PHASE_BYPASS": "deliver from VERIFY.accept requires ceremony.settle_phase=false (standard); deep ceremony must run `loaf settle` first",
 		"DELIVER_VERIFY_MIN_UNAVAILABLE": "verify-min was unavailable in this build (ceremony_label={ceremony_label}) — superseded at v0.1.1 by DELIVER_VERIFY_MIN_INCOMPLETE; no longer emitted",
 		"DELIVER_VERIFY_MIN_INCOMPLETE": "verify-min: {count} done task(s) lack required evidence to deliver (ceremony_label={ceremony_label}); add evidence or waive, then re-deliver",
 		"DELIVER_SPIKE_TASKS": "cannot deliver: task {task_id} is kind=spike (status={status}); spike tasks block delivery for the entire session",
-		"EXECUTE_DONE_TASKS_NOT_FINAL": "cannot advance EXECUTE.work → EXECUTE.done: {count} task(s) are not in a final status (done or abandoned); finish their remaining steps or abandon out-of-scope tasks with `loaf tasks abandon <T-N> --reason \"...\"`",
 		"SETTLE_NOT_ACCEPTED": "VERIFY.accept → SETTLE.reconcile requires verify_accepted=true; run `loaf gate decide verify-accept --approve` before `loaf settle`",
 		"SPEC_LOCK_NOT_SATISFIED": "SPEC.design → EXECUTE.plan requires spec_locked=true; run `loaf gate decide spec-lock --approve` before `loaf advance EXECUTE.plan`",
 		"TASK_NOT_CLAIMABLE": "task {task_id} cannot be claimed (status={status} — terminal state)",
 		"TASK_ALREADY_CLAIMED": "task {task_id} is already claimed (status=in_progress)",
+		"TASK_DEP_NOT_FOUND": "task {task_id} field {field} references missing task {ref}",
+		"TASK_DEP_SELF": "task {task_id} cannot depend on itself",
+		"TASK_DEP_DUPLICATE": "task {task_id} repeats dependency {ref} at indexes {indexes}",
+		"TASK_DEP_CYCLE": "task dependency graph contains cycle {cycle}",
+		"TASK_DEP_ABANDONED": "task {task_id} field {field} references abandoned task {ref}; {hint}",
 		"TASK_DEPS_NOT_SATISFIED": "task {task_id} cannot be claimed: dependency {blocking_dep} is not done (status={blocking_status})",
 		"TASK_NOT_CLAIMED": "task {task_id} step {step} mutation requires task.status=in_progress (got status={status}); claim the task first",
 		"TASK_NOT_ABANDONABLE": "task {task_id} cannot be abandoned (status={status} — already in a final status)",
@@ -4861,15 +6746,13 @@ var en_default = {
 		"SPEC_VERSION_NOT_MONOTONIC": "{kind}: spec_version must be {expected_spec_version} (current+1), got {payload_spec_version}",
 		"SPEC_VERSION_BATCH_MISMATCH": "{kind}: spec_version must be {current_spec_version} at batch_index={batch_index}, got {payload_spec_version}",
 		"TASK_COMPLETE_PRECONDITION_VIOLATED": "task {task_id} is not complete (status={status}); must-applicable steps not terminal-positive: {blocking_steps}",
-		"MUTATION_OUT_OF_RIGHTS": "event:tasks_amended on task {task_id} is not permitted at sub_state {sub_state} — §8.6 grants no mutation right for this change",
 		"CANONICAL_TASK_BODY_UNAVAILABLE": "task {task_id} is in the projection but has no canonical body in the journal (migration-imported); a whole-task amend cannot be reconstructed",
 		"BUG_TASK_REQUIRES_RED": "behavioral bug task {task_id} cannot start or complete its implement step before its RED test is registered",
 		"BUG_TASK_FLAG_MISUSE": "task {task_id}: red_test_registered=true is valid only on a red-step task_step_done for a behavioral bug task (passed/waived result) — not on this entry",
 		"BUG_TASK_RED_NOT_REGISTERED": "behavioral bug task {task_id} is done but never registered its RED test (red_test_registered≠true)",
 		"SPIKE_CONVERT_NO_SPIKE_TASK": "cannot convert: the session has no non-abandoned spike task; `loaf spike convert` is a spike-task exit (protocol §8.3)",
-		"COVERAGE_NOT_SATISFIED": "{covered_id} has no evidence that satisfies it (canSatisfy failed for all candidates)",
-		"NO_SESSION": "no session at {feature_dir} — run `loaf start <feature>` first",
 		"SNAPSHOT_STALE_REBUILD_REQUIRED": "snapshot stale (reason={reason}) at {feature_dir}; run `loaf doctor --rebuild --feature <feature>` to re-serialize from journal truth",
+		"JOURNAL_TAIL_REQUIRES_NEWER_LOAF": "tail recovery refused at seq {seq}: journal kind {kind} uses entry schema {entry_schema_version} ({reason})",
 		"INVALID_PRESET": "invalid ceremony preset",
 		"USAGE": "invalid CLI usage",
 		"DOCTOR_MODE_NOT_IMPLEMENTED": "requested loaf doctor mode is not implemented in this release",
@@ -4877,23 +6760,11 @@ var en_default = {
 		"DOCTOR_REBUILD_FAILED": "doctor --rebuild failed",
 		"DOCTOR_REBUILD_MIGRATED_UNSUPPORTED": "doctor --rebuild does not support v0.0.x-migrated journals in this release",
 		"REDUCER_ERROR": "internal reducer invariant failed",
-		"INVALID_FORMAT": "invalid --format value '{value}'; allowed: {allowed_values_human}",
-		"INVALID_LOCALE": "invalid locale from {source}: {value} (expected {accepted})",
-		"MUTUALLY_EXCLUSIVE_FLAGS": "mutually exclusive flags in the same invocation: {flags}",
-		"DRY_RUN_NOT_APPLICABLE": "--dry-run not applicable to {command_type} command `{command}`",
-		"HOOK_EVENT_NOT_IMPLEMENTED": "hook event `{event}` is not implemented in this loaf version (Phase 16 SC-15{sub_cycle} pending; see protocol §11)",
+		"SCOPE_RECORDED_BATCH_INVALID": "scope:recorded batch is invalid: {reason}",
+		"SCOPE_RECORDED_ITERATION_DUPLICATE": "scope:recorded already exists for iteration {iteration}",
+		"ACTUAL_SCOPE_HISTORY_INCOMPLETE": "actual scope history is incomplete: EXECUTE closure transition(s) at seq {transition_seqs} have no same-batch scope:recorded marker",
 		"WRITE_PATH_VIOLATION": "write blocked: `{normalized_path}` is outside the allowed write paths for sub_state `{sub_state}`",
-		"PROTECTED_FILE_WRITE": "write blocked: `{normalized_path}` matches protected_files entry `{matched_deny}` — protected files are never writable",
-		"FEATURE_NOT_FOUND": "no feature found in cwd (.loaf/ is empty or missing, or no projection has phase != DONE)",
-		"FEATURE_AMBIGUOUS": "current working directory has {count} active features and no dispatch context: {feature_list}",
-		"SESSION_CWD_MISMATCH": "--session {uuid} is registered against cwd={registered_cwd}, but the current cwd is {current_cwd}",
-		"SESSION_SHORT_AMBIGUOUS": "--session {prefix} matches {match_count} sessions in the registry: {candidate_list}",
-		"SESSION_NOT_FOUND": "--session {uuid_or_prefix} matches no entry in the registry",
-		"PRUNE_RESTORE_NOT_FOUND": "no trashed session matches the given id",
-		"PRUNE_RESTORE_AMBIGUOUS": "the session id was trashed more than once; pass --at <ts> to pick one",
-		"PRUNE_RESTORE_INCOMPLETE": "the trash bucket is incomplete (missing a required artifact); not restoring",
-		"PRUNE_PATH_OCCUPIED": "a restore destination already exists; refusing to overwrite",
-		"PRUNE_PARTIAL_FAILURE": "prune partially failed: one or more sessions could not be removed"
+		"PROTECTED_FILE_WRITE": "write blocked: `{normalized_path}` matches protected_files entry `{matched_deny}` — protected files are never writable"
 	},
 	failure: {
 		"sessions_list": { "selector_conflict": "sessions list does not accept {conflicting} — it lists across all sessions; use --in-cwd to filter" },
@@ -4941,6 +6812,16 @@ var en_default = {
 			"file_missing": "lesson file not found: {path}"
 		},
 		"finding": { "status_invalid": "--status must be one of: {allowed_statuses_human} (got {value})" },
+		"journal": {
+			"integer_invalid": "{flag} must be an integer >= {minimum} (got {value})",
+			"kind_invalid": "--kind must be a registered journal kind (got {value})",
+			"actor_invalid": "--actor must be a non-empty actor prefix or full actor string"
+		},
+		"evidence": {
+			"covers_invalid": "--covers must be a valid coverage id (got {value})",
+			"task_invalid": "--task must be a valid task id (got {value})",
+			"kind_invalid": "--kind must be one of: {allowed_kinds_human}"
+		},
 		"write_guard": { "config_invalid": "write-guard blocked: {reason}" },
 		"no_session": {
 			"status": "run `loaf start {feature}` first",
@@ -5017,7 +6898,7 @@ var en_default = {
 			"resolve_state_change": "pending resolve: {pending_id} cleared"
 		},
 		"waive": { "state_change": "waive: {evidence_id} obligation={obligation_id}" },
-		"lessons": { "add_state_change": "lessons add: {evidence_id} recorded (kind=manual; lessons.md updated)" },
+		"lessons": { "add_state_change": "lessons add: {lesson_id} recorded (kind=lesson:recorded; lessons.md updated)" },
 		"evidence": {
 			"covers_none": "<none>",
 			"add_state_change_single": "evidence add: {evidence_id} kind={kind}, covers={covers}",
@@ -5076,6 +6957,20 @@ var en_default = {
 			"non_head": "-"
 		},
 		"finding": { "list_row": "{finding_id} {category} {action} {status}" },
+		"journal": {
+			"list_row": "seq={seq} entry_id={entry_id} at={at} actor={actor} kind={kind}",
+			"list_row_batch": "seq={seq} entry_id={entry_id} at={at} actor={actor} kind={kind} batch_id={batch_id} batch_index={batch_index} batch_count={batch_count}",
+			"list_empty": "No journal entries."
+		},
+		"evidence": {
+			"list_row": "id={id} kind={kind} covers={covers} task={task_id} at={at} actor={actor}",
+			"list_empty": "No evidence entries."
+		},
+		"spec_status": {
+			"pass": "spec-lock: PASS",
+			"failure_row": "check {check}: FAIL {code} — {message}",
+			"suppressed_row": "check {check}: SUPPRESSED (blocked by check {blocked_by})"
+		},
 		"sessions": {
 			"empty": "(no sessions found)",
 			"warning": "registry entry {file} {action} ({reason}{detail_suffix})",
@@ -5397,26 +7292,49 @@ var zh_default = {
 		}
 	},
 	diagnostic: {
-		"MISSING_VERIFIABILITY": "需求 {req_id} 必须声明 measurable、verified_by_scenarios[] 或 acceptance_na+reason 三选一",
-		"DRIVES_NOT_BOUND": "需求 {req_id} 没有被任何 task.drives[] 引用",
-		"PENDING_BLOCKS_ADVANCE": "pending head {pending_id}(kind={kind})阻塞 `loaf advance`,需先 resolve",
-		"GATE_NOT_PENDING": "`loaf gate decide {gate}` 要求 pending head kind=gate_decision;当前 head:{actual_head}",
-		"ESCALATION_NOT_PENDING": "`loaf profile escalate --confirm --input <ceremony.json>` 要求 pending head kind=profile_escalation;当前 head:{actual_head}",
-		"FINDING_TARGET_REQUIRED": "finding action={action} target 校验失败({reason}):task_id={task_id}, step={step}",
+		"SPEC_LOCKED_NO_DIRECT_EDIT": "{kind} 被拒:spec_locked=true;用 `loaf finding raise --category spec-gap --action amend-spec` 走 amend-spec 回退到 SPEC.spec",
 		"SPEC_NOT_INITIALIZED": "{kind} 被拒:spec_version=0;先跑 `loaf spec submit` 把 spec_version 升到 1",
 		"SPEC_ALREADY_INITIALIZED": "spec.md 已存在于 {spec_md_path};拒绝覆盖",
 		"CONFIG_ALREADY_INITIALIZED": "loaf config 已存在于 {config_path};拒绝覆盖",
-		"SPEC_LOCKED_NO_DIRECT_EDIT": "{kind} 被拒:spec_locked=true;用 `loaf finding raise --category spec-gap --action amend-spec` 走 amend-spec 回退到 SPEC.spec",
+		"FINDING_TARGET_REQUIRED": "finding action={action} target 校验失败({reason}):task_id={task_id}, step={step}",
+		"PRUNE_RESTORE_NOT_FOUND": "没有匹配该 id 的已回收 session",
+		"PRUNE_RESTORE_AMBIGUOUS": "该 session id 被回收过多次;用 --at <ts> 指定其一",
+		"PRUNE_RESTORE_INCOMPLETE": "trash 桶不完整(缺必要文件),不予恢复",
+		"PRUNE_PATH_OCCUPIED": "恢复目标已存在,拒绝覆盖",
+		"PRUNE_PARTIAL_FAILURE": "prune 部分失败:有 session 未能删除",
+		"MUTUALLY_EXCLUSIVE_FLAGS": "同一次调用使用了互斥的 flags:{flags}",
+		"INVALID_FORMAT": "无效的 --format 值 '{value}';合法值:{allowed_values_human}",
+		"INVALID_LOCALE": "locale 来源 {source} 的值无效:{value}(期望:{accepted})",
+		"DRY_RUN_NOT_APPLICABLE": "--dry-run 不适用于{command_type}命令 `{command}`",
+		"HOOK_EVENT_NOT_IMPLEMENTED": "hook event `{event}` 在当前 loaf 版本未实装(Phase 16 SC-15{sub_cycle} 待实现;详 protocol §11)",
+		"MISSING_VERIFIABILITY": "需求 {req_id} 必须声明 measurable、verified_by_scenarios[] 或 acceptance_na+reason 三选一",
+		"DRIVES_NOT_BOUND": "需求 {req_id} 没有被任何 task.drives[] 引用",
+		"MUTATION_OUT_OF_RIGHTS": "task {task_id} 的 event:tasks_amended 在 sub_state {sub_state} 不被允许 —— §8.6 未授予该改动的 mutation right",
+		"FEATURE_NOT_FOUND": "当前 cwd 找不到 feature(.loaf/ 为空或缺失,或所有 projection 已 DONE)",
+		"FEATURE_AMBIGUOUS": "当前 cwd 有 {count} 个 active feature 但无 dispatch 上下文:{feature_list}",
+		"SESSION_CWD_MISMATCH": "--session {uuid} 注册的 cwd={registered_cwd},当前 cwd 是 {current_cwd}",
+		"SESSION_SHORT_AMBIGUOUS": "--session {prefix} 在 registry 匹配 {match_count} 个 session:{candidate_list}",
+		"SESSION_NOT_FOUND": "--session {uuid_or_prefix} 在 registry 找不到任何匹配",
+		"PENDING_BLOCKS_ADVANCE": "pending head {pending_id}(kind={kind})阻塞 `loaf advance`,需先 resolve",
+		"GATE_NOT_PENDING": "`loaf gate decide {gate_kind}` 要求 pending head kind=gate_decision;当前 head kind:{head_kind}",
+		"ESCALATION_NOT_PENDING": "`loaf profile escalate --confirm --input <ceremony.json>` 要求 pending head kind=profile_escalation;当前 head:{actual_head}",
+		"EXECUTE_DONE_TASKS_NOT_FINAL": "无法从 EXECUTE.work 推进到 EXECUTE.done:{count} 个 task 未处于终态(done 或 abandoned);跑完剩余 step,或用 `loaf tasks abandon <T-N> --reason \"...\"` 放弃超出范围的 task",
+		"NO_SESSION": "{feature_dir} 下没有 session — 先跑 `loaf start <feature>`",
+		"COVERAGE_NOT_SATISFIED": "{covered_id} 没有任何证据满足覆盖(canSatisfy 对所有候选 evidence 都失败)",
 		"DELIVER_NOT_ACCEPTED": "deliver 要求 verify_accepted=true(sub_state={sub_state});先运行 `loaf gate decide verify-accept --approve`",
 		"DELIVER_SETTLE_PHASE_BYPASS": "VERIFY.accept 直接 deliver 要求 ceremony.settle_phase=false(standard);deep ceremony 必须先运行 `loaf settle`",
 		"DELIVER_VERIFY_MIN_UNAVAILABLE": "verify-min 在此 build 不可用(ceremony_label={ceremony_label})—— v0.1.1 起由 DELIVER_VERIFY_MIN_INCOMPLETE 取代,已不再触发",
 		"DELIVER_VERIFY_MIN_INCOMPLETE": "verify-min:{count} 个 done task 缺少 deliver 所需 evidence(ceremony_label={ceremony_label});补 evidence 或 waive 后重试 deliver",
 		"DELIVER_SPIKE_TASKS": "无法 deliver:task {task_id} 是 kind=spike(status={status});spike 任务阻塞整 session 的交付",
-		"EXECUTE_DONE_TASKS_NOT_FINAL": "无法从 EXECUTE.work 推进到 EXECUTE.done:{count} 个 task 未处于终态(done 或 abandoned);跑完剩余 step,或用 `loaf tasks abandon <T-N> --reason \"...\"` 放弃超出范围的 task",
 		"SETTLE_NOT_ACCEPTED": "VERIFY.accept → SETTLE.reconcile 要求 verify_accepted=true;先运行 `loaf gate decide verify-accept --approve` 再 `loaf settle`",
 		"SPEC_LOCK_NOT_SATISFIED": "SPEC.design → EXECUTE.plan 要求 spec_locked=true;先运行 `loaf gate decide spec-lock --approve` 再 `loaf advance EXECUTE.plan`",
 		"TASK_NOT_CLAIMABLE": "task {task_id} 无法 claim(status={status} — 终态)",
 		"TASK_ALREADY_CLAIMED": "task {task_id} 已被 claim(status=in_progress)",
+		"TASK_DEP_NOT_FOUND": "task {task_id} 的 {field} 引用了不存在的 task {ref}",
+		"TASK_DEP_SELF": "task {task_id} 不能依赖自身",
+		"TASK_DEP_DUPLICATE": "task {task_id} 在下标 {indexes} 重复声明依赖 {ref}",
+		"TASK_DEP_CYCLE": "task 依赖图包含环 {cycle}",
+		"TASK_DEP_ABANDONED": "task {task_id} 的 {field} 引用了已 abandoned 的 task {ref};{hint}",
 		"TASK_DEPS_NOT_SATISFIED": "task {task_id} 无法 claim:依赖 {blocking_dep} 未 done(status={blocking_status})",
 		"TASK_NOT_CLAIMED": "task {task_id} step {step} 变更要求 task.status=in_progress(实际 status={status});先 `loaf tasks claim`",
 		"TASK_NOT_ABANDONABLE": "task {task_id} 无法 abandon(status={status} — 已处于终态)",
@@ -5428,15 +7346,13 @@ var zh_default = {
 		"SPEC_VERSION_NOT_MONOTONIC": "{kind}: spec_version 必须等于 {expected_spec_version}(current+1),实际为 {payload_spec_version}",
 		"SPEC_VERSION_BATCH_MISMATCH": "{kind}: batch_index={batch_index} 处 spec_version 必须等于 {current_spec_version},实际为 {payload_spec_version}",
 		"TASK_COMPLETE_PRECONDITION_VIOLATED": "task {task_id} 尚未完成(status={status});以下 must 级 step 未达 terminal-positive:{blocking_steps}",
-		"MUTATION_OUT_OF_RIGHTS": "task {task_id} 的 event:tasks_amended 在 sub_state {sub_state} 不被允许 —— §8.6 未授予该改动的 mutation right",
 		"CANONICAL_TASK_BODY_UNAVAILABLE": "task {task_id} 在投影中存在,但 journal 里没有 canonical body(migration 导入);无法重建整 task 的 amend",
 		"BUG_TASK_REQUIRES_RED": "behavioral bug task {task_id} 在注册 RED 测试前不能开始或完成 implement step",
 		"BUG_TASK_FLAG_MISUSE": "task {task_id}:red_test_registered=true 只在 behavioral bug task 的 red-step task_step_done(passed/waived)上有效 —— 不能用在本 entry",
 		"BUG_TASK_RED_NOT_REGISTERED": "behavioral bug task {task_id} 已 done 但从未注册 RED 测试(red_test_registered≠true)",
 		"SPIKE_CONVERT_NO_SPIKE_TASK": "无法 convert:session 没有非-abandoned 的 spike task;`loaf spike convert` 是 spike-task 出口(protocol §8.3)",
-		"COVERAGE_NOT_SATISFIED": "{covered_id} 没有任何证据满足覆盖(canSatisfy 对所有候选 evidence 都失败)",
-		"NO_SESSION": "{feature_dir} 下没有 session — 先跑 `loaf start <feature>`",
 		"SNAPSHOT_STALE_REBUILD_REQUIRED": "snapshot 失效(reason={reason}) at {feature_dir};跑 `loaf doctor --rebuild --feature <feature>` 从 journal 重建",
+		"JOURNAL_TAIL_REQUIRES_NEWER_LOAF": "tail recovery 已拒绝:seq {seq} 的 journal kind {kind} 使用 entry schema {entry_schema_version} ({reason})",
 		"INVALID_PRESET": "ceremony preset 不合法",
 		"USAGE": "CLI 用法不合法",
 		"DOCTOR_MODE_NOT_IMPLEMENTED": "当前发布版本未实现该 loaf doctor 模式",
@@ -5444,23 +7360,11 @@ var zh_default = {
 		"DOCTOR_REBUILD_FAILED": "doctor --rebuild 失败",
 		"DOCTOR_REBUILD_MIGRATED_UNSUPPORTED": "当前发布版本的 doctor --rebuild 不支持 v0.0.x-migrated journal",
 		"REDUCER_ERROR": "reducer 内部不变量失败",
-		"INVALID_FORMAT": "无效的 --format 值 '{value}';合法值:{allowed_values_human}",
-		"INVALID_LOCALE": "locale 来源 {source} 的值无效:{value}(期望:{accepted})",
-		"MUTUALLY_EXCLUSIVE_FLAGS": "同一次调用使用了互斥的 flags:{flags}",
-		"DRY_RUN_NOT_APPLICABLE": "--dry-run 不适用于{command_type}命令 `{command}`",
-		"HOOK_EVENT_NOT_IMPLEMENTED": "hook event `{event}` 在当前 loaf 版本未实装(Phase 16 SC-15{sub_cycle} 待实现;详 protocol §11)",
+		"SCOPE_RECORDED_BATCH_INVALID": "scope:recorded 批次无效:{reason}",
+		"SCOPE_RECORDED_ITERATION_DUPLICATE": "iteration {iteration} 已存在 scope:recorded",
+		"ACTUAL_SCOPE_HISTORY_INCOMPLETE": "actual scope 历史不完整:seq {transition_seqs} 的 EXECUTE closure transition 缺少同批 scope:recorded marker",
 		"WRITE_PATH_VIOLATION": "写入被拦截:`{normalized_path}` 不在 sub_state `{sub_state}` 的允许写入路径内",
-		"PROTECTED_FILE_WRITE": "写入被拦截:`{normalized_path}` 命中 protected_files 条目 `{matched_deny}` —— 受保护文件永不可写",
-		"FEATURE_NOT_FOUND": "当前 cwd 找不到 feature(.loaf/ 为空或缺失,或所有 projection 已 DONE)",
-		"FEATURE_AMBIGUOUS": "当前 cwd 有 {count} 个 active feature 但无 dispatch 上下文:{feature_list}",
-		"SESSION_CWD_MISMATCH": "--session {uuid} 注册的 cwd={registered_cwd},当前 cwd 是 {current_cwd}",
-		"SESSION_SHORT_AMBIGUOUS": "--session {prefix} 在 registry 匹配 {match_count} 个 session:{candidate_list}",
-		"SESSION_NOT_FOUND": "--session {uuid_or_prefix} 在 registry 找不到任何匹配",
-		"PRUNE_RESTORE_NOT_FOUND": "没有匹配该 id 的已回收 session",
-		"PRUNE_RESTORE_AMBIGUOUS": "该 session id 被回收过多次;用 --at <ts> 指定其一",
-		"PRUNE_RESTORE_INCOMPLETE": "trash 桶不完整(缺必要文件),不予恢复",
-		"PRUNE_PATH_OCCUPIED": "恢复目标已存在,拒绝覆盖",
-		"PRUNE_PARTIAL_FAILURE": "prune 部分失败:有 session 未能删除"
+		"PROTECTED_FILE_WRITE": "写入被拦截:`{normalized_path}` 命中 protected_files 条目 `{matched_deny}` —— 受保护文件永不可写"
 	},
 	failure: {
 		"sessions_list": { "selector_conflict": "sessions list 不接受 {conflicting} —— 它会跨全部 session 列表;如需过滤当前 cwd,使用 --in-cwd" },
@@ -5508,6 +7412,16 @@ var zh_default = {
 			"file_missing": "lesson file 不存在:{path}"
 		},
 		"finding": { "status_invalid": "--status 必须是:{allowed_statuses_human}(当前 {value})" },
+		"journal": {
+			"integer_invalid": "{flag} 必须是 >= {minimum} 的整数(当前 {value})",
+			"kind_invalid": "--kind 必须是已注册的 journal kind(当前 {value})",
+			"actor_invalid": "--actor 必须是非空 actor 前缀或完整 actor 字符串"
+		},
+		"evidence": {
+			"covers_invalid": "--covers 必须是有效的 coverage id(当前 {value})",
+			"task_invalid": "--task 必须是有效的 task id(当前 {value})",
+			"kind_invalid": "--kind 必须是:{allowed_kinds_human}"
+		},
 		"write_guard": { "config_invalid": "write-guard 被拦截:{reason}" },
 		"no_session": {
 			"status": "先跑 `loaf start {feature}`",
@@ -5584,7 +7498,7 @@ var zh_default = {
 			"resolve_state_change": "pending resolve: {pending_id} cleared"
 		},
 		"waive": { "state_change": "waive: {evidence_id} obligation={obligation_id}" },
-		"lessons": { "add_state_change": "lessons add: {evidence_id} 已记录(kind=manual; lessons.md 已更新)" },
+		"lessons": { "add_state_change": "lessons add: {lesson_id} 已记录(kind=lesson:recorded; lessons.md 已更新)" },
 		"evidence": {
 			"covers_none": "<none>",
 			"add_state_change_single": "evidence add: {evidence_id} kind={kind}, covers={covers}",
@@ -5643,6 +7557,20 @@ var zh_default = {
 			"non_head": "-"
 		},
 		"finding": { "list_row": "{finding_id} {category} {action} {status}" },
+		"journal": {
+			"list_row": "序号={seq} 条目={entry_id} 时间={at} 操作者={actor} 类型={kind}",
+			"list_row_batch": "序号={seq} 条目={entry_id} 时间={at} 操作者={actor} 类型={kind} 批次={batch_id} 批次索引={batch_index} 批次数量={batch_count}",
+			"list_empty": "没有日志条目。"
+		},
+		"evidence": {
+			"list_row": "id={id} 类型={kind} 覆盖={covers} 任务={task_id} 时间={at} 操作者={actor}",
+			"list_empty": "没有证据条目。"
+		},
+		"spec_status": {
+			"pass": "spec-lock：通过",
+			"failure_row": "检查 {check}：失败 {code} — {message}",
+			"suppressed_row": "检查 {check}：已抑制（由检查 {blocked_by} 阻塞）"
+		},
 		"sessions": {
 			"empty": "(没有 session)",
 			"warning": "registry 条目 {file} {action}({reason}{detail_suffix})",
@@ -5975,33 +7903,41 @@ function carryForwardStepProgress(replacement, canonical) {
 //#endregion
 //#region src/core/lessons-projection.ts
 /**
-* Lesson selector (codex F-024 r2): NOT every kind=manual evidence is a
+* Legacy lesson selector (codex F-024 r2): NOT every kind=manual evidence is a
 * lesson — `loaf evidence add --kind manual` is a legitimate verification
-* path that covers REQ/SCEN/VIS/T. A lesson (from `loaf lessons add`,
-* `buildLessonsEvidencePayload`) is shaped EXACTLY as: kind=manual,
+* path that covers REQ/SCEN/VIS/T. A legacy lesson is shaped EXACTLY as: kind=manual,
 * result=passed, empty covers, no task_id / check / gate linkage, human
-* actor. The shape heuristic is exact for the current emitter; an explicit
-* payload marker is future hardening (needs an evidence-schema rev).
+* actor. New emitters use the independent `lesson:recorded` kind; this
+* heuristic remains permanently for backward-compatible reads only.
 */
 function isLesson(payload) {
 	return payload.kind === "manual" && payload.result === "passed" && (payload.covers?.length ?? 0) === 0 && payload.task_id === void 0 && payload.check === void 0 && payload.gate === void 0 && payload.actor.startsWith("human:");
 }
 /**
 * Select lesson entries from the journal stream (journal order = seq order).
-* Operates on the FULL journal payloads (codex F-024 r2: NOT the slim
-* `Snapshot.evidence`, which drops summary / task_id / gate).
+* This is the sole compatibility bridge: new kind + legacy heuristic.
+* Operates on FULL journal payloads, not the slim `Snapshot.evidence`.
 */
 function selectLessonEntries(entries) {
 	const lessons = [];
 	for (const e of entries) {
-		if (e.kind !== "evidence:added") continue;
-		const payload = EvidenceFullPayload.parse(e.payload);
-		if (!isLesson(payload)) continue;
-		lessons.push({
-			entry_id: e.entry_id,
-			at: e.at,
-			summary: payload.summary
-		});
+		if (e.kind === "lesson:recorded") {
+			const payload = LessonRecordedPayload.parse(e.payload);
+			lessons.push({
+				entry_id: e.entry_id,
+				at: e.at,
+				summary: payload.summary
+			});
+			continue;
+		}
+		if (e.kind === "evidence:added") {
+			const payload = EvidenceFullPayload.parse(e.payload);
+			if (isLesson(payload)) lessons.push({
+				entry_id: e.entry_id,
+				at: e.at,
+				summary: payload.summary
+			});
+		}
 	}
 	return lessons;
 }
@@ -6108,7 +8044,7 @@ function composeStateProjection(snapshot, entries) {
 	const workspace = startPayload.workspace ?? "default";
 	const loafVersionRequired = startPayload.loaf_version_required ?? null;
 	const tasksVersion = entries.filter((e) => e.kind === "event:tasks_planned" || e.kind === "event:tasks_amended").length;
-	return StateProjection$1.parse({
+	return StateProjection.parse({
 		schema_version: 2,
 		session_id: state.session_id,
 		session_label: sessionLabel,
@@ -6160,7 +8096,7 @@ function composeTasksJson(snapshot, entries) {
 		if (body === void 0) throw new Error(`composeTasksJson: task ${t.id} is in the snapshot projection but has no canonical journal body — projection corruption (a rebuild must not invent a body)`);
 		return materializeTaskForAmend(body, t);
 	});
-	return TasksJson$1.parse({
+	return TasksJson.parse({
 		schema_version: 2,
 		version,
 		based_on: { spec: snapshot.tasks_based_on.spec },
@@ -6185,7 +8121,7 @@ function composeEvidenceJson(entries) {
 		schema_version: 2,
 		at: e.at
 	}));
-	return EvidenceJson$1.parse({
+	return EvidenceJson.parse({
 		schema_version: 2,
 		evidence
 	});
@@ -6199,7 +8135,7 @@ function composeEvidenceJson(entries) {
 * `FindingsEvent` jsonl event schema. Validated against `FindingsJson`.
 */
 function composeFindingsJson(snapshot) {
-	return FindingsJson$1.parse({
+	return FindingsJson.parse({
 		schema_version: 2,
 		findings: snapshot.findings
 	});
@@ -6239,7 +8175,7 @@ function composePendingJson(entries) {
 		if (p.task_id !== void 0) item.raised_by_task_id = p.task_id;
 		pending.push(item);
 	}
-	return PendingJson$1.parse({
+	return PendingJson.parse({
 		schema_version: 2,
 		pending
 	});
@@ -6378,7 +8314,7 @@ function buildRegistryFile(input) {
 	const pendingQueueDepth = unresolved.length;
 	const activeTasks = snapshot.tasks.filter((t) => t.status === "in_progress").map((t) => t.id);
 	const feature = startPayload.feature;
-	return RegistryFile$1.parse({
+	return RegistryFile.parse({
 		schema_version: 2,
 		at: now.toISOString(),
 		session_id: state.session_id,
@@ -6457,7 +8393,7 @@ async function readRegistryEntry(registryDir, id) {
 			strictDetail: m
 		};
 	}
-	const result = RegistryFile$1.safeParse(parsed);
+	const result = RegistryFile.safeParse(parsed);
 	if (!result.success) return {
 		ok: false,
 		reason: "schema-invalid",
@@ -6744,7 +8680,7 @@ function buildHumanActor(rawValue) {
 		message: "actor value starts with a reserved namespace prefix (human: / skill: / ci: / cli: / migration:); pass the raw identifier without prefix"
 	};
 	const candidate = `human:${rawValue}`;
-	if (!ActorString$1.safeParse(candidate).success) return {
+	if (!ActorString.safeParse(candidate).success) return {
 		ok: false,
 		code: "INVALID_ACTOR_FORMAT",
 		message: "actor candidate does not satisfy ActorString format"
@@ -6775,11 +8711,28 @@ function resolveHumanActor(deps) {
 	};
 	return buildHumanActor(gitEmail);
 }
-//#endregion
-//#region src/core/write-guard.ts
+z.object({
+	path: z.string(),
+	status: z.enum([
+		"added",
+		"modified",
+		"deleted",
+		"renamed",
+		"untracked",
+		"submodule"
+	]),
+	source: z.enum([
+		"worktree",
+		"index",
+		"untracked"
+	])
+});
 const MATCH_OPTS = { dot: true };
 function substituteFeature(glob, feature) {
 	return glob.replace(/<feature>/g, feature);
+}
+function escapesRepoRoot(normalized) {
+	return path.posix.isAbsolute(normalized) || path.win32.isAbsolute(normalized) || normalized.split("/").includes("..");
 }
 /** Normalize a target path to a repo-root-relative POSIX path. */
 function normalizeToRepoRoot(targetPath, repoRoot) {
@@ -6800,14 +8753,22 @@ function firstMatch(normalized, globs) {
 *
 * Order (codex Q1/Q7 lock):
 *   1. normalize to repo-root-relative POSIX path
-*   2. protected_files HARD-DENY (config) — wins over any allow
-*   3. allow-set = built-in globs (<feature>-substituted) ∪ config.paths[cat]
+*   2. reject lexical repo-root escapes before consulting any glob
+*   3. protected_files HARD-DENY (config) — wins over any allow
+*   4. allow-set = built-in globs (<feature>-substituted) ∪ config.paths[cat]
 *      for cat ∈ activeCategories only (category-aware widening, NOT a flat
 *      union — `paths.tests` cannot authorize a source write in implement)
-*   4. match → allowed; else WRITE_PATH_VIOLATION
+*   5. match → allowed; else WRITE_PATH_VIOLATION
 */
 function evaluateWritePath(input) {
 	const normalized = normalizeToRepoRoot(input.targetPath, input.repoRoot);
+	if (escapesRepoRoot(normalized)) return {
+		allowed: false,
+		code: "WRITE_PATH_VIOLATION",
+		normalizedPath: normalized,
+		allowSet: [],
+		reason: "outside_repo_root"
+	};
 	if (input.config) {
 		const matchedDeny = firstMatch(normalized, input.config.protected_files.map((g) => substituteFeature(g, input.feature)));
 		if (matchedDeny !== null) return {
@@ -6944,17 +8905,18 @@ const SUB_STATE_KEYS = {
 	"DONE.archived": "sub_state.DONE.archived",
 	"DONE.abandoned": "sub_state.DONE.abandoned"
 };
-const DIAGNOSTIC_KEYS = {
-	INVALID_FORMAT: "diagnostic.INVALID_FORMAT",
-	MUTUALLY_EXCLUSIVE_FLAGS: "diagnostic.MUTUALLY_EXCLUSIVE_FLAGS",
-	DRY_RUN_NOT_APPLICABLE: "diagnostic.DRY_RUN_NOT_APPLICABLE",
-	CONFIG_ALREADY_INITIALIZED: "diagnostic.CONFIG_ALREADY_INITIALIZED",
-	FEATURE_NOT_FOUND: "diagnostic.FEATURE_NOT_FOUND",
-	FEATURE_AMBIGUOUS: "diagnostic.FEATURE_AMBIGUOUS",
-	SESSION_CWD_MISMATCH: "diagnostic.SESSION_CWD_MISMATCH",
-	SESSION_SHORT_AMBIGUOUS: "diagnostic.SESSION_SHORT_AMBIGUOUS",
-	SESSION_NOT_FOUND: "diagnostic.SESSION_NOT_FOUND"
-};
+const MIGRATED_DIAGNOSTIC_CODES = [
+	"INVALID_FORMAT",
+	"MUTUALLY_EXCLUSIVE_FLAGS",
+	"DRY_RUN_NOT_APPLICABLE",
+	"CONFIG_ALREADY_INITIALIZED",
+	"FEATURE_NOT_FOUND",
+	"FEATURE_AMBIGUOUS",
+	"SESSION_CWD_MISMATCH",
+	"SESSION_SHORT_AMBIGUOUS",
+	"SESSION_NOT_FOUND"
+];
+const DIAGNOSTIC_KEYS = Object.fromEntries(MIGRATED_DIAGNOSTIC_CODES.map((code) => [code, `diagnostic.${code}`]));
 const FAILURE_SITE_KEYS = {
 	sessionsListSelectorConflict: "failure.sessions_list.selector_conflict",
 	tuiSelectorConflict: "failure.tui.selector_conflict",
@@ -6983,6 +8945,12 @@ const FAILURE_SITE_KEYS = {
 	lessonsTextFileMutex: "failure.lessons.text_file_mutex",
 	lessonsFileMissing: "failure.lessons.file_missing",
 	findingStatusInvalid: "failure.finding.status_invalid",
+	journalIntegerInvalid: "failure.journal.integer_invalid",
+	journalKindInvalid: "failure.journal.kind_invalid",
+	journalActorInvalid: "failure.journal.actor_invalid",
+	evidenceCoversInvalid: "failure.evidence.covers_invalid",
+	evidenceTaskInvalid: "failure.evidence.task_invalid",
+	evidenceKindInvalid: "failure.evidence.kind_invalid",
 	writeGuardConfigInvalid: "failure.write_guard.config_invalid",
 	noSessionStatus: "failure.no_session.status",
 	noSessionAdvance: "failure.no_session.advance",
@@ -6992,7 +8960,7 @@ const FAILURE_SITE_KEYS = {
 	noSessionVerify: "failure.no_session.verify",
 	noSessionGeneric: "failure.no_session.generic"
 };
-FAILURE_SITE_KEYS.sessionsListSelectorConflict, FAILURE_SITE_KEYS.tuiSelectorConflict, FAILURE_SITE_KEYS.tuiInteractiveOnly, FAILURE_SITE_KEYS.hookMissingEvent, FAILURE_SITE_KEYS.hookUnknownEvent, FAILURE_SITE_KEYS.hookStdinParseFailed, FAILURE_SITE_KEYS.hookWritePathMissing, FAILURE_SITE_KEYS.checkSelectorConflict, FAILURE_SITE_KEYS.checkKindRequired, FAILURE_SITE_KEYS.checkPathMissing, FAILURE_SITE_KEYS.checkKindInvalid, FAILURE_SITE_KEYS.schemaSelectorConflict, FAILURE_SITE_KEYS.schemaValidation, FAILURE_SITE_KEYS.dispatchSessionFeatureDirConflict, FAILURE_SITE_KEYS.dispatchFeatureDirRequiresFeature, FAILURE_SITE_KEYS.startLabelTooShort, FAILURE_SITE_KEYS.startWorkspaceEmpty, FAILURE_SITE_KEYS.handoffReasonTooShort, FAILURE_SITE_KEYS.handoffPackValidationFailed, FAILURE_SITE_KEYS.profileInputFileMissing, FAILURE_SITE_KEYS.profileInputFileUnreadable, FAILURE_SITE_KEYS.tasksAddEmptyArray, FAILURE_SITE_KEYS.lessonsTextTooShort, FAILURE_SITE_KEYS.lessonsReasonTooShort, FAILURE_SITE_KEYS.lessonsTextFileMutex, FAILURE_SITE_KEYS.lessonsFileMissing, FAILURE_SITE_KEYS.findingStatusInvalid, FAILURE_SITE_KEYS.writeGuardConfigInvalid, FAILURE_SITE_KEYS.noSessionStatus, FAILURE_SITE_KEYS.noSessionAdvance, FAILURE_SITE_KEYS.noSessionTasks, FAILURE_SITE_KEYS.noSessionPending, FAILURE_SITE_KEYS.noSessionFinding, FAILURE_SITE_KEYS.noSessionVerify, FAILURE_SITE_KEYS.noSessionGeneric;
+FAILURE_SITE_KEYS.sessionsListSelectorConflict, FAILURE_SITE_KEYS.tuiSelectorConflict, FAILURE_SITE_KEYS.tuiInteractiveOnly, FAILURE_SITE_KEYS.hookMissingEvent, FAILURE_SITE_KEYS.hookUnknownEvent, FAILURE_SITE_KEYS.hookStdinParseFailed, FAILURE_SITE_KEYS.hookWritePathMissing, FAILURE_SITE_KEYS.checkSelectorConflict, FAILURE_SITE_KEYS.checkKindRequired, FAILURE_SITE_KEYS.checkPathMissing, FAILURE_SITE_KEYS.checkKindInvalid, FAILURE_SITE_KEYS.schemaSelectorConflict, FAILURE_SITE_KEYS.schemaValidation, FAILURE_SITE_KEYS.dispatchSessionFeatureDirConflict, FAILURE_SITE_KEYS.dispatchFeatureDirRequiresFeature, FAILURE_SITE_KEYS.startLabelTooShort, FAILURE_SITE_KEYS.startWorkspaceEmpty, FAILURE_SITE_KEYS.handoffReasonTooShort, FAILURE_SITE_KEYS.handoffPackValidationFailed, FAILURE_SITE_KEYS.profileInputFileMissing, FAILURE_SITE_KEYS.profileInputFileUnreadable, FAILURE_SITE_KEYS.tasksAddEmptyArray, FAILURE_SITE_KEYS.lessonsTextTooShort, FAILURE_SITE_KEYS.lessonsReasonTooShort, FAILURE_SITE_KEYS.lessonsTextFileMutex, FAILURE_SITE_KEYS.lessonsFileMissing, FAILURE_SITE_KEYS.findingStatusInvalid, FAILURE_SITE_KEYS.journalIntegerInvalid, FAILURE_SITE_KEYS.journalKindInvalid, FAILURE_SITE_KEYS.journalActorInvalid, FAILURE_SITE_KEYS.evidenceCoversInvalid, FAILURE_SITE_KEYS.evidenceTaskInvalid, FAILURE_SITE_KEYS.evidenceKindInvalid, FAILURE_SITE_KEYS.writeGuardConfigInvalid, FAILURE_SITE_KEYS.noSessionStatus, FAILURE_SITE_KEYS.noSessionAdvance, FAILURE_SITE_KEYS.noSessionTasks, FAILURE_SITE_KEYS.noSessionPending, FAILURE_SITE_KEYS.noSessionFinding, FAILURE_SITE_KEYS.noSessionVerify, FAILURE_SITE_KEYS.noSessionGeneric;
 const SUCCESS_KEYS = {
 	nextAdvance: "success.next.advance",
 	nextDeliver: "success.next.deliver",
@@ -7087,6 +9055,14 @@ const CHROME_KEYS = {
 	pendingHead: "chrome.pending.head",
 	pendingNonHead: "chrome.pending.non_head",
 	findingListRow: "chrome.finding.list_row",
+	journalListRow: "chrome.journal.list_row",
+	journalListRowBatch: "chrome.journal.list_row_batch",
+	journalListEmpty: "chrome.journal.list_empty",
+	evidenceListRow: "chrome.evidence.list_row",
+	evidenceListEmpty: "chrome.evidence.list_empty",
+	specStatusPass: "chrome.spec_status.pass",
+	specStatusFailureRow: "chrome.spec_status.failure_row",
+	specStatusSuppressedRow: "chrome.spec_status.suppressed_row",
 	sessionsListEmpty: "chrome.sessions.empty",
 	sessionsWarning: "chrome.sessions.warning",
 	sessionsActionSkipped: "chrome.sessions.action_skipped",
@@ -7214,7 +9190,7 @@ function diagnosticKey(code) {
 //#endregion
 //#region src/cli/diagnostic-failure.ts
 /** "text|json" — mirrors FORMAT_MODES_HUMAN in command-context.ts without importing it. */
-const FORMAT_MODES_HUMAN$1 = "text|json";
+const FORMAT_MODES_HUMAN$2 = "text|json";
 function varsIfDefined(vars) {
 	for (const value of Object.values(vars)) if (value === null) return null;
 	return vars;
@@ -7231,11 +9207,11 @@ function listVar(value) {
 	if (Array.isArray(value)) return value.map((item) => String(item)).join(", ");
 	return stringVar(value);
 }
-function diagnosticVarsFor(code, detail) {
+function migratedDiagnosticVarsFor(code, detail) {
 	switch (code) {
 		case "INVALID_FORMAT": return varsIfDefined({
 			value: stringVar(detail?.["value"]),
-			allowed_values_human: stringVar(detail?.["allowed_values_human"]) ?? FORMAT_MODES_HUMAN$1
+			allowed_values_human: stringVar(detail?.["allowed_values_human"]) ?? FORMAT_MODES_HUMAN$2
 		});
 		case "MUTUALLY_EXCLUSIVE_FLAGS": return varsIfDefined({ flags: listVar(detail?.["conflicting"]) });
 		case "DRY_RUN_NOT_APPLICABLE": return varsIfDefined({
@@ -7259,82 +9235,60 @@ function diagnosticVarsFor(code, detail) {
 			candidate_list: listVar(detail?.["candidate_list"])
 		});
 		case "SESSION_NOT_FOUND": return varsIfDefined({ uuid_or_prefix: stringVar(detail?.["uuid_or_prefix"]) });
-		default: return null;
 	}
+	return code;
+}
+const MIGRATED_DIAGNOSTIC_CODE_SET = new Set(MIGRATED_DIAGNOSTIC_CODES);
+function diagnosticVarsFor(code, detail) {
+	if (!MIGRATED_DIAGNOSTIC_CODE_SET.has(code)) return null;
+	return migratedDiagnosticVarsFor(code, detail);
 }
 //#endregion
-//#region src/cli/command-context.ts
+//#region src/cli/argv-presentation.ts
 /** Closed value set for `--format`. Single source of truth for both the
-*  argv parser and the human-readable error template. Order is
-*  intentional: matches the `text|json` rendering in user-facing
-*  diagnostics. */
-const FORMAT_MODES = ["text", "json"];
-/** Pipe-joined human form for INVALID_FORMAT i18n templates.
-*  Derived explicitly — never `Array.toString()` — to keep the
-*  catalog/i18n/runtime placeholder symmetry deterministic
-*  (per RED #12 in tests/scripts/sc5a-surface-gate.test.ts). */
-const FORMAT_MODES_HUMAN = FORMAT_MODES.join("|");
-/** Scan EVERY `--format <v>` and `--format=<v>` occurrence and return
-*  the first one with a value outside FORMAT_MODES. Returns null when
-*  all occurrences are valid (or absent). Used by parsePresentation
-*  to honor INVALID_FORMAT precedence over mutex regardless of
-*  position (codex r258 F1: an invalid value AFTER a valid one must
-*  still raise INVALID_FORMAT). */
+* argv parser and the human-readable error template. */
+const FORMAT_MODES$1 = ["text", "json"];
+/** Pipe-joined human form for INVALID_FORMAT i18n templates. */
+const FORMAT_MODES_HUMAN$1 = FORMAT_MODES$1.join("|");
+/** Scan EVERY `--format` / `--format=` occurrence — not just the first — so a
+* later invalid value is not masked by an earlier valid one (codex r258 F1).
+* This exhaustiveness is what gives INVALID_FORMAT its position-independent
+* precedence over the mutex check. */
 function findFirstInvalidFormat(argv) {
 	for (let i = 0; i < argv.length; i++) {
 		const arg = argv[i];
 		if (arg === "--format") {
 			const v = argv[i + 1];
 			if (v === void 0 || v.startsWith("--")) continue;
-			if (!FORMAT_MODES.includes(v)) return { rawValue: v };
+			if (!FORMAT_MODES$1.includes(v)) return { rawValue: v };
 			i++;
 			continue;
 		}
 		if (arg.startsWith("--format=")) {
 			const v = arg.slice(9);
-			if (!FORMAT_MODES.includes(v)) return { rawValue: v };
+			if (!FORMAT_MODES$1.includes(v)) return { rawValue: v };
 		}
 	}
 	return null;
 }
-/** Returns true if `--plain` flag appears in argv. */
 function parsePlainFromArgv(argv) {
 	return argv.includes("--plain");
 }
-/** Returns true if `--quiet` OR `-q` flag appears in argv. */
 function parseQuietFromArgv(argv) {
 	return argv.includes("--quiet") || argv.includes("-q");
 }
-/** Phase 16 SC-6a — returns true if `--no-input` appears in argv.
-*  Orthogonal to output_format / quiet / verbose / color (no mutex).
-*  Declares non-interactive context — actor resolver refuses git-config
-*  fallback; any future prompt entry must exit 2. Explicit actor input
-*  via `$LOAF_USER` is NOT disabled by this flag. */
 function parseNoInputFromArgv(argv) {
 	return argv.includes("--no-input");
 }
-/** Phase 16 SC-6b — returns true if `--debug` flag OR a non-empty
-*  `LOAF_DEBUG` / `DEBUG` env var triggers debug mode. Precedence:
-*  `--debug` flag > `LOAF_DEBUG` > `DEBUG` (any non-empty value
-*  is truthy per protocol §1547; no `0`/`false` magic). Orthogonal
-*  to all other presentation flags. */
-function parseDebugFromArgv(argv, env = process.env) {
+function parseDebugFromArgv(argv, env) {
 	if (argv.includes("--debug")) return true;
 	if (env.LOAF_DEBUG && env.LOAF_DEBUG.length > 0) return true;
 	if (env.DEBUG && env.DEBUG.length > 0) return true;
 	return false;
 }
-/** Phase 16 SC-6c — returns true if `--dry-run` or `-n` appears in argv.
-*  Orthogonal to all other presentation flags (no mutex). When true,
-*  mutating commands short-circuit before journal append + projection
-*  refresh; read-only commands reject with DRY_RUN_NOT_APPLICABLE. */
 function parseDryRunFromArgv(argv) {
 	return argv.includes("--dry-run") || argv.includes("-n");
 }
-/** Returns cumulative verbose count: `-v` = 1, `-vv` = 2,
-*  `--verbose` = 1, and multiple occurrences sum. E.g.
-*  `-v --verbose` = 2, `-vv --verbose` = 3. Per protocol §10.7 +
-*  codex r254 OQ3 verdict. */
 function parseVerboseFromArgv(argv) {
 	let count = 0;
 	for (const arg of argv) {
@@ -7346,22 +9300,15 @@ function parseVerboseFromArgv(argv) {
 	}
 	return count;
 }
-/** Returns true if any of these is true:
-*  - `--no-color` in argv
-*  - `env.NO_COLOR` non-empty
-*  - `env.LOAF_NO_COLOR` non-empty
-*  - `env.TERM === "dumb"`
-*  Per protocol §10.2 (`docs/protocol.md:1512-1513`). */
-function parseNoColorFromArgv(argv, env = process.env) {
+/** Color suppression per protocol §10.2: `--no-color`, non-empty `NO_COLOR` or
+* `LOAF_NO_COLOR`, or `TERM=dumb`. */
+function parseNoColorFromArgv(argv, env) {
 	if (argv.includes("--no-color")) return true;
 	if (env.NO_COLOR && env.NO_COLOR.length > 0) return true;
 	if (env.LOAF_NO_COLOR && env.LOAF_NO_COLOR.length > 0) return true;
 	if (env.TERM === "dumb") return true;
 	return false;
 }
-/** Internal: collect every (entry, canonicalValue) pair from argv
-*  using the FLAG_EXCLUSIONS.output_format normalization. Used to
-*  detect non-equivalent multi-flag conflicts. */
 function collectOutputFormatEntries(argv) {
 	const out = [];
 	for (let i = 0; i < argv.length; i++) {
@@ -7375,7 +9322,7 @@ function collectOutputFormatEntries(argv) {
 		}
 		if (arg === "--format") {
 			const v = argv[i + 1];
-			if (v && !v.startsWith("--") && FORMAT_MODES.includes(v)) out.push({
+			if (v && !v.startsWith("--") && FORMAT_MODES$1.includes(v)) out.push({
 				entry: `--format ${v}`,
 				canonical: v
 			});
@@ -7383,16 +9330,17 @@ function collectOutputFormatEntries(argv) {
 		}
 		if (arg.startsWith("--format=")) {
 			const v = arg.slice(9);
-			if (FORMAT_MODES.includes(v)) out.push({
+			if (FORMAT_MODES$1.includes(v)) out.push({
 				entry: arg,
 				canonical: v
 			});
-			continue;
 		}
 	}
 	return out;
 }
-function parsePresentation(argv, env = process.env) {
+/** Parse presentation flags with INVALID_FORMAT taking precedence over
+* MUTUALLY_EXCLUSIVE_FLAGS. The caller must inject the environment. */
+function parsePresentation$1(argv, env) {
 	const invalid = findFirstInvalidFormat(argv);
 	if (invalid) return {
 		ok: false,
@@ -7400,12 +9348,12 @@ function parsePresentation(argv, env = process.env) {
 		rawValue: invalid.rawValue
 	};
 	const entries = collectOutputFormatEntries(argv);
-	if (new Set(entries.map((e) => e.canonical)).size > 1) {
-		const renderAsJson = entries.some((e) => e.canonical === "json");
+	if (new Set(entries.map((entry) => entry.canonical)).size > 1) {
+		const renderAsJson = entries.some((entry) => entry.canonical === "json");
 		return {
 			ok: false,
 			kind: "MUTUALLY_EXCLUSIVE_FLAGS",
-			conflicting: Array.from(new Set(entries.map((e) => e.entry))),
+			conflicting: Array.from(new Set(entries.map((entry) => entry.entry))),
 			renderAsJson
 		};
 	}
@@ -7420,6 +9368,13 @@ function parsePresentation(argv, env = process.env) {
 		debug: parseDebugFromArgv(argv, env),
 		dryRun: parseDryRunFromArgv(argv)
 	};
+}
+//#endregion
+//#region src/cli/command-context.ts
+const FORMAT_MODES = FORMAT_MODES$1;
+const FORMAT_MODES_HUMAN = FORMAT_MODES_HUMAN$1;
+function parsePresentation(argv, env = process.env) {
+	return parsePresentation$1(argv, env);
 }
 /** Pre-resolve `--feature <NAME>` from argv. Best-effort; null on miss.
 *  Lifted here (was duplicated in src/core/crash-log.ts) so ctx and
@@ -7438,7 +9393,7 @@ function phaseOf(subState) {
 	return i < 0 ? null : subState.slice(0, i);
 }
 function createCommandContext(argv, deps) {
-	const presentation = parsePresentation(argv);
+	const presentation = parsePresentation(argv, process.env);
 	const output = presentation.ok ? presentation.format : "text";
 	const i18n = deps.i18n ?? DEFAULT_I18N;
 	const plain = presentation.ok ? presentation.plain : false;
@@ -7709,8 +9664,19 @@ function createCommandContext(argv, deps) {
 	}
 	return ctx;
 }
-//#endregion
-//#region src/cli/trace-writer.ts
+z.object({
+	schema_version: z.literal(2),
+	at: z.string().datetime(),
+	session_id: z.string().uuid(),
+	iteration: z.number().int().positive(),
+	sub_state: SubState,
+	cmd: z.string(),
+	argv: z.array(z.string()),
+	exit: z.number().int(),
+	wall_ms: z.number().int().nonnegative(),
+	stdout_summary: z.string().optional(),
+	stderr_summary: z.string().optional()
+});
 /** Flags whose value carries free-form prose, file paths, payloads,
 *  or identity-bearing data — replaced with a placeholder before
 *  trace.jsonl write. Closed enums / numeric identifiers / boolean
@@ -7814,7 +9780,7 @@ const HOOK_EVENTS = z.enum([
 	"closure-check"
 ]).options;
 /** Map each hook event to its Claude Code wire-protocol event name.
-*  Mirror of `docs/schemas.ts:HOOK_EVENT_TO_CLAUDE_CODE`. */
+*  Canonical Claude Code protocol mapping. */
 const HOOK_EVENT_TO_CLAUDE_CODE = {
 	"session-start": "SessionStart",
 	"write-guard": "PreToolUse(Write,Edit)",
@@ -8090,6 +10056,159 @@ function defaultIsStdinTty() {
 	return process.stdin.isTTY === true;
 }
 //#endregion
+//#region src/core/spec-frontmatter.ts
+const FRONTMATTER_RE = /^---\s*\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n|$)/;
+/**
+* Splits a spec.md raw string into (frontmatter_yaml, body) using the
+* shared FRONTMATTER_RE grammar. `body` is everything AFTER the closing
+* `---\n` (preserves trailing content verbatim). If no frontmatter block
+* is present, frontmatter is null and body is the whole input.
+*
+* Symmetric companion to readSpecFrontmatter() that returns ONLY the
+* structural split — caller validates YAML / SpecFrontmatter separately.
+*/
+function splitFrontmatter(raw) {
+	const match = FRONTMATTER_RE.exec(raw);
+	if (!match) return {
+		frontmatter: null,
+		body: raw
+	};
+	const body = raw.slice(match[0].length);
+	return {
+		frontmatter: match[1],
+		body
+	};
+}
+async function readSpecFrontmatter(featureDir) {
+	const specPath = path$1.join(featureDir, "spec.md");
+	let raw;
+	try {
+		raw = await fsp.readFile(specPath, "utf8");
+	} catch (err) {
+		if (err.code === "ENOENT") return {
+			ok: false,
+			code: "SPEC_NOT_FOUND",
+			message: `spec.md not found at ${specPath}`,
+			detail: { path: specPath }
+		};
+		throw err;
+	}
+	const match = FRONTMATTER_RE.exec(raw);
+	if (!match) return {
+		ok: false,
+		code: "SPEC_YAML_INVALID",
+		message: "spec.md is missing a YAML frontmatter block fenced by `---` on the first line",
+		detail: { path: specPath }
+	};
+	let parsed;
+	try {
+		parsed = parse(match[1]);
+	} catch (err) {
+		return {
+			ok: false,
+			code: "SPEC_YAML_INVALID",
+			message: `spec.md frontmatter YAML failed to parse: ${err.message}`,
+			detail: {
+				path: specPath,
+				error: err.message
+			}
+		};
+	}
+	const validated = SpecFrontmatter.safeParse(parsed);
+	if (!validated.success) return {
+		ok: false,
+		code: "SPEC_FRONTMATTER_INVALID",
+		message: "spec.md frontmatter failed SpecFrontmatter schema validation",
+		detail: {
+			path: specPath,
+			issues: validated.error.issues
+		}
+	};
+	return {
+		ok: true,
+		frontmatter: validated.data
+	};
+}
+//#endregion
+//#region src/core/gates/spec-lock-input.ts
+/**
+* Compatibility adapter for the gate IO path. It projects an already parsed
+* spec.md frontmatter value into a transient snapshot view, after which the
+* gate uses the same replay constructor as read-side diagnostics. This keeps
+* the historical gate behavior for a divergent derived file without teaching
+* the checker or constructor about file IO.
+*/
+function withSpecFrontmatterProjection(snapshot, frontmatter) {
+	if (snapshot.state === null) return snapshot;
+	return {
+		...snapshot,
+		state: {
+			...snapshot.state,
+			spec_version: frontmatter.spec_version
+		},
+		spec_header: {
+			feature: frontmatter.feature,
+			intent: frontmatter.intent,
+			adr_refs: frontmatter.adr_refs,
+			needs_clarification: frontmatter.needs_clarification
+		},
+		requirements: frontmatter.requirements,
+		scenarios: frontmatter.scenarios,
+		visual_contracts: frontmatter.visual_contracts ?? []
+	};
+}
+/**
+* Reconstruct the full spec-lock input from replayed snapshot state.
+* Pure and total: projection absence/drift becomes the check-1 failure shape
+* rather than file IO or an exception.
+*/
+function buildSpecLockCheckInput(snapshot) {
+	if (snapshot.state === null || snapshot.spec_header === null) return {
+		ok: false,
+		failure: {
+			check: 1,
+			code: "SPEC_FRONTMATTER_INVALID",
+			message: "snapshot has no projected spec; submit a spec before evaluating spec-lock",
+			detail: {
+				source: "snapshot",
+				subcode: "SPEC_NOT_FOUND",
+				reason: snapshot.state === null ? "session_state_missing" : "spec_header_missing"
+			}
+		}
+	};
+	const parsed = SpecFrontmatter.safeParse({
+		schema_version: 2,
+		spec_version: snapshot.state.spec_version,
+		feature: snapshot.spec_header.feature,
+		intent: snapshot.spec_header.intent,
+		adr_refs: snapshot.spec_header.adr_refs,
+		requirements: snapshot.requirements,
+		scenarios: snapshot.scenarios,
+		visual_contracts: snapshot.visual_contracts,
+		needs_clarification: snapshot.spec_header.needs_clarification
+	});
+	if (!parsed.success) return {
+		ok: false,
+		failure: {
+			check: 1,
+			code: "SPEC_FRONTMATTER_INVALID",
+			message: "snapshot spec projection failed SpecFrontmatter schema validation",
+			detail: {
+				source: "snapshot",
+				subcode: "SPEC_FRONTMATTER_INVALID",
+				issues: parsed.error.issues
+			}
+		}
+	};
+	return {
+		ok: true,
+		input: {
+			snapshot,
+			frontmatter: parsed.data
+		}
+	};
+}
+//#endregion
 //#region src/core/gates/spec-lock-check.ts
 const KINDS_REQUIRING_RATIONALE = [
 	"structural",
@@ -8101,9 +10220,11 @@ function specLockCheck(snapshot, frontmatter) {
 	const failures = [];
 	if (frontmatter.needs_clarification.length > 0) failures.push({
 		check: 2,
-		code: "SPEC_HAS_UNCLARIFIED",
-		message: `spec has ${frontmatter.needs_clarification.length} unresolved needs_clarification entries; resolve or remove them before spec-lock`,
-		detail: { ids: frontmatter.needs_clarification.map((nc) => nc.id) }
+		...diagnostic$2("SPEC_HAS_UNCLARIFIED", {
+			count: frontmatter.needs_clarification.length,
+			ids: frontmatter.needs_clarification.map((nc) => nc.id)
+		}),
+		message: `spec has ${frontmatter.needs_clarification.length} unresolved needs_clarification entries; resolve or remove them before spec-lock`
 	});
 	let check3Failed = false;
 	if (snapshot.tasks_based_on === null) {
@@ -8186,80 +10307,6 @@ function specLockCheck(snapshot, frontmatter) {
 	};
 }
 //#endregion
-//#region src/core/spec-frontmatter.ts
-const FRONTMATTER_RE = /^---\s*\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n|$)/;
-/**
-* Splits a spec.md raw string into (frontmatter_yaml, body) using the
-* shared FRONTMATTER_RE grammar. `body` is everything AFTER the closing
-* `---\n` (preserves trailing content verbatim). If no frontmatter block
-* is present, frontmatter is null and body is the whole input.
-*
-* Symmetric companion to readSpecFrontmatter() that returns ONLY the
-* structural split — caller validates YAML / SpecFrontmatter separately.
-*/
-function splitFrontmatter(raw) {
-	const match = FRONTMATTER_RE.exec(raw);
-	if (!match) return {
-		frontmatter: null,
-		body: raw
-	};
-	const body = raw.slice(match[0].length);
-	return {
-		frontmatter: match[1],
-		body
-	};
-}
-async function readSpecFrontmatter(featureDir) {
-	const specPath = path$1.join(featureDir, "spec.md");
-	let raw;
-	try {
-		raw = await fsp.readFile(specPath, "utf8");
-	} catch (err) {
-		if (err.code === "ENOENT") return {
-			ok: false,
-			code: "SPEC_NOT_FOUND",
-			message: `spec.md not found at ${specPath}`,
-			detail: { path: specPath }
-		};
-		throw err;
-	}
-	const match = FRONTMATTER_RE.exec(raw);
-	if (!match) return {
-		ok: false,
-		code: "SPEC_YAML_INVALID",
-		message: "spec.md is missing a YAML frontmatter block fenced by `---` on the first line",
-		detail: { path: specPath }
-	};
-	let parsed;
-	try {
-		parsed = parse(match[1]);
-	} catch (err) {
-		return {
-			ok: false,
-			code: "SPEC_YAML_INVALID",
-			message: `spec.md frontmatter YAML failed to parse: ${err.message}`,
-			detail: {
-				path: specPath,
-				error: err.message
-			}
-		};
-	}
-	const validated = SpecFrontmatter$1.safeParse(parsed);
-	if (!validated.success) return {
-		ok: false,
-		code: "SPEC_FRONTMATTER_INVALID",
-		message: "spec.md frontmatter failed SpecFrontmatter schema validation",
-		detail: {
-			path: specPath,
-			issues: validated.error.issues
-		}
-	};
-	return {
-		ok: true,
-		frontmatter: validated.data
-	};
-}
-//#endregion
 //#region src/core/gates/gate-eval.ts
 function specReadFailure(read) {
 	return {
@@ -8291,9 +10338,19 @@ function gateEvalFromCheck(check) {
 }
 //#endregion
 //#region src/core/gates/spec-lock-eval.ts
-const evaluateSpecLockGate = gateEvalFromCheck(specLockCheck);
+/** Evaluate all spec-lock semantics from journal-replayed snapshot state. */
+function evaluateSpecLockFromSnapshot(snapshot) {
+	const built = buildSpecLockCheckInput(snapshot);
+	if (!built.ok) return {
+		ok: false,
+		checks: [built.failure]
+	};
+	return specLockCheck(built.input.snapshot, built.input.frontmatter);
+}
 async function evaluateSpecLock(snapshot, featureDir) {
-	return evaluateSpecLockGate(snapshot, featureDir);
+	const read = await readSpecFrontmatter(featureDir);
+	if (!read.ok) return specReadFailure(read);
+	return evaluateSpecLockFromSnapshot(withSpecFrontmatterProjection(snapshot, read.frontmatter));
 }
 //#endregion
 //#region src/core/evidence-compat.ts
@@ -8713,7 +10770,7 @@ async function promoteSidecars(entry, attachmentRoot, opts = {}) {
 	let mutated = false;
 	for (const [fieldName, value] of Object.entries(payload)) {
 		if (!isLongTextFieldShape(value)) continue;
-		const parsed = LongTextField$1.safeParse(value);
+		const parsed = LongTextField.safeParse(value);
 		if (!parsed.success) continue;
 		const field = parsed.data;
 		if (field.mode === "sidecar") continue;
@@ -8783,7 +10840,7 @@ function composeSpecMdFrontmatter(snapshot, existingBody = "") {
 		visual_contracts: snapshot.visual_contracts,
 		needs_clarification: snapshot.spec_header.needs_clarification
 	};
-	SpecFrontmatter$1.parse(fm);
+	SpecFrontmatter.parse(fm);
 	return `---\n${stringify(fm)}---\n${existingBody}`;
 }
 /**
@@ -8836,6 +10893,52 @@ async function writeDerivedSpecMd(snapshot, featureDir) {
 }
 //#endregion
 //#region src/core/journal-mutate.ts
+function isBootstrapEntry(entry) {
+	return entry.kind === "session:started" || entry.kind === "migration:snapshot_imported";
+}
+function noSessionResult(entry, failedIndex) {
+	return {
+		ok: false,
+		code: "REDUCER_ERROR",
+		message: `kind=${entry.kind} requires a started session`,
+		failed_index: failedIndex,
+		detail: { code: "NO_SESSION" }
+	};
+}
+/** Stable-core invariant over the complete candidate batch + prior journal. */
+function checkScopeRecordedBatch(candidates, priorEntries) {
+	const scopeIndexes = candidates.flatMap((entry, index) => entry.kind === "scope:recorded" ? [index] : []);
+	if (scopeIndexes.length === 0) return null;
+	if (scopeIndexes.length > 1) return {
+		code: "SCOPE_RECORDED_BATCH_INVALID",
+		message: "batch contains more than one scope:recorded entry",
+		detail: {
+			reason: "multiple_scope_entries",
+			count: scopeIndexes.length
+		}
+	};
+	const scopeIndex = scopeIndexes[0];
+	const closureIndexes = candidates.flatMap((entry, index) => {
+		const payload = entry.payload;
+		return entry.kind === "event:phase_advanced" && payload.from === "EXECUTE.work" && payload.to === "EXECUTE.done" ? [index] : [];
+	});
+	if (closureIndexes.length !== 1 || closureIndexes[0] !== scopeIndex + 1) return {
+		code: "SCOPE_RECORDED_BATCH_INVALID",
+		message: "scope:recorded must sit immediately before exactly one EXECUTE.work → EXECUTE.done transition in the same batch",
+		detail: {
+			reason: "missing_or_non_adjacent_execute_closure",
+			scope_index: scopeIndex,
+			closure_indexes: closureIndexes
+		}
+	};
+	const { iteration } = ScopeRecordedPayload.parse(candidates[scopeIndex].payload);
+	if (priorEntries.some((entry) => entry.kind === "scope:recorded" && ScopeRecordedPayload.parse(entry.payload).iteration === iteration)) return {
+		code: "SCOPE_RECORDED_ITERATION_DUPLICATE",
+		message: `scope:recorded already exists for iteration ${iteration}`,
+		detail: { iteration }
+	};
+	return null;
+}
 async function mutateBatch(partials, ctx) {
 	if (partials.length === 0) return {
 		ok: false,
@@ -8901,7 +11004,8 @@ async function mutateBatch(partials, ctx) {
 			failed_index: i,
 			detail: { kind: candidate.kind }
 		};
-		const dryRun = apply(snapshotAcc, candidate);
+		if (!isBootstrapEntry(candidate) && snapshotAcc.state === null) return noSessionResult(candidate, i);
+		const dryRun = applyValidated(snapshotAcc, candidate);
 		if (!dryRun.ok) return {
 			ok: false,
 			code: "REDUCER_ERROR",
@@ -8914,6 +11018,20 @@ async function mutateBatch(partials, ctx) {
 		};
 		snapshotAcc = dryRun.snapshot;
 		candidates.push(candidate);
+	}
+	const scopeBatchFailure = checkScopeRecordedBatch(candidates, ctx.entries);
+	if (scopeBatchFailure) return {
+		ok: false,
+		...scopeBatchFailure
+	};
+	if (candidates.some((candidate) => candidate.kind === "event:tasks_planned" || candidate.kind === "event:tasks_amended")) {
+		const graphFailure = checkTaskGraph(snapshotAcc.tasks);
+		if (graphFailure !== null) return {
+			ok: false,
+			code: graphFailure.code,
+			message: graphFailure.message,
+			detail: graphFailure.detail
+		};
 	}
 	const gateApprovals = candidates.filter((c) => c.kind === "gate:decided" && c.payload.decision === "approved");
 	if (gateApprovals.length > 1) return {
@@ -9001,7 +11119,26 @@ async function mutateBatch(partials, ctx) {
 		}
 		let finalSnapshot = structuredClone(ctx.snapshot);
 		for (let i = 0; i < promoted.length; i++) {
-			const dryRun = apply(finalSnapshot, promoted[i]);
+			const entry = promoted[i];
+			if (!isBootstrapEntry(entry)) {
+				const pre = preflight(entry, {
+					snapshot: finalSnapshot,
+					tail_seq: ctx.tail_seq + i
+				});
+				if (!pre.ok) return {
+					ok: false,
+					code: "REDUCER_ERROR",
+					message: `final dry-run on promoted entries failed at index ${i}: ${pre.message}`,
+					failed_index: i,
+					detail: {
+						code: pre.code,
+						phase: "post-sidecar",
+						...pre.detail ?? {}
+					}
+				};
+				if (finalSnapshot.state === null) return noSessionResult(entry, i);
+			}
+			const dryRun = applyValidated(finalSnapshot, entry);
 			if (!dryRun.ok) return {
 				ok: false,
 				code: "REDUCER_ERROR",
@@ -9144,1100 +11281,10 @@ async function mutate(partial, ctx) {
 	};
 }
 //#endregion
-//#region docs/schemas.ts
-const SCHEMA_VERSION = 2;
-const SchemaVersion = z.literal(SCHEMA_VERSION);
-const EntryId = z.string().regex(/^JE-\d{6,}$/, { message: "entry_id must match /^JE-\\d{6,}$/ (e.g. JE-000123)" });
-const BatchId = z.string().uuid();
-const ActorString = z.string().regex(/^(human|skill|ci|cli|migration):[^\s].*$/, { message: "actor must be of form '<prefix>:<id>' where prefix ∈ {human, skill, ci, cli, migration}" });
-const AttachmentRef = z.object({
-	path: z.string().min(1),
-	sha256: z.string().regex(/^[a-f0-9]{64}$/, { message: "sha256 must be 64 lowercase hex chars" }),
-	size: z.number().int().nonnegative()
-}).strict();
-z.discriminatedUnion("mode", [z.object({
-	mode: z.literal("inline"),
-	text: z.string()
-}).strict(), z.object({
-	mode: z.literal("sidecar"),
-	ref: AttachmentRef
-}).strict()]);
-const SignatureEnvelope = z.object({
-	alg: z.string().min(1),
-	key_id: z.string().min(1),
-	sig: z.string().min(1),
-	signed_at: z.string().datetime()
-}).strict();
-const EntryKind = z.enum([
-	"event:phase_advanced",
-	"event:ceremony_set",
-	"event:tasks_planned",
-	"event:tasks_amended",
-	"event:task_claimed",
-	"event:task_step_started",
-	"event:task_step_done",
-	"event:task_step_reset",
-	"event:task_abandoned",
-	"event:spec_req_added",
-	"event:spec_scenario_added",
-	"event:spec_visual_added",
-	"event:spec_submitted",
-	"evidence:added",
-	"finding:raised",
-	"finding:closed",
-	"pending:added",
-	"pending:resolved",
-	"gate:decided",
-	"session:started",
-	"session:resumed",
-	"session:delivered",
-	"session:archived",
-	"session:abandoned",
-	"spike:converted",
-	"migration:snapshot_imported"
-]);
-z.object({
-	seq: z.number().int().nonnegative(),
-	entry_id: EntryId,
-	at: z.string().datetime(),
-	actor: ActorString,
-	entry_schema_version: z.number().int().positive(),
-	kind: EntryKind,
-	payload: z.unknown(),
-	batch_id: BatchId.optional(),
-	batch_index: z.number().int().nonnegative().optional(),
-	batch_count: z.number().int().positive().optional(),
-	signature: SignatureEnvelope.optional()
-}).strict().refine((e) => {
-	const present = [
-		e.batch_id,
-		e.batch_index,
-		e.batch_count
-	].filter((v) => v !== void 0).length;
-	return present === 0 || present === 3;
-}, { message: "batch_id, batch_index, batch_count must be all-present or all-absent" }).refine((e) => e.batch_index === void 0 || e.batch_count === void 0 || e.batch_index < e.batch_count, { message: "batch_index must be < batch_count" });
-z.object({
-	last_applied_seq: z.number().int().gte(-1),
-	last_entry_offset: z.number().int().nonnegative(),
-	last_entry_line_hash: z.string().regex(/^[a-f0-9]{64}$/, { message: "last_entry_line_hash must be 64 lowercase hex chars" }),
-	rolling_checksum: z.string().regex(/^[a-f0-9]{64}$/, { message: "rolling_checksum must be 64 lowercase hex chars" }),
-	feature_schema_version: z.number().int().positive(),
-	written_at: z.string().datetime()
-}).strict().refine((m) => m.last_applied_seq !== -1 || m.last_entry_offset === 0 && m.last_entry_line_hash === "0".repeat(64) && m.rolling_checksum === "0".repeat(64) && m.feature_schema_version === SCHEMA_VERSION, { message: "last_applied_seq=-1 (empty sentinel) requires last_entry_offset=0 + line_hash/rolling_checksum=ZERO_HASH + feature_schema_version=current (mirrors runtime isEmptyMeta — codex r176 BLOCK 2)" });
-const Phase = z.enum([
-	"TRIAGE",
-	"SPEC",
-	"EXECUTE",
-	"VERIFY",
-	"SETTLE",
-	"DONE"
-]);
-const SubState = z.enum([
-	"TRIAGE.score",
-	"TRIAGE.confirm",
-	"SPEC.proposal",
-	"SPEC.spec",
-	"SPEC.plan",
-	"SPEC.design",
-	"EXECUTE.plan",
-	"EXECUTE.work",
-	"EXECUTE.done",
-	"VERIFY.plan",
-	"VERIFY.run",
-	"VERIFY.review",
-	"VERIFY.acceptance",
-	"VERIFY.visual",
-	"VERIFY.accept",
-	"SETTLE.reconcile",
-	"SETTLE.lessons",
-	"DONE.delivered",
-	"DONE.archived",
-	"DONE.abandoned"
-]);
-const Ceremony = z.object({
-	spec_phase: z.boolean().default(false),
-	verify_phase: z.boolean().default(false),
-	settle_phase: z.boolean().default(false),
-	strict_spec_review: z.boolean().default(false),
-	lessons_required: z.enum([
-		"must",
-		"may",
-		"skip"
-	]).default("skip"),
-	strict_drift_check: z.boolean().default(false)
-}).refine((c) => !c.settle_phase || c.verify_phase, { message: "ceremony.settle_phase=true requires verify_phase=true (SETTLE.reconcile entry 需要 verify-accept passed)" }).refine((c) => !c.strict_spec_review || c.spec_phase, { message: "ceremony.strict_spec_review=true requires spec_phase=true (no spec, no reviewer)" }).refine((c) => c.lessons_required === "skip" || c.settle_phase, { message: "ceremony.lessons_required ≠ 'skip' requires settle_phase=true (SETTLE.lessons 才能 append)" }).refine((c) => !c.strict_drift_check || c.settle_phase, { message: "ceremony.strict_drift_check=true requires settle_phase=true (SETTLE.reconcile 才能 drift check)" });
-const CeremonyLabel = z.string();
-z.enum([
-	"behavioral",
-	"structural",
-	"visual-ui",
-	"docs",
-	"spike",
-	"chore"
-]);
-const BehavioralStep = z.enum([
-	"red",
-	"implement",
-	"refactor"
-]);
-const StructuralStep = z.enum(["implement", "refactor"]);
-const VisualUiStep = z.enum([
-	"mockup",
-	"implement",
-	"screenshot-compare"
-]);
-const DocsStep = z.enum(["draft", "review"]);
-const SpikeStep = z.enum([
-	"explore",
-	"prototype",
-	"record"
-]);
-const ChoreStep = z.enum(["execute"]);
-z.union([
-	BehavioralStep,
-	StructuralStep,
-	VisualUiStep,
-	DocsStep,
-	SpikeStep,
-	ChoreStep
-]);
-const VerifyCheckKind = z.enum([
-	"run",
-	"review",
-	"acceptance",
-	"visual"
-]);
-const Applicability = z.enum([
-	"must",
-	"optional",
-	"na"
-]);
-const StepStatus = z.enum([
-	"na",
-	"pending",
-	"running",
-	"passed",
-	"failed",
-	"waived"
-]);
-const GateName = z.enum(["spec-lock", "verify-accept"]);
-const FindingCategory = z.enum([
-	"spec-gap",
-	"spec-defect",
-	"impl-defect",
-	"test-defect",
-	"new-scope",
-	"risk-escalation"
-]);
-const FindingAction = z.enum([
-	"amend-spec",
-	"amend-tasks",
-	"fix-impl",
-	"fix-test",
-	"defer",
-	"backlog"
-]);
-const EvidenceKind = z.enum([
-	"task-summary",
-	"verify-review",
-	"spec-review",
-	"acceptance",
-	"visual-review",
-	"gate-decision",
-	"local-check",
-	"manual",
-	"waiver",
-	"spike-finding"
-]);
-const EvidenceResult = z.enum([
-	"passed",
-	"failed",
-	"approved",
-	"rejected",
-	"waived"
-]);
-const ReqId = z.string().regex(/^REQ-[A-Z][A-Z0-9]*-\d{3,}$/);
-const ScenId = z.string().regex(/^SCEN-[A-Z][A-Z0-9-]*-\d{3,}$/);
-const VisId = z.string().regex(/^VIS-[A-Z][A-Z0-9-]*-\d{3,}$/);
-const Measurable = z.object({
-	metric: z.string().min(3),
-	threshold: z.union([z.string(), z.number()]),
-	unit: z.string().optional(),
-	direction: z.enum([
-		"lte",
-		"gte",
-		"eq"
-	]).default("lte")
-});
-const VerifiabilityFields = z.object({
-	measurable: Measurable.optional(),
-	verified_by_scenarios: z.array(ScenId).optional(),
-	acceptance_na: z.literal(true).optional(),
-	acceptance_na_reason: z.string().min(10).optional()
-}).refine((v) => {
-	const hasMeasurable = v.measurable !== void 0;
-	const hasScenarios = v.verified_by_scenarios && v.verified_by_scenarios.length > 0;
-	const hasNa = v.acceptance_na === true && (v.acceptance_na_reason?.length ?? 0) >= 10;
-	return hasMeasurable || hasScenarios || hasNa;
-}, { message: "every REQ must declare measurable, verified_by_scenarios[], or acceptance_na+reason" });
-const ReqBase = z.object({ id: ReqId });
-const RequirementUbiquitous = ReqBase.extend({
-	type: z.literal("ubiquitous"),
-	response: z.string().min(10)
-}).and(VerifiabilityFields);
-const RequirementEventDriven = ReqBase.extend({
-	type: z.literal("event-driven"),
-	trigger: z.string().min(5),
-	response: z.string().min(10)
-}).and(VerifiabilityFields);
-const RequirementStateDriven = ReqBase.extend({
-	type: z.literal("state-driven"),
-	while_: z.string().min(5),
-	behavior: z.string().min(10)
-}).and(VerifiabilityFields);
-const RequirementOptional = ReqBase.extend({
-	type: z.literal("optional"),
-	feature: z.string().min(5),
-	response: z.string().min(10)
-}).and(VerifiabilityFields);
-const RequirementUnwanted = ReqBase.extend({
-	type: z.literal("unwanted"),
-	condition: z.string().min(5),
-	response: z.string().min(10)
-}).and(VerifiabilityFields);
-z.enum([
-	"ubiquitous",
-	"event-driven",
-	"state-driven",
-	"optional",
-	"unwanted"
-]);
-const RequirementEars = z.union([
-	RequirementUbiquitous,
-	RequirementEventDriven,
-	RequirementStateDriven,
-	RequirementOptional,
-	RequirementUnwanted
-]);
-const ScenarioGherkin = z.object({
-	id: ScenId,
-	name: z.string().min(3),
-	tag: z.enum([
-		"happy",
-		"edge",
-		"error",
-		"e2e"
-	]).optional(),
-	requires_acceptance: z.boolean().optional(),
-	acceptance_na: z.string().min(5).optional(),
-	given: z.array(z.string().min(3)).min(1),
-	when: z.array(z.string().min(3)).min(1),
-	then: z.array(z.string().min(3)).min(1)
-}).refine((s) => !(s.tag === "e2e" && s.acceptance_na && s.requires_acceptance), { message: "cannot set both requires_acceptance and acceptance_na" });
-const VisualContract = z.object({
-	id: VisId,
-	target: z.string().min(3),
-	checks: z.array(z.string().min(3)).min(1),
-	requires_visual: z.boolean().optional(),
-	visual_na: z.string().min(5).optional()
-});
-const NeedsClarification = z.object({
-	id: z.string().regex(/^NC-\d{3,}$/),
-	question: z.string().min(5),
-	context: z.string().optional(),
-	options: z.array(z.string()).optional()
-});
-z.object({
-	schema_version: SchemaVersion,
-	spec_version: z.number().int().positive(),
-	feature: z.object({
-		id: z.string().regex(/^F-\d{3,}$/),
-		name: z.string().min(3)
-	}),
-	intent: z.string().min(20),
-	adr_refs: z.array(z.string()).default([]),
-	requirements: z.array(RequirementEars),
-	scenarios: z.array(ScenarioGherkin),
-	visual_contracts: z.array(VisualContract).optional(),
-	needs_clarification: z.array(NeedsClarification)
-});
-const PendingId = z.string().regex(/^PEND-\d{4,}$/);
-const PendingPromptKind = z.enum([
-	"ask_user_question",
-	"gate_decision",
-	"spec_clarification",
-	"finding_decision",
-	"profile_escalation"
-]);
-const PendingPromptEntry = z.object({
-	kind: PendingPromptKind,
-	question: z.string().min(3),
-	options: z.array(z.string()).optional(),
-	blocks: z.enum([
-		"advance",
-		"gate",
-		"deliver",
-		"all"
-	]).default("advance"),
-	raised_at: z.string().datetime(),
-	raised_by: z.string().min(1)
-}).extend({
-	pending_id: PendingId,
-	at: z.string().datetime(),
-	raised_by_task_id: z.string().regex(/^T-\d{3,}$/).optional()
-});
-const StateProjection = z.object({
-	schema_version: SchemaVersion,
-	loaf_version_required: z.string().regex(/^[\^~]?\d+\.\d+(\.\d+)?(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/).nullable(),
-	session_id: z.string().min(1),
-	session_label: z.string().min(3).nullable(),
-	workspace: z.string().default("default"),
-	phase: Phase,
-	sub_state: SubState,
-	iteration: z.number().int().positive(),
-	spec_locked: z.boolean(),
-	verify_accepted: z.boolean(),
-	pending: z.array(PendingPromptEntry).default([]),
-	ceremony: Ceremony,
-	ceremony_label: CeremonyLabel.default(""),
-	complexity_score: z.number().int().min(0).max(100).nullable(),
-	based_on: z.object({
-		spec: z.number().int().nonnegative(),
-		tasks: z.number().int().nonnegative()
-	}),
-	spec_version: z.number().int().nonnegative().default(0),
-	created_at: z.string().datetime(),
-	updated_at: z.string().datetime()
-}).refine((s) => s.sub_state.startsWith(s.phase + "."), { message: "sub_state must start with phase + '.'" }).refine((s) => {
-	if (!s.phase.startsWith("DONE")) return true;
-	return s.pending.length === 0;
-}, { message: "DONE.* requires pending = [] (active-set invariant enforced cross-file by transitions.ts)" });
-z.object({
-	schema_version: SchemaVersion,
-	session_id: z.string().min(1),
-	cwd: z.string(),
-	debug: z.boolean(),
-	heartbeat_at: z.string().datetime()
-}).strict();
-z.object({
-	schema_version: SchemaVersion,
-	at: z.string().datetime(),
-	session_id: z.string().uuid(),
-	session_label: z.string(),
-	feature: z.string().min(1),
-	cwd: z.string(),
-	workspace: z.string(),
-	phase: Phase,
-	sub_state: SubState,
-	iteration: z.number().int().positive(),
-	active_tasks: z.array(z.string().regex(/^T-\d{3,}$/)).default([]),
-	pending: PendingPromptEntry.nullable(),
-	pending_queue_depth: z.number().int().nonnegative().default(0),
-	ceremony_label: CeremonyLabel.default("")
-});
-const TaskExecutionStep = z.object({
-	applicability: Applicability,
-	status: StepStatus,
-	reason: z.string().optional(),
-	evidence_refs: z.array(z.string().regex(/^EV-\d{6,}$/)).default([]),
-	started_at: z.string().datetime().optional()
-});
-const BehavioralExecution = z.object({
-	red: TaskExecutionStep,
-	implement: TaskExecutionStep,
-	refactor: TaskExecutionStep
-});
-const StructuralExecution = z.object({
-	implement: TaskExecutionStep,
-	refactor: TaskExecutionStep
-});
-const VisualUiExecution = z.object({
-	mockup: TaskExecutionStep,
-	implement: TaskExecutionStep,
-	"screenshot-compare": TaskExecutionStep
-});
-const DocsExecution = z.object({
-	draft: TaskExecutionStep,
-	review: TaskExecutionStep
-});
-const SpikeExecution = z.object({
-	explore: TaskExecutionStep,
-	prototype: TaskExecutionStep,
-	record: TaskExecutionStep
-});
-const ChoreExecution = z.object({ execute: TaskExecutionStep });
-const TaskId = z.string().regex(/^T-\d{3,}$/);
-const DrivesRef = z.string().regex(/^(REQ|SCEN|VIS)-[A-Z][A-Z0-9-]*-\d{3,}$/);
-const TaskBase = z.object({
-	id: TaskId,
-	drives: z.array(DrivesRef).optional(),
-	depends_on: z.array(TaskId).default([]),
-	labels: z.array(z.string()).default([]),
-	status: z.enum([
-		"pending",
-		"ready",
-		"in_progress",
-		"done",
-		"abandoned"
-	])
-});
-const TaskBehavioral = TaskBase.extend({
-	kind: z.literal("behavioral"),
-	drives: z.array(DrivesRef).min(1),
-	tests: z.array(z.string().min(3)).min(1),
-	test_layer: z.enum([
-		"unit",
-		"integration",
-		"e2e"
-	]).optional(),
-	red_test_registered: z.boolean().optional(),
-	execution: BehavioralExecution,
-	requires_acceptance: z.boolean().optional(),
-	requires_visual: z.boolean().optional()
-});
-const TaskStructural = TaskBase.extend({
-	kind: z.literal("structural"),
-	no_test_rationale: z.string().min(10),
-	execution: StructuralExecution
-});
-const TaskVisualUi = TaskBase.extend({
-	kind: z.literal("visual-ui"),
-	visual_contract_refs: z.array(VisId).min(1),
-	no_test_rationale: z.string().min(10).optional(),
-	execution: VisualUiExecution
-});
-const TaskDocs = TaskBase.extend({
-	kind: z.literal("docs"),
-	no_test_rationale: z.string().min(10),
-	execution: DocsExecution
-});
-const TaskSpike = TaskBase.extend({
-	kind: z.literal("spike"),
-	no_test_rationale: z.string().min(10),
-	execution: SpikeExecution
-});
-const TaskChore = TaskBase.extend({
-	kind: z.literal("chore"),
-	no_test_rationale: z.string().min(10),
-	execution: ChoreExecution
-});
-const Task = z.discriminatedUnion("kind", [
-	TaskBehavioral,
-	TaskStructural,
-	TaskVisualUi,
-	TaskDocs,
-	TaskSpike,
-	TaskChore
-]);
-z.object({
-	schema_version: SchemaVersion,
-	version: z.number().int().positive(),
-	based_on: z.object({ spec: z.number().int().positive() }),
-	tasks: z.array(Task)
-});
-const FeatureId = z.string().regex(/^F-\d{3,}$/);
-const CoversRef = z.union([
-	ReqId,
-	ScenId,
-	VisId,
-	TaskId
-]);
-const Attachment = z.object({
-	path: z.string().min(3),
-	sha256: z.string().regex(/^[a-f0-9]{64}$/),
-	mime: z.string().min(3),
-	bytes: z.number().int().positive().optional()
-});
-const EvidenceEntry = z.object({
-	schema_version: SchemaVersion,
-	evidence_id: z.string().regex(/^EV-\d{6,}$/),
-	at: z.string().datetime(),
-	kind: EvidenceKind,
-	iteration: z.number().int().positive(),
-	actor: z.string().min(1),
-	result: EvidenceResult,
-	summary: z.string().min(3),
-	covers: z.array(CoversRef).default([]),
-	task_id: z.string().regex(/^T-\d{3,}$/).optional(),
-	check: VerifyCheckKind.optional(),
-	cmd: z.string().optional(),
-	exit: z.number().int().optional(),
-	wall_ms: z.number().int().optional(),
-	gate: GateName.optional(),
-	decided_by: z.string().optional(),
-	reason: z.string().optional(),
-	based_on: z.object({
-		spec: z.number().int().nonnegative(),
-		tasks: z.number().int().nonnegative()
-	}).optional(),
-	attachments: z.array(Attachment).optional(),
-	waiver_obligation_id: z.string().optional(),
-	external_ref: z.string().optional()
-});
-const EvidenceAddInput = EvidenceEntry.omit({
-	schema_version: true,
-	evidence_id: true,
-	at: true
-}).strict();
-z.discriminatedUnion("event", [z.object({
-	schema_version: SchemaVersion,
-	id: z.string().regex(/^FND-\d{3,}$/),
-	event: z.literal("opened"),
-	at: z.string().datetime(),
-	raised_in: SubState,
-	raised_by: z.string(),
-	iteration: z.number().int().positive(),
-	category: FindingCategory,
-	action: FindingAction,
-	summary: z.string().min(5),
-	refs: z.array(z.union([
-		ReqId,
-		ScenId,
-		VisId,
-		TaskId,
-		FeatureId
-	])).default([]),
-	evidence_refs: z.array(z.string().regex(/^EV-\d{6,}$/)).default([]),
-	cause: z.string().optional()
-}).refine((f) => f.raised_in.startsWith("VERIFY.") || f.raised_in.startsWith("EXECUTE."), { message: "findings only in VERIFY.* or post-lock EXECUTE.*" }), z.object({
-	schema_version: SchemaVersion,
-	id: z.string().regex(/^FND-\d{3,}$/),
-	event: z.literal("closed"),
-	at: z.string().datetime(),
-	iteration: z.number().int().positive(),
-	resolution: z.string().min(3),
-	drift_index: z.number().int().nonnegative().optional(),
-	evidence_refs: z.array(z.string().regex(/^EV-\d{6,}$/)).default([])
-})]);
-z.object({
-	schema_version: SchemaVersion,
-	evidence: z.array(EvidenceEntry)
-});
-const FindingStateProjection = z.object({
-	id: z.string().regex(/^FND-\d{3,}$/),
-	category: FindingCategory,
-	action: FindingAction,
-	status: z.enum(["open", "closed"]),
-	summary: z.string().optional(),
-	reason: z.string().optional(),
-	target: z.object({
-		task_id: z.string().regex(/^T-\d{3,}$/),
-		step: z.string().min(1)
-	}).optional()
-});
-z.object({
-	schema_version: SchemaVersion,
-	findings: z.array(FindingStateProjection)
-});
-const PendingProjectionEntry = PendingPromptEntry.extend({ resolved: z.boolean() });
-z.object({
-	schema_version: SchemaVersion,
-	pending: z.array(PendingProjectionEntry)
-});
-const VerifyCheckSnapshot = z.object({
-	applicability: Applicability,
-	status: StepStatus,
-	reason: z.string().optional(),
-	evidence_refs: z.array(z.string().regex(/^EV-\d{6,}$/)).default([])
-});
-const IterationStats = z.object({
-	total: z.number().int().positive(),
-	findings_total: z.number().int().nonnegative(),
-	findings_by_action: z.record(FindingAction, z.number().int().nonnegative()),
-	findings_by_category: z.record(FindingCategory, z.number().int().nonnegative())
-});
-const Drift = z.object({
-	path: z.string(),
-	category: z.enum(["out_of_planned", "planned_not_touched"]),
-	reason: z.string().min(5),
-	resolution: z.enum([
-		"spec_amended",
-		"carried_forward",
-		"abandoned",
-		"deferred"
-	]),
-	finding_id: z.string().regex(/^FND-\d{3,}$/).optional()
-});
-const AcCoverage = z.object({
-	ac_id: z.string().regex(/^(REQ|SCEN|VIS)-[A-Z][A-Z0-9-]*-\d{3,}$/),
-	evidence_refs: z.array(z.string().regex(/^EV-\d{6,}$/)),
-	status: z.enum([
-		"passed",
-		"failed",
-		"waived",
-		"na"
-	])
-});
-z.object({
-	schema_version: SchemaVersion,
-	based_on: z.object({
-		spec: z.number().int().positive(),
-		tasks: z.number().int().positive()
-	}),
-	planned_scope: z.array(z.string()),
-	actual_scope: z.array(z.string()),
-	drift: z.array(Drift),
-	ac_coverage: z.array(AcCoverage),
-	verify_checks_status: z.record(VerifyCheckKind, VerifyCheckSnapshot),
-	iteration_stats: IterationStats,
-	unusual_findings_count: z.number().int().nonnegative().default(0)
-});
-const NextOwnerVerb = z.enum([
-	"advance",
-	"deliver",
-	"settle",
-	"gate decide",
-	"profile escalate",
-	"pending resolve",
-	"tasks next"
-]);
-const NextAction = z.object({
-	command: z.string().min(1),
-	owner_verb: NextOwnerVerb,
-	target: z.union([
-		SubState,
-		GateName,
-		PendingPromptKind,
-		z.literal("task-level")
-	]).optional(),
-	blocking: z.boolean(),
-	reason: z.string().min(1)
-}).strict();
-z.object({
-	ok: z.literal(true),
-	feature: z.string().min(1),
-	feature_dir: z.string().min(1),
-	cursor: z.object({
-		phase: Phase,
-		sub_state: SubState
-	}).strict(),
-	ceremony: Ceremony,
-	terminal: z.boolean(),
-	blocked: z.boolean(),
-	next_action: NextAction.optional()
-}).strict().refine((o) => o.terminal || o.next_action !== void 0, { message: "next_action is required for non-terminal states" }).refine((o) => !o.terminal || o.next_action === void 0, { message: "next_action is omitted iff terminal=true" });
-z.object({
-	schema_version: SchemaVersion,
-	at: z.string().datetime(),
-	gate: z.union([
-		GateName,
-		z.literal("submit"),
-		z.literal("transition"),
-		z.literal("diff-guard")
-	]),
-	failures: z.array(z.object({
-		code: z.lazy(() => DiagnosticCode),
-		severity: z.enum(["block", "warn"]),
-		ref: z.string().optional(),
-		line: z.number().int().optional(),
-		vars: z.record(z.string(), z.union([z.string(), z.number()])).default({}),
-		suggestion: z.string().optional()
-	}))
-});
-const TasksActiveSummary$1 = z.object({
-	task_id: z.string().regex(/^T-\d{3,}$/),
-	status: z.enum([
-		"pending",
-		"ready",
-		"in_progress",
-		"done",
-		"abandoned"
-	]),
-	current_step: z.string().nullable()
-});
-z.object({
-	schema_version: SchemaVersion,
-	at: z.string().datetime(),
-	session_id: z.string().uuid(),
-	reason: z.string().min(5),
-	state_snapshot: StateProjection,
-	tasks_active_summary: z.array(TasksActiveSummary$1).default([]),
-	recent_evidence: z.array(z.string().regex(/^EV-\d{6,}$/)).max(10),
-	recent_findings: z.array(z.string().regex(/^FND-\d{3,}$/)).max(10),
-	open_pending: PendingPromptEntry.nullable(),
-	notes: z.string().optional()
-});
-z.object({
-	schema_version: SchemaVersion,
-	protected_files: z.array(z.string()).default([]),
-	stable_core: z.array(z.string()).default([]),
-	paths: z.object({
-		source: z.array(z.string()).default(["src/**"]),
-		tests: z.array(z.string()).default(["**/test/**", "tests/**"]),
-		docs: z.array(z.string()).default(["docs/**", "**/*.md"]),
-		ui: z.array(z.string()).default([]),
-		public_api: z.array(z.string()).default([]),
-		schema: z.array(z.string()).default([]),
-		security: z.array(z.string()).default([])
-	}).prefault({}),
-	commands: z.object({
-		run: z.array(z.string()).default([]),
-		lint: z.array(z.string()).default([]),
-		typecheck: z.array(z.string()).default([]),
-		visual: z.array(z.string()).default([]),
-		acceptance: z.array(z.string()).default([]),
-		build: z.array(z.string()).default([])
-	}).prefault({}),
-	constitution: z.object({
-		tdd_strictness: z.enum([
-			"strict",
-			"preferred",
-			"advisory"
-		]).default("preferred"),
-		default_ceremony_label: z.string().default("standard"),
-		default_ceremony: Ceremony.optional(),
-		require_red_for_behavioral: z.boolean().default(true),
-		allow_manual_for_requirement: z.boolean().default(true),
-		require_attachment_for_visual: z.boolean().default(true)
-	}).prefault({}),
-	locale: z.object({ default_lang: z.enum(["en", "zh"]).default("en") }).prefault({})
-});
-z.object({
-	schema_version: SchemaVersion,
-	at: z.string().datetime(),
-	session_id: z.string().uuid(),
-	iteration: z.number().int().positive(),
-	sub_state: SubState,
-	cmd: z.string(),
-	argv: z.array(z.string()),
-	exit: z.number().int(),
-	wall_ms: z.number().int().nonnegative(),
-	stdout_summary: z.string().optional(),
-	stderr_summary: z.string().optional()
-});
-const EscalationTrigger = z.enum([
-	"scope_expansion",
-	"public_api_touched",
-	"schema_change",
-	"concurrency_touched",
-	"security_touched"
-]);
-z.object({
-	triggers: z.array(EscalationTrigger).min(1),
-	recommend_enable: z.array(z.enum([
-		"spec_phase",
-		"verify_phase",
-		"settle_phase",
-		"strict_spec_review",
-		"strict_drift_check"
-	])).default([])
-});
-z.object({
-	task_id: z.string().regex(/^T-\d{3,}$/),
-	step: z.string().min(1)
-});
-z.object({
-	action: FindingAction,
-	next_sub_state: SubState.nullable(),
-	iteration_delta: z.union([z.literal(0), z.literal(1)]),
-	spec_version_delta: z.union([z.literal(0), z.literal(1)]),
-	tasks_version_delta: z.union([z.literal(0), z.literal(1)]),
-	resets_spec_locked: z.boolean(),
-	may_trigger_relock: z.boolean(),
-	requires_target_payload: z.enum([
-		"task_id_step",
-		"task_id_optional",
-		"none"
-	])
-});
-const MutationRights$1 = z.object({
-	writable_fields: z.array(z.string()).default([]),
-	forbidden_fields: z.array(z.string()).default([])
-});
-z.object({
-	sub_state: SubState,
-	entry: z.string(),
-	exit: z.string(),
-	write_paths: z.array(z.string()),
-	mutation_rights: MutationRights$1.optional(),
-	next: z.array(SubState),
-	prompt_inject: z.string()
-});
-z.enum([
-	"source",
-	"tests",
-	"docs",
-	"ui",
-	"public_api",
-	"schema",
-	"security"
-]);
-z.object({
-	path: z.string(),
-	status: z.enum([
-		"added",
-		"modified",
-		"deleted",
-		"renamed",
-		"untracked",
-		"submodule"
-	]),
-	source: z.enum([
-		"worktree",
-		"index",
-		"untracked"
-	])
-});
-z.enum([
-	"session-start",
-	"write-guard",
-	"scope-track",
-	"closure-check"
-]);
-z.enum([
-	"typical",
-	"unusual",
-	"incoherent"
-]);
-z.object({
-	description: z.string().min(3),
-	include: z.array(z.string().min(1)),
-	exclude: z.array(z.string().min(1)).default([])
-});
-const DiagnosticCode = z.enum([
-	"INPUT_FILE_NOT_FOUND",
-	"MISSING_INPUT",
-	"SCHEMA_VALIDATION_FAILED",
-	"SPEC_LOCKED_NO_DIRECT_EDIT",
-	"SPEC_NOT_INITIALIZED",
-	"SPEC_ALREADY_INITIALIZED",
-	"CONFIG_ALREADY_INITIALIZED",
-	"ATTACHMENT_NOT_FOUND",
-	"ATTACHMENT_NOT_FILE",
-	"FINDING_ACTION_UNUSUAL_REASON_REQUIRED",
-	"FINDING_ACTION_INCOHERENT",
-	"FINDING_TARGET_REQUIRED",
-	"PRUNE_RESTORE_NOT_FOUND",
-	"PRUNE_RESTORE_AMBIGUOUS",
-	"PRUNE_RESTORE_INCOMPLETE",
-	"PRUNE_PATH_OCCUPIED",
-	"PRUNE_PARTIAL_FAILURE",
-	"MUTUALLY_EXCLUSIVE_FLAGS",
-	"INVALID_ENV_VALUE",
-	"INVALID_FORMAT",
-	"INVALID_LOCALE",
-	"DRY_RUN_NOT_APPLICABLE",
-	"HOOK_EVENT_NOT_IMPLEMENTED",
-	"TASK_STATUS_WITHOUT_PROOF",
-	"MISSING_VERIFIABILITY",
-	"VAGUE_NO_SCENARIO",
-	"DRIVES_NOT_BOUND",
-	"MUTATION_OUT_OF_RIGHTS",
-	"LOCK_TIMEOUT",
-	"LOCK_HELD_BY",
-	"FEATURE_NOT_FOUND",
-	"FEATURE_AMBIGUOUS",
-	"SESSION_CWD_MISMATCH",
-	"SESSION_SHORT_AMBIGUOUS",
-	"SESSION_NOT_FOUND",
-	"PENDING_BLOCKS_ADVANCE",
-	"GATE_NOT_PENDING",
-	"ESCALATION_NOT_PENDING",
-	"ACTOR_AUTHORITY_VIOLATION",
-	"FROM_CURSOR_MISMATCH",
-	"INVALID_ENVELOPE",
-	"INVALID_PAYLOAD",
-	"SEQ_NOT_MONOTONIC",
-	"SETTLE_PHASE_BYPASS",
-	"SETTLE_PHASE_DISABLED",
-	"SPEC_PHASE_FORK_VIOLATION",
-	"SUB_STATE_AUTHORITY_VIOLATION",
-	"TRANSITION_ILLEGAL",
-	"VERIFY_PHASE_FORK_VIOLATION",
-	"EXECUTE_DONE_TASKS_NOT_FINAL",
-	"ALREADY_STARTED",
-	"FINDING_NOT_FOUND",
-	"NO_SESSION",
-	"PENDING_NOT_FOUND",
-	"REDUCER_NOT_IMPLEMENTED",
-	"ENTRY_OVERSIZE",
-	"SHORT_WRITE",
-	"TAIL_CORRUPTION",
-	"MIGRATION_BACKUP_MISSING",
-	"MIGRATION_INCOMPLETE",
-	"MIGRATION_REPLAY_ATTEMPT",
-	"MIGRATION_SIDECAR_MISSING",
-	"INVALID_ACTOR_FORMAT",
-	"NO_HUMAN_ACTOR",
-	"DUPLICATE_REQ_ID",
-	"DUPLICATE_SCEN_ID",
-	"DUPLICATE_VIS_ID",
-	"SPEC_FRONTMATTER_INVALID",
-	"SPEC_HAS_UNCLARIFIED",
-	"TASK_NOT_FOUND",
-	"TASK_STEP_NOT_FOUND",
-	"DUPLICATE_TASK_ID",
-	"TASKS_NOT_PLANNED",
-	"TASKS_BASED_ON_STALE",
-	"REQ_NOT_DRIVEN",
-	"E2E_SCENARIO_UNBOUND",
-	"VISUAL_CONTRACT_UNBOUND",
-	"TASK_KIND_SCHEMA_VIOLATION",
-	"GATE_PRECONDITION_VIOLATION",
-	"MULTIPLE_GATE_DECISIONS",
-	"GATE_NOT_IMPLEMENTED",
-	"VERIFY_LANE_NOT_PASSED",
-	"OPEN_FINDINGS_PRESENT",
-	"COVERAGE_NOT_SATISFIED",
-	"TASK_DONE_NO_EVIDENCE",
-	"SPEC_REVIEW_MISSING",
-	"SPEC_REVIEW_IMPLEMENTER_CONFLICT",
-	"SPEC_REVIEW_IMPLEMENTER_UNKNOWN",
-	"DELIVER_NOT_ACCEPTED",
-	"DELIVER_SETTLE_PHASE_BYPASS",
-	"DELIVER_VERIFY_MIN_UNAVAILABLE",
-	"DELIVER_VERIFY_MIN_INCOMPLETE",
-	"DELIVER_SPIKE_TASKS",
-	"SETTLE_NOT_ACCEPTED",
-	"SPEC_LOCK_NOT_SATISFIED",
-	"TASK_NOT_CLAIMABLE",
-	"TASK_ALREADY_CLAIMED",
-	"TASK_DEPS_NOT_SATISFIED",
-	"TASK_NOT_CLAIMED",
-	"TASK_NOT_ABANDONABLE",
-	"TASK_ABANDON_BLOCKED_DEPENDENTS",
-	"SESSION_REASON_REQUIRED",
-	"PROJECTION_WRITE_FAILED",
-	"WRITE_CONTENTION",
-	"FINDING_AMEND_SPEC_NOT_LOCKED",
-	"SPEC_VERSION_NOT_MONOTONIC",
-	"SPEC_VERSION_BATCH_MISMATCH",
-	"TASK_COMPLETE_PRECONDITION_VIOLATED",
-	"CANONICAL_TASK_BODY_UNAVAILABLE",
-	"BUG_TASK_REQUIRES_RED",
-	"BUG_TASK_FLAG_MISUSE",
-	"BUG_TASK_RED_NOT_REGISTERED",
-	"SPIKE_CONVERT_NO_SPIKE_TASK",
-	"SNAPSHOT_STALE_REBUILD_REQUIRED",
-	"INVALID_PRESET",
-	"USAGE",
-	"DOCTOR_MODE_NOT_IMPLEMENTED",
-	"DOCTOR_FEATURE_REQUIRED",
-	"DOCTOR_REBUILD_FAILED",
-	"DOCTOR_REBUILD_MIGRATED_UNSUPPORTED",
-	"REDUCER_ERROR",
-	"WRITE_PATH_VIOLATION",
-	"PROTECTED_FILE_WRITE"
-]);
-z.object({
-	exit_code: z.literal(2),
-	message_template: z.string().min(3),
-	fix_template: z.string().min(3).optional(),
-	doc_anchor: z.string().min(3).optional()
-});
-const ReqIdNamespace = z.string().regex(/^REQ-[A-Z][A-Z0-9]*$/);
-const ScenIdNamespace = z.string().regex(/^SCEN-[A-Z][A-Z0-9-]*$/);
-const VisIdNamespace = z.string().regex(/^VIS-[A-Z][A-Z0-9-]*$/);
-const SpecReqInputUbiquitous = z.object({
-	id_namespace: ReqIdNamespace,
-	type: z.literal("ubiquitous"),
-	response: z.string().min(10)
-}).and(VerifiabilityFields);
-const SpecReqInputEventDriven = z.object({
-	id_namespace: ReqIdNamespace,
-	type: z.literal("event-driven"),
-	trigger: z.string().min(5),
-	response: z.string().min(10)
-}).and(VerifiabilityFields);
-const SpecReqInputStateDriven = z.object({
-	id_namespace: ReqIdNamespace,
-	type: z.literal("state-driven"),
-	while_: z.string().min(5),
-	behavior: z.string().min(10)
-}).and(VerifiabilityFields);
-const SpecReqInputOptional = z.object({
-	id_namespace: ReqIdNamespace,
-	type: z.literal("optional"),
-	feature: z.string().min(5),
-	response: z.string().min(10)
-}).and(VerifiabilityFields);
-const SpecReqInputUnwanted = z.object({
-	id_namespace: ReqIdNamespace,
-	type: z.literal("unwanted"),
-	condition: z.string().min(5),
-	response: z.string().min(10)
-}).and(VerifiabilityFields);
-const SpecReqInput = z.union([
-	SpecReqInputUbiquitous,
-	SpecReqInputEventDriven,
-	SpecReqInputStateDriven,
-	SpecReqInputOptional,
-	SpecReqInputUnwanted
-]);
-const SpecScenarioInput = z.object({
-	id_namespace: ScenIdNamespace,
-	name: z.string().min(3),
-	tag: z.enum([
-		"happy",
-		"edge",
-		"error",
-		"e2e"
-	]).optional(),
-	requires_acceptance: z.boolean().optional(),
-	acceptance_na: z.string().min(5).optional(),
-	given: z.array(z.string().min(3)).min(1),
-	when: z.array(z.string().min(3)).min(1),
-	then: z.array(z.string().min(3)).min(1)
-}).refine((s) => !(s.tag === "e2e" && s.acceptance_na && s.requires_acceptance), { message: "cannot set both requires_acceptance and acceptance_na" });
-const SpecVisualInput = z.object({
-	id_namespace: VisIdNamespace,
-	target: z.string().min(3),
-	checks: z.array(z.string().min(3)).min(1),
-	requires_visual: z.boolean().optional(),
-	visual_na: z.string().min(5).optional()
-});
-const TaskInputBase = z.object({
-	drives: z.array(DrivesRef).optional(),
-	depends_on: z.array(TaskId).default([]),
-	labels: z.array(z.string()).default([])
-});
-const TaskBehavioralInput = TaskInputBase.extend({
-	kind: z.literal("behavioral"),
-	drives: z.array(DrivesRef).min(1),
-	tests: z.array(z.string().min(3)).min(1),
-	test_layer: z.enum([
-		"unit",
-		"integration",
-		"e2e"
-	]).optional(),
-	requires_acceptance: z.boolean().optional(),
-	requires_visual: z.boolean().optional()
-}).strict();
-const TaskStructuralInput = TaskInputBase.extend({
-	kind: z.literal("structural"),
-	no_test_rationale: z.string().min(10)
-}).strict();
-const TaskVisualUiInput = TaskInputBase.extend({
-	kind: z.literal("visual-ui"),
-	visual_contract_refs: z.array(VisId).min(1),
-	no_test_rationale: z.string().min(10).optional()
-}).strict();
-const TaskDocsInput = TaskInputBase.extend({
-	kind: z.literal("docs"),
-	no_test_rationale: z.string().min(10)
-}).strict();
-const TaskSpikeInput = TaskInputBase.extend({
-	kind: z.literal("spike"),
-	no_test_rationale: z.string().min(10)
-}).strict();
-const TaskChoreInput = TaskInputBase.extend({
-	kind: z.literal("chore"),
-	no_test_rationale: z.string().min(10)
-}).strict();
-const TaskInput = z.discriminatedUnion("kind", [
-	TaskBehavioralInput,
-	TaskStructuralInput,
-	TaskVisualUiInput,
-	TaskDocsInput,
-	TaskSpikeInput,
-	TaskChoreInput
-]);
-const batchOrSingle = (schema) => z.union([schema, z.array(schema).nonempty()]);
-const SpecReqInputBatched = batchOrSingle(SpecReqInput);
-const SpecScenarioInputBatched = batchOrSingle(SpecScenarioInput);
-const SpecVisualInputBatched = batchOrSingle(SpecVisualInput);
-const TaskInputBatched = batchOrSingle(TaskInput);
-const EvidenceAddInputBatched = batchOrSingle(EvidenceAddInput);
+//#region src/cli/input-schemas.ts
+const SpecReqInputBatched = SpecAddReqInput;
+const SpecScenarioInputBatched = SpecAddScenarioInput;
+const SpecVisualInputBatched = SpecAddVisualInput;
 z.enum([
 	"spec:add-req",
 	"spec:add-scenario",
@@ -10245,6 +11292,7 @@ z.enum([
 	"tasks:add",
 	"evidence:add"
 ]);
+/** The exact schemas parsed by the five batch-capable mutation paths. */
 const INPUT_SCHEMAS = {
 	"spec:add-req": SpecReqInputBatched,
 	"spec:add-scenario": SpecScenarioInputBatched,
@@ -10252,17 +11300,6 @@ const INPUT_SCHEMAS = {
 	"tasks:add": TaskInputBatched,
 	"evidence:add": EvidenceAddInputBatched
 };
-z.discriminatedUnion("source", [
-	z.object({ source: z.literal("stdin") }),
-	z.object({
-		source: z.literal("inline"),
-		raw: z.string().min(1)
-	}),
-	z.object({
-		source: z.literal("path"),
-		path: z.string().min(1)
-	})
-]);
 //#endregion
 //#region src/cli/schema-emit.ts
 const ARTIFACT_SCHEMA_KINDS = [
@@ -10276,11 +11313,11 @@ const ARTIFACT_SCHEMA_KINDS = [
 *  `FindingsJson` (plural file name) — same singular/plural mismatch as
 *  SC-9c check. */
 const ARTIFACT_SCHEMAS = {
-	spec: SpecFrontmatter$1,
-	tasks: TasksJson$1,
-	evidence: EvidenceJson$1,
-	finding: FindingsJson$1,
-	state: StateProjection$1
+	spec: SpecFrontmatter,
+	tasks: TasksJson,
+	evidence: EvidenceJson,
+	finding: FindingsJson,
+	state: StateProjection
 };
 /** Emit JSON Schema for one of the 5 batch-capable mutators. */
 function emitInputSchema(commandKey) {
@@ -10368,6 +11405,19 @@ const VERIFY_LANE_BY_STATE = {
 	"VERIFY.acceptance": "acceptance",
 	"VERIFY.visual": "visual"
 };
+z.object({
+	ok: z.literal(true),
+	feature: z.string().min(1),
+	feature_dir: z.string().min(1),
+	cursor: z.object({
+		phase: Phase,
+		sub_state: SubState
+	}).strict(),
+	ceremony: Ceremony,
+	terminal: z.boolean(),
+	blocked: z.boolean(),
+	next_action: NextAction.optional()
+}).strict().refine((output) => output.terminal || output.next_action !== void 0, { message: "next_action is required for non-terminal states" }).refine((output) => !output.terminal || output.next_action === void 0, { message: "next_action is omitted iff terminal=true" });
 function pendingResolveAction(head) {
 	return {
 		command: `loaf pending resolve --answer "<answer>"`,
@@ -10442,6 +11492,436 @@ function buildNextOutput(input) {
 	};
 }
 //#endregion
+//#region src/core/scope-projection.ts
+function parseCanonicalPathsText(text) {
+	const decoded = JSON.parse(text);
+	const paths = CanonicalScopePaths.parse(decoded);
+	if (text !== JSON.stringify(paths)) throw new Error("scope paths sidecar is not canonical JSON");
+	return paths;
+}
+async function resolveScopePaths(entry, featureDir) {
+	const payload = ScopeRecordedPayload.parse(entry.payload);
+	if (Array.isArray(payload.paths)) return payload.paths;
+	if (payload.paths.mode === "inline") return parseCanonicalPathsText(payload.paths.text);
+	const ref = payload.paths.ref;
+	const buf = await promises.readFile(path.join(featureDir, ref.path));
+	const sha256 = createHash("sha256").update(buf).digest("hex");
+	if (sha256 !== ref.sha256 || buf.byteLength !== ref.size) throw new Error(`scope sidecar ${ref.path} integrity mismatch (sha256 ${sha256 === ref.sha256 ? "ok" : "MISMATCH"}, size ${buf.byteLength}≟${ref.size})`);
+	return parseCanonicalPathsText(buf.toString("utf8"));
+}
+//#endregion
+//#region src/core/session-runtime.ts
+const RuntimeLockFile = z.object({
+	pid: z.number().int().positive(),
+	acquired_at: z.string().datetime(),
+	operation: z.string().min(1).max(200),
+	owner: z.string().regex(/^[0-9a-f]{32}$/).optional()
+}).strict();
+var RuntimeStoreError = class extends Error {
+	code;
+	holder;
+	constructor(code, message, holder) {
+		super(message);
+		this.name = "RuntimeStoreError";
+		this.code = code;
+		if (holder !== void 0) this.holder = holder;
+	}
+};
+const DEFAULT_LOCK_TIMEOUT_MS = 2e3;
+const DEFAULT_RETRY_DELAY_MS = 20;
+const SAFE_SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+function defaultRuntimeDir(homeDir) {
+	return path.join(homeDir, ".loaf", "runtime");
+}
+function checkedSessionId(sessionId) {
+	if (!SAFE_SESSION_ID.test(sessionId)) throw new RuntimeStoreError("RUNTIME_IDENTITY_MISMATCH", `unsafe runtime session_id ${JSON.stringify(sessionId)}`);
+	return sessionId;
+}
+function sessionRuntimeFilePath(sessionId, options) {
+	return path.join(options.runtimeDir, `${checkedSessionId(sessionId)}.json`);
+}
+function sessionRuntimeLockPath(sessionId, options) {
+	return path.join(options.runtimeDir, `${checkedSessionId(sessionId)}.lock`);
+}
+async function canonicalIdentity(identity) {
+	checkedSessionId(identity.session_id);
+	let cwd;
+	try {
+		cwd = await promises.realpath(identity.cwd);
+	} catch (error) {
+		throw new RuntimeStoreError("RUNTIME_IDENTITY_MISMATCH", `selected runtime cwd cannot be canonicalized: ${error.message}`);
+	}
+	return {
+		session_id: identity.session_id,
+		cwd
+	};
+}
+async function ensureRuntimeDir(runtimeDir) {
+	await promises.mkdir(runtimeDir, {
+		recursive: true,
+		mode: 448
+	});
+	await promises.chmod(runtimeDir, 448);
+}
+async function validateFileIdentity(file, identity) {
+	let fileCwd;
+	try {
+		fileCwd = await promises.realpath(file.cwd);
+	} catch (error) {
+		throw new RuntimeStoreError("RUNTIME_IDENTITY_MISMATCH", `runtime file cwd cannot be canonicalized: ${error.message}`);
+	}
+	if (file.session_id !== identity.session_id || fileCwd !== identity.cwd) throw new RuntimeStoreError("RUNTIME_IDENTITY_MISMATCH", `runtime identity mismatch: selected session=${identity.session_id} cwd=${identity.cwd}, file session=${file.session_id} cwd=${fileCwd}; refusing to merge`);
+	return file;
+}
+async function readSessionRuntimeFileUnlocked(identity, options) {
+	const target = sessionRuntimeFilePath(identity.session_id, options);
+	let raw;
+	try {
+		raw = await promises.readFile(target, "utf8");
+	} catch (error) {
+		if (error.code === "ENOENT") return null;
+		throw error;
+	}
+	let decoded;
+	try {
+		decoded = JSON.parse(raw);
+	} catch (error) {
+		throw new RuntimeStoreError("RUNTIME_FILE_INVALID", `runtime file is not valid JSON: ${error.message}`);
+	}
+	const parsed = SessionRuntimeFile.safeParse(decoded);
+	if (!parsed.success) throw new RuntimeStoreError("RUNTIME_FILE_INVALID", `runtime file failed SessionRuntimeFile validation: ${parsed.error.message}`);
+	return await validateFileIdentity(parsed.data, identity);
+}
+/** Lock-free read is safe because writers publish only through atomic rename. */
+async function readSessionRuntimeFile(identity, options) {
+	return await readSessionRuntimeFileUnlocked(await canonicalIdentity(identity), options);
+}
+async function writeSessionRuntimeFileUnlocked(file, identity, options) {
+	const runtimeDir = options.runtimeDir;
+	await ensureRuntimeDir(runtimeDir);
+	const target = sessionRuntimeFilePath(identity.session_id, options);
+	const tmp = `${target}.tmp-${process.pid}-${randomBytes(6).toString("hex")}`;
+	let handle = null;
+	try {
+		handle = await promises.open(tmp, "wx", 384);
+		await handle.writeFile(JSON.stringify(file));
+		await handle.sync();
+		await handle.close();
+		handle = null;
+		await promises.chmod(tmp, 384);
+		await promises.rename(tmp, target);
+		try {
+			const directory = await promises.open(runtimeDir, "r");
+			try {
+				await directory.sync();
+			} finally {
+				await directory.close();
+			}
+		} catch {}
+	} catch (error) {
+		if (handle !== null) await handle.close().catch(() => void 0);
+		await promises.unlink(tmp).catch(() => void 0);
+		throw error;
+	}
+}
+function isPidAlive(pid) {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (error) {
+		const code = error.code;
+		if (code === "ESRCH") return false;
+		if (code === "EPERM") return true;
+		throw error;
+	}
+}
+async function readLock(lockPath) {
+	try {
+		const parsed = RuntimeLockFile.safeParse(JSON.parse(await promises.readFile(lockPath, "utf8")));
+		return parsed.success ? parsed.data : null;
+	} catch (error) {
+		if (error.code === "ENOENT") return null;
+		if (error instanceof SyntaxError) return null;
+		throw error;
+	}
+}
+function isSameLockGeneration(observed, current) {
+	return observed.pid === current.pid && observed.acquired_at === current.acquired_at && observed.operation === current.operation && observed.owner === current.owner;
+}
+async function createLock(lockPath, lock) {
+	let handle = null;
+	try {
+		handle = await promises.open(lockPath, "wx", 384);
+		await handle.writeFile(JSON.stringify(lock));
+		await handle.sync();
+		await handle.close();
+		handle = null;
+		await promises.chmod(lockPath, 384);
+	} catch (error) {
+		if (handle !== null) await handle.close().catch(() => void 0);
+		if (error.code !== "EEXIST") await promises.unlink(lockPath).catch(() => void 0);
+		throw error;
+	}
+}
+async function acquireRuntimeLock(identity, operation, options) {
+	const runtimeDir = options.runtimeDir;
+	await ensureRuntimeDir(runtimeDir);
+	const lockPath = sessionRuntimeLockPath(identity.session_id, options);
+	const lock = RuntimeLockFile.parse({
+		pid: process.pid,
+		acquired_at: options.now().toISOString(),
+		operation,
+		owner: randomBytes(16).toString("hex")
+	});
+	const timeoutMs = Math.max(0, options.lockTimeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS);
+	const retryDelayMs = Math.max(1, options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS);
+	const maxAttempts = Math.max(1, Math.ceil(timeoutMs / retryDelayMs) + 1);
+	let attempts = 0;
+	while (true) {
+		try {
+			await createLock(lockPath, lock);
+			const confirmed = await readLock(lockPath);
+			if (confirmed?.owner !== lock.owner) {
+				attempts += 1;
+				if (attempts >= maxAttempts) throw new RuntimeStoreError(confirmed === null ? "RUNTIME_LOCK_INVALID" : "RUNTIME_LOCK_TIMEOUT", `runtime lock ownership changed before acquisition completed`, confirmed ?? void 0);
+				await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+				continue;
+			}
+			return async () => {
+				if ((await readLock(lockPath))?.owner !== lock.owner) return;
+				await promises.unlink(lockPath).catch((error) => {
+					if (error.code !== "ENOENT") throw error;
+				});
+			};
+		} catch (error) {
+			if (error.code !== "EEXIST") throw error;
+		}
+		const holder = await readLock(lockPath);
+		attempts += 1;
+		if (holder !== null && !isPidAlive(holder.pid)) {
+			const current = await readLock(lockPath);
+			if (current !== null && isSameLockGeneration(holder, current) && !isPidAlive(current.pid)) await promises.unlink(lockPath).catch((error) => {
+				if (error.code !== "ENOENT") throw error;
+			});
+			if (attempts >= maxAttempts) throw new RuntimeStoreError("RUNTIME_LOCK_TIMEOUT", `runtime lock stale recovery exceeded its bounded retry budget`, current ?? holder);
+			continue;
+		}
+		if (attempts >= maxAttempts) throw new RuntimeStoreError(holder === null ? "RUNTIME_LOCK_INVALID" : "RUNTIME_LOCK_TIMEOUT", holder === null ? `runtime lock ${lockPath} is malformed or incomplete; refusing stale removal` : `runtime lock held by live PID ${holder.pid} during ${holder.operation}`, holder ?? void 0);
+		await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+	}
+}
+/**
+* The only read-modify-write API: acquire → validated read → mutate → atomic
+* write → unlock. Identity comes from the already journal-selected session;
+* malformed/mismatched files fail closed and are never silently merged or
+* replaced. An explicit future quarantine flow must present that identity.
+*/
+async function withRuntimeLock(identityInput, operation, mutate, options) {
+	const identity = await canonicalIdentity(identityInput);
+	const release = await acquireRuntimeLock(identity, operation, options);
+	try {
+		const current = await readSessionRuntimeFileUnlocked(identity, options);
+		const canonical = {
+			...await validateFileIdentity(SessionRuntimeFile.parse(await mutate(current)), identity),
+			cwd: identity.cwd
+		};
+		await writeSessionRuntimeFileUnlocked(canonical, identity, options);
+		return canonical;
+	} finally {
+		await release();
+	}
+}
+//#endregion
+//#region src/core/execute-closure.ts
+var ClosureNotCommitted = class extends Error {};
+var ExecuteClosureError = class extends Error {
+	code;
+	detail;
+	constructor(code, message, detail) {
+		super(message);
+		this.name = "ExecuteClosureError";
+		this.code = code;
+		if (detail !== void 0) this.detail = detail;
+	}
+};
+function isExecuteClosure(entry) {
+	const payload = entry.payload;
+	return entry.kind === "event:phase_advanced" && payload.from === "EXECUTE.work" && payload.to === "EXECUTE.done";
+}
+function committedScopeEntry(entries, iteration) {
+	for (let index = 0; index + 1 < entries.length; index += 1) {
+		const scope = entries[index];
+		const closure = entries[index + 1];
+		if (scope.kind !== "scope:recorded") continue;
+		if (scope.payload.iteration !== iteration || !isExecuteClosure(closure)) continue;
+		if (scope.batch_id !== void 0 && scope.batch_id === closure.batch_id && scope.batch_index === 0 && closure.batch_index === 1 && scope.batch_count === 2 && closure.batch_count === 2) return scope;
+	}
+	return null;
+}
+async function pendingIsCovered(pending, entries, featureDir) {
+	const scope = committedScopeEntry(entries, pending.iteration);
+	if (scope === null) return false;
+	const recorded = new Set(await resolveScopePaths(scope, featureDir));
+	return pending.paths.every((scopePath) => recorded.has(scopePath));
+}
+function baseRuntime(current, identity, debug, heartbeatAt) {
+	return current ?? {
+		schema_version: 2,
+		session_id: identity.session_id,
+		cwd: identity.cwd,
+		debug,
+		heartbeat_at: heartbeatAt,
+		pending_scope: null
+	};
+}
+function stampedClosureBatch(actor, iteration, paths, at) {
+	return [{
+		at,
+		actor,
+		entry_schema_version: 1,
+		kind: "scope:recorded",
+		payload: {
+			iteration,
+			paths: [...paths]
+		}
+	}, {
+		at,
+		actor,
+		entry_schema_version: 1,
+		kind: "event:phase_advanced",
+		payload: {
+			from: "EXECUTE.work",
+			to: "EXECUTE.done"
+		}
+	}];
+}
+async function reloadForCommitProof(featureDir) {
+	try {
+		return await loadSession(featureDir, { ensureDir: false });
+	} catch (error) {
+		throw new ExecuteClosureError("EXECUTE_CLOSURE_RELOAD_FAILED", `cannot reload journal to prove EXECUTE closure commit: ${error.message}`);
+	}
+}
+async function pathsForCurrentIteration(runtime, session, featureDir) {
+	const iteration = session.snapshot.state.iteration;
+	const pending = runtime.pending_scope;
+	if (pending === null) return [];
+	if (pending.iteration === iteration) return [...pending.paths];
+	if (pending.iteration > iteration) throw new ExecuteClosureError("EXECUTE_CLOSURE_STATE_CHANGED", `runtime pending scope is from future iteration ${pending.iteration}, ahead of journal iteration ${iteration}`, {
+		pending_iteration: pending.iteration,
+		current_iteration: iteration
+	});
+	const committed = committedScopeEntry(session.entries, pending.iteration);
+	if (committed === null) return [...pending.paths];
+	const recorded = new Set(await resolveScopePaths(committed, featureDir));
+	return pending.paths.filter((scopePath) => !recorded.has(scopePath));
+}
+async function canClearPending(runtime, session, featureDir) {
+	return runtime.pending_scope === null || await pendingIsCovered(runtime.pending_scope, session.entries, featureDir);
+}
+/**
+* Close one EXECUTE iteration while holding runtime state over the journal
+* commit. Lock order is runtime first, feature second (inside mutateBatch).
+* Ordinary journal mutators never acquire the runtime lock, so no reverse
+* edge exists and the two-lock dependency graph stays acyclic.
+*/
+async function executeClosureTransaction(options) {
+	const initialState = options.session.snapshot.state;
+	if (initialState == null) return { kind: "not-committed" };
+	if (options.mutateContext(options.session).dryRun) {
+		if (initialState.sub_state !== "EXECUTE.work") return { kind: "not-committed" };
+		const heartbeatAt = options.runtime.now().toISOString();
+		const paths = await pathsForCurrentIteration(baseRuntime(await readSessionRuntimeFile(options.identity, options.runtime), options.identity, options.debug, heartbeatAt), options.session, options.featureDir);
+		const result = await mutateBatch(stampedClosureBatch(options.actor, initialState.iteration, paths, heartbeatAt), options.mutateContext(options.session));
+		return result.ok ? {
+			kind: "committed",
+			result,
+			from: "EXECUTE.work"
+		} : {
+			kind: "failure",
+			failure: result
+		};
+	}
+	let outcome = null;
+	const heartbeatAt = options.runtime.now().toISOString();
+	try {
+		await withRuntimeLock(options.identity, "execute-closure", async (current) => {
+			const runtime = baseRuntime(current, options.identity, options.debug, heartbeatAt);
+			const session = await reloadForCommitProof(options.featureDir);
+			const state = session.snapshot.state;
+			if (state == null) throw new ClosureNotCommitted();
+			const committed = committedScopeEntry(session.entries, state.iteration);
+			if (state.sub_state === "EXECUTE.done" && committed !== null) {
+				if (runtime.pending_scope !== null && runtime.pending_scope.iteration > state.iteration) throw new ExecuteClosureError("EXECUTE_CLOSURE_STATE_CHANGED", "runtime pending scope is ahead of the committed journal iteration; refusing to rewrite causal order", {
+					pending_iteration: runtime.pending_scope?.iteration,
+					iteration: state.iteration
+				});
+				outcome = {
+					kind: "recovered",
+					session,
+					from: "EXECUTE.work"
+				};
+				if (await canClearPending(runtime, session, options.featureDir)) return {
+					...runtime,
+					heartbeat_at: heartbeatAt,
+					pending_scope: null
+				};
+				return {
+					...runtime,
+					heartbeat_at: heartbeatAt
+				};
+			}
+			if (state.sub_state === "EXECUTE.done") throw new ClosureNotCommitted();
+			if (state.sub_state !== "EXECUTE.work") throw new ExecuteClosureError("EXECUTE_CLOSURE_STATE_CHANGED", `session moved to ${state.sub_state} while preparing EXECUTE closure`, {
+				expected: "EXECUTE.work",
+				actual: state.sub_state
+			});
+			const paths = await pathsForCurrentIteration(runtime, session, options.featureDir);
+			await options.hooks?.beforeAppend?.();
+			const result = await mutateBatch(stampedClosureBatch(options.actor, state.iteration, paths, heartbeatAt), options.mutateContext(session));
+			if (result.ok) {
+				outcome = {
+					kind: "committed",
+					result,
+					from: "EXECUTE.work"
+				};
+				await options.hooks?.afterCommitBeforeClear?.();
+				return {
+					...runtime,
+					heartbeat_at: heartbeatAt,
+					pending_scope: null
+				};
+			}
+			if (result.detail?.journal_appended === true) {
+				const reloaded = await reloadForCommitProof(options.featureDir);
+				if (committedScopeEntry(reloaded.entries, state.iteration) !== null) {
+					if (!await canClearPending(runtime, reloaded, options.featureDir)) throw new ExecuteClosureError("EXECUTE_CLOSURE_COMMIT_AMBIGUOUS", "post-append journal proof does not cover all pending scope paths; refusing to clear", { iteration: state.iteration });
+					outcome = {
+						kind: "failure",
+						failure: result
+					};
+					await options.hooks?.afterCommitBeforeClear?.();
+					return {
+						...runtime,
+						heartbeat_at: heartbeatAt,
+						pending_scope: null
+					};
+				}
+			}
+			outcome = {
+				kind: "failure",
+				failure: result
+			};
+			return runtime;
+		}, options.runtime);
+	} catch (error) {
+		if (error instanceof ClosureNotCommitted) return { kind: "not-committed" };
+		throw error;
+	}
+	if (outcome === null) throw new Error("internal invariant: EXECUTE closure transaction produced no outcome");
+	return outcome;
+}
+//#endregion
 //#region src/cli/commands/lifecycle.tsx
 const PRESETS = {
 	quick: {
@@ -10477,7 +11957,7 @@ const PRESETS = {
 		strict_drift_check: true
 	}
 };
-function registerLifecycle(program, ctx, mutator, actor) {
+function registerLifecycle(program, ctx, mutator, actor, runtimeDir, runtimeNow, executeClosureHooks) {
 	program.command("start <feature>").description("Start a new feature session (emits session:started)").option("--ceremony <preset>", "Preset label: quick / light / standard / deep", "standard").option("--label <text>", "Human-readable session label (≥3 chars)").option("--workspace <name>", "Workspace name (multi-worktree display)", "default").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (feature, opts) => {
 		const ceremony = PRESETS[opts.ceremony];
 		if (!ceremony) {
@@ -10535,6 +12015,56 @@ function registerLifecycle(program, ctx, mutator, actor) {
 		if (!from) {
 			ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionAdvance, opts.feature);
 			return;
+		}
+		if (to === "EXECUTE.done" && (from === "EXECUTE.work" || from === "EXECUTE.done")) {
+			const state = session.snapshot.state;
+			const repoRoot = path.dirname(path.dirname(featureDir));
+			try {
+				const closure = await executeClosureTransaction({
+					featureDir,
+					session,
+					actor,
+					identity: {
+						session_id: state.session_id,
+						cwd: repoRoot
+					},
+					runtime: {
+						runtimeDir,
+						now: runtimeNow
+					},
+					debug: ctx.debug,
+					...executeClosureHooks !== void 0 && { hooks: executeClosureHooks },
+					mutateContext: (loaded) => mutator.mctxFor(featureDir, loaded)
+				});
+				if (closure.kind === "failure") {
+					mutator.finishMutate(closure.failure, "legacy-fail");
+					return;
+				}
+				if (closure.kind === "committed" && mutator.finishMutate(closure.result, "legacy-fail") === null) return;
+				if (closure.kind !== "not-committed") {
+					const snapshot = closure.kind === "committed" ? closure.result.snapshot : closure.session.snapshot;
+					const out = {
+						ok: true,
+						from: closure.from,
+						to,
+						sub_state: snapshot.state?.sub_state
+					};
+					ctx.success(out, () => "", (i18n) => ({ stateChange: i18n.t(SUCCESS_KEYS.advanceStateChange, {
+						from: closure.from,
+						to
+					}) }));
+					return;
+				}
+			} catch (error) {
+				const isRuntimeLockFailure = error instanceof RuntimeStoreError && error.code.startsWith("RUNTIME_LOCK_");
+				if (!isRuntimeLockFailure && !(error instanceof ExecuteClosureError)) throw error;
+				const code = isRuntimeLockFailure ? "LOCK_TIMEOUT" : "SCHEMA_VALIDATION_FAILED";
+				ctx.failure(code, `EXECUTE closure failed: ${error.message}`, {
+					source: "execute-closure",
+					...error instanceof ExecuteClosureError && error.detail !== void 0 ? error.detail : {}
+				});
+				return;
+			}
 		}
 		const result = await mutator.run(featureDir, session, {
 			kind: "event:phase_advanced",
@@ -10996,7 +12526,7 @@ const LoafConfigConstitution = z.object({
 		"advisory"
 	]).default("preferred"),
 	default_ceremony_label: z.string().default("standard"),
-	default_ceremony: Ceremony$1.optional(),
+	default_ceremony: Ceremony.optional(),
 	require_red_for_behavioral: z.boolean().default(true),
 	allow_manual_for_requirement: z.boolean().default(true),
 	require_attachment_for_visual: z.boolean().default(true)
@@ -11083,7 +12613,7 @@ async function writeConfigExclusive(configPath, content) {
 }
 //#endregion
 //#region src/cli/commands/profile-config.tsx
-const CONFIG_INIT_COMMENT = "Scaffolded by `loaf config init`. Semantic schema: docs/schemas.ts §21 LoafConfig. This _comment key is an output affordance only; loaf-cli parses the semantic config without it.";
+const CONFIG_INIT_COMMENT = "Scaffolded by `loaf config init`. Machine contract: src/core/loaf-config.ts LoafConfig. This _comment key is an output affordance only; loaf-cli parses the semantic config without it.";
 function serializeStableJson(value) {
 	return JSON.stringify(value, null, 2) + "\n";
 }
@@ -11268,8 +12798,17 @@ function registerProfileConfig(program, ctx, mutator, actor, userConfigHomeDir) 
 		}) }));
 	});
 }
-//#endregion
-//#region src/cli/input-source.ts
+z.discriminatedUnion("kind", [
+	z.object({ kind: z.literal("stdin") }),
+	z.object({
+		kind: z.literal("inline"),
+		value: z.string()
+	}),
+	z.object({
+		kind: z.literal("file"),
+		path: z.string()
+	})
+]);
 const INLINE_RE = /^[{[]/;
 function parseInputSource(arg) {
 	if (arg === "-") return { kind: "stdin" };
@@ -11343,16 +12882,9 @@ async function readJsonInput(source, deps) {
 	}
 }
 //#endregion
-//#region src/cli/commands/tasks.tsx
-function formatTaskListKind(i18n, kind) {
-	if (i18n.locale === "en") return kind;
-	return i18n.t(taskKindKey(kind));
-}
-function formatTaskStatus(i18n, status) {
-	return i18n.t(taskStatusKey(status));
-}
-function registerTasks(program, ctx, mutator, actor, isStdinTty, readStdin) {
-	const tasksCmd = program.command("tasks").description("Task lifecycle commands (Slice 2 MVP: submit / claim / step)");
+//#region src/cli/commands/tasks/authoring.ts
+function registerTaskSubmit(tasksCmd, deps) {
+	const { ctx, mutator, actor, isStdinTty, readStdin } = deps;
 	tasksCmd.command("submit").description("Submit a complete task graph from --input <src> (stdin / inline JSON / file path; whole-graph single object)").requiredOption("--input <src>", "JSON source: `-` (stdin), inline JSON literal, or file path (protocol §10.7). Whole-graph single object only.").option("--feature <name>", "Feature whose task graph to submit").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		const source = parseInputSource(opts.input);
 		if (source.kind === "stdin" && isStdinTty()) {
@@ -11396,6 +12928,9 @@ function registerTasks(program, ctx, mutator, actor, isStdinTty, readStdin) {
 			next: i18n.t(SUCCESS_KEYS.nextAdvance)
 		}));
 	});
+}
+function registerTaskAdd(tasksCmd, deps) {
+	const { ctx, mutator, actor, isStdinTty, readStdin } = deps;
 	tasksCmd.command("add").description("Append id-less task(s) to the graph — --input <src> with single object or array (batch); SPEC.design whole-graph, or EXECUTE.work sponsored via --finding").option("--input <src>", "JSON source for TaskInput (single object or array): `-` (stdin), inline JSON, or file path (protocol §10.7)").option("--schema", "Dump the input JSON Schema instead of mutating (Phase 16 SC-10)").option("--feature <name>", "Feature whose task graph to extend").option("--feature-dir <path>", "Override default .loaf/<feature> directory").option("--finding <FND-N>", "Sponsoring amend-tasks finding (sponsored add at EXECUTE.work)").action(async (rawOpts) => {
 		if (rawOpts.schema === true) {
 			if (ctx.rejectIfDryRun("tasks add --schema")) return;
@@ -11425,7 +12960,7 @@ function registerTasks(program, ctx, mutator, actor, isStdinTty, readStdin) {
 		}
 		const validatedInputs = [];
 		for (const raw of rawTasks) {
-			const p = TaskInput$1.safeParse(raw);
+			const p = TaskInput.safeParse(raw);
 			if (!p.success) {
 				ctx.failure("SCHEMA_VALIDATION_FAILED", `tasks add input is not a valid id-less task (omit id / status / execution): ${p.error.issues.map((i) => i.message).join("; ")}`, { issues: p.error.issues });
 				return;
@@ -11530,183 +13065,9 @@ function registerTasks(program, ctx, mutator, actor, isStdinTty, readStdin) {
 			task_ids: newIds.join(",")
 		}) }));
 	});
-	tasksCmd.command("claim <task-id>").description("Claim a ready task (pending → in_progress) at EXECUTE.work").option("--feature <name>", "Feature whose task to claim").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (taskId, opts) => {
-		const featureDir = await ctx.dispatchOrFail(opts);
-		if (featureDir === null) return;
-		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
-		if (!session.snapshot.state) {
-			ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
-			return;
-		}
-		const result = await mutator.run(featureDir, session, {
-			kind: "event:task_claimed",
-			payload: { task_id: taskId },
-			actor
-		});
-		if (!result) return;
-		const claimed = result.snapshot.tasks.find((t) => t.id === taskId);
-		if (!claimed) {
-			ctx.emitFailure("REDUCER_ERROR", `internal: task ${taskId} missing from snapshot after successful task_claimed apply`);
-			return;
-		}
-		const status = claimed.status;
-		const out = {
-			ok: true,
-			feature: opts.feature,
-			task_id: taskId,
-			status,
-			sub_state: result.snapshot.state?.sub_state
-		};
-		ctx.success(out, () => "", (i18n) => ({ stateChange: i18n.t(SUCCESS_KEYS.tasksClaimStateChange, {
-			task_id: taskId,
-			status
-		}) }));
-	});
-	tasksCmd.command("abandon <task-id>").description("Abandon a non-terminal task (→ abandoned) at EXECUTE.work").requiredOption("--reason <text>", "Why the task is being abandoned (required)").option("--feature <name>", "Feature whose task to abandon").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (taskId, opts) => {
-		const featureDir = await ctx.dispatchOrFail(opts);
-		if (featureDir === null) return;
-		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
-		if (!session.snapshot.state) {
-			ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
-			return;
-		}
-		const result = await mutator.run(featureDir, session, {
-			kind: "event:task_abandoned",
-			payload: {
-				task_id: taskId,
-				reason: opts.reason
-			},
-			actor
-		});
-		if (!result) return;
-		const abandoned = result.snapshot.tasks.find((t) => t.id === taskId);
-		if (!abandoned) {
-			ctx.emitFailure("REDUCER_ERROR", `internal: task ${taskId} missing from snapshot after successful task_abandoned apply`);
-			return;
-		}
-		const status = abandoned.status;
-		const out = {
-			ok: true,
-			feature: opts.feature,
-			task_id: taskId,
-			status,
-			sub_state: result.snapshot.state?.sub_state
-		};
-		ctx.success(out, () => "", (i18n) => ({ stateChange: i18n.t(SUCCESS_KEYS.tasksAbandonStateChange, {
-			task_id: taskId,
-			status
-		}) }));
-	});
-	tasksCmd.command("list").description("List tasks (read-only); shows derived `ready` column").option("--feature <name>", "Feature whose tasks to list").option("--feature-dir <path>", "Override default .loaf/<feature> directory").option("--status <s>", "Filter by task status (pending|ready|in_progress|done|abandoned)").action(async (opts) => {
-		if (ctx.rejectIfDryRun("tasks list")) return;
-		const featureDir = await ctx.dispatchOrFail(opts);
-		if (featureDir === null) return;
-		const loaded = await ctx.loadProjectionsOrFail(featureDir, ["state", "tasks"], opts.feature, FAILURE_SITE_KEYS.noSessionTasks);
-		if (loaded === null) return;
-		const slimTasks = loaded.tasks ? loaded.tasks.tasks.map((t) => extractTaskSlim(t)) : [];
-		const tasksById = new Map(slimTasks.map((t) => [t.id, t]));
-		const withDerived = slimTasks.map((t) => {
-			const depsAllDone = t.depends_on.length === 0 || t.depends_on.every((d) => tasksById.get(d)?.status === "done");
-			return {
-				...t,
-				ready: t.status === "pending" && depsAllDone
-			};
-		});
-		const validStatuses = [
-			"pending",
-			"ready",
-			"in_progress",
-			"done",
-			"abandoned"
-		];
-		if (opts.status !== void 0 && !validStatuses.includes(opts.status)) {
-			ctx.emitFailure("USAGE", `--status must be one of: ${validStatuses.join(" | ")} (got ${opts.status})`);
-			return;
-		}
-		const filtered = withDerived.filter((t) => {
-			if (!opts.status) return true;
-			if (opts.status === "ready") return t.ready;
-			return t.status === opts.status;
-		});
-		ctx.success({
-			ok: true,
-			feature: opts.feature,
-			count: filtered.length,
-			tasks: filtered
-		}, (i18n) => {
-			if (filtered.length === 0) return opts.status ? i18n.t(CHROME_KEYS.tasksListEmptyFiltered, { status: opts.status }) + "\n" : i18n.t(CHROME_KEYS.tasksListEmpty) + "\n";
-			return filtered.map((t) => {
-				const vars = {
-					task_id: t.id,
-					kind: formatTaskListKind(i18n, t.kind),
-					status: formatTaskStatus(i18n, t.status),
-					ready: i18n.t(CHROME_KEYS.tasksListReadyMarker)
-				};
-				return i18n.t(t.ready ? CHROME_KEYS.tasksListRowReady : CHROME_KEYS.tasksListRow, vars) + "\n";
-			}).join("");
-		});
-	});
-	tasksCmd.command("next").description("Print the next ready task id (or empty if none); read-only").option("--feature <name>", "Feature whose ready task to compute").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
-		if (ctx.rejectIfDryRun("tasks next")) return;
-		const featureDir = await ctx.dispatchOrFail(opts);
-		if (featureDir === null) return;
-		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
-		if (!session.snapshot.state) {
-			ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
-			return;
-		}
-		const tasks = session.snapshot.tasks;
-		const tasksById = new Map(tasks.map((t) => [t.id, t]));
-		const ready = tasks.find((t) => {
-			if (t.status !== "pending") return false;
-			return t.depends_on.length === 0 || t.depends_on.every((d) => tasksById.get(d)?.status === "done");
-		});
-		ctx.success({
-			ok: true,
-			feature: opts.feature,
-			task_id: ready?.id ?? null,
-			kind: ready?.kind ?? null
-		}, () => ready ? `${ready.id}\n` : "");
-	});
-	tasksCmd.command("complete <task-id>").description("Confirm a task has reached status=done (read-only; emits nothing)").option("--feature <name>", "Feature whose task to confirm").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (taskId, opts) => {
-		if (ctx.rejectIfDryRun("tasks complete")) return;
-		const featureDir = await ctx.dispatchOrFail(opts);
-		if (featureDir === null) return;
-		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
-		if (!session.snapshot.state) {
-			ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
-			return;
-		}
-		const task = session.snapshot.tasks.find((t) => t.id === taskId);
-		if (!task) {
-			ctx.emitFailure("TASK_NOT_FOUND", `task ${taskId} is not in the current tasks projection`, { task_id: taskId });
-			return;
-		}
-		if (task.status !== "done") {
-			const TERMINAL_POSITIVE = [
-				"passed",
-				"waived",
-				"na"
-			];
-			const blockingSteps = Object.entries(task.steps).filter(([, s]) => s.applicability === "must" && !TERMINAL_POSITIVE.includes(s.status)).map(([name]) => name);
-			ctx.emitFailure("TASK_COMPLETE_PRECONDITION_VIOLATED", `task ${taskId} is not complete (status=${task.status}); must-applicable steps not terminal-positive: ${blockingSteps.join(", ") || "(none — task has no must steps to auto-promote)"}`, {
-				task_id: taskId,
-				status: task.status,
-				blocking_steps: blockingSteps
-			});
-			return;
-		}
-		const out = {
-			ok: true,
-			feature: opts.feature,
-			task_id: taskId,
-			status: task.status
-		};
-		ctx.success(out, (i18n) => i18n.t(CHROME_KEYS.tasksCompleteText, {
-			task_id: taskId,
-			status: formatTaskStatus(i18n, "done")
-		}) + "\n");
-	});
+}
+function registerTaskAmend(tasksCmd, deps) {
+	const { ctx, mutator, actor, isStdinTty, readStdin } = deps;
 	tasksCmd.command("amend <task-id>").description("Amend a task: --policy <step>=<applicability> (EXECUTE.plan) or --input <file> --finding <FND-N> (sponsored, EXECUTE.work)").option("--feature <name>", "Feature whose task to amend").option("--feature-dir <path>", "Override default .loaf/<feature> directory").option("--policy <step=applicability>", "Step applicability override (must|optional|na); repeatable", (val, acc) => [...acc, val], []).option("--input <file>", "New id-less task definition for a sponsored graph replacement (JSON file or '-')").option("--finding <FND-N>", "Sponsoring amend-tasks finding (required with --input)").action(async (taskId, opts) => {
 		const earlyFeatureDir = await ctx.dispatchOrFail(opts);
 		if (earlyFeatureDir === null) return;
@@ -11740,7 +13101,7 @@ function registerTasks(program, ctx, mutator, actor, isStdinTty, readStdin) {
 				return;
 			}
 			const inParsed = read.value;
-			const inTask = TaskInput$1.safeParse(inParsed);
+			const inTask = TaskInput.safeParse(inParsed);
 			if (!inTask.success) {
 				ctx.failure("SCHEMA_VALIDATION_FAILED", `tasks amend --input is not a valid id-less task (omit id / status / execution): ${inTask.error.issues.map((i) => i.message).join("; ")}`, { issues: inTask.error.issues });
 				return;
@@ -11881,6 +13242,151 @@ function registerTasks(program, ctx, mutator, actor, isStdinTty, readStdin) {
 			applied
 		}) + "\n", (i18n) => ({ stateChange: i18n.t(SUCCESS_KEYS.amendStateChange, { task_id: taskId }) }));
 	});
+}
+//#endregion
+//#region src/cli/evidence-id-allocator.ts
+/** Allocate the next `count` evidence ids (≥6-digit zero-padded). */
+function allocateNextEvidenceIds(snapshot, count) {
+	if (count < 1) return [];
+	const maxSerial = snapshot.evidence.reduce((max, e) => {
+		const m = /^EV-(\d+)$/.exec(e.id);
+		if (!m) return max;
+		return Math.max(max, Number.parseInt(m[1], 10));
+	}, 0);
+	return Array.from({ length: count }, (_, i) => `EV-${String(maxSerial + 1 + i).padStart(6, "0")}`);
+}
+/** Single-id convenience for evidence wrappers such as `loaf waive`. */
+function allocateNextEvidenceId(snapshot) {
+	return allocateNextEvidenceIds(snapshot, 1)[0];
+}
+//#endregion
+//#region src/cli/commands/tasks/presentation.ts
+function formatTaskListKind(i18n, kind) {
+	if (i18n.locale === "en") return kind;
+	return i18n.t(taskKindKey(kind));
+}
+function formatTaskStatus(i18n, status) {
+	return i18n.t(taskStatusKey(status));
+}
+//#endregion
+//#region src/cli/commands/tasks/execution.ts
+function registerTaskClaim(tasksCmd, deps) {
+	const { ctx, mutator, actor } = deps;
+	tasksCmd.command("claim <task-id>").description("Claim a ready task (pending → in_progress) at EXECUTE.work").option("--feature <name>", "Feature whose task to claim").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (taskId, opts) => {
+		const featureDir = await ctx.dispatchOrFail(opts);
+		if (featureDir === null) return;
+		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
+		if (!session.snapshot.state) {
+			ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
+			return;
+		}
+		const result = await mutator.run(featureDir, session, {
+			kind: "event:task_claimed",
+			payload: { task_id: taskId },
+			actor
+		});
+		if (!result) return;
+		const claimed = result.snapshot.tasks.find((t) => t.id === taskId);
+		if (!claimed) {
+			ctx.emitFailure("REDUCER_ERROR", `internal: task ${taskId} missing from snapshot after successful task_claimed apply`);
+			return;
+		}
+		const status = claimed.status;
+		const out = {
+			ok: true,
+			feature: opts.feature,
+			task_id: taskId,
+			status,
+			sub_state: result.snapshot.state?.sub_state
+		};
+		ctx.success(out, () => "", (i18n) => ({ stateChange: i18n.t(SUCCESS_KEYS.tasksClaimStateChange, {
+			task_id: taskId,
+			status
+		}) }));
+	});
+}
+function registerTaskAbandon(tasksCmd, deps) {
+	const { ctx, mutator, actor } = deps;
+	tasksCmd.command("abandon <task-id>").description("Abandon a non-terminal task (→ abandoned) at EXECUTE.work").requiredOption("--reason <text>", "Why the task is being abandoned (required)").option("--feature <name>", "Feature whose task to abandon").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (taskId, opts) => {
+		const featureDir = await ctx.dispatchOrFail(opts);
+		if (featureDir === null) return;
+		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
+		if (!session.snapshot.state) {
+			ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
+			return;
+		}
+		const result = await mutator.run(featureDir, session, {
+			kind: "event:task_abandoned",
+			payload: {
+				task_id: taskId,
+				reason: opts.reason
+			},
+			actor
+		});
+		if (!result) return;
+		const abandoned = result.snapshot.tasks.find((t) => t.id === taskId);
+		if (!abandoned) {
+			ctx.emitFailure("REDUCER_ERROR", `internal: task ${taskId} missing from snapshot after successful task_abandoned apply`);
+			return;
+		}
+		const status = abandoned.status;
+		const out = {
+			ok: true,
+			feature: opts.feature,
+			task_id: taskId,
+			status,
+			sub_state: result.snapshot.state?.sub_state
+		};
+		ctx.success(out, () => "", (i18n) => ({ stateChange: i18n.t(SUCCESS_KEYS.tasksAbandonStateChange, {
+			task_id: taskId,
+			status
+		}) }));
+	});
+}
+function registerTaskComplete(tasksCmd, deps) {
+	const { ctx } = deps;
+	tasksCmd.command("complete <task-id>").description("Confirm a task has reached status=done (read-only; emits nothing)").option("--feature <name>", "Feature whose task to confirm").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (taskId, opts) => {
+		if (ctx.rejectIfDryRun("tasks complete")) return;
+		const featureDir = await ctx.dispatchOrFail(opts);
+		if (featureDir === null) return;
+		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
+		if (!session.snapshot.state) {
+			ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
+			return;
+		}
+		const task = session.snapshot.tasks.find((t) => t.id === taskId);
+		if (!task) {
+			ctx.emitFailure("TASK_NOT_FOUND", `task ${taskId} is not in the current tasks projection`, { task_id: taskId });
+			return;
+		}
+		if (task.status !== "done") {
+			const TERMINAL_POSITIVE = [
+				"passed",
+				"waived",
+				"na"
+			];
+			const blockingSteps = Object.entries(task.steps).filter(([, s]) => s.applicability === "must" && !TERMINAL_POSITIVE.includes(s.status)).map(([name]) => name);
+			ctx.emitFailure("TASK_COMPLETE_PRECONDITION_VIOLATED", `task ${taskId} is not complete (status=${task.status}); must-applicable steps not terminal-positive: ${blockingSteps.join(", ") || "(none — task has no must steps to auto-promote)"}`, {
+				task_id: taskId,
+				status: task.status,
+				blocking_steps: blockingSteps
+			});
+			return;
+		}
+		const out = {
+			ok: true,
+			feature: opts.feature,
+			task_id: taskId,
+			status: task.status
+		};
+		ctx.success(out, (i18n) => i18n.t(CHROME_KEYS.tasksCompleteText, {
+			task_id: taskId,
+			status: formatTaskStatus(i18n, "done")
+		}) + "\n");
+	});
+}
+function registerTaskRegisterRed(tasksCmd, deps) {
+	const { ctx, mutator, actor } = deps;
 	tasksCmd.command("register-red <task-id>").description("Register the RED test for a claimed behavioral bug task (EXECUTE.work)").option("--feature <name>", "Feature whose task to register").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (taskId, opts) => {
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
@@ -11909,6 +13415,9 @@ function registerTasks(program, ctx, mutator, actor, isStdinTty, readStdin) {
 		};
 		ctx.success(out, () => "", (i18n) => ({ stateChange: i18n.t(SUCCESS_KEYS.tasksRegisterRedStateChange, { task_id: taskId }) }));
 	});
+}
+function registerTaskStep(tasksCmd, deps) {
+	const { ctx, mutator, actor } = deps;
 	const stepCmd = tasksCmd.command("step").description("Task step lifecycle (start / done)");
 	stepCmd.command("start").description("Mark a task step as running (task must be claimed)").requiredOption("--task <task-id>", "Task whose step to start").requiredOption("--step <step-name>", "Step name (kind-specific; see spec)").option("--feature <name>", "Feature whose task lifecycle to advance").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		const featureDir = await ctx.dispatchOrFail(opts);
@@ -11986,12 +13495,7 @@ function registerTasks(program, ctx, mutator, actor, isStdinTty, readStdin) {
 		let result;
 		let evidenceId;
 		if (evidenceFlagSet) {
-			const maxSerial = session.snapshot.evidence.reduce((max, e) => {
-				const m = /^EV-(\d+)$/.exec(e.id);
-				if (!m) return max;
-				return Math.max(max, Number.parseInt(m[1], 10));
-			}, 0);
-			evidenceId = `EV-${String(maxSerial + 1).padStart(6, "0")}`;
+			evidenceId = allocateNextEvidenceId(session.snapshot);
 			const iteration = session.snapshot.state.iteration ?? 1;
 			const evidenceActor = opts.evidenceActor ?? actor;
 			const evidencePayload = {
@@ -12049,9 +13553,103 @@ function registerTasks(program, ctx, mutator, actor, isStdinTty, readStdin) {
 			result: opts.result
 		}) }));
 	});
+}
+//#endregion
+//#region src/cli/commands/tasks/query.ts
+function registerTaskQueries(tasksCmd, deps) {
+	const { ctx } = deps;
+	tasksCmd.command("list").description("List tasks (read-only); shows derived `ready` column").option("--feature <name>", "Feature whose tasks to list").option("--feature-dir <path>", "Override default .loaf/<feature> directory").option("--status <s>", "Filter by task status (pending|ready|in_progress|done|abandoned)").action(async (opts) => {
+		if (ctx.rejectIfDryRun("tasks list")) return;
+		const featureDir = await ctx.dispatchOrFail(opts);
+		if (featureDir === null) return;
+		const loaded = await ctx.loadProjectionsOrFail(featureDir, ["state", "tasks"], opts.feature, FAILURE_SITE_KEYS.noSessionTasks);
+		if (loaded === null) return;
+		const slimTasks = loaded.tasks ? loaded.tasks.tasks.map((t) => extractTaskSlim(t)) : [];
+		const tasksById = new Map(slimTasks.map((t) => [t.id, t]));
+		const withDerived = slimTasks.map((t) => {
+			return {
+				...t,
+				ready: (t.status === "pending" || t.status === "ready") && areTaskDependenciesSatisfied(t, tasksById)
+			};
+		});
+		const validStatuses = [
+			"pending",
+			"ready",
+			"in_progress",
+			"done",
+			"abandoned"
+		];
+		if (opts.status !== void 0 && !validStatuses.includes(opts.status)) {
+			ctx.emitFailure("USAGE", `--status must be one of: ${validStatuses.join(" | ")} (got ${opts.status})`);
+			return;
+		}
+		const filtered = withDerived.filter((t) => {
+			if (!opts.status) return true;
+			if (opts.status === "ready") return t.ready;
+			return t.status === opts.status;
+		});
+		ctx.success({
+			ok: true,
+			feature: opts.feature,
+			count: filtered.length,
+			tasks: filtered
+		}, (i18n) => {
+			if (filtered.length === 0) return opts.status ? i18n.t(CHROME_KEYS.tasksListEmptyFiltered, { status: opts.status }) + "\n" : i18n.t(CHROME_KEYS.tasksListEmpty) + "\n";
+			return filtered.map((t) => {
+				const vars = {
+					task_id: t.id,
+					kind: formatTaskListKind(i18n, t.kind),
+					status: formatTaskStatus(i18n, t.status),
+					ready: i18n.t(CHROME_KEYS.tasksListReadyMarker)
+				};
+				return i18n.t(t.ready ? CHROME_KEYS.tasksListRowReady : CHROME_KEYS.tasksListRow, vars) + "\n";
+			}).join("");
+		});
+	});
+	tasksCmd.command("next").description("Print the next ready task id (or empty if none); read-only").option("--feature <name>", "Feature whose ready task to compute").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+		if (ctx.rejectIfDryRun("tasks next")) return;
+		const featureDir = await ctx.dispatchOrFail(opts);
+		if (featureDir === null) return;
+		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
+		if (!session.snapshot.state) {
+			ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
+			return;
+		}
+		const tasks = session.snapshot.tasks;
+		const tasksById = new Map(tasks.map((t) => [t.id, t]));
+		const ready = tasks.find((task) => (task.status === "pending" || task.status === "ready") && areTaskDependenciesSatisfied(task, tasksById));
+		ctx.success({
+			ok: true,
+			feature: opts.feature,
+			task_id: ready?.id ?? null,
+			kind: ready?.kind ?? null
+		}, () => ready ? `${ready.id}\n` : "");
+	});
+}
+//#endregion
+//#region src/cli/commands/tasks.tsx
+/** Register the loaf tasks family without changing its public facade or command order. */
+function registerTasks(program, ctx, mutator, actor, isStdinTty, readStdin) {
+	const tasksCmd = program.command("tasks").description("Task lifecycle commands (Slice 2 MVP: submit / claim / step)");
+	const deps = {
+		ctx,
+		mutator,
+		actor,
+		isStdinTty,
+		readStdin
+	};
+	registerTaskSubmit(tasksCmd, deps);
+	registerTaskAdd(tasksCmd, deps);
+	registerTaskClaim(tasksCmd, deps);
+	registerTaskAbandon(tasksCmd, deps);
+	registerTaskQueries(tasksCmd, deps);
+	registerTaskComplete(tasksCmd, deps);
+	registerTaskAmend(tasksCmd, deps);
+	registerTaskRegisterRed(tasksCmd, deps);
+	registerTaskStep(tasksCmd, deps);
 	return { tasksCmd };
 }
-/** TasksActiveSummary — mirror of docs/schemas.ts §20.
+/** TasksActiveSummary — resume-pack active-task projection.
 *  current_step is null when no step on the in_progress/ready task is
 *  currently running (i.e. between steps or paused). */
 const TasksActiveSummary = z.object({
@@ -12070,7 +13668,7 @@ const ResumePack = z.object({
 	at: z.string().datetime(),
 	session_id: z.string().uuid(),
 	reason: z.string().min(5),
-	state_snapshot: StateProjection$1,
+	state_snapshot: StateProjection,
 	tasks_active_summary: z.array(TasksActiveSummary).default([]),
 	recent_evidence: z.array(z.string().regex(/^EV-\d{6,}$/)).max(10),
 	recent_findings: z.array(z.string().regex(/^FND-\d{3,}$/)).max(10),
@@ -12263,7 +13861,7 @@ function registerTerminalSettle(program, ctx, mutator, actor) {
 //#region src/cli/commands/pending.tsx
 function formatPendingKind(i18n, kind) {
 	if (i18n.locale === "en") return kind;
-	const parsed = PendingPromptKind$1.safeParse(kind);
+	const parsed = PendingPromptKind.safeParse(kind);
 	return parsed.success ? i18n.t(pendingKindKey(parsed.data)) : kind;
 }
 function registerPending(program, ctx, mutator, actor) {
@@ -12402,22 +14000,6 @@ function registerPending(program, ctx, mutator, actor) {
 	});
 }
 //#endregion
-//#region src/cli/evidence-id-allocator.ts
-/** Allocate the next `count` evidence ids (≥6-digit zero-padded). */
-function allocateNextEvidenceIds(snapshot, count) {
-	if (count < 1) return [];
-	const maxSerial = snapshot.evidence.reduce((max, e) => {
-		const m = /^EV-(\d+)$/.exec(e.id);
-		if (!m) return max;
-		return Math.max(max, Number.parseInt(m[1], 10));
-	}, 0);
-	return Array.from({ length: count }, (_, i) => `EV-${String(maxSerial + 1 + i).padStart(6, "0")}`);
-}
-/** Single-id convenience for SC-11 wrappers (waive / lessons add). */
-function allocateNextEvidenceId(snapshot) {
-	return allocateNextEvidenceIds(snapshot, 1)[0];
-}
-//#endregion
 //#region src/cli/waive.ts
 function buildWaiveEvidencePayload(args) {
 	return {
@@ -12470,7 +14052,7 @@ function evidenceAddStateChange(i18n, items) {
 	});
 }
 function registerEvidence(program, ctx, mutator, actor, isStdinTty, readStdin) {
-	const evidenceCmd = program.command("evidence").description("Evidence ledger commands (Slice 3 SC2 MVP: add)");
+	const evidenceCmd = program.command("evidence").description("Evidence ledger commands (add, list)");
 	evidenceCmd.command("add").description("Append evidence entry/entries from --input <src> JSON (CLI allocates EV-id; single object or non-empty array for batch)").option("--input <src>", "JSON source for EvidenceAddInput (single object OR non-empty array for batch): `-` (stdin), inline JSON, or file path (protocol §10.7)").option("--schema", "Dump the input JSON Schema instead of mutating (Phase 16 SC-10)").option("--feature <name>", "Feature whose ledger to append to").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (rawOpts) => {
 		if (rawOpts.schema === true) {
 			if (ctx.rejectIfDryRun("evidence add --schema")) return;
@@ -12502,7 +14084,7 @@ function registerEvidence(program, ctx, mutator, actor, isStdinTty, readStdin) {
 		const validatedInputs = [];
 		for (let i = 0; i < rawItems.length; i++) {
 			const raw = rawItems[i];
-			const p = EvidenceAddInput$1.safeParse(raw);
+			const p = EvidenceAddInput.safeParse(raw);
 			if (!p.success) {
 				ctx.failure("SCHEMA_VALIDATION_FAILED", `evidence add input[${i}] failed schema validation: ${p.error.issues.map((iss) => iss.message).join("; ")}`, {
 					index: i,
@@ -12549,6 +14131,55 @@ function registerEvidence(program, ctx, mutator, actor, isStdinTty, readStdin) {
 			id: evIds[0],
 			kind: validatedInputs[0].kind
 		}, () => `${evIds[0]}\n`, (i18n) => ({ stateChange: evidenceAddStateChange(i18n, evidenceItems) }));
+	});
+	evidenceCmd.command("list").description("List evidence coverage fields from the evidence projection (read-only)").option("--covers <id>", "Filter entries whose covers array contains id").option("--task <T-N>", "Filter entries linked to a task id").option("--kind <kind>", "Filter by the closed EvidenceKind enum").option("--feature <name>", "Feature whose evidence to list").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+		if (ctx.rejectIfDryRun("evidence list")) return;
+		if (opts.covers !== void 0 && !CoversRefPayload.safeParse(opts.covers).success) {
+			ctx.failureKeyed("USAGE", FAILURE_SITE_KEYS.evidenceCoversInvalid, { value: opts.covers }, { value: opts.covers });
+			return;
+		}
+		if (opts.task !== void 0 && !TaskIdPayload.safeParse(opts.task).success) {
+			ctx.failureKeyed("USAGE", FAILURE_SITE_KEYS.evidenceTaskInvalid, { value: opts.task }, { value: opts.task });
+			return;
+		}
+		if (opts.kind !== void 0 && !EvidenceKind.safeParse(opts.kind).success) {
+			ctx.failureKeyed("USAGE", FAILURE_SITE_KEYS.evidenceKindInvalid, {
+				value: opts.kind,
+				allowed_kinds_human: EvidenceKind.options.join(" | ")
+			}, {
+				value: opts.kind,
+				allowed: EvidenceKind.options
+			});
+			return;
+		}
+		const featureDir = await ctx.dispatchOrFail(opts);
+		if (featureDir === null) return;
+		const loaded = await ctx.loadProjectionsOrFail(featureDir, ["evidence"], opts.feature, FAILURE_SITE_KEYS.noSessionGeneric);
+		if (loaded === null) return;
+		const rows = loaded.evidence.evidence.filter((entry) => (opts.covers === void 0 || entry.covers.includes(opts.covers)) && (opts.task === void 0 || entry.task_id === opts.task) && (opts.kind === void 0 || entry.kind === opts.kind)).map((entry) => ({
+			id: entry.id,
+			kind: entry.kind,
+			covers: entry.covers,
+			task_id: entry.task_id ?? null,
+			at: entry.at,
+			actor: entry.actor
+		}));
+		ctx.success({
+			ok: true,
+			feature: opts.feature,
+			count: rows.length,
+			evidence: rows
+		}, (i18n) => {
+			if (rows.length === 0) return i18n.t(CHROME_KEYS.evidenceListEmpty) + "\n";
+			return rows.map((row) => i18n.t(CHROME_KEYS.evidenceListRow, {
+				id: row.id,
+				kind: row.kind,
+				covers: row.covers.join(",") || "-",
+				task_id: row.task_id ?? "-",
+				at: row.at,
+				actor: row.actor
+			}) + "\n").join("");
+		});
 	});
 	program.command("waive <obligation-id>").description("Record a waiver evidence (kind=waiver) against an obligation id (REQ-/SCEN-/VIS-/T-)").requiredOption("--reason <text>", "Waiver rationale (≥10 chars; mandatory per evidence schema refine)").option("--feature <name>", "Feature whose ledger to append to").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (obligationId, opts) => {
 		if (!CoversRefPayload.safeParse(obligationId).success) {
@@ -12601,6 +14232,109 @@ function registerEvidence(program, ctx, mutator, actor, isStdinTty, readStdin) {
 	return { evidenceCmd };
 }
 //#endregion
+//#region src/cli/commands/journal.ts
+const JOURNAL_KINDS = Object.keys(KIND_REGISTRY);
+function registerJournal(program, ctx) {
+	program.command("journal").alias("log").description("Journal inspection commands (list; `loaf log` alias)").command("list", { isDefault: true }).description("List journal entry envelopes without interpreting payloads (read-only)").option("--after-seq <n>", "Only include entries whose seq is greater than n").option("--limit <n>", "Return at most n entries in journal order").option("--kind <kind>", "Filter by the closed journal kind registry").option("--actor <prefix-or-full>", "Filter by actor prefix or full actor string").option("--feature <name>", "Feature whose journal to list").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+		if (ctx.rejectIfDryRun("journal list")) return;
+		const afterSeq = parseIntegerFilter(ctx, "--after-seq", opts.afterSeq, 0);
+		if (afterSeq === null) return;
+		const limit = parseIntegerFilter(ctx, "--limit", opts.limit, 1);
+		if (limit === null) return;
+		if (opts.kind !== void 0 && !Object.hasOwn(KIND_REGISTRY, opts.kind)) {
+			ctx.failureKeyed("USAGE", FAILURE_SITE_KEYS.journalKindInvalid, { value: opts.kind }, {
+				value: opts.kind,
+				allowed: JOURNAL_KINDS
+			});
+			return;
+		}
+		if (opts.actor !== void 0 && opts.actor.length === 0) {
+			ctx.failureKeyed("USAGE", FAILURE_SITE_KEYS.journalActorInvalid, {});
+			return;
+		}
+		const featureDir = await ctx.dispatchOrFail(opts);
+		if (featureDir === null) return;
+		const session = await loadSession(featureDir, { ensureDir: false });
+		if (session.snapshot.state === null) {
+			ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+			return;
+		}
+		let entries = session.entries.filter((entry) => (afterSeq === void 0 || entry.seq > afterSeq) && (opts.kind === void 0 || entry.kind === opts.kind) && (opts.actor === void 0 || entry.actor.startsWith(opts.actor)));
+		if (limit !== void 0) entries = entries.slice(0, limit);
+		const rows = entries.map(toJournalListRow);
+		ctx.success({
+			ok: true,
+			feature: opts.feature,
+			count: rows.length,
+			entries: rows
+		}, (i18n) => renderJournalRows(i18n, rows));
+	});
+}
+function parseIntegerFilter(ctx, flag, value, minimum) {
+	if (value === void 0) return void 0;
+	if (!/^\d+$/.test(value)) {
+		ctx.failureKeyed("USAGE", FAILURE_SITE_KEYS.journalIntegerInvalid, {
+			flag,
+			value,
+			minimum
+		}, {
+			flag,
+			value,
+			minimum
+		});
+		return null;
+	}
+	const parsed = Number(value);
+	if (!Number.isSafeInteger(parsed) || parsed < minimum) {
+		ctx.failureKeyed("USAGE", FAILURE_SITE_KEYS.journalIntegerInvalid, {
+			flag,
+			value,
+			minimum
+		}, {
+			flag,
+			value,
+			minimum
+		});
+		return null;
+	}
+	return parsed;
+}
+function toJournalListRow(entry) {
+	const row = {
+		seq: entry.seq,
+		entry_id: entry.entry_id,
+		at: entry.at,
+		actor: entry.actor,
+		kind: entry.kind
+	};
+	if (entry.batch_id !== void 0 && entry.batch_index !== void 0 && entry.batch_count !== void 0) {
+		row.batch_id = entry.batch_id;
+		row.batch_index = entry.batch_index;
+		row.batch_count = entry.batch_count;
+	}
+	return row;
+}
+function renderJournalRows(i18n, rows) {
+	if (rows.length === 0) return i18n.t(CHROME_KEYS.journalListEmpty) + "\n";
+	return rows.map((row) => i18n.t(row.batch_id === void 0 ? CHROME_KEYS.journalListRow : CHROME_KEYS.journalListRowBatch, {
+		seq: row.seq,
+		entry_id: row.entry_id,
+		at: row.at,
+		actor: row.actor,
+		kind: row.kind,
+		batch_id: row.batch_id,
+		batch_index: row.batch_index,
+		batch_count: row.batch_count
+	}) + "\n").join("");
+}
+//#endregion
+//#region src/cli/lesson-id-allocator.ts
+/** Allocate the next independent lesson id from canonical journal history. */
+function allocateNextLessonId(entries) {
+	const serial = nextSerialInNamespace(entries.filter((entry) => entry.kind === "lesson:recorded").map((entry) => LessonRecordedPayload.parse(entry.payload).id), "LSN");
+	return `LSN-${String(serial).padStart(3, "0")}`;
+}
+//#endregion
 //#region src/cli/lessons-add.ts
 function chooseSummary(lessonText) {
 	return Buffer.byteLength(lessonText, "utf8") > 8192 ? {
@@ -12608,22 +14342,18 @@ function chooseSummary(lessonText) {
 		text: lessonText
 	} : lessonText;
 }
-function buildLessonsEvidencePayload(args) {
+function buildLessonRecordedPayload(args) {
 	return {
-		id: args.evidenceId,
-		kind: "manual",
+		id: args.lessonId,
 		iteration: args.iteration,
-		actor: args.actor,
-		result: "passed",
 		reason: args.reason,
-		summary: chooseSummary(args.lessonText),
-		covers: []
+		summary: chooseSummary(args.lessonText)
 	};
 }
 //#endregion
 //#region src/cli/commands/lessons.tsx
 function registerLessons(program, ctx, mutator, _actor) {
-	program.command("lessons").description("Lessons-learned evidence commands (Phase 16 SC-11: add)").command("add").description("Record a lessons-learned evidence entry (kind=manual; --text inline OR --file <path>)").option("--text <inline>", "Lesson body text (inline). Mutex with --file.").option("--file <path>", "Read lesson body from file. Mutex with --text.").requiredOption("--reason <text>", "Why this lesson matters (≥10 chars; mandatory per evidence schema refine)").option("--feature <name>", "Feature whose ledger to append to").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+	program.command("lessons").description("Lessons-learned journal commands").command("add").description("Record a lesson entry (--text inline OR --file <path>)").option("--text <inline>", "Lesson body text (inline). Mutex with --file.").option("--file <path>", "Read lesson body from file. Mutex with --text.").requiredOption("--reason <text>", "Why this lesson matters (≥10 chars; mandatory per evidence schema refine)").option("--feature <name>", "Feature whose ledger to append to").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		const hasText = opts.text !== void 0;
 		const hasFile = opts.file !== void 0;
 		if (hasText === hasFile) {
@@ -12673,25 +14403,24 @@ function registerLessons(program, ctx, mutator, _actor) {
 			ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
 			return;
 		}
-		const evidenceId = allocateNextEvidenceId(session.snapshot);
-		const payload = buildLessonsEvidencePayload({
-			evidenceId,
+		const lessonId = allocateNextLessonId(session.entries);
+		const payload = buildLessonRecordedPayload({
+			lessonId,
 			lessonText,
 			reason: opts.reason,
-			actor,
 			iteration: session.snapshot.state.iteration
 		});
 		if (!await mutator.run(featureDir, session, {
-			kind: "evidence:added",
+			kind: "lesson:recorded",
 			payload,
 			actor
 		})) return;
 		ctx.success({
 			ok: true,
 			feature: opts.feature,
-			id: evidenceId,
-			kind: "manual"
-		}, () => `${evidenceId}\n`, (i18n) => ({ stateChange: i18n.t(SUCCESS_KEYS.lessonsAddStateChange, { evidence_id: evidenceId }) }));
+			id: lessonId,
+			kind: "lesson:recorded"
+		}, () => `${lessonId}\n`, (i18n) => ({ stateChange: i18n.t(SUCCESS_KEYS.lessonsAddStateChange, { lesson_id: lessonId }) }));
 	});
 }
 //#endregion
@@ -12793,32 +14522,32 @@ const KIND_DISPATCH = {
 	spec: {
 		basename: "spec.md",
 		parse: "yaml-frontmatter",
-		schema: SpecFrontmatter$1
+		schema: SpecFrontmatter
 	},
 	tasks: {
 		basename: "tasks.json",
 		parse: "json",
-		schema: TasksJson$1
+		schema: TasksJson
 	},
 	evidence: {
 		basename: "evidence.json",
 		parse: "json",
-		schema: EvidenceJson$1
+		schema: EvidenceJson
 	},
 	finding: {
 		basename: "findings.json",
 		parse: "json",
-		schema: FindingsJson$1
+		schema: FindingsJson
 	},
 	pending: {
 		basename: "pending.json",
 		parse: "json",
-		schema: PendingJson$1
+		schema: PendingJson
 	},
 	state: {
 		basename: "state.json",
 		parse: "json",
-		schema: StateProjection$1
+		schema: StateProjection
 	}
 };
 /** Reverse basename → kind for auto-detection. */
@@ -13128,256 +14857,16 @@ const MutationRights = z.object({
 	forbidden_fields: z.array(z.string()).default([])
 });
 z.object({
-	sub_state: SubState$1,
+	sub_state: SubState,
 	entry: z.string(),
 	exit: z.string(),
 	write_paths: z.array(z.string()),
 	mutation_rights: MutationRights.optional(),
-	next: z.array(SubState$1),
+	next: z.array(SubState),
 	prompt_inject: z.string()
 });
-/** sub_state → contract lookup (built once; the contract list is frozen). */
-const SUB_STATE_CONTRACT_BY_STATE = Object.fromEntries([
-	{
-		sub_state: "TRIAGE.score",
-		entry: "loaf start <desc> invoked",
-		exit: "complexity_score computed (0-100)",
-		write_paths: [".loaf/<feature>/state.json"],
-		next: ["TRIAGE.confirm"],
-		prompt_inject: "Score 0-100 across files/api/schema/concurrency/security. Suggest profile."
-	},
-	{
-		sub_state: "TRIAGE.confirm",
-		entry: "score computed",
-		exit: "user accepts or overrides profile",
-		write_paths: [".loaf/<feature>/state.json"],
-		next: ["SPEC.proposal", "EXECUTE.plan"],
-		prompt_inject: "Confirm proposed profile (quick/light/standard/deep — see skill PRESETS) or override."
-	},
-	{
-		sub_state: "SPEC.proposal",
-		entry: "ceremony.spec_phase=true && TRIAGE.confirm done; OR Q9 escalation backfill (ceremony.spec_phase 由 false 改 true)",
-		exit: "spec.md body has Proposal section",
-		write_paths: [".loaf/<feature>/spec.md", ".loaf/<feature>/spec-draft-context.md"],
-		next: ["SPEC.spec"],
-		prompt_inject: "Write Proposal: why / scope / anti-scope. If backfill, read spec-draft-context.md."
-	},
-	{
-		sub_state: "SPEC.spec",
-		entry: "proposal section exists OR amend-spec back-edge",
-		exit: "frontmatter has requirements (each with three-way verifiability) + scenarios (+visual_contracts if UI); needs_clarification empty",
-		write_paths: [".loaf/<feature>/spec.md"],
-		next: ["SPEC.plan"],
-		prompt_inject: "Author EARS REQ-* with measurable / verified_by_scenarios / acceptance_na+reason. Add Gherkin SCEN-* and VIS-* as needed."
-	},
-	{
-		sub_state: "SPEC.plan",
-		entry: "spec section complete && needs_clarification empty",
-		exit: "spec.md body has Plan section",
-		write_paths: [".loaf/<feature>/spec.md"],
-		mutation_rights: {
-			writable_fields: ["spec.md:body.plan"],
-			forbidden_fields: [
-				"spec.md:frontmatter.requirements",
-				"spec.md:frontmatter.scenarios",
-				"spec.md:frontmatter.visual_contracts",
-				"tasks.json:*"
-			]
-		},
-		next: ["SPEC.design"],
-		prompt_inject: "Plan: risks / dependencies / milestones."
-	},
-	{
-		sub_state: "SPEC.design",
-		entry: "plan section complete",
-		exit: "design section + tasks.json generated; every REQ/SCEN/VIS bound to ≥1 task",
-		write_paths: [".loaf/<feature>/spec.md", ".loaf/<feature>/tasks.json"],
-		mutation_rights: {
-			writable_fields: ["spec.md:body.design", "tasks.json:*"],
-			forbidden_fields: [
-				"spec.md:frontmatter.requirements",
-				"spec.md:frontmatter.scenarios",
-				"spec.md:frontmatter.visual_contracts"
-			]
-		},
-		next: ["EXECUTE.plan"],
-		prompt_inject: "Design + decompose into tasks bound to REQ/SCEN/VIS via task.drives[]. Use labels[] for bug/security/etc."
-	},
-	{
-		sub_state: "EXECUTE.plan",
-		entry: "spec-lock passed (or quick: TRIAGE.confirm done)",
-		exit: "every task has execution policy populated per its kind",
-		write_paths: [".loaf/<feature>/tasks.json"],
-		mutation_rights: {
-			writable_fields: ["tasks.json:tasks[].execution[].applicability", "tasks.json:tasks[].status"],
-			forbidden_fields: [
-				"tasks.json:tasks[].id",
-				"tasks.json:tasks[].kind",
-				"tasks.json:tasks[].drives",
-				"tasks.json:tasks[].depends_on",
-				"tasks.json:tasks[].labels",
-				"spec.md:*"
-			]
-		},
-		next: ["EXECUTE.work"],
-		prompt_inject: "Derive execution policy for each task from kind × profile. Set step.applicability accordingly."
-	},
-	{
-		sub_state: "EXECUTE.work",
-		entry: "EXECUTE.plan done OR fix-impl/fix-test/amend-tasks back-edge",
-		exit: "every task.status = done OR abandoned, with all required steps passed/waived/na",
-		write_paths: [
-			".loaf/<feature>/tasks.json",
-			".loaf/<feature>/evidence.jsonl",
-			".loaf/<feature>/findings.jsonl"
-		],
-		mutation_rights: {
-			writable_fields: [
-				"tasks.json:tasks[].execution[].status",
-				"tasks.json:tasks[].execution[].evidence_refs",
-				"tasks.json:tasks[].status",
-				"evidence.jsonl:*",
-				"findings.jsonl:*"
-			],
-			forbidden_fields: [
-				"tasks.json:tasks[].id",
-				"tasks.json:tasks[].kind",
-				"tasks.json:tasks[].drives",
-				"tasks.json:tasks[].depends_on",
-				"tasks.json:tasks[].labels",
-				"spec.md:*"
-			]
-		},
-		next: ["EXECUTE.work", "EXECUTE.done"],
-		prompt_inject: "Execute each in-progress task at its currently-running step. Append evidence with covers[]."
-	},
-	{
-		sub_state: "EXECUTE.done",
-		entry: "all tasks status ∈ {done, abandoned}",
-		exit: "advance to VERIFY.plan (verify_phase=true); OR DONE.delivered (verify_phase=false: quick / light non-spike via `loaf deliver`: verify-min runs at this boundary, on pass transition direct to DONE.delivered, on fail exit 2 — see protocol.md §3.2 + §10.14)",
-		write_paths: [],
-		next: ["VERIFY.plan", "DONE.delivered"],
-		prompt_inject: "All tasks complete. verify_phase=true → advance to VERIFY.plan. verify_phase=false non-spike → run `loaf deliver` (verify-min then DONE.delivered). spike (any profile) → deliver blocked; pick archive / spike convert / abandon per §8.3."
-	},
-	{
-		sub_state: "VERIFY.plan",
-		entry: "EXECUTE.done && ceremony.verify_phase=true",
-		exit: "applicability computed for each VerifyCheckKind (must/optional/na with reasons)",
-		write_paths: [".loaf/<feature>/state.json"],
-		next: [
-			"VERIFY.run",
-			"VERIFY.review",
-			"VERIFY.acceptance",
-			"VERIFY.visual",
-			"VERIFY.accept"
-		],
-		prompt_inject: "Compute which verify checks apply: run/review/acceptance/visual. Output reasoning + N/A justifications."
-	},
-	{
-		sub_state: "VERIFY.run",
-		entry: "VERIFY.plan done with run applicability ∈ {must, optional-elected}; OR amend back-edge",
-		exit: "run check passed or explicitly waived",
-		write_paths: [".loaf/<feature>/evidence.jsonl", ".loaf/<feature>/findings.jsonl"],
-		next: [
-			"VERIFY.review",
-			"VERIFY.acceptance",
-			"VERIFY.visual",
-			"VERIFY.accept"
-		],
-		prompt_inject: "Run the `run` check (test + lint + typecheck). Append evidence with kind=local-check or task-summary. Raise findings as needed."
-	},
-	{
-		sub_state: "VERIFY.review",
-		entry: "VERIFY.plan or prior check done with review applicability ∈ {must, optional-elected}",
-		exit: "review check passed or explicitly waived",
-		write_paths: [".loaf/<feature>/evidence.jsonl", ".loaf/<feature>/findings.jsonl"],
-		next: [
-			"VERIFY.run",
-			"VERIFY.acceptance",
-			"VERIFY.visual",
-			"VERIFY.accept"
-		],
-		prompt_inject: "Run quality review (spec_fit + quality_fit). Append evidence with kind=verify-review. Raise findings as needed."
-	},
-	{
-		sub_state: "VERIFY.acceptance",
-		entry: "VERIFY.plan or prior check done with acceptance applicability ∈ {must, optional-elected}",
-		exit: "acceptance check passed or explicitly waived",
-		write_paths: [".loaf/<feature>/evidence.jsonl", ".loaf/<feature>/findings.jsonl"],
-		next: [
-			"VERIFY.run",
-			"VERIFY.review",
-			"VERIFY.visual",
-			"VERIFY.accept"
-		],
-		prompt_inject: "Run selected Gherkin acceptance scenarios. Append evidence with kind=acceptance. Raise findings as needed."
-	},
-	{
-		sub_state: "VERIFY.visual",
-		entry: "VERIFY.plan or prior check done with visual applicability ∈ {must, optional-elected}",
-		exit: "visual check passed or explicitly waived",
-		write_paths: [".loaf/<feature>/evidence.jsonl", ".loaf/<feature>/findings.jsonl"],
-		next: [
-			"VERIFY.run",
-			"VERIFY.review",
-			"VERIFY.acceptance",
-			"VERIFY.accept"
-		],
-		prompt_inject: "Run visual contract verification. Append evidence with kind=visual-review (attachments required). Raise findings as needed."
-	},
-	{
-		sub_state: "VERIFY.accept",
-		entry: "all applicable checks passed/waived + no open findings",
-		exit: "verify-accept gate approved. settle_phase=true (deep) → SETTLE.reconcile via `loaf settle`; settle_phase=false (standard) → DONE.delivered via `loaf deliver`",
-		write_paths: [".loaf/<feature>/evidence.jsonl"],
-		next: ["SETTLE.reconcile", "DONE.delivered"],
-		prompt_inject: "Verify-accept gate. Review check status + open findings. Approve or reject. On approve: settle_phase=true → `loaf settle` enters SETTLE.reconcile; settle_phase=false → `loaf deliver` enters DONE.delivered."
-	},
-	{
-		sub_state: "SETTLE.reconcile",
-		entry: "verify-accept passed && ceremony.settle_phase=true (deep only after rev 5.x; quick/light/standard skip SETTLE)",
-		exit: "reconcile.json valid",
-		write_paths: [".loaf/<feature>/reconcile.json"],
-		next: ["SETTLE.lessons"],
-		prompt_inject: "Compare planned_scope vs actual_scope. Resolve every drift. Snapshot verify_checks_status."
-	},
-	{
-		sub_state: "SETTLE.lessons",
-		entry: "reconcile valid (deep only after rev 5.x; quick/light/standard skip SETTLE)",
-		exit: "lessons.md appended (deep: lessons_required=must)",
-		write_paths: [".loaf/<feature>/lessons.md"],
-		next: [
-			"DONE.delivered",
-			"DONE.archived",
-			"DONE.abandoned"
-		],
-		prompt_inject: "Append lessons (deep: MUST). User then runs `loaf deliver` / `loaf archive` / `loaf abandon`."
-	},
-	{
-		sub_state: "DONE.delivered",
-		entry: "loaf deliver succeeded (Q4: advisory only — no git/gh side effects)",
-		exit: "terminal",
-		write_paths: [],
-		next: [],
-		prompt_inject: ""
-	},
-	{
-		sub_state: "DONE.archived",
-		entry: "loaf archive --reason '...'",
-		exit: "terminal",
-		write_paths: [],
-		next: [],
-		prompt_inject: ""
-	},
-	{
-		sub_state: "DONE.abandoned",
-		entry: "loaf abandon --reason '...' (reason required)",
-		exit: "terminal",
-		write_paths: [],
-		next: [],
-		prompt_inject: ""
-	}
-].map((c) => [c.sub_state, c]));
+/** sub_state → contract lookup (built once from the derived contract objects). */
+const SUB_STATE_CONTRACT_BY_STATE = Object.fromEntries(SUB_STATE_CONTRACTS$1.map((contract) => [contract.sub_state, contract]));
 /**
 * prompt_inject text for a sub_state. Returns `undefined` for an unknown
 * sub_state (caller decides: session-start treats unknown as no-context).
@@ -13385,6 +14874,60 @@ const SUB_STATE_CONTRACT_BY_STATE = Object.fromEntries([
 */
 function promptInjectFor(subState) {
 	return SUB_STATE_CONTRACT_BY_STATE[subState]?.prompt_inject;
+}
+//#endregion
+//#region src/core/scope-track.ts
+function isContained(root, target) {
+	const relative = path.relative(root, target);
+	return relative === "" || !relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative);
+}
+async function realpathWithMissingSuffix(absolute) {
+	const suffix = [];
+	let candidate = absolute;
+	while (true) try {
+		const existing = await promises.realpath(candidate);
+		return path.resolve(existing, ...suffix);
+	} catch (error) {
+		if (error.code !== "ENOENT") throw error;
+		const parent = path.dirname(candidate);
+		if (parent === candidate) throw error;
+		suffix.unshift(path.basename(candidate));
+		candidate = parent;
+	}
+}
+/** Resolve a hook path to the canonical repo-relative POSIX audit path. */
+async function normalizeScopePath(targetPath, repoRoot) {
+	const lexicalRoot = path.resolve(repoRoot);
+	const canonicalRoot = await promises.realpath(lexicalRoot);
+	const requested = path.isAbsolute(targetPath) ? path.resolve(targetPath) : path.resolve(lexicalRoot, targetPath);
+	if (!isContained(lexicalRoot, requested) && !isContained(canonicalRoot, requested)) return {
+		ok: false,
+		reason: "outside_repo_root",
+		path: targetPath
+	};
+	const canonicalTarget = await realpathWithMissingSuffix(requested);
+	if (!isContained(canonicalRoot, canonicalTarget)) return {
+		ok: false,
+		reason: "outside_repo_root",
+		path: targetPath
+	};
+	const relative = path.relative(canonicalRoot, canonicalTarget).split(path.sep).join("/");
+	if (relative === ".loaf" || relative.startsWith(".loaf/")) return {
+		ok: true,
+		kind: "internal",
+		path: relative
+	};
+	const parsed = ScopePath.safeParse(relative);
+	if (!parsed.success) return {
+		ok: false,
+		reason: "invalid_scope_path",
+		path: relative
+	};
+	return {
+		ok: true,
+		kind: "scope",
+		path: parsed.data
+	};
 }
 //#endregion
 //#region src/core/hook-read.ts
@@ -14180,7 +15723,7 @@ function optionalStringField$1(value, field) {
 }
 //#endregion
 //#region src/cli/commands/integrations.tsx
-function registerIntegrations(program, ctx, _mutator, _actor, i18n, isStdinTty, renderTuiImpl, isStdoutTtyForTui, registryDir, now) {
+function registerIntegrations(program, ctx, _mutator, _actor, i18n, isStdinTty, renderTuiImpl, isStdoutTtyForTui, registryDir, now, runtimeDir, runtimeNow) {
 	program.command("hook <event>").description("Claude Code hook entry point (session-start + closure-check read-side; write-guard + scope-track land SC-15c)").option("--list-events", "Dump the canonical 4-event enum (handled by pre-parse guard)").option("--feature <name>", "Feature whose session to read (read-side events)").option("--feature-dir <path>", "Override default .loaf/<feature> directory").option("--session <uuid>", "Resolve session by registry UUID (read-side events)").option("--path <text>", "Tool target path (for write-guard / scope-track; SC-15c)").action(async (event, opts) => {
 		if (event === "session-start") {
 			const d = await ctx.dispatchForHookOptional(opts);
@@ -14243,7 +15786,98 @@ function registerIntegrations(program, ctx, _mutator, _actor, i18n, isStdinTty, 
 			return;
 		}
 		if (event === "scope-track") {
-			if (await ctx.resolveHookPath(opts) === null) return;
+			const target = await ctx.resolveHookPath(opts);
+			if (target === null) return;
+			let dispatch;
+			try {
+				dispatch = await ctx.resolveDispatch();
+			} catch (error) {
+				ctx.emitFailure("SNAPSHOT_STALE_REBUILD_REQUIRED", `scope-track cannot select a trustworthy session: ${error.message}`, { reason: error.message });
+				return;
+			}
+			if (!dispatch.ok) {
+				if (dispatch.code === "FEATURE_NOT_FOUND") return;
+				ctx.emitFailure(dispatch.code, `scope-track cannot select a session: ${dispatch.message}`, dispatch.detail);
+				return;
+			}
+			opts.feature = dispatch.feature;
+			opts.featureDir = dispatch.featureDir;
+			ctx.recordTraceTarget(dispatch.feature, dispatch.featureDir);
+			const sessionId = dispatch.sessionId;
+			if (sessionId === null) {
+				ctx.emitFailure("SCHEMA_VALIDATION_FAILED", "scope-track selected a session without a canonical session_id", {
+					source: "scope-track",
+					reason: "selected_session_id_missing"
+				});
+				return;
+			}
+			const repoRoot = path.dirname(path.dirname(dispatch.featureDir));
+			let state;
+			try {
+				state = (await loadProjections({
+					feature_dir: dispatch.featureDir,
+					kinds: ["state"]
+				})).state;
+			} catch (error) {
+				const code = error instanceof SnapshotStaleError ? error.code : "SNAPSHOT_STALE_REBUILD_REQUIRED";
+				ctx.emitFailure(code, `scope-track cannot load selected state: ${error.message}`, { reason: error.message });
+				return;
+			}
+			let normalized;
+			try {
+				normalized = await normalizeScopePath(target, repoRoot);
+			} catch {
+				normalized = {
+					ok: false,
+					reason: "invalid_scope_path",
+					path: target
+				};
+			}
+			const heartbeatAt = runtimeNow().toISOString();
+			try {
+				await withRuntimeLock({
+					session_id: sessionId,
+					cwd: repoRoot
+				}, "scope-track", (current) => {
+					const base = current ?? {
+						schema_version: 2,
+						session_id: sessionId,
+						cwd: repoRoot,
+						debug: ctx.debug,
+						heartbeat_at: heartbeatAt,
+						pending_scope: null
+					};
+					if (!normalized.ok || normalized.kind === "internal" || state.sub_state !== "EXECUTE.work") return {
+						...base,
+						heartbeat_at: heartbeatAt
+					};
+					const paths = new Set(base.pending_scope?.iteration === state.iteration ? base.pending_scope.paths : []);
+					paths.add(normalized.path);
+					return {
+						...base,
+						heartbeat_at: heartbeatAt,
+						pending_scope: {
+							iteration: state.iteration,
+							paths: [...paths].sort(compareScopePathBytes)
+						}
+					};
+				}, {
+					runtimeDir,
+					now: runtimeNow
+				});
+			} catch (error) {
+				const code = error instanceof RuntimeStoreError && error.code.startsWith("RUNTIME_LOCK_") ? "LOCK_TIMEOUT" : "SCHEMA_VALIDATION_FAILED";
+				ctx.emitFailure(code, `scope-track runtime update failed: ${error.message}`, {
+					source: "session-runtime",
+					reason: error.message
+				});
+				return;
+			}
+			if (!normalized.ok) ctx.emitFailure("SCHEMA_VALIDATION_FAILED", `scope-track rejected path: ${normalized.reason}`, {
+				source: "scope-track",
+				path: target,
+				reason: normalized.reason
+			});
 			return;
 		}
 		const target = await ctx.resolveHookPath(opts);
@@ -14320,7 +15954,8 @@ function registerIntegrations(program, ctx, _mutator, _actor, i18n, isStdinTty, 
 			path: target,
 			normalized_path: decision.normalizedPath,
 			sub_state: state.sub_state,
-			allow_set: decision.allowSet.slice(0, 30)
+			allow_set: decision.allowSet.slice(0, 30),
+			...decision.reason ? { reason: decision.reason } : {}
 		});
 	});
 	const resolvedRenderTui = renderTuiImpl ?? defaultRenderTui;
@@ -14462,12 +16097,12 @@ function registerIntegrations(program, ctx, _mutator, _actor, i18n, isStdinTty, 
 //#region src/cli/commands/finding.tsx
 function formatFindingCategory(i18n, category) {
 	if (i18n.locale === "en") return category;
-	const parsed = FindingCategory$1.safeParse(category);
+	const parsed = FindingCategory.safeParse(category);
 	return parsed.success ? i18n.t(findingCategoryKey(parsed.data)) : category;
 }
 function formatFindingAction(i18n, action) {
 	if (i18n.locale === "en") return action;
-	const parsed = FindingAction$1.safeParse(action);
+	const parsed = FindingAction.safeParse(action);
 	return parsed.success ? i18n.t(findingActionKey(parsed.data)) : action;
 }
 function formatFindingStatus(i18n, status) {
@@ -14619,6 +16254,52 @@ function registerFinding(program, ctx, mutator, actor) {
 	return { findingCmd };
 }
 //#endregion
+//#region src/cli/spec-status.ts
+const CHECK_3_SUPPRESSION = [
+	{
+		check: 4,
+		blocked_by: 3
+	},
+	{
+		check: 6,
+		blocked_by: 3
+	},
+	{
+		check: 7,
+		blocked_by: 3
+	}
+];
+/** Map internal check objects to the explicit public JSON contract. */
+function buildSpecStatusEnvelope(result) {
+	const checks = result.ok ? [] : result.checks;
+	const failures = checks.map((failure) => ({
+		check: failure.check,
+		code: failure.code,
+		message: failure.message,
+		detail: failure.detail ?? null
+	}));
+	const suppressedChecks = checks.some((failure) => failure.check === 3) ? CHECK_3_SUPPRESSION.map((row) => ({ ...row })) : [];
+	return {
+		ok: true,
+		all_pass: failures.length === 0,
+		failures,
+		suppressed_checks: suppressedChecks
+	};
+}
+function renderSpecStatusText(env, i18n) {
+	if (env.all_pass) return i18n.t(CHROME_KEYS.specStatusPass) + "\n";
+	const failureLines = env.failures.map((failure) => i18n.t(CHROME_KEYS.specStatusFailureRow, {
+		check: failure.check,
+		code: failure.code,
+		message: failure.message
+	}) + "\n");
+	const suppressedLines = env.suppressed_checks.map((row) => i18n.t(CHROME_KEYS.specStatusSuppressedRow, {
+		check: row.check,
+		blocked_by: row.blocked_by
+	}) + "\n");
+	return [...failureLines, ...suppressedLines].join("");
+}
+//#endregion
 //#region src/cli/spec-submit-batch.ts
 /** Build the canonical spec-submit batch: 1 head `event:spec_submitted`
 *  + N `event:spec_req_added` + M `event:spec_scenario_added` + K
@@ -14710,7 +16391,19 @@ function specAddStateChangeKey(name, count) {
 }
 function registerSpec(program, ctx, mutator, actor, isStdinTty, readStdin, runEditorImpl) {
 	const resolvedRunEditor = runEditorImpl ?? runEditor;
-	const specCmd = program.command("spec").description("SPEC content commands (submit / add-req / add-scenario / add-visual; init in SC4)");
+	const specCmd = program.command("spec").description("SPEC content and diagnostic commands (status / submit / add-req / add-scenario / add-visual; init in SC4)");
+	specCmd.command("status").description("Show failing and suppressed spec-lock checks from replayed state (read-only)").option("--feature <name>", "Feature whose spec-lock status to show").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+		if (ctx.rejectIfDryRun("spec status")) return;
+		const featureDir = await ctx.dispatchOrFail(opts);
+		if (featureDir === null) return;
+		const session = await loadSession(featureDir, { ensureDir: false });
+		if (session.snapshot.state === null) {
+			ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+			return;
+		}
+		const envelope = buildSpecStatusEnvelope(evaluateSpecLockFromSnapshot(session.snapshot));
+		ctx.success(envelope, (i18n) => renderSpecStatusText(envelope, i18n));
+	});
 	specCmd.command("submit").description("Whole-replacement spec submit from JSON --input (CLI fills spec_version)").requiredOption("--input <src>", "JSON source: `-` (stdin), inline JSON literal, or file path (protocol §10.7)").option("--feature <name>", "Feature whose spec to submit").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		if (await ctx.dispatchOrFail(opts) === null) return;
 		const source = parseInputSource(opts.input);
@@ -14799,7 +16492,7 @@ function registerSpec(program, ctx, mutator, actor, isStdinTty, readStdin, runEd
 			visual_contracts: [],
 			needs_clarification: []
 		};
-		const scaffoldParse = SpecFrontmatter$1.safeParse(scaffoldObj);
+		const scaffoldParse = SpecFrontmatter.safeParse(scaffoldObj);
 		if (!scaffoldParse.success) {
 			ctx.emitFailure("SCHEMA_VALIDATION_FAILED", "spec init scaffold failed SpecFrontmatter validation; check --feature-id (/^F-\\d{3,}$/), --feature-name (≥3 chars), --intent (≥20 chars)", { issues: scaffoldParse.error.issues });
 			return;
@@ -14913,7 +16606,7 @@ feature:
 			});
 			return;
 		}
-		const zodResult = SpecFrontmatter$1.safeParse(parsedYaml);
+		const zodResult = SpecFrontmatter.safeParse(parsedYaml);
 		if (!zodResult.success) {
 			const issues = mapZodIssues(zodResult.error);
 			ctx.emitFailure("SCHEMA_VALIDATION_FAILED", `spec.md frontmatter failed schema validation (${issues.error_count} errors); work copy preserved at ${specMdPath} for you to fix and re-run \`loaf spec edit\``, {
@@ -17073,7 +18766,7 @@ async function main(argv = process.argv, deps = {}) {
 		...deps.registryNow !== void 0 && { now: deps.registryNow },
 		...deps.registryCwd !== void 0 && { cwd: deps.registryCwd }
 	} : void 0 });
-	registerLifecycle(program, ctx, mutator, actor);
+	registerLifecycle(program, ctx, mutator, actor, deps.runtimeDir ?? defaultRuntimeDir(os.homedir()), deps.now ?? (() => /* @__PURE__ */ new Date()), deps.executeClosureHooks);
 	registerGate(program, ctx, mutator, actor);
 	registerTerminalExecute(program, ctx, mutator, actor);
 	registerProfileConfig(program, ctx, mutator, actor, deps.userConfigHomeDir);
@@ -17081,8 +18774,9 @@ async function main(argv = process.argv, deps = {}) {
 	registerTerminalSettle(program, ctx, mutator, actor);
 	registerPending(program, ctx, mutator, actor);
 	const { evidenceCmd } = registerEvidence(program, ctx, mutator, actor, isStdinTty, readStdin);
+	registerJournal(program, ctx);
 	registerLessons(program, ctx, mutator, actor);
-	registerIntegrations(program, ctx, mutator, actor, i18n, isStdinTty, deps.renderTui ?? defaultRenderTui, deps.isStdoutTty ?? (() => process.stdout.isTTY === true), deps.registryDir, deps.now);
+	registerIntegrations(program, ctx, mutator, actor, i18n, isStdinTty, deps.renderTui ?? defaultRenderTui, deps.isStdoutTty ?? (() => process.stdout.isTTY === true), deps.registryDir, deps.now, deps.runtimeDir ?? defaultRuntimeDir(os.homedir()), deps.now ?? (() => /* @__PURE__ */ new Date()));
 	registerBoard(program, ctx, {
 		i18n,
 		now,

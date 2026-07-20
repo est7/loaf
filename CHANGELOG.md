@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-07-20
+
 ### Added
 
 - **Replay-derived spec-lock diagnostics:** added read-only `loaf spec status`
@@ -24,8 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Documentation correction:** removed the XDG/`LOAF_CONFIG` contract from the
   protocol; `~/.loaf/` is the user-level estate, with no runtime-reachable data
   to migrate from the abandoned contract.
-- **Breaking protocol changes (protocol rev 5.1 → 5.2; next release must bump the
-  package version):** `loaf lessons add`
+- **Protocol rev 5.2 with two additive journal kinds:** `loaf lessons add`
   now emits the independent `lesson:recorded` journal kind with CLI-allocated
   `LSN-NNN` ids. JSON output keeps the stable `id` key. `lessons.md` permanently
   dual-reads the new kind and legacy lesson-shaped `evidence:added` entries;
@@ -44,9 +45,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `planned_scope` and `{spec,tasks}` lineage. Full replay rejects pre-F-027
   closures without a same-batch marker as `ACTUAL_SCOPE_HISTORY_INCOMPLETE`
   instead of inventing an empty scope. The full reconcile writer remains
-  deferred until a canonical planned-scope source exists; this does not relax
-  the rev 5.2/new-kind obligation to bump the package version in the next
-  release.
+  deferred until a canonical planned-scope source exists.
+- **Version-aware tail recovery:** when an older loaf binary encounters a journal
+  whose session requires a newer loaf version, it now refuses recovery with
+  `JOURNAL_TAIL_REQUIRES_NEWER_LOAF` instead of truncating an unknown tail and
+  destroying newer journal data.
 - **`loaf spec add-req --schema`** now emits the actual runtime allocation
   boundary: `id_namespace` plus the EARS `type`, with the remaining requirement
   body passed through for downstream validation. The former closed schema that
@@ -289,6 +292,7 @@ migration.
 - Both fixes RED→GREEN independently reproduced (revert only the predicate with the new tests present → exactly the new negative cases fail; restore → green).
 - `dist/cli.mjs --version` → `0.1.2`.
 
+[0.6.0]: https://github.com/est7/loaf/releases/tag/v0.6.0
 [0.5.0]: https://github.com/est7/loaf/releases/tag/v0.5.0
 [0.4.0]: https://github.com/est7/loaf/releases/tag/v0.4.0
 [0.3.1]: https://github.com/est7/loaf/releases/tag/v0.3.1
