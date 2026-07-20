@@ -73,6 +73,7 @@ import { registerState } from "./cli/commands/state.js";
 import { registerBoard } from "./cli/commands/board.js";
 import { registerPrune } from "./cli/commands/prune.js";
 import { defaultRegistryDir } from "./core/registry-writer.js";
+import { defaultRuntimeDir } from "./core/session-runtime.js";
 import { collectPresentSelectors } from "./cli/selectors.js";
 import type { OpenUrl } from "./cli/board/open-url.js";
 
@@ -138,6 +139,9 @@ export type MainDeps = {
   registryDir?: string;
   registryNow?: () => Date;
   registryCwd?: () => string;
+  // Ticket #11 SC3 — explicit machine-local hook runtime root. Production
+  // defaults to ~/.loaf/runtime; hook tests inject a temp root.
+  runtimeDir?: string;
   // Phase 16 SC-12a-2 — test-injectable editor runner for `loaf spec
   // edit`. Production omits (defaults to runEditor from
   // ./cli/run-editor.js which spawns $EDITOR or vi). Tests inject
@@ -781,6 +785,8 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
     isStdoutTtyForTui,
     deps.registryDir,
     deps.now,
+    deps.runtimeDir ?? defaultRuntimeDir(os.homedir()),
+    deps.now ?? (() => new Date()),
   );
   registerBoard(program, ctx, {
     i18n,

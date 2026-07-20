@@ -32,6 +32,9 @@ import {
 } from "../../core/step-write-paths.js";
 import { SUB_STATE_CONTRACT_BY_STATE } from "../../core/sub-state-contracts.js";
 import { evaluateWritePath } from "../../core/write-guard.js";
+import { normalizeScopePath } from "../../core/scope-track.js";
+import { compareScopePathBytes } from "../../core/journal-entry.js";
+import { RuntimeStoreError, withRuntimeLock } from "../../core/session-runtime.js";
 import {
   composeSessionStartContext,
   runClosureWarnings,
@@ -57,6 +60,8 @@ export function registerIntegrations(
   isStdoutTtyForTui: () => boolean,
   registryDir: string | undefined,
   now: (() => Date) | undefined,
+  runtimeDir: string,
+  runtimeNow: () => Date,
 ): void {
   // ── loaf hook <event> — Phase 16 SC-15a (framework only) ────────────
   program
@@ -143,11 +148,130 @@ export function registerIntegrations(
           return;
         }
 
-        // ── scope-track (SC-15c) — PostToolUse(Write,Edit) STUB ──
+        // ── scope-track (ticket #11 SC3) — PostToolUse accumulator ──
         if (event === "scope-track") {
           const target = await ctx.resolveHookPath(opts);
           if (target === null) return; // USAGE / SCHEMA_VALIDATION_FAILED exit 2
-          return; // stub — accept + exit 0, write nothing
+
+          let dispatch: Awaited<ReturnType<typeof ctx.resolveDispatch>>;
+          try {
+            dispatch = await ctx.resolveDispatch();
+          } catch (error) {
+            ctx.emitFailure(
+              "SNAPSHOT_STALE_REBUILD_REQUIRED",
+              `scope-track cannot select a trustworthy session: ${(error as Error).message}`,
+              { reason: (error as Error).message },
+            );
+            return;
+          }
+          if (!dispatch.ok) {
+            if (dispatch.code === "FEATURE_NOT_FOUND") return; // non-loaf project → silent
+            ctx.emitFailure(dispatch.code, `scope-track cannot select a session: ${dispatch.message}`, dispatch.detail);
+            return;
+          }
+          opts.feature = dispatch.feature;
+          opts.featureDir = dispatch.featureDir;
+          ctx.recordTraceTarget(dispatch.feature, dispatch.featureDir);
+          const sessionId = dispatch.sessionId;
+          if (sessionId === null) {
+            ctx.emitFailure(
+              "SCHEMA_VALIDATION_FAILED",
+              "scope-track selected a session without a canonical session_id",
+              { source: "scope-track", reason: "selected_session_id_missing" },
+            );
+            return;
+          }
+
+          const repoRoot = path.dirname(path.dirname(dispatch.featureDir));
+          let state: LoadResult<"state">["state"];
+          try {
+            state = (
+              await loadProjections({
+                feature_dir: dispatch.featureDir,
+                kinds: ["state"] as const,
+              })
+            ).state;
+          } catch (error) {
+            const code =
+              error instanceof SnapshotStaleError
+                ? error.code
+                : "SNAPSHOT_STALE_REBUILD_REQUIRED";
+            ctx.emitFailure(code, `scope-track cannot load selected state: ${(error as Error).message}`, {
+              reason: (error as Error).message,
+            });
+            return;
+          }
+
+          let normalized: Awaited<ReturnType<typeof normalizeScopePath>>;
+          try {
+            normalized = await normalizeScopePath(target, repoRoot);
+          } catch {
+            normalized = {
+              ok: false,
+              reason: "invalid_scope_path",
+              path: target,
+            };
+          }
+          const heartbeatAt = runtimeNow().toISOString();
+          try {
+            await withRuntimeLock(
+              { session_id: sessionId, cwd: repoRoot },
+              "scope-track",
+              (current) => {
+                const base =
+                  current ??
+                  ({
+                    schema_version: 2,
+                    session_id: sessionId,
+                    cwd: repoRoot,
+                    debug: ctx.debug,
+                    heartbeat_at: heartbeatAt,
+                    pending_scope: null,
+                  } as const);
+                if (
+                  !normalized.ok ||
+                  normalized.kind === "internal" ||
+                  state.sub_state !== "EXECUTE.work"
+                ) {
+                  return { ...base, heartbeat_at: heartbeatAt };
+                }
+                const paths = new Set(
+                  base.pending_scope?.iteration === state.iteration
+                    ? base.pending_scope.paths
+                    : [],
+                );
+                paths.add(normalized.path);
+                return {
+                  ...base,
+                  heartbeat_at: heartbeatAt,
+                  pending_scope: {
+                    iteration: state.iteration,
+                    paths: [...paths].sort(compareScopePathBytes),
+                  },
+                };
+              },
+              { runtimeDir, now: runtimeNow },
+            );
+          } catch (error) {
+            const code =
+              error instanceof RuntimeStoreError && error.code.startsWith("RUNTIME_LOCK_")
+                ? "LOCK_TIMEOUT"
+                : "SCHEMA_VALIDATION_FAILED";
+            ctx.emitFailure(code, `scope-track runtime update failed: ${(error as Error).message}`, {
+              source: "session-runtime",
+              reason: (error as Error).message,
+            });
+            return;
+          }
+
+          if (!normalized.ok) {
+            ctx.emitFailure(
+              "SCHEMA_VALIDATION_FAILED",
+              `scope-track rejected path: ${normalized.reason}`,
+              { source: "scope-track", path: target, reason: normalized.reason },
+            );
+          }
+          return;
         }
 
         // ── write-guard (SC-15c) — PreToolUse(Write,Edit) ──

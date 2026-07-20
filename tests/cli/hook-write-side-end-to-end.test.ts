@@ -10,8 +10,14 @@ import { describe, expect, test } from "vitest";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
 
 import { main, type MainDeps } from "../../src/cli.js";
+import { loadProjections } from "../../src/core/projection-loader.js";
+import { readSessionRuntimeFile } from "../../src/core/session-runtime.js";
+
+const CLI_SOURCE = path.resolve("src/cli.tsx");
 
 async function tmpRepo(): Promise<{ repoRoot: string; featureDir: string }> {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "loaf-cli-wg-"));
@@ -44,18 +50,81 @@ async function runCli(
   }
 }
 
-async function start(featureDir: string): Promise<void> {
+async function start(featureDir: string, ceremony = "standard"): Promise<void> {
   const r = await runCli([
     "start",
     "auth-refresh",
     "--ceremony",
-    "standard",
+    ceremony,
     "--feature-dir",
     featureDir,
     "--format",
     "json",
   ]);
   if (r.exit !== 0) throw new Error(`start failed (${r.exit}): ${r.stderr}`);
+}
+
+async function advance(featureDir: string, to: string): Promise<void> {
+  const r = await runCli([
+    "advance",
+    to,
+    "--feature",
+    "auth-refresh",
+    "--feature-dir",
+    featureDir,
+    "--format",
+    "json",
+  ]);
+  if (r.exit !== 0) throw new Error(`advance ${to} failed (${r.exit}): ${r.stderr}`);
+}
+
+async function startAtExecuteWork(featureDir: string): Promise<void> {
+  await start(featureDir, "quick");
+  await advance(featureDir, "TRIAGE.confirm");
+  await advance(featureDir, "EXECUTE.plan");
+  await advance(featureDir, "EXECUTE.work");
+}
+
+const scope = (featureDir: string, target: string): string[] => [
+  "hook",
+  "scope-track",
+  "--feature",
+  "auth-refresh",
+  "--feature-dir",
+  featureDir,
+  "--path",
+  target,
+];
+
+async function runtimeState(repoRoot: string, featureDir: string, runtimeDir: string) {
+  const loaded = await loadProjections({ feature_dir: featureDir, kinds: ["state"] as const });
+  return await readSessionRuntimeFile(
+    { session_id: loaded.state.session_id, cwd: repoRoot },
+    { runtimeDir, now: () => new Date("2026-07-20T11:00:00.000Z") },
+  );
+}
+
+async function runScopeChild(input: {
+  repoRoot: string;
+  featureDir: string;
+  home: string;
+  target: string;
+}): Promise<{ exit: number | null; stdout: string; stderr: string }> {
+  const child = spawn("bun", [CLI_SOURCE, ...scope(input.featureDir, input.target)], {
+    cwd: input.repoRoot,
+    env: { ...process.env, HOME: input.home },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk: Buffer) => {
+    stdout += chunk.toString();
+  });
+  child.stderr.on("data", (chunk: Buffer) => {
+    stderr += chunk.toString();
+  });
+  const [exit] = (await once(child, "exit")) as [number | null];
+  return { exit, stdout, stderr };
 }
 
 async function writeConfig(repoRoot: string, content: string): Promise<void> {
@@ -219,40 +288,145 @@ describe("SC-15c — strict stdin resolution", () => {
   });
 });
 
-describe("SC-15c — scope-track stub", () => {
-  test("--path given → exit 0, writes nothing", async () => {
-    const { featureDir } = await tmpRepo();
-    await start(featureDir);
-    const r = await runCli([
-      "hook",
-      "scope-track",
-      "--feature",
-      "auth-refresh",
-      "--feature-dir",
-      featureDir,
-      "--path",
-      path.join(featureDir, "state.json"),
-    ]);
-    expect(r.exit).toBe(0);
-    expect(r.stdout).toBe("");
-    expect(r.stderr).toBe("");
+describe("ticket #11 SC3 — scope-track runtime accumulator", () => {
+  test("absolute, relative, and symlink-inside paths accumulate resolved canonical paths", async () => {
+    const { repoRoot, featureDir } = await tmpRepo();
+    const runtimeDir = path.join(repoRoot, "runtime");
+    await startAtExecuteWork(featureDir);
+    await fs.mkdir(path.join(repoRoot, "src"));
+    await fs.writeFile(path.join(repoRoot, "src", "absolute.ts"), "");
+    await fs.writeFile(path.join(repoRoot, "src", "relative.ts"), "");
+    await fs.writeFile(path.join(repoRoot, "src", "resolved.ts"), "");
+    await fs.symlink(path.join(repoRoot, "src", "resolved.ts"), path.join(repoRoot, "alias.ts"));
+    const deps = { runtimeDir, now: () => new Date("2026-07-20T11:00:00.000Z") };
+    const results = [
+      await runCli(scope(featureDir, path.join(repoRoot, "src", "absolute.ts")), deps),
+      await runCli(scope(featureDir, "src/relative.ts"), deps),
+      await runCli(scope(featureDir, path.join(repoRoot, "alias.ts")), deps),
+    ];
+    for (const r of results) {
+      expect(r).toMatchObject({ exit: 0, stdout: "", stderr: "" });
+    }
+    expect((await runtimeState(repoRoot, featureDir, runtimeDir))?.pending_scope).toEqual({
+      iteration: 1,
+      paths: ["src/absolute.ts", "src/relative.ts", "src/resolved.ts"],
+    });
   });
 
-  test("no longer returns HOOK_EVENT_NOT_IMPLEMENTED", async () => {
-    const { featureDir } = await tmpRepo();
-    const r = await runCli(
-      [
-        "hook",
-        "scope-track",
-        "--feature",
-        "auth-refresh",
-        "--feature-dir",
-        featureDir,
-        "--format",
-        "json",
-      ],
-      { isStdinTty: () => true },
+  test("outside and symlink-outside reject exit 2 but still refresh heartbeat", async () => {
+    const { repoRoot, featureDir } = await tmpRepo();
+    const runtimeDir = path.join(repoRoot, "runtime");
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), "loaf-scope-outside-"));
+    await startAtExecuteWork(featureDir);
+    await fs.writeFile(path.join(outside, "secret.ts"), "");
+    await fs.symlink(path.join(outside, "secret.ts"), path.join(repoRoot, "escape.ts"));
+    const deps = { runtimeDir, now: () => new Date("2026-07-20T11:01:00.000Z") };
+    for (const target of [path.join(outside, "secret.ts"), path.join(repoRoot, "escape.ts")]) {
+      const r = await runCli([...scope(featureDir, target), "--format", "json"], deps);
+      expect(r.exit).toBe(2);
+      expect(r.stdout).toBe("");
+    }
+    const runtime = await runtimeState(repoRoot, featureDir, runtimeDir);
+    expect(runtime?.heartbeat_at).toBe("2026-07-20T11:01:00.000Z");
+    expect(runtime?.pending_scope).toBeNull();
+  });
+
+  test(".loaf path and non-EXECUTE.work cursor refresh heartbeat without accumulation", async () => {
+    const first = await tmpRepo();
+    const firstRuntime = path.join(first.repoRoot, "runtime");
+    await startAtExecuteWork(first.featureDir);
+    await fs.writeFile(path.join(first.repoRoot, "kept.ts"), "");
+    const accumulated = await runCli(scope(first.featureDir, "kept.ts"), {
+      runtimeDir: firstRuntime,
+      now: () => new Date("2026-07-20T11:01:30.000Z"),
+    });
+    expect(accumulated).toMatchObject({ exit: 0, stdout: "", stderr: "" });
+    const internal = await runCli(
+      scope(first.featureDir, path.join(first.featureDir, "snapshots", "state.json")),
+      { runtimeDir: firstRuntime, now: () => new Date("2026-07-20T11:02:00.000Z") },
     );
-    expect(r.stderr).not.toContain("HOOK_EVENT_NOT_IMPLEMENTED");
+    expect(internal).toMatchObject({ exit: 0, stdout: "", stderr: "" });
+    expect(await runtimeState(first.repoRoot, first.featureDir, firstRuntime)).toMatchObject({
+      heartbeat_at: "2026-07-20T11:02:00.000Z",
+      pending_scope: { iteration: 1, paths: ["kept.ts"] },
+    });
+
+    const second = await tmpRepo();
+    const secondRuntime = path.join(second.repoRoot, "runtime");
+    await start(second.featureDir);
+    await fs.writeFile(path.join(second.repoRoot, "ordinary.ts"), "");
+    const nonExecute = await runCli(scope(second.featureDir, "ordinary.ts"), {
+      runtimeDir: secondRuntime,
+      now: () => new Date("2026-07-20T11:03:00.000Z"),
+    });
+    expect(nonExecute).toMatchObject({ exit: 0, stdout: "", stderr: "" });
+    expect(await runtimeState(second.repoRoot, second.featureDir, secondRuntime)).toMatchObject({
+      heartbeat_at: "2026-07-20T11:03:00.000Z",
+      pending_scope: null,
+    });
+  });
+
+  test("no session is silent; selected stale session fails closed", async () => {
+    const absent = await tmpRepo();
+    const absentRuntime = path.join(absent.repoRoot, "runtime");
+    const noSession = await runCli(scope(absent.featureDir, "/outside.ts"), {
+      runtimeDir: absentRuntime,
+      now: () => new Date("2026-07-20T11:04:00.000Z"),
+    });
+    expect(noSession).toMatchObject({ exit: 0, stdout: "", stderr: "" });
+    await expect(fs.access(absentRuntime)).rejects.toMatchObject({ code: "ENOENT" });
+
+    const stale = await tmpRepo();
+    await start(stale.featureDir);
+    await fs.writeFile(path.join(stale.featureDir, "snapshots", "state.json"), "{broken");
+    const selectedStale = await runCli(
+      [...scope(stale.featureDir, path.join(stale.repoRoot, "x.ts")), "--format", "json"],
+      {
+        runtimeDir: path.join(stale.repoRoot, "runtime"),
+        now: () => new Date("2026-07-20T11:04:00.000Z"),
+      },
+    );
+    expect(selectedStale.exit).toBe(2);
+    expect(selectedStale.stdout).toBe("");
+  });
+
+  test("hook stdin path follows the same strict resolver and keeps stdout empty", async () => {
+    const { repoRoot, featureDir } = await tmpRepo();
+    const runtimeDir = path.join(repoRoot, "runtime");
+    await startAtExecuteWork(featureDir);
+    await fs.writeFile(path.join(repoRoot, "stdin.ts"), "");
+    const r = await runCli(
+      ["hook", "scope-track", "--feature", "auth-refresh", "--feature-dir", featureDir],
+      {
+        runtimeDir,
+        now: () => new Date("2026-07-20T11:05:00.000Z"),
+        isStdinTty: () => false,
+        readStdin: async () =>
+          JSON.stringify({ tool_input: { file_path: path.join(repoRoot, "stdin.ts") } }),
+      },
+    );
+    expect(r).toMatchObject({ exit: 0, stdout: "", stderr: "" });
+    expect((await runtimeState(repoRoot, featureDir, runtimeDir))?.pending_scope?.paths).toEqual([
+      "stdin.ts",
+    ]);
+  });
+
+  test("concurrent cross-process scope-track invocations retain every path", async () => {
+    const { repoRoot, featureDir } = await tmpRepo();
+    const home = path.join(repoRoot, "home");
+    await fs.mkdir(home);
+    await startAtExecuteWork(featureDir);
+    const targets = Array.from({ length: 12 }, (_, index) =>
+      path.join(repoRoot, `parallel-${String(index).padStart(2, "0")}.ts`),
+    );
+    await Promise.all(targets.map(async (target) => await fs.writeFile(target, "")));
+    const results = await Promise.all(
+      targets.map(async (target) => await runScopeChild({ repoRoot, featureDir, home, target })),
+    );
+    for (const r of results) expect(r).toMatchObject({ exit: 0, stdout: "", stderr: "" });
+    const runtimeDir = path.join(home, ".loaf", "runtime");
+    expect((await runtimeState(repoRoot, featureDir, runtimeDir))?.pending_scope?.paths).toEqual(
+      targets.map((target) => path.basename(target)),
+    );
   });
 });

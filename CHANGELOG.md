@@ -36,8 +36,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and replay-derived set-union projection. Machine-local
   `~/.loaf/runtime/<session_id>.json` now carries the strict nullable
   `pending_scope` accumulator behind a dedicated PID- and owner-token-aware
-  runtime lock and atomic replacement; hook accumulation and advance emission
-  remain staged.
+  runtime lock and atomic replacement. `loaf hook scope-track` now canonicalizes
+  filesystem targets, refreshes heartbeat, and accumulates EXECUTE-work paths;
+  advance/closure journal emission remains staged.
 - **`loaf spec add-req --schema`** now emits the actual runtime allocation
   boundary: `id_namespace` plus the EARS `type`, with the remaining requirement
   body passed through for downstream validation. The former closed schema that
