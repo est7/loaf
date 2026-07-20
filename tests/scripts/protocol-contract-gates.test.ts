@@ -92,46 +92,50 @@ const JOURNAL_KIND_SOURCE_ANCHORS: Record<string, SourceRegion[]> = {
     region("src/cli/commands/spec.tsx", 'name: "visual"', "function specAddTextKey"),
   ],
   "loaf tasks submit": [
-    region("src/cli/commands/tasks.tsx", '.command("submit")', '.command("add")'),
+    region("src/cli/commands/tasks/authoring.ts", '.command("submit")', '.command("add")'),
   ],
   "loaf tasks add": [
-    region("src/cli/commands/tasks.tsx", '.command("add")', '.command("claim <task-id>")'),
+    region(
+      "src/cli/commands/tasks/authoring.ts",
+      '.command("add")',
+      "export function registerTaskAmend",
+    ),
   ],
   "loaf tasks claim": [
     region(
-      "src/cli/commands/tasks.tsx",
+      "src/cli/commands/tasks/execution.ts",
       '.command("claim <task-id>")',
       '.command("abandon <task-id>")',
     ),
   ],
   "loaf tasks abandon": [
-    region("src/cli/commands/tasks.tsx", '.command("abandon <task-id>")', '.command("list")'),
+    region(
+      "src/cli/commands/tasks/execution.ts",
+      '.command("abandon <task-id>")',
+      "export function registerTaskComplete",
+    ),
   ],
   "loaf tasks complete": [
     region(
-      "src/cli/commands/tasks.tsx",
+      "src/cli/commands/tasks/execution.ts",
       '.command("complete <task-id>")',
-      '.command("amend <task-id>")',
+      "export function registerTaskRegisterRed",
     ),
   ],
   "loaf tasks amend": [
-    region(
-      "src/cli/commands/tasks.tsx",
-      '.command("amend <task-id>")',
-      '.command("register-red <task-id>")',
-    ),
+    region("src/cli/commands/tasks/authoring.ts", '.command("amend <task-id>")'),
   ],
   "loaf tasks register-red": [
     region(
-      "src/cli/commands/tasks.tsx",
+      "src/cli/commands/tasks/execution.ts",
       '.command("register-red <task-id>")',
-      'tasksCmd.command("step")',
+      "export function registerTaskStep",
     ),
   ],
   "loaf tasks step start": [
-    region("src/cli/commands/tasks.tsx", '.command("start")', '.command("done")'),
+    region("src/cli/commands/tasks/execution.ts", '.command("start")', '.command("done")'),
   ],
-  "loaf tasks step done": [region("src/cli/commands/tasks.tsx", '.command("done")')],
+  "loaf tasks step done": [region("src/cli/commands/tasks/execution.ts", '.command("done")')],
   "loaf evidence add": [
     region("src/cli/commands/evidence.tsx", '.command("add")', '.command("waive <obligation-id>")'),
   ],

@@ -66,7 +66,9 @@ describe("SC-6c — positive table: every read-only command has rejectIfDryRun m
   test('static: each table entry has rejectIfDryRun("<label>"...) in src/cli.tsx', async () => {
     // Phase W8 P1: command registrations moved to per-family files. Scan all of them.
     const familyDir = path.join(REPO_ROOT, "src", "cli", "commands");
-    const familyFiles = (await fs.readdir(familyDir)).filter((f) => f.endsWith(".tsx") || f.endsWith(".ts"));
+    const familyFiles = (await fs.readdir(familyDir, { recursive: true })).filter(
+      (f) => f.endsWith(".tsx") || f.endsWith(".ts"),
+    );
     const familySources = await Promise.all(familyFiles.map((f) => fs.readFile(path.join(familyDir, f), "utf8")));
     const source = familySources.join("\n");
     const misses: string[] = [];
@@ -203,7 +205,9 @@ describe("SC-6c — every mutator call carries dryRun in MutateContext", () => {
   test("static: each await mutate(Batch) site's ctx arg contains dryRun: ctx.dryRun", async () => {
     // Phase W8 P1: command registrations moved to per-family files. Scan all of them.
     const familyDir = path.join(REPO_ROOT, "src", "cli", "commands");
-    const familyFiles = (await fs.readdir(familyDir)).filter((f) => f.endsWith(".tsx") || f.endsWith(".ts"));
+    const familyFiles = (await fs.readdir(familyDir, { recursive: true })).filter(
+      (f) => f.endsWith(".tsx") || f.endsWith(".ts"),
+    );
     const familySources = await Promise.all(familyFiles.map((f) => fs.readFile(path.join(familyDir, f), "utf8")));
     const source = familySources.join("\n");
 

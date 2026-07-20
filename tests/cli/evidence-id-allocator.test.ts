@@ -32,6 +32,38 @@ function snapshotWith(evidenceIds: string[]): Snapshot {
   return snap;
 }
 
+/** Characterization copy of the pre-#15B `tasks step done` inline scan. */
+function allocateWithLegacyStepDoneScan(snapshot: Snapshot): string {
+  const maxSerial = snapshot.evidence.reduce((max, evidence) => {
+    const match = /^EV-(\d+)$/.exec(evidence.id);
+    if (!match) return max;
+    return Math.max(max, Number.parseInt(match[1]!, 10));
+  }, 0);
+  return `EV-${String(maxSerial + 1).padStart(6, "0")}`;
+}
+
+describe("tasks step done legacy allocator equivalence", () => {
+  test.each([
+    { ids: [], expected: "EV-000001", caseName: "empty ledger" },
+    { ids: ["EV-000001", "EV-000003"], expected: "EV-000004", caseName: "gaps" },
+    {
+      ids: ["note", "EV-bad", "EV-000009"],
+      expected: "EV-000010",
+      caseName: "non-evidence entries",
+    },
+    {
+      ids: ["EV-000042", "EV-000007", "EV-000099"],
+      expected: "EV-000100",
+      caseName: "unsorted max serial",
+    },
+    { ids: ["EV-999999"], expected: "EV-1000000", caseName: "minimum padding" },
+  ])("$caseName: inline scan and shared allocator both yield $expected", ({ ids, expected }) => {
+    const snapshot = snapshotWith(ids);
+    expect(allocateWithLegacyStepDoneScan(snapshot)).toBe(expected);
+    expect(allocateNextEvidenceId(snapshot)).toBe(expected);
+  });
+});
+
 describe("allocateNextEvidenceIds — single + batch allocation", () => {
   test("empty snapshot + count=1 → ['EV-000001']", () => {
     expect(allocateNextEvidenceIds(snapshotWith([]), 1)).toEqual(["EV-000001"]);
