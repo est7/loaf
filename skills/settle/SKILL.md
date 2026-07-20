@@ -26,18 +26,30 @@ commands (ADR-0005 single writer). Pass `--feature <F>` on every command.
 
 ## Step 2 — `SETTLE.reconcile`: resolve drift
 
-Compare planned scope vs actual scope: tasks added / abandoned / amended,
-findings raised, REQ/SCEN/VIS coverage as built. Resolve every drift (note it,
-or raise/close findings as needed) and snapshot the verify-check status. When
-reconciled → `loaf advance SETTLE.lessons`.
+Build the audit view through CLI readers:
+
+- `loaf spec status --feature <F> --format json`
+- `loaf tasks list --feature <F> --format json`
+- `loaf evidence list --feature <F> --format json`
+- `loaf finding list --feature <F> --format json`
+- `loaf journal list --feature <F> --kind scope:recorded --format json`
+
+The last command confirms closure markers but intentionally does not expose
+payload paths. A full `reconcile.json` writer is not shipped: canonical
+`planned_scope` has no owner yet, and reconcile is never a gate source. Do not
+invent planned scope or read/write a reconcile snapshot as truth. Resolve
+actionable drift through findings; when the human audit is satisfied, run
+`loaf advance SETTLE.lessons`.
 
 ## Step 3 — `SETTLE.lessons`: capture lessons
 
 `deep` requires at least one lesson (`lessons_required: must`). Record each:
 
 `loaf lessons add --text "<lesson>" --reason "<why it matters, ≥10 chars>"`
-(or `--file <path>` instead of `--text`). This appends a `kind=manual` evidence
-entry projected into `lessons.md`. When lessons are captured → hand off.
+(or `--file <path>` instead of `--text`). This appends a strict
+`lesson:recorded` journal entry with an `LSN-NNN` id and projects it into
+`lessons.md`; it does not enter evidence-derived views. When lessons are
+captured → hand off.
 
 ## Done — report & stop
 

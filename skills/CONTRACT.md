@@ -31,6 +31,11 @@ Concretely:
   caller MUST NOT write these directly; mutate via the corresponding
   CLI verbs (`loaf tasks submit`, `loaf evidence add`, etc.), which
   append to the journal and trigger projection writes atomically.
+- Consume task/evidence/spec-lock/journal views through `loaf tasks list`,
+  `loaf evidence list`, `loaf spec status`, and `loaf journal list` rather
+  than parsing projection files when those command contracts answer the
+  question. `journal list` is envelope-only by design; it never exposes or
+  interprets per-kind payloads.
 - `evidence.jsonl` / `findings.jsonl` mentioned in §4 below are
   intent-name references — the actual on-disk artifacts are
   `journal.jsonl` (append-only journal of typed entries) plus the
@@ -134,9 +139,10 @@ When a workflow skill decides an in-progress task is too large:
 - Any non-terminal dependent is amended to reference the replacement task(s);
   `TASK_DEP_ABANDONED` sends an invalid adjacency back through this rewrite
   loop rather than allowing the kernel to repair it
-- Original evidence preserved in `evidence.jsonl` (append-only invariant)
-- Reconcile coverage counts only the new children; abandoned task drops
-  out of coverage by virtue of `status="abandoned"`
+- Original `evidence:added` entries remain preserved in the canonical journal
+  and queryable through `loaf evidence list` (append-only invariant)
+- Coverage/gate behavior follows the kernel's current non-terminal/terminal
+  task rules; loaf-skill does not manufacture a reconcile projection
 
 ## 2. `warn` — soft suggestion (advisory only, no block)
 
@@ -184,10 +190,11 @@ phases (TRIAGE / SPEC / VERIFY / SETTLE) are control phases — the main
 skill runs serially, lightweight.
 
 loaf-cli **supports** a multi-element worker active set at the protocol
-level (`tasks.json` may carry N entries with `status="in_progress"`
+level (`loaf tasks list` may report N entries with `status="in_progress"`
 simultaneously), but **orchestration is loaf-skill's responsibility** —
-the protocol is unaware of sub-agents / concurrency count / write-scope
-isolation. Those are workflow concerns.
+the protocol does not schedule sub-agents or choose concurrency. It does,
+however, audit PostToolUse paths through the machine-local scope accumulator
+described below.
 
 ### Protocol requirements (cross-file invariant)
 
@@ -196,7 +203,8 @@ The main skill, when fanning out during EXECUTE, **must follow this
 
 1. **Pick a batch of ready leaves** (skill-internal decision, protocol
    does not observe)
-   - Read tasks from `tasks.json` with `status` in `pending | ready` and
+   - Read tasks from `loaf tasks list --format json` with `status` in
+     `pending | ready` and
      every referenced dependency in `status="done"`
    - Confirm mutually non-conflicting write scopes (derived from
      `STEP_WRITE_PATHS_BY_KIND[kind][step]` ∪ `loaf.config.json.paths.*`)
@@ -209,7 +217,11 @@ The main skill, when fanning out during EXECUTE, **must follow this
    legality.
 3. **Fan-out N sub-agents**: main skill starts N sub-agents (LLM
    inference concurrency), each owning one task:
-   - Read `task.drives` / `task.execution` / `spec.md` / existing evidence
+   - Receive the task context selected from `loaf tasks list`, validate
+     spec-lock health with `loaf spec status`, and query existing proof with
+     `loaf evidence list`; read derived `spec.md` only when the full authored
+     prose is required because `spec status` intentionally exposes diagnostics,
+     not document content
    - Run side effects (write code / run tests; **only modify own task's
      write scope**)
    - **Do NOT write loaf artifacts directly** (race avoidance) — return
@@ -217,9 +229,17 @@ The main skill, when fanning out during EXECUTE, **must follow this
 4. **Fan-in serial write**: after collecting N sub-agent results, the
    main skill serially calls `loaf evidence add` + `loaf tasks step done`
    + (if needed) `loaf finding raise`, persisting N tasks' step progress
-   to `tasks.json` + `evidence.jsonl` + `findings.jsonl`. This step is
-   **single-threaded**, with no race. Loop back to step 1 for the next
-   batch.
+   to the typed journal and projections. This step is **single-threaded**, with
+   no race. Loop back to step 1 for the next batch.
+
+During step 3, each successful Write/Edit PostToolUse invokes
+`loaf hook scope-track`. The hook canonicalizes the target and merges it into
+`~/.loaf/runtime/<session_id>.json` under an owner-fenced runtime lock; it does
+not append the journal. The serial `loaf advance EXECUTE.done` closure holds
+that runtime lock, emits `[scope:recorded, event:phase_advanced]` as one batch
+(including an explicit empty marker), then clears pending scope only after the
+journal commit point. Sub-agents and loaf-skill must never edit the runtime
+file or lock directly.
 
 ### Key invariants (loaf-skill documents and self-checks)
 
@@ -232,12 +252,14 @@ The main skill, when fanning out during EXECUTE, **must follow this
 - **Side effects truly concurrent** (step 3, sub-agents run code / tests)
 - **loaf-artifact writes always serial** (steps 2 + 4, main skill
   single-threaded)
+- **scope hook writes are machine-local and lock-serialized**; they are not
+  loaf-artifact mutations, and closure is their sole journal flush point
 - **Write scopes do not overlap** (step 1 batch selection enforces this)
   — Wang's "ready precondition: write scopes do not conflict" intent
 - **Failure handling**: if sub-agent A crashes (error / timeout), at
   fan-in the main skill calls
-  `loaf finding raise --category test-defect --refs T-A`, then uses
-  `amend-tasks` action to return to EXECUTE.work for a retry
+  `loaf finding raise --category test-defect --action fix-test --target-task T-A`,
+  then uses the finding back-edge to return to EXECUTE.work for a retry
 
 ### Counter-example — `fan-out` is NEVER allowed in other phases
 
@@ -259,9 +281,8 @@ both loaf-cli AND loaf-skill — they sit outside loaf's scope entirely:
   own state outside loaf (`.wang/sprint-2026-W19.json`, external
   trackers, etc.)
 - **Parallel `batch` execution (2–4 concurrent leaf TK)**: explicit
-  loaf-cli non-goal (§16). Workflow skills degrade to serial; if
-  parallelism is critical, that's an orchestration-layer concern
-  (multi-worker dispatch), not an SDD protocol concern.
+  loaf-cli non-goal (§16). The CLI does not schedule side effects; workflow
+  skills may use the §4 fan-out contract, while kernel mutations remain serial.
 - **`Rule-candidate` auto-promotion**: Wang's "immediately harden
   high-impact review finding into script + unit test + check-fast" is
   an automation concern. v0.1.0 non-goal (`loaf lessons promote`). Skills

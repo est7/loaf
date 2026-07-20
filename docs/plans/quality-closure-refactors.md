@@ -1,5 +1,14 @@
 # Quality closure — the three deferred refactors (W8 / W9 / W10)
 
+> **Execution update (2026-07-20):** The structural descriptions and test
+> counts below are historical planning inputs. Current CLI registration lives
+> under `src/cli/commands/` (task handlers under `tasks/`), raw argv presentation
+> lives in `src/cli/argv-presentation.ts`, and admission ordering remains in
+> `src/core/reducer/preflight.ts` with policy families under
+> `src/core/reducer/preflight/`; frozen-field task amend policy lives in
+> `src/core/task-amend-policy.ts`. Use those owners and the thick #15 commit
+> bodies rather than the pre-split line counts below.
+
 **Status:** DRAFT — plan only, awaiting go-ahead per item.
 **Type:** refactor + CI closure plan.
 **Date:** 2026-06-08.

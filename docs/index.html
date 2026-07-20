@@ -578,7 +578,7 @@
         <td>TRIAGE → SPEC → EXECUTE → VERIFY → DONE</td>
         <td class="matrix-must">all 4 sub + spec-lock</td>
         <td class="matrix-must">4 check + verify-accept</td>
-        <td class="matrix-skip">skipped (rev 5.x;reconcile via <code>loaf doctor --rebuild</code> on-demand)</td>
+        <td class="matrix-skip">skipped (rev 5.x;no reconcile writer is shipped)</td>
         <td>典型 feature(score 40-70)</td>
       </tr>
       <tr>
@@ -806,8 +806,8 @@
         <td><span class="ph settle">SETTLE</span></td>
         <td>verify-accept 通过 且 <code>ceremony.settle_phase=true</code>(rev 5.x:deep only;quick / light / standard 跳过)</td>
         <td><code>loaf settle</code>, <code>lessons add</code></td>
-        <td class="k">event:phase_advanced · evidence:added(payload.kind=manual)</td>
-        <td>snapshots/reconcile.json(deep,drift_index=0 必需)+ lessons.md(deep:MUST)</td>
+        <td class="k">event:phase_advanced · lesson:recorded</td>
+        <td>lessons.md(deep:MUST);reconcile writer尚未实现</td>
         <td><code>deliver</code> / <code>archive</code> / <code>abandon</code></td>
       </tr>
       <tr>
@@ -1150,7 +1150,17 @@
 
 <section id="commands">
   <h2>⑪ Command surface → emitted journal kind</h2>
-  <p class="lead">mutator 行标 emit 的 journal kind;read-only 行不写 journal,但读 <code>snapshots/*.json</code> 必须先过 Gate #5 fast check。</p>
+  <p class="lead">mutator 行标 emit 的 journal kind;read-only 行不写 journal。projection readers 先过 Gate #5 fast check;canonical-history queries 走 journal full replay。</p>
+
+  <h3>Observability queries(read-only)</h3>
+  <table class="matrix">
+    <thead><tr><th>Command</th><th>Source</th><th>Contract</th></tr></thead>
+    <tbody>
+      <tr><td class="k">loaf journal list<br>(<code>loaf log</code> alias)</td><td>canonical journal full replay</td><td>envelope-only rows;never exposes payload</td></tr>
+      <tr><td class="k">loaf evidence list</td><td>freshness-checked evidence projection</td><td>coverage fields with covers/task/kind filters</td></tr>
+      <tr><td class="k">loaf spec status</td><td>journal-replayed snapshot</td><td>spec-lock failures + suppressed checks;does not read spec.md</td></tr>
+    </tbody>
+  </table>
 
   <h3>Tier 1 mutators(<code>--input</code> JSON, batch ready)</h3>
   <table class="matrix">
@@ -1174,7 +1184,7 @@
       <tr><td class="k">loaf tasks claim</td><td class="k">event:task_claimed</td><td>worker 把 task 从 ready → in_progress</td></tr>
       <tr><td class="k">loaf tasks step start</td><td class="k">event:task_step_started</td><td>开始 step(per-kind 合法集校验)</td></tr>
       <tr><td class="k">loaf tasks step done</td><td class="k">event:task_step_done<br>(可同 batch + evidence:added)</td><td>无 evidence proof → TASK_STATUS_WITHOUT_PROOF</td></tr>
-      <tr><td class="k">loaf tasks complete</td><td class="k">event:task_step_done(若仍有 step)</td><td>所有 must step done/waived/na</td></tr>
+      <tr><td class="k">loaf tasks complete</td><td class="k">— (read-only)</td><td>确认所有 must step 已 terminal-positive;不 emit entry</td></tr>
       <tr><td class="k">loaf tasks amend</td><td class="k">event:tasks_amended</td><td>spec-lock 后窄修 applicability;不能改 drives/kind</td></tr>
       <tr><td class="k">loaf waive</td><td class="k">evidence:added(payload.kind=waiver)</td><td>actor <code>human:*</code>;reason ≥ 10 字符</td></tr>
       <tr><td class="k">loaf finding raise</td><td class="k">finding:raised<br>+ event:tasks_amended + event:phase_advanced<br>(if back-edge action)</td><td>action 决定 back-edge 目标</td></tr>
@@ -1183,12 +1193,13 @@
       <tr><td class="k">loaf pending raise</td><td class="k">pending:added</td><td>append 队尾;CLI 分 PEND-id</td></tr>
       <tr><td class="k">loaf pending resolve</td><td class="k">pending:resolved</td><td>FIFO 严格,永 pop head</td></tr>
       <tr><td class="k">loaf profile escalate</td><td class="k">event:ceremony_set + pending:resolved</td><td>2-entry batch；ceremony_set 在前(preflight 5c.4 守卫)；resolve profile_escalation head</td></tr>
-      <tr><td class="k">loaf lessons add</td><td class="k">evidence:added(payload.kind=manual)</td><td>reducer 拼接派生 lessons.md</td></tr>
-      <tr><td class="k">loaf settle</td><td class="k">event:phase_advanced(→ SETTLE.reconcile)</td><td>仅 <code>ceremony.settle_phase=true</code>(rev 5.x:deep only)合法;quick/light/standard 调用 → exit 2 <code>SETTLE_PHASE_DISABLED</code>。reducer 计算落 snapshots/reconcile.json</td></tr>
+      <tr><td class="k">loaf lessons add</td><td class="k">lesson:recorded</td><td>独立 LSN-id;project 到 lessons.md,不进入 evidence view</td></tr>
+      <tr><td class="k">loaf advance EXECUTE.done</td><td class="k">scope:recorded + event:phase_advanced</td><td>同一 closure batch;scope marker 紧邻 transition,即使 paths 为空也 emit</td></tr>
+      <tr><td class="k">loaf settle</td><td class="k">event:phase_advanced(→ SETTLE.reconcile)</td><td>仅 <code>ceremony.settle_phase=true</code>(rev 5.x:deep only)合法;quick/light/standard 调用 → exit 2 <code>SETTLE_PHASE_DISABLED</code>。当前无 reconcile writer或 canonical planned_scope owner</td></tr>
     </tbody>
   </table>
 
-  <h3>Session lifecycle / spike / migration</h3>
+  <h3>Session lifecycle / spike</h3>
   <table class="matrix">
     <thead><tr><th>Command</th><th>Emits</th><th>说明</th></tr></thead>
     <tbody>
@@ -1198,13 +1209,12 @@
       <tr><td class="k">loaf archive --reason</td><td class="k">session:archived</td><td>非交付关闭;<code>human:</code> only</td></tr>
       <tr><td class="k">loaf abandon --reason</td><td class="k">session:abandoned</td><td>中途放弃;<code>human:</code> only</td></tr>
       <tr><td class="k">loaf spike convert --to-feature F-N --reason</td><td class="k">spike:converted</td><td>spike 出口之一;不 scaffold F-N;<code>human:</code> only</td></tr>
-      <tr><td class="k">loaf doctor --migrate-v2</td><td class="k">migration:snapshot_imported</td><td>actor <code>migration:*</code>;journal seq=0 only;Gate #3 .strict()</td></tr>
     </tbody>
   </table>
 
   <h3>Read-only commands(走 Gate #5 fast check)</h3>
   <p>
-    <code>loaf status</code> · <code>tasks list</code> · <code>tasks next</code> · <code>verify status</code> · <code>finding list</code> · <code>pending list</code> · <code>pending status</code> · <code>sessions list</code> · <code>&lt;artifact&gt; schema --format=json</code> · <code>check &lt;path&gt;</code> · <code>tui</code> · <code>handoff</code> · <code>doctor</code>(no <code>--fix</code>) · <code>hook --list-events</code>
+    <code>loaf status</code> · <code>tasks list</code> · <code>tasks next</code> · <code>verify status</code> · <code>finding list</code> · <code>pending list</code> · <code>pending status</code> · <code>sessions list</code> · <code>&lt;artifact&gt; schema --format=json</code> · <code>check &lt;path&gt;</code> · <code>tui</code> · <code>handoff</code> · <code>doctor --rebuild</code> · <code>hook --list-events</code>
   </p>
 </section>
 
@@ -1256,7 +1266,7 @@
 
 <section id="migration">
   <h2>⑬ v0.0.x → v0.1.0 migration flow</h2>
-  <p class="lead">单次性 lossy snapshot import。<code>loaf doctor --migrate-v2</code> 触发。Gate #3 保证 <code>migration:snapshot_imported</code> payload 只携 AttachmentRef manifest,不含 artifact 正文。</p>
+  <p class="lead">目标设计：单次性 lossy snapshot import。当前没有 live 触发命令；未来的 migration writer 必须让 Gate #3 保证 <code>migration:snapshot_imported</code> payload 只携 AttachmentRef manifest,不含 artifact 正文。</p>
 
   <svg class="diagram" viewBox="0 0 1180 480" role="img" aria-label="v0.0.x → v0.1.0 migration">
     <defs>

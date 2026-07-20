@@ -3,7 +3,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 
-import { collectInventory } from "./inventory/help-collector.js";
+import {
+  collectCommandReferences,
+  findInvalidCommandReferences,
+  findInvalidRepositoryPaths,
+} from "./inventory/document-references.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..", "..");
@@ -50,50 +54,11 @@ describe("CLAUDE.md semantic drift gate", () => {
   });
 
   test("repository file references exist and do not hide behind glob syntax", () => {
-    const failures = [...collectRepositoryPaths(CLAUDE)]
-      .filter((reference) => /[{}*<>]|\.\./.test(reference) || !existsSync(path.join(REPO_ROOT, reference)))
-      .sort();
-
-    expect(failures).toEqual([]);
+    expect(findInvalidRepositoryPaths(CLAUDE, REPO_ROOT)).toEqual([]);
   });
 
   test("documented loaf commands exist in the live Commander surface", async () => {
-    const inventory = await collectInventory();
-    const commandSurfaces = inventory.commands.flatMap((command) => {
-      const parentPath = command.path.split(" ").slice(0, -1);
-      return [command.path, ...command.aliases.map((alias) => [...parentPath, alias].join(" "))].map(
-        (commandPath) => ({
-          path: commandPath,
-          arguments: command.arguments,
-          acceptsTrailingWords: command.isExecutable && command.arguments.length > 0,
-        }),
-      );
-    });
-    const commandPaths = new Set(
-      commandSurfaces.map((command) => command.path),
-    );
-    const globalFlags = new Set(
-      inventory.globalFlags.flatMap((flag) => [flag.name, flag.short].filter(isString)),
-    );
-    const failures: string[] = [];
-
-    for (const reference of collectCommandReferences(CLAUDE)) {
-      const words = reference.split(/\s+/).slice(1);
-      const first = words[0];
-      if (first?.startsWith("-")) {
-        if (!globalFlags.has(first)) failures.push(reference);
-        continue;
-      }
-      const command = words.join(" ");
-      if (commandPaths.has(command)) continue;
-
-      const prefix = commandSurfaces
-        .filter((surface) => command.startsWith(`${surface.path} `))
-        .sort((left, right) => right.path.length - left.path.length)[0];
-      if (prefix === undefined || !prefix.acceptsTrailingWords) failures.push(reference);
-    }
-
-    expect(failures.sort()).toEqual([]);
+    expect(await findInvalidCommandReferences(collectCommandReferences(CLAUDE))).toEqual([]);
   });
 
   test("revision, kind-count, and ID-format mirrors cannot bypass the claim allowlist", () => {
@@ -122,29 +87,4 @@ function checkProtocolRevision(claim: SemanticClaim): void {
   const owned = ownerText.match(/^#\s+.+\brev\s+(\d+(?:\.\d+)*)\b/im)?.[1];
   expect(documented, claim.source).toBeDefined();
   expect(documented, claim.source).toBe(owned);
-}
-
-function collectRepositoryPaths(text: string): Set<string> {
-  const references = new Set<string>();
-  const pattern =
-    /(?<![A-Za-z0-9_.-])((?:src|tests|docs|scripts|skills|i18n|dist)\/[A-Za-z0-9_./{}*,<>-]*|(?:package\.json|tsconfig\.json|bun\.lock|\.gitignore|CHANGELOG\.md|README\.md|loaf\.config\.example\.json|backlog\.md))(?=$|[\s`'"\])};:,])/g;
-  for (const match of text.matchAll(pattern)) {
-    const reference = match[1]?.replace(/[,;:]+$/, "");
-    if (reference !== undefined) references.add(reference);
-  }
-  return references;
-}
-
-function collectCommandReferences(text: string): Set<string> {
-  const references = new Set<string>();
-  const pattern = /\bloaf\s+(?:--[A-Za-z][A-Za-z0-9-]*|[a-z][a-z0-9-]*(?:\s+[a-z][a-z0-9-]*)*)/g;
-  for (const match of text.matchAll(pattern)) {
-    const reference = match[0].trim();
-    references.add(reference);
-  }
-  return references;
-}
-
-function isString(value: string | null): value is string {
-  return value !== null;
 }

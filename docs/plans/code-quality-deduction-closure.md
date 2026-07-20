@@ -1,5 +1,12 @@
 # Plan — code-quality deduction closure
 
+> **Execution update (2026-07-20):** P2/P3's pre-split sizes and suggested
+> module names are historical. The live task command modules are
+> `src/cli/commands/tasks/`; the ordered admission coordinator is
+> `src/core/reducer/preflight.ts`, with kind-family checks in
+> `src/core/reducer/preflight/` and amend policy in
+> `src/core/task-amend-policy.ts`. Current navigation is in `CLAUDE.md`.
+
 > **Reconciliation note (2026-06-07).** On **file-splitting scoring** this draft
 > is SUPERSEDED by `claude-code-quality-deduction-closure.md`. That doc applies
 > *cohesion over length*: the CLI namespace split (this doc's P2) and the

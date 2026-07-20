@@ -13,7 +13,8 @@ human, create the session, then hand the cursor to the next phase.
 You are the orchestrator; the kernel (`loaf-cli`) owns all state. Never write
 `.loaf/` directly — every change goes through a `loaf` command (ADR-0005:
 single typed journal, single writer). Pass `--feature <F>` on every command (a
-bare `--feature-dir` is rejected). `<F>` is the feature being started.
+bare `--feature-dir` is rejected). The sole exception is `loaf start`, which
+takes `<F>` as its required positional. `<F>` is the feature being started.
 
 ## Steps
 

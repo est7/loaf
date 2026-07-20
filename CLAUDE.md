@@ -57,16 +57,24 @@ Navigation only — each file owns its own contract; read the source before chan
 |---|---|
 | Transactional mutation entry point (preflight → dry-run → gates → sidecar → append) | `src/core/journal-mutate.ts` |
 | Projection application | `src/core/reducer.ts` |
-| Admission validation + typed failure codes | `src/core/reducer/preflight.ts` |
+| Admission ordering + public typed failure surface | `src/core/reducer/preflight.ts` |
+| Admission policy checks by kind family | `src/core/reducer/preflight/` |
 | Shared invariant predicates used by both surfaces | `src/core/reducer/invariants.ts` |
 | Per-kind tables (payload, actor, sub_state, reducer-implemented) | `src/core/kind-registry.ts` |
 | Legal transitions + guards | `src/core/reducer/transition.ts`, `src/core/machine.ts` |
 | Gate evaluation | `src/core/gates/` |
 | Task-graph admission | `src/core/task-graph.ts` |
+| Task-amend frozen-field and freshness policy | `src/core/task-amend-policy.ts` |
 | Actor resolution policy | `src/core/actor-resolver.ts` |
 | Long-field promotion | `src/core/sidecar.ts` |
+| Scope entry contract + replay derivation | `src/core/journal-entry.ts`, `src/core/scope-projection.ts` |
+| Machine-local session runtime + owner-fenced lock | `src/core/session-runtime.ts` |
+| EXECUTE closure scope transaction | `src/core/execute-closure.ts` |
+| PostToolUse scope normalization | `src/core/scope-track.ts` |
+| Raw argv presentation semantics | `src/cli/argv-presentation.ts` |
+| Task command registration and handlers | `src/cli/commands/tasks/` |
 
-The mutation pipeline is staged and **all-or-nothing before write**: per-entry preflight and reducer dry-run run first, then gate evaluation, then sidecar promotion, then a final dry-run plus drift check, and only then a single fsync'd append. Once the append syscall starts there is no in-process rollback — partial writes are recoverable only through `loaf doctor`. Read `src/core/journal-mutate.ts` for the current pass order rather than assuming it.
+The mutation pipeline is staged and **all-or-nothing before write**: per-entry preflight and reducer dry-run run first, then gate evaluation, then sidecar promotion, then a final dry-run plus drift check, and only then a single fsync'd append. Once the append syscall starts there is no in-process rollback. `src/core/journal-bootstrap.ts` owns the batch-aware tail-recovery primitive; `loaf doctor --check-tail` is not wired yet, so do not promise that command as an available repair path. Read `src/core/journal-mutate.ts` for the current pass order rather than assuming it.
 
 ### Schema source of truth
 

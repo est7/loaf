@@ -1,5 +1,12 @@
 # Plan — code-quality deduction closure (Claude independent review)
 
+> **Execution update (2026-07-20):** The command/preflight split proposals and
+> test counts below are retained as audit history. Live owners are
+> `src/cli/commands/tasks/`, `src/cli/argv-presentation.ts`,
+> `src/core/reducer/preflight.ts`, `src/core/reducer/preflight/`, and
+> `src/core/task-amend-policy.ts`; use the current `CLAUDE.md` navigation table
+> and thick #15 commit bodies for repository truth.
+
 **Status:** DRAFT FOR THIRD-PARTY AUDIT.
 **Type:** quality / architecture closure plan.
 **Author basis:** independent read-only scorecard, 2026-06-07. Three parallel

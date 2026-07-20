@@ -53,7 +53,10 @@ Repeat until every task is `done` or `abandoned`:
 Independent ready leaves may run **concurrently** — see
 [references/fan-out.md](references/fan-out.md). Side effects fan out; **loaf
 writes always stay serial** (single writer). When every task is terminal →
-`loaf advance EXECUTE.done`.
+`loaf advance EXECUTE.done`. PostToolUse `scope-track` hooks accumulate each
+worker's canonical paths in the owner-locked machine-local runtime file; this
+advance flushes one `scope:recorded` marker immediately before the phase
+transition in the same journal batch. Never edit `~/.loaf/runtime/` directly.
 
 ## Done — report & stop
 

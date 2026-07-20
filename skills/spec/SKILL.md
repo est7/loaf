@@ -38,8 +38,10 @@ satisfied with the content.
 | `SPEC.plan` | risks / dependencies / milestones | `loaf spec edit` (Plan body) | `loaf advance SPEC.design` |
 | `SPEC.design` | design notes + task graph; **bind every `REQ`/`SCEN`/`VIS` to ≥1 task** via `task.drives[]` | `loaf tasks submit --input <file>` | gate → step 3 |
 
-Run `loaf <command> --schema --format=json` for the input shape; pass your file
-with `--input`. The CLI stamps `REQ-`/`SCEN-`/`VIS-`/`T-` ids — never your own.
+For add-* input, run that command with `--schema --format=json`. For the whole
+task graph, run `loaf tasks schema --format=json`; `tasks submit` itself has no
+`--schema` flag. Pass your file with `--input`. The CLI stamps
+`REQ-`/`SCEN-`/`VIS-`/`T-` ids — never your own.
 
 ## Step 3 — The spec-lock gate (HUMAN decision point)
 
@@ -49,9 +51,11 @@ pause. The gate runs 8 mechanical checks (frontmatter, `needs_clarification`,
 task↔spec coverage, REQ / scenario / visual coverage, spec-review, orphans) and
 requires a `human:*` actor — which is why it is a human decision.
 
-Before asking the human, summarize the spec so they can judge: REQ / SCEN / VIS
-counts, task count, and that every obligation is bound. **Stop and let the
-human approve or reject.** Then run their decision:
+Before asking the human, run
+`loaf spec status --feature <F> --format json` and summarize its failing and
+suppressed checks alongside the task count. This replay-backed query replaces
+reading derived `spec.md` to infer gate status. **Stop and let the human approve
+or reject.** Then run their decision:
 
 - approve → `loaf gate decide spec-lock --approve --reason "<why>" --feature <F>`
 - reject  → `loaf gate decide spec-lock --reject --reason "<what's missing>" --feature <F>`

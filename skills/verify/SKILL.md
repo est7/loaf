@@ -42,6 +42,10 @@ For each lane `loaf next` routes you to, do the check and record proof:
 - Failure → `loaf finding raise …`; close it with `loaf finding close <FND-id>`
   once resolved. Open findings block the gate.
 
+Use `loaf evidence list --feature <F> --format json` (optionally filtered by
+`--covers`, `--task`, or `--kind`) to review recorded coverage. Do not inspect
+the derived evidence snapshot directly.
+
 `loaf next` walks the applicable lanes in order, then routes to `VERIFY.accept`.
 
 ## Step 4 — The verify-accept gate (HUMAN decision point)
@@ -51,8 +55,8 @@ read-only 5-check diagnostic (lane status / open findings / coverage / done-task
 evidence / spec-review). `loaf next` returns a **blocking** `loaf gate decide
 verify-accept` (`blocked: true`); the gate needs a `human:*` actor.
 
-Summarize `verify status` for the human, then **stop and let them approve or
-reject**:
+Summarize `verify status` and the relevant `evidence list` rows for the human,
+then **stop and let them approve or reject**:
 
 - approve → `loaf gate decide verify-accept --approve --reason "<why>" --feature <F>`
 - reject  → `loaf gate decide verify-accept --reject --reason "<what fails>" --feature <F>`

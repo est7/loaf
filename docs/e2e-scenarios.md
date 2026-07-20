@@ -1,9 +1,10 @@
 # E2E Test Scenarios — loaf-cli worker workflow
 
 Protocol-derived acceptance inventory for the end-to-end test layer. The
-**protocol** (`docs/protocol.md`, rev 5.0 / ADR-0005) is the source of
+**protocol** (`docs/protocol.md`, rev 5.2; truth model from ADR-0005) is the source of
 truth — every scenario here is derived from the protocol, NOT from the
-current `src/cli.tsx`. A scenario whose implementation does not exist yet
+current live Commander registration under `src/cli.tsx` + `src/cli/commands/`.
+A scenario whose implementation does not exist yet
 is not a wrong scenario; it is a correct acceptance criterion for a
 not-yet-built slice.
 
@@ -325,7 +326,7 @@ Source: codex independent enumeration r119 (AMQ thread
   blocked by the `spec_clarification` head.
 - **Covers** the exact `advance` block set — head kind ∈
   `{gate_decision, profile_escalation}` only (protocol.md §4.1 / :207;
-  `src/core/reducer/preflight.ts`). `ask_user_question` / `spec_clarification`
+  `src/core/reducer/preflight/checks-workflow.ts`). `ask_user_question` / `spec_clarification`
   / `finding_decision` pendings are FIFO-visible but never block `advance`.
   `gate_decision` blocking is exercised via SCEN-E2E-027.
 
