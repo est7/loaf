@@ -19,6 +19,8 @@
     "build": "tsdown",
     "gen:fsm": "bun run scripts/gen-fsm-artifacts.ts",
     "gen:i18n": "bun run scripts/gen-i18n-diagnostics.ts",
+    "gen:errors": "bun run scripts/gen-error-catalog.ts",
+    "verify:codegen": "bun run scripts/gen-fsm-artifacts.ts --check && bun run scripts/gen-i18n-diagnostics.ts --check && bun run scripts/gen-error-catalog.ts --check",
     "typecheck": "tsc --noEmit",
     "lint": "biome check --formatter-enabled=false --assist-enabled=false src tests tsdown.config.ts package.json tsconfig.json biome.json",
     "format": "biome format --write src tests tsdown.config.ts package.json tsconfig.json biome.json",

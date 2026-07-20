@@ -1,9 +1,10 @@
-import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { SubState } from "../src/core/journal-entry.js";
 import { MACHINE, type MachineNode } from "../src/core/machine.js";
+import { parseCheckMode, writeOrCheckGeneratedFile } from "./generated-file.js";
+import { markdownCodeCell, replaceGeneratedBlock } from "./generated-markdown.js";
 
 type MachineEntry = readonly [SubState, MachineNode];
 
@@ -66,11 +67,103 @@ export function generateFsmMermaid(): string {
   return `${lines.join("\n")}\n`;
 }
 
-const outputUrl = new URL("../docs/fsm.mmd", import.meta.url);
+function codeList(values: readonly string[]): string {
+  return values.length === 0 ? "—" : values.map(markdownCodeCell).join("<br>");
+}
+
+export function renderFsmSubstates(): string {
+  const lines = [
+    "| Sub-state | Entry condition | Exit condition | Logical write paths | Gate |",
+    "|---|---|---|---|---|",
+  ];
+  for (const [subState, node] of machineEntries()) {
+    lines.push(
+      `| ${markdownCodeCell(subState)} | ${markdownCodeCell(node.entry)} | ${markdownCodeCell(node.exit)} | ${codeList(node.write_paths)} | ${node.gate === undefined ? "—" : markdownCodeCell(node.gate)} |`,
+    );
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+function transitionTable(
+  edges: readonly (readonly [SubState, MachineNode["edges"][number]])[],
+): string[] {
+  const lines = ["| From | To | Owner kind | Guards |", "|---|---|---|---|"];
+  for (const [source, edge] of edges) {
+    lines.push(
+      `| ${markdownCodeCell(source)} | ${markdownCodeCell(edge.target)} | ${markdownCodeCell(edge.owner_kind)} | ${codeList(edge.guards ?? [])} |`,
+    );
+  }
+  return lines;
+}
+
+export function renderFsmTransitions(): string {
+  const edges = machineEntries().flatMap(([source, node]) =>
+    node.edges.map((edge) => [source, edge] as const),
+  );
+  const legal = edges.filter(([, edge]) => edge.owner_kind === "event:phase_advanced");
+  const dedicated = edges.filter(
+    ([, edge]) =>
+      edge.owner_kind !== "event:phase_advanced" && edge.owner_kind !== "contract:next",
+  );
+  const hints = edges.filter(([, edge]) => edge.owner_kind === "contract:next");
+
+  return `${[
+    "#### Legal `event:phase_advanced` transitions",
+    "",
+    ...transitionTable(legal),
+    "",
+    "#### Dedicated-owner cursor transitions",
+    "",
+    ...transitionTable(dedicated),
+    "",
+    "#### Navigation hints (not legal transitions)",
+    "",
+    ...transitionTable(hints),
+  ].join("\n")}\n`;
+}
+
+export function renderFsmMutationRights(): string {
+  const lines = [
+    "| Sub-state | Writable fields | Forbidden fields |",
+    "|---|---|---|",
+  ];
+  for (const [subState, node] of machineEntries()) {
+    if (!("mutation_rights" in node)) continue;
+    lines.push(
+      `| ${markdownCodeCell(subState)} | ${codeList(node.mutation_rights.writable_fields)} | ${codeList(node.mutation_rights.forbidden_fields)} |`,
+    );
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+/** Replace only the three generated FSM blocks in protocol.md. */
+export function generateFsmProtocol(source: string): string {
+  const withSubstates = replaceGeneratedBlock(source, "fsm-substates", renderFsmSubstates());
+  const withTransitions = replaceGeneratedBlock(
+    withSubstates,
+    "fsm-transitions",
+    renderFsmTransitions(),
+  );
+  return replaceGeneratedBlock(
+    withTransitions,
+    "fsm-mutation-rights",
+    renderFsmMutationRights(),
+  );
+}
+
 const invokedPath = process.argv[1];
 const isMain =
   invokedPath !== undefined && path.resolve(invokedPath) === fileURLToPath(import.meta.url);
 
 if (isMain) {
-  await writeFile(outputUrl, generateFsmMermaid(), "utf8");
+  const check = parseCheckMode(process.argv.slice(2));
+  const fsmUrl = new URL("../docs/fsm.mmd", import.meta.url);
+  const protocolUrl = new URL("../docs/protocol.md", import.meta.url);
+  const fsmDrifted = await writeOrCheckGeneratedFile(fsmUrl, () => generateFsmMermaid(), check);
+  const protocolDrifted = await writeOrCheckGeneratedFile(
+    protocolUrl,
+    generateFsmProtocol,
+    check,
+  );
+  if (check && (fsmDrifted || protocolDrifted)) process.exitCode = 1;
 }

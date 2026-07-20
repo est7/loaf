@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`loaf-cli` is the **protocol kernel** for the loaf feature-lifecycle workflow (rev 5.0 / ADR-0005). Every state change is one `JournalEntry` appended to `.loaf/<feature>/journal.jsonl`; the reducer projects derived state (`SessionState` / `TaskState` / `EvidenceState` / `FindingState` / `PendingState`) from that journal. There is no `state.json` source of truth — only the typed journal and its in-memory projection.
+`loaf-cli` is the **protocol kernel** for the loaf feature-lifecycle workflow (rev 5.1 / ADR-0005). Every state change is one `JournalEntry` appended to `.loaf/<feature>/journal.jsonl`; the reducer projects derived state (`SessionState` / `TaskState` / `EvidenceState` / `FindingState` / `PendingState`) from that journal. There is no `state.json` source of truth — only the typed journal and its in-memory projection.
 
 It is NOT a generic Bun scaffold. Despite Bun being the package manager and dev runner, the published binary is plain Node 22+ ESM, and the test runner is **Vitest** (not `bun test`).
 

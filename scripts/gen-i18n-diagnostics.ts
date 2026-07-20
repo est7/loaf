@@ -1,8 +1,8 @@
-import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { ERROR_CATALOG } from "../src/core/error-catalog.js";
+import { parseCheckMode, writeOrCheckGeneratedFile } from "./generated-file.js";
 
 export type GeneratedDiagnosticLocale = "en" | "zh";
 
@@ -79,9 +79,16 @@ const isMain =
   invokedPath !== undefined && path.resolve(invokedPath) === fileURLToPath(import.meta.url);
 
 if (isMain) {
+  const check = parseCheckMode(process.argv.slice(2));
+  let drifted = false;
   for (const locale of ["en", "zh"] as const) {
     const outputUrl = new URL(`../i18n/${locale}.json`, import.meta.url);
-    const source = await readFile(outputUrl, "utf8");
-    await writeFile(outputUrl, generateI18nDiagnostics(source, locale), "utf8");
+    drifted =
+      (await writeOrCheckGeneratedFile(
+        outputUrl,
+        (source) => generateI18nDiagnostics(source, locale),
+        check,
+      )) || drifted;
   }
+  if (check && drifted) process.exitCode = 1;
 }
