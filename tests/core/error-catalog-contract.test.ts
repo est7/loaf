@@ -191,6 +191,7 @@ describe("ERROR_CATALOG template/detail contracts", () => {
   test("direct first-adopter emitters construct every required detail key", async () => {
     const files = [
       "src/core/reducer/preflight.ts",
+      "src/core/reducer/preflight/checks-workflow.ts",
       "src/core/gates/spec-lock-check.ts",
       "src/core/reducer.ts",
     ];

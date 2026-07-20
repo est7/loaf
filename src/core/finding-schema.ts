@@ -6,7 +6,7 @@
 //
 //   - journal-entry.ts imports FindingId / FindingCategory / FindingAction
 //     for tightening FindingRaisedPayload + FindingClosedPayload.
-//   - reducer/preflight.ts imports FINDING_ACTION_GRID + cellRisk +
+//   - reducer/preflight/checks-workflow.ts imports FINDING_ACTION_GRID + cellRisk +
 //     FINDING_UNUSUAL_REASON_MIN_LENGTH + step-per-action map for the
 //     finding:raised refines.
 //   - reducer.ts imports FindingActionRisk / FindingTarget types for the

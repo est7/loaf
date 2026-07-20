@@ -478,6 +478,118 @@ const PRECEDENCE_PAIRS: PrecedenceRow[] = [
   },
 ];
 
+const ADDITIONAL_PRECEDENCE_GROUPS: Array<
+  PrecedenceRow & { expectedDetail?: Record<string, unknown> }
+> = [
+  {
+    name: "deep deliver settle bypass + missing acceptance -> DELIVER_SETTLE_PHASE_BYPASS because ceremony lane runs before acceptance",
+    entry: baseEntry({ actor: "human:est9", kind: "session:delivered", payload: {} }),
+    ctx: {
+      snapshot: mkSnapshot(
+        "VERIFY.accept",
+        { ...STANDARD_CEREMONY, settle_phase: true },
+        {
+          verify_accepted: false,
+        },
+      ),
+      tail_seq: -1,
+    },
+    expected: "DELIVER_SETTLE_PHASE_BYPASS",
+  },
+  {
+    name: "bug implement + red flag misuse -> BUG_TASK_REQUIRES_RED because RED registration prerequisite runs first",
+    entry: baseEntry({
+      kind: "event:task_step_done",
+      payload: {
+        task_id: "T-001",
+        step: "implement",
+        result: "failed",
+        red_test_registered: true,
+      },
+    }),
+    ctx: {
+      snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, {
+        tasks: [task({ status: "in_progress", labels: ["bug"], red_test_registered: false })],
+      }),
+      tail_seq: -1,
+    },
+    expected: "BUG_TASK_REQUIRES_RED",
+  },
+  {
+    name: "step reset missing sponsor + wrong step/target -> FINDING_NOT_FOUND because sponsorship runs first",
+    entry: baseEntry({
+      kind: "event:task_step_reset",
+      payload: { task_id: "T-999", step: "red", finding_id: "FND-999" },
+    }),
+    ctx: { snapshot: mkSnapshot("EXECUTE.work"), tail_seq: -1 },
+    expected: "FINDING_NOT_FOUND",
+    expectedDetail: { reason: "not_found" },
+  },
+  {
+    name: "step reset wrong canonical step + target/task mismatch -> step mismatch wins",
+    entry: baseEntry({
+      kind: "event:task_step_reset",
+      payload: { task_id: "T-999", step: "red", finding_id: "FND-001" },
+    }),
+    ctx: {
+      snapshot: mkSnapshot("EXECUTE.work", STANDARD_CEREMONY, {
+        findings: [
+          {
+            id: "FND-001",
+            category: "impl-defect",
+            action: "fix-impl",
+            status: "open",
+            target: { task_id: "T-404", step: "red" },
+          },
+        ],
+      }),
+      tail_seq: -1,
+    },
+    expected: "MUTATION_OUT_OF_RIGHTS",
+    expectedDetail: { reason: "task_step_reset_step_mismatch" },
+  },
+  {
+    name: "unusual finding + missing target -> unusual reason requirement wins over target requirement",
+    entry: baseEntry({
+      kind: "finding:raised",
+      payload: {
+        id: "FND-001",
+        category: "spec-defect",
+        action: "fix-impl",
+        summary: "missing target and unusual reason",
+      },
+    }),
+    ctx: { snapshot: mkSnapshot("EXECUTE.work"), tail_seq: -1 },
+    expected: "FINDING_ACTION_UNUSUAL_REASON_REQUIRED",
+  },
+  {
+    name: "valid sponsored amend wrong lane + missing task -> lane rights violation wins over task lookup",
+    entry: baseEntry({
+      kind: "event:tasks_amended",
+      payload: {
+        mode: "replace",
+        task: behavioralFull({ id: "T-999" }),
+        sponsored_by_finding_id: "FND-001",
+      },
+    }),
+    ctx: {
+      snapshot: mkSnapshot("VERIFY.accept", STANDARD_CEREMONY, {
+        findings: [
+          {
+            id: "FND-001",
+            category: "new-scope",
+            action: "amend-tasks",
+            status: "open",
+          },
+        ],
+      }),
+      tail_seq: -1,
+    },
+    expected: "MUTATION_OUT_OF_RIGHTS",
+    expectedDetail: { reason: "sponsored_tasks_amended_wrong_sub_state" },
+  },
+];
+
 describe("preflight — error precedence characterization", () => {
   test.each(PRECEDENCE_PAIRS)("$name", ({ entry, ctx, expected }) => {
     const r = preflight(entry, ctx);
@@ -486,6 +598,21 @@ describe("preflight — error precedence characterization", () => {
 
   test("PRECEDENCE_PAIRS keeps the converged row count (SC-10: 22 + W9a: 4)", () => {
     expect(PRECEDENCE_PAIRS).toHaveLength(26);
+  });
+});
+
+describe("preflight — additional multi-failure precedence groups for #15C", () => {
+  test.each(ADDITIONAL_PRECEDENCE_GROUPS)("$name", ({ entry, ctx, expected, expectedDetail }) => {
+    const result = preflight(entry, ctx);
+    expect(result).toMatchObject({
+      ok: false,
+      code: expected,
+      ...(expectedDetail === undefined ? {} : { detail: expectedDetail }),
+    });
+  });
+
+  test("the #15C characterization set covers six previously unpinned multi-failure groups", () => {
+    expect(ADDITIONAL_PRECEDENCE_GROUPS).toHaveLength(6);
   });
 });
 
