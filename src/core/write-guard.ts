@@ -28,6 +28,14 @@ function substituteFeature(glob: string, feature: string): string {
   return glob.replace(/<feature>/g, feature);
 }
 
+function escapesRepoRoot(normalized: string): boolean {
+  return (
+    path.posix.isAbsolute(normalized) ||
+    path.win32.isAbsolute(normalized) ||
+    normalized.split("/").includes("..")
+  );
+}
+
 /** Normalize a target path to a repo-root-relative POSIX path. */
 export function normalizeToRepoRoot(targetPath: string, repoRoot: string): string {
   const abs = path.isAbsolute(targetPath) ? targetPath : path.resolve(repoRoot, targetPath);
@@ -81,6 +89,7 @@ export type WritePathDecision =
       code: "WRITE_PATH_VIOLATION";
       normalizedPath: string;
       allowSet: string[];
+      reason?: "outside_repo_root";
     };
 
 /**
@@ -89,16 +98,30 @@ export type WritePathDecision =
  *
  * Order (codex Q1/Q7 lock):
  *   1. normalize to repo-root-relative POSIX path
- *   2. protected_files HARD-DENY (config) — wins over any allow
- *   3. allow-set = built-in globs (<feature>-substituted) ∪ config.paths[cat]
+ *   2. reject lexical repo-root escapes before consulting any glob
+ *   3. protected_files HARD-DENY (config) — wins over any allow
+ *   4. allow-set = built-in globs (<feature>-substituted) ∪ config.paths[cat]
  *      for cat ∈ activeCategories only (category-aware widening, NOT a flat
  *      union — `paths.tests` cannot authorize a source write in implement)
- *   4. match → allowed; else WRITE_PATH_VIOLATION
+ *   5. match → allowed; else WRITE_PATH_VIOLATION
  */
 export function evaluateWritePath(input: WritePathDecisionInput): WritePathDecision {
   const normalized = normalizeToRepoRoot(input.targetPath, input.repoRoot);
 
-  // 2. protected_files hard-deny (after normalization, before allow).
+  // 2. Containment is lexical: no allow/config glob may authorize a path
+  // outside repoRoot. Symlink traversal needs filesystem-aware canonicalization
+  // and is explicitly out of scope for this guard.
+  if (escapesRepoRoot(normalized)) {
+    return {
+      allowed: false,
+      code: "WRITE_PATH_VIOLATION",
+      normalizedPath: normalized,
+      allowSet: [],
+      reason: "outside_repo_root",
+    };
+  }
+
+  // 3. protected_files hard-deny (after containment, before allow).
   if (input.config) {
     const denyGlobs = input.config.protected_files.map((g) => substituteFeature(g, input.feature));
     const matchedDeny = firstMatch(normalized, denyGlobs);
@@ -112,7 +135,7 @@ export function evaluateWritePath(input: WritePathDecisionInput): WritePathDecis
     }
   }
 
-  // 3. allow-set = built-in ∪ category-widened config paths.
+  // 4. allow-set = built-in ∪ category-widened config paths.
   const allowSet: string[] = input.builtinGlobs.map((g) => substituteFeature(g, input.feature));
   if (input.config) {
     for (const cat of input.activeCategories) {
@@ -122,7 +145,7 @@ export function evaluateWritePath(input: WritePathDecisionInput): WritePathDecis
     }
   }
 
-  // 4. decide.
+  // 5. decide.
   if (anyMatch(normalized, allowSet)) {
     return { allowed: true, normalizedPath: normalized };
   }

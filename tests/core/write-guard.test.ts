@@ -73,6 +73,70 @@ describe("evaluateWritePath — base allow/deny", () => {
     });
     expect(d.allowed).toBe(true);
   });
+
+  test("in-repo dotfile is allowed when its glob is active", () => {
+    const d = evaluateWritePath({
+      ...base,
+      targetPath: "/repo/.github/workflows/ci.yml",
+      builtinGlobs: [".github/**"],
+    });
+    expect(d.allowed).toBe(true);
+  });
+});
+
+describe("write-guard repo containment", () => {
+  const base = {
+    repoRoot: REPO,
+    feature: "auth",
+    subState: "EXECUTE.work",
+    activeCategories: [] as WriteCategory[],
+  };
+
+  test("relative path escaping the repo is denied without config even if a glob matches", () => {
+    const d = evaluateWritePath({
+      ...base,
+      targetPath: "../outside/secret.ts",
+      builtinGlobs: ["../outside/**"],
+      config: null,
+    });
+    expect(d).toMatchObject({
+      allowed: false,
+      code: "WRITE_PATH_VIOLATION",
+      normalizedPath: "../outside/secret.ts",
+      reason: "outside_repo_root",
+    });
+  });
+
+  test("absolute path outside the repo is denied even if a glob matches", () => {
+    const d = evaluateWritePath({
+      ...base,
+      targetPath: "/outside/secret.ts",
+      builtinGlobs: ["../outside/**"],
+      config: null,
+    });
+    expect(d).toMatchObject({
+      allowed: false,
+      code: "WRITE_PATH_VIOLATION",
+      normalizedPath: "../outside/secret.ts",
+      reason: "outside_repo_root",
+    });
+  });
+
+  test("active config paths cannot authorize an outside-repo write", () => {
+    const d = evaluateWritePath({
+      ...base,
+      targetPath: "../outside/secret.ts",
+      builtinGlobs: [],
+      activeCategories: ["source"],
+      config: cfg({ paths: { source: ["../outside/**"] } }),
+    });
+    expect(d).toMatchObject({
+      allowed: false,
+      code: "WRITE_PATH_VIOLATION",
+      normalizedPath: "../outside/secret.ts",
+      reason: "outside_repo_root",
+    });
+  });
 });
 
 describe("evaluateWritePath — protected_files hard-deny", () => {

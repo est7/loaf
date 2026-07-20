@@ -255,6 +255,7 @@ export function registerIntegrations(
             normalized_path: decision.normalizedPath,
             sub_state: state.sub_state,
             allow_set: decision.allowSet.slice(0, 30),
+            ...(decision.reason ? { reason: decision.reason } : {}),
           },
         );
       },

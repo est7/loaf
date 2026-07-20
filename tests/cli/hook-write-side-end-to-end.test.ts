@@ -101,6 +101,20 @@ describe("SC-15c — write-guard allow/deny", () => {
     expect(e.detail.sub_state).toBe("TRIAGE.score");
   });
 
+  test("outside-repo write → exit 2 with explicit containment reason", async () => {
+    const { repoRoot, featureDir } = await tmpRepo();
+    await start(featureDir);
+    const r = await runCli([
+      ...wg(featureDir, path.join(repoRoot, "..", "outside", "secret.ts")),
+      "--format",
+      "json",
+    ]);
+    expect(r.exit).toBe(2);
+    const e = JSON.parse(r.stderr);
+    expect(e.code).toBe("WRITE_PATH_VIOLATION");
+    expect(e.detail.reason).toBe("outside_repo_root");
+  });
+
   test("protected_files write → exit 2 PROTECTED_FILE_WRITE (hard-deny beats allow)", async () => {
     const { repoRoot, featureDir } = await tmpRepo();
     await start(featureDir);
