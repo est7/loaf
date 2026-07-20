@@ -9,6 +9,8 @@
 // This module is the canonical runtime owner; protocol.md §11.2 defines the
 // observable transaction contract.
 
+import path from "node:path";
+
 import { z } from "zod";
 
 import {
@@ -65,6 +67,70 @@ export const LongTextField = z.discriminatedUnion("mode", [
   z.object({ mode: z.literal("sidecar"), ref: AttachmentRef }).strict(),
 ]);
 export type LongTextField = z.infer<typeof LongTextField>;
+
+/** One concrete repo-relative POSIX path recorded for actual-scope audit. */
+export const ScopePath = z.string().min(1).superRefine((value, ctx) => {
+  if (value.includes("\0")) {
+    ctx.addIssue({ code: "custom", message: "scope path must not contain NUL" });
+  }
+  if (value.includes("\\")) {
+    ctx.addIssue({ code: "custom", message: "scope path must use POSIX separators" });
+  }
+  if (path.posix.isAbsolute(value) || path.win32.isAbsolute(value)) {
+    ctx.addIssue({ code: "custom", message: "scope path must be repo-relative" });
+  }
+  const segments = value.split("/");
+  if (segments.some((segment) => segment === "" || segment === "." || segment === "..")) {
+    ctx.addIssue({
+      code: "custom",
+      message: "scope path must not contain empty, '.' or '..' segments",
+    });
+  }
+  if (segments[0] === ".loaf") {
+    ctx.addIssue({ code: "custom", message: "scope path must not target .loaf" });
+  }
+});
+export type ScopePath = z.infer<typeof ScopePath>;
+
+/** UTF-8 byte ordering is the canonical cross-runtime scope-path order. */
+export function compareScopePathBytes(left: string, right: string): number {
+  return Buffer.compare(Buffer.from(left, "utf8"), Buffer.from(right, "utf8"));
+}
+
+export const CanonicalScopePaths = z.array(ScopePath).superRefine((paths, ctx) => {
+  for (let index = 1; index < paths.length; index += 1) {
+    if (compareScopePathBytes(paths[index - 1]!, paths[index]!) >= 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: [index],
+        message: "scope paths must be strictly bytewise-sorted and duplicate-free",
+      });
+    }
+  }
+});
+export type CanonicalScopePaths = z.infer<typeof CanonicalScopePaths>;
+
+const CanonicalScopePathsLongText = LongTextField.superRefine((field, ctx) => {
+  if (field.mode === "sidecar") return;
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(field.text);
+  } catch {
+    ctx.addIssue({ code: "custom", message: "inline scope paths must be valid JSON" });
+    return;
+  }
+  const parsed = CanonicalScopePaths.safeParse(decoded);
+  if (!parsed.success) {
+    ctx.addIssue({ code: "custom", message: "inline scope paths must be canonical" });
+    return;
+  }
+  if (field.text !== JSON.stringify(parsed.data)) {
+    ctx.addIssue({
+      code: "custom",
+      message: "inline scope paths must use the canonical JSON encoding",
+    });
+  }
+});
 
 /**
  * Reserved signature payload shape. JournalEntry does not accept a signature
@@ -184,6 +250,7 @@ export const EntryKind = z.enum([
   // ── Domain ledger entries ──
   "evidence:added",
   "lesson:recorded",
+  "scope:recorded",
   "finding:raised",
   "finding:closed",
   "pending:added",
@@ -504,6 +571,19 @@ export const LessonRecordedPayload = z
   })
   .strict();
 export type LessonRecordedPayload = z.infer<typeof LessonRecordedPayload>;
+
+/**
+ * `scope:recorded` payload v1. Small sets remain a canonical array; large
+ * sets use canonical JSON in LongTextField so the shared sidecar pipeline can
+ * keep the journal entry below its byte ceiling.
+ */
+export const ScopeRecordedPayload = z
+  .object({
+    iteration: z.number().int().positive(),
+    paths: z.union([CanonicalScopePaths, CanonicalScopePathsLongText]),
+  })
+  .strict();
+export type ScopeRecordedPayload = z.infer<typeof ScopeRecordedPayload>;
 
 // Slice 3 SC3 (codex r68): canonical finding/evidence payload shapes.
 // Closed category/action enums + canonical FindingId regex catch typos

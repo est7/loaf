@@ -24,13 +24,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Documentation correction:** removed the XDG/`LOAF_CONFIG` contract from the
   protocol; `~/.loaf/` is the user-level estate, with no runtime-reachable data
   to migrate from the abandoned contract.
-- **Breaking protocol change (protocol rev 5.1; next release must bump the
+- **Breaking protocol changes (protocol rev 5.1 → 5.2; next release must bump the
   package version):** `loaf lessons add`
   now emits the independent `lesson:recorded` journal kind with CLI-allocated
   `LSN-NNN` ids. JSON output keeps the stable `id` key. `lessons.md` permanently
   dual-reads the new kind and legacy lesson-shaped `evidence:added` entries;
   new lessons no longer enter evidence projections, coverage, status/board/TUI
-  evidence counts, or resume packs.
+  evidence counts, or resume packs. The journal contract also adds
+  `scope:recorded@1`: a CLI-only, EXECUTE-closure audit entry with canonical
+  repo-relative paths, sidecar support, one-entry-per-iteration enforcement,
+  and replay-derived set-union projection; hook/runtime emission remains staged.
 - **`loaf spec add-req --schema`** now emits the actual runtime allocation
   boundary: `id_namespace` plus the EARS `type`, with the remaining requirement
   body passed through for downstream validation. The former closed schema that

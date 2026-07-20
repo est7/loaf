@@ -1549,6 +1549,26 @@ export const ERROR_CATALOG = {
     detail_keys: [],
     doc_anchor: "protocol.md#§11.2",
   },
+  SCOPE_RECORDED_BATCH_INVALID: {
+    exit_code: 2,
+    message_template: "scope:recorded batch is invalid: {reason}",
+    zh_message_template: "scope:recorded 批次无效:{reason}",
+    fix_template:
+      "emit at most one scope:recorded immediately before exactly one EXECUTE.work to EXECUTE.done transition in the same batch",
+    template_keys: ["reason"],
+    detail_keys: ["reason"],
+    doc_anchor: "protocol.md#§4.6",
+  },
+  SCOPE_RECORDED_ITERATION_DUPLICATE: {
+    exit_code: 2,
+    message_template: "scope:recorded already exists for iteration {iteration}",
+    zh_message_template: "iteration {iteration} 已存在 scope:recorded",
+    fix_template:
+      "reuse the recorded closure result for this iteration or advance through a finding back-edge before recording a new closure",
+    template_keys: ["iteration"],
+    detail_keys: ["iteration"],
+    doc_anchor: "protocol.md#§4.6",
+  },
 
   WRITE_PATH_VIOLATION: {
     // Phase 16 SC-15c — `loaf hook write-guard`: the tool's target path is

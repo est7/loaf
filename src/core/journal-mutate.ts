@@ -68,7 +68,7 @@ import { isDeepStrictEqual } from "node:util";
 import { AppendError, appendMany } from "./journal-append.js";
 import { evaluateSpecLock } from "./gates/spec-lock-eval.js";
 import { evaluateVerifyAccept } from "./gates/verify-accept-eval.js";
-import { type JournalEntry } from "./journal-entry.js";
+import { ScopeRecordedPayload, type JournalEntry } from "./journal-entry.js";
 import { REDUCER_IMPLEMENTED_KINDS, SPEC_EMITTING_KINDS } from "./kind-registry.js";
 import { writeProjections } from "./projection-writer.js";
 import { applyValidated, type Snapshot } from "./reducer.js";
@@ -139,6 +139,8 @@ export type MutateFailureCode =
   | "INVALID_BATCH"
   | "GATE_PRECONDITION_VIOLATION"
   | "MULTIPLE_GATE_DECISIONS"
+  | "SCOPE_RECORDED_BATCH_INVALID"
+  | "SCOPE_RECORDED_ITERATION_DUPLICATE"
   | "PROJECTION_WRITE_FAILED"
   | "WRITE_CONTENTION";
 
@@ -187,6 +189,67 @@ function noSessionResult(entry: JournalEntry, failedIndex: number): MutateBatchR
     failed_index: failedIndex,
     detail: { code: "NO_SESSION" },
   };
+}
+
+export type ScopeRecordedBatchFailure = {
+  code: "SCOPE_RECORDED_BATCH_INVALID" | "SCOPE_RECORDED_ITERATION_DUPLICATE";
+  message: string;
+  detail: Record<string, unknown>;
+};
+
+/** Stable-core invariant over the complete candidate batch + prior journal. */
+export function checkScopeRecordedBatch(
+  candidates: readonly JournalEntry[],
+  priorEntries: readonly JournalEntry[],
+): ScopeRecordedBatchFailure | null {
+  const scopeIndexes = candidates.flatMap((entry, index) =>
+    entry.kind === "scope:recorded" ? [index] : [],
+  );
+  if (scopeIndexes.length === 0) return null;
+  if (scopeIndexes.length > 1) {
+    return {
+      code: "SCOPE_RECORDED_BATCH_INVALID",
+      message: "batch contains more than one scope:recorded entry",
+      detail: { reason: "multiple_scope_entries", count: scopeIndexes.length },
+    };
+  }
+
+  const scopeIndex = scopeIndexes[0]!;
+  const closureIndexes = candidates.flatMap((entry, index) => {
+    const payload = entry.payload as { from?: unknown; to?: unknown };
+    return entry.kind === "event:phase_advanced" &&
+      payload.from === "EXECUTE.work" &&
+      payload.to === "EXECUTE.done"
+      ? [index]
+      : [];
+  });
+  if (closureIndexes.length !== 1 || closureIndexes[0] !== scopeIndex + 1) {
+    return {
+      code: "SCOPE_RECORDED_BATCH_INVALID",
+      message:
+        "scope:recorded must sit immediately before exactly one EXECUTE.work → EXECUTE.done transition in the same batch",
+      detail: {
+        reason: "missing_or_non_adjacent_execute_closure",
+        scope_index: scopeIndex,
+        closure_indexes: closureIndexes,
+      },
+    };
+  }
+
+  const { iteration } = ScopeRecordedPayload.parse(candidates[scopeIndex]!.payload);
+  const duplicate = priorEntries.some(
+    (entry) =>
+      entry.kind === "scope:recorded" &&
+      ScopeRecordedPayload.parse(entry.payload).iteration === iteration,
+  );
+  if (duplicate) {
+    return {
+      code: "SCOPE_RECORDED_ITERATION_DUPLICATE",
+      message: `scope:recorded already exists for iteration ${iteration}`,
+      detail: { iteration },
+    };
+  }
+  return null;
 }
 
 // Slice 1.D: DEFAULT_BOOTSTRAP_CEREMONY moved into preflight() — single-source
@@ -307,6 +370,14 @@ export async function mutateBatch(
     }
     snapshotAcc = dryRun.snapshot;
     candidates.push(candidate);
+  }
+
+  // Batch/history invariant belongs here, after per-entry schema/authority +
+  // reducer validation and before sidecars or any other I/O. preflight cannot
+  // own it because it sees neither the complete batch nor prior journal rows.
+  const scopeBatchFailure = checkScopeRecordedBatch(candidates, ctx.entries);
+  if (scopeBatchFailure) {
+    return { ok: false, ...scopeBatchFailure };
   }
 
   // Pass 1.5 (Slice 1.B sub-cycle 3c, codex r28 GO v2): gate precondition

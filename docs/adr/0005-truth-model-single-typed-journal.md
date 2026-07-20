@@ -225,6 +225,7 @@ event:spec_submitted
 evidence:added                # kind ∈ {test, review, visual, manual, waiver}
                               # rev 3:删除 gate-decision 子类型
 lesson:recorded               # payload LessonRecordedPayload@1; journal-only lesson ledger
+scope:recorded                # payload ScopeRecordedPayload@1; actual-scope closure ledger
 finding:raised
 finding:closed
 pending:added
@@ -290,6 +291,7 @@ type ActorString =
 | `gate:decided` | `human:` only |
 | `evidence:added` (payload.kind ∈ {manual, waiver}) | `human:` only |
 | `lesson:recorded` | `human:` only |
+| `scope:recorded` | `cli:` only |
 | `session:archived` / `session:abandoned` / `session:delivered` | `human:` only |
 | `spike:converted` | `human:` only |
 | `migration:snapshot_imported` | `migration:` only |
@@ -428,6 +430,7 @@ CLI 输出（命令成功路径）wrap footer：`# snapshot as-of seq=N (last_ap
 | `event:spec_*` / `_submitted` | `SPEC.*` (pre-lock) | `loaf spec add-*` | spec_locked=false |
 | `evidence:added` | `EXECUTE.*` / `VERIFY.*` | `loaf evidence add` | covers 指向合法 id |
 | `lesson:recorded` | 任意 non-DONE | `loaf lessons add` | strict payload；actor `human:`；reducer 显式 no-op |
+| `scope:recorded` | `EXECUTE.work` only | EXECUTE closure writer（本 sub-cycle 尚未接 hook/runtime） | strict payload；actor `cli:`；必须紧邻同批 `EXECUTE.work → EXECUTE.done`；每 iteration 最多一条；reducer 显式 no-op |
 | `finding:raised` / `closed` | `VERIFY.*` / post-lock `EXECUTE.*` | `loaf finding raise/close` | category/action 合法 |
 | `pending:added` / `resolved` | 任意 | `loaf pending raise/resolve` | FIFO 严格 |
 | `gate:decided` | `gate_kind="spec-lock"` ⇒ `SPEC.design`；`gate_kind="verify-accept"` ⇒ `VERIFY.accept`（standard+ only） | `loaf gate decide` | actor `human:`；**复用 LEGAL_TRANSITIONS validator**（rev 4） |

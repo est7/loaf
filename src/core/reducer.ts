@@ -730,6 +730,13 @@ export function applyValidated(prev: Snapshot, entry: JournalEntry): ApplyResult
       return { ok: true, snapshot: prev };
     }
 
+    case "scope:recorded": {
+      // Actual scope is audit-only journal data projected from the full entry
+      // stream. It may be sidecar-backed, while applyValidated is synchronous;
+      // keeping this an explicit no-op prevents it from leaking into gate state.
+      return { ok: true, snapshot: prev };
+    }
+
     case "finding:raised": {
       // Payload schema strict-validated at preflight (PER_KIND_PAYLOAD →
       // FindingRaisedPayload). Defense-in-depth id/category/action check

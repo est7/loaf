@@ -1,8 +1,12 @@
-# loaf-cli Protocol — v1 Draft (rev 5.1)
+# loaf-cli Protocol — v1 Draft (rev 5.2)
 
 > 2026-05-15 · prose source of truth。机器契约导航见 [`machine-contract.md`](machine-contract.md),可视化伴侣见 `index.html`(原 `protocol.html`,v0.1.0 GA 起重命名为 `index.html` —— 作为持续维护的项目对外页面)。
 >
 > loaf-cli v1 是 legacy Python 原型(early-draft 内部称 "v2")的 successor,from scratch。把 legacy 当老师,不当父亲。v1 GA 之后 legacy 原型进 archive。
+>
+> **rev 5.2 — `scope:recorded` actual-scope journal contract**(2026-07-20;ticket #11 sub-cycle 1 仅落 contract layer,尚未接 hook/runtime/advance emitter):
+> - 新增 additive `scope:recorded@1` payload `{iteration, paths}`。`paths` 是 strictly UTF-8-byte-sorted、去重的 repo-relative POSIX concrete path array；拒绝 absolute、空/`.`/`..` segment、backslash、NUL 与 `.loaf/**`。大集合以相同 canonical JSON 编码走 `LongTextField` sidecar。
+> - 每批最多一条；存在时必须紧邻同批唯一 `EXECUTE.work → EXECUTE.done` 之前；同 iteration 历史不得重复。actor=`cli:*`，source sub_state=`EXECUTE.work`，reducer 显式 no-op；`deriveActualScope()` 从完整 entry stream 校验 sidecar 后做 set-union 并返回 canonical order。
 >
 > **rev 5.1 — `lesson:recorded` 独立协议 kind**(2026-07-16;下次 release 必须同步 bump package version,不能只靠 CHANGELOG 声明):
 > - `loaf lessons add` 从 legacy `evidence:added(payload.kind=manual)` 切到 strict `lesson:recorded@1` payload `{id: LSN-NNN, iteration, reason, summary}`;JSON 输出键仍为 `id`。LSN allocator 只扫 journal 中的新 kind,不复用 REQ/SCEN/VIS 的 `id_namespace` 输入面。
@@ -881,7 +885,7 @@ reconcile.json 配套字段 `unusual_findings_count`(§4.6)聚合本轮 unusual 
   "schema_version": 2,
   "based_on": { "spec": 3, "tasks": 5 },
   "planned_scope": ["src/auth/**", "tests/auth/**"],
-  "actual_scope":  ["src/auth/**", "tests/auth/**", "src/network/retry.ts"],
+  "actual_scope":  ["src/auth/login.ts", "src/network/retry.ts", "tests/auth/login.test.ts"],
   "drift": [
     {
       "path": "src/network/retry.ts",
@@ -914,6 +918,8 @@ reconcile.json 配套字段 `unusual_findings_count`(§4.6)聚合本轮 unusual 
 ```
 
 **重要**:`verify_checks_status` 在这里是 SETTLE 时间的 snapshot;**verify-accept gate 不读这个,而是用 spec/tasks/evidence 实时计算**。
+
+**`scope:recorded@1` authority**:`actual_scope` 只从完整 journal entry stream 中的 `scope:recorded` 重算；每条 payload 为 strict `{iteration: positive-int, paths}`，其中 `paths` 是 canonical concrete path array，或 carrying 同一 array canonical JSON 的 `LongTextField`。多 iteration/closure entry 以集合 union 聚合。该 kind 只允许 `cli:*` 在 `EXECUTE.work` 发出，必须与紧随其后的唯一 `event:phase_advanced {from:"EXECUTE.work",to:"EXECUTE.done"}` 同 batch，且历史中同 iteration 不得重复。当前 sub-cycle 只注册此 contract；hook/runtime/advance 尚不 emit。
 
 **`unusual_findings_count`**(rev 4.3,ADR-0004 A7):本轮 raise 时 cell 落 `unusual`(`FINDING_ACTION_GRID`,§4.5)的 finding 个数。`incoherent` 是 block 路径(raise 失败,不落 findings.jsonl,故**不**计入)。`unusual` finding 的 `--reason` 已强制 ≥ 20 字符,可在 reviewer 抽查时用作焦点定位(`findings.jsonl` grep `category × action` cell 是 unusual 的条目)。本字段不影响 verify-accept gate 决策,仅作 SETTLE 时 reconcile 审计信号。
 
@@ -1868,6 +1874,8 @@ error: <one-line human description>
 | <code>APPEND_ERROR</code> | 2 | <code>journal append failed</code> | <code>preserve journal.jsonl and the emitted detail, then inspect the append error before retrying; if a write may have started, run `loaf doctor` to verify journal integrity</code> | <code>protocol.md#§11.2</code> |
 | <code>SIDECAR_ERROR</code> | 2 | <code>sidecar finalize failed: &#123;err&#125;</code> | <code>inspect the emitted error and attachment path permissions; validation already passed, so remove any orphan sidecar residue before retrying</code> | <code>protocol.md#§11.2</code> |
 | <code>INVALID_BATCH</code> | 2 | <code>mutation batch is invalid</code> | <code>rebuild the batch through the CLI mutator without caller-owned envelope fields and with entries + meta matching the current journal tail</code> | <code>protocol.md#§11.2</code> |
+| <code>SCOPE_RECORDED_BATCH_INVALID</code> | 2 | <code>scope:recorded batch is invalid: &#123;reason&#125;</code> | <code>emit at most one scope:recorded immediately before exactly one EXECUTE.work to EXECUTE.done transition in the same batch</code> | <code>protocol.md#§4.6</code> |
+| <code>SCOPE_RECORDED_ITERATION_DUPLICATE</code> | 2 | <code>scope:recorded already exists for iteration &#123;iteration&#125;</code> | <code>reuse the recorded closure result for this iteration or advance through a finding back-edge before recording a new closure</code> | <code>protocol.md#§4.6</code> |
 | <code>WRITE_PATH_VIOLATION</code> | 2 | <code>write blocked: `&#123;normalized_path&#125;` is outside the allowed write paths for sub_state `&#123;sub_state&#125;`</code> | <code>write within the current step's contract, advance to the right sub_state/step first, or widen the matching `paths.*` category in .loaf/.config/loaf.config.json</code> | <code>protocol.md#§11.1</code> |
 | <code>PROTECTED_FILE_WRITE</code> | 2 | <code>write blocked: `&#123;normalized_path&#125;` matches protected_files entry `&#123;matched_deny&#125;` — protected files are never writable</code> | <code>remove the entry from protected_files in .loaf/.config/loaf.config.json if the protection is wrong, otherwise write a different file</code> | <code>protocol.md#§11.1</code> |
 <!-- generated:error-catalog END -->

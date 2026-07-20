@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 `loaf-cli` is the **protocol kernel** for Loaf's feature-lifecycle workflow.
 
 <!-- claude-semantic-claim: protocol-revision owner=docs/protocol.md -->
-The authoritative protocol currently declares rev 5.1.
+The authoritative protocol currently declares rev 5.2.
 <!-- /claude-semantic-claim -->
 
 Runtime contracts — including the journal truth model, projections, state machine, IDs, journal kinds, and diagnostics — are owned by `docs/machine-contract.md` and the runtime sources it indexes. ADR context for the truth model lives in `docs/adr/0005-truth-model-single-typed-journal.md`.

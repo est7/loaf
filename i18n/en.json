@@ -273,6 +273,8 @@
     "DOCTOR_REBUILD_FAILED": "doctor --rebuild failed",
     "DOCTOR_REBUILD_MIGRATED_UNSUPPORTED": "doctor --rebuild does not support v0.0.x-migrated journals in this release",
     "REDUCER_ERROR": "internal reducer invariant failed",
+    "SCOPE_RECORDED_BATCH_INVALID": "scope:recorded batch is invalid: {reason}",
+    "SCOPE_RECORDED_ITERATION_DUPLICATE": "scope:recorded already exists for iteration {iteration}",
     "WRITE_PATH_VIOLATION": "write blocked: `{normalized_path}` is outside the allowed write paths for sub_state `{sub_state}`",
     "PROTECTED_FILE_WRITE": "write blocked: `{normalized_path}` matches protected_files entry `{matched_deny}` — protected files are never writable"
   },

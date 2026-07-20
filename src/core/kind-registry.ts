@@ -26,6 +26,7 @@ import {
   PendingAddedPayload,
   PendingResolvedPayload,
   PhaseAdvancedPayload,
+  ScopeRecordedPayload,
   SessionReasonPayload,
   SessionResumedPayload,
   SessionStartedPayload,
@@ -181,6 +182,13 @@ export const KIND_REGISTRY: Record<EntryKind, KindMeta> = {
     reducerImplemented: true,
     subStates: ANY_NON_DONE,
     actors: HUMAN_ONLY,
+    emitsSpec: false,
+  },
+  "scope:recorded": {
+    payload: ScopeRecordedPayload,
+    reducerImplemented: true,
+    subStates: new Set<SubState>(["EXECUTE.work"]),
+    actors: CLI_ONLY,
     emitsSpec: false,
   },
   "finding:raised": {

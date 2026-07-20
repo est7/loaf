@@ -49,9 +49,9 @@ import { ANY_NON_DONE, ANY_SUB_STATE } from "../../src/core/kind-guards.js";
 const sorted = (s: Iterable<string>): string[] => [...s].sort();
 
 describe("kind-registry — totality + invariants", () => {
-  test("registry keys == the EntryKind enum (27 kinds)", () => {
+  test("registry keys == the EntryKind enum (28 kinds)", () => {
     expect(sorted(Object.keys(KIND_REGISTRY))).toEqual(sorted(EntryKind.options));
-    expect(Object.keys(KIND_REGISTRY)).toHaveLength(27);
+    expect(Object.keys(KIND_REGISTRY)).toHaveLength(28);
   });
 
   test("every emitsSpec kind is reducerImplemented", () => {
@@ -62,7 +62,7 @@ describe("kind-registry — totality + invariants", () => {
 });
 
 describe("preservation — set surfaces (legacy fixtures)", () => {
-  test("REDUCER_IMPLEMENTED_KINDS == all 27 kinds", () => {
+  test("REDUCER_IMPLEMENTED_KINDS == all 28 kinds", () => {
     expect(sorted(REDUCER_IMPLEMENTED_KINDS)).toEqual(
       sorted([
         "event:phase_advanced",
@@ -80,6 +80,7 @@ describe("preservation — set surfaces (legacy fixtures)", () => {
         "event:spec_submitted",
         "evidence:added",
         "lesson:recorded",
+        "scope:recorded",
         "finding:raised",
         "finding:closed",
         "pending:added",
