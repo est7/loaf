@@ -959,6 +959,11 @@ doctor startup tail recovery **必须以 batch 为单位**（§4.13 N15 修复�
 - 单 entry partial → truncate 单 entry
 - batch incomplete（`batch_index < batch_count - 1` 或 batch 末 entry partial）→
   truncate 整个 batch 到 batch 第一个 entry 之前
+- truncate offset 必须来自原始磁盘行扫描记录的 byte pre-offset，禁止用 parse 后的
+  `JSON.stringify` 重算；invalid tail 已从幸存集排除后不得再次按 invalid count 扣减
+- valid stable envelope 若携带未知 `kind` 或高于当前 per-kind 支持值的
+  `entry_schema_version`，视为 newer writer，报 `JOURNAL_TAIL_REQUIRES_NEWER_LOAF`
+  并保持文件字节不变；该 tolerant-reader 判定不解释 payload
 
 `src/core/journal-bootstrap.ts` 实现层 invariant：
 ```ts
@@ -976,7 +981,8 @@ function recoverTail(journalPath): RecoveryAction {
 }
 ```
 
-测试 `tests/core/tail-corruption.test.ts` 7 场景覆盖。
+测试 `tests/core/tail-corruption.test.ts` 覆盖基础 7 场景以及 H2/M2 原始偏移、
+newer-writer 防截断回归。
 
 ### Gate #5 — Snapshot read fail-fast
 

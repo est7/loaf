@@ -266,6 +266,7 @@
     "BUG_TASK_RED_NOT_REGISTERED": "behavioral bug task {task_id} is done but never registered its RED test (red_test_registered≠true)",
     "SPIKE_CONVERT_NO_SPIKE_TASK": "cannot convert: the session has no non-abandoned spike task; `loaf spike convert` is a spike-task exit (protocol §8.3)",
     "SNAPSHOT_STALE_REBUILD_REQUIRED": "snapshot stale (reason={reason}) at {feature_dir}; run `loaf doctor --rebuild --feature <feature>` to re-serialize from journal truth",
+    "JOURNAL_TAIL_REQUIRES_NEWER_LOAF": "tail recovery refused at seq {seq}: journal kind {kind} uses entry schema {entry_schema_version} ({reason})",
     "INVALID_PRESET": "invalid ceremony preset",
     "USAGE": "invalid CLI usage",
     "DOCTOR_MODE_NOT_IMPLEMENTED": "requested loaf doctor mode is not implemented in this release",

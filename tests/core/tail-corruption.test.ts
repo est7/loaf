@@ -162,4 +162,125 @@ describe("tailRecovery — Gate #4 (ADR-0005 §4.13)", () => {
     const contents = await fs.readFile(fp, "utf8");
     expect(contents).toBe(serialize(prelude));
   });
+
+  test("complete batch plus one garbage line drops only the garbage line", async () => {
+    const fp = await tmpJournal();
+    const batchId = "550e8400-e29b-41d4-a716-446655440000";
+    const completeBatch = [
+      singleEntry({
+        seq: 0,
+        entry_id: "JE-000001",
+        batch_id: batchId,
+        batch_index: 0,
+        batch_count: 2,
+      }),
+      singleEntry({
+        seq: 1,
+        entry_id: "JE-000002",
+        batch_id: batchId,
+        batch_index: 1,
+        batch_count: 2,
+      }),
+    ];
+    const committed = completeBatch.map(serialize).join("");
+    const garbage = "garbage-not-json\n";
+    await writeRaw(fp, committed + garbage);
+
+    const r = await tailRecovery(fp);
+
+    expect(r).toEqual({
+      action: "drop_invalid_tail",
+      truncated_bytes: Buffer.byteLength(garbage),
+      truncated_entries: 1,
+    });
+    expect(await fs.readFile(fp, "utf8")).toBe(committed);
+  });
+
+  test("partial-batch truncation uses original line offsets, not re-serialized bytes", async () => {
+    const fp = await tmpJournal();
+    const prelude = serialize(singleEntry({ seq: 0, entry_id: "JE-000001" }));
+    const batchId = "550e8400-e29b-41d4-a716-446655440000";
+    const partialBatch = [
+      singleEntry({
+        seq: 1,
+        entry_id: "JE-000002",
+        batch_id: batchId,
+        batch_index: 0,
+        batch_count: 3,
+      }),
+      singleEntry({
+        seq: 2,
+        entry_id: "JE-000003",
+        batch_id: batchId,
+        batch_index: 1,
+        batch_count: 3,
+      }),
+    ];
+    const originalBatchBytes = partialBatch
+      .map((entry) => `${JSON.stringify(entry).replace("{", "{   ")}\n`)
+      .join("");
+    await writeRaw(fp, prelude + originalBatchBytes);
+
+    const r = await tailRecovery(fp);
+
+    expect(r).toEqual({
+      action: "drop_partial_batch",
+      truncated_bytes: Buffer.byteLength(originalBatchBytes),
+      truncated_entries: 2,
+    });
+    expect(await fs.readFile(fp, "utf8")).toBe(prelude);
+  });
+
+  test("unknown tail kind is refused and the real file remains byte-identical", async () => {
+    const fp = await tmpJournal();
+    const known = serialize(singleEntry());
+    const future = `${JSON.stringify({
+      seq: 1,
+      entry_id: "JE-000002",
+      at: "2026-05-15T10:00:01.000Z",
+      actor: "cli:loaf",
+      entry_schema_version: 1,
+      kind: "future:recorded",
+      payload: { value: "new-writer-data" },
+      future_envelope_field: true,
+    })}\n`;
+    const original = known + future;
+    await writeRaw(fp, original);
+
+    await expect(tailRecovery(fp)).rejects.toMatchObject({
+      code: "JOURNAL_TAIL_REQUIRES_NEWER_LOAF",
+      detail: {
+        seq: 1,
+        kind: "future:recorded",
+        entry_schema_version: 1,
+        reason: "unknown_kind",
+      },
+    });
+    expect(await fs.readFile(fp, "utf8")).toBe(original);
+  });
+
+  test("higher tail entry schema version is refused and the real file remains byte-identical", async () => {
+    const fp = await tmpJournal();
+    const known = serialize(singleEntry());
+    const future = serialize(
+      singleEntry({
+        seq: 1,
+        entry_id: "JE-000002",
+        entry_schema_version: 2,
+      }),
+    );
+    const original = known + future;
+    await writeRaw(fp, original);
+
+    await expect(tailRecovery(fp)).rejects.toMatchObject({
+      code: "JOURNAL_TAIL_REQUIRES_NEWER_LOAF",
+      detail: {
+        seq: 1,
+        kind: "pending:added",
+        entry_schema_version: 2,
+        reason: "entry_schema_version_too_new",
+      },
+    });
+    expect(await fs.readFile(fp, "utf8")).toBe(original);
+  });
 });

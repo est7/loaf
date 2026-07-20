@@ -15,8 +15,16 @@
 // the per-feature lock.
 
 import { promises as fsp } from "node:fs";
+import { z } from "zod";
 
-import { JournalEntry, type JournalEntry as JE } from "./journal-entry.js";
+import {
+  ActorString,
+  BatchId,
+  EntryId,
+  EntryKind,
+  JournalEntry,
+  type JournalEntry as JE,
+} from "./journal-entry.js";
 import {
   apply,
   initialSnapshot,
@@ -24,7 +32,7 @@ import {
   type ApplyResult,
   type Snapshot,
 } from "./reducer.js";
-import { rehydrateMigration } from "./migration.js";
+import { ENTRY_SCHEMA_VERSIONS, rehydrateMigration } from "./migration.js";
 import {
   computeLineHash,
   extendRollingChecksum,
@@ -233,6 +241,118 @@ export interface TailRecoveryResult {
   action: "noop" | "drop_partial_line" | "drop_partial_batch" | "drop_invalid_tail";
 }
 
+export type TailRecoveryUpgradeReason =
+  | "unknown_kind"
+  | "entry_schema_version_too_new";
+
+export interface TailRecoveryUpgradeDetail {
+  seq: number;
+  kind: string;
+  entry_schema_version: number;
+  reason: TailRecoveryUpgradeReason;
+}
+
+/**
+ * Refuses destructive recovery when the tail proves that a newer writer has
+ * emitted an entry this binary cannot interpret.
+ */
+export class TailRecoveryUpgradeRequiredError extends Error {
+  readonly code = "JOURNAL_TAIL_REQUIRES_NEWER_LOAF" as const;
+  readonly detail: TailRecoveryUpgradeDetail;
+
+  constructor(detail: TailRecoveryUpgradeDetail) {
+    super(
+      `tail recovery refused at seq ${detail.seq}: kind ${detail.kind} uses entry schema ${detail.entry_schema_version} (${detail.reason})`,
+    );
+    this.name = "TailRecoveryUpgradeRequiredError";
+    this.detail = detail;
+  }
+}
+
+// Tolerant-reader envelope used only to recognize a newer writer before any
+// truncate. Payload semantics and unknown extra fields are deliberately not
+// interpreted; the stable identity/order/actor/version/kind fields and the
+// optional batch triplet must still satisfy the current envelope contract.
+const TailRecoveryEnvelope = z
+  .object({
+    seq: z.number().int().nonnegative(),
+    entry_id: EntryId,
+    at: z.string().datetime(),
+    actor: ActorString,
+    entry_schema_version: z.number().int().positive(),
+    kind: z.string().min(1),
+    payload: z.unknown(),
+    batch_id: BatchId.optional(),
+    batch_index: z.number().int().nonnegative().optional(),
+    batch_count: z.number().int().positive().optional(),
+  })
+  .passthrough()
+  .refine(
+    (entry) => {
+      const present = [entry.batch_id, entry.batch_index, entry.batch_count].filter(
+        (value) => value !== undefined,
+      ).length;
+      return present === 0 || present === 3;
+    },
+    { message: "batch_id, batch_index, batch_count must be all-present or all-absent" },
+  )
+  .refine(
+    (entry) =>
+      entry.batch_index === undefined ||
+      entry.batch_count === undefined ||
+      entry.batch_index < entry.batch_count,
+    { message: "batch_index must be < batch_count" },
+  );
+
+type ClassifiedTailLine =
+  | { status: "known"; entry: JE }
+  | { status: "newer"; detail: TailRecoveryUpgradeDetail }
+  | { status: "invalid" };
+
+function classifyTailLine(line: string): ClassifiedTailLine {
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(line);
+  } catch {
+    return { status: "invalid" };
+  }
+
+  const envelope = TailRecoveryEnvelope.safeParse(decoded);
+  if (envelope.success) {
+    const knownKind = EntryKind.safeParse(envelope.data.kind);
+    if (!knownKind.success) {
+      return {
+        status: "newer",
+        detail: {
+          seq: envelope.data.seq,
+          kind: envelope.data.kind,
+          entry_schema_version: envelope.data.entry_schema_version,
+          reason: "unknown_kind",
+        },
+      };
+    }
+    if (envelope.data.entry_schema_version > ENTRY_SCHEMA_VERSIONS[knownKind.data]) {
+      return {
+        status: "newer",
+        detail: {
+          seq: envelope.data.seq,
+          kind: knownKind.data,
+          entry_schema_version: envelope.data.entry_schema_version,
+          reason: "entry_schema_version_too_new",
+        },
+      };
+    }
+  }
+
+  const parsed = JournalEntry.safeParse(decoded);
+  return parsed.success ? { status: "known", entry: parsed.data } : { status: "invalid" };
+}
+
+interface DiskLine {
+  text: string;
+  start_offset: number;
+}
+
 /**
  * Walk the journal from the end; if the tail is malformed (no trailing \n,
  * JSON parse fails, batch incomplete), truncate back to the last fully
@@ -260,107 +380,111 @@ export async function tailRecovery(filePath: string): Promise<TailRecoveryResult
     return { truncated_bytes: 0, truncated_entries: 0, action: "noop" };
   }
 
-  // Split keeping all segments. A trailing "\n" produces an empty final
-  // segment (which represents proper line termination); a non-empty final
-  // segment means partial line (no trailing newline).
+  // Split keeping all segments while retaining the original byte offsets.
+  // A trailing "\n" produces an empty final segment; a non-empty final
+  // segment is a partial line. Every truncate target below is one of these
+  // recorded offsets — never a re-serialized entry length.
   const segments = contents.split("\n");
   const trailingTerminated = segments[segments.length - 1] === "";
-  const partialLine = trailingTerminated ? null : segments[segments.length - 1]!;
-  const completeLines = trailingTerminated ? segments.slice(0, -1) : segments.slice(0, -1);
+  const completeSegments = segments.slice(0, -1);
+  const completeLines: DiskLine[] = [];
+  let cursor = 0;
+  for (const text of completeSegments) {
+    completeLines.push({ text, start_offset: cursor });
+    cursor += Buffer.byteLength(`${text}\n`, "utf8");
+  }
+  const partialLine: DiskLine | null = trailingTerminated
+    ? null
+    : {
+        text: segments[segments.length - 1]!,
+        start_offset: cursor,
+      };
+  const totalBytes = Buffer.byteLength(contents, "utf8");
+  const classified = completeLines.map((line) => classifyTailLine(line.text));
 
-  // Phase 1: drop trailing partial line if present.
-  let truncated_bytes = 0;
-  let truncated_entries = 0;
+  let truncateOffset = totalBytes;
+  let truncatedEntries = 0;
   let action: TailRecoveryResult["action"] = "noop";
 
+  // Phase 1: a non-newline-terminated segment is uncommitted. A structurally
+  // valid newer-writer entry is still fail-closed because it is explicitly
+  // non-truncatable under the compatibility gate.
   if (partialLine !== null) {
-    truncated_bytes += Buffer.byteLength(partialLine, "utf8");
+    const partialClassification = classifyTailLine(partialLine.text);
+    if (partialClassification.status === "newer") {
+      throw new TailRecoveryUpgradeRequiredError(partialClassification.detail);
+    }
+    truncateOffset = partialLine.start_offset;
     action = "drop_partial_line";
   }
 
-  // Phase 2: validate every complete line; drop trailing invalid lines.
-  // We walk backwards stripping bad tail lines.
-  const goodEntries: JE[] = [];
-  for (const line of completeLines) {
-    try {
-      const parsed = JournalEntry.safeParse(JSON.parse(line));
-      if (!parsed.success) {
-        // From this point forward, every line is treated as corrupt tail.
-        continue;
-      }
-      // Reset trailing invalidation buffer if a good line follows? No —
-      // §4.13 contract: corruption is strictly tail-monotonic. If a JSON
-      // failure occurs mid-file, that's a corruption mode we don't
-      // self-repair (would need replay; doctor --rebuild surfaces).
-      // For minimum viable, count only the trailing run.
-      goodEntries.push(parsed.data);
-    } catch {}
-  }
-
-  // Restrict invalid handling to a trailing run — i.e. counter resets when a
-  // valid line follows. Recompute the trailing-only count.
-  // (Above we already aggregated assuming monotonic; redo cleanly.)
+  // Phase 2: strip only the trailing run of invalid complete lines. Stop at
+  // the first known entry. A newer-writer envelope blocks the entire repair
+  // before the file is opened for mutation.
   let trailingInvalidCount = 0;
-  let trailingInvalidBytes = 0;
   for (let i = completeLines.length - 1; i >= 0; i--) {
-    const line = completeLines[i]!;
-    try {
-      const parsed = JournalEntry.safeParse(JSON.parse(line));
-      if (parsed.success) break;
-      trailingInvalidCount++;
-      trailingInvalidBytes += Buffer.byteLength(line + "\n", "utf8");
-    } catch {
-      trailingInvalidCount++;
-      trailingInvalidBytes += Buffer.byteLength(line + "\n", "utf8");
+    const line = classified[i]!;
+    if (line.status === "known") break;
+    if (line.status === "newer") {
+      throw new TailRecoveryUpgradeRequiredError(line.detail);
     }
+    trailingInvalidCount += 1;
+    truncateOffset = completeLines[i]!.start_offset;
   }
 
-  if (trailingInvalidCount > 0 && partialLine === null) {
+  if (trailingInvalidCount > 0) {
     action = "drop_invalid_tail";
-  } else if (trailingInvalidCount > 0 && partialLine !== null) {
-    action = "drop_invalid_tail"; // dominant; partial line absorbed
   }
-  truncated_bytes += trailingInvalidBytes;
-  truncated_entries += trailingInvalidCount;
+  truncatedEntries += trailingInvalidCount;
 
-  // Phase 3: batch-aware truncation. Re-parse the surviving complete lines
-  // (strip the trailing invalid count) and check if the last lines form an
+  // Phase 3: batch-aware truncation. Inspect the surviving original lines
+  // (strip the trailing invalid run) and check if the last lines form an
   // incomplete batch — i.e. batch_id with fewer entries than batch_count.
-  const survivors = goodEntries.slice(0, goodEntries.length - trailingInvalidCount);
-  if (survivors.length > 0) {
-    const last = survivors[survivors.length - 1]!;
+  const survivorCount = completeLines.length - trailingInvalidCount;
+  if (survivorCount > 0) {
+    const lastClassified = classified[survivorCount - 1]!;
+    if (lastClassified.status === "newer") {
+      throw new TailRecoveryUpgradeRequiredError(lastClassified.detail);
+    }
+    const last = lastClassified.status === "known" ? lastClassified.entry : null;
+    // The trailing-invalid scan guarantees the last survivor is known.
+    if (last === null) {
+      throw new Error("tail recovery invariant violated: last survivor is invalid");
+    }
     if (last.batch_id !== undefined) {
       // Collect contiguous trailing run with the same batch_id.
-      let batchStartIdx = survivors.length - 1;
-      while (batchStartIdx > 0 && survivors[batchStartIdx - 1]!.batch_id === last.batch_id) {
-        batchStartIdx--;
+      let batchStartIdx = survivorCount - 1;
+      while (batchStartIdx > 0) {
+        const previous = classified[batchStartIdx - 1]!;
+        if (previous.status !== "known" || previous.entry.batch_id !== last.batch_id) break;
+        batchStartIdx -= 1;
       }
-      const batchEntries = survivors.slice(batchStartIdx);
-      const declaredCount = last.batch_count ?? batchEntries.length;
-      if (batchEntries.length < declaredCount) {
-        // Truncate the entire batch.
-        for (const e of batchEntries) {
-          const line = JSON.stringify(e);
-          truncated_bytes += Buffer.byteLength(line + "\n", "utf8");
-          truncated_entries += 1;
-        }
+      const batchEntryCount = survivorCount - batchStartIdx;
+      const declaredCount = last.batch_count ?? batchEntryCount;
+      if (batchEntryCount < declaredCount) {
+        truncateOffset = completeLines[batchStartIdx]!.start_offset;
+        truncatedEntries += batchEntryCount;
         action = "drop_partial_batch";
       }
     }
   }
 
-  if (truncated_bytes === 0) {
+  if (truncateOffset === totalBytes) {
     return { truncated_bytes: 0, truncated_entries: 0, action: "noop" };
   }
 
-  const newSize = Buffer.byteLength(contents, "utf8") - truncated_bytes;
+  const truncatedBytes = totalBytes - truncateOffset;
   const fh = await fsp.open(filePath, "r+");
   try {
-    await fh.truncate(newSize);
+    await fh.truncate(truncateOffset);
     await fh.sync();
   } finally {
     await fh.close();
   }
 
-  return { truncated_bytes, truncated_entries, action };
+  return {
+    truncated_bytes: truncatedBytes,
+    truncated_entries: truncatedEntries,
+    action,
+  };
 }

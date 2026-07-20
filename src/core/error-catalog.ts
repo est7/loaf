@@ -1445,6 +1445,20 @@ export const ERROR_CATALOG = {
     template_keys: ["feature_dir", "reason"],
     doc_anchor: "protocol.md#§10.15",
   },
+  JOURNAL_TAIL_REQUIRES_NEWER_LOAF: {
+    exit_code: 2,
+    message_template:
+      "tail recovery refused at seq {seq}: journal kind {kind} uses entry schema {entry_schema_version} ({reason})",
+    zh_message_template:
+      "tail recovery 已拒绝:seq {seq} 的 journal kind {kind} 使用 entry schema {entry_schema_version} ({reason})",
+    fix_template:
+      "preserve journal.jsonl byte-for-byte and upgrade loaf to a version that understands this entry before running tail recovery again",
+    zh_fix_template:
+      "保持 journal.jsonl 字节不变，升级到能识别该 entry 的 loaf 版本后再运行 tail recovery",
+    template_keys: ["entry_schema_version", "kind", "reason", "seq"],
+    detail_keys: ["entry_schema_version", "kind", "reason", "seq"],
+    doc_anchor: "protocol.md#§10.15",
+  },
   // ── Phase 16 SC-1 — CLI catalog hygiene (codex r187 BLOCKER 4 closure) ──
   // Generic, placeholder-free wording per codex r193 PATCH 3: src/cli.tsx
   // emits these via fail() / failRebuild() / emitFailure() with literal

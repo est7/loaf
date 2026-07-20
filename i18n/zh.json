@@ -266,6 +266,7 @@
     "BUG_TASK_RED_NOT_REGISTERED": "behavioral bug task {task_id} 已 done 但从未注册 RED 测试(red_test_registered≠true)",
     "SPIKE_CONVERT_NO_SPIKE_TASK": "无法 convert:session 没有非-abandoned 的 spike task;`loaf spike convert` 是 spike-task 出口(protocol §8.3)",
     "SNAPSHOT_STALE_REBUILD_REQUIRED": "snapshot 失效(reason={reason}) at {feature_dir};跑 `loaf doctor --rebuild --feature <feature>` 从 journal 重建",
+    "JOURNAL_TAIL_REQUIRES_NEWER_LOAF": "tail recovery 已拒绝:seq {seq} 的 journal kind {kind} 使用 entry schema {entry_schema_version} ({reason})",
     "INVALID_PRESET": "ceremony preset 不合法",
     "USAGE": "CLI 用法不合法",
     "DOCTOR_MODE_NOT_IMPLEMENTED": "当前发布版本未实现该 loaf doctor 模式",
