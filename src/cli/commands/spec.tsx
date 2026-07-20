@@ -2,7 +2,9 @@ import type { Command } from "commander";
 import type { CommandContext } from "../command-context.js";
 import type { CommandMutator } from "../command-mutator.js";
 import { FAILURE_SITE_KEYS, SUCCESS_KEYS } from "../runtime-i18n-keys.js";
+import { buildSpecStatusEnvelope, renderSpecStatusText } from "../spec-status.js";
 import { loadSession } from "../../core/cli-runtime.js";
+import { evaluateSpecLockFromSnapshot } from "../../core/gates/spec-lock-eval.js";
 import { buildSpecSubmitBatch } from "../spec-submit-batch.js";
 import type { MutatorEntry } from "../mutator-entry.js";
 import type { MutatorCommand } from "../input-schemas.js";
@@ -126,8 +128,27 @@ export function registerSpec(
   const specCmd = program
     .command("spec")
     .description(
-      "SPEC content commands (submit / add-req / add-scenario / add-visual; init in SC4)",
+      "SPEC content and diagnostic commands (status / submit / add-req / add-scenario / add-visual; init in SC4)",
     );
+
+  specCmd
+    .command("status")
+    .description("Show failing and suppressed spec-lock checks from replayed state (read-only)")
+    .option("--feature <name>", "Feature whose spec-lock status to show")
+    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
+    .action(async (opts: { feature: string; featureDir?: string }) => {
+      if (ctx.rejectIfDryRun("spec status")) return;
+      const featureDir = await ctx.dispatchOrFail(opts);
+      if (featureDir === null) return;
+      const session = await loadSession(featureDir, { ensureDir: false });
+      if (session.snapshot.state === null) {
+        ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+        return;
+      }
+      const result = evaluateSpecLockFromSnapshot(session.snapshot);
+      const envelope = buildSpecStatusEnvelope(result);
+      ctx.success(envelope, (i18n) => renderSpecStatusText(envelope, i18n));
+    });
 
   specCmd
     .command("submit")

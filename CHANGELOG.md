@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Replay-derived spec-lock diagnostics:** added read-only `loaf spec status`
+  with exact failure and suppression rows. The command reconstructs its check
+  input from journal-replayed snapshot state; check 3 explicitly reports checks
+  4, 6, and 7 as suppressed while independent checks continue to run.
 - **Read-only observability lists:** added canonical `loaf journal list` with
   the `loaf log` Commander alias and envelope-only timeline filters, plus
   `loaf evidence list` for coverage, task, and evidence-kind queries over the

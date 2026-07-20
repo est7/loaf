@@ -511,6 +511,11 @@
       "list_row": "id={id} kind={kind} covers={covers} task={task_id} at={at} actor={actor}",
       "list_empty": "No evidence entries."
     },
+    "spec_status": {
+      "pass": "spec-lock: PASS",
+      "failure_row": "check {check}: FAIL {code} — {message}",
+      "suppressed_row": "check {check}: SUPPRESSED (blocked by check {blocked_by})"
+    },
     "sessions": {
       "empty": "(no sessions found)",
       "warning": "registry entry {file} {action} ({reason}{detail_suffix})",

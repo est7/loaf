@@ -7793,6 +7793,244 @@ describe("loaf journal list + evidence list — ticket #12A", () => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+// Ticket #12 sub-cycle B — replay-derived spec-lock diagnostics.
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("loaf spec status — ticket #12B", () => {
+  async function resubmitSpec(
+    dir: string,
+    options: { includeBindings?: boolean },
+  ): Promise<void> {
+    const req = {
+      id: "REQ-AUTH-099",
+      type: "ubiquitous",
+      response: "the system shall provide bounded behavior here",
+      acceptance_na: true,
+      acceptance_na_reason: "covered by a separately approved manual validation plan",
+    };
+    const submitted = await runCli([
+      "spec",
+      "submit",
+      "--input",
+      JSON.stringify({
+        feature: { id: "F-001", name: "OAuth token refresh" },
+        intent: "users should not perceive authentication recovery while requests are in flight",
+        adr_refs: [],
+        needs_clarification: [],
+        requirements: [req],
+        scenarios: options.includeBindings
+          ? [
+              {
+                id: "SCEN-AUTH-E2E-099",
+                name: "Expired token recovered",
+                tag: "e2e",
+                requires_acceptance: true,
+                given: ["a valid refresh token"],
+                when: ["the user opens orders"],
+                then: ["the access token is refreshed"],
+              },
+            ]
+          : [],
+        visual_contracts: options.includeBindings
+          ? [
+              {
+                id: "VIS-AUTH-099",
+                target: "Login button during refresh",
+                checks: ["shows a spinner"],
+                requires_visual: true,
+              },
+            ]
+          : [],
+      }),
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
+    ]);
+    if (submitted.exit !== 0) throw new Error(`status spec submit failed: ${submitted.stderr}`);
+  }
+
+  async function replanWithoutCoverage(dir: string): Promise<void> {
+    const planned = await runCli([
+      "tasks",
+      "submit",
+      "--input",
+      JSON.stringify({
+        based_on: { spec: 2 },
+        tasks: [
+          {
+            id: "T-099",
+            kind: "structural",
+            no_test_rationale: "coverage is intentionally absent for this diagnostic fixture",
+            status: "pending",
+            depends_on: [],
+            labels: [],
+            execution: {
+              implement: { applicability: "must", status: "pending", evidence_refs: [] },
+              refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+            },
+          },
+        ],
+      }),
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
+    ]);
+    if (planned.exit !== 0) throw new Error(`status task plan failed: ${planned.stderr}`);
+  }
+
+  test("failing replay exposes exact envelope and failure-row keys", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtSpecDesign(dir);
+    await resubmitSpec(dir, { includeBindings: true });
+    await replanWithoutCoverage(dir);
+
+    const result = await runCli([
+      "spec",
+      "status",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
+    ]);
+    expect(result.exit).toBe(0);
+    expect(result.stderr).toBe("");
+    const out = JSON.parse(result.stdout);
+    expect(Object.keys(out).sort()).toEqual(["all_pass", "failures", "ok", "suppressed_checks"]);
+    expect(out).toMatchObject({ ok: true, all_pass: false, suppressed_checks: [] });
+    expect(out.failures.map((row: { check: number }) => row.check)).toEqual([4, 6, 7]);
+    expect(out.failures.map((row: { code: string }) => row.code)).toEqual([
+      "REQ_NOT_DRIVEN",
+      "E2E_SCENARIO_UNBOUND",
+      "VISUAL_CONTRACT_UNBOUND",
+    ]);
+    for (const row of out.failures) {
+      expect(Object.keys(row).sort()).toEqual(["check", "code", "detail", "message"]);
+    }
+  });
+
+  test("check 3 failure reports the 4/6/7 suppression cascade", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtSpecDesign(dir);
+    await resubmitSpec(dir, {});
+
+    const result = await runCli([
+      "spec",
+      "status",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
+    ]);
+    expect(result.exit).toBe(0);
+    const out = JSON.parse(result.stdout);
+    expect(out.failures).toHaveLength(1);
+    expect(out.failures[0]).toMatchObject({ check: 3, code: "TASKS_BASED_ON_STALE" });
+    expect(out.suppressed_checks).toEqual([
+      { check: 4, blocked_by: 3 },
+      { check: 6, blocked_by: 3 },
+      { check: 7, blocked_by: 3 },
+    ]);
+    for (const row of out.suppressed_checks) {
+      expect(Object.keys(row).sort()).toEqual(["blocked_by", "check"]);
+    }
+  });
+
+  test("clean status is pure replay and does not read derived spec.md", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtSpecDesign(dir);
+    await fsP.unlink(path.join(dir, "spec.md"));
+
+    const result = await runCli([
+      "spec",
+      "status",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
+    ]);
+    expect(result.exit).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({
+      ok: true,
+      all_pass: true,
+      failures: [],
+      suppressed_checks: [],
+    });
+  });
+
+  test("text rows localize under LOAF_LANG=zh", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtSpecDesign(dir);
+    await resubmitSpec(dir, {});
+    const argv = [
+      "spec",
+      "status",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      dir,
+    ];
+
+    const en = await runCli(argv, { env: { LOAF_LANG: "en" } });
+    const zh = await runCli(argv, { env: { LOAF_LANG: "zh" } });
+    expect(en.exit).toBe(0);
+    expect(zh.exit).toBe(0);
+    expect(en.stdout).toContain("check 3: FAIL");
+    expect(en.stdout).toContain("check 4: SUPPRESSED");
+    expect(zh.stdout).toContain("检查 3：失败");
+    expect(zh.stdout).toContain("检查 4：已抑制");
+    expect(zh.stdout).not.toBe(en.stdout);
+  });
+
+  test("rejects dry-run and surfaces no-session", async () => {
+    const dir = await tmpFeatureDir();
+    await seedFeatureAtSpecDesign(dir);
+    const dryRun = await runCli([
+      "spec",
+      "status",
+      "--dry-run",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
+    ]);
+    expect(dryRun.exit).toBe(2);
+    expect(JSON.parse(dryRun.stderr)).toMatchObject({
+      ok: false,
+      code: "DRY_RUN_NOT_APPLICABLE",
+      detail: { command_type: "read-only" },
+    });
+
+    const emptyDir = await tmpFeatureDir();
+    const noSession = await runCli([
+      "spec",
+      "status",
+      "--feature",
+      "ghost",
+      "--feature-dir",
+      emptyDir,
+      "--format",
+      "json",
+    ]);
+    expect(noSession.exit).toBe(2);
+    expect(JSON.parse(noSession.stderr)).toMatchObject({ ok: false, code: "FEATURE_NOT_FOUND" });
+  });
+});
+
 describe("loaf profile escalate — Phase 13", () => {
   // Walk a standard session to SPEC.proposal — a sub_state where a
   // profile_escalation pending is legal and event:ceremony_set is allowed.

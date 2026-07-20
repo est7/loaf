@@ -182,6 +182,7 @@ const NON_JOURNAL_EXECUTABLE_COMMANDS = new Set([
   "loaf config init",
   "loaf doctor",
   "loaf spec init",
+  "loaf spec status",
   "loaf tasks list",
   "loaf tasks next",
   "loaf tasks schema",

@@ -30,9 +30,9 @@ import { gateEvalFromCheck } from "./gate-eval.js";
 /** Alias for downstream readability — same shape as VerifyAcceptResult. */
 export type FullVerifyAcceptResult = VerifyAcceptResult;
 
-// L7: gate-mode body shared with spec-lock-eval via gateEvalFromCheck; only the
-// pure check (verifyAcceptCheck) differs. Thin `export async function` wrapper
-// (codex L7 Q4) preserves the exported declaration form of this core export.
+// L7: verify gate-mode keeps the gateEvalFromCheck IO factory. spec-lock now
+// shares only its check-1 mapper because ticket #12B adds a replay constructor.
+// The thin wrapper preserves the exported declaration form of this core export.
 const evaluateVerifyAcceptGate = gateEvalFromCheck(verifyAcceptCheck);
 
 export async function evaluateVerifyAccept(

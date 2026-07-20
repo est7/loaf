@@ -511,6 +511,11 @@
       "list_row": "id={id} 类型={kind} 覆盖={covers} 任务={task_id} 时间={at} 操作者={actor}",
       "list_empty": "没有证据条目。"
     },
+    "spec_status": {
+      "pass": "spec-lock：通过",
+      "failure_row": "检查 {check}：失败 {code} — {message}",
+      "suppressed_row": "检查 {check}：已抑制（由检查 {blocked_by} 阻塞）"
+    },
     "sessions": {
       "empty": "(没有 session)",
       "warning": "registry 条目 {file} {action}({reason}{detail_suffix})",

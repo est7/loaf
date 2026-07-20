@@ -1,7 +1,6 @@
-// L7 — gate-mode eval factory. The two gate evaluators (spec-lock,
-// verify-accept) share their ENTIRE body verbatim: read spec.md frontmatter,
-// synthesize a `check: 1` SPEC_FRONTMATTER_INVALID failure when it is
-// unreadable, else delegate to the pure check. Only the pure check differs.
+// Gate-mode IO helpers. verify-accept uses the evaluator factory directly;
+// spec-lock shares the same check-1 failure mapper but keeps an explicit IO
+// adapter so parsed spec.md can be projected through its replay constructor.
 //
 // The DIAGNOSTIC eval (evaluateVerifyAcceptDiagnostic) is intentionally NOT
 // built here: on read failure it returns a structured `{ok:false, code, ...}`
@@ -33,7 +32,7 @@ type SpecReadFailure = {
   ];
 };
 
-function specReadFailure(read: ReadFailure): SpecReadFailure {
+export function specReadFailure(read: ReadFailure): SpecReadFailure {
   return {
     ok: false,
     checks: [
