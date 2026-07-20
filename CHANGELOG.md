@@ -33,7 +33,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   evidence counts, or resume packs. The journal contract also adds
   `scope:recorded@1`: a CLI-only, EXECUTE-closure audit entry with canonical
   repo-relative paths, sidecar support, one-entry-per-iteration enforcement,
-  and replay-derived set-union projection; hook/runtime emission remains staged.
+  and replay-derived set-union projection. Machine-local
+  `~/.loaf/runtime/<session_id>.json` now carries the strict nullable
+  `pending_scope` accumulator behind a dedicated PID- and owner-token-aware
+  runtime lock and atomic replacement; hook accumulation and advance emission
+  remain staged.
 - **`loaf spec add-req --schema`** now emits the actual runtime allocation
   boundary: `id_namespace` plus the EARS `type`, with the remaining requirement
   body passed through for downstream validation. The former closed schema that

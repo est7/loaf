@@ -4,9 +4,10 @@
 >
 > loaf-cli v1 是 legacy Python 原型(early-draft 内部称 "v2")的 successor,from scratch。把 legacy 当老师,不当父亲。v1 GA 之后 legacy 原型进 archive。
 >
-> **rev 5.2 — `scope:recorded` actual-scope journal contract**(2026-07-20;ticket #11 sub-cycle 1 仅落 contract layer,尚未接 hook/runtime/advance emitter):
+> **rev 5.2 — `scope:recorded` actual-scope journal contract**(2026-07-20;ticket #11 sub-cycle 1 落 journal contract,sub-cycle 2 落 machine-local runtime storage + lock;尚未接 hook/advance emitter):
 > - 新增 additive `scope:recorded@1` payload `{iteration, paths}`。`paths` 是 strictly UTF-8-byte-sorted、去重的 repo-relative POSIX concrete path array；拒绝 absolute、空/`.`/`..` segment、backslash、NUL 与 `.loaf/**`。大集合以相同 canonical JSON 编码走 `LongTextField` sidecar。
 > - 每批最多一条；存在时必须紧邻同批唯一 `EXECUTE.work → EXECUTE.done` 之前；同 iteration 历史不得重复。actor=`cli:*`，source sub_state=`EXECUTE.work`，reducer 显式 no-op；`deriveActualScope()` 从完整 entry stream 校验 sidecar 后做 set-union 并返回 canonical order。
+> - `SessionRuntimeFile.pending_scope` 保存 hook 累积中的 `{iteration, paths}`；`~/.loaf/runtime/<session_id>.json` 以 0600 原子替换，专用 PID lock `~/.loaf/runtime/<session_id>.lock` 以 0600 有界等待，runtime 目录为 0700。`loaf doctor --rebuild` 永不读写该 machine-local state。
 >
 > **rev 5.1 — `lesson:recorded` 独立协议 kind**(2026-07-16;下次 release 必须同步 bump package version,不能只靠 CHANGELOG 声明):
 > - `loaf lessons add` 从 legacy `evidence:added(payload.kind=manual)` 切到 strict `lesson:recorded@1` payload `{id: LSN-NNN, iteration, reason, summary}`;JSON 输出键仍为 `id`。LSN allocator 只扫 journal 中的新 kind,不复用 REQ/SCEN/VIS 的 `id_namespace` 输入面。
@@ -485,7 +486,7 @@ EXECUTE 之前的 evidence 不浪费;`based_on.spec` 跳号让审计能识别"�
 
 > **rev 5.0 note**: 本节字段语义未变;变的是 layer——`state.json` 不再是 mutation 入口,任何 phase / sub_state / ceremony / pending / iteration 推进都通过 journal entry 由 reducer derive。原"单源真理"标题在 rev 5.0 退场,canonical truth 移至 `journal.jsonl`(§4 intro + §13.1)。
 
-> **Phase 15 SC1 note**(F-019):原单体 `StateJson` 按 journal 溯源拆成两个契约 —— `StateProjection`(本节,journal 全派生,`loaf doctor --rebuild` 重建)+ `SessionRuntimeFile`(§4.1a,机器本地 `cwd` / `debug` / `heartbeat_at`,无 journal 来源,`--rebuild` 不碰)。`session_label` / `loaf_version_required` 改 nullable(pre-SC1 的 legacy `session:started` 缺这些字段,走兜底);`complexity_score` 无 journal 来源,恒为 `null` 直到将来的 TRIAGE-scoring slice。
+> **Phase 15 SC1–SC2 note**(F-019 / F-027):原单体 `StateJson` 按 journal 溯源拆成两个契约 —— `StateProjection`(本节,journal 全派生,`loaf doctor --rebuild` 重建)+ `SessionRuntimeFile`(§4.1a,机器本地 `cwd` / `debug` / `heartbeat_at` / `pending_scope`,无 journal 来源,`--rebuild` 不碰)。`session_label` / `loaf_version_required` 改 nullable(pre-SC1 的 legacy `session:started` 缺这些字段,走兜底);`complexity_score` 无 journal 来源,恒为 `null` 直到将来的 TRIAGE-scoring slice。
 
 `StateProjection` 字段分组(active-set detail 不再 store 在 state):
 - **identity**:`session_id` / `session_label`(nullable)/ `workspace` / `loaf_version_required`(nullable)
@@ -575,7 +576,7 @@ EXECUTE 之前的 evidence 不浪费;`based_on.spec` 跳号让审计能识别"�
 
 ### 4.1a SessionRuntimeFile(机器本地 — 非投影,`--rebuild` 不写)
 
-> **Authority**: 机器本地 / liveness 文件,**非派生投影**。`cwd` / `debug` / `heartbeat_at` 无 journal 来源、无法 replay 重建,故 Phase 15 SC1(F-019)从 `state.json` 拆出。`loaf doctor --rebuild` 永不读写本文件;由 live CLI 拥有,在 snapshot-projection / replay-proof 契约之外。落盘位置 + live writer 是后续 Phase 15 slice;SC1 只定契约,使 `StateProjection` 拆分完整。
+> **Authority**: 机器本地 / liveness 文件,**非派生投影**。`cwd` / `debug` / `heartbeat_at` / `pending_scope` 无 journal 来源、无法 replay 重建。`loaf doctor --rebuild` 永不读写本文件;由 live CLI 拥有,在 snapshot-projection / replay-proof 契约之外。Phase 15 SC2(F-027) 落盘为 `~/.loaf/runtime/<session_id>.json`;runtime 目录必须为 0700，JSON 文件必须为 0600。
 
 ```json
 // SessionRuntimeFile — machine-local, NOT a snapshot projection
@@ -584,9 +585,19 @@ EXECUTE 之前的 evidence 不浪费;`based_on.spec` 跳号让审计能识别"�
   "session_id": "550e8400-e29b-41d4-a716-446655440000",
   "cwd": "/Users/est9/popposhell",
   "debug": false,
-  "heartbeat_at": "2026-05-12T10:30:45Z"
+  "heartbeat_at": "2026-05-12T10:30:45Z",
+  "pending_scope": {
+    "iteration": 1,
+    "paths": ["src/auth/client.ts", "tests/auth/client.test.ts"]
+  }
 }
 ```
+
+`pending_scope` 是 strict nullable object:`null` 表示当前无待闭包 scope；非空时 `iteration` 为 positive integer，`paths` 复用 `CanonicalScopePaths`(§4.6)。所有 read-modify-write 必须通过 `withRuntimeLock(sessionId, operation, fn)` 完成 lock → read/validate → mutate → tmp+fsync+atomic rename → unlock，不存在 lock-free writer；读者依赖 atomic rename，不会观察到 partial JSON。
+
+专用 lock 为 `~/.loaf/runtime/<session_id>.lock`(0600)，新 payload 为 strict `{pid, acquired_at, operation, owner}`，其中 `owner` 是每次 acquisition 唯一的 128-bit hex token；兼容读取 pre-token lock 仅用于安全恢复。获取使用 bounded retry；PID 仍存活时永不抢占，仅在 PID 已不存在且二次读取确认 lock generation 未改变时删除 stale lock。exclusive create 后必须重读并确认自己的 token 才可进入 critical section；release 也只删除仍携带自己 token 的 lock，foreign token 保留且不报错。malformed/incomplete lock fail closed。不得复用 feature journal `.lock`:该 lock 是空的 O_EXCL fail-fast fence，在 `mutateBatch` 深处才获取且一直持有到 projections/registry 写完；PostToolUse 竞争会直接丢 hook event。runtime lock 因此必须拥有独立 PID / stale / wait 语义。
+
+身份以已由 journal 选定的 `{session_id, canonical cwd}` 为准；runtime file 中任一值不匹配时禁止 merge 并 fail closed。只有在 journal-selected identity 已知时，显式的后续 recovery flow 才可 quarantine/replace，普通 RMW 不做隐式修复。
 
 ### 4.2 spec.md(EARS 三选一可验证 + Gherkin + Visual Contracts + adr_refs)
 
@@ -919,7 +930,7 @@ reconcile.json 配套字段 `unusual_findings_count`(§4.6)聚合本轮 unusual 
 
 **重要**:`verify_checks_status` 在这里是 SETTLE 时间的 snapshot;**verify-accept gate 不读这个,而是用 spec/tasks/evidence 实时计算**。
 
-**`scope:recorded@1` authority**:`actual_scope` 只从完整 journal entry stream 中的 `scope:recorded` 重算；每条 payload 为 strict `{iteration: positive-int, paths}`，其中 `paths` 是 canonical concrete path array，或 carrying 同一 array canonical JSON 的 `LongTextField`。多 iteration/closure entry 以集合 union 聚合。该 kind 只允许 `cli:*` 在 `EXECUTE.work` 发出，必须与紧随其后的唯一 `event:phase_advanced {from:"EXECUTE.work",to:"EXECUTE.done"}` 同 batch，且历史中同 iteration 不得重复。当前 sub-cycle 只注册此 contract；hook/runtime/advance 尚不 emit。
+**`scope:recorded@1` authority**:`actual_scope` 只从完整 journal entry stream 中的 `scope:recorded` 重算；每条 payload 为 strict `{iteration: positive-int, paths}`，其中 `paths` 是 canonical concrete path array，或 carrying 同一 array canonical JSON 的 `LongTextField`。多 iteration/closure entry 以集合 union 聚合。该 kind 只允许 `cli:*` 在 `EXECUTE.work` 发出，必须与紧随其后的唯一 `event:phase_advanced {from:"EXECUTE.work",to:"EXECUTE.done"}` 同 batch，且历史中同 iteration 不得重复。sub-cycle 2 已落 runtime storage/lock；hook 累积与 advance closure emission 尚未接入。
 
 **`unusual_findings_count`**(rev 4.3,ADR-0004 A7):本轮 raise 时 cell 落 `unusual`(`FINDING_ACTION_GRID`,§4.5)的 finding 个数。`incoherent` 是 block 路径(raise 失败,不落 findings.jsonl,故**不**计入)。`unusual` finding 的 `--reason` 已强制 ≥ 20 字符,可在 reviewer 抽查时用作焦点定位(`findings.jsonl` grep `category × action` cell 是 unusual 的条目)。本字段不影响 verify-accept gate 决策,仅作 SETTLE 时 reconcile 审计信号。
 
@@ -2096,7 +2107,7 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 | `loaf spec schema` | **Phase 16 SC-10**:dump `SpecFrontmatter` JSON Schema(draft-2020-12,Zod v4 `z.toJSONSchema()`)。`spec` 子命令族成员;read-only;`--dry-run` reject;feature-agnostic | 0 / 2 |
 | `loaf tasks schema` | **Phase 16 SC-10**:dump `TasksJson` projection JSON Schema。`tasks` 子命令族成员;同 spec schema 契约 | 0 / 2 |
 | `loaf finding schema` | **Phase 16 SC-10**:dump `FindingsJson` projection JSON Schema(单数 CLI noun → 复数 `findings.json` projection,与 SC-9c `check` 一致 mapping)。`finding` 子命令族成员 | 0 / 2 |
-| `loaf state schema` | **Phase 16 SC-10**:dump `StateProjection` JSON Schema。`state` 是 SC-10 新增的顶级 parent(v0.1.0 无其他 state subs);SessionRuntimeFile(cwd / debug / heartbeat_at)不在范围(machine-local liveness,non-replay-derived) | 0 / 2 |
+| `loaf state schema` | **Phase 16 SC-10**:dump `StateProjection` JSON Schema。`state` 是 SC-10 新增的顶级 parent(v0.1.0 无其他 state subs);SessionRuntimeFile(cwd / debug / heartbeat_at / pending_scope)不在范围(machine-local liveness,non-replay-derived) | 0 / 2 |
 | `loaf <kind> schema --format=json` <!-- inventory:placeholder reason="generic umbrella row; concrete leaves enumerated above (spec / tasks / evidence / finding / state)" --> | **Phase 16 SC-10 总览**:5 个 artifact 子命令家族,literal `<kind> schema` 形态(非 catch-all,非 `loaf schema <kind>`)。**`pending` 不在范围**(§1947 closed enum;pending 是内部 projection,无外部 schema consumer 用例)。无 `$id`(URI namespace 留作单独决策)| 0 / 2 |
 | `loaf profile escalate --confirm --input <value> [--feature <value>] [--feature-dir <value>]` | 接受 auto-escalation prompt。`--input` 是 skill 算好的 6-flag Ceremony。emit 2-entry batch `[event:ceremony_set, pending:resolved]`(answers the `profile_escalation` head)。**rev 4.1 Q3**:本身就是答 `pending(kind=profile_escalation)` head 的方式,head 缺失 / 不匹配 → `ESCALATION_NOT_PENDING` exit 2 | 0 / 2 |
 | `loaf spike convert [--feature <value>] --to-feature <value> --reason <value> [--feature-dir <value>]` | emit `spike:converted`(payload `{to_feature, reason}`)+ archive 当前 session 到 `DONE.archived`;**不** scaffold F-N(由后续独立 `loaf start F-N` 另开) | 0 / 2 |

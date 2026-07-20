@@ -13,7 +13,7 @@
 //
 // Phase 15 SC1 split the old monolithic `StateJson` into `StateProjection`
 // (the journal-derived half, below) and `SessionRuntimeFile`
-// (machine-local `cwd` / `debug` / `heartbeat_at`,
+// (machine-local `cwd` / `debug` / `heartbeat_at` / `pending_scope`,
 // never replay-derived, never written by `--rebuild`). `complexity_score`
 // has no journal source yet and stays `null` in the projection (F-019).
 //
@@ -31,7 +31,13 @@ import { z } from "zod";
 import { TaskFullPayload } from "./task-schema.js";
 import { EvidenceFullShape, EvidenceKind, EvidenceResult } from "./evidence-schema.js";
 import { FindingAction, FindingCategory } from "./finding-schema.js";
-import { Ceremony, PendingId, PendingPromptKind, SubState } from "./journal-entry.js";
+import {
+  CanonicalScopePaths,
+  Ceremony,
+  PendingId,
+  PendingPromptKind,
+  SubState,
+} from "./journal-entry.js";
 
 // Projection schema-version pin shared with snapshot.ts FEATURE_SCHEMA_VERSION.
 export const PROJECTION_SCHEMA_VERSION = 2 as const;
@@ -44,6 +50,13 @@ export const SessionRuntimeFile = z
     cwd: z.string(),
     debug: z.boolean(),
     heartbeat_at: z.string().datetime(),
+    pending_scope: z
+      .object({
+        iteration: z.number().int().positive(),
+        paths: CanonicalScopePaths,
+      })
+      .strict()
+      .nullable(),
   })
   .strict();
 export type SessionRuntimeFile = z.infer<typeof SessionRuntimeFile>;
@@ -180,9 +193,9 @@ export type PendingJson = z.infer<typeof PendingJson>;
 // journal truth alone; mutate step 8 (Phase 15 SC3) will maintain it live.
 //
 // The non-journal half of the old monolith — `cwd` / `debug` /
-// `heartbeat_at` — split out to `SessionRuntimeFile`: machine-local liveness,
-// never replay-derived, never written by
-// `--rebuild` (codex r167 Q3).
+// `heartbeat_at` — split out to `SessionRuntimeFile`; Phase 15 SC2 adds
+// machine-local `pending_scope`. This runtime state is never replay-derived and
+// never written by `--rebuild` (codex r167 Q3).
 //
 // Bucket-C identity fields (`session_label` / `workspace` /
 // `loaf_version_required` / `ceremony_label`) ride the widened
