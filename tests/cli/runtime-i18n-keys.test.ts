@@ -5,6 +5,7 @@ import path from "node:path";
 import { BUILTIN_BUNDLES, LOCALES, type LocaleBundle } from "../../src/cli/i18n.js";
 import {
   evidenceKindKey,
+  applicabilityKey,
   findingActionKey,
   findingCategoryKey,
   pendingKindKey,
@@ -20,18 +21,20 @@ import {
   subStateKey,
   taskKindKey,
   taskStatusKey,
+  verifyCheckKindKey,
   TASK_KIND_VALUES,
   TASK_STATUS_VALUES,
   FINDING_STATUS_VALUES,
   MIGRATED_DIAGNOSTIC_CODES,
 } from "../../src/cli/runtime-i18n-keys.js";
-import { EvidenceKind } from "../../src/core/evidence-schema.js";
+import { EvidenceKind, VerifyCheckKind } from "../../src/core/evidence-schema.js";
 import { ERROR_CATALOG, DiagnosticCode } from "../../src/core/error-catalog.js";
 import { FindingAction, FindingCategory } from "../../src/core/finding-schema.js";
 import { PendingPromptKind, SubState } from "../../src/core/journal-entry.js";
 
 const PHASE_VALUES = ["TRIAGE", "SPEC", "EXECUTE", "VERIFY", "SETTLE", "DONE"] as const;
 const STATUS_BUCKETS = ["done", "blocked", "running", "idle"] as const;
+const APPLICABILITY_VALUES = ["must", "optional", "na"] as const;
 const STALE_DIAGNOSTIC_KEYS = [
   "TASK_KIND_SCHEMA_INVALID",
   "E2E_ACCEPTANCE_UNRESOLVED",
@@ -66,6 +69,8 @@ describe("runtime i18n key gate", () => {
       ...TASK_KIND_VALUES.map(taskKindKey),
       ...TASK_STATUS_VALUES.map(taskStatusKey),
       ...EvidenceKind.options.map(evidenceKindKey),
+      ...VerifyCheckKind.options.map(verifyCheckKindKey),
+      ...APPLICABILITY_VALUES.map(applicabilityKey),
       ...FindingCategory.options.map(findingCategoryKey),
       ...FindingAction.options.map(findingActionKey),
       ...FINDING_STATUS_VALUES.map(findingStatusKey),

@@ -145,6 +145,12 @@ describe("SC-9a-1 — verify status JSON envelope", () => {
     expect(out.ok).toBe(true);
     expect(typeof out.all_pass).toBe("boolean");
     expect(out.deferred_findings).toEqual([]);
+    expect(out.lanes).toEqual([
+      { lane: "run", applicability: "na", reason: "no_done_tasks" },
+      { lane: "review", applicability: "na", reason: "no_review_obligations" },
+      { lane: "acceptance", applicability: "na", reason: "no_applicable_e2e_scenarios" },
+      { lane: "visual", applicability: "na", reason: "no_applicable_visual_contracts" },
+    ]);
     expect(out.checks).toHaveLength(5);
     expect(out.checks.map((r: { check: string }) => r.check)).toEqual([
       "lane_status",
@@ -196,6 +202,27 @@ describe("SC-9a-1 — verify status text rendering", () => {
     expect(result.stdout).toContain("coverage");
     expect(result.stdout).toContain("task_evidence");
     expect(result.stdout).toContain("spec_review");
+    expect(result.stdout).toContain("lane.Run");
+    expect(result.stdout).toContain("lane.Acceptance");
+    expect(result.stdout).toContain("no applicable e2e scenarios require acceptance verification");
+  });
+
+  test("new lane rows differ between en and zh text locales", async () => {
+    const { featureDir } = await seedSessionWithSpec({ allNa: true });
+    const en = await runCli(
+      ["verify", "status", "--feature", "auth-refresh", "--feature-dir", featureDir],
+      { env: { LOAF_LANG: "en" } },
+    );
+    const zh = await runCli(
+      ["verify", "status", "--feature", "auth-refresh", "--feature-dir", featureDir],
+      { env: { LOAF_LANG: "zh" } },
+    );
+
+    expect(en.exit).toBe(0);
+    expect(zh.exit).toBe(0);
+    expect(en.stdout).toContain("lane.Run");
+    expect(zh.stdout).toContain("泳道.运行");
+    expect(zh.stdout).not.toBe(en.stdout);
   });
 });
 

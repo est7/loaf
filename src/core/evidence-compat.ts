@@ -39,6 +39,12 @@ export interface CompatRule {
   readonly requires_attachment_for_visual_review?: boolean;
 }
 
+export interface EvidenceCompatibilityMismatch {
+  covered_id: string;
+  supplied_kind: EvidenceKind;
+  allowed_kinds: ReadonlyArray<EvidenceKind>;
+}
+
 // Canonical compatibility table. Update this owner if
 // the protocol adds an evidence kind or a coverage-id family.
 export const EVIDENCE_COMPAT: Record<IdKind, CompatRule> = {
@@ -107,4 +113,30 @@ export function canSatisfy(evidence: EvidenceState, coveredId: string): boolean 
   }
 
   return true;
+}
+
+/**
+ * Return the actionable write-time diagnostic payload when `canSatisfy`
+ * rejects an evidence/obligation pair. This fulfills the input-time
+ * diagnostic promised by this module since Slice 3 while keeping the gate
+ * and CLI on the same predicate and compatibility table.
+ *
+ * The full predicate is evaluated, not kind membership alone. Successful
+ * `evidence add` writes have already passed EvidenceFullPayload, so the
+ * actor/reason/attachment refinements normally collapse to the same result
+ * as membership; retaining the full predicate prevents future drift if a
+ * new compatibility condition is added here.
+ */
+export function evidenceCompatibilityMismatch(
+  evidence: EvidenceState,
+  coveredId: string,
+): EvidenceCompatibilityMismatch | null {
+  if (canSatisfy(evidence, coveredId)) return null;
+  const idKind = parseIdKind(coveredId);
+  if (idKind === null) return null;
+  return {
+    covered_id: coveredId,
+    supplied_kind: evidence.kind,
+    allowed_kinds: EVIDENCE_COMPAT[idKind].allowed,
+  };
 }

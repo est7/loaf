@@ -1,7 +1,8 @@
 // Phase 16 SC-9a-1 — `loaf verify status` read-side surface.
 //
-// Renders the verify-accept gate's diagnostic view as a 5-row PerCheckResult
-// summary without short-circuiting on first failure. Reuses
+// Renders the verify-accept gate's diagnostic view as a fixed four-lane
+// applicability enumeration plus 5-row PerCheckResult summary without
+// short-circuiting on first failure. Reuses
 // evaluateVerifyAcceptDiagnostic (verify-accept-eval.ts) so the IO boundary
 // (spec.md frontmatter read) maps to a structured exit-2 diagnostic; pure
 // per-check evaluation rides evaluateAllChecks.
@@ -9,6 +10,7 @@
 // Public envelope (codex r304 lock):
 //   { ok: true, all_pass: boolean,
 //     deferred_findings: [{ id, action }],
+//     lanes: [{ lane, applicability, reason }, … 4 rows],
 //     checks: [{ check, status, failures: FailedCheck[] }, … 5 rows] }
 //
 // Status per row:
@@ -23,16 +25,23 @@ import type {
   FailedCheck,
   PerCheckResult,
   VerifyCheckId,
+  VerifyLaneApplicability,
+  VerifyLaneNaReason,
 } from "../core/gates/verify-accept-check.js";
 import { isFindingDeferralAction, type FindingDeferralAction } from "../core/finding-schema.js";
 import type { FindingState } from "../core/projection-types.js";
 import { DEFAULT_I18N, type I18n } from "./i18n.js";
-import { CHROME_KEYS } from "./runtime-i18n-keys.js";
+import {
+  applicabilityKey,
+  CHROME_KEYS,
+  verifyCheckKindKey,
+} from "./runtime-i18n-keys.js";
 
 export interface VerifyStatusEnvelope {
   ok: true;
   all_pass: boolean;
   deferred_findings: Array<{ id: string; action: FindingDeferralAction }>;
+  lanes: VerifyLaneApplicability[];
   checks: PerCheckResult[];
 }
 
@@ -40,12 +49,13 @@ export interface VerifyStatusEnvelope {
 export function buildEnvelope(
   checks: PerCheckResult[],
   findings: readonly FindingState[],
+  lanes: VerifyLaneApplicability[],
 ): VerifyStatusEnvelope {
   const allPass = checks.every((r) => r.status !== "fail");
   const deferredFindings = findings
     .filter((finding) => finding.status === "open" && isFindingDeferralAction(finding.action))
     .map((finding) => ({ id: finding.id, action: finding.action as FindingDeferralAction }));
-  return { ok: true, all_pass: allPass, deferred_findings: deferredFindings, checks };
+  return { ok: true, all_pass: allPass, deferred_findings: deferredFindings, lanes, checks };
 }
 
 /** Presentation — fixed column widths per the §7.4 example shape. */
@@ -82,13 +92,26 @@ function failureSummary(failures: FailedCheck[], i18n: I18n): string {
   });
 }
 
+const LANE_REASON_KEYS: Record<VerifyLaneNaReason, string> = {
+  no_done_tasks: CHROME_KEYS.verifyStatusLaneReasonNoDoneTasks,
+  no_review_obligations: CHROME_KEYS.verifyStatusLaneReasonNoReviewObligations,
+  no_applicable_e2e_scenarios: CHROME_KEYS.verifyStatusLaneReasonNoE2eScenarios,
+  no_applicable_visual_contracts: CHROME_KEYS.verifyStatusLaneReasonNoVisualContracts,
+};
+
 export function renderText(env: VerifyStatusEnvelope, i18n: I18n = DEFAULT_I18N): string {
   const labels = Object.fromEntries(
     env.checks.map((row) => [row.check, checkLabel(row.check, i18n)]),
   ) as Record<VerifyCheckId, string>;
+  const laneLabels = env.lanes.map((lane) =>
+    i18n.t(CHROME_KEYS.verifyStatusLaneLabel, {
+      lane: i18n.t(verifyCheckKindKey(lane.lane)),
+    }),
+  );
   const deferredLabel = i18n.t(CHROME_KEYS.verifyStatusCheckDeferredFindings);
   const labelWidth = Math.max(
     ...Object.values(labels).map((l) => l.length),
+    ...laneLabels.map((label) => label.length),
     ...(env.deferred_findings.length > 0 ? [deferredLabel.length] : []),
   );
   const lines: string[] = [];
@@ -102,6 +125,17 @@ export function renderText(env: VerifyStatusEnvelope, i18n: I18n = DEFAULT_I18N)
         lines.push(`    - ${f.code}: ${f.message}`);
       }
     }
+  }
+  for (const [index, lane] of env.lanes.entries()) {
+    const label = laneLabels[index]!.padEnd(labelWidth);
+    const applicability = i18n.t(applicabilityKey(lane.applicability));
+    const reason =
+      lane.reason === null
+        ? ""
+        : i18n.t(CHROME_KEYS.verifyStatusLaneReason, {
+            reason: i18n.t(LANE_REASON_KEYS[lane.reason]),
+          });
+    lines.push(`${label}  ${applicability}${reason}`);
   }
   if (env.deferred_findings.length > 0) {
     const findings = env.deferred_findings

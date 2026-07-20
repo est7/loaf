@@ -20,10 +20,12 @@ import { describe, expect, test } from "vitest";
 import {
   VERIFY_CHECK_IDS,
   deriveCheckApplicability,
+  deriveVerifyLaneApplicability,
   evaluateAllChecks,
   verifyAcceptCheck,
 } from "../../src/core/gates/verify-accept-check.js";
 import { buildEnvelope, renderText } from "../../src/cli/verify-status.js";
+import { BUILTIN_BUNDLES, createI18n } from "../../src/cli/i18n.js";
 import { initialSnapshot } from "../../src/core/reducer.js";
 import type { EvidenceState, Snapshot, TaskState } from "../../src/core/reducer.js";
 import type { SpecFrontmatter } from "../../src/core/spec-schema.js";
@@ -519,7 +521,7 @@ describe("invariant — verifyAcceptCheck === flatMap failures", () => {
 // Case 19 — §7.4 envelope golden: shape parity with docs/protocol.md
 // ───────────────────────────────────────────────────────────────────────
 describe("buildEnvelope — §7.4 shape parity", () => {
-  test("envelope shape matches §7.4: ok/all_pass/deferred_findings/checks[5 rows]", () => {
+  test("envelope shape matches §7.4: exact four-lane enumeration + five check rows", () => {
     const fm = makeFrontmatter();
     const snap = happySnapshot(fm);
     snap.evidence = snap.evidence.filter((e) => e.check !== "run"); // 1 lane fails
@@ -535,11 +537,21 @@ describe("buildEnvelope — §7.4 shape parity", () => {
       red_test_registered: true,
     }); // T-002 has no covering evidence → check 4 fail
 
-    const env = buildEnvelope(evaluateAllChecks(snap, fm), snap.findings);
+    const env = buildEnvelope(
+      evaluateAllChecks(snap, fm),
+      snap.findings,
+      deriveVerifyLaneApplicability(snap, fm),
+    );
 
     expect(env.ok).toBe(true);
     expect(env.all_pass).toBe(false);
     expect(env.deferred_findings).toEqual([]);
+    expect(env.lanes).toEqual([
+      { lane: "run", applicability: "must", reason: null },
+      { lane: "review", applicability: "must", reason: null },
+      { lane: "acceptance", applicability: "must", reason: null },
+      { lane: "visual", applicability: "must", reason: null },
+    ]);
     expect(env.checks).toHaveLength(5);
     expect(env.checks.map((r) => r.check)).toEqual([...VERIFY_CHECK_IDS]);
 
@@ -574,7 +586,11 @@ describe("buildEnvelope — all_pass semantics", () => {
   test("all_pass=true iff every row has status !== 'fail' (na rows do NOT block all_pass)", () => {
     const fm = makeFrontmatter();
     const snap = happySnapshot(fm);
-    const env = buildEnvelope(evaluateAllChecks(snap, fm), snap.findings);
+    const env = buildEnvelope(
+      evaluateAllChecks(snap, fm),
+      snap.findings,
+      deriveVerifyLaneApplicability(snap, fm),
+    );
     expect(env.all_pass).toBe(true); // strict_spec_review off → spec_review=na, still all_pass
 
     snap.findings = [
@@ -587,7 +603,11 @@ describe("buildEnvelope — all_pass semantics", () => {
         status: "open",
       },
     ];
-    const env2 = buildEnvelope(evaluateAllChecks(snap, fm), snap.findings);
+    const env2 = buildEnvelope(
+      evaluateAllChecks(snap, fm),
+      snap.findings,
+      deriveVerifyLaneApplicability(snap, fm),
+    );
     expect(env2.all_pass).toBe(false);
   });
 
@@ -599,7 +619,11 @@ describe("buildEnvelope — all_pass semantics", () => {
       { id: "FND-002", category: "spec-gap", action: "defer", status: "open" },
     ];
 
-    const env = buildEnvelope(evaluateAllChecks(snap, fm), snap.findings);
+    const env = buildEnvelope(
+      evaluateAllChecks(snap, fm),
+      snap.findings,
+      deriveVerifyLaneApplicability(snap, fm),
+    );
     expect(env.all_pass).toBe(true);
     expect(env.deferred_findings).toEqual([
       { id: "FND-001", action: "backlog" },
@@ -609,5 +633,39 @@ describe("buildEnvelope — all_pass semantics", () => {
     expect(text).toContain("deferred_findings");
     expect(text).toContain("FND-001 (backlog)");
     expect(text).toContain("FND-002 (defer)");
+  });
+});
+
+describe("verify status — lane applicability enumeration", () => {
+  test("all four lanes are present and every na lane has a stable reason", () => {
+    const fm = makeFrontmatter({ requirements: [], scenarios: [], visual_contracts: [] });
+    const snap = happySnapshot(fm);
+    snap.tasks = [];
+
+    const lanes = deriveVerifyLaneApplicability(snap, fm);
+    expect(lanes).toEqual([
+      { lane: "run", applicability: "na", reason: "no_done_tasks" },
+      { lane: "review", applicability: "na", reason: "no_review_obligations" },
+      { lane: "acceptance", applicability: "na", reason: "no_applicable_e2e_scenarios" },
+      { lane: "visual", applicability: "na", reason: "no_applicable_visual_contracts" },
+    ]);
+    expect(lanes.every((lane) => lane.applicability !== "na" || lane.reason !== null)).toBe(true);
+  });
+
+  test("new lane text rows are localized while their JSON reason codes stay stable", () => {
+    const fm = makeFrontmatter({ requirements: [], scenarios: [], visual_contracts: [] });
+    const snap = happySnapshot(fm);
+    snap.tasks = [];
+    const lanes = deriveVerifyLaneApplicability(snap, fm);
+    const env = buildEnvelope(evaluateAllChecks(snap, fm), snap.findings, lanes);
+
+    const en = renderText(env, createI18n("en", BUILTIN_BUNDLES));
+    const zh = renderText(env, createI18n("zh", BUILTIN_BUNDLES));
+    expect(en).toContain("lane.Run");
+    expect(en).toContain("no done tasks require run verification");
+    expect(zh).toContain("泳道.运行");
+    expect(zh).toContain("没有已完成任务需要运行验证");
+    expect(zh).not.toBe(en);
+    expect(env.lanes).toEqual(lanes);
   });
 });

@@ -1,4 +1,4 @@
-import type { EvidenceKind } from "../core/evidence-schema.js";
+import type { EvidenceKind, VerifyCheckKind } from "../core/evidence-schema.js";
 import type { DiagnosticCode } from "../core/error-catalog.js";
 import type { FindingAction, FindingCategory } from "../core/finding-schema.js";
 import type { SubState } from "../core/journal-entry.js";
@@ -8,6 +8,7 @@ import type { TuiStatusBucket } from "./tui/types.js";
 export type TaskKind = TaskFullProjection["kind"];
 export type TaskStatus = TaskFullProjection["status"];
 export type FindingStatus = "open" | "closed";
+export type Applicability = "must" | "optional" | "na";
 export type Phase = "TRIAGE" | "SPEC" | "EXECUTE" | "VERIFY" | "SETTLE" | "DONE";
 export type PendingKind =
   | "ask_user_question"
@@ -76,6 +77,19 @@ const EVIDENCE_KIND_KEYS = {
   waiver: "evidence_kind.waiver",
   "spike-finding": "evidence_kind.spike-finding",
 } as const satisfies Record<EvidenceKind, string>;
+
+const VERIFY_CHECK_KIND_KEYS = {
+  run: "verify_check_kind.run",
+  review: "verify_check_kind.review",
+  acceptance: "verify_check_kind.acceptance",
+  visual: "verify_check_kind.visual",
+} as const satisfies Record<VerifyCheckKind, string>;
+
+const APPLICABILITY_KEYS = {
+  must: "applicability.must",
+  optional: "applicability.optional",
+  na: "applicability.na",
+} as const satisfies Record<Applicability, string>;
 
 const FINDING_CATEGORY_KEYS = {
   "spec-gap": "finding_category.spec-gap",
@@ -538,6 +552,7 @@ export const CHROME_KEYS = {
   journalListEmpty: "chrome.journal.list_empty",
   evidenceListRow: "chrome.evidence.list_row",
   evidenceListEmpty: "chrome.evidence.list_empty",
+  evidenceCompatibilityWarning: "chrome.evidence.compatibility_warning",
   specStatusPass: "chrome.spec_status.pass",
   specStatusFailureRow: "chrome.spec_status.failure_row",
   specStatusSuppressedRow: "chrome.spec_status.suppressed_row",
@@ -568,6 +583,15 @@ export const CHROME_KEYS = {
   verifyStatusFailureSummaryOne: "chrome.verify_status.failure_summary_one",
   verifyStatusFailureSummaryMany: "chrome.verify_status.failure_summary_many",
   verifyStatusDiagnosticOnly: "chrome.verify_status.diagnostic_only",
+  verifyStatusLaneLabel: "chrome.verify_status.lane_label",
+  verifyStatusLaneReason: "chrome.verify_status.lane_reason",
+  verifyStatusLaneReasonNoDoneTasks: "chrome.verify_status.lane_reason_no_done_tasks",
+  verifyStatusLaneReasonNoReviewObligations:
+    "chrome.verify_status.lane_reason_no_review_obligations",
+  verifyStatusLaneReasonNoE2eScenarios:
+    "chrome.verify_status.lane_reason_no_e2e_scenarios",
+  verifyStatusLaneReasonNoVisualContracts:
+    "chrome.verify_status.lane_reason_no_visual_contracts",
   tuiListTitle: "chrome.tui.list.title",
   tuiListSort: "chrome.tui.list.sort",
   tuiListSortTime: "chrome.tui.list.sort_time",
@@ -627,6 +651,8 @@ export type RuntimeI18nKey =
   | (typeof TASK_KIND_KEYS)[keyof typeof TASK_KIND_KEYS]
   | (typeof TASK_STATUS_KEYS)[keyof typeof TASK_STATUS_KEYS]
   | (typeof EVIDENCE_KIND_KEYS)[keyof typeof EVIDENCE_KIND_KEYS]
+  | (typeof VERIFY_CHECK_KIND_KEYS)[keyof typeof VERIFY_CHECK_KIND_KEYS]
+  | (typeof APPLICABILITY_KEYS)[keyof typeof APPLICABILITY_KEYS]
   | (typeof FINDING_CATEGORY_KEYS)[keyof typeof FINDING_CATEGORY_KEYS]
   | (typeof FINDING_ACTION_KEYS)[keyof typeof FINDING_ACTION_KEYS]
   | (typeof FINDING_STATUS_KEYS)[keyof typeof FINDING_STATUS_KEYS]
@@ -643,6 +669,8 @@ export const RUNTIME_I18N_KEYS: readonly RuntimeI18nKey[] = [
   ...Object.values(TASK_KIND_KEYS),
   ...Object.values(TASK_STATUS_KEYS),
   ...Object.values(EVIDENCE_KIND_KEYS),
+  ...Object.values(VERIFY_CHECK_KIND_KEYS),
+  ...Object.values(APPLICABILITY_KEYS),
   ...Object.values(FINDING_CATEGORY_KEYS),
   ...Object.values(FINDING_ACTION_KEYS),
   ...Object.values(FINDING_STATUS_KEYS),
@@ -669,6 +697,14 @@ export function taskStatusKey(status: TaskStatus): RuntimeI18nKey {
 
 export function evidenceKindKey(kind: EvidenceKind): RuntimeI18nKey {
   return EVIDENCE_KIND_KEYS[kind];
+}
+
+export function verifyCheckKindKey(kind: VerifyCheckKind): RuntimeI18nKey {
+  return VERIFY_CHECK_KIND_KEYS[kind];
+}
+
+export function applicabilityKey(applicability: Applicability): RuntimeI18nKey {
+  return APPLICABILITY_KEYS[applicability];
 }
 
 export function findingCategoryKey(category: FindingCategory): RuntimeI18nKey {

@@ -107,6 +107,21 @@ export type PerCheckResult = {
   failures: FailedCheck[]; // empty iff status ∈ {pass, na}
 };
 
+export const VERIFY_LANES = ["run", "review", "acceptance", "visual"] as const satisfies
+  ReadonlyArray<VerifyCheckKind>;
+
+export type VerifyLaneNaReason =
+  | "no_done_tasks"
+  | "no_review_obligations"
+  | "no_applicable_e2e_scenarios"
+  | "no_applicable_visual_contracts";
+
+export type VerifyLaneApplicability = {
+  lane: VerifyCheckKind;
+  applicability: "must" | "optional" | "na";
+  reason: VerifyLaneNaReason | null;
+};
+
 // Narrow kind → lane fallback per codex r33 Q1(b). Used only when an
 // evidence entry omits the `check` field (legacy or new without explicit
 // lane tag). Strict mapping — task-summary maps to RUN here even though
@@ -138,35 +153,55 @@ const KIND_TO_LANE_FALLBACK: Partial<Record<EvidenceState["kind"], VerifyCheckKi
  * directly (e.g. per-feature opt-out of REVIEW lane); for now the policy
  * is conservative.
  */
+export function deriveVerifyLaneApplicability(
+  snapshot: Snapshot,
+  frontmatter: SpecFrontmatter,
+): VerifyLaneApplicability[] {
+  const hasDoneTasks = snapshot.tasks.some((task) => task.status === "done");
+  const hasReviewObligations =
+    hasDoneTasks || frontmatter.requirements.some((req) => req.acceptance_na !== true);
+  const hasAcceptanceObligations = frontmatter.scenarios.some(
+    (scenario) => scenario.tag === "e2e" && scenario.acceptance_na === undefined,
+  );
+  const hasVisualObligations = (frontmatter.visual_contracts ?? []).some(
+    (visual) => visual.visual_na === undefined,
+  );
+
+  // Protocol §7.3 retains the optional enum, but current policy deliberately
+  // has no optional trigger: every lane is either gate-blocking must or na.
+  return [
+    {
+      lane: "run",
+      applicability: hasDoneTasks ? "must" : "na",
+      reason: hasDoneTasks ? null : "no_done_tasks",
+    },
+    {
+      lane: "review",
+      applicability: hasReviewObligations ? "must" : "na",
+      reason: hasReviewObligations ? null : "no_review_obligations",
+    },
+    {
+      lane: "acceptance",
+      applicability: hasAcceptanceObligations ? "must" : "na",
+      reason: hasAcceptanceObligations ? null : "no_applicable_e2e_scenarios",
+    },
+    {
+      lane: "visual",
+      applicability: hasVisualObligations ? "must" : "na",
+      reason: hasVisualObligations ? null : "no_applicable_visual_contracts",
+    },
+  ];
+}
+
 export function deriveVerifyApplicability(
   snapshot: Snapshot,
   frontmatter: SpecFrontmatter,
 ): Set<VerifyCheckKind> {
-  const lanes = new Set<VerifyCheckKind>();
-  // REQ ⇒ REVIEW
-  for (const req of frontmatter.requirements) {
-    if (req.acceptance_na === true) continue;
-    lanes.add("review");
-  }
-  // SCEN.tag=e2e (non acceptance_na) ⇒ ACCEPTANCE
-  for (const scen of frontmatter.scenarios) {
-    if (scen.tag !== "e2e") continue;
-    if (scen.acceptance_na !== undefined) continue;
-    lanes.add("acceptance");
-  }
-  // VIS (non visual_na) ⇒ VISUAL
-  for (const vis of frontmatter.visual_contracts ?? []) {
-    if (vis.visual_na !== undefined) continue;
-    lanes.add("visual");
-  }
-  // done task ⇒ RUN + REVIEW
-  for (const task of snapshot.tasks) {
-    if (task.status === "done") {
-      lanes.add("run");
-      lanes.add("review");
-    }
-  }
-  return lanes;
+  return new Set(
+    deriveVerifyLaneApplicability(snapshot, frontmatter)
+      .filter((lane) => lane.applicability === "must")
+      .map((lane) => lane.lane),
+  );
 }
 
 /**

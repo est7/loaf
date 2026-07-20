@@ -516,7 +516,8 @@
     },
     "evidence": {
       "list_row": "id={id} 类型={kind} 覆盖={covers} 任务={task_id} 时间={at} 操作者={actor}",
-      "list_empty": "没有证据条目。"
+      "list_empty": "没有证据条目。",
+      "compatibility_warning": "证据类型 {kind} 无法满足 {covered_id};请改用以下类型之一:{allowed_kinds}(条目已写入)"
     },
     "spec_status": {
       "pass": "spec-lock：通过",
@@ -556,7 +557,13 @@
       "deferred_summary": " {findings}(不阻塞)",
       "failure_summary_one": " {code}",
       "failure_summary_many": " {count} 个失败({code}, …)",
-      "diagnostic_only": "(仅诊断 —— 不代表 gate 结论)"
+      "diagnostic_only": "(仅诊断 —— 不代表 gate 结论)",
+      "lane_label": "泳道.{lane}",
+      "lane_reason": " —— {reason}",
+      "lane_reason_no_done_tasks": "没有已完成任务需要运行验证",
+      "lane_reason_no_review_obligations": "没有非 NA 需求或已完成任务需要评审验证",
+      "lane_reason_no_e2e_scenarios": "没有适用的 e2e 场景需要验收验证",
+      "lane_reason_no_visual_contracts": "没有适用的视觉合约需要视觉验证"
     },
     "tui": {
       "list": {

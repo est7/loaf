@@ -604,7 +604,11 @@ export function registerIntegrations(
         ctx.emitFailure(diag.code, diag.message, diag.detail);
         return;
       }
-      const env = buildVerifyStatusEnvelope(diag.checks, session.snapshot.findings);
+      const env = buildVerifyStatusEnvelope(
+        diag.checks,
+        session.snapshot.findings,
+        diag.lanes,
+      );
       ctx.success(env, (verI18n) => renderVerifyStatusText(env, verI18n));
     });
 }

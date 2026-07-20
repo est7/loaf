@@ -23,8 +23,16 @@
 
 import { readSpecFrontmatter } from "../spec-frontmatter.js";
 import type { Snapshot } from "../projection-types.js";
-import { evaluateAllChecks, verifyAcceptCheck } from "./verify-accept-check.js";
-import type { PerCheckResult, VerifyAcceptResult } from "./verify-accept-check.js";
+import {
+  deriveVerifyLaneApplicability,
+  evaluateAllChecks,
+  verifyAcceptCheck,
+} from "./verify-accept-check.js";
+import type {
+  PerCheckResult,
+  VerifyAcceptResult,
+  VerifyLaneApplicability,
+} from "./verify-accept-check.js";
 import { gateEvalFromCheck } from "./gate-eval.js";
 
 /** Alias for downstream readability — same shape as VerifyAcceptResult. */
@@ -54,7 +62,7 @@ export async function evaluateVerifyAccept(
 // On frontmatter failure: returns `{ok:false, code:"SPEC_FRONTMATTER_INVALID", detail}` —
 // caller (src/cli/verify-status.ts) renders exit-2 stderr envelope.
 export type VerifyDiagnosticResult =
-  | { ok: true; checks: PerCheckResult[] }
+  | { ok: true; checks: PerCheckResult[]; lanes: VerifyLaneApplicability[] }
   | {
       ok: false;
       code: "SPEC_FRONTMATTER_INVALID";
@@ -75,5 +83,9 @@ export async function evaluateVerifyAcceptDiagnostic(
       detail: { subcode: read.code, ...(read.detail ?? {}) },
     };
   }
-  return { ok: true, checks: evaluateAllChecks(snapshot, read.frontmatter) };
+  return {
+    ok: true,
+    checks: evaluateAllChecks(snapshot, read.frontmatter),
+    lanes: deriveVerifyLaneApplicability(snapshot, read.frontmatter),
+  };
 }

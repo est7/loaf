@@ -516,7 +516,8 @@
     },
     "evidence": {
       "list_row": "id={id} kind={kind} covers={covers} task={task_id} at={at} actor={actor}",
-      "list_empty": "No evidence entries."
+      "list_empty": "No evidence entries.",
+      "compatibility_warning": "evidence kind {kind} cannot satisfy {covered_id}; use one of: {allowed_kinds} (entry written)"
     },
     "spec_status": {
       "pass": "spec-lock: PASS",
@@ -556,7 +557,13 @@
       "deferred_summary": " {findings} (non-blocking)",
       "failure_summary_one": " {code}",
       "failure_summary_many": " {count} failures ({code}, …)",
-      "diagnostic_only": "(diagnostic only — gate verdict not implied)"
+      "diagnostic_only": "(diagnostic only — gate verdict not implied)",
+      "lane_label": "lane.{lane}",
+      "lane_reason": " — {reason}",
+      "lane_reason_no_done_tasks": "no done tasks require run verification",
+      "lane_reason_no_review_obligations": "no non-NA requirements or done tasks require review verification",
+      "lane_reason_no_e2e_scenarios": "no applicable e2e scenarios require acceptance verification",
+      "lane_reason_no_visual_contracts": "no applicable visual contracts require visual verification"
     },
     "tui": {
       "list": {

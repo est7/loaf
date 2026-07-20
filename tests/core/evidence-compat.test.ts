@@ -11,7 +11,12 @@
 
 import { describe, expect, test } from "vitest";
 
-import { canSatisfy, parseIdKind, EVIDENCE_COMPAT } from "../../src/core/evidence-compat.js";
+import {
+  canSatisfy,
+  evidenceCompatibilityMismatch,
+  parseIdKind,
+  EVIDENCE_COMPAT,
+} from "../../src/core/evidence-compat.js";
 import type { IdKind } from "../../src/core/evidence-compat.js";
 import type { EvidenceState } from "../../src/core/reducer.js";
 
@@ -343,6 +348,33 @@ describe("canSatisfy — unknown coveredId rejects", () => {
 
   test("lowercase 'gate' rejects (case-sensitive GATE literal)", () => {
     expect(canSatisfy(ev({ kind: "gate-decision" }), "gate")).toBe(false);
+  });
+});
+
+describe("evidenceCompatibilityMismatch — write-time diagnostic", () => {
+  test("uses the full canSatisfy predicate for allowed manual kind with invalid actor/reason", () => {
+    const mismatch = evidenceCompatibilityMismatch(
+      ev({ kind: "manual", actor: "cli:loaf" }),
+      "REQ-AUTH-001",
+    );
+    expect(mismatch).toEqual({
+      covered_id: "REQ-AUTH-001",
+      supplied_kind: "manual",
+      allowed_kinds: EVIDENCE_COMPAT.REQ.allowed,
+    });
+  });
+
+  test("returns null when the complete predicate is satisfied", () => {
+    expect(
+      evidenceCompatibilityMismatch(
+        ev({
+          kind: "manual",
+          actor: "human:tester@example.com",
+          reason: "verified manually against the acceptance checklist",
+        }),
+        "REQ-AUTH-001",
+      ),
+    ).toBeNull();
   });
 });
 

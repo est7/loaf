@@ -189,6 +189,10 @@ export type SuccessAdvisories = {
    *  newline-terminated. May be a single string or array of strings
    *  for multi-line hints. */
   next?: string | string[];
+  /** Non-fatal compatibility or data-quality warnings. Emitted on stderr
+   *  with a stable `warning: ` prefix; suppressed by --quiet alongside
+   *  other non-error output. */
+  warnings?: string | string[];
 };
 
 export type LazySuccessAdvisories = SuccessAdvisories | ((i18n: I18n) => SuccessAdvisories);
@@ -470,6 +474,14 @@ export function createCommandContext(
             : [renderedAdvisories.next];
           for (const line of lines) {
             deps.writeStderr(`next: ${line}\n`);
+          }
+        }
+        if (renderedAdvisories.warnings !== undefined) {
+          const lines = Array.isArray(renderedAdvisories.warnings)
+            ? renderedAdvisories.warnings
+            : [renderedAdvisories.warnings];
+          for (const line of lines) {
+            deps.writeStderr(`warning: ${line}\n`);
           }
         }
       }

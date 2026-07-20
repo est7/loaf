@@ -282,6 +282,116 @@ describe("loaf evidence add — SC2 happy paths", () => {
   });
 });
 
+describe("loaf evidence add — compatibility warnings", () => {
+  test("local-check covering REQ warns, preserves exact JSON stdout, and still writes", async () => {
+    const { dir, feature } = await seedQuickAtExecuteWork();
+    const input = await writeInput(dir, {
+      ...baseInput("local-check"),
+      covers: ["REQ-AUTH-001"],
+    });
+    const r = await runCli([
+      "evidence",
+      "add",
+      "--input",
+      input,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
+    ]);
+
+    expect(r.exit).toBe(0);
+    expect(JSON.parse(r.stdout)).toEqual({
+      ok: true,
+      feature,
+      id: "EV-000001",
+      kind: "local-check",
+    });
+    expect(r.stderr).toContain(
+      "warning: evidence kind local-check cannot satisfy REQ-AUTH-001; use one of: task-summary, verify-review, spec-review, manual, waiver (entry written)",
+    );
+    const snapshot = await loadSnapshot(dir);
+    expect(snapshot.snapshot.evidence[0]).toMatchObject({
+      id: "EV-000001",
+      kind: "local-check",
+      covers: ["REQ-AUTH-001"],
+    });
+  });
+
+  test("local-check covering SCEN also warns with the SCEN-compatible kinds", async () => {
+    const { dir, feature } = await seedQuickAtExecuteWork();
+    const input = await writeInput(dir, {
+      ...baseInput("local-check"),
+      covers: ["SCEN-AUTH-E2E-001"],
+    });
+    const r = await runCli([
+      "evidence",
+      "add",
+      "--input",
+      input,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
+    ]);
+
+    expect(r.exit).toBe(0);
+    expect(r.stderr).toContain(
+      "warning: evidence kind local-check cannot satisfy SCEN-AUTH-E2E-001; use one of: acceptance, manual, waiver (entry written)",
+    );
+  });
+
+  test.each([
+    ["acceptance", "SCEN-AUTH-E2E-001"],
+    ["task-summary", "REQ-AUTH-001"],
+  ])("compatible kind %s covering %s does not warn", async (kind, coveredId) => {
+    const { dir, feature } = await seedQuickAtExecuteWork();
+    const input = await writeInput(dir, {
+      ...baseInput(kind),
+      covers: [coveredId],
+    });
+    const r = await runCli([
+      "evidence",
+      "add",
+      "--input",
+      input,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
+    ]);
+
+    expect(r.exit).toBe(0);
+    expect(r.stderr).not.toContain("warning:");
+  });
+
+  test("multi-obligation local-check warns only for incompatible REQ, not compatible T", async () => {
+    const { dir, feature } = await seedQuickAtExecuteWork();
+    const input = await writeInput(dir, {
+      ...baseInput("local-check"),
+      covers: ["T-001", "REQ-AUTH-001"],
+    });
+    const r = await runCli([
+      "evidence",
+      "add",
+      "--input",
+      input,
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
+    ]);
+
+    expect(r.exit).toBe(0);
+    const warnings = r.stderr.split("\n").filter((line) => line.startsWith("warning:"));
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("REQ-AUTH-001");
+    expect(warnings[0]).not.toContain("T-001");
+  });
+});
+
 describe("loaf evidence add — SC2 schema refines (EvidenceFullPayload)", () => {
   test("manual without reason → INVALID_PAYLOAD (refine: reason ≥10)", async () => {
     const { dir, feature } = await seedQuickAtExecuteWork();

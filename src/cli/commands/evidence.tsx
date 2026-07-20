@@ -11,6 +11,8 @@ import {
   EvidenceKind,
 } from "../../core/evidence-schema.js";
 import { TaskIdPayload } from "../../core/task-schema.js";
+import { evidenceCompatibilityMismatch } from "../../core/evidence-compat.js";
+import type { EvidenceState } from "../../core/projection-types.js";
 import { parseInputSource } from "../input-source.js";
 import { readJsonInput } from "../input-read.js";
 import type { MutatorEntry } from "../mutator-entry.js";
@@ -200,6 +202,27 @@ export function registerEvidence(
         // batch_id (codex r230 Q1 / r236 GO).
         const evIds: string[] = allocateNextEvidenceIds(session.snapshot, validatedInputs.length);
 
+        // Slice 3's canonical compatibility owner has always promised an
+        // input-time diagnostic. Wire it now without rejecting the append:
+        // evidence is cumulative and one entry may legitimately cover a mix
+        // of compatible and incompatible obligation families.
+        const compatibilityMismatches = validatedInputs.flatMap((input, i) => {
+          const evidence: EvidenceState = {
+            id: evIds[i]!,
+            kind: input.kind,
+            result: input.result,
+            covers: input.covers,
+            actor: input.actor,
+            ...(input.check !== undefined ? { check: input.check } : {}),
+            ...(input.reason !== undefined ? { reason: input.reason } : {}),
+            ...(input.attachments !== undefined ? { attachments: input.attachments } : {}),
+          };
+          return evidence.covers.flatMap((coveredId) => {
+            const mismatch = evidenceCompatibilityMismatch(evidence, coveredId);
+            return mismatch === null ? [] : [mismatch];
+          });
+        });
+
         // Materialize full payloads (inject CLI-allocated EV-id; refines
         // in EvidenceFullPayload run during mutateBatch preflight).
         const entries: MutatorEntry[] = validatedInputs.map((input, i) => ({
@@ -233,7 +256,16 @@ export function registerEvidence(
               sub_state: result.snapshot.state?.sub_state,
             },
             () => evIds.join("\n") + "\n",
-            (i18n) => ({ stateChange: evidenceAddStateChange(i18n, evidenceItems) }),
+            (i18n) => ({
+              stateChange: evidenceAddStateChange(i18n, evidenceItems),
+              warnings: compatibilityMismatches.map((mismatch) =>
+                i18n.t(CHROME_KEYS.evidenceCompatibilityWarning, {
+                  kind: mismatch.supplied_kind,
+                  covered_id: mismatch.covered_id,
+                  allowed_kinds: mismatch.allowed_kinds.join(", "),
+                }),
+              ),
+            }),
           );
         } else {
           // Single-input back-compat: bare EV-id in text mode; {ok,
@@ -246,7 +278,16 @@ export function registerEvidence(
               kind: validatedInputs[0]!.kind,
             },
             () => `${evIds[0]}\n`,
-            (i18n) => ({ stateChange: evidenceAddStateChange(i18n, evidenceItems) }),
+            (i18n) => ({
+              stateChange: evidenceAddStateChange(i18n, evidenceItems),
+              warnings: compatibilityMismatches.map((mismatch) =>
+                i18n.t(CHROME_KEYS.evidenceCompatibilityWarning, {
+                  kind: mismatch.supplied_kind,
+                  covered_id: mismatch.covered_id,
+                  allowed_kinds: mismatch.allowed_kinds.join(", "),
+                }),
+              ),
+            }),
           );
         }
       },
