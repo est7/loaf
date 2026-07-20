@@ -215,6 +215,7 @@ const SpecFrontmatter = z.object({
 	visual_contracts: z.array(VisualContract).optional(),
 	needs_clarification: z.array(NeedsClarification)
 });
+const SpecEditInput = z.object({ body: z.string() }).strict();
 const SpecSubmitInput = z.object({
 	spec_version: z.number().int().positive().optional(),
 	feature: z.object({
@@ -1655,6 +1656,15 @@ const ERROR_CATALOG = {
 		message_template: "required input source missing or unreadable: --input not provided OR stdin could not be read (--input - failed)",
 		fix_template: "pass --input with one of: a JSON file path, '-' for stdin (with valid piped JSON), or inline JSON; for stdin failures, pass valid JSON to `loaf <cmd> --input -` on stdin; when supported by the command (Phase 16 SC-10: the 5 batch-capable mutators spec add-req / spec add-scenario / spec add-visual / tasks add / evidence add), run `loaf <cmd> --schema --format=json` to view the input schema",
 		template_keys: [],
+		doc_anchor: "protocol.md#§10.7"
+	},
+	SPEC_EDIT_INPUT_REQUIRED: {
+		exit_code: 2,
+		message_template: "non-interactive `loaf spec edit` requires --input <src>; the editor lane requires TTY stdin and stdout",
+		zh_message_template: "非交互式 `loaf spec edit` 必须传 --input <src>；编辑器通道要求 stdin 和 stdout 均为 TTY",
+		fix_template: "pass --input with a JSON object {\"body\":\"<Markdown>\"} via file, stdin '-', or inline JSON; alternatively rerun from a terminal with both stdin and stdout attached to a TTY",
+		template_keys: [],
+		detail_keys: [],
 		doc_anchor: "protocol.md#§10.7"
 	},
 	SCHEMA_VALIDATION_FAILED: {
@@ -6692,6 +6702,7 @@ var en_default = {
 		}
 	},
 	diagnostic: {
+		"SPEC_EDIT_INPUT_REQUIRED": "non-interactive `loaf spec edit` requires --input <src>; the editor lane requires TTY stdin and stdout",
 		"SPEC_LOCKED_NO_DIRECT_EDIT": "{kind} blocked: spec_locked=true; use `loaf finding raise --category spec-gap --action amend-spec` to back-edge into SPEC.spec",
 		"SPEC_NOT_INITIALIZED": "{kind} blocked: spec_version=0; run `loaf spec submit` first to bump spec_version to 1",
 		"SPEC_ALREADY_INITIALIZED": "spec.md already exists at {spec_md_path}; refusing to overwrite",
@@ -6917,6 +6928,7 @@ var en_default = {
 			"init_next": "edit, then `loaf spec submit`",
 			"edit_text": "spec edit: spec_version={spec_version}",
 			"edit_state_change": "spec edit: spec_version={spec_version} via $EDITOR",
+			"edit_input_state_change": "spec edit: spec_version={spec_version} via --input",
 			"add_req_text_one": "spec add-req v{spec_version}: {ids}",
 			"add_req_text_many": "spec add-req v{spec_version}: {ids}",
 			"add_req_state_change_one": "spec add-req: +{count} REQ (spec_version={spec_version}; allocated {ids})",
@@ -7292,6 +7304,7 @@ var zh_default = {
 		}
 	},
 	diagnostic: {
+		"SPEC_EDIT_INPUT_REQUIRED": "非交互式 `loaf spec edit` 必须传 --input <src>；编辑器通道要求 stdin 和 stdout 均为 TTY",
 		"SPEC_LOCKED_NO_DIRECT_EDIT": "{kind} 被拒:spec_locked=true;用 `loaf finding raise --category spec-gap --action amend-spec` 走 amend-spec 回退到 SPEC.spec",
 		"SPEC_NOT_INITIALIZED": "{kind} 被拒:spec_version=0;先跑 `loaf spec submit` 把 spec_version 升到 1",
 		"SPEC_ALREADY_INITIALIZED": "spec.md 已存在于 {spec_md_path};拒绝覆盖",
@@ -7517,6 +7530,7 @@ var zh_default = {
 			"init_next": "编辑后运行 `loaf spec submit`",
 			"edit_text": "spec edit: spec_version={spec_version}",
 			"edit_state_change": "spec edit: spec_version={spec_version} via $EDITOR",
+			"edit_input_state_change": "spec edit: spec_version={spec_version} via --input",
 			"add_req_text_one": "spec add-req v{spec_version}: {ids}",
 			"add_req_text_many": "spec add-req v{spec_version}: {ids}",
 			"add_req_state_change_one": "spec add-req: +{count} REQ(spec_version={spec_version}; allocated {ids})",
@@ -8909,6 +8923,7 @@ const MIGRATED_DIAGNOSTIC_CODES = [
 	"INVALID_FORMAT",
 	"MUTUALLY_EXCLUSIVE_FLAGS",
 	"DRY_RUN_NOT_APPLICABLE",
+	"SPEC_EDIT_INPUT_REQUIRED",
 	"CONFIG_ALREADY_INITIALIZED",
 	"FEATURE_NOT_FOUND",
 	"FEATURE_AMBIGUOUS",
@@ -9022,6 +9037,7 @@ const SUCCESS_KEYS = {
 	specInitNext: "success.spec.init_next",
 	specEditText: "success.spec.edit_text",
 	specEditStateChange: "success.spec.edit_state_change",
+	specEditInputStateChange: "success.spec.edit_input_state_change",
 	specAddReqTextOne: "success.spec.add_req_text_one",
 	specAddReqTextMany: "success.spec.add_req_text_many",
 	specAddReqStateChangeOne: "success.spec.add_req_state_change_one",
@@ -9218,6 +9234,7 @@ function migratedDiagnosticVarsFor(code, detail) {
 			command_type: stringVar(detail?.["command_type"]),
 			command: stringVar(detail?.["command"])
 		});
+		case "SPEC_EDIT_INPUT_REQUIRED": return {};
 		case "CONFIG_ALREADY_INITIALIZED": return varsIfDefined({ config_path: stringVar(detail?.["config_path"]) });
 		case "FEATURE_NOT_FOUND": return {};
 		case "FEATURE_AMBIGUOUS": return varsIfDefined({
@@ -16389,7 +16406,7 @@ function specAddStateChangeKey(name, count) {
 	if (name === "scenario") return count === 1 ? SUCCESS_KEYS.specAddScenarioStateChangeOne : SUCCESS_KEYS.specAddScenarioStateChangeMany;
 	return count === 1 ? SUCCESS_KEYS.specAddVisualStateChangeOne : SUCCESS_KEYS.specAddVisualStateChangeMany;
 }
-function registerSpec(program, ctx, mutator, actor, isStdinTty, readStdin, runEditorImpl) {
+function registerSpec(program, ctx, mutator, actor, isStdinTty, isStdoutTty, readStdin, runEditorImpl) {
 	const resolvedRunEditor = runEditorImpl ?? runEditor;
 	const specCmd = program.command("spec").description("SPEC content and diagnostic commands (status / submit / add-req / add-scenario / add-visual; init in SC4)");
 	specCmd.command("status").description("Show failing and suppressed spec-lock checks from replayed state (read-only)").option("--feature <name>", "Feature whose spec-lock status to show").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
@@ -16512,10 +16529,16 @@ feature:
 			next: i18n.t(SUCCESS_KEYS.specInitNext)
 		}));
 	});
-	specCmd.command("edit").description("Launch $EDITOR on spec.md, validate, then emit event:spec_submitted (wrapping mutator; --dry-run rejected)").option("--feature <name>", "Feature whose spec.md to edit").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
-		if (ctx.rejectIfDryRun("spec edit", "wrapping")) return;
+	specCmd.command("edit").description("Replace the spec.md body from --input or launch $EDITOR, validate, then emit event:spec_submitted").option("--input <src>", "JSON {\"body\":\"<Markdown>\"} source: `-` (stdin), inline JSON, or file path; preserves current frontmatter").option("--feature <name>", "Feature whose spec.md to edit").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+		const hasInput = opts.input !== void 0;
+		if (!hasInput && ctx.rejectIfDryRun("spec edit", "wrapping")) return;
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
+		const explicitEditor = (process.env["EDITOR"] ?? "").trim();
+		if (!hasInput && (!isStdinTty() || !isStdoutTty())) {
+			ctx.emitFailure("SPEC_EDIT_INPUT_REQUIRED", "non-interactive `loaf spec edit` requires --input <src>; the editor lane requires TTY stdin and stdout");
+			return;
+		}
 		const actor = ctx.resolveHumanActorOrFail();
 		if (actor === null) return;
 		const session = await loadSession(featureDir, { ensureDir: false });
@@ -16541,43 +16564,70 @@ feature:
 			}
 			throw err;
 		}
-		const editor = (process.env["EDITOR"] ?? "").trim() || "vi";
-		const result = await resolvedRunEditor({
-			filePath: specMdPath,
-			editor,
-			cwd: process.cwd(),
-			env: process.env
-		});
-		if (result.error !== void 0) {
-			ctx.emitFailure("USAGE", `editor '${editor}' could not be launched (${result.error})`, {
-				editor,
-				spawn_error: result.error
-			});
-			return;
-		}
-		if (result.signal !== null) {
-			ctx.exitCode = 130;
-			return;
-		}
-		if (result.code !== 0) {
-			ctx.emitFailure("USAGE", `editor exited with code=${result.code}`, {
-				editor,
-				editor_exit: result.code
-			});
-			return;
-		}
 		let afterContent;
-		try {
-			afterContent = await promises.readFile(specMdPath, "utf8");
-		} catch (err) {
-			if (err.code === "ENOENT") {
-				ctx.emitFailure("SCHEMA_VALIDATION_FAILED", `spec.md was deleted during edit at ${specMdPath}`, {
-					subcode: "spec-not-found",
+		if (hasInput) {
+			const source = parseInputSource(opts.input);
+			if (source.kind === "stdin" && isStdinTty()) {
+				ctx.failure("USAGE", "stdin is TTY — `loaf spec edit --input -` expects piped JSON. Pipe {\"body\":\"<Markdown>\"} via stdin, or pass inline JSON / a file path.");
+				return;
+			}
+			const read = await readJsonInput(source, { readStdin });
+			if (!read.ok) {
+				ctx.failure(read.code, read.message, read.detail);
+				return;
+			}
+			const inputParse = SpecEditInput.safeParse(read.value);
+			if (!inputParse.success) {
+				ctx.emitFailure("SCHEMA_VALIDATION_FAILED", "spec edit --input expects a strict JSON object {\"body\":\"<Markdown>\"}", { issues: inputParse.error.issues });
+				return;
+			}
+			const frontmatterMatch = FRONTMATTER_RE.exec(beforeContent);
+			if (frontmatterMatch === null) {
+				ctx.emitFailure("SCHEMA_VALIDATION_FAILED", `spec.md is missing a YAML frontmatter block fenced by \`---\` on the first line; --input replaces only the body and cannot repair frontmatter at ${specMdPath}`, {
+					subcode: "missing-frontmatter",
 					path: specMdPath
 				});
 				return;
 			}
-			throw err;
+			afterContent = beforeContent.slice(0, frontmatterMatch[0].length) + inputParse.data.body;
+		} else {
+			const editor = explicitEditor || "vi";
+			const result = await resolvedRunEditor({
+				filePath: specMdPath,
+				editor,
+				cwd: process.cwd(),
+				env: process.env
+			});
+			if (result.error !== void 0) {
+				ctx.emitFailure("USAGE", `editor '${editor}' could not be launched (${result.error})`, {
+					editor,
+					spawn_error: result.error
+				});
+				return;
+			}
+			if (result.signal !== null) {
+				ctx.exitCode = 130;
+				return;
+			}
+			if (result.code !== 0) {
+				ctx.emitFailure("USAGE", `editor exited with code=${result.code}`, {
+					editor,
+					editor_exit: result.code
+				});
+				return;
+			}
+			try {
+				afterContent = await promises.readFile(specMdPath, "utf8");
+			} catch (err) {
+				if (err.code === "ENOENT") {
+					ctx.emitFailure("SCHEMA_VALIDATION_FAILED", `spec.md was deleted during edit at ${specMdPath}`, {
+						subcode: "spec-not-found",
+						path: specMdPath
+					});
+					return;
+				}
+				throw err;
+			}
 		}
 		if (beforeContent === afterContent) {
 			ctx.success({
@@ -16644,6 +16694,7 @@ feature:
 			actor,
 			now
 		});
+		if (hasInput && !ctx.dryRun) await promises.writeFile(specMdPath, afterContent, "utf8");
 		const mutateResult = mutator.finishMutate(await mutateBatch(entries, mutator.mctxFor(featureDir, session)), "emit-failure");
 		if (!mutateResult) return;
 		const newSpecVersion = entries[0].payload.spec_version;
@@ -16652,7 +16703,7 @@ feature:
 			feature: opts.feature,
 			spec_version: newSpecVersion,
 			sub_state: mutateResult.snapshot.state?.sub_state
-		}, (i18n) => i18n.t(SUCCESS_KEYS.specEditText, { spec_version: newSpecVersion }) + "\n", (i18n) => ({ stateChange: i18n.t(SUCCESS_KEYS.specEditStateChange, { spec_version: newSpecVersion }) }));
+		}, (i18n) => i18n.t(SUCCESS_KEYS.specEditText, { spec_version: newSpecVersion }) + "\n", (i18n) => ({ stateChange: i18n.t(hasInput ? SUCCESS_KEYS.specEditInputStateChange : SUCCESS_KEYS.specEditStateChange, { spec_version: newSpecVersion }) }));
 	});
 	for (const cfg of REGISTER_SPEC_ADD) {
 		const mutatorKey = cfg.name === "req" ? "spec:add-req" : cfg.name === "scenario" ? "spec:add-scenario" : "spec:add-visual";
@@ -18776,7 +18827,9 @@ async function main(argv = process.argv, deps = {}) {
 	const { evidenceCmd } = registerEvidence(program, ctx, mutator, actor, isStdinTty, readStdin);
 	registerJournal(program, ctx);
 	registerLessons(program, ctx, mutator, actor);
-	registerIntegrations(program, ctx, mutator, actor, i18n, isStdinTty, deps.renderTui ?? defaultRenderTui, deps.isStdoutTty ?? (() => process.stdout.isTTY === true), deps.registryDir, deps.now, deps.runtimeDir ?? defaultRuntimeDir(os.homedir()), deps.now ?? (() => /* @__PURE__ */ new Date()));
+	const renderTuiImpl = deps.renderTui ?? defaultRenderTui;
+	const isStdoutTty = deps.isStdoutTty ?? (() => process.stdout.isTTY === true);
+	registerIntegrations(program, ctx, mutator, actor, i18n, isStdinTty, renderTuiImpl, isStdoutTty, deps.registryDir, deps.now, deps.runtimeDir ?? defaultRuntimeDir(os.homedir()), deps.now ?? (() => /* @__PURE__ */ new Date()));
 	registerBoard(program, ctx, {
 		i18n,
 		now,
@@ -18790,7 +18843,7 @@ async function main(argv = process.argv, deps = {}) {
 		actor
 	});
 	const { findingCmd } = registerFinding(program, ctx, mutator, actor);
-	const { specCmd } = registerSpec(program, ctx, mutator, actor, isStdinTty, readStdin, deps.runEditor ?? runEditor);
+	const { specCmd } = registerSpec(program, ctx, mutator, actor, isStdinTty, isStdoutTty, readStdin, deps.runEditor ?? runEditor);
 	registerState(program, ctx, specCmd, tasksCmd, evidenceCmd, findingCmd);
 	const t0 = monotonicNow();
 	let resolvedExit = 0;

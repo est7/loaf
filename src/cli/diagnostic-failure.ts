@@ -59,6 +59,8 @@ function migratedDiagnosticVarsFor(
         command_type: stringVar(detail?.["command_type"]),
         command: stringVar(detail?.["command"]),
       });
+    case "SPEC_EDIT_INPUT_REQUIRED":
+      return {};
     case "CONFIG_ALREADY_INITIALIZED":
       return varsIfDefined({ config_path: stringVar(detail?.["config_path"]) });
     case "FEATURE_NOT_FOUND":

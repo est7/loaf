@@ -13,12 +13,13 @@ import { parseInputSource } from "../input-source.js";
 import { readJsonInput } from "../input-read.js";
 import { mapZodIssues } from "../check-file.js";
 import { runEditor as defaultRunEditor, type RunEditor } from "../run-editor.js";
-import { splitFrontmatter } from "../../core/spec-frontmatter.js";
+import { FRONTMATTER_RE, splitFrontmatter } from "../../core/spec-frontmatter.js";
 import { parse as parseYaml } from "yaml";
 import {
   SpecAddReqInput,
   SpecAddScenarioInput,
   SpecAddVisualInput,
+  SpecEditInput,
   SpecFrontmatter,
   SpecSubmitInput,
   nextSerialInNamespace,
@@ -91,6 +92,7 @@ export function registerSpec(
   mutator: CommandMutator,
   actor: string,
   isStdinTty: () => boolean,
+  isStdoutTty: () => boolean,
   readStdin: () => Promise<string>,
   runEditorImpl: RunEditor | undefined,
 ): { specCmd: Command } {
@@ -416,11 +418,10 @@ export function registerSpec(
     );
 
   // ── loaf spec edit — Phase 16 SC-12a-2 ─────────────────────────────
-  // Wrapping mutator: spawn $EDITOR on <feature-dir>/spec.md, wait for
-  // save, validate post-edit frontmatter, emit `event:spec_submitted`
-  // batch (re-using SC-12a-1 shared builder). No-op detection skips
-  // journal append. Failure paths preserve the edited work copy on
-  // disk for the human to fix + re-run.
+  // Dual-lane mutator: deterministic --input replaces only the Markdown
+  // body; otherwise spawn $EDITOR on <feature-dir>/spec.md. Both validate
+  // frontmatter and emit the same `event:spec_submitted` batch via the
+  // SC-12a-1 builder. No-op detection skips journal append.
   //
   // Codex r331 / r333 / r335 / r336 GO. See:
   //   - r336 P1: spawn error handler (runEditor.ts owns this)
@@ -431,14 +432,34 @@ export function registerSpec(
   specCmd
     .command("edit")
     .description(
-      "Launch $EDITOR on spec.md, validate, then emit event:spec_submitted (wrapping mutator; --dry-run rejected)",
+      "Replace the spec.md body from --input or launch $EDITOR, validate, then emit event:spec_submitted",
+    )
+    .option(
+      "--input <src>",
+      'JSON {"body":"<Markdown>"} source: `-` (stdin), inline JSON, or file path; preserves current frontmatter',
     )
     .option("--feature <name>", "Feature whose spec.md to edit")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-    .action(async (opts: { feature: string; featureDir?: string }) => {
-      if (ctx.rejectIfDryRun("spec edit", "wrapping")) return;
+    .action(async (opts: { input?: string; feature: string; featureDir?: string }) => {
+      const hasInput = opts.input !== undefined;
+      // The editor lane remains a wrapping command. The deterministic
+      // --input lane is a normal mutator and therefore participates in the
+      // shared dry-run transaction path.
+      if (!hasInput && ctx.rejectIfDryRun("spec edit", "wrapping")) return;
       const featureDir = await ctx.dispatchOrFail(opts);
       if (featureDir === null) return;
+      const explicitEditor = (process.env["EDITOR"] ?? "").trim();
+      // Match the §10.1 TTY no-hang rule used by `--input -`: whether an
+      // interactive program is safe is determined by its streams, never by
+      // the presence of $EDITOR. Both streams must be terminals because an
+      // editor reads controls from stdin and renders its UI to stdout.
+      if (!hasInput && (!isStdinTty() || !isStdoutTty())) {
+        ctx.emitFailure(
+          "SPEC_EDIT_INPUT_REQUIRED",
+          "non-interactive `loaf spec edit` requires --input <src>; the editor lane requires TTY stdin and stdout",
+        );
+        return;
+      }
       // (1) actor — `event:spec_submitted` is human:* per PER_KIND_AUTHORITY
       const actor = ctx.resolveHumanActorOrFail();
       if (actor === null) return;
@@ -476,49 +497,88 @@ export function registerSpec(
         }
         throw err;
       }
-      // (3) spawn editor
-      const editor = (process.env["EDITOR"] ?? "").trim() || "vi";
-      const result = await resolvedRunEditor({
-        filePath: specMdPath,
-        editor,
-        cwd: process.cwd(),
-        env: process.env,
-      });
-      // (4a) spawn error → USAGE (codex r335 P1)
-      if (result.error !== undefined) {
-        ctx.emitFailure("USAGE", `editor '${editor}' could not be launched (${result.error})`, {
-          editor,
-          spawn_error: result.error,
-        });
-        return;
-      }
-      // (4b) signal abort → exit 130, no journal write (codex r333 P3)
-      if (result.signal !== null) {
-        ctx.exitCode = 130;
-        return;
-      }
-      // (4c) non-zero exit → USAGE (user aborted via :q! or similar)
-      if (result.code !== 0) {
-        ctx.emitFailure("USAGE", `editor exited with code=${result.code}`, {
-          editor,
-          editor_exit: result.code,
-        });
-        return;
-      }
-      // (5) re-read post-edit content; no-op skip (codex r332 P6)
       let afterContent: string;
-      try {
-        afterContent = await fsP.readFile(specMdPath, "utf8");
-      } catch (err) {
-        if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-          ctx.emitFailure(
-            "SCHEMA_VALIDATION_FAILED",
-            `spec.md was deleted during edit at ${specMdPath}`,
-            { subcode: "spec-not-found", path: specMdPath },
+      if (hasInput) {
+        const source = parseInputSource(opts.input!);
+        if (source.kind === "stdin" && isStdinTty()) {
+          ctx.failure(
+            "USAGE",
+            "stdin is TTY — `loaf spec edit --input -` expects piped JSON. " +
+              "Pipe {\"body\":\"<Markdown>\"} via stdin, or pass inline JSON / a file path.",
           );
           return;
         }
-        throw err;
+        const read = await readJsonInput(source, { readStdin });
+        if (!read.ok) {
+          ctx.failure(read.code, read.message, read.detail);
+          return;
+        }
+        const inputParse = SpecEditInput.safeParse(read.value);
+        if (!inputParse.success) {
+          ctx.emitFailure(
+            "SCHEMA_VALIDATION_FAILED",
+            "spec edit --input expects a strict JSON object {\"body\":\"<Markdown>\"}",
+            { issues: inputParse.error.issues },
+          );
+          return;
+        }
+        const frontmatterMatch = FRONTMATTER_RE.exec(beforeContent);
+        if (frontmatterMatch === null) {
+          ctx.emitFailure(
+            "SCHEMA_VALIDATION_FAILED",
+            `spec.md is missing a YAML frontmatter block fenced by \`---\` on the first line; --input replaces only the body and cannot repair frontmatter at ${specMdPath}`,
+            { subcode: "missing-frontmatter", path: specMdPath },
+          );
+          return;
+        }
+        // Preserve the current frontmatter bytes exactly. Projection refresh
+        // after the journal commit reuses this body from the CLI-owned work
+        // copy. A dry-run validates the batch without touching that copy.
+        afterContent = beforeContent.slice(0, frontmatterMatch[0].length) + inputParse.data.body;
+      } else {
+        // (3) spawn editor
+        const editor = explicitEditor || "vi";
+        const result = await resolvedRunEditor({
+          filePath: specMdPath,
+          editor,
+          cwd: process.cwd(),
+          env: process.env,
+        });
+        // (4a) spawn error → USAGE (codex r335 P1)
+        if (result.error !== undefined) {
+          ctx.emitFailure("USAGE", `editor '${editor}' could not be launched (${result.error})`, {
+            editor,
+            spawn_error: result.error,
+          });
+          return;
+        }
+        // (4b) signal abort → exit 130, no journal write (codex r333 P3)
+        if (result.signal !== null) {
+          ctx.exitCode = 130;
+          return;
+        }
+        // (4c) non-zero exit → USAGE (user aborted via :q! or similar)
+        if (result.code !== 0) {
+          ctx.emitFailure("USAGE", `editor exited with code=${result.code}`, {
+            editor,
+            editor_exit: result.code,
+          });
+          return;
+        }
+        // (5) re-read post-edit content; no-op skip (codex r332 P6)
+        try {
+          afterContent = await fsP.readFile(specMdPath, "utf8");
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+            ctx.emitFailure(
+              "SCHEMA_VALIDATION_FAILED",
+              `spec.md was deleted during edit at ${specMdPath}`,
+              { subcode: "spec-not-found", path: specMdPath },
+            );
+            return;
+          }
+          throw err;
+        }
       }
       if (beforeContent === afterContent) {
         ctx.success(
@@ -595,9 +655,13 @@ export function registerSpec(
         actor,
         now,
       });
-      // `spec edit` rejects --dry-run upfront (rejectIfDryRun above), so
-      // finishMutate's dry-run branch is unreachable here; the route is the
-      // default emit-failure, matching the prior inline ctx.emitFailure(...).
+      // Match the editor lane's work-copy semantics: a real mutation leaves
+      // the supplied body on disk even if downstream admission fails, while a
+      // dry-run has no filesystem side effects. Validation above completes
+      // before this write, so malformed input never damages the work copy.
+      if (hasInput && !ctx.dryRun) {
+        await fsP.writeFile(specMdPath, afterContent, "utf8");
+      }
       const mutateResult = mutator.finishMutate(
         await mutateBatch(entries, mutator.mctxFor(featureDir, session)),
         "emit-failure",
@@ -613,7 +677,10 @@ export function registerSpec(
         },
         (i18n) => i18n.t(SUCCESS_KEYS.specEditText, { spec_version: newSpecVersion }) + "\n",
         (i18n) => ({
-          stateChange: i18n.t(SUCCESS_KEYS.specEditStateChange, { spec_version: newSpecVersion }),
+          stateChange: i18n.t(
+            hasInput ? SUCCESS_KEYS.specEditInputStateChange : SUCCESS_KEYS.specEditStateChange,
+            { spec_version: newSpecVersion },
+          ),
         }),
       );
     });

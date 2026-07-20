@@ -9,9 +9,11 @@ import { describe, expect, test } from "vitest";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { parse as parseYaml } from "yaml";
 
 import { main, type MainDeps } from "../../src/cli.js";
 import type { RunEditor, RunEditorResult } from "../../src/cli/run-editor.js";
+import { splitFrontmatter } from "../../src/core/spec-frontmatter.js";
 
 async function tmpDir(): Promise<string> {
   return await fs.mkdtemp(path.join(os.tmpdir(), "loaf-sc12-edit-e2e-"));
@@ -45,7 +47,13 @@ async function runCli(
     return true;
   }) as typeof process.stderr.write;
   try {
-    const exit = await main(["node", "loaf", ...argv], opts.deps ?? {});
+    // Existing editor-path cases model a human terminal. Individual tests
+    // override either probe when exercising a headless or piped-input lane.
+    const exit = await main(["node", "loaf", ...argv], {
+      isStdinTty: () => true,
+      isStdoutTty: () => true,
+      ...opts.deps,
+    });
     return { exit, stdout: stdoutChunks.join(""), stderr: stderrChunks.join("") };
   } finally {
     process.stdout.write = origStdout;
@@ -59,7 +67,7 @@ async function runCli(
   }
 }
 
-const SEED_ENV = { LOAF_USER: "Dev <dev@example.com>" };
+const SEED_ENV = { LOAF_USER: "Dev <dev@example.com>", EDITOR: "test-editor" };
 
 const VALID_SPEC_MD = `---
 schema_version: 2
@@ -214,6 +222,277 @@ describe("SC-12a-2 — spec edit happy paths", () => {
     const out = JSON.parse(result.stdout);
     // CLI ignores user-edited spec_version, stamps snapshot.state.spec_version (0) + 1
     expect(out.spec_version).toBe(1);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────
+// Headless --input path (issue #18 part A)
+// ───────────────────────────────────────────────────────────────────────
+describe("issue #18A — spec edit --input body replacement", () => {
+  test("file JSON {body} replaces only the Markdown body and never launches $EDITOR", async () => {
+    const { featureDir } = await seedFeatureWithSpecMd();
+    const specPath = path.join(featureDir, "spec.md");
+    const inputPath = path.join(path.dirname(featureDir), "proposal.json");
+    const body = "## Proposal\n\nHeadless authoring keeps CLI-owned frontmatter.\n";
+    await fs.writeFile(inputPath, JSON.stringify({ body }), "utf8");
+    const before = splitFrontmatter(await fs.readFile(specPath, "utf8"));
+    let editorCalled = false;
+
+    const result = await runCli(
+      [
+        "spec",
+        "edit",
+        "--input",
+        inputPath,
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
+      {
+        env: SEED_ENV,
+        deps: {
+          runEditor: async () => {
+            editorCalled = true;
+            return { code: 0, signal: null };
+          },
+        },
+      },
+    );
+
+    expect(result.exit).toBe(0);
+    expect(editorCalled).toBe(false);
+    expect(JSON.parse(result.stdout).spec_version).toBe(1);
+    const after = splitFrontmatter(await fs.readFile(specPath, "utf8"));
+    expect(parseYaml(after.frontmatter!)).toMatchObject(parseYaml(before.frontmatter!));
+    expect(after.body).toBe(body);
+  });
+
+  test("stdin JSON {body} is accepted when --input - is piped", async () => {
+    const { featureDir } = await seedFeatureWithSpecMd();
+    const body = "## Proposal\n\nAuthored from piped stdin.\n";
+    const result = await runCli(
+      [
+        "spec",
+        "edit",
+        "--input",
+        "-",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
+      {
+        env: SEED_ENV,
+        deps: {
+          isStdinTty: () => false,
+          readStdin: async () => JSON.stringify({ body }),
+          runEditor: async () => {
+            throw new Error("$EDITOR must not launch for --input");
+          },
+        },
+      },
+    );
+
+    expect(result.exit).toBe(0);
+    expect(splitFrontmatter(await fs.readFile(path.join(featureDir, "spec.md"), "utf8")).body).toBe(
+      body,
+    );
+  });
+
+  test("inline JSON {body} is accepted through the shared input-source resolver", async () => {
+    const { featureDir } = await seedFeatureWithSpecMd();
+    const body = "## Plan\n\nAuthored from an inline JSON payload.\n";
+    const result = await runCli(
+      [
+        "spec",
+        "edit",
+        "--input",
+        JSON.stringify({ body }),
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
+      {
+        env: SEED_ENV,
+        deps: {
+          runEditor: async () => {
+            throw new Error("$EDITOR must not launch for --input");
+          },
+        },
+      },
+    );
+
+    expect(result.exit).toBe(0);
+    expect(splitFrontmatter(await fs.readFile(path.join(featureDir, "spec.md"), "utf8")).body).toBe(
+      body,
+    );
+  });
+
+  test("invalid {body} shape fails before editor or disk mutation", async () => {
+    const { featureDir } = await seedFeatureWithSpecMd();
+    const specPath = path.join(featureDir, "spec.md");
+    const journalPath = path.join(featureDir, "journal.jsonl");
+    const specBefore = await fs.readFile(specPath, "utf8");
+    const journalBefore = await fs.readFile(journalPath, "utf8");
+    const result = await runCli(
+      [
+        "spec",
+        "edit",
+        "--input",
+        JSON.stringify({ body: 42 }),
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
+      { env: SEED_ENV },
+    );
+
+    expect(result.exit).toBe(2);
+    expect(JSON.parse(result.stderr).code).toBe("SCHEMA_VALIDATION_FAILED");
+    expect(await fs.readFile(specPath, "utf8")).toBe(specBefore);
+    expect(await fs.readFile(journalPath, "utf8")).toBe(journalBefore);
+  });
+
+  test("--input with the current body is a no-op and writes no journal entry", async () => {
+    const { featureDir } = await seedFeatureWithSpecMd();
+    const specPath = path.join(featureDir, "spec.md");
+    const journalPath = path.join(featureDir, "journal.jsonl");
+    const currentBody = splitFrontmatter(await fs.readFile(specPath, "utf8")).body;
+    const journalBefore = await fs.readFile(journalPath, "utf8");
+    const result = await runCli(
+      [
+        "spec",
+        "edit",
+        "--input",
+        JSON.stringify({ body: currentBody }),
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
+      { env: SEED_ENV },
+    );
+
+    expect(result.exit).toBe(0);
+    expect(JSON.parse(result.stdout).no_op).toBe(true);
+    expect(await fs.readFile(journalPath, "utf8")).toBe(journalBefore);
+  });
+
+  test("non-TTY invocation without --input fails before a configured editor can block", async () => {
+    const { featureDir } = await seedFeatureWithSpecMd();
+    let editorCalled = false;
+    const result = await runCli(
+      [
+        "spec",
+        "edit",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
+      {
+        env: { ...SEED_ENV, EDITOR: "nvim" },
+        deps: {
+          isStdinTty: () => false,
+          isStdoutTty: () => false,
+          runEditor: async () => {
+            editorCalled = true;
+            return { code: 0, signal: null };
+          },
+        },
+      },
+    );
+
+    expect(result.exit).toBe(2);
+    expect(JSON.parse(result.stderr).code).toBe("SPEC_EDIT_INPUT_REQUIRED");
+    expect(editorCalled).toBe(false);
+  });
+
+  test("TTY stdin/stdout with configured $EDITOR still reaches the human editor lane", async () => {
+    const { featureDir } = await seedFeatureWithSpecMd();
+    let editorCalled = false;
+    const result = await runCli(
+      [
+        "spec",
+        "edit",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
+      {
+        env: { ...SEED_ENV, EDITOR: "nvim" },
+        deps: {
+          isStdinTty: () => true,
+          isStdoutTty: () => true,
+          runEditor: async () => {
+            editorCalled = true;
+            return { code: 0, signal: null };
+          },
+        },
+      },
+    );
+
+    expect(result.exit).toBe(0);
+    expect(JSON.parse(result.stdout).no_op).toBe(true);
+    expect(editorCalled).toBe(true);
+  });
+
+  test("--dry-run with --input validates as a mutator without changing work copy or journal", async () => {
+    const { featureDir } = await seedFeatureWithSpecMd();
+    const specPath = path.join(featureDir, "spec.md");
+    const journalPath = path.join(featureDir, "journal.jsonl");
+    const specBefore = await fs.readFile(specPath, "utf8");
+    const journalBefore = await fs.readFile(journalPath, "utf8");
+    const result = await runCli(
+      [
+        "spec",
+        "edit",
+        "--input",
+        JSON.stringify({ body: "## Proposal\n\nDry-run replacement.\n" }),
+        "--dry-run",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
+      {
+        env: SEED_ENV,
+        deps: {
+          runEditor: async () => {
+            throw new Error("$EDITOR must not launch for --input");
+          },
+        },
+      },
+    );
+
+    expect(result.exit).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      ok: true,
+      dry_run: true,
+      would: { kind: "event:spec_submitted" },
+    });
+    expect(await fs.readFile(specPath, "utf8")).toBe(specBefore);
+    expect(await fs.readFile(journalPath, "utf8")).toBe(journalBefore);
   });
 });
 
@@ -671,7 +950,10 @@ describe("SC-12a-2 — flags + actor", () => {
         "--format",
         "json",
       ],
-      { env: { LOAF_USER: undefined }, deps: { runEditor: NOOP_EDITOR } },
+      {
+        env: { LOAF_USER: undefined, EDITOR: "test-editor" },
+        deps: { runEditor: NOOP_EDITOR },
+      },
     );
     expect(result.exit).toBe(2);
     const err = JSON.parse(result.stderr);

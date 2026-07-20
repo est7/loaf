@@ -41,7 +41,7 @@ describe("generated i18n diagnostic sections", () => {
       expect(committed, DRIFT_MESSAGE).toBe(generated);
       expect(generateI18nDiagnostics(generated, locale)).toBe(generated);
       expect(JSON.parse(generated).diagnostic).toEqual(expectedDiagnostic(locale));
-      expect(Object.keys(JSON.parse(generated).diagnostic)).toHaveLength(73);
+      expect(Object.keys(JSON.parse(generated).diagnostic)).toHaveLength(74);
     });
 
     test(`${locale} generation preserves every byte outside diagnostic`, async () => {

@@ -19,8 +19,9 @@ export const CONCURRENCY_INVARIANTS = {
   //      Advisory            `loaf deliver` stdout / `loaf status` stdout
   //    single_writer applies to all four layers; gate authority
   //    distinction is §13.1's concern, not this rule's.
-  //    Exception: spec.md MAY be edited by $EDITOR or human between
-  //    `loaf spec edit` and `loaf spec submit` (SPEC.* sub_states
+  //    Exception: spec.md MAY be edited by the CLI-owned `spec edit --input`
+  //    body replacement, by $EDITOR, or by a human between `loaf spec edit`
+  //    and `loaf spec submit` (SPEC.* sub_states
   //    only); diff-guard catches out-of-window writes. Note that
   //    rev 4.3 `spec add-*` commands replace this $EDITOR loop for
   //    incremental writes — they go through loaf-cli under lock and
@@ -75,7 +76,8 @@ export const CONCURRENCY_INVARIANTS = {
 
   // 3b. Dry-run applicability
   //     Read-only commands MUST reject --dry-run with exit 2
-  //     (--dry-run not applicable). Wrapping commands ($EDITOR /
+  //     (--dry-run not applicable). The deterministic `spec edit --input`
+  //     lane is a normal mutator and supports dry-run. Wrapping commands ($EDITOR /
   //     fullscreen TUI) MUST reject. See protocol.md §10.7
   //     "--dry-run 契约" table for the complete partition.
   dry_run_rejects_read_only: true,

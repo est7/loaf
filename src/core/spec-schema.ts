@@ -193,6 +193,13 @@ export const SpecFrontmatter = z.object({
 });
 export type SpecFrontmatter = z.infer<typeof SpecFrontmatter>;
 
+// `loaf spec edit --input` replaces only the authored Markdown body. The
+// current projection's validated frontmatter remains CLI-owned, so headless
+// callers cannot accidentally clobber feature identity, spec_version, or the
+// structured REQ/SCEN/VIS arrays while authoring prose.
+export const SpecEditInput = z.object({ body: z.string() }).strict();
+export type SpecEditInput = z.infer<typeof SpecEditInput>;
+
 // ── SpecSubmitInput — `loaf spec submit --input` CLI boundary schema ────
 //
 // Slice 4 SC1 (codex r75 BLOCK fix): typed runtime guard at the CLI

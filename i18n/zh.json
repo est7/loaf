@@ -206,6 +206,7 @@
   },
 
   "diagnostic": {
+    "SPEC_EDIT_INPUT_REQUIRED": "非交互式 `loaf spec edit` 必须传 --input <src>；编辑器通道要求 stdin 和 stdout 均为 TTY",
     "SPEC_LOCKED_NO_DIRECT_EDIT": "{kind} 被拒:spec_locked=true;用 `loaf finding raise --category spec-gap --action amend-spec` 走 amend-spec 回退到 SPEC.spec",
     "SPEC_NOT_INITIALIZED": "{kind} 被拒:spec_version=0;先跑 `loaf spec submit` 把 spec_version 升到 1",
     "SPEC_ALREADY_INITIALIZED": "spec.md 已存在于 {spec_md_path};拒绝覆盖",
@@ -463,6 +464,7 @@
       "init_next": "编辑后运行 `loaf spec submit`",
       "edit_text": "spec edit: spec_version={spec_version}",
       "edit_state_change": "spec edit: spec_version={spec_version} via $EDITOR",
+      "edit_input_state_change": "spec edit: spec_version={spec_version} via --input",
       "add_req_text_one": "spec add-req v{spec_version}: {ids}",
       "add_req_text_many": "spec add-req v{spec_version}: {ids}",
       "add_req_state_change_one": "spec add-req: +{count} REQ(spec_version={spec_version}; allocated {ids})",

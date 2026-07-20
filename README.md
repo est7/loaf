@@ -44,6 +44,7 @@ loaf status --feature <feature>
 loaf spec init --feature <feature>
 loaf spec status --feature <feature>
 loaf spec submit --input <src> --feature <feature>
+loaf spec edit --input <src> --feature <feature>  # strict JSON {"body":"<Markdown>"}; preserves frontmatter
 loaf spec add-req|add-scenario|add-visual --input <src> --feature <feature>
 loaf tasks submit --input <src>
 loaf tasks add --input <src> [--finding <FND-N>]

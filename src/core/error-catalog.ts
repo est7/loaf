@@ -192,6 +192,18 @@ export const ERROR_CATALOG = {
     template_keys: [],
     doc_anchor: "protocol.md#§10.7",
   },
+  SPEC_EDIT_INPUT_REQUIRED: {
+    exit_code: 2,
+    message_template:
+      "non-interactive `loaf spec edit` requires --input <src>; the editor lane requires TTY stdin and stdout",
+    zh_message_template:
+      "非交互式 `loaf spec edit` 必须传 --input <src>；编辑器通道要求 stdin 和 stdout 均为 TTY",
+    fix_template:
+      "pass --input with a JSON object {\"body\":\"<Markdown>\"} via file, stdin '-', or inline JSON; alternatively rerun from a terminal with both stdin and stdout attached to a TTY",
+    template_keys: [],
+    detail_keys: [],
+    doc_anchor: "protocol.md#§10.7",
+  },
   SCHEMA_VALIDATION_FAILED: {
     exit_code: 2,
     message_template:
@@ -418,9 +430,8 @@ export const ERROR_CATALOG = {
     // Phase 16 SC-6c — `--dry-run` only applies to mutating commands.
     // Read-only commands (status, next, tasks list/next/complete, doctor,
     // finding list, pending list/status, ...) reject with this code.
-    // Future: wrapping commands (`spec edit`, `tui`) also reject when
-    // implemented. `command_type` discriminates "read-only" vs
-    // "wrapping" (the wrapping variant is reserved for future use).
+    // Wrapping commands (`spec edit` without --input, `tui`) also reject.
+    // `command_type` discriminates "read-only" vs "wrapping".
     exit_code: 2,
     message_template:
       "--dry-run not applicable to {command_type} command `{command}`",

@@ -3,8 +3,8 @@
 // Single source for the `event:spec_submitted` + companion entries
 // shape, reused by:
 //   - `loaf spec submit` (existing; whole-replacement from --input JSON)
-//   - `loaf spec edit`   (SC-12a-2; $EDITOR-driven whole-replacement
-//                          after frontmatter re-validation)
+//   - `loaf spec edit`   (SC-12a-2 / issue #18A; body-only --input or
+//                          $EDITOR after frontmatter re-validation)
 //
 // Per codex r331 P1: CLI owns spec_version stamping — caller passes the
 // pre-validated `SpecSubmitInput`, builder fills `spec_version` from

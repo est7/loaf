@@ -33,10 +33,16 @@ satisfied with the content.
 
 | sub-state | author this | how | then |
 |---|---|---|---|
-| `SPEC.proposal` | why / scope / anti-scope | `loaf spec init`, fill the Proposal body via `loaf spec edit` | `loaf advance SPEC.spec` |
+| `SPEC.proposal` | why / scope / anti-scope | `loaf spec init`, then `loaf spec edit --input <body.json>` | `loaf advance SPEC.spec` |
 | `SPEC.spec` | EARS `REQ-*` (measurable + `verified_by_scenarios` or `acceptance_na`+reason), Gherkin `SCEN-*`, `VIS-*` if UI; `needs_clarification` must be empty | `loaf spec add-req` / `add-scenario` / `add-visual --input <file>` | `loaf advance SPEC.plan` |
-| `SPEC.plan` | risks / dependencies / milestones | `loaf spec edit` (Plan body) | `loaf advance SPEC.design` |
+| `SPEC.plan` | risks / dependencies / milestones | `loaf spec edit --input <body.json>` (Plan body) | `loaf advance SPEC.design` |
 | `SPEC.design` | design notes + task graph; **bind every `REQ`/`SCEN`/`VIS` to ≥1 task** via `task.drives[]` | `loaf tasks submit --input <file>` | gate → step 3 |
+
+For headless prose authoring, `<body.json>` is a strict JSON object with one
+field: `{"body":"<complete Markdown body>"}`. `spec edit --input` preserves the
+current frontmatter and replaces only the body; do not copy frontmatter into the
+payload. The source may be a file path, `-` for piped JSON, or inline JSON. An
+interactive human may omit `--input` to use an explicitly configured `$EDITOR`.
 
 For add-* input, run that command with `--schema --format=json`. For the whole
 task graph, run `loaf tasks schema --format=json`; `tasks submit` itself has no

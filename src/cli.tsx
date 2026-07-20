@@ -150,8 +150,9 @@ export type MainDeps = {
   // deterministic stubs to assert the work-copy / no-op / signal split
   // semantics without spawning a real editor (codex r331 P3).
   runEditor?: RunEditor;
-  // Phase 16 SC-14 — test-injectable TTY suitability check for
-  // `loaf tui`. Defaults to `() => process.stdout.isTTY === true`.
+  // Test-injectable stdout TTY suitability check for interactive surfaces
+  // (`loaf tui` and the editor lane of `loaf spec edit`). Defaults to
+  // `() => process.stdout.isTTY === true`.
   // Kept separate from isInteractiveHuman (which is actor / no-input
   // semantics per SC-6a) per codex r355 ack 1.
   isStdoutTty?: () => boolean;
@@ -783,7 +784,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
   registerLessons(program, ctx, mutator, actor);
 
   const renderTuiImpl: RenderTui = deps.renderTui ?? defaultRenderTui;
-  const isStdoutTtyForTui = deps.isStdoutTty ?? (() => process.stdout.isTTY === true);
+  const isStdoutTty = deps.isStdoutTty ?? (() => process.stdout.isTTY === true);
   registerIntegrations(
     program,
     ctx,
@@ -792,7 +793,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
     i18n,
     isStdinTty,
     renderTuiImpl,
-    isStdoutTtyForTui,
+    isStdoutTty,
     deps.registryDir,
     deps.now,
     deps.runtimeDir ?? defaultRuntimeDir(os.homedir()),
@@ -820,6 +821,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
     mutator,
     actor,
     isStdinTty,
+    isStdoutTty,
     readStdin,
     runEditorImpl,
   );
