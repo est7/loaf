@@ -49,10 +49,26 @@ export const FindingAction = z.enum([
   "amend-tasks", // → EXECUTE.work, tasks.version+1
   "fix-impl", // → EXECUTE.work; event:task_step_reset sets execution.implement.status=pending
   "fix-test", // → EXECUTE.work; event:task_step_reset sets execution.red.status=pending
-  "defer", // close finding, drift recorded in reconcile
-  "backlog", // close finding, candidate for next feature
+  "defer", // declared current-run deferral; remains open and is reconciled as carried work
+  "backlog", // declared next-feature deferral; remains open as a carry-forward candidate
 ]);
 export type FindingAction = z.infer<typeof FindingAction>;
+
+/** Actions whose selection is itself a non-blocking disposition. */
+export const FINDING_DEFERRAL_ACTIONS = [
+  "defer",
+  "backlog",
+] as const satisfies readonly FindingAction[];
+export type FindingDeferralAction = (typeof FINDING_DEFERRAL_ACTIONS)[number];
+
+/**
+ * Derive disposition from the persisted action without widening the journal
+ * or projection schema. Accepts string because historical slim snapshots type
+ * FindingState.action loosely, while validated new entries use FindingAction.
+ */
+export function isFindingDeferralAction(action: string): action is FindingDeferralAction {
+  return (FINDING_DEFERRAL_ACTIONS as readonly string[]).includes(action);
+}
 
 // ── FindingActionRisk + 6×6 grid ────────────────────────────────────────
 

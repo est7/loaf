@@ -2,13 +2,12 @@ import type { EntryKind, GateName, SubState } from "./journal-entry.js";
 
 // `contract:next` preserves contract-only navigation hints that are not
 // legal `event:phase_advanced` transitions. It has no journal apply owner.
-export type MachineEdgeOwnerKind = Extract<
-  EntryKind,
-  | "event:phase_advanced"
-  | "session:delivered"
-  | "session:archived"
-  | "session:abandoned"
-> | "contract:next";
+export type MachineEdgeOwnerKind =
+  | Extract<
+      EntryKind,
+      "event:phase_advanced" | "session:delivered" | "session:archived" | "session:abandoned"
+    >
+  | "contract:next";
 
 export type MachineGuardName =
   | "spec_phase_required"
@@ -85,8 +84,7 @@ export const MACHINE = defineMachine({
   },
   "SPEC.spec": {
     entry: "proposal section exists OR amend-spec back-edge",
-    exit:
-      "frontmatter has requirements (each with three-way verifiability) + scenarios (+visual_contracts if UI); needs_clarification empty",
+    exit: "frontmatter has requirements (each with three-way verifiability) + scenarios (+visual_contracts if UI); needs_clarification empty",
     write_paths: [".loaf/<feature>/spec.md"],
     edges: [{ target: "SPEC.plan", owner_kind: "event:phase_advanced" }],
     prompt_inject:
@@ -219,8 +217,7 @@ export const MACHINE = defineMachine({
       "Compute which verify checks apply: run/review/acceptance/visual. Output reasoning + N/A justifications.",
   },
   "VERIFY.run": {
-    entry:
-      "VERIFY.plan done with run applicability ∈ {must, optional-elected}; OR amend back-edge",
+    entry: "VERIFY.plan done with run applicability ∈ {must, optional-elected}; OR amend back-edge",
     exit: "run check passed or explicitly waived",
     write_paths: [".loaf/<feature>/evidence.jsonl", ".loaf/<feature>/findings.jsonl"],
     edges: [
@@ -233,8 +230,7 @@ export const MACHINE = defineMachine({
       "Run the `run` check (test + lint + typecheck). Append evidence with kind=local-check or task-summary. Raise findings as needed.",
   },
   "VERIFY.review": {
-    entry:
-      "VERIFY.plan or prior check done with review applicability ∈ {must, optional-elected}",
+    entry: "VERIFY.plan or prior check done with review applicability ∈ {must, optional-elected}",
     exit: "review check passed or explicitly waived",
     write_paths: [".loaf/<feature>/evidence.jsonl", ".loaf/<feature>/findings.jsonl"],
     edges: [
@@ -261,8 +257,7 @@ export const MACHINE = defineMachine({
       "Run selected Gherkin acceptance scenarios. Append evidence with kind=acceptance. Raise findings as needed.",
   },
   "VERIFY.visual": {
-    entry:
-      "VERIFY.plan or prior check done with visual applicability ∈ {must, optional-elected}",
+    entry: "VERIFY.plan or prior check done with visual applicability ∈ {must, optional-elected}",
     exit: "visual check passed or explicitly waived",
     write_paths: [".loaf/<feature>/evidence.jsonl", ".loaf/<feature>/findings.jsonl"],
     edges: [
@@ -275,7 +270,8 @@ export const MACHINE = defineMachine({
       "Run visual contract verification. Append evidence with kind=visual-review (attachments required). Raise findings as needed.",
   },
   "VERIFY.accept": {
-    entry: "all applicable checks passed/waived + no open findings",
+    entry:
+      "all applicable checks passed/waived + no actionable open findings (`defer` / `backlog` are non-blocking dispositions)",
     exit:
       "verify-accept gate approved." +
       " settle_phase=true (deep) → SETTLE.reconcile via `loaf settle`;" +

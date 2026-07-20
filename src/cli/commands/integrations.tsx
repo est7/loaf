@@ -166,7 +166,11 @@ export function registerIntegrations(
           }
           if (!dispatch.ok) {
             if (dispatch.code === "FEATURE_NOT_FOUND") return; // non-loaf project → silent
-            ctx.emitFailure(dispatch.code, `scope-track cannot select a session: ${dispatch.message}`, dispatch.detail);
+            ctx.emitFailure(
+              dispatch.code,
+              `scope-track cannot select a session: ${dispatch.message}`,
+              dispatch.detail,
+            );
             return;
           }
           opts.feature = dispatch.feature;
@@ -193,12 +197,14 @@ export function registerIntegrations(
             ).state;
           } catch (error) {
             const code =
-              error instanceof SnapshotStaleError
-                ? error.code
-                : "SNAPSHOT_STALE_REBUILD_REQUIRED";
-            ctx.emitFailure(code, `scope-track cannot load selected state: ${(error as Error).message}`, {
-              reason: (error as Error).message,
-            });
+              error instanceof SnapshotStaleError ? error.code : "SNAPSHOT_STALE_REBUILD_REQUIRED";
+            ctx.emitFailure(
+              code,
+              `scope-track cannot load selected state: ${(error as Error).message}`,
+              {
+                reason: (error as Error).message,
+              },
+            );
             return;
           }
 
@@ -236,9 +242,7 @@ export function registerIntegrations(
                   return { ...base, heartbeat_at: heartbeatAt };
                 }
                 const paths = new Set(
-                  base.pending_scope?.iteration === state.iteration
-                    ? base.pending_scope.paths
-                    : [],
+                  base.pending_scope?.iteration === state.iteration ? base.pending_scope.paths : [],
                 );
                 paths.add(normalized.path);
                 return {
@@ -257,10 +261,14 @@ export function registerIntegrations(
               error instanceof RuntimeStoreError && error.code.startsWith("RUNTIME_LOCK_")
                 ? "LOCK_TIMEOUT"
                 : "SCHEMA_VALIDATION_FAILED";
-            ctx.emitFailure(code, `scope-track runtime update failed: ${(error as Error).message}`, {
-              source: "session-runtime",
-              reason: (error as Error).message,
-            });
+            ctx.emitFailure(
+              code,
+              `scope-track runtime update failed: ${(error as Error).message}`,
+              {
+                source: "session-runtime",
+                reason: (error as Error).message,
+              },
+            );
             return;
           }
 
@@ -407,9 +415,7 @@ export function registerIntegrations(
       // behavior across initial load AND [r] refresh (codex r357
       // guardrail 2). Does NOT silently fall back to real user registry.
       const loadRows = async () => {
-        const result = await listSessions(
-          registryDir !== undefined ? { registryDir } : {},
-        );
+        const result = await listSessions(registryDir !== undefined ? { registryDir } : {});
         return result.rows;
       };
       const loadDetail = async (row: SessionRow) => {
@@ -598,7 +604,7 @@ export function registerIntegrations(
         ctx.emitFailure(diag.code, diag.message, diag.detail);
         return;
       }
-      const env = buildVerifyStatusEnvelope(diag.checks);
+      const env = buildVerifyStatusEnvelope(diag.checks, session.snapshot.findings);
       ctx.success(env, (verI18n) => renderVerifyStatusText(env, verI18n));
     });
 }

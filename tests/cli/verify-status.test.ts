@@ -23,7 +23,7 @@ import {
   evaluateAllChecks,
   verifyAcceptCheck,
 } from "../../src/core/gates/verify-accept-check.js";
-import { buildEnvelope } from "../../src/cli/verify-status.js";
+import { buildEnvelope, renderText } from "../../src/cli/verify-status.js";
 import { initialSnapshot } from "../../src/core/reducer.js";
 import type { EvidenceState, Snapshot, TaskState } from "../../src/core/reducer.js";
 import type { SpecFrontmatter } from "../../src/core/spec-schema.js";
@@ -236,7 +236,7 @@ describe("evaluateAllChecks — lane_status", () => {
 });
 
 // ───────────────────────────────────────────────────────────────────────
-// Case 5-6 — open_findings: fail + always-applicable invariant
+// Case 5-6 — actionable open_findings: fail + always-applicable invariant
 // ───────────────────────────────────────────────────────────────────────
 describe("evaluateAllChecks — open_findings", () => {
   test("fail: 1 open finding → status=fail, code=OPEN_FINDINGS_PRESENT", () => {
@@ -519,7 +519,7 @@ describe("invariant — verifyAcceptCheck === flatMap failures", () => {
 // Case 19 — §7.4 envelope golden: shape parity with docs/protocol.md
 // ───────────────────────────────────────────────────────────────────────
 describe("buildEnvelope — §7.4 shape parity", () => {
-  test("envelope shape matches docs/protocol.md §7.4 example: ok/all_pass/checks[5 rows]", () => {
+  test("envelope shape matches §7.4: ok/all_pass/deferred_findings/checks[5 rows]", () => {
     const fm = makeFrontmatter();
     const snap = happySnapshot(fm);
     snap.evidence = snap.evidence.filter((e) => e.check !== "run"); // 1 lane fails
@@ -535,10 +535,11 @@ describe("buildEnvelope — §7.4 shape parity", () => {
       red_test_registered: true,
     }); // T-002 has no covering evidence → check 4 fail
 
-    const env = buildEnvelope(evaluateAllChecks(snap, fm));
+    const env = buildEnvelope(evaluateAllChecks(snap, fm), snap.findings);
 
     expect(env.ok).toBe(true);
     expect(env.all_pass).toBe(false);
+    expect(env.deferred_findings).toEqual([]);
     expect(env.checks).toHaveLength(5);
     expect(env.checks.map((r) => r.check)).toEqual([...VERIFY_CHECK_IDS]);
 
@@ -573,7 +574,7 @@ describe("buildEnvelope — all_pass semantics", () => {
   test("all_pass=true iff every row has status !== 'fail' (na rows do NOT block all_pass)", () => {
     const fm = makeFrontmatter();
     const snap = happySnapshot(fm);
-    const env = buildEnvelope(evaluateAllChecks(snap, fm));
+    const env = buildEnvelope(evaluateAllChecks(snap, fm), snap.findings);
     expect(env.all_pass).toBe(true); // strict_spec_review off → spec_review=na, still all_pass
 
     snap.findings = [
@@ -586,7 +587,27 @@ describe("buildEnvelope — all_pass semantics", () => {
         status: "open",
       },
     ];
-    const env2 = buildEnvelope(evaluateAllChecks(snap, fm));
+    const env2 = buildEnvelope(evaluateAllChecks(snap, fm), snap.findings);
     expect(env2.all_pass).toBe(false);
+  });
+
+  test("surfaces deferred findings without treating them as gate failures", () => {
+    const fm = makeFrontmatter();
+    const snap = happySnapshot(fm);
+    snap.findings = [
+      { id: "FND-001", category: "new-scope", action: "backlog", status: "open" },
+      { id: "FND-002", category: "spec-gap", action: "defer", status: "open" },
+    ];
+
+    const env = buildEnvelope(evaluateAllChecks(snap, fm), snap.findings);
+    expect(env.all_pass).toBe(true);
+    expect(env.deferred_findings).toEqual([
+      { id: "FND-001", action: "backlog" },
+      { id: "FND-002", action: "defer" },
+    ]);
+    const text = renderText(env);
+    expect(text).toContain("deferred_findings");
+    expect(text).toContain("FND-001 (backlog)");
+    expect(text).toContain("FND-002 (defer)");
   });
 });

@@ -2507,7 +2507,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
   });
 
   // SCEN-E2E-023 — see docs/e2e-scenarios.md
-  test("SCEN-E2E-023 — an open defer finding blocks verify-accept until closed", async () => {
+  test("SCEN-E2E-023 — an open defer finding admits verify-accept and remains open", async () => {
     const dir = await tmpFeatureDir();
     const F = "e2e-open-finding";
     const ENV = { LOAF_USER: "e2e@test.invalid" };
@@ -2517,7 +2517,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
       cli,
       F,
       "E2E open finding gate",
-      "exercise the open-finding block on verify-accept",
+      "exercise the declared-deferral exemption on verify-accept",
     );
 
     // a defer finding raised at VERIFY.accept is open and carries no back-edge.
@@ -2535,49 +2535,48 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     ]);
     expect(fnd.id).toMatch(/^FND-\d{3,}$/);
 
-    // verify-accept is blocked while the finding is open
-    const blocked = await runCli(
-      [
-        "gate",
-        "decide",
-        "verify-accept",
-        "--approve",
-        "--reason",
-        "attempting approval while an open finding is present",
-        "--feature",
-        F,
-        "--feature-dir",
-        dir,
-        "--format",
-        "json",
-      ],
-      { env: ENV },
-    );
-    expect(blocked.exit).toBe(2);
-    expect(blocked.stderr + blocked.stdout).toContain("OPEN_FINDINGS_PRESENT");
-
-    // closing the finding unblocks the gate; the feature still delivers
-    await step("finding close", ["finding", "close", fnd.id, "--feature", F]);
+    // Declared deferrals are non-actionable for this run, so approval succeeds
+    // without forcing the finding closed.
     await step("gate verify-accept", [
       "gate",
       "decide",
       "verify-accept",
       "--approve",
       "--reason",
-      "all verify-accept checks pass once the finding is closed",
+      "all actionable work is complete; the declared deferral remains recorded",
       "--feature",
       F,
     ]);
+    const afterApproval = await step("finding list after approval", [
+      "finding",
+      "list",
+      "--feature",
+      F,
+    ]);
+    const deferred = afterApproval.findings.find((finding: { id: string }) => finding.id === fnd.id);
+    expect(deferred).toMatchObject({ status: "open", action: "defer" });
+
     const delivered = await step("deliver", ["deliver", "--feature", F]);
     expect(delivered.sub_state ?? delivered.state?.sub_state).toBe("DONE.delivered");
+
+    const afterDelivery = await step("finding list after delivery", [
+      "finding",
+      "list",
+      "--feature",
+      F,
+    ]);
+    expect(afterDelivery.findings.find((finding: { id: string }) => finding.id === fnd.id)).toMatchObject({
+      status: "open",
+      action: "defer",
+    });
   });
 
   // SCEN-E2E-039 — see docs/e2e-scenarios.md (Phase 11 Item 3 SC4).
   // The full back-edge repair loop closing the lifecycle: SCEN-E2E-020/021/
   // 022 prove a back-edge LANDS (the finding stays open — they stop there);
-  // SCEN-E2E-023 proves the open-finding verify-accept block for a
-  // non-back-edge defer finding. This scenario is the distinct cross-cutting
-  // proof — a `fix-impl` back-edge repair finding raised from VERIFY,
+  // SCEN-E2E-023 proves declared deferrals are nonblocking; SCEN-E2E-040
+  // isolates the actionable open-finding gate block. This scenario is the
+  // distinct cross-cutting proof — a `fix-impl` back-edge repair finding raised from VERIFY,
   // carried all the way through to delivery: the back-edge co-emits its
   // 3-entry batch, the reset `implement` step is rerun, verify-accept is
   // blocked OPEN_FINDINGS_PRESENT while the finding is open, `finding close`
@@ -2724,6 +2723,83 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     const finalFindings = await step("finding list final", ["finding", "list", "--feature", F]);
     const fnd = finalFindings.findings.find((f: { id: string }) => f.id === raised.id);
     expect(fnd.status).toBe("closed");
+  });
+
+  // SCEN-E2E-040 — see docs/e2e-scenarios.md.
+  // Unlike a declared defer/backlog disposition, an actionable amend-tasks
+  // finding must still be resolved before verify-accept can be approved.
+  test("SCEN-E2E-040 — an open actionable finding blocks verify-accept until closed", async () => {
+    const dir = await tmpFeatureDir();
+    const F = "e2e-actionable-finding";
+    const ENV = { LOAF_USER: "e2e@test.invalid" };
+    const cli = makeCli(dir, ENV);
+    const { step } = cli;
+    await seedToVerifyAccept(
+      cli,
+      F,
+      "E2E actionable finding gate",
+      "preserve the actionable open-finding block on verify-accept",
+    );
+
+    const finding = await step("finding raise amend-tasks", [
+      "finding",
+      "raise",
+      "--category",
+      "new-scope",
+      "--action",
+      "amend-tasks",
+      "--summary",
+      "verification surfaced actionable task-plan work",
+      "--feature",
+      F,
+    ]);
+    expect(finding.back_edge.to).toBe("EXECUTE.work");
+
+    await step("advance EXECUTE.done", ["advance", "EXECUTE.done", "--feature", F]);
+    for (const subState of [
+      "VERIFY.plan",
+      "VERIFY.run",
+      "VERIFY.review",
+      "VERIFY.acceptance",
+      "VERIFY.visual",
+      "VERIFY.accept",
+    ]) {
+      await step(`advance ${subState}`, ["advance", subState, "--feature", F]);
+    }
+
+    const blocked = await runCli(
+      [
+        "gate",
+        "decide",
+        "verify-accept",
+        "--approve",
+        "--reason",
+        "attempting approval while actionable work remains open",
+        "--feature",
+        F,
+        "--feature-dir",
+        dir,
+        "--format",
+        "json",
+      ],
+      { env: ENV },
+    );
+    expect(blocked.exit).toBe(2);
+    expect(blocked.stderr + blocked.stdout).toContain("OPEN_FINDINGS_PRESENT");
+
+    await step("finding close", ["finding", "close", finding.id, "--feature", F]);
+    await step("gate verify-accept", [
+      "gate",
+      "decide",
+      "verify-accept",
+      "--approve",
+      "--reason",
+      "all actionable findings are now resolved",
+      "--feature",
+      F,
+    ]);
+    const delivered = await step("deliver", ["deliver", "--feature", F]);
+    expect(delivered.sub_state ?? delivered.state?.sub_state).toBe("DONE.delivered");
   });
 
   // SCEN-E2E-027 — see docs/e2e-scenarios.md

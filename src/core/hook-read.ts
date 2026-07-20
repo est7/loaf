@@ -13,6 +13,7 @@ import type {
   StateProjection,
   TasksJson,
 } from "./projection-schema.js";
+import { isFindingDeferralAction } from "./finding-schema.js";
 import { promptInjectFor } from "./sub-state-contracts.js";
 
 // ── session-start ──────────────────────────────────────────────────────
@@ -98,8 +99,8 @@ export interface ClosureWarningsInput {
  *      tasks.json (cheap, read-only). REQ/SCEN/VIS-target orphans are
  *      DEFERRED — they require the spec.md projection, which is not in the
  *      loadProjections kind set.
- *   2. open findings summary — count + ids (the narrow "findings reasonable"
- *      signal).
+ *   2. open findings summary — actionable findings remain warnings; deferred
+ *      findings remain visible as carried-work information.
  *
  * Projection freshness/schema consistency (Q-B check 1) is enforced upstream
  * by the loadProjections fast-check path in the caller (SnapshotStaleError),
@@ -128,8 +129,19 @@ export function runClosureWarnings(input: ClosureWarningsInput): string[] {
 
   // ── 2. open findings summary ──
   const open = input.findings.findings.filter((f) => f.status === "open");
-  if (open.length > 0) {
-    warnings.push(`open findings (${open.length}): ${open.map((f) => f.id).join(", ")}`);
+  const actionable = open.filter((f) => !isFindingDeferralAction(f.action));
+  const deferred = open.filter((f) => isFindingDeferralAction(f.action));
+  if (actionable.length > 0) {
+    warnings.push(
+      `open actionable findings (${actionable.length}): ${actionable.map((f) => f.id).join(", ")}`,
+    );
+  }
+  if (deferred.length > 0) {
+    warnings.push(
+      `deferred findings carried (${deferred.length}): ${deferred
+        .map((f) => `${f.id} (${f.action})`)
+        .join(", ")}`,
+    );
   }
 
   return warnings;

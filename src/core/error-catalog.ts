@@ -199,15 +199,14 @@ export const ERROR_CATALOG = {
     zh_message_template:
       "非交互式 `loaf spec edit` 必须传 --input <src>；编辑器通道要求 stdin 和 stdout 均为 TTY",
     fix_template:
-      "pass --input with a JSON object {\"body\":\"<Markdown>\"} via file, stdin '-', or inline JSON; alternatively rerun from a terminal with both stdin and stdout attached to a TTY",
+      'pass --input with a JSON object {"body":"<Markdown>"} via file, stdin \'-\', or inline JSON; alternatively rerun from a terminal with both stdin and stdout attached to a TTY',
     template_keys: [],
     detail_keys: [],
     doc_anchor: "protocol.md#§10.7",
   },
   SCHEMA_VALIDATION_FAILED: {
     exit_code: 2,
-    message_template:
-      "input does not satisfy schema for {command}: {zod_path}: {zod_message}",
+    message_template: "input does not satisfy schema for {command}: {zod_path}: {zod_message}",
     fix_template:
       "for the 5 batch-capable mutators (spec add-req / spec add-scenario / spec add-visual / tasks add / evidence add), run `loaf {command} --schema --format=json` to dump the input JSON Schema; for artifact projection files, run `loaf <kind> schema --format=json` (kind ∈ spec / tasks / evidence / finding / state). Fix the offending field and retry",
     template_keys: ["command", "zod_message", "zod_path"],
@@ -221,7 +220,8 @@ export const ERROR_CATALOG = {
     exit_code: 2,
     message_template:
       "{kind} blocked: spec_locked=true; use `loaf finding raise --category spec-gap --action amend-spec` to back-edge into SPEC.spec",
-    zh_message_template: "{kind} 被拒:spec_locked=true;用 `loaf finding raise --category spec-gap --action amend-spec` 走 amend-spec 回退到 SPEC.spec",
+    zh_message_template:
+      "{kind} 被拒:spec_locked=true;用 `loaf finding raise --category spec-gap --action amend-spec` 走 amend-spec 回退到 SPEC.spec",
     fix_template:
       "raise a finding with category=spec-gap (or spec-defect) and action=amend-spec to back-edge into SPEC.spec (the finding's resets_spec_locked effect lifts the gate); then retry the spec add/submit",
     template_keys: ["kind"],
@@ -237,7 +237,8 @@ export const ERROR_CATALOG = {
     exit_code: 2,
     message_template:
       "{kind} blocked: spec_version=0; run `loaf spec submit` first to bump spec_version to 1",
-    zh_message_template: "{kind} 被拒:spec_version=0;先跑 `loaf spec submit` 把 spec_version 升到 1",
+    zh_message_template:
+      "{kind} 被拒:spec_version=0;先跑 `loaf spec submit` 把 spec_version 升到 1",
     fix_template:
       "run `loaf spec submit --input <file>` first to bump spec_version to 1, then retry the add-* command (SC4 will add `loaf spec init` as a separate scaffold helper that chains into submit)",
     template_keys: ["kind"],
@@ -248,8 +249,7 @@ export const ERROR_CATALOG = {
     // spec.md. detail.spec_md_path carries the existing file path so
     // scripts can locate it. No --force flag in Slice 4 (codex r74).
     exit_code: 2,
-    message_template:
-      "spec.md already exists at {spec_md_path}; refusing to overwrite",
+    message_template: "spec.md already exists at {spec_md_path}; refusing to overwrite",
     zh_message_template: "spec.md 已存在于 {spec_md_path};拒绝覆盖",
     fix_template:
       "edit the existing spec.md directly, or remove it before re-running `loaf spec init` (no --force flag in Slice 4)",
@@ -258,8 +258,7 @@ export const ERROR_CATALOG = {
   },
   CONFIG_ALREADY_INITIALIZED: {
     exit_code: 2,
-    message_template:
-      "loaf config already exists at {config_path}; refusing to overwrite",
+    message_template: "loaf config already exists at {config_path}; refusing to overwrite",
     zh_message_template: "loaf config 已存在于 {config_path};拒绝覆盖",
     fix_template:
       "edit the existing config file directly, or remove it before re-running `loaf config init` (no --force flag)",
@@ -277,8 +276,7 @@ export const ERROR_CATALOG = {
   },
   ATTACHMENT_NOT_FILE: {
     exit_code: 2,
-    message_template:
-      "attachment path is not a regular file: {path} ({kind})",
+    message_template: "attachment path is not a regular file: {path} ({kind})",
     fix_template:
       "attachments must be regular files; directories, symlinks to directories, sockets, and FIFOs are rejected",
     template_keys: ["kind", "path"],
@@ -317,7 +315,8 @@ export const ERROR_CATALOG = {
     exit_code: 2,
     message_template:
       "finding action={action} target validation failed ({reason}): task_id={task_id}, step={step}",
-    zh_message_template: "finding action={action} target 校验失败({reason}):task_id={task_id}, step={step}",
+    zh_message_template:
+      "finding action={action} target 校验失败({reason}):task_id={task_id}, step={step}",
     fix_template:
       "fix-impl/fix-test require --target-task + --target-step matching the action's canonical step (fix-impl=implement, fix-test=red); amend-tasks accepts an optional but valid target; amend-spec / defer / backlog must not carry a target",
     template_keys: ["action", "reason", "step", "task_id"],
@@ -365,14 +364,14 @@ export const ERROR_CATALOG = {
     exit_code: 2,
     message_template: "prune partially failed: one or more sessions could not be removed",
     zh_message_template: "prune 部分失败:有 session 未能删除",
-    fix_template: "inspect detail.failed; rerun prune for the failed sessions after resolving the error",
+    fix_template:
+      "inspect detail.failed; rerun prune for the failed sessions after resolving the error",
     template_keys: [],
     doc_anchor: "protocol.md#§10.8",
   },
   MUTUALLY_EXCLUSIVE_FLAGS: {
     exit_code: 2,
-    message_template:
-      "mutually exclusive flags in the same invocation: {flags}",
+    message_template: "mutually exclusive flags in the same invocation: {flags}",
     zh_message_template: "同一次调用使用了互斥的 flags:{flags}",
     fix_template:
       "pass at most one of the flags from each exclusion set; see `loaf <cmd> --help` for the canonical flag list",
@@ -385,8 +384,7 @@ export const ERROR_CATALOG = {
     exit_code: 2,
     message_template:
       "environment variable {env_name}={value} is not in the accepted enum: {accepted}",
-    fix_template:
-      "unset {env_name} or set it to one of: {accepted}",
+    fix_template: "unset {env_name} or set it to one of: {accepted}",
     template_keys: ["accepted", "env_name", "value"],
     doc_anchor: "protocol.md#§10.3",
   },
@@ -402,8 +400,7 @@ export const ERROR_CATALOG = {
     // Catalog ↔ i18n placeholder symmetry is enforced by
     // tests/scripts/sc5a-surface-gate.test.ts RED #12.
     exit_code: 2,
-    message_template:
-      "invalid --format value '{value}'; allowed: {allowed_values_human}",
+    message_template: "invalid --format value '{value}'; allowed: {allowed_values_human}",
     zh_message_template: "无效的 --format 值 '{value}';合法值:{allowed_values_human}",
     fix_template:
       "pass --format text or --format json (the only allowed values for this release); --format=<value> equals form is accepted",
@@ -418,8 +415,7 @@ export const ERROR_CATALOG = {
     // this diagnostic is only for explicit LOAF_LANG / user config /
     // future --lang inputs.
     exit_code: 2,
-    message_template:
-      "invalid locale from {source}: {value} (expected {accepted})",
+    message_template: "invalid locale from {source}: {value} (expected {accepted})",
     zh_message_template: "locale 来源 {source} 的值无效:{value}(期望:{accepted})",
     fix_template:
       "unset the locale override or set it to one of: {accepted}; user preferences live in ~/.loaf/config.json locale.default_lang",
@@ -433,8 +429,7 @@ export const ERROR_CATALOG = {
     // Wrapping commands (`spec edit` without --input, `tui`) also reject.
     // `command_type` discriminates "read-only" vs "wrapping".
     exit_code: 2,
-    message_template:
-      "--dry-run not applicable to {command_type} command `{command}`",
+    message_template: "--dry-run not applicable to {command_type} command `{command}`",
     zh_message_template: "--dry-run 不适用于{command_type}命令 `{command}`",
     fix_template:
       "--dry-run only applies to mutating commands; re-run without --dry-run (or -n) to invoke the {command_type} command",
@@ -453,7 +448,8 @@ export const ERROR_CATALOG = {
     exit_code: 2,
     message_template:
       "hook event `{event}` is not implemented in this loaf version (Phase 16 SC-15{sub_cycle} pending; see protocol §11)",
-    zh_message_template: "hook event `{event}` 在当前 loaf 版本未实装(Phase 16 SC-15{sub_cycle} 待实现;详 protocol §11)",
+    zh_message_template:
+      "hook event `{event}` 在当前 loaf 版本未实装(Phase 16 SC-15{sub_cycle} 待实现;详 protocol §11)",
     fix_template:
       "upgrade to a loaf release that implements this hook event, OR skip this hook surface for now — `loaf hook --list-events` shows the canonical 4-event enum",
     template_keys: ["event", "sub_cycle"],
@@ -472,7 +468,8 @@ export const ERROR_CATALOG = {
     exit_code: 2,
     message_template:
       "REQ {req_id} must declare measurable, verified_by_scenarios[], or acceptance_na+reason",
-    zh_message_template: "需求 {req_id} 必须声明 measurable、verified_by_scenarios[] 或 acceptance_na+reason 三选一",
+    zh_message_template:
+      "需求 {req_id} 必须声明 measurable、verified_by_scenarios[] 或 acceptance_na+reason 三选一",
     fix_template:
       "add one of: measurable with metric, threshold, and optional unit/direction; verified_by_scenarios: [SCEN-...]; or acceptance_na: true with acceptance_na_reason of at least 10 characters",
     template_keys: ["req_id"],
@@ -489,8 +486,7 @@ export const ERROR_CATALOG = {
   },
   DRIVES_NOT_BOUND: {
     exit_code: 2,
-    message_template:
-      "REQ {req_id} is not referenced by any task.drives[]",
+    message_template: "REQ {req_id} is not referenced by any task.drives[]",
     zh_message_template: "需求 {req_id} 没有被任何 task.drives[] 引用",
     fix_template:
       "add a task whose drives[] contains {req_id} (loaf tasks add --input ...), or remove the REQ if it is intentionally out-of-scope for this feature",
@@ -514,7 +510,8 @@ export const ERROR_CATALOG = {
     exit_code: 2,
     message_template:
       "event:tasks_amended on task {task_id} is not permitted at sub_state {sub_state} — §8.6 grants no mutation right for this change",
-    zh_message_template: "task {task_id} 的 event:tasks_amended 在 sub_state {sub_state} 不被允许 —— §8.6 未授予该改动的 mutation right",
+    zh_message_template:
+      "task {task_id} 的 event:tasks_amended 在 sub_state {sub_state} 不被允许 —— §8.6 未授予该改动的 mutation right",
     fix_template:
       "the mutation rights matrix (protocol.md §8.6) limits EXECUTE.plan `tasks amend` to execution[].applicability changes plus a status pending→ready advance; graph/kind-flag fields are frozen. To restructure the task graph, raise a `finding raise --action amend-tasks` back-edge, then run the sponsored `tasks add --finding` / `tasks amend --input --finding` at EXECUTE.work — a sponsored amend may change graph/definition fields but never erases execution progress (task/step status is frozen)",
     template_keys: ["sub_state", "task_id"],
@@ -522,8 +519,7 @@ export const ERROR_CATALOG = {
   },
   LOCK_TIMEOUT: {
     exit_code: 2,
-    message_template:
-      "could not acquire .loaf/<feature>/.lock within {timeout_seconds}s",
+    message_template: "could not acquire .loaf/<feature>/.lock within {timeout_seconds}s",
     fix_template:
       "another loaf process is holding the lock (see LOCK_HELD_BY for details); wait for it to release, or run `loaf doctor` to unlink the lock if its PID has exited",
     template_keys: ["timeout_seconds"],
@@ -531,8 +527,7 @@ export const ERROR_CATALOG = {
   },
   LOCK_HELD_BY: {
     exit_code: 2,
-    message_template:
-      "lock held by PID {pid} (cmd={cmd}, acquired_at={acquired_at})",
+    message_template: "lock held by PID {pid} (cmd={cmd}, acquired_at={acquired_at})",
     fix_template:
       "wait for the holder to finish, or if the PID has exited run `loaf doctor` to clear the stale lock",
     template_keys: ["acquired_at", "cmd", "pid"],
@@ -553,7 +548,8 @@ export const ERROR_CATALOG = {
     exit_code: 2,
     message_template:
       "current working directory has {count} active features and no dispatch context: {feature_list}",
-    zh_message_template: "当前 cwd 有 {count} 个 active feature 但无 dispatch 上下文:{feature_list}",
+    zh_message_template:
+      "当前 cwd 有 {count} 个 active feature 但无 dispatch 上下文:{feature_list}",
     fix_template:
       "disambiguate with --feature <name>, --session <UUID>, or set $LOAF_FEATURE / $LOAF_SESSION in the environment",
     template_keys: ["count", "feature_list"],
@@ -575,7 +571,8 @@ export const ERROR_CATALOG = {
     exit_code: 2,
     message_template:
       "--session {prefix} matches {match_count} sessions in the registry: {candidate_list}",
-    zh_message_template: "--session {prefix} 在 registry 匹配 {match_count} 个 session:{candidate_list}",
+    zh_message_template:
+      "--session {prefix} 在 registry 匹配 {match_count} 个 session:{candidate_list}",
     fix_template:
       "pass a longer UUID prefix (≥8 chars are required; use more to disambiguate) or pass the full UUID",
     template_keys: ["candidate_list", "match_count", "prefix"],
@@ -589,8 +586,7 @@ export const ERROR_CATALOG = {
     // exists, cwd field differs) and SESSION_SHORT_AMBIGUOUS (prefix
     // matches 2+ entries).
     exit_code: 2,
-    message_template:
-      "--session {uuid_or_prefix} matches no entry in the registry",
+    message_template: "--session {uuid_or_prefix} matches no entry in the registry",
     zh_message_template: "--session {uuid_or_prefix} 在 registry 找不到任何匹配",
     fix_template:
       "run `loaf sessions list --in-cwd` to see registered sessions (future SC-9b), or run `loaf start <name>` to create one",
@@ -612,7 +608,8 @@ export const ERROR_CATALOG = {
     exit_code: 2,
     message_template:
       "`loaf gate decide {gate_kind}` requires pending head kind=gate_decision; current head kind: {head_kind}",
-    zh_message_template: "`loaf gate decide {gate_kind}` 要求 pending head kind=gate_decision;当前 head kind:{head_kind}",
+    zh_message_template:
+      "`loaf gate decide {gate_kind}` 要求 pending head kind=gate_decision;当前 head kind:{head_kind}",
     fix_template:
       "resolve the current head first via the kind-appropriate command, or wait for the gate_decision pending to appear",
     template_keys: ["gate_kind", "head_kind"],
@@ -623,7 +620,8 @@ export const ERROR_CATALOG = {
     exit_code: 2,
     message_template:
       "`loaf profile escalate --confirm --input <ceremony.json>` requires pending head kind=profile_escalation; current head: {actual_head}",
-    zh_message_template: "`loaf profile escalate --confirm --input <ceremony.json>` 要求 pending head kind=profile_escalation;当前 head:{actual_head}",
+    zh_message_template:
+      "`loaf profile escalate --confirm --input <ceremony.json>` 要求 pending head kind=profile_escalation;当前 head:{actual_head}",
     fix_template:
       "resolve the current head first via the kind-appropriate command, or wait for the profile_escalation pending to appear",
     template_keys: ["actual_head"],
@@ -731,10 +729,11 @@ export const ERROR_CATALOG = {
     // structured list rides detail, not the rendered message).
     exit_code: 2,
     message_template:
-      "cannot advance EXECUTE.work → EXECUTE.done: {count} task(s) are not in a final status (done or abandoned); finish their remaining steps or abandon out-of-scope tasks with `loaf tasks abandon <T-N> --reason \"...\"`",
-    zh_message_template: "无法从 EXECUTE.work 推进到 EXECUTE.done:{count} 个 task 未处于终态(done 或 abandoned);跑完剩余 step,或用 `loaf tasks abandon <T-N> --reason \"...\"` 放弃超出范围的 task",
+      'cannot advance EXECUTE.work → EXECUTE.done: {count} task(s) are not in a final status (done or abandoned); finish their remaining steps or abandon out-of-scope tasks with `loaf tasks abandon <T-N> --reason "..."`',
+    zh_message_template:
+      '无法从 EXECUTE.work 推进到 EXECUTE.done:{count} 个 task 未处于终态(done 或 abandoned);跑完剩余 step,或用 `loaf tasks abandon <T-N> --reason "..."` 放弃超出范围的 task',
     fix_template:
-      "finish the remaining steps — run each task's steps via `loaf tasks step` until it auto-promotes to status=done — OR abandon out-of-scope tasks with `loaf tasks abandon <T-N> --reason \"...\"`, then retry `loaf advance EXECUTE.done`; see detail.non_final for the tasks still pending or in progress",
+      'finish the remaining steps — run each task\'s steps via `loaf tasks step` until it auto-promotes to status=done — OR abandon out-of-scope tasks with `loaf tasks abandon <T-N> --reason "..."`, then retry `loaf advance EXECUTE.done`; see detail.non_final for the tasks still pending or in progress',
     template_keys: ["count"],
     doc_anchor: "protocol.md#§10.5",
   },
@@ -848,8 +847,7 @@ export const ERROR_CATALOG = {
   NO_HUMAN_ACTOR: {
     exit_code: 2,
     message_template: "no human actor could be resolved for a human-only command",
-    fix_template:
-      "run interactively with git user.email configured, or set LOAF_USER explicitly",
+    fix_template: "run interactively with git user.email configured, or set LOAF_USER explicitly",
     template_keys: [],
     doc_anchor: "protocol.md#§10.8",
   },
@@ -865,8 +863,7 @@ export const ERROR_CATALOG = {
   // / current_spec_version / batch_index).
   DUPLICATE_REQ_ID: {
     exit_code: 2,
-    message_template:
-      "REQ id {id} is already in the spec projection",
+    message_template: "REQ id {id} is already in the spec projection",
     fix_template:
       "allocate a fresh REQ id under the same id_namespace (the CLI scans for max serial + 1 inside the per-session lock) or `loaf finding raise --category spec-gap --action amend-spec` if you need to retire the existing REQ",
     template_keys: ["id"],
@@ -874,8 +871,7 @@ export const ERROR_CATALOG = {
   },
   DUPLICATE_SCEN_ID: {
     exit_code: 2,
-    message_template:
-      "SCEN id {id} is already in the spec projection",
+    message_template: "SCEN id {id} is already in the spec projection",
     fix_template:
       "allocate a fresh SCEN id under the same id_namespace, or amend via finding mechanism if retiring an existing scenario",
     template_keys: ["id"],
@@ -883,8 +879,7 @@ export const ERROR_CATALOG = {
   },
   DUPLICATE_VIS_ID: {
     exit_code: 2,
-    message_template:
-      "VIS id {id} is already in the spec projection",
+    message_template: "VIS id {id} is already in the spec projection",
     fix_template:
       "allocate a fresh VIS id under the same id_namespace, or amend via finding mechanism if retiring an existing visual contract",
     template_keys: ["id"],
@@ -896,8 +891,7 @@ export const ERROR_CATALOG = {
     // (detail.gate). FailedCheck.detail only carries {subcode, ...read.detail}
     // — no gate or readable detail placeholder, so the template intentionally
     // avoids those vars to stay correctly substituted.
-    message_template:
-      "spec.md frontmatter failed gate check 1 (subcode={subcode})",
+    message_template: "spec.md frontmatter failed gate check 1 (subcode={subcode})",
     fix_template:
       "subcode=SPEC_NOT_FOUND: run `loaf spec init` then `loaf spec submit` to seed spec.md; subcode=SPEC_YAML_INVALID: check the `---`-fenced YAML block at the top of spec.md for syntax errors; subcode=SPEC_FRONTMATTER_INVALID: run `loaf spec schema --format=json` to dump the SpecFrontmatter JSON Schema (Phase 16 SC-10) and fix the offending field. Both spec-lock and verify-accept require a valid spec.md at check 1.",
     template_keys: ["subcode"],
@@ -915,8 +909,7 @@ export const ERROR_CATALOG = {
   },
   TASK_NOT_FOUND: {
     exit_code: 2,
-    message_template:
-      "task {task_id} is not in the current tasks projection",
+    message_template: "task {task_id} is not in the current tasks projection",
     fix_template:
       "run `loaf tasks list` to see live ids; if you meant to add a new task, use `loaf tasks add` instead of amend/step; if you expected the id to exist, the projection may be stale — run `loaf doctor --rebuild` to rebuild from journal",
     template_keys: ["task_id"],
@@ -933,8 +926,7 @@ export const ERROR_CATALOG = {
   },
   DUPLICATE_TASK_ID: {
     exit_code: 2,
-    message_template:
-      "task id {task_id} appears more than once in tasks_planned payload",
+    message_template: "task id {task_id} appears more than once in tasks_planned payload",
     fix_template:
       "tasks_planned is whole-replacement — each task id must be unique within the batch. Rename one or merge them in the planning input",
     template_keys: ["task_id"],
@@ -1045,9 +1037,11 @@ export const ERROR_CATALOG = {
     // r45 fix in verify-accept-check.ts (count was previously only embedded
     // in the human message string, not in structured detail).
     message_template:
-      "verify-accept check 2: {count} finding(s) still open (ids={open_ids}); resolve or close before verify-accept",
+      "verify-accept check 2: {count} actionable finding(s) still open (ids={open_ids}); resolve or close before verify-accept",
+    zh_message_template:
+      "verify-accept 检查 2: 仍有 {count} 个可执行 finding 未关闭(ids={open_ids});请在 verify-accept 前解决或关闭",
     fix_template:
-      "run `loaf finding close <FND-id> --resolution <text>` for each listed finding, OR add evidence + raise a follow-up finding if the gap is real. verify-accept check 2 requires snapshot.findings to have no entries with status=open.",
+      "complete the declared action for each listed finding, then run `loaf finding close <FND-id>`; if the honest disposition is carry-forward, raise it with action=defer or action=backlog instead. verify-accept excludes only open findings whose existing action declares deferral",
     template_keys: ["count", "open_ids"],
     doc_anchor: "protocol.md#§5.2",
   },
@@ -1104,9 +1098,10 @@ export const ERROR_CATALOG = {
     exit_code: 2,
     message_template:
       "deliver requires verify_accepted=true at sub_state={sub_state}; run `loaf gate decide verify-accept --approve` first",
-    zh_message_template: "deliver 要求 verify_accepted=true(sub_state={sub_state});先运行 `loaf gate decide verify-accept --approve`",
+    zh_message_template:
+      "deliver 要求 verify_accepted=true(sub_state={sub_state});先运行 `loaf gate decide verify-accept --approve`",
     fix_template:
-      "run `loaf gate decide verify-accept --approve --reason \"...\"` first; the gate flips snapshot.state.verify_accepted before `loaf deliver` will accept the session:delivered entry",
+      'run `loaf gate decide verify-accept --approve --reason "..."` first; the gate flips snapshot.state.verify_accepted before `loaf deliver` will accept the session:delivered entry',
     template_keys: ["sub_state"],
     doc_anchor: "protocol.md#§5.2",
   },
@@ -1114,7 +1109,8 @@ export const ERROR_CATALOG = {
     exit_code: 2,
     message_template:
       "deliver from VERIFY.accept requires ceremony.settle_phase=false (standard); deep ceremony must run `loaf settle` first",
-    zh_message_template: "VERIFY.accept 直接 deliver 要求 ceremony.settle_phase=false(standard);deep ceremony 必须先运行 `loaf settle`",
+    zh_message_template:
+      "VERIFY.accept 直接 deliver 要求 ceremony.settle_phase=false(standard);deep ceremony 必须先运行 `loaf settle`",
     fix_template:
       "for ceremony.settle_phase=true (deep), run `loaf settle` to enter SETTLE.reconcile, complete reconcile + lessons, then `loaf deliver` from SETTLE.lessons; only standard ceremony delivers directly from VERIFY.accept",
     template_keys: [],
@@ -1127,7 +1123,8 @@ export const ERROR_CATALOG = {
     exit_code: 2,
     message_template:
       "verify-min was unavailable in this build (ceremony_label={ceremony_label}) — superseded at v0.1.1 by DELIVER_VERIFY_MIN_INCOMPLETE; no longer emitted",
-    zh_message_template: "verify-min 在此 build 不可用(ceremony_label={ceremony_label})—— v0.1.1 起由 DELIVER_VERIFY_MIN_INCOMPLETE 取代,已不再触发",
+    zh_message_template:
+      "verify-min 在此 build 不可用(ceremony_label={ceremony_label})—— v0.1.1 起由 DELIVER_VERIFY_MIN_INCOMPLETE 取代,已不再触发",
     fix_template:
       "upgrade to v0.1.1+ where quick / light deliver runs the verify-min per-task evidence check; on failure see DELIVER_VERIFY_MIN_INCOMPLETE",
     template_keys: ["ceremony_label"],
@@ -1143,7 +1140,8 @@ export const ERROR_CATALOG = {
     exit_code: 2,
     message_template:
       "verify-min: {count} done task(s) lack required evidence to deliver (ceremony_label={ceremony_label}); add evidence or waive, then re-deliver",
-    zh_message_template: "verify-min:{count} 个 done task 缺少 deliver 所需 evidence(ceremony_label={ceremony_label});补 evidence 或 waive 后重试 deliver",
+    zh_message_template:
+      "verify-min:{count} 个 done task 缺少 deliver 所需 evidence(ceremony_label={ceremony_label});补 evidence 或 waive 后重试 deliver",
     fix_template:
       "for each listed task add evidence covering it — code tasks need a `local-check` (test/lint/typecheck) run, visual-ui needs visual-review or manual, docs needs task-summary or manual — or `loaf waive` it; then `loaf deliver` again",
     template_keys: ["ceremony_label", "count"],
@@ -1153,9 +1151,10 @@ export const ERROR_CATALOG = {
     exit_code: 2,
     message_template:
       "cannot deliver: task {task_id} is kind=spike (status={status}); spike tasks block delivery for the entire session",
-    zh_message_template: "无法 deliver:task {task_id} 是 kind=spike(status={status});spike 任务阻塞整 session 的交付",
+    zh_message_template:
+      "无法 deliver:task {task_id} 是 kind=spike(status={status});spike 任务阻塞整 session 的交付",
     fix_template:
-      "abandon the spike task (`loaf tasks abandon {task_id} --reason \"...\"`) or convert it to a feature (`loaf spike convert --to-feature F-N --reason \"...\"`); spike tasks must not remain in non-abandoned status when the session delivers",
+      'abandon the spike task (`loaf tasks abandon {task_id} --reason "..."`) or convert it to a feature (`loaf spike convert --to-feature F-N --reason "..."`); spike tasks must not remain in non-abandoned status when the session delivers',
     template_keys: ["status", "task_id"],
     doc_anchor: "protocol.md#§8.3",
   },
@@ -1163,9 +1162,10 @@ export const ERROR_CATALOG = {
     exit_code: 2,
     message_template:
       "VERIFY.accept → SETTLE.reconcile requires verify_accepted=true; run `loaf gate decide verify-accept --approve` before `loaf settle`",
-    zh_message_template: "VERIFY.accept → SETTLE.reconcile 要求 verify_accepted=true;先运行 `loaf gate decide verify-accept --approve` 再 `loaf settle`",
+    zh_message_template:
+      "VERIFY.accept → SETTLE.reconcile 要求 verify_accepted=true;先运行 `loaf gate decide verify-accept --approve` 再 `loaf settle`",
     fix_template:
-      "run `loaf gate decide verify-accept --approve --reason \"...\"` before `loaf settle`; the gate flips snapshot.state.verify_accepted before the transition validator will admit the SETTLE entry",
+      'run `loaf gate decide verify-accept --approve --reason "..."` before `loaf settle`; the gate flips snapshot.state.verify_accepted before the transition validator will admit the SETTLE entry',
     template_keys: [],
     doc_anchor: "protocol.md#§5.2",
   },
@@ -1173,17 +1173,17 @@ export const ERROR_CATALOG = {
     exit_code: 2,
     message_template:
       "SPEC.design → EXECUTE.plan requires spec_locked=true; run `loaf gate decide spec-lock --approve` before `loaf advance EXECUTE.plan`",
-    zh_message_template: "SPEC.design → EXECUTE.plan 要求 spec_locked=true;先运行 `loaf gate decide spec-lock --approve` 再 `loaf advance EXECUTE.plan`",
+    zh_message_template:
+      "SPEC.design → EXECUTE.plan 要求 spec_locked=true;先运行 `loaf gate decide spec-lock --approve` 再 `loaf advance EXECUTE.plan`",
     fix_template:
-      "run `loaf gate decide spec-lock --approve --reason \"...\"` before `loaf advance EXECUTE.plan`; the gate runs the 8 spec-lock checks and flips snapshot.state.spec_locked before the transition validator will admit the EXECUTE.plan entry",
+      'run `loaf gate decide spec-lock --approve --reason "..."` before `loaf advance EXECUTE.plan`; the gate runs the 8 spec-lock checks and flips snapshot.state.spec_locked before the transition validator will admit the EXECUTE.plan entry',
     template_keys: [],
     doc_anchor: "protocol.md#§5.1",
   },
   // ── Slice 2 SC1 — task lifecycle preflight (codex r56/r57) ──
   TASK_NOT_CLAIMABLE: {
     exit_code: 2,
-    message_template:
-      "task {task_id} cannot be claimed (status={status} — terminal state)",
+    message_template: "task {task_id} cannot be claimed (status={status} — terminal state)",
     zh_message_template: "task {task_id} 无法 claim(status={status} — 终态)",
     fix_template:
       "tasks with status=done are already complete; status=abandoned tasks cannot be reactivated. Run `loaf tasks list` to inspect the task graph, or `loaf tasks next` to pick a different ready task",
@@ -1192,8 +1192,7 @@ export const ERROR_CATALOG = {
   },
   TASK_ALREADY_CLAIMED: {
     exit_code: 2,
-    message_template:
-      "task {task_id} is already claimed (status=in_progress)",
+    message_template: "task {task_id} is already claimed (status=in_progress)",
     zh_message_template: "task {task_id} 已被 claim(status=in_progress)",
     fix_template:
       "another worker may already hold this task; run `loaf tasks list` to inspect active claims. Stale-claim release is handled in a future slice (no CLI surface for abandon in v0.1.0 yet) — raise a finding with action=fix-impl if needed",
@@ -1246,7 +1245,8 @@ export const ERROR_CATALOG = {
     exit_code: 2,
     message_template:
       "task {task_id} cannot be claimed: dependency {blocking_dep} is not done (status={blocking_status})",
-    zh_message_template: "task {task_id} 无法 claim:依赖 {blocking_dep} 未 done(status={blocking_status})",
+    zh_message_template:
+      "task {task_id} 无法 claim:依赖 {blocking_dep} 未 done(status={blocking_status})",
     fix_template:
       "complete deps_on tasks first (run `loaf tasks list --status pending` to see what is blocking), or use `loaf tasks next` to pick a task with all deps satisfied",
     template_keys: ["blocking_dep", "blocking_status", "task_id"],
@@ -1256,7 +1256,8 @@ export const ERROR_CATALOG = {
     exit_code: 2,
     message_template:
       "task {task_id} step {step} mutation requires task.status=in_progress (got status={status}); claim the task first",
-    zh_message_template: "task {task_id} step {step} 变更要求 task.status=in_progress(实际 status={status});先 `loaf tasks claim`",
+    zh_message_template:
+      "task {task_id} step {step} 变更要求 task.status=in_progress(实际 status={status});先 `loaf tasks claim`",
     fix_template:
       "run `loaf tasks claim {task_id}` to move the task from pending/ready to in_progress before emitting task_step_started or task_step_done; once auto-promoted to done, steps cannot be re-mutated",
     template_keys: ["status", "step", "task_id"],
@@ -1285,9 +1286,10 @@ export const ERROR_CATALOG = {
     exit_code: 2,
     message_template:
       "task {task_id} cannot be abandoned: non-terminal task(s) {blocking_dependents} depend on it; abandon or complete the dependents first",
-    zh_message_template: "task {task_id} 无法 abandon:非终态 task {blocking_dependents} 依赖它;先 abandon 或完成这些依赖方",
+    zh_message_template:
+      "task {task_id} 无法 abandon:非终态 task {blocking_dependents} 依赖它;先 abandon 或完成这些依赖方",
     fix_template:
-      "abandon or complete the dependent tasks first (see detail.blocking_dependents), then retry `loaf tasks abandon {task_id} --reason \"...\"`; abandoning a parent would strand a pending child",
+      'abandon or complete the dependent tasks first (see detail.blocking_dependents), then retry `loaf tasks abandon {task_id} --reason "..."`; abandoning a parent would strand a pending child',
     template_keys: ["blocking_dependents", "task_id"],
     doc_anchor: "protocol.md#§10.8",
   },
@@ -1300,11 +1302,10 @@ export const ERROR_CATALOG = {
     // this code fires only when the reason key is absent. detail.kind
     // carries the offending session-terminal kind.
     exit_code: 2,
-    message_template:
-      "{kind}: --reason is required (the session-terminal entry must record why)",
+    message_template: "{kind}: --reason is required (the session-terminal entry must record why)",
     zh_message_template: "{kind}:必须提供 --reason(会话终态 entry 必须记录原因)",
     fix_template:
-      "re-run with `--reason \"...\"`; `loaf archive` and `loaf abandon` both require a rationale on the journal entry",
+      're-run with `--reason "..."`; `loaf archive` and `loaf abandon` both require a rationale on the journal entry',
     template_keys: ["kind"],
     doc_anchor: "protocol.md#§10.8",
   },
@@ -1321,7 +1322,8 @@ export const ERROR_CATALOG = {
     exit_code: 2,
     message_template:
       "{projection} projection write failed after journal append at last_seq={last_seq} (spec_version={spec_version}): {error}",
-    zh_message_template: "{projection} 派生投影在 journal append (last_seq={last_seq}, spec_version={spec_version}) 后写盘失败:{error}",
+    zh_message_template:
+      "{projection} 派生投影在 journal append (last_seq={last_seq}, spec_version={spec_version}) 后写盘失败:{error}",
     fix_template:
       "the journal already records the change; do NOT retry the same command. Run `loaf doctor --rebuild` (when available) to resync derived projections from journal truth, or inspect `.loaf/<feature>/journal.jsonl` tail manually.",
     template_keys: ["error", "last_seq", "projection", "spec_version"],
@@ -1345,7 +1347,8 @@ export const ERROR_CATALOG = {
     exit_code: 2,
     message_template:
       "finding raise action=amend-spec requires state.spec_locked=true; spec is not locked at sub_state={current_sub_state}, edit directly via `loaf spec submit / add-*`",
-    zh_message_template: "finding raise action=amend-spec 要求 state.spec_locked=true;当前 sub_state={current_sub_state} 下 spec 未锁,请直接使用 `loaf spec submit / add-*`",
+    zh_message_template:
+      "finding raise action=amend-spec 要求 state.spec_locked=true;当前 sub_state={current_sub_state} 下 spec 未锁,请直接使用 `loaf spec submit / add-*`",
     fix_template:
       "drop --action amend-spec and use `loaf spec submit` / `loaf spec add-req` / etc. directly while spec is unlocked; amend-spec is reserved for post-`gate decide spec-lock --approve` recovery.",
     template_keys: ["current_sub_state"],
@@ -1358,7 +1361,8 @@ export const ERROR_CATALOG = {
     exit_code: 2,
     message_template:
       "{kind}: spec_version must be {expected_spec_version} (current+1), got {payload_spec_version}",
-    zh_message_template: "{kind}: spec_version 必须等于 {expected_spec_version}(current+1),实际为 {payload_spec_version}",
+    zh_message_template:
+      "{kind}: spec_version 必须等于 {expected_spec_version}(current+1),实际为 {payload_spec_version}",
     fix_template:
       "set spec_version to {expected_spec_version} in the input payload (or omit it and let `loaf spec submit` fill the current+1 default).",
     template_keys: ["expected_spec_version", "kind", "payload_spec_version"],
@@ -1368,7 +1372,8 @@ export const ERROR_CATALOG = {
     exit_code: 2,
     message_template:
       "{kind}: spec_version must be {current_spec_version} at batch_index={batch_index}, got {payload_spec_version}",
-    zh_message_template: "{kind}: batch_index={batch_index} 处 spec_version 必须等于 {current_spec_version},实际为 {payload_spec_version}",
+    zh_message_template:
+      "{kind}: batch_index={batch_index} 处 spec_version 必须等于 {current_spec_version},实际为 {payload_spec_version}",
     fix_template:
       "in a multi-entry spec batch, the head (batch_index=0) bumps spec_version to current+1 and all continuation entries (batch_index≥1) must set spec_version to that same value. Check the head entry's payload.spec_version and align companions.",
     template_keys: ["batch_index", "current_spec_version", "kind", "payload_spec_version"],
@@ -1379,7 +1384,8 @@ export const ERROR_CATALOG = {
     exit_code: 2,
     message_template:
       "task {task_id} is not complete (status={status}); must-applicable steps not terminal-positive: {blocking_steps}",
-    zh_message_template: "task {task_id} 尚未完成(status={status});以下 must 级 step 未达 terminal-positive:{blocking_steps}",
+    zh_message_template:
+      "task {task_id} 尚未完成(status={status});以下 must 级 step 未达 terminal-positive:{blocking_steps}",
     fix_template:
       "finish each blocking step via `loaf tasks step start/done`; a task auto-promotes to status=done once every must-applicable step is passed/waived/na, and `loaf tasks complete` then confirms it. Run `loaf tasks list` to inspect step status.",
     template_keys: ["blocking_steps", "status", "task_id"],
@@ -1390,7 +1396,8 @@ export const ERROR_CATALOG = {
     exit_code: 2,
     message_template:
       "task {task_id} is in the projection but has no canonical body in the journal (migration-imported); a whole-task amend cannot be reconstructed",
-    zh_message_template: "task {task_id} 在投影中存在,但 journal 里没有 canonical body(migration 导入);无法重建整 task 的 amend",
+    zh_message_template:
+      "task {task_id} 在投影中存在,但 journal 里没有 canonical body(migration 导入);无法重建整 task 的 amend",
     fix_template:
       "the task was rehydrated from a v0.0.x migration snapshot, so its full body never landed as a journal tasks_planned/tasks_amended entry. Re-plan the task graph via `loaf tasks submit`, or wait for the history-aware doctor path that will reconstruct migrated task bodies.",
     template_keys: ["task_id"],
@@ -1401,7 +1408,8 @@ export const ERROR_CATALOG = {
     exit_code: 2,
     message_template:
       "behavioral bug task {task_id} cannot start or complete its implement step before its RED test is registered",
-    zh_message_template: "behavioral bug task {task_id} 在注册 RED 测试前不能开始或完成 implement step",
+    zh_message_template:
+      "behavioral bug task {task_id} 在注册 RED 测试前不能开始或完成 implement step",
     fix_template:
       "run `loaf tasks register-red {task_id}` once the failing RED test is in place; protocol §9.3 requires RED registration before the implement step of a behavioral task labelled `bug`.",
     template_keys: ["task_id"],
@@ -1411,7 +1419,8 @@ export const ERROR_CATALOG = {
     exit_code: 2,
     message_template:
       "task {task_id}: red_test_registered=true is valid only on a red-step task_step_done for a behavioral bug task (passed/waived result) — not on this entry",
-    zh_message_template: "task {task_id}:red_test_registered=true 只在 behavioral bug task 的 red-step task_step_done(passed/waived)上有效 —— 不能用在本 entry",
+    zh_message_template:
+      "task {task_id}:red_test_registered=true 只在 behavioral bug task 的 red-step task_step_done(passed/waived)上有效 —— 不能用在本 entry",
     fix_template:
       "do not set red_test_registered in a planned task or on a non-red step; the flag is owned by `loaf tasks register-red`, which the reducer promotes to task-level registration.",
     template_keys: ["task_id"],
@@ -1421,7 +1430,8 @@ export const ERROR_CATALOG = {
     exit_code: 2,
     message_template:
       "behavioral bug task {task_id} is done but never registered its RED test (red_test_registered≠true)",
-    zh_message_template: "behavioral bug task {task_id} 已 done 但从未注册 RED 测试(red_test_registered≠true)",
+    zh_message_template:
+      "behavioral bug task {task_id} 已 done 但从未注册 RED 测试(red_test_registered≠true)",
     fix_template:
       "a done behavioral bug task must have registered its RED test via `loaf tasks register-red`; this is a verify-accept defense-in-depth check for migration / raw-API journals — rebuild the journal or register RED retroactively before re-running the gate.",
     template_keys: ["task_id"],
@@ -1431,9 +1441,10 @@ export const ERROR_CATALOG = {
     exit_code: 2,
     message_template:
       "cannot convert: the session has no non-abandoned spike task; `loaf spike convert` is a spike-task exit (protocol §8.3)",
-    zh_message_template: "无法 convert:session 没有非-abandoned 的 spike task;`loaf spike convert` 是 spike-task 出口(protocol §8.3)",
+    zh_message_template:
+      "无法 convert:session 没有非-abandoned 的 spike task;`loaf spike convert` 是 spike-task 出口(protocol §8.3)",
     fix_template:
-      "run `loaf spike convert` only from a session that holds a kind=spike task; for a non-spike session close it with `loaf archive --reason \"...\"` or `loaf abandon --reason \"...\"`",
+      'run `loaf spike convert` only from a session that holds a kind=spike task; for a non-spike session close it with `loaf archive --reason "..."` or `loaf abandon --reason "..."`',
     template_keys: [],
     doc_anchor: "protocol.md#§8.3",
   },
@@ -1449,8 +1460,10 @@ export const ERROR_CATALOG = {
   // projection_path (projection_*), cause (meta_invalid + projection_invalid).
   SNAPSHOT_STALE_REBUILD_REQUIRED: {
     exit_code: 2,
-    message_template: "snapshot stale (reason={reason}) at {feature_dir}; run `loaf doctor --rebuild --feature <feature>` to re-serialize from journal truth",
-    zh_message_template: "snapshot 失效(reason={reason}) at {feature_dir};跑 `loaf doctor --rebuild --feature <feature>` 从 journal 重建",
+    message_template:
+      "snapshot stale (reason={reason}) at {feature_dir}; run `loaf doctor --rebuild --feature <feature>` to re-serialize from journal truth",
+    zh_message_template:
+      "snapshot 失效(reason={reason}) at {feature_dir};跑 `loaf doctor --rebuild --feature <feature>` 从 journal 重建",
     fix_template:
       "snapshot meta/leaves no longer agree with the journal tail; run `loaf doctor --rebuild --feature <feature>` to re-serialize from journal truth, then retry. Inspect detail.reason + reason-specific fields (meta_path / projection_kind / cause) to triage corruption source before rebuilding.",
     template_keys: ["feature_dir", "reason"],
@@ -1489,18 +1502,15 @@ export const ERROR_CATALOG = {
     exit_code: 2,
     message_template: "invalid CLI usage",
     zh_message_template: "CLI 用法不合法",
-    fix_template:
-      "Run the command with --help and retry with the required flags/arguments.",
+    fix_template: "Run the command with --help and retry with the required flags/arguments.",
     template_keys: [],
     doc_anchor: "protocol.md#§10.5",
   },
   DOCTOR_MODE_NOT_IMPLEMENTED: {
     exit_code: 2,
-    message_template:
-      "requested loaf doctor mode is not implemented in this release",
+    message_template: "requested loaf doctor mode is not implemented in this release",
     zh_message_template: "当前发布版本未实现该 loaf doctor 模式",
-    fix_template:
-      "Use loaf doctor --rebuild --feature <name>; other doctor modes are deferred.",
+    fix_template: "Use loaf doctor --rebuild --feature <name>; other doctor modes are deferred.",
     template_keys: [],
     doc_anchor: "protocol.md#§10.15",
   },
@@ -1508,8 +1518,7 @@ export const ERROR_CATALOG = {
     exit_code: 2,
     message_template: "loaf doctor --rebuild requires --feature <name>",
     zh_message_template: "loaf doctor --rebuild 必须带 --feature <name>",
-    fix_template:
-      "Pass --feature <name> or --feature-dir <path> for the session to rebuild.",
+    fix_template: "Pass --feature <name> or --feature-dir <path> for the session to rebuild.",
     template_keys: [],
     doc_anchor: "protocol.md#§10.15",
   },
@@ -1524,11 +1533,9 @@ export const ERROR_CATALOG = {
   },
   DOCTOR_REBUILD_MIGRATED_UNSUPPORTED: {
     exit_code: 2,
-    message_template:
-      "doctor --rebuild does not support v0.0.x-migrated journals in this release",
+    message_template: "doctor --rebuild does not support v0.0.x-migrated journals in this release",
     zh_message_template: "当前发布版本的 doctor --rebuild 不支持 v0.0.x-migrated journal",
-    fix_template:
-      "Use the existing migrated snapshots, or wait for migrate-v2/rebuild support.",
+    fix_template: "Use the existing migrated snapshots, or wait for migrate-v2/rebuild support.",
     template_keys: [],
     doc_anchor: "protocol.md#§10.15",
   },
@@ -1618,7 +1625,8 @@ export const ERROR_CATALOG = {
     exit_code: 2,
     message_template:
       "write blocked: `{normalized_path}` is outside the allowed write paths for sub_state `{sub_state}`",
-    zh_message_template: "写入被拦截:`{normalized_path}` 不在 sub_state `{sub_state}` 的允许写入路径内",
+    zh_message_template:
+      "写入被拦截:`{normalized_path}` 不在 sub_state `{sub_state}` 的允许写入路径内",
     fix_template:
       "write within the current step's contract, advance to the right sub_state/step first, or widen the matching `paths.*` category in .loaf/.config/loaf.config.json",
     template_keys: ["normalized_path", "sub_state"],
@@ -1631,7 +1639,8 @@ export const ERROR_CATALOG = {
     exit_code: 2,
     message_template:
       "write blocked: `{normalized_path}` matches protected_files entry `{matched_deny}` — protected files are never writable",
-    zh_message_template: "写入被拦截:`{normalized_path}` 命中 protected_files 条目 `{matched_deny}` —— 受保护文件永不可写",
+    zh_message_template:
+      "写入被拦截:`{normalized_path}` 命中 protected_files 条目 `{matched_deny}` —— 受保护文件永不可写",
     fix_template:
       "remove the entry from protected_files in .loaf/.config/loaf.config.json if the protection is wrong, otherwise write a different file",
     template_keys: ["matched_deny", "normalized_path"],
@@ -1669,8 +1678,5 @@ export function diagnostic<const Code extends DiagnosticCode>(
 ): Diagnostic<Code> {
   return { code, detail };
 }
-const DIAGNOSTIC_CODE_VALUES = Object.keys(ERROR_CATALOG) as [
-  DiagnosticCode,
-  ...DiagnosticCode[],
-];
+const DIAGNOSTIC_CODE_VALUES = Object.keys(ERROR_CATALOG) as [DiagnosticCode, ...DiagnosticCode[]];
 export const DiagnosticCode = z.enum(DIAGNOSTIC_CODE_VALUES);

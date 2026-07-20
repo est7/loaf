@@ -8,6 +8,7 @@
 //
 // Public envelope (codex r304 lock):
 //   { ok: true, all_pass: boolean,
+//     deferred_findings: [{ id, action }],
 //     checks: [{ check, status, failures: FailedCheck[] }, … 5 rows] }
 //
 // Status per row:
@@ -23,19 +24,28 @@ import type {
   PerCheckResult,
   VerifyCheckId,
 } from "../core/gates/verify-accept-check.js";
+import { isFindingDeferralAction, type FindingDeferralAction } from "../core/finding-schema.js";
+import type { FindingState } from "../core/projection-types.js";
 import { DEFAULT_I18N, type I18n } from "./i18n.js";
 import { CHROME_KEYS } from "./runtime-i18n-keys.js";
 
 export interface VerifyStatusEnvelope {
   ok: true;
   all_pass: boolean;
+  deferred_findings: Array<{ id: string; action: FindingDeferralAction }>;
   checks: PerCheckResult[];
 }
 
 /** Build the JSON envelope from evaluateAllChecks output. */
-export function buildEnvelope(checks: PerCheckResult[]): VerifyStatusEnvelope {
+export function buildEnvelope(
+  checks: PerCheckResult[],
+  findings: readonly FindingState[],
+): VerifyStatusEnvelope {
   const allPass = checks.every((r) => r.status !== "fail");
-  return { ok: true, all_pass: allPass, checks };
+  const deferredFindings = findings
+    .filter((finding) => finding.status === "open" && isFindingDeferralAction(finding.action))
+    .map((finding) => ({ id: finding.id, action: finding.action as FindingDeferralAction }));
+  return { ok: true, all_pass: allPass, deferred_findings: deferredFindings, checks };
 }
 
 /** Presentation — fixed column widths per the §7.4 example shape. */
@@ -76,7 +86,11 @@ export function renderText(env: VerifyStatusEnvelope, i18n: I18n = DEFAULT_I18N)
   const labels = Object.fromEntries(
     env.checks.map((row) => [row.check, checkLabel(row.check, i18n)]),
   ) as Record<VerifyCheckId, string>;
-  const labelWidth = Math.max(...Object.values(labels).map((l) => l.length));
+  const deferredLabel = i18n.t(CHROME_KEYS.verifyStatusCheckDeferredFindings);
+  const labelWidth = Math.max(
+    ...Object.values(labels).map((l) => l.length),
+    ...(env.deferred_findings.length > 0 ? [deferredLabel.length] : []),
+  );
   const lines: string[] = [];
   for (const row of env.checks) {
     const label = labels[row.check].padEnd(labelWidth);
@@ -88,6 +102,16 @@ export function renderText(env: VerifyStatusEnvelope, i18n: I18n = DEFAULT_I18N)
         lines.push(`    - ${f.code}: ${f.message}`);
       }
     }
+  }
+  if (env.deferred_findings.length > 0) {
+    const findings = env.deferred_findings
+      .map((finding) => `${finding.id} (${finding.action})`)
+      .join(", ");
+    lines.push(
+      `${deferredLabel.padEnd(labelWidth)}  ${i18n
+        .t(CHROME_KEYS.verifyStatusInfo)
+        .padEnd(4)}${i18n.t(CHROME_KEYS.verifyStatusDeferredSummary, { findings })}`,
+    );
   }
   lines.push(env.all_pass ? "" : i18n.t(CHROME_KEYS.verifyStatusDiagnosticOnly));
   return lines.join("\n") + "\n";

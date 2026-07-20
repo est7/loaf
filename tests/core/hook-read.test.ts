@@ -35,11 +35,12 @@ function finding(
   id: string,
   status: "open" | "closed",
   summary?: string,
+  action: FindingsJson["findings"][number]["action"] = "amend-tasks",
 ): FindingsJson["findings"][number] {
   return {
     id,
     category: "impl-defect",
-    action: "amend-tasks",
+    action,
     status,
     ...(summary !== undefined ? { summary } : {}),
   } as FindingsJson["findings"][number];
@@ -180,10 +181,45 @@ describe("runClosureWarnings", () => {
         ],
       },
     });
-    const line = w.find((l) => l.includes("open findings"));
+    const line = w.find((l) => l.includes("open actionable findings"));
     expect(line).toBeDefined();
     expect(line).toContain("FND-001");
     expect(line).toContain("FND-003");
     expect(line).not.toContain("FND-002");
+  });
+
+  test("deferred open findings are not closure warnings; mixed warnings name only actionable ids", () => {
+    const deferredOnly = runClosureWarnings({
+      state: {} as never,
+      tasks: null,
+      evidence: noEvidence,
+      findings: {
+        schema_version: 2,
+        findings: [
+          finding("FND-001", "open", undefined, "backlog"),
+          finding("FND-002", "open", undefined, "defer"),
+        ],
+      },
+    });
+    expect(deferredOnly).toEqual([
+      "deferred findings carried (2): FND-001 (backlog), FND-002 (defer)",
+    ]);
+
+    const mixed = runClosureWarnings({
+      state: {} as never,
+      tasks: null,
+      evidence: noEvidence,
+      findings: {
+        schema_version: 2,
+        findings: [
+          finding("FND-001", "open", undefined, "backlog"),
+          finding("FND-002", "open", undefined, "fix-impl"),
+        ],
+      },
+    });
+    expect(mixed).toEqual([
+      "open actionable findings (1): FND-002",
+      "deferred findings carried (1): FND-001 (backlog)",
+    ]);
   });
 });

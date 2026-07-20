@@ -9,7 +9,8 @@
 //              evidence with kind in the narrow per-lane map has the same
 //              result. Otherwise "missing".
 //
-//   - check 2: snapshot.findings has no entry with status=open.
+//   - check 2: snapshot.findings has no actionable entry with status=open.
+//              defer/backlog declare a non-blocking disposition while open.
 //
 //   - check 3: every non-na REQ / SCEN / VIS has ≥1 evidence whose covers[]
 //              contains the id AND canSatisfy(ev, id) is true. Delegates
@@ -43,6 +44,7 @@ import type { EvidenceState, Snapshot } from "../projection-types.js";
 import type { SpecFrontmatter } from "../spec-schema.js";
 import type { VerifyCheckKind } from "../evidence-schema.js";
 import { canSatisfy } from "../evidence-compat.js";
+import { isFindingDeferralAction } from "../finding-schema.js";
 import { isPassingResult } from "./evidence-result.js";
 import { evaluateTaskProof, verifyAcceptPolicy } from "./task-proof.js";
 
@@ -230,13 +232,15 @@ function evalLaneStatus(snapshot: Snapshot, frontmatter: SpecFrontmatter): Faile
 }
 
 function evalOpenFindings(snapshot: Snapshot): FailedCheck[] {
-  const open = snapshot.findings.filter((f) => f.status === "open");
+  const open = snapshot.findings.filter(
+    (f) => f.status === "open" && !isFindingDeferralAction(f.action),
+  );
   if (open.length === 0) return [];
   return [
     {
       check: 2,
       code: "OPEN_FINDINGS_PRESENT",
-      message: `${open.length} finding(s) still open; resolve or close before verify-accept`,
+      message: `${open.length} actionable finding(s) still open; resolve or close before verify-accept`,
       detail: { count: open.length, open_ids: open.map((f) => f.id) },
     },
   ];
@@ -382,7 +386,9 @@ function evalSpecReview(snapshot: Snapshot): FailedCheck[] {
  *
  * Rules (codex r303 lock):
  *   - lane_status:   na iff deriveVerifyApplicability returns ∅
- *   - open_findings: ALWAYS applicable (never na)
+ *   - open_findings: ALWAYS applicable (never na); only actionable open
+ *                    findings fail, while defer/backlog remain visible
+ *                    non-blocking dispositions
  *   - coverage:      na iff 0 non-NA REQ/SCEN/VIS obligations
  *   - task_evidence: precondition runs when graph is unplanned (so
  *                    `tasks_based_on === null` is still applicable, fires

@@ -235,6 +235,7 @@
     "ESCALATION_NOT_PENDING": "`loaf profile escalate --confirm --input <ceremony.json>` requires pending head kind=profile_escalation; current head: {actual_head}",
     "EXECUTE_DONE_TASKS_NOT_FINAL": "cannot advance EXECUTE.work → EXECUTE.done: {count} task(s) are not in a final status (done or abandoned); finish their remaining steps or abandon out-of-scope tasks with `loaf tasks abandon <T-N> --reason \"...\"`",
     "NO_SESSION": "no session at {feature_dir} — run `loaf start <feature>` first",
+    "OPEN_FINDINGS_PRESENT": "verify-accept check 2: {count} actionable finding(s) still open (ids={open_ids}); resolve or close before verify-accept",
     "COVERAGE_NOT_SATISFIED": "{covered_id} has no evidence that satisfies it (canSatisfy failed for all candidates)",
     "DELIVER_NOT_ACCEPTED": "deliver requires verify_accepted=true at sub_state={sub_state}; run `loaf gate decide verify-accept --approve` first",
     "DELIVER_SETTLE_PHASE_BYPASS": "deliver from VERIFY.accept requires ceremony.settle_phase=false (standard); deep ceremony must run `loaf settle` first",
@@ -550,6 +551,9 @@
       "check_coverage": "coverage",
       "check_task_evidence": "task_evidence",
       "check_spec_review": "spec_review",
+      "check_deferred_findings": "deferred_findings",
+      "info": "info",
+      "deferred_summary": " {findings} (non-blocking)",
       "failure_summary_one": " {code}",
       "failure_summary_many": " {count} failures ({code}, …)",
       "diagnostic_only": "(diagnostic only — gate verdict not implied)"

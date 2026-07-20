@@ -2305,6 +2305,48 @@ scenarios: []
     const journalAfter = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
     expect(journalAfter).toBe(journalBefore);
   });
+
+  test("verify-accept admits an open backlog finding as an explicit disposition", async () => {
+    const { dir, snapshot, tailSeq, entries, meta } = await seedAtVerifyAccept();
+    await fs.writeFile(path.join(dir, "spec.md"), SPEC_MD_VERIFY_HAPPY);
+    const snapWithBacklog: Snapshot = {
+      ...snapshot,
+      tasks_based_on: { spec: 1 },
+      findings: [
+        ...snapshot.findings,
+        { id: "FND-001", category: "new-scope", action: "backlog", status: "open" },
+      ],
+    };
+
+    const result = await mutate(
+      {
+        at: "2026-05-15T11:00:00.000Z",
+        actor: "human:est9",
+        entry_schema_version: 1,
+        kind: "gate:decided",
+        payload: {
+          gate_kind: "verify-accept",
+          decision: "approved",
+          reason: "all actionable findings are resolved",
+        },
+      },
+      {
+        feature_dir: dir,
+        snapshot: snapWithBacklog,
+        tail_seq: tailSeq,
+        entries,
+        meta,
+        fsync: false,
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.message);
+    expect(result.snapshot.state?.verify_accepted).toBe(true);
+    expect(result.snapshot.findings).toContainEqual(
+      expect.objectContaining({ id: "FND-001", action: "backlog", status: "open" }),
+    );
+  });
 });
 
 describe("W3 — per-feature write-contention fence", () => {

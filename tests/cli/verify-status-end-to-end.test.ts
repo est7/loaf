@@ -144,6 +144,7 @@ describe("SC-9a-1 — verify status JSON envelope", () => {
     const out = JSON.parse(result.stdout);
     expect(out.ok).toBe(true);
     expect(typeof out.all_pass).toBe("boolean");
+    expect(out.deferred_findings).toEqual([]);
     expect(out.checks).toHaveLength(5);
     expect(out.checks.map((r: { check: string }) => r.check)).toEqual([
       "lane_status",

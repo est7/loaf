@@ -258,12 +258,15 @@ Source: codex independent enumeration r119 (AMQ thread
 - **Covers** the test-defect / TDD repair path — `event:task_step_reset`
   reused for fix-test (Phase 11 Item 3 SC3).
 
-### SCEN-E2E-023 — defer/backlog finding blocks accept until closed
+### SCEN-E2E-023 — declared defer finding remains open without blocking accept
 - **Tier** optional · **Status** green
-- **Given** VERIFY has an open `defer` / `backlog` finding.
+- **Given** VERIFY.accept has an open `defer` finding.
 - **When** `gate verify-accept --approve` is attempted.
-- **Then** `OPEN_FINDINGS_PRESENT`; after `finding close`, approve passes.
-- **Covers** the verify gate open-finding invariant without a back-edge.
+- **Then** approval succeeds without `finding close`; the finding remains
+  `status=open`, `action=defer` in the projection, and delivery reaches
+  `DONE.delivered`.
+- **Covers** declared-deferral exemption from the actionable open-finding
+  invariant without losing the recorded disposition.
 
 ### SCEN-E2E-039 — fix-impl back-edge repair loop carried through to delivery
 - **Tier** inventory · **Status** green
@@ -282,12 +285,23 @@ Source: codex independent enumeration r119 (AMQ thread
   iteration is still bumped and the `fix-impl` finding is `closed`.
 - **Covers** the full back-edge repair loop closing the lifecycle —
   SCEN-E2E-020/021/022 prove only that a back-edge LANDS (the finding
-  stays open); SCEN-E2E-023 proves the open-finding gate block for a
-  non-back-edge defer finding. This is the distinct cross-cutting proof: a
-  back-edge repair finding carried all the way through to delivery (Phase
-  11 Item 3 SC4).
+  stays open); SCEN-E2E-023 proves declared deferrals are nonblocking, and
+  SCEN-E2E-040 isolates the actionable open-finding gate block. This is the
+  distinct cross-cutting proof: a back-edge repair finding carried all the
+  way through to delivery (Phase 11 Item 3 SC4).
 - **Note** new id — post-dates the codex r119 38-scenario enumeration; the
   Phase 11 Item 3 SC4 close-out scenario.
+
+### SCEN-E2E-040 — actionable finding blocks accept until resolved
+- **Tier** optional · **Status** green
+- **Given** a standard feature can otherwise pass VERIFY.accept.
+- **When** an actionable `amend-tasks` finding back-edges to EXECUTE.work,
+  the feature re-advances to VERIFY.accept, and approval is attempted while
+  the finding remains open.
+- **Then** `OPEN_FINDINGS_PRESENT` blocks approval; after `finding close`,
+  approval succeeds and delivery reaches `DONE.delivered`.
+- **Covers** the narrowed invariant: open actionable findings still block
+  verify-accept, while SCEN-E2E-023 covers declared deferrals.
 
 ---
 
@@ -456,8 +470,9 @@ elsewhere. Recorded so the boundary is explicit, not forgotten.
 - **Every individual spec-lock check failure.** One happy path through
   spec-lock at E2E; the 8-check failure matrix lives in
   `tests/core/gates/spec-lock-check.test.ts`.
-- **Every individual verify-accept check failure.** E2E covers open-finding
-  / missing-`verify_accepted` / deep spec-review once (SCEN-E2E-023/025/004);
+- **Every individual verify-accept check failure.** E2E covers actionable
+  open-finding / missing-`verify_accepted` / deep spec-review once
+  (SCEN-E2E-040/025/004);
   the `canSatisfy` matrix and lane permutations live in
   `tests/core/gates/verify-accept-check.test.ts`.
 - **Every schema-invalid JSON shape** for spec / tasks / evidence / finding —
@@ -466,7 +481,7 @@ elsewhere. Recorded so the boundary is explicit, not forgotten.
   ids, regex variants, malformed namespaces) — unit / integration tests.
 - **The full 6×6 finding action grid** — E2E covers two back-edges
   (SCEN-E2E-019 amend-spec, SCEN-E2E-020 amend-tasks) and one open-finding
-  block (SCEN-E2E-023); grid coherence lives in preflight unit tests.
+  block (SCEN-E2E-040); grid coherence lives in preflight unit tests.
 - **Commander usage errors** for every missing flag — CLI unit tests for
   deterministic stderr / exit 2.
 - **Journal tail corruption, checksum, migration sidecars, crash recovery** —

@@ -346,7 +346,7 @@ describe("verifyAcceptCheck — check 1 lane status", () => {
 });
 
 // ───────────────────────────────────────────────────────────────────────
-// Check 2 — no open findings
+// Check 2 — no actionable open findings
 // ───────────────────────────────────────────────────────────────────────
 
 describe("verifyAcceptCheck — check 2 open findings", () => {
@@ -392,6 +392,36 @@ describe("verifyAcceptCheck — check 2 open findings", () => {
     const fails = result.checks.filter((c) => c.code === "OPEN_FINDINGS_PRESENT");
     expect(fails.length).toBe(1);
     expect(fails[0]!.detail?.open_ids as string[]).toContain("FND-001");
+  });
+
+  test("open defer and backlog findings declare disposition and do not block", () => {
+    const fm = makeFrontmatter();
+    const snap = happySnapshot(fm);
+    snap.findings.push(
+      { id: "FND-001", category: "spec-gap", action: "defer", status: "open" },
+      { id: "FND-002", category: "new-scope", action: "backlog", status: "open" },
+    );
+
+    const result = verifyAcceptCheck(snap, fm);
+    if (!result.ok) {
+      expect(result.checks.filter((c) => c.code === "OPEN_FINDINGS_PRESENT")).toEqual([]);
+    }
+  });
+
+  test("mixed deferred and actionable findings name only actionable open ids", () => {
+    const fm = makeFrontmatter();
+    const snap = happySnapshot(fm);
+    snap.findings.push(
+      { id: "FND-001", category: "new-scope", action: "backlog", status: "open" },
+      { id: "FND-002", category: "impl-defect", action: "fix-impl", status: "open" },
+      { id: "FND-003", category: "spec-gap", action: "defer", status: "open" },
+    );
+
+    const result = verifyAcceptCheck(snap, fm);
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("unreachable");
+    const failure = result.checks.find((c) => c.code === "OPEN_FINDINGS_PRESENT");
+    expect(failure?.detail).toEqual({ count: 1, open_ids: ["FND-002"] });
   });
 });
 
@@ -440,8 +470,7 @@ describe("verifyAcceptCheck — check 3 coverage (canSatisfy)", () => {
     expect(
       result.checks.some(
         (check) =>
-          check.code === "COVERAGE_NOT_SATISFIED" &&
-          check.detail?.covered_id === "REQ-AUTH-001",
+          check.code === "COVERAGE_NOT_SATISFIED" && check.detail?.covered_id === "REQ-AUTH-001",
       ),
     ).toBe(true);
   });

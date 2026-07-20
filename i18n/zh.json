@@ -235,6 +235,7 @@
     "ESCALATION_NOT_PENDING": "`loaf profile escalate --confirm --input <ceremony.json>` 要求 pending head kind=profile_escalation;当前 head:{actual_head}",
     "EXECUTE_DONE_TASKS_NOT_FINAL": "无法从 EXECUTE.work 推进到 EXECUTE.done:{count} 个 task 未处于终态(done 或 abandoned);跑完剩余 step,或用 `loaf tasks abandon <T-N> --reason \"...\"` 放弃超出范围的 task",
     "NO_SESSION": "{feature_dir} 下没有 session — 先跑 `loaf start <feature>`",
+    "OPEN_FINDINGS_PRESENT": "verify-accept 检查 2: 仍有 {count} 个可执行 finding 未关闭(ids={open_ids});请在 verify-accept 前解决或关闭",
     "COVERAGE_NOT_SATISFIED": "{covered_id} 没有任何证据满足覆盖(canSatisfy 对所有候选 evidence 都失败)",
     "DELIVER_NOT_ACCEPTED": "deliver 要求 verify_accepted=true(sub_state={sub_state});先运行 `loaf gate decide verify-accept --approve`",
     "DELIVER_SETTLE_PHASE_BYPASS": "VERIFY.accept 直接 deliver 要求 ceremony.settle_phase=false(standard);deep ceremony 必须先运行 `loaf settle`",
@@ -550,6 +551,9 @@
       "check_coverage": "覆盖",
       "check_task_evidence": "任务证据",
       "check_spec_review": "规格评审",
+      "check_deferred_findings": "延期发现",
+      "info": "信息",
+      "deferred_summary": " {findings}(不阻塞)",
       "failure_summary_one": " {code}",
       "failure_summary_many": " {count} 个失败({code}, …)",
       "diagnostic_only": "(仅诊断 —— 不代表 gate 结论)"
