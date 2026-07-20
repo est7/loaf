@@ -22,7 +22,7 @@ function parseCanonicalPathsText(text: string): string[] {
   return paths;
 }
 
-async function resolveScopePaths(
+export async function resolveScopePaths(
   entry: JournalEntry,
   featureDir: string,
 ): Promise<string[]> {

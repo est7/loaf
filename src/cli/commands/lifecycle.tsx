@@ -9,6 +9,13 @@ import { buildNextOutput } from "../../core/next-action.js";
 import { readSpecFrontmatter } from "../../core/spec-frontmatter.js";
 import { extractTaskSlim } from "../../core/task-schema.js";
 import type { TaskState } from "../../core/reducer.js";
+import path from "node:path";
+import {
+  ExecuteClosureError,
+  executeClosureTransaction,
+  type ExecuteClosureHooks,
+} from "../../core/execute-closure.js";
+import { RuntimeStoreError } from "../../core/session-runtime.js";
 
 const PRESETS: Record<string, import("../../core/journal-entry.js").Ceremony> = {
   quick: {
@@ -50,6 +57,9 @@ export function registerLifecycle(
   ctx: CommandContext,
   mutator: CommandMutator,
   actor: string,
+  runtimeDir: string,
+  runtimeNow: () => Date,
+  executeClosureHooks?: ExecuteClosureHooks,
 ): void {
   // ── loaf start <feature> ────────────────────────────────────────────────
   program
@@ -152,6 +162,65 @@ export function registerLifecycle(
       if (!from) {
         ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionAdvance, opts.feature);
         return;
+      }
+      if (to === "EXECUTE.done" && (from === "EXECUTE.work" || from === "EXECUTE.done")) {
+        const state = session.snapshot.state!;
+        const repoRoot = path.dirname(path.dirname(featureDir));
+        try {
+          const closure = await executeClosureTransaction({
+            featureDir,
+            session,
+            actor,
+            identity: { session_id: state.session_id, cwd: repoRoot },
+            runtime: { runtimeDir, now: runtimeNow },
+            debug: ctx.debug,
+            ...(executeClosureHooks !== undefined && { hooks: executeClosureHooks }),
+            mutateContext: (loaded) => mutator.mctxFor(featureDir, loaded),
+          });
+          if (closure.kind === "failure") {
+            mutator.finishMutate(closure.failure, "legacy-fail");
+            return;
+          }
+          if (
+            closure.kind === "committed" &&
+            mutator.finishMutate(closure.result, "legacy-fail") === null
+          ) {
+            return;
+          }
+          if (closure.kind !== "not-committed") {
+            const snapshot =
+              closure.kind === "committed" ? closure.result.snapshot : closure.session.snapshot;
+            const out = {
+              ok: true,
+              from: closure.from,
+              to,
+              sub_state: snapshot.state?.sub_state,
+            };
+            ctx.success(
+              out,
+              () => "",
+              (i18n) => ({
+                stateChange: i18n.t(SUCCESS_KEYS.advanceStateChange, {
+                  from: closure.from,
+                  to,
+                }),
+              }),
+            );
+            return;
+          }
+        } catch (error) {
+          const isRuntimeLockFailure =
+            error instanceof RuntimeStoreError && error.code.startsWith("RUNTIME_LOCK_");
+          if (!isRuntimeLockFailure && !(error instanceof ExecuteClosureError)) throw error;
+          const code = isRuntimeLockFailure ? "LOCK_TIMEOUT" : "SCHEMA_VALIDATION_FAILED";
+          ctx.failure(code, `EXECUTE closure failed: ${(error as Error).message}`, {
+            source: "execute-closure",
+            ...(error instanceof ExecuteClosureError && error.detail !== undefined
+              ? error.detail
+              : {}),
+          });
+          return;
+        }
       }
       const result = await mutator.run(
         featureDir,

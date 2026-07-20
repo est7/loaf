@@ -142,6 +142,8 @@ export type MainDeps = {
   // Ticket #11 SC3 — explicit machine-local hook runtime root. Production
   // defaults to ~/.loaf/runtime; hook tests inject a temp root.
   runtimeDir?: string;
+  /** EXECUTE closure commit-boundary instrumentation/fault injection. */
+  executeClosureHooks?: import("./core/execute-closure.js").ExecuteClosureHooks;
   // Phase 16 SC-12a-2 — test-injectable editor runner for `loaf spec
   // edit`. Production omits (defaults to runEditor from
   // ./cli/run-editor.js which spawns $EDITOR or vi). Tests inject
@@ -760,7 +762,15 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
   // (Commander shows commands in registration order in --help; any
   // reorder is a behavioral regression caught by the golden gate).
 
-  registerLifecycle(program, ctx, mutator, actor);
+  registerLifecycle(
+    program,
+    ctx,
+    mutator,
+    actor,
+    deps.runtimeDir ?? defaultRuntimeDir(os.homedir()),
+    deps.now ?? (() => new Date()),
+    deps.executeClosureHooks,
+  );
   registerGate(program, ctx, mutator, actor);
   registerTerminalExecute(program, ctx, mutator, actor);
   registerProfileConfig(program, ctx, mutator, actor, deps.userConfigHomeDir);
