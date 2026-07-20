@@ -70,7 +70,10 @@ const STATE_CHANGE_FIXTURES: ReadonlyArray<{
   mustContain: string[];
 }> = [
   // start — aligned in SC-5b1 P21
-  { commandKey: "loaf start", mustContain: ["start:", "created → TRIAGE.score", "loaf advance"] },
+  {
+    commandKey: "loaf start",
+    mustContain: ["start:", "created → TRIAGE.score", "buildNextOutput", "runnable"],
+  },
   // advance — narrow (no iter, no prompt_inject)
   { commandKey: "loaf advance", mustContain: ["advance:", "<prev sub-state>", "<new sub-state>"] },
   // spec submit — align
@@ -89,7 +92,10 @@ const STATE_CHANGE_FIXTURES: ReadonlyArray<{
   },
   { commandKey: "loaf spec add-visual", mustContain: ["spec add-visual:", "+K VIS", "allocated"] },
   // tasks submit — narrow (no tasks_version)
-  { commandKey: "loaf tasks submit", mustContain: ["tasks submit:", "N tasks", "loaf advance"] },
+  {
+    commandKey: "loaf tasks submit",
+    mustContain: ["tasks submit:", "N tasks", "loaf next", "blocking"],
+  },
   // tasks add — narrow
   { commandKey: "loaf tasks add", mustContain: ["tasks add:", "+K tasks", "allocated"] },
   // tasks step start / done

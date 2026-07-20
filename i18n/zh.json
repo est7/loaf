@@ -361,7 +361,7 @@
 
   "success": {
     "next": {
-      "advance": "loaf advance",
+      "full_command_pointer": "运行 `{command}` 获取完整命令",
       "deliver": "loaf deliver",
       "settle": "loaf settle"
     },

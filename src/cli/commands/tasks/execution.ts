@@ -178,7 +178,9 @@ export function registerTaskRegisterRed(tasksCmd: Command, deps: TasksRegistrati
   const { ctx, mutator, actor } = deps;
   tasksCmd
     .command("register-red <task-id>")
-    .description("Register the RED test for a claimed behavioral bug task (EXECUTE.work)")
+    .description(
+      "Register an established failing RED test for a claimed behavioral bug task (ordering proof; not a general step shortcut)",
+    )
     .option("--feature <name>", "Feature whose task to register")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (taskId: string, opts: { feature: string; featureDir?: string }) => {
@@ -280,17 +282,19 @@ export function registerTaskStep(tasksCmd: Command, deps: TasksRegistrationDeps)
   // ── loaf tasks step done --task T-N --step <s> [--result <r>] ───────
   stepCmd
     .command("done")
-    .description("Mark a task step as done (--result passed|failed|waived|na; default passed)")
+    .description(
+      "Complete a workflow step; --result is the step outcome, independent of --evidence-result",
+    )
     .requiredOption("--task <task-id>", "Task whose step to mark done")
     .requiredOption("--step <step-name>", "Step name (kind-specific)")
-    .option("--result <r>", "Step result: passed (default) | failed | waived | na", "passed")
+    .option("--result <r>", "Step outcome: passed (default) | failed | waived | na", "passed")
     // Slice 3 SC4 --evidence-* batch flags. Any one of these triggers
     // the batch path; --evidence-kind + --evidence-summary are then
     // required together (others optional, mirrors evidence add payload).
     .option("--evidence-kind <kind>", "Evidence kind (closed EvidenceKind enum)")
     .option(
       "--evidence-result <r>",
-      "Evidence result (passed | failed | approved | rejected | waived)",
+      "Independent evidence outcome (passed | failed | approved | rejected | waived)",
     )
     .option("--evidence-summary <text>", "Evidence summary (≥3 chars)")
     .option(

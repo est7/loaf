@@ -124,13 +124,14 @@ describe("Phase 16 SC-3 — CommandContext: construction + output mode", () => {
         stateChange: i18n.t(SUCCESS_KEYS.startStateChange, {
           feature: "auth-refresh",
         }),
-        next: i18n.t(SUCCESS_KEYS.nextAdvance),
+        next: "loaf advance TRIAGE.confirm --feature auth-refresh",
       }),
     );
 
     expect(stdout.join("")).toBe("session-1\n");
     expect(stderr.join("")).toBe(
-      "start: 'auth-refresh' 已创建 → TRIAGE.score\nnext: loaf advance\n",
+      "start: 'auth-refresh' 已创建 → TRIAGE.score\n" +
+        "next: loaf advance TRIAGE.confirm --feature auth-refresh\n",
     );
   });
 
@@ -148,12 +149,17 @@ describe("Phase 16 SC-3 — CommandContext: construction + output mode", () => {
         }) + "\n",
       (i18n) => ({
         stateChange: i18n.t(SUCCESS_KEYS.tasksSubmitStateChange, { count: 2 }),
-        next: i18n.t(SUCCESS_KEYS.nextAdvance),
+        next: i18n.t(SUCCESS_KEYS.nextFullCommandPointer, {
+          command: "loaf next --feature auth-refresh --format json",
+        }),
       }),
     );
 
     expect(stdout.join("")).toBe("已提交 2 个 task:T-001, T-002\n");
-    expect(stderr.join("")).toBe("tasks submit: 2 tasks\nnext: loaf advance\n");
+    expect(stderr.join("")).toBe(
+      "tasks submit: 2 tasks\n" +
+        "next: 运行 `loaf next --feature auth-refresh --format json` 获取完整命令\n",
+    );
   });
 
   test("success JSON payload stays byte-stable under zh locale", () => {
@@ -171,7 +177,9 @@ describe("Phase 16 SC-3 — CommandContext: construction + output mode", () => {
       }) + "\n";
     const renderAdvisory = (i18n: I18n) => ({
       stateChange: i18n.t(SUCCESS_KEYS.tasksSubmitStateChange, { count: 1 }),
-      next: i18n.t(SUCCESS_KEYS.nextAdvance),
+      next: i18n.t(SUCCESS_KEYS.nextFullCommandPointer, {
+        command: "loaf next --feature auth-refresh --format json",
+      }),
     });
 
     en.ctx.success(payload, renderText, renderAdvisory);

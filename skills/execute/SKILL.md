@@ -47,6 +47,14 @@ Repeat until every task is `done` or `abandoned`:
    REQ / SCEN / VIS coverage with separate evidence whose `covers[]` names those
    obligation ids. Then `loaf tasks step done --task <T-id> --step <s>`.
    Completing the last must-step auto-promotes the task to `done`.
+   The step outcome and evidence outcome are independent: a RED reproduction
+   step can complete with `--result passed` while its evidence records the
+   system-under-test failure with `result=failed`.
+   For a behavioral task labelled `bug`, call `loaf tasks register-red <T-id>`
+   only after the failing RED test exists. It records ordering proof before the
+   implement step; it is not a shortcut for completing RED or for non-bug
+   tasks. In evidence input, payload `actor` is the evidence attester; the
+   journal envelope actor is writer provenance, and the two may differ.
 5. Problem found → `loaf finding raise --category <c> --action <a> --summary
    "<…>"` (`fix-impl` / `fix-test` / `amend-tasks` back-edges return you here).
 

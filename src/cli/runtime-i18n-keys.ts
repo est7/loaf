@@ -450,7 +450,7 @@ export const FAILURE_SITE_TEMPLATES = {
 >;
 
 export const SUCCESS_KEYS = {
-  nextAdvance: "success.next.advance",
+  nextFullCommandPointer: "success.next.full_command_pointer",
   nextDeliver: "success.next.deliver",
   nextSettle: "success.next.settle",
   startStateChange: "success.start.state_change",

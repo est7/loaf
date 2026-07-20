@@ -817,6 +817,9 @@ CLI 分配流程(每次 add-\* / batch invocation):
 **核心约束**:
 - 每条 entry 必带 `evidence_id`(单调 `EV-` + ≥6 位数字)、`iteration`、`actor`、`result`、`summary`
 - `actor` 自由字符串,**推荐前缀**:`human:<id>` / `skill:<plugin>/<skill>` / `cli:loaf` / `ci:<job>`
+- Actor ownership is intentionally split: payload.actor = evidence attester;
+  journal envelope actor = writer provenance. They are deliberately allowed to differ
+  because the CLI writer may record evidence attested by a human, skill, or CI job.
 - `covers[]` 是 **AC 覆盖的真理源**(替代 task.drives → evidence.task_id 间接链)
 - `manual` 和 `waiver` 是**两个独立 kind**:
   - `manual`:人工验证(`result` 通常是 `passed/failed`)
@@ -1606,6 +1609,13 @@ Visual  drives visual check (VIS-* → task.visual_contract_refs[] → visual ch
 
 含 `labels: ["bug"]` 的 behavioral task 必须先 `loaf tasks register-red <T-N>` 注册 RED。CLI mutator 层 enforce:RED 未注册的 bug task 试图 start 或 done `implement` step 时一律阻断(`BUG_TASK_REQUIRES_RED`,start / done 双边把关)。
 
+`tasks step done --result` 表示 **step outcome**;同一 transaction 内可选
+`--evidence-result` 表示独立的 **evidence outcome**。因此 RED reproduction
+已正确完成时 step 可以是 `passed`,而证据仍以 `failed` 记录被测系统的预期失败。
+`tasks register-red` 只适用于已存在失败 RED test 的 behavioral bug task:
+它记录 implement 之前的 **ordering proof**,不替代 RED 工作,也不是 non-bug
+task 的通用完成捷径。
+
 **CLI 强制边界声明(rev 5.x,显式)**:
 
 | 触发条件 | 谁强制 | 失败 effect |
@@ -2114,13 +2124,13 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 | `loaf tasks claim <task-id> [--feature <value>] [--feature-dir <value>]` | 把 task 从 `ready` 拉到 `in_progress`(worker 拿活,fan-out 多 worker 并发用);CLI 在 lock 内确认 deps_on satisfied | 0 / 2 |
 | `loaf tasks abandon <task-id> --reason <value> [--feature <value>] [--feature-dir <value>]` | **Item 1**:把非终态 task 标记为 `abandoned`(EXECUTE.work 阶段;`--reason` 必填,emit `event:task_abandoned` payload 含 task_id + reason)。已终态(`done` / `abandoned`)→ `TASK_NOT_ABANDONABLE` exit 2;若有非终态 task 在 `depends_on` 指向该 task → `TASK_ABANDON_BLOCKED_DEPENDENTS` exit 2(放弃父任务会孤立子任务)。配合 `EXECUTE_DONE_TASKS_NOT_FINAL`:超出范围的 task 可 abandon 后再 `loaf advance EXECUTE.done` | 0 / 2 |
 | `loaf tasks complete <task-id> [--feature <value>] [--feature-dir <value>]` | 确认 task 已达 `done`(全部 must step 已 passed/waived/na)。**rev 5.0 / Slice C SC-C1**:`event:task_step_done` 已在末个 must step 完成时 auto-promote `task.status=done`,故 `tasks complete` 是**只读确认命令**——不 emit journal entry;task 已 `done` → exit 0,否则 `TASK_COMPLETE_PRECONDITION_VIOLATED` exit 2 并列出未达 terminal-positive 的 must step。**rev 4.2**:rename from `loaf tasks done` — 与 `tasks step done` 同名异级歧义,改 `complete` 消歧(clig.dev §8) | 0 / 2 |
-| `loaf tasks register-red <task-id> [--feature <value>] [--feature-dir <value>]` | 给 `behavioral+labels=["bug"]` task 注册 RED 测试(§9.3 唯一硬约束)| 0 / 2 |
+| `loaf tasks register-red <task-id> [--feature <value>] [--feature-dir <value>]` | 给已有失败 RED test 的 `behavioral+labels=["bug"]` task 记录 implement 前 ordering proof;不是通用 step shortcut(§9.3 唯一硬约束)| 0 / 2 |
 | `loaf tasks amend <task-id> [--feature <value>] [--feature-dir <value>] [--policy <value>] [--input <value>] [--finding <value>]` | 两条互斥 surface。`--policy`(spec-lock 后 EXECUTE.plan 阶段)窄修 `execution[].applicability`,不能改 drives / depends_on / kind(见 §8.6)。**Item 3 SC1b**:`--input <src> --finding <FND-N>` 是 sponsored 结构化 graph 替换 —— 回退到 `EXECUTE.work` 后用新 id-less task 定义替换该 task 的 graph,emit `event:tasks_amended` `mode=replace` + `sponsored_by_finding_id`;CLI 以 `materializeTaskForAmend` 把 current runtime 进度叠加到新 graph,preflight §8.6 sponsored 分支校验 finding + frozen-field 红线。`--policy` 与 `--input` 同时给 → `USAGE` 拒绝。**Phase 16 SC-4b**:`--input <src>` 接统一 modality(`-` stdin / inline JSON / file path,§10.7);**single id-less task object only**(NOT batch-capable;sponsored single-task replacement)。 | 0 / 2 |
 | `loaf tasks list [--feature <value>] [--feature-dir <value>] [--status <value>]` | 列所有 task 当前 step(rev 4.0:rename from `loaf tasks status`,避免跟 `loaf status` session-level 命名歧义) | 0 |
 | `loaf tasks next [--feature <value>] [--feature-dir <value>]` | CLI 算下一个 ready task | 0 |
 | `loaf tasks check` <!-- inventory:future reason="SC-9a projection-read commands" --> | `snapshots/tasks.json` 的 `execution.<step>.status` 与 `snapshots/evidence.json` 一致性校验(rev 5.0:两个 derived projection 是 reducer 同一次重建产物,理论无 drift;mismatch → 触发 §10.15 snapshot-seq-mismatch / 提示 `loaf doctor --rebuild`);rename from `loaf check tasks` (rev 4.0) | 0 / 2 |
 | `loaf tasks step start --task <value> --step <value> [--feature <value>] [--feature-dir <value>]` | 开始一个 step(运行时校验 step ∈ kind 合法集) | 0 / 2 |
-| `loaf tasks step done --task <value> --step <value> [--result <value>] [--evidence-kind <value>] [--evidence-result <value>] [--evidence-summary <value>] [--evidence-covers <value>] [--evidence-check <value>] [--evidence-reason <value>] [--evidence-actor <value>] [--feature <value>] [--feature-dir <value>]` | 完成一个 step。**rev 5.0** 行为(等价于原 rev 4.1 contract):走 §11.2 10-step journal transaction,**同一 batch 内 emit** `event:task_step_done` + 可选 `evidence:added`(若 `--evidence-*` flag);step 5 final-validate 通过后整批 append,reducer 派生到 `snapshots/tasks.json`(`execution.<step>.status`)与 `snapshots/evidence.json`。无 `--evidence-*` 时仍可单条 append;缺 task passing evidence 不在 step-done preflight 拦截,后续由 quick/light `loaf deliver` 的 verify-min 或 standard/deep `verify-accept` 拦截;未来 `loaf tasks check`(F-023) 才使用 `TASK_STATUS_WITHOUT_PROOF` 做 execution↔evidence 一致性诊断 | 0 / 2 |
+| `loaf tasks step done --task <value> --step <value> [--result <value>] [--evidence-kind <value>] [--evidence-result <value>] [--evidence-summary <value>] [--evidence-covers <value>] [--evidence-check <value>] [--evidence-reason <value>] [--evidence-actor <value>] [--feature <value>] [--feature-dir <value>]` | 完成一个 step。`--result` 是 step outcome,独立于 `--evidence-result` 的 evidence outcome(RED reproduction 完成可 step=`passed` + evidence=`failed`)。**rev 5.0** 行为(等价于原 rev 4.1 contract):走 §11.2 10-step journal transaction,**同一 batch 内 emit** `event:task_step_done` + 可选 `evidence:added`(若 `--evidence-*` flag);step 5 final-validate 通过后整批 append,reducer 派生到 `snapshots/tasks.json`(`execution.<step>.status`)与 `snapshots/evidence.json`。无 `--evidence-*` 时仍可单条 append;缺 task passing evidence 不在 step-done preflight 拦截,后续由 quick/light `loaf deliver` 的 verify-min 或 standard/deep `verify-accept` 拦截;未来 `loaf tasks check`(F-023) 才使用 `TASK_STATUS_WITHOUT_PROOF` 做 execution↔evidence 一致性诊断 | 0 / 2 |
 | `loaf evidence add [--input <value>] [--schema] [--feature <value>] [--feature-dir <value>]` | **rev 5.0**:走 §11.2 transaction,**emit `evidence:added`**(单条或 batch,batch markers N≥2);reducer 派生到 `snapshots/evidence.json`(含 covers[] / check / actor / result)。**issue #20**:成功写入后对每个 `covers[]` pair 复用 §5.4 `canSatisfy` 检查；不兼容则 stderr warning 列 obligation id、supplied kind、allowed kinds，但不 reject、不改 JSON stdout exact keys。**rev 4.1**:不接受 `--id` flag,EV-id 由 CLI 单调分配在 payload 内并 stdout 回打;支持 `external_ref` 字段留调用方 correlation。**rev 4.3**(ADR-0004 A3 / A10):走统一 `--input <src>` modality(`-` stdin / inline JSON / file path,§10.7),**Phase 16 SC-4c** 接入 + 启用 batch(single object 或 non-empty array)。**ADR-0004 A6 deferred(NOT in SC-4c)**:`attachments` 简化形态 `[{path}]` + CLI 自动 sha256/mime/bytes materialization 留给后续 SC;**当前** runtime + `INPUT_SCHEMAS["evidence:add"]` machine schema 都要求 caller 提供完整 `Attachment` 形态 `[{path, sha256, mime, bytes?}]`(见 §4.4 命令行 sha256/mime 计算示例)。caller 显式传 envelope 字段(`id`/`evidence_id`/`schema_version`/`at`)→ `SCHEMA_VALIDATION_FAILED`(codex r230 PATCH D / r234)。当 A6 落地时,简化形态会在 schema 切换前先做 materialization → `ATTACHMENT_NOT_FOUND` / `ATTACHMENT_NOT_FILE` 路径才会重新激活 | 0 / 2 |
 | `loaf evidence list [--covers <value>] [--task <value>] [--kind <value>] [--feature <value>] [--feature-dir <value>]` | **ticket #12 observability v1**:read-only coverage query over freshness-checked `snapshots/evidence.json`。JSON envelope exact keys=`{ok,feature,count,evidence}`；row exact keys=`{id,kind,covers,task_id,at,actor}`，无 task linkage 时 `task_id:null`，不透传 whole evidence payload / summary / result。`--covers` 经 `CoversRefPayload` closed union 校验并匹配 `covers[]`；`--task` 经 `TaskIdPayload` 校验并匹配 `task_id`；`--kind` 经 `EvidenceKind` closed enum 校验。filters AND-compose，保持 projection/journal 顺序；text 每 evidence 一行；空集 exit 0。`--dry-run` reject | 0 / 2 |
 | `loaf evidence schema` | **Phase 16 SC-10**:dump evidence projection JSON Schema(派生自 `EvidenceJson`,zod v4 内置 `z.toJSONSchema()`,JSON Schema draft-2020-12)。属于 5 个 `loaf <kind> schema` artifact 子命令家族之一(spec / tasks / evidence / finding / state — pending 不在范围,§1947 closed enum)。read-only,`--dry-run` reject。feature-agnostic:`--feature` / `--feature-dir` / `--session` / `$LOAF_*` 全 pre-parse 拒绝 | 0 / 2 |
@@ -2248,13 +2258,13 @@ next: <suggested next command>            # 可选,仅在有强自然下一步�
 
 | 命令 | state-change line | next hint(若适用) |
 |---|---|---|
-| `loaf start` | `start: '<feature>' created → TRIAGE.score` | `next: loaf advance` |
+| `loaf start` | `start: '<feature>' created → TRIAGE.score` | `next: <runnable buildNextOutput non-blocking command + original feature selector>` |
 | `loaf advance` | `advance: <prev sub-state> → <new sub-state>` | — |
 | `loaf spec submit` | `spec submit: spec_version=N, locked=false` | `next: loaf gate decide spec-lock` |
 | `loaf spec add-req` | `spec add-req: +K REQ (spec_version=N; allocated REQ-AUTH-007,008,009)` | — |
 | `loaf spec add-scenario` | `spec add-scenario: +K SCEN (spec_version=N; allocated SCEN-LOGIN-001,002,003)` | — |
 | `loaf spec add-visual` | `spec add-visual: +K VIS (spec_version=N; allocated VIS-DASH-001)` | — |
-| `loaf tasks submit` | `tasks submit: N tasks` | `next: loaf advance` |
+| `loaf tasks submit` | `tasks submit: N tasks` | blocking action pointer: `next: loaf next <original feature selector> --format json`; `buildNextOutput` remains routing authority |
 | `loaf tasks add` | `tasks add: +K tasks (allocated T-008,009,010)` | — |
 | `loaf tasks step start` | `step start: T-007 implement (running)` | — |
 | `loaf tasks step done` | `step done: T-007 implement (passed)` | — |

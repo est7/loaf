@@ -361,7 +361,7 @@
 
   "success": {
     "next": {
-      "advance": "loaf advance",
+      "full_command_pointer": "run `{command}` for the full command",
       "deliver": "loaf deliver",
       "settle": "loaf settle"
     },

@@ -1,6 +1,6 @@
 ---
 name: verify
-description: Run the loaf VERIFY phase — compute which verify lanes apply (run / review / acceptance / visual), work each applicable lane recording evidence, then drive the verify-accept gate. This skill should be used when a loaf feature is in or entering the VERIFY phase, or when the user wants to verify a feature, run checks, record verification evidence, close findings, or accept the work.
+description: Run the loaf VERIFY phase — read the kernel-derived verify lanes (run / review / acceptance / visual), work each applicable lane recording evidence, then drive the verify-accept gate. This skill should be used when a loaf feature is in or entering the VERIFY phase, or when the user wants to verify a feature, run checks, record verification evidence, close findings, or accept the work.
 user-invocable: true
 allowed-tools: ["Bash(loaf:*)", "Read", "Write"]
 ---
@@ -25,12 +25,13 @@ commands (ADR-0005 single writer). Pass `--feature <F>` on every command.
 - `sub_state` in `VERIFY.*` → resume at that sub-state.
 - `sub_state` past VERIFY → done here; skip to **Done — report & stop**.
 
-## Step 2 — `VERIFY.plan`: compute applicability
+## Step 2 — `VERIFY.plan`: read applicability
 
-Decide which lanes apply — `run` (test/lint/typecheck), `review` (spec+quality
-fit), `acceptance` (Gherkin scenarios), `visual` (visual contracts) — each
-`must` / `optional-elected` / `na`, with a reason for every `na`. Then let
-`loaf next` route you to the first applicable lane and run that advance.
+Run `loaf verify status --feature <F> --format json` and read the
+kernel-derived `lanes[]`. Treat each lane's `must` / `optional` / `na` status
+and reason as authoritative; do not independently decide or record lane
+applicability. `loaf next` is routing only: it routes to the first applicable
+lane and does not compute or persist applicability. Run the advance it returns.
 
 ## Step 3 — Work each applicable lane
 
@@ -39,6 +40,8 @@ For each lane `loaf next` routes you to, do the check and record proof:
 - `loaf evidence add --input <file>` with the lane's evidence `kind`
   (`local-check`/`task-summary` for run, `verify-review` for review,
   `acceptance` for acceptance, `visual-review` + attachments for visual).
+- In evidence input, payload `actor` is the evidence attester. The journal
+  envelope actor is writer provenance; they deliberately may differ.
 - Failure → `loaf finding raise …`; close it with `loaf finding close <FND-id>`
   once resolved. Open findings block the gate.
 

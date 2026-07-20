@@ -6,6 +6,7 @@ import { defaultFeatureDir, loadSession } from "../../core/cli-runtime.js";
 import packageJson from "../../../package.json" with { type: "json" };
 import { deriveVerifyApplicability } from "../../core/gates/verify-accept-check.js";
 import { buildNextOutput } from "../../core/next-action.js";
+import { buildNextAdvisory, pendingKindsForNext } from "../next-advisory.js";
 import { readSpecFrontmatter } from "../../core/spec-frontmatter.js";
 import { extractTaskSlim } from "../../core/task-schema.js";
 import type { TaskState } from "../../core/reducer.js";
@@ -123,6 +124,14 @@ export function registerLifecycle(
           "legacy-fail",
         );
         if (!result) return;
+        const state = result.snapshot.state;
+        if (state === null) {
+          ctx.emitFailure(
+            "REDUCER_ERROR",
+            "internal: state missing from snapshot after successful session:started apply",
+          );
+          return;
+        }
         const out = {
           ok: true,
           feature,
@@ -130,7 +139,7 @@ export function registerLifecycle(
           ceremony_label: opts.ceremony,
           workspace: opts.workspace,
           feature_dir: featureDir,
-          sub_state: result.snapshot.state?.sub_state,
+          sub_state: state.sub_state,
         };
         // Phase 16 SC-5b1 pilot — `loaf start` is the first command
         // migrated to ctx.success(payload, textRenderer, advisories).
@@ -140,10 +149,28 @@ export function registerLifecycle(
         ctx.success(
           out,
           () => `${sessionId}\n`,
-          (i18n) => ({
-            stateChange: i18n.t(SUCCESS_KEYS.startStateChange, { feature }),
-            next: i18n.t(SUCCESS_KEYS.nextAdvance),
-          }),
+          (i18n) => {
+            const next = buildNextAdvisory(
+              i18n,
+              {
+                feature: state.feature,
+                feature_dir: featureDir,
+                phase: state.phase,
+                sub_state: state.sub_state,
+                ceremony: state.ceremony,
+                spec_locked: state.spec_locked,
+                verify_accepted: state.verify_accepted,
+                pending: pendingKindsForNext(result.snapshot.pending),
+              },
+              opts.featureDir !== undefined
+                ? { kind: "feature-dir", value: featureDir }
+                : { kind: "feature", value: state.feature },
+            );
+            return {
+              stateChange: i18n.t(SUCCESS_KEYS.startStateChange, { feature }),
+              ...(next === undefined ? {} : { next }),
+            };
+          },
         );
       },
     );

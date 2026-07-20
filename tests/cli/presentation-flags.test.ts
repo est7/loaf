@@ -383,7 +383,7 @@ describe("Phase 16 SC-5b1 — RED #16-#20: loaf start pilot ctx.success advisory
     expect(result.exit).toBe(0);
     expect(result.stdout).toMatch(/^[0-9a-f-]{36}\n$/i);
     expect(result.stderr).toContain("start: 'auth-refresh' created → TRIAGE.score");
-    expect(result.stderr).toContain("next: loaf advance");
+    expect(result.stderr).toContain(`next: loaf advance TRIAGE.confirm --feature-dir ${dir}`);
   });
 
   test("RED #19: loaf start --format json (no quiet) → JSON stdout + stateChange/next stderr both emit", async () => {
@@ -403,7 +403,7 @@ describe("Phase 16 SC-5b1 — RED #16-#20: loaf start pilot ctx.success advisory
     expect(parsed.ok).toBe(true);
     // Advisories emit in JSON mode too — pipe-safe separation.
     expect(result.stderr).toContain("start: 'auth-refresh' created → TRIAGE.score");
-    expect(result.stderr).toContain("next: loaf advance");
+    expect(result.stderr).toContain(`next: loaf advance TRIAGE.confirm --feature-dir ${dir}`);
   });
 
   test("RED #20: loaf start --quiet failure (e.g. invalid argv) → ctx.failure stderr STILL emits", async () => {

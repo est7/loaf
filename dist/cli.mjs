@@ -648,6 +648,16 @@ const FindingAction = z.enum([
 	"defer",
 	"backlog"
 ]);
+/** Actions whose selection is itself a non-blocking disposition. */
+const FINDING_DEFERRAL_ACTIONS = ["defer", "backlog"];
+/**
+* Derive disposition from the persisted action without widening the journal
+* or projection schema. Accepts string because historical slim snapshots type
+* FindingState.action loosely, while validated new entries use FindingAction.
+*/
+function isFindingDeferralAction(action) {
+	return FINDING_DEFERRAL_ACTIONS.includes(action);
+}
 z.enum([
 	"typical",
 	"unusual",
@@ -2339,8 +2349,9 @@ const ERROR_CATALOG = {
 	},
 	OPEN_FINDINGS_PRESENT: {
 		exit_code: 2,
-		message_template: "verify-accept check 2: {count} finding(s) still open (ids={open_ids}); resolve or close before verify-accept",
-		fix_template: "run `loaf finding close <FND-id> --resolution <text>` for each listed finding, OR add evidence + raise a follow-up finding if the gap is real. verify-accept check 2 requires snapshot.findings to have no entries with status=open.",
+		message_template: "verify-accept check 2: {count} actionable finding(s) still open (ids={open_ids}); resolve or close before verify-accept",
+		zh_message_template: "verify-accept 检查 2: 仍有 {count} 个可执行 finding 未关闭(ids={open_ids});请在 verify-accept 前解决或关闭",
+		fix_template: "complete the declared action for each listed finding, then run `loaf finding close <FND-id>`; if the honest disposition is carry-forward, raise it with action=defer or action=backlog instead. verify-accept excludes only open findings whose existing action declares deferral",
 		template_keys: ["count", "open_ids"],
 		doc_anchor: "protocol.md#§5.2"
 	},
@@ -4294,7 +4305,7 @@ const MACHINE = defineMachine({
 		prompt_inject: "Run visual contract verification. Append evidence with kind=visual-review (attachments required). Raise findings as needed."
 	},
 	"VERIFY.accept": {
-		entry: "all applicable checks passed/waived + no open findings",
+		entry: "all applicable checks passed/waived + no actionable open findings (`defer` / `backlog` are non-blocking dispositions)",
 		exit: "verify-accept gate approved. settle_phase=true (deep) → SETTLE.reconcile via `loaf settle`; settle_phase=false (standard) → DONE.delivered via `loaf deliver`",
 		write_paths: [".loaf/<feature>/evidence.jsonl"],
 		edges: [{
@@ -6731,6 +6742,7 @@ var en_default = {
 		"ESCALATION_NOT_PENDING": "`loaf profile escalate --confirm --input <ceremony.json>` requires pending head kind=profile_escalation; current head: {actual_head}",
 		"EXECUTE_DONE_TASKS_NOT_FINAL": "cannot advance EXECUTE.work → EXECUTE.done: {count} task(s) are not in a final status (done or abandoned); finish their remaining steps or abandon out-of-scope tasks with `loaf tasks abandon <T-N> --reason \"...\"`",
 		"NO_SESSION": "no session at {feature_dir} — run `loaf start <feature>` first",
+		"OPEN_FINDINGS_PRESENT": "verify-accept check 2: {count} actionable finding(s) still open (ids={open_ids}); resolve or close before verify-accept",
 		"COVERAGE_NOT_SATISFIED": "{covered_id} has no evidence that satisfies it (canSatisfy failed for all candidates)",
 		"DELIVER_NOT_ACCEPTED": "deliver requires verify_accepted=true at sub_state={sub_state}; run `loaf gate decide verify-accept --approve` first",
 		"DELIVER_SETTLE_PHASE_BYPASS": "deliver from VERIFY.accept requires ceremony.settle_phase=false (standard); deep ceremony must run `loaf settle` first",
@@ -6846,7 +6858,7 @@ var en_default = {
 	},
 	success: {
 		"next": {
-			"advance": "loaf advance",
+			"full_command_pointer": "run `{command}` for the full command",
 			"deliver": "loaf deliver",
 			"settle": "loaf settle"
 		},
@@ -6976,7 +6988,8 @@ var en_default = {
 		},
 		"evidence": {
 			"list_row": "id={id} kind={kind} covers={covers} task={task_id} at={at} actor={actor}",
-			"list_empty": "No evidence entries."
+			"list_empty": "No evidence entries.",
+			"compatibility_warning": "evidence kind {kind} cannot satisfy {covered_id}; use one of: {allowed_kinds} (entry written)"
 		},
 		"spec_status": {
 			"pass": "spec-lock: PASS",
@@ -7009,9 +7022,18 @@ var en_default = {
 			"check_coverage": "coverage",
 			"check_task_evidence": "task_evidence",
 			"check_spec_review": "spec_review",
+			"check_deferred_findings": "deferred_findings",
+			"info": "info",
+			"deferred_summary": " {findings} (non-blocking)",
 			"failure_summary_one": " {code}",
 			"failure_summary_many": " {count} failures ({code}, …)",
-			"diagnostic_only": "(diagnostic only — gate verdict not implied)"
+			"diagnostic_only": "(diagnostic only — gate verdict not implied)",
+			"lane_label": "lane.{lane}",
+			"lane_reason": " — {reason}",
+			"lane_reason_no_done_tasks": "no done tasks require run verification",
+			"lane_reason_no_review_obligations": "no non-NA requirements or done tasks require review verification",
+			"lane_reason_no_e2e_scenarios": "no applicable e2e scenarios require acceptance verification",
+			"lane_reason_no_visual_contracts": "no applicable visual contracts require visual verification"
 		},
 		"tui": {
 			"list": {
@@ -7333,6 +7355,7 @@ var zh_default = {
 		"ESCALATION_NOT_PENDING": "`loaf profile escalate --confirm --input <ceremony.json>` 要求 pending head kind=profile_escalation;当前 head:{actual_head}",
 		"EXECUTE_DONE_TASKS_NOT_FINAL": "无法从 EXECUTE.work 推进到 EXECUTE.done:{count} 个 task 未处于终态(done 或 abandoned);跑完剩余 step,或用 `loaf tasks abandon <T-N> --reason \"...\"` 放弃超出范围的 task",
 		"NO_SESSION": "{feature_dir} 下没有 session — 先跑 `loaf start <feature>`",
+		"OPEN_FINDINGS_PRESENT": "verify-accept 检查 2: 仍有 {count} 个可执行 finding 未关闭(ids={open_ids});请在 verify-accept 前解决或关闭",
 		"COVERAGE_NOT_SATISFIED": "{covered_id} 没有任何证据满足覆盖(canSatisfy 对所有候选 evidence 都失败)",
 		"DELIVER_NOT_ACCEPTED": "deliver 要求 verify_accepted=true(sub_state={sub_state});先运行 `loaf gate decide verify-accept --approve`",
 		"DELIVER_SETTLE_PHASE_BYPASS": "VERIFY.accept 直接 deliver 要求 ceremony.settle_phase=false(standard);deep ceremony 必须先运行 `loaf settle`",
@@ -7448,7 +7471,7 @@ var zh_default = {
 	},
 	success: {
 		"next": {
-			"advance": "loaf advance",
+			"full_command_pointer": "运行 `{command}` 获取完整命令",
 			"deliver": "loaf deliver",
 			"settle": "loaf settle"
 		},
@@ -7578,7 +7601,8 @@ var zh_default = {
 		},
 		"evidence": {
 			"list_row": "id={id} 类型={kind} 覆盖={covers} 任务={task_id} 时间={at} 操作者={actor}",
-			"list_empty": "没有证据条目。"
+			"list_empty": "没有证据条目。",
+			"compatibility_warning": "证据类型 {kind} 无法满足 {covered_id};请改用以下类型之一:{allowed_kinds}(条目已写入)"
 		},
 		"spec_status": {
 			"pass": "spec-lock：通过",
@@ -7611,9 +7635,18 @@ var zh_default = {
 			"check_coverage": "覆盖",
 			"check_task_evidence": "任务证据",
 			"check_spec_review": "规格评审",
+			"check_deferred_findings": "延期发现",
+			"info": "信息",
+			"deferred_summary": " {findings}(不阻塞)",
 			"failure_summary_one": " {code}",
 			"failure_summary_many": " {count} 个失败({code}, …)",
-			"diagnostic_only": "(仅诊断 —— 不代表 gate 结论)"
+			"diagnostic_only": "(仅诊断 —— 不代表 gate 结论)",
+			"lane_label": "泳道.{lane}",
+			"lane_reason": " —— {reason}",
+			"lane_reason_no_done_tasks": "没有已完成任务需要运行验证",
+			"lane_reason_no_review_obligations": "没有非 NA 需求或已完成任务需要评审验证",
+			"lane_reason_no_e2e_scenarios": "没有适用的 e2e 场景需要验收验证",
+			"lane_reason_no_visual_contracts": "没有适用的视觉合约需要视觉验证"
 		},
 		"tui": {
 			"list": {
@@ -8862,6 +8895,17 @@ const EVIDENCE_KIND_KEYS = {
 	waiver: "evidence_kind.waiver",
 	"spike-finding": "evidence_kind.spike-finding"
 };
+const VERIFY_CHECK_KIND_KEYS = {
+	run: "verify_check_kind.run",
+	review: "verify_check_kind.review",
+	acceptance: "verify_check_kind.acceptance",
+	visual: "verify_check_kind.visual"
+};
+const APPLICABILITY_KEYS = {
+	must: "applicability.must",
+	optional: "applicability.optional",
+	na: "applicability.na"
+};
 const FINDING_CATEGORY_KEYS = {
 	"spec-gap": "finding_category.spec-gap",
 	"spec-defect": "finding_category.spec-defect",
@@ -8977,7 +9021,7 @@ const FAILURE_SITE_KEYS = {
 };
 FAILURE_SITE_KEYS.sessionsListSelectorConflict, FAILURE_SITE_KEYS.tuiSelectorConflict, FAILURE_SITE_KEYS.tuiInteractiveOnly, FAILURE_SITE_KEYS.hookMissingEvent, FAILURE_SITE_KEYS.hookUnknownEvent, FAILURE_SITE_KEYS.hookStdinParseFailed, FAILURE_SITE_KEYS.hookWritePathMissing, FAILURE_SITE_KEYS.checkSelectorConflict, FAILURE_SITE_KEYS.checkKindRequired, FAILURE_SITE_KEYS.checkPathMissing, FAILURE_SITE_KEYS.checkKindInvalid, FAILURE_SITE_KEYS.schemaSelectorConflict, FAILURE_SITE_KEYS.schemaValidation, FAILURE_SITE_KEYS.dispatchSessionFeatureDirConflict, FAILURE_SITE_KEYS.dispatchFeatureDirRequiresFeature, FAILURE_SITE_KEYS.startLabelTooShort, FAILURE_SITE_KEYS.startWorkspaceEmpty, FAILURE_SITE_KEYS.handoffReasonTooShort, FAILURE_SITE_KEYS.handoffPackValidationFailed, FAILURE_SITE_KEYS.profileInputFileMissing, FAILURE_SITE_KEYS.profileInputFileUnreadable, FAILURE_SITE_KEYS.tasksAddEmptyArray, FAILURE_SITE_KEYS.lessonsTextTooShort, FAILURE_SITE_KEYS.lessonsReasonTooShort, FAILURE_SITE_KEYS.lessonsTextFileMutex, FAILURE_SITE_KEYS.lessonsFileMissing, FAILURE_SITE_KEYS.findingStatusInvalid, FAILURE_SITE_KEYS.journalIntegerInvalid, FAILURE_SITE_KEYS.journalKindInvalid, FAILURE_SITE_KEYS.journalActorInvalid, FAILURE_SITE_KEYS.evidenceCoversInvalid, FAILURE_SITE_KEYS.evidenceTaskInvalid, FAILURE_SITE_KEYS.evidenceKindInvalid, FAILURE_SITE_KEYS.writeGuardConfigInvalid, FAILURE_SITE_KEYS.noSessionStatus, FAILURE_SITE_KEYS.noSessionAdvance, FAILURE_SITE_KEYS.noSessionTasks, FAILURE_SITE_KEYS.noSessionPending, FAILURE_SITE_KEYS.noSessionFinding, FAILURE_SITE_KEYS.noSessionVerify, FAILURE_SITE_KEYS.noSessionGeneric;
 const SUCCESS_KEYS = {
-	nextAdvance: "success.next.advance",
+	nextFullCommandPointer: "success.next.full_command_pointer",
 	nextDeliver: "success.next.deliver",
 	nextSettle: "success.next.settle",
 	startStateChange: "success.start.state_change",
@@ -9076,6 +9120,7 @@ const CHROME_KEYS = {
 	journalListEmpty: "chrome.journal.list_empty",
 	evidenceListRow: "chrome.evidence.list_row",
 	evidenceListEmpty: "chrome.evidence.list_empty",
+	evidenceCompatibilityWarning: "chrome.evidence.compatibility_warning",
 	specStatusPass: "chrome.spec_status.pass",
 	specStatusFailureRow: "chrome.spec_status.failure_row",
 	specStatusSuppressedRow: "chrome.spec_status.suppressed_row",
@@ -9100,9 +9145,18 @@ const CHROME_KEYS = {
 	verifyStatusCheckCoverage: "chrome.verify_status.check_coverage",
 	verifyStatusCheckTaskEvidence: "chrome.verify_status.check_task_evidence",
 	verifyStatusCheckSpecReview: "chrome.verify_status.check_spec_review",
+	verifyStatusCheckDeferredFindings: "chrome.verify_status.check_deferred_findings",
+	verifyStatusInfo: "chrome.verify_status.info",
+	verifyStatusDeferredSummary: "chrome.verify_status.deferred_summary",
 	verifyStatusFailureSummaryOne: "chrome.verify_status.failure_summary_one",
 	verifyStatusFailureSummaryMany: "chrome.verify_status.failure_summary_many",
 	verifyStatusDiagnosticOnly: "chrome.verify_status.diagnostic_only",
+	verifyStatusLaneLabel: "chrome.verify_status.lane_label",
+	verifyStatusLaneReason: "chrome.verify_status.lane_reason",
+	verifyStatusLaneReasonNoDoneTasks: "chrome.verify_status.lane_reason_no_done_tasks",
+	verifyStatusLaneReasonNoReviewObligations: "chrome.verify_status.lane_reason_no_review_obligations",
+	verifyStatusLaneReasonNoE2eScenarios: "chrome.verify_status.lane_reason_no_e2e_scenarios",
+	verifyStatusLaneReasonNoVisualContracts: "chrome.verify_status.lane_reason_no_visual_contracts",
 	tuiListTitle: "chrome.tui.list.title",
 	tuiListSort: "chrome.tui.list.sort",
 	tuiListSortTime: "chrome.tui.list.sort_time",
@@ -9159,6 +9213,8 @@ const CHROME_KEYS = {
 	...Object.values(TASK_KIND_KEYS),
 	...Object.values(TASK_STATUS_KEYS),
 	...Object.values(EVIDENCE_KIND_KEYS),
+	...Object.values(VERIFY_CHECK_KIND_KEYS),
+	...Object.values(APPLICABILITY_KEYS),
 	...Object.values(FINDING_CATEGORY_KEYS),
 	...Object.values(FINDING_ACTION_KEYS),
 	...Object.values(FINDING_STATUS_KEYS),
@@ -9181,6 +9237,12 @@ function taskStatusKey(status) {
 }
 function evidenceKindKey(kind) {
 	return EVIDENCE_KIND_KEYS[kind];
+}
+function verifyCheckKindKey(kind) {
+	return VERIFY_CHECK_KIND_KEYS[kind];
+}
+function applicabilityKey(applicability) {
+	return APPLICABILITY_KEYS[applicability];
 }
 function findingCategoryKey(category) {
 	return FINDING_CATEGORY_KEYS[category];
@@ -9490,6 +9552,10 @@ function createCommandContext(argv, deps) {
 				if (renderedAdvisories.next !== void 0) {
 					const lines = Array.isArray(renderedAdvisories.next) ? renderedAdvisories.next : [renderedAdvisories.next];
 					for (const line of lines) deps.writeStderr(`next: ${line}\n`);
+				}
+				if (renderedAdvisories.warnings !== void 0) {
+					const lines = Array.isArray(renderedAdvisories.warnings) ? renderedAdvisories.warnings : [renderedAdvisories.warnings];
+					for (const line of lines) deps.writeStderr(`warning: ${line}\n`);
 				}
 			}
 		},
@@ -10451,6 +10517,28 @@ function canSatisfy(evidence, coveredId) {
 	}
 	return true;
 }
+/**
+* Return the actionable write-time diagnostic payload when `canSatisfy`
+* rejects an evidence/obligation pair. This fulfills the input-time
+* diagnostic promised by this module since Slice 3 while keeping the gate
+* and CLI on the same predicate and compatibility table.
+*
+* The full predicate is evaluated, not kind membership alone. Successful
+* `evidence add` writes have already passed EvidenceFullPayload, so the
+* actor/reason/attachment refinements normally collapse to the same result
+* as membership; retaining the full predicate prevents future drift if a
+* new compatibility condition is added here.
+*/
+function evidenceCompatibilityMismatch(evidence, coveredId) {
+	if (canSatisfy(evidence, coveredId)) return null;
+	const idKind = parseIdKind(coveredId);
+	if (idKind === null) return null;
+	return {
+		covered_id: coveredId,
+		supplied_kind: evidence.kind,
+		allowed_kinds: EVIDENCE_COMPAT[idKind].allowed
+	};
+}
 //#endregion
 //#region src/core/gates/verify-accept-check.ts
 const VERIFY_CHECK_IDS = [
@@ -10485,26 +10573,36 @@ const KIND_TO_LANE_FALLBACK = {
 * directly (e.g. per-feature opt-out of REVIEW lane); for now the policy
 * is conservative.
 */
+function deriveVerifyLaneApplicability(snapshot, frontmatter) {
+	const hasDoneTasks = snapshot.tasks.some((task) => task.status === "done");
+	const hasReviewObligations = hasDoneTasks || frontmatter.requirements.some((req) => req.acceptance_na !== true);
+	const hasAcceptanceObligations = frontmatter.scenarios.some((scenario) => scenario.tag === "e2e" && scenario.acceptance_na === void 0);
+	const hasVisualObligations = (frontmatter.visual_contracts ?? []).some((visual) => visual.visual_na === void 0);
+	return [
+		{
+			lane: "run",
+			applicability: hasDoneTasks ? "must" : "na",
+			reason: hasDoneTasks ? null : "no_done_tasks"
+		},
+		{
+			lane: "review",
+			applicability: hasReviewObligations ? "must" : "na",
+			reason: hasReviewObligations ? null : "no_review_obligations"
+		},
+		{
+			lane: "acceptance",
+			applicability: hasAcceptanceObligations ? "must" : "na",
+			reason: hasAcceptanceObligations ? null : "no_applicable_e2e_scenarios"
+		},
+		{
+			lane: "visual",
+			applicability: hasVisualObligations ? "must" : "na",
+			reason: hasVisualObligations ? null : "no_applicable_visual_contracts"
+		}
+	];
+}
 function deriveVerifyApplicability(snapshot, frontmatter) {
-	const lanes = /* @__PURE__ */ new Set();
-	for (const req of frontmatter.requirements) {
-		if (req.acceptance_na === true) continue;
-		lanes.add("review");
-	}
-	for (const scen of frontmatter.scenarios) {
-		if (scen.tag !== "e2e") continue;
-		if (scen.acceptance_na !== void 0) continue;
-		lanes.add("acceptance");
-	}
-	for (const vis of frontmatter.visual_contracts ?? []) {
-		if (vis.visual_na !== void 0) continue;
-		lanes.add("visual");
-	}
-	for (const task of snapshot.tasks) if (task.status === "done") {
-		lanes.add("run");
-		lanes.add("review");
-	}
-	return lanes;
+	return new Set(deriveVerifyLaneApplicability(snapshot, frontmatter).filter((lane) => lane.applicability === "must").map((lane) => lane.lane));
 }
 /**
 * Map an EvidenceState to its lane. Primary linkage = `evidence.check`
@@ -10555,12 +10653,12 @@ function evalLaneStatus(snapshot, frontmatter) {
 	return failures;
 }
 function evalOpenFindings(snapshot) {
-	const open = snapshot.findings.filter((f) => f.status === "open");
+	const open = snapshot.findings.filter((f) => f.status === "open" && !isFindingDeferralAction(f.action));
 	if (open.length === 0) return [];
 	return [{
 		check: 2,
 		code: "OPEN_FINDINGS_PRESENT",
-		message: `${open.length} finding(s) still open; resolve or close before verify-accept`,
+		message: `${open.length} actionable finding(s) still open; resolve or close before verify-accept`,
 		detail: {
 			count: open.length,
 			open_ids: open.map((f) => f.id)
@@ -10678,7 +10776,9 @@ function evalSpecReview(snapshot) {
 *
 * Rules (codex r303 lock):
 *   - lane_status:   na iff deriveVerifyApplicability returns ∅
-*   - open_findings: ALWAYS applicable (never na)
+*   - open_findings: ALWAYS applicable (never na); only actionable open
+*                    findings fail, while defer/backlog remain visible
+*                    non-blocking dispositions
 *   - coverage:      na iff 0 non-NA REQ/SCEN/VIS obligations
 *   - task_evidence: precondition runs when graph is unplanned (so
 *                    `tasks_based_on === null` is still applicable, fires
@@ -10763,7 +10863,8 @@ async function evaluateVerifyAcceptDiagnostic(snapshot, featureDir) {
 	};
 	return {
 		ok: true,
-		checks: evaluateAllChecks(snapshot, read.frontmatter)
+		checks: evaluateAllChecks(snapshot, read.frontmatter),
+		lanes: deriveVerifyLaneApplicability(snapshot, read.frontmatter)
 	};
 }
 //#endregion
@@ -11509,6 +11610,31 @@ function buildNextOutput(input) {
 	};
 }
 //#endregion
+//#region src/cli/next-advisory.ts
+function pendingKindsForNext(pending) {
+	return pending.map(({ kind }) => ({ kind: PendingPromptKind.parse(kind) }));
+}
+function shellQuote(value) {
+	if (/^[A-Za-z0-9_./:@%+=,-]+$/.test(value)) return value;
+	return `'${value.replaceAll("'", `'\"'\"'`)}'`;
+}
+function appendSelector(command, selector) {
+	return `${command} --${selector.kind} ${shellQuote(selector.value)}`;
+}
+/**
+* Render a copy-pasteable next hint without owning workflow routing.
+* `buildNextOutput` remains the sole routing authority. Blocking actions may
+* require human-provided arguments, so those point to the scoped JSON query
+* instead of advertising an unsafe placeholder command as runnable.
+*/
+function buildNextAdvisory(i18n, input, selector) {
+	const output = buildNextOutput(input);
+	if (output.next_action === void 0) return void 0;
+	if (!output.next_action.blocking) return appendSelector(output.next_action.command, selector);
+	const command = `${appendSelector("loaf next", selector)} --format json`;
+	return i18n.t(SUCCESS_KEYS.nextFullCommandPointer, { command });
+}
+//#endregion
 //#region src/core/scope-projection.ts
 function parseCanonicalPathsText(text) {
 	const decoded = JSON.parse(text);
@@ -12010,6 +12136,11 @@ function registerLifecycle(program, ctx, mutator, actor, runtimeDir, runtimeNow,
 			actor
 		}, "legacy-fail");
 		if (!result) return;
+		const state = result.snapshot.state;
+		if (state === null) {
+			ctx.emitFailure("REDUCER_ERROR", "internal: state missing from snapshot after successful session:started apply");
+			return;
+		}
 		const out = {
 			ok: true,
 			feature,
@@ -12017,12 +12148,30 @@ function registerLifecycle(program, ctx, mutator, actor, runtimeDir, runtimeNow,
 			ceremony_label: opts.ceremony,
 			workspace: opts.workspace,
 			feature_dir: featureDir,
-			sub_state: result.snapshot.state?.sub_state
+			sub_state: state.sub_state
 		};
-		ctx.success(out, () => `${sessionId}\n`, (i18n) => ({
-			stateChange: i18n.t(SUCCESS_KEYS.startStateChange, { feature }),
-			next: i18n.t(SUCCESS_KEYS.nextAdvance)
-		}));
+		ctx.success(out, () => `${sessionId}\n`, (i18n) => {
+			const next = buildNextAdvisory(i18n, {
+				feature: state.feature,
+				feature_dir: featureDir,
+				phase: state.phase,
+				sub_state: state.sub_state,
+				ceremony: state.ceremony,
+				spec_locked: state.spec_locked,
+				verify_accepted: state.verify_accepted,
+				pending: pendingKindsForNext(result.snapshot.pending)
+			}, opts.featureDir !== void 0 ? {
+				kind: "feature-dir",
+				value: featureDir
+			} : {
+				kind: "feature",
+				value: state.feature
+			});
+			return {
+				stateChange: i18n.t(SUCCESS_KEYS.startStateChange, { feature }),
+				...next === void 0 ? {} : { next }
+			};
+		});
 	});
 	program.command("advance <to>").description("Advance the session cursor (emits event:phase_advanced)").option("--feature <name>", "Feature whose session to advance").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (to, opts) => {
 		const featureDir = await ctx.dispatchOrFail(opts);
@@ -12927,12 +13076,17 @@ function registerTaskSubmit(tasksCmd, deps) {
 			actor
 		}, "raw-ctx-failure");
 		if (!result) return;
+		const state = result.snapshot.state;
+		if (state === null) {
+			ctx.emitFailure("REDUCER_ERROR", "internal: state missing from snapshot after successful event:tasks_planned apply");
+			return;
+		}
 		const tasks = result.snapshot.tasks;
 		const taskIds = tasks.map((t) => t.id);
 		const out = {
 			ok: true,
 			feature: opts.feature,
-			sub_state: result.snapshot.state?.sub_state,
+			sub_state: state.sub_state,
 			tasks_count: tasks.length,
 			task_ids: taskIds,
 			tasks_based_on: result.snapshot.tasks_based_on
@@ -12940,10 +13094,28 @@ function registerTaskSubmit(tasksCmd, deps) {
 		ctx.success(out, (i18n) => i18n.t(tasks.length === 1 ? SUCCESS_KEYS.tasksSubmitTextOne : SUCCESS_KEYS.tasksSubmitTextMany, {
 			count: tasks.length,
 			task_ids: taskIds.join(", ")
-		}) + "\n", (i18n) => ({
-			stateChange: i18n.t(SUCCESS_KEYS.tasksSubmitStateChange, { count: tasks.length }),
-			next: i18n.t(SUCCESS_KEYS.nextAdvance)
-		}));
+		}) + "\n", (i18n) => {
+			const next = buildNextAdvisory(i18n, {
+				feature: state.feature,
+				feature_dir: featureDir,
+				phase: state.phase,
+				sub_state: state.sub_state,
+				ceremony: state.ceremony,
+				spec_locked: state.spec_locked,
+				verify_accepted: state.verify_accepted,
+				pending: pendingKindsForNext(result.snapshot.pending)
+			}, opts.featureDir !== void 0 ? {
+				kind: "feature-dir",
+				value: featureDir
+			} : {
+				kind: "feature",
+				value: state.feature
+			});
+			return {
+				stateChange: i18n.t(SUCCESS_KEYS.tasksSubmitStateChange, { count: tasks.length }),
+				...next === void 0 ? {} : { next }
+			};
+		});
 	});
 }
 function registerTaskAdd(tasksCmd, deps) {
@@ -13404,7 +13576,7 @@ function registerTaskComplete(tasksCmd, deps) {
 }
 function registerTaskRegisterRed(tasksCmd, deps) {
 	const { ctx, mutator, actor } = deps;
-	tasksCmd.command("register-red <task-id>").description("Register the RED test for a claimed behavioral bug task (EXECUTE.work)").option("--feature <name>", "Feature whose task to register").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (taskId, opts) => {
+	tasksCmd.command("register-red <task-id>").description("Register an established failing RED test for a claimed behavioral bug task (ordering proof; not a general step shortcut)").option("--feature <name>", "Feature whose task to register").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (taskId, opts) => {
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
@@ -13476,7 +13648,7 @@ function registerTaskStep(tasksCmd, deps) {
 			step: opts.step
 		}) }));
 	});
-	stepCmd.command("done").description("Mark a task step as done (--result passed|failed|waived|na; default passed)").requiredOption("--task <task-id>", "Task whose step to mark done").requiredOption("--step <step-name>", "Step name (kind-specific)").option("--result <r>", "Step result: passed (default) | failed | waived | na", "passed").option("--evidence-kind <kind>", "Evidence kind (closed EvidenceKind enum)").option("--evidence-result <r>", "Evidence result (passed | failed | approved | rejected | waived)").option("--evidence-summary <text>", "Evidence summary (≥3 chars)").option("--evidence-covers <csv>", "Comma-separated REQ/SCEN/VIS/Task ids covered by this evidence").option("--evidence-check <kind>", "Verify-check kind (run | review | acceptance | visual)").option("--evidence-reason <text>", "Evidence reason (manual/waiver require ≥10 chars)").option("--evidence-actor <actor>", "Override evidence actor (default: cli:loaf; required human:* for manual/waiver)").option("--feature <name>", "Feature whose task lifecycle to advance").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+	stepCmd.command("done").description("Complete a workflow step; --result is the step outcome, independent of --evidence-result").requiredOption("--task <task-id>", "Task whose step to mark done").requiredOption("--step <step-name>", "Step name (kind-specific)").option("--result <r>", "Step outcome: passed (default) | failed | waived | na", "passed").option("--evidence-kind <kind>", "Evidence kind (closed EvidenceKind enum)").option("--evidence-result <r>", "Independent evidence outcome (passed | failed | approved | rejected | waived)").option("--evidence-summary <text>", "Evidence summary (≥3 chars)").option("--evidence-covers <csv>", "Comma-separated REQ/SCEN/VIS/Task ids covered by this evidence").option("--evidence-check <kind>", "Verify-check kind (run | review | acceptance | visual)").option("--evidence-reason <text>", "Evidence reason (manual/waiver require ≥10 chars)").option("--evidence-actor <actor>", "Override evidence actor (default: cli:loaf; required human:* for manual/waiver)").option("--feature <name>", "Feature whose task lifecycle to advance").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		if (![
 			"passed",
 			"failed",
@@ -14119,6 +14291,22 @@ function registerEvidence(program, ctx, mutator, actor, isStdinTty, readStdin) {
 			return;
 		}
 		const evIds = allocateNextEvidenceIds(session.snapshot, validatedInputs.length);
+		const compatibilityMismatches = validatedInputs.flatMap((input, i) => {
+			const evidence = {
+				id: evIds[i],
+				kind: input.kind,
+				result: input.result,
+				covers: input.covers,
+				actor: input.actor,
+				...input.check !== void 0 ? { check: input.check } : {},
+				...input.reason !== void 0 ? { reason: input.reason } : {},
+				...input.attachments !== void 0 ? { attachments: input.attachments } : {}
+			};
+			return evidence.covers.flatMap((coveredId) => {
+				const mismatch = evidenceCompatibilityMismatch(evidence, coveredId);
+				return mismatch === null ? [] : [mismatch];
+			});
+		});
 		const entries = validatedInputs.map((input, i) => ({
 			kind: "evidence:added",
 			payload: {
@@ -14141,13 +14329,27 @@ function registerEvidence(program, ctx, mutator, actor, isStdinTty, readStdin) {
 			ev_ids: evIds,
 			count: evIds.length,
 			sub_state: result.snapshot.state?.sub_state
-		}, () => evIds.join("\n") + "\n", (i18n) => ({ stateChange: evidenceAddStateChange(i18n, evidenceItems) }));
+		}, () => evIds.join("\n") + "\n", (i18n) => ({
+			stateChange: evidenceAddStateChange(i18n, evidenceItems),
+			warnings: compatibilityMismatches.map((mismatch) => i18n.t(CHROME_KEYS.evidenceCompatibilityWarning, {
+				kind: mismatch.supplied_kind,
+				covered_id: mismatch.covered_id,
+				allowed_kinds: mismatch.allowed_kinds.join(", ")
+			}))
+		}));
 		else ctx.success({
 			ok: true,
 			feature: opts.feature,
 			id: evIds[0],
 			kind: validatedInputs[0].kind
-		}, () => `${evIds[0]}\n`, (i18n) => ({ stateChange: evidenceAddStateChange(i18n, evidenceItems) }));
+		}, () => `${evIds[0]}\n`, (i18n) => ({
+			stateChange: evidenceAddStateChange(i18n, evidenceItems),
+			warnings: compatibilityMismatches.map((mismatch) => i18n.t(CHROME_KEYS.evidenceCompatibilityWarning, {
+				kind: mismatch.supplied_kind,
+				covered_id: mismatch.covered_id,
+				allowed_kinds: mismatch.allowed_kinds.join(", ")
+			}))
+		}));
 	});
 	evidenceCmd.command("list").description("List evidence coverage fields from the evidence projection (read-only)").option("--covers <id>", "Filter entries whose covers array contains id").option("--task <T-N>", "Filter entries linked to a task id").option("--kind <kind>", "Filter by the closed EvidenceKind enum").option("--feature <name>", "Feature whose evidence to list").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		if (ctx.rejectIfDryRun("evidence list")) return;
@@ -14715,10 +14917,15 @@ function renderSuccessText(result, i18n = DEFAULT_I18N) {
 //#endregion
 //#region src/cli/verify-status.ts
 /** Build the JSON envelope from evaluateAllChecks output. */
-function buildEnvelope(checks) {
+function buildEnvelope(checks, findings, lanes) {
 	return {
 		ok: true,
 		all_pass: checks.every((r) => r.status !== "fail"),
+		deferred_findings: findings.filter((finding) => finding.status === "open" && isFindingDeferralAction(finding.action)).map((finding) => ({
+			id: finding.id,
+			action: finding.action
+		})),
+		lanes,
 		checks
 	};
 }
@@ -14750,15 +14957,33 @@ function failureSummary(failures, i18n) {
 		code: head?.code ?? "?"
 	});
 }
+const LANE_REASON_KEYS = {
+	no_done_tasks: CHROME_KEYS.verifyStatusLaneReasonNoDoneTasks,
+	no_review_obligations: CHROME_KEYS.verifyStatusLaneReasonNoReviewObligations,
+	no_applicable_e2e_scenarios: CHROME_KEYS.verifyStatusLaneReasonNoE2eScenarios,
+	no_applicable_visual_contracts: CHROME_KEYS.verifyStatusLaneReasonNoVisualContracts
+};
 function renderText(env, i18n = DEFAULT_I18N) {
 	const labels = Object.fromEntries(env.checks.map((row) => [row.check, checkLabel(row.check, i18n)]));
-	const labelWidth = Math.max(...Object.values(labels).map((l) => l.length));
+	const laneLabels = env.lanes.map((lane) => i18n.t(CHROME_KEYS.verifyStatusLaneLabel, { lane: i18n.t(verifyCheckKindKey(lane.lane)) }));
+	const deferredLabel = i18n.t(CHROME_KEYS.verifyStatusCheckDeferredFindings);
+	const labelWidth = Math.max(...Object.values(labels).map((l) => l.length), ...laneLabels.map((label) => label.length), ...env.deferred_findings.length > 0 ? [deferredLabel.length] : []);
 	const lines = [];
 	for (const row of env.checks) {
 		const label = labels[row.check].padEnd(labelWidth);
 		const status = statusGlyph(row.status, i18n).padEnd(4);
 		lines.push(`${label}  ${status}${failureSummary(row.failures, i18n)}`);
 		if (row.status === "fail" && row.failures.length > 1) for (const f of row.failures) lines.push(`    - ${f.code}: ${f.message}`);
+	}
+	for (const [index, lane] of env.lanes.entries()) {
+		const label = laneLabels[index].padEnd(labelWidth);
+		const applicability = i18n.t(applicabilityKey(lane.applicability));
+		const reason = lane.reason === null ? "" : i18n.t(CHROME_KEYS.verifyStatusLaneReason, { reason: i18n.t(LANE_REASON_KEYS[lane.reason]) });
+		lines.push(`${label}  ${applicability}${reason}`);
+	}
+	if (env.deferred_findings.length > 0) {
+		const findings = env.deferred_findings.map((finding) => `${finding.id} (${finding.action})`).join(", ");
+		lines.push(`${deferredLabel.padEnd(labelWidth)}  ${i18n.t(CHROME_KEYS.verifyStatusInfo).padEnd(4)}${i18n.t(CHROME_KEYS.verifyStatusDeferredSummary, { findings })}`);
 	}
 	lines.push(env.all_pass ? "" : i18n.t(CHROME_KEYS.verifyStatusDiagnosticOnly));
 	return lines.join("\n") + "\n";
@@ -14988,8 +15213,8 @@ function sessionStartHookOutput(additionalContext) {
 *      tasks.json (cheap, read-only). REQ/SCEN/VIS-target orphans are
 *      DEFERRED — they require the spec.md projection, which is not in the
 *      loadProjections kind set.
-*   2. open findings summary — count + ids (the narrow "findings reasonable"
-*      signal).
+*   2. open findings summary — actionable findings remain warnings; deferred
+*      findings remain visible as carried-work information.
 *
 * Projection freshness/schema consistency (Q-B check 1) is enforced upstream
 * by the loadProjections fast-check path in the caller (SnapshotStaleError),
@@ -15002,7 +15227,10 @@ function runClosureWarnings(input) {
 	for (const ev of input.evidence.evidence) for (const ref of ev.covers) if (ref.startsWith("T-") && !knownTaskIds.has(ref)) orphanPairs.push(`${ev.id}→${ref}`);
 	if (orphanPairs.length > 0) warnings.push(`orphan evidence: ${orphanPairs.length} covers[] task target(s) absent from tasks.json: ${orphanPairs.join(", ")}`);
 	const open = input.findings.findings.filter((f) => f.status === "open");
-	if (open.length > 0) warnings.push(`open findings (${open.length}): ${open.map((f) => f.id).join(", ")}`);
+	const actionable = open.filter((f) => !isFindingDeferralAction(f.action));
+	const deferred = open.filter((f) => isFindingDeferralAction(f.action));
+	if (actionable.length > 0) warnings.push(`open actionable findings (${actionable.length}): ${actionable.map((f) => f.id).join(", ")}`);
+	if (deferred.length > 0) warnings.push(`deferred findings carried (${deferred.length}): ${deferred.map((f) => `${f.id} (${f.action})`).join(", ")}`);
 	return warnings;
 }
 //#endregion
@@ -16101,12 +16329,13 @@ function registerIntegrations(program, ctx, _mutator, _actor, i18n, isStdinTty, 
 		if (ctx.rejectIfDryRun("verify status")) return;
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
-		const diag = await evaluateVerifyAcceptDiagnostic((await loadSession(featureDir, { ensureDir: !ctx.dryRun })).snapshot, featureDir);
+		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
+		const diag = await evaluateVerifyAcceptDiagnostic(session.snapshot, featureDir);
 		if (!diag.ok) {
 			ctx.emitFailure(diag.code, diag.message, diag.detail);
 			return;
 		}
-		const env = buildEnvelope(diag.checks);
+		const env = buildEnvelope(diag.checks, session.snapshot.findings, diag.lanes);
 		ctx.success(env, (verI18n) => renderText(env, verI18n));
 	});
 }

@@ -15,6 +15,7 @@ import {
 import { parseInputSource } from "../../input-source.js";
 import { readJsonInput } from "../../input-read.js";
 import { FAILURE_SITE_KEYS, SUCCESS_KEYS } from "../../runtime-i18n-keys.js";
+import { buildNextAdvisory, pendingKindsForNext } from "../../next-advisory.js";
 import type { TasksRegistrationDeps } from "./types.js";
 
 export function registerTaskSubmit(tasksCmd: Command, deps: TasksRegistrationDeps): void {
@@ -67,6 +68,14 @@ export function registerTaskSubmit(tasksCmd: Command, deps: TasksRegistrationDep
         "raw-ctx-failure",
       );
       if (!result) return;
+      const state = result.snapshot.state;
+      if (state === null) {
+        ctx.emitFailure(
+          "REDUCER_ERROR",
+          "internal: state missing from snapshot after successful event:tasks_planned apply",
+        );
+        return;
+      }
 
       // Success output via ctx.success — output bytes identical to
       // pre-SC-4b shape (asserted via existing tasks-submit tests).
@@ -75,7 +84,7 @@ export function registerTaskSubmit(tasksCmd: Command, deps: TasksRegistrationDep
       const out = {
         ok: true,
         feature: opts.feature,
-        sub_state: result.snapshot.state?.sub_state,
+        sub_state: state.sub_state,
         tasks_count: tasks.length,
         task_ids: taskIds,
         tasks_based_on: result.snapshot.tasks_based_on,
@@ -90,10 +99,28 @@ export function registerTaskSubmit(tasksCmd: Command, deps: TasksRegistrationDep
               task_ids: taskIds.join(", "),
             },
           ) + "\n",
-        (i18n) => ({
-          stateChange: i18n.t(SUCCESS_KEYS.tasksSubmitStateChange, { count: tasks.length }),
-          next: i18n.t(SUCCESS_KEYS.nextAdvance),
-        }),
+        (i18n) => {
+          const next = buildNextAdvisory(
+            i18n,
+            {
+              feature: state.feature,
+              feature_dir: featureDir,
+              phase: state.phase,
+              sub_state: state.sub_state,
+              ceremony: state.ceremony,
+              spec_locked: state.spec_locked,
+              verify_accepted: state.verify_accepted,
+              pending: pendingKindsForNext(result.snapshot.pending),
+            },
+            opts.featureDir !== undefined
+              ? { kind: "feature-dir", value: featureDir }
+              : { kind: "feature", value: state.feature },
+          );
+          return {
+            stateChange: i18n.t(SUCCESS_KEYS.tasksSubmitStateChange, { count: tasks.length }),
+            ...(next === undefined ? {} : { next }),
+          };
+        },
       );
     });
 }

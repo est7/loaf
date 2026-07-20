@@ -15,6 +15,32 @@ const SKILLS_ROOT = path.join(REPO_ROOT, "skills");
 const SKILL_FILES = collectSkillFiles(SKILLS_ROOT);
 
 describe("skills semantic drift gate", () => {
+  test("verify reads kernel-derived lane applicability instead of deciding it", () => {
+    const skill = readFileSync(path.join(SKILLS_ROOT, "verify", "SKILL.md"), "utf8");
+    expect(skill).toContain("loaf verify status --feature <F> --format json");
+    expect(skill).toContain("kernel-derived `lanes[]`");
+    expect(skill).toContain("`loaf next` is routing only");
+    expect(skill).not.toContain("Decide which lanes apply");
+    expect(skill).not.toContain("compute which verify lanes apply");
+  });
+
+  test("execute explains RED step outcome, bug-only registration, and actor ownership", () => {
+    const skill = readFileSync(path.join(SKILLS_ROOT, "execute", "SKILL.md"), "utf8");
+    expect(skill).toContain("step outcome");
+    expect(skill).toContain("evidence outcome");
+    expect(skill).toContain("ordering proof");
+    expect(skill).toContain("behavioral task labelled `bug`");
+    expect(skill).toContain("payload `actor` is the evidence attester");
+    expect(skill).toContain("journal envelope actor is writer provenance");
+  });
+
+  test("protocol preserves evidence attester versus writer provenance", () => {
+    const protocol = readFileSync(path.join(REPO_ROOT, "docs", "protocol.md"), "utf8");
+    expect(protocol).toContain("payload.actor = evidence attester");
+    expect(protocol).toContain("journal envelope actor = writer provenance");
+    expect(protocol).toContain("deliberately allowed to differ");
+  });
+
   test("command resolution follows group aliases and trailing positionals", async () => {
     expect(
       await findInvalidCommandReferences([

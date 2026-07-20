@@ -1,7 +1,6 @@
 import { z } from "zod";
 
-import { Ceremony, Phase, SubState } from "./journal-entry.js";
-import type { PendingQueueEntry } from "./projection-schema.js";
+import { Ceremony, PendingPromptKind, Phase, SubState } from "./journal-entry.js";
 import {
   buildGateDecideAction,
   gateNameForCursor,
@@ -23,6 +22,8 @@ const VERIFY_LANE_BY_STATE = {
   "VERIFY.acceptance": "acceptance",
   "VERIFY.visual": "visual",
 } as const satisfies Partial<Record<SubState, VerifyCheckKind>>;
+
+type PendingKind = z.infer<typeof PendingPromptKind>;
 
 export const NextOutput = z
   .object({
@@ -61,11 +62,11 @@ export type BuildNextOutputInput = {
   ceremony: Ceremony;
   spec_locked: boolean;
   verify_accepted: boolean;
-  pending: readonly PendingQueueEntry[];
+  pending: readonly { kind: PendingKind }[];
   verify_applicable_lanes?: ReadonlySet<VerifyCheckKind> | undefined;
 };
 
-function pendingResolveAction(head: PendingQueueEntry): NextAction {
+function pendingResolveAction(head: { kind: PendingKind }): NextAction {
   // `loaf pending resolve` is strict FIFO and rejects a positional id
   // ("no --id flag"; commander.excessArguments → exit 2). The head is
   // already determined by FIFO order, so the id is redundant in the

@@ -2695,6 +2695,9 @@ needs_clarification: []
 
     expect(result.exit).toBe(0);
     expect(result.stderr).toContain("tasks submit: 1 tasks");
+    expect(result.stderr).toContain(
+      `next: run \`loaf next --feature-dir ${dir} --format json\` for the full command`,
+    );
     const out = JSON.parse(result.stdout);
     expect(out.ok).toBe(true);
     expect(out.feature).toBe("auth-refresh");
