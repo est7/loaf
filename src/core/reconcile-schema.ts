@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { VerifyCheckKind } from "./evidence-schema.js";
 import { FindingAction, FindingCategory } from "./finding-schema.js";
+import { CanonicalScopePaths } from "./journal-entry.js";
 import {
   ApplicabilityPayload as Applicability,
   StepStatusPayload as StepStatus,
@@ -49,7 +50,7 @@ export const ReconcileJson = z.object({
     tasks: z.number().int().positive(),
   }),
   planned_scope: z.array(z.string()),
-  actual_scope: z.array(z.string()),
+  actual_scope: CanonicalScopePaths,
   drift: z.array(Drift),
   ac_coverage: z.array(AcCoverage),
   verify_checks_status: z.record(VerifyCheckKind, VerifyCheckSnapshot),

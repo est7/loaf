@@ -45,10 +45,17 @@ import {
   StateProjection,
   TasksJson,
 } from "./projection-schema.js";
+import { ReconcileJson } from "./reconcile-schema.js";
 import { checkSnapshotFresh } from "./snapshot-reader.js";
 import { SnapshotMeta, isEmptyMeta, type SnapshotMeta as SnapshotMetaType } from "./snapshot.js";
 
-export type ProjectionKind = "state" | "tasks" | "evidence" | "findings" | "pending";
+export type ProjectionKind =
+  | "state"
+  | "tasks"
+  | "evidence"
+  | "findings"
+  | "pending"
+  | "reconcile";
 
 export interface ProjectionFile {
   state: StateProjection;
@@ -56,6 +63,7 @@ export interface ProjectionFile {
   evidence: EvidenceJson;
   findings: FindingsJson;
   pending: PendingJson;
+  reconcile: ReconcileJson;
 }
 
 // `tasks` is the only kind whose file is legitimately absent (writer skip
@@ -104,6 +112,7 @@ const LEAF_SCHEMA: { [K in ProjectionKind]: z.ZodTypeAny } = {
   evidence: EvidenceJson,
   findings: FindingsJson,
   pending: PendingJson,
+  reconcile: ReconcileJson,
 };
 
 function fixForFeatureDir(featureDir: string): string {

@@ -26,7 +26,7 @@ create a second definition.
 | §14 | Task schemas and task inputs | [`src/core/task-schema.ts`](../src/core/task-schema.ts) |
 | §15–§16 | Evidence entries, inputs, and compatibility | [`src/core/evidence-schema.ts`](../src/core/evidence-schema.ts), [`src/core/evidence-compat.ts`](../src/core/evidence-compat.ts), [`src/core/projection-schema.ts`](../src/core/projection-schema.ts) |
 | §17 | Finding events and projections | [`src/core/finding-schema.ts`](../src/core/finding-schema.ts), [`src/core/projection-schema.ts`](../src/core/projection-schema.ts) |
-| §18 | Reconciliation projection | [`src/core/reconcile-schema.ts`](../src/core/reconcile-schema.ts) |
+| §18 | Reconciliation projection and actual-scope derivation | [`src/core/reconcile-schema.ts`](../src/core/reconcile-schema.ts), [`src/core/scope-projection.ts`](../src/core/scope-projection.ts) |
 | §18b | `loaf next` action and output | [`src/core/reducer/transition.ts`](../src/core/reducer/transition.ts), [`src/core/next-action.ts`](../src/core/next-action.ts) |
 | §19 | Gate diagnostics | [`src/core/gates/gate-diagnostic.ts`](../src/core/gates/gate-diagnostic.ts) |
 | §20 | Resume packs | [`src/core/resume-pack-schema.ts`](../src/core/resume-pack-schema.ts) |
@@ -50,3 +50,9 @@ create a second definition.
 | §39 | Diagnostic codes and error catalog | [`src/core/error-catalog.ts`](../src/core/error-catalog.ts) |
 | §40 | Mutation input schemas and input-source classification | [`src/cli/input-schemas.ts`](../src/cli/input-schemas.ts), [`src/cli/input-source.ts`](../src/cli/input-source.ts) |
 | §41 | Event-name registry | The owning enums and tables above; this index is the navigation surface. |
+
+`ReconcileJson.actual_scope` is a canonical concrete-path array; `planned_scope` remains a glob
+array and `based_on` remains `{spec,tasks}`. The generic projection reader rejects non-canonical
+legacy reconcile leaves as rebuild-required, but no full reconcile writer exists yet:
+`writeProjections` has no reconcile branch because the repository has no canonical planned-scope
+source. Gates must not consume reconcile projections.

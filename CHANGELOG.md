@@ -38,7 +38,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `pending_scope` accumulator behind a dedicated PID- and owner-token-aware
   runtime lock and atomic replacement. `loaf hook scope-track` now canonicalizes
   filesystem targets, refreshes heartbeat, and accumulates EXECUTE-work paths;
-  advance/closure journal emission remains staged.
+  `loaf advance EXECUTE.done` flushes the canonical scope marker and phase
+  transition in one commit-point-aware batch. Reconcile readers now require
+  canonical concrete `actual_scope` while preserving glob-based
+  `planned_scope` and `{spec,tasks}` lineage. Full replay rejects pre-F-027
+  closures without a same-batch marker as `ACTUAL_SCOPE_HISTORY_INCOMPLETE`
+  instead of inventing an empty scope. The full reconcile writer remains
+  deferred until a canonical planned-scope source exists; this does not relax
+  the rev 5.2/new-kind obligation to bump the package version in the next
+  release.
 - **`loaf spec add-req --schema`** now emits the actual runtime allocation
   boundary: `id_namespace` plus the EARS `type`, with the remaining requirement
   body passed through for downstream validation. The former closed schema that

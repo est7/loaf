@@ -275,6 +275,7 @@
     "REDUCER_ERROR": "reducer 内部不变量失败",
     "SCOPE_RECORDED_BATCH_INVALID": "scope:recorded 批次无效:{reason}",
     "SCOPE_RECORDED_ITERATION_DUPLICATE": "iteration {iteration} 已存在 scope:recorded",
+    "ACTUAL_SCOPE_HISTORY_INCOMPLETE": "actual scope 历史不完整:seq {transition_seqs} 的 EXECUTE closure transition 缺少同批 scope:recorded marker",
     "WRITE_PATH_VIOLATION": "写入被拦截:`{normalized_path}` 不在 sub_state `{sub_state}` 的允许写入路径内",
     "PROTECTED_FILE_WRITE": "写入被拦截:`{normalized_path}` 命中 protected_files 条目 `{matched_deny}` —— 受保护文件永不可写"
   },

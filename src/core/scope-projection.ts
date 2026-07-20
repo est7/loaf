@@ -13,6 +13,40 @@ import {
   type JournalEntry,
 } from "./journal-entry.js";
 
+export class ActualScopeHistoryIncompleteError extends Error {
+  readonly code = "ACTUAL_SCOPE_HISTORY_INCOMPLETE" as const;
+  readonly detail: { transition_seqs: number[] };
+
+  constructor(transitionSeqs: number[]) {
+    super(
+      `actual scope history incomplete: EXECUTE closure transition(s) at seq ${transitionSeqs.join(", ")} have no same-batch scope:recorded marker`,
+    );
+    this.name = "ActualScopeHistoryIncompleteError";
+    this.detail = { transition_seqs: transitionSeqs };
+  }
+}
+
+function isExecuteClosure(entry: JournalEntry): boolean {
+  const payload = entry.payload as { from?: unknown; to?: unknown };
+  return (
+    entry.kind === "event:phase_advanced" &&
+    payload.from === "EXECUTE.work" &&
+    payload.to === "EXECUTE.done"
+  );
+}
+
+function hasSameBatchScopeMarker(
+  closure: JournalEntry,
+  entries: readonly JournalEntry[],
+): boolean {
+  return (
+    closure.batch_id !== undefined &&
+    entries.some(
+      (entry) => entry.kind === "scope:recorded" && entry.batch_id === closure.batch_id,
+    )
+  );
+}
+
 function parseCanonicalPathsText(text: string): string[] {
   const decoded: unknown = JSON.parse(text);
   const paths = CanonicalScopePaths.parse(decoded);
@@ -48,6 +82,14 @@ export async function deriveActualScope(
   entries: readonly JournalEntry[],
   featureDir: string,
 ): Promise<string[]> {
+  const incompleteTransitionSeqs = entries
+    .filter(isExecuteClosure)
+    .filter((closure) => !hasSameBatchScopeMarker(closure, entries))
+    .map((closure) => closure.seq);
+  if (incompleteTransitionSeqs.length > 0) {
+    throw new ActualScopeHistoryIncompleteError(incompleteTransitionSeqs);
+  }
+
   const union = new Set<string>();
   for (const entry of entries) {
     if (entry.kind !== "scope:recorded") continue;

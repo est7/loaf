@@ -4,10 +4,12 @@
 >
 > loaf-cli v1 是 legacy Python 原型(early-draft 内部称 "v2")的 successor,from scratch。把 legacy 当老师,不当父亲。v1 GA 之后 legacy 原型进 archive。
 >
-> **rev 5.2 — `scope:recorded` actual-scope journal contract**(2026-07-20;ticket #11 sub-cycle 1 落 journal contract,sub-cycle 2 落 machine-local runtime storage + lock;尚未接 hook/advance emitter):
+> **rev 5.2 — `scope:recorded` actual-scope journal contract**(2026-07-20;ticket #11 完整落地 journal contract、machine-local accumulator、hook 与 EXECUTE closure transaction):
 > - 新增 additive `scope:recorded@1` payload `{iteration, paths}`。`paths` 是 strictly UTF-8-byte-sorted、去重的 repo-relative POSIX concrete path array；拒绝 absolute、空/`.`/`..` segment、backslash、NUL 与 `.loaf/**`。大集合以相同 canonical JSON 编码走 `LongTextField` sidecar。
 > - 每批最多一条；存在时必须紧邻同批唯一 `EXECUTE.work → EXECUTE.done` 之前；同 iteration 历史不得重复。actor=`cli:*`，source sub_state=`EXECUTE.work`，reducer 显式 no-op；`deriveActualScope()` 从完整 entry stream 校验 sidecar 后做 set-union 并返回 canonical order。
 > - `SessionRuntimeFile.pending_scope` 保存 hook 累积中的 `{iteration, paths}`；`~/.loaf/runtime/<session_id>.json` 以 0600 原子替换，专用 PID lock `~/.loaf/runtime/<session_id>.lock` 以 0600 有界等待，runtime 目录为 0700。`loaf doctor --rebuild` 永不读写该 machine-local state。
+> - `loaf advance EXECUTE.done` 在 runtime lock 内把 pending scope 与 phase transition 作为同一 batch 提交；journal append 是 commit point，确认后才清 pending。pre-F-027 history 若存在无同批 marker 的 closure，派生报 `ACTUAL_SCOPE_HISTORY_INCOMPLETE`，绝不伪造空 scope。
+> - `ReconcileJson.actual_scope` reader 收紧为 canonical concrete paths；`planned_scope` 仍是 glob array，`based_on` 仍只有 `{spec,tasks}`。`schema_version` 保持 2：这是 reader-validation tightening，新 writer 只会产生旧 reader 已接受的数组子集，reconcile 是 derived projection 而非 canonical truth，且 `version-contract.ts` 禁止本轮 bump。
 >
 > **rev 5.1 — `lesson:recorded` 独立协议 kind**(2026-07-16;下次 release 必须同步 bump package version,不能只靠 CHANGELOG 声明):
 > - `loaf lessons add` 从 legacy `evidence:added(payload.kind=manual)` 切到 strict `lesson:recorded@1` payload `{id: LSN-NNN, iteration, reason, summary}`;JSON 输出键仍为 `id`。LSN allocator 只扫 journal 中的新 kind,不复用 REQ/SCEN/VIS 的 `id_namespace` 输入面。
@@ -887,9 +889,13 @@ reconcile.json 配套字段 `unusual_findings_count`(§4.6)聚合本轮 unusual 
 
 ### 4.6 reconcile.json(snapshot,不是 gate 源)
 
-> **Authority**: 派生投影(SETTLE.reconcile 阶段从 journal + projection 重新计算,落 `snapshots/reconcile.json`)。永远不是 gate 源(§13.1)。
+> **Authority**: `reconcile.json` 的目标契约是 journal + projection 全派生投影；当前 release 尚无 writer（见下方边界），不会落 `snapshots/reconcile.json`。永远不是 gate 源(§13.1)。
 >
-> **rev 5.x scope 收窄**:**只在 deep profile 产**(`ceremony.settle_phase=true`)。quick / light / standard 不产 reconcile.json。需要 audit 时走 `loaf doctor --rebuild` on-demand 触发 reducer 从 journal full-replay 重算(数据无丢失,只是不落显式 snapshot 文件)。
+> **rev 5.x scope 收窄（目标行为）**:**只在 deep profile 产**(`ceremony.settle_phase=true`)。quick / light / standard 不产 reconcile.json。待 canonical `planned_scope` owner 与 writer 落地后，audit 才能通过 full replay 重算该投影；当前 `loaf doctor --rebuild` 不产 reconcile.json。
+>
+> **当前 writer 边界(ticket #11)**:`ReconcileJson` schema、legacy leaf reader validation、`actual_scope` full-journal derivation与 incomplete-history detection 已落地；完整 `snapshots/reconcile.json` writer **仍被 canonical `planned_scope` 来源阻塞**。`writeProjections` 不含 reconcile branch，`loaf settle` 仍只推 cursor 且不声称写出该文件。禁止为了产文件臆造 planned scope；reconcile 永远不作为 gate 输入。
+>
+> `schema_version` 继续为 2：本变更只收紧 derived reader；新发出的 canonical `actual_scope` 是旧 `string[]` reader 已接受的子集，不改变 canonical journal wire format。`src/core/version-contract.ts` 同时禁止本轮 schema-version bump。
 
 ```jsonc
 {
@@ -930,7 +936,9 @@ reconcile.json 配套字段 `unusual_findings_count`(§4.6)聚合本轮 unusual 
 
 **重要**:`verify_checks_status` 在这里是 SETTLE 时间的 snapshot;**verify-accept gate 不读这个,而是用 spec/tasks/evidence 实时计算**。
 
-**`scope:recorded@1` authority**:`actual_scope` 只从完整 journal entry stream 中的 `scope:recorded` 重算；每条 payload 为 strict `{iteration: positive-int, paths}`，其中 `paths` 是 canonical concrete path array，或 carrying 同一 array canonical JSON 的 `LongTextField`。多 iteration/closure entry 以集合 union 聚合。该 kind 只允许 `cli:*` 在 `EXECUTE.work` 发出，必须与紧随其后的唯一 `event:phase_advanced {from:"EXECUTE.work",to:"EXECUTE.done"}` 同 batch，且历史中同 iteration 不得重复。sub-cycle 2 已落 runtime storage/lock；hook 累积与 advance closure emission 尚未接入。
+`planned_scope` 与 `actual_scope` 是不同 domain：前者保留 glob（例如 `src/auth/**`），后者只能列 repo-relative POSIX **concrete path**（上例无 `*` / `**`）。reader 不会替 legacy 文件 sort、dedupe 或 filter；不 canonical 即 `SNAPSHOT_STALE_REBUILD_REQUIRED`。
+
+**`scope:recorded@1` authority**:`actual_scope` 只从完整 journal entry stream 中的 `scope:recorded` 重算；每条 payload 为 strict `{iteration: positive-int, paths}`，其中 `paths` 是 canonical concrete path array，或 carrying 同一 array canonical JSON 的 `LongTextField`。多 iteration/closure entry 以集合 union 聚合。该 kind 只允许 `cli:*` 在 `EXECUTE.work` 发出，必须与紧随其后的唯一 `event:phase_advanced {from:"EXECUTE.work",to:"EXECUTE.done"}` 同 batch，且历史中同 iteration 不得重复。任一 `EXECUTE.work → EXECUTE.done` 无同批 marker 时，完整性扫描一次报告所有 transition seq，返回 `ACTUAL_SCOPE_HISTORY_INCOMPLETE` 而不是 `[]`。hook accumulator 与 closure emission 已由 ticket #11 接通。
 
 **`unusual_findings_count`**(rev 4.3,ADR-0004 A7):本轮 raise 时 cell 落 `unusual`(`FINDING_ACTION_GRID`,§4.5)的 finding 个数。`incoherent` 是 block 路径(raise 失败,不落 findings.jsonl,故**不**计入)。`unusual` finding 的 `--reason` 已强制 ≥ 20 字符,可在 reviewer 抽查时用作焦点定位(`findings.jsonl` grep `category × action` cell 是 unusual 的条目)。本字段不影响 verify-accept gate 决策,仅作 SETTLE 时 reconcile 审计信号。
 
@@ -1887,6 +1895,7 @@ error: <one-line human description>
 | <code>INVALID_BATCH</code> | 2 | <code>mutation batch is invalid</code> | <code>rebuild the batch through the CLI mutator without caller-owned envelope fields and with entries + meta matching the current journal tail</code> | <code>protocol.md#§11.2</code> |
 | <code>SCOPE_RECORDED_BATCH_INVALID</code> | 2 | <code>scope:recorded batch is invalid: &#123;reason&#125;</code> | <code>emit at most one scope:recorded immediately before exactly one EXECUTE.work to EXECUTE.done transition in the same batch</code> | <code>protocol.md#§4.6</code> |
 | <code>SCOPE_RECORDED_ITERATION_DUPLICATE</code> | 2 | <code>scope:recorded already exists for iteration &#123;iteration&#125;</code> | <code>reuse the recorded closure result for this iteration or advance through a finding back-edge before recording a new closure</code> | <code>protocol.md#§4.6</code> |
+| <code>ACTUAL_SCOPE_HISTORY_INCOMPLETE</code> | 2 | <code>actual scope history is incomplete: EXECUTE closure transition(s) at seq &#123;transition_seqs&#125; have no same-batch scope:recorded marker</code> | <code>do not fabricate an empty actual_scope; preserve the journal and rerun the feature's EXECUTE work with an F-027-capable loaf version before requesting reconcile. Pre-F-027 closure scope cannot be reconstructed from journal history.</code> | <code>protocol.md#§4.6</code> |
 | <code>WRITE_PATH_VIOLATION</code> | 2 | <code>write blocked: `&#123;normalized_path&#125;` is outside the allowed write paths for sub_state `&#123;sub_state&#125;`</code> | <code>write within the current step's contract, advance to the right sub_state/step first, or widen the matching `paths.*` category in .loaf/.config/loaf.config.json</code> | <code>protocol.md#§11.1</code> |
 | <code>PROTECTED_FILE_WRITE</code> | 2 | <code>write blocked: `&#123;normalized_path&#125;` matches protected_files entry `&#123;matched_deny&#125;` — protected files are never writable</code> | <code>remove the entry from protected_files in .loaf/.config/loaf.config.json if the protection is wrong, otherwise write a different file</code> | <code>protocol.md#§11.1</code> |
 <!-- generated:error-catalog END -->
@@ -2332,10 +2341,10 @@ loaf doctor --format json       # 结构化输出,CI / TUI 消费
 |---|---|---|---|
 | `SessionStart` | `loaf hook session-start` | 读 state.json,注入 sub-state 的 `prompt_inject` + open findings + iteration + pending(若有)| 静默(无 .loaf/ 不报错)|
 | `PreToolUse(Write,Edit)` | `loaf hook write-guard --path "$PATH"` | 检查当前 sub_state + 每个 in_progress task 的 (kind, running step) write_paths glob 并集(rev 4.0:fan-out 时多 task 并集),经 `loaf.config.json` paths.* **按语义类别定向放大**(`src/core/step-write-paths.ts::STEP_WRITE_CATEGORIES_BY_KIND` 决定哪些 `paths.*` key 放大当前 step,非 flat union);`protected_files` 硬 deny | exit 2 + reason |
-| `PostToolUse(Write,Edit)` | `loaf hook scope-track --path "$PATH"` | realpath-aware canonicalization 后，通过 `~/.loaf/runtime/<session_id>.json` 专用 lock 刷新 `heartbeat_at`；仅 `EXECUTE.work` 把非 `.loaf/**` 的 canonical `ScopePath` 按 current iteration union 到 `pending_scope`。本 hook 不写 journal；`scope:recorded` emission 延后到 closure command | 无 selectable session 静默；已选 session 的 stale/corrupt dispatch、containment、lock/runtime failure → exit 2；stdout 为空 |
+| `PostToolUse(Write,Edit)` | `loaf hook scope-track --path "$PATH"` | realpath-aware canonicalization 后，通过 `~/.loaf/runtime/<session_id>.json` 专用 lock 刷新 `heartbeat_at`；仅 `EXECUTE.work` 把非 `.loaf/**` 的 canonical `ScopePath` 按 current iteration union 到 `pending_scope`。本 hook 不写 journal；`loaf advance EXECUTE.done` 在 runtime-lock-first transaction 中 emit `scope:recorded` + phase transition | 无 selectable session 静默；已选 session 的 stale/corrupt dispatch、containment、lock/runtime failure → exit 2；stdout 为空 |
 | `Stop` | `loaf hook closure-check` | 退出前校验 phase/artifact 一致;无 orphan evidence;findings 合理 | warning |
 
-> **v0.1.0 实装状态(Phase 16 SC-15b/c + ticket #11 SC3)**:`session-start` + `closure-check`(SC-15b)、`write-guard`(SC-15c)、`scope-track` runtime accumulator(ticket #11 SC3)已实装。`write-guard` 的 `loaf.config.json paths.*` 是**按语义类别定向放大**(`src/core/step-write-paths.ts::STEP_WRITE_CATEGORIES_BY_KIND` 决定哪些 `paths.*` key 可放大当前 step 的内建 glob),**不是**本表"AND-merge paths.*"字面所示的全局并/交;`protected_files` 始终硬 deny(`PROTECTED_FILE_WRITE`),outside allow-set 报 `WRITE_PATH_VIOLATION`。`scope-track` 只累积 machine-local `pending_scope` + heartbeat，尚不 emit `scope:recorded` journal entry；closure emission 留 ticket #11 后续 sub-cycle。`closure-check` 的"外部直写 mtime 检测"(§11.2 末)亦留待后续 SC。
+> **v0.1.0 实装状态(Phase 16 SC-15b/c + ticket #11)**:`session-start` + `closure-check`(SC-15b)、`write-guard`(SC-15c)、`scope-track` runtime accumulator 与 EXECUTE closure flush(ticket #11)已实装。`write-guard` 的 `loaf.config.json paths.*` 是**按语义类别定向放大**(`src/core/step-write-paths.ts::STEP_WRITE_CATEGORIES_BY_KIND` 决定哪些 `paths.*` key 可放大当前 step 的内建 glob),**不是**本表"AND-merge paths.*"字面所示的全局并/交;`protected_files` 始终硬 deny(`PROTECTED_FILE_WRITE`),outside allow-set 报 `WRITE_PATH_VIOLATION`。`closure-check` 的"外部直写 mtime 检测"(§11.2 末)仍留待后续 SC。
 
 ### 11.1 diff-based guard(rev 3.1 全口径 git status)
 
@@ -2433,6 +2442,8 @@ SIGINT 期间: cleanup hook 释放 .lock(§10.4);second-Ctrl-C 留 .lock,
 ```
 
 **Crash window 恢复**(ADR-0005 §3.5):每步 crash 由 `loaf doctor` 启动期 + 显式 sub-flag 处理 —— stale-lock / orphan-attachment / tail-corruption (batch-aware,Gate #4) / sidecar-validation-drift / snapshot-seq-mismatch / rolling-checksum-mismatch 七类 check 详 §10.15。
+
+**EXECUTE closure scope transaction(ticket #11)**:此专用路径先持有 machine-local runtime lock，再由 `mutateBatch` 获取 feature lock，固定顺序无反向边。batch 为 `[scope:recorded(current iteration), event:phase_advanced(EXECUTE.work→EXECUTE.done)]`；append 是 commit point，只有 journal 证明 commit 后才清 pending。晚到的旧 iteration PostToolUse 路径按 feature-level monotone union carry 到下一 iteration；已被旧 marker 覆盖的路径不重复 carry。reconcile full replay 会先检查每个 closure 是否有同批 marker，缺失即 `ACTUAL_SCOPE_HISTORY_INCOMPLETE`。
 
 > **Current implementation status (rev 5.x MVP / Stages 1-6):** runtime `mutate()` currently collapses the §11.2 transaction into one async function (`src/core/journal-mutate.ts:73`). The caller supplies `tail_seq` + current in-memory `snapshot`; step 1 lock acquire and step 10 lock release are deferred follow-up stages (step 8 snapshot persistence + step 9 registry refresh are both live in MVP form: step 8 as of Phase 15 SC2, step 9 as of Phase 16 SC-7). Steps 2-7 are live in MVP form: seq/entry_id fill, preflight, sidecar promotion, final append validation, journal append, and reducer apply. Audit r2-r5 fixes are also live: r2 rejects reducer-unimplemented kinds before append and preserves mutate atomicity, r3 runs reducer dry-run before append on a `structuredClone` snapshot, r4 validates migration sidecars before appending `migration:snapshot_imported`, and r5 widens migration rollback around staged sidecars. Direct `appendEntry()` calls remain possible as an internal primitive, but bypass preflight / actor+sub_state authority / reducer dry-run; `mutate()` is the audit-sanctioned mutation path for CLI and skill-facing writes.
 

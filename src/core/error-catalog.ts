@@ -1569,6 +1569,20 @@ export const ERROR_CATALOG = {
     detail_keys: ["iteration"],
     doc_anchor: "protocol.md#§4.6",
   },
+  ACTUAL_SCOPE_HISTORY_INCOMPLETE: {
+    exit_code: 2,
+    message_template:
+      "actual scope history is incomplete: EXECUTE closure transition(s) at seq {transition_seqs} have no same-batch scope:recorded marker",
+    zh_message_template:
+      "actual scope 历史不完整:seq {transition_seqs} 的 EXECUTE closure transition 缺少同批 scope:recorded marker",
+    fix_template:
+      "do not fabricate an empty actual_scope; preserve the journal and rerun the feature's EXECUTE work with an F-027-capable loaf version before requesting reconcile. Pre-F-027 closure scope cannot be reconstructed from journal history.",
+    zh_fix_template:
+      "不要伪造空 actual_scope;保留 journal,使用支持 F-027 的 loaf 版本重新执行该 feature 的 EXECUTE work 后再请求 reconcile。pre-F-027 closure scope 无法从 journal 历史重建。",
+    template_keys: ["transition_seqs"],
+    detail_keys: ["transition_seqs"],
+    doc_anchor: "protocol.md#§4.6",
+  },
 
   WRITE_PATH_VIOLATION: {
     // Phase 16 SC-15c — `loaf hook write-guard`: the tool's target path is
