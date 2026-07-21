@@ -44,6 +44,16 @@ Concretely:
   via `loaf <command>` which the reducer projects into the named
   leaf."
 
+## Headless human-actor precondition
+
+A non-interactive or headless agent MUST run
+`export LOAF_USER=<stable-id>` before any mutating command. The value is the
+raw stable identifier, without a `human:` prefix; loaf adds the namespace.
+When `LOAF_USER` is unset, human-actor mutations fail `NO_HUMAN_ACTOR` because
+loaf intentionally refuses to derive the human from `git config user.email`
+in automation. This fail-closed behavior prevents an agent from guessing the
+human responsible for a mutation or decision.
+
 ## 1. `flatten` — hierarchical intent → DAG `tasks.json`
 
 ### Why this lives in loaf-skill

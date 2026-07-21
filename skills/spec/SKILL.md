@@ -13,7 +13,9 @@ ending at the **spec-lock gate** (a human decision).
 
 You are the orchestrator; the kernel owns all state. Author only through `loaf
 spec …` / `loaf tasks …` commands — never write `.loaf/` or `spec.md` directly
-(ADR-0005 single writer). Pass `--feature <F>` on every command.
+(ADR-0005 single writer). Pass `--feature <F>` on every command. The exception
+is any command running in `--schema` mode: schema dumps are feature-agnostic
+and reject `--feature`.
 
 ## Step 1 — Read state & enter the phase (re-entry safe)
 
@@ -44,10 +46,10 @@ current frontmatter and replaces only the body; do not copy frontmatter into the
 payload. The source may be a file path, `-` for piped JSON, or inline JSON. An
 interactive human may omit `--input` to use an explicitly configured `$EDITOR`.
 
-For add-* input, run that command with `--schema --format=json`. For the whole
-task graph, run `loaf tasks schema --format=json`; `tasks submit` itself has no
-`--schema` flag. Pass your file with `--input`. The CLI stamps
-`REQ-`/`SCEN-`/`VIS-`/`T-` ids — never your own.
+For add-* input, run that command with `--schema --format=json` and omit
+`--feature`. For the whole task graph, run `loaf tasks schema --format=json`;
+`tasks submit` itself has no `--schema` flag. Pass your file with `--input`.
+The CLI stamps `REQ-`/`SCEN-`/`VIS-`/`T-` ids — never your own.
 
 ## Step 3 — The spec-lock gate (HUMAN decision point)
 

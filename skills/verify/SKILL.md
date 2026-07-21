@@ -49,6 +49,16 @@ Use `loaf evidence list --feature <F> --format json` (optionally filtered by
 `--covers`, `--task`, or `--kind`) to review recorded coverage. Do not inspect
 the derived evidence snapshot directly.
 
+For deep ceremony (`ceremony.strict_spec_review=true`) only, add at least one
+passing independent spec review before the accept gate. Use
+`loaf evidence add --input <file>` with payload `kind: "spec-review"`, a passing
+`result` (`"passed"` or `"approved"`), and an actual reviewer `actor` different
+from every implementer actor. The payload actor is the reviewer/attester; it is
+independent of the journal envelope writer selected through `LOAF_USER`.
+Without this non-implementer evidence, check 5 fails `SPEC_REVIEW_MISSING` (or
+the applicable implementer comparison diagnostic). Standard ceremony does not
+require it.
+
 `loaf next` walks the applicable lanes in order, then routes to `VERIFY.accept`.
 
 ## Step 4 — The verify-accept gate (HUMAN decision point)

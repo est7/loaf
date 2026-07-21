@@ -16,6 +16,15 @@ single typed journal, single writer). Pass `--feature <F>` on every command (a
 bare `--feature-dir` is rejected). The sole exception is `loaf start`, which
 takes `<F>` as its required positional. `<F>` is the feature being started.
 
+## Headless actor precondition
+
+Before any mutating command in a non-interactive or headless context, run
+`export LOAF_USER=<stable-id>`. Pass the raw stable identifier without a
+`human:` prefix; loaf adds that namespace. Without `LOAF_USER`, human-actor
+mutations fail `NO_HUMAN_ACTOR`: loaf intentionally refuses to derive the
+human from `git config user.email` in automation rather than guess who made
+the decision.
+
 ## Steps
 
 1. **Check for an existing session (re-entry safe).**

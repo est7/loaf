@@ -45,7 +45,22 @@ Repeat until every task is `done` or `abandoned`:
    id** (`T-id`): the verify-accept gate requires every done task to carry
    evidence covering its own id, else it fails `TASK_DONE_NO_EVIDENCE`. Record
    REQ / SCEN / VIS coverage with separate evidence whose `covers[]` names those
-   obligation ids. Then `loaf tasks step done --task <T-id> --step <s>`.
+   obligation ids. Evidence `kind` constrains which obligation a record can
+   satisfy; choose a compatible kind before writing it:
+
+   | `covers[]` obligation | allowed evidence kinds |
+   |---|---|
+   | `REQ-*` | `task-summary`, `verify-review`, `spec-review`, `manual`, `waiver` |
+   | `SCEN-*` | `acceptance`, `manual`, `waiver` |
+   | `VIS-*` | `visual-review`, `manual`, `waiver` |
+   | `T-*` | `task-summary`, `local-check`, `manual`, `waiver` |
+
+   An `evidence add` compatibility warning means the supplied kind cannot
+   satisfy that coverage lane; it is not noise. For `REQ-*`, `SCEN-*`, and
+   `VIS-*`, `manual` / `waiver` also require a `human:*` payload actor and a
+   reason of at least 10 characters. `visual-review` evidence covering `VIS-*`
+   additionally requires an attachment. Then
+   `loaf tasks step done --task <T-id> --step <s>`.
    Completing the last must-step auto-promotes the task to `done`.
    The step outcome and evidence outcome are independent: a RED reproduction
    step can complete with `--result passed` while its evidence records the
