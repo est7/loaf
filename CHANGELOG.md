@@ -109,12 +109,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Tests / CI
 
-- **Two CI-only test failures fixed.** `docs-runtime-boundary` computed its repo
-  root one directory too high (three `..` instead of two), passing locally only
-  because the parent directory had an incidental `docs/`; it now resolves the
-  actual repo root. `claude-semantic-gate` flagged the intentionally-gitignored
-  `backlog.md` reference as missing in a clean checkout; the reference checker now
-  skips known-gitignored paths.
+- **Three CI-only failures fixed** (all pre-existing, masked by each other since
+  the Test step failed before later steps ran). `docs-runtime-boundary` computed
+  its repo root one directory too high (three `..` instead of two), passing
+  locally only because the parent directory had an incidental `docs/`; it now
+  resolves the actual repo root. `claude-semantic-gate` flagged the
+  intentionally-gitignored `backlog.md` reference as missing in a clean checkout;
+  the reference checker now skips known-gitignored paths. The `madge` circular
+  dependency gate flagged four **type-only** import cycles between `preflight.ts`
+  and its `checks-*` modules; a `.madgerc` with `skipTypeImports` makes the gate
+  ignore erased type imports (which cannot form a runtime cycle) while still
+  catching real runtime cycles.
 
 ## [0.5.0] — 2026-06-09
 
