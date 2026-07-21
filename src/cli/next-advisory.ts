@@ -19,7 +19,7 @@ function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\"'\"'`)}'`;
 }
 
-function appendSelector(command: string, selector: NextAdvisorySelector): string {
+export function appendSelector(command: string, selector: NextAdvisorySelector): string {
   return `${command} --${selector.kind} ${shellQuote(selector.value)}`;
 }
 

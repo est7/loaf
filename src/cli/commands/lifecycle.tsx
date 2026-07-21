@@ -6,7 +6,7 @@ import { defaultFeatureDir, loadSession } from "../../core/cli-runtime.js";
 import packageJson from "../../../package.json" with { type: "json" };
 import { deriveVerifyApplicability } from "../../core/gates/verify-accept-check.js";
 import { buildNextOutput } from "../../core/next-action.js";
-import { buildNextAdvisory, pendingKindsForNext } from "../next-advisory.js";
+import { appendSelector, buildNextAdvisory, pendingKindsForNext } from "../next-advisory.js";
 import { readSpecFrontmatter } from "../../core/spec-frontmatter.js";
 import { extractTaskSlim } from "../../core/task-schema.js";
 import type { TaskState } from "../../core/reducer.js";
@@ -349,6 +349,7 @@ export function registerLifecycle(
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { feature?: string; featureDir?: string }) => {
       if (ctx.rejectIfDryRun("next")) return;
+      const requestedFeatureDir = opts.featureDir !== undefined;
       const featureDir = await ctx.dispatchOrFail(opts);
       if (featureDir === null) return;
       const loaded = await ctx.loadProjectionsOrFail(
@@ -391,7 +392,7 @@ export function registerLifecycle(
         );
       }
 
-      const out = buildNextOutput({
+      const rawOut = buildNextOutput({
         feature: opts.feature!,
         feature_dir: featureDir,
         phase: loaded.state.phase,
@@ -402,6 +403,19 @@ export function registerLifecycle(
         pending: loaded.state.pending,
         verify_applicable_lanes: verifyApplicableLanes,
       });
+      const selector = requestedFeatureDir
+        ? ({ kind: "feature-dir", value: featureDir } as const)
+        : ({ kind: "feature", value: opts.feature! } as const);
+      const out =
+        rawOut.next_action === undefined
+          ? rawOut
+          : {
+              ...rawOut,
+              next_action: {
+                ...rawOut.next_action,
+                command: appendSelector(rawOut.next_action.command, selector),
+              },
+            };
 
       ctx.success(out, () => (out.next_action === undefined ? "" : `${out.next_action.command}\n`));
     });

@@ -4766,6 +4766,10 @@ function expectOnlyAction(out: NextOutput): NextActionOut {
   return out.next_action!;
 }
 
+function scopedNextCommand(command: string, dir: string): string {
+  return `${command} --feature-dir ${dir}`;
+}
+
 async function raisePending(
   dir: string,
   kind: "ask_user_question" | "gate_decision" | "profile_escalation",
@@ -4795,26 +4799,29 @@ async function expectRecommendedCommandAccepted(dir: string, action: NextActionO
 
   switch (action.owner_verb) {
     case "advance":
-      expect(action.command).toBe(`loaf advance ${action.target}`);
+      expect(action.command).toBe(scopedNextCommand(`loaf advance ${action.target}`, dir));
       result = await runCli(["advance", action.target!, ...baseArgs]);
       break;
     case "deliver":
-      expect(action.command).toBe("loaf deliver");
+      expect(action.command).toBe(scopedNextCommand("loaf deliver", dir));
       result = await runCli(["deliver", ...baseArgs], {
         env: { LOAF_USER: "roundtrip@example.invalid" },
       });
       break;
     case "settle":
-      expect(action.command).toBe("loaf settle");
+      expect(action.command).toBe(scopedNextCommand("loaf settle", dir));
       result = await runCli(["settle", ...baseArgs]);
       break;
     case "tasks next":
-      expect(action.command).toBe("loaf tasks next");
+      expect(action.command).toBe(scopedNextCommand("loaf tasks next", dir));
       result = await runCli(["tasks", "next", ...baseArgs]);
       break;
     case "gate decide":
       expect(action.command).toBe(
-        `loaf gate decide ${action.target} --approve|--reject --reason "<reason>"`,
+        scopedNextCommand(
+          `loaf gate decide ${action.target} --approve|--reject --reason "<reason>"`,
+          dir,
+        ),
       );
       result = await runCli(
         [
@@ -4833,14 +4840,18 @@ async function expectRecommendedCommandAccepted(dir: string, action: NextActionO
       // FIFO command takes no positional id (cli.tsx `pending resolve`:
       // "strict FIFO; no --id flag"). The recommendation must match that
       // surface — the `<answer>` placeholder is the only operator-filled token.
-      expect(action.command).toBe('loaf pending resolve --answer "<answer>"');
+      expect(action.command).toBe(
+        scopedNextCommand('loaf pending resolve --answer "<answer>"', dir),
+      );
       result = await runCli(["pending", "resolve", "--answer", "round-trip answer", ...baseArgs]);
       break;
     case "profile escalate": {
       // `<ceremony.json>` is an operator-supplied path placeholder; the flag
       // shape (--confirm --input <path>) must match the real command. Write a
       // valid escalated 6-flag Ceremony and run it (human-only acceptance).
-      expect(action.command).toBe("loaf profile escalate --confirm --input <ceremony.json>");
+      expect(action.command).toBe(
+        scopedNextCommand("loaf profile escalate --confirm --input <ceremony.json>", dir),
+      );
       const ceremonyPath = path.join(dir, "escalated-ceremony.json");
       await fsP.writeFile(
         ceremonyPath,
@@ -4867,6 +4878,22 @@ async function expectRecommendedCommandAccepted(dir: string, action: NextActionO
 }
 
 describe("loaf next — phase-routing read-side dual", () => {
+  test("feature selector is preserved and shell-quoted in JSON next_action.command", async () => {
+    const cwd = await tmpFeatureDir();
+    const feature = "owner's feature";
+    const started = await runCli(
+      ["start", feature, "--ceremony", "standard", "--format", "json"],
+      { cwd },
+    );
+    expect(started.exit).toBe(0);
+
+    const result = await runCli(["next", "--feature", feature, "--format", "json"], { cwd });
+    expect(result.exit).toBe(0);
+    expect(expectOnlyAction(parseNext(result.stdout)).command).toBe(
+      "loaf advance TRIAGE.confirm --feature 'owner'\"'\"'s feature'",
+    );
+  });
+
   test("SPEC.design computes the same gate-decide action with and without a pending gate_decision head", async () => {
     const withoutPending = await tmpFeatureDir();
     await seedFeatureAtSpecDesign(withoutPending);
@@ -4898,14 +4925,25 @@ describe("loaf next — phase-routing read-side dual", () => {
     const pending = parseNext(pendingResult.stdout);
 
     const expected = {
-      command: 'loaf gate decide spec-lock --approve|--reject --reason "<reason>"',
       owner_verb: "gate decide",
       target: "spec-lock",
       blocking: true,
       reason: "SPEC_LOCK_GATE_DECISION_REQUIRED",
-    } satisfies NextActionOut;
-    expect(expectOnlyAction(noPending)).toEqual(expected);
-    expect(expectOnlyAction(pending)).toEqual(expected);
+    } satisfies Omit<NextActionOut, "command">;
+    expect(expectOnlyAction(noPending)).toEqual({
+      ...expected,
+      command: scopedNextCommand(
+        'loaf gate decide spec-lock --approve|--reject --reason "<reason>"',
+        withoutPending,
+      ),
+    });
+    expect(expectOnlyAction(pending)).toEqual({
+      ...expected,
+      command: scopedNextCommand(
+        'loaf gate decide spec-lock --approve|--reject --reason "<reason>"',
+        withPending,
+      ),
+    });
     expect(pending.blocked).toBe(true);
     await expectRecommendedCommandAccepted(withoutPending, expectOnlyAction(noPending));
   });
@@ -4941,14 +4979,25 @@ describe("loaf next — phase-routing read-side dual", () => {
     const pending = parseNext(pendingResult.stdout);
 
     const expected = {
-      command: 'loaf gate decide verify-accept --approve|--reject --reason "<reason>"',
       owner_verb: "gate decide",
       target: "verify-accept",
       blocking: true,
       reason: "VERIFY_ACCEPT_GATE_DECISION_REQUIRED",
-    } satisfies NextActionOut;
-    expect(expectOnlyAction(noPending)).toEqual(expected);
-    expect(expectOnlyAction(pending)).toEqual(expected);
+    } satisfies Omit<NextActionOut, "command">;
+    expect(expectOnlyAction(noPending)).toEqual({
+      ...expected,
+      command: scopedNextCommand(
+        'loaf gate decide verify-accept --approve|--reject --reason "<reason>"',
+        withoutPending,
+      ),
+    });
+    expect(expectOnlyAction(pending)).toEqual({
+      ...expected,
+      command: scopedNextCommand(
+        'loaf gate decide verify-accept --approve|--reject --reason "<reason>"',
+        withPending,
+      ),
+    });
     await expectRecommendedCommandAccepted(withoutPending, expectOnlyAction(noPending));
   });
 
@@ -5081,7 +5130,9 @@ describe("loaf next — phase-routing read-side dual", () => {
       target: "profile_escalation",
       blocking: true,
     });
-    expect(action.command).toBe("loaf profile escalate --confirm --input <ceremony.json>");
+    expect(action.command).toBe(
+      scopedNextCommand("loaf profile escalate --confirm --input <ceremony.json>", escalation),
+    );
     seen.add(action.owner_verb);
     await expectRecommendedCommandAccepted(escalation, action);
 
@@ -5104,7 +5155,9 @@ describe("loaf next — phase-routing read-side dual", () => {
       target: "ask_user_question",
       blocking: true,
     });
-    expect(action.command).toBe('loaf pending resolve --answer "<answer>"');
+    expect(action.command).toBe(
+      scopedNextCommand('loaf pending resolve --answer "<answer>"', question),
+    );
     seen.add(action.owner_verb);
     // Round-trip: the recommended FIFO command must be accepted by the real CLI.
     await expectRecommendedCommandAccepted(question, action);
@@ -5166,7 +5219,7 @@ describe("loaf next — phase-routing read-side dual", () => {
     let out = parseNext((await fixCli(["next"])).stdout);
     expect(out.cursor.sub_state).toBe("EXECUTE.work");
     expect(expectOnlyAction(out)).toMatchObject({
-      command: "loaf tasks next",
+      command: scopedNextCommand("loaf tasks next", fixImpl),
       owner_verb: "tasks next",
       target: "task-level",
       blocking: false,
@@ -5200,7 +5253,7 @@ describe("loaf next — phase-routing read-side dual", () => {
     expect(status.state.spec_locked).toBe(false);
     out = parseNext((await specCli(["next"])).stdout);
     expect(expectOnlyAction(out)).toMatchObject({
-      command: "loaf advance SPEC.plan",
+      command: scopedNextCommand("loaf advance SPEC.plan", amendSpec),
       owner_verb: "advance",
       target: "SPEC.plan",
       blocking: false,
@@ -5241,6 +5294,9 @@ describe("loaf next — phase-routing read-side dual", () => {
     expect(out).not.toHaveProperty("state");
     expect(out.feature_dir).toBe(dir);
     expect(out.next_action).toBeDefined();
+    expect(out.next_action?.command).toBe(
+      `loaf gate decide spec-lock --approve|--reject --reason "<reason>" --feature-dir ${dir}`,
+    );
 
     await expect(fsP.readFile(journalPath, "utf8")).resolves.toBe(journalBefore);
     await expect(fsP.readFile(statePath, "utf8")).resolves.toBe(stateBefore);

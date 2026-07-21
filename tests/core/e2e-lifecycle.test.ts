@@ -430,7 +430,9 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     // Assert `loaf next` recommends exactly `command` (+ optional blocked flag).
     const expectNext = async (label: string, command: string, blocked?: boolean): Promise<any> => {
       const out = await step(`next @ ${label}`, ["next", "--feature", F]);
-      expect(out.next_action?.command, `next @ ${label}`).toBe(command);
+      expect(out.next_action?.command, `next @ ${label}`).toBe(
+        `${command} --feature-dir ${dir}`,
+      );
       if (blocked !== undefined) expect(out.blocked).toBe(blocked);
       return out;
     };
@@ -1197,18 +1199,20 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     // skill routing gap.
     {
       const n = await step("next @ VERIFY.accept", ["next", "--feature", F]);
-      expect(n.next_action?.command).toBe("loaf settle");
+      expect(n.next_action?.command).toBe(`loaf settle --feature-dir ${dir}`);
       expect(n.blocked).toBe(false);
     }
     await step("settle", ["settle", "--feature", F]);
     {
       const n = await step("next @ SETTLE.reconcile", ["next", "--feature", F]);
-      expect(n.next_action?.command).toBe("loaf advance SETTLE.lessons");
+      expect(n.next_action?.command).toBe(
+        `loaf advance SETTLE.lessons --feature-dir ${dir}`,
+      );
     }
     await step("advance SETTLE.lessons", ["advance", "SETTLE.lessons", "--feature", F]);
     {
       const n = await step("next @ SETTLE.lessons", ["next", "--feature", F]);
-      expect(n.next_action?.command).toBe("loaf deliver");
+      expect(n.next_action?.command).toBe(`loaf deliver --feature-dir ${dir}`);
     }
 
     // NOTE: this case delivers from SETTLE.lessons WITHOUT `loaf lessons add`.
