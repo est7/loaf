@@ -1,6 +1,6 @@
 {
   "name": "loaf",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Loaf feature-lifecycle orchestration — a single end-to-end driver (/loaf:run) plus per-phase skills that drive the loaf-cli protocol kernel (TRIAGE → SPEC → EXECUTE → VERIFY → SETTLE) with human pause points and kernel-computed routing",
   "author": {
     "name": "est7",
