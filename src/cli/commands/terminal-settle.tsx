@@ -77,7 +77,7 @@ export function registerTerminalSettle(
         (i18n) => i18n.t(SUCCESS_KEYS.settleText),
         (i18n) => ({
           stateChange: i18n.t(SUCCESS_KEYS.settleStateChange, { from }),
-          next: i18n.t(SUCCESS_KEYS.nextDeliver),
+          next: i18n.t(SUCCESS_KEYS.nextSettleLessons),
         }),
       );
     });

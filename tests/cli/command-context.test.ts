@@ -237,7 +237,7 @@ describe("Phase 16 SC-3 — CommandContext: construction + output mode", () => {
     const renderText = (i18n: I18n) => i18n.t(SUCCESS_KEYS.settleText) + "\n";
     const renderAdvisory = (i18n: I18n) => ({
       stateChange: i18n.t(SUCCESS_KEYS.settleStateChange, { from: "VERIFY.accept" }),
-      next: i18n.t(SUCCESS_KEYS.nextDeliver),
+      next: i18n.t(SUCCESS_KEYS.nextSettleLessons),
     });
 
     en.ctx.success(payload, renderText, renderAdvisory);

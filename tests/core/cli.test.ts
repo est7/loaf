@@ -2148,7 +2148,8 @@ describe("loaf settle — Slice 1.D sub-cycle 3 (MVP)", () => {
     // SC-5b2: state-change + next now route to stderr; stdout empty.
     expect(result.stdout).toBe("");
     expect(result.stderr).toMatch(/settle: VERIFY\.accept → SETTLE\.reconcile/);
-    expect(result.stderr).toMatch(/^next: /m);
+    expect(result.stderr).toContain("next: loaf advance SETTLE.lessons");
+    expect(result.stderr).not.toContain("next: loaf deliver");
     // codex r49 Q4: must NOT claim reconcile.json rebuilt — deferred slice.
     expect(result.stdout).not.toMatch(/reconcile\.json/);
     expect(result.stderr).not.toMatch(/reconcile\.json/);

@@ -453,6 +453,7 @@ export const SUCCESS_KEYS = {
   nextFullCommandPointer: "success.next.full_command_pointer",
   nextDeliver: "success.next.deliver",
   nextSettle: "success.next.settle",
+  nextSettleLessons: "success.next.settle_lessons",
   startStateChange: "success.start.state_change",
   advanceStateChange: "success.advance.state_change",
   gateSpecLockApprovedStateChange: "success.gate.spec_lock_approved_state_change",

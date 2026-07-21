@@ -363,7 +363,8 @@
     "next": {
       "full_command_pointer": "run `{command}` for the full command",
       "deliver": "loaf deliver",
-      "settle": "loaf settle"
+      "settle": "loaf settle",
+      "settle_lessons": "loaf advance SETTLE.lessons"
     },
     "start": {
       "state_change": "start: '{feature}' created → TRIAGE.score"
