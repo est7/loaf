@@ -463,7 +463,7 @@
       "submit_state_change": "spec submit: spec_version={spec_version}, locked=false",
       "submit_next": "loaf gate decide spec-lock",
       "init_state_change": "spec init: wrote scaffold to {path}",
-      "init_next": "edit, then `loaf spec submit`",
+      "init_next": "edit, then `loaf spec edit --input <json>`",
       "edit_text": "spec edit: spec_version={spec_version}",
       "edit_state_change": "spec edit: spec_version={spec_version} via $EDITOR",
       "edit_input_state_change": "spec edit: spec_version={spec_version} via --input",

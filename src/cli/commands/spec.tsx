@@ -404,7 +404,7 @@ export function registerSpec(
           `scenarios: []\n` +
           `needs_clarification: []\n` +
           `---\n` +
-          `\n## Why\n\nTODO: describe motivation and scope. Edit this section, then run \`loaf spec submit --input <json>\` to record the canonical spec.\n`;
+          `\n## Why\n\nTODO: describe motivation and scope. Edit this section, then run \`loaf spec edit --input <json>\` to record the canonical spec.\n`;
         await fsP.writeFile(specMdPath, md);
         ctx.success(
           { ok: true, feature: opts.feature, spec_md_path: specMdPath },

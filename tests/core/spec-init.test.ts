@@ -157,9 +157,13 @@ describe("loaf spec init — SC4 scaffold", () => {
       "json",
     ]);
     expect(r.exit).toBe(0);
+    expect(r.stderr).toContain("next: edit, then `loaf spec edit --input <json>`");
+    expect(r.stderr).not.toContain("loaf spec submit");
 
     // spec.md now exists and parses as SpecFrontmatter.
     const md = await fs.readFile(specMdPath, "utf8");
+    expect(md).toContain("loaf spec edit --input <json>");
+    expect(md).not.toContain("loaf spec submit --input");
     const fmMatch = md.match(/^---\n([\s\S]*?)\n---/);
     expect(fmMatch).not.toBeNull();
     // Cheap YAML-ish parse: deserialize via simple regex extraction of
