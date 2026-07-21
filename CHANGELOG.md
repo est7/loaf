@@ -20,6 +20,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `loaf evidence list` for coverage, task, and evidence-kind queries over the
   freshness-checked evidence projection. Both commands expose exact bounded
   JSON row shapes and never pass through raw journal payloads.
+- **`loaf spec edit --input`** — headless SPEC body authoring. Accepts a strict
+  `{"body":"<markdown>"}` JSON object (file path, `-` for piped stdin, or inline
+  JSON), replacing only the body and preserving the current frontmatter. The
+  interactive `$EDITOR` lane is now gated on both stdin AND stdout being a TTY, so
+  a non-interactive invocation never spawns an editor and hangs.
+- **Evidence-compatibility warning at write time:** `loaf evidence add` now warns
+  when the supplied evidence kind cannot satisfy the coverage lane it targets
+  (REQ vs scenario vs task), surfacing the mismatch when the evidence is written
+  rather than only at verify-accept.
+- **`loaf verify status` lane enumeration:** the verify status output now
+  enumerates all four coverage lanes (task-summary, review, e2e-scenario,
+  visual-contract) with an explicit not-applicable reason for each inactive lane.
 
 ### Changed
 
@@ -67,6 +79,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`loaf evidence add --schema`** now exposes the runtime `summary` contract:
   either a non-empty string or an inline/sidecar `LongTextField`, including the
   sidecar attachment reference fields (`path`, `sha256`, and `size`).
+- **Runnable `loaf next` hint:** the `next` recommendation now appends a
+  shell-quoted, copy-pasteable command — feature names containing spaces are
+  correctly quoted, so the suggestion runs as-is. Blocking recommendations point
+  at `loaf next … --format json` for the machine-readable form. The RED-step and
+  attester-vs-writer semantics they expose are documented as intentional.
+
+### Fixed
+
+- **Deferred findings no longer block acceptance.** Findings whose action is
+  `defer` or `backlog` are excluded from the verify-accept blocking set; only
+  `open` findings with an actionable disposition hold the gate. `loaf verify
+  status` reports `deferred_findings` separately from actionable ones, and an
+  actionable open finding still blocks acceptance.
+- **`loaf next` JSON `next_action.command` now carries the feature selector.**
+  The machine-readable recommendation appends the caller's resolved
+  `--feature <name>` (or canonical `--feature-dir <path>`), shell-quoted, so it
+  runs verbatim and is unambiguous when multiple features share a cwd — no
+  longer relying on single-feature auto-pick. `buildNextOutput` stays pure; the
+  selector is applied at the CLI boundary.
+- **`loaf spec init` hint points at `spec edit --input`.** The post-init success
+  hint and the generated scaffold TODO now recommend `loaf spec edit --input
+  <json>` (body-only, preserves the scaffold frontmatter) instead of the
+  whole-replacement `loaf spec submit`, matching the SPEC skill's authoring path.
+- **`loaf settle` next hint routes through `SETTLE.lessons`.** Deep-ceremony
+  settle moves the cursor only to `SETTLE.reconcile`, so its plain-text next hint
+  now advertises `loaf advance SETTLE.lessons` instead of prematurely pointing at
+  `loaf deliver`.
 
 ## [0.5.0] — 2026-06-09
 

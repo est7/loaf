@@ -6860,7 +6860,8 @@ var en_default = {
 		"next": {
 			"full_command_pointer": "run `{command}` for the full command",
 			"deliver": "loaf deliver",
-			"settle": "loaf settle"
+			"settle": "loaf settle",
+			"settle_lessons": "loaf advance SETTLE.lessons"
 		},
 		"start": { "state_change": "start: '{feature}' created → TRIAGE.score" },
 		"advance": { "state_change": "advance: {from} → {to}" },
@@ -6937,7 +6938,7 @@ var en_default = {
 			"submit_state_change": "spec submit: spec_version={spec_version}, locked=false",
 			"submit_next": "loaf gate decide spec-lock",
 			"init_state_change": "spec init: wrote scaffold to {path}",
-			"init_next": "edit, then `loaf spec submit`",
+			"init_next": "edit, then `loaf spec edit --input <json>`",
 			"edit_text": "spec edit: spec_version={spec_version}",
 			"edit_state_change": "spec edit: spec_version={spec_version} via $EDITOR",
 			"edit_input_state_change": "spec edit: spec_version={spec_version} via --input",
@@ -7473,7 +7474,8 @@ var zh_default = {
 		"next": {
 			"full_command_pointer": "运行 `{command}` 获取完整命令",
 			"deliver": "loaf deliver",
-			"settle": "loaf settle"
+			"settle": "loaf settle",
+			"settle_lessons": "loaf advance SETTLE.lessons"
 		},
 		"start": { "state_change": "start: '{feature}' 已创建 → TRIAGE.score" },
 		"advance": { "state_change": "advance: {from} → {to}" },
@@ -7550,7 +7552,7 @@ var zh_default = {
 			"submit_state_change": "spec submit: spec_version={spec_version}, locked=false",
 			"submit_next": "loaf gate decide spec-lock",
 			"init_state_change": "spec init: 已写 scaffold 到 {path}",
-			"init_next": "编辑后运行 `loaf spec submit`",
+			"init_next": "编辑后运行 `loaf spec edit --input <json>`",
 			"edit_text": "spec edit: spec_version={spec_version}",
 			"edit_state_change": "spec edit: spec_version={spec_version} via $EDITOR",
 			"edit_input_state_change": "spec edit: spec_version={spec_version} via --input",
@@ -9024,6 +9026,7 @@ const SUCCESS_KEYS = {
 	nextFullCommandPointer: "success.next.full_command_pointer",
 	nextDeliver: "success.next.deliver",
 	nextSettle: "success.next.settle",
+	nextSettleLessons: "success.next.settle_lessons",
 	startStateChange: "success.start.state_change",
 	advanceStateChange: "success.advance.state_change",
 	gateSpecLockApprovedStateChange: "success.gate.spec_lock_approved_state_change",
@@ -12296,6 +12299,7 @@ function registerLifecycle(program, ctx, mutator, actor, runtimeDir, runtimeNow,
 	});
 	program.command("next").description("Compute the next owner command for the current session (read-only)").option("--feature <name>", "Feature whose next action to compute").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		if (ctx.rejectIfDryRun("next")) return;
+		const requestedFeatureDir = opts.featureDir !== void 0;
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
 		const loaded = await ctx.loadProjectionsOrFail(featureDir, [
@@ -12327,7 +12331,7 @@ function registerLifecycle(program, ctx, mutator, actor, runtimeDir, runtimeNow,
 				tasks_based_on: null
 			}, read.frontmatter);
 		}
-		const out = buildNextOutput({
+		const rawOut = buildNextOutput({
 			feature: opts.feature,
 			feature_dir: featureDir,
 			phase: loaded.state.phase,
@@ -12338,6 +12342,20 @@ function registerLifecycle(program, ctx, mutator, actor, runtimeDir, runtimeNow,
 			pending: loaded.state.pending,
 			verify_applicable_lanes: verifyApplicableLanes
 		});
+		const selector = requestedFeatureDir ? {
+			kind: "feature-dir",
+			value: featureDir
+		} : {
+			kind: "feature",
+			value: opts.feature
+		};
+		const out = rawOut.next_action === void 0 ? rawOut : {
+			...rawOut,
+			next_action: {
+				...rawOut.next_action,
+				command: appendSelector(rawOut.next_action.command, selector)
+			}
+		};
 		ctx.success(out, () => out.next_action === void 0 ? "" : `${out.next_action.command}\n`);
 	});
 }
@@ -13933,7 +13951,7 @@ function registerTerminalSettle(program, ctx, mutator, actor) {
 		};
 		ctx.success(out, (i18n) => i18n.t(SUCCESS_KEYS.settleText), (i18n) => ({
 			stateChange: i18n.t(SUCCESS_KEYS.settleStateChange, { from }),
-			next: i18n.t(SUCCESS_KEYS.nextDeliver)
+			next: i18n.t(SUCCESS_KEYS.nextSettleLessons)
 		}));
 	});
 	program.command("resume").description("Resume session from snapshots/resume-pack.json (emits session:resumed journal entry)").option("--feature <name>", "Feature whose resume pack to consume").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
@@ -16747,7 +16765,7 @@ function registerSpec(program, ctx, mutator, actor, isStdinTty, isStdoutTty, rea
 schema_version: 2
 spec_version: 1
 feature:
-  id: ${JSON.stringify(featureId)}\n  name: ${JSON.stringify(featureName)}\nintent: ${JSON.stringify(intent)}\nadr_refs: []\nrequirements: []\nscenarios: []\nneeds_clarification: []\n---\n\n## Why\n\nTODO: describe motivation and scope. Edit this section, then run \`loaf spec submit --input <json>\` to record the canonical spec.\n`;
+  id: ${JSON.stringify(featureId)}\n  name: ${JSON.stringify(featureName)}\nintent: ${JSON.stringify(intent)}\nadr_refs: []\nrequirements: []\nscenarios: []\nneeds_clarification: []\n---\n\n## Why\n\nTODO: describe motivation and scope. Edit this section, then run \`loaf spec edit --input <json>\` to record the canonical spec.\n`;
 		await promises.writeFile(specMdPath, md);
 		ctx.success({
 			ok: true,
