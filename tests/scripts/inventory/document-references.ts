@@ -70,12 +70,18 @@ export async function findInvalidCommandReferences(
   return failures.sort();
 }
 
+// Paths that project docs legitimately reference but that are intentionally
+// gitignored, so they are absent from a clean checkout (e.g. CI). The reference
+// is valid documentation; skip the existence probe for these rather than flag a
+// present-in-working-tree file that CI cannot see.
+const INTENTIONALLY_GITIGNORED = new Set(["backlog.md"]);
+
 export function findInvalidRepositoryPaths(text: string, repoRoot: string): string[] {
   return [...collectRepositoryPaths(text)]
-    .filter(
-      (reference) =>
-        /[{}*<>]|\.\./.test(reference) || !existsSync(path.join(repoRoot, reference)),
-    )
+    .filter((reference) => {
+      if (INTENTIONALLY_GITIGNORED.has(reference)) return false;
+      return /[{}*<>]|\.\./.test(reference) || !existsSync(path.join(repoRoot, reference));
+    })
     .sort();
 }
 

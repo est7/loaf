@@ -4,7 +4,10 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, test } from "vitest";
 
-const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+// tests/scripts/<file> → repo root is two levels up. A third `..` overshoots
+// into the parent directory, whose incidental `docs/` masked the bug locally
+// while CI's checkout layout surfaced it as ENOENT.
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const DOCS_ROOT = path.join(REPO_ROOT, "docs");
 
 function runtimeTypeScriptFiles(directory: string): string[] {

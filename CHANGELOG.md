@@ -107,6 +107,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now advertises `loaf advance SETTLE.lessons` instead of prematurely pointing at
   `loaf deliver`.
 
+### Tests / CI
+
+- **Two CI-only test failures fixed.** `docs-runtime-boundary` computed its repo
+  root one directory too high (three `..` instead of two), passing locally only
+  because the parent directory had an incidental `docs/`; it now resolves the
+  actual repo root. `claude-semantic-gate` flagged the intentionally-gitignored
+  `backlog.md` reference as missing in a clean checkout; the reference checker now
+  skips known-gitignored paths.
+
 ## [0.5.0] — 2026-06-09
 
 Session garbage collection — the `loaf prune` command line. Finished (terminal)
