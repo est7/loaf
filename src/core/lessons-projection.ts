@@ -12,10 +12,7 @@
 // read / sha256 / size failures surface loud as PROJECTION_WRITE_FAILED at
 // the writeProjections boundary, mirroring the spec.md / snapshots pattern.
 
-import { promises as fsp } from "node:fs";
-import path from "node:path";
-import { createHash } from "node:crypto";
-
+import { readAttachment } from "./attachment-authority.js";
 import { EvidenceFullPayload } from "./evidence-schema.js";
 import { LessonRecordedPayload, type JournalEntry } from "./journal-entry.js";
 import type { Snapshot } from "./reducer.js";
@@ -42,6 +39,7 @@ export function isLesson(payload: ReturnType<typeof EvidenceFullPayload.parse>):
 
 export interface LessonEntry {
   entry_id: string;
+  kind?: "lesson:recorded" | "evidence:added";
   at: string;
   /** Lesson summary — `string` (short) or a LongTextField. */
   summary: ReturnType<typeof EvidenceFullPayload.parse>["summary"];
@@ -57,13 +55,23 @@ export function selectLessonEntries(entries: readonly JournalEntry[]): LessonEnt
   for (const e of entries) {
     if (e.kind === "lesson:recorded") {
       const payload = LessonRecordedPayload.parse(e.payload);
-      lessons.push({ entry_id: e.entry_id, at: e.at, summary: payload.summary });
+      lessons.push({
+        entry_id: e.entry_id,
+        kind: "lesson:recorded",
+        at: e.at,
+        summary: payload.summary,
+      });
       continue;
     }
     if (e.kind === "evidence:added") {
       const payload = EvidenceFullPayload.parse(e.payload);
       if (isLesson(payload)) {
-        lessons.push({ entry_id: e.entry_id, at: e.at, summary: payload.summary });
+        lessons.push({
+          entry_id: e.entry_id,
+          kind: "evidence:added",
+          at: e.at,
+          summary: payload.summary,
+        });
       }
     }
   }
@@ -77,9 +85,10 @@ export interface ResolvedLesson {
 
 /**
  * IO resolver — inline `summary` strings / inline LongTextFields pass through;
- * sidecar LongTextFields are read from `<featureDir>/<ref.path>` and verified
- * against `ref.sha256` + `ref.size`. A missing file or hash/size mismatch
- * THROWS — surfaced as PROJECTION_WRITE_FAILED at the writer boundary.
+ * sidecar LongTextFields are resolved by the attachment authority, which
+ * verifies entry/slot ownership, path safety, `ref.sha256`, and `ref.size`.
+ * Any rejection THROWS and surfaces as PROJECTION_WRITE_FAILED at the writer
+ * boundary.
  */
 export async function resolveLessonBodies(
   featureDir: string,
@@ -94,17 +103,12 @@ export async function resolveLessonBodies(
     } else if (summary.mode === "inline") {
       body = summary.text;
     } else {
-      const ref = summary.ref;
-      const abs = path.join(featureDir, ref.path);
-      const buf = await fsp.readFile(abs);
-      const sha256 = createHash("sha256").update(buf).digest("hex");
-      if (sha256 !== ref.sha256 || buf.byteLength !== ref.size) {
-        throw new Error(
-          `lesson sidecar ${ref.path} integrity mismatch ` +
-            `(sha256 ${sha256 === ref.sha256 ? "ok" : "MISMATCH"}, ` +
-            `size ${buf.byteLength}≟${ref.size})`,
-        );
-      }
+      const buf = await readAttachment(
+        featureDir,
+        { entry_id: lesson.entry_id, kind: lesson.kind ?? "lesson:recorded" },
+        "summary",
+        summary.ref,
+      );
       body = buf.toString("utf8");
     }
     resolved.push({ body, at: lesson.at });

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { Command, CommanderError } from "commander";
 import os from "node:os";
-import { promises } from "node:fs";
+import { constants, promises } from "node:fs";
 import * as path$1 from "node:path";
 import path from "node:path";
 import { z } from "zod";
@@ -5848,6 +5848,168 @@ function checkSpecVersion(entry, payloadVersion, currentVersion) {
 	};
 }
 //#endregion
+//#region src/core/attachment-authority.ts
+const LONG_TEXT_SLOTS = {
+	"evidence:added": { summary: "summary.txt" },
+	"lesson:recorded": { summary: "summary.txt" },
+	"scope:recorded": { paths: "paths.txt" },
+	"migration:snapshot_imported": {
+		state: "migration/state.json",
+		tasks: "migration/tasks.json",
+		spec_md: "migration/spec.md",
+		evidence: "migration/evidence.jsonl",
+		findings: "migration/findings.jsonl",
+		pending: "migration/pending.json"
+	}
+};
+var AttachmentAuthorityError = class extends Error {
+	code;
+	detail;
+	constructor(code, message, detail = {}) {
+		super(message);
+		this.code = code;
+		this.detail = detail;
+		this.name = "AttachmentAuthorityError";
+	}
+};
+function attachmentFieldsFor(kind) {
+	return Object.keys(LONG_TEXT_SLOTS[kind] ?? {});
+}
+function expectedRelativePath(owner, field) {
+	const suffix = LONG_TEXT_SLOTS[owner.kind]?.[field];
+	if (!suffix) throw new AttachmentAuthorityError("ATTACHMENT_UNAUTHORIZED", `attachment slot ${owner.kind}.${field} is not registered`, {
+		entry_id: owner.entry_id,
+		kind: owner.kind,
+		field
+	});
+	return `attachments/${owner.entry_id}/${suffix}`;
+}
+function assertAuthorizedRef(owner, field, ref) {
+	const expected = expectedRelativePath(owner, field);
+	if (ref.path !== expected) throw new AttachmentAuthorityError("ATTACHMENT_UNAUTHORIZED", `attachment ref ${ref.path} does not own slot ${owner.entry_id}:${owner.kind}.${field}`, {
+		expected,
+		actual: ref.path,
+		entry_id: owner.entry_id,
+		kind: owner.kind,
+		field
+	});
+	return expected;
+}
+function assertAttachmentOwnership(owner, field, ref) {
+	assertAuthorizedRef(owner, field, ref);
+}
+function isInside(root, candidate) {
+	const relative = path.relative(root, candidate);
+	return relative === "" || !relative.startsWith(`..${path.sep}`) && relative !== "..";
+}
+async function realFeatureRoot(featureDir) {
+	const root = await promises.realpath(featureDir);
+	if (!(await promises.lstat(root)).isDirectory()) throw new AttachmentAuthorityError("ATTACHMENT_UNSAFE_PATH", `feature attachment root is not a directory: ${featureDir}`);
+	return root;
+}
+async function prepareParent(root, relativeFile, create) {
+	const parentSegments = path.posix.dirname(relativeFile).split("/");
+	let current = root;
+	for (const segment of parentSegments) {
+		current = path.join(current, segment);
+		if (create) await promises.mkdir(current).catch((error) => {
+			if (error.code !== "EEXIST") throw error;
+		});
+		let stat;
+		try {
+			stat = await promises.lstat(current);
+		} catch (error) {
+			if (error.code === "ENOENT") throw new AttachmentAuthorityError("ATTACHMENT_MISSING", `attachment directory is missing: ${current}`, { path: current });
+			throw error;
+		}
+		if (stat.isSymbolicLink()) throw new AttachmentAuthorityError("ATTACHMENT_UNSAFE_PATH", `attachment directory must not be a symlink: ${current}`, { path: current });
+		if (!stat.isDirectory()) throw new AttachmentAuthorityError("ATTACHMENT_UNSAFE_PATH", `attachment path component is not a directory: ${current}`, { path: current });
+		const real = await promises.realpath(current);
+		if (!isInside(root, real)) throw new AttachmentAuthorityError("ATTACHMENT_UNSAFE_PATH", `attachment directory escapes the feature root: ${current}`, {
+			path: current,
+			resolved: real
+		});
+	}
+	return current;
+}
+async function inspectFinalPath(finalPath) {
+	try {
+		const stat = await promises.lstat(finalPath);
+		if (stat.isSymbolicLink()) throw new AttachmentAuthorityError("ATTACHMENT_UNSAFE_PATH", `attachment file must not be a symlink: ${finalPath}`, { path: finalPath });
+		if (!stat.isFile()) throw new AttachmentAuthorityError("ATTACHMENT_NOT_FILE", `attachment target is not a regular file: ${finalPath}`, { path: finalPath });
+		return "file";
+	} catch (error) {
+		if (error.code === "ENOENT") return "missing";
+		throw error;
+	}
+}
+async function readAttachment(featureDir, owner, field, ref) {
+	const relative = assertAuthorizedRef(owner, field, ref);
+	const root = await realFeatureRoot(featureDir);
+	await prepareParent(root, relative, false);
+	const finalPath = path.join(root, ...relative.split("/"));
+	if (await inspectFinalPath(finalPath) === "missing") throw new AttachmentAuthorityError("ATTACHMENT_MISSING", `attachment file is missing: ${ref.path}`, { path: ref.path });
+	let handle;
+	try {
+		handle = await promises.open(finalPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+	} catch (error) {
+		const code = error.code;
+		if (code === "ENOENT") throw new AttachmentAuthorityError("ATTACHMENT_MISSING", `attachment file is missing: ${ref.path}`, { path: ref.path });
+		if (code === "ELOOP") throw new AttachmentAuthorityError("ATTACHMENT_UNSAFE_PATH", `attachment file became a symlink: ${ref.path}`, { path: ref.path });
+		throw error;
+	}
+	try {
+		const stat = await handle.stat();
+		if (!stat.isFile()) throw new AttachmentAuthorityError("ATTACHMENT_NOT_FILE", `attachment target is not a regular file: ${ref.path}`, { path: ref.path });
+		const body = await handle.readFile();
+		const actualSha256 = createHash("sha256").update(body).digest("hex");
+		if (stat.size !== body.byteLength || body.byteLength !== ref.size || actualSha256 !== ref.sha256) throw new AttachmentAuthorityError("ATTACHMENT_INTEGRITY", `attachment ${ref.path} integrity mismatch`, {
+			expected_size: ref.size,
+			actual_size: body.byteLength,
+			expected_sha256: ref.sha256,
+			actual_sha256: actualSha256
+		});
+		return body;
+	} finally {
+		await handle.close();
+	}
+}
+async function writeAttachment(featureDir, owner, field, content, opts = {}) {
+	const relative = expectedRelativePath(owner, field);
+	const root = await realFeatureRoot(featureDir);
+	const parent = await prepareParent(root, relative, true);
+	const finalPath = path.join(root, ...relative.split("/"));
+	await inspectFinalPath(finalPath);
+	const body = Buffer.isBuffer(content) ? content : Buffer.from(content, "utf8");
+	const tmpPath = path.join(parent, `.${path.basename(finalPath)}.tmp-${randomBytes(6).toString("hex")}`);
+	let handle;
+	try {
+		handle = await promises.open(tmpPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 420);
+		await handle.writeFile(body);
+		if (opts.fsync ?? true) await handle.sync();
+		await handle.close();
+		handle = void 0;
+		await inspectFinalPath(finalPath);
+		await promises.rename(tmpPath, finalPath);
+		if (opts.fsync ?? true) {
+			const directory = await promises.open(parent, constants.O_RDONLY);
+			try {
+				await directory.sync();
+			} finally {
+				await directory.close();
+			}
+		}
+	} finally {
+		if (handle) await handle.close().catch(() => {});
+		await promises.unlink(tmpPath).catch(() => {});
+	}
+	return {
+		path: relative,
+		sha256: createHash("sha256").update(body).digest("hex"),
+		size: body.byteLength
+	};
+}
+//#endregion
 //#region src/core/journal-append.ts
 async function readJournalTail(filePath) {
 	let text;
@@ -6079,6 +6241,14 @@ const LegacyFindingSchema = z.object({
 	action: z.string().min(1),
 	status: z.enum(["open", "closed"]).optional()
 }).passthrough();
+const ARTIFACT_FILES = [
+	["state", "state.json"],
+	["tasks", "tasks.json"],
+	["spec_md", "spec.md"],
+	["evidence", "evidence.jsonl"],
+	["findings", "findings.jsonl"],
+	["pending", "pending.json"]
+];
 var MigrationError = class extends Error {
 	code;
 	detail;
@@ -6133,16 +6303,13 @@ function isLegalPhase(value) {
 }
 async function rehydrateMigration(featureDir, entry) {
 	if (entry.kind !== "migration:snapshot_imported") throw new MigrationError("MIGRATION_INCOMPLETE", "rehydrateMigration called with non-migration entry", { kind: entry.kind });
-	await verifyMigrationSidecars(featureDir, entry);
 	const payload = entry.payload;
-	const read = async (key) => promises.readFile(path.join(featureDir, payload.artifacts[key].path), "utf8");
-	const [stateBody, tasksBody, evidenceBody, findingsBody, pendingBody] = await Promise.all([
-		read("state"),
-		read("tasks"),
-		read("evidence"),
-		read("findings"),
-		read("pending")
-	]);
+	const bodies = await readMigrationSidecars(featureDir, entry, payload.artifacts);
+	const stateBody = bodies.state.toString("utf8");
+	const tasksBody = bodies.tasks.toString("utf8");
+	const evidenceBody = bodies.evidence.toString("utf8");
+	const findingsBody = bodies.findings.toString("utf8");
+	const pendingBody = bodies.pending.toString("utf8");
 	let legacyStateRaw;
 	try {
 		legacyStateRaw = JSON.parse(stateBody);
@@ -6316,34 +6483,29 @@ async function rehydrateMigration(featureDir, entry) {
 		tasks_based_on: null
 	};
 }
-/**
-* Verify that all sidecars referenced by a migration entry exist and match
-* the recorded sha256. Used by the reducer apply path (step 5) and by
-* `doctor --check-tail`.
-*/
-async function verifyMigrationSidecars(featureDir, entry) {
-	if (entry.kind !== "migration:snapshot_imported") return;
-	const payload = entry.payload;
-	if (!payload.artifacts) throw new MigrationError("MIGRATION_INCOMPLETE", "migration payload missing artifacts");
-	for (const [key, ref] of Object.entries(payload.artifacts)) {
-		const abs = path.join(featureDir, ref.path);
-		let body;
+async function readMigrationSidecars(featureDir, entry, artifacts) {
+	const pairs = await Promise.all(ARTIFACT_FILES.map(async ([key]) => {
+		const ref = artifacts[key];
+		if (!ref) throw new MigrationError("MIGRATION_INCOMPLETE", `migration payload missing artifact ref: ${key}`, { key });
 		try {
-			body = await promises.readFile(abs);
-		} catch (err) {
-			if (err.code === "ENOENT") throw new MigrationError("MIGRATION_SIDECAR_MISSING", `migration sidecar absent: ${key}`, {
-				key,
-				path: ref.path
-			});
-			throw err;
+			return [key, await readAttachment(featureDir, entry, key, ref)];
+		} catch (error) {
+			if (error instanceof AttachmentAuthorityError) {
+				if (error.code === "ATTACHMENT_MISSING") throw new MigrationError("MIGRATION_SIDECAR_MISSING", `migration sidecar absent: ${key}`, {
+					key,
+					path: ref.path
+				});
+				throw new MigrationError("MIGRATION_INCOMPLETE", `migration sidecar rejected for ${key}: ${error.message}`, {
+					key,
+					path: ref.path,
+					attachment_code: error.code,
+					...error.detail
+				});
+			}
+			throw error;
 		}
-		const actualSha = createHash("sha256").update(body).digest("hex");
-		if (actualSha !== ref.sha256) throw new MigrationError("MIGRATION_INCOMPLETE", `migration sidecar sha256 mismatch for ${key}`, {
-			key,
-			expected: ref.sha256,
-			actual: actualSha
-		});
-	}
+	}));
+	return Object.fromEntries(pairs);
 }
 //#endregion
 //#region src/core/journal-bootstrap.ts
@@ -8001,6 +8163,7 @@ function selectLessonEntries(entries) {
 			const payload = LessonRecordedPayload.parse(e.payload);
 			lessons.push({
 				entry_id: e.entry_id,
+				kind: "lesson:recorded",
 				at: e.at,
 				summary: payload.summary
 			});
@@ -8010,6 +8173,7 @@ function selectLessonEntries(entries) {
 			const payload = EvidenceFullPayload.parse(e.payload);
 			if (isLesson(payload)) lessons.push({
 				entry_id: e.entry_id,
+				kind: "evidence:added",
 				at: e.at,
 				summary: payload.summary
 			});
@@ -8019,9 +8183,10 @@ function selectLessonEntries(entries) {
 }
 /**
 * IO resolver — inline `summary` strings / inline LongTextFields pass through;
-* sidecar LongTextFields are read from `<featureDir>/<ref.path>` and verified
-* against `ref.sha256` + `ref.size`. A missing file or hash/size mismatch
-* THROWS — surfaced as PROJECTION_WRITE_FAILED at the writer boundary.
+* sidecar LongTextFields are resolved by the attachment authority, which
+* verifies entry/slot ownership, path safety, `ref.sha256`, and `ref.size`.
+* Any rejection THROWS and surfaces as PROJECTION_WRITE_FAILED at the writer
+* boundary.
 */
 async function resolveLessonBodies(featureDir, lessons) {
 	const resolved = [];
@@ -8030,14 +8195,10 @@ async function resolveLessonBodies(featureDir, lessons) {
 		let body;
 		if (typeof summary === "string") body = summary;
 		else if (summary.mode === "inline") body = summary.text;
-		else {
-			const ref = summary.ref;
-			const abs = path.join(featureDir, ref.path);
-			const buf = await promises.readFile(abs);
-			const sha256 = createHash("sha256").update(buf).digest("hex");
-			if (sha256 !== ref.sha256 || buf.byteLength !== ref.size) throw new Error(`lesson sidecar ${ref.path} integrity mismatch (sha256 ${sha256 === ref.sha256 ? "ok" : "MISMATCH"}, size ${buf.byteLength}≟${ref.size})`);
-			body = buf.toString("utf8");
-		}
+		else body = (await readAttachment(featureDir, {
+			entry_id: lesson.entry_id,
+			kind: lesson.kind ?? "lesson:recorded"
+		}, "summary", summary.ref)).toString("utf8");
 		resolved.push({
 			body,
 			at: lesson.at
@@ -10899,7 +11060,6 @@ async function evaluateVerifyAcceptDiagnostic(snapshot, featureDir) {
 }
 //#endregion
 //#region src/core/sidecar.ts
-const ATTACHMENTS_SUBDIR = "attachments";
 /**
 * Walk entry.payload (one level deep) looking for LongTextField inline values.
 * Any inline field whose text length > threshold is promoted to sidecar form
@@ -10916,36 +11076,19 @@ async function promoteSidecars(entry, attachmentRoot, opts = {}) {
 	if (typeof payload !== "object" || payload === null) return entry;
 	const promotedPayload = { ...payload };
 	let mutated = false;
-	for (const [fieldName, value] of Object.entries(payload)) {
-		if (!isLongTextFieldShape(value)) continue;
+	for (const fieldName of attachmentFieldsFor(entry.kind)) {
+		const value = payload[fieldName];
 		const parsed = LongTextField.safeParse(value);
 		if (!parsed.success) continue;
 		const field = parsed.data;
-		if (field.mode === "sidecar") continue;
-		const inlineBytes = Buffer.byteLength(field.text, "utf8");
-		if (inlineBytes <= threshold) continue;
-		const entryDir = path.join(attachmentRoot, ATTACHMENTS_SUBDIR, entry.entry_id);
-		await promises.mkdir(entryDir, { recursive: true });
-		const finalRel = `${ATTACHMENTS_SUBDIR}/${entry.entry_id}/${fieldName}.txt`;
-		const finalAbs = path.join(attachmentRoot, finalRel);
-		const tmpAbs = `${finalAbs}.tmp-${randomBytes(6).toString("hex")}`;
-		await promises.writeFile(tmpAbs, field.text, { mode: 420 });
-		if (fsync) {
-			const fh = await promises.open(tmpAbs, "r+");
-			try {
-				await fh.sync();
-			} finally {
-				await fh.close();
-			}
+		if (field.mode === "sidecar") {
+			assertAttachmentOwnership(entry, fieldName, field.ref);
+			continue;
 		}
-		await promises.rename(tmpAbs, finalAbs);
+		if (Buffer.byteLength(field.text, "utf8") <= threshold) continue;
 		promotedPayload[fieldName] = {
 			mode: "sidecar",
-			ref: {
-				path: finalRel,
-				sha256: createHash("sha256").update(field.text, "utf8").digest("hex"),
-				size: inlineBytes
-			}
+			ref: await writeAttachment(attachmentRoot, entry, fieldName, field.text, { fsync })
 		};
 		mutated = true;
 	}
@@ -10954,11 +11097,6 @@ async function promoteSidecars(entry, attachmentRoot, opts = {}) {
 		...entry,
 		payload: promotedPayload
 	};
-}
-function isLongTextFieldShape(v) {
-	if (typeof v !== "object" || v === null) return false;
-	const obj = v;
-	return obj["mode"] === "inline" || obj["mode"] === "sidecar";
 }
 //#endregion
 //#region src/core/spec-projection.ts
@@ -11676,11 +11814,7 @@ async function resolveScopePaths(entry, featureDir) {
 	const payload = ScopeRecordedPayload.parse(entry.payload);
 	if (Array.isArray(payload.paths)) return payload.paths;
 	if (payload.paths.mode === "inline") return parseCanonicalPathsText(payload.paths.text);
-	const ref = payload.paths.ref;
-	const buf = await promises.readFile(path.join(featureDir, ref.path));
-	const sha256 = createHash("sha256").update(buf).digest("hex");
-	if (sha256 !== ref.sha256 || buf.byteLength !== ref.size) throw new Error(`scope sidecar ${ref.path} integrity mismatch (sha256 ${sha256 === ref.sha256 ? "ok" : "MISMATCH"}, size ${buf.byteLength}≟${ref.size})`);
-	return parseCanonicalPathsText(buf.toString("utf8"));
+	return parseCanonicalPathsText((await readAttachment(featureDir, entry, "paths", payload.paths.ref)).toString("utf8"));
 }
 //#endregion
 //#region src/core/session-runtime.ts

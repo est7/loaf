@@ -214,15 +214,10 @@ describe("final-validation — Stage 4 end-to-end §11.2 step 4-6", () => {
     await expect(fs.readFile(journalPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  test("post-append sidecar files are reachable via the path the entry declared", async () => {
+  test("unregistered LongTextField-shaped payloads are not materialized", async () => {
     const root = await tmpRoot();
-    const journalPath = path.join(root, "journal.jsonl");
 
-    // appendEntry only enforces seq monotonic + 64KB; for this filesystem-
-    // smoke-test we hand it a single session:started entry with an oversize
-    // LongTextField squeezed into a custom payload field. The reducer is not
-    // exercised here — we only verify the sidecar file lands on disk where
-    // the AttachmentRef declared it.
+    // A lookalike field on an unrelated kind is not an attachment capability.
     const raw: JournalEntry = {
       seq: 0,
       entry_id: "JE-000001",
@@ -234,19 +229,13 @@ describe("final-validation — Stage 4 end-to-end §11.2 step 4-6", () => {
         session_id: "550e8400-e29b-41d4-a716-446655440000",
         feature: "x",
         ceremony: STANDARD,
-        // Stage 4 promote walks payload one level; we just need any field
-        // whose shape matches LongTextField.inline.
         note: { mode: "inline", text: "x".repeat(15_000) },
       },
     };
     const promoted = await promoteSidecars(raw, root, { fsync: false });
-    await appendEntry(journalPath, promoted, emptyMeta(), { fsync: false });
-
-    const note = (promoted.payload as { note: { ref: { path: string; sha256: string } } }).note;
-    const fileExists = await fs
-      .stat(path.join(root, note.ref.path))
-      .then(() => true)
-      .catch(() => false);
-    expect(fileExists).toBe(true);
+    expect(promoted).toEqual(raw);
+    await expect(fs.readdir(path.join(root, "attachments"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
   });
 });

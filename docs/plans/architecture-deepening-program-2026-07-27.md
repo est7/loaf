@@ -62,7 +62,7 @@ replace `Pending` evidence with the commands and results that actually ran.
 | A00 | Persist | Architecture program and acceptance ledger | — | [x] Complete |
 | A01 | Implement | Hermetic verification boundary | A00 | [x] Complete |
 | A02 | Implement | Public AttachmentRef containment | A01 | [x] Complete |
-| A03 | Implement | Attachment authority module | A02 | [ ] Pending |
+| A03 | Implement | Attachment authority module | A02 | [x] Complete |
 | A04 | Implement | Feature write lease | A03 | [ ] Pending |
 | A05 | Implement | Explicit mutation commit outcomes | A04 | [ ] Pending |
 | A06 | Implement | Deep CommandMutator boundary | A05 | [ ] Pending |
@@ -246,7 +246,7 @@ must be handled explicitly rather than weakening new input.
 
 ## A03 — Attachment authority module
 
-**Status:** [ ] Pending
+**Status:** [x] Complete
 **Commit subject:** `refactor(core): centralize attachment authority`
 
 ### Destination
@@ -263,15 +263,15 @@ and canonical sidecar writes.
 
 ### Acceptance criteria
 
-- [ ] Lesson, scope, and migration consumers no longer perform raw
+- [x] Lesson, scope, and migration consumers no longer perform raw
   `path.join(featureDir, ref.path)` plus local hash logic.
-- [ ] A ref's bucket must match the owning journal `entry_id`.
-- [ ] Realpath containment rejects a file or intermediate directory symlink
+- [x] A ref's bucket must match the owning journal `entry_id`.
+- [x] Realpath containment rejects a file or intermediate directory symlink
   that resolves outside the owning entry bucket.
-- [ ] Size and SHA-256 verification are identical for all readers, including
+- [x] Size and SHA-256 verification are identical for all readers, including
   migration.
-- [ ] Sidecar promotion cannot write through a pre-existing escaping symlink.
-- [ ] Existing happy-path sidecars and migration rehydration remain
+- [x] Sidecar promotion cannot write through a pre-existing escaping symlink.
+- [x] Existing happy-path sidecars and migration rehydration remain
   byte-compatible.
 
 ### Validation
@@ -286,7 +286,18 @@ content.
 
 ### Evidence
 
-Pending.
+- RED: the new authority suite could not resolve an authority module, while
+  the existing generic walker promoted a fake LongTextField-shaped field to
+  `fake.txt`.
+- Added attack-shape coverage for wrong entry buckets, wrong slot filenames,
+  intermediate and final symlinks, directories, size mismatch, hash mismatch,
+  and writes targeting a pre-existing escaping symlink.
+- `bunx vitest run tests/core/attachment-authority.test.ts tests/core/sidecar.test.ts tests/core/lessons-projection.test.ts tests/core/scope-recorded.test.ts tests/core/v0.0.x-migration.test.ts tests/core/final-validation.test.ts`
+  — 6 files, 74 tests passed.
+- `rg` confirms no `src/core` consumer outside the authority dereferences
+  `ref.path`.
+- `bun run check` — lint and typecheck passed; 171 test files and 2,638 tests
+  passed; the distribution bundle rebuilt successfully.
 
 ## A04 — Feature write lease
 

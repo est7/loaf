@@ -21,15 +21,14 @@
 // `promoteSidecars` → `appendEntry` chain.
 
 import { promises as fsp } from "node:fs";
-import { createHash, randomBytes } from "node:crypto";
 import path from "node:path";
 
+import { LongTextField, SIDECAR_THRESHOLD_BYTES, type JournalEntry } from "./journal-entry.js";
 import {
-  AttachmentRef,
-  LongTextField,
-  SIDECAR_THRESHOLD_BYTES,
-  type JournalEntry,
-} from "./journal-entry.js";
+  assertAttachmentOwnership,
+  attachmentFieldsFor,
+  writeAttachment,
+} from "./attachment-authority.js";
 
 const ATTACHMENTS_SUBDIR = "attachments";
 
@@ -62,54 +61,27 @@ export async function promoteSidecars(
   const promotedPayload: Record<string, unknown> = { ...payload };
   let mutated = false;
 
-  for (const [fieldName, value] of Object.entries(payload)) {
-    // Stage 4 minimal: only inspect declared LongTextField shapes.
-    if (!isLongTextFieldShape(value)) continue;
+  for (const fieldName of attachmentFieldsFor(entry.kind)) {
+    const value = payload[fieldName];
     const parsed = LongTextField.safeParse(value);
     if (!parsed.success) continue;
 
     const field = parsed.data;
-    if (field.mode === "sidecar") continue; // already promoted
+    if (field.mode === "sidecar") {
+      assertAttachmentOwnership(entry, fieldName, field.ref);
+      continue;
+    }
 
     const inlineBytes = Buffer.byteLength(field.text, "utf8");
     if (inlineBytes <= threshold) continue; // small enough — stay inline
 
-    const entryDir = path.join(attachmentRoot, ATTACHMENTS_SUBDIR, entry.entry_id);
-    await fsp.mkdir(entryDir, { recursive: true });
-
-    const finalRel = `${ATTACHMENTS_SUBDIR}/${entry.entry_id}/${fieldName}.txt`;
-    const finalAbs = path.join(attachmentRoot, finalRel);
-    const tmpAbs = `${finalAbs}.tmp-${randomBytes(6).toString("hex")}`;
-
-    await fsp.writeFile(tmpAbs, field.text, { mode: 0o644 });
-    if (fsync) {
-      const fh = await fsp.open(tmpAbs, "r+");
-      try {
-        await fh.sync();
-      } finally {
-        await fh.close();
-      }
-    }
-    await fsp.rename(tmpAbs, finalAbs);
-
-    const sha256 = createHash("sha256").update(field.text, "utf8").digest("hex");
-    const ref: AttachmentRef = {
-      path: finalRel,
-      sha256,
-      size: inlineBytes,
-    };
+    const ref = await writeAttachment(attachmentRoot, entry, fieldName, field.text, { fsync });
     promotedPayload[fieldName] = { mode: "sidecar", ref };
     mutated = true;
   }
 
   if (!mutated) return entry;
   return { ...entry, payload: promotedPayload };
-}
-
-function isLongTextFieldShape(v: unknown): boolean {
-  if (typeof v !== "object" || v === null) return false;
-  const obj = v as Record<string, unknown>;
-  return obj["mode"] === "inline" || obj["mode"] === "sidecar";
 }
 
 // ─────────────────────────────────────────────────────────────────────

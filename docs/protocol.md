@@ -857,6 +857,12 @@ before append. Persisted refs use canonical POSIX-relative
 `attachments/<entry_id>/...` paths; ordinary visual evidence
 `attachments[]` is a separate metadata contract.
 
+All internal sidecar IO is authorized against the owning journal entry and a
+closed slot registry (`summary.txt`, `paths.txt`, or the six migration
+artifacts). Readers and writers reject another entry's bucket, unregistered
+filenames, symlinked path components, and non-regular files. Readers verify
+size and SHA-256 from the same open file handle.
+
 ### 4.5 findings.jsonl(6 category × 6 action + EV-id refs)
 
 > **Authority**: 派生投影(reducer 从 `finding:raised` / `finding:closed` entries 重建,落 `snapshots/findings.json`)。

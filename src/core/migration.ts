@@ -21,10 +21,14 @@
 // Crash-injection coverage (mid-step kill+resume) remains future work.
 
 import { promises as fsp } from "node:fs";
-import { createHash, randomBytes } from "node:crypto";
 import path from "node:path";
 import { z } from "zod";
 
+import {
+  AttachmentAuthorityError,
+  readAttachment,
+  writeAttachment,
+} from "./attachment-authority.js";
 import { appendEntry } from "./journal-append.js";
 import { emptyMeta } from "./snapshot.js";
 import { EvidenceKind, EvidenceResult } from "./evidence-schema.js";
@@ -241,7 +245,6 @@ const LegacyFindingSchema = z
   .passthrough();
 
 const MIGRATION_ENTRY_ID = "JE-000000";
-const MIGRATION_DIR_REL = `attachments/${MIGRATION_ENTRY_ID}/migration`;
 
 const ARTIFACT_FILES = [
   ["state", "state.json"],
@@ -253,6 +256,28 @@ const ARTIFACT_FILES = [
 ] as const;
 
 export type ArtifactKey = (typeof ARTIFACT_FILES)[number][0];
+
+const MIGRATION_ATTACHMENT_OWNER = {
+  entry_id: MIGRATION_ENTRY_ID,
+  kind: "migration:snapshot_imported",
+} as const;
+
+async function removeMigrationStaging(featureDir: string): Promise<void> {
+  const attachmentsParent = path.join(featureDir, "attachments");
+  const stagingRoot = path.join(attachmentsParent, MIGRATION_ENTRY_ID);
+  try {
+    const attachmentsStat = await fsp.lstat(attachmentsParent);
+    if (attachmentsStat.isSymbolicLink() || !attachmentsStat.isDirectory()) return;
+    const stagingStat = await fsp.lstat(stagingRoot);
+    if (stagingStat.isSymbolicLink() || !stagingStat.isDirectory()) return;
+    await fsp.rm(stagingRoot, { recursive: true, force: true });
+    if ((await fsp.readdir(attachmentsParent)).length === 0) {
+      await fsp.rmdir(attachmentsParent).catch(() => {});
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+}
 
 export class MigrationError extends Error {
   constructor(
@@ -333,10 +358,6 @@ export async function migrateV2(
   // Audit r5 Low fix — wider rollback. Any failure during sidecar copy
   // phase tears down attachments/JE-000000/ (the staging root) so the
   // featureDir is bit-for-bit recoverable for a clean re-run.
-  const sidecarDir = path.join(featureDir, MIGRATION_DIR_REL);
-  const stagingRoot = path.join(featureDir, "attachments", MIGRATION_ENTRY_ID);
-  await fsp.mkdir(sidecarDir, { recursive: true });
-
   const attachments: Partial<Record<ArtifactKey, AttachmentRef>> = {};
   try {
     for (const [key, filename] of ARTIFACT_FILES) {
@@ -354,39 +375,12 @@ export async function migrateV2(
         }
         throw err;
       }
-      const dstAbs = path.join(sidecarDir, filename);
-      const tmpAbs = `${dstAbs}.tmp-${randomBytes(6).toString("hex")}`;
-      await fsp.writeFile(tmpAbs, body);
-      if (fsync) {
-        const fh = await fsp.open(tmpAbs, "r+");
-        try {
-          await fh.sync();
-        } finally {
-          await fh.close();
-        }
-      }
-      await fsp.rename(tmpAbs, dstAbs);
-
-      attachments[key] = {
-        path: `${MIGRATION_DIR_REL}/${filename}`,
-        sha256: createHash("sha256").update(body).digest("hex"),
-        size: body.length,
-      };
+      attachments[key] = await writeAttachment(featureDir, MIGRATION_ATTACHMENT_OWNER, key, body, {
+        fsync,
+      });
     }
   } catch (err) {
-    // Roll back the entire staging root including the empty attachments/
-    // parent if we created it.
-    await fsp.rm(stagingRoot, { recursive: true, force: true }).catch(() => {});
-    // If attachments/ is empty after JE-000000 removed, drop it too.
-    const attachmentsParent = path.join(featureDir, "attachments");
-    try {
-      const remaining = await fsp.readdir(attachmentsParent);
-      if (remaining.length === 0) {
-        await fsp.rm(attachmentsParent, { recursive: true, force: true }).catch(() => {});
-      }
-    } catch {
-      /* ENOENT ok */
-    }
+    await removeMigrationStaging(featureDir).catch(() => {});
     throw err;
   }
 
@@ -424,16 +418,7 @@ export async function migrateV2(
     await rehydrateMigration(featureDir, entry);
   } catch (err) {
     // Roll back staged sidecars so the feature dir is recoverable.
-    await fsp.rm(stagingRoot, { recursive: true, force: true }).catch(() => {});
-    const attachmentsParent = path.join(featureDir, "attachments");
-    try {
-      const remaining = await fsp.readdir(attachmentsParent);
-      if (remaining.length === 0) {
-        await fsp.rm(attachmentsParent, { recursive: true, force: true }).catch(() => {});
-      }
-    } catch {
-      /* ENOENT ok */
-    }
+    await removeMigrationStaging(featureDir).catch(() => {});
     throw err;
   }
 
@@ -543,19 +528,13 @@ export async function rehydrateMigration(
       { kind: entry.kind },
     );
   }
-  await verifyMigrationSidecars(featureDir, entry);
-
   const payload = entry.payload as { artifacts: Record<string, AttachmentRef> };
-  const read = async (key: string): Promise<string> =>
-    fsp.readFile(path.join(featureDir, payload.artifacts[key]!.path), "utf8");
-
-  const [stateBody, tasksBody, evidenceBody, findingsBody, pendingBody] = await Promise.all([
-    read("state"),
-    read("tasks"),
-    read("evidence"),
-    read("findings"),
-    read("pending"),
-  ]);
+  const bodies = await readMigrationSidecars(featureDir, entry, payload.artifacts);
+  const stateBody = bodies.state.toString("utf8");
+  const tasksBody = bodies.tasks.toString("utf8");
+  const evidenceBody = bodies.evidence.toString("utf8");
+  const findingsBody = bodies.findings.toString("utf8");
+  const pendingBody = bodies.pending.toString("utf8");
 
   // ── state.json → SessionState ──
   // Audit r2/r3/r4 fix: strict parse + Zod runtime field validation. TS
@@ -801,27 +780,44 @@ export async function verifyMigrationSidecars(
   if (!payload.artifacts) {
     throw new MigrationError("MIGRATION_INCOMPLETE", "migration payload missing artifacts");
   }
-  for (const [key, ref] of Object.entries(payload.artifacts)) {
-    const abs = path.join(featureDir, ref.path);
-    let body: Buffer;
-    try {
-      body = await fsp.readFile(abs);
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-        throw new MigrationError("MIGRATION_SIDECAR_MISSING", `migration sidecar absent: ${key}`, {
-          key,
-          path: ref.path,
-        });
+  await readMigrationSidecars(featureDir, entry, payload.artifacts);
+}
+
+async function readMigrationSidecars(
+  featureDir: string,
+  entry: JournalEntry,
+  artifacts: Record<string, AttachmentRef>,
+): Promise<Record<ArtifactKey, Buffer>> {
+  const pairs = await Promise.all(
+    ARTIFACT_FILES.map(async ([key]) => {
+      const ref = artifacts[key];
+      if (!ref) {
+        throw new MigrationError(
+          "MIGRATION_INCOMPLETE",
+          `migration payload missing artifact ref: ${key}`,
+          { key },
+        );
       }
-      throw err;
-    }
-    const actualSha = createHash("sha256").update(body).digest("hex");
-    if (actualSha !== ref.sha256) {
-      throw new MigrationError(
-        "MIGRATION_INCOMPLETE",
-        `migration sidecar sha256 mismatch for ${key}`,
-        { key, expected: ref.sha256, actual: actualSha },
-      );
-    }
-  }
+      try {
+        return [key, await readAttachment(featureDir, entry, key, ref)] as const;
+      } catch (error) {
+        if (error instanceof AttachmentAuthorityError) {
+          if (error.code === "ATTACHMENT_MISSING") {
+            throw new MigrationError(
+              "MIGRATION_SIDECAR_MISSING",
+              `migration sidecar absent: ${key}`,
+              { key, path: ref.path },
+            );
+          }
+          throw new MigrationError(
+            "MIGRATION_INCOMPLETE",
+            `migration sidecar rejected for ${key}: ${error.message}`,
+            { key, path: ref.path, attachment_code: error.code, ...error.detail },
+          );
+        }
+        throw error;
+      }
+    }),
+  );
+  return Object.fromEntries(pairs) as Record<ArtifactKey, Buffer>;
 }

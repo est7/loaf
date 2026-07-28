@@ -96,21 +96,17 @@ describe("scope:recorded payload contract", () => {
   });
 
   test("rejects malformed, unsorted, duplicate, non-positive, and unknown fields", () => {
-    expect(ScopeRecordedPayload.safeParse({ iteration: 1, paths: "src/a.ts" }).success).toBe(
-      false,
-    );
+    expect(ScopeRecordedPayload.safeParse({ iteration: 1, paths: "src/a.ts" }).success).toBe(false);
     expect(
-      ScopeRecordedPayload.safeParse({ iteration: 1, paths: ["src/b.ts", "src/a.ts"] })
-        .success,
+      ScopeRecordedPayload.safeParse({ iteration: 1, paths: ["src/b.ts", "src/a.ts"] }).success,
     ).toBe(false);
     expect(
-      ScopeRecordedPayload.safeParse({ iteration: 1, paths: ["src/a.ts", "src/a.ts"] })
-        .success,
+      ScopeRecordedPayload.safeParse({ iteration: 1, paths: ["src/a.ts", "src/a.ts"] }).success,
     ).toBe(false);
     expect(ScopeRecordedPayload.safeParse({ iteration: 0, paths: [] }).success).toBe(false);
-    expect(
-      ScopeRecordedPayload.safeParse({ iteration: 1, paths: [], extra: true }).success,
-    ).toBe(false);
+    expect(ScopeRecordedPayload.safeParse({ iteration: 1, paths: [], extra: true }).success).toBe(
+      false,
+    );
   });
 
   test("LongTextField inline form carries exact canonical JSON", () => {
@@ -243,8 +239,8 @@ describe("scope:recorded reducer and entry-stream projection", () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "loaf-scope-projection-"));
     const logical = ["src/a.ts", "src/b.ts"];
     const text = JSON.stringify(logical);
-    const rel = "attachments/JE-000003/paths.txt";
-    await fs.mkdir(path.join(dir, "attachments", "JE-000003"), { recursive: true });
+    const rel = "attachments/JE-000004/paths.txt";
+    await fs.mkdir(path.join(dir, "attachments", "JE-000004"), { recursive: true });
     await fs.writeFile(path.join(dir, rel), text);
     const ref = {
       path: rel,
@@ -253,22 +249,16 @@ describe("scope:recorded reducer and entry-stream projection", () => {
     };
 
     const arrayResult = await deriveActualScope([scopeEntry(1, logical)], dir);
-    const inlineResult = await deriveActualScope(
-      [scopeEntry(2, { mode: "inline", text })],
-      dir,
-    );
-    const sidecarResult = await deriveActualScope(
-      [scopeEntry(3, { mode: "sidecar", ref })],
-      dir,
-    );
+    const inlineResult = await deriveActualScope([scopeEntry(2, { mode: "inline", text })], dir);
+    const sidecarResult = await deriveActualScope([scopeEntry(3, { mode: "sidecar", ref })], dir);
     expect(inlineResult).toEqual(arrayResult);
     expect(sidecarResult).toEqual(arrayResult);
   });
 
   test("sidecar integrity mismatch fails loudly", async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "loaf-scope-projection-"));
-    const rel = "attachments/JE-000003/paths.txt";
-    await fs.mkdir(path.join(dir, "attachments", "JE-000003"), { recursive: true });
+    const rel = "attachments/JE-000004/paths.txt";
+    await fs.mkdir(path.join(dir, "attachments", "JE-000004"), { recursive: true });
     await fs.writeFile(path.join(dir, rel), JSON.stringify(["src/a.ts"]));
 
     await expect(

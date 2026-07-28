@@ -95,6 +95,34 @@ describe("promoteSidecars — Stage 4 §11.2 step 4", () => {
     const promoted = await promoteSidecars(e, root, { fsync: false });
     expect(promoted).toEqual(e);
   });
+
+  test("LongTextField-shaped data outside the explicit kind/field registry is not promoted", async () => {
+    const root = await tmpRoot();
+    const e = {
+      ...entryWithSummary("kept"),
+      payload: { fake: { mode: "inline", text: "x".repeat(10_000) } },
+    } as JournalEntry;
+
+    const promoted = await promoteSidecars(e, root, { fsync: false });
+    expect(promoted).toEqual(e);
+    await expect(fs.readdir(path.join(root, "attachments"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+
+  test("an existing sidecar ref must own the entry bucket and registered slot", async () => {
+    const root = await tmpRoot();
+    const e = entryWithSummary("ignored", "sidecar");
+    (
+      e.payload as {
+        summary: { mode: "sidecar"; ref: { path: string } };
+      }
+    ).summary.ref.path = "attachments/JE-000002/summary.txt";
+
+    await expect(promoteSidecars(e, root, { fsync: false })).rejects.toMatchObject({
+      code: "ATTACHMENT_UNAUTHORIZED",
+    });
+  });
 });
 
 describe("listOrphanSidecars / cleanupOrphanSidecars — orphan GC", () => {

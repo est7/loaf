@@ -2,10 +2,7 @@
 // Payload sidecars are resolved and integrity-checked here because the
 // synchronous reducer deliberately treats this audit-only kind as a no-op.
 
-import { createHash } from "node:crypto";
-import { promises as fsp } from "node:fs";
-import path from "node:path";
-
+import { readAttachment } from "./attachment-authority.js";
 import {
   CanonicalScopePaths,
   ScopeRecordedPayload,
@@ -35,15 +32,10 @@ function isExecuteClosure(entry: JournalEntry): boolean {
   );
 }
 
-function hasSameBatchScopeMarker(
-  closure: JournalEntry,
-  entries: readonly JournalEntry[],
-): boolean {
+function hasSameBatchScopeMarker(closure: JournalEntry, entries: readonly JournalEntry[]): boolean {
   return (
     closure.batch_id !== undefined &&
-    entries.some(
-      (entry) => entry.kind === "scope:recorded" && entry.batch_id === closure.batch_id,
-    )
+    entries.some((entry) => entry.kind === "scope:recorded" && entry.batch_id === closure.batch_id)
   );
 }
 
@@ -64,16 +56,7 @@ export async function resolveScopePaths(
   if (Array.isArray(payload.paths)) return payload.paths;
   if (payload.paths.mode === "inline") return parseCanonicalPathsText(payload.paths.text);
 
-  const ref = payload.paths.ref;
-  const buf = await fsp.readFile(path.join(featureDir, ref.path));
-  const sha256 = createHash("sha256").update(buf).digest("hex");
-  if (sha256 !== ref.sha256 || buf.byteLength !== ref.size) {
-    throw new Error(
-      `scope sidecar ${ref.path} integrity mismatch ` +
-        `(sha256 ${sha256 === ref.sha256 ? "ok" : "MISMATCH"}, ` +
-        `size ${buf.byteLength}≟${ref.size})`,
-    );
-  }
+  const buf = await readAttachment(featureDir, entry, "paths", payload.paths.ref);
   return parseCanonicalPathsText(buf.toString("utf8"));
 }
 
