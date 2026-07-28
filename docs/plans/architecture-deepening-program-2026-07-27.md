@@ -82,7 +82,7 @@ replace `Pending` evidence with the commands and results that actually ran.
 | A20 | Correct | Fault-sensitive mutation/rebuild equivalence proof | A15, A19 | [x] Complete |
 | A21 | Correct | Executable skill-to-CLI journey | A14, A20 | [x] Complete |
 | A22 | Correct | Truthful feature-lease contract and diagnostics | A04, A17 | [x] Complete |
-| A23 | Correct | Audit evidence and supersession trail | A12, A16, A19 | [ ] Pending |
+| A23 | Correct | Audit evidence and supersession trail | A12, A16, A19 | [x] Complete |
 | A24 | Implement | Breaking-contract release identity gate | A08, A10, A12, A23 | [ ] Pending |
 
 The serial order is deliberate. Attachment confinement precedes refactoring;
@@ -794,8 +794,11 @@ projection for new sessions. No journal rewrite.
   and `reason` remain protected execution-history fields.
 - Proof tests pin that a done task carrying only a historical ref still fails
   without a passing evidence-ledger entry that covers the task.
-- The A12 focused suites passed (281 tests), together with typecheck, lint,
-  generated-artifact verification, and the production build.
+- The A12 focused suites passed (281 tests), together with typecheck, lint, and
+  the production build. The commit did **not** update the checked-in public
+  schema snapshot: 28 stale `evidence_refs` occurrences remained and made the
+  full suite fail until A19 repaired the omission. A23 records that boundary
+  instead of retroactively claiming generated-artifact verification passed.
 
 ## A13 — Dead context-pack contract
 
@@ -1157,7 +1160,9 @@ and the local commit sequence is independently auditable.
   baseline user-owned untracked paths and publishing HEAD to `origin/main`
   are both outside this program's explicit non-goals.
 - [x] `dist/cli.mjs` matches the final source.
-- [x] Git history contains one scoped commit per task and no user-owned path.
+- [x] Git history contains one task-intent commit per task and no user-owned
+  path. It is not independently full-suite-bisectable across A12–A18: A12's
+  stale public schema snapshot was repaired by A19 and is disclosed below.
 - [x] `git status --short --branch` contains only the pre-existing user-owned
   untracked paths listed in the baseline.
 
@@ -1190,6 +1195,13 @@ A19 audit commit, `git log 2d0840c..HEAD` contained exactly 19 scoped A00–A18
 commits, and `git status --short --branch` contained no tracked change plus
 only `.agents/skills/`, `.audit/`, `.orch/`, and
 `audit-report-2026-07-15.md`.
+
+The omission means commits `153ebaa`, `496c6b5`, `e82a25e`, `7bd92af`,
+`3ce7780`, and `e27d05f` did not pass `bun run test`; `8c98379` is the first
+commit that repaired the snapshot. The history therefore preserves one
+task-intent commit per ledger item but is not full-suite green at every
+intermediate revision. A23 intentionally corrects the evidence rather than
+rewriting already reviewed local commits.
 
 ## A20 — Fault-sensitive mutation/rebuild equivalence proof
 
@@ -1345,7 +1357,7 @@ typecheck, lint, and production build passed.
 
 ## A23 — Audit evidence and supersession trail
 
-**Status:** [ ] Pending
+**Status:** [x] Complete
 **Commit subject:** `docs(architecture): correct audit evidence trail`
 
 ### Destination
@@ -1355,13 +1367,13 @@ schema snapshot remained stale until A19 and fix F-026 task attribution.
 
 ### Acceptance criteria
 
-- [ ] A12 evidence no longer claims its commit passed generated-artifact
+- [x] A12 evidence no longer claims its commit passed generated-artifact
   verification.
-- [ ] A19 states explicitly that it repaired an A12 omission and that the
+- [x] A19 states explicitly that it repaired an A12 omission and that the
   intermediate commits were not full-suite green.
-- [ ] The ledger distinguishes one task-intent commit from independently
+- [x] The ledger distinguishes one task-intent commit from independently
   bisectable history.
-- [ ] ADR-0003 attributes the F-026 disposition to A16 and includes the retired
+- [x] ADR-0003 attributes the F-026 disposition to A16 and includes the retired
   `[d]` alias.
 
 ### Validation
@@ -1371,6 +1383,15 @@ schema snapshot remained stale until A19 and fix F-026 task attribution.
 ### Migration and recovery
 
 Documentation correction only; git history is preserved.
+
+### Evidence
+
+A12 now records the exact generated-snapshot omission rather than claiming the
+check passed. A19 names the six affected revisions, the A19 repair commit, and
+the distinction between task-intent granularity and full-suite bisectability.
+ADR-0003 attributes the read-only TUI/F-026 disposition to A16 and lists the
+retired `[d]` alias alongside the other superseded promises. Focused
+documentation and protocol contract tests passed.
 
 ## A24 — Breaking-contract release identity gate
 
