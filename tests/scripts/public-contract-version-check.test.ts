@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 
@@ -62,6 +62,18 @@ afterEach(() => {
 });
 
 describe("public-contract-version-check.sh", () => {
+  test("quality CI fetches the baseline tag required by the release identity gate", () => {
+    const workflow = readFileSync(path.join(REPO_ROOT, ".github/workflows/ci.yml"), "utf8");
+    const qualityJob = workflow.slice(
+      workflow.indexOf("  quality:"),
+      workflow.indexOf("  release-consistency:"),
+    );
+
+    expect(qualityJob).toMatch(
+      /- uses: actions\/checkout@v4\s+with:\s+fetch-depth: 0/,
+    );
+  });
+
   test("rejects breaking contracts published under the baseline identity", () => {
     const repo = fixture("0.6.0", "0.6.0");
     const result = runShellScript("public-contract-version-check.sh", ["--repo", repo]);
