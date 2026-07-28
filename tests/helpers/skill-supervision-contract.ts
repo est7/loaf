@@ -1,12 +1,18 @@
 import { readFileSync } from "node:fs";
 
+import {
+  NextOwnerVerb as NextOwnerVerbSchema,
+  type NextOwnerVerb,
+} from "../../src/core/reducer/transition.js";
+
 export interface SkillSupervisionContract {
   schema: 1;
   route_command: string;
-  automatic_owner_verbs: string[];
+  automatic_owner_verbs: NextOwnerVerb[];
   human_stops: Array<{
     id: string;
     command_prefix: string;
+    owner_verb: NextOwnerVerb;
   }>;
 }
 
@@ -30,12 +36,29 @@ export function parseSkillSupervisionContract(text: string): SkillSupervisionCon
         typeof stop === "object" &&
         stop !== null &&
         typeof stop.id === "string" &&
-        typeof stop.command_prefix === "string",
+        typeof stop.command_prefix === "string" &&
+        typeof stop.owner_verb === "string",
     )
   ) {
     throw new Error("skills/run/SKILL.md has an invalid loaf supervision contract");
   }
-  return value as SkillSupervisionContract;
+  const contract = value as SkillSupervisionContract;
+  const automatic = new Set(
+    contract.automatic_owner_verbs.map((verb) => NextOwnerVerbSchema.parse(verb)),
+  );
+  const human = new Set(
+    contract.human_stops.map((stop) => NextOwnerVerbSchema.parse(stop.owner_verb)),
+  );
+  const overlap = [...automatic].filter((verb) => human.has(verb));
+  if (overlap.length > 0) {
+    throw new Error(`skill supervision ownership overlaps: ${overlap.join(", ")}`);
+  }
+  const classified = new Set([...automatic, ...human]);
+  const missing = NextOwnerVerbSchema.options.filter((verb) => !classified.has(verb));
+  if (missing.length > 0) {
+    throw new Error(`skill supervision ownership is incomplete: ${missing.join(", ")}`);
+  }
+  return contract;
 }
 
 export function loadSkillSupervisionContract(skillPath: string): SkillSupervisionContract {
@@ -48,12 +71,19 @@ export type SkillAdviceClassification =
 
 export function classifySkillAdvice(
   contract: SkillSupervisionContract,
-  advice: { command: string; owner_verb: string },
+  advice: { command: string; owner_verb: NextOwnerVerb },
 ): SkillAdviceClassification {
   const humanStop = contract.human_stops.find((stop) =>
     advice.command.startsWith(stop.command_prefix),
   );
-  if (humanStop !== undefined) return { kind: "human-stop", id: humanStop.id };
+  if (humanStop !== undefined) {
+    if (humanStop.owner_verb !== advice.owner_verb) {
+      throw new Error(
+        `skill supervision owner mismatch for ${humanStop.id}: expected ${humanStop.owner_verb}, got ${advice.owner_verb}`,
+      );
+    }
+    return { kind: "human-stop", id: humanStop.id };
+  }
   if (contract.automatic_owner_verbs.includes(advice.owner_verb)) {
     return { kind: "automatic" };
   }

@@ -12,6 +12,7 @@ import {
   classifySkillAdvice,
   parseSkillSupervisionContract,
 } from "../helpers/skill-supervision-contract.js";
+import { NextOwnerVerb } from "../../src/core/reducer/transition.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..", "..");
@@ -122,6 +123,18 @@ describe("skills semantic drift gate", () => {
         owner_verb: "deliver",
       }),
     ).toEqual({ kind: "human-stop", id: "deliver" });
+    expect(
+      classifySkillAdvice(supervision, {
+        command: "loaf settle --feature-dir /tmp/feature",
+        owner_verb: "settle",
+      }),
+    ).toEqual({ kind: "human-stop", id: "settle" });
+    expect(
+      new Set([
+        ...supervision.automatic_owner_verbs,
+        ...supervision.human_stops.map((stop) => stop.owner_verb),
+      ]),
+    ).toEqual(new Set(NextOwnerVerb.options));
   });
 
   test("supervision classification fails when a required human stop drifts", () => {
@@ -135,6 +148,30 @@ describe("skills semantic drift gate", () => {
         owner_verb: "deliver",
       }),
     ).toThrow("does not classify deliver");
+  });
+
+  test("supervision contract rejects contradictory automatic and human ownership", () => {
+    const run = readFileSync(path.join(SKILLS_ROOT, "run", "SKILL.md"), "utf8");
+    expect(() =>
+      parseSkillSupervisionContract(
+        run.replace(
+          '"automatic_owner_verbs": ["advance", "tasks next"]',
+          '"automatic_owner_verbs": ["advance", "tasks next", "deliver"]',
+        ),
+      ),
+    ).toThrow("ownership overlaps: deliver");
+  });
+
+  test("supervision contract rejects incomplete kernel owner coverage", () => {
+    const run = readFileSync(path.join(SKILLS_ROOT, "run", "SKILL.md"), "utf8");
+    const withoutSettle = run.replace(
+      /    \{\n      "id": "settle",\n      "command_prefix": "loaf settle",\n      "owner_verb": "settle"\n    \},\n/,
+      "",
+    );
+    expect(withoutSettle).not.toBe(run);
+    expect(() => parseSkillSupervisionContract(withoutSettle)).toThrow(
+      "ownership is incomplete: settle",
+    );
   });
 
   test("skill instructions never authorize direct loaf artifact mutation", () => {

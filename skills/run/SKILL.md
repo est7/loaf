@@ -59,23 +59,33 @@ targets and commands.
   "human_stops": [
     {
       "id": "spec-lock",
-      "command_prefix": "loaf gate decide spec-lock"
+      "command_prefix": "loaf gate decide spec-lock",
+      "owner_verb": "gate decide"
     },
     {
       "id": "verify-accept",
-      "command_prefix": "loaf gate decide verify-accept"
+      "command_prefix": "loaf gate decide verify-accept",
+      "owner_verb": "gate decide"
     },
     {
       "id": "deliver",
-      "command_prefix": "loaf deliver"
+      "command_prefix": "loaf deliver",
+      "owner_verb": "deliver"
+    },
+    {
+      "id": "settle",
+      "command_prefix": "loaf settle",
+      "owner_verb": "settle"
     },
     {
       "id": "pending",
-      "command_prefix": "loaf pending resolve"
+      "command_prefix": "loaf pending resolve",
+      "owner_verb": "pending resolve"
     },
     {
       "id": "profile-escalation",
-      "command_prefix": "loaf profile escalate"
+      "command_prefix": "loaf profile escalate",
+      "owner_verb": "profile escalate"
     }
   ]
 }

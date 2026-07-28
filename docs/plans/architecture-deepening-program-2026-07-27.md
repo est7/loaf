@@ -86,7 +86,7 @@ replace `Pending` evidence with the commands and results that actually ran.
 | A23 | Correct | Audit evidence and supersession trail | A12, A16, A19 | [x] Complete |
 | A24 | Implement | Breaking-contract release identity gate | A08, A10, A12, A23 | [x] Complete |
 | A25 | Correct | Activate the release-identity gate | A24 | [x] Complete |
-| A26 | Correct | Complete skill supervision ownership | A21 | [ ] Pending |
+| A26 | Correct | Complete skill supervision ownership | A21 | [x] Complete |
 | A27 | Correct | Rebuild-fixture path disclosure | A20 | [ ] Pending |
 
 The serial order is deliberate. Attachment confinement precedes refactoring;
@@ -1491,7 +1491,7 @@ lint passed.
 
 ## A26 — Complete skill supervision ownership
 
-**Status:** [ ] Pending
+**Status:** [x] Complete
 **Commit subject:** `test(skills): bind supervision owner coverage`
 
 ### Destination
@@ -1501,12 +1501,12 @@ vocabulary and reject contradictory automatic/human ownership.
 
 ### Acceptance criteria
 
-- [ ] Human-stop and automatic owner verbs are disjoint.
-- [ ] Every `NextOwnerVerb` is classified by the skill contract.
-- [ ] Deep-ceremony `settle` advice is classified without making it automatic.
-- [ ] Kernel owner-verb additions fail the semantic gate until skill ownership
+- [x] Human-stop and automatic owner verbs are disjoint.
+- [x] Every `NextOwnerVerb` is classified by the skill contract.
+- [x] Deep-ceremony `settle` advice is classified without making it automatic.
+- [x] Kernel owner-verb additions fail the semantic gate until skill ownership
   is declared.
-- [ ] Targeted contradictory and incomplete contracts fail negative controls.
+- [x] Targeted contradictory and incomplete contracts fail negative controls.
 
 ### Validation
 
@@ -1517,6 +1517,17 @@ vocabulary and reject contradictory automatic/human ownership.
 ### Migration and recovery
 
 Test/skill ownership contract only; kernel routing remains authoritative.
+
+### Evidence
+
+Every human stop now carries its kernel `owner_verb`; `settle` is explicitly
+human-owned. The parser validates each value through the runtime
+`NextOwnerVerb` schema, rejects overlap with automatic verbs, and requires the
+union of both ownership classes to equal the schema's complete option set.
+Classification also rejects a command-prefix/owner-verb mismatch. Semantic
+negative controls inject contradictory `deliver` ownership and remove
+`settle`; both fail. The semantic and supervised-journey suites passed 13
+tests with 30 unrelated E2E cases skipped; typecheck and lint passed.
 
 ## A27 — Rebuild-fixture path disclosure
 
