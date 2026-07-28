@@ -119,10 +119,13 @@ function behavioralTask(): Record<string, unknown> {
 }
 
 /**
- * Seed a real journal.jsonl under `dir` via the production mutation path.
- * With a plan, the fixture reaches EXECUTE.work and produces every projection
- * rebuilt by doctor, including non-empty evidence/finding/pending ledgers,
- * a sidecar-backed evidence summary, and the top-level lessons.md projection.
+ * Seed a real journal.jsonl under `dir`. Projection-producing facts use the
+ * production mutation path. The spec-lock gate seed uses appendEntry + apply
+ * because normal gate admission requires a pending gate-decision prompt, which
+ * is orthogonal to this rebuild fixture. With a plan, the fixture reaches
+ * EXECUTE.work and produces every projection rebuilt by doctor, including
+ * non-empty evidence/finding/pending ledgers, a sidecar-backed evidence
+ * summary, and the top-level lessons.md projection.
  */
 async function seedJournal(dir: string, opts: { withPlan: boolean }): Promise<void> {
   let snapshot: Snapshot = initialSnapshot();
@@ -205,6 +208,9 @@ async function seedJournal(dir: string, opts: { withPlan: boolean }): Promise<vo
       },
     ]);
 
+    // Deliberate fixture-only admission bypass: A20 proves projection
+    // equivalence, not gate-decision admission. appendEntry + apply keeps the
+    // journal/snapshot pair coherent without manufacturing a pending prompt.
     const journalPath = path.join(dir, "journal.jsonl");
     const gateSeq = tail + 1;
     const gateEntry: JournalEntry = {

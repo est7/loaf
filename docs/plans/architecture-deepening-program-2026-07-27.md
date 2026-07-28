@@ -87,7 +87,7 @@ replace `Pending` evidence with the commands and results that actually ran.
 | A24 | Implement | Breaking-contract release identity gate | A08, A10, A12, A23 | [x] Complete |
 | A25 | Correct | Activate the release-identity gate | A24 | [x] Complete |
 | A26 | Correct | Complete skill supervision ownership | A21 | [x] Complete |
-| A27 | Correct | Rebuild-fixture path disclosure | A20 | [ ] Pending |
+| A27 | Correct | Rebuild-fixture path disclosure | A20 | [x] Complete |
 
 The serial order is deliberate. Attachment confinement precedes refactoring;
 the feature lease precedes result and CLI mutation ownership; task intake lands
@@ -1531,7 +1531,7 @@ tests with 30 unrelated E2E cases skipped; typecheck and lint passed.
 
 ## A27 — Rebuild-fixture path disclosure
 
-**Status:** [ ] Pending
+**Status:** [x] Complete
 **Commit subject:** `test(core): disclose rebuild fixture gate seed`
 
 ### Destination
@@ -1541,10 +1541,10 @@ all projection-producing entries use production mutation.
 
 ### Acceptance criteria
 
-- [ ] The fixture docstring no longer claims every entry uses production
+- [x] The fixture docstring no longer claims every entry uses production
   mutation.
-- [ ] The gate seed explains why it bypasses normal gate-decision admission.
-- [ ] No observable test behavior or production code changes.
+- [x] The gate seed explains why it bypasses normal gate-decision admission.
+- [x] No observable test behavior or production code changes.
 
 ### Validation
 
@@ -1553,3 +1553,12 @@ all projection-producing entries use production mutation.
 ### Migration and recovery
 
 Comment-only test clarification.
+
+### Evidence
+
+The fixture now states that projection-producing facts use production mutation
+while the spec-lock seed deliberately uses `appendEntry + apply` to avoid
+manufacturing an unrelated pending gate prompt. The adjacent comment records
+that this keeps journal and snapshot truth coherent while limiting the bypass
+to fixture admission. The focused doctor-rebuild suite passed 13 tests; the
+diff changes only test comments and this ledger.
