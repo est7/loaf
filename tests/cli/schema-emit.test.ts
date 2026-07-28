@@ -23,7 +23,10 @@ import {
   SpecAddScenarioInput,
   SpecAddVisualInput,
 } from "../../src/core/spec-schema.js";
-import { TaskInputBatched } from "../../src/core/task-schema.js";
+import {
+  TaskAuthoringInputBatched,
+  TasksSubmitInput,
+} from "../../src/core/task-schema.js";
 
 const DRAFT = "https://json-schema.org/draft/2020-12/schema";
 
@@ -78,6 +81,16 @@ describe("emitInputSchema — 5 mutators with root anyOf (batchOrSingle)", () =>
       expect(hasPropertyDeep(schema, descendantKey)).toBe(true);
     });
   }
+});
+
+describe("emitInputSchema — tasks submit strict graph object", () => {
+  test("tasks:submit: root object owns semantic tasks and excludes based_on", () => {
+    const schema = emitInputSchema("tasks:submit") as JsonSchemaNode;
+    expect(schema["$schema"]).toBe(DRAFT);
+    expect(schema["type"]).toBe("object");
+    expect(hasPropertyDeep(schema, "local_key")).toBe(true);
+    expect(hasPropertyDeep(schema, "based_on")).toBe(false);
+  });
 });
 
 // ───────────────────────────────────────────────────────────────────────
@@ -163,6 +176,7 @@ describe("current public schema output baseline", () => {
     "spec:add-req",
     "spec:add-scenario",
     "spec:add-visual",
+    "tasks:submit",
     "tasks:add",
     "evidence:add",
   ];
@@ -171,7 +185,8 @@ describe("current public schema output baseline", () => {
     expect(INPUT_SCHEMAS["spec:add-req"]).toBe(SpecAddReqInput);
     expect(INPUT_SCHEMAS["spec:add-scenario"]).toBe(SpecAddScenarioInput);
     expect(INPUT_SCHEMAS["spec:add-visual"]).toBe(SpecAddVisualInput);
-    expect(INPUT_SCHEMAS["tasks:add"]).toBe(TaskInputBatched);
+    expect(INPUT_SCHEMAS["tasks:submit"]).toBe(TasksSubmitInput);
+    expect(INPUT_SCHEMAS["tasks:add"]).toBe(TaskAuthoringInputBatched);
     expect(INPUT_SCHEMAS["evidence:add"]).toBe(EvidenceAddInputBatched);
   });
 

@@ -398,6 +398,170 @@ export type TaskInput = z.infer<typeof TaskInput>;
 
 export const TaskInputBatched = z.union([TaskInput, z.array(TaskInput).nonempty()]);
 
+// ── Semantic task authoring input ──────────────────────────────────────
+//
+// `tasks submit` and `tasks add` accept local graph identities rather than
+// journal-ready task bodies. A dependency ref is explicit about whether it
+// targets an already allocated task id or another item in the same input.
+// The CLI resolves these refs and removes `local_key` before journal append.
+
+export const TaskLocalKey = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(/^[A-Za-z][A-Za-z0-9_-]*$/);
+export type TaskLocalKey = z.infer<typeof TaskLocalKey>;
+
+export const TaskDependencyRef = z.union([
+  z.object({ task_id: TaskIdPayload }).strict(),
+  z.object({ local_key: TaskLocalKey }).strict(),
+]);
+export type TaskDependencyRef = z.infer<typeof TaskDependencyRef>;
+
+const TaskAuthoringBaseShape = {
+  local_key: TaskLocalKey,
+  drives: z.array(RawDrivesRef).optional(),
+  depends_on: z.array(TaskDependencyRef).default([]),
+  labels: z.array(z.string()).default([]),
+};
+
+const BehavioralStepPolicy = z
+  .object({
+    red: ApplicabilityPayload.optional(),
+    implement: ApplicabilityPayload.optional(),
+    refactor: ApplicabilityPayload.optional(),
+  })
+  .strict();
+const StructuralStepPolicy = z
+  .object({
+    implement: ApplicabilityPayload.optional(),
+    refactor: ApplicabilityPayload.optional(),
+  })
+  .strict();
+const VisualUiStepPolicy = z
+  .object({
+    mockup: ApplicabilityPayload.optional(),
+    implement: ApplicabilityPayload.optional(),
+    "screenshot-compare": ApplicabilityPayload.optional(),
+  })
+  .strict();
+const DocsStepPolicy = z
+  .object({
+    draft: ApplicabilityPayload.optional(),
+    review: ApplicabilityPayload.optional(),
+  })
+  .strict();
+const SpikeStepPolicy = z
+  .object({
+    explore: ApplicabilityPayload.optional(),
+    prototype: ApplicabilityPayload.optional(),
+    record: ApplicabilityPayload.optional(),
+  })
+  .strict();
+const ChoreStepPolicy = z.object({ execute: ApplicabilityPayload.optional() }).strict();
+
+export const TaskBehavioralAuthoringInput = z
+  .object({
+    ...TaskAuthoringBaseShape,
+    kind: z.literal(TaskKind.enum.behavioral),
+    drives: z.array(RawDrivesRef).min(1),
+    tests: z.array(z.string().min(3)).min(1),
+    test_layer: z.enum(["unit", "integration", "e2e"]).optional(),
+    step_policy: BehavioralStepPolicy.optional(),
+    requires_acceptance: z.boolean().optional(),
+    requires_visual: z.boolean().optional(),
+  })
+  .strict();
+
+export const TaskStructuralAuthoringInput = z
+  .object({
+    ...TaskAuthoringBaseShape,
+    kind: z.literal(TaskKind.enum.structural),
+    no_test_rationale: z.string().min(10),
+    step_policy: StructuralStepPolicy.optional(),
+  })
+  .strict();
+
+export const TaskVisualUiAuthoringInput = z
+  .object({
+    ...TaskAuthoringBaseShape,
+    kind: z.literal(TaskKind.enum["visual-ui"]),
+    visual_contract_refs: z.array(VisIdPayload).min(1),
+    no_test_rationale: z.string().min(10).optional(),
+    step_policy: VisualUiStepPolicy.optional(),
+  })
+  .strict();
+
+export const TaskDocsAuthoringInput = z
+  .object({
+    ...TaskAuthoringBaseShape,
+    kind: z.literal(TaskKind.enum.docs),
+    no_test_rationale: z.string().min(10),
+    step_policy: DocsStepPolicy.optional(),
+  })
+  .strict();
+
+export const TaskSpikeAuthoringInput = z
+  .object({
+    ...TaskAuthoringBaseShape,
+    kind: z.literal(TaskKind.enum.spike),
+    no_test_rationale: z.string().min(10),
+    step_policy: SpikeStepPolicy.optional(),
+  })
+  .strict();
+
+export const TaskChoreAuthoringInput = z
+  .object({
+    ...TaskAuthoringBaseShape,
+    kind: z.literal(TaskKind.enum.chore),
+    no_test_rationale: z.string().min(10),
+    step_policy: ChoreStepPolicy.optional(),
+  })
+  .strict();
+
+export const TaskAuthoringInput = z.union([
+  TaskBehavioralAuthoringInput,
+  TaskStructuralAuthoringInput,
+  TaskVisualUiAuthoringInput,
+  TaskDocsAuthoringInput,
+  TaskSpikeAuthoringInput,
+  TaskChoreAuthoringInput,
+]);
+export type TaskAuthoringInput = z.infer<typeof TaskAuthoringInput>;
+
+function rejectDuplicateLocalKeys(
+  items: readonly TaskAuthoringInput[],
+  ctx: z.RefinementCtx,
+): void {
+  const firstIndex = new Map<string, number>();
+  for (let index = 0; index < items.length; index += 1) {
+    const localKey = items[index]!.local_key;
+    const first = firstIndex.get(localKey);
+    if (first === undefined) {
+      firstIndex.set(localKey, index);
+      continue;
+    }
+    ctx.addIssue({
+      code: "custom",
+      message: `duplicate local_key '${localKey}' at indexes ${first} and ${index}`,
+      path: [index, "local_key"],
+    });
+  }
+}
+
+export const TaskAuthoringBatch = z
+  .array(TaskAuthoringInput)
+  .nonempty()
+  .superRefine(rejectDuplicateLocalKeys);
+export const TaskAuthoringInputBatched = z.union([TaskAuthoringInput, TaskAuthoringBatch]);
+
+export const TasksSubmitInput = z
+  .object({
+    tasks: TaskAuthoringBatch,
+  })
+  .strict();
+export type TasksSubmitInput = z.infer<typeof TasksSubmitInput>;
+
 // Per-kind execution step set, derived from the *ExecutionPayload schemas
 // so it cannot drift from them.
 const KIND_EXECUTION_STEPS: Record<TaskFullProjection["kind"], readonly string[]> = {
@@ -419,7 +583,11 @@ const KIND_EXECUTION_STEPS: Record<TaskFullProjection["kind"], readonly string[]
 export function materializeTaskInput(input: TaskInput, id: string): TaskFullPayload {
   const execution: Record<string, TaskExecutionStepPayload> = {};
   for (const step of KIND_EXECUTION_STEPS[input.kind]) {
-    execution[step] = { applicability: "must", status: "pending", evidence_refs: [] };
+    execution[step] = {
+      applicability: "must",
+      status: "pending",
+      evidence_refs: [],
+    };
   }
   return { ...input, id, status: "pending", execution } as TaskFullPayload;
 }

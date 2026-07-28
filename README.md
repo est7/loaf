@@ -46,8 +46,8 @@ loaf spec status --feature <feature>
 loaf spec submit --input <src> --feature <feature>
 loaf spec edit --input <src> --feature <feature>  # strict JSON {"body":"<Markdown>"}; preserves frontmatter
 loaf spec add-req|add-scenario|add-visual --input <src> --feature <feature>
-loaf tasks submit --input <src>
-loaf tasks add --input <src> [--finding <FND-N>]
+loaf tasks submit --input <src> [--schema]
+loaf tasks add --input <src> [--schema] [--finding <FND-N>]
 loaf tasks amend <T-N> [--policy <json>|--input <src>] [--finding <FND-N>]
 loaf tasks claim|list|next
 loaf tasks step start|done
@@ -69,6 +69,15 @@ loaf doctor --rebuild --feature <feature>                            # other doc
 ```
 
 The authoritative command surface lives in [`docs/protocol.md`](docs/protocol.md) §10.8.
+
+Task authoring input is semantic and strict: every task supplies a unique
+`local_key`, while `depends_on` uses explicit `{ "local_key": "..." }` or
+`{ "task_id": "T-..." }` references. The CLI allocates permanent task IDs
+under the feature write lease and returns `task_ids_by_local_key`. Callers must
+not send journal-owned `id`, `status`, `execution`, or `based_on` fields.
+Existing full task-plan input is intentionally rejected; historical journal
+entries remain replay-compatible. Run `loaf tasks submit --schema --format
+json` for the exact contract.
 
 `loaf board` starts a read-only local browser board on loopback
 (`http://127.0.0.1:41738/` by default). It reads the same registry and snapshot

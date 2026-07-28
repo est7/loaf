@@ -521,7 +521,7 @@ Internal refactor. Public input behavior is characterized before extraction.
 
 ## A08 — Strict CLI-owned task intake
 
-**Status:** [ ] Pending
+**Status:** [x] Complete
 **Commit subject:** `feat(cli): allocate task ids from strict submit input`
 
 ### Destination
@@ -539,17 +539,17 @@ unchanged full journal payload.
 
 ### Acceptance criteria
 
-- [ ] `TasksSubmitInput` is strict and rejects caller-owned IDs, status,
+- [x] `TasksSubmitInput` is strict and rejects caller-owned IDs, status,
   execution progress, envelope fields, duplicate local keys, and unknown keys.
-- [ ] Dependency refs distinguish existing `task_id` from same-batch
+- [x] Dependency refs distinguish existing `task_id` from same-batch
   `local_key`.
-- [ ] Two-pass allocation resolves forward refs deterministically under the
+- [x] Two-pass allocation resolves forward refs deterministically under the
   feature lease.
-- [ ] `tasks add` uses the same semantic dependency-ref contract.
-- [ ] The resulting journal payload remains the existing full task shape and
+- [x] `tasks add` uses the same semantic dependency-ref contract.
+- [x] The resulting journal payload remains the existing full task shape and
   replays on the prior reader.
-- [ ] `tasks submit --schema` describes the real authoring contract.
-- [ ] Migration policy is explicit: a bounded legacy full-input compatibility
+- [x] `tasks submit --schema` describes the real authoring contract.
+- [x] Migration policy is explicit: a bounded legacy full-input compatibility
   path is either implemented with a deprecation signal or intentionally
   rejected as the approved breaking change.
 
@@ -565,7 +565,15 @@ input-only and must return the allocated `local_key -> task_id` map.
 
 ### Evidence
 
-Pending.
+- Strict authoring contract and two-pass forward-ref allocation:
+  `tests/cli/task-authoring.test.ts` (4 tests).
+- CLI modality, output mapping, graph admission, schema, replay, feature-lease,
+  and journal mutation suites: 118 focused tests passed.
+- Main CLI regression suite: 167 tests passed.
+- Full repository suite: 174 files / 2661 tests passed.
+- `bun run lint`, `bun run typecheck`, and `bun run verify:codegen` passed.
+- Migration decision is recorded in `README.md`, protocol §4.3 / §10.7 /
+  §10.8, and the ADR-0004 partial-supersession note.
 
 ## A09 — Canonical scope-closure fact policy
 

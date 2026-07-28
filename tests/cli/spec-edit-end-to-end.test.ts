@@ -858,20 +858,16 @@ describe("SC-12a-2 — flags + actor", () => {
         "submit",
         "--input",
         JSON.stringify({
-          based_on: { spec: 2 },
           tasks: [
             {
-              id: "T-001",
+              local_key: "seed-task",
               kind: "behavioral",
               drives: ["REQ-AUTH-001"],
               tests: ["TokenCoord.refreshOnce"],
-              status: "pending",
               depends_on: [],
               labels: [],
-              execution: {
-                red: { applicability: "must", status: "pending", evidence_refs: [] },
-                implement: { applicability: "must", status: "pending", evidence_refs: [] },
-                refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+              step_policy: {
+                refactor: "optional",
               },
             },
           ],

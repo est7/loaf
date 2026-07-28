@@ -14,6 +14,13 @@ import { EvidenceKind } from "../../src/core/evidence-schema.js";
 import { KIND_REGISTRY } from "../../src/core/kind-registry.js";
 import { defaultLoafConfig, LoafConfig, loafConfigPath } from "../../src/core/loaf-config.js";
 import { UserConfig, userConfigPath } from "../../src/core/user-config.js";
+import { taskAuthoringFixture } from "../helpers/task-authoring-fixture.js";
+
+function taskAuthoringJson(
+  payload: Parameters<typeof taskAuthoringFixture>[0],
+): string {
+  return JSON.stringify(taskAuthoringFixture(payload));
+}
 
 async function tmpFeatureDir(): Promise<string> {
   return await fs.mkdtemp(path.join(os.tmpdir(), "loaf-cli-test-"));
@@ -467,7 +474,7 @@ prose body here
   const tasksFile = path.join(dir, ".tasks-seed.json");
   await fsP.writeFile(
     tasksFile,
-    JSON.stringify({
+    taskAuthoringJson({
       based_on: { spec: 1 },
       tasks: [
         {
@@ -1562,7 +1569,7 @@ prose body here
   const settleTasksFile = path.join(dir, ".tasks-settle-seed.json");
   await fsP.writeFile(
     settleTasksFile,
-    JSON.stringify({
+    taskAuthoringJson({
       based_on: { spec: 1 },
       tasks: [
         {
@@ -1927,7 +1934,7 @@ describe("loaf deliver — Slice 1.D sub-cycle 2 (MVP)", () => {
     const replanFile = path.join(dir, ".tasks-spike-replan.json");
     await fsP.writeFile(
       replanFile,
-      JSON.stringify({
+      taskAuthoringJson({
         based_on: { spec: 1 },
         tasks: [
           {
@@ -2006,7 +2013,7 @@ describe("loaf deliver — Slice 1.D sub-cycle 2 (MVP)", () => {
     meta = lockBatch.meta;
     tailSeq += 2;
 
-    // F-016: walk to EXECUTE.work, drive the spike task T-002 to done (it
+    // F-016: walk to EXECUTE.work, drive the newly allocated spike task T-003 to done (it
     // must stay non-abandoned to trigger DELIVER_SPIKE_TASKS) and abandon
     // the behavioral T-001, then cross EXECUTE.done. The spike hard block
     // is source-agnostic (protocol §703 / §1298), so deliver is exercised
@@ -2032,7 +2039,7 @@ describe("loaf deliver — Slice 1.D sub-cycle 2 (MVP)", () => {
       dir,
       snapshot,
       tailSeq,
-      "T-002",
+      "T-003",
       entries,
       meta,
     ));
@@ -2070,7 +2077,7 @@ describe("loaf deliver — Slice 1.D sub-cycle 2 (MVP)", () => {
     expect(result.stdout).toBe("");
     const errJson = JSON.parse(result.stderr.trim());
     expect(errJson.code).toBe("DELIVER_SPIKE_TASKS");
-    expect(errJson.detail).toMatchObject({ task_id: "T-002", status: "done" });
+    expect(errJson.detail).toMatchObject({ task_id: "T-003", status: "done" });
   });
 
   test("fail: LOAF_USER unset (no tty) → NO_HUMAN_ACTOR, stdout empty", async () => {
@@ -2312,7 +2319,7 @@ needs_clarification: []
     const noApproveTasksFile = path.join(dir, ".tasks-no-approve.json");
     await fsP.writeFile(
       noApproveTasksFile,
-      JSON.stringify({
+      taskAuthoringJson({
         based_on: { spec: 1 },
         tasks: [
           {
@@ -2655,7 +2662,7 @@ needs_clarification: []
     }
   }
 
-  const validTasksPayload = {
+  const validTasksPayload = taskAuthoringFixture({
     based_on: { spec: 1 },
     tasks: [
       {
@@ -2673,7 +2680,7 @@ needs_clarification: []
         },
       },
     ],
-  };
+  });
 
   test("happy path: valid JSON file → event:tasks_planned + tasks_count + task_ids", async () => {
     const dir = await tmpFeatureDir();
@@ -2705,6 +2712,7 @@ needs_clarification: []
     expect(out.sub_state).toBe("SPEC.design"); // tasks_planned does not move cursor
     expect(out.tasks_count).toBe(1);
     expect(out.task_ids).toEqual(["T-001"]);
+    expect(out.task_ids_by_local_key).toEqual({ "T-001": "T-001" });
     expect(out.tasks_based_on).toEqual({ spec: 1 });
 
     // Journal: last entry is event:tasks_planned with full payload.
@@ -2790,13 +2798,24 @@ needs_clarification: []
     expect(errJson.message).toMatch(/JSON/i);
   });
 
-  test("fail: missing based_on → INVALID_PAYLOAD (preflight)", async () => {
+  test("fail: legacy based_on/full payload → SCHEMA_VALIDATION_FAILED", async () => {
     const dir = await tmpFeatureDir();
     await seedAtSpecDesignNoTasks(dir);
     const tasksFile = path.join(dir, ".tasks-no-based-on.json");
     await fsP.writeFile(
       tasksFile,
-      JSON.stringify({ tasks: validTasksPayload.tasks }), // missing based_on
+      JSON.stringify({
+        based_on: { spec: 1 },
+        tasks: [{
+          id: "T-001",
+          kind: "chore",
+          status: "pending",
+          no_test_rationale: "legacy full payload fixture",
+          execution: {
+            execute: { applicability: "must", status: "pending", evidence_refs: [] },
+          },
+        }],
+      }),
     );
 
     const result = await runCli([
@@ -2815,7 +2834,8 @@ needs_clarification: []
     expect(result.exit).toBe(2);
     expect(result.stdout).toBe("");
     const errJson = JSON.parse(result.stderr.trim());
-    expect(errJson.code).toBe("INVALID_PAYLOAD");
+    expect(errJson.code).toBe("SCHEMA_VALIDATION_FAILED");
+    expect(errJson.detail).toMatchObject({ migration: "legacy-full-input-rejected" });
   });
 
   test("fail: wrong sub_state (TRIAGE.score) → SUB_STATE_AUTHORITY_VIOLATION", async () => {
@@ -2866,15 +2886,14 @@ needs_clarification: []
     expect(errJson.code).toBe("SUB_STATE_AUTHORITY_VIOLATION");
   });
 
-  test("fail: duplicate task ids in tasks[] → DUPLICATE_TASK_ID (preflight; codex r59 P2.1 closure in SC4)", async () => {
+  test("fail: duplicate local keys → SCHEMA_VALIDATION_FAILED", async () => {
     const dir = await tmpFeatureDir();
     await seedAtSpecDesignNoTasks(dir);
     const tasksFile = path.join(dir, ".tasks-dup.json");
     await fsP.writeFile(
       tasksFile,
       JSON.stringify({
-        based_on: { spec: 1 },
-        tasks: [validTasksPayload.tasks[0], validTasksPayload.tasks[0]], // same id twice
+        tasks: [validTasksPayload.tasks[0], validTasksPayload.tasks[0]],
       }),
     );
 
@@ -2894,11 +2913,7 @@ needs_clarification: []
     expect(result.exit).toBe(2);
     expect(result.stdout).toBe("");
     const errJson = JSON.parse(result.stderr.trim());
-    // SC4 (codex r59 P2.1 closure): preflight step 5d.1 catches duplicate
-    // task ids and surfaces DUPLICATE_TASK_ID top-level. Reducer's
-    // defensive sweep is now fallback for raw paths that bypass preflight.
-    expect(errJson.code).toBe("DUPLICATE_TASK_ID");
-    expect(errJson.detail).toMatchObject({ task_id: "T-001" });
+    expect(errJson.code).toBe("SCHEMA_VALIDATION_FAILED");
   });
 
   test("fail: no session → NO_SESSION", async () => {
@@ -3427,7 +3442,7 @@ async function persistReadyTaskAtSpecDesign(dir: string): Promise<void> {
   const tasksFile = path.join(dir, ".tasks-ready.json");
   await fsP.writeFile(
     tasksFile,
-    JSON.stringify({
+    taskAuthoringJson({
       based_on: { spec: 1 },
       tasks: [
         {
@@ -3534,7 +3549,7 @@ describe("loaf tasks list — Slice 2 SC4 (MVP)", () => {
     expect(out.tasks[0].ready).toBe(true);
   });
 
-  test("persisted ready status remains derived-ready when dependencies are satisfied", async () => {
+  test("replacement task remains derived-ready when dependencies are satisfied", async () => {
     const dir = await tmpFeatureDir();
     await seedFeatureAtSpecDesign(dir);
     await persistReadyTaskAtSpecDesign(dir);
@@ -3555,7 +3570,7 @@ describe("loaf tasks list — Slice 2 SC4 (MVP)", () => {
     expect(result.exit).toBe(0);
     expect(JSON.parse(result.stdout)).toMatchObject({
       count: 1,
-      tasks: [{ id: "T-001", status: "ready", ready: true }],
+      tasks: [{ id: "T-002", status: "pending", ready: true }],
     });
   });
 
@@ -3653,7 +3668,7 @@ describe("loaf tasks list — Slice 2 SC4 (MVP)", () => {
     const tasksFile = path.join(dir, ".tasks-deps.json");
     await fsP.writeFile(
       tasksFile,
-      JSON.stringify({
+      taskAuthoringJson({
         based_on: { spec: 1 },
         tasks: [
           {
@@ -3887,7 +3902,7 @@ describe("loaf tasks next — Slice 2 SC4 (MVP)", () => {
     ]);
 
     expect(result.exit).toBe(0);
-    expect(JSON.parse(result.stdout)).toMatchObject({ task_id: "T-001", kind: "behavioral" });
+    expect(JSON.parse(result.stdout)).toMatchObject({ task_id: "T-002", kind: "behavioral" });
   });
 
   test("text-mode prints bare T-id (or empty if none)", async () => {
@@ -3949,7 +3964,7 @@ describe("loaf tasks submit at EXECUTE.plan — replan path (r59 P2.3 closure)",
     const replanFile = path.join(dir, ".tasks-replan.json");
     await fsP.writeFile(
       replanFile,
-      JSON.stringify({
+      taskAuthoringJson({
         based_on: { spec: 1 }, // same spec_version
         tasks: [
           {
@@ -4000,7 +4015,7 @@ describe("loaf tasks submit at EXECUTE.plan — replan path (r59 P2.3 closure)",
     expect(r.stderr).toContain("tasks submit: 2 tasks");
     const out = JSON.parse(r.stdout);
     expect(out.tasks_count).toBe(2);
-    expect(out.task_ids).toEqual(["T-001", "T-002"]);
+    expect(out.task_ids).toEqual(["T-002", "T-003"]);
     expect(out.sub_state).toBe("EXECUTE.plan"); // cursor unchanged
   });
 });
@@ -4348,7 +4363,7 @@ describe("End-to-end task lifecycle CLI — Slice 2 SC4", () => {
     const tasksFile = path.join(dir, ".tasks-e2e.json");
     await fsP.writeFile(
       tasksFile,
-      JSON.stringify({
+      taskAuthoringJson({
         based_on: { spec: 1 },
         tasks: [
           {
@@ -4663,7 +4678,7 @@ describe("End-to-end SPEC content → spec-lock approve (Slice A SC-A2)", () => 
     const tasksFile = path.join(dir, ".tasks.json");
     await fsP.writeFile(
       tasksFile,
-      JSON.stringify({
+      taskAuthoringJson({
         based_on: { spec: 2 }, // spec_version is 2 after add-req
         tasks: [
           {
@@ -6620,6 +6635,7 @@ describe("loaf tasks add — Slice C SC-C3 (SPEC.design append)", () => {
   // and initializes the per-kind execution map.
   function taskInput(overrides: Record<string, unknown> = {}): Record<string, unknown> {
     return {
+      local_key: "new-task",
       kind: "behavioral",
       drives: ["REQ-AUTH-002"],
       tests: ["NewFeature.spec"],
@@ -6677,7 +6693,10 @@ describe("loaf tasks add — Slice C SC-C3 (SPEC.design append)", () => {
   test("happy: batch add allocates consecutive T-ids", async () => {
     const dir = await tmpFeatureDir();
     await seedFeatureAtSpecDesign(dir);
-    const input = await writeInput(dir, [taskInput(), taskInput()]);
+    const input = await writeInput(dir, [
+      taskInput({ local_key: "first-task" }),
+      taskInput({ local_key: "second-task" }),
+    ]);
 
     const r = await runCli([
       "tasks",
@@ -6879,6 +6898,7 @@ describe("loaf tasks register-red — Slice C SC-C4 (R2)", () => {
     await fsP.writeFile(
       input,
       JSON.stringify({
+        local_key: "bug-task",
         kind: "behavioral",
         drives: ["REQ-AUTH-001"],
         tests: ["Bug.repro"],
@@ -7918,7 +7938,7 @@ describe("loaf spec status — ticket #12B", () => {
       "tasks",
       "submit",
       "--input",
-      JSON.stringify({
+      taskAuthoringJson({
         based_on: { spec: 2 },
         tasks: [
           {

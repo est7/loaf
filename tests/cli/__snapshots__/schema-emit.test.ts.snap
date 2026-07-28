@@ -2979,6 +2979,12 @@ exports[`current public schema output baseline > input:tasks:add 1`] = `
         {
           "type": "object",
           "properties": {
+            "local_key": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+            },
             "drives": {
               "minItems": 1,
               "type": "array",
@@ -2991,8 +2997,36 @@ exports[`current public schema output baseline > input:tasks:add 1`] = `
               "default": [],
               "type": "array",
               "items": {
-                "type": "string",
-                "pattern": "^T-\\\\d{3,}$"
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "task_id": {
+                        "type": "string",
+                        "pattern": "^T-\\\\d{3,}$"
+                      }
+                    },
+                    "required": [
+                      "task_id"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "local_key": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64,
+                        "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+                      }
+                    },
+                    "required": [
+                      "local_key"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
               }
             },
             "labels": {
@@ -3022,6 +3056,36 @@ exports[`current public schema output baseline > input:tasks:add 1`] = `
                 "e2e"
               ]
             },
+            "step_policy": {
+              "type": "object",
+              "properties": {
+                "red": {
+                  "type": "string",
+                  "enum": [
+                    "must",
+                    "optional",
+                    "na"
+                  ]
+                },
+                "implement": {
+                  "type": "string",
+                  "enum": [
+                    "must",
+                    "optional",
+                    "na"
+                  ]
+                },
+                "refactor": {
+                  "type": "string",
+                  "enum": [
+                    "must",
+                    "optional",
+                    "na"
+                  ]
+                }
+              },
+              "additionalProperties": false
+            },
             "requires_acceptance": {
               "type": "boolean"
             },
@@ -3030,6 +3094,7 @@ exports[`current public schema output baseline > input:tasks:add 1`] = `
             }
           },
           "required": [
+            "local_key",
             "drives",
             "depends_on",
             "labels",
@@ -3041,6 +3106,12 @@ exports[`current public schema output baseline > input:tasks:add 1`] = `
         {
           "type": "object",
           "properties": {
+            "local_key": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+            },
             "drives": {
               "type": "array",
               "items": {
@@ -3052,8 +3123,36 @@ exports[`current public schema output baseline > input:tasks:add 1`] = `
               "default": [],
               "type": "array",
               "items": {
-                "type": "string",
-                "pattern": "^T-\\\\d{3,}$"
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "task_id": {
+                        "type": "string",
+                        "pattern": "^T-\\\\d{3,}$"
+                      }
+                    },
+                    "required": [
+                      "task_id"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "local_key": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64,
+                        "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+                      }
+                    },
+                    "required": [
+                      "local_key"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
               }
             },
             "labels": {
@@ -3070,9 +3169,32 @@ exports[`current public schema output baseline > input:tasks:add 1`] = `
             "no_test_rationale": {
               "type": "string",
               "minLength": 10
+            },
+            "step_policy": {
+              "type": "object",
+              "properties": {
+                "implement": {
+                  "type": "string",
+                  "enum": [
+                    "must",
+                    "optional",
+                    "na"
+                  ]
+                },
+                "refactor": {
+                  "type": "string",
+                  "enum": [
+                    "must",
+                    "optional",
+                    "na"
+                  ]
+                }
+              },
+              "additionalProperties": false
             }
           },
           "required": [
+            "local_key",
             "depends_on",
             "labels",
             "kind",
@@ -3083,6 +3205,12 @@ exports[`current public schema output baseline > input:tasks:add 1`] = `
         {
           "type": "object",
           "properties": {
+            "local_key": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+            },
             "drives": {
               "type": "array",
               "items": {
@@ -3094,8 +3222,36 @@ exports[`current public schema output baseline > input:tasks:add 1`] = `
               "default": [],
               "type": "array",
               "items": {
-                "type": "string",
-                "pattern": "^T-\\\\d{3,}$"
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "task_id": {
+                        "type": "string",
+                        "pattern": "^T-\\\\d{3,}$"
+                      }
+                    },
+                    "required": [
+                      "task_id"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "local_key": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64,
+                        "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+                      }
+                    },
+                    "required": [
+                      "local_key"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
               }
             },
             "labels": {
@@ -3120,9 +3276,40 @@ exports[`current public schema output baseline > input:tasks:add 1`] = `
             "no_test_rationale": {
               "type": "string",
               "minLength": 10
+            },
+            "step_policy": {
+              "type": "object",
+              "properties": {
+                "mockup": {
+                  "type": "string",
+                  "enum": [
+                    "must",
+                    "optional",
+                    "na"
+                  ]
+                },
+                "implement": {
+                  "type": "string",
+                  "enum": [
+                    "must",
+                    "optional",
+                    "na"
+                  ]
+                },
+                "screenshot-compare": {
+                  "type": "string",
+                  "enum": [
+                    "must",
+                    "optional",
+                    "na"
+                  ]
+                }
+              },
+              "additionalProperties": false
             }
           },
           "required": [
+            "local_key",
             "depends_on",
             "labels",
             "kind",
@@ -3133,6 +3320,12 @@ exports[`current public schema output baseline > input:tasks:add 1`] = `
         {
           "type": "object",
           "properties": {
+            "local_key": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+            },
             "drives": {
               "type": "array",
               "items": {
@@ -3144,8 +3337,36 @@ exports[`current public schema output baseline > input:tasks:add 1`] = `
               "default": [],
               "type": "array",
               "items": {
-                "type": "string",
-                "pattern": "^T-\\\\d{3,}$"
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "task_id": {
+                        "type": "string",
+                        "pattern": "^T-\\\\d{3,}$"
+                      }
+                    },
+                    "required": [
+                      "task_id"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "local_key": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64,
+                        "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+                      }
+                    },
+                    "required": [
+                      "local_key"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
               }
             },
             "labels": {
@@ -3162,9 +3383,32 @@ exports[`current public schema output baseline > input:tasks:add 1`] = `
             "no_test_rationale": {
               "type": "string",
               "minLength": 10
+            },
+            "step_policy": {
+              "type": "object",
+              "properties": {
+                "draft": {
+                  "type": "string",
+                  "enum": [
+                    "must",
+                    "optional",
+                    "na"
+                  ]
+                },
+                "review": {
+                  "type": "string",
+                  "enum": [
+                    "must",
+                    "optional",
+                    "na"
+                  ]
+                }
+              },
+              "additionalProperties": false
             }
           },
           "required": [
+            "local_key",
             "depends_on",
             "labels",
             "kind",
@@ -3175,6 +3419,12 @@ exports[`current public schema output baseline > input:tasks:add 1`] = `
         {
           "type": "object",
           "properties": {
+            "local_key": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+            },
             "drives": {
               "type": "array",
               "items": {
@@ -3186,8 +3436,36 @@ exports[`current public schema output baseline > input:tasks:add 1`] = `
               "default": [],
               "type": "array",
               "items": {
-                "type": "string",
-                "pattern": "^T-\\\\d{3,}$"
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "task_id": {
+                        "type": "string",
+                        "pattern": "^T-\\\\d{3,}$"
+                      }
+                    },
+                    "required": [
+                      "task_id"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "local_key": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64,
+                        "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+                      }
+                    },
+                    "required": [
+                      "local_key"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
               }
             },
             "labels": {
@@ -3204,9 +3482,40 @@ exports[`current public schema output baseline > input:tasks:add 1`] = `
             "no_test_rationale": {
               "type": "string",
               "minLength": 10
+            },
+            "step_policy": {
+              "type": "object",
+              "properties": {
+                "explore": {
+                  "type": "string",
+                  "enum": [
+                    "must",
+                    "optional",
+                    "na"
+                  ]
+                },
+                "prototype": {
+                  "type": "string",
+                  "enum": [
+                    "must",
+                    "optional",
+                    "na"
+                  ]
+                },
+                "record": {
+                  "type": "string",
+                  "enum": [
+                    "must",
+                    "optional",
+                    "na"
+                  ]
+                }
+              },
+              "additionalProperties": false
             }
           },
           "required": [
+            "local_key",
             "depends_on",
             "labels",
             "kind",
@@ -3217,6 +3526,12 @@ exports[`current public schema output baseline > input:tasks:add 1`] = `
         {
           "type": "object",
           "properties": {
+            "local_key": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+            },
             "drives": {
               "type": "array",
               "items": {
@@ -3228,8 +3543,36 @@ exports[`current public schema output baseline > input:tasks:add 1`] = `
               "default": [],
               "type": "array",
               "items": {
-                "type": "string",
-                "pattern": "^T-\\\\d{3,}$"
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "task_id": {
+                        "type": "string",
+                        "pattern": "^T-\\\\d{3,}$"
+                      }
+                    },
+                    "required": [
+                      "task_id"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "local_key": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64,
+                        "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+                      }
+                    },
+                    "required": [
+                      "local_key"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
               }
             },
             "labels": {
@@ -3246,9 +3589,24 @@ exports[`current public schema output baseline > input:tasks:add 1`] = `
             "no_test_rationale": {
               "type": "string",
               "minLength": 10
+            },
+            "step_policy": {
+              "type": "object",
+              "properties": {
+                "execute": {
+                  "type": "string",
+                  "enum": [
+                    "must",
+                    "optional",
+                    "na"
+                  ]
+                }
+              },
+              "additionalProperties": false
             }
           },
           "required": [
+            "local_key",
             "depends_on",
             "labels",
             "kind",
@@ -3266,6 +3624,12 @@ exports[`current public schema output baseline > input:tasks:add 1`] = `
           {
             "type": "object",
             "properties": {
+              "local_key": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+              },
               "drives": {
                 "minItems": 1,
                 "type": "array",
@@ -3278,8 +3642,36 @@ exports[`current public schema output baseline > input:tasks:add 1`] = `
                 "default": [],
                 "type": "array",
                 "items": {
-                  "type": "string",
-                  "pattern": "^T-\\\\d{3,}$"
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "task_id": {
+                          "type": "string",
+                          "pattern": "^T-\\\\d{3,}$"
+                        }
+                      },
+                      "required": [
+                        "task_id"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "local_key": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64,
+                          "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+                        }
+                      },
+                      "required": [
+                        "local_key"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
                 }
               },
               "labels": {
@@ -3309,6 +3701,36 @@ exports[`current public schema output baseline > input:tasks:add 1`] = `
                   "e2e"
                 ]
               },
+              "step_policy": {
+                "type": "object",
+                "properties": {
+                  "red": {
+                    "type": "string",
+                    "enum": [
+                      "must",
+                      "optional",
+                      "na"
+                    ]
+                  },
+                  "implement": {
+                    "type": "string",
+                    "enum": [
+                      "must",
+                      "optional",
+                      "na"
+                    ]
+                  },
+                  "refactor": {
+                    "type": "string",
+                    "enum": [
+                      "must",
+                      "optional",
+                      "na"
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              },
               "requires_acceptance": {
                 "type": "boolean"
               },
@@ -3317,6 +3739,7 @@ exports[`current public schema output baseline > input:tasks:add 1`] = `
               }
             },
             "required": [
+              "local_key",
               "drives",
               "depends_on",
               "labels",
@@ -3328,6 +3751,12 @@ exports[`current public schema output baseline > input:tasks:add 1`] = `
           {
             "type": "object",
             "properties": {
+              "local_key": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+              },
               "drives": {
                 "type": "array",
                 "items": {
@@ -3339,8 +3768,36 @@ exports[`current public schema output baseline > input:tasks:add 1`] = `
                 "default": [],
                 "type": "array",
                 "items": {
-                  "type": "string",
-                  "pattern": "^T-\\\\d{3,}$"
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "task_id": {
+                          "type": "string",
+                          "pattern": "^T-\\\\d{3,}$"
+                        }
+                      },
+                      "required": [
+                        "task_id"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "local_key": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64,
+                          "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+                        }
+                      },
+                      "required": [
+                        "local_key"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
                 }
               },
               "labels": {
@@ -3357,9 +3814,32 @@ exports[`current public schema output baseline > input:tasks:add 1`] = `
               "no_test_rationale": {
                 "type": "string",
                 "minLength": 10
+              },
+              "step_policy": {
+                "type": "object",
+                "properties": {
+                  "implement": {
+                    "type": "string",
+                    "enum": [
+                      "must",
+                      "optional",
+                      "na"
+                    ]
+                  },
+                  "refactor": {
+                    "type": "string",
+                    "enum": [
+                      "must",
+                      "optional",
+                      "na"
+                    ]
+                  }
+                },
+                "additionalProperties": false
               }
             },
             "required": [
+              "local_key",
               "depends_on",
               "labels",
               "kind",
@@ -3370,6 +3850,12 @@ exports[`current public schema output baseline > input:tasks:add 1`] = `
           {
             "type": "object",
             "properties": {
+              "local_key": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+              },
               "drives": {
                 "type": "array",
                 "items": {
@@ -3381,8 +3867,36 @@ exports[`current public schema output baseline > input:tasks:add 1`] = `
                 "default": [],
                 "type": "array",
                 "items": {
-                  "type": "string",
-                  "pattern": "^T-\\\\d{3,}$"
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "task_id": {
+                          "type": "string",
+                          "pattern": "^T-\\\\d{3,}$"
+                        }
+                      },
+                      "required": [
+                        "task_id"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "local_key": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64,
+                          "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+                        }
+                      },
+                      "required": [
+                        "local_key"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
                 }
               },
               "labels": {
@@ -3407,9 +3921,40 @@ exports[`current public schema output baseline > input:tasks:add 1`] = `
               "no_test_rationale": {
                 "type": "string",
                 "minLength": 10
+              },
+              "step_policy": {
+                "type": "object",
+                "properties": {
+                  "mockup": {
+                    "type": "string",
+                    "enum": [
+                      "must",
+                      "optional",
+                      "na"
+                    ]
+                  },
+                  "implement": {
+                    "type": "string",
+                    "enum": [
+                      "must",
+                      "optional",
+                      "na"
+                    ]
+                  },
+                  "screenshot-compare": {
+                    "type": "string",
+                    "enum": [
+                      "must",
+                      "optional",
+                      "na"
+                    ]
+                  }
+                },
+                "additionalProperties": false
               }
             },
             "required": [
+              "local_key",
               "depends_on",
               "labels",
               "kind",
@@ -3420,6 +3965,12 @@ exports[`current public schema output baseline > input:tasks:add 1`] = `
           {
             "type": "object",
             "properties": {
+              "local_key": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+              },
               "drives": {
                 "type": "array",
                 "items": {
@@ -3431,8 +3982,36 @@ exports[`current public schema output baseline > input:tasks:add 1`] = `
                 "default": [],
                 "type": "array",
                 "items": {
-                  "type": "string",
-                  "pattern": "^T-\\\\d{3,}$"
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "task_id": {
+                          "type": "string",
+                          "pattern": "^T-\\\\d{3,}$"
+                        }
+                      },
+                      "required": [
+                        "task_id"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "local_key": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64,
+                          "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+                        }
+                      },
+                      "required": [
+                        "local_key"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
                 }
               },
               "labels": {
@@ -3449,9 +4028,32 @@ exports[`current public schema output baseline > input:tasks:add 1`] = `
               "no_test_rationale": {
                 "type": "string",
                 "minLength": 10
+              },
+              "step_policy": {
+                "type": "object",
+                "properties": {
+                  "draft": {
+                    "type": "string",
+                    "enum": [
+                      "must",
+                      "optional",
+                      "na"
+                    ]
+                  },
+                  "review": {
+                    "type": "string",
+                    "enum": [
+                      "must",
+                      "optional",
+                      "na"
+                    ]
+                  }
+                },
+                "additionalProperties": false
               }
             },
             "required": [
+              "local_key",
               "depends_on",
               "labels",
               "kind",
@@ -3462,6 +4064,12 @@ exports[`current public schema output baseline > input:tasks:add 1`] = `
           {
             "type": "object",
             "properties": {
+              "local_key": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+              },
               "drives": {
                 "type": "array",
                 "items": {
@@ -3473,8 +4081,36 @@ exports[`current public schema output baseline > input:tasks:add 1`] = `
                 "default": [],
                 "type": "array",
                 "items": {
-                  "type": "string",
-                  "pattern": "^T-\\\\d{3,}$"
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "task_id": {
+                          "type": "string",
+                          "pattern": "^T-\\\\d{3,}$"
+                        }
+                      },
+                      "required": [
+                        "task_id"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "local_key": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64,
+                          "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+                        }
+                      },
+                      "required": [
+                        "local_key"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
                 }
               },
               "labels": {
@@ -3491,9 +4127,40 @@ exports[`current public schema output baseline > input:tasks:add 1`] = `
               "no_test_rationale": {
                 "type": "string",
                 "minLength": 10
+              },
+              "step_policy": {
+                "type": "object",
+                "properties": {
+                  "explore": {
+                    "type": "string",
+                    "enum": [
+                      "must",
+                      "optional",
+                      "na"
+                    ]
+                  },
+                  "prototype": {
+                    "type": "string",
+                    "enum": [
+                      "must",
+                      "optional",
+                      "na"
+                    ]
+                  },
+                  "record": {
+                    "type": "string",
+                    "enum": [
+                      "must",
+                      "optional",
+                      "na"
+                    ]
+                  }
+                },
+                "additionalProperties": false
               }
             },
             "required": [
+              "local_key",
               "depends_on",
               "labels",
               "kind",
@@ -3504,6 +4171,12 @@ exports[`current public schema output baseline > input:tasks:add 1`] = `
           {
             "type": "object",
             "properties": {
+              "local_key": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+              },
               "drives": {
                 "type": "array",
                 "items": {
@@ -3515,8 +4188,36 @@ exports[`current public schema output baseline > input:tasks:add 1`] = `
                 "default": [],
                 "type": "array",
                 "items": {
-                  "type": "string",
-                  "pattern": "^T-\\\\d{3,}$"
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "task_id": {
+                          "type": "string",
+                          "pattern": "^T-\\\\d{3,}$"
+                        }
+                      },
+                      "required": [
+                        "task_id"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "local_key": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64,
+                          "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+                        }
+                      },
+                      "required": [
+                        "local_key"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
                 }
               },
               "labels": {
@@ -3533,9 +4234,24 @@ exports[`current public schema output baseline > input:tasks:add 1`] = `
               "no_test_rationale": {
                 "type": "string",
                 "minLength": 10
+              },
+              "step_policy": {
+                "type": "object",
+                "properties": {
+                  "execute": {
+                    "type": "string",
+                    "enum": [
+                      "must",
+                      "optional",
+                      "na"
+                    ]
+                  }
+                },
+                "additionalProperties": false
               }
             },
             "required": [
+              "local_key",
               "depends_on",
               "labels",
               "kind",
@@ -3547,6 +4263,666 @@ exports[`current public schema output baseline > input:tasks:add 1`] = `
       }
     }
   ]
+}
+"
+`;
+
+exports[`current public schema output baseline > input:tasks:submit 1`] = `
+"{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "tasks": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "local_key": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+              },
+              "drives": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^(REQ|SCEN|VIS)-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+                }
+              },
+              "depends_on": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "task_id": {
+                          "type": "string",
+                          "pattern": "^T-\\\\d{3,}$"
+                        }
+                      },
+                      "required": [
+                        "task_id"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "local_key": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64,
+                          "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+                        }
+                      },
+                      "required": [
+                        "local_key"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              },
+              "labels": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "const": "behavioral"
+              },
+              "tests": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 3
+                }
+              },
+              "test_layer": {
+                "type": "string",
+                "enum": [
+                  "unit",
+                  "integration",
+                  "e2e"
+                ]
+              },
+              "step_policy": {
+                "type": "object",
+                "properties": {
+                  "red": {
+                    "type": "string",
+                    "enum": [
+                      "must",
+                      "optional",
+                      "na"
+                    ]
+                  },
+                  "implement": {
+                    "type": "string",
+                    "enum": [
+                      "must",
+                      "optional",
+                      "na"
+                    ]
+                  },
+                  "refactor": {
+                    "type": "string",
+                    "enum": [
+                      "must",
+                      "optional",
+                      "na"
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              },
+              "requires_acceptance": {
+                "type": "boolean"
+              },
+              "requires_visual": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "local_key",
+              "drives",
+              "depends_on",
+              "labels",
+              "kind",
+              "tests"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "local_key": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+              },
+              "drives": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^(REQ|SCEN|VIS)-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+                }
+              },
+              "depends_on": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "task_id": {
+                          "type": "string",
+                          "pattern": "^T-\\\\d{3,}$"
+                        }
+                      },
+                      "required": [
+                        "task_id"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "local_key": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64,
+                          "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+                        }
+                      },
+                      "required": [
+                        "local_key"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              },
+              "labels": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "const": "structural"
+              },
+              "no_test_rationale": {
+                "type": "string",
+                "minLength": 10
+              },
+              "step_policy": {
+                "type": "object",
+                "properties": {
+                  "implement": {
+                    "type": "string",
+                    "enum": [
+                      "must",
+                      "optional",
+                      "na"
+                    ]
+                  },
+                  "refactor": {
+                    "type": "string",
+                    "enum": [
+                      "must",
+                      "optional",
+                      "na"
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "local_key",
+              "depends_on",
+              "labels",
+              "kind",
+              "no_test_rationale"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "local_key": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+              },
+              "drives": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^(REQ|SCEN|VIS)-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+                }
+              },
+              "depends_on": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "task_id": {
+                          "type": "string",
+                          "pattern": "^T-\\\\d{3,}$"
+                        }
+                      },
+                      "required": [
+                        "task_id"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "local_key": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64,
+                          "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+                        }
+                      },
+                      "required": [
+                        "local_key"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              },
+              "labels": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "const": "visual-ui"
+              },
+              "visual_contract_refs": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^VIS-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+                }
+              },
+              "no_test_rationale": {
+                "type": "string",
+                "minLength": 10
+              },
+              "step_policy": {
+                "type": "object",
+                "properties": {
+                  "mockup": {
+                    "type": "string",
+                    "enum": [
+                      "must",
+                      "optional",
+                      "na"
+                    ]
+                  },
+                  "implement": {
+                    "type": "string",
+                    "enum": [
+                      "must",
+                      "optional",
+                      "na"
+                    ]
+                  },
+                  "screenshot-compare": {
+                    "type": "string",
+                    "enum": [
+                      "must",
+                      "optional",
+                      "na"
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "local_key",
+              "depends_on",
+              "labels",
+              "kind",
+              "visual_contract_refs"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "local_key": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+              },
+              "drives": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^(REQ|SCEN|VIS)-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+                }
+              },
+              "depends_on": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "task_id": {
+                          "type": "string",
+                          "pattern": "^T-\\\\d{3,}$"
+                        }
+                      },
+                      "required": [
+                        "task_id"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "local_key": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64,
+                          "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+                        }
+                      },
+                      "required": [
+                        "local_key"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              },
+              "labels": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "const": "docs"
+              },
+              "no_test_rationale": {
+                "type": "string",
+                "minLength": 10
+              },
+              "step_policy": {
+                "type": "object",
+                "properties": {
+                  "draft": {
+                    "type": "string",
+                    "enum": [
+                      "must",
+                      "optional",
+                      "na"
+                    ]
+                  },
+                  "review": {
+                    "type": "string",
+                    "enum": [
+                      "must",
+                      "optional",
+                      "na"
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "local_key",
+              "depends_on",
+              "labels",
+              "kind",
+              "no_test_rationale"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "local_key": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+              },
+              "drives": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^(REQ|SCEN|VIS)-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+                }
+              },
+              "depends_on": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "task_id": {
+                          "type": "string",
+                          "pattern": "^T-\\\\d{3,}$"
+                        }
+                      },
+                      "required": [
+                        "task_id"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "local_key": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64,
+                          "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+                        }
+                      },
+                      "required": [
+                        "local_key"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              },
+              "labels": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "const": "spike"
+              },
+              "no_test_rationale": {
+                "type": "string",
+                "minLength": 10
+              },
+              "step_policy": {
+                "type": "object",
+                "properties": {
+                  "explore": {
+                    "type": "string",
+                    "enum": [
+                      "must",
+                      "optional",
+                      "na"
+                    ]
+                  },
+                  "prototype": {
+                    "type": "string",
+                    "enum": [
+                      "must",
+                      "optional",
+                      "na"
+                    ]
+                  },
+                  "record": {
+                    "type": "string",
+                    "enum": [
+                      "must",
+                      "optional",
+                      "na"
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "local_key",
+              "depends_on",
+              "labels",
+              "kind",
+              "no_test_rationale"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "local_key": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+              },
+              "drives": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^(REQ|SCEN|VIS)-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+                }
+              },
+              "depends_on": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "task_id": {
+                          "type": "string",
+                          "pattern": "^T-\\\\d{3,}$"
+                        }
+                      },
+                      "required": [
+                        "task_id"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "local_key": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64,
+                          "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+                        }
+                      },
+                      "required": [
+                        "local_key"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              },
+              "labels": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "const": "chore"
+              },
+              "no_test_rationale": {
+                "type": "string",
+                "minLength": 10
+              },
+              "step_policy": {
+                "type": "object",
+                "properties": {
+                  "execute": {
+                    "type": "string",
+                    "enum": [
+                      "must",
+                      "optional",
+                      "na"
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "local_key",
+              "depends_on",
+              "labels",
+              "kind",
+              "no_test_rationale"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      }
+    }
+  },
+  "required": [
+    "tasks"
+  ],
+  "additionalProperties": false
 }
 "
 `;

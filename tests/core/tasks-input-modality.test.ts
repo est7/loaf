@@ -61,7 +61,11 @@ async function runCli(
     if (opts.stdin !== undefined) deps.readStdin = async () => opts.stdin!;
     if (opts.isStdinTty !== undefined) deps.isStdinTty = () => opts.isStdinTty!;
     const exit = await main(["node", "loaf", ...argv], deps);
-    return { exit, stdout: stdoutChunks.join(""), stderr: stderrChunks.join("") };
+    return {
+      exit,
+      stdout: stdoutChunks.join(""),
+      stderr: stderrChunks.join(""),
+    };
   } finally {
     process.stdout.write = origStdout;
     process.stderr.write = origStderr;
@@ -77,23 +81,14 @@ async function writeJson(dir: string, name: string, payload: unknown): Promise<s
 }
 
 const TASKS_GRAPH_SEED = {
-  // seedAtSpecDesign: spec submit (v1) + spec add-req (bump to v2) →
-  // task graph must reference v2 to pass spec-lock gate check 3.
-  based_on: { spec: 2 },
   tasks: [
     {
-      id: "T-001",
+      local_key: "seed",
       kind: "behavioral",
       drives: ["REQ-CORE-001"],
       tests: ["sc4b.seed"],
-      status: "pending",
       depends_on: [],
       labels: [],
-      execution: {
-        red: { applicability: "must", status: "pending", evidence_refs: [] },
-        implement: { applicability: "must", status: "pending", evidence_refs: [] },
-        refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
-      },
     },
   ],
 };
@@ -102,9 +97,18 @@ const TASKS_GRAPH_SEED = {
 // CLI allocates id, stamps status="pending", and seeds the execution
 // map. Test fixture must NOT carry any of those fields.
 const ADD_TASK_INPUT_ONE = {
+  local_key: "added",
   kind: "behavioral",
   drives: ["REQ-CORE-001"],
   tests: ["sc4b.add"],
+  depends_on: [],
+  labels: [],
+};
+
+const AMEND_TASK_INPUT_ONE = {
+  kind: "behavioral",
+  drives: ["REQ-CORE-001"],
+  tests: ["sc4b.amend"],
   depends_on: [],
   labels: [],
 };
@@ -303,7 +307,11 @@ describe("Phase 16 SC-4b — `loaf tasks submit` --input lanes", () => {
       { stdin: JSON.stringify(TASKS_GRAPH_SEED) },
     );
     expect(r.exit).toBe(0);
-    expect(JSON.parse(r.stdout)).toMatchObject({ ok: true });
+    expect(JSON.parse(r.stdout)).toMatchObject({
+      ok: true,
+      task_ids_by_local_key: { seed: "T-001" },
+      tasks_based_on: { spec: 2 },
+    });
   });
 
   test("inline JSON happy → exit 0", async () => {
@@ -321,7 +329,10 @@ describe("Phase 16 SC-4b — `loaf tasks submit` --input lanes", () => {
       "json",
     ]);
     expect(r.exit).toBe(0);
-    expect(JSON.parse(r.stdout)).toMatchObject({ ok: true });
+    expect(JSON.parse(r.stdout)).toMatchObject({
+      ok: true,
+      task_ids_by_local_key: { seed: "T-001" },
+    });
   });
 
   test("TTY guard: stdin TTY + --input - → exit 2 USAGE", async () => {
@@ -362,7 +373,15 @@ describe("Phase 16 SC-4b — `loaf tasks add` --input lanes", () => {
       "tasks",
       "add",
       "--input",
-      JSON.stringify([ADD_TASK_INPUT_ONE, { ...ADD_TASK_INPUT_ONE, tests: ["sc4b.add.2"] }]),
+      JSON.stringify([
+        ADD_TASK_INPUT_ONE,
+        {
+          ...ADD_TASK_INPUT_ONE,
+          local_key: "added-second",
+          tests: ["sc4b.add.2"],
+          depends_on: [{ local_key: "added" }],
+        },
+      ]),
       "--feature",
       feature,
       "--feature-dir",
@@ -371,6 +390,9 @@ describe("Phase 16 SC-4b — `loaf tasks add` --input lanes", () => {
       "json",
     ]);
     expect(r.exit).toBe(0);
+    expect(JSON.parse(r.stdout)).toMatchObject({
+      task_ids_by_local_key: { added: "T-001", "added-second": "T-002" },
+    });
   });
 
   test("TTY guard: tasks add stdin TTY → exit 2 USAGE", async () => {
@@ -403,7 +425,7 @@ describe("Phase 16 SC-4b — `loaf tasks amend --input` sponsored lanes", () => 
         "--format",
         "json",
       ],
-      { stdin: JSON.stringify(ADD_TASK_INPUT_ONE) },
+      { stdin: JSON.stringify(AMEND_TASK_INPUT_ONE) },
     );
     expect(r.exit).toBe(0);
   });
@@ -415,7 +437,7 @@ describe("Phase 16 SC-4b — `loaf tasks amend --input` sponsored lanes", () => 
       "amend",
       "T-001",
       "--input",
-      JSON.stringify(ADD_TASK_INPUT_ONE),
+      JSON.stringify(AMEND_TASK_INPUT_ONE),
       "--finding",
       findingId,
       "--feature",
@@ -444,7 +466,7 @@ describe("Phase 16 SC-4b — `loaf tasks amend --input` sponsored lanes", () => 
         "--feature-dir",
         dir,
       ],
-      { isStdinTty: true, stdin: JSON.stringify(ADD_TASK_INPUT_ONE) },
+      { isStdinTty: true, stdin: JSON.stringify(AMEND_TASK_INPUT_ONE) },
     );
     expect(r.exit).toBe(2);
     expect(r.stderr).toMatch(/USAGE|stdin|TTY|pipe/i);

@@ -39,11 +39,12 @@ const READ_ONLY_COMMANDS: readonly string[] = [
   "sessions list", // Phase 16 SC-9b
   "verify status", // Phase 16 SC-9a-1
   "check", // Phase 16 SC-9c
-  // Phase 16 SC-10 — `--schema` modifier mode on 5 batch-capable mutators
+  // `--schema` modifier mode on schema-emitting mutators
   // + 5 `<kind> schema` artifact subs. All are read-only schema dumps.
   "spec add-req --schema",
   "spec add-scenario --schema",
   "spec add-visual --schema",
+  "tasks submit --schema",
   "tasks add --schema",
   "evidence add --schema",
   "spec schema",

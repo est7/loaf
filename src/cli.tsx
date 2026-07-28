@@ -189,7 +189,11 @@ function writePreContextKeyedFailure(input: {
     ? createI18n("en", BUILTIN_BUNDLES).t(keyPath, input.vars)
     : preparseI18nFromEnv(process.env).t(keyPath, input.vars);
   if (input.renderAsJson) {
-    const out: Record<string, unknown> = { ok: false, code: input.code, message };
+    const out: Record<string, unknown> = {
+      ok: false,
+      code: input.code,
+      message,
+    };
     if (input.detail !== undefined) out["detail"] = input.detail;
     process.stderr.write(JSON.stringify(out) + "\n");
   } else {
@@ -208,7 +212,11 @@ function writePreContextSiteFailure(input: {
     ? createI18n("en", BUILTIN_BUNDLES).t(input.keyPath, input.vars)
     : preparseI18nFromEnv(process.env).t(input.keyPath, input.vars);
   if (input.renderAsJson) {
-    const out: Record<string, unknown> = { ok: false, code: input.code, message };
+    const out: Record<string, unknown> = {
+      ok: false,
+      code: input.code,
+      message,
+    };
     if (input.detail !== undefined) out["detail"] = input.detail;
     process.stderr.write(JSON.stringify(out) + "\n");
   } else {
@@ -446,7 +454,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
     // Phase 16 SC-10 — `--schema` modifier + `<kind> schema` subs both
     // reject feature/session dispatch selectors pre-parse. Two patterns:
     //
-    //   Pattern 1 (mutator --schema): cmd is one of 5 batch-capable
+    //   Pattern 1 (mutator --schema): cmd is a schema-emitting mutator
     //     mutators AND argv includes `--schema`.
     //   Pattern 2 (artifact schema sub): cmd is `<kind> schema` where
     //     kind ∈ {spec, tasks, evidence, finding, state}.
@@ -457,6 +465,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
       ["spec/add-req", "spec add-req --schema"],
       ["spec/add-scenario", "spec add-scenario --schema"],
       ["spec/add-visual", "spec add-visual --schema"],
+      ["tasks/submit", "tasks submit --schema"],
       ["tasks/add", "tasks add --schema"],
       ["evidence/add", "evidence add --schema"],
     ]);
@@ -714,8 +723,12 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
     i18n,
     // Phase W8 0a: actor-resolution injection points (formerly isInteractiveHumanForActor
     // / readGitConfigForActor in main() helper cluster).
-    ...(deps.isInteractiveHuman !== undefined && { isInteractiveHuman: deps.isInteractiveHuman }),
-    ...(deps.readGitConfig !== undefined && { readGitConfig: deps.readGitConfig }),
+    ...(deps.isInteractiveHuman !== undefined && {
+      isInteractiveHuman: deps.isInteractiveHuman,
+    }),
+    ...(deps.readGitConfig !== undefined && {
+      readGitConfig: deps.readGitConfig,
+    }),
     // Phase W8 0a: hook-path stdin injection points. Pass the RESOLVED locals
     // (deps.* ?? production default, lines 631-632) — NOT the conditional
     // `deps.readStdin` spread. ctx.resolveHookPath has no internal readStdin
@@ -742,14 +755,18 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
     deps.registryNow !== undefined ||
     deps.registryCwd !== undefined
       ? {
-          ...(deps.registryDir !== undefined && { registryDir: deps.registryDir }),
+          ...(deps.registryDir !== undefined && {
+            registryDir: deps.registryDir,
+          }),
           ...(deps.registryNow !== undefined && { now: deps.registryNow }),
           ...(deps.registryCwd !== undefined && { cwd: deps.registryCwd }),
         }
       : undefined;
 
   // CommandMutator is the CLI's sole journal-mutation adapter.
-  const mutator = createCommandMutator(ctx, { registryWriter: registryWriterDeps });
+  const mutator = createCommandMutator(ctx, {
+    registryWriter: registryWriterDeps,
+  });
 
   // ── Phase W8 P1 — per-family command registrations ──────────────────
   // Verbatim block move: inline registrations extracted to per-family
@@ -798,7 +815,9 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
     now,
     ...(deps.registryDir !== undefined && { registryDir: deps.registryDir }),
     ...(deps.openUrl !== undefined && { openUrl: deps.openUrl }),
-    ...(deps.boardKeepAlive !== undefined && { boardKeepAlive: deps.boardKeepAlive }),
+    ...(deps.boardKeepAlive !== undefined && {
+      boardKeepAlive: deps.boardKeepAlive,
+    }),
   });
   registerPrune(program, ctx, {
     registryDir: deps.registryDir ?? defaultRegistryDir(),
@@ -857,7 +876,10 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         cwd: process.cwd(),
         version: packageJson.version,
         error,
-        context: { phase: crashContext.phase, sub_state: crashContext.sub_state },
+        context: {
+          phase: crashContext.phase,
+          sub_state: crashContext.sub_state,
+        },
       });
       const reportUrl = buildReportUrl({
         base: LOAF_ISSUE_URL,

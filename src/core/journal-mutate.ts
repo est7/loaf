@@ -145,6 +145,7 @@ export type MutateFailureCode =
   | "SCOPE_RECORDED_BATCH_INVALID"
   | "SCOPE_RECORDED_ITERATION_DUPLICATE"
   | "PROJECTION_WRITE_FAILED"
+  | "SCHEMA_VALIDATION_FAILED"
   | "LOCK_TIMEOUT";
 
 interface MutationFailureFields {
@@ -162,7 +163,10 @@ interface MutationBatchState {
 }
 
 export type MutateBatchResult =
-  | ({ ok: true; commit_state: "committed" | "not-committed" } & MutationBatchState)
+  | ({
+      ok: true;
+      commit_state: "committed" | "not-committed";
+    } & MutationBatchState)
   | ({ ok: false; commit_state: "not-committed" } & MutationFailureFields)
   | ({
       ok: false;
@@ -188,7 +192,10 @@ export type MutateResult =
     } & MutationFailureFields);
 
 type InternalMutateBatchResult =
-  | ({ ok: true; commit_state?: "committed" | "not-committed" } & MutationBatchState)
+  | ({
+      ok: true;
+      commit_state?: "committed" | "not-committed";
+    } & MutationBatchState)
   | ({ ok: false; commit_state?: "not-committed" } & MutationFailureFields)
   | ({
       ok: false;
@@ -215,10 +222,18 @@ function classifyCommitState(
  * mutator API that mixes external IDs and internal allocation creates
  * inconsistent journals.
  */
-type PartialEntry = Omit<
+export type PartialMutationEntry = Omit<
   JournalEntry,
   "seq" | "entry_id" | "batch_id" | "batch_index" | "batch_count"
 >;
+
+export type MutationPlan =
+  | { ok: true; partials: PartialMutationEntry[] }
+  | ({ ok: false } & MutationFailureFields);
+
+export type MutationPlanner = (
+  snapshot: Readonly<Snapshot>,
+) => MutationPlan | Promise<MutationPlan>;
 
 function isBootstrapEntry(entry: JournalEntry): boolean {
   return entry.kind === "session:started" || entry.kind === "migration:snapshot_imported";
@@ -301,7 +316,7 @@ export function checkScopeRecordedBatch(
 // state is initialized.
 
 export async function mutateBatch(
-  partials: PartialEntry[],
+  partials: PartialMutationEntry[],
   ctx: MutateContext,
 ): Promise<MutateBatchResult> {
   if (partials.length === 0) {
@@ -316,6 +331,30 @@ export async function mutateBatch(
     );
   }
 
+  return withMutationLease(ctx, () => mutateBatchUnderLease(partials, ctx));
+}
+
+/**
+ * Plan journal-ready entries while holding the feature lease. The planner sees
+ * the caller's snapshot; the normal under-lease tail proof still rejects a
+ * stale context before append. This is for deterministic allocation whose
+ * result must be fenced with the eventual write.
+ */
+export async function mutateBatchPlanned(
+  planner: MutationPlanner,
+  ctx: MutateContext,
+): Promise<MutateBatchResult> {
+  return withMutationLease(ctx, async () => {
+    const plan = await planner(ctx.snapshot);
+    if (!plan.ok) return plan;
+    return mutateBatchUnderLease(plan.partials, ctx);
+  });
+}
+
+async function withMutationLease(
+  ctx: MutateContext,
+  operation: () => Promise<InternalMutateBatchResult>,
+): Promise<MutateBatchResult> {
   if (ctx.dryRun) {
     try {
       await fsp.access(ctx.feature_dir);
@@ -323,7 +362,7 @@ export async function mutateBatch(
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
         // A fresh-feature preview has no shared tail and cannot place a lease
         // without violating the no-directory-creation dry-run contract.
-        return classifyCommitState(await mutateBatchUnderLease(partials, ctx), ctx.dryRun ?? false);
+        return classifyCommitState(await operation(), ctx.dryRun ?? false);
       }
       throw error;
     }
@@ -356,14 +395,14 @@ export async function mutateBatch(
   }
 
   try {
-    return classifyCommitState(await mutateBatchUnderLease(partials, ctx), ctx.dryRun ?? false);
+    return classifyCommitState(await operation(), ctx.dryRun ?? false);
   } finally {
     await lease.release();
   }
 }
 
 async function mutateBatchUnderLease(
-  partials: PartialEntry[],
+  partials: PartialMutationEntry[],
   ctx: MutateContext,
 ): Promise<InternalMutateBatchResult> {
   if (partials.length === 0) {
@@ -692,7 +731,11 @@ async function mutateBatchUnderLease(
           code: "REDUCER_ERROR",
           message: `final dry-run on promoted entries failed at index ${i}: ${pre.message}`,
           failed_index: i,
-          detail: { code: pre.code, phase: "post-sidecar", ...(pre.detail ?? {}) },
+          detail: {
+            code: pre.code,
+            phase: "post-sidecar",
+            ...(pre.detail ?? {}),
+          },
         };
       }
       if (finalSnapshot.state === null) {
@@ -706,7 +749,11 @@ async function mutateBatchUnderLease(
         code: "REDUCER_ERROR",
         message: `final dry-run on promoted entries failed at index ${i}: ${dryRun.message}`,
         failed_index: i,
-        detail: { code: dryRun.code, phase: "post-sidecar", ...(dryRun.detail ?? {}) },
+        detail: {
+          code: dryRun.code,
+          phase: "post-sidecar",
+          ...(dryRun.detail ?? {}),
+        },
       };
     }
     finalSnapshot = dryRun.snapshot;
@@ -892,7 +939,12 @@ async function mutateBatchUnderLease(
     }
   }
 
-  return { ok: true, snapshot: finalSnapshot, entries: promoted, meta: appendMeta };
+  return {
+    ok: true,
+    snapshot: finalSnapshot,
+    entries: promoted,
+    meta: appendMeta,
+  };
 }
 
 /**
@@ -900,14 +952,19 @@ async function mutateBatchUnderLease(
  * single produced entry under the `entry` key for API compatibility with
  * callers that always emit one entry.
  */
-export async function mutate(partial: PartialEntry, ctx: MutateContext): Promise<MutateResult> {
+export async function mutate(
+  partial: PartialMutationEntry,
+  ctx: MutateContext,
+): Promise<MutateResult> {
   const batch = await mutateBatch([partial], ctx);
   if (!batch.ok) {
     const failure = {
       ok: false as const,
       code: batch.code,
       message: batch.message,
-      ...(batch.failed_index !== undefined && { failed_index: batch.failed_index }),
+      ...(batch.failed_index !== undefined && {
+        failed_index: batch.failed_index,
+      }),
       ...(batch.detail !== undefined && { detail: batch.detail }),
     };
     return batch.commit_state === "committed"

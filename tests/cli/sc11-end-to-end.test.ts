@@ -28,7 +28,11 @@ async function tmpDir(): Promise<string> {
 
 async function runCli(
   argv: string[],
-  opts: { env?: Record<string, string | undefined>; deps?: MainDeps; cwd?: string } = {},
+  opts: {
+    env?: Record<string, string | undefined>;
+    deps?: MainDeps;
+    cwd?: string;
+  } = {},
 ): Promise<{ exit: number; stdout: string; stderr: string }> {
   const stdoutChunks: string[] = [];
   const stderrChunks: string[] = [];
@@ -55,7 +59,11 @@ async function runCli(
   }) as typeof process.stderr.write;
   try {
     const exit = await main(["node", "loaf", ...argv], opts.deps ?? {});
-    return { exit, stdout: stdoutChunks.join(""), stderr: stderrChunks.join("") };
+    return {
+      exit,
+      stdout: stdoutChunks.join(""),
+      stderr: stderrChunks.join(""),
+    };
   } finally {
     process.stdout.write = origStdout;
     process.stderr.write = origStderr;
@@ -219,31 +227,22 @@ prose
     );
     if (adv.exit !== 0) throw new Error(`seed advance ${sub} failed: ${adv.stderr}`);
   }
-  // tasks submit (whole-graph single object). Shape mirrors the
-  // settle-seed pattern in tests/core/cli.test.ts:1287-1306 — id +
-  // tests + execution all required.
+  // tasks submit semantic authoring input. The CLI allocates id/status/
+  // execution and stamps based_on from the live spec version.
   const submitTasks = await runCli(
     [
       "tasks",
       "submit",
       "--input",
       JSON.stringify({
-        // spec_version is now 2 (spec submit=1 + spec add-req bumps to 2)
-        based_on: { spec: 2 },
         tasks: [
           {
-            id: "T-001",
+            local_key: "auth-refresh",
             kind: "behavioral",
             drives: ["REQ-AUTH-001"],
             tests: ["TokenCoord.refreshOnce"],
-            status: "pending",
             depends_on: [],
             labels: [],
-            execution: {
-              red: { applicability: "must", status: "pending", evidence_refs: [] },
-              implement: { applicability: "must", status: "pending", evidence_refs: [] },
-              refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
-            },
           },
         ],
       }),
@@ -448,15 +447,7 @@ describe("SC-11 — loaf lessons add (happy)", () => {
     expect(typeof lesson.payload.summary).toBe("string");
 
     const status = await runCli(
-      [
-        "status",
-        "--feature",
-        "auth-refresh",
-        "--feature-dir",
-        featureDir,
-        "--format",
-        "json",
-      ],
+      ["status", "--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"],
       { env: SEED_ENV },
     );
     expect(status.exit).toBe(0);

@@ -2,7 +2,13 @@
 // Command handlers provide intent-shaped entries; this module owns context
 // construction, timestamp policy, dry-run presentation, and failure routing.
 
-import { mutate, mutateBatch, type MutateContext } from "../core/journal-mutate.js";
+import {
+  mutate,
+  mutateBatch,
+  mutateBatchPlanned,
+  type MutateContext,
+  type MutationPlan,
+} from "../core/journal-mutate.js";
 import {
   executeClosureTransaction,
   type ExecuteClosureOptions,
@@ -12,6 +18,7 @@ import { emitInputSchema, formatSchema } from "./schema-emit.js";
 import type { MutatorCommand } from "./input-schemas.js";
 import type { MutatorEntry } from "./mutator-entry.js";
 import type { SessionLoad } from "../core/cli-runtime.js";
+import type { Snapshot } from "../core/reducer.js";
 import type { CommandContext } from "./command-context.js";
 
 type RunPartial = Parameters<typeof mutate>[0];
@@ -23,6 +30,11 @@ type MutateFailure =
   | Extract<Awaited<ReturnType<typeof mutate>>, { ok: false }>
   | Extract<Awaited<ReturnType<typeof mutateBatch>>, { ok: false }>;
 type SuccessfulExecuteClosure = Exclude<ExecuteClosureResult, { kind: "failure" }>;
+type MutationPlanFailure = Extract<MutationPlan, { ok: false }>;
+
+export type CommandMutationPlan =
+  | { ok: true; entries: readonly MutatorEntry[] }
+  | MutationPlanFailure;
 
 export type CommandMutatorDeps = {
   registryWriter: MutateContext["registryWriter"] | undefined;
@@ -57,6 +69,13 @@ export type CommandMutator = {
     session: SessionLoad,
     entries: readonly RunPartial[],
     route?: FailureRoute,
+  ) => Promise<MutateOkBatch | null>;
+  /** Build and stamp entries while the feature write lease is held. */
+  runPlannedBatch: (
+    featureDir: string,
+    session: SessionLoad,
+    planner: (snapshot: Readonly<Snapshot>) => CommandMutationPlan | Promise<CommandMutationPlan>,
+    options?: { timestamps?: TimestampStrategy; route?: FailureRoute },
   ) => Promise<MutateOkBatch | null>;
   /** Adapt the core EXECUTE closure transaction without leaking mutation helpers. */
   runExecuteClosure: (
@@ -164,6 +183,34 @@ export function createCommandMutator(
     return acceptResult(result, route);
   }
 
+  async function runPlannedBatch(
+    featureDir: string,
+    session: SessionLoad,
+    planner: (snapshot: Readonly<Snapshot>) => CommandMutationPlan | Promise<CommandMutationPlan>,
+    options: { timestamps?: TimestampStrategy; route?: FailureRoute } = {},
+  ): Promise<MutateOkBatch | null> {
+    const result = await mutateBatchPlanned(
+      async (snapshot) => {
+        const plan = await planner(snapshot);
+        if (!plan.ok) return plan;
+        const sharedAt =
+          (options.timestamps ?? "shared") === "shared" ? new Date().toISOString() : undefined;
+        return {
+          ok: true,
+          partials: plan.entries.map((entry) => ({
+            at: sharedAt ?? new Date().toISOString(),
+            actor: entry.actor,
+            entry_schema_version: 1,
+            kind: entry.kind,
+            payload: entry.payload,
+          })),
+        };
+      },
+      createMutationContext(featureDir, session),
+    );
+    return acceptResult(result, options.route ?? "emit-failure");
+  }
+
   async function runExecuteClosure(
     options: Omit<ExecuteClosureOptions, "mutateContext">,
     route: FailureRoute = "emit-failure",
@@ -191,6 +238,7 @@ export function createCommandMutator(
     run: runImpl as CommandMutator["run"],
     runBatch,
     runPreparedBatch,
+    runPlannedBatch,
     runExecuteClosure,
     emitSchemaAndExit,
   };

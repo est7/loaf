@@ -20,6 +20,7 @@ import path from "node:path";
 import os from "node:os";
 
 import { main } from "../../src/cli.js";
+import { taskAuthoringFixture } from "../helpers/task-authoring-fixture.js";
 
 async function tmpFeatureDir(): Promise<string> {
   return await fs.mkdtemp(path.join(os.tmpdir(), "loaf-e2e-"));
@@ -83,7 +84,45 @@ function makeCli(dir: string, env: Record<string, string | undefined>) {
   };
   const writeInput = async (name: string, payload: unknown): Promise<string> => {
     const p = path.join(dir, name);
-    await fs.writeFile(p, JSON.stringify(payload, null, 2));
+    const taskKinds = new Set([
+      "behavioral",
+      "structural",
+      "visual-ui",
+      "docs",
+      "spike",
+      "chore",
+    ]);
+    const normalizeTask = (value: unknown, index: number): unknown => {
+      if (
+        value === null ||
+        typeof value !== "object" ||
+        !taskKinds.has(String((value as { kind?: unknown }).kind)) ||
+        "local_key" in value
+      ) {
+        return value;
+      }
+      const task = value as Record<string, unknown>;
+      const dependencies = Array.isArray(task.depends_on) ? task.depends_on : [];
+      return {
+        ...task,
+        local_key: `fixture-${name.replace(/\.json$/, "").replace(/[^A-Za-z0-9_-]/g, "-")}-${index + 1}`,
+        depends_on: dependencies.map((dependency) =>
+          typeof dependency === "string" ? { task_id: dependency } : dependency,
+        ),
+      };
+    };
+    const normalized =
+      payload !== null &&
+      typeof payload === "object" &&
+      "based_on" in payload &&
+      Array.isArray((payload as { tasks?: unknown }).tasks)
+        ? taskAuthoringFixture(
+            payload as unknown as Parameters<typeof taskAuthoringFixture>[0],
+          )
+        : Array.isArray(payload)
+          ? payload.map(normalizeTask)
+          : normalizeTask(payload, 0);
+    await fs.writeFile(p, JSON.stringify(normalized, null, 2));
     return p;
   };
   return { step, writeInput };
@@ -2004,7 +2043,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     // ── re-plan against the bumped spec, then re-lock ───────────────────
     await step("advance SPEC.plan", ["advance", "SPEC.plan", "--feature", F]);
     await step("advance SPEC.design", ["advance", "SPEC.design", "--feature", F]);
-    await step("tasks submit (re-plan)", [
+    const replanned = await step("tasks submit (re-plan)", [
       "tasks",
       "submit",
       "--input",
@@ -2012,6 +2051,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
       "--feature",
       F,
     ]);
+    const replannedTaskId = replanned.task_ids_by_local_key["T-001"];
     const reLock = await step("gate spec-lock (re-lock)", [
       "gate",
       "decide",
@@ -2028,14 +2068,20 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     //    before verify-accept (open findings block the gate) ─────────────
     await step("advance EXECUTE.work", ["advance", "EXECUTE.work", "--feature", F]);
     await step("finding close", ["finding", "close", raised.id, "--feature", F]);
-    await step("tasks claim T-001", ["tasks", "claim", "T-001", "--feature", F]);
+    await step(`tasks claim ${replannedTaskId}`, [
+      "tasks",
+      "claim",
+      replannedTaskId,
+      "--feature",
+      F,
+    ]);
     for (const stp of ["red", "implement"]) {
       await step(`step start ${stp}`, [
         "tasks",
         "step",
         "start",
         "--task",
-        "T-001",
+        replannedTaskId,
         "--step",
         stp,
         "--feature",
@@ -2046,7 +2092,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
         "step",
         "done",
         "--task",
-        "T-001",
+        replannedTaskId,
         "--step",
         stp,
         "--feature",
@@ -2069,9 +2115,9 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
       iteration: 1,
       actor: "cli:loaf",
       result: "passed",
-      summary: "unit tests pass for T-001 against the amended spec",
-      task_id: "T-001",
-      covers: ["T-001"],
+      summary: `unit tests pass for ${replannedTaskId} against the amended spec`,
+      task_id: replannedTaskId,
+      covers: [replannedTaskId],
       cmd: "bun test",
       exit: 0,
     });

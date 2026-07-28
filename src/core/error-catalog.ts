@@ -188,7 +188,7 @@ export const ERROR_CATALOG = {
     message_template:
       "required input source missing or unreadable: --input not provided OR stdin could not be read (--input - failed)",
     fix_template:
-      "pass --input with one of: a JSON file path, '-' for stdin (with valid piped JSON), or inline JSON; for stdin failures, pass valid JSON to `loaf <cmd> --input -` on stdin; when supported by the command (Phase 16 SC-10: the 5 batch-capable mutators spec add-req / spec add-scenario / spec add-visual / tasks add / evidence add), run `loaf <cmd> --schema --format=json` to view the input schema",
+      "pass --input with one of: a JSON file path, '-' for stdin (with valid piped JSON), or inline JSON; for stdin failures, pass valid JSON to `loaf <cmd> --input -` on stdin; for the 6 schema-capable authoring commands (spec add-req / spec add-scenario / spec add-visual / tasks submit / tasks add / evidence add), run `loaf <cmd> --schema --format=json` to view the input schema",
     template_keys: [],
     doc_anchor: "protocol.md#§10.7",
   },
@@ -208,7 +208,7 @@ export const ERROR_CATALOG = {
     exit_code: 2,
     message_template: "input does not satisfy schema for {command}: {zod_path}: {zod_message}",
     fix_template:
-      "for the 5 batch-capable mutators (spec add-req / spec add-scenario / spec add-visual / tasks add / evidence add), run `loaf {command} --schema --format=json` to dump the input JSON Schema; for artifact projection files, run `loaf <kind> schema --format=json` (kind ∈ spec / tasks / evidence / finding / state). Fix the offending field and retry",
+      "for the 6 schema-capable authoring commands (spec add-req / spec add-scenario / spec add-visual / tasks submit / tasks add / evidence add), run `loaf {command} --schema --format=json` to dump the input JSON Schema; for artifact projection files, run `loaf <kind> schema --format=json` (kind ∈ spec / tasks / evidence / finding / state). Fix the offending field and retry",
     template_keys: ["command", "zod_message", "zod_path"],
     doc_anchor: "protocol.md#§10.5",
   },

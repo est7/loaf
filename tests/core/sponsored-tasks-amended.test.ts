@@ -17,6 +17,9 @@ import path from "node:path";
 import os from "node:os";
 
 import { main } from "../../src/cli.js";
+import { loadSession } from "../../src/core/cli-runtime.js";
+import { mutate } from "../../src/core/journal-mutate.js";
+import { taskAuthoringFixture } from "../helpers/task-authoring-fixture.js";
 
 async function tmpFeatureDir(): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), "loaf-sc1b-"));
@@ -83,10 +86,19 @@ function makeCli(dir: string, env: Record<string, string | undefined>) {
   };
   const writeInput = async (name: string, payload: unknown): Promise<string> => {
     const p = path.join(dir, name);
-    await fs.writeFile(p, JSON.stringify(payload, null, 2));
+    const normalized =
+      payload !== null &&
+      typeof payload === "object" &&
+      "based_on" in payload &&
+      Array.isArray((payload as { tasks?: unknown }).tasks)
+        ? taskAuthoringFixture(
+            payload as unknown as Parameters<typeof taskAuthoringFixture>[0],
+          )
+        : payload;
+    await fs.writeFile(p, JSON.stringify(normalized, null, 2));
     return p;
   };
-  return { step, expectFail, writeInput };
+  return { step, expectFail, writeInput, featureDir: dir };
 }
 
 const ENV = { LOAF_USER: "sc1b@test.invalid" };
@@ -157,6 +169,33 @@ async function seedToAmendTasksAtWork(
     "--feature",
     F,
   ]);
+  if (tasksGraph !== SEED_TASKS) {
+    // Historical journals may contain body-only step progress authored before
+    // the strict semantic CLI boundary. Re-emit that wire-compatible full
+    // payload through the core mutation seam so the compatibility tests below
+    // still exercise sponsored amend behavior over a replayed legacy body.
+    const session = await loadSession(cli.featureDir);
+    const seeded = await mutate(
+      {
+        at: new Date().toISOString(),
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "event:tasks_planned",
+        payload: tasksGraph as Record<string, unknown>,
+      },
+      {
+        feature_dir: cli.featureDir,
+        snapshot: session.snapshot,
+        tail_seq: session.tail_seq,
+        entries: session.entries,
+        meta: session.meta,
+        fsync: false,
+      },
+    );
+    if (!seeded.ok) {
+      throw new Error(`historical task-body seed failed: ${seeded.code} ${seeded.message}`);
+    }
+  }
   await step("gate spec-lock", [
     "gate",
     "decide",
@@ -209,6 +248,7 @@ describe("SC1b — sponsored `tasks add --finding` at EXECUTE.work", () => {
     const fnd = await seedToAmendTasksAtWork(cli, F);
 
     const newTask = await cli.writeInput("new-task.json", {
+      local_key: "new-structural-task",
       kind: "structural",
       no_test_rationale: "extract a helper the missing task needs; no behavior change",
     });
@@ -251,10 +291,15 @@ describe("SC1b — sponsored `tasks add --finding` at EXECUTE.work", () => {
 
     const newTasks = await cli.writeInput("new-tasks.json", [
       {
+        local_key: "first-structural-task",
         kind: "structural",
         no_test_rationale: "first missing structural task; no behavior change",
       },
-      { kind: "chore", no_test_rationale: "second missing chore task; pure housekeeping" },
+      {
+        local_key: "second-chore-task",
+        kind: "chore",
+        no_test_rationale: "second missing chore task; pure housekeeping",
+      },
     ]);
     const added = await cli.step("tasks add batch", [
       "tasks",
@@ -304,6 +349,7 @@ describe("SC1b — sponsored `tasks add --finding` at EXECUTE.work", () => {
     await step("advance SPEC.design", ["advance", "SPEC.design", "--feature", F]);
 
     const newTask = await writeInput("t.json", {
+      local_key: "usage-rejection-task",
       kind: "structural",
       no_test_rationale: "a structural task that should never be added with --finding",
     });
@@ -326,6 +372,7 @@ describe("SC1b — sponsored `tasks add --finding` at EXECUTE.work", () => {
     const cli = makeCli(dir, ENV);
     await seedToAmendTasksAtWork(cli, F);
     const newTask = await cli.writeInput("t.json", {
+      local_key: "outside-design-task",
       kind: "structural",
       no_test_rationale: "a structural task added without the sponsoring finding",
     });
@@ -340,6 +387,7 @@ describe("SC1b — sponsored `tasks add --finding` at EXECUTE.work", () => {
     const fnd = await seedToAmendTasksAtWork(cli, F);
     await cli.step("finding close", ["finding", "close", fnd, "--feature", F]);
     const newTask = await cli.writeInput("t.json", {
+      local_key: "closed-finding-task",
       kind: "structural",
       no_test_rationale: "a structural task sponsored by a now-closed finding",
     });
@@ -363,6 +411,7 @@ describe("SC1b — sponsored `tasks add --finding` at EXECUTE.work", () => {
     const cli = makeCli(dir, ENV);
     await seedToAmendTasksAtWork(cli, F);
     const newTask = await cli.writeInput("t.json", {
+      local_key: "missing-finding-task",
       kind: "structural",
       no_test_rationale: "a structural task sponsored by a non-existent finding",
     });

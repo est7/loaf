@@ -2,11 +2,11 @@
 //
 // Two distinct surfaces (codex r316 lock):
 //
-//   A. Mutator input schema via `--schema` modifier on 5 batch-capable
-//      mutators (spec add-req / spec add-scenario / spec add-visual /
-//      tasks add / evidence add). Source: the runtime-owned INPUT_SCHEMAS
-//      table in input-schemas.ts. Each entry accepts `T | nonempty T[]` so the
-//      emitted JSON Schema has root `anyOf`.
+//   A. Mutator input schema via `--schema` modifier on 6 structured
+//      authoring commands (spec add-req / spec add-scenario / spec add-visual /
+//      tasks submit / tasks add / evidence add). Source: the runtime-owned
+//      INPUT_SCHEMAS table in input-schemas.ts. Five accept
+//      `T | nonempty T[]`; tasks submit accepts one strict `{tasks:[...]}`.
 //
 //   B. Artifact projection schema via literal `<kind> schema` subcommand
 //      (5 kinds: spec / tasks / evidence / finding / state). Source:
@@ -53,7 +53,7 @@ const ARTIFACT_SCHEMAS: Record<ArtifactSchemaKind, z.ZodTypeAny> = {
   state: StateProjection,
 };
 
-/** Emit JSON Schema for one of the 5 batch-capable mutators. */
+/** Emit JSON Schema for one of the 6 structured authoring commands. */
 export function emitInputSchema(commandKey: MutatorCommand): unknown {
   return z.toJSONSchema(INPUT_SCHEMAS[commandKey], { target: "draft-2020-12" });
 }

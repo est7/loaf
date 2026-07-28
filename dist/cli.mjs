@@ -507,7 +507,111 @@ const TaskInput = z.union([
 	TaskSpikeInput,
 	TaskChoreInput
 ]);
-const TaskInputBatched = z.union([TaskInput, z.array(TaskInput).nonempty()]);
+z.union([TaskInput, z.array(TaskInput).nonempty()]);
+const TaskLocalKey = z.string().min(1).max(64).regex(/^[A-Za-z][A-Za-z0-9_-]*$/);
+const TaskDependencyRef = z.union([z.object({ task_id: TaskIdPayload }).strict(), z.object({ local_key: TaskLocalKey }).strict()]);
+const TaskAuthoringBaseShape = {
+	local_key: TaskLocalKey,
+	drives: z.array(RawDrivesRef).optional(),
+	depends_on: z.array(TaskDependencyRef).default([]),
+	labels: z.array(z.string()).default([])
+};
+const BehavioralStepPolicy = z.object({
+	red: ApplicabilityPayload.optional(),
+	implement: ApplicabilityPayload.optional(),
+	refactor: ApplicabilityPayload.optional()
+}).strict();
+const StructuralStepPolicy = z.object({
+	implement: ApplicabilityPayload.optional(),
+	refactor: ApplicabilityPayload.optional()
+}).strict();
+const VisualUiStepPolicy = z.object({
+	mockup: ApplicabilityPayload.optional(),
+	implement: ApplicabilityPayload.optional(),
+	"screenshot-compare": ApplicabilityPayload.optional()
+}).strict();
+const DocsStepPolicy = z.object({
+	draft: ApplicabilityPayload.optional(),
+	review: ApplicabilityPayload.optional()
+}).strict();
+const SpikeStepPolicy = z.object({
+	explore: ApplicabilityPayload.optional(),
+	prototype: ApplicabilityPayload.optional(),
+	record: ApplicabilityPayload.optional()
+}).strict();
+const ChoreStepPolicy = z.object({ execute: ApplicabilityPayload.optional() }).strict();
+const TaskBehavioralAuthoringInput = z.object({
+	...TaskAuthoringBaseShape,
+	kind: z.literal(TaskKind.enum.behavioral),
+	drives: z.array(RawDrivesRef).min(1),
+	tests: z.array(z.string().min(3)).min(1),
+	test_layer: z.enum([
+		"unit",
+		"integration",
+		"e2e"
+	]).optional(),
+	step_policy: BehavioralStepPolicy.optional(),
+	requires_acceptance: z.boolean().optional(),
+	requires_visual: z.boolean().optional()
+}).strict();
+const TaskStructuralAuthoringInput = z.object({
+	...TaskAuthoringBaseShape,
+	kind: z.literal(TaskKind.enum.structural),
+	no_test_rationale: z.string().min(10),
+	step_policy: StructuralStepPolicy.optional()
+}).strict();
+const TaskVisualUiAuthoringInput = z.object({
+	...TaskAuthoringBaseShape,
+	kind: z.literal(TaskKind.enum["visual-ui"]),
+	visual_contract_refs: z.array(VisIdPayload).min(1),
+	no_test_rationale: z.string().min(10).optional(),
+	step_policy: VisualUiStepPolicy.optional()
+}).strict();
+const TaskDocsAuthoringInput = z.object({
+	...TaskAuthoringBaseShape,
+	kind: z.literal(TaskKind.enum.docs),
+	no_test_rationale: z.string().min(10),
+	step_policy: DocsStepPolicy.optional()
+}).strict();
+const TaskSpikeAuthoringInput = z.object({
+	...TaskAuthoringBaseShape,
+	kind: z.literal(TaskKind.enum.spike),
+	no_test_rationale: z.string().min(10),
+	step_policy: SpikeStepPolicy.optional()
+}).strict();
+const TaskChoreAuthoringInput = z.object({
+	...TaskAuthoringBaseShape,
+	kind: z.literal(TaskKind.enum.chore),
+	no_test_rationale: z.string().min(10),
+	step_policy: ChoreStepPolicy.optional()
+}).strict();
+const TaskAuthoringInput = z.union([
+	TaskBehavioralAuthoringInput,
+	TaskStructuralAuthoringInput,
+	TaskVisualUiAuthoringInput,
+	TaskDocsAuthoringInput,
+	TaskSpikeAuthoringInput,
+	TaskChoreAuthoringInput
+]);
+function rejectDuplicateLocalKeys(items, ctx) {
+	const firstIndex = /* @__PURE__ */ new Map();
+	for (let index = 0; index < items.length; index += 1) {
+		const localKey = items[index].local_key;
+		const first = firstIndex.get(localKey);
+		if (first === void 0) {
+			firstIndex.set(localKey, index);
+			continue;
+		}
+		ctx.addIssue({
+			code: "custom",
+			message: `duplicate local_key '${localKey}' at indexes ${first} and ${index}`,
+			path: [index, "local_key"]
+		});
+	}
+}
+const TaskAuthoringBatch = z.array(TaskAuthoringInput).nonempty().superRefine(rejectDuplicateLocalKeys);
+const TaskAuthoringInputBatched = z.union([TaskAuthoringInput, TaskAuthoringBatch]);
+const TasksSubmitInput = z.object({ tasks: TaskAuthoringBatch }).strict();
 const KIND_EXECUTION_STEPS = {
 	behavioral: Object.keys(BehavioralExecutionPayload.shape),
 	structural: Object.keys(StructuralExecutionPayload.shape),
@@ -1691,7 +1795,7 @@ const ERROR_CATALOG = {
 	MISSING_INPUT: {
 		exit_code: 2,
 		message_template: "required input source missing or unreadable: --input not provided OR stdin could not be read (--input - failed)",
-		fix_template: "pass --input with one of: a JSON file path, '-' for stdin (with valid piped JSON), or inline JSON; for stdin failures, pass valid JSON to `loaf <cmd> --input -` on stdin; when supported by the command (Phase 16 SC-10: the 5 batch-capable mutators spec add-req / spec add-scenario / spec add-visual / tasks add / evidence add), run `loaf <cmd> --schema --format=json` to view the input schema",
+		fix_template: "pass --input with one of: a JSON file path, '-' for stdin (with valid piped JSON), or inline JSON; for stdin failures, pass valid JSON to `loaf <cmd> --input -` on stdin; for the 6 schema-capable authoring commands (spec add-req / spec add-scenario / spec add-visual / tasks submit / tasks add / evidence add), run `loaf <cmd> --schema --format=json` to view the input schema",
 		template_keys: [],
 		doc_anchor: "protocol.md#§10.7"
 	},
@@ -1707,7 +1811,7 @@ const ERROR_CATALOG = {
 	SCHEMA_VALIDATION_FAILED: {
 		exit_code: 2,
 		message_template: "input does not satisfy schema for {command}: {zod_path}: {zod_message}",
-		fix_template: "for the 5 batch-capable mutators (spec add-req / spec add-scenario / spec add-visual / tasks add / evidence add), run `loaf {command} --schema --format=json` to dump the input JSON Schema; for artifact projection files, run `loaf <kind> schema --format=json` (kind ∈ spec / tasks / evidence / finding / state). Fix the offending field and retry",
+		fix_template: "for the 6 schema-capable authoring commands (spec add-req / spec add-scenario / spec add-visual / tasks submit / tasks add / evidence add), run `loaf {command} --schema --format=json` to dump the input JSON Schema; for artifact projection files, run `loaf <kind> schema --format=json` (kind ∈ spec / tasks / evidence / finding / state). Fix the offending field and retry",
 		template_keys: [
 			"command",
 			"zod_message",
@@ -11503,10 +11607,26 @@ async function mutateBatch(partials, ctx) {
 		message: "mutateBatch called with empty partials array; pass at least one entry",
 		detail: { partials_length: 0 }
 	}, ctx.dryRun ?? false);
+	return withMutationLease(ctx, () => mutateBatchUnderLease(partials, ctx));
+}
+/**
+* Plan journal-ready entries while holding the feature lease. The planner sees
+* the caller's snapshot; the normal under-lease tail proof still rejects a
+* stale context before append. This is for deterministic allocation whose
+* result must be fenced with the eventual write.
+*/
+async function mutateBatchPlanned(planner, ctx) {
+	return withMutationLease(ctx, async () => {
+		const plan = await planner(ctx.snapshot);
+		if (!plan.ok) return plan;
+		return mutateBatchUnderLease(plan.partials, ctx);
+	});
+}
+async function withMutationLease(ctx, operation) {
 	if (ctx.dryRun) try {
 		await promises.access(ctx.feature_dir);
 	} catch (error) {
-		if (error.code === "ENOENT") return classifyCommitState(await mutateBatchUnderLease(partials, ctx), ctx.dryRun ?? false);
+		if (error.code === "ENOENT") return classifyCommitState(await operation(), ctx.dryRun ?? false);
 		throw error;
 	}
 	let lease;
@@ -11526,7 +11646,7 @@ async function mutateBatch(partials, ctx) {
 		throw error;
 	}
 	try {
-		return classifyCommitState(await mutateBatchUnderLease(partials, ctx), ctx.dryRun ?? false);
+		return classifyCommitState(await operation(), ctx.dryRun ?? false);
 	} finally {
 		await lease.release();
 	}
@@ -12322,15 +12442,17 @@ z.enum([
 	"spec:add-req",
 	"spec:add-scenario",
 	"spec:add-visual",
+	"tasks:submit",
 	"tasks:add",
 	"evidence:add"
 ]);
-/** The exact schemas parsed by the five batch-capable mutation paths. */
+/** The exact schemas parsed by schema-emitting mutation paths. */
 const INPUT_SCHEMAS = {
 	"spec:add-req": SpecReqInputBatched,
 	"spec:add-scenario": SpecScenarioInputBatched,
 	"spec:add-visual": SpecVisualInputBatched,
-	"tasks:add": TaskInputBatched,
+	"tasks:submit": TasksSubmitInput,
+	"tasks:add": TaskAuthoringInputBatched,
 	"evidence:add": EvidenceAddInputBatched
 };
 //#endregion
@@ -12352,7 +12474,7 @@ const ARTIFACT_SCHEMAS = {
 	finding: FindingsJson,
 	state: StateProjection
 };
-/** Emit JSON Schema for one of the 5 batch-capable mutators. */
+/** Emit JSON Schema for one of the 6 structured authoring commands. */
 function emitInputSchema(commandKey) {
 	return z.toJSONSchema(INPUT_SCHEMAS[commandKey], { target: "draft-2020-12" });
 }
@@ -12426,6 +12548,23 @@ function createCommandMutator(ctx, deps) {
 	async function runPreparedBatch(featureDir, session, entries, route = "emit-failure") {
 		return acceptResult(await mutateBatch([...entries], createMutationContext(featureDir, session)), route);
 	}
+	async function runPlannedBatch(featureDir, session, planner, options = {}) {
+		return acceptResult(await mutateBatchPlanned(async (snapshot) => {
+			const plan = await planner(snapshot);
+			if (!plan.ok) return plan;
+			const sharedAt = (options.timestamps ?? "shared") === "shared" ? (/* @__PURE__ */ new Date()).toISOString() : void 0;
+			return {
+				ok: true,
+				partials: plan.entries.map((entry) => ({
+					at: sharedAt ?? (/* @__PURE__ */ new Date()).toISOString(),
+					actor: entry.actor,
+					entry_schema_version: 1,
+					kind: entry.kind,
+					payload: entry.payload
+				}))
+			};
+		}, createMutationContext(featureDir, session)), options.route ?? "emit-failure");
+	}
 	async function runExecuteClosure(options, route = "emit-failure") {
 		const closure = await executeClosureTransaction({
 			...options,
@@ -12446,6 +12585,7 @@ function createCommandMutator(ctx, deps) {
 		run: runImpl,
 		runBatch,
 		runPreparedBatch,
+		runPlannedBatch,
 		runExecuteClosure,
 		emitSchemaAndExit
 	};
@@ -13500,17 +13640,102 @@ function registerProfileConfig(program, ctx, mutator, actor, userConfigHomeDir) 
 	});
 }
 //#endregion
+//#region src/cli/task-authoring.ts
+/** Collect every task id ever authored so whole-graph replacement never reuses one. */
+function collectOccupiedTaskIds(snapshot, entries) {
+	const ids = new Set(snapshot.tasks.map((task) => task.id));
+	for (const entry of entries) if (entry.kind === "event:tasks_planned") {
+		const tasks = entry.payload.tasks ?? [];
+		for (const task of tasks) if (typeof task.id === "string") ids.add(task.id);
+	} else if (entry.kind === "event:tasks_amended") {
+		const taskId = entry.payload.task?.id;
+		if (typeof taskId === "string") ids.add(taskId);
+	}
+	return [...ids];
+}
+function maxTaskSerial(taskIds) {
+	let max = 0;
+	for (const taskId of taskIds) {
+		const match = /^T-(\d{3,})$/.exec(taskId);
+		if (match === null) return null;
+		max = Math.max(max, Number.parseInt(match[1], 10));
+	}
+	return max;
+}
+/**
+* Allocate every id before resolving dependencies, so forward local refs are
+* deterministic. `occupiedTaskIds` should include current and historical ids;
+* callers execute this planner while the feature write lease is held.
+*/
+function allocateTaskAuthoringInputs(inputs, occupiedTaskIds) {
+	const maxSerial = maxTaskSerial(occupiedTaskIds);
+	if (maxSerial === null) {
+		const invalid = occupiedTaskIds.find((taskId) => !/^T-\d{3,}$/.test(taskId));
+		return {
+			ok: false,
+			code: "REDUCER_ERROR",
+			message: `internal: task id ${invalid} is not canonical T-NNN; cannot allocate the next id`,
+			detail: { task_id: invalid }
+		};
+	}
+	const taskIdsByLocalKey = {};
+	for (let index = 0; index < inputs.length; index += 1) taskIdsByLocalKey[inputs[index].local_key] = `T-${String(maxSerial + index + 1).padStart(3, "0")}`;
+	const tasks = [];
+	for (const input of inputs) {
+		const dependsOn = [];
+		for (const dependency of input.depends_on) {
+			if ("task_id" in dependency) {
+				dependsOn.push(dependency.task_id);
+				continue;
+			}
+			const taskId = taskIdsByLocalKey[dependency.local_key];
+			if (taskId === void 0) return {
+				ok: false,
+				code: "SCHEMA_VALIDATION_FAILED",
+				message: `task local_key=${input.local_key} depends on unknown local_key=${dependency.local_key}`,
+				detail: {
+					local_key: input.local_key,
+					dependency_local_key: dependency.local_key
+				}
+			};
+			dependsOn.push(taskId);
+		}
+		const { local_key: _localKey, depends_on: _dependencies, step_policy: stepPolicy, ...body } = input;
+		const task = materializeTaskInput(TaskInput.parse({
+			...body,
+			depends_on: dependsOn
+		}), taskIdsByLocalKey[input.local_key]);
+		if (stepPolicy !== void 0) {
+			const execution = task.execution;
+			for (const [step, applicability] of Object.entries(stepPolicy)) {
+				if (applicability === void 0) continue;
+				execution[step].applicability = applicability;
+			}
+		}
+		tasks.push(task);
+	}
+	return {
+		ok: true,
+		tasks,
+		task_ids_by_local_key: taskIdsByLocalKey
+	};
+}
+//#endregion
 //#region src/cli/commands/tasks/authoring.ts
 const TASKS_SUBMIT_INPUT = {
 	command: "loaf tasks submit",
 	helpPrefix: "JSON source",
 	inlineLabel: "inline JSON literal",
 	helpSuffix: " (protocol §10.7). Whole-graph single object only.",
-	stdinExpectation: "piped input"
+	stdinExpectation: "piped input",
+	missing: {
+		message: "loaf tasks submit requires --input <src> (or pass --schema to dump the input JSON Schema)",
+		route: "emit-failure"
+	}
 };
 const TASKS_ADD_INPUT = {
 	command: "loaf tasks add",
-	helpPrefix: "JSON source for TaskInput (single object or array)",
+	helpPrefix: "JSON source for semantic task input (single object or array)",
 	inlineLabel: "inline JSON",
 	helpSuffix: " (protocol §10.7)",
 	stdinExpectation: "piped input",
@@ -13528,10 +13753,24 @@ const TASKS_AMEND_INPUT = {
 };
 function registerTaskSubmit(tasksCmd, deps) {
 	const { ctx, mutator, actor, input } = deps;
-	tasksCmd.command("submit").description("Submit a complete task graph from --input <src> (stdin / inline JSON / file path; whole-graph single object)").requiredOption("--input <src>", jsonInputHelp(TASKS_SUBMIT_INPUT)).option("--feature <name>", "Feature whose task graph to submit").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+	tasksCmd.command("submit").description("Submit a complete task graph from --input <src> (stdin / inline JSON / file path; whole-graph single object)").option("--input <src>", jsonInputHelp(TASKS_SUBMIT_INPUT)).option("--schema", "Dump the semantic authoring JSON Schema instead of mutating").option("--feature <name>", "Feature whose task graph to submit").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (rawOpts) => {
+		if (rawOpts.schema === true) {
+			if (ctx.rejectIfDryRun("tasks submit --schema")) return;
+			mutator.emitSchemaAndExit("tasks:submit");
+			return;
+		}
+		if (!input.requireArg(ctx, rawOpts.input, TASKS_SUBMIT_INPUT)) return;
+		const opts = rawOpts;
 		const read = await input.readJson(ctx, opts.input, TASKS_SUBMIT_INPUT);
 		if (!read.ok) return;
-		const payload = read.value;
+		const parsed = TasksSubmitInput.safeParse(read.value);
+		if (!parsed.success) {
+			ctx.failure("SCHEMA_VALIDATION_FAILED", "tasks submit input must be a strict semantic graph with id-less tasks and unique local_key values", {
+				issues: parsed.error.issues,
+				migration: "legacy-full-input-rejected"
+			});
+			return;
+		}
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
 		const session = await ctx.resolveSession(featureDir);
@@ -13539,11 +13778,29 @@ function registerTaskSubmit(tasksCmd, deps) {
 			ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
 			return;
 		}
-		const result = await mutator.run(featureDir, session, {
-			kind: "event:tasks_planned",
-			payload,
-			actor
-		}, "raw-ctx-failure");
+		const occupiedTaskIds = collectOccupiedTaskIds(session.snapshot, session.entries);
+		const result = await mutator.runPlannedBatch(featureDir, session, (snapshot) => {
+			const allocation = allocateTaskAuthoringInputs(parsed.data.tasks, occupiedTaskIds);
+			if (!allocation.ok) return allocation;
+			const specVersion = snapshot.state?.spec_version;
+			if (specVersion === void 0) return {
+				ok: false,
+				code: "REDUCER_ERROR",
+				message: "internal: session state missing while planning task graph",
+				detail: {}
+			};
+			return {
+				ok: true,
+				entries: [{
+					kind: "event:tasks_planned",
+					payload: {
+						based_on: { spec: specVersion },
+						tasks: allocation.tasks
+					},
+					actor
+				}]
+			};
+		}, { route: "raw-ctx-failure" });
 		if (!result) return;
 		const state = result.snapshot.state;
 		if (state === null) {
@@ -13552,12 +13809,15 @@ function registerTaskSubmit(tasksCmd, deps) {
 		}
 		const tasks = result.snapshot.tasks;
 		const taskIds = tasks.map((t) => t.id);
+		const plannedTasks = result.entries[0].payload.tasks;
+		const taskIdsByLocalKey = Object.fromEntries(parsed.data.tasks.map((task, index) => [task.local_key, plannedTasks[index].id]));
 		const out = {
 			ok: true,
 			feature: opts.feature,
 			sub_state: state.sub_state,
 			tasks_count: tasks.length,
 			task_ids: taskIds,
+			task_ids_by_local_key: taskIdsByLocalKey,
 			tasks_based_on: result.snapshot.tasks_based_on
 		};
 		ctx.success(out, (i18n) => i18n.t(tasks.length === 1 ? SUCCESS_KEYS.tasksSubmitTextOne : SUCCESS_KEYS.tasksSubmitTextMany, {
@@ -13600,20 +13860,19 @@ function registerTaskAdd(tasksCmd, deps) {
 		const read = await input.readJson(ctx, opts.input, TASKS_ADD_INPUT);
 		if (!read.ok) return;
 		const parsed = read.value;
-		const rawTasks = Array.isArray(parsed) ? parsed : [parsed];
-		if (rawTasks.length === 0) {
-			ctx.failureKeyed("SCHEMA_VALIDATION_FAILED", FAILURE_SITE_KEYS.tasksAddEmptyArray, {}, {});
-			return;
-		}
-		const validatedInputs = [];
-		for (const raw of rawTasks) {
-			const p = TaskInput.safeParse(raw);
-			if (!p.success) {
-				ctx.failure("SCHEMA_VALIDATION_FAILED", `tasks add input is not a valid id-less task (omit id / status / execution): ${p.error.issues.map((i) => i.message).join("; ")}`, { issues: p.error.issues });
+		const inputParse = TaskAuthoringInputBatched.safeParse(parsed);
+		if (!inputParse.success) {
+			if (Array.isArray(parsed) && parsed.length === 0) {
+				ctx.failureKeyed("SCHEMA_VALIDATION_FAILED", FAILURE_SITE_KEYS.tasksAddEmptyArray, {}, {});
 				return;
 			}
-			validatedInputs.push(p.data);
+			ctx.failure("SCHEMA_VALIDATION_FAILED", "tasks add input must contain strict id-less tasks with local_key and explicit dependency refs", {
+				issues: inputParse.error.issues,
+				migration: "legacy-task-input-rejected"
+			});
+			return;
 		}
+		const validatedInputs = Array.isArray(inputParse.data) ? inputParse.data : [inputParse.data];
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
 		const session = await ctx.resolveSession(featureDir);
@@ -13631,37 +13890,35 @@ function registerTaskAdd(tasksCmd, deps) {
 			ctx.failure("SUB_STATE_AUTHORITY_VIOLATION", `loaf tasks add without --finding is only valid at SPEC.design (current sub_state=${subState}); post-lock task additions go through \`loaf finding raise --action amend-tasks\` then \`tasks add --finding\``, { sub_state: subState });
 			return;
 		}
-		let maxSerial = 0;
-		for (const t of session.snapshot.tasks) {
-			const m = /^T-(\d{3,})$/.exec(t.id);
-			if (!m) {
-				ctx.failure("REDUCER_ERROR", `internal: task id ${t.id} in the projection is not canonical T-NNN; cannot allocate the next id`, { task_id: t.id });
-				return;
-			}
-			const n = Number.parseInt(m[1], 10);
-			if (n > maxSerial) maxSerial = n;
-		}
-		const seededNew = validatedInputs.map((input, i) => materializeTaskInput(input, `T-${String(maxSerial + 1 + i).padStart(3, "0")}`));
-		const newIds = seededNew.map((t) => t.id);
+		const occupiedTaskIds = collectOccupiedTaskIds(session.snapshot, session.entries);
 		if (sponsored) {
-			const sponsoredBatch = seededNew.map((task) => ({
-				actor,
-				kind: "event:tasks_amended",
-				payload: {
-					mode: "add",
-					task,
-					sponsored_by_finding_id: opts.finding
-				}
-			}));
-			const result = await mutator.runBatch(featureDir, session, sponsoredBatch, {
+			const result = await mutator.runPlannedBatch(featureDir, session, () => {
+				const allocation = allocateTaskAuthoringInputs(validatedInputs, occupiedTaskIds);
+				if (!allocation.ok) return allocation;
+				return {
+					ok: true,
+					entries: allocation.tasks.map((task) => ({
+						actor,
+						kind: "event:tasks_amended",
+						payload: {
+							mode: "add",
+							task,
+							sponsored_by_finding_id: opts.finding
+						}
+					}))
+				};
+			}, {
 				timestamps: "per-entry",
 				route: "raw-ctx-failure"
 			});
 			if (!result) return;
+			const newIds = result.entries.map((entry) => entry.payload.task.id);
+			const taskIdsByLocalKey = Object.fromEntries(validatedInputs.map((task, index) => [task.local_key, newIds[index]]));
 			const out = {
 				ok: true,
 				feature: opts.feature,
 				task_ids: newIds,
+				task_ids_by_local_key: taskIdsByLocalKey,
 				sponsored_by_finding_id: opts.finding,
 				tasks_count: result.snapshot.tasks.length,
 				sub_state: result.snapshot.state?.sub_state
@@ -13688,20 +13945,29 @@ function registerTaskAdd(tasksCmd, deps) {
 			}
 			existingFull.push(materializeTaskForAmend(base, t));
 		}
-		const based_on = session.snapshot.tasks_based_on ?? { spec: session.snapshot.state.spec_version };
-		const result = await mutator.run(featureDir, session, {
-			kind: "event:tasks_planned",
-			payload: {
-				based_on,
-				tasks: [...existingFull, ...seededNew]
-			},
-			actor
-		}, "raw-ctx-failure");
+		const result = await mutator.runPlannedBatch(featureDir, session, (snapshot) => {
+			const allocation = allocateTaskAuthoringInputs(validatedInputs, occupiedTaskIds);
+			if (!allocation.ok) return allocation;
+			return {
+				ok: true,
+				entries: [{
+					kind: "event:tasks_planned",
+					payload: {
+						based_on: snapshot.tasks_based_on ?? { spec: snapshot.state?.spec_version },
+						tasks: [...existingFull, ...allocation.tasks]
+					},
+					actor
+				}]
+			};
+		}, { route: "raw-ctx-failure" });
 		if (!result) return;
+		const newIds = result.entries[0].payload.tasks.slice(existingFull.length).map((task) => task.id);
+		const taskIdsByLocalKey = Object.fromEntries(validatedInputs.map((task, index) => [task.local_key, newIds[index]]));
 		const out = {
 			ok: true,
 			feature: opts.feature,
 			task_ids: newIds,
+			task_ids_by_local_key: taskIdsByLocalKey,
 			tasks_count: result.snapshot.tasks.length,
 			sub_state: result.snapshot.state?.sub_state
 		};
@@ -19368,6 +19634,7 @@ async function main(argv = process.argv, deps = {}) {
 			["spec/add-req", "spec add-req --schema"],
 			["spec/add-scenario", "spec add-scenario --schema"],
 			["spec/add-visual", "spec add-visual --schema"],
+			["tasks/submit", "tasks submit --schema"],
 			["tasks/add", "tasks add --schema"],
 			["evidence/add", "evidence add --schema"]
 		]);

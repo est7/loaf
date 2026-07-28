@@ -7,10 +7,14 @@ import {
   materializeTaskForAmend,
 } from "../../../core/task-history.js";
 import {
+  TaskAuthoringInputBatched,
   TaskInput,
+  TasksSubmitInput,
   materializeTaskInput,
+  type TaskAuthoringInput,
   type TaskFullPayload,
 } from "../../../core/task-schema.js";
+import { allocateTaskAuthoringInputs, collectOccupiedTaskIds } from "../../task-authoring.js";
 import { jsonInputHelp, type JsonInputDeclaration } from "../../input-ingestion.js";
 import { FAILURE_SITE_KEYS, SUCCESS_KEYS } from "../../runtime-i18n-keys.js";
 import { buildNextAdvisory, pendingKindsForNext } from "../../next-advisory.js";
@@ -22,11 +26,16 @@ const TASKS_SUBMIT_INPUT: JsonInputDeclaration = {
   inlineLabel: "inline JSON literal",
   helpSuffix: " (protocol §10.7). Whole-graph single object only.",
   stdinExpectation: "piped input",
+  missing: {
+    message:
+      "loaf tasks submit requires --input <src> (or pass --schema to dump the input JSON Schema)",
+    route: "emit-failure",
+  },
 };
 
 const TASKS_ADD_INPUT: JsonInputDeclaration = {
   command: "loaf tasks add",
-  helpPrefix: "JSON source for TaskInput (single object or array)",
+  helpPrefix: "JSON source for semantic task input (single object or array)",
   inlineLabel: "inline JSON",
   helpSuffix: " (protocol §10.7)",
   stdinExpectation: "piped input",
@@ -52,13 +61,37 @@ export function registerTaskSubmit(tasksCmd: Command, deps: TasksRegistrationDep
     .description(
       "Submit a complete task graph from --input <src> (stdin / inline JSON / file path; whole-graph single object)",
     )
-    .requiredOption("--input <src>", jsonInputHelp(TASKS_SUBMIT_INPUT))
+    .option("--input <src>", jsonInputHelp(TASKS_SUBMIT_INPUT))
+    .option("--schema", "Dump the semantic authoring JSON Schema instead of mutating")
     .option("--feature <name>", "Feature whose task graph to submit")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-    .action(async (opts: { input: string; feature: string; featureDir?: string }) => {
+    .action(async (rawOpts: {
+      input?: string;
+      schema?: boolean;
+      feature: string;
+      featureDir?: string;
+    }) => {
+      if (rawOpts.schema === true) {
+        if (ctx.rejectIfDryRun("tasks submit --schema")) return;
+        mutator.emitSchemaAndExit("tasks:submit");
+        return;
+      }
+      if (!input.requireArg(ctx, rawOpts.input, TASKS_SUBMIT_INPUT)) return;
+      const opts = rawOpts as { input: string; feature: string; featureDir?: string };
       const read = await input.readJson(ctx, opts.input, TASKS_SUBMIT_INPUT);
       if (!read.ok) return;
-      const payload = read.value;
+      const parsed = TasksSubmitInput.safeParse(read.value);
+      if (!parsed.success) {
+        ctx.failure(
+          "SCHEMA_VALIDATION_FAILED",
+          "tasks submit input must be a strict semantic graph with id-less tasks and unique local_key values",
+          {
+            issues: parsed.error.issues,
+            migration: "legacy-full-input-rejected",
+          },
+        );
+        return;
+      }
 
       const featureDir = await ctx.dispatchOrFail(opts);
       if (featureDir === null) return;
@@ -68,14 +101,35 @@ export function registerTaskSubmit(tasksCmd: Command, deps: TasksRegistrationDep
         return;
       }
 
-      // Mutate. Preflight validates TasksPlannedPayload + sub_state +
-      // duplicate task ids + reducer dry-run + final-validate. CLI does
-      // not duplicate any of that.
-      const result = await mutator.run(
+      const occupiedTaskIds = collectOccupiedTaskIds(session.snapshot, session.entries);
+      const result = await mutator.runPlannedBatch(
         featureDir,
         session,
-        { kind: "event:tasks_planned", payload: payload as Record<string, unknown>, actor },
-        "raw-ctx-failure",
+        (snapshot) => {
+          const allocation = allocateTaskAuthoringInputs(parsed.data.tasks, occupiedTaskIds);
+          if (!allocation.ok) return allocation;
+          const specVersion = snapshot.state?.spec_version;
+          if (specVersion === undefined) {
+            return {
+              ok: false,
+              code: "REDUCER_ERROR",
+              message: "internal: session state missing while planning task graph",
+              detail: {},
+            };
+          }
+          return {
+            ok: true,
+            entries: [{
+              kind: "event:tasks_planned",
+              payload: {
+                based_on: { spec: specVersion },
+                tasks: allocation.tasks,
+              },
+              actor,
+            }],
+          };
+        },
+        { route: "raw-ctx-failure" },
       );
       if (!result) return;
       const state = result.snapshot.state;
@@ -91,12 +145,19 @@ export function registerTaskSubmit(tasksCmd: Command, deps: TasksRegistrationDep
       // pre-SC-4b shape (asserted via existing tasks-submit tests).
       const tasks = result.snapshot.tasks;
       const taskIds = tasks.map((t) => t.id);
+      const plannedTasks = (result.entries[0]!.payload as {
+        tasks: Array<{ id: string }>;
+      }).tasks;
+      const taskIdsByLocalKey = Object.fromEntries(
+        parsed.data.tasks.map((task, index) => [task.local_key, plannedTasks[index]!.id]),
+      );
       const out = {
         ok: true,
         feature: opts.feature,
         sub_state: state.sub_state,
         tasks_count: tasks.length,
         task_ids: taskIds,
+        task_ids_by_local_key: taskIdsByLocalKey,
         tasks_based_on: result.snapshot.tasks_based_on,
       };
       ctx.success(
@@ -172,33 +233,30 @@ export function registerTaskAdd(tasksCmd: Command, deps: TasksRegistrationDeps):
         if (!read.ok) return;
         const parsed = read.value;
 
-        // Normalize to an array; validate each against the strict TaskInput
-        // schema. TaskInput omits id / status / execution (CLI-owned);
-        // `.strict()` rejects a caller that supplies any of them — the
-        // shape-enforcement point of ADR-0004 (codex r113).
-        const rawTasks: unknown[] = Array.isArray(parsed) ? parsed : [parsed];
-        if (rawTasks.length === 0) {
-          ctx.failureKeyed(
-            "SCHEMA_VALIDATION_FAILED",
-            FAILURE_SITE_KEYS.tasksAddEmptyArray,
-            {},
-            {},
-          );
-          return;
-        }
-        const validatedInputs: TaskInput[] = [];
-        for (const raw of rawTasks) {
-          const p = TaskInput.safeParse(raw);
-          if (!p.success) {
-            ctx.failure(
+        const inputParse = TaskAuthoringInputBatched.safeParse(parsed);
+        if (!inputParse.success) {
+          if (Array.isArray(parsed) && parsed.length === 0) {
+            ctx.failureKeyed(
               "SCHEMA_VALIDATION_FAILED",
-              `tasks add input is not a valid id-less task (omit id / status / execution): ${p.error.issues.map((i) => i.message).join("; ")}`,
-              { issues: p.error.issues },
+              FAILURE_SITE_KEYS.tasksAddEmptyArray,
+              {},
+              {},
             );
             return;
           }
-          validatedInputs.push(p.data);
+          ctx.failure(
+            "SCHEMA_VALIDATION_FAILED",
+            "tasks add input must contain strict id-less tasks with local_key and explicit dependency refs",
+            {
+              issues: inputParse.error.issues,
+              migration: "legacy-task-input-rejected",
+            },
+          );
+          return;
         }
+        const validatedInputs: TaskAuthoringInput[] = Array.isArray(inputParse.data)
+          ? inputParse.data
+          : [inputParse.data];
 
         // Load session; resolve the surface (unsponsored vs sponsored).
         const featureDir = await ctx.dispatchOrFail(opts);
@@ -229,30 +287,7 @@ export function registerTaskAdd(tasksCmd: Command, deps: TasksRegistrationDeps):
           return;
         }
 
-        // (4) Allocate T-ids. Existing ids must all be canonical T-NNN — a
-        // non-canonical id cannot participate in collision-safe allocation
-        // (codex r112: fail loud, do not skip).
-        let maxSerial = 0;
-        for (const t of session.snapshot.tasks) {
-          const m = /^T-(\d{3,})$/.exec(t.id);
-          if (!m) {
-            ctx.failure(
-              "REDUCER_ERROR",
-              `internal: task id ${t.id} in the projection is not canonical T-NNN; cannot allocate the next id`,
-              { task_id: t.id },
-            );
-            return;
-          }
-          const n = Number.parseInt(m[1]!, 10);
-          if (n > maxSerial) maxSerial = n;
-        }
-        // Materialize each validated input into a full TaskFull — the CLI
-        // stamps the allocated id, status="pending", and the per-kind
-        // execution map (all steps applicability="must", status="pending").
-        const seededNew = validatedInputs.map((input, i) =>
-          materializeTaskInput(input, `T-${String(maxSerial + 1 + i).padStart(3, "0")}`),
-        );
-        const newIds = seededNew.map((t) => t.id);
+        const occupiedTaskIds = collectOccupiedTaskIds(session.snapshot, session.entries);
 
         if (sponsored) {
           // (5s) SPONSORED — emit one event:tasks_amended mode="add" +
@@ -260,24 +295,39 @@ export function registerTaskAdd(tasksCmd: Command, deps: TasksRegistrationDeps):
           // input carries several). Preflight §8.6 verifies the finding is
           // open with action=amend-tasks; the reducer dry-run appends each
           // task and rejects a duplicate id.
-          const sponsoredBatch = seededNew.map((task) => ({
-            actor,
-            kind: "event:tasks_amended" as const,
-            payload: {
-              mode: "add",
-              task,
-              sponsored_by_finding_id: opts.finding,
+          const result = await mutator.runPlannedBatch(
+            featureDir,
+            session,
+            () => {
+              const allocation = allocateTaskAuthoringInputs(validatedInputs, occupiedTaskIds);
+              if (!allocation.ok) return allocation;
+              return {
+                ok: true,
+                entries: allocation.tasks.map((task) => ({
+                  actor,
+                  kind: "event:tasks_amended" as const,
+                  payload: {
+                    mode: "add",
+                    task,
+                    sponsored_by_finding_id: opts.finding,
+                  },
+                })),
+              };
             },
-          }));
-          const result = await mutator.runBatch(featureDir, session, sponsoredBatch, {
-            timestamps: "per-entry",
-            route: "raw-ctx-failure",
-          });
+            { timestamps: "per-entry", route: "raw-ctx-failure" },
+          );
           if (!result) return;
+          const newIds = result.entries.map(
+            (entry) => (entry.payload as { task: { id: string } }).task.id,
+          );
+          const taskIdsByLocalKey = Object.fromEntries(
+            validatedInputs.map((task, index) => [task.local_key, newIds[index]!]),
+          );
           const out = {
             ok: true,
             feature: opts.feature,
             task_ids: newIds,
+            task_ids_by_local_key: taskIdsByLocalKey,
             sponsored_by_finding_id: opts.finding,
             tasks_count: result.snapshot.tasks.length,
             sub_state: result.snapshot.state?.sub_state,
@@ -323,28 +373,46 @@ export function registerTaskAdd(tasksCmd: Command, deps: TasksRegistrationDeps):
           existingFull.push(materializeTaskForAmend(base, t));
         }
 
-        // (6) Emit one whole-replacement event:tasks_planned. based_on carries
-        // forward the spec version the graph derives from.
-        const based_on = session.snapshot.tasks_based_on ?? {
-          spec: session.snapshot.state.spec_version,
-        };
-        const result = await mutator.run(
+        // (6) Allocate and emit under one lease. The planner resolves local
+        // refs only after every new id is known, so forward refs are stable.
+        const result = await mutator.runPlannedBatch(
           featureDir,
           session,
-          {
-            kind: "event:tasks_planned",
-            payload: { based_on, tasks: [...existingFull, ...seededNew] },
-            actor,
+          (snapshot) => {
+            const allocation = allocateTaskAuthoringInputs(validatedInputs, occupiedTaskIds);
+            if (!allocation.ok) return allocation;
+            const based_on = snapshot.tasks_based_on ?? {
+              spec: snapshot.state?.spec_version,
+            };
+            return {
+              ok: true,
+              entries: [{
+                kind: "event:tasks_planned",
+                payload: {
+                  based_on,
+                  tasks: [...existingFull, ...allocation.tasks],
+                },
+                actor,
+              }],
+            };
           },
-          "raw-ctx-failure",
+          { route: "raw-ctx-failure" },
         );
         if (!result) return;
 
         // (7) Success output — echo the allocated ids for shell scripting.
+        const plannedTasks = (result.entries[0]!.payload as {
+          tasks: Array<{ id: string }>;
+        }).tasks;
+        const newIds = plannedTasks.slice(existingFull.length).map((task) => task.id);
+        const taskIdsByLocalKey = Object.fromEntries(
+          validatedInputs.map((task, index) => [task.local_key, newIds[index]!]),
+        );
         const out = {
           ok: true,
           feature: opts.feature,
           task_ids: newIds,
+          task_ids_by_local_key: taskIdsByLocalKey,
           tasks_count: result.snapshot.tasks.length,
           sub_state: result.snapshot.state?.sub_state,
         };
@@ -479,7 +547,12 @@ export function registerTaskAmend(tasksCmd: Command, deps: TasksRegistrationDeps
           const sNewSteps = new Set(Object.keys(sNewGraph.execution));
           const sPriorExec = sCanonical.execution as Record<
             string,
-            { status: string; evidence_refs: string[]; started_at?: string; reason?: string }
+            {
+              status: string;
+              evidence_refs: string[];
+              started_at?: string;
+              reason?: string;
+            }
           >;
           for (const [stepName, prior] of Object.entries(sPriorExec)) {
             if (sNewSteps.has(stepName)) continue;
@@ -493,7 +566,11 @@ export function registerTaskAmend(tasksCmd: Command, deps: TasksRegistrationDeps
                 "MUTATION_OUT_OF_RIGHTS",
                 `sponsored tasks amend on ${taskId} drops step '${stepName}', which carries ` +
                   `execution progress — a graph amend may not erase execution history (codex r136 Q4)`,
-                { task_id: taskId, step: stepName, reason: "sponsored_amend_drops_progress_step" },
+                {
+                  task_id: taskId,
+                  step: stepName,
+                  reason: "sponsored_amend_drops_progress_step",
+                },
               );
               return;
             }
@@ -531,7 +608,9 @@ export function registerTaskAmend(tasksCmd: Command, deps: TasksRegistrationDeps
                 finding_id: findingId,
               }) + "\n",
             (i18n) => ({
-              stateChange: i18n.t(SUCCESS_KEYS.amendStateChange, { task_id: taskId }),
+              stateChange: i18n.t(SUCCESS_KEYS.amendStateChange, {
+                task_id: taskId,
+              }),
             }),
           );
           return;
@@ -572,7 +651,9 @@ export function registerTaskAmend(tasksCmd: Command, deps: TasksRegistrationDeps
         // (2) Load session.
         const featureDir = await ctx.dispatchOrFail(opts);
         if (featureDir === null) return;
-        const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
+        const session = await loadSession(featureDir, {
+          ensureDir: !ctx.dryRun,
+        });
         if (!session.snapshot.state) {
           ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
           return;
@@ -645,7 +726,9 @@ export function registerTaskAmend(tasksCmd: Command, deps: TasksRegistrationDeps
               applied,
             }) + "\n",
           (i18n) => ({
-            stateChange: i18n.t(SUCCESS_KEYS.amendStateChange, { task_id: taskId }),
+            stateChange: i18n.t(SUCCESS_KEYS.amendStateChange, {
+              task_id: taskId,
+            }),
           }),
         );
       },

@@ -4,6 +4,11 @@
 - Date: 2026-05-13
 - Scope: loaf-cli protocol surface(rev 4.2 → rev 4.3;新增 CLI 命令 + 4 const 表 + 1 helper type + 9 个 error codes)
 - Supersedes: ADR-0003 §15 freeze interpretation(rewording,not full supersede)—— 把「不加 CLI subcommand」条款放开为「pre-GA 允许 ADR-trail 下扩展 CLI surface」;rev 4.0 / 4.1 / 4.2 其余决策全部保留
+- Partially superseded: 2026-07-27 architecture program A08 supersedes A5's
+  task-input detail. `tasks submit` and `tasks add` now share strict semantic
+  authoring (`local_key` + explicit dependency refs), while the CLI still owns
+  permanent ID and execution-state materialization. The journal payload is
+  unchanged; legacy full CLI input is intentionally rejected.
 - Related: `protocol.md` §4 / §10 / §15 / §19;`schemas.ts` §5 / §15 / 新增 §37-§40(原计划 §35-§38,落地时与 rev 4.2 既有 §35 FLAG_EXCLUSIONS / §36 HookEvent 挤占,顺延);
   ADR-0001(shape 在协议 / content 在 skill 原则);ADR-0002(rev 4.0 fresh design);
   ADR-0003(rev 4.1 fan-out 单写者纪律);`moni-review.md`(audit 源);
@@ -107,6 +112,14 @@ ADR-0001 立下「shape 在协议,content 在 skill」原则,但只在 task DAG 
 **(c) 收益**:`spec_version` 单调递增满足 spec-lock 校验 #3(`tasks.based_on.spec === spec.spec_version`),任何 spec 内容变化都反映在 spec_version,杜绝「spec.md 改了但 version 没动」的漂移。30+ 版本号是内部计数,不面向用户。phase gating 跟现有 `tasks add` 规则(§10.8「EXECUTE 阶段拒 → 走 amend-tasks finding」)镜像,无新原则引入。
 
 ### A5 · ID 分配:CLI 单调,LLM 出 `id_namespace`(Q5)
+
+> **2026-07-27 supersession note:** the ID-ownership decision remains active,
+> but the task authoring shape below is replaced by
+> `protocol.md` §4.3 / A08. Tasks now carry a unique invocation-local
+> `local_key`; dependencies use explicit `{local_key}` or `{task_id}` refs,
+> enabling deterministic two-pass forward-reference resolution under the
+> feature lease. Callers still cannot provide permanent IDs or execution
+> progress.
 
 **(a) 决策**:
 - 所有 Tier 1 命令 input JSON **不接受完整 `id`** —— CLI 在 lock 内单调分配完整 id

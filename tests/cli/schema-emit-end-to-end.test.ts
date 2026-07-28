@@ -1,7 +1,7 @@
 // Phase 16 SC-10 — `loaf <mutator> --schema` + `loaf <kind> schema` e2e.
 //
 // Covers (codex r316 lock):
-//   - 5 mutator --schema CLI invocations: stdout = valid JSON Schema
+//   - 6 mutator --schema CLI invocations: stdout = valid JSON Schema
 //   - 5 artifact `<kind> schema` CLI invocations: stdout = valid JSON Schema
 //   - --schema bypass succeeds WITHOUT --input + WITHOUT session resolution
 //   - --schema + --dry-run → DRY_RUN_NOT_APPLICABLE
@@ -17,7 +17,11 @@ import { main, type MainDeps } from "../../src/cli.js";
 
 async function runCli(
   argv: string[],
-  opts: { env?: Record<string, string | undefined>; deps?: MainDeps; cwd?: string } = {},
+  opts: {
+    env?: Record<string, string | undefined>;
+    deps?: MainDeps;
+    cwd?: string;
+  } = {},
 ): Promise<{ exit: number; stdout: string; stderr: string }> {
   const stdoutChunks: string[] = [];
   const stderrChunks: string[] = [];
@@ -44,7 +48,11 @@ async function runCli(
   }) as typeof process.stderr.write;
   try {
     const exit = await main(["node", "loaf", ...argv], opts.deps ?? {});
-    return { exit, stdout: stdoutChunks.join(""), stderr: stderrChunks.join("") };
+    return {
+      exit,
+      stdout: stdoutChunks.join(""),
+      stderr: stderrChunks.join(""),
+    };
   } finally {
     process.stdout.write = origStdout;
     process.stderr.write = origStderr;
@@ -60,13 +68,14 @@ async function runCli(
 const DRAFT = "https://json-schema.org/draft/2020-12/schema";
 
 // ───────────────────────────────────────────────────────────────────────
-// 5 mutator --schema happy paths
+// 6 mutator --schema happy paths
 // ───────────────────────────────────────────────────────────────────────
 describe("SC-10 — mutator --schema happy paths (no --input, no session)", () => {
   for (const args of [
     ["spec", "add-req"],
     ["spec", "add-scenario"],
     ["spec", "add-visual"],
+    ["tasks", "submit"],
     ["tasks", "add"],
     ["evidence", "add"],
   ] as const) {
@@ -75,8 +84,14 @@ describe("SC-10 — mutator --schema happy paths (no --input, no session)", () =
       expect(result.exit).toBe(0);
       const schema = JSON.parse(result.stdout);
       expect(schema.$schema).toBe(DRAFT);
-      // batchOrSingle wrapper → root anyOf
-      expect(Array.isArray(schema.anyOf)).toBe(true);
+      if (args[0] === "tasks" && args[1] === "submit") {
+        expect(schema.type).toBe("object");
+        expect(schema.properties.tasks.type).toBe("array");
+        expect(schema.properties).not.toHaveProperty("based_on");
+      } else {
+        // batchOrSingle wrapper → root anyOf
+        expect(Array.isArray(schema.anyOf)).toBe(true);
+      }
     });
   }
 });
