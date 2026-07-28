@@ -1,21 +1,19 @@
 # loaf-skill — contract with loaf-cli
 
-> **Status**: design intent. `loaf-skill` is the middle layer in the
+> **Status**: live in-repository plugin contract. The skills in this repository
+> are the middle layer in the
 > three-tier architecture (`docs/protocol.md` §10 CLI Surface +
 > [`docs/adr/0005-truth-model-single-typed-journal.md`](../docs/adr/0005-truth-model-single-typed-journal.md)):
 >
 > ```
-> loaf-cli (protocol core, this repo)
->   → loaf-skill (workflow orchestration, separate codebase)
+> loaf-cli (protocol core)
+>   → skills/ (workflow orchestration, this repository)
 >     → 3rd-party workflow skill (domain dialogue)
 > ```
 >
-> The thinker capabilities described below are deliberately **NOT** implemented
-> in loaf-cli. They are future `loaf-skill` responsibilities, recorded here so
-> the loaf-cli ↔ loaf-skill boundary stays explicit. Kernel validators named
-> below are landed loaf-cli guarantees, not orchestration behavior. When the
-> loaf-skill codebase boots up (post-v0.1.0 GA of loaf-cli, which shipped
-> 2026-05-25), the requirements below are the starting contract.
+> Thinker capabilities remain deliberately **outside stable core** and live in
+> the checked-in skill instructions. Kernel validators named below are
+> loaf-cli guarantees, not orchestration behavior.
 
 ## Source-of-truth note (ADR-0005)
 
@@ -52,7 +50,22 @@ raw stable identifier, without a `human:` prefix; loaf adds the namespace.
 When `LOAF_USER` is unset, human-actor mutations fail `NO_HUMAN_ACTOR` because
 loaf intentionally refuses to derive the human from `git config user.email`
 in automation. This fail-closed behavior prevents an agent from guessing the
-human responsible for a mutation or decision.
+human associated with a mutation. `LOAF_USER` supplies actor identity only; it
+is never approval authority. An unattended skill may continue through
+non-blocking machine work, but it MUST stop before gate decisions,
+deliver/archive/abandon choices, waivers, manual attestations, and any
+unresolved human question.
+
+## Supervision boundary
+
+| Class | Examples | Unattended behavior |
+|---|---|---|
+| Machine work | non-blocking `loaf next` routes, in-phase advances, task execution using non-manual evidence | may continue |
+| Human decision | `gate decide`, `deliver`, `archive`, `abandon`, `pending resolve`, `profile escalate` | stop and surface the exact command/reason |
+| Human fact | waiver or manual evidence/attestation | never synthesize; request the fact from a human |
+
+Skills re-read `loaf status` and `loaf next` after a human response. They never
+infer approval from `LOAF_USER`, prior prose, or the absence of a CLI error.
 
 ## 1. `flatten` — hierarchical intent → DAG `tasks.json`
 

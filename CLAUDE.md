@@ -16,7 +16,11 @@ Runtime contracts — including the journal truth model, projections, state mach
 
 It is NOT a generic Bun scaffold. Despite Bun being the package manager and dev runner, the published binary is plain Node ESM, and the test runner is **Vitest** (not `bun test`).
 
-A sibling layer `loaf-skill` (separate codebase, post-v0.1.0) handles workflow orchestration — see `skills/CONTRACT.md`. Do not pull `loaf-skill` concerns (`flatten`, `warn`, `fan-out`, decomposition policy) into this repo.
+The checked-in `skills/` plugin layer handles workflow orchestration — see
+`skills/CONTRACT.md`. Keep orchestration concerns (`flatten`, `warn`, `fan-out`,
+decomposition policy) out of stable core. An unattended skill may follow
+non-blocking `loaf next` routes, but `LOAF_USER` is actor identity only: gate
+decisions, terminal choices, waivers, and manual attestations remain human-owned.
 
 ## Tech & commands
 

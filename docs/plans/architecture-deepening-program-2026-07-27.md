@@ -73,7 +73,7 @@ replace `Pending` evidence with the commands and results that actually ran.
 | A11 | Implement | Canonical lifecycle advice | A06, A10 | [x] Complete |
 | A12 | Retire | Live task-step `evidence_refs` contract | A08 | [x] Complete |
 | A13 | Retire | Dead context-pack contract | A01 | [x] Complete |
-| A14 | Implement | Skill-driven orchestration journey gate | A11, A13 | [ ] Pending |
+| A14 | Implement | Skill-driven orchestration journey gate | A11, A13 | [x] Complete |
 | A15 | Implement | Mutation/rebuild replay equivalence | A04 | [ ] Pending |
 | A16 | Implement/close | TUI observability and F-026 disposition | A11 | [ ] Pending |
 | A17 | Implement | Executable contract-drift guards | A04–A16 | [ ] Pending |
@@ -841,7 +841,7 @@ migration.
 
 ## A14 — Skill-driven orchestration journey gate
 
-**Status:** [ ] Pending
+**Status:** [x] Complete
 **Commit subject:** `test(skills): exercise the supervised lifecycle journey`
 
 ### Destination
@@ -867,15 +867,15 @@ approval.
 
 ### Acceptance criteria
 
-- [ ] `CLAUDE.md`, `README.md`, and `skills/CONTRACT.md` describe the
+- [x] `CLAUDE.md`, `README.md`, and `skills/CONTRACT.md` describe the
   in-repository plugin boundary consistently.
-- [ ] A journey test follows skill instructions through representative public
+- [x] A journey test follows skill instructions through representative public
   CLI transitions and checks the same next action as core.
-- [ ] The journey stops at each human-owned decision with an observable pending
+- [x] The journey stops at each human-owned decision with an observable pending
   action.
-- [ ] Static semantic gates reject direct artifact mutation and stale command
+- [x] Static semantic gates reject direct artifact mutation and stale command
   references.
-- [ ] Human-gated and non-blocking actions are explicitly classified.
+- [x] Human-gated and non-blocking actions are explicitly classified.
 
 ### Validation
 
@@ -887,7 +887,14 @@ Skills and docs change together. Kernel actor/gate rules remain authoritative.
 
 ### Evidence
 
-Pending.
+- Repository guidance now identifies `skills/` as the live orchestration
+  plugin while keeping its policy out of stable core.
+- The supervision table distinguishes non-blocking machine work, human
+  decisions, and human facts; `LOAF_USER` is explicitly identity-only.
+- The next-driven standard lifecycle test records the exact spec-lock,
+  verify-accept, and deliver stops while following every non-blocking route.
+- Skill and Claude semantic gates plus the full lifecycle suite passed,
+  together with typecheck and lint.
 
 ## A15 — Mutation/rebuild replay equivalence
 

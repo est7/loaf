@@ -9,7 +9,11 @@ The CLI implements the worker workflow
 `TRIAGE → SPEC → EXECUTE → VERIFY → (SETTLE) → DONE` end-to-end; ceremony
 flags determine which optional phases run.
 
-A sibling layer `loaf-skill` (separate codebase, post-v0.1.0) handles workflow orchestration — see [`skills/CONTRACT.md`](skills/CONTRACT.md) for the boundary.
+The checked-in [`skills/`](skills/) plugin layer handles workflow orchestration;
+stable core remains the protocol kernel. See
+[`skills/CONTRACT.md`](skills/CONTRACT.md) for the supervision boundary.
+Unattended skills may continue through non-blocking machine work, but never
+manufacture gate decisions, terminal choices, waivers, or manual attestations.
 
 ## Runtime
 

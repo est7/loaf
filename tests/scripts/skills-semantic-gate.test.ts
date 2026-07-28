@@ -90,6 +90,29 @@ describe("skills semantic drift gate", () => {
     }
     expect(failures.sort()).toEqual([]);
   });
+
+  test("the checked-in skill layer declares the supervision boundary", () => {
+    const contract = readFileSync(path.join(SKILLS_ROOT, "CONTRACT.md"), "utf8");
+    const run = readFileSync(path.join(SKILLS_ROOT, "run", "SKILL.md"), "utf8");
+    expect(contract).toContain("live in-repository plugin contract");
+    expect(contract).toContain("`LOAF_USER` supplies actor identity only");
+    expect(contract).toContain("waiver or manual evidence/attestation");
+    expect(run).toContain("continue across non-blocking machine routes");
+    expect(run).toContain("Do not create a redundant `go` checkpoint");
+    expect(run).toContain("it does not approve anything");
+  });
+
+  test("skill instructions never authorize direct loaf artifact mutation", () => {
+    for (const filePath of SKILL_FILES) {
+      const text = readFileSync(filePath, "utf8");
+      for (const line of text.split("\n")) {
+        if (!/(?:write|edit|append|overwrite).{0,24}`?\.loaf\//i.test(line)) continue;
+        expect(line, path.relative(REPO_ROOT, filePath)).toMatch(
+          /\b(?:never|must not|do not|don't)\b/i,
+        );
+      }
+    }
+  });
 });
 
 function collectSkillFiles(root: string): string[] {

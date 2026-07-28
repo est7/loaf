@@ -460,11 +460,12 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
   // it") reaches DONE on a fully-populated spec. Same authoring inputs as
   // SCEN-E2E-001 (proven to pass both gates); VERIFY lanes are followed
   // dynamically since `loaf next` skips inapplicable lanes.
-  test("`loaf next` drives every standard-lifecycle transition to DONE", async () => {
+  test("supervised skill journey follows non-blocking routes and stops at human actions", async () => {
     const dir = await tmpFeatureDir();
     const F = "e2e-next-std";
     const ENV = { LOAF_USER: "e2e@test.invalid" };
     const { step, writeInput } = makeCli(dir, ENV);
+    const humanStops: string[] = [];
 
     // Assert `loaf next` recommends exactly `command` (+ optional blocked flag).
     const expectNext = async (label: string, command: string, blocked?: boolean): Promise<any> => {
@@ -530,11 +531,12 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
       ],
     });
     await step("tasks submit", ["tasks", "submit", "--input", tasksFile, "--feature", F]);
-    await expectNext(
+    const specGate = await expectNext(
       "SPEC.design",
       'loaf gate decide spec-lock --approve|--reject --reason "<reason>"',
       true,
     );
+    humanStops.push(specGate.next_action.command);
     await step("gate spec-lock", [
       "gate",
       "decide",
@@ -635,11 +637,12 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     ]);
 
     // ── verify-accept gate → deliver → DONE ─────────────────────────────
-    await expectNext(
+    const verifyGate = await expectNext(
       "VERIFY.accept",
       'loaf gate decide verify-accept --approve|--reject --reason "<reason>"',
       true,
     );
+    humanStops.push(verifyGate.next_action.command);
     await step("gate verify-accept", [
       "gate",
       "decide",
@@ -650,7 +653,8 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
       "--feature",
       F,
     ]);
-    await expectNext("VERIFY.accept post-approve", "loaf deliver", false);
+    const delivery = await expectNext("VERIFY.accept post-approve", "loaf deliver", false);
+    humanStops.push(delivery.next_action.command);
     const delivered = await step("deliver", ["deliver", "--feature", F]);
     expect(delivered.sub_state ?? delivered.state?.sub_state).toBe("DONE.delivered");
 
@@ -658,6 +662,11 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     const term = await step("next @ DONE", ["next", "--feature", F]);
     expect(term.terminal).toBe(true);
     expect(term.next_action).toBeUndefined();
+    expect(humanStops).toEqual([
+      `loaf gate decide spec-lock --approve|--reject --reason "<reason>" --feature-dir ${dir}`,
+      `loaf gate decide verify-accept --approve|--reject --reason "<reason>" --feature-dir ${dir}`,
+      `loaf deliver --feature-dir ${dir}`,
+    ]);
   });
 
   // SCEN-E2E-002 — see docs/e2e-scenarios.md (absorbs SCEN-010/017/018/029)
