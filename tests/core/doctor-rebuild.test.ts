@@ -12,8 +12,9 @@ import path from "node:path";
 import os from "node:os";
 
 import { main } from "../../src/cli.js";
+import { appendEntry } from "../../src/core/journal-append.js";
 import { mutateBatch } from "../../src/core/journal-mutate.js";
-import { initialSnapshot, type Snapshot } from "../../src/core/reducer.js";
+import { apply, initialSnapshot, type Snapshot } from "../../src/core/reducer.js";
 import type { Ceremony, JournalEntry } from "../../src/core/journal-entry.js";
 import { emptyMeta, SnapshotMeta } from "../../src/core/snapshot.js";
 import { migrateV2 } from "../../src/core/migration.js";
@@ -56,22 +57,22 @@ async function tmpDir(): Promise<string> {
   return await fs.mkdtemp(path.join(os.tmpdir(), "loaf-doctor-rebuild-"));
 }
 
-const JOURNAL_DERIVED_LEAVES = [
-  "state.json",
-  "tasks.json",
-  "evidence.json",
-  "findings.json",
-  "pending.json",
-  "_meta.json",
+const JOURNAL_DERIVED_PROJECTIONS = [
+  { name: "state.json", path: ["snapshots", "state.json"] },
+  { name: "tasks.json", path: ["snapshots", "tasks.json"] },
+  { name: "evidence.json", path: ["snapshots", "evidence.json"] },
+  { name: "findings.json", path: ["snapshots", "findings.json"] },
+  { name: "pending.json", path: ["snapshots", "pending.json"] },
+  { name: "lessons.md", path: ["lessons.md"] },
+  { name: "_meta.json", path: ["snapshots", "_meta.json"] },
 ] as const;
 
 async function readProjectionBytes(dir: string): Promise<Map<string, Buffer>> {
-  const snapshots = path.join(dir, "snapshots");
   return new Map(
     await Promise.all(
-      JOURNAL_DERIVED_LEAVES.map(async (leaf) => [
-        leaf,
-        await fs.readFile(path.join(snapshots, leaf)),
+      JOURNAL_DERIVED_PROJECTIONS.map(async (projection) => [
+        projection.name,
+        await fs.readFile(path.join(dir, ...projection.path)),
       ] as const),
     ),
   );
@@ -81,10 +82,12 @@ function projectionByteMismatches(
   expected: ReadonlyMap<string, Buffer>,
   actual: ReadonlyMap<string, Buffer>,
 ): string[] {
-  return JOURNAL_DERIVED_LEAVES.filter(
-    (leaf) => leaf !== "_meta.json",
+  return JOURNAL_DERIVED_PROJECTIONS.map(
+    (projection) => projection.name,
   ).filter(
-    (leaf) => !expected.get(leaf)?.equals(actual.get(leaf) ?? Buffer.alloc(0)),
+    (name) => name !== "_meta.json",
+  ).filter(
+    (name) => !expected.get(name)?.equals(actual.get(name) ?? Buffer.alloc(0)),
   );
 }
 
@@ -116,9 +119,10 @@ function behavioralTask(): Record<string, unknown> {
 }
 
 /**
- * Seed a real journal.jsonl under `dir` via mutateBatch: session:started,
- * the TRIAGE → SPEC.design walk, a spec submit, and — when `withPlan` — an
- * `event:tasks_planned` so `doctor --rebuild` has a tasks.json to emit.
+ * Seed a real journal.jsonl under `dir` via the production mutation path.
+ * With a plan, the fixture reaches EXECUTE.work and produces every projection
+ * rebuilt by doctor, including non-empty evidence/finding/pending ledgers,
+ * a sidecar-backed evidence summary, and the top-level lessons.md projection.
  */
 async function seedJournal(dir: string, opts: { withPlan: boolean }): Promise<void> {
   let snapshot: Snapshot = initialSnapshot();
@@ -198,6 +202,96 @@ async function seedJournal(dir: string, opts: { withPlan: boolean }): Promise<vo
         entry_schema_version: 1,
         kind: "event:tasks_planned",
         payload: { based_on: { spec: 1 }, tasks: [behavioralTask()] },
+      },
+    ]);
+
+    const journalPath = path.join(dir, "journal.jsonl");
+    const gateSeq = tail + 1;
+    const gateEntry: JournalEntry = {
+      seq: gateSeq,
+      entry_id: `JE-${String(gateSeq + 1).padStart(6, "0")}`,
+      at: "2026-05-21T10:00:03.500Z",
+      actor: "human:tester@example.invalid",
+      entry_schema_version: 1,
+      kind: "gate:decided",
+      payload: {
+        gate_kind: "spec-lock",
+        decision: "approved",
+        reason: "representative rebuild-equivalence fixture",
+      },
+    };
+    meta = await appendEntry(journalPath, gateEntry, meta, { fsync: false });
+    const gateApplied = apply(snapshot, gateEntry);
+    if (!gateApplied.ok) throw new Error(`gate apply failed: ${gateApplied.code}`);
+    snapshot = gateApplied.snapshot;
+    tail = gateSeq;
+    entries = entries.concat(gateEntry);
+
+    for (const [from, to] of [
+      ["SPEC.design", "EXECUTE.plan"],
+      ["EXECUTE.plan", "EXECUTE.work"],
+    ] as Array<[string, string]>) {
+      await step([
+        {
+          at: "2026-05-21T10:00:04.000Z",
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "event:phase_advanced",
+          payload: { from, to },
+        },
+      ]);
+    }
+
+    await step([
+      {
+        at: "2026-05-21T10:00:05.000Z",
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "evidence:added",
+        payload: {
+          id: "EV-000001",
+          kind: "local-check",
+          iteration: 1,
+          actor: "cli:loaf",
+          result: "passed",
+          summary: { mode: "inline", text: "sidecar-backed check ".repeat(600) },
+          covers: [],
+        },
+      },
+      {
+        at: "2026-05-21T10:00:06.000Z",
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "finding:raised",
+        payload: {
+          id: "FND-001",
+          category: "spec-gap",
+          action: "defer",
+          summary: "edge case not covered by current scope",
+        },
+      },
+      {
+        at: "2026-05-21T10:00:07.000Z",
+        actor: "human:tester@example.invalid",
+        entry_schema_version: 1,
+        kind: "pending:added",
+        payload: {
+          id: "PEND-0001",
+          kind: "ask_user_question",
+          question: "should the retry budget be configurable?",
+        },
+      },
+      {
+        at: "2026-05-21T10:00:08.000Z",
+        actor: "human:tester@example.invalid",
+        entry_schema_version: 1,
+        kind: "lesson:recorded",
+        payload: {
+          id: "LSN-001",
+          iteration: 1,
+          reason: "captured during rebuild equivalence testing",
+          summary: "the replay path must preserve user-facing lesson projections",
+        },
       },
     ]);
   }
@@ -323,19 +417,67 @@ describe("loaf doctor --rebuild — Phase 14 SC2", () => {
     try {
       await seedJournal(dir, { withPlan: true });
       const mutationBytes = await readProjectionBytes(dir);
+      expect(
+        JSON.parse(mutationBytes.get("evidence.json")!.toString("utf8")).evidence,
+      ).toHaveLength(1);
+      expect(
+        JSON.parse(mutationBytes.get("findings.json")!.toString("utf8")).findings,
+      ).toHaveLength(1);
+      expect(
+        JSON.parse(mutationBytes.get("pending.json")!.toString("utf8")).pending,
+      ).toHaveLength(1);
+      expect(mutationBytes.get("lessons.md")!.toString("utf8")).toContain(
+        "the replay path must preserve user-facing lesson projections",
+      );
+      const journalEntries = (await fs.readFile(path.join(dir, "journal.jsonl"), "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as JournalEntry);
+      const evidenceEntry = journalEntries.find((entry) => entry.kind === "evidence:added");
+      const summary = (evidenceEntry?.payload as { summary?: unknown } | undefined)?.summary as
+        | { mode: "sidecar"; ref: { path: string } }
+        | undefined;
+      expect(summary?.mode).toBe("sidecar");
+      expect(
+        (
+          await fs.stat(path.join(dir, summary!.ref.path))
+        ).isFile(),
+      ).toBe(true);
 
-      // Negative control: one meaningful byte change must be detected by the
-      // same comparator used for the rebuilt result.
-      const statePath = path.join(dir, "snapshots", "state.json");
-      const originalState = mutationBytes.get("state.json")!;
-      await fs.writeFile(statePath, Buffer.concat([originalState, Buffer.from(" ")]));
+      // Negative control: alter a journal fact, rebuild through the real doctor
+      // publication path, and prove the comparator detects the resulting
+      // semantic projection drift. Restore the journal before the real proof.
+      const journalPath = path.join(dir, "journal.jsonl");
+      const originalJournal = await fs.readFile(journalPath);
+      const driftedJournal = originalJournal
+        .toString("utf8")
+        .replace(
+          "edge case not covered by current scope",
+          "edge case intentionally changed for drift",
+        );
+      expect(driftedJournal).not.toBe(originalJournal.toString("utf8"));
+      await fs.writeFile(journalPath, driftedJournal);
+      for (const projection of JOURNAL_DERIVED_PROJECTIONS) {
+        await fs.rm(path.join(dir, ...projection.path), { force: true });
+      }
+      const drifted = await runCli([
+        "doctor",
+        "--rebuild",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        dir,
+        "--format",
+        "json",
+      ]);
+      expect(drifted.exit).toBe(0);
       expect(
         projectionByteMismatches(mutationBytes, await readProjectionBytes(dir)),
-      ).toEqual(["state.json"]);
-      await fs.writeFile(statePath, originalState);
+      ).toEqual(["findings.json"]);
+      await fs.writeFile(journalPath, originalJournal);
 
-      for (const leaf of JOURNAL_DERIVED_LEAVES) {
-        await fs.rm(path.join(dir, "snapshots", leaf));
+      for (const projection of JOURNAL_DERIVED_PROJECTIONS) {
+        await fs.rm(path.join(dir, ...projection.path), { force: true });
       }
       const rebuilt = await runCli([
         "doctor",
@@ -377,21 +519,23 @@ describe("loaf doctor --rebuild — Phase 14 SC2", () => {
       ]);
       expect(r.exit).toBe(0);
       const out = JSON.parse(r.stdout);
-      // state.json leads the rebuilt list; _meta.json trails — 5/5 + tasks.
+      // state.json leads the rebuilt list; _meta.json trails after all data
+      // projections, including the top-level lessons.md leaf.
       expect(out.rebuilt).toEqual([
         "state.json",
         "tasks.json",
         "evidence.json",
         "findings.json",
         "pending.json",
+        "lessons.md",
         "_meta.json",
       ]);
       const state = JSON.parse(
         await fs.readFile(path.join(dir, "snapshots", "state.json"), "utf8"),
       );
       expect(state.session_id).toBe("550e8400-e29b-41d4-a716-446655440000");
-      expect(state.phase).toBe("SPEC");
-      expect(state.sub_state).toBe("SPEC.design");
+      expect(state.phase).toBe("EXECUTE");
+      expect(state.sub_state).toBe("EXECUTE.work");
       expect(state.based_on).toEqual({ spec: 1, tasks: 1 });
       // seedJournal's hand-rolled session:started predates the SC1 widening
       // — the documented legacy fallback applies.

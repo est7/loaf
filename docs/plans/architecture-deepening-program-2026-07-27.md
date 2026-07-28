@@ -1,6 +1,6 @@
 # Architecture deepening program
 
-**Status:** COMPLETE
+**Status:** SIGN-OFF REMEDIATION IN PROGRESS
 **Approved:** 2026-07-27
 **Owner:** loaf-cli maintainers
 **Execution rule:** one completed optimization or refactor per local commit
@@ -79,6 +79,11 @@ replace `Pending` evidence with the commands and results that actually ran.
 | A17 | Implement | Executable contract-drift guards | A04–A16 | [x] Complete |
 | A18 | Close | Freshness ledger and abstraction triggers | A17 | [x] Complete |
 | A19 | Verify | Final distribution and history audit | A02–A18 | [x] Complete |
+| A20 | Correct | Fault-sensitive mutation/rebuild equivalence proof | A15, A19 | [x] Complete |
+| A21 | Correct | Executable skill-to-CLI journey | A14, A20 | [ ] Pending |
+| A22 | Correct | Truthful feature-lease contract and diagnostics | A04, A17 | [ ] Pending |
+| A23 | Correct | Audit evidence and supersession trail | A12, A16, A19 | [ ] Pending |
+| A24 | Implement | Breaking-contract release identity gate | A08, A10, A12, A23 | [ ] Pending |
 
 The serial order is deliberate. Attachment confinement precedes refactoring;
 the feature lease precedes result and CLI mutation ownership; task intake lands
@@ -943,6 +948,12 @@ task because equivalence is its acceptance criterion.
 - Doctor, replay, and projection-writer suites passed (59 tests), together
   with typecheck and lint.
 
+**Independent-audit correction:** the original fixture left evidence, findings,
+and pending empty, omitted `lessons.md`, and its one-byte file edit proved only
+the byte comparator. A20 supersedes this evidence with a representative,
+non-empty lifecycle and a negative control that rebuilds through the real
+doctor publication path.
+
 ## A16 — TUI/Board status semantics and F-026 disposition
 
 **Status:** [x] Complete
@@ -1169,3 +1180,182 @@ A19 audit commit, `git log 2d0840c..HEAD` contained exactly 19 scoped A00–A18
 commits, and `git status --short --branch` contained no tracked change plus
 only `.agents/skills/`, `.audit/`, `.orch/`, and
 `audit-report-2026-07-15.md`.
+
+## A20 — Fault-sensitive mutation/rebuild equivalence proof
+
+**Status:** [x] Complete
+**Commit subject:** `test(core): strengthen rebuild equivalence oracle`
+
+### Destination
+
+Replace A15's false-positive evidence with a representative production
+mutation fixture that exercises every doctor-rebuilt projection and a negative
+control that passes through the actual replay/publication path.
+
+### Non-goals
+
+- No production serializer fork or test-only production branch.
+- No claim that `spec.md` is doctor-rebuilt; it is not part of
+  `writeProjections`.
+- No normalization that hides meaningful bytes.
+
+### Acceptance criteria
+
+- [x] Normal mutation produces non-empty tasks, evidence, findings, pending,
+  and lessons projections.
+- [x] The fixture promotes an oversized long-text field to an authorized
+  sidecar before projection.
+- [x] The equivalence proof deletes and compares every projection regenerated
+  by doctor, including top-level `lessons.md`.
+- [x] Stable `_meta.json` fields are compared while `written_at` is checked by
+  its monotonic contract.
+- [x] A reversible journal-fact fault is rebuilt through the public doctor path
+  and the comparator identifies the exact divergent projection.
+- [x] Restoring the journal and rebuilding produces byte-identical data
+  projections.
+
+### Validation
+
+`bunx vitest run tests/core/doctor-rebuild.test.ts tests/core/replay.test.ts tests/core/projection-writer.test.ts`
+`bun run typecheck`
+`bun run lint`
+
+### Migration and recovery
+
+Test and ledger correction only. Reverting this commit restores the weaker
+oracle without changing runtime or persisted data.
+
+### Evidence
+
+The representative fixture now reaches `EXECUTE.work` and records a task,
+sidecar-backed evidence, an open finding, an unresolved pending question, and a
+lesson. Mutation creates all JSON leaves plus `lessons.md`. The negative
+control changes one journal finding, removes every derived projection, invokes
+public `doctor --rebuild`, and detects only `findings.json`; after restoring the
+journal, the real equivalence comparison is byte-identical. The 59 focused
+doctor/replay/projection tests passed.
+
+## A21 — Executable skill-to-CLI journey
+
+**Status:** [ ] Pending
+**Commit subject:** `test(skills): drive lifecycle from skill contract`
+
+### Destination
+
+Make the supervised journey consume the checked-in skill contract so changing
+the orchestration instructions changes or fails the executed CLI journey.
+
+### Acceptance criteria
+
+- [ ] The test reads the live `skills/` contract rather than merely naming a
+  core lifecycle test after it.
+- [ ] Machine-readable skill instructions classify non-blocking routes and
+  human-owned stops without duplicating kernel transition policy.
+- [ ] The journey executes representative public CLI commands derived from
+  that contract and compares each route to `loaf next`.
+- [ ] Removing or corrupting a required skill route fails a targeted negative
+  control.
+- [ ] The old duplicate `humanStops` assertion is removed.
+
+### Validation
+
+`bunx vitest run tests/scripts/skills-semantic-gate.test.ts tests/core/e2e-lifecycle.test.ts`
+
+### Migration and recovery
+
+Test/skill contract only; core routing remains authoritative.
+
+## A22 — Truthful feature-lease contract and diagnostics
+
+**Status:** [ ] Pending
+**Commit subject:** `fix(core): align feature lease diagnostics`
+
+### Destination
+
+Make the runtime error model, machine contract, protocol prose, and executable
+guards describe the actual owner-token O_EXCL lease and its recovery behavior.
+
+### Acceptance criteria
+
+- [ ] Dead `LOCK_HELD_BY` catalog output and nonexistent doctor cleanup advice
+  are removed.
+- [ ] `LOCK_INVALID` remains distinct at every CLI translation boundary.
+- [ ] Protocol and concurrency contracts describe O_EXCL owner-token leases,
+  next-writer dead-PID recovery, and fail-closed malformed leases.
+- [ ] Unimplemented orphan-GC/doctor flags are explicitly deferred rather than
+  promised as live.
+- [ ] Architecture guards bind declared runtime owners/classes of behavior,
+  not a one-off stale-phrase blocklist.
+- [ ] Targeted negative controls prove diagnostics and guards are
+  fault-sensitive.
+
+### Validation
+
+`bunx vitest run tests/core/feature-write-lease.test.ts tests/scripts/architecture-ownership-gates.test.ts tests/scripts/protocol-contract-gates.test.ts`
+`bun run verify:codegen`
+
+### Migration and recovery
+
+No lease-file or journal migration. Error-code visibility becomes more precise;
+callers already receive exit code 2.
+
+## A23 — Audit evidence and supersession trail
+
+**Status:** [ ] Pending
+**Commit subject:** `docs(architecture): correct audit evidence trail`
+
+### Destination
+
+Correct historical claims without rewriting commits: record that A12's public
+schema snapshot remained stale until A19 and fix F-026 task attribution.
+
+### Acceptance criteria
+
+- [ ] A12 evidence no longer claims its commit passed generated-artifact
+  verification.
+- [ ] A19 states explicitly that it repaired an A12 omission and that the
+  intermediate commits were not full-suite green.
+- [ ] The ledger distinguishes one task-intent commit from independently
+  bisectable history.
+- [ ] ADR-0003 attributes the F-026 disposition to A16 and includes the retired
+  `[d]` alias.
+
+### Validation
+
+`bunx vitest run tests/scripts/docs-runtime-boundary.test.ts tests/scripts/protocol-contract-gates.test.ts`
+
+### Migration and recovery
+
+Documentation correction only; git history is preserved.
+
+## A24 — Breaking-contract release identity gate
+
+**Status:** [ ] Pending
+**Commit subject:** `chore(release): gate breaking contract identity`
+
+### Destination
+
+Prevent publishing the A08/A10/A12 public-contract changes under an
+indistinguishable `0.6.0` identity while preserving the program's no-push,
+no-tag boundary.
+
+### Acceptance criteria
+
+- [ ] The repository has a deterministic gate that detects a release carrying
+  public breaking changes without an updated package identity.
+- [ ] The gate fails against the current `v0.6.0` baseline before remediation.
+- [ ] The selected local package identity and compatibility note make the
+  breaking boundary observable to git consumers.
+- [ ] Package smoke and distribution/source parity pass with the new identity.
+- [ ] No push, tag, or release is performed.
+
+### Validation
+
+`bun run check`
+`bun run ga:pack-smoke`
+`bun run ga:consistency`
+
+### Migration and recovery
+
+Local release preparation only. Publication remains a separate explicitly
+authorized action.
