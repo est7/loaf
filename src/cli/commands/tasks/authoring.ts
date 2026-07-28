@@ -1,7 +1,6 @@
 import type { Command } from "commander";
 
 import { loadSession } from "../../../core/cli-runtime.js";
-import { mutateBatch } from "../../../core/journal-mutate.js";
 import {
   carryForwardStepProgress,
   latestCanonicalTaskBody,
@@ -273,26 +272,19 @@ export function registerTaskAdd(tasksCmd: Command, deps: TasksRegistrationDeps):
           // input carries several). Preflight §8.6 verifies the finding is
           // open with action=amend-tasks; the reducer dry-run appends each
           // task and rejects a duplicate id.
-          // L1 exclusion (codex L1 audit): this sponsored multi-add stamps a
-          // per-entry `at` inside the map — each event:tasks_amended carries its
-          // own timestamp. runMutator captures one `now` per call, which would
-          // flatten the batch to a single `at`. To stay behavior-preserving this
-          // path keeps its direct mutateBatch with per-entry timestamps.
-          const sponsoredBatch: Parameters<typeof mutateBatch>[0] = seededNew.map((task) => ({
-            at: new Date().toISOString(),
+          const sponsoredBatch = seededNew.map((task) => ({
             actor,
-            entry_schema_version: 1,
-            kind: "event:tasks_amended",
+            kind: "event:tasks_amended" as const,
             payload: {
               mode: "add",
               task,
               sponsored_by_finding_id: opts.finding,
             },
           }));
-          const result = mutator.finishMutate(
-            await mutateBatch(sponsoredBatch, mutator.mctxFor(featureDir, session)),
-            "raw-ctx-failure",
-          );
+          const result = await mutator.runBatch(featureDir, session, sponsoredBatch, {
+            timestamps: "per-entry",
+            route: "raw-ctx-failure",
+          });
           if (!result) return;
           const out = {
             ok: true,

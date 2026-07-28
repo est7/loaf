@@ -11804,242 +11804,6 @@ async function mutate(partial, ctx) {
 	};
 }
 //#endregion
-//#region src/cli/input-schemas.ts
-const SpecReqInputBatched = SpecAddReqInput;
-const SpecScenarioInputBatched = SpecAddScenarioInput;
-const SpecVisualInputBatched = SpecAddVisualInput;
-z.enum([
-	"spec:add-req",
-	"spec:add-scenario",
-	"spec:add-visual",
-	"tasks:add",
-	"evidence:add"
-]);
-/** The exact schemas parsed by the five batch-capable mutation paths. */
-const INPUT_SCHEMAS = {
-	"spec:add-req": SpecReqInputBatched,
-	"spec:add-scenario": SpecScenarioInputBatched,
-	"spec:add-visual": SpecVisualInputBatched,
-	"tasks:add": TaskInputBatched,
-	"evidence:add": EvidenceAddInputBatched
-};
-//#endregion
-//#region src/cli/schema-emit.ts
-const ARTIFACT_SCHEMA_KINDS = [
-	"spec",
-	"tasks",
-	"evidence",
-	"finding",
-	"state"
-];
-/** Artifact kind → Zod schema. `finding` (singular CLI noun) maps to
-*  `FindingsJson` (plural file name) — same singular/plural mismatch as
-*  SC-9c check. */
-const ARTIFACT_SCHEMAS = {
-	spec: SpecFrontmatter,
-	tasks: TasksJson,
-	evidence: EvidenceJson,
-	finding: FindingsJson,
-	state: StateProjection
-};
-/** Emit JSON Schema for one of the 5 batch-capable mutators. */
-function emitInputSchema(commandKey) {
-	return z.toJSONSchema(INPUT_SCHEMAS[commandKey], { target: "draft-2020-12" });
-}
-/** Emit JSON Schema for one of the 5 artifact projection kinds. */
-function emitArtifactSchema(kind) {
-	return z.toJSONSchema(ARTIFACT_SCHEMAS[kind], { target: "draft-2020-12" });
-}
-/** Pretty-print a JSON Schema document for stdout. */
-function formatSchema(schema) {
-	return JSON.stringify(schema, null, 2) + "\n";
-}
-//#endregion
-//#region src/cli/command-mutator.ts
-function createCommandMutator(ctx, deps) {
-	const registryWriterDeps = deps.registryWriter;
-	const mctxFor = (featureDir, session) => ({
-		feature_dir: featureDir,
-		snapshot: session.snapshot,
-		tail_seq: session.tail_seq,
-		entries: session.entries,
-		meta: session.meta,
-		dryRun: ctx.dryRun,
-		registryWriter: registryWriterDeps
-	});
-	const emitDryRunSuccess = (result) => {
-		const kind = "entry" in result ? result.entry.kind : result.entries[0]?.kind ?? "(empty)";
-		ctx.success({
-			ok: true,
-			dry_run: true,
-			would: { kind }
-		}, () => `dry-run: would ${kind}\n`);
-	};
-	const routeMutateFailure = (route, r) => {
-		if (route === "legacy-fail") ctx.fail(r.code, r.message);
-		else if (route === "raw-ctx-failure") ctx.failure(r.code, r.message, r.detail);
-		else ctx.emitFailure(r.code, r.message, r.detail);
-	};
-	function finishMutate(result, route) {
-		if (!result.ok) {
-			routeMutateFailure(route, result);
-			return null;
-		}
-		if (ctx.dryRun) {
-			emitDryRunSuccess(result);
-			return null;
-		}
-		return result;
-	}
-	async function runImpl(featureDir, session, input, route = "emit-failure") {
-		const now = (/* @__PURE__ */ new Date()).toISOString();
-		const stamp = (e) => ({
-			at: now,
-			actor: e.actor,
-			entry_schema_version: 1,
-			kind: e.kind,
-			payload: e.payload
-		});
-		const mctx = mctxFor(featureDir, session);
-		return finishMutate(Array.isArray(input) ? await mutateBatch(input.map(stamp), mctx) : await mutate(stamp(input), mctx), route);
-	}
-	const emitSchemaAndExit = (commandKey) => {
-		const schema = emitInputSchema(commandKey);
-		ctx.success(schema, () => formatSchema(schema));
-	};
-	return {
-		mctxFor,
-		finishMutate,
-		run: runImpl,
-		emitSchemaAndExit
-	};
-}
-//#endregion
-//#region src/core/next-action.ts
-const VERIFY_ORDER = [
-	"VERIFY.run",
-	"VERIFY.review",
-	"VERIFY.acceptance",
-	"VERIFY.visual"
-];
-const VERIFY_LANE_BY_STATE = {
-	"VERIFY.run": "run",
-	"VERIFY.review": "review",
-	"VERIFY.acceptance": "acceptance",
-	"VERIFY.visual": "visual"
-};
-z.object({
-	ok: z.literal(true),
-	feature: z.string().min(1),
-	feature_dir: z.string().min(1),
-	cursor: z.object({
-		phase: Phase,
-		sub_state: SubState
-	}).strict(),
-	ceremony: Ceremony,
-	terminal: z.boolean(),
-	blocked: z.boolean(),
-	next_action: NextAction.optional()
-}).strict().refine((output) => output.terminal || output.next_action !== void 0, { message: "next_action is required for non-terminal states" }).refine((output) => !output.terminal || output.next_action === void 0, { message: "next_action is omitted iff terminal=true" });
-function pendingResolveAction(head) {
-	return {
-		command: `loaf pending resolve --answer "<answer>"`,
-		owner_verb: "pending resolve",
-		target: head.kind,
-		blocking: true,
-		reason: "PENDING_HEAD_REQUIRES_RESOLUTION"
-	};
-}
-function profileEscalateAction() {
-	return {
-		command: "loaf profile escalate --confirm --input <ceremony.json>",
-		owner_verb: "profile escalate",
-		target: "profile_escalation",
-		blocking: true,
-		reason: "PROFILE_ESCALATION_PENDING"
-	};
-}
-function gateFromCursor(subState) {
-	const gate = gateNameForCursor(subState);
-	return gate === null ? null : buildGateDecideAction(gate);
-}
-function verifyNextTarget(subState, applicable) {
-	if (!subState.startsWith("VERIFY.")) return void 0;
-	if (subState === "VERIFY.accept") return void 0;
-	const startIndex = subState === "VERIFY.plan" ? 0 : VERIFY_ORDER.findIndex((state) => state === subState) + 1;
-	const lanes = applicable ?? new Set([
-		"run",
-		"review",
-		"acceptance",
-		"visual"
-	]);
-	for (const state of VERIFY_ORDER.slice(Math.max(startIndex, 0))) {
-		const lane = VERIFY_LANE_BY_STATE[state];
-		if (lane !== void 0 && lanes.has(lane)) return state;
-	}
-	return "VERIFY.accept";
-}
-function chooseNextAction(input) {
-	const head = input.pending[0];
-	if (head !== void 0) {
-		if (head.kind === "gate_decision") {
-			const gate = gateFromCursor(input.sub_state);
-			if (gate !== null) return gate;
-			return pendingResolveAction(head);
-		}
-		if (head.kind === "profile_escalation") return profileEscalateAction();
-		return pendingResolveAction(head);
-	}
-	return transitionOwnerFor({
-		sub_state: input.sub_state,
-		ceremony: input.ceremony,
-		spec_locked: input.spec_locked,
-		verify_accepted: input.verify_accepted,
-		verify_next_target: verifyNextTarget(input.sub_state, input.verify_applicable_lanes)
-	});
-}
-function buildNextOutput(input) {
-	const action = chooseNextAction(input);
-	return {
-		ok: true,
-		feature: input.feature,
-		feature_dir: input.feature_dir,
-		cursor: {
-			phase: input.phase,
-			sub_state: input.sub_state
-		},
-		ceremony: input.ceremony,
-		terminal: input.sub_state.startsWith("DONE."),
-		blocked: action?.blocking ?? false,
-		...action === null ? {} : { next_action: action }
-	};
-}
-//#endregion
-//#region src/cli/next-advisory.ts
-function pendingKindsForNext(pending) {
-	return pending.map(({ kind }) => ({ kind: PendingPromptKind.parse(kind) }));
-}
-function shellQuote(value) {
-	if (/^[A-Za-z0-9_./:@%+=,-]+$/.test(value)) return value;
-	return `'${value.replaceAll("'", `'\"'\"'`)}'`;
-}
-function appendSelector(command, selector) {
-	return `${command} --${selector.kind} ${shellQuote(selector.value)}`;
-}
-/**
-* Render a copy-pasteable next hint without owning workflow routing.
-* `buildNextOutput` remains the sole routing authority. Blocking actions may
-* require human-provided arguments, so those point to the scoped JSON query
-* instead of advertising an unsafe placeholder command as runnable.
-*/
-function buildNextAdvisory(i18n, input, selector) {
-	const output = buildNextOutput(input);
-	if (output.next_action === void 0) return void 0;
-	if (!output.next_action.blocking) return appendSelector(output.next_action.command, selector);
-	const command = `${appendSelector("loaf next", selector)} --format json`;
-	return i18n.t(SUCCESS_KEYS.nextFullCommandPointer, { command });
-}
-//#endregion
 //#region src/core/scope-projection.ts
 function parseCanonicalPathsText(text) {
 	const decoded = JSON.parse(text);
@@ -12466,6 +12230,268 @@ async function executeClosureTransaction(options) {
 	return outcome;
 }
 //#endregion
+//#region src/cli/input-schemas.ts
+const SpecReqInputBatched = SpecAddReqInput;
+const SpecScenarioInputBatched = SpecAddScenarioInput;
+const SpecVisualInputBatched = SpecAddVisualInput;
+z.enum([
+	"spec:add-req",
+	"spec:add-scenario",
+	"spec:add-visual",
+	"tasks:add",
+	"evidence:add"
+]);
+/** The exact schemas parsed by the five batch-capable mutation paths. */
+const INPUT_SCHEMAS = {
+	"spec:add-req": SpecReqInputBatched,
+	"spec:add-scenario": SpecScenarioInputBatched,
+	"spec:add-visual": SpecVisualInputBatched,
+	"tasks:add": TaskInputBatched,
+	"evidence:add": EvidenceAddInputBatched
+};
+//#endregion
+//#region src/cli/schema-emit.ts
+const ARTIFACT_SCHEMA_KINDS = [
+	"spec",
+	"tasks",
+	"evidence",
+	"finding",
+	"state"
+];
+/** Artifact kind → Zod schema. `finding` (singular CLI noun) maps to
+*  `FindingsJson` (plural file name) — same singular/plural mismatch as
+*  SC-9c check. */
+const ARTIFACT_SCHEMAS = {
+	spec: SpecFrontmatter,
+	tasks: TasksJson,
+	evidence: EvidenceJson,
+	finding: FindingsJson,
+	state: StateProjection
+};
+/** Emit JSON Schema for one of the 5 batch-capable mutators. */
+function emitInputSchema(commandKey) {
+	return z.toJSONSchema(INPUT_SCHEMAS[commandKey], { target: "draft-2020-12" });
+}
+/** Emit JSON Schema for one of the 5 artifact projection kinds. */
+function emitArtifactSchema(kind) {
+	return z.toJSONSchema(ARTIFACT_SCHEMAS[kind], { target: "draft-2020-12" });
+}
+/** Pretty-print a JSON Schema document for stdout. */
+function formatSchema(schema) {
+	return JSON.stringify(schema, null, 2) + "\n";
+}
+//#endregion
+//#region src/cli/command-mutator.ts
+function createCommandMutator(ctx, deps) {
+	const registryWriterDeps = deps.registryWriter;
+	const createMutationContext = (featureDir, session) => ({
+		feature_dir: featureDir,
+		snapshot: session.snapshot,
+		tail_seq: session.tail_seq,
+		entries: session.entries,
+		meta: session.meta,
+		dryRun: ctx.dryRun,
+		registryWriter: registryWriterDeps
+	});
+	const emitDryRunSuccess = (result) => {
+		const kind = "entry" in result ? result.entry.kind : result.entries[0]?.kind ?? "(empty)";
+		ctx.success({
+			ok: true,
+			dry_run: true,
+			would: { kind }
+		}, () => `dry-run: would ${kind}\n`);
+	};
+	const routeMutateFailure = (route, r) => {
+		if (route === "legacy-fail") ctx.fail(r.code, r.message);
+		else if (route === "raw-ctx-failure") ctx.failure(r.code, r.message, r.detail);
+		else ctx.emitFailure(r.code, r.message, r.detail);
+	};
+	function acceptResult(result, route) {
+		if (!result.ok) {
+			routeMutateFailure(route, result);
+			return null;
+		}
+		if (result.commit_state === "not-committed") {
+			emitDryRunSuccess(result);
+			return null;
+		}
+		return result;
+	}
+	async function runImpl(featureDir, session, input, route = "emit-failure") {
+		const now = (/* @__PURE__ */ new Date()).toISOString();
+		const stamp = (e) => ({
+			at: now,
+			actor: e.actor,
+			entry_schema_version: 1,
+			kind: e.kind,
+			payload: e.payload
+		});
+		const mctx = createMutationContext(featureDir, session);
+		return acceptResult(Array.isArray(input) ? await mutateBatch(input.map(stamp), mctx) : await mutate(stamp(input), mctx), route);
+	}
+	async function runBatch(featureDir, session, entries, options) {
+		const sharedAt = options.timestamps === "shared" ? (/* @__PURE__ */ new Date()).toISOString() : void 0;
+		return runPreparedBatch(featureDir, session, entries.map((entry) => ({
+			at: sharedAt ?? (/* @__PURE__ */ new Date()).toISOString(),
+			actor: entry.actor,
+			entry_schema_version: 1,
+			kind: entry.kind,
+			payload: entry.payload
+		})), options.route ?? "emit-failure");
+	}
+	async function runPreparedBatch(featureDir, session, entries, route = "emit-failure") {
+		return acceptResult(await mutateBatch([...entries], createMutationContext(featureDir, session)), route);
+	}
+	async function runExecuteClosure(options, route = "emit-failure") {
+		const closure = await executeClosureTransaction({
+			...options,
+			mutateContext: (session) => createMutationContext(options.featureDir, session)
+		});
+		if (closure.kind === "failure") {
+			acceptResult(closure.failure, route);
+			return null;
+		}
+		if (closure.kind === "committed" && acceptResult(closure.result, route) === null) return null;
+		return closure;
+	}
+	const emitSchemaAndExit = (commandKey) => {
+		const schema = emitInputSchema(commandKey);
+		ctx.success(schema, () => formatSchema(schema));
+	};
+	return {
+		run: runImpl,
+		runBatch,
+		runPreparedBatch,
+		runExecuteClosure,
+		emitSchemaAndExit
+	};
+}
+//#endregion
+//#region src/core/next-action.ts
+const VERIFY_ORDER = [
+	"VERIFY.run",
+	"VERIFY.review",
+	"VERIFY.acceptance",
+	"VERIFY.visual"
+];
+const VERIFY_LANE_BY_STATE = {
+	"VERIFY.run": "run",
+	"VERIFY.review": "review",
+	"VERIFY.acceptance": "acceptance",
+	"VERIFY.visual": "visual"
+};
+z.object({
+	ok: z.literal(true),
+	feature: z.string().min(1),
+	feature_dir: z.string().min(1),
+	cursor: z.object({
+		phase: Phase,
+		sub_state: SubState
+	}).strict(),
+	ceremony: Ceremony,
+	terminal: z.boolean(),
+	blocked: z.boolean(),
+	next_action: NextAction.optional()
+}).strict().refine((output) => output.terminal || output.next_action !== void 0, { message: "next_action is required for non-terminal states" }).refine((output) => !output.terminal || output.next_action === void 0, { message: "next_action is omitted iff terminal=true" });
+function pendingResolveAction(head) {
+	return {
+		command: `loaf pending resolve --answer "<answer>"`,
+		owner_verb: "pending resolve",
+		target: head.kind,
+		blocking: true,
+		reason: "PENDING_HEAD_REQUIRES_RESOLUTION"
+	};
+}
+function profileEscalateAction() {
+	return {
+		command: "loaf profile escalate --confirm --input <ceremony.json>",
+		owner_verb: "profile escalate",
+		target: "profile_escalation",
+		blocking: true,
+		reason: "PROFILE_ESCALATION_PENDING"
+	};
+}
+function gateFromCursor(subState) {
+	const gate = gateNameForCursor(subState);
+	return gate === null ? null : buildGateDecideAction(gate);
+}
+function verifyNextTarget(subState, applicable) {
+	if (!subState.startsWith("VERIFY.")) return void 0;
+	if (subState === "VERIFY.accept") return void 0;
+	const startIndex = subState === "VERIFY.plan" ? 0 : VERIFY_ORDER.findIndex((state) => state === subState) + 1;
+	const lanes = applicable ?? new Set([
+		"run",
+		"review",
+		"acceptance",
+		"visual"
+	]);
+	for (const state of VERIFY_ORDER.slice(Math.max(startIndex, 0))) {
+		const lane = VERIFY_LANE_BY_STATE[state];
+		if (lane !== void 0 && lanes.has(lane)) return state;
+	}
+	return "VERIFY.accept";
+}
+function chooseNextAction(input) {
+	const head = input.pending[0];
+	if (head !== void 0) {
+		if (head.kind === "gate_decision") {
+			const gate = gateFromCursor(input.sub_state);
+			if (gate !== null) return gate;
+			return pendingResolveAction(head);
+		}
+		if (head.kind === "profile_escalation") return profileEscalateAction();
+		return pendingResolveAction(head);
+	}
+	return transitionOwnerFor({
+		sub_state: input.sub_state,
+		ceremony: input.ceremony,
+		spec_locked: input.spec_locked,
+		verify_accepted: input.verify_accepted,
+		verify_next_target: verifyNextTarget(input.sub_state, input.verify_applicable_lanes)
+	});
+}
+function buildNextOutput(input) {
+	const action = chooseNextAction(input);
+	return {
+		ok: true,
+		feature: input.feature,
+		feature_dir: input.feature_dir,
+		cursor: {
+			phase: input.phase,
+			sub_state: input.sub_state
+		},
+		ceremony: input.ceremony,
+		terminal: input.sub_state.startsWith("DONE."),
+		blocked: action?.blocking ?? false,
+		...action === null ? {} : { next_action: action }
+	};
+}
+//#endregion
+//#region src/cli/next-advisory.ts
+function pendingKindsForNext(pending) {
+	return pending.map(({ kind }) => ({ kind: PendingPromptKind.parse(kind) }));
+}
+function shellQuote(value) {
+	if (/^[A-Za-z0-9_./:@%+=,-]+$/.test(value)) return value;
+	return `'${value.replaceAll("'", `'\"'\"'`)}'`;
+}
+function appendSelector(command, selector) {
+	return `${command} --${selector.kind} ${shellQuote(selector.value)}`;
+}
+/**
+* Render a copy-pasteable next hint without owning workflow routing.
+* `buildNextOutput` remains the sole routing authority. Blocking actions may
+* require human-provided arguments, so those point to the scoped JSON query
+* instead of advertising an unsafe placeholder command as runnable.
+*/
+function buildNextAdvisory(i18n, input, selector) {
+	const output = buildNextOutput(input);
+	if (output.next_action === void 0) return void 0;
+	if (!output.next_action.blocking) return appendSelector(output.next_action.command, selector);
+	const command = `${appendSelector("loaf next", selector)} --format json`;
+	return i18n.t(SUCCESS_KEYS.nextFullCommandPointer, { command });
+}
+//#endregion
 //#region src/cli/commands/lifecycle.tsx
 const PRESETS = {
 	quick: {
@@ -12587,7 +12613,7 @@ function registerLifecycle(program, ctx, mutator, actor, runtimeDir, runtimeNow,
 			const state = session.snapshot.state;
 			const repoRoot = path.dirname(path.dirname(featureDir));
 			try {
-				const closure = await executeClosureTransaction({
+				const closure = await mutator.runExecuteClosure({
 					featureDir,
 					session,
 					actor,
@@ -12600,14 +12626,9 @@ function registerLifecycle(program, ctx, mutator, actor, runtimeDir, runtimeNow,
 						now: runtimeNow
 					},
 					debug: ctx.debug,
-					...executeClosureHooks !== void 0 && { hooks: executeClosureHooks },
-					mutateContext: (loaded) => mutator.mctxFor(featureDir, loaded)
-				});
-				if (closure.kind === "failure") {
-					mutator.finishMutate(closure.failure, "legacy-fail");
-					return;
-				}
-				if (closure.kind === "committed" && mutator.finishMutate(closure.result, "legacy-fail") === null) return;
+					...executeClosureHooks !== void 0 && { hooks: executeClosureHooks }
+				}, "legacy-fail");
+				if (closure === null) return;
 				if (closure.kind !== "not-committed") {
 					const snapshot = closure.kind === "committed" ? closure.result.snapshot : closure.session.snapshot;
 					const out = {
@@ -13617,9 +13638,7 @@ function registerTaskAdd(tasksCmd, deps) {
 		const newIds = seededNew.map((t) => t.id);
 		if (sponsored) {
 			const sponsoredBatch = seededNew.map((task) => ({
-				at: (/* @__PURE__ */ new Date()).toISOString(),
 				actor,
-				entry_schema_version: 1,
 				kind: "event:tasks_amended",
 				payload: {
 					mode: "add",
@@ -13627,7 +13646,10 @@ function registerTaskAdd(tasksCmd, deps) {
 					sponsored_by_finding_id: opts.finding
 				}
 			}));
-			const result = mutator.finishMutate(await mutateBatch(sponsoredBatch, mutator.mctxFor(featureDir, session)), "raw-ctx-failure");
+			const result = await mutator.runBatch(featureDir, session, sponsoredBatch, {
+				timestamps: "per-entry",
+				route: "raw-ctx-failure"
+			});
 			if (!result) return;
 			const out = {
 				ok: true,
@@ -17131,7 +17153,7 @@ function registerSpec(program, ctx, mutator, actor, isStdinTty, isStdoutTty, rea
 			actor,
 			now
 		});
-		const result = mutator.finishMutate(await mutateBatch(entries, mutator.mctxFor(featureDir, session)), "raw-ctx-failure");
+		const result = await mutator.runPreparedBatch(featureDir, session, entries, "raw-ctx-failure");
 		if (!result) return;
 		const reqIds = result.snapshot.requirements.map((r) => r.id);
 		const scenIds = result.snapshot.scenarios.map((s) => s.id);
@@ -17368,7 +17390,7 @@ feature:
 			now
 		});
 		if (hasInput && !ctx.dryRun) await promises.writeFile(specMdPath, afterContent, "utf8");
-		const mutateResult = mutator.finishMutate(await mutateBatch(entries, mutator.mctxFor(featureDir, session)), "emit-failure");
+		const mutateResult = await mutator.runPreparedBatch(featureDir, session, entries, "emit-failure");
 		if (!mutateResult) return;
 		const newSpecVersion = entries[0].payload.spec_version;
 		ctx.success({

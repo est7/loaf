@@ -65,7 +65,7 @@ replace `Pending` evidence with the commands and results that actually ran.
 | A03 | Implement | Attachment authority module | A02 | [x] Complete |
 | A04 | Implement | Feature write lease | A03 | [x] Complete |
 | A05 | Implement | Explicit mutation commit outcomes | A04 | [x] Complete |
-| A06 | Implement | Deep CommandMutator boundary | A05 | [ ] Pending |
+| A06 | Implement | Deep CommandMutator boundary | A05 | [x] Complete |
 | A07 | Implement | Unified CLI input ingestion | A01 | [ ] Pending |
 | A08 | Implement | Strict CLI-owned task intake | A06, A07 | [ ] Pending |
 | A09 | Implement | Canonical scope-closure fact policy | A03 | [ ] Pending |
@@ -429,7 +429,7 @@ exhaustively in the same commit.
 
 ## A06 — Deep CommandMutator boundary
 
-**Status:** [ ] Pending
+**Status:** [x] Complete
 **Commit subject:** `refactor(cli): make CommandMutator the mutation adapter`
 
 ### Destination
@@ -445,13 +445,13 @@ dry-run behavior, commit-aware failure routing, and success advisories.
 
 ### Acceptance criteria
 
-- [ ] CommandMutator supports single entries, pre-built batches, and an
+- [x] CommandMutator supports single entries, pre-built batches, and an
   explicit per-entry timestamp strategy.
-- [ ] `src/cli/commands/**` has no direct `mutate`/`mutateBatch` import.
-- [ ] Spec submit/edit and sponsored task authoring use the same adapter.
-- [ ] Legacy bypass helpers, allowlists, and stale bypass-count comments are
+- [x] `src/cli/commands/**` has no direct `mutate`/`mutateBatch` import.
+- [x] Spec submit/edit and sponsored task authoring use the same adapter.
+- [x] Legacy bypass helpers, allowlists, and stale bypass-count comments are
   deleted.
-- [ ] Static dry-run and registry-context gates enforce the new boundary.
+- [x] Static dry-run and registry-context gates enforce the new boundary.
 
 ### Validation
 
@@ -464,7 +464,12 @@ persistent data.
 
 ### Evidence
 
-Pending.
+- RED: both static boundary gates failed before implementation because the
+  private context factory and command-layer bypass prohibition did not exist.
+- Focused suite — 4 files, 40 tests passed.
+- `bun run typecheck` — passed.
+- `bun run check` — lint, typecheck, the complete test suite, and distribution
+  build passed.
 
 ## A07 — Unified CLI input ingestion
 

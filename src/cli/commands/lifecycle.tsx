@@ -11,11 +11,7 @@ import { readSpecFrontmatter } from "../../core/spec-frontmatter.js";
 import { extractTaskSlim } from "../../core/task-schema.js";
 import type { TaskState } from "../../core/reducer.js";
 import path from "node:path";
-import {
-  ExecuteClosureError,
-  executeClosureTransaction,
-  type ExecuteClosureHooks,
-} from "../../core/execute-closure.js";
+import { ExecuteClosureError, type ExecuteClosureHooks } from "../../core/execute-closure.js";
 import { RuntimeStoreError } from "../../core/session-runtime.js";
 
 const PRESETS: Record<string, import("../../core/journal-entry.js").Ceremony> = {
@@ -194,26 +190,19 @@ export function registerLifecycle(
         const state = session.snapshot.state!;
         const repoRoot = path.dirname(path.dirname(featureDir));
         try {
-          const closure = await executeClosureTransaction({
-            featureDir,
-            session,
-            actor,
-            identity: { session_id: state.session_id, cwd: repoRoot },
-            runtime: { runtimeDir, now: runtimeNow },
-            debug: ctx.debug,
-            ...(executeClosureHooks !== undefined && { hooks: executeClosureHooks }),
-            mutateContext: (loaded) => mutator.mctxFor(featureDir, loaded),
-          });
-          if (closure.kind === "failure") {
-            mutator.finishMutate(closure.failure, "legacy-fail");
-            return;
-          }
-          if (
-            closure.kind === "committed" &&
-            mutator.finishMutate(closure.result, "legacy-fail") === null
-          ) {
-            return;
-          }
+          const closure = await mutator.runExecuteClosure(
+            {
+              featureDir,
+              session,
+              actor,
+              identity: { session_id: state.session_id, cwd: repoRoot },
+              runtime: { runtimeDir, now: runtimeNow },
+              debug: ctx.debug,
+              ...(executeClosureHooks !== undefined && { hooks: executeClosureHooks }),
+            },
+            "legacy-fail",
+          );
+          if (closure === null) return;
           if (closure.kind !== "not-committed") {
             const snapshot =
               closure.kind === "committed" ? closure.result.snapshot : closure.session.snapshot;

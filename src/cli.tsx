@@ -746,8 +746,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         }
       : undefined;
 
-  // Phase W8 0b — CommandMutator owns mutation orchestration: runMutator /
-  // mctxFor / finishMutate / routeMutateFailure / emitMutatorSchemaAndExit.
+  // CommandMutator is the CLI's sole journal-mutation adapter.
   const mutator = createCommandMutator(ctx, { registryWriter: registryWriterDeps });
 
   // ── Phase W8 P1 — per-family command registrations ──────────────────

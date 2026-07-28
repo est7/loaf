@@ -8,7 +8,6 @@ import { evaluateSpecLockFromSnapshot } from "../../core/gates/spec-lock-eval.js
 import { buildSpecSubmitBatch } from "../spec-submit-batch.js";
 import type { MutatorEntry } from "../mutator-entry.js";
 import type { MutatorCommand } from "../input-schemas.js";
-import { mutateBatch } from "../../core/journal-mutate.js";
 import { parseInputSource } from "../input-source.js";
 import { readJsonInput } from "../input-read.js";
 import { mapZodIssues } from "../check-file.js";
@@ -63,9 +62,7 @@ function specAddTextKey(name: SpecAddKindConfig["name"], count: number): string 
     return count === 1 ? SUCCESS_KEYS.specAddReqTextOne : SUCCESS_KEYS.specAddReqTextMany;
   }
   if (name === "scenario") {
-    return count === 1
-      ? SUCCESS_KEYS.specAddScenarioTextOne
-      : SUCCESS_KEYS.specAddScenarioTextMany;
+    return count === 1 ? SUCCESS_KEYS.specAddScenarioTextOne : SUCCESS_KEYS.specAddScenarioTextMany;
   }
   return count === 1 ? SUCCESS_KEYS.specAddVisualTextOne : SUCCESS_KEYS.specAddVisualTextMany;
 }
@@ -221,15 +218,17 @@ export function registerSpec(
       // shape (1 head + N req + M scen + K vis entries sharing at /
       // actor / spec_version).
       const now = new Date().toISOString();
-      const entries: Parameters<typeof mutateBatch>[0] = buildSpecSubmitBatch({
+      const entries = buildSpecSubmitBatch({
         input,
         snapshot: session.snapshot,
         actor,
         now,
       });
       // (7) Mutate.
-      const result = mutator.finishMutate(
-        await mutateBatch(entries, mutator.mctxFor(featureDir, session)),
+      const result = await mutator.runPreparedBatch(
+        featureDir,
+        session,
+        entries,
         "raw-ctx-failure",
       );
       if (!result) return;
@@ -504,7 +503,7 @@ export function registerSpec(
           ctx.failure(
             "USAGE",
             "stdin is TTY — `loaf spec edit --input -` expects piped JSON. " +
-              "Pipe {\"body\":\"<Markdown>\"} via stdin, or pass inline JSON / a file path.",
+              'Pipe {"body":"<Markdown>"} via stdin, or pass inline JSON / a file path.',
           );
           return;
         }
@@ -517,7 +516,7 @@ export function registerSpec(
         if (!inputParse.success) {
           ctx.emitFailure(
             "SCHEMA_VALIDATION_FAILED",
-            "spec edit --input expects a strict JSON object {\"body\":\"<Markdown>\"}",
+            'spec edit --input expects a strict JSON object {"body":"<Markdown>"}',
             { issues: inputParse.error.issues },
           );
           return;
@@ -649,7 +648,7 @@ export function registerSpec(
       }
       // (8) Build batch via shared SC-12a-1 helper + mutate
       const now = new Date().toISOString();
-      const entries: Parameters<typeof mutateBatch>[0] = buildSpecSubmitBatch({
+      const entries = buildSpecSubmitBatch({
         input: submitParse.data,
         snapshot: session.snapshot,
         actor,
@@ -662,8 +661,10 @@ export function registerSpec(
       if (hasInput && !ctx.dryRun) {
         await fsP.writeFile(specMdPath, afterContent, "utf8");
       }
-      const mutateResult = mutator.finishMutate(
-        await mutateBatch(entries, mutator.mctxFor(featureDir, session)),
+      const mutateResult = await mutator.runPreparedBatch(
+        featureDir,
+        session,
+        entries,
         "emit-failure",
       );
       if (!mutateResult) return;

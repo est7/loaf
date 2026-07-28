@@ -1,15 +1,13 @@
-// Phase W8 0b — CommandMutator: mutation orchestration surface.
-//
-// Moved verbatim from src/cli.tsx main() — runMutator (overloaded) /
-// mctxFor / finishMutate / routeMutateFailure / emitMutatorSchemaAndExit.
-//
-// HARD BOUNDARY: this module imports mutate/mutateBatch (stable core).
-// command-context.ts MUST NOT import them.
-//
-// Depends on ctx for dryRun / success / fail / emitFailure, and on
-// registryWriter (from deps) for mctxFor.
+// CommandMutator is the only CLI adapter allowed to invoke journal mutation.
+// Command handlers provide intent-shaped entries; this module owns context
+// construction, timestamp policy, dry-run presentation, and failure routing.
 
 import { mutate, mutateBatch, type MutateContext } from "../core/journal-mutate.js";
+import {
+  executeClosureTransaction,
+  type ExecuteClosureOptions,
+  type ExecuteClosureResult,
+} from "../core/execute-closure.js";
 import { emitInputSchema, formatSchema } from "./schema-emit.js";
 import type { MutatorCommand } from "./input-schemas.js";
 import type { MutatorEntry } from "./mutator-entry.js";
@@ -18,25 +16,20 @@ import type { CommandContext } from "./command-context.js";
 
 type RunPartial = Parameters<typeof mutate>[0];
 export type FailureRoute = "emit-failure" | "legacy-fail" | "raw-ctx-failure";
+export type TimestampStrategy = "shared" | "per-entry";
 export type MutateOkSingle = Extract<Awaited<ReturnType<typeof mutate>>, { ok: true }>;
 export type MutateOkBatch = Extract<Awaited<ReturnType<typeof mutateBatch>>, { ok: true }>;
+type MutateFailure =
+  | Extract<Awaited<ReturnType<typeof mutate>>, { ok: false }>
+  | Extract<Awaited<ReturnType<typeof mutateBatch>>, { ok: false }>;
+type SuccessfulExecuteClosure = Exclude<ExecuteClosureResult, { kind: "failure" }>;
 
 export type CommandMutatorDeps = {
   registryWriter: MutateContext["registryWriter"] | undefined;
 };
 
 export type CommandMutator = {
-  /** Build a MutateContext from a resolved session. Exposed so the 3
-   *  bypass sites in cli.tsx that build their own batches can reuse it. */
-  mctxFor: (featureDir: string, session: SessionLoad) => MutateContext;
-  /** Shared result tail: route failure, swallow dry-run success, or hand
-   *  back the ok result. Used by run() and by the bypass sites. */
-  finishMutate: <Ok extends MutateOkSingle | MutateOkBatch>(
-    result: Ok | { ok: false; code: string; message: string; detail?: Record<string, unknown> },
-    route: FailureRoute,
-  ) => Ok | null;
-  /** Single-entry or batch mutate + dry-run + failure routing.
-   *  Returns null when already emitted (failure or dry-run success). */
+  /** Single-entry or shared-timestamp batch mutation. */
   run: {
     (
       featureDir: string,
@@ -51,6 +44,25 @@ export type CommandMutator = {
       route?: FailureRoute,
     ): Promise<MutateOkBatch | null>;
   };
+  /** Batch mutation with an explicit timestamp policy. */
+  runBatch: (
+    featureDir: string,
+    session: SessionLoad,
+    entries: readonly MutatorEntry[],
+    options: { timestamps: TimestampStrategy; route?: FailureRoute },
+  ) => Promise<MutateOkBatch | null>;
+  /** Mutate a batch whose actor, schema version, and timestamp are already fixed. */
+  runPreparedBatch: (
+    featureDir: string,
+    session: SessionLoad,
+    entries: readonly RunPartial[],
+    route?: FailureRoute,
+  ) => Promise<MutateOkBatch | null>;
+  /** Adapt the core EXECUTE closure transaction without leaking mutation helpers. */
+  runExecuteClosure: (
+    options: Omit<ExecuteClosureOptions, "mutateContext">,
+    route?: FailureRoute,
+  ) => Promise<SuccessfulExecuteClosure | null>;
   /** Emit the input schema for a mutator command and call ctx.success. */
   emitSchemaAndExit: (commandKey: MutatorCommand) => void;
 };
@@ -61,7 +73,7 @@ export function createCommandMutator(
 ): CommandMutator {
   const registryWriterDeps = deps.registryWriter;
 
-  const mctxFor = (featureDir: string, session: SessionLoad): MutateContext => ({
+  const createMutationContext = (featureDir: string, session: SessionLoad): MutateContext => ({
     feature_dir: featureDir,
     snapshot: session.snapshot,
     tail_seq: session.tail_seq,
@@ -87,15 +99,15 @@ export function createCommandMutator(
     else ctx.emitFailure(r.code, r.message, r.detail);
   };
 
-  function finishMutate<Ok extends MutateOkSingle | MutateOkBatch>(
-    result: Ok | { ok: false; code: string; message: string; detail?: Record<string, unknown> },
+  function acceptResult<Ok extends MutateOkSingle | MutateOkBatch>(
+    result: Ok | MutateFailure,
     route: FailureRoute,
   ): Ok | null {
     if (!result.ok) {
       routeMutateFailure(route, result);
       return null;
     }
-    if (ctx.dryRun) {
+    if (result.commit_state === "not-committed") {
       emitDryRunSuccess(result);
       return null;
     }
@@ -116,11 +128,58 @@ export function createCommandMutator(
       kind: e.kind,
       payload: e.payload,
     });
-    const mctx = mctxFor(featureDir, session);
+    const mctx = createMutationContext(featureDir, session);
     const result = Array.isArray(input)
       ? await mutateBatch(input.map(stamp), mctx)
       : await mutate(stamp(input as MutatorEntry), mctx);
-    return finishMutate(result, route);
+    return acceptResult(result, route);
+  }
+
+  async function runBatch(
+    featureDir: string,
+    session: SessionLoad,
+    entries: readonly MutatorEntry[],
+    options: { timestamps: TimestampStrategy; route?: FailureRoute },
+  ): Promise<MutateOkBatch | null> {
+    const sharedAt = options.timestamps === "shared" ? new Date().toISOString() : undefined;
+    const prepared = entries.map(
+      (entry): RunPartial => ({
+        at: sharedAt ?? new Date().toISOString(),
+        actor: entry.actor,
+        entry_schema_version: 1,
+        kind: entry.kind,
+        payload: entry.payload,
+      }),
+    );
+    return runPreparedBatch(featureDir, session, prepared, options.route ?? "emit-failure");
+  }
+
+  async function runPreparedBatch(
+    featureDir: string,
+    session: SessionLoad,
+    entries: readonly RunPartial[],
+    route: FailureRoute = "emit-failure",
+  ): Promise<MutateOkBatch | null> {
+    const result = await mutateBatch([...entries], createMutationContext(featureDir, session));
+    return acceptResult(result, route);
+  }
+
+  async function runExecuteClosure(
+    options: Omit<ExecuteClosureOptions, "mutateContext">,
+    route: FailureRoute = "emit-failure",
+  ): Promise<SuccessfulExecuteClosure | null> {
+    const closure = await executeClosureTransaction({
+      ...options,
+      mutateContext: (session) => createMutationContext(options.featureDir, session),
+    });
+    if (closure.kind === "failure") {
+      acceptResult(closure.failure, route);
+      return null;
+    }
+    if (closure.kind === "committed" && acceptResult(closure.result, route) === null) {
+      return null;
+    }
+    return closure;
   }
 
   const emitSchemaAndExit = (commandKey: MutatorCommand): void => {
@@ -129,9 +188,10 @@ export function createCommandMutator(
   };
 
   return {
-    mctxFor,
-    finishMutate,
     run: runImpl as CommandMutator["run"],
+    runBatch,
+    runPreparedBatch,
+    runExecuteClosure,
     emitSchemaAndExit,
   };
 }

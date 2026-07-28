@@ -69,7 +69,9 @@ describe("SC-6c — positive table: every read-only command has rejectIfDryRun m
     const familyFiles = (await fs.readdir(familyDir, { recursive: true })).filter(
       (f) => f.endsWith(".tsx") || f.endsWith(".ts"),
     );
-    const familySources = await Promise.all(familyFiles.map((f) => fs.readFile(path.join(familyDir, f), "utf8")));
+    const familySources = await Promise.all(
+      familyFiles.map((f) => fs.readFile(path.join(familyDir, f), "utf8")),
+    );
     const source = familySources.join("\n");
     const misses: string[] = [];
     for (const label of READ_ONLY_COMMANDS) {
@@ -202,98 +204,27 @@ describe("SC-13b — §10.7 dry-run classification ↔ runtime/SC-6c drift gate 
 });
 
 describe("SC-6c — every mutator call carries dryRun in MutateContext", () => {
-  test("static: each await mutate(Batch) site's ctx arg contains dryRun: ctx.dryRun", async () => {
-    // Phase W8 P1: command registrations moved to per-family files. Scan all of them.
+  test("static: command handlers cannot bypass CommandMutator dry-run wiring", async () => {
     const familyDir = path.join(REPO_ROOT, "src", "cli", "commands");
     const familyFiles = (await fs.readdir(familyDir, { recursive: true })).filter(
       (f) => f.endsWith(".tsx") || f.endsWith(".ts"),
     );
-    const familySources = await Promise.all(familyFiles.map((f) => fs.readFile(path.join(familyDir, f), "utf8")));
+    const familySources = await Promise.all(
+      familyFiles.map((f) => fs.readFile(path.join(familyDir, f), "utf8")),
+    );
     const source = familySources.join("\n");
 
-    // Phase W8: mctxFor factory moved to src/cli/command-mutator.ts.
-    // Verify the factory wires the field there.
     const mutatorSource = await readRepo("src/cli/command-mutator.ts");
     expect(
-      /const\s+mctxFor\s*=[\s\S]{0,400}?dryRun\s*:\s*ctx\.dryRun/.test(mutatorSource),
-      "mctxFor factory must wire `dryRun: ctx.dryRun` in command-mutator.ts",
+      /const\s+createMutationContext\s*=[\s\S]{0,400}?dryRun\s*:\s*ctx\.dryRun/.test(mutatorSource),
+      "CommandMutator must wire `dryRun: ctx.dryRun` in its private context factory",
     ).toBe(true);
-
-    // Collect names of locally-defined ctx variables that carry
-    // `dryRun: ctx.dryRun` — either as an inline object literal OR assigned
-    // from the `mctxFor` factory. `mctx` is the common reuse pattern.
-    const KNOWN_GOOD_CTX_NAMES = new Set<string>();
-    const ctxDefRe =
-      /const\s+(\w+)\s*(?::\s*\w+\s*)?=\s*\{[^}]*?dryRun\s*:\s*ctx\.dryRun[^}]*?\};/gs;
-    for (const m of source.matchAll(ctxDefRe)) {
-      KNOWN_GOOD_CTX_NAMES.add(m[1]!);
-    }
-    // Phase W8: bypass sites use mutator.mctxFor(...)
-    for (const m of source.matchAll(/const\s+(\w+)\s*=\s*(?:mutator\.)?mctxFor\(/g)) {
-      KNOWN_GOOD_CTX_NAMES.add(m[1]!);
-    }
-
-    // For each `await mutate(...)` / `await mutateBatch(...)` site,
-    // extract the call slice up to its matching close-paren by walking
-    // forward and counting parens. Then assert either:
-    //   - the slice contains `dryRun: ctx.dryRun` (inline ctx), OR
-    //   - the second arg is a bare identifier matching a known-good
-    //     ctx (e.g. `mctx`).
-    const lines = source.split("\n");
-    const misses: string[] = [];
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i]!;
-      const callMatch = /await\s+(mutate(?:Batch)?)\s*\(/.exec(line);
-      if (!callMatch) continue;
-
-      // Walk forward, accumulating until we close the outermost paren.
-      let depth = 0;
-      let slice = "";
-      const startCol = callMatch.index + callMatch[0].length - 1; // at the '('
-      let scan = true;
-      for (let j = i; j < lines.length && scan; j++) {
-        const text = j === i ? lines[j]!.slice(startCol) : lines[j]!;
-        for (let k = 0; k < text.length; k++) {
-          const ch = text[k];
-          slice += ch;
-          if (ch === "(") depth++;
-          else if (ch === ")") {
-            depth--;
-            if (depth === 0) {
-              scan = false;
-              break;
-            }
-          }
-        }
-        slice += "\n";
-      }
-
-      // Inline literal check
-      if (/dryRun\s*:\s*ctx\.dryRun/.test(slice)) continue;
-
-      // Direct factory call as the ctx arg: `mutateBatch(batch, mctxFor(...))` or
-      // `mutateBatch(batch, mutator.mctxFor(...))` (Phase W8 bypass sites)
-      if (/(?:mutator\.)?mctxFor\(/.test(slice)) continue;
-
-      // Named-ctx check: find the last identifier before the closing
-      // `)`. Allow optional trailing comma (multi-line call style).
-      // E.g. `..., mctx,\n)` — last identifier is `mctx`.
-      const tailMatch = /(\w+)\s*,?\s*\)\s*$/.exec(slice.trim());
-      if (tailMatch && KNOWN_GOOD_CTX_NAMES.has(tailMatch[1]!)) continue;
-
-      misses.push(
-        `line ${i + 1}: await ${callMatch[1]}(...) — neither inline 'dryRun: ctx.dryRun' nor known-good named ctx`,
-      );
-    }
-
-    expect(misses).toEqual([]);
-    // Sanity: the mutator pipeline is centralized behind `mutator.run` (Phase
-    // W8 rename from `runMutator`). The remaining textual `await mutate(Batch)`
-    // sites are the helper internals and the sponsored tasks-add bypass sites.
-    // Guard that a representative number of call sites route through the
-    // centralized helper.
-    const mutatorRunCalls = source.match(/await\s+mutator\.run\s*\(/g)?.length ?? 0;
-    expect(mutatorRunCalls).toBeGreaterThanOrEqual(25);
+    expect(source).not.toMatch(/from\s+["'][^"']*journal-mutate\.js["']/);
+    expect(source).not.toMatch(/\b(?:mutator\.)?(?:mctxFor|finishMutate)\b/);
+    expect(source).not.toMatch(/\bawait\s+mutate(?:Batch)?\s*\(/);
+    expect(
+      source.match(/await\s+mutator\.(?:run|runBatch|runPreparedBatch)\s*\(/g)?.length ?? 0,
+    ).toBeGreaterThanOrEqual(28);
   });
 });
 

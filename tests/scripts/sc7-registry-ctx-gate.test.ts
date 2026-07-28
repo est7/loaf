@@ -21,89 +21,25 @@ async function readRepo(rel: string): Promise<string> {
 }
 
 describe("SC-7 — every mutator call carries registryWriter in MutateContext", () => {
-  test("static: each await mutate(Batch) site's ctx contains registryWriter: registryWriterDeps", async () => {
-    // Phase W8 P1: command registrations moved to per-family files. Scan all of them.
+  test("static: command handlers cannot bypass CommandMutator registry wiring", async () => {
     const familyDir = path.join(REPO_ROOT, "src", "cli", "commands");
     const familyFiles = (await fs.readdir(familyDir, { recursive: true })).filter(
       (f) => f.endsWith(".tsx") || f.endsWith(".ts"),
     );
-    const familySources = await Promise.all(familyFiles.map((f) => fs.readFile(path.join(familyDir, f), "utf8")));
+    const familySources = await Promise.all(
+      familyFiles.map((f) => fs.readFile(path.join(familyDir, f), "utf8")),
+    );
     const source = familySources.join("\n");
 
-    // Phase W8: mctxFor factory now lives in src/cli/command-mutator.ts.
-    // Verify the factory wires the field there.
     const mutatorSource = await readRepo("src/cli/command-mutator.ts");
     expect(
-      /const\s+mctxFor\s*=[\s\S]{0,400}?registryWriter\s*:\s*registryWriterDeps/.test(
+      /const\s+createMutationContext\s*=[\s\S]{0,400}?registryWriter\s*:\s*registryWriterDeps/.test(
         mutatorSource,
       ),
-      "mctxFor factory must wire `registryWriter: registryWriterDeps` in command-mutator.ts",
+      "CommandMutator must wire `registryWriter: registryWriterDeps` in its private context factory",
     ).toBe(true);
-
-    // Collect names of locally-defined ctx variables that carry
-    // `registryWriter: registryWriterDeps` — either as an inline object literal
-    // OR assigned from the `mctxFor` factory.
-    const KNOWN_GOOD_CTX_NAMES = new Set<string>();
-    const ctxDefRe =
-      /const\s+(\w+)\s*(?::\s*\w+\s*)?=\s*\{[^}]*?registryWriter\s*:\s*registryWriterDeps[^}]*?\};/gs;
-    for (const m of source.matchAll(ctxDefRe)) {
-      KNOWN_GOOD_CTX_NAMES.add(m[1]!);
-    }
-    // Phase W8: bypass sites use mutator.mctxFor(...)
-    for (const m of source.matchAll(/const\s+(\w+)\s*=\s*(?:mutator\.)?mctxFor\(/g)) {
-      KNOWN_GOOD_CTX_NAMES.add(m[1]!);
-    }
-
-    const lines = source.split("\n");
-    const misses: string[] = [];
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i]!;
-      const callMatch = /await\s+(mutate(?:Batch)?)\s*\(/.exec(line);
-      if (!callMatch) continue;
-
-      // Walk forward, accumulating until we close the outermost paren.
-      let depth = 0;
-      let slice = "";
-      const startCol = callMatch.index + callMatch[0].length - 1;
-      let scan = true;
-      for (let j = i; j < lines.length && scan; j++) {
-        const text = j === i ? lines[j]!.slice(startCol) : lines[j]!;
-        for (let k = 0; k < text.length; k++) {
-          const ch = text[k];
-          slice += ch;
-          if (ch === "(") depth++;
-          else if (ch === ")") {
-            depth--;
-            if (depth === 0) {
-              scan = false;
-              break;
-            }
-          }
-        }
-        slice += "\n";
-      }
-
-      // Inline literal check
-      if (/registryWriter\s*:\s*registryWriterDeps/.test(slice)) continue;
-
-      // Direct factory call as the ctx arg: `mutateBatch(batch, mctxFor(...))` or
-      // `mutateBatch(batch, mutator.mctxFor(...))` (Phase W8 bypass sites)
-      if (/(?:mutator\.)?mctxFor\(/.test(slice)) continue;
-
-      // Named-ctx check
-      const tailMatch = /(\w+)\s*,?\s*\)\s*$/.exec(slice.trim());
-      if (tailMatch && KNOWN_GOOD_CTX_NAMES.has(tailMatch[1]!)) continue;
-
-      misses.push(`line ${i + 1}: await ${callMatch[1]}(...) — missing registryWriter wiring`);
-    }
-
-    expect(misses).toEqual([]);
-    // Sanity: the mutator pipeline is centralized behind `mutator.run` (was:
-    // `runMutator` pre-W8). The remaining textual `await mutate(Batch)` sites
-    // are the helper internals and the sponsored tasks-add bypass sites.
-    // Guard that a representative number of call sites route through the
-    // centralized helper.
-    const mutatorRunCalls = source.match(/await\s+mutator\.run\s*\(/g)?.length ?? 0;
-    expect(mutatorRunCalls).toBeGreaterThanOrEqual(25);
+    expect(source).not.toMatch(/from\s+["'][^"']*journal-mutate\.js["']/);
+    expect(source).not.toMatch(/\b(?:mutator\.)?(?:mctxFor|finishMutate)\b/);
+    expect(source).not.toMatch(/\bawait\s+mutate(?:Batch)?\s*\(/);
   });
 });
