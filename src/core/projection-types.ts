@@ -43,7 +43,7 @@ export type TaskKind = "behavioral" | "structural" | "visual-ui" | "docs" | "spi
 
 // Slim TaskState projection (Slice 1.B sub-cycle 3a). Mirrors only the
 // cross-cutting fields needed by spec-lock checks 3/4/6/7/8 + auto-promote;
-// the canonical body (tests/test_layer, execution.evidence_refs/reason/
+// the canonical body (tests/test_layer, execution.reason/
 // started_at, etc.) lives in the journal payload and round-trips via
 // `loaf doctor --rebuild`. steps carry applicability so the auto-promote
 // helper distinguishes must vs optional vs na (codex r23 BLOCK 2 fix).

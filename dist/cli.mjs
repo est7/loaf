@@ -283,7 +283,6 @@ const TaskKind = z.enum([
 	"chore"
 ]);
 const TaskIdPayload = z.string().regex(/^T-\d{3,}$/);
-const EvidenceRefPayload = z.string().regex(/^EV-\d{6,}$/);
 const RawDrivesRef = z.string().regex(/^(REQ|SCEN|VIS)-[A-Z][A-Z0-9-]*-\d{3,}$/);
 z.union([
 	ReqIdPayload,
@@ -307,7 +306,6 @@ const TaskExecutionStepPayload = z.object({
 	applicability: ApplicabilityPayload,
 	status: StepStatusPayload,
 	reason: z.string().optional(),
-	evidence_refs: z.array(EvidenceRefPayload).default([]),
 	started_at: z.string().datetime().optional()
 });
 const BehavioralExecutionPayload = z.object({
@@ -424,9 +422,9 @@ function extractTaskSteps(exec) {
 }
 /**
 * Extract a slim TaskState projection from a TaskFull payload. Body fields
-* (tests / test_layer / execution.evidence_refs / reason / started_at) stay
-* in the journal payload as canonical truth — only cross-cutting fields
-* needed by spec-lock checks + auto-promote land in the projection.
+* (tests / test_layer / execution.reason / started_at) stay in the journal
+* payload as canonical truth — only cross-cutting fields needed by spec-lock
+* checks + auto-promote land in the projection.
 */
 function extractTaskSlim(t) {
 	const out = {
@@ -631,8 +629,7 @@ function materializeTaskInput(input, id) {
 	const execution = {};
 	for (const step of KIND_EXECUTION_STEPS[input.kind]) execution[step] = {
 		applicability: "must",
-		status: "pending",
-		evidence_refs: []
+		status: "pending"
 	};
 	return {
 		...input,
@@ -3589,10 +3586,6 @@ function firstAddFreshnessViolation(task) {
 			field: `execution.${stepName}.status`,
 			value: step.status
 		};
-		if (step.evidence_refs.length > 0) return {
-			field: `execution.${stepName}.evidence_refs`,
-			value: step.evidence_refs
-		};
 		if (step.started_at !== void 0) return {
 			field: `execution.${stepName}.started_at`,
 			value: step.started_at
@@ -4270,7 +4263,6 @@ const MACHINE = defineMachine({
 		mutation_rights: {
 			writable_fields: [
 				"tasks.json:tasks[].execution[].status",
-				"tasks.json:tasks[].execution[].evidence_refs",
 				"tasks.json:tasks[].status",
 				"evidence.jsonl:*",
 				"findings.jsonl:*"
@@ -8367,10 +8359,12 @@ function createI18n(locale, bundles) {
 */
 function latestCanonicalTaskBody(entries, taskId) {
 	let current;
-	for (const entry of entries) if (entry.kind === "event:tasks_planned") current = entry.payload.tasks?.find((t) => t.id === taskId);
-	else if (entry.kind === "event:tasks_amended") {
+	for (const entry of entries) if (entry.kind === "event:tasks_planned") {
+		const candidate = entry.payload.tasks?.find((t) => t.id === taskId);
+		current = candidate === void 0 ? void 0 : TaskFullPayload.parse(candidate);
+	} else if (entry.kind === "event:tasks_amended") {
 		const payload = entry.payload;
-		if (payload.task?.id === taskId) current = payload.task;
+		if (payload.task?.id === taskId) current = TaskFullPayload.parse(payload.task);
 	}
 	return current === void 0 ? void 0 : structuredClone(current);
 }
@@ -8382,12 +8376,12 @@ function latestCanonicalTaskBody(entries, taskId) {
 * Overlaid from `current`: `task.status`, and each base step's `status` +
 * `applicability` (where the slim projection has that step). Preserved from
 * `base`: every body-only field the slim projection drops — `tests`,
-* `test_layer`, kind-specific contract fields, and per-step `evidence_refs`
-* / `reason` / `started_at`. The base body defines the canonical step set;
+* `test_layer`, kind-specific contract fields, and per-step `reason` /
+* `started_at`. The base body defines the canonical step set;
 * a step absent from `current.steps` keeps its base values.
 */
 function materializeTaskForAmend(base, current) {
-	const out = structuredClone(base);
+	const out = TaskFullPayload.parse(base);
 	out.status = current.status;
 	if (current.red_test_registered !== void 0) out.red_test_registered = current.red_test_registered;
 	const exec = out.execution;
@@ -8407,31 +8401,30 @@ function materializeTaskForAmend(base, current) {
 * (Phase 11 Item 3 SC1b, codex r136 Q4).
 *
 * The `--input` file is an id-less `TaskInput`; `materializeTaskInput` gives
-* the replacement a fresh `execution` block (every step `pending`,
-* `evidence_refs: []`, no `started_at` / `reason`). A sponsored graph amend
+* the replacement a fresh `execution` block (every step `pending`, no
+* `started_at` / `reason`). A sponsored graph amend
 * must NOT erase execution history, so for every step RETAINED across the
 * replacement (present in both bodies) this copies the body-only progress
-* fields — `evidence_refs`, `started_at`, `reason` — from the canonical body.
-* A step introduced by the replacement keeps its fresh (unstarted,
-* no-evidence) values.
+* fields — `started_at` and `reason` — from the canonical body.
+* A step introduced by the replacement keeps its fresh, unstarted values.
 *
 * `status` / `applicability` are NOT carried here — `materializeTaskForAmend`
 * overlays those from the slim projection downstream. This helper is the
 * CLI-side guard for the body-only half of the Q4 frozen-field rule:
 * stable-core preflight runs against the slim `Snapshot.tasks` projection,
-* which drops `evidence_refs` / `started_at` / step `reason`, so it cannot
+* which drops `started_at` / step `reason`, so it cannot
 * verify their preservation (see the §8.6 sponsored-branch comment in
 * preflight.ts).
 */
 function carryForwardStepProgress(replacement, canonical) {
-	const out = structuredClone(replacement);
+	const out = TaskFullPayload.parse(replacement);
 	const outExec = out.execution;
 	const priorExec = canonical.execution;
 	for (const stepName of Object.keys(outExec)) {
-		const prior = priorExec[stepName];
+		const priorRaw = priorExec[stepName];
 		const step = outExec[stepName];
-		if (!prior || !step) continue;
-		step.evidence_refs = structuredClone(prior.evidence_refs);
+		if (!priorRaw || !step) continue;
+		const prior = TaskExecutionStepPayload.parse(priorRaw);
 		if (prior.started_at !== void 0) step.started_at = prior.started_at;
 		if (prior.reason !== void 0) step.reason = prior.reason;
 	}
@@ -14128,7 +14121,7 @@ function registerTaskAmend(tasksCmd, deps) {
 			const sPriorExec = sCanonical.execution;
 			for (const [stepName, prior] of Object.entries(sPriorExec)) {
 				if (sNewSteps.has(stepName)) continue;
-				if (prior.status !== "pending" || prior.evidence_refs.length > 0 || prior.started_at !== void 0 || prior.reason !== void 0) {
+				if (prior.status !== "pending" || prior.started_at !== void 0 || prior.reason !== void 0) {
 					ctx.failure("MUTATION_OUT_OF_RIGHTS", `sponsored tasks amend on ${taskId} drops step '${stepName}', which carries execution progress — a graph amend may not erase execution history (codex r136 Q4)`, {
 						task_id: taskId,
 						step: stepName,

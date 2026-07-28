@@ -77,9 +77,9 @@ function makeLoaded(): DetailProjectionLoad {
           drives: ["REQ-AUTH-001"],
           tests: ["keeps the user session fresh"],
           execution: {
-            red: { applicability: "must", status: "passed", evidence_refs: [] },
-            implement: { applicability: "must", status: "running", evidence_refs: [] },
-            refactor: { applicability: "optional", status: "na", evidence_refs: [] },
+            red: { applicability: "must", status: "passed" },
+            implement: { applicability: "must", status: "running" },
+            refactor: { applicability: "optional", status: "na" },
           },
         },
         {
@@ -89,7 +89,7 @@ function makeLoaded(): DetailProjectionLoad {
           depends_on: [],
           labels: [],
           no_test_rationale: "routine operational task",
-          execution: { execute: { applicability: "must", status: "passed", evidence_refs: [] } },
+          execution: { execute: { applicability: "must", status: "passed" } },
         },
       ],
     },

@@ -524,7 +524,7 @@ export function applyValidated(prev: Snapshot, entry: JournalEntry): ApplyResult
       // `in_progress` — even a `done` task, because event:task_step_started
       // / task_step_done preflight require task.status==="in_progress" to
       // re-run the step. The reset is status-only: applicability is
-      // preserved, and the body-only fields evidence_refs / started_at /
+      // preserved, and the body-only fields started_at /
       // reason are NOT erased (SC1b Q4 history-preservation rule — the slim
       // projection does not carry them anyway). Preflight is authoritative
       // for the sponsorship + target-authority refines; the fail-fast

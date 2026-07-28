@@ -171,6 +171,22 @@ describe("composeTasksJson — Phase 14 SC1", () => {
     // canonical body-only fields survive the overlay
     expect((task as { tests: string[] }).tests).toEqual(["TokenCoord.refreshOnce"]);
   });
+
+  test("strips legacy task-step evidence_refs from the live projection", () => {
+    const snap = initialSnapshot();
+    snap.tasks_based_on = { spec: 1 };
+    snap.tasks = [slimTask()];
+    const legacyTask = behavioralTask() as Record<string, any>;
+    legacyTask.execution.red.evidence_refs = ["EV-000001"];
+    const projected = composeTasksJson(snap, [
+      entry(0, "event:tasks_planned", {
+        based_on: { spec: 1 },
+        tasks: [legacyTask],
+      }),
+    ]);
+    const execution = projected!.tasks[0]!.execution as Record<string, unknown>;
+    expect(execution.red).not.toHaveProperty("evidence_refs");
+  });
 });
 
 // ── composeEvidenceJson ──────────────────────────────────────────────────

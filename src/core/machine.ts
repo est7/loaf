@@ -162,7 +162,6 @@ export const MACHINE = defineMachine({
     mutation_rights: {
       writable_fields: [
         "tasks.json:tasks[].execution[].status",
-        "tasks.json:tasks[].execution[].evidence_refs",
         "tasks.json:tasks[].status",
         "evidence.jsonl:*",
         "findings.jsonl:*",

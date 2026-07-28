@@ -10,9 +10,10 @@
 // reducer extracts a slim projection (TaskState) at apply time.
 //
 // Canonical truth lives in the journal payload, NOT in the projection —
-// `loaf doctor --rebuild` reconstructs tasks.json from these payloads, so
-// all body fields (execution.evidence_refs, started_at, etc.) must
-// round-trip through the journal.
+// `loaf doctor --rebuild` reconstructs tasks.json from these payloads.
+// Historical task steps may contain `evidence_refs`; the step schema
+// deliberately strips that retired field. Proof ownership belongs to the
+// evidence ledger's `covers[]` relation.
 
 import { z } from "zod";
 
@@ -34,7 +35,6 @@ export const RECOMMENDED_TASK_LABELS = [
 // ── ID + cross-reference regexes ────────────────────────────────────────
 
 export const TaskIdPayload = z.string().regex(/^T-\d{3,}$/);
-export const EvidenceRefPayload = z.string().regex(/^EV-\d{6,}$/);
 
 // drives[] accepts any of REQ-* / SCEN-* / VIS-* (per protocol §4.3
 // `DrivesRef`). Spec-lock check 4/6/7 cross-refs against requirements /
@@ -59,7 +59,6 @@ export const TaskExecutionStepPayload = z.object({
   applicability: ApplicabilityPayload,
   status: StepStatusPayload,
   reason: z.string().optional(),
-  evidence_refs: z.array(EvidenceRefPayload).default([]),
   started_at: z.string().datetime().optional(),
 });
 export type TaskExecutionStepPayload = z.infer<typeof TaskExecutionStepPayload>;
@@ -216,9 +215,9 @@ export type TaskFullPayload = z.infer<typeof TaskFullPayload>;
 
 // Helper: extract the seeded execution-step record from a parsed TaskFull
 // payload into the slim projection shape `{ stepName: { applicability,
-// status } }`. evidence_refs / reason / started_at stay in the journal
-// payload as canonical truth; the projection only carries what
-// spec-lock check 8 + auto-promote need.
+// status } }`. reason / started_at stay in the journal payload as canonical
+// truth; the projection only carries what spec-lock check 8 + auto-promote
+// need.
 export function extractTaskSteps(
   exec: Record<string, TaskExecutionStepPayload>,
 ): Record<string, { applicability: ApplicabilityPayload; status: StepStatusPayload }> {
@@ -257,9 +256,9 @@ export type TaskFullProjection = {
 
 /**
  * Extract a slim TaskState projection from a TaskFull payload. Body fields
- * (tests / test_layer / execution.evidence_refs / reason / started_at) stay
- * in the journal payload as canonical truth — only cross-cutting fields
- * needed by spec-lock checks + auto-promote land in the projection.
+ * (tests / test_layer / execution.reason / started_at) stay in the journal
+ * payload as canonical truth — only cross-cutting fields needed by spec-lock
+ * checks + auto-promote land in the projection.
  */
 export function extractTaskSlim(t: TaskFullProjection): {
   id: string;
@@ -586,7 +585,6 @@ export function materializeTaskInput(input: TaskInput, id: string): TaskFullPayl
     execution[step] = {
       applicability: "must",
       status: "pending",
-      evidence_refs: [],
     };
   }
   return { ...input, id, status: "pending", execution } as TaskFullPayload;

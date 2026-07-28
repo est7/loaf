@@ -543,7 +543,6 @@ export function registerTaskAmend(tasksCmd: Command, deps: TasksRegistrationDeps
             string,
             {
               status: string;
-              evidence_refs: string[];
               started_at?: string;
               reason?: string;
             }
@@ -552,7 +551,6 @@ export function registerTaskAmend(tasksCmd: Command, deps: TasksRegistrationDeps
             if (sNewSteps.has(stepName)) continue;
             if (
               prior.status !== "pending" ||
-              prior.evidence_refs.length > 0 ||
               prior.started_at !== undefined ||
               prior.reason !== undefined
             ) {

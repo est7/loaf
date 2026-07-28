@@ -19,6 +19,7 @@ import {
   type TaskState,
   type EvidenceState,
 } from "../../src/core/reducer.js";
+import { extractTaskSlim, TaskFullPayload } from "../../src/core/task-schema.js";
 
 function task(id: string, kind: TaskState["kind"], overrides: Partial<TaskState> = {}): TaskState {
   return {
@@ -67,6 +68,29 @@ describe("evaluateTaskProof — evidence proof", () => {
 
   test("done task, no covering evidence → [no-passing-evidence]", () => {
     expect(gapsOf(task("T-001", "behavioral"), [], verifyMinPolicy)).toEqual([
+      "no-passing-evidence",
+    ]);
+  });
+
+  test("legacy task-step evidence_refs do not prove a done task", () => {
+    const legacy = TaskFullPayload.parse({
+      id: "T-001",
+      kind: "chore",
+      status: "done",
+      depends_on: [],
+      labels: [],
+      no_test_rationale: "legacy task proof relation is no longer authoritative",
+      execution: {
+        execute: {
+          applicability: "must",
+          status: "passed",
+          evidence_refs: ["EV-000001"],
+        },
+      },
+    });
+    const execution = legacy.execution as Record<string, unknown>;
+    expect(execution.execute).not.toHaveProperty("evidence_refs");
+    expect(gapsOf(extractTaskSlim(legacy), [], verifyMinPolicy)).toEqual([
       "no-passing-evidence",
     ]);
   });

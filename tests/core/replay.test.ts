@@ -114,6 +114,54 @@ describe("replayJournal — Stage 3 §3.6", () => {
     }
   });
 
+  test("historical task-step evidence_refs replay without becoming proof state", async () => {
+    const filePath = await tmpJournal();
+    const entries: JournalEntry[] = [
+      startEntry(),
+      phaseAdvancedEntry(1, "TRIAGE.score", "TRIAGE.confirm"),
+      phaseAdvancedEntry(2, "TRIAGE.confirm", "SPEC.proposal"),
+      phaseAdvancedEntry(3, "SPEC.proposal", "SPEC.spec"),
+      phaseAdvancedEntry(4, "SPEC.spec", "SPEC.plan"),
+      phaseAdvancedEntry(5, "SPEC.plan", "SPEC.design"),
+      {
+        seq: 6,
+        entry_id: "JE-000007",
+        at: "2026-05-15T10:00:06.000Z",
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "event:tasks_planned",
+        payload: {
+          based_on: { spec: 1 },
+          tasks: [
+            {
+              id: "T-001",
+              kind: "chore",
+              status: "done",
+              depends_on: [],
+              labels: [],
+              no_test_rationale: "historical task proof relation is compatibility input",
+              execution: {
+                execute: {
+                  applicability: "must",
+                  status: "passed",
+                  evidence_refs: ["EV-000001"],
+                },
+              },
+            },
+          ],
+        },
+      },
+    ];
+    await fs.writeFile(filePath, entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n");
+
+    const result = await replayJournal(filePath);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.snapshot.tasks[0]!.status).toBe("done");
+      expect(result.snapshot.evidence).toEqual([]);
+    }
+  });
+
   test("malformed JSON line returns INVALID_ENTRY with at_seq", async () => {
     const filePath = await tmpJournal();
     await appendEntry(filePath, startEntry(), emptyMeta(), { fsync: false });

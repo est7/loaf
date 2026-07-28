@@ -743,8 +743,8 @@ CLI 分配流程(每次 add-\* / batch invocation):
       "red_test_registered": true,             // R2:运行时由 register-red 置位(done 的 bug task 必已注册)
       "status": "done",
       "execution": {
-        "red":       { "applicability": "must", "status": "passed", "evidence_refs": ["EV-000123"] },
-        "implement": { "applicability": "must", "status": "passed", "evidence_refs": ["EV-000124"] },
+        "red":       { "applicability": "must", "status": "passed" },
+        "implement": { "applicability": "must", "status": "passed" },
         "refactor":  { "applicability": "optional", "status": "passed" }
       }
     },
@@ -1516,8 +1516,8 @@ spike task 完工有 3 个合法出口,**永远不允许 deliver**:
       "labels": ["bug"],
       "status": "done",
       "steps": {
-        "red":       { "applicability": "must", "status": "passed", "evidence_refs": ["EV-000123"] },
-        "implement": { "applicability": "must", "status": "passed", "evidence_refs": ["EV-000124"] },
+        "red":       { "applicability": "must", "status": "passed" },
+        "implement": { "applicability": "must", "status": "passed" },
         "refactor":  { "applicability": "optional", "status": "passed" }
       }
     },
@@ -1547,7 +1547,7 @@ spike task 完工有 3 个合法出口,**永远不允许 deliver**:
 | <code>SPEC.plan</code> | <code>spec.md:body.plan</code> | <code>spec.md:frontmatter.requirements</code><br><code>spec.md:frontmatter.scenarios</code><br><code>spec.md:frontmatter.visual_contracts</code><br><code>tasks.json:*</code> |
 | <code>SPEC.design</code> | <code>spec.md:body.design</code><br><code>tasks.json:*</code> | <code>spec.md:frontmatter.requirements</code><br><code>spec.md:frontmatter.scenarios</code><br><code>spec.md:frontmatter.visual_contracts</code> |
 | <code>EXECUTE.plan</code> | <code>tasks.json:tasks[].execution[].applicability</code><br><code>tasks.json:tasks[].status</code> | <code>tasks.json:tasks[].id</code><br><code>tasks.json:tasks[].kind</code><br><code>tasks.json:tasks[].drives</code><br><code>tasks.json:tasks[].depends_on</code><br><code>tasks.json:tasks[].labels</code><br><code>spec.md:*</code> |
-| <code>EXECUTE.work</code> | <code>tasks.json:tasks[].execution[].status</code><br><code>tasks.json:tasks[].execution[].evidence_refs</code><br><code>tasks.json:tasks[].status</code><br><code>evidence.jsonl:*</code><br><code>findings.jsonl:*</code> | <code>tasks.json:tasks[].id</code><br><code>tasks.json:tasks[].kind</code><br><code>tasks.json:tasks[].drives</code><br><code>tasks.json:tasks[].depends_on</code><br><code>tasks.json:tasks[].labels</code><br><code>spec.md:*</code> |
+| <code>EXECUTE.work</code> | <code>tasks.json:tasks[].execution[].status</code><br><code>tasks.json:tasks[].status</code><br><code>evidence.jsonl:*</code><br><code>findings.jsonl:*</code> | <code>tasks.json:tasks[].id</code><br><code>tasks.json:tasks[].kind</code><br><code>tasks.json:tasks[].drives</code><br><code>tasks.json:tasks[].depends_on</code><br><code>tasks.json:tasks[].labels</code><br><code>spec.md:*</code> |
 <!-- generated:fsm-mutation-rights END -->
 
 **强制方式**:
@@ -1561,10 +1561,12 @@ task graph 契约改(加 task / 改 drives / 改 kind / 改 depends_on)只能在
 
 - 先按 back-edge sponsorship 同样的判据校验该 finding(`preflight.ts` step 5b 先例):不存在 / 已 closed / `action !== amend-tasks` → `FINDING_NOT_FOUND`(`detail.reason` ∈ `not_found` / `already_closed` / `action_mismatch`)。
 - finding 校验通过后,授权 / surface 违规才用 `MUTATION_OUT_OF_RIGHTS`。sponsored `tasks_amended` 仅在 `EXECUTE.work` 合法(回退目标),其它 sub_state → `MUTATION_OUT_OF_RIGHTS` `detail.reason=sponsored_tasks_amended_wrong_sub_state`。
-- **frozen-field 红线(HARD)**:sponsored `mode=replace` 可改 graph / definition 字段(`kind` / `drives` / `depends_on` / `labels` / `visual_contract_refs` / scalar kind-flags / execution step SET / `execution.<step>.applicability`),但**冻结 identity + execution progress**:task `id`、task-level `status`、每个保留 step 的 `status`。新引入的 step 必须以 `pending` 出生;带 execution 进度的 step —— `status` 非 `pending`,或带 `evidence_refs` / `started_at` / step `reason` —— 不得被 replace 删除(删除等于抹掉历史)。sponsored `mode=add` 引入的任务必须以全新 / 未启动状态出生(task + 每 step `pending`、空 `evidence_refs`、无 `started_at` / `reason`、`red_test_registered` 不为 `true`),否则 `MUTATION_OUT_OF_RIGHTS`(`detail.reason=sponsored_add_not_fresh`)—— 一次 sponsored add 不得伪造已完成的工作。**任何 sponsored 路径都不得以 graph amend 之名抹除、改写或伪造 execution 进度。**
+- **frozen-field 红线(HARD)**:sponsored `mode=replace` 可改 graph / definition 字段(`kind` / `drives` / `depends_on` / `labels` / `visual_contract_refs` / scalar kind-flags / execution step SET / `execution.<step>.applicability`),但**冻结 identity + execution progress**:task `id`、task-level `status`、每个保留 step 的 `status`。新引入的 step 必须以 `pending` 出生;带 execution 进度的 step —— `status` 非 `pending`,或带 `started_at` / step `reason` —— 不得被 replace 删除(删除等于抹掉历史)。sponsored `mode=add` 引入的任务必须以全新 / 未启动状态出生(task + 每 step `pending`、无 `started_at` / `reason`、`red_test_registered` 不为 `true`),否则 `MUTATION_OUT_OF_RIGHTS`(`detail.reason=sponsored_add_not_fresh`)—— 一次 sponsored add 不得伪造已完成的工作。**任何 sponsored 路径都不得以 graph amend 之名抹除、改写或伪造 execution 进度。**
 - finding 不因 sponsored `tasks_amended` 关闭;一个 open amend-tasks finding 可 sponsor 多次 amend;worker 之后显式 `finding close`。
 
-**enforcement locus(SC1b 锁定,延续 SC-C2c 的 option B)**:stable-core preflight 在 slim `Snapshot.tasks` 投影上跑 frozen / allowed split —— 它能看到 `id` / task `status` / graph 字段 / execution step set / 每 step `status`,覆盖 Q4 的 *status*-based 进度红线。body-only 字段(`tests` / `test_layer` / 每 step `evidence_refs` / `started_at` / step `reason`)**不在** slim 投影内,stable-core preflight **不**独立复核它们的保留 —— body-only 字段由 sponsored `tasks amend --input` CLI 路径守卫:`carryForwardStepProgress` 把 retained step 的 body-only 进度从 canonical body 前向携带到新 graph;removed-step body-only 检查拒绝删除任何带 `evidence_refs` / `started_at` / `reason` 的 step;`materializeTaskForAmend` 只负责把 slim runtime status 叠加上去。这是有意的 locus 分工,不是 preflight 能力缺口。残余:绕过 CLI 的 raw journal caller 删除一个 slim-`pending` 但带 body-only 进度的 step,stable-core preflight 看不到 —— 即 option-B 的已知边界。
+**enforcement locus(SC1b 锁定,延续 SC-C2c 的 option B)**:stable-core preflight 在 slim `Snapshot.tasks` 投影上跑 frozen / allowed split —— 它能看到 `id` / task `status` / graph 字段 / execution step set / 每 step `status`,覆盖 Q4 的 *status*-based 进度红线。body-only 字段(`tests` / `test_layer` / 每 step `started_at` / step `reason`)**不在** slim 投影内,stable-core preflight **不**独立复核它们的保留 —— body-only 字段由 sponsored `tasks amend --input` CLI 路径守卫:`carryForwardStepProgress` 把 retained step 的 body-only 进度从 canonical body 前向携带到新 graph;removed-step body-only 检查拒绝删除任何带 `started_at` / `reason` 的 step;`materializeTaskForAmend` 只负责把 slim runtime status 叠加上去。这是有意的 locus 分工,不是 preflight 能力缺口。残余:绕过 CLI 的 raw journal caller 删除一个 slim-`pending` 但带 body-only 进度的 step,stable-core preflight 看不到 —— 即 option-B 的已知边界。
+
+**Task proof ownership (rev 5.1)**:`tasks[].execution[].evidence_refs` 已退出 live task contract。任务完成证明只来自 evidence ledger entry 的 `covers[]` + `result` + evidence kind；task step 不能声明或伪造证明关系。旧 journal payload 中的 task-step `evidence_refs` 仍可 replay，但 canonical task body adapter 会在读取时丢弃它，CLI 新建的 task event 与 `tasks.json` 投影均不再输出该字段。finding / verification / reconcile 领域中同名字段不受此兼容边界影响。
 
 ---
 

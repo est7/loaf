@@ -673,13 +673,12 @@ describe("SC1b — sponsored `tasks amend --input --finding` at EXECUTE.work", (
     expect(fail.detail.field).toBe("execution.red.status");
   });
 
-  test("sponsored --input carries a retained step's body-only progress forward (Q4)", async () => {
+  test("sponsored --input drops a retained step's legacy evidence_refs", async () => {
     const dir = await tmpFeatureDir();
     const F = "sc1b-amend-carry";
     const cli = makeCli(dir, ENV);
-    // Seed T-001 with execution evidence already on its `red` step.
-    // `evidence_refs` is a body-only canonical field the slim projection
-    // drops; preflight §8.6 cannot see it, so the CLI must preserve it.
+    // Seed a historical task-local reference. It remains replay-compatible
+    // input but no longer belongs to the live canonical task body.
     const seeded = {
       based_on: { spec: 2 },
       tasks: [
@@ -701,11 +700,8 @@ describe("SC1b — sponsored `tasks amend --input --finding` at EXECUTE.work", (
     };
     const fnd = await seedToAmendTasksAtWork(cli, F, seeded);
 
-    // A sponsored graph amend retaining all 3 steps (behavioral→behavioral,
-    // only `tests` changes). The --input TaskInput cannot carry `execution`,
-    // so the retained `red` step's evidence_refs must be carried forward from
-    // the canonical body — NOT reset to [] (codex r136 Q4: a sponsored graph
-    // amend must not erase execution history).
+    // A sponsored graph amend retaining all steps emits the live shape and
+    // therefore cannot perpetuate the retired proof relation.
     const newGraph = await cli.writeInput("amend.json", {
       kind: "behavioral",
       drives: ["REQ-CORE-001"],
@@ -726,19 +722,17 @@ describe("SC1b — sponsored `tasks amend --input --finding` at EXECUTE.work", (
     const entries = await readJournal(dir);
     const last = entries[entries.length - 1]!;
     expect(last.kind).toBe("event:tasks_amended");
-    expect(last.payload.task.execution.red.evidence_refs).toEqual(["EV-000001"]);
+    expect(last.payload.task.execution.red).not.toHaveProperty("evidence_refs");
     // The graph-definition change still lands.
     expect(last.payload.task.tests).toEqual(["sc1b.amended"]);
   });
 
-  test("sponsored --input dropping a pending step that holds evidence → MUTATION_OUT_OF_RIGHTS (codex r137 BLOCK 2)", async () => {
+  test("sponsored --input may drop a pending step with only retired legacy refs", async () => {
     const dir = await tmpFeatureDir();
     const F = "sc1b-amend-dropprog";
     const cli = makeCli(dir, ENV);
-    // T-001's `red` step is pending but already carries evidence — body-only
-    // progress the slim projection drops, so preflight's slim-projection
-    // check (firstSponsoredFrozenViolation) would wave a pending-step removal
-    // through. The CLI removed-step body-only check is the guard.
+    // A legacy ref is not authoritative progress. Only status, started_at,
+    // and reason participate in the live execution-history guard.
     const seeded = {
       based_on: { spec: 2 },
       tasks: [
@@ -760,15 +754,14 @@ describe("SC1b — sponsored `tasks amend --input --finding` at EXECUTE.work", (
     };
     const fnd = await seedToAmendTasksAtWork(cli, F, seeded);
 
-    // Reclassify behavioral→structural — structural has no `red` step, so the
-    // amend DROPS red. `red` is slim-pending (the slim check would pass it)
-    // but holds evidence_refs — dropping it erases execution history.
+    // Reclassify behavioral→structural. The pending red step can be removed
+    // because its retired local ref neither proves nor records work.
     const newGraph = await cli.writeInput("amend.json", {
       kind: "structural",
       drives: ["REQ-CORE-001"],
-      no_test_rationale: "reclassify the task; the dropped red step still holds evidence",
+      no_test_rationale: "reclassify the task; the dropped red step has only a legacy ref",
     });
-    const fail = await cli.expectFail([
+    await cli.step("tasks amend drops retired ref", [
       "tasks",
       "amend",
       "T-001",
@@ -779,8 +772,9 @@ describe("SC1b — sponsored `tasks amend --input --finding` at EXECUTE.work", (
       "--feature",
       F,
     ]);
-    expect(fail.code).toBe("MUTATION_OUT_OF_RIGHTS");
-    expect(fail.detail.reason).toBe("sponsored_amend_drops_progress_step");
-    expect(fail.detail.step).toBe("red");
+    const entries = await readJournal(dir);
+    const last = entries[entries.length - 1]!;
+    expect(last.kind).toBe("event:tasks_amended");
+    expect(last.payload.task.kind).toBe("structural");
   });
 });

@@ -2,7 +2,7 @@
 //
 // `tasks amend` emits a whole-task event:tasks_amended, but the slim
 // Snapshot.tasks (TaskState) intentionally drops canonical body fields
-// (tests / test_layer / execution.evidence_refs / reason / started_at).
+// (tests / test_layer / execution.reason / started_at).
 // Two stable-core helpers bridge the gap:
 //
 //   latestCanonicalTaskBody(entries, taskId)
@@ -235,13 +235,9 @@ describe("materializeTaskForAmend — Slice C SC-C2a", () => {
   test("preserves canonical body-only fields absent from the slim projection", () => {
     const out = materializeTaskForAmend(baseBody() as never, liveState());
     expect((out as { tests: string[] }).tests).toEqual(["TokenCoord.refreshOnce"]);
-    const exec = (
-      out as {
-        execution: Record<string, { evidence_refs: string[]; started_at?: string }>;
-      }
-    ).execution;
+    const exec = (out as { execution: Record<string, { started_at?: string }> }).execution;
     expect(exec.red!.started_at).toBe("2026-05-15T11:00:00.000Z");
-    expect(exec.implement!.evidence_refs).toEqual(["EV-000001"]);
+    expect(exec.implement).not.toHaveProperty("evidence_refs");
   });
 
   test("a base step missing from the slim projection keeps its base values", () => {
@@ -319,9 +315,9 @@ describe("materializeTaskForAmend — red_test_registered overlay (Slice C SC-C4
 describe("carryForwardStepProgress — Phase 11 Item 3 SC1b", () => {
   // A sponsored `tasks amend --input` builds the replacement from an id-less
   // TaskInput — `materializeTaskInput` gives it a FRESH execution block (every
-  // step pending, evidence_refs []), so the new graph carries no execution
-  // progress. carryForwardStepProgress copies the body-only progress fields
-  // (evidence_refs / started_at / reason) forward from the canonical body for
+  // step pending), so the new graph carries no execution progress.
+  // carryForwardStepProgress copies the body-only progress fields
+  // (started_at / reason) forward from the canonical body for
   // every RETAINED step, so a graph amend cannot erase execution history
   // (codex r136 Q4).
   function freshReplacement(): ReturnType<typeof behavioralTask> {
@@ -335,7 +331,7 @@ describe("carryForwardStepProgress — Phase 11 Item 3 SC1b", () => {
     });
   }
 
-  test("carries evidence_refs / started_at / reason forward for a retained step", () => {
+  test("carries started_at / reason forward for a retained step", () => {
     const canonical = behavioralTask({
       id: "T-001",
       execution: {
@@ -351,13 +347,10 @@ describe("carryForwardStepProgress — Phase 11 Item 3 SC1b", () => {
     const out = carryForwardStepProgress(freshReplacement() as never, canonical as never);
     const exec = (
       out as {
-        execution: Record<
-          string,
-          { evidence_refs: string[]; started_at?: string; reason?: string }
-        >;
+        execution: Record<string, { started_at?: string; reason?: string }>;
       }
     ).execution;
-    expect(exec.red!.evidence_refs).toEqual(["EV-000001"]);
+    expect(exec.red).not.toHaveProperty("evidence_refs");
     expect(exec.red!.started_at).toBe("2026-05-15T11:00:00.000Z");
     expect(exec.red!.reason).toBe("RED registered");
     expect(exec.implement!.started_at).toBe("2026-05-15T12:00:00.000Z");
@@ -386,7 +379,7 @@ describe("carryForwardStepProgress — Phase 11 Item 3 SC1b", () => {
 
   test("a step absent from the canonical body keeps its fresh (unstarted) values", () => {
     // The canonical body has no `refactor` step — the graph amend introduces
-    // it; a new step is born with no evidence and no started_at.
+    // it; a new step is born with no started_at.
     const canonical = behavioralTask({
       id: "T-001",
       execution: {
@@ -395,12 +388,8 @@ describe("carryForwardStepProgress — Phase 11 Item 3 SC1b", () => {
       },
     });
     const out = carryForwardStepProgress(freshReplacement() as never, canonical as never);
-    const exec = (
-      out as {
-        execution: Record<string, { evidence_refs: string[]; started_at?: string }>;
-      }
-    ).execution;
-    expect(exec.refactor!.evidence_refs).toEqual([]);
+    const exec = (out as { execution: Record<string, { started_at?: string }> }).execution;
+    expect(exec.refactor).not.toHaveProperty("evidence_refs");
     expect(exec.refactor!.started_at).toBeUndefined();
   });
 
@@ -410,12 +399,9 @@ describe("carryForwardStepProgress — Phase 11 Item 3 SC1b", () => {
       replacement as never,
       behavioralTask({ id: "T-001" }) as never,
     );
-    (
-      out as { execution: Record<string, { evidence_refs: string[] }> }
-    ).execution.red!.evidence_refs.push("EV-999");
+    (out as { execution: Record<string, { reason?: string }> }).execution.red!.reason = "mutated";
     expect(
-      (replacement as { execution: Record<string, { evidence_refs: string[] }> }).execution.red!
-        .evidence_refs,
-    ).toEqual([]);
+      (replacement as { execution: Record<string, { reason?: string }> }).execution.red!.reason,
+    ).toBeUndefined();
   });
 });

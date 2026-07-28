@@ -94,8 +94,8 @@ export function firstFrozenViolation(
 //     be removed — dropping it from the graph erases execution history.
 // codex's red-line: no sponsored path may erase / rewrite execution progress
 // under the name of a graph amend. (`id` is verified by the caller's
-// TASK_NOT_FOUND lookup, not here.) Body-only progress fields — `evidence_refs`
-// / `started_at` / step `reason` — are NOT in the slim projection; stable-core
+// TASK_NOT_FOUND lookup, not here.) Body-only progress fields — `started_at`
+// / step `reason` — are NOT in the slim projection; stable-core
 // preflight does not independently re-verify them (see the §8.6 enforcement
 // note at the sponsored branch below).
 export function firstSponsoredFrozenViolation(
@@ -149,13 +149,13 @@ export function firstSponsoredFrozenViolation(
 // task MISSING from the graph; it must be born fresh / unstarted. The
 // reducer dry-run rejects a duplicate id, but nothing else stops a raw
 // journal caller from supplying a full TaskFullPayload that smuggles
-// completed work — task.status=`done`, a step `passed` with `evidence_refs`,
-// a runtime `red_test_registered` flag. codex r136 Q4: a sponsored amend
+// completed work — task.status=`done`, a step `passed`, or a runtime
+// `red_test_registered` flag. codex r136 Q4: a sponsored amend
 // may not fabricate execution progress. The CLI `tasks add --finding` path
 // builds the task via `materializeTaskInput` (always fresh), so this guards
 // the stable-core journal path against raw callers. Operates on the full
-// incoming payload (not the slim projection) — `evidence_refs` /
-// `started_at` / `reason` ride the payload even though the projection
+// incoming payload (not the slim projection) — `started_at` / `reason` ride
+// the payload even though the projection
 // drops them.
 export function firstAddFreshnessViolation(
   task: TaskFullProjection,
@@ -169,9 +169,6 @@ export function firstAddFreshnessViolation(
   for (const [stepName, step] of Object.entries(task.execution)) {
     if (step.status !== "pending") {
       return { field: `execution.${stepName}.status`, value: step.status };
-    }
-    if (step.evidence_refs.length > 0) {
-      return { field: `execution.${stepName}.evidence_refs`, value: step.evidence_refs };
     }
     if (step.started_at !== undefined) {
       return { field: `execution.${stepName}.started_at`, value: step.started_at };

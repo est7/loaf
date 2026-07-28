@@ -68,7 +68,7 @@ export function checkTasksPlanned(c: PreflightCheckCtx): PreflightFailure | null
 //
 // Enforcement is option B (codex r108, reaffirmed for SC1b at r136):
 // the frozen diff runs against the slim Snapshot.tasks projection. Body-only
-// fields — `tests` / `test_layer` / per-step `evidence_refs` / `reason` /
+// fields — `tests` / `test_layer` / per-step `reason` /
 // `started_at` — are NOT in the slim projection, so stable-core preflight
 // does NOT independently re-verify their preservation. The CLI sponsored
 // `tasks amend --input` path carries those body-only progress fields

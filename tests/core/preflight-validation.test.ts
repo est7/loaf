@@ -1561,10 +1561,9 @@ describe("preflight — sponsored event:tasks_amended (Phase 11 Item 3 SC1b)", (
     }
   });
 
-  test("sponsored add of a task whose step carries evidence_refs → MUTATION_OUT_OF_RIGHTS (codex r137 BLOCK 1)", () => {
-    // The task is `pending` but a step already holds evidence — fabricated
-    // execution history. The per-step scan in firstAddFreshnessViolation
-    // catches it even when the task-level status looks fresh.
+  test("retired task-step evidence_refs cannot forge sponsored-add progress", () => {
+    // Legacy payloads may carry task-local refs. They are compatibility input,
+    // not execution progress or proof; the live step schema strips them.
     const result = preflight(
       amendEntry({
         mode: "add",
@@ -1580,12 +1579,7 @@ describe("preflight — sponsored event:tasks_amended (Phase 11 Item 3 SC1b)", (
       }),
       workCtx(slimT001()),
     );
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.code).toBe("MUTATION_OUT_OF_RIGHTS");
-      expect(result.detail?.["reason"]).toBe("sponsored_add_not_fresh");
-      expect(result.detail?.["field"]).toBe("execution.red.evidence_refs");
-    }
+    expect(result.ok).toBe(true);
   });
 
   // ── unsponsored paths untouched ───────────────────────────────────────────

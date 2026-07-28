@@ -2,7 +2,7 @@
 //
 // The slim `Snapshot.tasks` (TaskState) intentionally drops a task's
 // canonical body fields — `tests` / `test_layer` / `execution.<step>`'s
-// `evidence_refs` / `reason` / `started_at` — because the reducer only
+// `reason` / `started_at` — because the reducer only
 // needs cross-cutting fields for spec-lock checks + auto-promote, and the
 // journal payload is the canonical truth (see task-schema.ts header).
 //
@@ -22,7 +22,11 @@
 
 import type { JournalEntry } from "./journal-entry.js";
 import type { TaskState } from "./reducer.js";
-import type { TaskExecutionStepPayload, TaskFullPayload } from "./task-schema.js";
+import {
+  TaskExecutionStepPayload,
+  TaskFullPayload as TaskFullPayloadSchema,
+  type TaskFullPayload,
+} from "./task-schema.js";
 
 /**
  * Forward-replay the plan/amend chain in `entries` and return a no-alias
@@ -44,10 +48,11 @@ export function latestCanonicalTaskBody(
     if (entry.kind === "event:tasks_planned") {
       const payload = entry.payload as { tasks?: TaskFullPayload[] };
       // Whole-replacement: undefined when this plan does not list the id.
-      current = payload.tasks?.find((t) => t.id === taskId);
+      const candidate = payload.tasks?.find((t) => t.id === taskId);
+      current = candidate === undefined ? undefined : TaskFullPayloadSchema.parse(candidate);
     } else if (entry.kind === "event:tasks_amended") {
       const payload = entry.payload as { task?: TaskFullPayload };
-      if (payload.task?.id === taskId) current = payload.task;
+      if (payload.task?.id === taskId) current = TaskFullPayloadSchema.parse(payload.task);
     }
   }
   return current === undefined ? undefined : structuredClone(current);
@@ -61,15 +66,15 @@ export function latestCanonicalTaskBody(
  * Overlaid from `current`: `task.status`, and each base step's `status` +
  * `applicability` (where the slim projection has that step). Preserved from
  * `base`: every body-only field the slim projection drops — `tests`,
- * `test_layer`, kind-specific contract fields, and per-step `evidence_refs`
- * / `reason` / `started_at`. The base body defines the canonical step set;
+ * `test_layer`, kind-specific contract fields, and per-step `reason` /
+ * `started_at`. The base body defines the canonical step set;
  * a step absent from `current.steps` keeps its base values.
  */
 export function materializeTaskForAmend(
   base: TaskFullPayload,
   current: TaskState,
 ): TaskFullPayload {
-  const out = structuredClone(base);
+  const out = TaskFullPayloadSchema.parse(base);
   out.status = current.status;
   // Slice C SC-C4 (R2): red_test_registered is runtime state set by
   // `register-red` after task creation — overlay the live value so a
@@ -101,19 +106,18 @@ export function materializeTaskForAmend(
  * (Phase 11 Item 3 SC1b, codex r136 Q4).
  *
  * The `--input` file is an id-less `TaskInput`; `materializeTaskInput` gives
- * the replacement a fresh `execution` block (every step `pending`,
- * `evidence_refs: []`, no `started_at` / `reason`). A sponsored graph amend
+ * the replacement a fresh `execution` block (every step `pending`, no
+ * `started_at` / `reason`). A sponsored graph amend
  * must NOT erase execution history, so for every step RETAINED across the
  * replacement (present in both bodies) this copies the body-only progress
- * fields — `evidence_refs`, `started_at`, `reason` — from the canonical body.
- * A step introduced by the replacement keeps its fresh (unstarted,
- * no-evidence) values.
+ * fields — `started_at` and `reason` — from the canonical body.
+ * A step introduced by the replacement keeps its fresh, unstarted values.
  *
  * `status` / `applicability` are NOT carried here — `materializeTaskForAmend`
  * overlays those from the slim projection downstream. This helper is the
  * CLI-side guard for the body-only half of the Q4 frozen-field rule:
  * stable-core preflight runs against the slim `Snapshot.tasks` projection,
- * which drops `evidence_refs` / `started_at` / step `reason`, so it cannot
+ * which drops `started_at` / step `reason`, so it cannot
  * verify their preservation (see the §8.6 sponsored-branch comment in
  * preflight.ts).
  */
@@ -121,14 +125,14 @@ export function carryForwardStepProgress(
   replacement: TaskFullPayload,
   canonical: TaskFullPayload,
 ): TaskFullPayload {
-  const out = structuredClone(replacement);
+  const out = TaskFullPayloadSchema.parse(replacement);
   const outExec = out.execution as Record<string, TaskExecutionStepPayload>;
   const priorExec = canonical.execution as Record<string, TaskExecutionStepPayload>;
   for (const stepName of Object.keys(outExec)) {
-    const prior = priorExec[stepName];
+    const priorRaw = priorExec[stepName];
     const step = outExec[stepName];
-    if (!prior || !step) continue;
-    step.evidence_refs = structuredClone(prior.evidence_refs);
+    if (!priorRaw || !step) continue;
+    const prior = TaskExecutionStepPayload.parse(priorRaw);
     if (prior.started_at !== undefined) step.started_at = prior.started_at;
     if (prior.reason !== undefined) step.reason = prior.reason;
   }

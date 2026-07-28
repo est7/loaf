@@ -71,7 +71,7 @@ replace `Pending` evidence with the commands and results that actually ran.
 | A09 | Implement | Canonical scope-closure fact policy | A03 | [x] Complete |
 | A10 | Retire | Phantom reconcile execution contract | A09 | [x] Complete |
 | A11 | Implement | Canonical lifecycle advice | A06, A10 | [x] Complete |
-| A12 | Retire | Live task-step `evidence_refs` contract | A08 | [ ] Pending |
+| A12 | Retire | Live task-step `evidence_refs` contract | A08 | [x] Complete |
 | A13 | Retire | Dead context-pack contract | A01 | [ ] Pending |
 | A14 | Implement | Skill-driven orchestration journey gate | A11, A13 | [ ] Pending |
 | A15 | Implement | Mutation/rebuild replay equivalence | A04 | [ ] Pending |
@@ -744,7 +744,7 @@ to match the current machine.
 
 ## A12 — Live task-step `evidence_refs` contract
 
-**Status:** [ ] Pending
+**Status:** [x] Complete
 **Commit subject:** `refactor(core): retire task-step evidence ref writes`
 
 ### Destination
@@ -762,14 +762,14 @@ contract while tolerating the field in historical journal payloads.
 
 ### Acceptance criteria
 
-- [ ] New task authoring/projections do not expose a writable proof relation in
+- [x] New task authoring/projections do not expose a writable proof relation in
   task execution steps.
-- [ ] Legacy task payloads containing `evidence_refs` still replay.
-- [ ] A done task with only legacy refs and no matching evidence ledger entry
+- [x] Legacy task payloads containing `evidence_refs` still replay.
+- [x] A done task with only legacy refs and no matching evidence ledger entry
   fails proof.
-- [ ] Sponsored amend cannot forge proof or delete authoritative evidence.
-- [ ] History/amend code no longer carries dead live-field complexity.
-- [ ] Protocol and schema docs identify the legacy-read boundary.
+- [x] Sponsored amend cannot forge proof or delete authoritative evidence.
+- [x] History/amend code no longer carries dead live-field complexity.
+- [x] Protocol and schema docs identify the legacy-read boundary.
 
 ### Validation
 
@@ -782,7 +782,15 @@ projection for new sessions. No journal rewrite.
 
 ### Evidence
 
-Pending.
+- Task execution schemas, CLI materialization, mutation-rights output, and
+  `tasks.json` projections no longer contain task-local `evidence_refs`.
+- Canonical task-body reads parse through the live schema, so historical refs
+  replay but are stripped before projection or sponsored amend. `started_at`
+  and `reason` remain protected execution-history fields.
+- Proof tests pin that a done task carrying only a historical ref still fails
+  without a passing evidence-ledger entry that covers the task.
+- The A12 focused suites passed (281 tests), together with typecheck, lint,
+  generated-artifact verification, and the production build.
 
 ## A13 — Dead context-pack contract
 
