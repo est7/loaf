@@ -1397,14 +1397,6 @@ exports[`current public schema output baseline > artifact:tasks 1`] = `
                       "reason": {
                         "type": "string"
                       },
-                      "evidence_refs": {
-                        "default": [],
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "pattern": "^EV-\\\\d{6,}$"
-                        }
-                      },
                       "started_at": {
                         "type": "string",
                         "format": "date-time",
@@ -1413,8 +1405,7 @@ exports[`current public schema output baseline > artifact:tasks 1`] = `
                     },
                     "required": [
                       "applicability",
-                      "status",
-                      "evidence_refs"
+                      "status"
                     ],
                     "additionalProperties": false
                   },
@@ -1443,14 +1434,6 @@ exports[`current public schema output baseline > artifact:tasks 1`] = `
                       "reason": {
                         "type": "string"
                       },
-                      "evidence_refs": {
-                        "default": [],
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "pattern": "^EV-\\\\d{6,}$"
-                        }
-                      },
                       "started_at": {
                         "type": "string",
                         "format": "date-time",
@@ -1459,8 +1442,7 @@ exports[`current public schema output baseline > artifact:tasks 1`] = `
                     },
                     "required": [
                       "applicability",
-                      "status",
-                      "evidence_refs"
+                      "status"
                     ],
                     "additionalProperties": false
                   },
@@ -1489,14 +1471,6 @@ exports[`current public schema output baseline > artifact:tasks 1`] = `
                       "reason": {
                         "type": "string"
                       },
-                      "evidence_refs": {
-                        "default": [],
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "pattern": "^EV-\\\\d{6,}$"
-                        }
-                      },
                       "started_at": {
                         "type": "string",
                         "format": "date-time",
@@ -1505,8 +1479,7 @@ exports[`current public schema output baseline > artifact:tasks 1`] = `
                     },
                     "required": [
                       "applicability",
-                      "status",
-                      "evidence_refs"
+                      "status"
                     ],
                     "additionalProperties": false
                   }
@@ -1612,14 +1585,6 @@ exports[`current public schema output baseline > artifact:tasks 1`] = `
                       "reason": {
                         "type": "string"
                       },
-                      "evidence_refs": {
-                        "default": [],
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "pattern": "^EV-\\\\d{6,}$"
-                        }
-                      },
                       "started_at": {
                         "type": "string",
                         "format": "date-time",
@@ -1628,8 +1593,7 @@ exports[`current public schema output baseline > artifact:tasks 1`] = `
                     },
                     "required": [
                       "applicability",
-                      "status",
-                      "evidence_refs"
+                      "status"
                     ],
                     "additionalProperties": false
                   },
@@ -1658,14 +1622,6 @@ exports[`current public schema output baseline > artifact:tasks 1`] = `
                       "reason": {
                         "type": "string"
                       },
-                      "evidence_refs": {
-                        "default": [],
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "pattern": "^EV-\\\\d{6,}$"
-                        }
-                      },
                       "started_at": {
                         "type": "string",
                         "format": "date-time",
@@ -1674,8 +1630,7 @@ exports[`current public schema output baseline > artifact:tasks 1`] = `
                     },
                     "required": [
                       "applicability",
-                      "status",
-                      "evidence_refs"
+                      "status"
                     ],
                     "additionalProperties": false
                   }
@@ -1781,14 +1736,6 @@ exports[`current public schema output baseline > artifact:tasks 1`] = `
                       "reason": {
                         "type": "string"
                       },
-                      "evidence_refs": {
-                        "default": [],
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "pattern": "^EV-\\\\d{6,}$"
-                        }
-                      },
                       "started_at": {
                         "type": "string",
                         "format": "date-time",
@@ -1797,8 +1744,7 @@ exports[`current public schema output baseline > artifact:tasks 1`] = `
                     },
                     "required": [
                       "applicability",
-                      "status",
-                      "evidence_refs"
+                      "status"
                     ],
                     "additionalProperties": false
                   },
@@ -1827,14 +1773,6 @@ exports[`current public schema output baseline > artifact:tasks 1`] = `
                       "reason": {
                         "type": "string"
                       },
-                      "evidence_refs": {
-                        "default": [],
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "pattern": "^EV-\\\\d{6,}$"
-                        }
-                      },
                       "started_at": {
                         "type": "string",
                         "format": "date-time",
@@ -1843,8 +1781,7 @@ exports[`current public schema output baseline > artifact:tasks 1`] = `
                     },
                     "required": [
                       "applicability",
-                      "status",
-                      "evidence_refs"
+                      "status"
                     ],
                     "additionalProperties": false
                   },
@@ -1873,14 +1810,6 @@ exports[`current public schema output baseline > artifact:tasks 1`] = `
                       "reason": {
                         "type": "string"
                       },
-                      "evidence_refs": {
-                        "default": [],
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "pattern": "^EV-\\\\d{6,}$"
-                        }
-                      },
                       "started_at": {
                         "type": "string",
                         "format": "date-time",
@@ -1889,8 +1818,7 @@ exports[`current public schema output baseline > artifact:tasks 1`] = `
                     },
                     "required": [
                       "applicability",
-                      "status",
-                      "evidence_refs"
+                      "status"
                     ],
                     "additionalProperties": false
                   }
@@ -1989,14 +1917,6 @@ exports[`current public schema output baseline > artifact:tasks 1`] = `
                       "reason": {
                         "type": "string"
                       },
-                      "evidence_refs": {
-                        "default": [],
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "pattern": "^EV-\\\\d{6,}$"
-                        }
-                      },
                       "started_at": {
                         "type": "string",
                         "format": "date-time",
@@ -2005,8 +1925,7 @@ exports[`current public schema output baseline > artifact:tasks 1`] = `
                     },
                     "required": [
                       "applicability",
-                      "status",
-                      "evidence_refs"
+                      "status"
                     ],
                     "additionalProperties": false
                   },
@@ -2035,14 +1954,6 @@ exports[`current public schema output baseline > artifact:tasks 1`] = `
                       "reason": {
                         "type": "string"
                       },
-                      "evidence_refs": {
-                        "default": [],
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "pattern": "^EV-\\\\d{6,}$"
-                        }
-                      },
                       "started_at": {
                         "type": "string",
                         "format": "date-time",
@@ -2051,8 +1962,7 @@ exports[`current public schema output baseline > artifact:tasks 1`] = `
                     },
                     "required": [
                       "applicability",
-                      "status",
-                      "evidence_refs"
+                      "status"
                     ],
                     "additionalProperties": false
                   }
@@ -2150,14 +2060,6 @@ exports[`current public schema output baseline > artifact:tasks 1`] = `
                       "reason": {
                         "type": "string"
                       },
-                      "evidence_refs": {
-                        "default": [],
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "pattern": "^EV-\\\\d{6,}$"
-                        }
-                      },
                       "started_at": {
                         "type": "string",
                         "format": "date-time",
@@ -2166,8 +2068,7 @@ exports[`current public schema output baseline > artifact:tasks 1`] = `
                     },
                     "required": [
                       "applicability",
-                      "status",
-                      "evidence_refs"
+                      "status"
                     ],
                     "additionalProperties": false
                   },
@@ -2196,14 +2097,6 @@ exports[`current public schema output baseline > artifact:tasks 1`] = `
                       "reason": {
                         "type": "string"
                       },
-                      "evidence_refs": {
-                        "default": [],
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "pattern": "^EV-\\\\d{6,}$"
-                        }
-                      },
                       "started_at": {
                         "type": "string",
                         "format": "date-time",
@@ -2212,8 +2105,7 @@ exports[`current public schema output baseline > artifact:tasks 1`] = `
                     },
                     "required": [
                       "applicability",
-                      "status",
-                      "evidence_refs"
+                      "status"
                     ],
                     "additionalProperties": false
                   },
@@ -2242,14 +2134,6 @@ exports[`current public schema output baseline > artifact:tasks 1`] = `
                       "reason": {
                         "type": "string"
                       },
-                      "evidence_refs": {
-                        "default": [],
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "pattern": "^EV-\\\\d{6,}$"
-                        }
-                      },
                       "started_at": {
                         "type": "string",
                         "format": "date-time",
@@ -2258,8 +2142,7 @@ exports[`current public schema output baseline > artifact:tasks 1`] = `
                     },
                     "required": [
                       "applicability",
-                      "status",
-                      "evidence_refs"
+                      "status"
                     ],
                     "additionalProperties": false
                   }
@@ -2358,14 +2241,6 @@ exports[`current public schema output baseline > artifact:tasks 1`] = `
                       "reason": {
                         "type": "string"
                       },
-                      "evidence_refs": {
-                        "default": [],
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "pattern": "^EV-\\\\d{6,}$"
-                        }
-                      },
                       "started_at": {
                         "type": "string",
                         "format": "date-time",
@@ -2374,8 +2249,7 @@ exports[`current public schema output baseline > artifact:tasks 1`] = `
                     },
                     "required": [
                       "applicability",
-                      "status",
-                      "evidence_refs"
+                      "status"
                     ],
                     "additionalProperties": false
                   }

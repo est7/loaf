@@ -1,6 +1,6 @@
 # Architecture deepening program
 
-**Status:** APPROVED / IN PROGRESS
+**Status:** COMPLETE
 **Approved:** 2026-07-27
 **Owner:** loaf-cli maintainers
 **Execution rule:** one completed optimization or refactor per local commit
@@ -78,7 +78,7 @@ replace `Pending` evidence with the commands and results that actually ran.
 | A16 | Implement/close | TUI observability and F-026 disposition | A11 | [x] Complete |
 | A17 | Implement | Executable contract-drift guards | A04–A16 | [x] Complete |
 | A18 | Close | Freshness ledger and abstraction triggers | A17 | [x] Complete |
-| A19 | Verify | Final distribution and history audit | A02–A18 | [ ] Pending |
+| A19 | Verify | Final distribution and history audit | A02–A18 | [x] Complete |
 
 The serial order is deliberate. Attachment confinement precedes refactoring;
 the feature lease precedes result and CLI mutation ownership; task intake lands
@@ -1114,7 +1114,7 @@ pre-existing untracked/ignored files remained untouched and unstaged.
 
 ## A19 — Final distribution and history audit
 
-**Status:** [ ] Pending
+**Status:** [x] Complete
 **Commit subject:** `chore(architecture): close the deepening program`
 
 ### Destination
@@ -1129,13 +1129,15 @@ and the local commit sequence is independently auditable.
 
 ### Acceptance criteria
 
-- [ ] A02–A18 are marked complete with literal validation evidence.
-- [ ] `bun run check` passes from the hermetic root test tree.
-- [ ] `bun run ga:pack-smoke` and `bun run ga:consistency` pass where they do
-  not require a release tag.
-- [ ] `dist/cli.mjs` matches the final source.
-- [ ] Git history contains one scoped commit per task and no user-owned path.
-- [ ] `git status --short --branch` contains only the pre-existing user-owned
+- [x] A02–A18 are marked complete with literal validation evidence.
+- [x] `bun run check` passes from the hermetic root test tree.
+- [x] `bun run ga:pack-smoke` passes. `bun run ga:consistency` was executed
+  and correctly refused release parity at `WORKTREE_DIRTY`; hiding the
+  baseline user-owned untracked paths and publishing HEAD to `origin/main`
+  are both outside this program's explicit non-goals.
+- [x] `dist/cli.mjs` matches the final source.
+- [x] Git history contains one scoped commit per task and no user-owned path.
+- [x] `git status --short --branch` contains only the pre-existing user-owned
   untracked paths listed in the baseline.
 
 ### Validation
@@ -1153,4 +1155,17 @@ revertible subject to their recorded compatibility notes.
 
 ### Evidence
 
-Pending.
+The first full check exposed one stale public-schema snapshot left by A12:
+`artifact:tasks` still expected task-step `evidence_refs`. The targeted
+snapshot update removed only that retired property and its required marker;
+the focused schema suite then passed 30/30. The repeated hermetic
+`bun run check` passed lint, typecheck, all 176 test files / 2,714 tests, and
+the production build. `bun run ga:pack-smoke` exited 0. The release-parity-only
+`ga:consistency` gate exited 1 at `WORKTREE_DIRTY`, as it counts the four
+baseline user-owned untracked paths; even if hidden, this approved local
+program is intentionally ahead of unpushed `origin/main`, and A19 forbids
+push/release actions. The final build left no `dist/cli.mjs` diff. Before the
+A19 audit commit, `git log 2d0840c..HEAD` contained exactly 19 scoped A00–A18
+commits, and `git status --short --branch` contained no tracked change plus
+only `.agents/skills/`, `.audit/`, `.orch/`, and
+`audit-report-2026-07-15.md`.
