@@ -1,7 +1,8 @@
 # Architecture deepening program
 
-**Status:** SIGN-OFF REMEDIATION IN PROGRESS
+**Status:** COMPLETE — INDEPENDENTLY SIGNED OFF
 **Approved:** 2026-07-27
+**Completed:** 2026-07-28
 **Owner:** loaf-cli maintainers
 **Execution rule:** one completed optimization or refactor per local commit
 **Publication boundary:** local commits only; no push, tag, or release. A24
@@ -26,6 +27,37 @@ Every task below records its destination, non-goals, acceptance criteria,
 validation seam, migration or recovery policy, and intended commit subject. A
 task's implementation commit must change its marker from `[ ]` to `[x]` and
 replace `Pending` evidence with the commands and results that actually ran.
+
+## Independent sign-off
+
+Claude reviewer `claude-01` issued:
+
+> VERDICT | approve | architecture program independently substantiated
+
+The final read-only review is journaled in orchestration thread
+`task-9-573257dc`. It covered A00–A28, all 150 checked acceptance items, and
+the 29 task commits from baseline `2d0840c` through `195b6af`. The reviewer
+independently confirmed that B1–B3, R1–R8, N1–N4, and N6 are closed, with no
+remaining blocking finding.
+
+Independent validation at signed-off HEAD included:
+
+- `bun run check`: lint over 333 files, typecheck, release-identity gate,
+  177 test files / 2,726 tests, and build passed.
+- `bun run verify:release-identity` and `bun run ga:pack-smoke`: passed.
+- Four N6 fault injections and three live probes: passed in scratch
+  repositories without modifying the real worktree.
+- `dist/cli.mjs`: byte-stable at SHA-256
+  `fb5bf37020795036cbf68100d88fe4d5c1546011023995538a0f6d1ded932af7`.
+- Tracked worktree: clean; only the four documented user-owned untracked paths
+  remained. No push, tag, or release occurred.
+
+Accepted non-blocking residuals are: malformed leases still require manual
+recovery; generic stale comments have no repository-wide semantic gate; the
+documented A12–A17 historical red window remains non-bisectable; A20's
+fixture-only gate seed uses the disclosed low-level admission seam; and
+publication remains a separately authorized release operation. These do not
+change the completed architecture destination.
 
 ## Repository and safety baseline
 
