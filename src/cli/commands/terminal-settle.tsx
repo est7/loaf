@@ -5,6 +5,11 @@ import { FAILURE_SITE_KEYS, SUCCESS_KEYS } from "../runtime-i18n-keys.js";
 import { loadSession } from "../../core/cli-runtime.js";
 import { buildResumePack } from "../build-resume-pack.js";
 import { ResumePack as RuntimeResumePack } from "../../core/resume-pack-schema.js";
+import {
+  acquireFeatureWriteLease,
+  FeatureWriteLeaseError,
+  type FeatureWriteLease,
+} from "../../core/feature-write-lease.js";
 import { promises as fsP } from "node:fs";
 import path from "node:path";
 
@@ -209,43 +214,57 @@ export function registerTerminalSettle(
         if (humanActor === null) return;
         const featureDir = await ctx.dispatchOrFail(opts);
         if (featureDir === null) return;
-        const session = await loadSession(featureDir, { ensureDir: false });
-        if (!session.snapshot.state) {
-          ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
-          return;
+        let lease: FeatureWriteLease;
+        try {
+          lease = await acquireFeatureWriteLease(featureDir, "handoff");
+        } catch (error) {
+          if (error instanceof FeatureWriteLeaseError) {
+            ctx.emitFailure("LOCK_TIMEOUT", error.message);
+            return;
+          }
+          throw error;
         }
-        const pack = buildResumePack({
-          snapshot: session.snapshot,
-          entries: session.entries,
-          at: new Date().toISOString(),
-          reason: opts.reason,
-          ...(opts.notes !== undefined && { notes: opts.notes }),
-        });
-        // Defense-in-depth: validate against runtime schema before write.
-        const parse = RuntimeResumePack.safeParse(pack);
-        if (!parse.success) {
-          ctx.failureKeyed(
-            "SCHEMA_VALIDATION_FAILED",
-            FAILURE_SITE_KEYS.handoffPackValidationFailed,
-            {},
-            { subcode: "zod", issues: parse.error.issues },
+        try {
+          const session = await loadSession(featureDir, { ensureDir: false });
+          if (!session.snapshot.state) {
+            ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+            return;
+          }
+          const pack = buildResumePack({
+            snapshot: session.snapshot,
+            entries: session.entries,
+            at: new Date().toISOString(),
+            reason: opts.reason,
+            ...(opts.notes !== undefined && { notes: opts.notes }),
+          });
+          // Defense-in-depth: validate against runtime schema before write.
+          const parse = RuntimeResumePack.safeParse(pack);
+          if (!parse.success) {
+            ctx.failureKeyed(
+              "SCHEMA_VALIDATION_FAILED",
+              FAILURE_SITE_KEYS.handoffPackValidationFailed,
+              {},
+              { subcode: "zod", issues: parse.error.issues },
+            );
+            return;
+          }
+          // Atomic write to <feature-dir>/snapshots/resume-pack.json
+          const snapshotsDir = path.join(featureDir, "snapshots");
+          await fsP.mkdir(snapshotsDir, { recursive: true });
+          const packPath = path.join(snapshotsDir, "resume-pack.json");
+          const tmpPath = packPath + ".tmp";
+          await fsP.writeFile(tmpPath, JSON.stringify(pack, null, 2) + "\n");
+          await fsP.rename(tmpPath, packPath);
+          ctx.success(
+            { ok: true, feature: opts.feature, pack_path: packPath, session_id: pack.session_id },
+            () => `${packPath}\n`,
+            (i18n) => ({
+              stateChange: i18n.t(SUCCESS_KEYS.handoffStateChange, { actor: humanActor }),
+            }),
           );
-          return;
+        } finally {
+          await lease.release();
         }
-        // Atomic write to <feature-dir>/snapshots/resume-pack.json
-        const snapshotsDir = path.join(featureDir, "snapshots");
-        await fsP.mkdir(snapshotsDir, { recursive: true });
-        const packPath = path.join(snapshotsDir, "resume-pack.json");
-        const tmpPath = packPath + ".tmp";
-        await fsP.writeFile(tmpPath, JSON.stringify(pack, null, 2) + "\n");
-        await fsP.rename(tmpPath, packPath);
-        ctx.success(
-          { ok: true, feature: opts.feature, pack_path: packPath, session_id: pack.session_id },
-          () => `${packPath}\n`,
-          (i18n) => ({
-            stateChange: i18n.t(SUCCESS_KEYS.handoffStateChange, { actor: humanActor }),
-          }),
-        );
       },
     );
 }

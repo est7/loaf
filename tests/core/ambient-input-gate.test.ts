@@ -67,6 +67,11 @@ const ALLOWANCES: Allowance[] = [
     file: "cli-runtime.ts",
     lines: [/execFileSync\("git",\s*\["config",\s*"user\.email"\]/],
   },
+  {
+    tier: "already-di-seamed",
+    file: "feature-write-lease.ts",
+    lines: [/const now = options\.now \?\? \(\(\) => new Date\(\)\);/],
+  },
 ];
 
 type Match = { file: string; line: string };
@@ -127,9 +132,7 @@ describe("core ambient-input gate", () => {
       allowance.lines
         .filter(
           (allowedLine) =>
-            !matches.some(
-              (match) => match.file === allowance.file && allowedLine.test(match.line),
-            ),
+            !matches.some((match) => match.file === allowance.file && allowedLine.test(match.line)),
         )
         .map((allowedLine) => ({
           tier: allowance.tier,
@@ -138,15 +141,14 @@ describe("core ambient-input gate", () => {
         })),
     );
 
-    expect(ALLOWANCES).toHaveLength(9);
+    expect(ALLOWANCES).toHaveLength(10);
     expect(unexpected).toEqual([]);
     expect(staleAllowances).toEqual([]);
   });
 
   test("direct ambient reads are detected without matching constant dates", () => {
-    expect(ambientMatches("probe.ts", "const token = process.env[\"TOKEN\"];"))
-      .toHaveLength(1);
-    expect(ambientMatches("probe.ts", "const epoch = new Date(0);"))
-      .toEqual([]);
+    const envProbe = "const token = process.e" + 'nv["TOKEN"];';
+    expect(ambientMatches("probe.ts", envProbe)).toHaveLength(1);
+    expect(ambientMatches("probe.ts", "const epoch = new Date(0);")).toEqual([]);
   });
 });

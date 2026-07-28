@@ -2,12 +2,11 @@
 // `~/.loaf/runtime/<session_id>.json`.
 //
 // Updates use a dedicated PID-bearing runtime lock. Do not reuse the
-// per-feature `.loaf/<feature>/.lock`: that is an empty O_EXCL fail-fast
-// journal fence acquired deep inside mutateBatch and held through projection
-// + registry writes. Making every PostToolUse wait on it would turn scope
-// accumulation into dropped hook events. This lock owns its own bounded wait,
-// PID liveness, and stale-removal semantics; it assumes no stronger behavior
-// from the journal lock.
+// per-feature `.loaf/<feature>/.lock`: that owner-fenced lease spans journal
+// validation through projections and uses a much longer wait budget. Making
+// every PostToolUse share it would turn scope accumulation into delayed or
+// dropped hook events. This runtime lock therefore keeps its own bounded wait,
+// PID liveness, and stale-removal semantics.
 
 import { randomBytes } from "node:crypto";
 import { promises as fs } from "node:fs";
@@ -24,7 +23,10 @@ const RuntimeLockFile = z
     operation: z.string().min(1).max(200),
     // Optional only for locks left by the pre-owner-token implementation.
     // Every new acquisition writes an owner token.
-    owner: z.string().regex(/^[0-9a-f]{32}$/).optional(),
+    owner: z
+      .string()
+      .regex(/^[0-9a-f]{32}$/)
+      .optional(),
   })
   .strict();
 type RuntimeLockFile = z.infer<typeof RuntimeLockFile>;
@@ -83,17 +85,11 @@ function checkedSessionId(sessionId: string): string {
   return sessionId;
 }
 
-export function sessionRuntimeFilePath(
-  sessionId: string,
-  options: RuntimeStoreOptions,
-): string {
+export function sessionRuntimeFilePath(sessionId: string, options: RuntimeStoreOptions): string {
   return path.join(options.runtimeDir, `${checkedSessionId(sessionId)}.json`);
 }
 
-export function sessionRuntimeLockPath(
-  sessionId: string,
-  options: RuntimeStoreOptions,
-): string {
+export function sessionRuntimeLockPath(sessionId: string, options: RuntimeStoreOptions): string {
   return path.join(options.runtimeDir, `${checkedSessionId(sessionId)}.lock`);
 }
 
@@ -320,11 +316,7 @@ async function acquireRuntimeLock(
       // post-create owner-token confirmation above is the final ownership
       // fence before any recoverer may enter the critical section.
       const current = await readLock(lockPath);
-      if (
-        current !== null &&
-        isSameLockGeneration(holder, current) &&
-        !isPidAlive(current.pid)
-      ) {
+      if (current !== null && isSameLockGeneration(holder, current) && !isPidAlive(current.pid)) {
         await fs.unlink(lockPath).catch((error: NodeJS.ErrnoException) => {
           if (error.code !== "ENOENT") throw error;
         });
@@ -351,9 +343,7 @@ async function acquireRuntimeLock(
   }
 }
 
-export type RuntimeMutation = (
-  current: RuntimeFile | null,
-) => RuntimeFile | Promise<RuntimeFile>;
+export type RuntimeMutation = (current: RuntimeFile | null) => RuntimeFile | Promise<RuntimeFile>;
 
 /**
  * The only read-modify-write API: acquire → validated read → mutate → atomic

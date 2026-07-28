@@ -29,8 +29,8 @@ import {
 import { buildTraceEntry, defaultAppendTraceLine, type TraceEntry } from "./cli/trace-writer.js";
 import { defaultRenderTui, type RenderTui } from "./cli/tui/render.js";
 import { HOOK_EVENTS, HOOK_EVENT_TO_CLAUDE_CODE } from "./core/hook-events.js";
-import { readUserConfig, } from "./core/user-config.js";
-import { BUILTIN_BUNDLES, createI18n, resolveLocale, } from "./cli/i18n.js";
+import { readUserConfig } from "./core/user-config.js";
+import { BUILTIN_BUNDLES, createI18n, resolveLocale } from "./cli/i18n.js";
 import {
   diagnosticKey,
   FAILURE_SITE_KEYS,
@@ -42,19 +42,10 @@ import { runEditor as defaultRunEditor, type RunEditor } from "./cli/run-editor.
 import { buildReportUrl } from "./cli/url-prefill.js";
 import { defaultReadStdin, defaultIsStdinTty } from "./cli/stdin.js";
 
-import {
-  LOAF_DOCS_URL,
-  LOAF_ISSUE_URL,
-  helpFooter,
-  loadSession,
-} from "./core/cli-runtime.js";
+import { LOAF_DOCS_URL, LOAF_ISSUE_URL, helpFooter, loadSession } from "./core/cli-runtime.js";
 import { type MutateContext } from "./core/journal-mutate.js";
-import {
-  createCommandMutator,
-} from "./cli/command-mutator.js";
-import {
-  loadProjections,
-} from "./core/projection-loader.js";
+import { createCommandMutator } from "./cli/command-mutator.js";
+import { loadProjections } from "./core/projection-loader.js";
 
 import { registerLifecycle } from "./cli/commands/lifecycle.js";
 import { registerGate } from "./cli/commands/gate.js";
@@ -74,6 +65,7 @@ import { registerBoard } from "./cli/commands/board.js";
 import { registerPrune } from "./cli/commands/prune.js";
 import { defaultRegistryDir } from "./core/registry-writer.js";
 import { defaultRuntimeDir } from "./core/session-runtime.js";
+import { releaseFeatureWriteLeasesForSignalSync } from "./core/feature-write-lease.js";
 import { collectPresentSelectors } from "./cli/selectors.js";
 import type { OpenUrl } from "./cli/board/open-url.js";
 
@@ -98,6 +90,7 @@ let _sigintInstalled = false;
 
 export function installSigintHandler(deps: SigintHandlerDeps): () => void {
   const handler = (): void => {
+    releaseFeatureWriteLeasesForSignalSync();
     deps.writeStderr("\nloaf: interrupted (SIGINT)\n");
     deps.exit(130);
   };

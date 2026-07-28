@@ -88,6 +88,59 @@ async function readJournalTail(
   return { tailSeq: parsed.seq, fileSize, tailLine: lastLine };
 }
 
+export async function assertJournalTailMatchesMeta(
+  filePath: string,
+  priorMeta: SnapshotMeta,
+): Promise<{ tailSeq: number; fileSize: number; tailLine: string | null }> {
+  const tail = await readJournalTail(filePath);
+  const { tailSeq, fileSize, tailLine } = tail;
+
+  if (tailSeq === -1) {
+    if (!isEmptyMeta(priorMeta)) {
+      throw new AppendError(
+        "PRIOR_META_STALE",
+        "journal tail is empty (seq -1) but priorMeta is not the empty sentinel; a non-empty prior meta would corrupt the post-append rolling checksum",
+        { meta_seq: priorMeta.last_applied_seq, tail_seq: tailSeq },
+      );
+    }
+    return tail;
+  }
+  if (priorMeta.last_applied_seq !== tailSeq) {
+    throw new AppendError(
+      "PRIOR_META_STALE",
+      `priorMeta.last_applied_seq=${priorMeta.last_applied_seq} but journal tail seq=${tailSeq}; the prior meta does not describe the current journal tail`,
+      { meta_seq: priorMeta.last_applied_seq, tail_seq: tailSeq },
+    );
+  }
+  if (tailLine === null) {
+    throw new AppendError(
+      "TAIL_CORRUPTION",
+      `journal tail seq=${tailSeq} but no readable tail line; rebuild required`,
+      { tail_seq: tailSeq },
+    );
+  }
+  if (computeLineHash(tailLine) !== priorMeta.last_entry_line_hash) {
+    throw new AppendError(
+      "PRIOR_META_STALE",
+      "priorMeta.last_entry_line_hash does not match the journal tail line; the prior meta does not describe the current journal tail",
+      { meta_seq: priorMeta.last_applied_seq, tail_seq: tailSeq },
+    );
+  }
+  const expectedTailOffset = fileSize - Buffer.byteLength(tailLine + "\n", "utf8");
+  if (priorMeta.last_entry_offset !== expectedTailOffset) {
+    throw new AppendError(
+      "PRIOR_META_STALE",
+      `priorMeta.last_entry_offset=${priorMeta.last_entry_offset} but the journal tail line starts at byte ${expectedTailOffset}; the prior meta does not describe the current journal tail`,
+      {
+        meta_offset: priorMeta.last_entry_offset,
+        expected_offset: expectedTailOffset,
+        tail_seq: tailSeq,
+      },
+    );
+  }
+  return tail;
+}
+
 export interface AppendOptions {
   fsync?: boolean;
 }
@@ -147,62 +200,7 @@ export async function appendMany(
   }
 
   const fsyncEnabled = opts.fsync ?? true;
-  const { tailSeq, fileSize, tailLine } = await readJournalTail(filePath);
-
-  // Prior-meta validation — BEFORE any write. `priorMeta` must describe the
-  // exact journal tail we are about to extend; otherwise the returned
-  // post-append meta (its `rolling_checksum` extends `priorMeta`'s) would be
-  // authoritative for the wrong prefix.
-  if (tailSeq === -1) {
-    // Empty/absent journal — `priorMeta` must be the empty sentinel. A
-    // fresh-prefix meta carrying a non-empty `rolling_checksum` /
-    // `last_entry_offset` would fold into a post-append meta that no longer
-    // matches `replayJournal` (codex r171 BLOCK 2). seq alone is not enough.
-    if (!isEmptyMeta(priorMeta)) {
-      throw new AppendError(
-        "PRIOR_META_STALE",
-        "journal tail is empty (seq -1) but priorMeta is not the empty sentinel; a non-empty prior meta would corrupt the post-append rolling checksum",
-        { meta_seq: priorMeta.last_applied_seq, tail_seq: tailSeq },
-      );
-    }
-  } else {
-    // Non-empty journal — `priorMeta` must match the actual tail: seq, the
-    // tail line's hash, and the tail line's start offset. (Full rolling-chain
-    // re-verification stays a `doctor --verify-checksum` concern.)
-    if (priorMeta.last_applied_seq !== tailSeq) {
-      throw new AppendError(
-        "PRIOR_META_STALE",
-        `priorMeta.last_applied_seq=${priorMeta.last_applied_seq} but journal tail seq=${tailSeq}; the prior meta does not describe the current journal tail`,
-        { meta_seq: priorMeta.last_applied_seq, tail_seq: tailSeq },
-      );
-    }
-    if (tailLine === null) {
-      throw new AppendError(
-        "TAIL_CORRUPTION",
-        `journal tail seq=${tailSeq} but no readable tail line; rebuild required`,
-        { tail_seq: tailSeq },
-      );
-    }
-    if (computeLineHash(tailLine) !== priorMeta.last_entry_line_hash) {
-      throw new AppendError(
-        "PRIOR_META_STALE",
-        "priorMeta.last_entry_line_hash does not match the journal tail line; the prior meta does not describe the current journal tail",
-        { meta_seq: priorMeta.last_applied_seq, tail_seq: tailSeq },
-      );
-    }
-    const expectedTailOffset = fileSize - Buffer.byteLength(tailLine + "\n", "utf8");
-    if (priorMeta.last_entry_offset !== expectedTailOffset) {
-      throw new AppendError(
-        "PRIOR_META_STALE",
-        `priorMeta.last_entry_offset=${priorMeta.last_entry_offset} but the journal tail line starts at byte ${expectedTailOffset}; the prior meta does not describe the current journal tail`,
-        {
-          meta_offset: priorMeta.last_entry_offset,
-          expected_offset: expectedTailOffset,
-          tail_seq: tailSeq,
-        },
-      );
-    }
-  }
+  const { tailSeq, fileSize } = await assertJournalTailMatchesMeta(filePath, priorMeta);
 
   let nextExpected = tailSeq + 1;
   const lineBuffers: Buffer[] = [];

@@ -12,6 +12,11 @@ import {
 import { UserConfig, userConfigPath } from "../../core/user-config.js";
 import { replayJournal } from "../../core/journal-bootstrap.js";
 import { writeProjections } from "../../core/projection-writer.js";
+import {
+  acquireFeatureWriteLease,
+  FeatureWriteLeaseError,
+  type FeatureWriteLease,
+} from "../../core/feature-write-lease.js";
 import { promises as fsP } from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -308,8 +313,8 @@ export function registerProfileConfig(
   //       DOCTOR_REBUILD_MIGRATED_UNSUPPORTED with exit_code: 2).
   //   Exit 1 is reserved for unhandled throws caught by the top-level
   //   boundary at the end of main(), which also writes ~/.loaf/crashes/.
-  // No per-feature lock — the repo runs under the single-writer assumption
-  // (no .lock infra; F-014 r112; protocol.md §11.2 step 1/8/9/10 deferred).
+  // The replay and all projection writes run under the feature write lease,
+  // so doctor cannot publish an older replay over a concurrent mutation.
   program
     .command("doctor")
     .description("Repository self-check. This release implements --rebuild only")
@@ -350,80 +355,97 @@ export function registerProfileConfig(
       // no-dispatch (sc8-dispatch-gate exception marker)
       const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
       ctx.recordTraceTarget(opts.feature, featureDir);
-      const journalPath = path.join(featureDir, "journal.jsonl");
-      const replay = await replayJournal(journalPath, {
-        collect_entries: true,
-        feature_dir: featureDir,
-      });
-      if (!replay.ok) {
-        ctx.emitFailure(
-          replay.code,
-          `journal at ${journalPath} cannot be replayed — ${replay.message}`,
-        );
-        return;
-      }
-      const entries = replay.entries;
-      if (entries === undefined) {
-        ctx.emitFailure(
-          "DOCTOR_REBUILD_FAILED",
-          "internal invariant: replay returned ok without collected entries",
-        );
-        return;
-      }
-
-      // A v0.0.x-migrated journal carries its projection state through
-      // `migration:snapshot_imported` sidecar rehydration, not the event
-      // payloads the SC1 serializer folds — rebuilding one is a follow-up
-      // intersecting `doctor --migrate-v2` (F-018). Fail cleanly before
-      // writeProjections rather than let composeTasksJson throw.
-      if (entries.some((e) => e.kind === "migration:snapshot_imported")) {
-        ctx.emitFailure(
-          "DOCTOR_REBUILD_MIGRATED_UNSUPPORTED",
-          "doctor --rebuild does not yet support v0.0.x-migrated journals (intersects doctor --migrate-v2)",
-        );
-        return;
-      }
-
-      let rebuilt: string[];
+      let lease: FeatureWriteLease;
       try {
-        rebuilt = await writeProjections(featureDir, {
-          snapshot: replay.snapshot,
-          entries,
-          meta: replay.meta,
-        });
-      } catch (err) {
-        ctx.emitFailure("DOCTOR_REBUILD_FAILED", `snapshot rebuild failed — ${(err as Error).message}`);
-        return;
+        lease = await acquireFeatureWriteLease(featureDir, "doctor:rebuild");
+      } catch (error) {
+        if (error instanceof FeatureWriteLeaseError) {
+          ctx.emitFailure("LOCK_TIMEOUT", error.message);
+          return;
+        }
+        throw error;
       }
+      try {
+        const journalPath = path.join(featureDir, "journal.jsonl");
+        const replay = await replayJournal(journalPath, {
+          collect_entries: true,
+          feature_dir: featureDir,
+        });
+        if (!replay.ok) {
+          ctx.emitFailure(
+            replay.code,
+            `journal at ${journalPath} cannot be replayed — ${replay.message}`,
+          );
+          return;
+        }
+        const entries = replay.entries;
+        if (entries === undefined) {
+          ctx.emitFailure(
+            "DOCTOR_REBUILD_FAILED",
+            "internal invariant: replay returned ok without collected entries",
+          );
+          return;
+        }
 
-      const out = {
-        ok: true,
-        feature: opts.feature,
-        feature_dir: featureDir,
-        tail_seq: replay.meta.last_applied_seq,
-        rebuilt,
-      };
-      ctx.success(
-        out,
-        (i18n) =>
-          i18n.t(
-            rebuilt.length === 1
-              ? SUCCESS_KEYS.doctorRebuildTextOne
-              : SUCCESS_KEYS.doctorRebuildTextMany,
-            { count: rebuilt.length, feature: opts.feature },
-          ) +
-          "\n" +
-          rebuilt.map((f) => `  snapshots/${f}\n`).join("") +
-          i18n.t(SUCCESS_KEYS.snapshotAsOfSeq, { seq: replay.meta.last_applied_seq }) +
-          "\n",
-        (i18n) => ({
-          stateChange: i18n.t(
-            rebuilt.length === 1
-              ? SUCCESS_KEYS.doctorRebuildStateChangeOne
-              : SUCCESS_KEYS.doctorRebuildStateChangeMany,
-            { count: rebuilt.length, feature: opts.feature },
-          ),
-        }),
-      );
+        // A v0.0.x-migrated journal carries its projection state through
+        // `migration:snapshot_imported` sidecar rehydration, not the event
+        // payloads the SC1 serializer folds — rebuilding one is a follow-up
+        // intersecting `doctor --migrate-v2` (F-018). Fail cleanly before
+        // writeProjections rather than let composeTasksJson throw.
+        if (entries.some((e) => e.kind === "migration:snapshot_imported")) {
+          ctx.emitFailure(
+            "DOCTOR_REBUILD_MIGRATED_UNSUPPORTED",
+            "doctor --rebuild does not yet support v0.0.x-migrated journals (intersects doctor --migrate-v2)",
+          );
+          return;
+        }
+
+        let rebuilt: string[];
+        try {
+          rebuilt = await writeProjections(featureDir, {
+            snapshot: replay.snapshot,
+            entries,
+            meta: replay.meta,
+          });
+        } catch (err) {
+          ctx.emitFailure(
+            "DOCTOR_REBUILD_FAILED",
+            `snapshot rebuild failed — ${(err as Error).message}`,
+          );
+          return;
+        }
+
+        const out = {
+          ok: true,
+          feature: opts.feature,
+          feature_dir: featureDir,
+          tail_seq: replay.meta.last_applied_seq,
+          rebuilt,
+        };
+        ctx.success(
+          out,
+          (i18n) =>
+            i18n.t(
+              rebuilt.length === 1
+                ? SUCCESS_KEYS.doctorRebuildTextOne
+                : SUCCESS_KEYS.doctorRebuildTextMany,
+              { count: rebuilt.length, feature: opts.feature },
+            ) +
+            "\n" +
+            rebuilt.map((f) => `  snapshots/${f}\n`).join("") +
+            i18n.t(SUCCESS_KEYS.snapshotAsOfSeq, { seq: replay.meta.last_applied_seq }) +
+            "\n",
+          (i18n) => ({
+            stateChange: i18n.t(
+              rebuilt.length === 1
+                ? SUCCESS_KEYS.doctorRebuildStateChangeOne
+                : SUCCESS_KEYS.doctorRebuildStateChangeMany,
+              { count: rebuilt.length, feature: opts.feature },
+            ),
+          }),
+        );
+      } finally {
+        await lease.release();
+      }
     });
 }

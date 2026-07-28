@@ -29,6 +29,7 @@ import {
   readAttachment,
   writeAttachment,
 } from "./attachment-authority.js";
+import { acquireFeatureWriteLease, type FeatureWriteLeaseOptions } from "./feature-write-lease.js";
 import { appendEntry } from "./journal-append.js";
 import { emptyMeta } from "./snapshot.js";
 import { EvidenceKind, EvidenceResult } from "./evidence-schema.js";
@@ -302,6 +303,8 @@ export interface MigrateOptions {
   migrated_at?: string;
   /** Disable fsync for tests. */
   fsync?: boolean;
+  /** Feature lease injection seam; production uses the bounded 30s contract. */
+  featureLease?: FeatureWriteLeaseOptions;
 }
 
 export interface MigrateResult {
@@ -317,6 +320,22 @@ export interface MigrateResult {
 export async function migrateV2(
   featureDir: string,
   opts: MigrateOptions = {},
+): Promise<MigrateResult> {
+  const leaseFsync = opts.featureLease?.fsync ?? opts.fsync;
+  const lease = await acquireFeatureWriteLease(featureDir, "migration:v0.0.x", {
+    ...opts.featureLease,
+    ...(leaseFsync !== undefined && { fsync: leaseFsync }),
+  });
+  try {
+    return await migrateV2UnderLease(featureDir, opts);
+  } finally {
+    await lease.release();
+  }
+}
+
+async function migrateV2UnderLease(
+  featureDir: string,
+  opts: MigrateOptions,
 ): Promise<MigrateResult> {
   const journalPath = path.join(featureDir, "journal.jsonl");
   const backupDir = opts.backup_dir ?? `${featureDir}.backup-v1`;

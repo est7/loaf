@@ -63,7 +63,7 @@ replace `Pending` evidence with the commands and results that actually ran.
 | A01 | Implement | Hermetic verification boundary | A00 | [x] Complete |
 | A02 | Implement | Public AttachmentRef containment | A01 | [x] Complete |
 | A03 | Implement | Attachment authority module | A02 | [x] Complete |
-| A04 | Implement | Feature write lease | A03 | [ ] Pending |
+| A04 | Implement | Feature write lease | A03 | [x] Complete |
 | A05 | Implement | Explicit mutation commit outcomes | A04 | [ ] Pending |
 | A06 | Implement | Deep CommandMutator boundary | A05 | [ ] Pending |
 | A07 | Implement | Unified CLI input ingestion | A01 | [ ] Pending |
@@ -301,7 +301,7 @@ content.
 
 ## A04 — Feature write lease
 
-**Status:** [ ] Pending
+**Status:** [x] Complete
 **Commit subject:** `refactor(core): enforce the feature write lease`
 
 ### Destination
@@ -328,16 +328,16 @@ contract.
 
 ### Acceptance criteria
 
-- [ ] A dedicated `feature-write-lease` module owns acquire, bounded retry,
+- [x] A dedicated `feature-write-lease` module owns acquire, bounded retry,
   stale recovery, ownership verification, and release.
-- [ ] Lease metadata is mode `0600` and contains an owner token plus PID.
-- [ ] `mutateBatch`, doctor projection rebuild, handoff feature-local writes,
+- [x] Lease metadata is mode `0600` and contains an owner token plus PID.
+- [x] `mutateBatch`, doctor projection rebuild, handoff feature-local writes,
   and migration canonical writes either use the lease or carry an explicit
   evidence-backed exemption.
-- [ ] Dry-run validates against a stable tail under the same lease.
-- [ ] SIGINT/error paths release only the current owner.
-- [ ] Runtime lock ordering is documented and deterministically tested.
-- [ ] `CONCURRENCY_INVARIANTS` and ADR/protocol text match the implementation.
+- [x] Dry-run validates against a stable tail under the same lease.
+- [x] SIGINT/error paths release only the current owner.
+- [x] Runtime lock ordering is documented and deterministically tested.
+- [x] `CONCURRENCY_INVARIANTS` and ADR/protocol text match the implementation.
 
 ### Validation
 
@@ -346,14 +346,32 @@ contract.
 
 ### Migration and recovery
 
-The first new writer can reclaim an old zero-byte MVP lock only under an
-explicit compatibility rule. Live owner leases are never stolen. Recovery
-instructions must distinguish old empty locks, malformed leases, and verifiably
-dead owners.
+The first new writer can reclaim an old zero-byte MVP lock only after its
+compatibility age. Live owner leases are never stolen. Malformed leases fail
+closed; a dead owner is reclaimed only after PID and file-generation
+revalidation. A dry-run for a not-yet-created feature is explicitly exempt:
+there is no shared journal tail, and creating a directory merely to place a
+lease would violate the existing no-write preview contract.
 
 ### Evidence
 
-Pending.
+- RED: the new feature-lease suite could not resolve the module; the existing
+  mutator used a mode-0644 empty fail-fast file and generic `WRITE_CONTENTION`.
+- Lease tests cover 0600 metadata, live-owner serialization and timeout,
+  dead-owner generation-checked recovery, malformed fail-closed behavior,
+  aged empty-lock compatibility, foreign-successor preservation, and the
+  runtime-first lock order.
+- Integration tests prove mutate and dry-run stable-tail fencing, error-path
+  release, doctor and handoff fail-closed behavior, migration pre-write
+  fencing, and owner-checked SIGINT cleanup.
+- Focused architecture suite — 7 files, 104 tests passed before the full-suite
+  regression pass.
+- The first full-suite pass exposed 10 compatibility failures; all affected
+  seams were corrected and their 48-test subset passed.
+- `bun run verify:codegen` — passed after retiring `WRITE_CONTENTION` from the
+  generated error/i18n surfaces.
+- `bun run check` — lint and typecheck passed; 172 test files and 2,651 tests
+  passed; the distribution bundle rebuilt successfully.
 
 ## A05 — Explicit mutation commit outcomes
 

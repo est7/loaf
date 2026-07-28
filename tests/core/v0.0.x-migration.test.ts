@@ -455,4 +455,19 @@ describe("migrateV2 — Stage 5 §5.2", () => {
       expect(body.length).toBe(ref.size);
     }
   });
+
+  test("migration fails closed on a malformed feature lease before canonical writes", async () => {
+    const featureDir = await buildFixture();
+    await fs.writeFile(path.join(featureDir, ".lock"), "{malformed");
+
+    await expect(migrateV2(featureDir, { fsync: false })).rejects.toMatchObject({
+      code: "LOCK_INVALID",
+    });
+    await expect(fs.access(path.join(featureDir, "journal.jsonl"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    await expect(fs.readFile(path.join(featureDir, "state.json"), "utf8")).resolves.toContain(
+      "EXECUTE",
+    );
+  });
 });

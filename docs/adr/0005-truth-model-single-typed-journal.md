@@ -365,6 +365,13 @@ reader 看不到部分状态：
 9. refresh registry projection(~/.loaf/registry/<id>.json,tmp+rename)
 
 10. release .lock(unlink + close)
+
+> **2026-07-27 lease implementation note:** `.lock` is no longer the earlier
+> empty fail-fast fence. It is a mode-0600 strict
+> `{pid, acquired_at, operation, owner}` lease with bounded wait, dead-PID plus
+> generation-revalidated recovery, fail-closed malformed state, and
+> owner-token release. This advances the accepted blocking/stale-lock decision
+> without changing the journal wire format.
 ```
 
 **核心修正（rev 4）**：step 5 final validate **修复 N20**——sidecar finalization

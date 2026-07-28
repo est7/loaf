@@ -463,4 +463,20 @@ describe("loaf doctor --rebuild — Phase 14 SC2", () => {
     expect(r.exit).toBe(2);
     expect(r.stderr).toContain("DOCTOR_FEATURE_REQUIRED");
   });
+
+  test("malformed feature lease fails closed before projection rebuild", async () => {
+    const dir = await tmpDir();
+    await fs.writeFile(path.join(dir, ".lock"), "{malformed");
+    const r = await runCli([
+      "doctor",
+      "--rebuild",
+      "--feature",
+      "auth-refresh",
+      "--feature-dir",
+      dir,
+    ]);
+    expect(r.exit).toBe(2);
+    expect(r.stderr).toContain("LOCK_TIMEOUT");
+    await expect(fs.readFile(path.join(dir, ".lock"), "utf8")).resolves.toBe("{malformed");
+  });
 });

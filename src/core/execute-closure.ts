@@ -203,8 +203,9 @@ export async function executeClosureTransaction(
   const initialState = options.session.snapshot.state;
   if (initialState == null) return { kind: "not-committed" };
 
-  // Dry-run remains side-effect free: mutateBatch itself skips both append and
-  // feature locking, while this branch only performs the runtime's atomic read.
+  // Dry-run remains canonical-write free. It takes the feature lease only
+  // after this branch's lock-free runtime read, so it never introduces a
+  // feature-then-runtime edge.
   if (options.mutateContext(options.session).dryRun) {
     if (initialState.sub_state !== "EXECUTE.work") return { kind: "not-committed" };
     const heartbeatAt = options.runtime.now().toISOString();
@@ -240,10 +241,7 @@ export async function executeClosureTransaction(
         const committed = committedScopeEntry(session.entries, state.iteration);
 
         if (state.sub_state === "EXECUTE.done" && committed !== null) {
-          if (
-            runtime.pending_scope !== null &&
-            runtime.pending_scope.iteration > state.iteration
-          ) {
+          if (runtime.pending_scope !== null && runtime.pending_scope.iteration > state.iteration) {
             throw new ExecuteClosureError(
               "EXECUTE_CLOSURE_STATE_CHANGED",
               "runtime pending scope is ahead of the committed journal iteration; refusing to rewrite causal order",

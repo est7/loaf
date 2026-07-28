@@ -32,6 +32,11 @@ export const CONCURRENCY_INVARIANTS = {
   //    Per-feature, NOT per-artifact. One feature, one writer at
   //    a time. Implements POSIX flock (or equivalent).
   lock_path: ".loaf/<feature>/.lock",
+  lock_payload: "strict {pid, acquired_at, operation, owner}; mode 0600",
+  lock_recovery:
+    "bounded wait; live PID never stolen; dead PID reclaimed only after generation revalidation; malformed state fails closed; release unlinks only its owner token",
+  lock_order:
+    "when EXECUTE closure needs both locks: session-runtime lock first, feature write lease second; no feature-then-runtime edge",
 
   // 3. Journal mutation transaction order (rev 5.0, 10-step;
   //    mirror ADR-0005 §3.5 + protocol.md §11.2)
@@ -63,15 +68,15 @@ export const CONCURRENCY_INVARIANTS = {
   //     mutation would succeed; exit 2 = would fail.
   dry_run_transaction_order: [
     "1. acquire .lock (same as live run)",
-    "2. read journal tail + _meta fast-check (same as live run)",
+    "2. verify the loaded meta still matches the journal tail under the lease",
     "3. preflight validate (same as live run)",
-    "4. prepare sidecar files into short-lived .tmp-* (NOT renamed; cleaned on step 10)",
-    "5. final validate against embedded refs (same as live run)",
+    "4. SKIPPED — no sidecar materialization",
+    "5. SKIPPED — no promoted-form validation",
     "6. SKIPPED — no journal append",
     "7. SKIPPED — no post-apply assert",
     "8. SKIPPED — no snapshot rebuild",
     "9. SKIPPED — no registry refresh",
-    "10. unlink sidecar .tmp-* (if any) + release .lock",
+    "10. release the owner-fenced lease",
   ],
 
   // 3b. Dry-run applicability

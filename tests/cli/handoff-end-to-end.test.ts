@@ -221,4 +221,28 @@ describe("SC-13a — loaf handoff error paths", () => {
     const err = JSON.parse(result.stderr);
     expect(err.code).toBe("NO_HUMAN_ACTOR");
   });
+
+  test("malformed feature lease fails closed before resume-pack write", async () => {
+    const { featureDir } = await seedFeature();
+    await fs.writeFile(path.join(featureDir, ".lock"), "{malformed");
+    const result = await runCli(
+      [
+        "handoff",
+        "--reason",
+        "context overflow approaching",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        featureDir,
+        "--format",
+        "json",
+      ],
+      { env: SEED_ENV },
+    );
+    expect(result.exit).toBe(2);
+    expect(JSON.parse(result.stderr).code).toBe("LOCK_TIMEOUT");
+    await expect(
+      fs.access(path.join(featureDir, "snapshots", "resume-pack.json")),
+    ).rejects.toThrow();
+  });
 });

@@ -521,7 +521,7 @@ export const ERROR_CATALOG = {
     exit_code: 2,
     message_template: "could not acquire .loaf/<feature>/.lock within {timeout_seconds}s",
     fix_template:
-      "another loaf process is holding the lock (see LOCK_HELD_BY for details); wait for it to release, or run `loaf doctor` to unlink the lock if its PID has exited",
+      "another loaf process is holding the feature lease; wait for it to release. A later writer automatically reclaims a lease only when its PID is verifiably dead and the owner generation is unchanged; malformed leases fail closed and require inspection.",
     template_keys: ["timeout_seconds"],
     doc_anchor: "protocol.md#§11.2",
   },
@@ -1328,16 +1328,6 @@ export const ERROR_CATALOG = {
       "the journal already records the change; do NOT retry the same command. Run `loaf doctor --rebuild` (when available) to resync derived projections from journal truth, or inspect `.loaf/<feature>/journal.jsonl` tail manually.",
     template_keys: ["error", "last_seq", "projection", "spec_version"],
     doc_anchor: "protocol.md#§10.15",
-  },
-  WRITE_CONTENTION: {
-    exit_code: 2,
-    message_template:
-      "another writer holds the per-feature lock at {lock_path}; retry after it releases",
-    zh_message_template: "另一个写入者正持有该 feature 的锁 {lock_path};待其释放后重试",
-    fix_template:
-      "a concurrent `loaf` invocation is mid-write on this feature — retry once it finishes. If no writer is active, a prior run crashed mid-write: remove the stale `.lock` and run `loaf doctor` to verify journal integrity.",
-    template_keys: ["lock_path"],
-    doc_anchor: "protocol.md#§11.2",
   },
   // Slice B SC-B1: paired with FINDING_NOT_FOUND when back_edge
   // references a stale / nonexistent finding. cli emitFailure prints

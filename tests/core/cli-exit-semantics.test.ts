@@ -21,6 +21,7 @@ import os from "node:os";
 
 import { main } from "../../src/cli.js";
 import { installSigintHandler, type SigintHandlerDeps } from "../../src/cli.js";
+import { acquireFeatureWriteLease } from "../../src/core/feature-write-lease.js";
 
 async function runCli(
   argv: string[],
@@ -237,5 +238,16 @@ describe("Phase 16 SC-2 — SIGINT handler: exit 130 via DI (codex r196 PATCH C)
     const after = process.listenerCount("SIGINT");
     // At most one new listener over the baseline — even after 3 install calls
     expect(after - before).toBeLessThanOrEqual(1);
+  });
+
+  test("first SIGINT releases only the current process's feature lease generation", async () => {
+    const dir = await tmpDir();
+    const lease = await acquireFeatureWriteLease(dir, "sigint-test", { fsync: false });
+    const handler = installSigintHandler({ writeStderr: () => {}, exit: () => {} });
+
+    handler();
+
+    await expect(fs.access(path.join(dir, ".lock"))).rejects.toMatchObject({ code: "ENOENT" });
+    await lease.release();
   });
 });

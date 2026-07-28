@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 import { Command, CommanderError } from "commander";
 import os from "node:os";
-import { constants, promises } from "node:fs";
+import { constants, promises, readFileSync, unlinkSync } from "node:fs";
 import * as path$1 from "node:path";
 import path from "node:path";
 import { z } from "zod";
 import { createHash, randomBytes } from "node:crypto";
 import { execFileSync, spawn } from "node:child_process";
-import { O_APPEND, O_CREAT, O_EXCL, O_WRONLY } from "node:constants";
+import { O_APPEND, O_CREAT, O_WRONLY } from "node:constants";
 import * as fsp from "node:fs/promises";
 import picomatch from "picomatch";
 import { isDeepStrictEqual } from "node:util";
@@ -1940,7 +1940,7 @@ const ERROR_CATALOG = {
 	LOCK_TIMEOUT: {
 		exit_code: 2,
 		message_template: "could not acquire .loaf/<feature>/.lock within {timeout_seconds}s",
-		fix_template: "another loaf process is holding the lock (see LOCK_HELD_BY for details); wait for it to release, or run `loaf doctor` to unlink the lock if its PID has exited",
+		fix_template: "another loaf process is holding the feature lease; wait for it to release. A later writer automatically reclaims a lease only when its PID is verifiably dead and the owner generation is unchanged; malformed leases fail closed and require inspection.",
 		template_keys: ["timeout_seconds"],
 		doc_anchor: "protocol.md#§11.2"
 	},
@@ -2603,14 +2603,6 @@ const ERROR_CATALOG = {
 			"spec_version"
 		],
 		doc_anchor: "protocol.md#§10.15"
-	},
-	WRITE_CONTENTION: {
-		exit_code: 2,
-		message_template: "another writer holds the per-feature lock at {lock_path}; retry after it releases",
-		zh_message_template: "另一个写入者正持有该 feature 的锁 {lock_path};待其释放后重试",
-		fix_template: "a concurrent `loaf` invocation is mid-write on this feature — retry once it finishes. If no writer is active, a prior run crashed mid-write: remove the stale `.lock` and run `loaf doctor` to verify journal integrity.",
-		template_keys: ["lock_path"],
-		doc_anchor: "protocol.md#§11.2"
 	},
 	FINDING_AMEND_SPEC_NOT_LOCKED: {
 		exit_code: 2,
@@ -6010,6 +6002,187 @@ async function writeAttachment(featureDir, owner, field, content, opts = {}) {
 	};
 }
 //#endregion
+//#region src/core/feature-write-lease.ts
+const FeatureLeaseFile = z.object({
+	pid: z.number().int().positive(),
+	acquired_at: z.string().datetime(),
+	operation: z.string().min(1).max(200),
+	owner: z.string().regex(/^[0-9a-f]{32}$/)
+}).strict();
+var FeatureWriteLeaseError = class extends Error {
+	code;
+	lockPath;
+	holder;
+	constructor(code, message, lockPath, holder) {
+		super(message);
+		this.code = code;
+		this.lockPath = lockPath;
+		this.holder = holder;
+		this.name = "FeatureWriteLeaseError";
+	}
+};
+const DEFAULT_TIMEOUT_MS = 3e4;
+const DEFAULT_RETRY_DELAY_MS$1 = 20;
+const DEFAULT_LEGACY_STALE_MS = 3e4;
+const activeOwners = /* @__PURE__ */ new Map();
+function defaultIsPidAlive(pid) {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (error) {
+		const code = error.code;
+		if (code === "ESRCH") return false;
+		if (code === "EPERM") return true;
+		throw error;
+	}
+}
+async function observe(lockPath) {
+	let before;
+	let raw;
+	let after;
+	try {
+		before = await promises.stat(lockPath);
+		raw = await promises.readFile(lockPath, "utf8");
+		after = await promises.stat(lockPath);
+	} catch (error) {
+		if (error.code === "ENOENT") return { kind: "missing" };
+		throw error;
+	}
+	if (before.dev !== after.dev || before.ino !== after.ino || before.mtimeMs !== after.mtimeMs || before.size !== after.size) return await observe(lockPath);
+	const identity = {
+		dev: after.dev,
+		ino: after.ino,
+		mtimeMs: after.mtimeMs,
+		size: after.size
+	};
+	if (raw.length === 0) return {
+		kind: "legacy-empty",
+		raw,
+		identity
+	};
+	try {
+		const parsed = FeatureLeaseFile.safeParse(JSON.parse(raw));
+		return parsed.success ? {
+			kind: "valid",
+			raw,
+			metadata: parsed.data,
+			identity
+		} : {
+			kind: "invalid",
+			raw,
+			identity
+		};
+	} catch {
+		return {
+			kind: "invalid",
+			raw,
+			identity
+		};
+	}
+}
+async function createLease(lockPath, metadata, fsync) {
+	let handle;
+	let created = false;
+	try {
+		handle = await promises.open(lockPath, "wx", 384);
+		created = true;
+		await handle.writeFile(JSON.stringify(metadata));
+		if (fsync) await handle.sync();
+		await handle.close();
+		handle = void 0;
+		await promises.chmod(lockPath, 384);
+	} catch (error) {
+		if (handle) await handle.close().catch(() => {});
+		if (created) await promises.unlink(lockPath).catch(() => {});
+		throw error;
+	}
+}
+async function unlinkIfUnchanged(lockPath, observed) {
+	const current = await observe(lockPath);
+	if ((current.kind === "valid" || current.kind === "legacy-empty" || current.kind === "invalid") && current.raw === observed.raw && current.identity.dev === observed.identity.dev && current.identity.ino === observed.identity.ino && current.identity.mtimeMs === observed.identity.mtimeMs && current.identity.size === observed.identity.size) {
+		await promises.unlink(lockPath).catch((error) => {
+			if (error.code !== "ENOENT") throw error;
+		});
+		return true;
+	}
+	return false;
+}
+async function acquireFeatureWriteLease(featureDir, operation, options = {}) {
+	const lockPath = path.join(featureDir, ".lock");
+	const now = options.now ?? (() => /* @__PURE__ */ new Date());
+	const pid = options.pid ?? process.pid;
+	const isPidAlive = options.isPidAlive ?? defaultIsPidAlive;
+	const sleep = options.sleep ?? ((delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs)));
+	const retryDelayMs = Math.max(1, options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS$1);
+	const timeoutMs = Math.max(0, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+	const legacyLockStaleMs = Math.max(0, options.legacyLockStaleMs ?? DEFAULT_LEGACY_STALE_MS);
+	const maxAttempts = Math.max(1, Math.ceil(timeoutMs / retryDelayMs) + 1);
+	const metadata = FeatureLeaseFile.parse({
+		pid,
+		acquired_at: now().toISOString(),
+		operation,
+		owner: randomBytes(16).toString("hex")
+	});
+	let attempts = 0;
+	let lastHolder;
+	while (attempts < maxAttempts) {
+		try {
+			await createLease(lockPath, metadata, options.fsync ?? true);
+			const confirmed = await observe(lockPath);
+			if (confirmed.kind === "valid" && confirmed.metadata.owner === metadata.owner) {
+				activeOwners.set(lockPath, metadata.owner);
+				let released = false;
+				return {
+					path: lockPath,
+					owner: metadata.owner,
+					metadata,
+					release: async () => {
+						if (released) return;
+						released = true;
+						activeOwners.delete(lockPath);
+						const current = await observe(lockPath);
+						if (current.kind !== "valid" || current.metadata.owner !== metadata.owner) return;
+						await unlinkIfUnchanged(lockPath, current);
+					}
+				};
+			}
+		} catch (error) {
+			if (error.code !== "EEXIST") throw error;
+		}
+		const observed = await observe(lockPath);
+		attempts += 1;
+		if (observed.kind === "invalid") throw new FeatureWriteLeaseError("LOCK_INVALID", `feature write lease ${lockPath} is malformed or incomplete; refusing recovery`, lockPath);
+		if (observed.kind === "valid") {
+			lastHolder = observed.metadata;
+			if (!isPidAlive(observed.metadata.pid)) {
+				const current = await observe(lockPath);
+				if (current.kind === "valid" && current.raw === observed.raw && !isPidAlive(current.metadata.pid)) {
+					await unlinkIfUnchanged(lockPath, observed);
+					continue;
+				}
+			}
+		} else if (observed.kind === "legacy-empty" && now().getTime() - observed.identity.mtimeMs >= legacyLockStaleMs) {
+			await unlinkIfUnchanged(lockPath, observed);
+			continue;
+		}
+		if (attempts < maxAttempts) await sleep(retryDelayMs);
+	}
+	throw new FeatureWriteLeaseError("LOCK_TIMEOUT", lastHolder ? `feature write lease held by live PID ${lastHolder.pid} during ${lastHolder.operation}` : `could not acquire feature write lease ${lockPath} within ${timeoutMs}ms`, lockPath, lastHolder);
+}
+/**
+* The CLI's first SIGINT exits synchronously, so async `finally` blocks cannot
+* run. This hook performs a best-effort owner-token check before unlinking
+* leases held by this process. Foreign successor generations are preserved.
+*/
+function releaseFeatureWriteLeasesForSignalSync() {
+	for (const [lockPath, owner] of activeOwners) try {
+		const parsed = FeatureLeaseFile.safeParse(JSON.parse(readFileSync(lockPath, "utf8")));
+		if (parsed.success && parsed.data.owner === owner) unlinkSync(lockPath);
+	} catch {} finally {
+		activeOwners.delete(lockPath);
+	}
+}
+//#endregion
 //#region src/core/journal-append.ts
 async function readJournalTail(filePath) {
 	let text;
@@ -6039,6 +6212,33 @@ async function readJournalTail(filePath) {
 		fileSize,
 		tailLine: lastLine
 	};
+}
+async function assertJournalTailMatchesMeta(filePath, priorMeta) {
+	const tail = await readJournalTail(filePath);
+	const { tailSeq, fileSize, tailLine } = tail;
+	if (tailSeq === -1) {
+		if (!isEmptyMeta(priorMeta)) throw new AppendError("PRIOR_META_STALE", "journal tail is empty (seq -1) but priorMeta is not the empty sentinel; a non-empty prior meta would corrupt the post-append rolling checksum", {
+			meta_seq: priorMeta.last_applied_seq,
+			tail_seq: tailSeq
+		});
+		return tail;
+	}
+	if (priorMeta.last_applied_seq !== tailSeq) throw new AppendError("PRIOR_META_STALE", `priorMeta.last_applied_seq=${priorMeta.last_applied_seq} but journal tail seq=${tailSeq}; the prior meta does not describe the current journal tail`, {
+		meta_seq: priorMeta.last_applied_seq,
+		tail_seq: tailSeq
+	});
+	if (tailLine === null) throw new AppendError("TAIL_CORRUPTION", `journal tail seq=${tailSeq} but no readable tail line; rebuild required`, { tail_seq: tailSeq });
+	if (computeLineHash(tailLine) !== priorMeta.last_entry_line_hash) throw new AppendError("PRIOR_META_STALE", "priorMeta.last_entry_line_hash does not match the journal tail line; the prior meta does not describe the current journal tail", {
+		meta_seq: priorMeta.last_applied_seq,
+		tail_seq: tailSeq
+	});
+	const expectedTailOffset = fileSize - Buffer.byteLength(tailLine + "\n", "utf8");
+	if (priorMeta.last_entry_offset !== expectedTailOffset) throw new AppendError("PRIOR_META_STALE", `priorMeta.last_entry_offset=${priorMeta.last_entry_offset} but the journal tail line starts at byte ${expectedTailOffset}; the prior meta does not describe the current journal tail`, {
+		meta_offset: priorMeta.last_entry_offset,
+		expected_offset: expectedTailOffset,
+		tail_seq: tailSeq
+	});
+	return tail;
 }
 var AppendError = class extends Error {
 	code;
@@ -6082,29 +6282,7 @@ var AppendError = class extends Error {
 async function appendMany(filePath, entries, priorMeta, opts = {}) {
 	if (entries.length === 0) throw new AppendError("INVALID_ENVELOPE", "appendMany called with empty entries array; pass at least one entry", { entries_length: 0 });
 	const fsyncEnabled = opts.fsync ?? true;
-	const { tailSeq, fileSize, tailLine } = await readJournalTail(filePath);
-	if (tailSeq === -1) {
-		if (!isEmptyMeta(priorMeta)) throw new AppendError("PRIOR_META_STALE", "journal tail is empty (seq -1) but priorMeta is not the empty sentinel; a non-empty prior meta would corrupt the post-append rolling checksum", {
-			meta_seq: priorMeta.last_applied_seq,
-			tail_seq: tailSeq
-		});
-	} else {
-		if (priorMeta.last_applied_seq !== tailSeq) throw new AppendError("PRIOR_META_STALE", `priorMeta.last_applied_seq=${priorMeta.last_applied_seq} but journal tail seq=${tailSeq}; the prior meta does not describe the current journal tail`, {
-			meta_seq: priorMeta.last_applied_seq,
-			tail_seq: tailSeq
-		});
-		if (tailLine === null) throw new AppendError("TAIL_CORRUPTION", `journal tail seq=${tailSeq} but no readable tail line; rebuild required`, { tail_seq: tailSeq });
-		if (computeLineHash(tailLine) !== priorMeta.last_entry_line_hash) throw new AppendError("PRIOR_META_STALE", "priorMeta.last_entry_line_hash does not match the journal tail line; the prior meta does not describe the current journal tail", {
-			meta_seq: priorMeta.last_applied_seq,
-			tail_seq: tailSeq
-		});
-		const expectedTailOffset = fileSize - Buffer.byteLength(tailLine + "\n", "utf8");
-		if (priorMeta.last_entry_offset !== expectedTailOffset) throw new AppendError("PRIOR_META_STALE", `priorMeta.last_entry_offset=${priorMeta.last_entry_offset} but the journal tail line starts at byte ${expectedTailOffset}; the prior meta does not describe the current journal tail`, {
-			meta_offset: priorMeta.last_entry_offset,
-			expected_offset: expectedTailOffset,
-			tail_seq: tailSeq
-		});
-	}
+	const { tailSeq, fileSize } = await assertJournalTailMatchesMeta(filePath, priorMeta);
 	let nextExpected = tailSeq + 1;
 	const lineBuffers = [];
 	const lineStrings = [];
@@ -6953,7 +7131,6 @@ var en_default = {
 		"TASK_ABANDON_BLOCKED_DEPENDENTS": "task {task_id} cannot be abandoned: non-terminal task(s) {blocking_dependents} depend on it; abandon or complete the dependents first",
 		"SESSION_REASON_REQUIRED": "{kind}: --reason is required (the session-terminal entry must record why)",
 		"PROJECTION_WRITE_FAILED": "{projection} projection write failed after journal append at last_seq={last_seq} (spec_version={spec_version}): {error}",
-		"WRITE_CONTENTION": "another writer holds the per-feature lock at {lock_path}; retry after it releases",
 		"FINDING_AMEND_SPEC_NOT_LOCKED": "finding raise action=amend-spec requires state.spec_locked=true; spec is not locked at sub_state={current_sub_state}, edit directly via `loaf spec submit / add-*`",
 		"SPEC_VERSION_NOT_MONOTONIC": "{kind}: spec_version must be {expected_spec_version} (current+1), got {payload_spec_version}",
 		"SPEC_VERSION_BATCH_MISMATCH": "{kind}: spec_version must be {current_spec_version} at batch_index={batch_index}, got {payload_spec_version}",
@@ -7567,7 +7744,6 @@ var zh_default = {
 		"TASK_ABANDON_BLOCKED_DEPENDENTS": "task {task_id} 无法 abandon:非终态 task {blocking_dependents} 依赖它;先 abandon 或完成这些依赖方",
 		"SESSION_REASON_REQUIRED": "{kind}:必须提供 --reason(会话终态 entry 必须记录原因)",
 		"PROJECTION_WRITE_FAILED": "{projection} 派生投影在 journal append (last_seq={last_seq}, spec_version={spec_version}) 后写盘失败:{error}",
-		"WRITE_CONTENTION": "另一个写入者正持有该 feature 的锁 {lock_path};待其释放后重试",
 		"FINDING_AMEND_SPEC_NOT_LOCKED": "finding raise action=amend-spec 要求 state.spec_locked=true;当前 sub_state={current_sub_state} 下 spec 未锁,请直接使用 `loaf spec submit / add-*`",
 		"SPEC_VERSION_NOT_MONOTONIC": "{kind}: spec_version 必须等于 {expected_spec_version}(current+1),实际为 {payload_spec_version}",
 		"SPEC_VERSION_BATCH_MISMATCH": "{kind}: batch_index={batch_index} 处 spec_version 必须等于 {current_spec_version},实际为 {payload_spec_version}",
@@ -11232,6 +11408,41 @@ async function mutateBatch(partials, ctx) {
 		message: "mutateBatch called with empty partials array; pass at least one entry",
 		detail: { partials_length: 0 }
 	};
+	if (ctx.dryRun) try {
+		await promises.access(ctx.feature_dir);
+	} catch (error) {
+		if (error.code === "ENOENT") return await mutateBatchUnderLease(partials, ctx);
+		throw error;
+	}
+	let lease;
+	try {
+		lease = await acquireFeatureWriteLease(ctx.feature_dir, ctx.dryRun ? "mutate:dry-run" : "mutate", ctx.featureLease);
+	} catch (error) {
+		if (error instanceof FeatureWriteLeaseError) return {
+			ok: false,
+			code: "LOCK_TIMEOUT",
+			message: error.message,
+			detail: {
+				lock_path: error.lockPath,
+				lease_code: error.code,
+				...error.holder !== void 0 && { holder: error.holder }
+			}
+		};
+		throw error;
+	}
+	try {
+		return await mutateBatchUnderLease(partials, ctx);
+	} finally {
+		await lease.release();
+	}
+}
+async function mutateBatchUnderLease(partials, ctx) {
+	if (partials.length === 0) return {
+		ok: false,
+		code: "INVALID_BATCH",
+		message: "mutateBatch called with empty partials array; pass at least one entry",
+		detail: { partials_length: 0 }
+	};
 	const FORBIDDEN = [
 		"seq",
 		"entry_id",
@@ -11370,177 +11581,173 @@ async function mutateBatch(partials, ctx) {
 			empty_prefix_meta_bad: emptyPrefixMetaBad
 		}
 	};
+	try {
+		await assertJournalTailMatchesMeta(path.join(ctx.feature_dir, "journal.jsonl"), ctx.meta);
+	} catch (error) {
+		return {
+			ok: false,
+			code: "APPEND_ERROR",
+			message: error instanceof AppendError ? error.message : `journal tail check failed: ${error.message}`,
+			detail: {
+				code: error instanceof AppendError ? error.code : error.code ?? "TAIL_READ_FAILED",
+				...error instanceof AppendError ? error.detail ?? {} : {},
+				phase: "lease-tail-check"
+			}
+		};
+	}
 	if (ctx.dryRun) return {
 		ok: true,
 		snapshot: snapshotAcc,
 		entries: candidates,
 		meta: ctx.meta
 	};
-	const lockPath = path.join(ctx.feature_dir, ".lock");
-	let lockFh;
-	try {
-		lockFh = await promises.open(lockPath, O_CREAT | O_EXCL | O_WRONLY, 420);
+	const promoted = [];
+	for (let i = 0; i < candidates.length; i++) try {
+		const p = await promoteSidecars(candidates[i], ctx.feature_dir, { fsync: ctx.fsync ?? true });
+		promoted.push(p);
 	} catch (err) {
-		if (err.code === "EEXIST") return {
+		return {
 			ok: false,
-			code: "WRITE_CONTENTION",
-			message: `another writer holds the per-feature lock at ${lockPath}; retry after it releases (if no writer is active, a prior run crashed mid-write — remove the lock and run 'loaf doctor')`,
-			detail: { lock_path: lockPath }
+			code: "SIDECAR_ERROR",
+			message: `sidecar finalize failed: ${String(err)}`,
+			failed_index: i,
+			detail: { err: String(err) }
 		};
-		throw err;
 	}
-	try {
-		const promoted = [];
-		for (let i = 0; i < candidates.length; i++) try {
-			const p = await promoteSidecars(candidates[i], ctx.feature_dir, { fsync: ctx.fsync ?? true });
-			promoted.push(p);
-		} catch (err) {
-			return {
-				ok: false,
-				code: "SIDECAR_ERROR",
-				message: `sidecar finalize failed: ${String(err)}`,
-				failed_index: i,
-				detail: { err: String(err) }
-			};
-		}
-		let finalSnapshot = structuredClone(ctx.snapshot);
-		for (let i = 0; i < promoted.length; i++) {
-			const entry = promoted[i];
-			if (!isBootstrapEntry(entry)) {
-				const pre = preflight(entry, {
-					snapshot: finalSnapshot,
-					tail_seq: ctx.tail_seq + i
-				});
-				if (!pre.ok) return {
-					ok: false,
-					code: "REDUCER_ERROR",
-					message: `final dry-run on promoted entries failed at index ${i}: ${pre.message}`,
-					failed_index: i,
-					detail: {
-						code: pre.code,
-						phase: "post-sidecar",
-						...pre.detail ?? {}
-					}
-				};
-				if (finalSnapshot.state === null) return noSessionResult(entry, i);
-			}
-			const dryRun = applyValidated(finalSnapshot, entry);
-			if (!dryRun.ok) return {
+	let finalSnapshot = structuredClone(ctx.snapshot);
+	for (let i = 0; i < promoted.length; i++) {
+		const entry = promoted[i];
+		if (!isBootstrapEntry(entry)) {
+			const pre = preflight(entry, {
+				snapshot: finalSnapshot,
+				tail_seq: ctx.tail_seq + i
+			});
+			if (!pre.ok) return {
 				ok: false,
 				code: "REDUCER_ERROR",
-				message: `final dry-run on promoted entries failed at index ${i}: ${dryRun.message}`,
+				message: `final dry-run on promoted entries failed at index ${i}: ${pre.message}`,
 				failed_index: i,
 				detail: {
-					code: dryRun.code,
+					code: pre.code,
 					phase: "post-sidecar",
-					...dryRun.detail ?? {}
+					...pre.detail ?? {}
 				}
 			};
-			finalSnapshot = dryRun.snapshot;
+			if (finalSnapshot.state === null) return noSessionResult(entry, i);
 		}
-		if (!isDeepStrictEqual(finalSnapshot, snapshotAcc)) return {
+		const dryRun = applyValidated(finalSnapshot, entry);
+		if (!dryRun.ok) return {
 			ok: false,
 			code: "REDUCER_ERROR",
-			message: "snapshot drift between unpromoted and promoted dry-runs — a reducer is reading LongTextField content; the batch is unsafe to append",
-			detail: { phase: "drift-check" }
+			message: `final dry-run on promoted entries failed at index ${i}: ${dryRun.message}`,
+			failed_index: i,
+			detail: {
+				code: dryRun.code,
+				phase: "post-sidecar",
+				...dryRun.detail ?? {}
+			}
 		};
-		const journalPath = path.join(ctx.feature_dir, "journal.jsonl");
-		let appendMeta;
+		finalSnapshot = dryRun.snapshot;
+	}
+	if (!isDeepStrictEqual(finalSnapshot, snapshotAcc)) return {
+		ok: false,
+		code: "REDUCER_ERROR",
+		message: "snapshot drift between unpromoted and promoted dry-runs — a reducer is reading LongTextField content; the batch is unsafe to append",
+		detail: { phase: "drift-check" }
+	};
+	const journalPath = path.join(ctx.feature_dir, "journal.jsonl");
+	let appendMeta;
+	try {
+		appendMeta = await appendMany(journalPath, promoted, ctx.meta, { fsync: ctx.fsync ?? true });
+	} catch (err) {
+		if (err instanceof AppendError) return {
+			ok: false,
+			code: "APPEND_ERROR",
+			message: err.message,
+			detail: {
+				code: err.code,
+				...err.detail ?? {}
+			}
+		};
+		return {
+			ok: false,
+			code: "APPEND_ERROR",
+			message: `append failed: ${String(err)}`,
+			detail: { err: String(err) }
+		};
+	}
+	if (promoted.some((entry) => SPEC_EMITTING_KINDS.has(entry.kind))) try {
+		await writeDerivedSpecMd(finalSnapshot, ctx.feature_dir);
+	} catch (err) {
+		const lastSeq = promoted[promoted.length - 1].seq;
+		return {
+			ok: false,
+			code: "PROJECTION_WRITE_FAILED",
+			message: `spec.md projection write failed after journal append at last_seq=${lastSeq} (spec_version=${finalSnapshot.state?.spec_version ?? "unknown"}); journal is authoritative — run 'loaf doctor --rebuild' to resync. Cause: ${err.message}`,
+			detail: {
+				projection: "spec.md",
+				path: path.join(ctx.feature_dir, "spec.md"),
+				journal_appended: true,
+				last_seq: lastSeq,
+				spec_version: finalSnapshot.state?.spec_version ?? null,
+				error: err.message
+			}
+		};
+	}
+	try {
+		await writeProjections(ctx.feature_dir, {
+			snapshot: finalSnapshot,
+			entries: ctx.entries.concat(promoted),
+			meta: appendMeta,
+			fsync: ctx.fsync ?? true
+		});
+	} catch (err) {
+		const lastSeq = promoted[promoted.length - 1].seq;
+		return {
+			ok: false,
+			code: "PROJECTION_WRITE_FAILED",
+			message: `snapshot projection write failed after journal append at last_seq=${lastSeq}; journal is authoritative — run 'loaf doctor --rebuild' to resync. Cause: ${err.message}`,
+			detail: {
+				projection: "snapshots",
+				path: path.join(ctx.feature_dir, "snapshots"),
+				journal_appended: true,
+				last_seq: lastSeq,
+				error: err.message
+			}
+		};
+	}
+	if (finalSnapshot.state?.session_id) {
+		let registryFile;
 		try {
-			appendMeta = await appendMany(journalPath, promoted, ctx.meta, { fsync: ctx.fsync ?? true });
-		} catch (err) {
-			if (err instanceof AppendError) return {
-				ok: false,
-				code: "APPEND_ERROR",
-				message: err.message,
-				detail: {
-					code: err.code,
-					...err.detail ?? {}
-				}
-			};
-			return {
-				ok: false,
-				code: "APPEND_ERROR",
-				message: `append failed: ${String(err)}`,
-				detail: { err: String(err) }
-			};
-		}
-		if (promoted.some((entry) => SPEC_EMITTING_KINDS.has(entry.kind))) try {
-			await writeDerivedSpecMd(finalSnapshot, ctx.feature_dir);
-		} catch (err) {
-			const lastSeq = promoted[promoted.length - 1].seq;
-			return {
-				ok: false,
-				code: "PROJECTION_WRITE_FAILED",
-				message: `spec.md projection write failed after journal append at last_seq=${lastSeq} (spec_version=${finalSnapshot.state?.spec_version ?? "unknown"}); journal is authoritative — run 'loaf doctor --rebuild' to resync. Cause: ${err.message}`,
-				detail: {
-					projection: "spec.md",
-					path: path.join(ctx.feature_dir, "spec.md"),
-					journal_appended: true,
-					last_seq: lastSeq,
-					spec_version: finalSnapshot.state?.spec_version ?? null,
-					error: err.message
-				}
-			};
-		}
-		try {
-			await writeProjections(ctx.feature_dir, {
+			registryFile = buildRegistryFile({
 				snapshot: finalSnapshot,
 				entries: ctx.entries.concat(promoted),
-				meta: appendMeta,
-				fsync: ctx.fsync ?? true
+				now: ctx.registryWriter?.now?.() ?? /* @__PURE__ */ new Date(),
+				cwd: ctx.registryWriter?.cwd?.() ?? process.cwd()
 			});
 		} catch (err) {
-			const lastSeq = promoted[promoted.length - 1].seq;
 			return {
 				ok: false,
 				code: "PROJECTION_WRITE_FAILED",
-				message: `snapshot projection write failed after journal append at last_seq=${lastSeq}; journal is authoritative — run 'loaf doctor --rebuild' to resync. Cause: ${err.message}`,
+				message: `registry derivation failed after journal append; journal is authoritative — run 'loaf doctor --rebuild-registry' (future). Cause: ${err.message}`,
 				detail: {
-					projection: "snapshots",
-					path: path.join(ctx.feature_dir, "snapshots"),
+					projection: "registry",
+					phase: "derivation",
 					journal_appended: true,
-					last_seq: lastSeq,
 					error: err.message
 				}
 			};
 		}
-		if (finalSnapshot.state?.session_id) {
-			let registryFile;
-			try {
-				registryFile = buildRegistryFile({
-					snapshot: finalSnapshot,
-					entries: ctx.entries.concat(promoted),
-					now: ctx.registryWriter?.now?.() ?? /* @__PURE__ */ new Date(),
-					cwd: ctx.registryWriter?.cwd?.() ?? process.cwd()
-				});
-			} catch (err) {
-				return {
-					ok: false,
-					code: "PROJECTION_WRITE_FAILED",
-					message: `registry derivation failed after journal append; journal is authoritative — run 'loaf doctor --rebuild-registry' (future). Cause: ${err.message}`,
-					detail: {
-						projection: "registry",
-						phase: "derivation",
-						journal_appended: true,
-						error: err.message
-					}
-				};
-			}
-			if (registryFile) try {
-				await writeRegistryFile(registryFile.session_id, registryFile, { ...ctx.registryWriter?.registryDir !== void 0 && { registryDir: ctx.registryWriter.registryDir } });
-			} catch {}
-		}
-		return {
-			ok: true,
-			snapshot: finalSnapshot,
-			entries: promoted,
-			meta: appendMeta
-		};
-	} finally {
-		await lockFh.close().catch(() => {});
-		await promises.unlink(lockPath).catch(() => {});
+		if (registryFile) try {
+			await writeRegistryFile(registryFile.session_id, registryFile, { ...ctx.registryWriter?.registryDir !== void 0 && { registryDir: ctx.registryWriter.registryDir } });
+		} catch {}
 	}
+	return {
+		ok: true,
+		snapshot: finalSnapshot,
+		entries: promoted,
+		meta: appendMeta
+	};
 }
 /**
 * Single-entry shorthand for `mutateBatch([partial], ctx)`. Returns the
@@ -13098,49 +13305,63 @@ function registerProfileConfig(program, ctx, mutator, actor, userConfigHomeDir) 
 		}
 		const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
 		ctx.recordTraceTarget(opts.feature, featureDir);
-		const journalPath = path.join(featureDir, "journal.jsonl");
-		const replay = await replayJournal(journalPath, {
-			collect_entries: true,
-			feature_dir: featureDir
-		});
-		if (!replay.ok) {
-			ctx.emitFailure(replay.code, `journal at ${journalPath} cannot be replayed — ${replay.message}`);
-			return;
-		}
-		const entries = replay.entries;
-		if (entries === void 0) {
-			ctx.emitFailure("DOCTOR_REBUILD_FAILED", "internal invariant: replay returned ok without collected entries");
-			return;
-		}
-		if (entries.some((e) => e.kind === "migration:snapshot_imported")) {
-			ctx.emitFailure("DOCTOR_REBUILD_MIGRATED_UNSUPPORTED", "doctor --rebuild does not yet support v0.0.x-migrated journals (intersects doctor --migrate-v2)");
-			return;
-		}
-		let rebuilt;
+		let lease;
 		try {
-			rebuilt = await writeProjections(featureDir, {
-				snapshot: replay.snapshot,
-				entries,
-				meta: replay.meta
-			});
-		} catch (err) {
-			ctx.emitFailure("DOCTOR_REBUILD_FAILED", `snapshot rebuild failed — ${err.message}`);
-			return;
+			lease = await acquireFeatureWriteLease(featureDir, "doctor:rebuild");
+		} catch (error) {
+			if (error instanceof FeatureWriteLeaseError) {
+				ctx.emitFailure("LOCK_TIMEOUT", error.message);
+				return;
+			}
+			throw error;
 		}
-		const out = {
-			ok: true,
-			feature: opts.feature,
-			feature_dir: featureDir,
-			tail_seq: replay.meta.last_applied_seq,
-			rebuilt
-		};
-		ctx.success(out, (i18n) => i18n.t(rebuilt.length === 1 ? SUCCESS_KEYS.doctorRebuildTextOne : SUCCESS_KEYS.doctorRebuildTextMany, {
-			count: rebuilt.length,
-			feature: opts.feature
-		}) + "\n" + rebuilt.map((f) => `  snapshots/${f}\n`).join("") + i18n.t(SUCCESS_KEYS.snapshotAsOfSeq, { seq: replay.meta.last_applied_seq }) + "\n", (i18n) => ({ stateChange: i18n.t(rebuilt.length === 1 ? SUCCESS_KEYS.doctorRebuildStateChangeOne : SUCCESS_KEYS.doctorRebuildStateChangeMany, {
-			count: rebuilt.length,
-			feature: opts.feature
-		}) }));
+		try {
+			const journalPath = path.join(featureDir, "journal.jsonl");
+			const replay = await replayJournal(journalPath, {
+				collect_entries: true,
+				feature_dir: featureDir
+			});
+			if (!replay.ok) {
+				ctx.emitFailure(replay.code, `journal at ${journalPath} cannot be replayed — ${replay.message}`);
+				return;
+			}
+			const entries = replay.entries;
+			if (entries === void 0) {
+				ctx.emitFailure("DOCTOR_REBUILD_FAILED", "internal invariant: replay returned ok without collected entries");
+				return;
+			}
+			if (entries.some((e) => e.kind === "migration:snapshot_imported")) {
+				ctx.emitFailure("DOCTOR_REBUILD_MIGRATED_UNSUPPORTED", "doctor --rebuild does not yet support v0.0.x-migrated journals (intersects doctor --migrate-v2)");
+				return;
+			}
+			let rebuilt;
+			try {
+				rebuilt = await writeProjections(featureDir, {
+					snapshot: replay.snapshot,
+					entries,
+					meta: replay.meta
+				});
+			} catch (err) {
+				ctx.emitFailure("DOCTOR_REBUILD_FAILED", `snapshot rebuild failed — ${err.message}`);
+				return;
+			}
+			const out = {
+				ok: true,
+				feature: opts.feature,
+				feature_dir: featureDir,
+				tail_seq: replay.meta.last_applied_seq,
+				rebuilt
+			};
+			ctx.success(out, (i18n) => i18n.t(rebuilt.length === 1 ? SUCCESS_KEYS.doctorRebuildTextOne : SUCCESS_KEYS.doctorRebuildTextMany, {
+				count: rebuilt.length,
+				feature: opts.feature
+			}) + "\n" + rebuilt.map((f) => `  snapshots/${f}\n`).join("") + i18n.t(SUCCESS_KEYS.snapshotAsOfSeq, { seq: replay.meta.last_applied_seq }) + "\n", (i18n) => ({ stateChange: i18n.t(rebuilt.length === 1 ? SUCCESS_KEYS.doctorRebuildStateChangeOne : SUCCESS_KEYS.doctorRebuildStateChangeMany, {
+				count: rebuilt.length,
+				feature: opts.feature
+			}) }));
+		} finally {
+			await lease.release();
+		}
 	});
 }
 z.discriminatedUnion("kind", [
@@ -14191,38 +14412,52 @@ function registerTerminalSettle(program, ctx, mutator, actor) {
 		if (humanActor === null) return;
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
-		const session = await loadSession(featureDir, { ensureDir: false });
-		if (!session.snapshot.state) {
-			ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
-			return;
+		let lease;
+		try {
+			lease = await acquireFeatureWriteLease(featureDir, "handoff");
+		} catch (error) {
+			if (error instanceof FeatureWriteLeaseError) {
+				ctx.emitFailure("LOCK_TIMEOUT", error.message);
+				return;
+			}
+			throw error;
 		}
-		const pack = buildResumePack({
-			snapshot: session.snapshot,
-			entries: session.entries,
-			at: (/* @__PURE__ */ new Date()).toISOString(),
-			reason: opts.reason,
-			...opts.notes !== void 0 && { notes: opts.notes }
-		});
-		const parse = ResumePack.safeParse(pack);
-		if (!parse.success) {
-			ctx.failureKeyed("SCHEMA_VALIDATION_FAILED", FAILURE_SITE_KEYS.handoffPackValidationFailed, {}, {
-				subcode: "zod",
-				issues: parse.error.issues
+		try {
+			const session = await loadSession(featureDir, { ensureDir: false });
+			if (!session.snapshot.state) {
+				ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+				return;
+			}
+			const pack = buildResumePack({
+				snapshot: session.snapshot,
+				entries: session.entries,
+				at: (/* @__PURE__ */ new Date()).toISOString(),
+				reason: opts.reason,
+				...opts.notes !== void 0 && { notes: opts.notes }
 			});
-			return;
+			const parse = ResumePack.safeParse(pack);
+			if (!parse.success) {
+				ctx.failureKeyed("SCHEMA_VALIDATION_FAILED", FAILURE_SITE_KEYS.handoffPackValidationFailed, {}, {
+					subcode: "zod",
+					issues: parse.error.issues
+				});
+				return;
+			}
+			const snapshotsDir = path.join(featureDir, "snapshots");
+			await promises.mkdir(snapshotsDir, { recursive: true });
+			const packPath = path.join(snapshotsDir, "resume-pack.json");
+			const tmpPath = packPath + ".tmp";
+			await promises.writeFile(tmpPath, JSON.stringify(pack, null, 2) + "\n");
+			await promises.rename(tmpPath, packPath);
+			ctx.success({
+				ok: true,
+				feature: opts.feature,
+				pack_path: packPath,
+				session_id: pack.session_id
+			}, () => `${packPath}\n`, (i18n) => ({ stateChange: i18n.t(SUCCESS_KEYS.handoffStateChange, { actor: humanActor }) }));
+		} finally {
+			await lease.release();
 		}
-		const snapshotsDir = path.join(featureDir, "snapshots");
-		await promises.mkdir(snapshotsDir, { recursive: true });
-		const packPath = path.join(snapshotsDir, "resume-pack.json");
-		const tmpPath = packPath + ".tmp";
-		await promises.writeFile(tmpPath, JSON.stringify(pack, null, 2) + "\n");
-		await promises.rename(tmpPath, packPath);
-		ctx.success({
-			ok: true,
-			feature: opts.feature,
-			pack_path: packPath,
-			session_id: pack.session_id
-		}, () => `${packPath}\n`, (i18n) => ({ stateChange: i18n.t(SUCCESS_KEYS.handoffStateChange, { actor: humanActor }) }));
 	});
 }
 //#endregion
@@ -18882,6 +19117,7 @@ function registerPrune(program, ctx, deps) {
 let _sigintInstalled = false;
 function installSigintHandler(deps) {
 	const handler = () => {
+		releaseFeatureWriteLeasesForSignalSync();
 		deps.writeStderr("\nloaf: interrupted (SIGINT)\n");
 		deps.exit(130);
 	};
