@@ -2,6 +2,7 @@ import type { Command } from "commander";
 
 import type { CommandContext } from "../command-context.js";
 import type { CommandMutator } from "../command-mutator.js";
+import type { JsonInputIngestor } from "../input-ingestion.js";
 import { registerTaskAdd, registerTaskAmend, registerTaskSubmit } from "./tasks/authoring.js";
 import {
   registerTaskAbandon,
@@ -19,8 +20,7 @@ export function registerTasks(
   ctx: CommandContext,
   mutator: CommandMutator,
   actor: string,
-  isStdinTty: () => boolean,
-  readStdin: () => Promise<string>,
+  input: JsonInputIngestor,
 ): { tasksCmd: Command } {
   const tasksCmd = program
     .command("tasks")
@@ -29,8 +29,7 @@ export function registerTasks(
     ctx,
     mutator,
     actor,
-    isStdinTty,
-    readStdin,
+    input,
   };
 
   // Commander help and resolution depend on this exact registration order.

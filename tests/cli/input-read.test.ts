@@ -1,8 +1,6 @@
-// Phase 16 SC-3 — readJsonInput (IO + JSON parse + error mapping).
+// Canonical JSON input ingestion (classification + policy + IO + diagnostics).
 //
-// Companion to parseInputSource — handles the IO side of protocol §10.7
-// `--input <-|inline|path>`. Codex r206 PATCH F: classification and
-// reading are deliberately separated so neither becomes a shallow module.
+// Covers the complete protocol §10.7 `--input <-|inline|path>` boundary.
 //
 // DI'd: readFile + readStdin + JSON.parse implicit. Returns a typed
 // success/failure shape rather than throwing — failures map to catalog
@@ -14,28 +12,75 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
-import { parseInputSource } from "../../src/cli/input-source.js";
-import { readJsonInput, type ReadJsonInputDeps } from "../../src/cli/input-read.js";
+import type { CommandContext } from "../../src/cli/command-context.js";
+import {
+  createJsonInputIngestor,
+  type JsonInputDeclaration,
+  type JsonInputIngestorDeps,
+} from "../../src/cli/input-ingestion.js";
 
 async function tmpDir(): Promise<string> {
   return await fs.mkdtemp(path.join(os.tmpdir(), "loaf-input-read-"));
 }
 
-const NEVER_STDIN: ReadJsonInputDeps["readStdin"] = async () => {
+const NEVER_STDIN: JsonInputIngestorDeps["readStdin"] = async () => {
   throw new Error("readStdin should not be called in this test");
 };
 
-describe("Phase 16 SC-3 — readJsonInput (IO + parse)", () => {
+const DECLARATION: JsonInputDeclaration = {
+  command: "loaf test",
+  helpPrefix: "JSON source",
+  inlineLabel: "inline JSON",
+  stdinExpectation: "piped input",
+};
+
+type Failure = {
+  route: "failure" | "emit-failure";
+  code: string;
+  message: string;
+  detail?: Record<string, unknown>;
+};
+
+function recordingContext(failures: Failure[]): CommandContext {
+  return {
+    failure(code: string, message: string, detail?: Record<string, unknown>): void {
+      failures.push({
+        route: "failure",
+        code,
+        message,
+        ...(detail === undefined ? {} : { detail }),
+      });
+    },
+    emitFailure(code: string, message: string, detail?: Record<string, unknown>): void {
+      failures.push({
+        route: "emit-failure",
+        code,
+        message,
+        ...(detail === undefined ? {} : { detail }),
+      });
+    },
+  } as unknown as CommandContext;
+}
+
+function ingestor(
+  overrides: Partial<JsonInputIngestorDeps> = {},
+): ReturnType<typeof createJsonInputIngestor> {
+  return createJsonInputIngestor({
+    readStdin: NEVER_STDIN,
+    isStdinTty: () => false,
+    ...overrides,
+  });
+}
+
+describe("JSON input ingestion", () => {
   test("inline JSON object → parsed value", async () => {
-    const source = parseInputSource('{"foo":1,"bar":"baz"}');
-    const r = await readJsonInput(source, { readStdin: NEVER_STDIN });
+    const r = await ingestor().readJson(recordingContext([]), '{"foo":1,"bar":"baz"}', DECLARATION);
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.value).toEqual({ foo: 1, bar: "baz" });
   });
 
   test("inline JSON array → parsed value", async () => {
-    const source = parseInputSource("[1,2,3]");
-    const r = await readJsonInput(source, { readStdin: NEVER_STDIN });
+    const r = await ingestor().readJson(recordingContext([]), "[1,2,3]", DECLARATION);
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.value).toEqual([1, 2, 3]);
   });
@@ -45,8 +90,7 @@ describe("Phase 16 SC-3 — readJsonInput (IO + parse)", () => {
     const filePath = path.join(dir, "req.json");
     await fs.writeFile(filePath, '{"id":"REQ-FOO-001"}', "utf8");
     try {
-      const source = parseInputSource(filePath);
-      const r = await readJsonInput(source, { readStdin: NEVER_STDIN });
+      const r = await ingestor().readJson(recordingContext([]), filePath, DECLARATION);
       expect(r.ok).toBe(true);
       if (r.ok) expect(r.value).toEqual({ id: "REQ-FOO-001" });
     } finally {
@@ -55,30 +99,37 @@ describe("Phase 16 SC-3 — readJsonInput (IO + parse)", () => {
   });
 
   test("file path that does not exist → { ok: false, code: INPUT_FILE_NOT_FOUND }", async () => {
-    const source = parseInputSource("/tmp/does/not/exist-loaf-sc3.json");
-    const r = await readJsonInput(source, { readStdin: NEVER_STDIN });
+    const failures: Failure[] = [];
+    const r = await ingestor().readJson(
+      recordingContext(failures),
+      "/tmp/does/not/exist-loaf-sc3.json",
+      DECLARATION,
+    );
     expect(r.ok).toBe(false);
-    if (!r.ok) {
-      expect(r.code).toBe("INPUT_FILE_NOT_FOUND");
-      expect(r.detail).toMatchObject({ path: "/tmp/does/not/exist-loaf-sc3.json" });
-    }
+    expect(failures).toEqual([
+      expect.objectContaining({
+        route: "failure",
+        code: "INPUT_FILE_NOT_FOUND",
+        detail: { path: "/tmp/does/not/exist-loaf-sc3.json" },
+      }),
+    ]);
   });
 
   test("inline malformed JSON → { ok: false, code: SCHEMA_VALIDATION_FAILED }", async () => {
-    const source = parseInputSource("{not json}");
-    const r = await readJsonInput(source, { readStdin: NEVER_STDIN });
+    const failures: Failure[] = [];
+    const r = await ingestor().readJson(recordingContext(failures), "{not json}", DECLARATION);
     expect(r.ok).toBe(false);
-    if (!r.ok) {
-      expect(r.code).toBe("SCHEMA_VALIDATION_FAILED");
-      expect(r.message).toMatch(/json/i);
-    }
+    expect(failures[0]).toMatchObject({
+      route: "failure",
+      code: "SCHEMA_VALIDATION_FAILED",
+      message: expect.stringMatching(/json/i),
+    });
   });
 
   test("stdin → readStdin invoked + parsed value returned", async () => {
-    const source = parseInputSource("-");
-    const r = await readJsonInput(source, {
+    const r = await ingestor({
       readStdin: async () => '{"from":"stdin"}',
-    });
+    }).readJson(recordingContext([]), "-", DECLARATION);
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.value).toEqual({ from: "stdin" });
   });
@@ -87,20 +138,59 @@ describe("Phase 16 SC-3 — readJsonInput (IO + parse)", () => {
     // Preserves the pre-SC-4b `loaf tasks submit -` / `loaf tasks add -`
     // stdin-read-failure semantic (cli.tsx emitted MISSING_INPUT for
     // readFileSync(0) throws). After SC-4b the same lane goes through
-    // readJsonInput which must propagate the same code. NOT mapped to
+    // JsonInputIngestor must propagate the same code. NOT mapped to
     // INPUT_FILE_NOT_FOUND (no file) or SCHEMA_VALIDATION_FAILED (no
     // JSON parse attempted) — codex r224 PATCH 4 distinct semantic.
-    const source = parseInputSource("-");
-    const r = await readJsonInput(source, {
+    const failures: Failure[] = [];
+    const r = await ingestor({
       readStdin: async () => {
         throw new Error("EAGAIN: stdin closed");
       },
-    });
+    }).readJson(recordingContext(failures), "-", DECLARATION);
     expect(r.ok).toBe(false);
-    if (!r.ok) {
-      expect(r.code).toBe("MISSING_INPUT");
-      expect(r.message).toMatch(/stdin/i);
-      expect(r.detail).toMatchObject({ cause: expect.stringContaining("EAGAIN") });
-    }
+    expect(failures[0]).toMatchObject({
+      route: "failure",
+      code: "MISSING_INPUT",
+      message: expect.stringMatching(/stdin/i),
+      detail: { cause: expect.stringContaining("EAGAIN") },
+    });
+  });
+
+  test("TTY stdin is rejected before read and uses declaration wording", async () => {
+    const failures: Failure[] = [];
+    let reads = 0;
+    const r = await ingestor({
+      isStdinTty: () => true,
+      readStdin: async () => {
+        reads += 1;
+        return "{}";
+      },
+    }).readJson(recordingContext(failures), "-", DECLARATION);
+
+    expect(r.ok).toBe(false);
+    expect(reads).toBe(0);
+    expect(failures[0]).toMatchObject({
+      route: "failure",
+      code: "USAGE",
+      message: expect.stringContaining("`loaf test --input -` expects piped input"),
+    });
+  });
+
+  test("missing optional input uses the declaration's route and message", async () => {
+    const failures: Failure[] = [];
+    const declaration: JsonInputDeclaration = {
+      ...DECLARATION,
+      missing: { route: "emit-failure", message: "use --input or --schema" },
+    };
+    const r = await ingestor().readJson(recordingContext(failures), undefined, declaration);
+
+    expect(r.ok).toBe(false);
+    expect(failures).toEqual([
+      {
+        route: "emit-failure",
+        code: "MISSING_INPUT",
+        message: "use --input or --schema",
+      },
+    ]);
   });
 });

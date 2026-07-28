@@ -2048,11 +2048,11 @@ CLI **唯一** enforce 的 pending 阻塞规则(state-machine integrity):
 - **机器管道** → `echo '{...}' | loaf <cmd> --input -`(CI / shell 脚本)
 - **单条 ad-hoc** → `loaf <cmd> --input '{"...":"..."}'`(手工 / 一次性)
 
-机器契约位于 `src/cli/input-source.ts::InputSourceResolver`(discriminated union: `stdin` / `inline` / `file`),读取边界位于 `src/cli/input-read.ts`(`readJsonInput`,IO+JSON parse+error mapping)。
+机器契约与读取边界统一位于 `src/cli/input-ingestion.ts`：`InputSourceResolver` 定义 `stdin` / `inline` / `file` discriminated union，`JsonInputIngestor` 统一负责 TTY/no-input policy、IO、JSON parse 和 error mapping。
 
 **两层契约严格分开**(Phase 16 SC-4b 后明确):
 
-1. **Source-resolution consumers**(`--input <src>` 三选一通用)—— 9 个命令(Phase 16 SC-4a/SC-4b/SC-4c + issue #18A):`spec:submit` + `spec:edit` + `spec:add-req` / `spec:add-scenario` / `spec:add-visual` + `tasks:submit` + `tasks:add` + `tasks:amend --input` + `evidence:add`。所有 9 个共享 `parseInputSource` + `readJsonInput` 的 source 三选一。
+1. **Source-resolution consumers**(`--input <src>` 三选一通用)—— 9 个命令(Phase 16 SC-4a/SC-4b/SC-4c + issue #18A):`spec:submit` + `spec:edit` + `spec:add-req` / `spec:add-scenario` / `spec:add-visual` + `tasks:submit` + `tasks:add` + `tasks:amend --input` + `evidence:add`。所有 9 个共享 `JsonInputIngestor` 的 source 三选一、TTY/no-input policy、读取与 diagnostic mapping。
 2. **Batch-capable input schemas**(在 `INPUT_SCHEMAS` 注册)—— 5 个命令:`spec:add-req` / `spec:add-scenario` / `spec:add-visual` + `tasks:add` + `evidence:add`。这 5 个的 input schema 接 single object **或** 非空数组(batch 三纪律见 §11.2)。
 3. **不在 batch list 但在 source list 的 4 个命令**:`spec:submit`(whole-replacement,single object 含 N 嵌入 array)+ `spec:edit`(strict `{body:string}`,body-only)+ `tasks:submit`(whole-graph,single object 含 tasks 数组,但 caller 不传顶层数组)+ `tasks:amend --input`(sponsored single id-less task replacement)。**这 4 个 caller 永远不传顶层 array**。
 

@@ -11,42 +11,53 @@ import {
   materializeTaskInput,
   type TaskFullPayload,
 } from "../../../core/task-schema.js";
-import { parseInputSource } from "../../input-source.js";
-import { readJsonInput } from "../../input-read.js";
+import { jsonInputHelp, type JsonInputDeclaration } from "../../input-ingestion.js";
 import { FAILURE_SITE_KEYS, SUCCESS_KEYS } from "../../runtime-i18n-keys.js";
 import { buildNextAdvisory, pendingKindsForNext } from "../../next-advisory.js";
 import type { TasksRegistrationDeps } from "./types.js";
 
+const TASKS_SUBMIT_INPUT: JsonInputDeclaration = {
+  command: "loaf tasks submit",
+  helpPrefix: "JSON source",
+  inlineLabel: "inline JSON literal",
+  helpSuffix: " (protocol §10.7). Whole-graph single object only.",
+  stdinExpectation: "piped input",
+};
+
+const TASKS_ADD_INPUT: JsonInputDeclaration = {
+  command: "loaf tasks add",
+  helpPrefix: "JSON source for TaskInput (single object or array)",
+  inlineLabel: "inline JSON",
+  helpSuffix: " (protocol §10.7)",
+  stdinExpectation: "piped input",
+  missing: {
+    message:
+      "loaf tasks add requires --input <src> (or pass --schema to dump the input JSON Schema)",
+    route: "emit-failure",
+  },
+};
+
+const TASKS_AMEND_INPUT: JsonInputDeclaration = {
+  command: "loaf tasks amend",
+  helpPrefix: "New id-less task definition for a sponsored graph replacement",
+  inlineLabel: "inline JSON",
+  helpText: "New id-less task definition for a sponsored graph replacement (JSON file or '-')",
+  stdinExpectation: "piped input",
+};
+
 export function registerTaskSubmit(tasksCmd: Command, deps: TasksRegistrationDeps): void {
-  const { ctx, mutator, actor, isStdinTty, readStdin } = deps;
+  const { ctx, mutator, actor, input } = deps;
   tasksCmd
     .command("submit")
     .description(
       "Submit a complete task graph from --input <src> (stdin / inline JSON / file path; whole-graph single object)",
     )
-    .requiredOption(
-      "--input <src>",
-      "JSON source: `-` (stdin), inline JSON literal, or file path (protocol §10.7). Whole-graph single object only.",
-    )
+    .requiredOption("--input <src>", jsonInputHelp(TASKS_SUBMIT_INPUT))
     .option("--feature <name>", "Feature whose task graph to submit")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { input: string; feature: string; featureDir?: string }) => {
-      // Phase 16 SC-4b — unified --input modality (protocol §10.7).
-      const source = parseInputSource(opts.input);
-      if (source.kind === "stdin" && isStdinTty()) {
-        ctx.failure(
-          "USAGE",
-          "stdin is TTY — `loaf tasks submit --input -` expects piped input. " +
-            "Pipe JSON via `... | loaf tasks submit --input -`, OR pass inline " +
-            "JSON / file path. Run --help for examples.",
-        );
-        return;
-      }
-      const read = await readJsonInput(source, { readStdin });
-      if (!read.ok) {
-        ctx.failure(read.code, read.message, read.detail);
-        return;
-      }
+      const read = await input.readJson(ctx, opts.input, TASKS_SUBMIT_INPUT);
+      if (!read.ok) return;
       const payload = read.value;
 
       const featureDir = await ctx.dispatchOrFail(opts);
@@ -125,16 +136,13 @@ export function registerTaskSubmit(tasksCmd: Command, deps: TasksRegistrationDep
 }
 
 export function registerTaskAdd(tasksCmd: Command, deps: TasksRegistrationDeps): void {
-  const { ctx, mutator, actor, isStdinTty, readStdin } = deps;
+  const { ctx, mutator, actor, input } = deps;
   tasksCmd
     .command("add")
     .description(
       "Append id-less task(s) to the graph — --input <src> with single object or array (batch); SPEC.design whole-graph, or EXECUTE.work sponsored via --finding",
     )
-    .option(
-      "--input <src>",
-      "JSON source for TaskInput (single object or array): `-` (stdin), inline JSON, or file path (protocol §10.7)",
-    )
+    .option("--input <src>", jsonInputHelp(TASKS_ADD_INPUT))
     .option("--schema", "Dump the input JSON Schema instead of mutating (Phase 16 SC-10)")
     .option("--feature <name>", "Feature whose task graph to extend")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
@@ -153,35 +161,15 @@ export function registerTaskAdd(tasksCmd: Command, deps: TasksRegistrationDeps):
           mutator.emitSchemaAndExit("tasks:add");
           return;
         }
-        if (rawOpts.input === undefined) {
-          ctx.emitFailure(
-            "MISSING_INPUT",
-            "loaf tasks add requires --input <src> (or pass --schema to dump the input JSON Schema)",
-          );
-          return;
-        }
+        if (!input.requireArg(ctx, rawOpts.input, TASKS_ADD_INPUT)) return;
         const opts = rawOpts as {
           input: string;
           feature: string;
           featureDir?: string;
           finding?: string;
         };
-        // Phase 16 SC-4b — unified --input modality (protocol §10.7).
-        const source = parseInputSource(opts.input);
-        if (source.kind === "stdin" && isStdinTty()) {
-          ctx.failure(
-            "USAGE",
-            "stdin is TTY — `loaf tasks add --input -` expects piped input. " +
-              "Pipe JSON via `... | loaf tasks add --input -`, OR pass inline " +
-              "JSON / file path. Run --help for examples.",
-          );
-          return;
-        }
-        const read = await readJsonInput(source, { readStdin });
-        if (!read.ok) {
-          ctx.failure(read.code, read.message, read.detail);
-          return;
-        }
+        const read = await input.readJson(ctx, opts.input, TASKS_ADD_INPUT);
+        if (!read.ok) return;
         const parsed = read.value;
 
         // Normalize to an array; validate each against the strict TaskInput
@@ -382,7 +370,7 @@ export function registerTaskAdd(tasksCmd: Command, deps: TasksRegistrationDeps):
 }
 
 export function registerTaskAmend(tasksCmd: Command, deps: TasksRegistrationDeps): void {
-  const { ctx, mutator, actor, isStdinTty, readStdin } = deps;
+  const { ctx, mutator, actor, input } = deps;
   tasksCmd
     .command("amend <task-id>")
     .description(
@@ -396,10 +384,7 @@ export function registerTaskAmend(tasksCmd: Command, deps: TasksRegistrationDeps
       (val: string, acc: string[]) => [...acc, val],
       [] as string[],
     )
-    .option(
-      "--input <file>",
-      "New id-less task definition for a sponsored graph replacement (JSON file or '-')",
-    )
+    .option("--input <file>", jsonInputHelp(TASKS_AMEND_INPUT))
     .option("--finding <FND-N>", "Sponsoring amend-tasks finding (required with --input)")
     .action(
       async (
@@ -449,22 +434,8 @@ export function registerTaskAmend(tasksCmd: Command, deps: TasksRegistrationDeps
         if (hasInput) {
           const inputPath = opts.input!;
           const findingId = opts.finding!;
-          // Phase 16 SC-4b — unified --input modality (protocol §10.7).
-          const source = parseInputSource(inputPath);
-          if (source.kind === "stdin" && isStdinTty()) {
-            ctx.failure(
-              "USAGE",
-              "stdin is TTY — `loaf tasks amend --input -` expects piped input. " +
-                "Pipe JSON via `... | loaf tasks amend --input -`, OR pass inline " +
-                "JSON / file path. Run --help for examples.",
-            );
-            return;
-          }
-          const read = await readJsonInput(source, { readStdin });
-          if (!read.ok) {
-            ctx.failure(read.code, read.message, read.detail);
-            return;
-          }
+          const read = await input.readJson(ctx, inputPath, TASKS_AMEND_INPUT);
+          if (!read.ok) return;
           const inParsed = read.value;
           const inTask = TaskInput.safeParse(inParsed);
           if (!inTask.success) {

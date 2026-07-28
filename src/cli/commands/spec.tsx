@@ -8,8 +8,11 @@ import { evaluateSpecLockFromSnapshot } from "../../core/gates/spec-lock-eval.js
 import { buildSpecSubmitBatch } from "../spec-submit-batch.js";
 import type { MutatorEntry } from "../mutator-entry.js";
 import type { MutatorCommand } from "../input-schemas.js";
-import { parseInputSource } from "../input-source.js";
-import { readJsonInput } from "../input-read.js";
+import {
+  jsonInputHelp,
+  type JsonInputDeclaration,
+  type JsonInputIngestor,
+} from "../input-ingestion.js";
 import { mapZodIssues } from "../check-file.js";
 import { runEditor as defaultRunEditor, type RunEditor } from "../run-editor.js";
 import { FRONTMATTER_RE, splitFrontmatter } from "../../core/spec-frontmatter.js";
@@ -32,6 +35,39 @@ interface SpecAddKindConfig {
   entryKind: "event:spec_req_added" | "event:spec_scenario_added" | "event:spec_visual_added";
   inputSchema: typeof SpecAddReqInput | typeof SpecAddScenarioInput | typeof SpecAddVisualInput;
   snapshotKey: "requirements" | "scenarios" | "visual_contracts";
+}
+
+const SPEC_SUBMIT_INPUT: JsonInputDeclaration = {
+  command: "loaf spec submit",
+  helpPrefix: "JSON source",
+  inlineLabel: "inline JSON literal",
+  helpSuffix: " (protocol §10.7)",
+  stdinExpectation: "piped input",
+};
+
+const SPEC_EDIT_INPUT: JsonInputDeclaration = {
+  command: "loaf spec edit",
+  helpPrefix: 'JSON {"body":"<Markdown>"} source',
+  inlineLabel: "inline JSON",
+  helpSuffix: "; preserves current frontmatter",
+  stdinExpectation: "piped JSON",
+  ttyMessage:
+    "stdin is TTY — `loaf spec edit --input -` expects piped JSON. " +
+    'Pipe {"body":"<Markdown>"} via stdin, or pass inline JSON / a file path.',
+};
+
+function specAddInputDeclaration(name: SpecAddKindConfig["name"]): JsonInputDeclaration {
+  return {
+    command: `loaf spec add-${name}`,
+    helpPrefix: `JSON source for SpecAdd${name[0]!.toUpperCase()}${name.slice(1)}Input (item or array)`,
+    inlineLabel: "inline JSON",
+    helpSuffix: " (protocol §10.7)",
+    stdinExpectation: "piped input",
+    missing: {
+      message: `loaf spec add-${name} requires --input <src> (or pass --schema to dump the input JSON Schema)`,
+      route: "emit-failure",
+    },
+  };
 }
 const REGISTER_SPEC_ADD: SpecAddKindConfig[] = [
   {
@@ -90,7 +126,7 @@ export function registerSpec(
   actor: string,
   isStdinTty: () => boolean,
   isStdoutTty: () => boolean,
-  readStdin: () => Promise<string>,
+  inputIngestor: JsonInputIngestor,
   runEditorImpl: RunEditor | undefined,
 ): { specCmd: Command } {
   const resolvedRunEditor: RunEditor = runEditorImpl ?? defaultRunEditor;
@@ -152,10 +188,7 @@ export function registerSpec(
   specCmd
     .command("submit")
     .description("Whole-replacement spec submit from JSON --input (CLI fills spec_version)")
-    .requiredOption(
-      "--input <src>",
-      "JSON source: `-` (stdin), inline JSON literal, or file path (protocol §10.7)",
-    )
+    .requiredOption("--input <src>", jsonInputHelp(SPEC_SUBMIT_INPUT))
     .option("--feature <name>", "Feature whose spec to submit")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { input: string; feature: string; featureDir?: string }) => {
@@ -164,26 +197,8 @@ export function registerSpec(
       // + traceTarget in one call.
       const earlyFeatureDir = await ctx.dispatchOrFail(opts);
       if (earlyFeatureDir === null) return;
-      // Phase 16 SC-4a — unified --input modality (protocol §10.7 +
-      // ADR-0004 A11): parseInputSource discriminates stdin / inline /
-      // file; readJsonInput handles IO + JSON parse + error mapping;
-      // ctx.failure routes through the shared CommandContext.
-      const source = parseInputSource(opts.input);
-      // TTY no-hang guard per codex r212 PATCH 2 (protocol §10.1:1505).
-      if (source.kind === "stdin" && isStdinTty()) {
-        ctx.failure(
-          "USAGE",
-          "stdin is TTY — `loaf spec submit --input -` expects piped input. " +
-            "Pipe JSON via `... | loaf spec submit --input -`, OR pass inline " +
-            "JSON / file path. Run --help for examples.",
-        );
-        return;
-      }
-      const read = await readJsonInput(source, { readStdin });
-      if (!read.ok) {
-        ctx.failure(read.code, read.message, read.detail);
-        return;
-      }
+      const read = await inputIngestor.readJson(ctx, opts.input, SPEC_SUBMIT_INPUT);
+      if (!read.ok) return;
       const parsed = read.value;
       if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
         ctx.failure("USAGE", "spec submit --input expects a JSON object (SpecFrontmatter shape)");
@@ -433,10 +448,7 @@ export function registerSpec(
     .description(
       "Replace the spec.md body from --input or launch $EDITOR, validate, then emit event:spec_submitted",
     )
-    .option(
-      "--input <src>",
-      'JSON {"body":"<Markdown>"} source: `-` (stdin), inline JSON, or file path; preserves current frontmatter',
-    )
+    .option("--input <src>", jsonInputHelp(SPEC_EDIT_INPUT))
     .option("--feature <name>", "Feature whose spec.md to edit")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { input?: string; feature: string; featureDir?: string }) => {
@@ -498,20 +510,8 @@ export function registerSpec(
       }
       let afterContent: string;
       if (hasInput) {
-        const source = parseInputSource(opts.input!);
-        if (source.kind === "stdin" && isStdinTty()) {
-          ctx.failure(
-            "USAGE",
-            "stdin is TTY — `loaf spec edit --input -` expects piped JSON. " +
-              'Pipe {"body":"<Markdown>"} via stdin, or pass inline JSON / a file path.',
-          );
-          return;
-        }
-        const read = await readJsonInput(source, { readStdin });
-        if (!read.ok) {
-          ctx.failure(read.code, read.message, read.detail);
-          return;
-        }
+        const read = await inputIngestor.readJson(ctx, opts.input, SPEC_EDIT_INPUT);
+        if (!read.ok) return;
         const inputParse = SpecEditInput.safeParse(read.value);
         if (!inputParse.success) {
           ctx.emitFailure(
@@ -693,15 +693,13 @@ export function registerSpec(
         : cfg.name === "scenario"
           ? "spec:add-scenario"
           : "spec:add-visual";
+    const inputDeclaration = specAddInputDeclaration(cfg.name);
     specCmd
       .command(`add-${cfg.name}`)
       .description(
         `Add ${cfg.name} entries via id_namespace stamping (CLI allocates ${cfg.name.toUpperCase()} ids)`,
       )
-      .option(
-        "--input <src>",
-        `JSON source for SpecAdd${cfg.name[0]!.toUpperCase()}${cfg.name.slice(1)}Input (item or array): \`-\` (stdin), inline JSON, or file path (protocol §10.7)`,
-      )
+      .option("--input <src>", jsonInputHelp(inputDeclaration))
       .option("--schema", "Dump the input JSON Schema instead of mutating (Phase 16 SC-10)")
       .option("--feature <name>", `Feature whose spec to extend`)
       .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
@@ -726,32 +724,9 @@ export function registerSpec(
             mutator.emitSchemaAndExit(mutatorKey);
             return;
           }
-          if (rawOpts.input === undefined) {
-            ctx.emitFailure(
-              "MISSING_INPUT",
-              `loaf spec add-${cfg.name} requires --input <src> (or pass --schema to dump the input JSON Schema)`,
-            );
-            return;
-          }
+          const read = await inputIngestor.readJson(ctx, rawOpts.input, inputDeclaration);
+          if (!read.ok) return;
           const opts = rawOpts as { input: string; feature: string; featureDir?: string };
-          // Phase 16 SC-4a — unified --input modality. TTY no-hang guard
-          // per codex r212 PATCH 2 (protocol §10.1:1505) covers the stdin
-          // case before any read.
-          const source = parseInputSource(opts.input);
-          if (source.kind === "stdin" && isStdinTty()) {
-            ctx.failure(
-              "USAGE",
-              `stdin is TTY — \`loaf spec add-${cfg.name} --input -\` expects piped input. ` +
-                `Pipe JSON via \`... | loaf spec add-${cfg.name} --input -\`, OR pass ` +
-                `inline JSON / file path. Run --help for examples.`,
-            );
-            return;
-          }
-          const read = await readJsonInput(source, { readStdin });
-          if (!read.ok) {
-            ctx.failure(read.code, read.message, read.detail);
-            return;
-          }
           const parsed = read.value;
           const inputParse = cfg.inputSchema.safeParse(parsed);
           if (!inputParse.success) {

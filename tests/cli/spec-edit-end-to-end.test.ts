@@ -304,7 +304,7 @@ describe("issue #18A — spec edit --input body replacement", () => {
     );
   });
 
-  test("inline JSON {body} is accepted through the shared input-source resolver", async () => {
+  test("inline JSON {body} is accepted through the shared input ingestor", async () => {
     const { featureDir } = await seedFeatureWithSpecMd();
     const body = "## Plan\n\nAuthored from an inline JSON payload.\n";
     const result = await runCli(

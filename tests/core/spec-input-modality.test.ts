@@ -6,7 +6,7 @@
 // (was: file-path only).
 //
 // Codex r212 tighter matrix (skips matrix duplication of SC-3
-// readJsonInput unit coverage + existing file-lane spec semantics):
+// JsonInputIngestor unit coverage + existing file-lane spec semantics):
 //
 //   - 4 commands × stdin happy path  = 4
 //   - 4 commands × inline happy path = 4

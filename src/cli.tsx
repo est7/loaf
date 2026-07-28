@@ -41,6 +41,7 @@ import {
 import { runEditor as defaultRunEditor, type RunEditor } from "./cli/run-editor.js";
 import { buildReportUrl } from "./cli/url-prefill.js";
 import { defaultReadStdin, defaultIsStdinTty } from "./cli/stdin.js";
+import { createJsonInputIngestor } from "./cli/input-ingestion.js";
 
 import { LOAF_DOCS_URL, LOAF_ISSUE_URL, helpFooter, loadSession } from "./core/cli-runtime.js";
 import { type MutateContext } from "./core/journal-mutate.js";
@@ -616,6 +617,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
 
   const readStdin = deps.readStdin ?? defaultReadStdin;
   const isStdinTty = deps.isStdinTty ?? defaultIsStdinTty;
+  const input = createJsonInputIngestor({ readStdin, isStdinTty });
   // SC-6b — trace-writer DI seams. Production defaults wire the real
   // append + clocks; tests inject canned values (deterministic `at` /
   // `wall_ms`) or throwing append (assert write-failure does NOT flip
@@ -768,10 +770,10 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
   registerTerminalExecute(program, ctx, mutator, actor);
   registerProfileConfig(program, ctx, mutator, actor, deps.userConfigHomeDir);
 
-  const { tasksCmd } = registerTasks(program, ctx, mutator, actor, isStdinTty, readStdin);
+  const { tasksCmd } = registerTasks(program, ctx, mutator, actor, input);
   registerTerminalSettle(program, ctx, mutator, actor);
   registerPending(program, ctx, mutator, actor);
-  const { evidenceCmd } = registerEvidence(program, ctx, mutator, actor, isStdinTty, readStdin);
+  const { evidenceCmd } = registerEvidence(program, ctx, mutator, actor, input);
   registerJournal(program, ctx);
   registerLessons(program, ctx, mutator, actor);
 
@@ -814,7 +816,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
     actor,
     isStdinTty,
     isStdoutTty,
-    readStdin,
+    input,
     runEditorImpl,
   );
 

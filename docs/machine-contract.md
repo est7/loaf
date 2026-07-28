@@ -48,7 +48,7 @@ create a second definition.
 | §37 | Finding action risk matrix | [`src/core/finding-schema.ts`](../src/core/finding-schema.ts) |
 | §38 | Context-pack projection and templates | [`src/cli/context-pack-schema.ts`](../src/cli/context-pack-schema.ts) |
 | §39 | Diagnostic codes and error catalog | [`src/core/error-catalog.ts`](../src/core/error-catalog.ts) |
-| §40 | Mutation input schemas and input-source classification | [`src/cli/input-schemas.ts`](../src/cli/input-schemas.ts), [`src/cli/input-source.ts`](../src/cli/input-source.ts) |
+| §40 | Mutation input schemas and input ingestion | [`src/cli/input-schemas.ts`](../src/cli/input-schemas.ts), [`src/cli/input-ingestion.ts`](../src/cli/input-ingestion.ts) |
 | §41 | Event-name registry | The owning enums and tables above; this index is the navigation surface. |
 
 `ReconcileJson.actual_scope` is a canonical concrete-path array; `planned_scope` remains a glob

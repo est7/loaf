@@ -40,7 +40,7 @@ The same test file snapshots exact current JSON Schema output for all ten public
 | `CONCURRENCY_INVARIANTS` | `src/core/concurrency-contract.ts (PROPOSED)` | Cross-command concurrency policy needs one core contract owner.                                                  |
 | `FLAG_EXCLUSIONS`        | `src/cli/flag-exclusions.ts (PROPOSED)`       | Flag normalization/exclusion is CLI presentation policy.                                                         |
 | `CONTEXT_PACK_TEMPLATES` | `src/cli/context-pack-schema.ts (PROPOSED)`   | Context-pack projection and templates vary together at the CLI boundary.                                         |
-| `InputSourceResolver`    | `src/cli/input-source.ts (PROPOSED)`          | Source selection belongs beside actual stdin/inline/file parsing; the discriminant divergence is explicit below. |
+| `InputSourceResolver`    | `src/cli/input-ingestion.ts`                  | Source selection belongs beside actual stdin/inline/file parsing; the discriminant divergence is explicit below. |
 
 ## Export manifest
 
@@ -253,8 +253,8 @@ The same test file snapshots exact current JSON Schema output for all ten public
 | `MutatorCommand`                    | value | `src/cli/input-schemas.ts (PROPOSED)`          | `—`                                                                         | n/a                | —                                                                                                                          |
 | `MutatorCommand`                    | type  | `src/cli/input-schemas.ts (PROPOSED)`          | `—`                                                                         | n/a                | —                                                                                                                          |
 | `INPUT_SCHEMAS`                     | value | `src/cli/input-schemas.ts (PROPOSED)`          | `—`                                                                         | n/a                | —                                                                                                                          |
-| `InputSourceResolver`               | value | `src/cli/input-source.ts (PROPOSED)`           | `src/cli/input-source.ts::InputSource`                                      | intentional-change | Docs discriminates on `source` with `path`; runtime discriminates on `kind` with `file`.                                   |
-| `InputSourceResolver`               | type  | `src/cli/input-source.ts (PROPOSED)`           | `src/cli/input-source.ts::InputSource`                                      | intentional-change | Docs discriminates on `source` with `path`; runtime discriminates on `kind` with `file`.                                   |
+| `InputSourceResolver`               | value | `src/cli/input-ingestion.ts`                   | `src/cli/input-ingestion.ts::InputSource`                                   | intentional-change | Docs discriminates on `source` with `path`; runtime discriminates on `kind` with `file`.                                   |
+| `InputSourceResolver`               | type  | `src/cli/input-ingestion.ts`                   | `src/cli/input-ingestion.ts::InputSource`                                   | intentional-change | Docs discriminates on `source` with `path`; runtime discriminates on `kind` with `file`.                                   |
 
 ## Statistics by domain home
 
@@ -278,7 +278,7 @@ Counts include value and type exports separately, matching the 209-row closure.
 | `src/cli/context-pack-schema.ts (PROPOSED)`    |       3 |
 | `src/core/escalation-schema.ts (PROPOSED)`     |       3 |
 | `src/core/sub-state-contracts.ts`              |       3 |
-| `src/cli/input-source.ts (PROPOSED)`           |       2 |
+| `src/cli/input-ingestion.ts`                   |       2 |
 | `src/cli/trace-writer.ts (PROPOSED)`           |       2 |
 | `src/core/gates/gate-diagnostic.ts (PROPOSED)` |       2 |
 | `src/core/hook-events.ts`                      |       2 |

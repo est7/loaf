@@ -66,7 +66,7 @@ replace `Pending` evidence with the commands and results that actually ran.
 | A04 | Implement | Feature write lease | A03 | [x] Complete |
 | A05 | Implement | Explicit mutation commit outcomes | A04 | [x] Complete |
 | A06 | Implement | Deep CommandMutator boundary | A05 | [x] Complete |
-| A07 | Implement | Unified CLI input ingestion | A01 | [ ] Pending |
+| A07 | Implement | Unified CLI input ingestion | A01 | [x] Complete |
 | A08 | Implement | Strict CLI-owned task intake | A06, A07 | [ ] Pending |
 | A09 | Implement | Canonical scope-closure fact policy | A03 | [ ] Pending |
 | A10 | Retire | Phantom reconcile execution contract | A09 | [ ] Pending |
@@ -473,7 +473,7 @@ persistent data.
 
 ## A07 — Unified CLI input ingestion
 
-**Status:** [ ] Pending
+**Status:** [x] Complete
 **Commit subject:** `refactor(cli): centralize input ingestion`
 
 ### Destination
@@ -491,14 +491,14 @@ mapping. Domain schemas remain command-family owners.
 
 ### Acceptance criteria
 
-- [ ] Commands call one ingestion API instead of composing `input-source`,
+- [x] Commands call one ingestion API instead of composing `input-source`,
   `input-read`, and `stdin` policy themselves.
-- [ ] No command repeats the stdin-is-TTY rejection branch.
-- [ ] File, inline JSON, stdin, `-`, no-input, malformed JSON, and read failure
+- [x] No command repeats the stdin-is-TTY rejection branch.
+- [x] File, inline JSON, stdin, `-`, no-input, malformed JSON, and read failure
   semantics remain stable.
-- [ ] Representative spec/tasks/evidence help and errors are generated from the
+- [x] Representative spec/tasks/evidence help and errors are generated from the
   same modality declaration.
-- [ ] The three superseded shallow modules are deleted or reduced to explicit
+- [x] The three superseded shallow modules are deleted or reduced to explicit
   adapters with a single owner.
 
 ### Validation
@@ -511,7 +511,13 @@ Internal refactor. Public input behavior is characterized before extraction.
 
 ### Evidence
 
-Pending.
+- Existing modality suites characterized the public source, TTY, missing-input,
+  parse, and read-failure behavior before extraction.
+- `input-source.ts` and `input-read.ts` were deleted; `stdin.ts` is now an
+  explicit process adapter owned by `main()`.
+- Focused and contract suite — 9 files, 120 tests passed.
+- `bun run verify:codegen`, lint, typecheck, and the complete test suite passed.
+- `bun run build` rebuilt the tracked distribution bundle.
 
 ## A08 — Strict CLI-owned task intake
 

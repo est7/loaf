@@ -6,7 +6,7 @@
 //   - `tasks amend <T-N> --input <src> --finding <FND-N>` — sponsored single object
 //
 // Wiring-focused matrix per codex r212 PATCH 4 (no per-command parser
-// matrix duplication; SC-3 input-read.ts tests cover that):
+// matrix duplication; the JsonInputIngestor unit tests cover that):
 //
 //   3 commands × stdin happy   = 3
 //   3 commands × inline happy  = 3

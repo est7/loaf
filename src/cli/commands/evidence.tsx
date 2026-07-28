@@ -9,8 +9,11 @@ import { CoversRefPayload, EvidenceAddInput, EvidenceKind } from "../../core/evi
 import { TaskIdPayload } from "../../core/task-schema.js";
 import { evidenceCompatibilityMismatch } from "../../core/evidence-compat.js";
 import type { EvidenceState } from "../../core/projection-types.js";
-import { parseInputSource } from "../input-source.js";
-import { readJsonInput } from "../input-read.js";
+import {
+  jsonInputHelp,
+  type JsonInputDeclaration,
+  type JsonInputIngestor,
+} from "../input-ingestion.js";
 import type { MutatorEntry } from "../mutator-entry.js";
 import type { I18n } from "../i18n.js";
 
@@ -60,8 +63,7 @@ export function registerEvidence(
   ctx: CommandContext,
   mutator: CommandMutator,
   actor: string,
-  isStdinTty: () => boolean,
-  readStdin: () => Promise<string>,
+  input: JsonInputIngestor,
 ): { evidenceCmd: Command } {
   // ── loaf evidence add --input <src> ───────────────────────────────────
   // Phase 16 SC-4c (closes SC-4 series; codex r229 → r236 amend cycles):
@@ -93,6 +95,19 @@ export function registerEvidence(
   //     this CLI handler all match on the full-metadata requirement.
   //   - No `--external-ref` CLI flag; `external_ref` is allowed only
   //     as an --input field (passthrough via EvidenceFullPayload).
+  const inputDeclaration: JsonInputDeclaration = {
+    command: "loaf evidence add",
+    helpPrefix: "JSON authoring source (single object OR non-empty array)",
+    inlineLabel: "inline JSON",
+    helpSuffix: "; internal sidecar refs are rejected",
+    stdinExpectation: "piped input",
+    missing: {
+      message:
+        "loaf evidence add requires --input <src> (or pass --schema to dump the input JSON Schema)",
+      route: "emit-failure",
+    },
+  };
+
   const evidenceCmd = program
     .command("evidence")
     .description("Evidence ledger commands (add, list)");
@@ -102,10 +117,7 @@ export function registerEvidence(
     .description(
       "Append evidence entry/entries from --input <src> JSON (CLI allocates EV-id; single object or non-empty array for batch)",
     )
-    .option(
-      "--input <src>",
-      "JSON authoring source (single object OR non-empty array): `-` (stdin), inline JSON, or file path; internal sidecar refs are rejected",
-    )
+    .option("--input <src>", jsonInputHelp(inputDeclaration))
     .option("--schema", "Dump the input JSON Schema instead of mutating (Phase 16 SC-10)")
     .option("--feature <name>", "Feature whose ledger to append to")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
@@ -121,36 +133,15 @@ export function registerEvidence(
           mutator.emitSchemaAndExit("evidence:add");
           return;
         }
-        if (rawOpts.input === undefined) {
-          ctx.emitFailure(
-            "MISSING_INPUT",
-            "loaf evidence add requires --input <src> (or pass --schema to dump the input JSON Schema)",
-          );
-          return;
-        }
+        if (!input.requireArg(ctx, rawOpts.input, inputDeclaration)) return;
         const opts = rawOpts as { input: string; feature: string; featureDir?: string };
         // SC-6b — record trace target at action entry so long input-validation
         // failures still trace. SC-8: dispatchOrFail handles §10.3 precedence
         // + traceTarget in one call.
         const earlyFeatureDir = await ctx.dispatchOrFail(opts);
         if (earlyFeatureDir === null) return;
-        // Phase 16 SC-4c — unified --input modality (protocol §10.7) +
-        // array (batch) input enabled (was USAGE reject).
-        const source = parseInputSource(opts.input);
-        if (source.kind === "stdin" && isStdinTty()) {
-          ctx.failure(
-            "USAGE",
-            "stdin is TTY — `loaf evidence add --input -` expects piped input. " +
-              "Pipe JSON via `... | loaf evidence add --input -`, OR pass inline " +
-              "JSON / file path. Run --help for examples.",
-          );
-          return;
-        }
-        const read = await readJsonInput(source, { readStdin });
-        if (!read.ok) {
-          ctx.failure(read.code, read.message, read.detail);
-          return;
-        }
+        const read = await input.readJson(ctx, opts.input, inputDeclaration);
+        if (!read.ok) return;
         const parsed = read.value;
 
         // Normalize to array; reject empty (codex r230 Q3 + r236 PATCH E).

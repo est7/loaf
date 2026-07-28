@@ -181,7 +181,7 @@ export const ERROR_CATALOG = {
   MISSING_INPUT: {
     exit_code: 2,
     // Phase 16 SC-4b (codex r224 PATCH 4): widened from "--input not
-    // provided" to also cover the stdin-read-failure path. readJsonInput
+    // provided" to also cover the stdin-read-failure path. JsonInputIngestor
     // returns MISSING_INPUT when (a) the flag was omitted upstream (no
     // current emit site post-SC-4a) OR (b) `--input -` was passed but
     // deps.readStdin threw (stdin closed / EAGAIN / etc.).

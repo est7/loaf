@@ -5,13 +5,12 @@
 //   2. matches /^[\{\[]/ → { kind: "inline", value }
 //   3. else              → { kind: "file", path: value }
 //
-// Codex r206 PATCH F: this layer is classification ONLY — no IO, no JSON
-// parse, no error mapping. readJsonInput() (separate module) handles
-// reading + parsing + error mapping.
+// Classification remains a pure exported seam inside the canonical ingestion
+// module, whose ingestor owns IO, JSON parsing, and error mapping.
 
 import { describe, expect, test } from "vitest";
 
-import { InputSourceResolver, parseInputSource } from "../../src/cli/input-source.js";
+import { InputSourceResolver, parseInputSource } from "../../src/cli/input-ingestion.js";
 
 describe("Phase 16 SC-3 — parseInputSource (pure classification)", () => {
   test("canonical schema accepts runtime shapes and rejects the retired docs discriminant", () => {

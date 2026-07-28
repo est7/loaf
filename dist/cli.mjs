@@ -10505,6 +10505,90 @@ async function defaultReadStdin() {
 function defaultIsStdinTty() {
 	return process.stdin.isTTY === true;
 }
+z.discriminatedUnion("kind", [
+	z.object({ kind: z.literal("stdin") }),
+	z.object({
+		kind: z.literal("inline"),
+		value: z.string()
+	}),
+	z.object({
+		kind: z.literal("file"),
+		path: z.string()
+	})
+]);
+const INLINE_RE = /^[{[]/;
+function parseInputSource(arg) {
+	if (arg === "-") return { kind: "stdin" };
+	if (INLINE_RE.test(arg)) return {
+		kind: "inline",
+		value: arg
+	};
+	return {
+		kind: "file",
+		path: arg
+	};
+}
+function jsonInputHelp(declaration) {
+	if (declaration.helpText !== void 0) return declaration.helpText;
+	return `${declaration.helpPrefix}: \`-\` (stdin), ${declaration.inlineLabel}, or file path${declaration.helpSuffix ?? ""}`;
+}
+function emitFailure(ctx, route, code, message, detail) {
+	if (route === "emit-failure") ctx.emitFailure(code, message, detail);
+	else ctx.failure(code, message, detail);
+}
+function createJsonInputIngestor(deps) {
+	const readFile = deps.readFile ?? ((filePath) => promises.readFile(filePath, "utf8"));
+	const requireArg = (ctx, arg, declaration) => {
+		if (arg !== void 0) return true;
+		const missing = declaration.missing ?? {
+			message: `${declaration.command} requires --input <src>`,
+			route: "failure"
+		};
+		emitFailure(ctx, missing.route, "MISSING_INPUT", missing.message);
+		return false;
+	};
+	return {
+		requireArg,
+		async readJson(ctx, arg, declaration) {
+			if (!requireArg(ctx, arg, declaration)) return { ok: false };
+			const source = parseInputSource(arg);
+			if (source.kind === "stdin" && deps.isStdinTty()) {
+				ctx.failure("USAGE", declaration.ttyMessage ?? `stdin is TTY — \`${declaration.command} --input -\` expects ${declaration.stdinExpectation}. Pipe JSON via \`... | ${declaration.command} --input -\`, OR pass inline JSON / file path. Run --help for examples.`);
+				return { ok: false };
+			}
+			let raw;
+			if (source.kind === "inline") raw = source.value;
+			else if (source.kind === "stdin") try {
+				raw = await deps.readStdin();
+			} catch (error) {
+				const message = error.message;
+				ctx.failure("MISSING_INPUT", `cannot read stdin: ${message}`, { cause: message });
+				return { ok: false };
+			}
+			else try {
+				raw = await readFile(source.path);
+			} catch (error) {
+				const cause = error;
+				if (cause.code === "ENOENT") ctx.failure("INPUT_FILE_NOT_FOUND", `input file does not exist: ${source.path}`, { path: source.path });
+				else ctx.failure("INPUT_FILE_NOT_FOUND", `input file unreadable: ${source.path} — ${cause.message}`, {
+					path: source.path,
+					cause: cause.message
+				});
+				return { ok: false };
+			}
+			try {
+				return {
+					ok: true,
+					value: JSON.parse(raw)
+				};
+			} catch (error) {
+				const cause = error.message;
+				ctx.failure("SCHEMA_VALIDATION_FAILED", `invalid JSON: ${cause}`, { cause });
+				return { ok: false };
+			}
+		}
+	};
+}
 //#endregion
 //#region src/core/spec-frontmatter.ts
 const FRONTMATTER_RE = /^---\s*\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n|$)/;
@@ -13415,104 +13499,38 @@ function registerProfileConfig(program, ctx, mutator, actor, userConfigHomeDir) 
 		}
 	});
 }
-z.discriminatedUnion("kind", [
-	z.object({ kind: z.literal("stdin") }),
-	z.object({
-		kind: z.literal("inline"),
-		value: z.string()
-	}),
-	z.object({
-		kind: z.literal("file"),
-		path: z.string()
-	})
-]);
-const INLINE_RE = /^[{[]/;
-function parseInputSource(arg) {
-	if (arg === "-") return { kind: "stdin" };
-	if (INLINE_RE.test(arg)) return {
-		kind: "inline",
-		value: arg
-	};
-	return {
-		kind: "file",
-		path: arg
-	};
-}
-//#endregion
-//#region src/cli/input-read.ts
-const DEFAULT_READ_FILE = (p) => promises.readFile(p, "utf8");
-async function readJsonInput(source, deps) {
-	const readFile = deps.readFile ?? DEFAULT_READ_FILE;
-	let raw;
-	switch (source.kind) {
-		case "inline":
-			raw = source.value;
-			break;
-		case "stdin":
-			try {
-				raw = await deps.readStdin();
-			} catch (err) {
-				const e = err;
-				return {
-					ok: false,
-					code: "MISSING_INPUT",
-					message: `cannot read stdin: ${e.message}`,
-					detail: { cause: e.message }
-				};
-			}
-			break;
-		case "file":
-			try {
-				raw = await readFile(source.path);
-			} catch (err) {
-				const e = err;
-				if (e.code === "ENOENT") return {
-					ok: false,
-					code: "INPUT_FILE_NOT_FOUND",
-					message: `input file does not exist: ${source.path}`,
-					detail: { path: source.path }
-				};
-				return {
-					ok: false,
-					code: "INPUT_FILE_NOT_FOUND",
-					message: `input file unreadable: ${source.path} — ${e.message}`,
-					detail: {
-						path: source.path,
-						cause: e.message
-					}
-				};
-			}
-			break;
-	}
-	try {
-		return {
-			ok: true,
-			value: JSON.parse(raw)
-		};
-	} catch (err) {
-		return {
-			ok: false,
-			code: "SCHEMA_VALIDATION_FAILED",
-			message: `invalid JSON: ${err.message}`,
-			detail: { cause: err.message }
-		};
-	}
-}
 //#endregion
 //#region src/cli/commands/tasks/authoring.ts
+const TASKS_SUBMIT_INPUT = {
+	command: "loaf tasks submit",
+	helpPrefix: "JSON source",
+	inlineLabel: "inline JSON literal",
+	helpSuffix: " (protocol §10.7). Whole-graph single object only.",
+	stdinExpectation: "piped input"
+};
+const TASKS_ADD_INPUT = {
+	command: "loaf tasks add",
+	helpPrefix: "JSON source for TaskInput (single object or array)",
+	inlineLabel: "inline JSON",
+	helpSuffix: " (protocol §10.7)",
+	stdinExpectation: "piped input",
+	missing: {
+		message: "loaf tasks add requires --input <src> (or pass --schema to dump the input JSON Schema)",
+		route: "emit-failure"
+	}
+};
+const TASKS_AMEND_INPUT = {
+	command: "loaf tasks amend",
+	helpPrefix: "New id-less task definition for a sponsored graph replacement",
+	inlineLabel: "inline JSON",
+	helpText: "New id-less task definition for a sponsored graph replacement (JSON file or '-')",
+	stdinExpectation: "piped input"
+};
 function registerTaskSubmit(tasksCmd, deps) {
-	const { ctx, mutator, actor, isStdinTty, readStdin } = deps;
-	tasksCmd.command("submit").description("Submit a complete task graph from --input <src> (stdin / inline JSON / file path; whole-graph single object)").requiredOption("--input <src>", "JSON source: `-` (stdin), inline JSON literal, or file path (protocol §10.7). Whole-graph single object only.").option("--feature <name>", "Feature whose task graph to submit").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
-		const source = parseInputSource(opts.input);
-		if (source.kind === "stdin" && isStdinTty()) {
-			ctx.failure("USAGE", "stdin is TTY — `loaf tasks submit --input -` expects piped input. Pipe JSON via `... | loaf tasks submit --input -`, OR pass inline JSON / file path. Run --help for examples.");
-			return;
-		}
-		const read = await readJsonInput(source, { readStdin });
-		if (!read.ok) {
-			ctx.failure(read.code, read.message, read.detail);
-			return;
-		}
+	const { ctx, mutator, actor, input } = deps;
+	tasksCmd.command("submit").description("Submit a complete task graph from --input <src> (stdin / inline JSON / file path; whole-graph single object)").requiredOption("--input <src>", jsonInputHelp(TASKS_SUBMIT_INPUT)).option("--feature <name>", "Feature whose task graph to submit").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+		const read = await input.readJson(ctx, opts.input, TASKS_SUBMIT_INPUT);
+		if (!read.ok) return;
 		const payload = read.value;
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
@@ -13570,28 +13588,17 @@ function registerTaskSubmit(tasksCmd, deps) {
 	});
 }
 function registerTaskAdd(tasksCmd, deps) {
-	const { ctx, mutator, actor, isStdinTty, readStdin } = deps;
-	tasksCmd.command("add").description("Append id-less task(s) to the graph — --input <src> with single object or array (batch); SPEC.design whole-graph, or EXECUTE.work sponsored via --finding").option("--input <src>", "JSON source for TaskInput (single object or array): `-` (stdin), inline JSON, or file path (protocol §10.7)").option("--schema", "Dump the input JSON Schema instead of mutating (Phase 16 SC-10)").option("--feature <name>", "Feature whose task graph to extend").option("--feature-dir <path>", "Override default .loaf/<feature> directory").option("--finding <FND-N>", "Sponsoring amend-tasks finding (sponsored add at EXECUTE.work)").action(async (rawOpts) => {
+	const { ctx, mutator, actor, input } = deps;
+	tasksCmd.command("add").description("Append id-less task(s) to the graph — --input <src> with single object or array (batch); SPEC.design whole-graph, or EXECUTE.work sponsored via --finding").option("--input <src>", jsonInputHelp(TASKS_ADD_INPUT)).option("--schema", "Dump the input JSON Schema instead of mutating (Phase 16 SC-10)").option("--feature <name>", "Feature whose task graph to extend").option("--feature-dir <path>", "Override default .loaf/<feature> directory").option("--finding <FND-N>", "Sponsoring amend-tasks finding (sponsored add at EXECUTE.work)").action(async (rawOpts) => {
 		if (rawOpts.schema === true) {
 			if (ctx.rejectIfDryRun("tasks add --schema")) return;
 			mutator.emitSchemaAndExit("tasks:add");
 			return;
 		}
-		if (rawOpts.input === void 0) {
-			ctx.emitFailure("MISSING_INPUT", "loaf tasks add requires --input <src> (or pass --schema to dump the input JSON Schema)");
-			return;
-		}
+		if (!input.requireArg(ctx, rawOpts.input, TASKS_ADD_INPUT)) return;
 		const opts = rawOpts;
-		const source = parseInputSource(opts.input);
-		if (source.kind === "stdin" && isStdinTty()) {
-			ctx.failure("USAGE", "stdin is TTY — `loaf tasks add --input -` expects piped input. Pipe JSON via `... | loaf tasks add --input -`, OR pass inline JSON / file path. Run --help for examples.");
-			return;
-		}
-		const read = await readJsonInput(source, { readStdin });
-		if (!read.ok) {
-			ctx.failure(read.code, read.message, read.detail);
-			return;
-		}
+		const read = await input.readJson(ctx, opts.input, TASKS_ADD_INPUT);
+		if (!read.ok) return;
 		const parsed = read.value;
 		const rawTasks = Array.isArray(parsed) ? parsed : [parsed];
 		if (rawTasks.length === 0) {
@@ -13708,8 +13715,8 @@ function registerTaskAdd(tasksCmd, deps) {
 	});
 }
 function registerTaskAmend(tasksCmd, deps) {
-	const { ctx, mutator, actor, isStdinTty, readStdin } = deps;
-	tasksCmd.command("amend <task-id>").description("Amend a task: --policy <step>=<applicability> (EXECUTE.plan) or --input <file> --finding <FND-N> (sponsored, EXECUTE.work)").option("--feature <name>", "Feature whose task to amend").option("--feature-dir <path>", "Override default .loaf/<feature> directory").option("--policy <step=applicability>", "Step applicability override (must|optional|na); repeatable", (val, acc) => [...acc, val], []).option("--input <file>", "New id-less task definition for a sponsored graph replacement (JSON file or '-')").option("--finding <FND-N>", "Sponsoring amend-tasks finding (required with --input)").action(async (taskId, opts) => {
+	const { ctx, mutator, actor, input } = deps;
+	tasksCmd.command("amend <task-id>").description("Amend a task: --policy <step>=<applicability> (EXECUTE.plan) or --input <file> --finding <FND-N> (sponsored, EXECUTE.work)").option("--feature <name>", "Feature whose task to amend").option("--feature-dir <path>", "Override default .loaf/<feature> directory").option("--policy <step=applicability>", "Step applicability override (must|optional|na); repeatable", (val, acc) => [...acc, val], []).option("--input <file>", jsonInputHelp(TASKS_AMEND_INPUT)).option("--finding <FND-N>", "Sponsoring amend-tasks finding (required with --input)").action(async (taskId, opts) => {
 		const earlyFeatureDir = await ctx.dispatchOrFail(opts);
 		if (earlyFeatureDir === null) return;
 		const policies = opts.policy ?? [];
@@ -13731,16 +13738,8 @@ function registerTaskAmend(tasksCmd, deps) {
 		if (hasInput) {
 			const inputPath = opts.input;
 			const findingId = opts.finding;
-			const source = parseInputSource(inputPath);
-			if (source.kind === "stdin" && isStdinTty()) {
-				ctx.failure("USAGE", "stdin is TTY — `loaf tasks amend --input -` expects piped input. Pipe JSON via `... | loaf tasks amend --input -`, OR pass inline JSON / file path. Run --help for examples.");
-				return;
-			}
-			const read = await readJsonInput(source, { readStdin });
-			if (!read.ok) {
-				ctx.failure(read.code, read.message, read.detail);
-				return;
-			}
+			const read = await input.readJson(ctx, inputPath, TASKS_AMEND_INPUT);
+			if (!read.ok) return;
 			const inParsed = read.value;
 			const inTask = TaskInput.safeParse(inParsed);
 			if (!inTask.success) {
@@ -14270,14 +14269,13 @@ function registerTaskQueries(tasksCmd, deps) {
 //#endregion
 //#region src/cli/commands/tasks.tsx
 /** Register the loaf tasks family without changing its public facade or command order. */
-function registerTasks(program, ctx, mutator, actor, isStdinTty, readStdin) {
+function registerTasks(program, ctx, mutator, actor, input) {
 	const tasksCmd = program.command("tasks").description("Task lifecycle commands (Slice 2 MVP: submit / claim / step)");
 	const deps = {
 		ctx,
 		mutator,
 		actor,
-		isStdinTty,
-		readStdin
+		input
 	};
 	registerTaskSubmit(tasksCmd, deps);
 	registerTaskAdd(tasksCmd, deps);
@@ -14706,30 +14704,30 @@ function evidenceAddStateChange(i18n, items) {
 		evidence_ids: idsList
 	});
 }
-function registerEvidence(program, ctx, mutator, actor, isStdinTty, readStdin) {
+function registerEvidence(program, ctx, mutator, actor, input) {
+	const inputDeclaration = {
+		command: "loaf evidence add",
+		helpPrefix: "JSON authoring source (single object OR non-empty array)",
+		inlineLabel: "inline JSON",
+		helpSuffix: "; internal sidecar refs are rejected",
+		stdinExpectation: "piped input",
+		missing: {
+			message: "loaf evidence add requires --input <src> (or pass --schema to dump the input JSON Schema)",
+			route: "emit-failure"
+		}
+	};
 	const evidenceCmd = program.command("evidence").description("Evidence ledger commands (add, list)");
-	evidenceCmd.command("add").description("Append evidence entry/entries from --input <src> JSON (CLI allocates EV-id; single object or non-empty array for batch)").option("--input <src>", "JSON authoring source (single object OR non-empty array): `-` (stdin), inline JSON, or file path; internal sidecar refs are rejected").option("--schema", "Dump the input JSON Schema instead of mutating (Phase 16 SC-10)").option("--feature <name>", "Feature whose ledger to append to").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (rawOpts) => {
+	evidenceCmd.command("add").description("Append evidence entry/entries from --input <src> JSON (CLI allocates EV-id; single object or non-empty array for batch)").option("--input <src>", jsonInputHelp(inputDeclaration)).option("--schema", "Dump the input JSON Schema instead of mutating (Phase 16 SC-10)").option("--feature <name>", "Feature whose ledger to append to").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (rawOpts) => {
 		if (rawOpts.schema === true) {
 			if (ctx.rejectIfDryRun("evidence add --schema")) return;
 			mutator.emitSchemaAndExit("evidence:add");
 			return;
 		}
-		if (rawOpts.input === void 0) {
-			ctx.emitFailure("MISSING_INPUT", "loaf evidence add requires --input <src> (or pass --schema to dump the input JSON Schema)");
-			return;
-		}
+		if (!input.requireArg(ctx, rawOpts.input, inputDeclaration)) return;
 		const opts = rawOpts;
 		if (await ctx.dispatchOrFail(opts) === null) return;
-		const source = parseInputSource(opts.input);
-		if (source.kind === "stdin" && isStdinTty()) {
-			ctx.failure("USAGE", "stdin is TTY — `loaf evidence add --input -` expects piped input. Pipe JSON via `... | loaf evidence add --input -`, OR pass inline JSON / file path. Run --help for examples.");
-			return;
-		}
-		const read = await readJsonInput(source, { readStdin });
-		if (!read.ok) {
-			ctx.failure(read.code, read.message, read.detail);
-			return;
-		}
+		const read = await input.readJson(ctx, opts.input, inputDeclaration);
+		if (!read.ok) return;
 		const parsed = read.value;
 		const rawItems = Array.isArray(parsed) ? parsed : [parsed];
 		if (rawItems.length === 0) {
@@ -17068,6 +17066,34 @@ function buildSpecSubmitBatch(args) {
 }
 //#endregion
 //#region src/cli/commands/spec.tsx
+const SPEC_SUBMIT_INPUT = {
+	command: "loaf spec submit",
+	helpPrefix: "JSON source",
+	inlineLabel: "inline JSON literal",
+	helpSuffix: " (protocol §10.7)",
+	stdinExpectation: "piped input"
+};
+const SPEC_EDIT_INPUT = {
+	command: "loaf spec edit",
+	helpPrefix: "JSON {\"body\":\"<Markdown>\"} source",
+	inlineLabel: "inline JSON",
+	helpSuffix: "; preserves current frontmatter",
+	stdinExpectation: "piped JSON",
+	ttyMessage: "stdin is TTY — `loaf spec edit --input -` expects piped JSON. Pipe {\"body\":\"<Markdown>\"} via stdin, or pass inline JSON / a file path."
+};
+function specAddInputDeclaration(name) {
+	return {
+		command: `loaf spec add-${name}`,
+		helpPrefix: `JSON source for SpecAdd${name[0].toUpperCase()}${name.slice(1)}Input (item or array)`,
+		inlineLabel: "inline JSON",
+		helpSuffix: " (protocol §10.7)",
+		stdinExpectation: "piped input",
+		missing: {
+			message: `loaf spec add-${name} requires --input <src> (or pass --schema to dump the input JSON Schema)`,
+			route: "emit-failure"
+		}
+	};
+}
 const REGISTER_SPEC_ADD = [
 	{
 		name: "req",
@@ -17101,7 +17127,7 @@ function specAddStateChangeKey(name, count) {
 	if (name === "scenario") return count === 1 ? SUCCESS_KEYS.specAddScenarioStateChangeOne : SUCCESS_KEYS.specAddScenarioStateChangeMany;
 	return count === 1 ? SUCCESS_KEYS.specAddVisualStateChangeOne : SUCCESS_KEYS.specAddVisualStateChangeMany;
 }
-function registerSpec(program, ctx, mutator, actor, isStdinTty, isStdoutTty, readStdin, runEditorImpl) {
+function registerSpec(program, ctx, mutator, actor, isStdinTty, isStdoutTty, inputIngestor, runEditorImpl) {
 	const resolvedRunEditor = runEditorImpl ?? runEditor;
 	const specCmd = program.command("spec").description("SPEC content and diagnostic commands (status / submit / add-req / add-scenario / add-visual; init in SC4)");
 	specCmd.command("status").description("Show failing and suppressed spec-lock checks from replayed state (read-only)").option("--feature <name>", "Feature whose spec-lock status to show").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
@@ -17116,18 +17142,10 @@ function registerSpec(program, ctx, mutator, actor, isStdinTty, isStdoutTty, rea
 		const envelope = buildSpecStatusEnvelope(evaluateSpecLockFromSnapshot(session.snapshot));
 		ctx.success(envelope, (i18n) => renderSpecStatusText(envelope, i18n));
 	});
-	specCmd.command("submit").description("Whole-replacement spec submit from JSON --input (CLI fills spec_version)").requiredOption("--input <src>", "JSON source: `-` (stdin), inline JSON literal, or file path (protocol §10.7)").option("--feature <name>", "Feature whose spec to submit").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+	specCmd.command("submit").description("Whole-replacement spec submit from JSON --input (CLI fills spec_version)").requiredOption("--input <src>", jsonInputHelp(SPEC_SUBMIT_INPUT)).option("--feature <name>", "Feature whose spec to submit").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		if (await ctx.dispatchOrFail(opts) === null) return;
-		const source = parseInputSource(opts.input);
-		if (source.kind === "stdin" && isStdinTty()) {
-			ctx.failure("USAGE", "stdin is TTY — `loaf spec submit --input -` expects piped input. Pipe JSON via `... | loaf spec submit --input -`, OR pass inline JSON / file path. Run --help for examples.");
-			return;
-		}
-		const read = await readJsonInput(source, { readStdin });
-		if (!read.ok) {
-			ctx.failure(read.code, read.message, read.detail);
-			return;
-		}
+		const read = await inputIngestor.readJson(ctx, opts.input, SPEC_SUBMIT_INPUT);
+		if (!read.ok) return;
 		const parsed = read.value;
 		if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
 			ctx.failure("USAGE", "spec submit --input expects a JSON object (SpecFrontmatter shape)");
@@ -17224,7 +17242,7 @@ feature:
 			next: i18n.t(SUCCESS_KEYS.specInitNext)
 		}));
 	});
-	specCmd.command("edit").description("Replace the spec.md body from --input or launch $EDITOR, validate, then emit event:spec_submitted").option("--input <src>", "JSON {\"body\":\"<Markdown>\"} source: `-` (stdin), inline JSON, or file path; preserves current frontmatter").option("--feature <name>", "Feature whose spec.md to edit").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+	specCmd.command("edit").description("Replace the spec.md body from --input or launch $EDITOR, validate, then emit event:spec_submitted").option("--input <src>", jsonInputHelp(SPEC_EDIT_INPUT)).option("--feature <name>", "Feature whose spec.md to edit").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		const hasInput = opts.input !== void 0;
 		if (!hasInput && ctx.rejectIfDryRun("spec edit", "wrapping")) return;
 		const featureDir = await ctx.dispatchOrFail(opts);
@@ -17261,16 +17279,8 @@ feature:
 		}
 		let afterContent;
 		if (hasInput) {
-			const source = parseInputSource(opts.input);
-			if (source.kind === "stdin" && isStdinTty()) {
-				ctx.failure("USAGE", "stdin is TTY — `loaf spec edit --input -` expects piped JSON. Pipe {\"body\":\"<Markdown>\"} via stdin, or pass inline JSON / a file path.");
-				return;
-			}
-			const read = await readJsonInput(source, { readStdin });
-			if (!read.ok) {
-				ctx.failure(read.code, read.message, read.detail);
-				return;
-			}
+			const read = await inputIngestor.readJson(ctx, opts.input, SPEC_EDIT_INPUT);
+			if (!read.ok) return;
 			const inputParse = SpecEditInput.safeParse(read.value);
 			if (!inputParse.success) {
 				ctx.emitFailure("SCHEMA_VALIDATION_FAILED", "spec edit --input expects a strict JSON object {\"body\":\"<Markdown>\"}", { issues: inputParse.error.issues });
@@ -17402,7 +17412,8 @@ feature:
 	});
 	for (const cfg of REGISTER_SPEC_ADD) {
 		const mutatorKey = cfg.name === "req" ? "spec:add-req" : cfg.name === "scenario" ? "spec:add-scenario" : "spec:add-visual";
-		specCmd.command(`add-${cfg.name}`).description(`Add ${cfg.name} entries via id_namespace stamping (CLI allocates ${cfg.name.toUpperCase()} ids)`).option("--input <src>", `JSON source for SpecAdd${cfg.name[0].toUpperCase()}${cfg.name.slice(1)}Input (item or array): \`-\` (stdin), inline JSON, or file path (protocol §10.7)`).option("--schema", "Dump the input JSON Schema instead of mutating (Phase 16 SC-10)").option("--feature <name>", `Feature whose spec to extend`).option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (rawOpts) => {
+		const inputDeclaration = specAddInputDeclaration(cfg.name);
+		specCmd.command(`add-${cfg.name}`).description(`Add ${cfg.name} entries via id_namespace stamping (CLI allocates ${cfg.name.toUpperCase()} ids)`).option("--input <src>", jsonInputHelp(inputDeclaration)).option("--schema", "Dump the input JSON Schema instead of mutating (Phase 16 SC-10)").option("--feature <name>", `Feature whose spec to extend`).option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (rawOpts) => {
 			if (rawOpts.schema === true) {
 				let rejected = false;
 				if (cfg.name === "req") rejected = ctx.rejectIfDryRun("spec add-req --schema");
@@ -17412,21 +17423,9 @@ feature:
 				mutator.emitSchemaAndExit(mutatorKey);
 				return;
 			}
-			if (rawOpts.input === void 0) {
-				ctx.emitFailure("MISSING_INPUT", `loaf spec add-${cfg.name} requires --input <src> (or pass --schema to dump the input JSON Schema)`);
-				return;
-			}
+			const read = await inputIngestor.readJson(ctx, rawOpts.input, inputDeclaration);
+			if (!read.ok) return;
 			const opts = rawOpts;
-			const source = parseInputSource(opts.input);
-			if (source.kind === "stdin" && isStdinTty()) {
-				ctx.failure("USAGE", `stdin is TTY — \`loaf spec add-${cfg.name} --input -\` expects piped input. Pipe JSON via \`... | loaf spec add-${cfg.name} --input -\`, OR pass inline JSON / file path. Run --help for examples.`);
-				return;
-			}
-			const read = await readJsonInput(source, { readStdin });
-			if (!read.ok) {
-				ctx.failure(read.code, read.message, read.detail);
-				return;
-			}
 			const parsed = read.value;
 			const inputParse = cfg.inputSchema.safeParse(parsed);
 			if (!inputParse.success) {
@@ -19479,6 +19478,10 @@ async function main(argv = process.argv, deps = {}) {
 	const i18n = createI18n(localeResolution.locale, BUILTIN_BUNDLES);
 	const readStdin = deps.readStdin ?? defaultReadStdin;
 	const isStdinTty = deps.isStdinTty ?? defaultIsStdinTty;
+	const input = createJsonInputIngestor({
+		readStdin,
+		isStdinTty
+	});
 	const appendTraceLine = deps.appendTraceLine ?? defaultAppendTraceLine;
 	const now = deps.now ?? (() => /* @__PURE__ */ new Date());
 	const monotonicNow = deps.monotonicNow ?? (() => performance.now());
@@ -19517,10 +19520,10 @@ async function main(argv = process.argv, deps = {}) {
 	registerGate(program, ctx, mutator, actor);
 	registerTerminalExecute(program, ctx, mutator, actor);
 	registerProfileConfig(program, ctx, mutator, actor, deps.userConfigHomeDir);
-	const { tasksCmd } = registerTasks(program, ctx, mutator, actor, isStdinTty, readStdin);
+	const { tasksCmd } = registerTasks(program, ctx, mutator, actor, input);
 	registerTerminalSettle(program, ctx, mutator, actor);
 	registerPending(program, ctx, mutator, actor);
-	const { evidenceCmd } = registerEvidence(program, ctx, mutator, actor, isStdinTty, readStdin);
+	const { evidenceCmd } = registerEvidence(program, ctx, mutator, actor, input);
 	registerJournal(program, ctx);
 	registerLessons(program, ctx, mutator, actor);
 	const renderTuiImpl = deps.renderTui ?? defaultRenderTui;
@@ -19539,7 +19542,7 @@ async function main(argv = process.argv, deps = {}) {
 		actor
 	});
 	const { findingCmd } = registerFinding(program, ctx, mutator, actor);
-	const { specCmd } = registerSpec(program, ctx, mutator, actor, isStdinTty, isStdoutTty, readStdin, deps.runEditor ?? runEditor);
+	const { specCmd } = registerSpec(program, ctx, mutator, actor, isStdinTty, isStdoutTty, input, deps.runEditor ?? runEditor);
 	registerState(program, ctx, specCmd, tasksCmd, evidenceCmd, findingCmd);
 	const t0 = monotonicNow();
 	let resolvedExit = 0;
