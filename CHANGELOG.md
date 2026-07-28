@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Protocol documentation is now consistently identified as rev 5.3, including
+  README and contributor-facing mirrors.
 - `tasks submit` now accepts only strict CLI-owned id-less task input; task
   identity, lifecycle status, and execution state are allocated internally.
 - Live mutation no longer accepts the retired
@@ -29,6 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   executable skill supervision contracts.
 - Added adversarially audited architecture acceptance and release-identity
   gates.
+- Synchronized active reference docs with the runtime-owned schema, diagnostic,
+  input-ingestion, and finding-policy modules after retiring
+  `docs/schemas.ts`.
 
 ## [0.6.0] — 2026-07-20
 

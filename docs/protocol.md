@@ -1,4 +1,4 @@
-# loaf-cli Protocol — v1 Draft (rev 5.2)
+# loaf-cli Protocol — v1 Draft (rev 5.3)
 
 > 2026-05-15 · prose source of truth。机器契约导航见 [`machine-contract.md`](machine-contract.md),可视化伴侣见 `index.html`(原 `protocol.html`,v0.1.0 GA 起重命名为 `index.html` —— 作为持续维护的项目对外页面)。
 >
@@ -38,7 +38,7 @@
 > - **§15 done-when**:加 schema_version 1→2 transition 完成 + §5.2 v0.0.x upcaster end-to-end 通过 两项 release blocker。
 > - **§16 非目标退场**:`state.json event sourcing` 从「v1 显式非目标」退场(rev 5.0 落地);`work.json compile step` 保留为非目标。
 > - **§17 legacy 对照**:加 `Truth model` 演化栏(legacy = N-file mutable;v1 rev ≤4.3 = N-file mutable + per-session lock;v1 rev 5.0 = single typed journal + sidecar)。
-> - **Stage / gate milestone** 见 `docs/plan.md` + ADR-0005 §10;**不破 §15 freeze**(GA 未达,ADR-trail additive 路径,SCHEMA_VERSION bump 在 v1 unfrozen 期间合法,Hyrum's Law=0)。
+> - **Stage / gate milestone** 见 `archive/plan-v0.1.0.md` + ADR-0005 §10;**不破 §15 freeze**(GA 未达,ADR-trail additive 路径,SCHEMA_VERSION bump 在 v1 unfrozen 期间合法,Hyrum's Law=0)。
 >
 > **rev 4.2 — clig.dev 三轮 review polish**(2026-05-12,Profile/Ceremony refactor 之上叠加):
 > - `loaf tasks done` → **`loaf tasks complete`** rename(消 `tasks step done` 同名异级歧义,clig.dev §8)。改动:§10.8 命令表 + §10.12 state-change line + protocol.html 命令表
@@ -3040,4 +3040,4 @@ loaf-cli 协议层**不处理** AI 工具的 runtime 特性(否则违反 §1 原
 
 ---
 
-*v1 draft rev 4.3 · 2026-05-14 · codex audit 2-round + clig.dev audit + pending queue + quick direct-DONE + session dispatch + AI bridge + Profile→Ceremony hybrid (ADR-0003 Addenda 1-6) + moni LLM-friendliness audit + rev 4.3 fix sweep (TaskBase.status `ready` / CoversRef union / pending invariant lockstep / DONE `pending: []` / state.json ceremony example / VerifyCheckKind vs sub_state lane / batch id_namespace wording / i18n DONE diag) · 进 implementation 阶段*
+*v1 draft rev 5.3 · 2026-07-27 · current revision history is recorded at the top of this document; implementation ownership is indexed by `machine-contract.md`.*

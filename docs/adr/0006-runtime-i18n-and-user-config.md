@@ -1,6 +1,6 @@
 # ADR-0006 — Runtime i18n and user locale config
 
-- Status: **Accepted, implementation pending**
+- Status: **Accepted and implemented**
 - Date: 2026-06-02
 - Scope: loaf-cli CLI/TUI presentation layer; runtime i18n catalog; user-level
   locale preference
@@ -10,7 +10,7 @@
     `protocol.md` is intentionally not edited in this pure-document step.
 - Related:
   - `protocol.md` §10.7 / §10.12 / §18
-  - `docs/schemas.ts` `ERROR_CATALOG`
+  - `src/core/error-catalog.ts` `ERROR_CATALOG`
   - `i18n/en.json`, `i18n/zh.json`
   - `src/cli/command-context.ts`
   - `src/core/loaf-config.ts`
@@ -113,12 +113,10 @@ before any locale/config IO.
 
 ### 5. Make `en.json` the runtime source
 
-`i18n/en.json` becomes the runtime catalog source. Runtime `src/` code must not
-import `docs/schemas.ts`.
-
-`docs/schemas.ts` `ERROR_CATALOG` remains the design/spec source for
-diagnostic-code semantics and canonical English templates. Tests enforce
-synchronization between design source and runtime catalogs.
+`src/core/error-catalog.ts` owns diagnostic-code semantics and canonical
+English templates. The `gen:i18n` generator derives the diagnostic sections of
+`i18n/en.json` and `i18n/zh.json`; runtime `src/cli/i18n.ts` loads those
+generated bundles.
 
 ### 6. Runtime fallback is graceful; tests are strict
 

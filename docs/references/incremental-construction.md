@@ -108,7 +108,8 @@ the full id (`REQ-AUTH-007`) and writes it to spec.md.
 (pending) carry no namespace at all — CLI auto-allocates monotonic
 sequences with no LLM-visible namespace at all.
 
-Two regex live in `schemas.ts` §40 and **must not** be conflated:
+The input/output regexes are owned by `src/core/spec-schema.ts` and **must not**
+be conflated:
 
 | Direction | Regex | What it accepts |
 |---|---|---|
@@ -202,7 +203,7 @@ loaf spec add-req --schema --format=json
 ```
 
 This dumps the JSON Schema derived from the command's entry in
-`INPUT_SCHEMAS` (`schemas.ts` §40). LLMs that hit a
+`INPUT_SCHEMAS` (`src/cli/input-schemas.ts`). LLMs that hit a
 `SCHEMA_VALIDATION_FAILED` error get a fix template pointing them
 at this command; CI fixtures use it to verify schema stability;
 loaf-skill prompt templates can embed it for one-shot LLM
@@ -246,7 +247,7 @@ error: <one-line description>
        see: <doc anchor>
 ```
 
-`ERROR_CATALOG` (`schemas.ts` §39) is the single source: each
+`ERROR_CATALOG` (`src/core/error-catalog.ts`) is the single source: each
 `DiagnosticCode` maps to one `ErrorEntry` with `message_template`,
 optional `fix_template`, optional `doc_anchor`. i18n (`protocol.md`
 §18) layers via `LOAF_LANG` bundle. The most important information
@@ -273,10 +274,11 @@ Fix-templates would be misleading there.
 - Decision: `adr/0004-moni-audit-resolution.md` (whole ADR;
   especially A2 / A3 / A5 / A6 / A8 / A10 / A11)
 - Machine bindings:
-  - `schemas.ts` §37 `FINDING_ACTION_GRID`
+  - `src/core/finding-schema.ts` `FINDING_ACTION_GRID`
   - the retired §38 `CONTEXT_PACK_TEMPLATES` proposal
-  - `schemas.ts` §39 `ERROR_CATALOG`
-  - `schemas.ts` §40 `INPUT_SCHEMAS` + `InputSourceResolver`
+  - `src/core/error-catalog.ts` `ERROR_CATALOG`
+  - `src/cli/input-schemas.ts` `INPUT_SCHEMAS` +
+    `src/cli/input-ingestion.ts` `InputSourceResolver`
 - Protocol surface:
   - `protocol.md` §10.5 (error contract) + §10.7 (`--input` /
     `--schema`) + §10.8 (command table)

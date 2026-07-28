@@ -1,9 +1,9 @@
 # loaf-cli v0.1.0 Implementation Plan
 
-**Status**: Active, post ADR-0005 accept-with-gates verdict
+**Status**: Archived implementation history for v0.1.0
 **Scope**: Single typed journal as SSoT (γ truth model) — replaces v0.0.x N-file design
 **Budget**: 25–27 day (20.5d base + 25–30% buffer; see ADR-0005 §6)
-**Authoritative design**: [`docs/adr/0005-truth-model-single-typed-journal.md`](adr/0005-truth-model-single-typed-journal.md)
+**Authoritative design**: [`docs/adr/0005-truth-model-single-typed-journal.md`](../adr/0005-truth-model-single-typed-journal.md)
 
 > **Read this first**: ADR-0005 §10 (Implementation Gates) + §3.5 (10-step crash contract) + §5
 > (migration + spike→core promote). Plan.md only sequences and counts; it does **not** restate
@@ -390,8 +390,8 @@ Per ADR-0005 §9 — explicitly not on this plan, not blocking GA:
 
 ## 7. References
 
-- [`docs/adr/0005-truth-model-single-typed-journal.md`](adr/0005-truth-model-single-typed-journal.md) — single source of design truth
-- [`docs/protocol.md`](protocol.md) — rev 5.0 (after Stage 0)
-- [`docs/schemas.ts`](schemas.ts) — rev 5.0 (after Stage 0)
-- [`docs/archive/moni-review.md`](archive/moni-review.md) — round-2 three-way audit source
-- [`skills/CONTRACT.md`](../skills/CONTRACT.md) — loaf-skill recommended pattern (H1 landing)
+- [`docs/adr/0005-truth-model-single-typed-journal.md`](../adr/0005-truth-model-single-typed-journal.md) — single source of design truth
+- [`docs/protocol.md`](../protocol.md) — current protocol, with rev 5.0 history
+- [`docs/schemas.ts` dissolution manifest](../migration/schemas-dissolution-manifest.md) — migration record for the former schema monolith
+- [`docs/archive/moni-review.md`](moni-review.md) — round-2 three-way audit source
+- [`skills/CONTRACT.md`](../../skills/CONTRACT.md) — loaf-skill recommended pattern (H1 landing)

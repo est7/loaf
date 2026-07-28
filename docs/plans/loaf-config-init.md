@@ -1,7 +1,7 @@
 # Plan — `loaf config init` (project + `--global` user config scaffold)
 
-**Status:** DESIGN LOCKED — codex signed off all decisions on the
-`review/cli-lifecycle-plan` thread (2026-06-04). Ready for RED.
+**Status:** COMPLETE — implemented after codex signed off all decisions on the
+`review/cli-lifecycle-plan` thread (2026-06-04).
 **Type:** new CLI command. `PUBLIC_IMPACT=true` (new surface; protocol §10.8 +
 cli-inventory + catalog/i18n obligations).
 **Self-contained:** this doc is the authoritative spec; a fresh context can
@@ -38,7 +38,8 @@ overwrite an existing file.
 ## 3. What gets written
 
 ### Project (`loaf config init`) — Q2 + Q3 LOCKED
-- Serialize the **full §21 `LoafConfig` defaults** (docs/schemas.ts:2273) —
+- Serialize the full runtime-owned `LoafConfig` defaults
+  (`src/core/loaf-config.ts`) —
   all 6 sections, **every key explicit**: `protected_files: []`,
   `stable_core: []`, `paths.{source:["src/**"], tests:[...], docs:[...], ui:[],
   public_api:[], schema:[], security:[]}`, `commands.{run:[],lint:[],...}`,
@@ -71,9 +72,8 @@ protected_files+stable_core+paths).
   keeps reading only its slice. A malformed skill-only section
   (`commands`/`constitution`) must **NOT** make write-guard fail closed; only an
   invalid write-guard slice does.
-- **Do NOT import `docs/schemas.ts` into runtime.** docs is the catalog; runtime
-  mirrors it (docs may later import/mirror runtime, never the reverse — matches
-  the existing "runtime mirrors a subset of docs/schemas.ts" pattern).
+- Keep the full schema/default source in `src/core/loaf-config.ts`; docs and
+  examples describe that runtime-owned contract.
 - **Boundary rule (write this into the ADR):** loaf-cli OWNS the full
   `LoafConfig` **syntax** (schema + default serialization) but does NOT
   **interpret** `commands`/`constitution` skill logic. Serialization ≠ semantic
@@ -110,8 +110,9 @@ protected_files+stable_core+paths).
 - **inventory gate:** `tests/scripts/cli-inventory.test.ts` baseline +
   `inventory/help-collector` + `protocol-parser` will demand the new command be
   present in both help and protocol §10.8 (cross-checked).
-- **catalog + i18n:** `CONFIG_ALREADY_INITIALIZED` → `docs/schemas.ts`
-  DiagnosticCode enum + ERROR_CATALOG (message_template / fix_template /
+- **catalog + i18n:** `CONFIG_ALREADY_INITIALIZED` →
+  `src/core/error-catalog.ts` DiagnosticCode + ERROR_CATALOG
+  (message_template / fix_template /
   doc_anchor) + `i18n/en.json` + `i18n/zh.json` (placeholder symmetry — sc5a
   gate). NOTE: gate-check/explicit-message codes can render via emitFailure
   graceful fallback, but a top-level scaffold refusal should have a proper
@@ -156,7 +157,7 @@ protected_files+stable_core+paths).
   path override.
 - `src/core/user-config.ts` — `UserConfig` ({schema_version, locale}),
   `userConfigPath(homeDir)` = `<home>/.loaf/config.json`.
-- `docs/schemas.ts:2273` — §21 `LoafConfig` (the full schema to mirror).
+- `src/core/loaf-config.ts` — canonical `LoafConfig` syntax and defaults.
 - `loaf.config.example.json` — reference for the `_comment` text (do NOT
   hardcode its example globs).
 - `CONTEXT.md` — config-scope glossary (project vs user config; kernel- vs

@@ -6,10 +6,10 @@ order: `protocol.md` §18.3. Shipped in v0.2.0.
 
 ## Mental model
 
-- Catalogs are `i18n/en.json` + `i18n/zh.json`. `en.json` is the **runtime
-  source** (loaded by `src/cli/i18n.ts`); `docs/schemas.ts ERROR_CATALOG`
-  stays the **design source** for diagnostic templates. `src/` must not import
-  `docs/`, so the two are kept in sync by tests, not imports.
+- Catalogs are `i18n/en.json` + `i18n/zh.json`. `src/core/error-catalog.ts`
+  owns diagnostic codes and canonical templates; `gen:i18n` derives each
+  bundle's `diagnostic` section from that catalog. `src/cli/i18n.ts` loads the
+  generated bundles at runtime.
 - `resolveLocale()` (pure, `src/cli/i18n.ts`) picks the locale; `createI18n()`
   builds `t(keyPath, vars)`. Wiring is in `src/cli.tsx` (after the presentation
   guard, before any command action) and injected into `CommandContext`.

@@ -69,7 +69,7 @@ the odd one out (exit 0 + `state: null`).
 - `0` — success
 - `2` — system error, invalid input, missing session, snapshot stale,
   preflight failure, etc. **stderr carries a machine-readable
-  diagnostic** (`DiagnosticCode` enum, see `docs/schemas.ts §39`).
+  diagnostic** (`DiagnosticCode`, owned by `src/core/error-catalog.ts`).
 - `3` — reserved for catastrophic / journal corruption (rare).
 
 For "is a loaf session here?" probes, **inspect exit code AND the
@@ -148,9 +148,10 @@ NOT `.passthrough()`. Slice 3 SC1 r64 BLOCK was exactly this — a typo
 like `gate-decision` vs `gate_decision` would bypass invariants if
 passthrough were allowed.
 
-**For loaf-skill**: load the relevant Zod schema from `docs/schemas.ts`
-(or `src/core/*-schema.ts`) and validate your payload before shelling
-out. Don't trust the CLI to silently coerce.
+**For loaf-skill**: ask the CLI for the relevant mutation-input schema with
+`loaf <mutator> --schema --format=json` (or use the runtime owner indexed by
+`docs/machine-contract.md`) and validate your payload before shelling out.
+Don't trust the CLI to silently coerce.
 
 ## 8. Use `mutateBatch` (CLI verbs), never `appendEntry` / `appendMany` directly
 
@@ -175,5 +176,6 @@ rather than reaching past the boundary.
 
 - Protocol surface: [`../protocol.md`](../protocol.md) §10 CLI Surface
 - Truth model: [`../adr/0005-truth-model-single-typed-journal.md`](../adr/0005-truth-model-single-typed-journal.md)
-- Error catalog: [`../schemas.ts`](../schemas.ts) §39 `ERROR_CATALOG`
+- Error catalog: [`../../src/core/error-catalog.ts`](../../src/core/error-catalog.ts)
+  `ERROR_CATALOG`
 - Skill boundary contract: [`../../skills/CONTRACT.md`](../../skills/CONTRACT.md)

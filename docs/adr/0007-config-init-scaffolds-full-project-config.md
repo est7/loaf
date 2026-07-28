@@ -7,7 +7,6 @@
 - Related:
   - `docs/plans/loaf-config-init.md`
   - `docs/protocol.md` §4.11 / §10.7 / §10.8
-  - `docs/schemas.ts` §21 `LoafConfig`
   - `src/core/loaf-config.ts`
   - `src/core/user-config.ts`
 
@@ -93,13 +92,10 @@ It uses only the existing `UserConfig` shape:
 
 It must not write the project-level six-section config into the user file.
 
-### 4. Runtime mirrors schema; docs are not runtime
+### 4. Runtime owns the schema
 
-Runtime adds a full `LoafConfig` schema/default source in
-`src/core/loaf-config.ts`, mirroring `docs/schemas.ts` §21.
-
-`src/` must not import `docs/schemas.ts`. The docs catalog remains the protocol
-source; runtime mirrors the stable contract it needs to execute.
+`src/core/loaf-config.ts` owns the full `LoafConfig` schema and defaults.
+Documentation and scaffold examples describe that runtime contract.
 
 ### 5. Serialization is not semantic ownership
 
@@ -149,8 +145,8 @@ surface area and is deferred until a concrete preset/import workflow exists.
 - `src/core/loaf-config.ts` now has two schemas by design: full `LoafConfig`
   for syntax/default serialization, and `WriteGuardConfig` for hook slice
   validation.
-- Adding fields to `docs/schemas.ts` §21 now requires updating the runtime mirror
-  and the default serialization tests.
+- Adding fields to `LoafConfig` requires updating its default serialization
+  tests and any documented scaffold examples.
 - Future `loaf config get/set` must preserve the same ownership boundary: owning
   syntax does not mean every reader validates every section.
 - If preset scaffolds are added later, they should be explicit (`--from` or a

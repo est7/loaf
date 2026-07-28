@@ -1,7 +1,7 @@
 # E2E Test Scenarios — loaf-cli worker workflow
 
 Protocol-derived acceptance inventory for the end-to-end test layer. The
-**protocol** (`docs/protocol.md`, rev 5.2; truth model from ADR-0005) is the source of
+**protocol** (`docs/protocol.md`, rev 5.3; truth model from ADR-0005) is the source of
 truth — every scenario here is derived from the protocol, NOT from the
 current live Commander registration under `src/cli.tsx` + `src/cli/commands/`.
 A scenario whose implementation does not exist yet
