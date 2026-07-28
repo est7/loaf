@@ -85,6 +85,9 @@ replace `Pending` evidence with the commands and results that actually ran.
 | A22 | Correct | Truthful feature-lease contract and diagnostics | A04, A17 | [x] Complete |
 | A23 | Correct | Audit evidence and supersession trail | A12, A16, A19 | [x] Complete |
 | A24 | Implement | Breaking-contract release identity gate | A08, A10, A12, A23 | [x] Complete |
+| A25 | Correct | Activate the release-identity gate | A24 | [x] Complete |
+| A26 | Correct | Complete skill supervision ownership | A21 | [ ] Pending |
+| A27 | Correct | Rebuild-fixture path disclosure | A20 | [ ] Pending |
 
 The serial order is deliberate. Attachment confinement precedes refactoring;
 the feature lease precedes result and CLI mutation ownership; task intake lands
@@ -1440,3 +1443,102 @@ rebuilt so `loaf --version` and new-session `loaf_version_required` agree.
 Focused tests, release-identity verification, full check, package smoke, and
 distribution/source parity passed. GA consistency remains expected to stop at
 the unpublished-worktree/origin boundary; no push, tag, or release occurred.
+
+**Independent-audit correction:** A24 initially added an on-demand gate but did
+not connect it to `check`, `ga:check`, or CI. A25 closes that enforcement gap.
+
+## A25 — Activate the release-identity gate
+
+**Status:** [x] Complete
+**Commit subject:** `fix(release): enforce breaking contract identity`
+
+### Destination
+
+Make the A24 identity check unavoidable in normal quality and release paths,
+and accept every valid SemVer breaking successor.
+
+### Acceptance criteria
+
+- [x] `bun run check` invokes the release-identity gate before tests/build.
+- [x] `bun run ga:check` invokes the gate before release preparation.
+- [x] Both the ordinary CI job and tag release job invoke the gate explicitly.
+- [x] A test points the gate at the live repository, binding
+  `package.json` to the committed manifest under `bun run test`.
+- [x] Patch-only `0.6.1` remains rejected after a dist rebuild.
+- [x] Both `0.7.0` and the canonical `1.0.0` breaking successor are accepted
+  from the `v0.6.0` baseline.
+
+### Validation
+
+`bunx vitest run tests/scripts/public-contract-version-check.test.ts`
+`bun run verify:release-identity`
+`bun run typecheck`
+`bun run lint`
+
+### Migration and recovery
+
+No package-format change beyond A24. Reverting this commit leaves the detector
+available on demand but removes enforcement, which is not release-safe.
+
+### Evidence
+
+The gate is now explicit in `check`, `ga:check`, CI quality, and tag-release
+jobs. The script's SemVer predicate accepts a higher major from any baseline
+and, while major remains zero, a higher minor. Five focused tests cover the
+unchanged baseline, patch-only regression, 0.7.0, 1.0.0, and the live
+repository package/manifest pair. Focused tests, the live gate, typecheck, and
+lint passed.
+
+## A26 — Complete skill supervision ownership
+
+**Status:** [ ] Pending
+**Commit subject:** `test(skills): bind supervision owner coverage`
+
+### Destination
+
+Bind the skill supervision projection to the kernel's complete owner-verb
+vocabulary and reject contradictory automatic/human ownership.
+
+### Acceptance criteria
+
+- [ ] Human-stop and automatic owner verbs are disjoint.
+- [ ] Every `NextOwnerVerb` is classified by the skill contract.
+- [ ] Deep-ceremony `settle` advice is classified without making it automatic.
+- [ ] Kernel owner-verb additions fail the semantic gate until skill ownership
+  is declared.
+- [ ] Targeted contradictory and incomplete contracts fail negative controls.
+
+### Validation
+
+`bunx vitest run tests/scripts/skills-semantic-gate.test.ts tests/core/e2e-lifecycle.test.ts`
+`bun run typecheck`
+`bun run lint`
+
+### Migration and recovery
+
+Test/skill ownership contract only; kernel routing remains authoritative.
+
+## A27 — Rebuild-fixture path disclosure
+
+**Status:** [ ] Pending
+**Commit subject:** `test(core): disclose rebuild fixture gate seed`
+
+### Destination
+
+State precisely that A20's gate seed uses the low-level append/apply seam while
+all projection-producing entries use production mutation.
+
+### Acceptance criteria
+
+- [ ] The fixture docstring no longer claims every entry uses production
+  mutation.
+- [ ] The gate seed explains why it bypasses normal gate-decision admission.
+- [ ] No observable test behavior or production code changes.
+
+### Validation
+
+`bunx vitest run tests/core/doctor-rebuild.test.ts`
+
+### Migration and recovery
+
+Comment-only test clarification.

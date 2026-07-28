@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 
-import { mktempd, runShellScript, safeRm } from "./_helpers.js";
+import { mktempd, REPO_ROOT, runShellScript, safeRm } from "./_helpers.js";
 
 const roots: string[] = [];
 
@@ -81,5 +81,18 @@ describe("public-contract-version-check.sh", () => {
     const result = runShellScript("public-contract-version-check.sh", ["--repo", repo]);
     expect(result.exit).toBe(1);
     expect(result.stderr).toContain("PUBLIC_CONTRACT_VERSION_NOT_BREAKING");
+  });
+
+  test("accepts 1.0.0 as a breaking successor to a 0.x baseline", () => {
+    const repo = fixture("1.0.0", "1.0.0");
+    const result = runShellScript("public-contract-version-check.sh", ["--repo", repo]);
+    expect(result.exit).toBe(0);
+    expect(result.stderr).toBe("");
+  });
+
+  test("the live repository package and manifest remain coupled", () => {
+    const result = runShellScript("public-contract-version-check.sh", ["--repo", REPO_ROOT]);
+    expect(result.exit).toBe(0);
+    expect(result.stderr).toBe("");
   });
 });

@@ -90,9 +90,9 @@ node -e '
     if (!match) process.exit(2);
     return match.slice(1).map(Number);
   });
-  const valid = base[0] === 0
-    ? target[0] === 0 && target[1] > base[1]
-    : target[0] > base[0];
+  const valid =
+    target[0] > base[0] ||
+    (target[0] === base[0] && base[0] === 0 && target[1] > base[1]);
   if (!valid) process.exit(1);
 ' "$baseline_version" "$target_version" ||
   fail "PUBLIC_CONTRACT_VERSION_NOT_BREAKING" \
