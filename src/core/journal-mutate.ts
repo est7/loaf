@@ -147,25 +147,65 @@ export type MutateFailureCode =
   | "PROJECTION_WRITE_FAILED"
   | "LOCK_TIMEOUT";
 
-export type MutateResult =
-  | { ok: true; snapshot: Snapshot; entry: JournalEntry; meta: SnapshotMeta }
-  | {
-      ok: false;
-      code: MutateFailureCode;
-      message: string;
-      detail?: Record<string, unknown>;
-    };
+interface MutationFailureFields {
+  code: MutateFailureCode;
+  message: string;
+  /** 0-based index of the entry that failed, when applicable */
+  failed_index?: number;
+  detail?: Record<string, unknown>;
+}
+
+interface MutationBatchState {
+  snapshot: Snapshot;
+  entries: JournalEntry[];
+  meta: SnapshotMeta;
+}
 
 export type MutateBatchResult =
-  | { ok: true; snapshot: Snapshot; entries: JournalEntry[]; meta: SnapshotMeta }
-  | {
+  | ({ ok: true; commit_state: "committed" | "not-committed" } & MutationBatchState)
+  | ({ ok: false; commit_state: "not-committed" } & MutationFailureFields)
+  | ({
       ok: false;
-      code: MutateFailureCode;
-      message: string;
-      /** 0-based index of the entry that failed, when applicable */
-      failed_index?: number;
-      detail?: Record<string, unknown>;
-    };
+      commit_state: "committed";
+    } & MutationFailureFields &
+      MutationBatchState);
+
+export type MutateResult =
+  | {
+      ok: true;
+      commit_state: "committed" | "not-committed";
+      snapshot: Snapshot;
+      entry: JournalEntry;
+      meta: SnapshotMeta;
+    }
+  | ({ ok: false; commit_state: "not-committed" } & MutationFailureFields)
+  | ({
+      ok: false;
+      commit_state: "committed";
+      snapshot: Snapshot;
+      entry: JournalEntry;
+      meta: SnapshotMeta;
+    } & MutationFailureFields);
+
+type InternalMutateBatchResult =
+  | ({ ok: true; commit_state?: "committed" | "not-committed" } & MutationBatchState)
+  | ({ ok: false; commit_state?: "not-committed" } & MutationFailureFields)
+  | ({
+      ok: false;
+      commit_state: "committed";
+    } & MutationFailureFields &
+      MutationBatchState);
+
+function classifyCommitState(
+  result: InternalMutateBatchResult,
+  dryRun: boolean,
+): MutateBatchResult {
+  if (result.commit_state !== undefined) return result as MutateBatchResult;
+  if (result.ok) {
+    return { ...result, commit_state: dryRun ? "not-committed" : "committed" };
+  }
+  return { ...result, commit_state: "not-committed" };
+}
 
 /**
  * Caller-supplied entry shape. `seq`, `entry_id`, and the batch envelope
@@ -184,7 +224,7 @@ function isBootstrapEntry(entry: JournalEntry): boolean {
   return entry.kind === "session:started" || entry.kind === "migration:snapshot_imported";
 }
 
-function noSessionResult(entry: JournalEntry, failedIndex: number): MutateBatchResult {
+function noSessionResult(entry: JournalEntry, failedIndex: number): InternalMutateBatchResult {
   return {
     ok: false,
     code: "REDUCER_ERROR",
@@ -265,12 +305,15 @@ export async function mutateBatch(
   ctx: MutateContext,
 ): Promise<MutateBatchResult> {
   if (partials.length === 0) {
-    return {
-      ok: false,
-      code: "INVALID_BATCH",
-      message: "mutateBatch called with empty partials array; pass at least one entry",
-      detail: { partials_length: 0 },
-    };
+    return classifyCommitState(
+      {
+        ok: false,
+        code: "INVALID_BATCH",
+        message: "mutateBatch called with empty partials array; pass at least one entry",
+        detail: { partials_length: 0 },
+      },
+      ctx.dryRun ?? false,
+    );
   }
 
   if (ctx.dryRun) {
@@ -280,7 +323,7 @@ export async function mutateBatch(
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
         // A fresh-feature preview has no shared tail and cannot place a lease
         // without violating the no-directory-creation dry-run contract.
-        return await mutateBatchUnderLease(partials, ctx);
+        return classifyCommitState(await mutateBatchUnderLease(partials, ctx), ctx.dryRun ?? false);
       }
       throw error;
     }
@@ -295,22 +338,25 @@ export async function mutateBatch(
     );
   } catch (error) {
     if (error instanceof FeatureWriteLeaseError) {
-      return {
-        ok: false,
-        code: "LOCK_TIMEOUT",
-        message: error.message,
-        detail: {
-          lock_path: error.lockPath,
-          lease_code: error.code,
-          ...(error.holder !== undefined && { holder: error.holder }),
+      return classifyCommitState(
+        {
+          ok: false,
+          code: "LOCK_TIMEOUT",
+          message: error.message,
+          detail: {
+            lock_path: error.lockPath,
+            lease_code: error.code,
+            ...(error.holder !== undefined && { holder: error.holder }),
+          },
         },
-      };
+        ctx.dryRun ?? false,
+      );
     }
     throw error;
   }
 
   try {
-    return await mutateBatchUnderLease(partials, ctx);
+    return classifyCommitState(await mutateBatchUnderLease(partials, ctx), ctx.dryRun ?? false);
   } finally {
     await lease.release();
   }
@@ -319,7 +365,7 @@ export async function mutateBatch(
 async function mutateBatchUnderLease(
   partials: PartialEntry[],
   ctx: MutateContext,
-): Promise<MutateBatchResult> {
+): Promise<InternalMutateBatchResult> {
   if (partials.length === 0) {
     return {
       ok: false,
@@ -720,12 +766,15 @@ async function mutateBatchUnderLease(
       const failSpecVer = finalSnapshot.state?.spec_version ?? "unknown";
       return {
         ok: false,
+        commit_state: "committed",
         code: "PROJECTION_WRITE_FAILED",
         message: `spec.md projection write failed after journal append at last_seq=${lastSeq} (spec_version=${failSpecVer}); journal is authoritative — run 'loaf doctor --rebuild' to resync. Cause: ${(err as Error).message}`,
+        snapshot: finalSnapshot,
+        entries: promoted,
+        meta: appendMeta,
         detail: {
           projection: "spec.md",
           path: path.join(ctx.feature_dir, "spec.md"),
-          journal_appended: true,
           last_seq: lastSeq,
           spec_version: finalSnapshot.state?.spec_version ?? null,
           error: (err as Error).message,
@@ -766,15 +815,18 @@ async function mutateBatchUnderLease(
     const lastSeq = promoted[promoted.length - 1]!.seq;
     return {
       ok: false,
+      commit_state: "committed",
       code: "PROJECTION_WRITE_FAILED",
       message:
         `snapshot projection write failed after journal append at last_seq=${lastSeq}; ` +
         `journal is authoritative — run 'loaf doctor --rebuild' to resync. ` +
         `Cause: ${(err as Error).message}`,
+      snapshot: finalSnapshot,
+      entries: promoted,
+      meta: appendMeta,
       detail: {
         projection: "snapshots",
         path: path.join(ctx.feature_dir, "snapshots"),
-        journal_appended: true,
         last_seq: lastSeq,
         error: (err as Error).message,
       },
@@ -808,15 +860,18 @@ async function mutateBatchUnderLease(
       // a mutate failure with the parse cause (codex r280 P4).
       return {
         ok: false,
+        commit_state: "committed",
         code: "PROJECTION_WRITE_FAILED",
         message:
           `registry derivation failed after journal append; ` +
           `journal is authoritative — run 'loaf doctor --rebuild-registry' (future). ` +
           `Cause: ${(err as Error).message}`,
+        snapshot: finalSnapshot,
+        entries: promoted,
+        meta: appendMeta,
         detail: {
           projection: "registry",
           phase: "derivation",
-          journal_appended: true,
           error: (err as Error).message,
         },
       };
@@ -848,9 +903,28 @@ async function mutateBatchUnderLease(
 export async function mutate(partial: PartialEntry, ctx: MutateContext): Promise<MutateResult> {
   const batch = await mutateBatch([partial], ctx);
   if (!batch.ok) {
-    return batch.detail !== undefined
-      ? { ok: false, code: batch.code, message: batch.message, detail: batch.detail }
-      : { ok: false, code: batch.code, message: batch.message };
+    const failure = {
+      ok: false as const,
+      code: batch.code,
+      message: batch.message,
+      ...(batch.failed_index !== undefined && { failed_index: batch.failed_index }),
+      ...(batch.detail !== undefined && { detail: batch.detail }),
+    };
+    return batch.commit_state === "committed"
+      ? {
+          ...failure,
+          commit_state: "committed",
+          snapshot: batch.snapshot,
+          entry: batch.entries[0]!,
+          meta: batch.meta,
+        }
+      : { ...failure, commit_state: "not-committed" };
   }
-  return { ok: true, snapshot: batch.snapshot, entry: batch.entries[0]!, meta: batch.meta };
+  return {
+    ok: true,
+    commit_state: batch.commit_state,
+    snapshot: batch.snapshot,
+    entry: batch.entries[0]!,
+    meta: batch.meta,
+  };
 }

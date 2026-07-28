@@ -2412,11 +2412,15 @@ describe("W3 — per-feature write-contention fence", () => {
     );
     const blocked = await mutateBatch([bootPartial], { ...freshCtx(dir), dryRun: true });
     expect(blocked.ok).toBe(false);
-    if (!blocked.ok) expect(blocked.code).toBe("LOCK_TIMEOUT");
+    if (!blocked.ok) {
+      expect(blocked.code).toBe("LOCK_TIMEOUT");
+      expect(blocked.commit_state).toBe("not-committed");
+    }
 
     await fs.unlink(path.join(dir, ".lock"));
     const result = await mutateBatch([bootPartial], { ...freshCtx(dir), dryRun: true });
     expect(result.ok).toBe(true);
+    if (result.ok) expect(result.commit_state).toBe("not-committed");
     await expect(fs.access(path.join(dir, ".lock"))).rejects.toThrow();
   });
 
@@ -2425,11 +2429,13 @@ describe("W3 — per-feature write-contention fence", () => {
     const stale = freshCtx(dir);
     const committed = await mutate(bootPartial, freshCtx(dir));
     expect(committed.ok).toBe(true);
+    if (committed.ok) expect(committed.commit_state).toBe("committed");
 
     const result = await mutateBatch([bootPartial], { ...stale, dryRun: true });
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe("APPEND_ERROR");
+      expect(result.commit_state).toBe("not-committed");
       expect(result.detail).toMatchObject({
         code: "PRIOR_META_STALE",
         phase: "lease-tail-check",

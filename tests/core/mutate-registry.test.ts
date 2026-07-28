@@ -191,6 +191,7 @@ describe("SC-7 — mutator step 9 registry refresh", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe("PROJECTION_WRITE_FAILED");
+      expect(result.commit_state).toBe("committed");
       expect(result.detail?.projection).toBe("registry");
       expect(result.detail?.phase).toBe("derivation");
       expect(result.message).toContain("test-induced derivation failure");

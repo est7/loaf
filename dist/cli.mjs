@@ -11355,6 +11355,17 @@ async function writeDerivedSpecMd(snapshot, featureDir) {
 }
 //#endregion
 //#region src/core/journal-mutate.ts
+function classifyCommitState(result, dryRun) {
+	if (result.commit_state !== void 0) return result;
+	if (result.ok) return {
+		...result,
+		commit_state: dryRun ? "not-committed" : "committed"
+	};
+	return {
+		...result,
+		commit_state: "not-committed"
+	};
+}
 function isBootstrapEntry(entry) {
 	return entry.kind === "session:started" || entry.kind === "migration:snapshot_imported";
 }
@@ -11402,23 +11413,23 @@ function checkScopeRecordedBatch(candidates, priorEntries) {
 	return null;
 }
 async function mutateBatch(partials, ctx) {
-	if (partials.length === 0) return {
+	if (partials.length === 0) return classifyCommitState({
 		ok: false,
 		code: "INVALID_BATCH",
 		message: "mutateBatch called with empty partials array; pass at least one entry",
 		detail: { partials_length: 0 }
-	};
+	}, ctx.dryRun ?? false);
 	if (ctx.dryRun) try {
 		await promises.access(ctx.feature_dir);
 	} catch (error) {
-		if (error.code === "ENOENT") return await mutateBatchUnderLease(partials, ctx);
+		if (error.code === "ENOENT") return classifyCommitState(await mutateBatchUnderLease(partials, ctx), ctx.dryRun ?? false);
 		throw error;
 	}
 	let lease;
 	try {
 		lease = await acquireFeatureWriteLease(ctx.feature_dir, ctx.dryRun ? "mutate:dry-run" : "mutate", ctx.featureLease);
 	} catch (error) {
-		if (error instanceof FeatureWriteLeaseError) return {
+		if (error instanceof FeatureWriteLeaseError) return classifyCommitState({
 			ok: false,
 			code: "LOCK_TIMEOUT",
 			message: error.message,
@@ -11427,11 +11438,11 @@ async function mutateBatch(partials, ctx) {
 				lease_code: error.code,
 				...error.holder !== void 0 && { holder: error.holder }
 			}
-		};
+		}, ctx.dryRun ?? false);
 		throw error;
 	}
 	try {
-		return await mutateBatchUnderLease(partials, ctx);
+		return classifyCommitState(await mutateBatchUnderLease(partials, ctx), ctx.dryRun ?? false);
 	} finally {
 		await lease.release();
 	}
@@ -11682,12 +11693,15 @@ async function mutateBatchUnderLease(partials, ctx) {
 		const lastSeq = promoted[promoted.length - 1].seq;
 		return {
 			ok: false,
+			commit_state: "committed",
 			code: "PROJECTION_WRITE_FAILED",
 			message: `spec.md projection write failed after journal append at last_seq=${lastSeq} (spec_version=${finalSnapshot.state?.spec_version ?? "unknown"}); journal is authoritative — run 'loaf doctor --rebuild' to resync. Cause: ${err.message}`,
+			snapshot: finalSnapshot,
+			entries: promoted,
+			meta: appendMeta,
 			detail: {
 				projection: "spec.md",
 				path: path.join(ctx.feature_dir, "spec.md"),
-				journal_appended: true,
 				last_seq: lastSeq,
 				spec_version: finalSnapshot.state?.spec_version ?? null,
 				error: err.message
@@ -11705,12 +11719,15 @@ async function mutateBatchUnderLease(partials, ctx) {
 		const lastSeq = promoted[promoted.length - 1].seq;
 		return {
 			ok: false,
+			commit_state: "committed",
 			code: "PROJECTION_WRITE_FAILED",
 			message: `snapshot projection write failed after journal append at last_seq=${lastSeq}; journal is authoritative — run 'loaf doctor --rebuild' to resync. Cause: ${err.message}`,
+			snapshot: finalSnapshot,
+			entries: promoted,
+			meta: appendMeta,
 			detail: {
 				projection: "snapshots",
 				path: path.join(ctx.feature_dir, "snapshots"),
-				journal_appended: true,
 				last_seq: lastSeq,
 				error: err.message
 			}
@@ -11728,12 +11745,15 @@ async function mutateBatchUnderLease(partials, ctx) {
 		} catch (err) {
 			return {
 				ok: false,
+				commit_state: "committed",
 				code: "PROJECTION_WRITE_FAILED",
 				message: `registry derivation failed after journal append; journal is authoritative — run 'loaf doctor --rebuild-registry' (future). Cause: ${err.message}`,
+				snapshot: finalSnapshot,
+				entries: promoted,
+				meta: appendMeta,
 				detail: {
 					projection: "registry",
 					phase: "derivation",
-					journal_appended: true,
 					error: err.message
 				}
 			};
@@ -11756,18 +11776,28 @@ async function mutateBatchUnderLease(partials, ctx) {
 */
 async function mutate(partial, ctx) {
 	const batch = await mutateBatch([partial], ctx);
-	if (!batch.ok) return batch.detail !== void 0 ? {
-		ok: false,
-		code: batch.code,
-		message: batch.message,
-		detail: batch.detail
-	} : {
-		ok: false,
-		code: batch.code,
-		message: batch.message
-	};
+	if (!batch.ok) {
+		const failure = {
+			ok: false,
+			code: batch.code,
+			message: batch.message,
+			...batch.failed_index !== void 0 && { failed_index: batch.failed_index },
+			...batch.detail !== void 0 && { detail: batch.detail }
+		};
+		return batch.commit_state === "committed" ? {
+			...failure,
+			commit_state: "committed",
+			snapshot: batch.snapshot,
+			entry: batch.entries[0],
+			meta: batch.meta
+		} : {
+			...failure,
+			commit_state: "not-committed"
+		};
+	}
 	return {
 		ok: true,
+		commit_state: batch.commit_state,
 		snapshot: batch.snapshot,
 		entry: batch.entries[0],
 		meta: batch.meta
@@ -12309,9 +12339,9 @@ function stampedClosureBatch(actor, iteration, paths, at) {
 		}
 	}];
 }
-async function reloadForCommitProof(featureDir) {
+async function reloadForCommitProof(featureDir, loader = (target) => loadSession(target, { ensureDir: false })) {
 	try {
-		return await loadSession(featureDir, { ensureDir: false });
+		return await loader(featureDir);
 	} catch (error) {
 		throw new ExecuteClosureError("EXECUTE_CLOSURE_RELOAD_FAILED", `cannot reload journal to prove EXECUTE closure commit: ${error.message}`);
 	}
@@ -12330,8 +12360,8 @@ async function pathsForCurrentIteration(runtime, session, featureDir) {
 	const recorded = new Set(await resolveScopePaths(committed, featureDir));
 	return pending.paths.filter((scopePath) => !recorded.has(scopePath));
 }
-async function canClearPending(runtime, session, featureDir) {
-	return runtime.pending_scope === null || await pendingIsCovered(runtime.pending_scope, session.entries, featureDir);
+async function canClearPending(runtime, entries, featureDir) {
+	return runtime.pending_scope === null || await pendingIsCovered(runtime.pending_scope, entries, featureDir);
 }
 /**
 * Close one EXECUTE iteration while holding runtime state over the journal
@@ -12361,7 +12391,7 @@ async function executeClosureTransaction(options) {
 	try {
 		await withRuntimeLock(options.identity, "execute-closure", async (current) => {
 			const runtime = baseRuntime(current, options.identity, options.debug, heartbeatAt);
-			const session = await reloadForCommitProof(options.featureDir);
+			const session = await reloadForCommitProof(options.featureDir, options.hooks?.reloadSession);
 			const state = session.snapshot.state;
 			if (state == null) throw new ClosureNotCommitted();
 			const committed = committedScopeEntry(session.entries, state.iteration);
@@ -12375,7 +12405,7 @@ async function executeClosureTransaction(options) {
 					session,
 					from: "EXECUTE.work"
 				};
-				if (await canClearPending(runtime, session, options.featureDir)) return {
+				if (await canClearPending(runtime, session.entries, options.featureDir)) return {
 					...runtime,
 					heartbeat_at: heartbeatAt,
 					pending_scope: null
@@ -12406,10 +12436,10 @@ async function executeClosureTransaction(options) {
 					pending_scope: null
 				};
 			}
-			if (result.detail?.journal_appended === true) {
-				const reloaded = await reloadForCommitProof(options.featureDir);
-				if (committedScopeEntry(reloaded.entries, state.iteration) !== null) {
-					if (!await canClearPending(runtime, reloaded, options.featureDir)) throw new ExecuteClosureError("EXECUTE_CLOSURE_COMMIT_AMBIGUOUS", "post-append journal proof does not cover all pending scope paths; refusing to clear", { iteration: state.iteration });
+			if (result.commit_state === "committed") {
+				const committedEntries = session.entries.concat(result.entries);
+				if (committedScopeEntry(committedEntries, state.iteration) !== null) {
+					if (!await canClearPending(runtime, committedEntries, options.featureDir)) throw new ExecuteClosureError("EXECUTE_CLOSURE_COMMIT_AMBIGUOUS", "post-append journal proof does not cover all pending scope paths; refusing to clear", { iteration: state.iteration });
 					outcome = {
 						kind: "failure",
 						failure: result

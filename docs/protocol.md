@@ -2492,6 +2492,12 @@ SIGINT 期间: cleanup hook 释放 .lock(§10.4);second-Ctrl-C 留 .lock,
 
 > **Current implementation status:** `mutate()` / `mutateBatch()` acquire a 0600 owner-fenced feature lease before revalidating the caller-loaded journal meta against the current tail, and hold it through sidecar promotion, append, projections, and registry refresh. Live owners are never stolen; dead owners require PID plus unchanged-generation proof; malformed leases fail closed; release and SIGINT cleanup unlink only the current owner token. `doctor --rebuild`, `handoff`, and v0.0.x migration use the same lease. Direct `appendEntry()` calls remain internal primitives that bypass this orchestration boundary.
 
+Mutation results carry an explicit `commit_state`. Preflight, lease, sidecar,
+append, and dry-run outcomes use `not-committed`; successful live appends and
+post-append projection failures use `committed`. A committed failure includes
+the committed entries, snapshot, and meta, preserves the original projection
+diagnostic, and must never be retried as the same mutation.
+
 `tasks step done`(§10.8)等需要 atomic emit **多条** journal entry 的命令(例如 `event:task_step_done` + 同一批内 `evidence:added`)在**同一 batch + 同一 lock window 内**通过 §11.2 transaction 完成,不能分多次 `loaf <cmd>` 调用。Batch atomicity invariants 详 ADR-0005 §4.16 + 下方 §11.2 batch 三纪律。
 
 #### Batch transaction 三纪律(rev 4.3,ADR-0004 A10)

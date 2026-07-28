@@ -340,9 +340,10 @@ describe("mutateBatch Pass 5 — PROJECTION_WRITE_FAILED surface", () => {
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.code).toBe("PROJECTION_WRITE_FAILED");
+        expect(result.commit_state).toBe("committed");
         expect(result.detail).toBeDefined();
         expect(result.detail!["projection"]).toBe("spec.md");
-        expect(result.detail!["journal_appended"]).toBe(true);
+        expect(result.detail).not.toHaveProperty("journal_appended");
         expect(result.detail!["spec_version"]).toBe(1);
         expect(typeof result.detail!["last_seq"]).toBe("number");
       }

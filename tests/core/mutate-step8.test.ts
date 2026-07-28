@@ -12,8 +12,8 @@
 //      metadata strictly after data); a planless state removes a stale
 //      tasks.json.
 //   4. a projection-write failure after a successful journal append
-//      surfaces PROJECTION_WRITE_FAILED with journal_appended:true and
-//      recovery text mentioning `doctor --rebuild`.
+//      returns the explicit committed failure variant with recovery text
+//      mentioning `doctor --rebuild`.
 //   5. a corrupt/stale MutateContext fails fast BEFORE the append.
 
 import { describe, expect, test } from "vitest";
@@ -113,7 +113,7 @@ describe("mutate step 8 — snapshot projection sync (Phase 15 SC2)", () => {
     expect(fresh.fresh).toBe(true);
   });
 
-  test("a projection-write failure after a journal append → PROJECTION_WRITE_FAILED, journal_appended:true", async () => {
+  test("a projection-write failure after append returns an explicit committed outcome", async () => {
     const dir = await tmpFeatureDir();
     // Pre-create snapshots/state.json AS A DIRECTORY. writeProjections'
     // atomic tmp→state.json rename then fails (EISDIR / ENOTEMPTY) — step 8
@@ -133,8 +133,12 @@ describe("mutate step 8 — snapshot projection sync (Phase 15 SC2)", () => {
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.code).toBe("PROJECTION_WRITE_FAILED");
+    expect(r.commit_state).toBe("committed");
+    if (r.commit_state !== "committed") return;
+    expect(r.entry.kind).toBe("session:started");
+    expect(r.meta.last_applied_seq).toBe(0);
     expect(r.detail).toBeDefined();
-    expect(r.detail!["journal_appended"]).toBe(true);
+    expect(r.detail).not.toHaveProperty("journal_appended");
     expect(typeof r.detail!["last_seq"]).toBe("number");
     // Recovery text points the operator at `loaf doctor --rebuild`.
     expect(r.message).toContain("doctor --rebuild");
@@ -185,6 +189,7 @@ describe("mutate step 8 — snapshot projection sync (Phase 15 SC2)", () => {
     expect(stale.ok).toBe(false);
     if (stale.ok) return;
     expect(stale.code).toBe("INVALID_BATCH");
+    expect(stale.commit_state).toBe("not-committed");
     // The journal must be byte-identical — the fail-fast invariant fired
     // BEFORE the append.
     expect(await fs.readFile(path.join(dir, "journal.jsonl"), "utf8")).toBe(journalBefore);
@@ -228,6 +233,7 @@ describe("mutate step 8 — snapshot projection sync (Phase 15 SC2)", () => {
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.code).toBe("INVALID_BATCH");
+    expect(r.commit_state).toBe("not-committed");
     expect(await fs.readFile(path.join(dir, "journal.jsonl"), "utf8")).toBe(journalBefore);
   });
 

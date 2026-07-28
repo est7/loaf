@@ -22,6 +22,8 @@ export interface ExecuteClosureHooks {
   beforeAppend?: () => void | Promise<void>;
   /** Operational/fault-injection boundary after commit proof and before runtime clear. */
   afterCommitBeforeClear?: () => void | Promise<void>;
+  /** Deterministic seam for proving reload count across commit outcomes. */
+  reloadSession?: (featureDir: string) => Promise<SessionLoad>;
 }
 
 export type ExecuteClosureResult =
@@ -135,9 +137,13 @@ function stampedClosureBatch(
   ];
 }
 
-async function reloadForCommitProof(featureDir: string): Promise<SessionLoad> {
+async function reloadForCommitProof(
+  featureDir: string,
+  loader: (featureDir: string) => Promise<SessionLoad> = (target) =>
+    loadSession(target, { ensureDir: false }),
+): Promise<SessionLoad> {
   try {
-    return await loadSession(featureDir, { ensureDir: false });
+    return await loader(featureDir);
   } catch (error) {
     throw new ExecuteClosureError(
       "EXECUTE_CLOSURE_RELOAD_FAILED",
@@ -171,12 +177,12 @@ async function pathsForCurrentIteration(
 
 async function canClearPending(
   runtime: SessionRuntimeFile,
-  session: SessionLoad,
+  entries: readonly JournalEntry[],
   featureDir: string,
 ): Promise<boolean> {
   return (
     runtime.pending_scope === null ||
-    (await pendingIsCovered(runtime.pending_scope, session.entries, featureDir))
+    (await pendingIsCovered(runtime.pending_scope, entries, featureDir))
   );
 }
 
@@ -233,7 +239,10 @@ export async function executeClosureTransaction(
       "execute-closure",
       async (current) => {
         const runtime = baseRuntime(current, options.identity, options.debug, heartbeatAt);
-        const session = await reloadForCommitProof(options.featureDir);
+        const session = await reloadForCommitProof(
+          options.featureDir,
+          options.hooks?.reloadSession,
+        );
         const state = session.snapshot.state;
         if (state == null) {
           throw new ClosureNotCommitted();
@@ -249,7 +258,7 @@ export async function executeClosureTransaction(
             );
           }
           outcome = { kind: "recovered", session, from: "EXECUTE.work" };
-          if (await canClearPending(runtime, session, options.featureDir)) {
+          if (await canClearPending(runtime, session.entries, options.featureDir)) {
             return { ...runtime, heartbeat_at: heartbeatAt, pending_scope: null };
           }
           // A scope-track that read EXECUTE.work before waiting on this lock
@@ -280,11 +289,11 @@ export async function executeClosureTransaction(
           return { ...runtime, heartbeat_at: heartbeatAt, pending_scope: null };
         }
 
-        if (result.detail?.journal_appended === true) {
-          const reloaded = await reloadForCommitProof(options.featureDir);
-          const proof = committedScopeEntry(reloaded.entries, state.iteration);
+        if (result.commit_state === "committed") {
+          const committedEntries = session.entries.concat(result.entries);
+          const proof = committedScopeEntry(committedEntries, state.iteration);
           if (proof !== null) {
-            if (!(await canClearPending(runtime, reloaded, options.featureDir))) {
+            if (!(await canClearPending(runtime, committedEntries, options.featureDir))) {
               throw new ExecuteClosureError(
                 "EXECUTE_CLOSURE_COMMIT_AMBIGUOUS",
                 "post-append journal proof does not cover all pending scope paths; refusing to clear",

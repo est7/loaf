@@ -64,7 +64,7 @@ replace `Pending` evidence with the commands and results that actually ran.
 | A02 | Implement | Public AttachmentRef containment | A01 | [x] Complete |
 | A03 | Implement | Attachment authority module | A02 | [x] Complete |
 | A04 | Implement | Feature write lease | A03 | [x] Complete |
-| A05 | Implement | Explicit mutation commit outcomes | A04 | [ ] Pending |
+| A05 | Implement | Explicit mutation commit outcomes | A04 | [x] Complete |
 | A06 | Implement | Deep CommandMutator boundary | A05 | [ ] Pending |
 | A07 | Implement | Unified CLI input ingestion | A01 | [ ] Pending |
 | A08 | Implement | Strict CLI-owned task intake | A06, A07 | [ ] Pending |
@@ -375,7 +375,7 @@ lease would violate the existing no-write preview contract.
 
 ## A05 — Explicit mutation commit outcomes
 
-**Status:** [ ] Pending
+**Status:** [x] Complete
 **Commit subject:** `refactor(core): make mutation commit state explicit`
 
 ### Destination
@@ -392,13 +392,13 @@ typed, exhaustive result variants rather than the magic
 
 ### Acceptance criteria
 
-- [ ] The result union has an explicit commit-state discriminant.
-- [ ] All post-append projection failures return the committed variant.
-- [ ] `executeClosureTransaction` no longer probes arbitrary detail data or
+- [x] The result union has an explicit commit-state discriminant.
+- [x] All post-append projection failures return the committed variant.
+- [x] `executeClosureTransaction` no longer probes arbitrary detail data or
   rereads the journal merely to discover whether commit occurred.
-- [ ] CLI routing preserves the original diagnostic and the no-retry recovery
+- [x] CLI routing preserves the original diagnostic and the no-retry recovery
   guidance.
-- [ ] Fault-injection tests distinguish pre-commit and post-commit failures.
+- [x] Fault-injection tests distinguish pre-commit and post-commit failures.
 
 ### Validation
 
@@ -411,7 +411,21 @@ exhaustively in the same commit.
 
 ### Evidence
 
-Pending.
+- Pre-change characterization found `executeClosureTransaction` branching on
+  `detail.journal_appended` and three fault tests asserting that magic key.
+  A separate RED run was not retained; the existing expectations served as
+  the characterization oracle while the result union changed.
+- `MutateResult` and `MutateBatchResult` now require
+  `commit_state: committed | not-committed`; committed failures carry the
+  committed entry batch, snapshot, and meta.
+- Projection, spec, and registry fault injection distinguish committed
+  failures from stale-context, lease, and dry-run not-committed outcomes.
+- EXECUTE closure's post-append projection failure path performs one initial
+  reload only, then proves scope coverage from the committed result.
+- Focused suite — 5 files, 70 tests passed.
+- `rg` finds no runtime `journal_appended` probe or producer.
+- `bun run check` — lint and typecheck passed; 172 test files and 2,651 tests
+  passed; the distribution bundle rebuilt successfully.
 
 ## A06 — Deep CommandMutator boundary
 

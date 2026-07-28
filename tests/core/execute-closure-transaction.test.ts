@@ -5,6 +5,7 @@ import path from "node:path";
 import { describe, expect, test } from "vitest";
 
 import { main, type MainDeps } from "../../src/cli.js";
+import { loadSession } from "../../src/core/cli-runtime.js";
 import type { JournalEntry } from "../../src/core/journal-entry.js";
 import { deriveActualScope } from "../../src/core/scope-projection.js";
 import { readSessionRuntimeFile, writeSessionRuntimeFile } from "../../src/core/session-runtime.js";
@@ -19,10 +20,7 @@ type Seed = {
 };
 
 async function runCli(
-  seed: Pick<
-    Seed,
-    "workspace" | "featureDir" | "runtimeDir" | "registryDir" | "feature"
-  >,
+  seed: Pick<Seed, "workspace" | "featureDir" | "runtimeDir" | "registryDir" | "feature">,
   argv: string[],
   deps: MainDeps = {},
 ): Promise<{ exit: number; stdout: string; stderr: string }> {
@@ -247,11 +245,16 @@ describe("EXECUTE closure transaction", () => {
     ).toBeNull();
   });
 
-  test("post-append projection failure scans the journal before clearing runtime", async () => {
+  test("post-append projection failure uses the committed outcome without a discovery reload", async () => {
     const seed = await seedQuickAtExecuteWork();
     await writePending(seed, ["src/projection.ts"]);
+    let reloads = 0;
     const failed = await runCli(seed, ["advance", "EXECUTE.done"], {
       executeClosureHooks: {
+        reloadSession: async (featureDir) => {
+          reloads += 1;
+          return await loadSession(featureDir, { ensureDir: false });
+        },
         beforeAppend: async () => {
           const snapshots = path.join(seed.featureDir, "snapshots");
           await fs.rm(snapshots, { recursive: true, force: true });
@@ -260,6 +263,7 @@ describe("EXECUTE closure transaction", () => {
       },
     });
     expect(failed.exit).toBe(2);
+    expect(reloads).toBe(1);
     expect((await journal(seed)).at(-2)?.kind).toBe("scope:recorded");
     expect(
       (
