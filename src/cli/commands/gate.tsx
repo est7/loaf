@@ -4,6 +4,10 @@ import type { CommandMutator } from "../command-mutator.js";
 import { FAILURE_SITE_KEYS, SUCCESS_KEYS } from "../runtime-i18n-keys.js";
 import { loadSession } from "../../core/cli-runtime.js";
 import { buildGateApprovalBatch } from "../batch-builders.js";
+import {
+  buildNextAdvisoryFromSnapshot,
+  selectorForCommandContext,
+} from "../next-advisory.js";
 
 export function registerGate(
   program: Command,
@@ -120,14 +124,24 @@ export function registerGate(
               sub_state: result.snapshot.state?.sub_state,
               spec_locked: result.snapshot.state?.spec_locked,
             };
+            const selector = await selectorForCommandContext(ctx);
             ctx.success(
               out,
               () => "",
-              (i18n) => ({
-                stateChange: i18n.t(SUCCESS_KEYS.gateSpecLockApprovedStateChange, {
-                  actor: humanActor,
-                }),
-              }),
+              (i18n) => {
+                const next = buildNextAdvisoryFromSnapshot(
+                  i18n,
+                  result.snapshot,
+                  featureDir,
+                  selector,
+                );
+                return {
+                  stateChange: i18n.t(SUCCESS_KEYS.gateSpecLockApprovedStateChange, {
+                    actor: humanActor,
+                  }),
+                  ...(next === undefined ? {} : { next }),
+                };
+              },
             );
             return;
           }
@@ -159,19 +173,24 @@ export function registerGate(
             sub_state: result.snapshot.state?.sub_state,
             verify_accepted: result.snapshot.state?.verify_accepted,
           };
-          const nextCmd =
-            result.snapshot.state?.ceremony?.settle_phase === true ? "loaf settle" : "loaf deliver";
+          const selector = await selectorForCommandContext(ctx);
           ctx.success(
             out,
             () => "",
-            (i18n) => ({
-              stateChange: i18n.t(SUCCESS_KEYS.gateVerifyAcceptApprovedStateChange, {
-                actor: humanActor,
-              }),
-              next: i18n.t(
-                nextCmd === "loaf settle" ? SUCCESS_KEYS.nextSettle : SUCCESS_KEYS.nextDeliver,
-              ),
-            }),
+            (i18n) => {
+              const next = buildNextAdvisoryFromSnapshot(
+                i18n,
+                result.snapshot,
+                featureDir,
+                selector,
+              );
+              return {
+                stateChange: i18n.t(SUCCESS_KEYS.gateVerifyAcceptApprovedStateChange, {
+                  actor: humanActor,
+                }),
+                ...(next === undefined ? {} : { next }),
+              };
+            },
           );
           return;
         }

@@ -70,7 +70,7 @@ replace `Pending` evidence with the commands and results that actually ran.
 | A08 | Implement | Strict CLI-owned task intake | A06, A07 | [x] Complete |
 | A09 | Implement | Canonical scope-closure fact policy | A03 | [x] Complete |
 | A10 | Retire | Phantom reconcile execution contract | A09 | [x] Complete |
-| A11 | Implement | Canonical lifecycle advice | A06, A10 | [ ] Pending |
+| A11 | Implement | Canonical lifecycle advice | A06, A10 | [x] Complete |
 | A12 | Retire | Live task-step `evidence_refs` contract | A08 | [ ] Pending |
 | A13 | Retire | Dead context-pack contract | A01 | [ ] Pending |
 | A14 | Implement | Skill-driven orchestration journey gate | A11, A13 | [ ] Pending |
@@ -696,7 +696,7 @@ can restore the new transition target because no new persistent kind is added.
 
 ## A11 — Canonical lifecycle advice
 
-**Status:** [ ] Pending
+**Status:** [x] Complete
 **Commit subject:** `refactor(cli): derive lifecycle advice from core routing`
 
 ### Destination
@@ -712,11 +712,11 @@ injection, i18n, command rendering, and success advisory presentation.
 
 ### Acceptance criteria
 
-- [ ] `loaf next` and post-mutation advisories consume the same routing result.
-- [ ] Applicable verify lanes, pending head, settle/deliver branch, and
+- [x] `loaf next` and post-mutation advisories consume the same routing result.
+- [x] Applicable verify lanes, pending head, settle/deliver branch, and
   feature/session selectors agree across entry points.
-- [ ] Command files no longer hardcode routes already owned by core.
-- [ ] Core tests cover routing; CLI tests cover rendering and selector
+- [x] Command files no longer hardcode routes already owned by core.
+- [x] Core tests cover routing; CLI tests cover rendering and selector
   injection separately.
 
 ### Validation
@@ -730,7 +730,17 @@ to match the current machine.
 
 ### Evidence
 
-Pending.
+- `buildScopedNextOutput()` now composes the core routing result with the one
+  selector renderer used by both `loaf next` and success advisories.
+- `selectorForDispatch()` preserves canonical session UUIDs, explicit
+  feature-dir paths, and feature selectors without command-local inference.
+- Start, advance, task submit, spec submit, gate approvals, settle, and lesson
+  recording consume the snapshot adapter instead of hardcoded route strings.
+- Unit coverage pins scoped command equality, shell quoting, blocking-action
+  pointers, and session/feature/feature-dir selection. The deep lifecycle
+  asserts `loaf settle`'s JSON advisory equals the following `loaf next`
+  command.
+- A11 focused suites, the full Vitest suite, typecheck, and lint passed.
 
 ## A12 — Live task-step `evidence_refs` contract
 

@@ -537,10 +537,9 @@ describe("loaf gate decide spec-lock — Slice 1.B sub-cycle 4 (MVP)", () => {
 
     expect(result.exit).toBe(0);
     expect(result.stderr).toContain("gate decide: spec-lock approved by");
-    // SC-5b2 P25: spec-lock approve cursor already advanced
-    // SPEC.design → EXECUTE.plan in the same batch; no next-hint
-    // emitted (codex r261 P25 + r262 GO).
-    expect(result.stderr).not.toContain("next:");
+    // Canonical advisory is computed from the post-batch EXECUTE.plan
+    // snapshot through the same routing adapter as `loaf next`.
+    expect(result.stderr).toContain(`next: loaf advance EXECUTE.work --feature-dir ${dir}`);
     const out = JSON.parse(result.stdout);
     expect(out.ok).toBe(true);
     expect(out.gate).toBe("spec-lock");
@@ -2131,7 +2130,7 @@ describe("loaf settle", () => {
     // SC-5b2: state-change + next now route to stderr; stdout empty.
     expect(result.stdout).toBe("");
     expect(result.stderr).toMatch(/settle: VERIFY\.accept → SETTLE\.lessons/);
-    expect(result.stderr).toContain("next: loaf lessons add");
+    expect(result.stderr).toContain(`next: loaf deliver --feature-dir ${dir}`);
     expect(result.stderr).not.toContain("loaf advance SETTLE.lessons");
     // Compatibility projection must not be presented as current output.
     expect(result.stdout).not.toMatch(/reconcile\.json/);

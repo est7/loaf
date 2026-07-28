@@ -27,7 +27,7 @@ create a second definition.
 | §15–§16 | Evidence entries, inputs, and compatibility | [`src/core/evidence-schema.ts`](../src/core/evidence-schema.ts), [`src/core/evidence-compat.ts`](../src/core/evidence-compat.ts), [`src/core/projection-schema.ts`](../src/core/projection-schema.ts) |
 | §17 | Finding events and projections | [`src/core/finding-schema.ts`](../src/core/finding-schema.ts), [`src/core/projection-schema.ts`](../src/core/projection-schema.ts) |
 | §18 | Reconciliation projection and actual-scope derivation | [`src/core/reconcile-schema.ts`](../src/core/reconcile-schema.ts), [`src/core/scope-projection.ts`](../src/core/scope-projection.ts) |
-| §18b | `loaf next` action and output | [`src/core/reducer/transition.ts`](../src/core/reducer/transition.ts), [`src/core/next-action.ts`](../src/core/next-action.ts) |
+| §18b | `loaf next` action, scoped rendering, and success advisories | [`src/core/reducer/transition.ts`](../src/core/reducer/transition.ts), [`src/core/next-action.ts`](../src/core/next-action.ts), [`src/cli/next-advisory.ts`](../src/cli/next-advisory.ts) |
 | §19 | Gate diagnostics | [`src/core/gates/gate-diagnostic.ts`](../src/core/gates/gate-diagnostic.ts) |
 | §20 | Resume packs | [`src/core/resume-pack-schema.ts`](../src/core/resume-pack-schema.ts) |
 | §21 | Project configuration | [`src/core/loaf-config.ts`](../src/core/loaf-config.ts) |

@@ -6,6 +6,10 @@ import { loadSession } from "../../core/cli-runtime.js";
 import { allocateNextLessonId } from "../lesson-id-allocator.js";
 import { buildLessonRecordedPayload } from "../lessons-add.js";
 import { promises as fsPromises } from "node:fs";
+import {
+  buildNextAdvisoryFromSnapshot,
+  selectorForCommandContext,
+} from "../next-advisory.js";
 
 export function registerLessons(
   program: Command,
@@ -117,6 +121,7 @@ export function registerLessons(
           actor,
         });
         if (!result) return;
+        const selector = await selectorForCommandContext(ctx);
         // v0.1.1 (F-024): the lessons.md projection writer landed — every
         // mutate rebuilds `.loaf/<feature>/lessons.md` from the lesson
         // entries (writeProjections), so the advisory now states it was
@@ -129,9 +134,18 @@ export function registerLessons(
             kind: "lesson:recorded" as const,
           },
           () => `${lessonId}\n`,
-          (i18n) => ({
-            stateChange: i18n.t(SUCCESS_KEYS.lessonsAddStateChange, { lesson_id: lessonId }),
-          }),
+          (i18n) => {
+            const next = buildNextAdvisoryFromSnapshot(
+              i18n,
+              result.snapshot,
+              featureDir,
+              selector,
+            );
+            return {
+              stateChange: i18n.t(SUCCESS_KEYS.lessonsAddStateChange, { lesson_id: lessonId }),
+              ...(next === undefined ? {} : { next }),
+            };
+          },
         );
       },
     );

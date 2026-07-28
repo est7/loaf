@@ -37,7 +37,7 @@ describe("FSM Mermaid artifact", () => {
       "  TRIAGE_confirm --> SPEC_proposal : spec_phase_required\n",
     );
     expect(generated).toContain(
-      "  VERIFY_accept --> SETTLE_reconcile : settle_phase_required && verify_accepted_required\n",
+      "  VERIFY_accept --> SETTLE_lessons : settle_phase_required && verify_accepted_required\n",
     );
     expect(generated).toContain(
       "  EXECUTE_done --> DONE_delivered : session:delivered\n",

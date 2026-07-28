@@ -28,6 +28,10 @@ import {
 } from "../../core/spec-schema.js";
 import { promises as fsP } from "node:fs";
 import path from "node:path";
+import {
+  buildNextAdvisoryFromSnapshot,
+  selectorForCommandContext,
+} from "../next-advisory.js";
 
 interface SpecAddKindConfig {
   name: "req" | "scenario" | "visual";
@@ -260,6 +264,7 @@ export function registerSpec(
         vis_ids: visIds,
         sub_state: result.snapshot.state?.sub_state,
       };
+      const selector = await selectorForCommandContext(ctx);
       ctx.success(
         out,
         (i18n) =>
@@ -269,12 +274,20 @@ export function registerSpec(
             scen_count: scenIds.length,
             vis_count: visIds.length,
           }) + "\n",
-        (i18n) => ({
-          stateChange: i18n.t(SUCCESS_KEYS.specSubmitStateChange, {
-            spec_version: out.spec_version,
-          }),
-          next: i18n.t(SUCCESS_KEYS.specSubmitNext),
-        }),
+        (i18n) => {
+          const next = buildNextAdvisoryFromSnapshot(
+            i18n,
+            result.snapshot,
+            featureDir,
+            selector,
+          );
+          return {
+            stateChange: i18n.t(SUCCESS_KEYS.specSubmitStateChange, {
+              spec_version: out.spec_version,
+            }),
+            ...(next === undefined ? {} : { next }),
+          };
+        },
       );
     });
 

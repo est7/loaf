@@ -17,7 +17,10 @@ import {
 import { allocateTaskAuthoringInputs, collectOccupiedTaskIds } from "../../task-authoring.js";
 import { jsonInputHelp, type JsonInputDeclaration } from "../../input-ingestion.js";
 import { FAILURE_SITE_KEYS, SUCCESS_KEYS } from "../../runtime-i18n-keys.js";
-import { buildNextAdvisory, pendingKindsForNext } from "../../next-advisory.js";
+import {
+  buildNextAdvisoryFromSnapshot,
+  selectorForCommandContext,
+} from "../../next-advisory.js";
 import type { TasksRegistrationDeps } from "./types.js";
 
 const TASKS_SUBMIT_INPUT: JsonInputDeclaration = {
@@ -160,6 +163,7 @@ export function registerTaskSubmit(tasksCmd: Command, deps: TasksRegistrationDep
         task_ids_by_local_key: taskIdsByLocalKey,
         tasks_based_on: result.snapshot.tasks_based_on,
       };
+      const selector = await selectorForCommandContext(ctx);
       ctx.success(
         out,
         (i18n) =>
@@ -171,21 +175,11 @@ export function registerTaskSubmit(tasksCmd: Command, deps: TasksRegistrationDep
             },
           ) + "\n",
         (i18n) => {
-          const next = buildNextAdvisory(
+          const next = buildNextAdvisoryFromSnapshot(
             i18n,
-            {
-              feature: state.feature,
-              feature_dir: featureDir,
-              phase: state.phase,
-              sub_state: state.sub_state,
-              ceremony: state.ceremony,
-              spec_locked: state.spec_locked,
-              verify_accepted: state.verify_accepted,
-              pending: pendingKindsForNext(result.snapshot.pending),
-            },
-            opts.featureDir !== undefined
-              ? { kind: "feature-dir", value: featureDir }
-              : { kind: "feature", value: state.feature },
+            result.snapshot,
+            featureDir,
+            selector,
           );
           return {
             stateChange: i18n.t(SUCCESS_KEYS.tasksSubmitStateChange, { count: tasks.length }),

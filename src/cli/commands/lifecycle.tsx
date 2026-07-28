@@ -5,8 +5,12 @@ import { FAILURE_SITE_KEYS, SUCCESS_KEYS, subStateKey, CHROME_KEYS } from "../ru
 import { defaultFeatureDir, loadSession } from "../../core/cli-runtime.js";
 import packageJson from "../../../package.json" with { type: "json" };
 import { deriveVerifyApplicability } from "../../core/gates/verify-accept-check.js";
-import { buildNextOutput } from "../../core/next-action.js";
-import { appendSelector, buildNextAdvisory, pendingKindsForNext } from "../next-advisory.js";
+import {
+  buildNextAdvisoryFromSnapshot,
+  buildScopedNextOutput,
+  selectorForCommandContext,
+  selectorForFeature,
+} from "../next-advisory.js";
 import { readSpecFrontmatter } from "../../core/spec-frontmatter.js";
 import { extractTaskSlim } from "../../core/task-schema.js";
 import type { TaskState } from "../../core/reducer.js";
@@ -146,21 +150,11 @@ export function registerLifecycle(
           out,
           () => `${sessionId}\n`,
           (i18n) => {
-            const next = buildNextAdvisory(
+            const next = buildNextAdvisoryFromSnapshot(
               i18n,
-              {
-                feature: state.feature,
-                feature_dir: featureDir,
-                phase: state.phase,
-                sub_state: state.sub_state,
-                ceremony: state.ceremony,
-                spec_locked: state.spec_locked,
-                verify_accepted: state.verify_accepted,
-                pending: pendingKindsForNext(result.snapshot.pending),
-              },
-              opts.featureDir !== undefined
-                ? { kind: "feature-dir", value: featureDir }
-                : { kind: "feature", value: state.feature },
+              result.snapshot,
+              featureDir,
+              selectorForFeature(state.feature, featureDir, opts.featureDir !== undefined),
             );
             return {
               stateChange: i18n.t(SUCCESS_KEYS.startStateChange, { feature }),
@@ -180,6 +174,7 @@ export function registerLifecycle(
     .action(async (to: string, opts: { feature: string; featureDir?: string }) => {
       const featureDir = await ctx.dispatchOrFail(opts);
       if (featureDir === null) return;
+      const selector = await selectorForCommandContext(ctx);
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       const from = session.snapshot.state?.sub_state;
       if (!from) {
@@ -215,12 +210,21 @@ export function registerLifecycle(
             ctx.success(
               out,
               () => "",
-              (i18n) => ({
-                stateChange: i18n.t(SUCCESS_KEYS.advanceStateChange, {
-                  from: closure.from,
-                  to,
-                }),
-              }),
+              (i18n) => {
+                const next = buildNextAdvisoryFromSnapshot(
+                  i18n,
+                  snapshot,
+                  featureDir,
+                  selector,
+                );
+                return {
+                  stateChange: i18n.t(SUCCESS_KEYS.advanceStateChange, {
+                    from: closure.from,
+                    to,
+                  }),
+                  ...(next === undefined ? {} : { next }),
+                };
+              },
             );
             return;
           }
@@ -249,9 +253,18 @@ export function registerLifecycle(
       ctx.success(
         out,
         () => "",
-        (i18n) => ({
-          stateChange: i18n.t(SUCCESS_KEYS.advanceStateChange, { from, to }),
-        }),
+        (i18n) => {
+          const next = buildNextAdvisoryFromSnapshot(
+            i18n,
+            result.snapshot,
+            featureDir,
+            selector,
+          );
+          return {
+            stateChange: i18n.t(SUCCESS_KEYS.advanceStateChange, { from, to }),
+            ...(next === undefined ? {} : { next }),
+          };
+        },
       );
     });
 
@@ -338,9 +351,9 @@ export function registerLifecycle(
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { feature?: string; featureDir?: string }) => {
       if (ctx.rejectIfDryRun("next")) return;
-      const requestedFeatureDir = opts.featureDir !== undefined;
       const featureDir = await ctx.dispatchOrFail(opts);
       if (featureDir === null) return;
+      const selector = await selectorForCommandContext(ctx);
       const loaded = await ctx.loadProjectionsOrFail(
         featureDir,
         ["state", "tasks", "pending"] as const,
@@ -381,30 +394,20 @@ export function registerLifecycle(
         );
       }
 
-      const rawOut = buildNextOutput({
-        feature: opts.feature!,
-        feature_dir: featureDir,
-        phase: loaded.state.phase,
-        sub_state: loaded.state.sub_state,
-        ceremony: loaded.state.ceremony,
-        spec_locked: loaded.state.spec_locked,
-        verify_accepted: loaded.state.verify_accepted,
-        pending: loaded.state.pending,
-        verify_applicable_lanes: verifyApplicableLanes,
-      });
-      const selector = requestedFeatureDir
-        ? ({ kind: "feature-dir", value: featureDir } as const)
-        : ({ kind: "feature", value: opts.feature! } as const);
-      const out =
-        rawOut.next_action === undefined
-          ? rawOut
-          : {
-              ...rawOut,
-              next_action: {
-                ...rawOut.next_action,
-                command: appendSelector(rawOut.next_action.command, selector),
-              },
-            };
+      const out = buildScopedNextOutput(
+        {
+          feature: opts.feature!,
+          feature_dir: featureDir,
+          phase: loaded.state.phase,
+          sub_state: loaded.state.sub_state,
+          ceremony: loaded.state.ceremony,
+          spec_locked: loaded.state.spec_locked,
+          verify_accepted: loaded.state.verify_accepted,
+          pending: loaded.state.pending,
+          verify_applicable_lanes: verifyApplicableLanes,
+        },
+        selector,
+      );
 
       ctx.success(out, () => (out.next_action === undefined ? "" : `${out.next_action.command}\n`));
     });

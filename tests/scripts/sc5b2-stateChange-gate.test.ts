@@ -79,7 +79,7 @@ const STATE_CHANGE_FIXTURES: ReadonlyArray<{
   // spec submit — align
   {
     commandKey: "loaf spec submit",
-    mustContain: ["spec submit:", "spec_version=N", "locked=false", "loaf gate decide spec-lock"],
+    mustContain: ["spec submit:", "spec_version=N", "locked=false", "canonical next action"],
   },
   // spec add-* — narrow
   {
@@ -120,16 +120,13 @@ const STATE_CHANGE_FIXTURES: ReadonlyArray<{
   },
   {
     commandKey: "loaf gate decide verify-accept",
-    mustContain: [
-      "gate decide:",
-      "verify-accept approved by",
-      "loaf settle",
-      "loaf deliver",
-      "settle_phase",
-    ],
+    mustContain: ["gate decide:", "verify-accept approved by", "settle/deliver"],
   },
   // settle — narrow
-  { commandKey: "loaf settle", mustContain: ["settle:", "SETTLE.lessons", "loaf deliver"] },
+  {
+    commandKey: "loaf settle",
+    mustContain: ["settle:", "SETTLE.lessons", "scoped canonical command"],
+  },
   // deliver — align
   { commandKey: "loaf deliver", mustContain: ["deliver:", "DONE.delivered"] },
   // archive / abandon — align

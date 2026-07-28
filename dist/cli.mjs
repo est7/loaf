@@ -12753,6 +12753,58 @@ function shellQuote(value) {
 function appendSelector(command, selector) {
 	return `${command} --${selector.kind} ${shellQuote(selector.value)}`;
 }
+function selectorForFeature(feature, featureDir, explicitFeatureDir) {
+	return explicitFeatureDir ? {
+		kind: "feature-dir",
+		value: featureDir
+	} : {
+		kind: "feature",
+		value: feature
+	};
+}
+function argvHasFlag(argv, flag) {
+	return argv.some((arg) => arg === flag || arg.startsWith(`${flag}=`));
+}
+function selectorForDispatch(dispatch, argv) {
+	if (dispatch.source === "session-flag" || dispatch.source === "session-env") {
+		if (dispatch.sessionId === null) throw new Error(`session dispatch source ${dispatch.source} has no canonical session id`);
+		return {
+			kind: "session",
+			value: dispatch.sessionId
+		};
+	}
+	return selectorForFeature(dispatch.feature, dispatch.featureDir, argvHasFlag(argv, "--feature-dir"));
+}
+async function selectorForCommandContext(ctx) {
+	const dispatch = await ctx.resolveDispatch();
+	if (!dispatch.ok) throw new Error(`next advisory requested after failed dispatch: ${dispatch.code}`);
+	return selectorForDispatch(dispatch, ctx.argv);
+}
+function buildScopedNextOutput(input, selector) {
+	const output = buildNextOutput(input);
+	if (output.next_action === void 0) return output;
+	return {
+		...output,
+		next_action: {
+			...output.next_action,
+			command: appendSelector(output.next_action.command, selector)
+		}
+	};
+}
+function nextInputFromSnapshot(snapshot, featureDir) {
+	const state = snapshot.state;
+	if (state === null) return null;
+	return {
+		feature: state.feature,
+		feature_dir: featureDir,
+		phase: state.phase,
+		sub_state: state.sub_state,
+		ceremony: state.ceremony,
+		spec_locked: state.spec_locked,
+		verify_accepted: state.verify_accepted,
+		pending: pendingKindsForNext(snapshot.pending)
+	};
+}
 /**
 * Render a copy-pasteable next hint without owning workflow routing.
 * `buildNextOutput` remains the sole routing authority. Blocking actions may
@@ -12760,11 +12812,20 @@ function appendSelector(command, selector) {
 * instead of advertising an unsafe placeholder command as runnable.
 */
 function buildNextAdvisory(i18n, input, selector) {
-	const output = buildNextOutput(input);
+	const output = buildScopedNextOutput(input, selector);
 	if (output.next_action === void 0) return void 0;
-	if (!output.next_action.blocking) return appendSelector(output.next_action.command, selector);
+	if (!output.next_action.blocking) return output.next_action.command;
 	const command = `${appendSelector("loaf next", selector)} --format json`;
 	return i18n.t(SUCCESS_KEYS.nextFullCommandPointer, { command });
+}
+function buildNextAdvisoryFromSnapshot(i18n, snapshot, featureDir, selector) {
+	const input = nextInputFromSnapshot(snapshot, featureDir);
+	return input === null ? void 0 : buildNextAdvisory(i18n, input, selector);
+}
+function nextCommandFromSnapshot(snapshot, featureDir, selector) {
+	const input = nextInputFromSnapshot(snapshot, featureDir);
+	if (input === null) return void 0;
+	return buildScopedNextOutput(input, selector).next_action?.command;
 }
 //#endregion
 //#region src/cli/commands/lifecycle.tsx
@@ -12853,22 +12914,7 @@ function registerLifecycle(program, ctx, mutator, actor, runtimeDir, runtimeNow,
 			sub_state: state.sub_state
 		};
 		ctx.success(out, () => `${sessionId}\n`, (i18n) => {
-			const next = buildNextAdvisory(i18n, {
-				feature: state.feature,
-				feature_dir: featureDir,
-				phase: state.phase,
-				sub_state: state.sub_state,
-				ceremony: state.ceremony,
-				spec_locked: state.spec_locked,
-				verify_accepted: state.verify_accepted,
-				pending: pendingKindsForNext(result.snapshot.pending)
-			}, opts.featureDir !== void 0 ? {
-				kind: "feature-dir",
-				value: featureDir
-			} : {
-				kind: "feature",
-				value: state.feature
-			});
+			const next = buildNextAdvisoryFromSnapshot(i18n, result.snapshot, featureDir, selectorForFeature(state.feature, featureDir, opts.featureDir !== void 0));
 			return {
 				stateChange: i18n.t(SUCCESS_KEYS.startStateChange, { feature }),
 				...next === void 0 ? {} : { next }
@@ -12878,6 +12924,7 @@ function registerLifecycle(program, ctx, mutator, actor, runtimeDir, runtimeNow,
 	program.command("advance <to>").description("Advance the session cursor (emits event:phase_advanced)").option("--feature <name>", "Feature whose session to advance").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (to, opts) => {
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
+		const selector = await selectorForCommandContext(ctx);
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		const from = session.snapshot.state?.sub_state;
 		if (!from) {
@@ -12912,10 +12959,16 @@ function registerLifecycle(program, ctx, mutator, actor, runtimeDir, runtimeNow,
 						to,
 						sub_state: snapshot.state?.sub_state
 					};
-					ctx.success(out, () => "", (i18n) => ({ stateChange: i18n.t(SUCCESS_KEYS.advanceStateChange, {
-						from: closure.from,
-						to
-					}) }));
+					ctx.success(out, () => "", (i18n) => {
+						const next = buildNextAdvisoryFromSnapshot(i18n, snapshot, featureDir, selector);
+						return {
+							stateChange: i18n.t(SUCCESS_KEYS.advanceStateChange, {
+								from: closure.from,
+								to
+							}),
+							...next === void 0 ? {} : { next }
+						};
+					});
 					return;
 				}
 			} catch (error) {
@@ -12944,10 +12997,16 @@ function registerLifecycle(program, ctx, mutator, actor, runtimeDir, runtimeNow,
 			to,
 			sub_state: result.snapshot.state?.sub_state
 		};
-		ctx.success(out, () => "", (i18n) => ({ stateChange: i18n.t(SUCCESS_KEYS.advanceStateChange, {
-			from,
-			to
-		}) }));
+		ctx.success(out, () => "", (i18n) => {
+			const next = buildNextAdvisoryFromSnapshot(i18n, result.snapshot, featureDir, selector);
+			return {
+				stateChange: i18n.t(SUCCESS_KEYS.advanceStateChange, {
+					from,
+					to
+				}),
+				...next === void 0 ? {} : { next }
+			};
+		});
 	});
 	program.command("status").description("Show the current session snapshot (read-only)").option("--feature <name>", "Feature whose status to show").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		if (ctx.rejectIfDryRun("status")) return;
@@ -12993,9 +13052,9 @@ function registerLifecycle(program, ctx, mutator, actor, runtimeDir, runtimeNow,
 	});
 	program.command("next").description("Compute the next owner command for the current session (read-only)").option("--feature <name>", "Feature whose next action to compute").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		if (ctx.rejectIfDryRun("next")) return;
-		const requestedFeatureDir = opts.featureDir !== void 0;
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
+		const selector = await selectorForCommandContext(ctx);
 		const loaded = await ctx.loadProjectionsOrFail(featureDir, [
 			"state",
 			"tasks",
@@ -13025,7 +13084,7 @@ function registerLifecycle(program, ctx, mutator, actor, runtimeDir, runtimeNow,
 				tasks_based_on: null
 			}, read.frontmatter);
 		}
-		const rawOut = buildNextOutput({
+		const out = buildScopedNextOutput({
 			feature: opts.feature,
 			feature_dir: featureDir,
 			phase: loaded.state.phase,
@@ -13035,21 +13094,7 @@ function registerLifecycle(program, ctx, mutator, actor, runtimeDir, runtimeNow,
 			verify_accepted: loaded.state.verify_accepted,
 			pending: loaded.state.pending,
 			verify_applicable_lanes: verifyApplicableLanes
-		});
-		const selector = requestedFeatureDir ? {
-			kind: "feature-dir",
-			value: featureDir
-		} : {
-			kind: "feature",
-			value: opts.feature
-		};
-		const out = rawOut.next_action === void 0 ? rawOut : {
-			...rawOut,
-			next_action: {
-				...rawOut.next_action,
-				command: appendSelector(rawOut.next_action.command, selector)
-			}
-		};
+		}, selector);
 		ctx.success(out, () => out.next_action === void 0 ? "" : `${out.next_action.command}\n`);
 	});
 }
@@ -13214,7 +13259,14 @@ function registerGate(program, ctx, mutator, actor) {
 					sub_state: result.snapshot.state?.sub_state,
 					spec_locked: result.snapshot.state?.spec_locked
 				};
-				ctx.success(out, () => "", (i18n) => ({ stateChange: i18n.t(SUCCESS_KEYS.gateSpecLockApprovedStateChange, { actor: humanActor }) }));
+				const selector = await selectorForCommandContext(ctx);
+				ctx.success(out, () => "", (i18n) => {
+					const next = buildNextAdvisoryFromSnapshot(i18n, result.snapshot, featureDir, selector);
+					return {
+						stateChange: i18n.t(SUCCESS_KEYS.gateSpecLockApprovedStateChange, { actor: humanActor }),
+						...next === void 0 ? {} : { next }
+					};
+				});
 				return;
 			}
 			const result = await mutator.run(featureDir, session, buildGateApprovalBatch({
@@ -13234,11 +13286,14 @@ function registerGate(program, ctx, mutator, actor) {
 				sub_state: result.snapshot.state?.sub_state,
 				verify_accepted: result.snapshot.state?.verify_accepted
 			};
-			const nextCmd = result.snapshot.state?.ceremony?.settle_phase === true ? "loaf settle" : "loaf deliver";
-			ctx.success(out, () => "", (i18n) => ({
-				stateChange: i18n.t(SUCCESS_KEYS.gateVerifyAcceptApprovedStateChange, { actor: humanActor }),
-				next: i18n.t(nextCmd === "loaf settle" ? SUCCESS_KEYS.nextSettle : SUCCESS_KEYS.nextDeliver)
-			}));
+			const selector = await selectorForCommandContext(ctx);
+			ctx.success(out, () => "", (i18n) => {
+				const next = buildNextAdvisoryFromSnapshot(i18n, result.snapshot, featureDir, selector);
+				return {
+					stateChange: i18n.t(SUCCESS_KEYS.gateVerifyAcceptApprovedStateChange, { actor: humanActor }),
+					...next === void 0 ? {} : { next }
+				};
+			});
 			return;
 		}
 		const result = await mutator.run(featureDir, session, {
@@ -13871,26 +13926,12 @@ function registerTaskSubmit(tasksCmd, deps) {
 			task_ids_by_local_key: taskIdsByLocalKey,
 			tasks_based_on: result.snapshot.tasks_based_on
 		};
+		const selector = await selectorForCommandContext(ctx);
 		ctx.success(out, (i18n) => i18n.t(tasks.length === 1 ? SUCCESS_KEYS.tasksSubmitTextOne : SUCCESS_KEYS.tasksSubmitTextMany, {
 			count: tasks.length,
 			task_ids: taskIds.join(", ")
 		}) + "\n", (i18n) => {
-			const next = buildNextAdvisory(i18n, {
-				feature: state.feature,
-				feature_dir: featureDir,
-				phase: state.phase,
-				sub_state: state.sub_state,
-				ceremony: state.ceremony,
-				spec_locked: state.spec_locked,
-				verify_accepted: state.verify_accepted,
-				pending: pendingKindsForNext(result.snapshot.pending)
-			}, opts.featureDir !== void 0 ? {
-				kind: "feature-dir",
-				value: featureDir
-			} : {
-				kind: "feature",
-				value: state.feature
-			});
+			const next = buildNextAdvisoryFromSnapshot(i18n, result.snapshot, featureDir, selector);
 			return {
 				stateChange: i18n.t(SUCCESS_KEYS.tasksSubmitStateChange, { count: tasks.length }),
 				...next === void 0 ? {} : { next }
@@ -14690,18 +14731,24 @@ function registerTerminalSettle(program, ctx, mutator, actor) {
 			actor
 		});
 		if (!result) return;
+		const selector = await selectorForCommandContext(ctx);
+		const nextCommand = nextCommandFromSnapshot(result.snapshot, featureDir, selector);
+		const advisory = nextCommand === void 0 ? [] : [nextCommand];
 		const out = {
 			ok: true,
 			feature: opts.feature,
 			from,
 			to: "SETTLE.lessons",
 			sub_state: result.snapshot.state?.sub_state,
-			advisory: ["record lessons with `loaf lessons add`, then run `loaf deliver`"]
+			advisory
 		};
-		ctx.success(out, (i18n) => i18n.t(SUCCESS_KEYS.settleText), (i18n) => ({
-			stateChange: i18n.t(SUCCESS_KEYS.settleStateChange, { from }),
-			next: i18n.t(SUCCESS_KEYS.nextSettleLessons)
-		}));
+		ctx.success(out, (i18n) => i18n.t(SUCCESS_KEYS.settleText), (i18n) => {
+			const next = buildNextAdvisoryFromSnapshot(i18n, result.snapshot, featureDir, selector);
+			return {
+				stateChange: i18n.t(SUCCESS_KEYS.settleStateChange, { from }),
+				...next === void 0 ? {} : { next }
+			};
+		});
 	});
 	program.command("resume").description("Resume session from snapshots/resume-pack.json (emits session:resumed journal entry)").option("--feature <name>", "Feature whose resume pack to consume").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		const featureDir = await ctx.dispatchOrFail(opts);
@@ -15410,17 +15457,25 @@ function registerLessons(program, ctx, mutator, _actor) {
 			reason: opts.reason,
 			iteration: session.snapshot.state.iteration
 		});
-		if (!await mutator.run(featureDir, session, {
+		const result = await mutator.run(featureDir, session, {
 			kind: "lesson:recorded",
 			payload,
 			actor
-		})) return;
+		});
+		if (!result) return;
+		const selector = await selectorForCommandContext(ctx);
 		ctx.success({
 			ok: true,
 			feature: opts.feature,
 			id: lessonId,
 			kind: "lesson:recorded"
-		}, () => `${lessonId}\n`, (i18n) => ({ stateChange: i18n.t(SUCCESS_KEYS.lessonsAddStateChange, { lesson_id: lessonId }) }));
+		}, () => `${lessonId}\n`, (i18n) => {
+			const next = buildNextAdvisoryFromSnapshot(i18n, result.snapshot, featureDir, selector);
+			return {
+				stateChange: i18n.t(SUCCESS_KEYS.lessonsAddStateChange, { lesson_id: lessonId }),
+				...next === void 0 ? {} : { next }
+			};
+		});
 	});
 }
 //#endregion
@@ -17502,15 +17557,19 @@ function registerSpec(program, ctx, mutator, actor, isStdinTty, isStdoutTty, inp
 			vis_ids: visIds,
 			sub_state: result.snapshot.state?.sub_state
 		};
+		const selector = await selectorForCommandContext(ctx);
 		ctx.success(out, (i18n) => i18n.t(SUCCESS_KEYS.specSubmitText, {
 			spec_version: out.spec_version,
 			req_count: reqIds.length,
 			scen_count: scenIds.length,
 			vis_count: visIds.length
-		}) + "\n", (i18n) => ({
-			stateChange: i18n.t(SUCCESS_KEYS.specSubmitStateChange, { spec_version: out.spec_version }),
-			next: i18n.t(SUCCESS_KEYS.specSubmitNext)
-		}));
+		}) + "\n", (i18n) => {
+			const next = buildNextAdvisoryFromSnapshot(i18n, result.snapshot, featureDir, selector);
+			return {
+				stateChange: i18n.t(SUCCESS_KEYS.specSubmitStateChange, { spec_version: out.spec_version }),
+				...next === void 0 ? {} : { next }
+			};
+		});
 	});
 	specCmd.command("init").description("Write a parser-valid minimal spec.md scaffold (no journal entry)").option("--feature <name>", "Feature whose spec.md to scaffold").option("--feature-dir <path>", "Override default .loaf/<feature> directory").option("--feature-id <id>", "Override feature.id in scaffold (default: F-XXX placeholder)").option("--feature-name <text>", "Override feature.name in scaffold (default: --feature value)").option("--intent <text>", "Override intent line in scaffold (default: TODO placeholder ≥20 chars)").action(async (opts) => {
 		const featureDir = await ctx.dispatchOrFail(opts);

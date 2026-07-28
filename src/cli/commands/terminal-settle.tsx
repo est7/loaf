@@ -12,6 +12,11 @@ import {
 } from "../../core/feature-write-lease.js";
 import { promises as fsP } from "node:fs";
 import path from "node:path";
+import {
+  buildNextAdvisoryFromSnapshot,
+  nextCommandFromSnapshot,
+  selectorForCommandContext,
+} from "../next-advisory.js";
 
 export function registerTerminalSettle(
   program: Command,
@@ -36,7 +41,7 @@ export function registerTerminalSettle(
   //
   // Output (text mode):
   //   `settled <feature> — VERIFY.accept → SETTLE.lessons`
-  //   `next: loaf lessons add --text "<lesson>" --reason "<why it matters>"`
+  //   `next: loaf deliver --feature <feature>`
   // JSON includes `advisory: string[]` for scripted chaining. The output
   // intentionally does not claim a reconcile snapshot was rebuilt:
   // ReconcileJson is a historical compatibility reader, not a live stage.
@@ -65,7 +70,9 @@ export function registerTerminalSettle(
       );
       if (!result) return;
 
-      const advisory = ['record lessons with `loaf lessons add`, then run `loaf deliver`'];
+      const selector = await selectorForCommandContext(ctx);
+      const nextCommand = nextCommandFromSnapshot(result.snapshot, featureDir, selector);
+      const advisory = nextCommand === undefined ? [] : [nextCommand];
       const out = {
         ok: true,
         feature: opts.feature,
@@ -77,10 +84,18 @@ export function registerTerminalSettle(
       ctx.success(
         out,
         (i18n) => i18n.t(SUCCESS_KEYS.settleText),
-        (i18n) => ({
-          stateChange: i18n.t(SUCCESS_KEYS.settleStateChange, { from }),
-          next: i18n.t(SUCCESS_KEYS.nextSettleLessons),
-        }),
+        (i18n) => {
+          const next = buildNextAdvisoryFromSnapshot(
+            i18n,
+            result.snapshot,
+            featureDir,
+            selector,
+          );
+          return {
+            stateChange: i18n.t(SUCCESS_KEYS.settleStateChange, { from }),
+            ...(next === undefined ? {} : { next }),
+          };
+        },
       );
     });
 

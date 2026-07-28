@@ -1241,10 +1241,11 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
       expect(n.next_action?.command).toBe(`loaf settle --feature-dir ${dir}`);
       expect(n.blocked).toBe(false);
     }
-    await step("settle", ["settle", "--feature", F]);
+    const settled = await step("settle", ["settle", "--feature", F]);
     {
       const n = await step("next @ SETTLE.lessons", ["next", "--feature", F]);
       expect(n.next_action?.command).toBe(`loaf deliver --feature-dir ${dir}`);
+      expect(settled.advisory).toEqual([n.next_action?.command]);
     }
 
     // NOTE: this case delivers from SETTLE.lessons WITHOUT `loaf lessons add`.
