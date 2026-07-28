@@ -28,6 +28,7 @@ function makeRow(overrides: Partial<SessionRow> = {}): SessionRow {
     workspace: "default",
     iteration: 1,
     pending_queue_depth: 0,
+    pending_head_kind: null,
     active_tasks: [],
     ceremony_label: "standard",
     ...overrides,

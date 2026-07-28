@@ -191,6 +191,10 @@
       "SETTLE":  { "description": "对账与经验沉淀" },
       "DONE":    { "description": "已交付或终态会话" }
     },
+    "status": {
+      "pending_decision": "人工决策",
+      "pending_question": "问题"
+    },
     "detail": {
       "phase": "阶段",
       "sub_state": "子状态",
@@ -573,7 +577,7 @@
         "sort_status": "状态",
         "reloading": "刷新中…",
         "empty": "(没有会话)",
-        "help": "[↑/↓] 移动 · [space] 折叠 · [a] 活跃/全部 · [s] 排序 · [r] 刷新 · [q] 退出",
+        "help": "[↑/↓] 移动 · [Enter] 详情 · [space] 折叠 · [a] 活跃/全部 · [s] 排序 · [r] 重新加载 · [q] 退出",
         "row_iteration": "迭代 {value}"
       },
       "detail": {

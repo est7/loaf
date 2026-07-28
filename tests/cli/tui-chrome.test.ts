@@ -22,7 +22,7 @@ describe("TUI chrome localization", () => {
     expect(formatTuiSortLabel(DEFAULT_I18N, "time")).toBe("sort: time");
     expect(formatTuiListRowIteration(DEFAULT_I18N, "3")).toBe("iter 3");
     expect(formatTuiListHelp(DEFAULT_I18N)).toBe(
-      "[↑/↓] move · [space] fold · [a] active/all · [s] sort · [r] refresh · [q] quit",
+      "[↑/↓] move · [Enter] detail · [space] fold · [a] active/all · [s] sort · [r] reload · [q] quit",
     );
     expect(formatTuiDetailField(DEFAULT_I18N, "feature", "auth-refresh")).toBe(
       "feature: auth-refresh",
@@ -36,7 +36,7 @@ describe("TUI chrome localization", () => {
     expect(formatTuiSortLabel(ZH_I18N, "status")).toBe("排序: 状态");
     expect(formatTuiListRowIteration(ZH_I18N, "3")).toBe("迭代 3");
     expect(formatTuiListHelp(ZH_I18N)).toBe(
-      "[↑/↓] 移动 · [space] 折叠 · [a] 活跃/全部 · [s] 排序 · [r] 刷新 · [q] 退出",
+      "[↑/↓] 移动 · [Enter] 详情 · [space] 折叠 · [a] 活跃/全部 · [s] 排序 · [r] 重新加载 · [q] 退出",
     );
     expect(formatTuiDetailHelp(ZH_I18N)).toBe("[Esc] 返回 · [q] 退出");
     expect(formatTuiDetailNone(ZH_I18N)).toBe("(无)");

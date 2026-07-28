@@ -621,6 +621,7 @@ export const PendingPromptKind = z.enum([
   "finding_decision",
   "profile_escalation",
 ]);
+export type PendingPromptKind = z.infer<typeof PendingPromptKind>;
 
 export const PendingAddedPayload = z
   .object({

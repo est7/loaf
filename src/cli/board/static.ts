@@ -11,6 +11,7 @@ import {
   type Phase,
 } from "../runtime-i18n-keys.js";
 import type { TuiStatusBucket } from "../tui/types.js";
+import type { PendingHeadDisplayClass } from "../session-status.js";
 
 const BOARD_PHASES = ["TRIAGE", "SPEC", "EXECUTE", "VERIFY", "SETTLE", "DONE"] as const satisfies readonly Phase[];
 const BOARD_COLUMN_DESCRIPTION_KEYS = {
@@ -100,6 +101,7 @@ type BoardMessages = {
     phases: Record<Phase, string>;
     subStates: Record<SubState, string>;
     statuses: Record<TuiStatusBucket, string>;
+    pendingClasses: Record<PendingHeadDisplayClass, string>;
   };
 };
 
@@ -244,6 +246,10 @@ function buildBoardMessages(i18n: I18n): BoardMessages {
       statuses: Object.fromEntries(
         BOARD_STATUS_BUCKETS.map((status) => [status, i18n.t(statusIndicatorKey(status))]),
       ) as Record<TuiStatusBucket, string>,
+      pendingClasses: {
+        decision: i18n.t("board.status.pending_decision"),
+        question: i18n.t("board.status.pending_question"),
+      },
     },
   };
 }
@@ -520,7 +526,6 @@ window.addEventListener("keydown", (event) => {
 const savedTheme = localStorage.getItem("loaf-board-theme");
 if (savedTheme) document.body.dataset.theme = savedTheme;
 loadSnapshot();
-setInterval(loadSnapshot, 1500);
 
 async function loadSnapshot() {
   try {
@@ -564,7 +569,7 @@ function renderSessionCard(session) {
   const activeClass = session.status_bucket === "running" ? " is-active" : "";
   return '<button class="session-card' + activeClass + '" type="button" data-session-id="' + escapeAttr(session.session_id) + '">' +
     '<div class="session-card__kicker"><span>' + escapeHtml(session.session_id_short) + '</span><span class="badge ' +
-    escapeAttr(session.status_bucket) + '">' + escapeHtml(statusLabel(session.status_bucket)) + '</span></div>' +
+    escapeAttr(session.status_bucket) + '">' + escapeHtml(statusLabel(session.status_bucket, session.pending_head_class)) + '</span></div>' +
     '<h3 class="session-card__title">' + escapeHtml(session.label) + '</h3>' +
     '<div class="session-card__meta"><span>' + escapeHtml(subStateLabel(session.sub_state)) + '</span><span>' + escapeHtml(MESSAGES.chrome.iterationShort) + ' ' +
     session.iteration + '</span><span>' + relativeTime(session.at) + '</span></div></button>';
@@ -654,8 +659,10 @@ function renderError(message) {
   return '<section class="error-panel">' + escapeHtml(message) + '</section>';
 }
 
-function statusLabel(status) {
-  return MESSAGES.labels.statuses[status] || status;
+function statusLabel(status, pendingClass) {
+  const label = MESSAGES.labels.statuses[status] || status;
+  const pendingLabel = MESSAGES.labels.pendingClasses[pendingClass] || pendingClass;
+  return status === "blocked" && pendingClass ? label + " · " + pendingLabel : label;
 }
 
 function phaseLabel(phase) {

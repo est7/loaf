@@ -3,6 +3,12 @@ import { promises as fs } from "node:fs";
 
 import { listSessions, type ListSessionsWarning, type SessionRow } from "../sessions-list.js";
 import {
+  classifyPendingHead,
+  classifySessionStatus,
+  type PendingHeadDisplayClass,
+  type SessionStatusBucket,
+} from "../session-status.js";
+import {
   loadProjections,
   NoSessionError,
   SnapshotStaleError,
@@ -21,11 +27,12 @@ type BoardDetailProjectionKind = (typeof BOARD_DETAIL_PROJECTION_KINDS)[number];
 type BoardDetailProjectionLoad = LoadResult<BoardDetailProjectionKind>;
 
 export type BoardScope = "all" | "cwd";
-export type BoardStatusBucket = "done" | "blocked" | "running" | "idle";
+export type BoardStatusBucket = SessionStatusBucket;
 
 export interface BoardSessionSummary extends SessionRow {
   label: string;
   status_bucket: BoardStatusBucket;
+  pending_head_class: PendingHeadDisplayClass | null;
 }
 
 export interface BoardSnapshot {
@@ -239,14 +246,12 @@ export function toBoardSessionSummary(row: SessionRow): BoardSessionSummary {
     ...row,
     label: row.session_label.length > 0 ? row.session_label : row.feature,
     status_bucket: statusBucket(row),
+    pending_head_class: classifyPendingHead(row.pending_head_kind),
   };
 }
 
 export function statusBucket(row: SessionRow): BoardStatusBucket {
-  if (row.sub_state.startsWith("DONE.")) return "done";
-  if (row.pending_queue_depth > 0) return "blocked";
-  if (row.active_tasks.length > 0) return "running";
-  return "idle";
+  return classifySessionStatus(row);
 }
 
 export function shapeBoardSessionDetail(

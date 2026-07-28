@@ -5,6 +5,7 @@
 // and typed render-plan construction.
 
 import type { SessionRow } from "../sessions-list.js";
+import { classifySessionStatus } from "../session-status.js";
 import type { TuiStatusBucket } from "./types.js";
 
 export type TuiSortMode = "time" | "status";
@@ -76,10 +77,7 @@ export function sessionKey(sessionId: string): string {
 }
 
 export function statusBucket(row: SessionRow): TuiStatusBucket {
-  if (row.sub_state.startsWith("DONE.")) return "done";
-  if (row.pending_queue_depth > 0) return "blocked";
-  if (row.active_tasks.length > 0) return "running";
-  return "idle";
+  return classifySessionStatus(row);
 }
 
 export function filterActive(rows: ReadonlyArray<SessionRow>, showAll: boolean): SessionRow[] {

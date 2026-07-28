@@ -8,6 +8,13 @@
   `protocol.html` rev 4.1 changelog + finding action 卡片 + artifact authority 四层;
   ADR-0002(rev 4.0 fresh design)
 
+> **Partial supersession — 2026-07-27:** A10 的 TUI `[p] pending`
+> popup、archive hotkey、auto-polling 与 registry-vs-runtime heartbeat stale
+> promise 已退役。当前 read-only surface 使用 `[Enter]` lazy detail、`[a]`
+> active/all 与 `[r]` manual reload；pending head kind 仅用于区分人工 decision
+> 与 ordinary question。此 supersession 不改变 pending FIFO 或 mutation
+> authority。
+
 ## Context
 
 rev 4.0 落地后由 codex CLI 跑了两轮深度审计:

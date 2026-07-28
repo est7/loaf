@@ -1140,7 +1140,7 @@ async function updateRegistry(sessionId: string, snapshot: RegistryFile) {
 
 **Best-effort projection 语义**(rev 4.1):RegistryFile **不是 canonical truth**,只是 TUI 投影。
 - atomic rewrite 只保证单文件不撕,**不保证**跨文件 transaction:存在 crash window(`tasks.json` 写完 → `state.json` 写完 → crash 在 registry rewrite 之前 → registry 落后)
-- TUI 必须容忍 stale:当 registry `at` 早于对应 `state.json.heartbeat_at` 超过 threshold 时,显示 `⚠ stale` 标记
+- TUI 容忍 registry 落后但不推断 liveness:`[r]` 手动重读 registry；打开 detail 时由 projection loader 独立报告 snapshot stale/missing。registry `at` 与 machine-local runtime `heartbeat_at` 不再组成 TUI freshness 算法
 - `loaf doctor --rebuild-registry` 从 canonical artifact 重建全部 session 投影
 - **gate / 任何 blocking decision 永远不读 registry**;registry 仅供 TUI 列表展示
 
@@ -2172,7 +2172,7 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 | `loaf archive [--feature <value>] --reason <value> [--feature-dir <value>]` | 不交付关闭 | 0 / 2 |
 | `loaf abandon [--feature <value>] --reason <value> [--feature-dir <value>]` | 中途放弃(reason required) | 0 / 2 |
 | `loaf lessons add [--text <value>] [--file <value>] --reason <value> [--feature <value>] [--feature-dir <value>]` | **rev 5.1**:emit strict `lesson:recorded@1` payload `{id, iteration, reason, summary}`。形态:`loaf lessons add (--text "..." \| --file <path>) --reason "..."`;`--text` / `--file` exactly-one,`--reason` ≥10。actor 只在 envelope 且必须 `human:*`。CLI 严格扫描已加载 `session.entries` 的 `lesson:recorded` ids,分配独立 `LSN-NNN`;mutator 的 context-integrity gate 防止并发 stale allocation 落盘。JSON 输出稳定保留键 `id`。Lesson body >8KB 时 `summary` 走 LongTextField sidecar。`lessons.md` 单点双读新 kind + legacy lesson heuristic;新 lesson 不进 evidence-derived surface | 0 / 2 |
-| `loaf tui` | **Phase 16 SC-14 MVP**:read-only Ink TUI(基于 `~/.loaf/registry/*.json`)。4 列:LABEL / PHASE.SUB / ITER / STATUS;STATUS 优先级 `✓ done` > `⏸ ask [×N]`(pending_queue_depth ≥ 1) > `▶ run [×N]`(active_tasks.length ≥ 1) > raw sub_state。LABEL 用 `session_label` 或 fallback `feature`。Hotkeys:`[q]/Ctrl-C/Esc` 退出,`[r]` 刷新。TTY guard:stdin **和** stdout 都需 TTY 否则 USAGE。`--session` / `--feature` / `--feature-dir` / `$LOAF_*` pre-parse reject;`--format` 任何值都 reject(用 `loaf sessions list --format json` 跑脚本)。`--dry-run` reject(read-only)。**v0.1.0 MVP 范围外**(延后 F-026):`[Enter]` / `[d]` / `[p]` / `[a]` 交互、`⚠ stale` 标(需要 heartbeat_at 阈值)、auto-refresh 轮询、`⏸ gate` 跟 `⏸ ask` 的区分 | 0 / 2 |
+| `loaf tui` | **Phase 16 SC-14 + F-026 disposition**:read-only Ink TUI(基于 `~/.loaf/registry/*.json`)。master list 按 project → feature → session 分组;默认 active-only,`[a]` 切 active/all,`[s]` 切 time/status sort,`[space]` 折叠,`[Enter]` 打开 lazy detail,`[Esc]` 返回,`[r]` **手动** reload,`[q]/Ctrl-C` 退出。STATUS 的共享优先级为 `done > blocked > running > idle`;pending head 的现有 kind 只作显示分类:gate/profile escalation 显示为人工 decision,ask/spec/finding 显示为 question,`[×N]` 仍只表示 queue depth。TTY guard:stdin **和** stdout 都需 TTY 否则 USAGE。`--session` / `--feature` / `--feature-dir` / `$LOAF_*` pre-parse reject;`--format` 任何值都 reject(用 `loaf sessions list --format json` 跑脚本)。`--dry-run` reject(read-only)。**明确退役的旧 F-026 promise**:`[d]` alias、`[p]` pending popup、archive hotkey、auto-refresh polling、registry-vs-runtime heartbeat stale scanner;mutation 继续只走显式 `loaf <cmd>`,detail freshness 继续由 projection loader 报告 | 0 / 2 |
 | `loaf board [--port <value>] [--in-cwd] [--once] [--open]` | read-only local browser board(基于 `~/.loaf/registry/*.json` + `.loaf/<feature>/snapshots/*.json`)。默认只绑定 `127.0.0.1:41738`;`--port 0` 用 ephemeral port;`--in-cwd` 过滤当前 cwd;`--once` 不启 server,输出一次 snapshot(支持 `--format json`);普通 server 模式 stdout 打 URL,`--open` 可打开默认浏览器。浏览器 API 只读:`GET /api/health`,`GET /api/sessions?scope=all\|cwd`,`GET /api/sessions/<session_id>`;workflow mutation 仍必须走既有 `loaf <cmd>` mutator。`--dry-run` reject(read-only)。 | 0 / 2 |
 | `loaf prune [--in-cwd] [--project <value>] [--all] [--orphans] [--force] [--purge] [--yes] [--history] [--trash] [--older-than <value>]` | session 垃圾回收(`~/.loaf/registry/*.json` + `<cwd>/.loaf/<feature>/`)。**purge≠journal 操作**(删 journal,绕过 mutator,与 retire `archive`/`abandon`/`deliver` 区分)。scope 恰好一个(否则 USAGE);默认 **preview**(无副作用),`--yes` 才执行,全局 `--dry-run` 强制 preview。安全:默认只删终态(`DONE.delivered`/`archived`/`abandoned`),`--force` 含 active(但**永不越过持锁** `.lock`);默认移到可恢复 trash `~/.loaf/trash/<ts>/<session_id>/`(含 manifest),`--purge` 才硬删。execute 全有/全无:registry move 失败回滚 feature,双重故障保留 trash 桶并指向手动恢复。部分失败(部分 target 出错)→ `PRUNE_PARTIAL_FAILURE` exit 2,body + audit log 均记 `failed[]`。`--orphans` 只清悬空 registry 条目。`--session <prefix>` 歧义 → `SESSION_SHORT_AMBIGUOUS`。**已实装子命令/模式**:`loaf prune restore <id> [--at <ts>]`(trash 的逆操作;源/目标 preflight + 全有/全无;全局 `--dry-run` 为只校验不落盘的 preview;失败码 `PRUNE_RESTORE_NOT_FOUND` / `PRUNE_RESTORE_AMBIGUOUS` / `PRUNE_RESTORE_INCOMPLETE` / `PRUNE_PATH_OCCUPIED` 均 exit 2)、`loaf prune --history`(读 `~/.loaf/prune-log.jsonl` append-only 审计)、`loaf prune --trash --older-than <N>d [--yes]`(trash 保留清理;preview/`--yes`;不可解析的桶名保留)。**post-v0.5.0 tracked**:`--history` 对 EACCES / corrupt 行的告警暴露(当前静默跳过)。 | 0 / 2 |
 | `loaf sessions list [--in-cwd]` | 列 session(non-TUI)。**rev 4.1**:`--in-cwd` 过滤当前 cwd;每行 `<UUID-short8> <feature> <sub_state> <at-relative-or-iso>` — terminal 重启后拾回 UUID 用。`--format json` 给 scripting。**v0.1.0(Phase 16 SC-9b)**:dispatch selectors(`--session` / `--feature` / `--feature-dir` / `$LOAF_SESSION` / `$LOAF_FEATURE`)pre-parse reject(它列跨 session,不接受单 session 选择器);corrupt registry entries 跳过但通过 stderr advisory 或 JSON `warnings` 暴露;orphan-cwd 行(registry cwd 字段指向已删 dir)同样 surface warning。`--dry-run` reject `DRY_RUN_NOT_APPLICABLE`(read-only)| 0 |
@@ -2348,7 +2348,6 @@ git / gh side effect 是 loaf-skill 或用户自己负责,**不进 loaf-cli**。
 |---|---|---|---|
 | **stale-lock** | `.loaf/<feature>/.lock`(所有 feature)| 文件存在 + 内含 PID 不在进程表 | `unlink` 锁文件(POSIX rename atomic 写过,所以安全)|
 | **orphan-tmp** | `.loaf/<feature>/*.tmp-*` | mtime > 60 秒 + 无对应 active lock | `unlink` |
-| **registry-stale** | `~/.loaf/registry/*.json` | 文件 `at` 早于对应 state.json `heartbeat_at` > 5 分钟 | 重写 registry 投影从 canonical(`--rebuild-registry` 简写)|
 | **registry-orphan** | `~/.loaf/registry/<id>.json` | 对应 cwd 已无 `.loaf/<feature>/state.json`(repo 被删 / session id 不匹配)| `unlink` registry 文件 |
 | **registry-gc** | `~/.loaf/registry/*.json` | mtime > 30 天 | `unlink`(§4.12 GC 策略)|
 | **crash-log-prune** | `~/.loaf/crashes/*.json` | mtime > 30 天 | `unlink`(避免堆积);文件扩展 Phase 16 SC-2 改为 `.json`(envelope `CrashLogEnvelope` Zod,见 §10.5)|
@@ -2756,15 +2755,15 @@ v1.0 严格 FIFO:resolve 永远 pop `pending[0]`,不接 `--id` flag。理由:5 �
 │ work/refactor               SETTLE.lessons      3     ▶ active      │
 │ sandbox/spike               DONE.archived       1     ✓ done        │
 └──────────────────────────────────────────────────────────────────────┘
- [Enter] open · [q] quit · [r] refresh · [d] details · [p] pending · [a] archive
+ [↑/↓] move · [Enter] detail · [space] fold · [a] active/all · [s] sort · [r] reload · [q] quit
 ```
 
-**rev 4.1 徽章语义**:
-- `STATUS` 列的 `[×N]`(如 `⏸ ask [×3]`)= 队列深度,N ≥ 2 时显示。N=1 时不显示(单 pending 不打扰)。
+**F-026 disposition 后的徽章与交互语义**:
+- `STATUS` 列的 `[×N]`= 队列深度,N ≥ 2 时显示。N=1 时不显示。pending head kind 只作 read-only display data:gate/profile escalation 归类为人工 decision,ask/spec/finding 归类为 question。
 - `PHASE.SUB` 列的 `[×3]`(如 `EXECUTE.work [×3]`)= worker active set 数量(`registry.active_tasks.length`)。
-- `[p] pending` 快捷键展开 head + queued entry detail(读 RegistryFile `pending` + 必要时回 canonical `.loaf/<feature>/state.json` 拉 queued 详情)。
+- `[Enter]` 打开 lazy detail;`[a]` 切 active/all;`[r]` 只执行显式 reload。
 
-**实现**:**Ink**(React-based,bun 兼容,声明式)。读 `~/.loaf/registry/*.json` 渲染;`⚠ stale` 标(rev 4.1):registry `at` 早于对应 state.json `heartbeat_at` 超过 threshold 时显示。
+**实现**:**Ink**(React-based,bun 兼容,声明式)。读 `~/.loaf/registry/*.json` 渲染。旧 rev 4.1 的 `[d]`、`[p]` popup、archive hotkey、auto-polling 与 registry/runtime heartbeat stale 算法由 2026-07-27 architecture deepening 决策显式 supersede；snapshot stale/missing 仍由既有 projection loader 在 detail 中报告，不建立第二套 freshness authority。
 
 ---
 

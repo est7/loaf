@@ -53,6 +53,7 @@ function row(overrides: Partial<SessionRow>): SessionRow {
     workspace: "default",
     iteration: 1,
     pending_queue_depth: 0,
+    pending_head_kind: null,
     active_tasks: [],
     ceremony_label: "standard",
     ...overrides,
@@ -72,6 +73,20 @@ describe("board model", () => {
     expect(toBoardSessionSummary(row({ session_label: "Auth refresh fix" })).label).toBe(
       "Auth refresh fix",
     );
+  });
+
+  test.each([
+    ["gate_decision", "decision"],
+    ["profile_escalation", "decision"],
+    ["ask_user_question", "question"],
+    ["spec_clarification", "question"],
+    ["finding_decision", "question"],
+  ] as const)("classifies pending head %s for display as %s", (pendingHeadKind, expected) => {
+    expect(
+      toBoardSessionSummary(
+        row({ pending_queue_depth: 1, pending_head_kind: pendingHeadKind }),
+      ).pending_head_class,
+    ).toBe(expected);
   });
 
   test("buildBoardSnapshot applies cwd filtering and totals", async () => {

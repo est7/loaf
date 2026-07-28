@@ -7181,6 +7181,10 @@ var en_default = {
 			"SETTLE": { "description": "Reconcile and lessons" },
 			"DONE": { "description": "Delivered or terminal sessions" }
 		},
+		"status": {
+			"pending_decision": "human decision",
+			"pending_question": "question"
+		},
 		"detail": {
 			"phase": "Phase",
 			"sub_state": "Sub-state",
@@ -7525,7 +7529,7 @@ var en_default = {
 				"sort_status": "status",
 				"reloading": "reloading…",
 				"empty": "(no sessions found)",
-				"help": "[↑/↓] move · [space] fold · [a] active/all · [s] sort · [r] refresh · [q] quit",
+				"help": "[↑/↓] move · [Enter] detail · [space] fold · [a] active/all · [s] sort · [r] reload · [q] quit",
 				"row_iteration": "iter {value}"
 			},
 			"detail": {
@@ -7793,6 +7797,10 @@ var zh_default = {
 			"VERIFY": { "description": "运行、评审、验收、视觉" },
 			"SETTLE": { "description": "对账与经验沉淀" },
 			"DONE": { "description": "已交付或终态会话" }
+		},
+		"status": {
+			"pending_decision": "人工决策",
+			"pending_question": "问题"
 		},
 		"detail": {
 			"phase": "阶段",
@@ -8138,7 +8146,7 @@ var zh_default = {
 				"sort_status": "状态",
 				"reloading": "刷新中…",
 				"empty": "(没有会话)",
-				"help": "[↑/↓] 移动 · [space] 折叠 · [a] 活跃/全部 · [s] 排序 · [r] 刷新 · [q] 退出",
+				"help": "[↑/↓] 移动 · [Enter] 详情 · [space] 折叠 · [a] 活跃/全部 · [s] 排序 · [r] 重新加载 · [q] 退出",
 				"row_iteration": "迭代 {value}"
 			},
 			"detail": {
@@ -15529,6 +15537,7 @@ async function listSessions(input) {
 			workspace: reg.workspace,
 			iteration: reg.iteration,
 			pending_queue_depth: reg.pending_queue_depth,
+			pending_head_kind: reg.pending?.kind ?? null,
 			active_tasks: reg.active_tasks,
 			ceremony_label: reg.ceremony_label
 		});
@@ -16063,6 +16072,18 @@ function runClosureWarnings(input) {
 	return warnings;
 }
 //#endregion
+//#region src/cli/session-status.ts
+function classifySessionStatus(row) {
+	if (row.sub_state.startsWith("DONE.")) return "done";
+	if (row.pending_queue_depth > 0) return "blocked";
+	if (row.active_tasks.length > 0) return "running";
+	return "idle";
+}
+function classifyPendingHead(kind) {
+	if (kind === null) return null;
+	return kind === "gate_decision" || kind === "profile_escalation" ? "decision" : "question";
+}
+//#endregion
 //#region src/cli/tui/list-model.ts
 function projectKey(cwd) {
 	return `project:${cwd}`;
@@ -16074,10 +16095,7 @@ function sessionKey(sessionId) {
 	return `session:${sessionId}`;
 }
 function statusBucket$1(row) {
-	if (row.sub_state.startsWith("DONE.")) return "done";
-	if (row.pending_queue_depth > 0) return "blocked";
-	if (row.active_tasks.length > 0) return "running";
-	return "idle";
+	return classifySessionStatus(row);
 }
 function filterActive(rows, showAll) {
 	if (showAll) return [...rows];
@@ -16289,8 +16307,9 @@ function formatIteration(row) {
 /** STATUS column — precedence-ordered text badge per r354 P2. */
 function formatStatus(row, i18n) {
 	if (row.sub_state.startsWith("DONE.")) return i18n.t(statusIndicatorKey("done"));
-	if (row.pending_queue_depth >= 2) return `${i18n.t(statusIndicatorKey("blocked"))} [×${row.pending_queue_depth}]`;
-	if (row.pending_queue_depth === 1) return i18n.t(statusIndicatorKey("blocked"));
+	const pendingLabel = row.pending_head_kind === null ? i18n.t(statusIndicatorKey("blocked")) : i18n.t(pendingKindKey(row.pending_head_kind));
+	if (row.pending_queue_depth >= 2) return `${pendingLabel} [×${row.pending_queue_depth}]`;
+	if (row.pending_queue_depth === 1) return pendingLabel;
 	if (row.active_tasks.length >= 2) return `${i18n.t(statusIndicatorKey("running"))} [×${row.active_tasks.length}]`;
 	if (row.active_tasks.length === 1) return i18n.t(statusIndicatorKey("running"));
 	return formatPhaseSub(row, i18n);
@@ -18090,7 +18109,11 @@ function buildBoardMessages(i18n) {
 		labels: {
 			phases: Object.fromEntries(BOARD_PHASES.map((phase) => [phase, i18n.t(phaseKey(phase))])),
 			subStates: Object.fromEntries(BOARD_SUB_STATES.map((subState) => [subState, i18n.t(subStateKey(subState))])),
-			statuses: Object.fromEntries(BOARD_STATUS_BUCKETS.map((status) => [status, i18n.t(statusIndicatorKey(status))]))
+			statuses: Object.fromEntries(BOARD_STATUS_BUCKETS.map((status) => [status, i18n.t(statusIndicatorKey(status))])),
+			pendingClasses: {
+				decision: i18n.t("board.status.pending_decision"),
+				question: i18n.t("board.status.pending_question")
+			}
 		}
 	};
 }
@@ -18365,7 +18388,6 @@ window.addEventListener("keydown", (event) => {
 const savedTheme = localStorage.getItem("loaf-board-theme");
 if (savedTheme) document.body.dataset.theme = savedTheme;
 loadSnapshot();
-setInterval(loadSnapshot, 1500);
 
 async function loadSnapshot() {
   try {
@@ -18409,7 +18431,7 @@ function renderSessionCard(session) {
   const activeClass = session.status_bucket === "running" ? " is-active" : "";
   return '<button class="session-card' + activeClass + '" type="button" data-session-id="' + escapeAttr(session.session_id) + '">' +
     '<div class="session-card__kicker"><span>' + escapeHtml(session.session_id_short) + '</span><span class="badge ' +
-    escapeAttr(session.status_bucket) + '">' + escapeHtml(statusLabel(session.status_bucket)) + '</span></div>' +
+    escapeAttr(session.status_bucket) + '">' + escapeHtml(statusLabel(session.status_bucket, session.pending_head_class)) + '</span></div>' +
     '<h3 class="session-card__title">' + escapeHtml(session.label) + '</h3>' +
     '<div class="session-card__meta"><span>' + escapeHtml(subStateLabel(session.sub_state)) + '</span><span>' + escapeHtml(MESSAGES.chrome.iterationShort) + ' ' +
     session.iteration + '</span><span>' + relativeTime(session.at) + '</span></div></button>';
@@ -18499,8 +18521,10 @@ function renderError(message) {
   return '<section class="error-panel">' + escapeHtml(message) + '</section>';
 }
 
-function statusLabel(status) {
-  return MESSAGES.labels.statuses[status] || status;
+function statusLabel(status, pendingClass) {
+  const label = MESSAGES.labels.statuses[status] || status;
+  const pendingLabel = MESSAGES.labels.pendingClasses[pendingClass] || pendingClass;
+  return status === "blocked" && pendingClass ? label + " · " + pendingLabel : label;
 }
 
 function phaseLabel(phase) {
@@ -18608,14 +18632,12 @@ function toBoardSessionSummary(row) {
 	return {
 		...row,
 		label: row.session_label.length > 0 ? row.session_label : row.feature,
-		status_bucket: statusBucket(row)
+		status_bucket: statusBucket(row),
+		pending_head_class: classifyPendingHead(row.pending_head_kind)
 	};
 }
 function statusBucket(row) {
-	if (row.sub_state.startsWith("DONE.")) return "done";
-	if (row.pending_queue_depth > 0) return "blocked";
-	if (row.active_tasks.length > 0) return "running";
-	return "idle";
+	return classifySessionStatus(row);
 }
 function shapeBoardSessionDetail(loaded) {
 	const tasks = loaded.tasks === null ? [] : loaded.tasks.tasks.map(shapeTaskLine);

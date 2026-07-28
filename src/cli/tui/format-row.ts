@@ -17,7 +17,7 @@
 
 import type { SessionRow } from "../sessions-list.js";
 import type { I18n } from "../i18n.js";
-import { statusIndicatorKey, subStateKey } from "../runtime-i18n-keys.js";
+import { pendingKindKey, statusIndicatorKey, subStateKey } from "../runtime-i18n-keys.js";
 import { statusBucket } from "./list-model.js";
 
 /** Minimum widths per column (header width floors). */
@@ -56,11 +56,15 @@ export function formatStatus(row: SessionRow, i18n: I18n): string {
   // 1. Terminal phase wins
   if (row.sub_state.startsWith("DONE.")) return i18n.t(statusIndicatorKey("done"));
   // 2-3. Pending head (gate-blocking semantic wins over workers)
+  const pendingLabel =
+    row.pending_head_kind === null
+      ? i18n.t(statusIndicatorKey("blocked"))
+      : i18n.t(pendingKindKey(row.pending_head_kind));
   if (row.pending_queue_depth >= 2) {
-    return `${i18n.t(statusIndicatorKey("blocked"))} [×${row.pending_queue_depth}]`;
+    return `${pendingLabel} [×${row.pending_queue_depth}]`;
   }
   if (row.pending_queue_depth === 1) {
-    return i18n.t(statusIndicatorKey("blocked"));
+    return pendingLabel;
   }
   // 4-5. Active workers
   if (row.active_tasks.length >= 2) {

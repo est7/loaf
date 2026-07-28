@@ -15,7 +15,7 @@ import { promises as fs } from "node:fs";
 
 import { defaultRegistryDir } from "../core/registry-writer.js";
 import { readRegistryEntry, tryRealpath } from "../core/registry-read.js";
-import type { SubState } from "../core/journal-entry.js";
+import type { PendingPromptKind, SubState } from "../core/journal-entry.js";
 import { DEFAULT_I18N, type I18n } from "./i18n.js";
 import { CHROME_KEYS } from "./runtime-i18n-keys.js";
 
@@ -41,6 +41,8 @@ export interface SessionRow {
   workspace: string;
   iteration: number;
   pending_queue_depth: number;
+  /** Read-only identity of the unresolved FIFO head. */
+  pending_head_kind: PendingPromptKind | null;
   /** Phase 16 SC-14 (codex r353 P1): in-progress task ids from
    *  `registry.active_tasks` (default [] when no worker is mid-task).
    *  TUI STATUS column renders `▶ run [×N]` from this. */
@@ -140,6 +142,7 @@ export async function listSessions(input: ListSessionsInput): Promise<ListSessio
       workspace: reg.workspace,
       iteration: reg.iteration,
       pending_queue_depth: reg.pending_queue_depth,
+      pending_head_kind: reg.pending?.kind ?? null,
       active_tasks: reg.active_tasks,
       ceremony_label: reg.ceremony_label,
     });

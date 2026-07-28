@@ -191,6 +191,10 @@
       "SETTLE":  { "description": "Reconcile and lessons" },
       "DONE":    { "description": "Delivered or terminal sessions" }
     },
+    "status": {
+      "pending_decision": "human decision",
+      "pending_question": "question"
+    },
     "detail": {
       "phase": "Phase",
       "sub_state": "Sub-state",
@@ -573,7 +577,7 @@
         "sort_status": "status",
         "reloading": "reloading…",
         "empty": "(no sessions found)",
-        "help": "[↑/↓] move · [space] fold · [a] active/all · [s] sort · [r] refresh · [q] quit",
+        "help": "[↑/↓] move · [Enter] detail · [space] fold · [a] active/all · [s] sort · [r] reload · [q] quit",
         "row_iteration": "iter {value}"
       },
       "detail": {

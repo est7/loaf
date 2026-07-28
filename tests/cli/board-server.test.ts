@@ -60,10 +60,18 @@ describe("loaf board server", () => {
 
     const sessions = (await fetch(`${server.url}api/sessions?scope=cwd`).then((response) =>
       response.json(),
-    )) as { totals: { sessions: number }; sessions: Array<{ label: string; status_bucket: string }> };
+    )) as {
+      totals: { sessions: number };
+      sessions: Array<{
+        label: string;
+        status_bucket: string;
+        pending_head_class: string | null;
+      }>;
+    };
     expect(sessions.totals.sessions).toBe(1);
     expect(sessions.sessions[0]!.label).toBe("Board smoke");
     expect(sessions.sessions[0]!.status_bucket).toBe("running");
+    expect(sessions.sessions[0]!.pending_head_class).toBeNull();
   });
 
   test("serves board chrome through the injected CLI i18n bundle", async () => {
@@ -79,6 +87,8 @@ describe("loaf board server", () => {
     expect(html).toContain("Loaf 实时看板");
     expect(html).toContain('"EXECUTE","title":"执行"');
     expect(html).toContain('"EXECUTE.work":"执行 / 任务进行中"');
+    expect(html).toContain('"pendingClasses":{"decision":"人工决策","question":"问题"}');
+    expect(html).not.toContain("setInterval(loadSnapshot");
   });
 
   test("non-GET workflow calls are rejected with 405", async () => {

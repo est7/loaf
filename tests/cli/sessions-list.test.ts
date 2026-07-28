@@ -81,6 +81,29 @@ describe("SC-9b — listSessions pure cases", () => {
     expect(result.rows[1]!.feature).toBe("older-feature");
   });
 
+  test("T3b: exposes the pending head kind without changing queue depth", async () => {
+    const dir = await tmpRegDir();
+    await writeRegistryEntry(dir, {
+      session_id: "550e8400-e29b-41d4-a716-000000000003",
+      pending: {
+        pending_id: "PEND-0001",
+        kind: "gate_decision",
+        question: "Approve the specification gate?",
+        blocks: "gate",
+        raised_at: "2026-05-28T14:00:00.000Z",
+        raised_by: "human:est9",
+        at: "2026-05-28T14:00:00.000Z",
+      },
+      pending_queue_depth: 3,
+    });
+
+    const result = await listSessions({ registryDir: dir });
+    expect(result.rows[0]).toMatchObject({
+      pending_head_kind: "gate_decision",
+      pending_queue_depth: 3,
+    });
+  });
+
   test("T4: --in-cwd filterCwd matches → only matching rows returned", async () => {
     const dir = await tmpRegDir();
     const cwdA = await fs.mkdtemp(path.join(os.tmpdir(), "loaf-sc9b-cwdA-"));

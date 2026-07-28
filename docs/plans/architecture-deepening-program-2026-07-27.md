@@ -945,7 +945,7 @@ task because equivalence is its acceptance criterion.
 
 ## A16 — TUI/Board status semantics and F-026 disposition
 
-**Status:** [ ] Pending
+**Status:** [x] Complete
 **Commit subject:** `refactor(cli): share session status semantics`
 
 ### Destination
@@ -975,17 +975,17 @@ in scope because the live pending kind already carries that meaning.
 
 ### Acceptance criteria
 
-- [ ] One shared pure module owns `done > blocked > running > idle` session
+- [x] One shared pure module owns `done > blocked > running > idle` session
   status classification for both TUI and Board.
-- [ ] `SessionRow` exposes the pending-head kind as additive display data.
-- [ ] Gate/profile decisions render distinctly from ask/spec/finding pending
+- [x] `SessionRow` exposes the pending-head kind as additive display data.
+- [x] Gate/profile decisions render distinctly from ask/spec/finding pending
   work without becoming gate authority.
-- [ ] Pending queue depth behavior remains unchanged.
-- [ ] Help text and tests reflect existing Enter/detail, `a` active/all, and
+- [x] Pending queue depth behavior remains unchanged.
+- [x] Help text and tests reflect existing Enter/detail, `a` active/all, and
   `r` manual reload behavior.
-- [ ] Protocol/ADR supersession notes explicitly retire `d`, pending popup,
+- [x] Protocol/ADR supersession notes explicitly retire `d`, pending popup,
   archive hotkey, auto-polling, and heartbeat-stale promises.
-- [ ] Full TUI/Board detail-model extraction remains closed until at least two
+- [x] Full TUI/Board detail-model extraction remains closed until at least two
   independently changing consumers repeat another non-trivial policy.
 
 ### Validation
@@ -999,7 +999,13 @@ existing keys remain stable.
 
 ### Evidence
 
-Pending.
+`src/cli/session-status.ts` now owns the shared status priority and
+pending-head display class. Registry rows carry the additive head kind; TUI
+renders the localized kind while Board exposes and renders the decision versus
+question class. Board automatic polling was removed, list help now documents
+Enter/detail, active/all, and manual reload, and protocol plus ADR-0003 record
+the F-026 supersession. Validation: TypeScript typecheck; 120 focused
+TUI/Board tests; Biome lint; production bundle build.
 
 ## A17 — Executable contract-drift guards
 

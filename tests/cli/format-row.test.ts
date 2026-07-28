@@ -34,6 +34,7 @@ function makeRow(overrides: Partial<SessionRow> = {}): SessionRow {
     workspace: "default",
     iteration: 1,
     pending_queue_depth: 0,
+    pending_head_kind: null,
     active_tasks: [],
     ceremony_label: "standard",
     ...overrides,
@@ -106,6 +107,21 @@ describe("formatStatus — codex r354 P2 precedence order", () => {
 
   test("pending depth 3 → '‖ ask [×3]'", () => {
     expect(formatStatus(makeRow({ pending_queue_depth: 3 }), DEFAULT_I18N)).toBe("‖ ask [×3]");
+  });
+
+  test.each([
+    ["gate_decision", "Gate awaiting human decision"],
+    ["profile_escalation", "Profile escalation pending confirm"],
+    ["ask_user_question", "User input requested"],
+    ["spec_clarification", "Spec clarification needed"],
+    ["finding_decision", "Finding awaiting action"],
+  ] as const)("renders pending head %s distinctly without changing queue depth", (kind, label) => {
+    expect(
+      formatStatus(
+        makeRow({ pending_queue_depth: 3, pending_head_kind: kind }),
+        DEFAULT_I18N,
+      ),
+    ).toBe(`${label} [×3]`);
   });
 
   test("pending wins over active_tasks (gate-blocking semantic)", () => {

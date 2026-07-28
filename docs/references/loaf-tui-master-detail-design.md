@@ -1,6 +1,21 @@
 # `loaf tui` Master-Detail Design Note
 
-Status: design note, non-normative until implemented.
+Status: implemented reference with explicit F-026 disposition.
+
+Implementation disposition (2026-07-27):
+
+- The project/feature/session render plan, active/all toggle, time/status sort,
+  folding, and Enter/Esc lazy detail path are implemented.
+- TUI and Board share only the non-trivial
+  `done > blocked > running > idle` classifier. A broader view-model extraction
+  stays closed until another independently changing consumer repeats policy.
+- Pending-head kind is additive read-only display data. Gate/profile
+  escalation is presented as a human decision; ask/spec/finding is presented
+  as a question. Queue-depth semantics are unchanged.
+- The earlier `[d]`, pending popup, archive hotkey, automatic polling, and
+  registry-vs-runtime heartbeat stale proposals are retired. Snapshot
+  stale/missing detail remains owned by the projection loader; workflow
+  mutation remains owned by explicit CLI commands.
 
 ## Context
 
