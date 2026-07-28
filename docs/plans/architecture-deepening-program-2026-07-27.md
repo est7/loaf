@@ -80,7 +80,7 @@ replace `Pending` evidence with the commands and results that actually ran.
 | A18 | Close | Freshness ledger and abstraction triggers | A17 | [x] Complete |
 | A19 | Verify | Final distribution and history audit | A02–A18 | [x] Complete |
 | A20 | Correct | Fault-sensitive mutation/rebuild equivalence proof | A15, A19 | [x] Complete |
-| A21 | Correct | Executable skill-to-CLI journey | A14, A20 | [ ] Pending |
+| A21 | Correct | Executable skill-to-CLI journey | A14, A20 | [x] Complete |
 | A22 | Correct | Truthful feature-lease contract and diagnostics | A04, A17 | [ ] Pending |
 | A23 | Correct | Audit evidence and supersession trail | A12, A16, A19 | [ ] Pending |
 | A24 | Implement | Breaking-contract release identity gate | A08, A10, A12, A23 | [ ] Pending |
@@ -901,6 +901,11 @@ Skills and docs change together. Kernel actor/gate rules remain authoritative.
 - Skill and Claude semantic gates plus the full lifecycle suite passed,
   together with typecheck and lint.
 
+**Independent-audit correction:** the original journey did not read
+`skills/**`; it renamed an existing core lifecycle test and repeated three
+already-asserted command strings. A21 replaces that false evidence with a
+parsed skill supervision contract that authorizes the executed route loop.
+
 ## A15 — Mutation/rebuild replay equivalence
 
 **Status:** [x] Complete
@@ -1237,7 +1242,7 @@ doctor/replay/projection tests passed.
 
 ## A21 — Executable skill-to-CLI journey
 
-**Status:** [ ] Pending
+**Status:** [x] Complete
 **Commit subject:** `test(skills): drive lifecycle from skill contract`
 
 ### Destination
@@ -1247,23 +1252,38 @@ the orchestration instructions changes or fails the executed CLI journey.
 
 ### Acceptance criteria
 
-- [ ] The test reads the live `skills/` contract rather than merely naming a
+- [x] The test reads the live `skills/` contract rather than merely naming a
   core lifecycle test after it.
-- [ ] Machine-readable skill instructions classify non-blocking routes and
+- [x] Machine-readable skill instructions classify non-blocking routes and
   human-owned stops without duplicating kernel transition policy.
-- [ ] The journey executes representative public CLI commands derived from
+- [x] The journey executes representative public CLI commands derived from
   that contract and compares each route to `loaf next`.
-- [ ] Removing or corrupting a required skill route fails a targeted negative
+- [x] Removing or corrupting a required skill route fails a targeted negative
   control.
-- [ ] The old duplicate `humanStops` assertion is removed.
+- [x] The old duplicate `humanStops` assertion is removed.
 
 ### Validation
 
-`bunx vitest run tests/scripts/skills-semantic-gate.test.ts tests/core/e2e-lifecycle.test.ts`
+`bunx vitest run tests/scripts/skills-semantic-gate.test.ts tests/scripts/claude-semantic-gate.test.ts`
+`bunx vitest run tests/core/e2e-lifecycle.test.ts -t "supervised skill journey"`
+`bun run typecheck`
+`bun run lint`
 
 ### Migration and recovery
 
 Test/skill contract only; core routing remains authoritative.
+
+### Evidence
+
+`skills/run/SKILL.md` now publishes a delimited JSON ownership projection:
+`loaf next` remains the route source, while owner verbs and human command
+prefixes classify automatic work versus stops. The E2E test parses that live
+block, derives its route invocation from it, classifies every observed advice,
+and executes automatic commands from the kernel-returned public command. It
+observes spec-lock, verify-accept, and deliver as human stops. A targeted
+negative control changes the checked-in deliver prefix and proves the same
+classifier rejects the real `loaf deliver` advice. The journey passed; the two
+semantic suites passed 14 tests; typecheck and lint passed.
 
 ## A22 — Truthful feature-lease contract and diagnostics
 

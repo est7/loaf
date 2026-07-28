@@ -20,7 +20,14 @@ import path from "node:path";
 import os from "node:os";
 
 import { main } from "../../src/cli.js";
+import {
+  classifySkillAdvice,
+  loadSkillSupervisionContract,
+  loafCommandArgs,
+} from "../helpers/skill-supervision-contract.js";
 import { taskAuthoringFixture } from "../helpers/task-authoring-fixture.js";
+
+const RUN_SKILL_PATH = path.resolve(import.meta.dirname, "..", "..", "skills", "run", "SKILL.md");
 
 async function tmpFeatureDir(): Promise<string> {
   return await fs.mkdtemp(path.join(os.tmpdir(), "loaf-e2e-"));
@@ -465,24 +472,45 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     const F = "e2e-next-std";
     const ENV = { LOAF_USER: "e2e@test.invalid" };
     const { step, writeInput } = makeCli(dir, ENV);
-    const humanStops: string[] = [];
+    const supervision = loadSkillSupervisionContract(RUN_SKILL_PATH);
+    const routeArgs = supervision.route_command.slice("loaf ".length).split(" ");
+    const observedHumanStops = new Set<string>();
 
     // Assert `loaf next` recommends exactly `command` (+ optional blocked flag).
     const expectNext = async (label: string, command: string, blocked?: boolean): Promise<any> => {
-      const out = await step(`next @ ${label}`, ["next", "--feature", F]);
+      const out = await step(`next @ ${label}`, [...routeArgs, "--feature", F]);
       expect(out.next_action?.command, `next @ ${label}`).toBe(
         `${command} --feature-dir ${dir}`,
       );
       if (blocked !== undefined) expect(out.blocked).toBe(blocked);
-      return out;
+      const classification = classifySkillAdvice(supervision, out.next_action);
+      if (classification.kind === "human-stop") {
+        observedHumanStops.add(classification.id);
+      }
+      return { out, classification };
+    };
+    const followAutomaticAdvice = async (
+      label: string,
+      observation: Awaited<ReturnType<typeof expectNext>>,
+    ): Promise<void> => {
+      expect(observation.classification, label).toEqual({ kind: "automatic" });
+      await step(label, [
+        ...loafCommandArgs(observation.out.next_action.command, dir),
+        "--feature",
+        F,
+      ]);
     };
 
     // ── TRIAGE ──────────────────────────────────────────────────────────
     await step("start", ["start", F, "--ceremony", "standard"]);
-    await expectNext("TRIAGE.score", "loaf advance TRIAGE.confirm", false);
-    await step("advance TRIAGE.confirm", ["advance", "TRIAGE.confirm", "--feature", F]);
-    await expectNext("TRIAGE.confirm", "loaf advance SPEC.proposal", false);
-    await step("advance SPEC.proposal", ["advance", "SPEC.proposal", "--feature", F]);
+    await followAutomaticAdvice(
+      "follow TRIAGE.score advice",
+      await expectNext("TRIAGE.score", "loaf advance TRIAGE.confirm", false),
+    );
+    await followAutomaticAdvice(
+      "follow TRIAGE.confirm advice",
+      await expectNext("TRIAGE.confirm", "loaf advance SPEC.proposal", false),
+    );
 
     // ── SPEC content, then next-driven in-phase advances ────────────────
     await step("spec init", ["spec", "init", "--feature", F]);
@@ -501,12 +529,18 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
       acceptance_na_reason: "exercised by this end-to-end lifecycle integration test",
     });
     await step("spec add-req", ["spec", "add-req", "--input", reqInput, "--feature", F]);
-    await expectNext("SPEC.proposal", "loaf advance SPEC.spec");
-    await step("advance SPEC.spec", ["advance", "SPEC.spec", "--feature", F]);
-    await expectNext("SPEC.spec", "loaf advance SPEC.plan");
-    await step("advance SPEC.plan", ["advance", "SPEC.plan", "--feature", F]);
-    await expectNext("SPEC.plan", "loaf advance SPEC.design");
-    await step("advance SPEC.design", ["advance", "SPEC.design", "--feature", F]);
+    await followAutomaticAdvice(
+      "follow SPEC.proposal advice",
+      await expectNext("SPEC.proposal", "loaf advance SPEC.spec"),
+    );
+    await followAutomaticAdvice(
+      "follow SPEC.spec advice",
+      await expectNext("SPEC.spec", "loaf advance SPEC.plan"),
+    );
+    await followAutomaticAdvice(
+      "follow SPEC.plan advice",
+      await expectNext("SPEC.plan", "loaf advance SPEC.design"),
+    );
 
     // ── tasks plan + spec-lock gate (blocked recommendation) ────────────
     const st = await step("status pre-tasks", ["status", "--feature", F]);
@@ -536,7 +570,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
       'loaf gate decide spec-lock --approve|--reject --reason "<reason>"',
       true,
     );
-    humanStops.push(specGate.next_action.command);
+    expect(specGate.classification).toEqual({ kind: "human-stop", id: "spec-lock" });
     await step("gate spec-lock", [
       "gate",
       "decide",
@@ -549,9 +583,13 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     ]);
 
     // ── EXECUTE (spec-lock co-advanced the cursor to EXECUTE.plan) ──────
-    await expectNext("EXECUTE.plan", "loaf advance EXECUTE.work");
-    await step("advance EXECUTE.work", ["advance", "EXECUTE.work", "--feature", F]);
-    await expectNext("EXECUTE.work", "loaf tasks next", false);
+    await followAutomaticAdvice(
+      "follow EXECUTE.plan advice",
+      await expectNext("EXECUTE.plan", "loaf advance EXECUTE.work"),
+    );
+    expect((await expectNext("EXECUTE.work", "loaf tasks next", false)).classification).toEqual({
+      kind: "automatic",
+    });
     await step("tasks claim T-001", ["tasks", "claim", "T-001", "--feature", F]);
     for (const stp of ["red", "implement"]) {
       await step(`step start ${stp}`, [
@@ -581,23 +619,28 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     // so the skill (not the kernel) advances once its work loop drains. Mirror
     // that here, then re-confirm the kernel routes EXECUTE.done forward.
     await step("advance EXECUTE.done", ["advance", "EXECUTE.done", "--feature", F]);
-    await expectNext("EXECUTE.done", "loaf advance VERIFY.plan");
-    await step("advance VERIFY.plan", ["advance", "VERIFY.plan", "--feature", F]);
+    await followAutomaticAdvice(
+      "follow EXECUTE.done advice",
+      await expectNext("EXECUTE.done", "loaf advance VERIFY.plan"),
+    );
 
     // ── VERIFY: follow `loaf next` through whichever lanes apply, to gate ─
     let reachedGate = false;
     for (let guard = 0; guard < 8 && !reachedGate; guard++) {
-      const n = await step("next @ verify", ["next", "--feature", F]);
+      const n = await step("next @ verify", [...routeArgs, "--feature", F]);
+      const classification = classifySkillAdvice(supervision, n.next_action);
       if (n.blocked) {
         expect(n.next_action.command).toContain("gate decide verify-accept");
+        expect(classification).toEqual({ kind: "human-stop", id: "verify-accept" });
+        observedHumanStops.add("verify-accept");
         reachedGate = true;
         break;
       }
+      expect(classification).toEqual({ kind: "automatic" });
       expect(n.next_action.owner_verb).toBe("advance");
       expect(n.next_action.target).toMatch(/^VERIFY\./);
-      await step(`advance ${n.next_action.target}`, [
-        "advance",
-        n.next_action.target,
+      await step(`follow ${n.next_action.target} advice`, [
+        ...loafCommandArgs(n.next_action.command, dir),
         "--feature",
         F,
       ]);
@@ -642,7 +685,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
       'loaf gate decide verify-accept --approve|--reject --reason "<reason>"',
       true,
     );
-    humanStops.push(verifyGate.next_action.command);
+    expect(verifyGate.classification).toEqual({ kind: "human-stop", id: "verify-accept" });
     await step("gate verify-accept", [
       "gate",
       "decide",
@@ -654,19 +697,15 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
       F,
     ]);
     const delivery = await expectNext("VERIFY.accept post-approve", "loaf deliver", false);
-    humanStops.push(delivery.next_action.command);
+    expect(delivery.classification).toEqual({ kind: "human-stop", id: "deliver" });
     const delivered = await step("deliver", ["deliver", "--feature", F]);
     expect(delivered.sub_state ?? delivered.state?.sub_state).toBe("DONE.delivered");
 
     // Terminal: `loaf next` reports done and omits next_action.
-    const term = await step("next @ DONE", ["next", "--feature", F]);
+    const term = await step("next @ DONE", [...routeArgs, "--feature", F]);
     expect(term.terminal).toBe(true);
     expect(term.next_action).toBeUndefined();
-    expect(humanStops).toEqual([
-      `loaf gate decide spec-lock --approve|--reject --reason "<reason>" --feature-dir ${dir}`,
-      `loaf gate decide verify-accept --approve|--reject --reason "<reason>" --feature-dir ${dir}`,
-      `loaf deliver --feature-dir ${dir}`,
-    ]);
+    expect([...observedHumanStops].sort()).toEqual(["deliver", "spec-lock", "verify-accept"]);
   });
 
   // SCEN-E2E-002 — see docs/e2e-scenarios.md (absorbs SCEN-010/017/018/029)

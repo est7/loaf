@@ -8,6 +8,10 @@ import {
   findInvalidCommandReferences,
   findInvalidRepositoryPaths,
 } from "./inventory/document-references.js";
+import {
+  classifySkillAdvice,
+  parseSkillSupervisionContract,
+} from "../helpers/skill-supervision-contract.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..", "..");
@@ -100,6 +104,37 @@ describe("skills semantic drift gate", () => {
     expect(run).toContain("continue across non-blocking machine routes");
     expect(run).toContain("Do not create a redundant `go` checkpoint");
     expect(run).toContain("it does not approve anything");
+  });
+
+  test("run skill publishes an executable ownership classification", () => {
+    const run = readFileSync(path.join(SKILLS_ROOT, "run", "SKILL.md"), "utf8");
+    const supervision = parseSkillSupervisionContract(run);
+    expect(supervision.route_command).toBe("loaf next");
+    expect(
+      classifySkillAdvice(supervision, {
+        command: "loaf advance SPEC.plan --feature-dir /tmp/feature",
+        owner_verb: "advance",
+      }),
+    ).toEqual({ kind: "automatic" });
+    expect(
+      classifySkillAdvice(supervision, {
+        command: "loaf deliver --feature-dir /tmp/feature",
+        owner_verb: "deliver",
+      }),
+    ).toEqual({ kind: "human-stop", id: "deliver" });
+  });
+
+  test("supervision classification fails when a required human stop drifts", () => {
+    const run = readFileSync(path.join(SKILLS_ROOT, "run", "SKILL.md"), "utf8");
+    const drifted = parseSkillSupervisionContract(
+      run.replace('"command_prefix": "loaf deliver"', '"command_prefix": "loaf ship"'),
+    );
+    expect(() =>
+      classifySkillAdvice(drifted, {
+        command: "loaf deliver --feature-dir /tmp/feature",
+        owner_verb: "deliver",
+      }),
+    ).toThrow("does not classify deliver");
   });
 
   test("skill instructions never authorize direct loaf artifact mutation", () => {

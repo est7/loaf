@@ -44,6 +44,44 @@ spec-lock, `/loaf:verify` runs verify-accept). So the `blocked` row here is the
 safety net for `pending` / `profile escalate` and any gate a phase skill left
 unhandled — not the normal path for the two main gates.
 
+### Executable supervision classification
+
+This block is the machine-readable projection of the table above. It
+classifies ownership only; `loaf next` remains the sole source of transition
+targets and commands.
+
+<!-- loaf-supervision-contract:start -->
+```json
+{
+  "schema": 1,
+  "route_command": "loaf next",
+  "automatic_owner_verbs": ["advance", "tasks next"],
+  "human_stops": [
+    {
+      "id": "spec-lock",
+      "command_prefix": "loaf gate decide spec-lock"
+    },
+    {
+      "id": "verify-accept",
+      "command_prefix": "loaf gate decide verify-accept"
+    },
+    {
+      "id": "deliver",
+      "command_prefix": "loaf deliver"
+    },
+    {
+      "id": "pending",
+      "command_prefix": "loaf pending resolve"
+    },
+    {
+      "id": "profile-escalation",
+      "command_prefix": "loaf profile escalate"
+    }
+  ]
+}
+```
+<!-- loaf-supervision-contract:end -->
+
 ## Step 3 — Phase boundary: follow non-blocking routes
 
 Map `next_action.target` prefix → skill: `TRIAGE`→`/loaf:start`,
