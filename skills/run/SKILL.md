@@ -55,7 +55,7 @@ targets and commands.
 {
   "schema": 1,
   "route_command": "loaf next",
-  "automatic_owner_verbs": ["advance", "tasks next"],
+  "automatic_owner_verbs": ["advance", "tasks next", "settle"],
   "human_stops": [
     {
       "id": "spec-lock",
@@ -71,11 +71,6 @@ targets and commands.
       "id": "deliver",
       "command_prefix": "loaf deliver",
       "owner_verb": "deliver"
-    },
-    {
-      "id": "settle",
-      "command_prefix": "loaf settle",
-      "owner_verb": "settle"
     },
     {
       "id": "pending",

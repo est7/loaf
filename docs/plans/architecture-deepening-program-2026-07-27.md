@@ -88,6 +88,7 @@ replace `Pending` evidence with the commands and results that actually ran.
 | A25 | Correct | Activate the release-identity gate | A24 | [x] Complete |
 | A26 | Correct | Complete skill supervision ownership | A21 | [x] Complete |
 | A27 | Correct | Rebuild-fixture path disclosure | A20 | [x] Complete |
+| A28 | Correct | Non-blocking settle supervision | A26 | [x] Complete |
 
 The serial order is deliberate. Attachment confinement precedes refactoring;
 the feature lease precedes result and CLI mutation ownership; task intake lands
@@ -1503,7 +1504,8 @@ vocabulary and reject contradictory automatic/human ownership.
 
 - [x] Human-stop and automatic owner verbs are disjoint.
 - [x] Every `NextOwnerVerb` is classified by the skill contract.
-- [x] Deep-ceremony `settle` advice is classified without making it automatic.
+- [x] Deep-ceremony `settle` advice is classified consistently with the
+  kernel's non-blocking route.
 - [x] Kernel owner-verb additions fail the semantic gate until skill ownership
   is declared.
 - [x] Targeted contradictory and incomplete contracts fail negative controls.
@@ -1520,14 +1522,18 @@ Test/skill ownership contract only; kernel routing remains authoritative.
 
 ### Evidence
 
-Every human stop now carries its kernel `owner_verb`; `settle` is explicitly
-human-owned. The parser validates each value through the runtime
+Every human stop now carries its kernel `owner_verb`. The parser validates
+each value through the runtime
 `NextOwnerVerb` schema, rejects overlap with automatic verbs, and requires the
 union of both ownership classes to equal the schema's complete option set.
 Classification also rejects a command-prefix/owner-verb mismatch. Semantic
-negative controls inject contradictory `deliver` ownership and remove
-`settle`; both fail. The semantic and supervised-journey suites passed 13
-tests with 30 unrelated E2E cases skipped; typecheck and lint passed.
+negative controls inject contradictory `deliver` ownership and remove a
+required owner; both fail. The semantic and supervised-journey suites passed
+13 tests with 30 unrelated E2E cases skipped; typecheck and lint passed.
+
+**Independent-audit correction:** A26 originally classified `settle` as a
+human stop. A28 corrects that content error while retaining A26's complete,
+disjoint, kernel-backed classification mechanism.
 
 ## A27 — Rebuild-fixture path disclosure
 
@@ -1562,3 +1568,59 @@ manufacturing an unrelated pending gate prompt. The adjacent comment records
 that this keeps journal and snapshot truth coherent while limiting the bypass
 to fixture admission. The focused doctor-rebuild suite passed 13 tests; the
 diff changes only test comments and this ledger.
+
+## A28 — Non-blocking settle supervision
+
+**Status:** [x] Complete
+**Commit subject:** `fix(skills): follow non-blocking settle route`
+
+### Destination
+
+Make the run skill follow the kernel's non-blocking deep-ceremony transition
+into `SETTLE.lessons`, while preserving human ownership of lesson facts and
+terminal delivery.
+
+### Acceptance criteria
+
+- [x] The checked-in supervision contract classifies `settle` as automatic.
+- [x] Automatic and human owner sets remain disjoint and complete against
+  `NextOwnerVerb`.
+- [x] A deep-ceremony CLI journey reads the live run-skill contract, classifies
+  the non-blocking `loaf settle` advice as automatic, and executes that exact
+  advice.
+- [x] The same journey classifies the following `loaf deliver` advice as a
+  human stop.
+- [x] Negative controls still reject overlapping and incomplete ownership.
+- [x] Focused suites, typecheck, lint, and the full repository check pass.
+
+### Validation
+
+`bunx vitest run tests/scripts/skills-semantic-gate.test.ts`
+`bunx vitest run tests/core/e2e-lifecycle.test.ts -t "deep ceremony runs through settle"`
+`bun run typecheck`
+`bun run lint`
+`bun run check`
+
+### Migration and recovery
+
+This changes the orchestration projection only. Kernel routing and persisted
+data remain unchanged. Reverting restores a redundant human checkpoint and the
+contract contradiction identified by independent audit N6.
+
+### Evidence
+
+The pre-change contract produced two targeted RED failures: both the semantic
+classification and the deep CLI journey observed `{ kind: "human-stop",
+id: "settle" }` where the kernel's non-blocking route required automatic
+continuation. The run-skill projection now places `settle` in
+`automatic_owner_verbs`; human stops retain `deliver` and the other
+decision-owned verbs.
+
+The deep-ceremony lifecycle reads that live projection, classifies and executes
+the exact `loaf settle` advice emitted by `loaf next`, then classifies the
+following `loaf deliver` advice as a human stop. The semantic suite passed
+12/12, the focused deep journey passed 1/1 with 30 unrelated scenarios skipped,
+and `bun run check` passed lint, typecheck, the release-identity gate, 177 test
+files / 2,726 tests, and the tracked distribution build. The rebuilt
+`dist/cli.mjs` remained byte-identical at SHA-256
+`fb5bf37020795036cbf68100d88fe4d5c1546011023995538a0f6d1ded932af7`.

@@ -128,7 +128,7 @@ describe("skills semantic drift gate", () => {
         command: "loaf settle --feature-dir /tmp/feature",
         owner_verb: "settle",
       }),
-    ).toEqual({ kind: "human-stop", id: "settle" });
+    ).toEqual({ kind: "automatic" });
     expect(
       new Set([
         ...supervision.automatic_owner_verbs,
@@ -155,8 +155,8 @@ describe("skills semantic drift gate", () => {
     expect(() =>
       parseSkillSupervisionContract(
         run.replace(
-          '"automatic_owner_verbs": ["advance", "tasks next"]',
-          '"automatic_owner_verbs": ["advance", "tasks next", "deliver"]',
+          '"automatic_owner_verbs": ["advance", "tasks next", "settle"]',
+          '"automatic_owner_verbs": ["advance", "tasks next", "settle", "deliver"]',
         ),
       ),
     ).toThrow("ownership overlaps: deliver");
@@ -164,13 +164,13 @@ describe("skills semantic drift gate", () => {
 
   test("supervision contract rejects incomplete kernel owner coverage", () => {
     const run = readFileSync(path.join(SKILLS_ROOT, "run", "SKILL.md"), "utf8");
-    const withoutSettle = run.replace(
-      /    \{\n      "id": "settle",\n      "command_prefix": "loaf settle",\n      "owner_verb": "settle"\n    \},\n/,
+    const withoutDeliver = run.replace(
+      /    \{\n      "id": "deliver",\n      "command_prefix": "loaf deliver",\n      "owner_verb": "deliver"\n    \},\n/,
       "",
     );
-    expect(withoutSettle).not.toBe(run);
-    expect(() => parseSkillSupervisionContract(withoutSettle)).toThrow(
-      "ownership is incomplete: settle",
+    expect(withoutDeliver).not.toBe(run);
+    expect(() => parseSkillSupervisionContract(withoutDeliver)).toThrow(
+      "ownership is incomplete: deliver",
     );
   });
 

@@ -1120,6 +1120,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     const F = "e2e-deep";
     const ENV = { LOAF_USER: "e2e@test.invalid" };
     const { step, writeInput } = makeCli(dir, ENV);
+    const supervision = loadSkillSupervisionContract(RUN_SKILL_PATH);
 
     // ── TRIAGE + SPEC ───────────────────────────────────────────────────
     await step("start", ["start", F, "--ceremony", "deep"]);
@@ -1284,15 +1285,24 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     // recommends `loaf settle` (not deliver) — the read-side complement of the
     // DELIVER_SETTLE_PHASE_BYPASS rejection above. Closes the /loaf:settle
     // skill routing gap.
-    {
-      const n = await step("next @ VERIFY.accept", ["next", "--feature", F]);
-      expect(n.next_action?.command).toBe(`loaf settle --feature-dir ${dir}`);
-      expect(n.blocked).toBe(false);
-    }
-    const settled = await step("settle", ["settle", "--feature", F]);
+    const settleAdvice = await step("next @ VERIFY.accept", ["next", "--feature", F]);
+    expect(settleAdvice.next_action?.command).toBe(`loaf settle --feature-dir ${dir}`);
+    expect(settleAdvice.blocked).toBe(false);
+    expect(classifySkillAdvice(supervision, settleAdvice.next_action)).toEqual({
+      kind: "automatic",
+    });
+    const settled = await step("follow automatic settle advice", [
+      ...loafCommandArgs(settleAdvice.next_action.command, dir),
+      "--feature",
+      F,
+    ]);
     {
       const n = await step("next @ SETTLE.lessons", ["next", "--feature", F]);
       expect(n.next_action?.command).toBe(`loaf deliver --feature-dir ${dir}`);
+      expect(classifySkillAdvice(supervision, n.next_action)).toEqual({
+        kind: "human-stop",
+        id: "deliver",
+      });
       expect(settled.advisory).toEqual([n.next_action?.command]);
     }
 
