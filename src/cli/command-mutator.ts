@@ -1,6 +1,7 @@
-// CommandMutator is the only CLI adapter allowed to invoke journal mutation.
-// Command handlers provide intent-shaped entries; this module owns context
-// construction, timestamp policy, dry-run presentation, and failure routing.
+// CommandMutator is the only command-layer adapter allowed to invoke journal
+// mutation or the EXECUTE closure coordinator. Command handlers provide
+// intent-shaped entries; this module owns mutation context, timestamp policy,
+// commit-aware dry-run presentation, and failure routing.
 
 import {
   mutate,

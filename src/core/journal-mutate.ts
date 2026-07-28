@@ -1,7 +1,7 @@
 // journal-mutate — the single transactional mutator API.
 //
-// `mutateBatch(partials[], ctx)` is the protocol-level multi-entry mutator
-// (§11.2 step 2-7 collapsed). `mutate(partial, ctx)` is the single-entry
+// `mutateBatch(partials[], ctx)` is the protocol-level multi-entry mutator.
+// `mutate(partial, ctx)` is the single-entry
 // shorthand for `mutateBatch([partial], ctx)`.
 //
 // Step mapping inside one batch:
@@ -14,12 +14,11 @@
 //   step 3a (reducer-impl gate)— per-entry; rejects payload-valid but
 //                               reducer-unknown kinds before any write
 //   step 4 (sidecar finalize) — per-entry
-//   step 5 (final validate)   — inside appendMany (envelope + per-kind payload
-//                               + per-entry byte cap + batch-total byte cap)
+//   step 5 (final validate)   — promoted-form preflight + reducer equivalence;
+//                               appendMany repeats envelope/payload/byte caps
 //   step 6 (journal append)   — appendMany single fsync'd write for whole batch
-//   step 7 (post-apply)       — reducer.applyValidated already ran during dry-run on
-//                               the cloned snapshot accumulator; that IS the
-//                               new state (apply mutates in place)
+//   step 7 (post-apply)       — reducer.applyValidated already produced the
+//                               committed in-memory snapshot before append
 //   step 8 (snapshot rebuild) — IMPLEMENTED (Phase 15 SC2): after the append,
 //                               re-serialize all five snapshots/*.json
 //                               projection files + _meta.json via the shared
@@ -149,6 +148,11 @@ export type MutateFailureCode =
   | "SCHEMA_VALIDATION_FAILED"
   | "LOCK_TIMEOUT";
 
+export const MUTATION_COMMIT_STATES = ["committed", "not-committed"] as const;
+export type MutationCommitState = (typeof MUTATION_COMMIT_STATES)[number];
+export const POST_APPEND_COMMIT_FAILURE_CODES = ["PROJECTION_WRITE_FAILED"] as const;
+export type PostAppendCommitFailureCode = (typeof POST_APPEND_COMMIT_FAILURE_CODES)[number];
+
 interface MutationFailureFields {
   code: MutateFailureCode;
   message: string;
@@ -166,19 +170,20 @@ interface MutationBatchState {
 export type MutateBatchResult =
   | ({
       ok: true;
-      commit_state: "committed" | "not-committed";
+      commit_state: MutationCommitState;
     } & MutationBatchState)
   | ({ ok: false; commit_state: "not-committed" } & MutationFailureFields)
   | ({
       ok: false;
       commit_state: "committed";
-    } & MutationFailureFields &
+      code: PostAppendCommitFailureCode;
+    } & Omit<MutationFailureFields, "code"> &
       MutationBatchState);
 
 export type MutateResult =
   | {
       ok: true;
-      commit_state: "committed" | "not-committed";
+      commit_state: MutationCommitState;
       snapshot: Snapshot;
       entry: JournalEntry;
       meta: SnapshotMeta;
@@ -187,10 +192,11 @@ export type MutateResult =
   | ({
       ok: false;
       commit_state: "committed";
+      code: PostAppendCommitFailureCode;
       snapshot: Snapshot;
       entry: JournalEntry;
       meta: SnapshotMeta;
-    } & MutationFailureFields);
+    } & Omit<MutationFailureFields, "code">);
 
 type InternalMutateBatchResult =
   | ({
@@ -201,7 +207,8 @@ type InternalMutateBatchResult =
   | ({
       ok: false;
       commit_state: "committed";
-    } & MutationFailureFields &
+      code: PostAppendCommitFailureCode;
+    } & Omit<MutationFailureFields, "code"> &
       MutationBatchState);
 
 function classifyCommitState(
@@ -631,10 +638,9 @@ async function mutateBatchUnderLease(
     };
   }
 
-  // Pass 2: sidecar promotion. All entries validated; from here we accept
-  // that any failure may leave on-disk residue (sidecar attachments) that
-  // `loaf doctor --orphan-attachment` will GC. Planned validation failures
-  // (the kind users hit constantly while iterating) DO NOT reach this pass.
+  // Pass 2: sidecar promotion. All entries validated; from here an operational
+  // failure may leave recoverable orphan sidecars. Planned validation
+  // failures (the kind users hit while iterating) do not reach this pass.
   const promoted: JournalEntry[] = [];
   for (let i = 0; i < candidates.length; i++) {
     try {
@@ -831,9 +837,8 @@ async function mutateBatchUnderLease(
   //     (corrupt session:started payload, etc.). NOT silenced — surfaces
   //     as a mutate failure result so the bug is visible (not laundered
   //     as "registry stale").
-  //   - writeRegistryFile() IO failure is best-effort per §4.12 —
-  //     swallowed silently; `loaf doctor --rebuild-registry` (future SC)
-  //     recovers from canonical artifacts.
+  //   - writeRegistryFile() IO failure is best-effort per §4.12 and does not
+  //     change the committed journal result.
   //
   // Skipped when snapshot.state.session_id is null (pre-session:started
   // edge case — shouldn't happen post-MVP but defensive).
@@ -855,7 +860,7 @@ async function mutateBatchUnderLease(
         code: "PROJECTION_WRITE_FAILED",
         message:
           `registry derivation failed after journal append; ` +
-          `journal is authoritative — run 'loaf doctor --rebuild-registry' (future). ` +
+          `journal is authoritative; reload registry projections after correcting the defect. ` +
           `Cause: ${(err as Error).message}`,
         snapshot: finalSnapshot,
         entries: promoted,
@@ -876,9 +881,8 @@ async function mutateBatchUnderLease(
           }),
         });
       } catch {
-        // Silent — §4.12 best-effort IO. Registry is a TUI projection,
-        // not gate authority; readers tolerate stale; doctor --rebuild-
-        // registry recovers from canonical artifacts.
+        // Silent — §4.12 best-effort IO. Registry is a display projection,
+        // not gate or liveness authority; readers tolerate a missed refresh.
       }
     }
   }
@@ -902,8 +906,24 @@ export async function mutate(
 ): Promise<MutateResult> {
   const batch = await mutateBatch([partial], ctx);
   if (!batch.ok) {
-    const failure = {
-      ok: false as const,
+    if (batch.commit_state === "committed") {
+      return {
+        ok: false,
+        commit_state: "committed",
+        code: batch.code,
+        message: batch.message,
+        ...(batch.failed_index !== undefined && {
+          failed_index: batch.failed_index,
+        }),
+        ...(batch.detail !== undefined && { detail: batch.detail }),
+        snapshot: batch.snapshot,
+        entry: batch.entries[0]!,
+        meta: batch.meta,
+      };
+    }
+    return {
+      ok: false,
+      commit_state: "not-committed",
       code: batch.code,
       message: batch.message,
       ...(batch.failed_index !== undefined && {
@@ -911,15 +931,6 @@ export async function mutate(
       }),
       ...(batch.detail !== undefined && { detail: batch.detail }),
     };
-    return batch.commit_state === "committed"
-      ? {
-          ...failure,
-          commit_state: "committed",
-          snapshot: batch.snapshot,
-          entry: batch.entries[0]!,
-          meta: batch.meta,
-        }
-      : { ...failure, commit_state: "not-committed" };
   }
   return {
     ok: true,

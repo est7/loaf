@@ -378,21 +378,21 @@
       <div class="tag">PRINCIPLE 15a · TRUTH MODEL</div>
       <div class="head">Single typed journal + reducer-derived projection</div>
       <div class="body">
-        Canonical truth = <code>.loaf/&lt;feature&gt;/journal.jsonl</code>(append-only,typed envelope)+ <code>attachments/&lt;entry_id&gt;/</code>(per-entry sidecar)+ <code>loaf.config.json</code>。所有 <code>state.json</code> / <code>tasks.json</code> / <code>evidence.json</code> / <code>findings.json</code> / <code>spec.md</code> / <code>lessons.md</code> 均是 reducer 从 journal entries 重建的派生投影,落 <code>snapshots/*.json</code> 或 markdown,允许 stale,gate 永远不读。
+        Canonical workflow truth = <code>.loaf/&lt;feature&gt;/journal.jsonl</code>(append-only,typed envelope)+ <code>attachments/&lt;entry_id&gt;/</code>(journal-owned sidecar)；<code>loaf.config.json</code> 是独立 project config。<code>state.json</code> / <code>tasks.json</code> / <code>evidence.json</code> / <code>findings.json</code> / <code>spec.md</code> / <code>lessons.md</code> 是 journal-replay 派生视图。Gate 使用 journal-replayed facts；spec-lock 另在 IO boundary 校验受控的 <code>spec.md</code>。
       </div>
     </div>
     <div class="principle">
       <div class="tag">PRINCIPLE 15 · MUTATION DISCIPLINE</div>
-      <div class="head">Per-session lock + 10-step journal transaction</div>
+      <div class="head">Owner-fenced feature lease + journal transaction</div>
       <div class="body">
-        所有 mutation 必须经 <code>loaf &lt;cmd&gt;</code> 在 per-feature <code>.lock</code> 内完成 10-step transaction(acquire → preflight → sidecar → final validate → append → post-apply → snapshot rebuild → registry refresh → release)。skill / sub-agent / 外部脚本不得直写任何 <code>.loaf/&lt;feature&gt;/</code> 路径。
+        所有 mutation 必须经 <code>CommandMutator</code>，在 owner-token fenced、bounded-wait 的 per-feature <code>.lock</code> lease 内完成。append 前失败 = <code>not-committed</code>；append 后 projection 发布失败 = <code>committed</code>，journal 仍是恢复依据。skill / sub-agent / 外部脚本不得直写 workflow artifacts。
       </div>
     </div>
     <div class="principle">
       <div class="tag">PRINCIPLE 14 · PROTOCOL vs SKILL</div>
-      <div class="head">协议管 shape,skill 管 content</div>
+      <div class="head">Kernel 管事实与决策边界，skill 管监督编排</div>
       <div class="body">
-        协议层只校验结构:可验证性 / ID 引用 / 写权限 / 状态机转移合法性。语言风格、ceremony preset、prompt 模板、workflow 编排是 loaf-skill 的事,不进协议。
+        Kernel 拥有 schema、状态机、gate、lane applicability、proof 与 next-action routing。仓库内 skill 是 live supervised plugin contract：负责 prompt 与 workflow 编排、调用显式 CLI command；<code>LOAF_USER</code> 只提供身份，不代表批准、waiver 或人工 attestation。
       </div>
     </div>
   </div>
@@ -496,7 +496,7 @@
     </g>
 
     <g><rect class="node-rect" x="780" y="160" width="130" height="36" rx="4"/>
-       <text class="node-text bold" x="845" y="178">SETTLE.reconcile</text></g>
+       <text class="node-text" x="845" y="178">SETTLE.reconcile (legacy)</text></g>
     <g><rect class="node-rect" x="780" y="220" width="130" height="36" rx="4"/>
        <text class="node-text bold" x="845" y="238">SETTLE.lessons</text></g>
 
@@ -586,7 +586,7 @@
         <td>同 standard + SETTLE + strict 三件套</td>
         <td class="matrix-must">+ strict_spec_review (actor ≠ implementer)</td>
         <td class="matrix-must">+ strict_drift_check</td>
-        <td class="matrix-must">reconcile + lessons MUST</td>
+        <td class="matrix-must">lessons MUST (reconcile retired)</td>
         <td>架构 / 安全 / 跨模块 / public API / schema(score ≥ 70)</td>
       </tr>
     </tbody>
@@ -594,7 +594,7 @@
   <p style="margin-top:1em;color:var(--muted);font-size:0.9em">
     <strong>rev 5.x 设计原则</strong>:4 档单调递增 ceremony,每档加一件事——
     <code>quick</code>(EXECUTE 直跳) → <code>light</code>(+SPEC) → <code>standard</code>(+VERIFY) → <code>deep</code>(+SETTLE + strict)。
-    <code>standard</code> 不再跑 SETTLE;reconcile/lessons 留给 deep 作差异化卖点。
+    <code>standard</code> 不跑 SETTLE；deep 进入真实的 <code>SETTLE.lessons</code>，旧 reconcile stage 仅保留历史 replay compatibility。
   </p>
 </section>
 
@@ -686,7 +686,7 @@
     </g>
 
     <g><rect class="node-rect" x="780" y="160" width="130" height="34" rx="4"/>
-       <text class="node-text bold" x="845" y="177">SETTLE.reconcile</text></g>
+       <text class="node-text" x="845" y="177">SETTLE.reconcile (legacy)</text></g>
     <g><rect class="node-rect" x="780" y="220" width="130" height="34" rx="4"/>
        <text class="node-text bold" x="845" y="237">SETTLE.lessons</text></g>
 
@@ -800,14 +800,14 @@
         <td><code>advance</code>(check 间), <code>evidence add</code>, <code>waive</code>, <code>finding raise/close</code></td>
         <td class="k">event:phase_advanced · evidence:added · finding:raised | closed</td>
         <td>evidence projection 中 <code>check</code> 列填充 + applicability 3 档结果</td>
-        <td>★ <code>gate:decided</code>(verify-accept;settle_phase=true → SETTLE.reconcile;settle_phase=false → DONE.delivered;<code>human:</code> only)</td>
+        <td>★ <code>gate:decided</code>(verify-accept);之后 settle_phase=true → 显式 <code>loaf settle</code> 到 SETTLE.lessons，false → <code>loaf deliver</code>；<code>human:</code> only</td>
       </tr>
       <tr>
         <td><span class="ph settle">SETTLE</span></td>
         <td>verify-accept 通过 且 <code>ceremony.settle_phase=true</code>(rev 5.x:deep only;quick / light / standard 跳过)</td>
         <td><code>loaf settle</code>, <code>lessons add</code></td>
         <td class="k">event:phase_advanced · lesson:recorded</td>
-        <td>lessons.md(deep:MUST);reconcile writer尚未实现</td>
+        <td>lessons.md(deep:MUST);reconcile writer/exit gate 已退役</td>
         <td><code>deliver</code> / <code>archive</code> / <code>abandon</code></td>
       </tr>
       <tr>
@@ -825,7 +825,7 @@
 <section id="truth-model">
   <h2>⑤ Truth model · 4 层 authority</h2>
   <p class="lead">
-    Gate 永远只读 Canonical;其它三层任何时候都允许 stale。Reader 读 Derived projection 必须先过 Gate #5 fast check,mismatch 直接 exit 2,绝不静默 fallback。
+    Gate verdict 由 journal-replayed facts 计算，不从 display projection 推断 proof；spec-lock 的受控 <code>spec.md</code> check 是显式 IO boundary。Reader 读 Derived projection 必须先过 Gate #5 fast check,mismatch 直接 exit 2,绝不静默 fallback。
   </p>
 
   <svg class="diagram" viewBox="0 0 1180 400" role="img" aria-label="truth model layering">
@@ -842,7 +842,7 @@
 
     <rect x="40" y="200" width="1100" height="70" rx="8" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.5"/>
     <text class="phase-label" x="100" y="220" fill="var(--accent)" text-anchor="start">DERIVED PROJECTION</text>
-    <text class="node-text" x="130" y="240" text-anchor="start">snapshots/{state,tasks,evidence,findings,pending,reconcile,gate-diagnostic,resume-pack,_meta}.json  ·  spec.md  ·  lessons.md  ·  ~/.loaf/registry/&lt;id&gt;.json</text>
+    <text class="node-text" x="130" y="240" text-anchor="start">snapshots/{state,tasks,evidence,findings,pending,resume-pack,_meta}.json  ·  spec.md  ·  lessons.md  ·  ~/.loaf/registry/&lt;id&gt;.json</text>
     <text class="edge-label" x="130" y="258" text-anchor="start">reducer-rebuilt;允许 ≤1 mutator 周期 stale;reader 必走 _meta fast-check(Gate #5)</text>
 
     <rect x="40" y="120" width="540" height="60" rx="8" fill="var(--panel-2)" stroke="var(--line)" stroke-width="1"/>
@@ -881,7 +881,7 @@
 <section id="transaction">
   <h2>⑥ §11.2 · 10-step journal mutation transaction</h2>
   <p class="lead">
-    每个 mutator 命令在 per-feature <code>.lock</code> 内执行 10 步;任一步 fail 释放 lock,journal 未 append,reader 看不到部分状态。Crash 在每步的恢复路径见右栏。
+    每个 mutator 命令在 per-feature owner-fenced lease 内执行 transaction。step 6 前失败返回 <code>not-committed</code>；step 6 append 后 journal 已是事实，后续 projection 失败返回 <code>committed</code> 并由 rebuild 恢复。Crash 路径见右栏。
   </p>
 
   <svg class="diagram" viewBox="0 0 1180 720" role="img" aria-label="10-step transaction">
@@ -1109,7 +1109,7 @@
       <tr><td class="k">settle_phase</td>      <td class="matrix-na">false</td><td class="matrix-na">false</td><td class="matrix-na">false</td><td class="matrix-must">true</td><td>跳过 SETTLE.*;rev 5.x:deep only</td></tr>
       <tr><td class="k">strict_spec_review</td><td class="matrix-na">false</td><td class="matrix-na">false</td><td class="matrix-na">false</td><td class="matrix-must">true</td><td>spec-lock 额外校验 <code>kind=spec-review</code> evidence 且 <code>actor ≠ implementer</code></td></tr>
       <tr><td class="k">lessons_required</td> <td class="matrix-na">"skip"</td><td class="matrix-na">"skip"</td><td class="matrix-na">"skip"</td><td class="matrix-must">"must"</td><td>SETTLE.lessons must:<code>lessons.md</code> 至少一段(deep only)</td></tr>
-      <tr><td class="k">strict_drift_check</td><td class="matrix-na">false</td><td class="matrix-na">false</td><td class="matrix-na">false</td><td class="matrix-must">true</td><td>SETTLE.reconcile 要求 drift_index=0(任何 task 不在 spec 内 → finding)</td></tr>
+      <tr><td class="k">strict_drift_check</td><td class="matrix-na">false</td><td class="matrix-na">false</td><td class="matrix-na">false</td><td class="matrix-must">true</td><td>兼容保留的 ceremony 字段；当前无 live reconcile gate 或 writer，不得据此宣称已执行 drift check</td></tr>
     </tbody>
   </table>
 </section>
@@ -1195,7 +1195,7 @@
       <tr><td class="k">loaf profile escalate</td><td class="k">event:ceremony_set + pending:resolved</td><td>2-entry batch；ceremony_set 在前(preflight 5c.4 守卫)；resolve profile_escalation head</td></tr>
       <tr><td class="k">loaf lessons add</td><td class="k">lesson:recorded</td><td>独立 LSN-id;project 到 lessons.md,不进入 evidence view</td></tr>
       <tr><td class="k">loaf advance EXECUTE.done</td><td class="k">scope:recorded + event:phase_advanced</td><td>同一 closure batch;scope marker 紧邻 transition,即使 paths 为空也 emit</td></tr>
-      <tr><td class="k">loaf settle</td><td class="k">event:phase_advanced(→ SETTLE.reconcile)</td><td>仅 <code>ceremony.settle_phase=true</code>(rev 5.x:deep only)合法;quick/light/standard 调用 → exit 2 <code>SETTLE_PHASE_DISABLED</code>。当前无 reconcile writer或 canonical planned_scope owner</td></tr>
+      <tr><td class="k">loaf settle</td><td class="k">event:phase_advanced(→ SETTLE.lessons)</td><td>仅 <code>ceremony.settle_phase=true</code>(deep only)合法;quick/light/standard 调用 → exit 2 <code>SETTLE_PHASE_DISABLED</code>。旧 SETTLE.reconcile 仅历史 replay compatibility</td></tr>
     </tbody>
   </table>
 
@@ -1219,8 +1219,8 @@
 </section>
 
 <section id="doctor">
-  <h2>⑫ <code>loaf doctor</code> · 16 项 check</h2>
-  <p class="lead">所有 check 默认 read-only;加 <code>--fix</code> 才尝试修复。启动期 <code>loaf &lt;any-cmd&gt;</code> 静默跑 <code>stale-lock</code> + <code>stale-tmp</code>。</p>
+  <h2>⑫ <code>loaf doctor</code> · target checks</h2>
+  <p class="lead">下表是未完整落地的目标诊断设计，不代表启动期自动运行。当前 feature lease 本身在竞争时验证 owner generation：dead owner 可回收，live owner 不偷取，malformed state fail closed。</p>
   <p class="lead"><strong>实现状态(Phase 14 / <code>1d6e1d1</code>)</strong>:下表与 sub-flags 是 <code>loaf doctor</code> 的目标诊断设计;v0.1.0 当前仅实现 <code>loaf doctor --rebuild --feature &lt;X&gt;</code>(full replay 重建 <code>snapshots/</code>)。bare <code>loaf doctor</code> 与其余 sub-flag 未实现 → exit 2 <code>DOCTOR_MODE_NOT_IMPLEMENTED</code>。</p>
 
   <table class="matrix">
@@ -1228,7 +1228,7 @@
       <tr><th>Check</th><th>范围</th><th>触发条件</th><th><code>--fix</code> 行为 / 严重度</th></tr>
     </thead>
     <tbody class="doctor-row">
-      <tr><td>stale-lock</td><td>.loaf/&lt;feat&gt;/.lock</td><td>PID 不在进程表</td><td><span class="sev-info">unlink</span></td></tr>
+      <tr><td>stale-lock</td><td>.loaf/&lt;feat&gt;/.lock</td><td>owner PID 已退出且观察到的 owner generation 复验未变</td><td><span class="sev-info">由下一个 writer 安全回收；live/malformed 不删</span></td></tr>
       <tr><td>stale-tmp</td><td>.tmp-* 残留</td><td>mtime &gt; 60s + 无 active lock</td><td><span class="sev-info">unlink</span></td></tr>
       <tr><td>orphan-attachment</td><td>attachments/&lt;entry_id&gt;/**</td><td>无对应 journal entry,或 entry 无 ref</td><td><span class="sev-warn">删 orphan + 写 audit evidence</span></td></tr>
       <tr><td>tail-corruption</td><td>journal.jsonl 末尾</td><td>partial line / batch incomplete / line_hash mismatch</td><td><span class="sev-warn">Gate #4 batch-aware truncate + rewrite _meta</span></td></tr>
@@ -1236,7 +1236,6 @@
       <tr><td>migration-v0.0.x</td><td>.loaf/&lt;feat&gt;/</td><td>v0.0.x N-file 存在且无 journal.jsonl</td><td><span class="sev-blocker">不自动 fix;exit 2 + 提示 <code>--migrate-v2</code></span></td></tr>
       <tr><td>rolling-checksum-mismatch</td><td>journal.jsonl</td><td><code>--verify-checksum</code> 整链重算与 _meta 不匹配</td><td><span class="sev-blocker">不自动 fix;手动 recovery</span></td></tr>
       <tr><td>sidecar-validation-drift</td><td>internal invariant</td><td>step 5d reducer-visible vs step 3c diff</td><td><span class="sev-blocker">实现 bug;dump 进 crash log</span></td></tr>
-      <tr><td>registry-stale</td><td>~/.loaf/registry/*.json</td><td>at 早于 heartbeat &gt; 5 min</td><td><span class="sev-info">--rebuild-registry 重写</span></td></tr>
       <tr><td>registry-orphan</td><td>~/.loaf/registry/&lt;id&gt;.json</td><td>对应 cwd 无 .loaf/&lt;feat&gt;/</td><td><span class="sev-info">unlink</span></td></tr>
       <tr><td>registry-gc</td><td>~/.loaf/registry/*.json</td><td>mtime &gt; 30 天</td><td><span class="sev-info">unlink</span></td></tr>
       <tr><td>crash-log-prune</td><td>~/.loaf/crashes/*.json</td><td>mtime &gt; 30 天</td><td><span class="sev-info">unlink</span></td></tr>

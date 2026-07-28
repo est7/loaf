@@ -1,5 +1,4 @@
-// Projection writer — the `loaf doctor --rebuild` serializer (Phase 14 SC1,
-// ADR-0005 §3.6 / findings.md F-018, codex r155+r156).
+// Projection writer shared by journal mutation and `loaf doctor --rebuild`.
 //
 // `loaf doctor --rebuild` does a full journal replay (replayJournal seq=0,
 // collect_entries:true) → in-memory `Snapshot` + `JournalEntry[]` + `meta`,
@@ -22,12 +21,8 @@
 // here) and `SessionRuntimeFile` — machine-local `cwd` / `debug` /
 // `heartbeat_at`, which `--rebuild` never reads or writes (F-019).
 //
-// Migration scope: a v0.0.x-migrated journal carries its projection state
-// via `migration:snapshot_imported` sidecar rehydration, not via ordinary
-// `event:tasks_planned` / `evidence:added` / `pending:added` payloads.
-// This serializer derives tasks/evidence/pending from those event payloads,
-// so `--rebuild` of a migrated feature is a follow-up (it intersects
-// `doctor --migrate-v2`) — out of SC1 scope (F-018, codex r158).
+// Migrated journals rehydrate their snapshot import before this serializer
+// composes the canonical projection set.
 
 import { randomBytes } from "node:crypto";
 import * as fsp from "node:fs/promises";
@@ -371,15 +366,10 @@ export interface WriteProjectionsInput {
  * neither present the file is removed, so a `--rebuild` never leaves a
  * stale projection behind.
  *
- * Does NOT acquire the per-feature `.lock`. When called from the W3-fenced
- * mutateBatch path the lock is already held by the caller. But the other
- * callers — `loaf doctor --rebuild` (cli.tsx) and `loaf handoff`
- * (resume-pack) — invoke this WITHOUT the lock, so those projection writes are
- * outside the write-contention fence and can race a concurrent mutateBatch
- * (codex W3 nit). That is the named partial-fence boundary of the single-writer
- * MVP: the lock guards the journal-append + in-band projection sync, not every
- * out-of-band projection writer. Widening the fence to those callers is a
- * follow-up, not a W3 deliverable.
+ * Does NOT acquire the per-feature lease itself. Both live callers already
+ * hold it: `mutateBatch` spans append through projection publication, and
+ * `loaf doctor --rebuild` acquires the same lease before replay. Keeping
+ * acquisition at the operation boundary prevents a nested lease.
  *
  * Returns the basenames of the files present after the rebuild, in write
  * order — `state.json` first (skipped only for an empty journal), then

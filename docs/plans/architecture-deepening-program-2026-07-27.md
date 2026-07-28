@@ -1009,7 +1009,7 @@ TUI/Board tests; Biome lint; production bundle build.
 
 ## A17 — Executable contract-drift guards
 
-**Status:** [ ] Pending
+**Status:** [x] Complete
 **Commit subject:** `test(architecture): bind declarative contracts to runtime`
 
 ### Destination
@@ -1024,19 +1024,19 @@ delete them when they merely duplicate implementation.
 
 ### Acceptance criteria
 
-- [ ] Concurrency contract assertions cover the implemented lease/outcome
+- [x] Concurrency contract assertions cover the implemented lease/outcome
   semantics rather than string snapshots alone.
-- [ ] Static ownership gates cover Attachment authority, CommandMutator, scope
+- [x] Static ownership gates cover Attachment authority, CommandMutator, scope
   closure, and no-live-context-pack boundaries.
-- [ ] Known stale comments in projection writer, profile/doctor,
+- [x] Known stale comments in projection writer, profile/doctor,
   CommandMutator, and journal mutation are corrected or deleted.
-- [ ] `docs/index.html` no longer contradicts journal proof, feature lease,
+- [x] `docs/index.html` no longer contradicts journal proof, feature lease,
   reconcile, or skill ownership.
-- [ ] Each guard fails under a targeted negative control.
+- [x] Each guard fails under a targeted negative control.
 
 ### Validation
 
-`bunx vitest run tests/scripts/docs-runtime-boundary.test.ts tests/scripts/protocol-contract-gates.test.ts tests/scripts/skills-semantic-gate.test.ts tests/scripts/claude-semantic-gate.test.ts`
+`bunx vitest run tests/scripts/architecture-ownership-gates.test.ts tests/scripts/docs-runtime-boundary.test.ts tests/scripts/protocol-contract-gates.test.ts tests/scripts/skills-semantic-gate.test.ts tests/scripts/claude-semantic-gate.test.ts`
 `bun run verify:codegen`
 
 ### Migration and recovery
@@ -1045,7 +1045,16 @@ Tests and comments only unless a guard exposes an in-scope live contradiction.
 
 ### Evidence
 
-Pending.
+Runtime-owned constants now bind the declarative feature-lease timeout,
+commit-state vocabulary, and post-append committed-failure codes; committed
+failure types cannot widen without changing that owner. Static gates enforce
+attachment dereference, CommandMutator, scope-closure fact construction, and
+retired context-pack ownership, while targeted injections prove every rule is
+fault-sensitive. The same gate rejects known stale architecture comments and
+the superseded `docs/index.html` claims. It also exposed and closed the
+pre-existing `loaf next` local-option drift while preserving global
+`--session` dispatch. Validation: typecheck; 117 focused runtime/contract
+tests; codegen verification; Biome lint; production bundle build.
 
 ## A18 — Freshness ledger and abstraction triggers
 

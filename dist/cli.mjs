@@ -6136,7 +6136,6 @@ var FeatureWriteLeaseError = class extends Error {
 		this.name = "FeatureWriteLeaseError";
 	}
 };
-const DEFAULT_TIMEOUT_MS = 3e4;
 const DEFAULT_RETRY_DELAY_MS$1 = 20;
 const DEFAULT_LEGACY_STALE_MS = 3e4;
 const activeOwners = /* @__PURE__ */ new Map();
@@ -6229,7 +6228,7 @@ async function acquireFeatureWriteLease(featureDir, operation, options = {}) {
 	const isPidAlive = options.isPidAlive ?? defaultIsPidAlive;
 	const sleep = options.sleep ?? ((delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs)));
 	const retryDelayMs = Math.max(1, options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS$1);
-	const timeoutMs = Math.max(0, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+	const timeoutMs = Math.max(0, options.timeoutMs ?? 3e4);
 	const legacyLockStaleMs = Math.max(0, options.legacyLockStaleMs ?? DEFAULT_LEGACY_STALE_MS);
 	const maxAttempts = Math.max(1, Math.ceil(timeoutMs / retryDelayMs) + 1);
 	const metadata = FeatureLeaseFile.parse({
@@ -8765,15 +8764,10 @@ async function writeTextAtomic(filePath, body, fsync) {
 * neither present the file is removed, so a `--rebuild` never leaves a
 * stale projection behind.
 *
-* Does NOT acquire the per-feature `.lock`. When called from the W3-fenced
-* mutateBatch path the lock is already held by the caller. But the other
-* callers — `loaf doctor --rebuild` (cli.tsx) and `loaf handoff`
-* (resume-pack) — invoke this WITHOUT the lock, so those projection writes are
-* outside the write-contention fence and can race a concurrent mutateBatch
-* (codex W3 nit). That is the named partial-fence boundary of the single-writer
-* MVP: the lock guards the journal-append + in-band projection sync, not every
-* out-of-band projection writer. Widening the fence to those callers is a
-* follow-up, not a W3 deliverable.
+* Does NOT acquire the per-feature lease itself. Both live callers already
+* hold it: `mutateBatch` spans append through projection publication, and
+* `loaf doctor --rebuild` acquires the same lease before replay. Keeping
+* acquisition at the operation boundary prevents a nested lease.
 *
 * Returns the basenames of the files present after the rebuild, in write
 * order — `state.json` first (skipped only for an empty journal), then
@@ -12032,7 +12026,7 @@ async function mutateBatchUnderLease(partials, ctx) {
 				ok: false,
 				commit_state: "committed",
 				code: "PROJECTION_WRITE_FAILED",
-				message: `registry derivation failed after journal append; journal is authoritative — run 'loaf doctor --rebuild-registry' (future). Cause: ${err.message}`,
+				message: `registry derivation failed after journal append; journal is authoritative; reload registry projections after correcting the defect. Cause: ${err.message}`,
 				snapshot: finalSnapshot,
 				entries: promoted,
 				meta: appendMeta,
@@ -12062,22 +12056,24 @@ async function mutateBatchUnderLease(partials, ctx) {
 async function mutate(partial, ctx) {
 	const batch = await mutateBatch([partial], ctx);
 	if (!batch.ok) {
-		const failure = {
+		if (batch.commit_state === "committed") return {
 			ok: false,
+			commit_state: "committed",
+			code: batch.code,
+			message: batch.message,
+			...batch.failed_index !== void 0 && { failed_index: batch.failed_index },
+			...batch.detail !== void 0 && { detail: batch.detail },
+			snapshot: batch.snapshot,
+			entry: batch.entries[0],
+			meta: batch.meta
+		};
+		return {
+			ok: false,
+			commit_state: "not-committed",
 			code: batch.code,
 			message: batch.message,
 			...batch.failed_index !== void 0 && { failed_index: batch.failed_index },
 			...batch.detail !== void 0 && { detail: batch.detail }
-		};
-		return batch.commit_state === "committed" ? {
-			...failure,
-			commit_state: "committed",
-			snapshot: batch.snapshot,
-			entry: batch.entries[0],
-			meta: batch.meta
-		} : {
-			...failure,
-			commit_state: "not-committed"
 		};
 	}
 	return {

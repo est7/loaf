@@ -3,9 +3,8 @@
 // Per protocol §4.12 + §11.2 step 9: each mutator pipeline run (after step
 // 8 snapshot rebuild) refreshes the per-session registry file at
 // `~/.loaf/registry/<session_id>.json`. Best-effort derived projection
-// (§13.1): registry is NEVER gate authority; readers (TUI / sessions list)
-// tolerate stale; `loaf doctor --rebuild-registry` (future SC) recovers
-// from canonical artifacts.
+// (§13.1): registry is NEVER gate or liveness authority; readers (TUI /
+// sessions list) tolerate a missed refresh.
 //
 // This module owns two pure-ish surfaces:
 //   - buildRegistryFile({snapshot, entries, now, cwd})

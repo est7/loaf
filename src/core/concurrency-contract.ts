@@ -1,5 +1,11 @@
 // Canonical CONCURRENCY_INVARIANTS contract owner.
 
+import { DEFAULT_FEATURE_WRITE_LEASE_TIMEOUT_MS } from "./feature-write-lease.js";
+import {
+  MUTATION_COMMIT_STATES,
+  POST_APPEND_COMMIT_FAILURE_CODES,
+} from "./journal-mutate.js";
+
 export const CONCURRENCY_INVARIANTS = {
   // 1. Single writer rule (rev 5.0 reanchored)
   //    Every artifact under .loaf/<feature>/ AND under
@@ -37,13 +43,27 @@ export const CONCURRENCY_INVARIANTS = {
     "bounded wait; live PID never stolen; dead PID reclaimed only after generation revalidation; malformed state fails closed; release unlinks only its owner token",
   lock_order:
     "when EXECUTE closure needs both locks: session-runtime lock first, feature write lease second; no feature-then-runtime edge",
+  feature_write_lease: {
+    timeout_ms: DEFAULT_FEATURE_WRITE_LEASE_TIMEOUT_MS,
+    malformed_owner: "fail-closed",
+    release_fence: "owner-token",
+  },
+  mutation_outcomes: {
+    states: MUTATION_COMMIT_STATES,
+    pre_append_failure: "not-committed",
+    dry_run_success: "not-committed",
+    post_append_failure: "committed",
+    post_append_failure_codes: POST_APPEND_COMMIT_FAILURE_CODES,
+  },
 
   // 3. Journal mutation transaction order (rev 5.0, 10-step;
   //    mirror ADR-0005 §3.5 + protocol.md §11.2)
   //    Every loaf-cli mutator command runs these 10 steps in order
-  //    under the lock. Failure at any step releases the lock and
-  //    exits non-zero; no partial state is observable to readers
-  //    because step 6 is the only externally-visible write.
+  //    under the lock. Failure before step 6 is not committed. Once step 6
+  //    appends, the journal is the durable fact: a later projection failure
+  //    returns commit_state=committed and requires rebuild/reload recovery.
+  //    Step 4 can leave an orphan sidecar on operational failure; the journal
+  //    still remains uncommitted and the orphan is recoverable garbage.
   transaction_order: [
     "1. acquire .lock (blocking, ≤30s; on timeout exit 2 LOCK_TIMEOUT)",
     "2. read journal.jsonl tail + snapshots/_meta.json; verify _meta fast-check (last_applied_seq + last_entry_offset + last_entry_line_hash); on mismatch release lock + exit 2 SNAPSHOT_STALE_REBUILD_REQUIRED",
@@ -118,19 +138,19 @@ export const CONCURRENCY_INVARIANTS = {
   },
 
   // 4. Lock acquisition timeout (seconds)
-  lock_timeout_seconds: 30,
+  lock_timeout_seconds: DEFAULT_FEATURE_WRITE_LEASE_TIMEOUT_MS / 1_000,
 
   // 5. Stale lock detection
-  //    If lock file PID is not running, `loaf doctor` (or any
-  //    `loaf <cmd>` startup) removes the stale lock.
-  stale_lock_recovery: "loaf doctor unlinks lock whose PID has exited",
+  //    A contending writer reclaims a dead owner only after revalidating the
+  //    observed generation. A live owner is never stolen.
+  stale_lock_recovery: "next writer revalidates and reclaims a dead owner generation",
 
   // 6. SIGINT (Ctrl-C) policy
   //    First Ctrl-C: cleanup hook runs, releases lock, exits 130.
   //    Second Ctrl-C: skip cleanup, exit 130 immediately. Stale
-  //    .tmp-* sidecar and possibly .lock left behind; cleaned at
-  //    next `loaf doctor` invocation (stale-lock / stale-tmp / orphan-attachment).
-  sigint_policy: "first-ctrl-c=cleanup; second-ctrl-c=skip; recovery=loaf doctor",
+  //    .tmp-* sidecar and possibly .lock left behind. The next writer can
+  //    reclaim a dead lease generation; sidecar cleanup remains separate.
+  sigint_policy: "first-ctrl-c=cleanup; second-ctrl-c=skip; dead lease reclaimed by next writer",
 
   // 7. Atomic multi-entry batches (rev 5.0; reframed from
   //    atomic_multi_artifact_commands)
@@ -411,8 +431,7 @@ export const CONCURRENCY_INVARIANTS = {
   // 9. Registry as cache (rev 5.0 step numbers updated for 10-step path)
   //    Registry rewrite (step 9 of transaction) is best-effort.
   //    If process dies between step 8 (snapshot rebuild) and step 9,
-  //    registry lags; `loaf doctor --rebuild-registry` rebuilds from
-  //    canonical (journal.jsonl + snapshots/*.json).
-  //    TUI MUST tolerate registry stale; never block on registry.
+  //    registry lags. TUI/Board reload it explicitly and never use it as gate
+  //    or liveness authority.
   registry_authority: "best-effort projection; never gate authority",
 } as const;

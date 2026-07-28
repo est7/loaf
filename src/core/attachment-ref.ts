@@ -7,7 +7,7 @@
 //
 // This module owns the lexical contract only. Filesystem authorization,
 // entry/slot ownership, symlink handling, and integrity-checked IO live in the
-// attachment authority introduced by the next architecture slice.
+// implemented attachment authority (`attachment-authority.ts`).
 
 import path from "node:path";
 

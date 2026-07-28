@@ -296,12 +296,10 @@ export function registerProfileConfig(
     });
 
   // ── loaf doctor --rebuild ───────────────────────────────────────────
-  // Phase 14 SC2. The only doctor mode this release: --rebuild does a full
-  // journal replay (replayJournal from seq=0) and re-serializes the four
-  // journal-derived snapshot projections + _meta.json via writeProjections
-  // (Phase 14 SC1). The read-only check suite (bare `loaf doctor`, §10.15)
-  // + the other sub-flags (--check-tail / --migrate-v2 / --scope /
-  // --verify-checksum) are later slices.
+  // The shipped doctor surface has one mode: --rebuild performs a full
+  // journal replay and republishes the five journal-derived data projections
+  // plus _meta.json under the feature write lease. Bare doctor and the
+  // historical target-design sub-flags are rejected explicitly.
   //
   // Exit codes (Phase 16 SC-2 normalization, was codex r160 pre-normalization):
   //   0 = rebuilt OK
@@ -322,11 +320,9 @@ export function registerProfileConfig(
     .option("--feature <name>", "Feature whose snapshots to rebuild (required with --rebuild)")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { rebuild?: boolean; feature?: string; featureDir?: string }) => {
-      // SC-6c: doctor is read-only at this slice (--rebuild writes
-      // projections directly, NOT via mutate(); a dry-run rebuild would
-      // need a real in-memory replay precheck — out-of-scope per
-      // codex r275 P2). Both bare doctor and --rebuild reject under
-      // --dry-run with the same code.
+      // Doctor rebuild is a projection writer, not a journal mutator. A
+      // dry-run would need a separate replay-preview contract, so both bare
+      // doctor and --rebuild reject --dry-run.
       if (ctx.rejectIfDryRun(opts.rebuild ? "doctor --rebuild" : "doctor")) return;
 
       if (!opts.rebuild) {

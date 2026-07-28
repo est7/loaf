@@ -113,9 +113,8 @@ export async function listSessions(input: ListSessionsInput): Promise<ListSessio
     // null → cwd no longer exists / unresolvable.
     const canonicalRegCwd = await tryRealpath(reg.cwd);
     if (canonicalRegCwd === null) {
-      // Surface as orphan even when not filtering by --in-cwd, so
-      // users get a hint that doctor --rebuild-registry (future) can
-      // clean stale entries.
+      // Surface as orphan even when not filtering by --in-cwd so callers can
+      // diagnose or explicitly prune the stale display entry.
       warnings.push({
         file: entry,
         reason: "orphan-cwd",

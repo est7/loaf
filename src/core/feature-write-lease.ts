@@ -65,7 +65,7 @@ interface FileIdentity {
   size: number;
 }
 
-const DEFAULT_TIMEOUT_MS = 30_000;
+export const DEFAULT_FEATURE_WRITE_LEASE_TIMEOUT_MS = 30_000;
 const DEFAULT_RETRY_DELAY_MS = 20;
 const DEFAULT_LEGACY_STALE_MS = 30_000;
 const activeOwners = new Map<string, string>();
@@ -176,7 +176,7 @@ export async function acquireFeatureWriteLease(
   const sleep =
     options.sleep ?? ((delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs)));
   const retryDelayMs = Math.max(1, options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS);
-  const timeoutMs = Math.max(0, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  const timeoutMs = Math.max(0, options.timeoutMs ?? DEFAULT_FEATURE_WRITE_LEASE_TIMEOUT_MS);
   const legacyLockStaleMs = Math.max(0, options.legacyLockStaleMs ?? DEFAULT_LEGACY_STALE_MS);
   const maxAttempts = Math.max(1, Math.ceil(timeoutMs / retryDelayMs) + 1);
   const metadata = FeatureLeaseFile.parse({
