@@ -704,7 +704,7 @@ describe("loaf doctor --rebuild — Phase 14 SC2", () => {
       dir,
     ]);
     expect(r.exit).toBe(2);
-    expect(r.stderr).toContain("LOCK_TIMEOUT");
+    expect(r.stderr).toContain("LOCK_INVALID");
     await expect(fs.readFile(path.join(dir, ".lock"), "utf8")).resolves.toBe("{malformed");
   });
 });

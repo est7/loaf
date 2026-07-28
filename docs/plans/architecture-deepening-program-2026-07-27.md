@@ -81,7 +81,7 @@ replace `Pending` evidence with the commands and results that actually ran.
 | A19 | Verify | Final distribution and history audit | A02–A18 | [x] Complete |
 | A20 | Correct | Fault-sensitive mutation/rebuild equivalence proof | A15, A19 | [x] Complete |
 | A21 | Correct | Executable skill-to-CLI journey | A14, A20 | [x] Complete |
-| A22 | Correct | Truthful feature-lease contract and diagnostics | A04, A17 | [ ] Pending |
+| A22 | Correct | Truthful feature-lease contract and diagnostics | A04, A17 | [x] Complete |
 | A23 | Correct | Audit evidence and supersession trail | A12, A16, A19 | [ ] Pending |
 | A24 | Implement | Breaking-contract release identity gate | A08, A10, A12, A23 | [ ] Pending |
 
@@ -1072,6 +1072,11 @@ pre-existing `loaf next` local-option drift while preserving global
 `--session` dispatch. Validation: typecheck; 117 focused runtime/contract
 tests; codegen verification; Biome lint; production bundle build.
 
+**Independent-audit correction:** A17's stale-comment rule was a four-phrase
+snapshot, not a class-level drift guard. A22 removes it and instead binds the
+declared lease mechanism, error-code set, and deferred recovery status directly
+to runtime owners with targeted negative controls.
+
 ## A18 — Freshness ledger and abstraction triggers
 
 **Status:** [x] Complete
@@ -1287,7 +1292,7 @@ semantic suites passed 14 tests; typecheck and lint passed.
 
 ## A22 — Truthful feature-lease contract and diagnostics
 
-**Status:** [ ] Pending
+**Status:** [x] Complete
 **Commit subject:** `fix(core): align feature lease diagnostics`
 
 ### Destination
@@ -1297,27 +1302,46 @@ guards describe the actual owner-token O_EXCL lease and its recovery behavior.
 
 ### Acceptance criteria
 
-- [ ] Dead `LOCK_HELD_BY` catalog output and nonexistent doctor cleanup advice
+- [x] Dead `LOCK_HELD_BY` catalog output and nonexistent doctor cleanup advice
   are removed.
-- [ ] `LOCK_INVALID` remains distinct at every CLI translation boundary.
-- [ ] Protocol and concurrency contracts describe O_EXCL owner-token leases,
+- [x] `LOCK_INVALID` remains distinct at every CLI translation boundary.
+- [x] Protocol and concurrency contracts describe O_EXCL owner-token leases,
   next-writer dead-PID recovery, and fail-closed malformed leases.
-- [ ] Unimplemented orphan-GC/doctor flags are explicitly deferred rather than
+- [x] Unimplemented orphan-GC/doctor flags are explicitly deferred rather than
   promised as live.
-- [ ] Architecture guards bind declared runtime owners/classes of behavior,
+- [x] Architecture guards bind declared runtime owners/classes of behavior,
   not a one-off stale-phrase blocklist.
-- [ ] Targeted negative controls prove diagnostics and guards are
+- [x] Targeted negative controls prove diagnostics and guards are
   fault-sensitive.
 
 ### Validation
 
-`bunx vitest run tests/core/feature-write-lease.test.ts tests/scripts/architecture-ownership-gates.test.ts tests/scripts/protocol-contract-gates.test.ts`
+`bunx vitest run tests/core/feature-write-lease.test.ts tests/core/journal-mutate.test.ts tests/core/doctor-rebuild.test.ts tests/cli/handoff-end-to-end.test.ts tests/scripts/architecture-ownership-gates.test.ts tests/scripts/protocol-contract-gates.test.ts`
 `bun run verify:codegen`
+`bun run typecheck`
+`bun run lint`
+`bun run build`
 
 ### Migration and recovery
 
 No lease-file or journal migration. Error-code visibility becomes more precise;
 callers already receive exit code 2.
+
+### Evidence
+
+The feature-lease owner now exports the canonical mechanism and error-code
+set. `CONCURRENCY_INVARIANTS` consumes those owners, records orphan attachment
+GC as deferred, and no longer claims flock semantics or a live
+`doctor --fix`. The protocol reports contention as `LOCK_TIMEOUT`, dead-owner
+recovery as a generation-checked next-writer action, and malformed state as
+fail-closed `LOCK_INVALID`. The dead `LOCK_HELD_BY` catalog row and false
+doctor cleanup advice are gone. Handoff, doctor rebuild, and journal mutation
+preserve `FeatureWriteLeaseError.code`; malformed-lease regressions prove each
+boundary emits `LOCK_INVALID` without modifying the journal, projection, or
+lease. The architecture gate now checks owner-backed mechanism, error-code,
+and deferred-status fields with three targeted negative controls instead of a
+deleted-comment phrase list. Six focused suites passed 91 tests; codegen,
+typecheck, lint, and production build passed.
 
 ## A23 — Audit evidence and supersession trail
 

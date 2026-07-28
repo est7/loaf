@@ -17,7 +17,7 @@ import { z } from "zod";
 // protocol.md §10.5 codes into this enum: spec-lock checks
 // (MISSING_VERIFIABILITY / VAGUE_NO_SCENARIO / DRIVES_NOT_BOUND),
 // mutation rights (MUTATION_OUT_OF_RIGHTS), lock contention
-// (LOCK_TIMEOUT / LOCK_HELD_BY), session dispatch (4 codes), and
+// (LOCK_TIMEOUT / LOCK_INVALID), session dispatch (4 codes), and
 // the pending-head invariant family (3 codes). GateDiagnostic
 // .failures[].code is now z.lazy(() => DiagnosticCode) (was
 // z.string().min(3)).
@@ -525,12 +525,12 @@ export const ERROR_CATALOG = {
     template_keys: ["timeout_seconds"],
     doc_anchor: "protocol.md#§11.2",
   },
-  LOCK_HELD_BY: {
+  LOCK_INVALID: {
     exit_code: 2,
-    message_template: "lock held by PID {pid} (cmd={cmd}, acquired_at={acquired_at})",
+    message_template: "feature write lease at {lock_path} is malformed or incomplete",
     fix_template:
-      "wait for the holder to finish, or if the PID has exited run `loaf doctor` to clear the stale lock",
-    template_keys: ["acquired_at", "cmd", "pid"],
+      "inspect the lease and active loaf processes; malformed leases fail closed and no loaf command deletes them. Remove or replace the file only after independently proving that no writer owns it.",
+    template_keys: ["lock_path"],
     doc_anchor: "protocol.md#§11.2",
   },
   FEATURE_NOT_FOUND: {

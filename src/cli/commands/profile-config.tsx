@@ -356,7 +356,7 @@ export function registerProfileConfig(
         lease = await acquireFeatureWriteLease(featureDir, "doctor:rebuild");
       } catch (error) {
         if (error instanceof FeatureWriteLeaseError) {
-          ctx.emitFailure("LOCK_TIMEOUT", error.message);
+          ctx.emitFailure(error.code, error.message);
           return;
         }
         throw error;

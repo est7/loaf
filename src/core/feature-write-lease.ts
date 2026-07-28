@@ -38,7 +38,10 @@ export interface FeatureWriteLease {
   release(): Promise<void>;
 }
 
-export type FeatureWriteLeaseErrorCode = "LOCK_TIMEOUT" | "LOCK_INVALID";
+export const FEATURE_WRITE_LEASE_ERROR_CODES = ["LOCK_TIMEOUT", "LOCK_INVALID"] as const;
+export type FeatureWriteLeaseErrorCode = (typeof FEATURE_WRITE_LEASE_ERROR_CODES)[number];
+export const FEATURE_WRITE_LEASE_MECHANISM =
+  "O_EXCL sentinel with strict owner token and generation-checked recovery";
 
 export class FeatureWriteLeaseError extends Error {
   constructor(

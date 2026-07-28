@@ -240,7 +240,7 @@ describe("SC-13a — loaf handoff error paths", () => {
       { env: SEED_ENV },
     );
     expect(result.exit).toBe(2);
-    expect(JSON.parse(result.stderr).code).toBe("LOCK_TIMEOUT");
+    expect(JSON.parse(result.stderr).code).toBe("LOCK_INVALID");
     await expect(
       fs.access(path.join(featureDir, "snapshots", "resume-pack.json")),
     ).rejects.toThrow();

@@ -5,7 +5,11 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 
 import { CONCURRENCY_INVARIANTS } from "../../src/core/concurrency-contract.js";
-import { DEFAULT_FEATURE_WRITE_LEASE_TIMEOUT_MS } from "../../src/core/feature-write-lease.js";
+import {
+  DEFAULT_FEATURE_WRITE_LEASE_TIMEOUT_MS,
+  FEATURE_WRITE_LEASE_ERROR_CODES,
+  FEATURE_WRITE_LEASE_MECHANISM,
+} from "../../src/core/feature-write-lease.js";
 import {
   MUTATION_COMMIT_STATES,
   POST_APPEND_COMMIT_FAILURE_CODES,
@@ -81,14 +85,6 @@ function ownershipViolations(sources: SourceMap): string[] {
     ) {
       violations.push(`live-context-pack:${file}`);
     }
-    if (
-      file.startsWith("src/") &&
-      /(?:introduced by the next architecture slice|invoke this WITHOUT the lock|four journal-derived snapshot projections|doctor --rebuild-registry[`' ]+\(future)/.test(
-        text,
-      )
-    ) {
-      violations.push(`stale-contract-comment:${file}`);
-    }
   }
   return violations.sort();
 }
@@ -114,6 +110,12 @@ function concurrencyContractViolations(
   if (contract.lock_timeout_seconds * 1_000 !== DEFAULT_FEATURE_WRITE_LEASE_TIMEOUT_MS) {
     violations.push("legacy-timeout-alias");
   }
+  if (contract.lock_mechanism !== FEATURE_WRITE_LEASE_MECHANISM) {
+    violations.push("feature-lease-mechanism");
+  }
+  if (contract.feature_write_lease.error_codes !== FEATURE_WRITE_LEASE_ERROR_CODES) {
+    violations.push("feature-lease-error-codes");
+  }
   if (contract.feature_write_lease.malformed_owner !== "fail-closed") {
     violations.push("malformed-owner-polarity");
   }
@@ -136,6 +138,9 @@ function concurrencyContractViolations(
     contract.mutation_outcomes.post_append_failure_codes !== POST_APPEND_COMMIT_FAILURE_CODES
   ) {
     violations.push("post-append-code-owner");
+  }
+  if (contract.orphan_attachment_gc.status !== "deferred") {
+    violations.push("orphan-attachment-gc-status");
   }
   return violations;
 }
@@ -186,12 +191,6 @@ describe("architecture ownership gates", () => {
       "Run `loaf context pack --feature F-001`.",
       "live-context-pack:",
     ],
-    [
-      "stale architecture comment",
-      "src/core/projection-writer.ts",
-      "invoke this WITHOUT the lock",
-      "stale-contract-comment:",
-    ],
   ])("negative control detects %s", (_name, file, injection, expectedPrefix) => {
     expect(
       ownershipViolations(withInjected(sources, file, injection)).some((failure) =>
@@ -226,6 +225,21 @@ describe("executable concurrency contract", () => {
   test.each([
     ["feature lease timeout", { feature_write_lease: { timeout_ms: 1 } }, "feature-lease-timeout"],
     [
+      "feature lease mechanism",
+      { lock_mechanism: "POSIX flock" },
+      "feature-lease-mechanism",
+    ],
+    [
+      "feature lease error codes",
+      { feature_write_lease: { error_codes: ["LOCK_TIMEOUT"] } },
+      "feature-lease-error-codes",
+    ],
+    [
+      "orphan attachment GC status",
+      { orphan_attachment_gc: { status: "implemented" } },
+      "orphan-attachment-gc-status",
+    ],
+    [
       "pre-append outcome",
       { mutation_outcomes: { pre_append_failure: "committed" } },
       "pre-append-outcome",
@@ -239,6 +253,7 @@ describe("executable concurrency contract", () => {
     const altered = replacement as {
       feature_write_lease?: Partial<typeof CONCURRENCY_INVARIANTS.feature_write_lease>;
       mutation_outcomes?: Partial<typeof CONCURRENCY_INVARIANTS.mutation_outcomes>;
+      orphan_attachment_gc?: Partial<typeof CONCURRENCY_INVARIANTS.orphan_attachment_gc>;
     };
     const changed = {
       ...CONCURRENCY_INVARIANTS,
@@ -250,6 +265,10 @@ describe("executable concurrency contract", () => {
       mutation_outcomes: {
         ...CONCURRENCY_INVARIANTS.mutation_outcomes,
         ...(altered.mutation_outcomes ?? {}),
+      },
+      orphan_attachment_gc: {
+        ...CONCURRENCY_INVARIANTS.orphan_attachment_gc,
+        ...(altered.orphan_attachment_gc ?? {}),
       },
     } as typeof CONCURRENCY_INVARIANTS;
     expect(concurrencyContractViolations(changed)).toContain(expected);

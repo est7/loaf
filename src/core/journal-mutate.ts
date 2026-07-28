@@ -40,7 +40,8 @@
 //                               crash — codex r280 P4 split).
 //   step 10 (lock release)    — IMPLEMENTED (W3): finally-released on every
 //                               exit path (success / mid-span error / throw);
-//                               best-effort unlink, stale lock cleared by doctor
+//                               best-effort owner-token unlink; a later writer
+//                               generation-checks and reclaims dead owners
 //
 // Atomicity (preserves audit r1-r5 invariants):
 //   - r1 strict per-kind payload (preflight + appendMany final validate)
@@ -146,7 +147,8 @@ export type MutateFailureCode =
   | "SCOPE_RECORDED_ITERATION_DUPLICATE"
   | "PROJECTION_WRITE_FAILED"
   | "SCHEMA_VALIDATION_FAILED"
-  | "LOCK_TIMEOUT";
+  | "LOCK_TIMEOUT"
+  | "LOCK_INVALID";
 
 export const MUTATION_COMMIT_STATES = ["committed", "not-committed"] as const;
 export type MutationCommitState = (typeof MUTATION_COMMIT_STATES)[number];
@@ -327,7 +329,7 @@ async function withMutationLease(
       return classifyCommitState(
         {
           ok: false,
-          code: "LOCK_TIMEOUT",
+          code: error.code,
           message: error.message,
           detail: {
             lock_path: error.lockPath,

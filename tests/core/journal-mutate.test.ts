@@ -2392,6 +2392,21 @@ describe("W3 — per-feature write-contention fence", () => {
     await expect(fs.readFile(path.join(dir, "journal.jsonl"), "utf8")).rejects.toThrow();
   });
 
+  test("a malformed .lock makes mutate return LOCK_INVALID; journal untouched", async () => {
+    const dir = await tmpFeatureDir();
+    await fs.writeFile(path.join(dir, ".lock"), "{malformed");
+
+    const result = await mutate(bootPartial, freshCtx(dir));
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("LOCK_INVALID");
+      expect(result.detail).toMatchObject({ lease_code: "LOCK_INVALID" });
+    }
+
+    await expect(fs.readFile(path.join(dir, "journal.jsonl"), "utf8")).rejects.toThrow();
+    await expect(fs.readFile(path.join(dir, ".lock"), "utf8")).resolves.toBe("{malformed");
+  });
+
   test("a successful mutate releases the lock (no .lock left behind)", async () => {
     const dir = await tmpFeatureDir();
     const result = await mutate(bootPartial, freshCtx(dir));

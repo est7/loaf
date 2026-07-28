@@ -2049,15 +2049,11 @@ const ERROR_CATALOG = {
 		template_keys: ["timeout_seconds"],
 		doc_anchor: "protocol.md#§11.2"
 	},
-	LOCK_HELD_BY: {
+	LOCK_INVALID: {
 		exit_code: 2,
-		message_template: "lock held by PID {pid} (cmd={cmd}, acquired_at={acquired_at})",
-		fix_template: "wait for the holder to finish, or if the PID has exited run `loaf doctor` to clear the stale lock",
-		template_keys: [
-			"acquired_at",
-			"cmd",
-			"pid"
-		],
+		message_template: "feature write lease at {lock_path} is malformed or incomplete",
+		fix_template: "inspect the lease and active loaf processes; malformed leases fail closed and no loaf command deletes them. Remove or replace the file only after independently proving that no writer owns it.",
+		template_keys: ["lock_path"],
 		doc_anchor: "protocol.md#§11.2"
 	},
 	FEATURE_NOT_FOUND: {
@@ -11710,7 +11706,7 @@ async function withMutationLease(ctx, operation) {
 	} catch (error) {
 		if (error instanceof FeatureWriteLeaseError) return classifyCommitState({
 			ok: false,
-			code: "LOCK_TIMEOUT",
+			code: error.code,
 			message: error.message,
 			detail: {
 				lock_path: error.lockPath,
@@ -13688,7 +13684,7 @@ function registerProfileConfig(program, ctx, mutator, actor, userConfigHomeDir) 
 			lease = await acquireFeatureWriteLease(featureDir, "doctor:rebuild");
 		} catch (error) {
 			if (error instanceof FeatureWriteLeaseError) {
-				ctx.emitFailure("LOCK_TIMEOUT", error.message);
+				ctx.emitFailure(error.code, error.message);
 				return;
 			}
 			throw error;
@@ -14828,7 +14824,7 @@ function registerTerminalSettle(program, ctx, mutator, actor) {
 			lease = await acquireFeatureWriteLease(featureDir, "handoff");
 		} catch (error) {
 			if (error instanceof FeatureWriteLeaseError) {
-				ctx.emitFailure("LOCK_TIMEOUT", error.message);
+				ctx.emitFailure(error.code, error.message);
 				return;
 			}
 			throw error;

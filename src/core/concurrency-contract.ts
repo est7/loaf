@@ -1,6 +1,10 @@
 // Canonical CONCURRENCY_INVARIANTS contract owner.
 
-import { DEFAULT_FEATURE_WRITE_LEASE_TIMEOUT_MS } from "./feature-write-lease.js";
+import {
+  DEFAULT_FEATURE_WRITE_LEASE_TIMEOUT_MS,
+  FEATURE_WRITE_LEASE_ERROR_CODES,
+  FEATURE_WRITE_LEASE_MECHANISM,
+} from "./feature-write-lease.js";
 import {
   MUTATION_COMMIT_STATES,
   POST_APPEND_COMMIT_FAILURE_CODES,
@@ -36,8 +40,10 @@ export const CONCURRENCY_INVARIANTS = {
 
   // 2. Lock file path
   //    Per-feature, NOT per-artifact. One feature, one writer at
-  //    a time. Implements POSIX flock (or equivalent).
+  //    a time. The runtime uses exclusive file creation plus a strict owner
+  //    token; it does not rely on process-scoped POSIX flock release.
   lock_path: ".loaf/<feature>/.lock",
+  lock_mechanism: FEATURE_WRITE_LEASE_MECHANISM,
   lock_payload: "strict {pid, acquired_at, operation, owner}; mode 0600",
   lock_recovery:
     "bounded wait; live PID never stolen; dead PID reclaimed only after generation revalidation; malformed state fails closed; release unlinks only its owner token",
@@ -45,6 +51,7 @@ export const CONCURRENCY_INVARIANTS = {
     "when EXECUTE closure needs both locks: session-runtime lock first, feature write lease second; no feature-then-runtime edge",
   feature_write_lease: {
     timeout_ms: DEFAULT_FEATURE_WRITE_LEASE_TIMEOUT_MS,
+    error_codes: FEATURE_WRITE_LEASE_ERROR_CODES,
     malformed_owner: "fail-closed",
     release_fence: "owner-token",
   },
@@ -282,13 +289,14 @@ export const CONCURRENCY_INVARIANTS = {
     rule: "scan last batch_id backward; if last batch_index < batch_count - 1 OR last entry parse-fails → batch_incomplete branch",
   },
 
-  // 7e. Orphan-attachment GC (rev 5.0, ADR-0005 §3.5 step 4d/5 crash window)
-  //     `loaf doctor --fix` scans `attachments/<entry_id>/**` and deletes
-  //     any directory with no matching journal entry_id, OR any file whose
-  //     path is not referenced by an AttachmentRef in the matching entry's
-  //     payload. Writes a `local-check` evidence row (audit trail).
-  orphan_attachment_gc:
-    "scan attachments/ vs journal AttachmentRef set; delete orphans; log via local-check evidence",
+  // 7e. Orphan-attachment GC design target (NOT IMPLEMENTED).
+  //     No `loaf doctor --fix` surface exists in this release. Any future
+  //     deletion command requires a fresh recovery contract and audit trail.
+  orphan_attachment_gc: {
+    status: "deferred",
+    intended_behavior:
+      "scan attachments/ vs journal AttachmentRef set; delete orphans; log via local-check evidence",
+  },
 
   // 7f. Checksum levels (rev 5.0, ADR-0005 §3.1 / §4.15)
   //     Two-tier integrity. Fast check is reader contract (Gate #5);
