@@ -673,16 +673,16 @@ export const ERROR_CATALOG = {
   SETTLE_PHASE_BYPASS: {
     exit_code: 2,
     message_template:
-      "VERIFY.accept → DONE.delivered requires ceremony.settle_phase=false (quick / light / standard); deep profile must enter SETTLE.reconcile first; current settle_phase={settle_phase}",
+      "VERIFY.accept → DONE.delivered requires ceremony.settle_phase=false (quick / light / standard); deep profile must enter SETTLE.lessons first; current settle_phase={settle_phase}",
     fix_template:
-      "for deep profile, advance from VERIFY.accept to SETTLE.reconcile via `loaf settle`; if SETTLE is not desired, start/continue a standard ceremony flow instead",
+      "for deep profile, advance from VERIFY.accept to SETTLE.lessons via `loaf settle`; if SETTLE is not desired, start/continue a standard ceremony flow instead",
     template_keys: ["settle_phase"],
     doc_anchor: "protocol.md#§5.2",
   },
   SETTLE_PHASE_DISABLED: {
     exit_code: 2,
     message_template:
-      "VERIFY.accept → SETTLE.reconcile requires ceremony.settle_phase=true (deep profile only after rev 5.x); current settle_phase={settle_phase}",
+      "VERIFY.accept → SETTLE.lessons requires ceremony.settle_phase=true (deep profile only after rev 5.x); current settle_phase={settle_phase}",
     fix_template:
       "for non-deep profiles (quick / light / standard), advance from VERIFY.accept to DONE.delivered via `loaf deliver`; to enter SETTLE, escalate ceremony to deep",
     template_keys: ["settle_phase"],
@@ -1112,7 +1112,7 @@ export const ERROR_CATALOG = {
     zh_message_template:
       "VERIFY.accept 直接 deliver 要求 ceremony.settle_phase=false(standard);deep ceremony 必须先运行 `loaf settle`",
     fix_template:
-      "for ceremony.settle_phase=true (deep), run `loaf settle` to enter SETTLE.reconcile, complete reconcile + lessons, then `loaf deliver` from SETTLE.lessons; only standard ceremony delivers directly from VERIFY.accept",
+      "for ceremony.settle_phase=true (deep), run `loaf settle` to enter SETTLE.lessons, record lessons, then `loaf deliver`; only standard ceremony delivers directly from VERIFY.accept",
     template_keys: [],
     doc_anchor: "protocol.md#§5.2",
   },
@@ -1161,9 +1161,9 @@ export const ERROR_CATALOG = {
   SETTLE_NOT_ACCEPTED: {
     exit_code: 2,
     message_template:
-      "VERIFY.accept → SETTLE.reconcile requires verify_accepted=true; run `loaf gate decide verify-accept --approve` before `loaf settle`",
+      "VERIFY.accept → SETTLE.lessons requires verify_accepted=true; run `loaf gate decide verify-accept --approve` before `loaf settle`",
     zh_message_template:
-      "VERIFY.accept → SETTLE.reconcile 要求 verify_accepted=true;先运行 `loaf gate decide verify-accept --approve` 再 `loaf settle`",
+      "VERIFY.accept → SETTLE.lessons 要求 verify_accepted=true;先运行 `loaf gate decide verify-accept --approve` 再 `loaf settle`",
     fix_template:
       'run `loaf gate decide verify-accept --approve --reason "..."` before `loaf settle`; the gate flips snapshot.state.verify_accepted before the transition validator will admit the SETTLE entry',
     template_keys: [],
@@ -1598,9 +1598,9 @@ export const ERROR_CATALOG = {
     zh_message_template:
       "actual scope 历史不完整:seq {transition_seqs} 的 EXECUTE closure transition 缺少同批 scope:recorded marker",
     fix_template:
-      "do not fabricate an empty actual_scope; preserve the journal and rerun the feature's EXECUTE work with an F-027-capable loaf version before requesting reconcile. Pre-F-027 closure scope cannot be reconstructed from journal history.",
+      "do not fabricate an empty actual_scope; preserve the journal and rerun the feature's EXECUTE work with an F-027-capable loaf version before auditing scope. Pre-F-027 closure scope cannot be reconstructed from journal history.",
     zh_fix_template:
-      "不要伪造空 actual_scope;保留 journal,使用支持 F-027 的 loaf 版本重新执行该 feature 的 EXECUTE work 后再请求 reconcile。pre-F-027 closure scope 无法从 journal 历史重建。",
+      "不要伪造空 actual_scope;保留 journal,使用支持 F-027 的 loaf 版本重新执行该 feature 的 EXECUTE work 后再审计 scope。pre-F-027 closure scope 无法从 journal 历史重建。",
     template_keys: ["transition_seqs"],
     detail_keys: ["transition_seqs"],
     doc_anchor: "protocol.md#§4.6",

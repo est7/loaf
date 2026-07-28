@@ -23,7 +23,7 @@
 //
 // Test surface: tests/cli/command-context.test.ts.
 
-import type { ProjectionKind, LoadResult } from "../core/projection-loader.js";
+import type { LiveProjectionKind, LoadResult } from "../core/projection-loader.js";
 import { SnapshotStaleError, NoSessionError } from "../core/projection-loader.js";
 import type { SessionLoad } from "../core/cli-runtime.js";
 import { getGitEmail } from "../core/cli-runtime.js";
@@ -136,7 +136,7 @@ export type CrashContext = {
   last_command: string;
 };
 
-export type LoadProjectionsFn = <K extends ProjectionKind>(opts: {
+export type LoadProjectionsFn = <K extends LiveProjectionKind>(opts: {
   feature_dir: string;
   kinds: readonly K[];
 }) => Promise<LoadResult<K>>;
@@ -171,7 +171,7 @@ export type CommandContextDeps = {
   /** Phase W8 0a — injectable projection loader for loadProjectionsOrFail.
    *  When absent, ctx.loadProjectionsOrFail throws. Tests may inject a
    *  loader that doesn't require real FS. */
-  loadProjectionsDirect?: <K extends ProjectionKind>(opts: {
+  loadProjectionsDirect?: <K extends LiveProjectionKind>(opts: {
     feature_dir: string;
     kinds: readonly K[];
   }) => Promise<LoadResult<K>>;
@@ -250,7 +250,7 @@ export type CommandContext = {
   recordTraceTarget: (feature: string, featureDir: string) => void;
   exitCode: number;
   resolveSession: (featureDir: string) => Promise<SessionLoad>;
-  resolveProjections: <K extends ProjectionKind>(
+  resolveProjections: <K extends LiveProjectionKind>(
     featureDir: string,
     kinds: readonly K[],
   ) => Promise<LoadResult<K>>;
@@ -315,7 +315,7 @@ export type CommandContext = {
     commandType?: "read-only" | "wrapping" | "projection-writer" | "scaffold-writer",
   ) => boolean;
   /** Phase W8 0a — load projections or emit failure + return null. */
-  loadProjectionsOrFail: <K extends ProjectionKind>(
+  loadProjectionsOrFail: <K extends LiveProjectionKind>(
     featureDir: string,
     kinds: readonly K[],
     feature: string,
@@ -425,7 +425,7 @@ export function createCommandContext(
       return p;
     },
 
-    async resolveProjections<K extends ProjectionKind>(
+    async resolveProjections<K extends LiveProjectionKind>(
       featureDir: string,
       kinds: readonly K[],
     ): Promise<LoadResult<K>> {
@@ -665,7 +665,7 @@ export function createCommandContext(
       return false;
     },
 
-    async loadProjectionsOrFail<K extends ProjectionKind>(
+    async loadProjectionsOrFail<K extends LiveProjectionKind>(
       featureDir: string,
       kinds: readonly K[],
       feature: string,

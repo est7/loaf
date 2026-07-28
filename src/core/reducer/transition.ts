@@ -18,7 +18,7 @@
 // transition + the required `reason` (preflight SESSION_REASON_REQUIRED
 // refine). The settle_phase / verify_phase fork that previously gated
 // DONE.delivered now lives on `loaf deliver` preflight; this helper still
-// gates `loaf settle` (VERIFY.accept → SETTLE.reconcile) and the spec_phase
+// gates `loaf settle` (VERIFY.accept → SETTLE.lessons) and the spec_phase
 // / verify_phase forks for the SPEC.* and VERIFY.* entry points.
 //
 // The helper enforces:
@@ -28,7 +28,7 @@
 //   3. EXECUTE.done fork: verify_phase=true → VERIFY.plan only
 //      (verify_phase=false → DONE.delivered is now a `loaf deliver` concern
 //      gated by verify-min, not an `event:phase_advanced` edge)
-//   4. VERIFY.accept → SETTLE.reconcile fork (Slice 1.D):
+//   4. VERIFY.accept → SETTLE.lessons fork:
 //        - settle_phase=false (standard / quick / light) => SETTLE_PHASE_DISABLED
 //        - verify_accepted=false                          => SETTLE_NOT_ACCEPTED
 //
@@ -153,7 +153,7 @@ export function transitionOwnerFor(input: TransitionOwnerInput): NextAction | nu
       return {
         command: "loaf settle",
         owner_verb: "settle",
-        target: "SETTLE.reconcile",
+        target: "SETTLE.lessons",
         blocking: false,
         reason: "VERIFY_ACCEPTED_NEEDS_SETTLE",
       };
@@ -295,7 +295,7 @@ export interface TransitionContext {
   gate_kind?: GateName;
   /**
    * Slice 1.D: snapshot.state.verify_accepted, threaded through preflight.
-   * Required by the VERIFY.accept → SETTLE.reconcile refine (settle is
+   * Required by the VERIFY.accept → SETTLE.lessons refine (settle is
    * gated by both ceremony.settle_phase=true AND verify_accepted=true).
    * Optional for callers outside the VERIFY.accept fork — defaults to
    * false (which only matters for that edge).
@@ -305,7 +305,7 @@ export interface TransitionContext {
    * W1: snapshot.state.spec_locked, threaded through preflight. Required by
    * the SPEC.design → EXECUTE.plan refine (the spec-lock gate must hold on
    * the write-path cursor advance, symmetric to the verify_accepted refine
-   * for VERIFY.accept → SETTLE.reconcile). Optional for callers outside the
+   * for VERIFY.accept → SETTLE.lessons). Optional for callers outside the
    * SPEC.design fork — defaults to false (which only matters for that edge).
    */
   spec_locked?: boolean;

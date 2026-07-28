@@ -4,6 +4,11 @@
 >
 > loaf-cli v1 是 legacy Python 原型(early-draft 内部称 "v2")的 successor,from scratch。把 legacy 当老师,不当父亲。v1 GA 之后 legacy 原型进 archive。
 >
+> **rev 5.3 — retire phantom reconcile execution** (2026-07-27):
+> - 新 deep lifecycle 由 `loaf settle` 直接推进 `VERIFY.accept → SETTLE.lessons`，不再进入没有 writer、没有 gate 语义的 `SETTLE.reconcile`。
+> - `SETTLE.reconcile` enum 与 `ReconcileJson` 仅为历史 journal replay、旧 cursor 退出和 legacy leaf validation 保留；canonical live projection loader 不暴露 reconcile。
+> - `scope:recorded` 继续提供可审计的 actual-scope evidence，但不臆造 canonical `planned_scope`。任何 gate 仍不得读取 reconcile projection。
+>
 > **rev 5.2 — `scope:recorded` actual-scope journal contract**(2026-07-20;ticket #11 完整落地 journal contract、machine-local accumulator、hook 与 EXECUTE closure transaction):
 > - 新增 additive `scope:recorded@1` payload `{iteration, paths}`。`paths` 是 strictly UTF-8-byte-sorted、去重的 repo-relative POSIX concrete path array；拒绝 absolute、空/`.`/`..` segment、backslash、NUL 与 `.loaf/**`。大集合以相同 canonical JSON 编码走 `LongTextField` sidecar。
 > - 每批最多一条；存在时必须紧邻同批唯一 `EXECUTE.work → EXECUTE.done` 之前；同 iteration 历史不得重复。actor=`cli:*`，source sub_state=`EXECUTE.work`，reducer 显式 no-op；`deriveActualScope()` 从完整 entry stream 校验 sidecar 后做 set-union 并返回 canonical order。
@@ -222,7 +227,7 @@ TRIAGE → SPEC.* → EXECUTE.work ─→ VERIFY.* ──[verify-accept]──�
 - 进入 SPEC.proposal 第一次时 iteration = 1
 - 每次 finding 触发回退(amend-spec / amend-tasks / fix-impl / fix-test),iteration += 1
 - `defer` / `backlog` 不增 iteration(没回退)
-- SETTLE.reconcile 时 iteration_stats 统计
+- SETTLE scope audit 时 iteration_stats 统计
 
 ### 20 sub-state 清单(rev 4.0:VERIFY.check 拆 4)
 
@@ -243,9 +248,9 @@ TRIAGE → SPEC.* → EXECUTE.work ─→ VERIFY.* ──[verify-accept]──�
 | <code>VERIFY.review</code> | <code>VERIFY.plan or prior check done with review applicability ∈ &#123;must, optional-elected&#125;</code> | <code>review check passed or explicitly waived</code> | <code>.loaf/&lt;feature&gt;/evidence.jsonl</code><br><code>.loaf/&lt;feature&gt;/findings.jsonl</code> | — |
 | <code>VERIFY.acceptance</code> | <code>VERIFY.plan or prior check done with acceptance applicability ∈ &#123;must, optional-elected&#125;</code> | <code>acceptance check passed or explicitly waived</code> | <code>.loaf/&lt;feature&gt;/evidence.jsonl</code><br><code>.loaf/&lt;feature&gt;/findings.jsonl</code> | — |
 | <code>VERIFY.visual</code> | <code>VERIFY.plan or prior check done with visual applicability ∈ &#123;must, optional-elected&#125;</code> | <code>visual check passed or explicitly waived</code> | <code>.loaf/&lt;feature&gt;/evidence.jsonl</code><br><code>.loaf/&lt;feature&gt;/findings.jsonl</code> | — |
-| <code>VERIFY.accept</code> | <code>all applicable checks passed/waived + no actionable open findings (`defer` / `backlog` are non-blocking dispositions)</code> | <code>verify-accept gate approved. settle_phase=true (deep) → SETTLE.reconcile via `loaf settle`; settle_phase=false (standard) → DONE.delivered via `loaf deliver`</code> | <code>.loaf/&lt;feature&gt;/evidence.jsonl</code> | <code>verify-accept</code> |
-| <code>SETTLE.reconcile</code> | <code>verify-accept passed &amp;&amp; ceremony.settle_phase=true (deep only after rev 5.x; quick/light/standard skip SETTLE)</code> | <code>reconcile.json valid</code> | <code>.loaf/&lt;feature&gt;/reconcile.json</code> | — |
-| <code>SETTLE.lessons</code> | <code>reconcile valid (deep only after rev 5.x; quick/light/standard skip SETTLE)</code> | <code>lessons.md appended (deep: lessons_required=must)</code> | <code>.loaf/&lt;feature&gt;/lessons.md</code> | — |
+| <code>VERIFY.accept</code> | <code>all applicable checks passed/waived + no actionable open findings (`defer` / `backlog` are non-blocking dispositions)</code> | <code>verify-accept gate approved. settle_phase=true (deep) → SETTLE.lessons via `loaf settle`; settle_phase=false (standard) → DONE.delivered via `loaf deliver`</code> | <code>.loaf/&lt;feature&gt;/evidence.jsonl</code> | <code>verify-accept</code> |
+| <code>SETTLE.reconcile</code> | <code>compatibility-only historical cursor; new flows never enter this state</code> | <code>advance to SETTLE.lessons through the compatibility edge</code> | — | — |
+| <code>SETTLE.lessons</code> | <code>verify-accept passed and deep settle entered directly, or historical SETTLE.reconcile compatibility edge</code> | <code>lessons.md appended (deep: lessons_required=must)</code> | <code>.loaf/&lt;feature&gt;/lessons.md</code> | — |
 | <code>DONE.delivered</code> | <code>loaf deliver succeeded (Q4: advisory only — no git/gh side effects)</code> | <code>terminal</code> | — | — |
 | <code>DONE.archived</code> | <code>loaf archive --reason '...'</code> | <code>terminal</code> | — | — |
 | <code>DONE.abandoned</code> | <code>loaf abandon --reason '...' (reason required)</code> | <code>terminal</code> | — | — |
@@ -279,7 +284,7 @@ TRIAGE → SPEC.* → EXECUTE.work ─→ VERIFY.* ──[verify-accept]──�
 | <code>VERIFY.acceptance</code> | <code>VERIFY.visual</code> | <code>event:phase_advanced</code> | — |
 | <code>VERIFY.acceptance</code> | <code>VERIFY.accept</code> | <code>event:phase_advanced</code> | — |
 | <code>VERIFY.visual</code> | <code>VERIFY.accept</code> | <code>event:phase_advanced</code> | — |
-| <code>VERIFY.accept</code> | <code>SETTLE.reconcile</code> | <code>event:phase_advanced</code> | <code>settle_phase_required</code><br><code>verify_accepted_required</code> |
+| <code>VERIFY.accept</code> | <code>SETTLE.lessons</code> | <code>event:phase_advanced</code> | <code>settle_phase_required</code><br><code>verify_accepted_required</code> |
 | <code>SETTLE.reconcile</code> | <code>SETTLE.lessons</code> | <code>event:phase_advanced</code> | — |
 
 #### Dedicated-owner cursor transitions
@@ -331,7 +336,7 @@ TRIAGE → SPEC.* → EXECUTE.work ─→ VERIFY.* ──[verify-accept]──�
 | `settle_phase` | bool | `false` | 跑 SETTLE.* sub_states 吗?(false → 不产 reconcile.json)|
 | `strict_spec_review` | bool | `false` | verify-accept gate **check 5** 额外校验 `kind=spec-review` evidence 且 `actor ≠ implementer`?(rev 5.1 修正:Slice 1.C sub-cycle 3 实现锁定。早期 docs 误描述为 spec-lock 范畴;runtime 在 `src/core/gates/verify-accept-check.ts` 里按 §5.2 第 5 条 + §1037 实现)|
 | `lessons_required` | enum | `"skip"` | SETTLE.lessons:`"must"` / `"may"` / `"skip"` |
-| `strict_drift_check` | bool | `false` | SETTLE.reconcile 严格 drift?(无 carried_forward)|
+| `strict_drift_check` | bool | `false` | SETTLE scope audit 严格 drift?(无 carried_forward)|
 
 **Cross-field invariants**(Zod refine):
 - `settle_phase=true` 要求 `verify_phase=true`
@@ -904,13 +909,17 @@ reconcile.json 配套字段 `unusual_findings_count`(§4.6)聚合本轮 unusual 
 
 详见 §6。
 
-### 4.6 reconcile.json(snapshot,不是 gate 源)
+### 4.6 reconcile.json(compatibility-only legacy snapshot)
 
-> **Authority**: `reconcile.json` 的目标契约是 journal + projection 全派生投影；当前 release 尚无 writer（见下方边界），不会落 `snapshots/reconcile.json`。永远不是 gate 源(§13.1)。
+> **Authority**: `ReconcileJson` 仅用于历史 leaf validation，不属于 live
+> lifecycle projection。canonical loader 不暴露 reconcile，`writeProjections`
+> 没有 reconcile branch，`loaf doctor --rebuild` 不产该文件，任何 gate
+> 永远不得读取它。
 >
-> **rev 5.x scope 收窄（目标行为）**:**只在 deep profile 产**(`ceremony.settle_phase=true`)。quick / light / standard 不产 reconcile.json。待 canonical `planned_scope` owner 与 writer 落地后，audit 才能通过 full replay 重算该投影；当前 `loaf doctor --rebuild` 不产 reconcile.json。
->
-> **当前 writer 边界(ticket #11)**:`ReconcileJson` schema、legacy leaf reader validation、`actual_scope` full-journal derivation与 incomplete-history detection 已落地；完整 `snapshots/reconcile.json` writer **仍被 canonical `planned_scope` 来源阻塞**。`writeProjections` 不含 reconcile branch，`loaf settle` 仍只推 cursor 且不声称写出该文件。禁止为了产文件臆造 planned scope；reconcile 永远不作为 gate 输入。
+> **rev 5.3 supersession**:新 deep flow 直接进入 `SETTLE.lessons`，不再等待
+> canonical `planned_scope` owner 或 future reconcile writer。`scope:recorded`
+> 与 `deriveActualScope()` 保留为 journal audit evidence；禁止为了填充 legacy
+> shape 臆造 planned scope。
 >
 > `schema_version` 继续为 2：本变更只收紧 derived reader；新发出的 canonical `actual_scope` 是旧 `string[]` reader 已接受的子集，不改变 canonical journal wire format。`src/core/version-contract.ts` 同时禁止本轮 schema-version bump。
 
@@ -1180,15 +1189,15 @@ async function updateRegistry(sessionId: string, snapshot: RegistryFile) {
 **Human**:`loaf gate decide verify-accept --approve --reason "..."`。
 
 **Transition target**(rev 5.x + Slice 1.D,跟 ceremony.settle_phase 分支):
-- `settle_phase=true`(deep)→ `SETTLE.reconcile` 经 `loaf settle`(event:phase_advanced;走 reconcile + lessons MUST)
+- `settle_phase=true`(deep)→ `SETTLE.lessons` 经 `loaf settle`(event:phase_advanced;lessons MUST)
 - `settle_phase=false`(standard)→ `DONE.delivered` 经 `loaf deliver`(session:delivered 直接 cursor flip;无 verify-min 二次跑,VERIFY 已覆盖)
 
 **Slice 1.D 边界变更**:Slice 1.D sub-cycle 1 把 `event:phase_advanced` 图里所有指向 `DONE.delivered` 的边(VERIFY.accept、EXECUTE.done、SETTLE.lessons → DONE.delivered)从 `LEGAL_TRANSITIONS` 里全砍。`session:delivered` 是 DONE.delivered 的唯一入口(reducer 直接 cursor flip,见 `reducer.ts:706-712`)。所以:
 - `loaf advance DONE.delivered` 从任何 source 都返 `TRANSITION_ILLEGAL`,只有 `loaf deliver` 能进 DONE.delivered。
-- VERIFY.accept → SETTLE.reconcile 仍是 `event:phase_advanced`(`loaf settle` 的路径),validateTransition 在该边检查 `ceremony.settle_phase=true`(否则 `SETTLE_PHASE_DISABLED`)+ `verify_accepted=true`(否则 `SETTLE_NOT_ACCEPTED`)。
+- VERIFY.accept → SETTLE.lessons 是 `event:phase_advanced`(`loaf settle` 的路径),validateTransition 在该边检查 `ceremony.settle_phase=true`(否则 `SETTLE_PHASE_DISABLED`)+ `verify_accepted=true`(否则 `SETTLE_NOT_ACCEPTED`)。
 - `loaf deliver` 的 ceremony / verify_accepted / spike-tasks / verify-min preconditions 由 `preflight.ts` step 5c 拦截(diagnostic codes `DELIVER_NOT_ACCEPTED` / `DELIVER_SETTLE_PHASE_BYPASS` / `DELIVER_VERIFY_MIN_INCOMPLETE`(v0.1.1;旧 `DELIVER_VERIFY_MIN_UNAVAILABLE` stub superseded)/ `DELIVER_SPIKE_TASKS`;见 §10.5)。
 
-详 `src/core/machine.ts` 派生的 `SUB_STATE_CONTRACTS.VERIFY.accept.next = ["SETTLE.reconcile", "DONE.delivered"]` —— 这是 prompt / hook flow 提示,非 `event:phase_advanced` 边表;后者按 Slice 1.D 调整后,仅 `["SETTLE.reconcile"]` 是真正的 `event:phase_advanced` 合法目标,`DONE.delivered` 走 `loaf deliver` session:delivered 直发。
+详 `src/core/machine.ts` 派生的 `SUB_STATE_CONTRACTS.VERIFY.accept.next = ["SETTLE.lessons", "DONE.delivered"]` —— 前者是 `loaf settle` 拥有的 `event:phase_advanced` 目标,后者走 `loaf deliver` 的 `session:delivered`。
 
 ### 5.3 反向 transition
 
@@ -1850,8 +1859,8 @@ error: <one-line human description>
 | <code>INVALID_ENVELOPE</code> | 2 | <code>journal entry failed envelope validation: &#123;reason&#125;</code> | <code>rebuild the entry through the CLI mutator so seq, entry_id, actor, kind, payload, and batch markers satisfy JournalEntry</code> | <code>protocol.md#§11.2</code> |
 | <code>INVALID_PAYLOAD</code> | 2 | <code>payload for kind &#123;kind&#125; failed validation: &#123;reason&#125;</code> | <code>fix the payload to match the PER_KIND_PAYLOAD schema for this kind and retry the mutator</code> | <code>protocol.md#§11.2</code> |
 | <code>SEQ_NOT_MONOTONIC</code> | 2 | <code>entry seq &#123;got&#125; does not extend journal tail &#123;tail_seq&#125;; expected &#123;expected&#125;</code> | <code>refresh tail_seq under the session lock and retry; if the tail is corrupt run `loaf doctor --check-tail`</code> | <code>protocol.md#§11.2</code> |
-| <code>SETTLE_PHASE_BYPASS</code> | 2 | <code>VERIFY.accept → DONE.delivered requires ceremony.settle_phase=false (quick / light / standard); deep profile must enter SETTLE.reconcile first; current settle_phase=&#123;settle_phase&#125;</code> | <code>for deep profile, advance from VERIFY.accept to SETTLE.reconcile via `loaf settle`; if SETTLE is not desired, start/continue a standard ceremony flow instead</code> | <code>protocol.md#§5.2</code> |
-| <code>SETTLE_PHASE_DISABLED</code> | 2 | <code>VERIFY.accept → SETTLE.reconcile requires ceremony.settle_phase=true (deep profile only after rev 5.x); current settle_phase=&#123;settle_phase&#125;</code> | <code>for non-deep profiles (quick / light / standard), advance from VERIFY.accept to DONE.delivered via `loaf deliver`; to enter SETTLE, escalate ceremony to deep</code> | <code>protocol.md#§5.2</code> |
+| <code>SETTLE_PHASE_BYPASS</code> | 2 | <code>VERIFY.accept → DONE.delivered requires ceremony.settle_phase=false (quick / light / standard); deep profile must enter SETTLE.lessons first; current settle_phase=&#123;settle_phase&#125;</code> | <code>for deep profile, advance from VERIFY.accept to SETTLE.lessons via `loaf settle`; if SETTLE is not desired, start/continue a standard ceremony flow instead</code> | <code>protocol.md#§5.2</code> |
+| <code>SETTLE_PHASE_DISABLED</code> | 2 | <code>VERIFY.accept → SETTLE.lessons requires ceremony.settle_phase=true (deep profile only after rev 5.x); current settle_phase=&#123;settle_phase&#125;</code> | <code>for non-deep profiles (quick / light / standard), advance from VERIFY.accept to DONE.delivered via `loaf deliver`; to enter SETTLE, escalate ceremony to deep</code> | <code>protocol.md#§5.2</code> |
 | <code>SPEC_PHASE_FORK_VIOLATION</code> | 2 | <code>transition &#123;from&#125; → &#123;to&#125; violates ceremony.spec_phase=&#123;spec_phase&#125;</code> | <code>follow the ceremony fork: spec_phase=true traverses SPEC.*, spec_phase=false goes directly to EXECUTE.plan</code> | <code>protocol.md#§5.2</code> |
 | <code>SUB_STATE_AUTHORITY_VIOLATION</code> | 2 | <code>kind &#123;kind&#125; is not allowed in sub_state &#123;sub_state&#125;</code> | <code>advance/back-edge to a sub_state that permits this journal kind, or use the command valid for the current state</code> | <code>protocol.md#§10.8</code> |
 | <code>TRANSITION_ILLEGAL</code> | 2 | <code>cannot transition &#123;from&#125; → &#123;to&#125;</code> | <code>choose one of the allowed forward transitions for the current sub_state, or use an explicit terminal/archive path when supported</code> | <code>protocol.md#§5.2</code> |
@@ -1896,11 +1905,11 @@ error: <one-line human description>
 | <code>SPEC_REVIEW_IMPLEMENTER_CONFLICT</code> | 2 | <code>verify-accept check 5: every passing spec-review actor is in the implementer set; no independent reviewer signed off (actors=&#123;spec_review_actors&#125;, implementers=&#123;implementers&#125;)</code> | <code>have a non-implementer (someone other than the actors on done-task task-summary/local-check evidence) submit an additional evidence with kind=spec-review and result `passed` or `approved`. One independent reviewer is sufficient — implementer self-reviews can coexist.</code> | <code>protocol.md#§5.2</code> |
 | <code>SPEC_REVIEW_IMPLEMENTER_UNKNOWN</code> | 2 | <code>verify-accept check 5: cannot establish implementer set (all done-task evidence actors are cli:* automation); strict_spec_review fails closed</code> | <code>ensure at least one done-task evidence (task-summary or local-check) carries a non-cli:* actor (e.g. human:dev@example.com); the strict_spec_review comparison requires a real implementer identity to compare against. Without it, the gate cannot prove the spec reviewer is independent.</code> | <code>protocol.md#§5.2</code> |
 | <code>DELIVER_NOT_ACCEPTED</code> | 2 | <code>deliver requires verify_accepted=true at sub_state=&#123;sub_state&#125;; run `loaf gate decide verify-accept --approve` first</code> | <code>run `loaf gate decide verify-accept --approve --reason "..."` first; the gate flips snapshot.state.verify_accepted before `loaf deliver` will accept the session:delivered entry</code> | <code>protocol.md#§5.2</code> |
-| <code>DELIVER_SETTLE_PHASE_BYPASS</code> | 2 | <code>deliver from VERIFY.accept requires ceremony.settle_phase=false (standard); deep ceremony must run `loaf settle` first</code> | <code>for ceremony.settle_phase=true (deep), run `loaf settle` to enter SETTLE.reconcile, complete reconcile + lessons, then `loaf deliver` from SETTLE.lessons; only standard ceremony delivers directly from VERIFY.accept</code> | <code>protocol.md#§5.2</code> |
+| <code>DELIVER_SETTLE_PHASE_BYPASS</code> | 2 | <code>deliver from VERIFY.accept requires ceremony.settle_phase=false (standard); deep ceremony must run `loaf settle` first</code> | <code>for ceremony.settle_phase=true (deep), run `loaf settle` to enter SETTLE.lessons, record lessons, then `loaf deliver`; only standard ceremony delivers directly from VERIFY.accept</code> | <code>protocol.md#§5.2</code> |
 | <code>DELIVER_VERIFY_MIN_UNAVAILABLE</code> | 2 | <code>verify-min was unavailable in this build (ceremony_label=&#123;ceremony_label&#125;) — superseded at v0.1.1 by DELIVER_VERIFY_MIN_INCOMPLETE; no longer emitted</code> | <code>upgrade to v0.1.1+ where quick / light deliver runs the verify-min per-task evidence check; on failure see DELIVER_VERIFY_MIN_INCOMPLETE</code> | <code>protocol.md#§3</code> |
 | <code>DELIVER_VERIFY_MIN_INCOMPLETE</code> | 2 | <code>verify-min: &#123;count&#125; done task(s) lack required evidence to deliver (ceremony_label=&#123;ceremony_label&#125;); add evidence or waive, then re-deliver</code> | <code>for each listed task add evidence covering it — code tasks need a `local-check` (test/lint/typecheck) run, visual-ui needs visual-review or manual, docs needs task-summary or manual — or `loaf waive` it; then `loaf deliver` again</code> | <code>protocol.md#§3</code> |
 | <code>DELIVER_SPIKE_TASKS</code> | 2 | <code>cannot deliver: task &#123;task_id&#125; is kind=spike (status=&#123;status&#125;); spike tasks block delivery for the entire session</code> | <code>abandon the spike task (`loaf tasks abandon &#123;task_id&#125; --reason "..."`) or convert it to a feature (`loaf spike convert --to-feature F-N --reason "..."`); spike tasks must not remain in non-abandoned status when the session delivers</code> | <code>protocol.md#§8.3</code> |
-| <code>SETTLE_NOT_ACCEPTED</code> | 2 | <code>VERIFY.accept → SETTLE.reconcile requires verify_accepted=true; run `loaf gate decide verify-accept --approve` before `loaf settle`</code> | <code>run `loaf gate decide verify-accept --approve --reason "..."` before `loaf settle`; the gate flips snapshot.state.verify_accepted before the transition validator will admit the SETTLE entry</code> | <code>protocol.md#§5.2</code> |
+| <code>SETTLE_NOT_ACCEPTED</code> | 2 | <code>VERIFY.accept → SETTLE.lessons requires verify_accepted=true; run `loaf gate decide verify-accept --approve` before `loaf settle`</code> | <code>run `loaf gate decide verify-accept --approve --reason "..."` before `loaf settle`; the gate flips snapshot.state.verify_accepted before the transition validator will admit the SETTLE entry</code> | <code>protocol.md#§5.2</code> |
 | <code>SPEC_LOCK_NOT_SATISFIED</code> | 2 | <code>SPEC.design → EXECUTE.plan requires spec_locked=true; run `loaf gate decide spec-lock --approve` before `loaf advance EXECUTE.plan`</code> | <code>run `loaf gate decide spec-lock --approve --reason "..."` before `loaf advance EXECUTE.plan`; the gate runs the 8 spec-lock checks and flips snapshot.state.spec_locked before the transition validator will admit the EXECUTE.plan entry</code> | <code>protocol.md#§5.1</code> |
 | <code>TASK_NOT_CLAIMABLE</code> | 2 | <code>task &#123;task_id&#125; cannot be claimed (status=&#123;status&#125; — terminal state)</code> | <code>tasks with status=done are already complete; status=abandoned tasks cannot be reactivated. Run `loaf tasks list` to inspect the task graph, or `loaf tasks next` to pick a different ready task</code> | <code>protocol.md#§10.8</code> |
 | <code>TASK_ALREADY_CLAIMED</code> | 2 | <code>task &#123;task_id&#125; is already claimed (status=in_progress)</code> | <code>another worker may already hold this task; run `loaf tasks list` to inspect active claims. Stale-claim release is handled in a future slice (no CLI surface for abandon in v0.1.0 yet) — raise a finding with action=fix-impl if needed</code> | <code>protocol.md#§10.8</code> |
@@ -1938,7 +1947,7 @@ error: <one-line human description>
 | <code>INVALID_BATCH</code> | 2 | <code>mutation batch is invalid</code> | <code>rebuild the batch through the CLI mutator without caller-owned envelope fields and with entries + meta matching the current journal tail</code> | <code>protocol.md#§11.2</code> |
 | <code>SCOPE_RECORDED_BATCH_INVALID</code> | 2 | <code>scope:recorded batch is invalid: &#123;reason&#125;</code> | <code>emit at most one scope:recorded immediately before exactly one EXECUTE.work to EXECUTE.done transition in the same batch</code> | <code>protocol.md#§4.6</code> |
 | <code>SCOPE_RECORDED_ITERATION_DUPLICATE</code> | 2 | <code>scope:recorded already exists for iteration &#123;iteration&#125;</code> | <code>reuse the recorded closure result for this iteration or advance through a finding back-edge before recording a new closure</code> | <code>protocol.md#§4.6</code> |
-| <code>ACTUAL_SCOPE_HISTORY_INCOMPLETE</code> | 2 | <code>actual scope history is incomplete: EXECUTE closure transition(s) at seq &#123;transition_seqs&#125; have no same-batch scope:recorded marker</code> | <code>do not fabricate an empty actual_scope; preserve the journal and rerun the feature's EXECUTE work with an F-027-capable loaf version before requesting reconcile. Pre-F-027 closure scope cannot be reconstructed from journal history.</code> | <code>protocol.md#§4.6</code> |
+| <code>ACTUAL_SCOPE_HISTORY_INCOMPLETE</code> | 2 | <code>actual scope history is incomplete: EXECUTE closure transition(s) at seq &#123;transition_seqs&#125; have no same-batch scope:recorded marker</code> | <code>do not fabricate an empty actual_scope; preserve the journal and rerun the feature's EXECUTE work with an F-027-capable loaf version before auditing scope. Pre-F-027 closure scope cannot be reconstructed from journal history.</code> | <code>protocol.md#§4.6</code> |
 | <code>WRITE_PATH_VIOLATION</code> | 2 | <code>write blocked: `&#123;normalized_path&#125;` is outside the allowed write paths for sub_state `&#123;sub_state&#125;`</code> | <code>write within the current step's contract, advance to the right sub_state/step first, or widen the matching `paths.*` category in .loaf/.config/loaf.config.json</code> | <code>protocol.md#§11.1</code> |
 | <code>PROTECTED_FILE_WRITE</code> | 2 | <code>write blocked: `&#123;normalized_path&#125;` matches protected_files entry `&#123;matched_deny&#125;` — protected files are never writable</code> | <code>remove the entry from protected_files in .loaf/.config/loaf.config.json if the protection is wrong, otherwise write a different file</code> | <code>protocol.md#§11.1</code> |
 <!-- generated:error-catalog END -->
@@ -2154,7 +2163,7 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 | `loaf finding close <fnd-id> [--feature <value>] [--feature-dir <value>]` | **rev 5.0**:emit `finding:closed`;reducer 派生到 `snapshots/findings.json` | 0 / 2 |
 | `loaf verify status [--feature <value>] [--feature-dir <value>]` | **rev 5.0 / Phase 16 SC-9a-1 + issues #20/#21**:read-only verify-accept 诊断,返回顶层固定 4 行 `lanes:[{lane,applicability,reason}]`(run/review/acceptance/visual；每个 na 有稳定 reason code，非 na 为 null)以及 5 行 `PerCheckResult` 汇总(`lane_status` / `open_findings` / `coverage` / `task_evidence` / `spec_review`),每行 `status: pass\|fail\|na` + `failures: FailedCheck[]`(单 check 多 failure 支持,如多 lane 缺 / 多 REQ 未覆盖)。当前 policy 无 optional trigger，故 lane 实例只产 must/na。NA 规则:`lane_status` ∅ derive、`coverage` 0 obligation、`task_evidence` 有 plan + 0 done、`spec_review` strict=false 各自走 na;`open_findings` 始终 applicable，但仅 actionable open finding 阻塞。顶层 `deferred_findings:[{id,action}]` 与 text `deferred_findings info` 行显式列出仍 open 的 `defer` / `backlog`，两者不阻塞但保持可区分。SPEC_FRONTMATTER_INVALID 在 IO boundary exit 2(不注入合成 check-1 row,与 `evaluateVerifyAccept` 故意分叉)。`--dry-run` reject `DRY_RUN_NOT_APPLICABLE`。10 个 per-check code 完整复用 `verifyAcceptCheck` 既有 surface,无新 code 引入 | 0 / 2 |
 | `loaf gate decide <gate-name> [--approve] [--reject] --reason <value> [--feature <value>] [--feature-dir <value>]` | gate 决策 → **rev 5.0**:走 §11.2 transaction,**同一 batch 内 emit** `gate:decided` + `pending:resolved`(消 head pending kind=gate_decision)+ `event:phase_advanced`(target 由 §3.5 复用的 LEGAL_TRANSITIONS 给出)。reducer 派生 evidence projection 中 `kind=gate-decision` 视图。head 不匹配 → step 3 preflight 报 `GATE_NOT_PENDING` exit 2 | 0 / 2 |
-| `loaf settle [--feature <value>] [--feature-dir <value>]` | **rev 5.0 + 5.x + Slice 1.D sub-cycle 3**:走 §11.2 transaction 进入 SETTLE.reconcile,emit `event:phase_advanced`(`cli:` actor — settle 是机器 cursor 推进,不需要 human:* 决定;chaos deviation 仅是单 verb 命名);transition validator 检查 `ceremony.settle_phase=true`(否则 `SETTLE_PHASE_DISABLED`)+ `verify_accepted=true`(否则 `SETTLE_NOT_ACCEPTED`)。当前命令**只推 cursor**；完整 reconcile writer 仍被缺失的 canonical `planned_scope` owner 阻塞，`writeProjections` 无 reconcile branch，CLI 不声称写出 `snapshots/reconcile.json`，任何 gate 也不读它。| 0 / 2 |
+| `loaf settle [--feature <value>] [--feature-dir <value>]` | **rev 5.3**:走 §11.2 transaction 直接进入 `SETTLE.lessons`,emit `event:phase_advanced`(`cli:` actor — settle 是机器 cursor 推进,不需要 human:* 决定);transition validator 检查 `ceremony.settle_phase=true`(否则 `SETTLE_PHASE_DISABLED`)+ `verify_accepted=true`(否则 `SETTLE_NOT_ACCEPTED`)。命令只推 cursor，不写 reconcile projection；下一真实动作是 `loaf lessons add`。| 0 / 2 |
 | `loaf check <path> [--kind <value>]` | **rev 5.0 / Phase 16 SC-9c**:任意 artifact 文件 schema 校验入口(CI 用)。6 个 kind:`spec` / `tasks` / `evidence` / `finding`(单数 CLI noun → 复数 `findings.json` basename)/ `pending` / `state`。`--kind` 显式给定 > basename 自动推断,两者都不匹配 → `USAGE` 提示 `specify --kind`。失败统一走 `SCHEMA_VALIDATION_FAILED`(detail.subcode ∈ `invalid-json` / `invalid-yaml` / `missing-frontmatter` / `zod`);Zod issue 数 cap 在 `MAX_CHECK_ERRORS=20`,`detail.error_count` 暴露总数,`detail.truncated=true` 时 text 模式 stderr 末尾 `... (N errors total; first 20 shown)`。读命令,`--dry-run` reject `DRY_RUN_NOT_APPLICABLE`。**§1899 did-you-mean 兜底**:用户敲字面 `loaf check tasks` 且 path 无文件 → 提示改用 path-based 校验 `loaf check <path>/tasks.json --kind tasks`(SC-17:不再指向 inventory:future 的 `loaf tasks check`,避免引向 unknown-command 死胡同);`./tasks` / 真有名为 `tasks` 的文件 / 其它 noun(`evidence` / `spec` / 等)都不出 suggestion。feature-agnostic:`--feature` / `--feature-dir` / `--session` / `$LOAF_*` 全部 pre-parse 拒绝 | 0 / 2 |
 | `loaf spec schema` | **Phase 16 SC-10**:dump `SpecFrontmatter` JSON Schema(draft-2020-12,Zod v4 `z.toJSONSchema()`)。`spec` 子命令族成员;read-only;`--dry-run` reject;feature-agnostic | 0 / 2 |
 | `loaf tasks schema` | **Phase 16 SC-10**:dump `TasksJson` projection JSON Schema。`tasks` 子命令族成员;同 spec schema 契约 | 0 / 2 |
@@ -2163,7 +2172,7 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 | `loaf <kind> schema --format=json` <!-- inventory:placeholder reason="generic umbrella row; concrete leaves enumerated above (spec / tasks / evidence / finding / state)" --> | **Phase 16 SC-10 总览**:5 个 artifact 子命令家族,literal `<kind> schema` 形态(非 catch-all,非 `loaf schema <kind>`)。**`pending` 不在范围**(§1947 closed enum;pending 是内部 projection,无外部 schema consumer 用例)。无 `$id`(URI namespace 留作单独决策)| 0 / 2 |
 | `loaf profile escalate --confirm --input <value> [--feature <value>] [--feature-dir <value>]` | 接受 auto-escalation prompt。`--input` 是 skill 算好的 6-flag Ceremony。emit 2-entry batch `[event:ceremony_set, pending:resolved]`(answers the `profile_escalation` head)。**rev 4.1 Q3**:本身就是答 `pending(kind=profile_escalation)` head 的方式,head 缺失 / 不匹配 → `ESCALATION_NOT_PENDING` exit 2 | 0 / 2 |
 | `loaf spike convert [--feature <value>] --to-feature <value> --reason <value> [--feature-dir <value>]` | emit `spike:converted`(payload `{to_feature, reason}`)+ archive 当前 session 到 `DONE.archived`;**不** scaffold F-N(由后续独立 `loaf start F-N` 另开) | 0 / 2 |
-| `loaf deliver [--feature <value>] [--feature-dir <value>] [--reason <value>]` | **rev 3.1:advisory only,不碰 git/gh**;emit `session:delivered`(`human:` actor;reducer 直接 cursor flip 到 DONE.delivered,**不**经 `event:phase_advanced`)+ 打印 advisory `next:` 提示;spike hard block。**rev 4.1 + 5.x + Slice 1.D sub-cycle 2**:有效 source sub-state 取决于 ceremony —— `verify_phase=false`(`quick` / `light`)从 `EXECUTE.done` 调用(**v0.1.1:verify-min 已实装** —— 跑 §3.2 per-task evidence gate:code 任务需 `local-check` / visual-ui 需 `visual-review`|`manual` / docs 需 `task-summary`|`manual` / chore 需 `local-check`|`manual`|`task-summary`,`waiver` 永远满足,bug-RED 防御镜像 verify-accept;缺证据 → `DELIVER_VERIFY_MIN_INCOMPLETE` exit 2,通过 → `DONE.delivered`。注:`verify_phase=true`(standard/deep)从 `EXECUTE.done` 误 deliver → `DELIVER_NOT_ACCEPTED`(须先过 VERIFY)。light "REQ coverage not closed" 提示仍延后);`verify_phase=true && settle_phase=false`(`standard`)从 `VERIFY.accept` 调用(VERIFY 已走完,无 verify-min 二次跑;preflight step 5c 校验 `verify_accepted=true` 否则 `DELIVER_NOT_ACCEPTED`、`settle_phase=false` 否则 `DELIVER_SETTLE_PHASE_BYPASS`);`settle_phase=true`(`deep`)从 `SETTLE.lessons` 调用(`lesson:recorded` 已记并由 `lessons.md` projection writer 投影；reconcile writer 仍未实现;preflight 同样校验 `verify_accepted=true`)。任何 source 都校验 snapshot.tasks 无非-abandoned spike 任务(`DELIVER_SPIKE_TASKS`,§703 + §1298) | 0 / 2 |
+| `loaf deliver [--feature <value>] [--feature-dir <value>] [--reason <value>]` | **rev 3.1:advisory only,不碰 git/gh**;emit `session:delivered`(`human:` actor;reducer 直接 cursor flip 到 DONE.delivered,**不**经 `event:phase_advanced`)+ 打印 advisory `next:` 提示;spike hard block。**rev 4.1 + 5.x + Slice 1.D sub-cycle 2**:有效 source sub-state 取决于 ceremony —— `verify_phase=false`(`quick` / `light`)从 `EXECUTE.done` 调用(**v0.1.1:verify-min 已实装** —— 跑 §3.2 per-task evidence gate:code 任务需 `local-check` / visual-ui 需 `visual-review`|`manual` / docs 需 `task-summary`|`manual` / chore 需 `local-check`|`manual`|`task-summary`,`waiver` 永远满足,bug-RED 防御镜像 verify-accept;缺证据 → `DELIVER_VERIFY_MIN_INCOMPLETE` exit 2,通过 → `DONE.delivered`。注:`verify_phase=true`(standard/deep)从 `EXECUTE.done` 误 deliver → `DELIVER_NOT_ACCEPTED`(须先过 VERIFY)。light "REQ coverage not closed" 提示仍延后);`verify_phase=true && settle_phase=false`(`standard`)从 `VERIFY.accept` 调用(VERIFY 已走完,无 verify-min 二次跑;preflight step 5c 校验 `verify_accepted=true` 否则 `DELIVER_NOT_ACCEPTED`、`settle_phase=false` 否则 `DELIVER_SETTLE_PHASE_BYPASS`);`settle_phase=true`(`deep`)从 `SETTLE.lessons` 调用(`lesson:recorded` 已记并由 `lessons.md` projection writer 投影；compatibility-only reconcile 不参与;preflight 同样校验 `verify_accepted=true`)。任何 source 都校验 snapshot.tasks 无非-abandoned spike 任务(`DELIVER_SPIKE_TASKS`,§703 + §1298) | 0 / 2 |
 | `loaf archive [--feature <value>] --reason <value> [--feature-dir <value>]` | 不交付关闭 | 0 / 2 |
 | `loaf abandon [--feature <value>] --reason <value> [--feature-dir <value>]` | 中途放弃(reason required) | 0 / 2 |
 | `loaf lessons add [--text <value>] [--file <value>] --reason <value> [--feature <value>] [--feature-dir <value>]` | **rev 5.1**:emit strict `lesson:recorded@1` payload `{id, iteration, reason, summary}`。形态:`loaf lessons add (--text "..." \| --file <path>) --reason "..."`;`--text` / `--file` exactly-one,`--reason` ≥10。actor 只在 envelope 且必须 `human:*`。CLI 严格扫描已加载 `session.entries` 的 `lesson:recorded` ids,分配独立 `LSN-NNN`;mutator 的 context-integrity gate 防止并发 stale allocation 落盘。JSON 输出稳定保留键 `id`。Lesson body >8KB 时 `summary` 走 LongTextField sidecar。`lessons.md` 单点双读新 kind + legacy lesson heuristic;新 lesson 不进 evidence-derived surface | 0 / 2 |
@@ -2208,7 +2217,7 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 | `loaf start` | `session:started`(journal seq=0) |
 | `loaf resume` | `session:resumed` |
 | `loaf deliver` | `session:delivered`(actor `human:`) |
-| `loaf settle` | `event:phase_advanced`(SETTLE 入口);当前只推进 cursor。`snapshots/reconcile.json` writer 尚未实现（canonical `planned_scope` owner 仍缺失），不发 reconcile entry |
+| `loaf settle` | `event:phase_advanced`(SETTLE 入口);直接推进到 `SETTLE.lessons`，不发 reconcile entry |
 | `loaf archive` | `session:archived`(actor `human:`;reason 必填) |
 | `loaf abandon` | `session:abandoned`(actor `human:`;reason 必填) |
 | `loaf spike convert` | `spike:converted` + `session:archived`(同批；actor `human:`;to_feature + reason 必填) |
@@ -2288,7 +2297,7 @@ next: <suggested next command>            # 可选,仅在有强自然下一步�
 | `loaf gate decide spec-lock` (approve) | `gate decide: spec-lock approved by <actor>` | — (cursor already advanced; no next-hint) |
 | `loaf gate decide verify-accept` (approve) | `gate decide: verify-accept approved by <actor>` | `next: loaf settle` (settle_phase=true) / `next: loaf deliver` (settle_phase=false) |
 | `loaf gate decide <G>` (reject) | `gate decide: <gate> rejected by <actor>` | — |
-| `loaf settle` | `settle: <from> → SETTLE.reconcile` | `next: loaf deliver` |
+| `loaf settle` | `settle: <from> → SETTLE.lessons` | `next: loaf lessons add` |
 | `loaf deliver` | `deliver: DONE.delivered (advisory only)` + 见 §10.12 advisory 段 | — |
 | `loaf archive` / `loaf abandon` | `archive: <feature> — <from> → DONE.archived by <actor>` / `abandon: <feature> — <from> → DONE.abandoned by <actor> (reason='...')` | — |
 | `loaf tasks amend` | `amend: <task_id>` | — |
@@ -2402,7 +2411,7 @@ git diff --cached --name-only --diff-filter=ACMRTUXB
 git ls-files --others --exclude-standard
 ```
 
-归一化到 repo root,与**允许集合**(sub_state.write_paths ∪ STEP_WRITE_PATHS_BY_KIND[kind][step] ∪ loaf.config.json paths.*) AND-merge 比对。任何路径 outside = hard block + 写 reconcile.drift + 写 gate-diagnostic.json。
+归一化到 repo root,与**允许集合**(sub_state.write_paths ∪ STEP_WRITE_PATHS_BY_KIND[kind][step] ∪ loaf.config.json paths.*) AND-merge 比对。任何路径 outside = hard block + 写 gate-diagnostic.json；不写 compatibility-only reconcile projection。
 
 Bash 绕开 Write hook 的修改在 advance 时一定会被发现。
 
@@ -2488,7 +2497,7 @@ SIGINT 期间: cleanup hook 释放 .lock(§10.4);second-Ctrl-C 留 .lock,
 
 **Crash window 恢复**(ADR-0005 §3.5):每步 crash 由 `loaf doctor` 启动期 + 显式 sub-flag 处理 —— stale-lock / orphan-attachment / tail-corruption (batch-aware,Gate #4) / sidecar-validation-drift / snapshot-seq-mismatch / rolling-checksum-mismatch 七类 check 详 §10.15。
 
-**EXECUTE closure scope transaction(ticket #11)**:此专用路径先持有 machine-local runtime lock，再由 `mutateBatch` 获取 feature lock，固定顺序无反向边。batch 为 `[scope:recorded(current iteration), event:phase_advanced(EXECUTE.work→EXECUTE.done)]`；append 是 commit point，只有 journal 证明 commit 后才清 pending。晚到的旧 iteration PostToolUse 路径按 feature-level monotone union carry 到下一 iteration；已被旧 marker 覆盖的路径不重复 carry。reconcile full replay 会先检查每个 closure 是否有同批 marker，缺失即 `ACTUAL_SCOPE_HISTORY_INCOMPLETE`。
+**EXECUTE closure scope transaction(ticket #11)**:此专用路径先持有 machine-local runtime lock，再由 `mutateBatch` 获取 feature lock，固定顺序无反向边。batch 为 `[scope:recorded(current iteration), event:phase_advanced(EXECUTE.work→EXECUTE.done)]`；append 是 commit point，只有 journal 证明 commit 后才清 pending。晚到的旧 iteration PostToolUse 路径按 feature-level monotone union carry 到下一 iteration；已被旧 marker 覆盖的路径不重复 carry。actual-scope full replay 会先检查每个 closure 是否有同批 marker，缺失即 `ACTUAL_SCOPE_HISTORY_INCOMPLETE`。
 
 > **Current implementation status:** `mutate()` / `mutateBatch()` acquire a 0600 owner-fenced feature lease before revalidating the caller-loaded journal meta against the current tail, and hold it through sidecar promotion, append, projections, and registry refresh. Live owners are never stolen; dead owners require PID plus unchanged-generation proof; malformed leases fail closed; release and SIGINT cleanup unlink only the current owner token. `doctor --rebuild`, `handoff`, and v0.0.x migration use the same lease. Direct `appendEntry()` calls remain internal primitives that bypass this orchestration boundary.
 
@@ -2571,7 +2580,7 @@ v1 的核心目标是 protocol 可靠,不是知识复利自动化。跨 feature 
 | **Advisory** | `loaf deliver` 输出 / `loaf status` 人类输出 / `lessons.md` 内容形态 | 自由 markdown / 人类可读建议;格式不强校验(`lessons.md` 文件本身是 Derived projection,但其内容形态 advisory) | ❌ |
 
 **底线规则**(Principle #15 ② + 15a 落地):
-- **Gate / blocking decision 永远只读 Canonical truth**(journal.jsonl + attachments/)。Derived projection / Debug-trace / Advisory 三层失败 / 损坏 / stale 都不影响协议正确性 — 当前 `loaf doctor --rebuild` 从 seq=0 full replay 重建已接线的 snapshot branches（不含尚无 writer 的 reconcile）；`--rebuild-registry` 仍未实现。`loaf settle` 只推进 cursor，不重跑或写出 reconcile。
+- **Gate / blocking decision 永远只读 Canonical truth**(journal.jsonl + attachments/)。Derived projection / Debug-trace / Advisory 三层失败 / 损坏 / stale 都不影响协议正确性 — 当前 `loaf doctor --rebuild` 从 seq=0 full replay 重建已接线的 snapshot branches；`--rebuild-registry` 仍未实现。`loaf settle` 直接推进到 lessons，不重跑或写出 compatibility-only reconcile。
 - **Reader 永不静默 fallback**:`snapshots/_meta.json` fast check fail → CLI exit 2 + 提示 `loaf doctor --rebuild`(ADR-0005 §3.6 + Gate #5)。
 - **Sidecar ↔ journal entry 双向一致**:每个 `AttachmentRef` 在 journal 中必有 entry sidecar 在 disk 上存在;每个 sidecar 文件必有 journal entry 指向(orphan-attachment doctor check,§10.15)。
 
@@ -2748,7 +2757,7 @@ v1.0 严格 FIFO:resolve 永远 pop `pending[0]`,不接 `--id` flag。理由:5 �
 │ LABEL                       PHASE.SUB           ITER  STATUS        │
 │ popposhell · auth refresh   VERIFY.visual       2     ⏸ ask [×3]    │
 │ work/auth-feature           EXECUTE.work [×3]   1     ▶ run [×3]    │
-│ work/refactor               SETTLE.reconcile    3     ⏸ gate        │
+│ work/refactor               SETTLE.lessons      3     ▶ active      │
 │ sandbox/spike               DONE.archived       1     ✓ done        │
 └──────────────────────────────────────────────────────────────────────┘
  [Enter] open · [q] quit · [r] refresh · [d] details · [p] pending · [a] archive

@@ -19,7 +19,7 @@ const EXPECTED_FORWARD_GRAPH: Record<SubState, readonly SubState[]> = {
   "VERIFY.review": ["VERIFY.acceptance", "VERIFY.visual", "VERIFY.accept"],
   "VERIFY.acceptance": ["VERIFY.visual", "VERIFY.accept"],
   "VERIFY.visual": ["VERIFY.accept"],
-  "VERIFY.accept": ["SETTLE.reconcile"],
+  "VERIFY.accept": ["SETTLE.lessons"],
   "SETTLE.reconcile": ["SETTLE.lessons"],
   "SETTLE.lessons": [],
   "DONE.delivered": [],
@@ -46,7 +46,7 @@ describe("MACHINE transition projections", () => {
     expect(guardsFor("TRIAGE.confirm", "EXECUTE.plan")).toEqual(["spec_phase_forbidden"]);
     expect(guardsFor("EXECUTE.done", "VERIFY.plan")).toEqual(["verify_phase_required"]);
     expect(guardsFor("SPEC.design", "EXECUTE.plan")).toEqual(["spec_locked_required"]);
-    expect(guardsFor("VERIFY.accept", "SETTLE.reconcile")).toEqual([
+    expect(guardsFor("VERIFY.accept", "SETTLE.lessons")).toEqual([
       "settle_phase_required",
       "verify_accepted_required",
     ]);

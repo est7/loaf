@@ -18,6 +18,12 @@
   - ADR-0001 / ADR-0002 / ADR-0003 / ADR-0004
   - `docs/archive/moni-review.md`
 
+> **2026-07-27 supersession note:** A10 retires reconcile as an executable
+> lifecycle stage. New deep flows route `VERIFY.accept → SETTLE.lessons`;
+> `SETTLE.reconcile` and `ReconcileJson` remain compatibility-only for
+> historical journal replay and legacy leaf validation. No reconcile writer
+> or gate authority is introduced. Historical reasoning below is preserved.
+
 ### Audit history
 
 - **rev 1**（2026-05-14 first draft）：三方 audit 12 条盲点收口 + N10 元决策落地

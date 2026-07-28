@@ -67,9 +67,9 @@ replace `Pending` evidence with the commands and results that actually ran.
 | A05 | Implement | Explicit mutation commit outcomes | A04 | [x] Complete |
 | A06 | Implement | Deep CommandMutator boundary | A05 | [x] Complete |
 | A07 | Implement | Unified CLI input ingestion | A01 | [x] Complete |
-| A08 | Implement | Strict CLI-owned task intake | A06, A07 | [ ] Pending |
-| A09 | Implement | Canonical scope-closure fact policy | A03 | [ ] Pending |
-| A10 | Retire | Phantom reconcile execution contract | A09 | [ ] Pending |
+| A08 | Implement | Strict CLI-owned task intake | A06, A07 | [x] Complete |
+| A09 | Implement | Canonical scope-closure fact policy | A03 | [x] Complete |
+| A10 | Retire | Phantom reconcile execution contract | A09 | [x] Complete |
 | A11 | Implement | Canonical lifecycle advice | A06, A10 | [ ] Pending |
 | A12 | Retire | Live task-step `evidence_refs` contract | A08 | [ ] Pending |
 | A13 | Retire | Dead context-pack contract | A01 | [ ] Pending |
@@ -626,7 +626,7 @@ observably; they are not silently reinterpreted.
 
 ## A10 — Phantom reconcile execution contract
 
-**Status:** [ ] Pending
+**Status:** [x] Complete
 **Commit subject:** `refactor(core): retire the phantom reconcile stage`
 
 ### Destination
@@ -651,16 +651,16 @@ but is not a new transition target.
 
 ### Acceptance criteria
 
-- [ ] New lifecycle routes never require or enter `SETTLE.reconcile`.
-- [ ] `loaf settle` advances an accepted deep flow to the next real settle
+- [x] New lifecycle routes never require or enter `SETTLE.reconcile`.
+- [x] `loaf settle` advances an accepted deep flow to the next real settle
   state.
-- [ ] Historical journals containing `SETTLE.reconcile` still replay and can
+- [x] Historical journals containing `SETTLE.reconcile` still replay and can
   advance out through a compatibility edge.
-- [ ] Machine contracts, skills, protocol, and docs do not claim a current
+- [x] Machine contracts, skills, protocol, and docs do not claim a current
   reconcile writer or exit gate.
-- [ ] `ReconcileJson` is clearly compatibility-only or removed from live
+- [x] `ReconcileJson` is clearly compatibility-only or removed from live
   projection loading while legacy validation remains isolated.
-- [ ] No gate reads reconcile data.
+- [x] No gate reads reconcile data.
 
 ### Validation
 
@@ -674,7 +674,25 @@ can restore the new transition target because no new persistent kind is added.
 
 ### Evidence
 
-Pending.
+- New deep flows now route `VERIFY.accept → SETTLE.lessons`; the public
+  `loaf settle` command, next-action routing, i18n, generated machine tables,
+  protocol prose, and settle skill agree on that destination.
+- `applyReplayed()` admits only the former
+  `VERIFY.accept → SETTLE.reconcile` journal edge. New `apply()` mutation
+  admission rejects it, while the compatibility cursor retains its
+  `SETTLE.lessons` exit.
+- Live projection loader types exclude reconcile. The dedicated
+  `loadLegacyReconcileProjection()` validates historical leaves with the
+  compatibility-only `ReconcileJson` schema.
+- Focused A10 lifecycle, transition, replay, reconcile, advisory, and protocol
+  contract suites passed.
+- Full Vitest repository suite passed.
+- `bun run build`, `bun run typecheck`, `bun run lint`, and
+  `bun run verify:codegen` passed.
+- `bun test` is not the repository's canonical runner and inherited the
+  ambient Chinese locale: six existing English text assertions failed in
+  doctor/sessions tests. The same repository passed under the configured
+  Vitest suite.
 
 ## A11 — Canonical lifecycle advice
 

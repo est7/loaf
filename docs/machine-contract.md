@@ -52,7 +52,6 @@ create a second definition.
 | §41 | Event-name registry | The owning enums and tables above; this index is the navigation surface. |
 
 `ReconcileJson.actual_scope` is a canonical concrete-path array; `planned_scope` remains a glob
-array and `based_on` remains `{spec,tasks}`. The generic projection reader rejects non-canonical
-legacy reconcile leaves as rebuild-required, but no full reconcile writer exists yet:
-`writeProjections` has no reconcile branch because the repository has no canonical planned-scope
-source. Gates must not consume reconcile projections.
+array and `based_on` remains `{spec,tasks}`. This schema and its dedicated legacy reader exist only
+to validate historical reconcile leaves. New lifecycle flows do not enter `SETTLE.reconcile`,
+`writeProjections` has no reconcile branch, and gates must not consume reconcile projections.

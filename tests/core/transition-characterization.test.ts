@@ -337,7 +337,7 @@ describe("validateTransition characterization — forward and guard error surfac
   });
 
   test("settle-phase error wins before verify-accepted and is byte-stable", () => {
-    const result = validateTransition("VERIFY.accept", "SETTLE.reconcile", {
+    const result = validateTransition("VERIFY.accept", "SETTLE.lessons", {
       ceremony: STANDARD,
       actor: ACTOR,
       verify_accepted: false,
@@ -349,15 +349,15 @@ describe("validateTransition characterization — forward and guard error surfac
         ok: false,
         code: "SETTLE_PHASE_DISABLED",
         message:
-          "VERIFY.accept → SETTLE.reconcile requires ceremony.settle_phase=true (deep only)",
-        detail: { from: "VERIFY.accept", to: "SETTLE.reconcile", settle_phase: false },
+          "VERIFY.accept → SETTLE.lessons requires ceremony.settle_phase=true (deep only)",
+        detail: { from: "VERIFY.accept", to: "SETTLE.lessons", settle_phase: false },
       },
       ["from", "to", "settle_phase"],
     );
   });
 
   test("verify-accepted-required error is byte-stable", () => {
-    const result = validateTransition("VERIFY.accept", "SETTLE.reconcile", {
+    const result = validateTransition("VERIFY.accept", "SETTLE.lessons", {
       ceremony: DEEP,
       actor: ACTOR,
       verify_accepted: false,
@@ -369,8 +369,8 @@ describe("validateTransition characterization — forward and guard error surfac
         ok: false,
         code: "SETTLE_NOT_ACCEPTED",
         message:
-          "VERIFY.accept → SETTLE.reconcile requires verify_accepted=true (run `loaf gate decide verify-accept --approve` first)",
-        detail: { from: "VERIFY.accept", to: "SETTLE.reconcile", verify_accepted: false },
+          "VERIFY.accept → SETTLE.lessons requires verify_accepted=true (run `loaf gate decide verify-accept --approve` first)",
+        detail: { from: "VERIFY.accept", to: "SETTLE.lessons", verify_accepted: false },
       },
       ["from", "to", "verify_accepted"],
     );

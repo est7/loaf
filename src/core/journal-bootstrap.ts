@@ -26,7 +26,7 @@ import {
   type JournalEntry as JE,
 } from "./journal-entry.js";
 import {
-  apply,
+  applyReplayed,
   initialSnapshot,
   type ApplyFailureCode,
   type ApplyResult,
@@ -191,7 +191,7 @@ export async function replayJournal(
         };
       }
     } else {
-      const result: ApplyResult = apply(snapshot, entry);
+      const result: ApplyResult = applyReplayed(snapshot, entry);
       if (!result.ok) {
         return {
           ok: false,

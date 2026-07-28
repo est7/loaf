@@ -242,7 +242,7 @@
     "DELIVER_VERIFY_MIN_UNAVAILABLE": "verify-min was unavailable in this build (ceremony_label={ceremony_label}) — superseded at v0.1.1 by DELIVER_VERIFY_MIN_INCOMPLETE; no longer emitted",
     "DELIVER_VERIFY_MIN_INCOMPLETE": "verify-min: {count} done task(s) lack required evidence to deliver (ceremony_label={ceremony_label}); add evidence or waive, then re-deliver",
     "DELIVER_SPIKE_TASKS": "cannot deliver: task {task_id} is kind=spike (status={status}); spike tasks block delivery for the entire session",
-    "SETTLE_NOT_ACCEPTED": "VERIFY.accept → SETTLE.reconcile requires verify_accepted=true; run `loaf gate decide verify-accept --approve` before `loaf settle`",
+    "SETTLE_NOT_ACCEPTED": "VERIFY.accept → SETTLE.lessons requires verify_accepted=true; run `loaf gate decide verify-accept --approve` before `loaf settle`",
     "SPEC_LOCK_NOT_SATISFIED": "SPEC.design → EXECUTE.plan requires spec_locked=true; run `loaf gate decide spec-lock --approve` before `loaf advance EXECUTE.plan`",
     "TASK_NOT_CLAIMABLE": "task {task_id} cannot be claimed (status={status} — terminal state)",
     "TASK_ALREADY_CLAIMED": "task {task_id} is already claimed (status=in_progress)",
@@ -363,7 +363,7 @@
       "full_command_pointer": "run `{command}` for the full command",
       "deliver": "loaf deliver",
       "settle": "loaf settle",
-      "settle_lessons": "loaf advance SETTLE.lessons"
+      "settle_lessons": "loaf lessons add --text \"<lesson>\" --reason \"<why it matters>\""
     },
     "start": {
       "state_change": "start: '{feature}' created → TRIAGE.score"
@@ -428,7 +428,7 @@
     },
     "settle": {
       "text": "",
-      "state_change": "settle: {from} → SETTLE.reconcile"
+      "state_change": "settle: {from} → SETTLE.lessons"
     },
     "resume": {
       "state_change": "resume: session {session_id} (sub_state={sub_state} unchanged)"

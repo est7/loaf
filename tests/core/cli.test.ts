@@ -1698,19 +1698,14 @@ prose body here
 }
 
 /**
- * Compose seedFeatureAtVerifyAcceptApprovedDeep + walk through SETTLE.* so
- * the cursor reaches SETTLE.lessons (the source sub_state used by the
- * deliver-from-SETTLE test). Sub-cycle 3 closes codex r53 NB2: the
- * VERIFY.accept → SETTLE.reconcile leg now runs through the public
- * `loaf settle` CLI; SETTLE.reconcile → SETTLE.lessons uses raw mutate
- * because there is no public CLI for that intermediate advance yet
- * (would be `loaf advance SETTLE.lessons`).
+ * Compose seedFeatureAtVerifyAcceptApprovedDeep + enter SETTLE.lessons
+ * through the public `loaf settle` command. New flows have no intermediate
+ * reconcile cursor.
  */
 async function seedFeatureAtSettleLessons(dir: string): Promise<void> {
   await seedFeatureAtVerifyAcceptApprovedDeep(dir);
 
-  // Run `loaf settle` to make the VERIFY.accept → SETTLE.reconcile leg
-  // go through the production CLI (codex r53 NB2 closure).
+  // Run the production CLI for VERIFY.accept → SETTLE.lessons.
   const settleResult = await runCli([
     "settle",
     "--feature",
@@ -1723,25 +1718,6 @@ async function seedFeatureAtSettleLessons(dir: string): Promise<void> {
   if (settleResult.exit !== 0) {
     throw new Error(
       `settle-seed loaf settle failed: ${settleResult.stderr || settleResult.stdout}`,
-    );
-  }
-
-  // SETTLE.reconcile → SETTLE.lessons via `loaf advance` CLI (sub-cycle 4
-  // closes codex r54 NB2 fully: every cursor advance in the seed now goes
-  // through a public CLI command, eliminating the last raw-mutate transition).
-  const advanceResult = await runCli([
-    "advance",
-    "SETTLE.lessons",
-    "--feature",
-    "auth-refresh",
-    "--feature-dir",
-    dir,
-    "--format",
-    "json",
-  ]);
-  if (advanceResult.exit !== 0) {
-    throw new Error(
-      `settle-seed loaf advance SETTLE.lessons failed: ${advanceResult.stderr || advanceResult.stdout}`,
     );
   }
 }
@@ -2097,16 +2073,16 @@ describe("loaf deliver — Slice 1.D sub-cycle 2 (MVP)", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────
-// Slice 1.D sub-cycle 3 — loaf settle CLI (MVP)
+// loaf settle CLI
 //
-// VERIFY.accept → SETTLE.reconcile via event:phase_advanced with cli:
+// VERIFY.accept → SETTLE.lessons via event:phase_advanced with cli:
 // actor. All preconditions (settle_phase / verify_accepted / cursor edge
 // legality) are enforced by sub-cycle 1's transition validator —
 // CLI is a thin wrapper that emits a single entry and renders advisory.
 // ─────────────────────────────────────────────────────────────────────────
 
-describe("loaf settle — Slice 1.D sub-cycle 3 (MVP)", () => {
-  test("happy: deep + verify_accepted=true → SETTLE.reconcile", async () => {
+describe("loaf settle", () => {
+  test("happy: deep + verify_accepted=true → SETTLE.lessons", async () => {
     const dir = await tmpFeatureDir();
     await seedFeatureAtVerifyAcceptApprovedDeep(dir);
 
@@ -2121,17 +2097,17 @@ describe("loaf settle — Slice 1.D sub-cycle 3 (MVP)", () => {
     ]);
 
     expect(result.exit).toBe(0);
-    expect(result.stderr).toContain("settle: VERIFY.accept → SETTLE.reconcile");
+    expect(result.stderr).toContain("settle: VERIFY.accept → SETTLE.lessons");
     const out = JSON.parse(result.stdout);
     expect(out.ok).toBe(true);
     expect(out.feature).toBe("auth-refresh");
     expect(out.from).toBe("VERIFY.accept");
-    expect(out.to).toBe("SETTLE.reconcile");
-    expect(out.sub_state).toBe("SETTLE.reconcile");
+    expect(out.to).toBe("SETTLE.lessons");
+    expect(out.sub_state).toBe("SETTLE.lessons");
     expect(Array.isArray(out.advisory)).toBe(true);
     expect(out.advisory.length).toBeGreaterThan(0);
 
-    // Journal sanity: last entry is event:phase_advanced VERIFY.accept→SETTLE.reconcile.
+    // Journal sanity: last entry is event:phase_advanced VERIFY.accept→SETTLE.lessons.
     const journal = await fsP.readFile(path.join(dir, "journal.jsonl"), "utf8");
     const lines = journal
       .trim()
@@ -2140,7 +2116,7 @@ describe("loaf settle — Slice 1.D sub-cycle 3 (MVP)", () => {
     const last = lines[lines.length - 1];
     expect(last.kind).toBe("event:phase_advanced");
     expect(last.payload.from).toBe("VERIFY.accept");
-    expect(last.payload.to).toBe("SETTLE.reconcile");
+    expect(last.payload.to).toBe("SETTLE.lessons");
     // cli: actor (not human — settle is machine cursor advance per codex r49 Q6).
     expect(last.actor.startsWith("cli:")).toBe(true);
   });
@@ -2154,10 +2130,10 @@ describe("loaf settle — Slice 1.D sub-cycle 3 (MVP)", () => {
     expect(result.exit).toBe(0);
     // SC-5b2: state-change + next now route to stderr; stdout empty.
     expect(result.stdout).toBe("");
-    expect(result.stderr).toMatch(/settle: VERIFY\.accept → SETTLE\.reconcile/);
-    expect(result.stderr).toContain("next: loaf advance SETTLE.lessons");
-    expect(result.stderr).not.toContain("next: loaf deliver");
-    // codex r49 Q4: must NOT claim reconcile.json rebuilt — deferred slice.
+    expect(result.stderr).toMatch(/settle: VERIFY\.accept → SETTLE\.lessons/);
+    expect(result.stderr).toContain("next: loaf lessons add");
+    expect(result.stderr).not.toContain("loaf advance SETTLE.lessons");
+    // Compatibility projection must not be presented as current output.
     expect(result.stdout).not.toMatch(/reconcile\.json/);
     expect(result.stderr).not.toMatch(/reconcile\.json/);
   });
@@ -4279,7 +4255,7 @@ describe("End-to-end lifecycle CLI — Slice 1.D sub-cycle 4", () => {
     expect(r.exit).toBe(0);
     expect(JSON.parse(r.stdout).verify_accepted).toBe(true);
 
-    // CLI 4: settle (VERIFY.accept → SETTLE.reconcile).
+    // CLI 4: settle (VERIFY.accept → SETTLE.lessons).
     r = await runCli([
       "settle",
       "--feature",
@@ -4290,22 +4266,9 @@ describe("End-to-end lifecycle CLI — Slice 1.D sub-cycle 4", () => {
       "json",
     ]);
     expect(r.exit).toBe(0);
-    expect(JSON.parse(r.stdout).sub_state).toBe("SETTLE.reconcile");
+    expect(JSON.parse(r.stdout).sub_state).toBe("SETTLE.lessons");
 
-    // CLI 5: advance SETTLE.reconcile → SETTLE.lessons.
-    r = await runCli([
-      "advance",
-      "SETTLE.lessons",
-      "--feature",
-      "auth-refresh",
-      "--feature-dir",
-      dir,
-      "--format",
-      "json",
-    ]);
-    expect(r.exit).toBe(0);
-
-    // CLI 6: deliver (cursor → DONE.delivered).
+    // CLI 5: deliver (cursor → DONE.delivered).
     r = await runCli(
       [
         "deliver",
@@ -5099,7 +5062,7 @@ describe("loaf next — phase-routing read-side dual", () => {
     action = expectOnlyAction(parseNext(result.stdout));
     expect(action).toMatchObject({
       owner_verb: "settle",
-      target: "SETTLE.reconcile",
+      target: "SETTLE.lessons",
       blocking: false,
     });
     seen.add(action.owner_verb);

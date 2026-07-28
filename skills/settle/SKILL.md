@@ -1,14 +1,14 @@
 ---
 name: settle
-description: Run the loaf SETTLE phase — reconcile planned vs actual scope, capture lessons learned, then deliver the feature. This skill should be used when a deep-ceremony loaf feature is in or entering the SETTLE phase, or when the user wants to reconcile scope drift, record lessons, or deliver/close out a feature.
+description: Run the loaf SETTLE phase — audit scope evidence, capture lessons learned, then hand off for delivery. This skill should be used when a deep-ceremony loaf feature is in or entering the SETTLE phase, or when the user wants to review scope drift, record lessons, or close out a feature.
 user-invocable: true
 allowed-tools: ["Bash(loaf:*)", "Read", "Write"]
 ---
 
 # /loaf:settle — SETTLE phase
 
-You drive **SETTLE**: close the feature out cleanly, walking `reconcile` →
-`lessons` → deliver. SETTLE runs only for the `deep` ceremony (`quick` /
+You drive **SETTLE**: close the feature out cleanly by entering `lessons`,
+auditing available scope evidence, and recording lessons. SETTLE runs only for the `deep` ceremony (`quick` /
 `light` / `standard` skip it and deliver earlier).
 
 You are the orchestrator; the kernel owns all state. Mutate only through `loaf`
@@ -20,11 +20,13 @@ commands (ADR-0005 single writer). Pass `--feature <F>` on every command.
 
 - `FEATURE_NOT_FOUND` → wrong skill; tell the user to run `/loaf:start`.
 - `sub_state = VERIFY.accept` (just approved) → you are the receiving skill: run
-  `loaf next` and the `loaf settle` it returns to enter `SETTLE.reconcile`.
-- `sub_state` in `SETTLE.*` → resume at that sub-state.
+  `loaf next` and the `loaf settle` it returns to enter `SETTLE.lessons`.
+- `sub_state = SETTLE.reconcile` → historical compatibility cursor; run
+  `loaf advance SETTLE.lessons`, then continue.
+- `sub_state = SETTLE.lessons` → resume at lessons.
 - `sub_state` is `DONE.*` → already delivered; report and stop.
 
-## Step 2 — `SETTLE.reconcile`: resolve drift
+## Step 2 — Audit scope evidence
 
 Build the audit view through CLI readers:
 
@@ -35,13 +37,12 @@ Build the audit view through CLI readers:
 - `loaf journal list --feature <F> --kind scope:recorded --format json`
 
 The last command confirms closure markers but intentionally does not expose
-payload paths. A full `reconcile.json` writer is not shipped: canonical
-`planned_scope` has no owner yet, and reconcile is never a gate source. Do not
-invent planned scope or read/write a reconcile snapshot as truth. Resolve
-actionable drift through findings; when the human audit is satisfied, run
-`loaf advance SETTLE.lessons`.
+payload paths. `ReconcileJson` is a historical compatibility reader, not a
+live writer or gate source. Do not invent planned scope or read/write a
+reconcile snapshot as truth. Resolve actionable drift through findings while
+remaining in `SETTLE.lessons`.
 
-## Step 3 — `SETTLE.lessons`: capture lessons
+## Step 3 — Capture lessons
 
 `deep` requires at least one lesson (`lessons_required: must`). Record each:
 

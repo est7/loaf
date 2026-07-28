@@ -60,7 +60,7 @@ stateDiagram-v2
   VERIFY_acceptance --> VERIFY_visual
   VERIFY_acceptance --> VERIFY_accept
   VERIFY_visual --> VERIFY_accept
-  VERIFY_accept --> SETTLE_reconcile : settle_phase_required && verify_accepted_required
+  VERIFY_accept --> SETTLE_lessons : settle_phase_required && verify_accepted_required
   VERIFY_accept --> DONE_delivered : session:delivered
   SETTLE_reconcile --> SETTLE_lessons
   SETTLE_lessons --> DONE_delivered : session:delivered

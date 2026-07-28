@@ -141,6 +141,29 @@ export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
 }
 
 /**
+ * Replay admission preserves journal shapes that were legal when written.
+ *
+ * New mutation paths go through `apply()` and cannot enter the retired
+ * reconcile cursor. Historical journals may contain the former
+ * VERIFY.accept → SETTLE.reconcile edge, so replay admits that one exact
+ * transition after envelope validation and otherwise keeps current preflight.
+ *
+ * @internal Journal replay only.
+ */
+export function applyReplayed(prev: Snapshot, entry: JournalEntry): ApplyResult {
+  const payload = entry.payload as { from?: unknown; to?: unknown };
+  if (
+    prev.state?.sub_state === "VERIFY.accept" &&
+    entry.kind === "event:phase_advanced" &&
+    payload.from === "VERIFY.accept" &&
+    payload.to === "SETTLE.reconcile"
+  ) {
+    return applyValidated(prev, entry);
+  }
+  return apply(prev, entry);
+}
+
+/**
  * Applies an entry whose external validation has already succeeded.
  *
  * `prev` is consumed. Some cases mutate projection arrays in place and may

@@ -94,7 +94,7 @@ describe("validateTransition — Gate #1", () => {
   // `event:phase_advanced` edge — `session:delivered` (loaf deliver) owns
   // that transition with its own preflight refines (DELIVER_*). The only
   // remaining `event:phase_advanced` target from VERIFY.accept is
-  // SETTLE.reconcile, gated by ceremony.settle_phase AND verify_accepted.
+  // SETTLE.lessons, gated by ceremony.settle_phase AND verify_accepted.
   test("2A.3. VERIFY.accept → DONE.delivered always TRANSITION_ILLEGAL (standard ceremony)", () => {
     // pre-Slice-1.D this returned OK for settle_phase=false; the edge was
     // removed so loaf deliver owns the path through session:delivered.
@@ -118,8 +118,18 @@ describe("validateTransition — Gate #1", () => {
     if (!result.ok) expect(result.code).toBe("TRANSITION_ILLEGAL");
   });
 
-  test("2A.3. VERIFY.accept → SETTLE.reconcile rejected when settle_phase=false (standard)", () => {
+  test("2A.3. new writes cannot enter the historical SETTLE.reconcile cursor", () => {
     const result = validateTransition("VERIFY.accept", "SETTLE.reconcile", {
+      ceremony: DEEP_CEREMONY,
+      actor: ACTOR,
+      verify_accepted: true,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("TRANSITION_ILLEGAL");
+  });
+
+  test("2A.3. VERIFY.accept → SETTLE.lessons rejected when settle_phase=false (standard)", () => {
+    const result = validateTransition("VERIFY.accept", "SETTLE.lessons", {
       ceremony: STANDARD_CEREMONY,
       actor: ACTOR,
       verify_accepted: true,
@@ -128,8 +138,8 @@ describe("validateTransition — Gate #1", () => {
     if (!result.ok) expect(result.code).toBe("SETTLE_PHASE_DISABLED");
   });
 
-  test("2A.3. VERIFY.accept → SETTLE.reconcile allowed when settle_phase=true + verify_accepted=true (deep)", () => {
-    const result = validateTransition("VERIFY.accept", "SETTLE.reconcile", {
+  test("2A.3. VERIFY.accept → SETTLE.lessons allowed when settle_phase=true + verify_accepted=true (deep)", () => {
+    const result = validateTransition("VERIFY.accept", "SETTLE.lessons", {
       ceremony: DEEP_CEREMONY,
       actor: ACTOR,
       verify_accepted: true,
@@ -137,9 +147,9 @@ describe("validateTransition — Gate #1", () => {
     expect(result.ok).toBe(true);
   });
 
-  // ── 2A.3b: Slice 1.D — VERIFY.accept → SETTLE.reconcile verify_accepted refine ──
-  test("2A.3b. VERIFY.accept → SETTLE.reconcile rejected when verify_accepted=false (deep)", () => {
-    const result = validateTransition("VERIFY.accept", "SETTLE.reconcile", {
+  // ── 2A.3b: VERIFY.accept → SETTLE.lessons verify_accepted refine ──
+  test("2A.3b. VERIFY.accept → SETTLE.lessons rejected when verify_accepted=false (deep)", () => {
+    const result = validateTransition("VERIFY.accept", "SETTLE.lessons", {
       ceremony: DEEP_CEREMONY,
       actor: ACTOR,
       verify_accepted: false,
@@ -148,10 +158,10 @@ describe("validateTransition — Gate #1", () => {
     if (!result.ok) expect(result.code).toBe("SETTLE_NOT_ACCEPTED");
   });
 
-  test("2A.3b. VERIFY.accept → SETTLE.reconcile verify_accepted check fires AFTER settle_phase check", () => {
+  test("2A.3b. VERIFY.accept → SETTLE.lessons verify_accepted check fires AFTER settle_phase check", () => {
     // settle_phase=false + verify_accepted=false → SETTLE_PHASE_DISABLED wins
     // (ceremony precondition checked first per transition.ts implementation).
-    const result = validateTransition("VERIFY.accept", "SETTLE.reconcile", {
+    const result = validateTransition("VERIFY.accept", "SETTLE.lessons", {
       ceremony: STANDARD_CEREMONY,
       actor: ACTOR,
       verify_accepted: false,

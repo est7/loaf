@@ -1,4 +1,6 @@
-// Canonical VerifyCheckSnapshot, IterationStats, Drift, AcCoverage, ReconcileJson contract owner.
+// Compatibility-only schema for historical reconcile projection leaves.
+// New lifecycle flows do not write or gate on ReconcileJson. Keep this
+// validator isolated so older snapshots remain readable during migration.
 
 import { z } from "zod";
 

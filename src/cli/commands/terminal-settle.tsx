@@ -20,8 +20,8 @@ export function registerTerminalSettle(
   actor: string,
 ): void {
   // ── loaf settle ─────────────────────────────────────────────────────
-  // Slice 1.D sub-cycle 3. Deep-ceremony-only cursor advance:
-  // VERIFY.accept → SETTLE.reconcile. Emits a single
+  // Deep-ceremony-only cursor advance:
+  // VERIFY.accept → SETTLE.lessons. Emits a single
   // `event:phase_advanced` with `cli:` actor — settle is a deterministic
   // cursor move (no human decision), so unlike `loaf deliver` it does not
   // resolve a human:* actor. Per protocol §10.6 chaos deviation, the
@@ -35,15 +35,14 @@ export function registerTerminalSettle(
   //   * no session                        → NO_SESSION
   //
   // Output (text mode):
-  //   `settled <feature> — VERIFY.accept → SETTLE.reconcile`
-  //   `next: loaf advance SETTLE.lessons`
+  //   `settled <feature> — VERIFY.accept → SETTLE.lessons`
+  //   `next: loaf lessons add --text "<lesson>" --reason "<why it matters>"`
   // JSON includes `advisory: string[]` for scripted chaining. The output
-  // intentionally does NOT claim `snapshots/reconcile.json rebuilt`
-  // (per codex r49 Q4): the derived reconcile snapshot is deferred to a
-  // later slice; the CLI here only owns the cursor transition.
+  // intentionally does not claim a reconcile snapshot was rebuilt:
+  // ReconcileJson is a historical compatibility reader, not a live stage.
   program
     .command("settle")
-    .description("Advance VERIFY.accept → SETTLE.reconcile (deep ceremony only)")
+    .description("Advance VERIFY.accept → SETTLE.lessons (deep ceremony only)")
     .option("--feature <name>", "Feature whose session to settle")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
     .action(async (opts: { feature: string; featureDir?: string }) => {
@@ -62,18 +61,16 @@ export function registerTerminalSettle(
         featureDir,
         session,
         // module-level cli:loaf actor — settle is machine-driven
-        { kind: "event:phase_advanced", payload: { from, to: "SETTLE.reconcile" }, actor },
+        { kind: "event:phase_advanced", payload: { from, to: "SETTLE.lessons" }, actor },
       );
       if (!result) return;
 
-      const advisory = [
-        "complete SETTLE.* phase (loaf advance SETTLE.lessons) then `loaf deliver`",
-      ];
+      const advisory = ['record lessons with `loaf lessons add`, then run `loaf deliver`'];
       const out = {
         ok: true,
         feature: opts.feature,
         from,
-        to: "SETTLE.reconcile" as const,
+        to: "SETTLE.lessons" as const,
         sub_state: result.snapshot.state?.sub_state,
         advisory,
       };

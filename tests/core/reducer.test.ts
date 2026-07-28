@@ -9,7 +9,12 @@
 
 import { describe, expect, test } from "vitest";
 
-import { apply, applyValidated, initialSnapshot } from "../../src/core/reducer.js";
+import {
+  apply,
+  applyReplayed,
+  applyValidated,
+  initialSnapshot,
+} from "../../src/core/reducer.js";
 import type { Ceremony } from "../../src/core/journal-entry.js";
 
 const STANDARD_CEREMONY: Ceremony = {
@@ -22,6 +27,53 @@ const STANDARD_CEREMONY: Ceremony = {
 };
 
 describe("reducer.apply — Stage 2 §11.2 step 7", () => {
+  test("historical reconcile entry replays and can advance through its compatibility edge", () => {
+    const historical = initialSnapshot();
+    historical.state = {
+      session_id: "550e8400-e29b-41d4-a716-446655440000",
+      feature: "historical-reconcile",
+      phase: "VERIFY",
+      sub_state: "VERIFY.accept",
+      iteration: 1,
+      spec_locked: true,
+      verify_accepted: true,
+      spec_version: 1,
+      ceremony: {
+        spec_phase: true,
+        verify_phase: true,
+        settle_phase: true,
+        strict_spec_review: false,
+        lessons_required: "must",
+        strict_drift_check: true,
+      },
+    };
+
+    const replayed = applyReplayed(historical, {
+      seq: 42,
+      entry_id: "JE-000043",
+      at: "2026-05-15T10:00:00.000Z",
+      actor: "cli:loaf",
+      entry_schema_version: 1,
+      kind: "event:phase_advanced",
+      payload: { from: "VERIFY.accept", to: "SETTLE.reconcile" },
+    });
+    expect(replayed.ok).toBe(true);
+    if (!replayed.ok) return;
+    expect(replayed.snapshot.state?.sub_state).toBe("SETTLE.reconcile");
+
+    const advanced = apply(replayed.snapshot, {
+      seq: 43,
+      entry_id: "JE-000044",
+      at: "2026-05-15T10:00:01.000Z",
+      actor: "cli:loaf",
+      entry_schema_version: 1,
+      kind: "event:phase_advanced",
+      payload: { from: "SETTLE.reconcile", to: "SETTLE.lessons" },
+    });
+    expect(advanced.ok).toBe(true);
+    if (advanced.ok) expect(advanced.snapshot.state?.sub_state).toBe("SETTLE.lessons");
+  });
+
   test("session:started initializes the snapshot cursor at TRIAGE.score", () => {
     const before = initialSnapshot();
     const result = apply(before, {

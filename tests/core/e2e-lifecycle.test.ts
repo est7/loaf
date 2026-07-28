@@ -1231,7 +1231,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     expect(bypass.exit).toBe(2);
     expect(bypass.stderr + bypass.stdout).toContain("DELIVER_SETTLE_PHASE_BYPASS");
 
-    // ── SETTLE — `loaf next` routes accept → settle → lessons → deliver ──
+    // ── SETTLE — `loaf next` routes accept → lessons → deliver ─────────
     // Deep: verify-accept is approved but settle_phase=true, so `loaf next`
     // recommends `loaf settle` (not deliver) — the read-side complement of the
     // DELIVER_SETTLE_PHASE_BYPASS rejection above. Closes the /loaf:settle
@@ -1242,13 +1242,6 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
       expect(n.blocked).toBe(false);
     }
     await step("settle", ["settle", "--feature", F]);
-    {
-      const n = await step("next @ SETTLE.reconcile", ["next", "--feature", F]);
-      expect(n.next_action?.command).toBe(
-        `loaf advance SETTLE.lessons --feature-dir ${dir}`,
-      );
-    }
-    await step("advance SETTLE.lessons", ["advance", "SETTLE.lessons", "--feature", F]);
     {
       const n = await step("next @ SETTLE.lessons", ["next", "--feature", F]);
       expect(n.next_action?.command).toBe(`loaf deliver --feature-dir ${dir}`);

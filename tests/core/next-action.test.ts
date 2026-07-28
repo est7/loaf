@@ -171,7 +171,7 @@ describe("buildNextOutput — VERIFY.accept gate / settle / deliver fork", () =>
     const out = run("VERIFY.accept", { verify_accepted: true, ceremony: DEEP });
     expect(out.next_action).toMatchObject({
       owner_verb: "settle",
-      target: "SETTLE.reconcile",
+      target: "SETTLE.lessons",
       blocking: false,
     });
   });

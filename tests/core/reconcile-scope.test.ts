@@ -6,7 +6,7 @@ import { describe, expect, test } from "vitest";
 
 import type { Ceremony, JournalEntry } from "../../src/core/journal-entry.js";
 import { mutate } from "../../src/core/journal-mutate.js";
-import { loadProjections } from "../../src/core/projection-loader.js";
+import { loadLegacyReconcileProjection } from "../../src/core/projection-loader.js";
 import { ReconcileJson } from "../../src/core/reconcile-schema.js";
 import { initialSnapshot } from "../../src/core/reducer.js";
 import { deriveActualScope } from "../../src/core/scope-projection.js";
@@ -143,7 +143,7 @@ describe("ReconcileJson actual_scope contract", () => {
     );
 
     await expect(
-      loadProjections({ feature_dir: featureDir, kinds: ["reconcile"] }),
+      loadLegacyReconcileProjection(featureDir),
     ).rejects.toMatchObject({
       code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
       reason: "projection_invalid",

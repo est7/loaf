@@ -1606,13 +1606,17 @@ var NoSessionError = class extends Error {
 		this.detail = detail;
 	}
 };
-const LEAF_SCHEMA = {
+const LIVE_LEAF_SCHEMA = {
 	state: StateProjection,
 	tasks: TasksJson,
 	evidence: EvidenceJson,
 	findings: FindingsJson,
-	pending: PendingJson,
-	reconcile: ReconcileJson
+	pending: PendingJson
+};
+const COMPATIBILITY_LEAF_SCHEMA = { reconcile: ReconcileJson };
+const LEAF_SCHEMA = {
+	...LIVE_LEAF_SCHEMA,
+	...COMPATIBILITY_LEAF_SCHEMA
 };
 function fixForFeatureDir(featureDir) {
 	return `run \`loaf doctor --rebuild --feature ${path.basename(featureDir)}\``;
@@ -2190,14 +2194,14 @@ const ERROR_CATALOG = {
 	},
 	SETTLE_PHASE_BYPASS: {
 		exit_code: 2,
-		message_template: "VERIFY.accept → DONE.delivered requires ceremony.settle_phase=false (quick / light / standard); deep profile must enter SETTLE.reconcile first; current settle_phase={settle_phase}",
-		fix_template: "for deep profile, advance from VERIFY.accept to SETTLE.reconcile via `loaf settle`; if SETTLE is not desired, start/continue a standard ceremony flow instead",
+		message_template: "VERIFY.accept → DONE.delivered requires ceremony.settle_phase=false (quick / light / standard); deep profile must enter SETTLE.lessons first; current settle_phase={settle_phase}",
+		fix_template: "for deep profile, advance from VERIFY.accept to SETTLE.lessons via `loaf settle`; if SETTLE is not desired, start/continue a standard ceremony flow instead",
 		template_keys: ["settle_phase"],
 		doc_anchor: "protocol.md#§5.2"
 	},
 	SETTLE_PHASE_DISABLED: {
 		exit_code: 2,
-		message_template: "VERIFY.accept → SETTLE.reconcile requires ceremony.settle_phase=true (deep profile only after rev 5.x); current settle_phase={settle_phase}",
+		message_template: "VERIFY.accept → SETTLE.lessons requires ceremony.settle_phase=true (deep profile only after rev 5.x); current settle_phase={settle_phase}",
 		fix_template: "for non-deep profiles (quick / light / standard), advance from VERIFY.accept to DONE.delivered via `loaf deliver`; to enter SETTLE, escalate ceremony to deep",
 		template_keys: ["settle_phase"],
 		doc_anchor: "protocol.md#§5.2"
@@ -2534,7 +2538,7 @@ const ERROR_CATALOG = {
 		exit_code: 2,
 		message_template: "deliver from VERIFY.accept requires ceremony.settle_phase=false (standard); deep ceremony must run `loaf settle` first",
 		zh_message_template: "VERIFY.accept 直接 deliver 要求 ceremony.settle_phase=false(standard);deep ceremony 必须先运行 `loaf settle`",
-		fix_template: "for ceremony.settle_phase=true (deep), run `loaf settle` to enter SETTLE.reconcile, complete reconcile + lessons, then `loaf deliver` from SETTLE.lessons; only standard ceremony delivers directly from VERIFY.accept",
+		fix_template: "for ceremony.settle_phase=true (deep), run `loaf settle` to enter SETTLE.lessons, record lessons, then `loaf deliver`; only standard ceremony delivers directly from VERIFY.accept",
 		template_keys: [],
 		doc_anchor: "protocol.md#§5.2"
 	},
@@ -2564,8 +2568,8 @@ const ERROR_CATALOG = {
 	},
 	SETTLE_NOT_ACCEPTED: {
 		exit_code: 2,
-		message_template: "VERIFY.accept → SETTLE.reconcile requires verify_accepted=true; run `loaf gate decide verify-accept --approve` before `loaf settle`",
-		zh_message_template: "VERIFY.accept → SETTLE.reconcile 要求 verify_accepted=true;先运行 `loaf gate decide verify-accept --approve` 再 `loaf settle`",
+		message_template: "VERIFY.accept → SETTLE.lessons requires verify_accepted=true; run `loaf gate decide verify-accept --approve` before `loaf settle`",
+		zh_message_template: "VERIFY.accept → SETTLE.lessons 要求 verify_accepted=true;先运行 `loaf gate decide verify-accept --approve` 再 `loaf settle`",
 		fix_template: "run `loaf gate decide verify-accept --approve --reason \"...\"` before `loaf settle`; the gate flips snapshot.state.verify_accepted before the transition validator will admit the SETTLE entry",
 		template_keys: [],
 		doc_anchor: "protocol.md#§5.2"
@@ -2923,8 +2927,8 @@ const ERROR_CATALOG = {
 		exit_code: 2,
 		message_template: "actual scope history is incomplete: EXECUTE closure transition(s) at seq {transition_seqs} have no same-batch scope:recorded marker",
 		zh_message_template: "actual scope 历史不完整:seq {transition_seqs} 的 EXECUTE closure transition 缺少同批 scope:recorded marker",
-		fix_template: "do not fabricate an empty actual_scope; preserve the journal and rerun the feature's EXECUTE work with an F-027-capable loaf version before requesting reconcile. Pre-F-027 closure scope cannot be reconstructed from journal history.",
-		zh_fix_template: "不要伪造空 actual_scope;保留 journal,使用支持 F-027 的 loaf 版本重新执行该 feature 的 EXECUTE work 后再请求 reconcile。pre-F-027 closure scope 无法从 journal 历史重建。",
+		fix_template: "do not fabricate an empty actual_scope; preserve the journal and rerun the feature's EXECUTE work with an F-027-capable loaf version before auditing scope. Pre-F-027 closure scope cannot be reconstructed from journal history.",
+		zh_fix_template: "不要伪造空 actual_scope;保留 journal,使用支持 F-027 的 loaf 版本重新执行该 feature 的 EXECUTE work 后再审计 scope。pre-F-027 closure scope 无法从 journal 历史重建。",
 		template_keys: ["transition_seqs"],
 		detail_keys: ["transition_seqs"],
 		doc_anchor: "protocol.md#§4.6"
@@ -4429,31 +4433,31 @@ const MACHINE = defineMachine({
 	},
 	"VERIFY.accept": {
 		entry: "all applicable checks passed/waived + no actionable open findings (`defer` / `backlog` are non-blocking dispositions)",
-		exit: "verify-accept gate approved. settle_phase=true (deep) → SETTLE.reconcile via `loaf settle`; settle_phase=false (standard) → DONE.delivered via `loaf deliver`",
+		exit: "verify-accept gate approved. settle_phase=true (deep) → SETTLE.lessons via `loaf settle`; settle_phase=false (standard) → DONE.delivered via `loaf deliver`",
 		write_paths: [".loaf/<feature>/evidence.jsonl"],
 		edges: [{
-			target: "SETTLE.reconcile",
+			target: "SETTLE.lessons",
 			owner_kind: "event:phase_advanced",
 			guards: ["settle_phase_required", "verify_accepted_required"]
 		}, {
 			target: "DONE.delivered",
 			owner_kind: "session:delivered"
 		}],
-		prompt_inject: "Verify-accept gate. Review check status + open findings. Approve or reject. On approve: settle_phase=true → `loaf settle` enters SETTLE.reconcile; settle_phase=false → `loaf deliver` enters DONE.delivered.",
+		prompt_inject: "Verify-accept gate. Review check status + open findings. Approve or reject. On approve: settle_phase=true → `loaf settle` enters SETTLE.lessons; settle_phase=false → `loaf deliver` enters DONE.delivered.",
 		gate: "verify-accept"
 	},
 	"SETTLE.reconcile": {
-		entry: "verify-accept passed && ceremony.settle_phase=true (deep only after rev 5.x; quick/light/standard skip SETTLE)",
-		exit: "reconcile.json valid",
-		write_paths: [".loaf/<feature>/reconcile.json"],
+		entry: "compatibility-only historical cursor; new flows never enter this state",
+		exit: "advance to SETTLE.lessons through the compatibility edge",
+		write_paths: [],
 		edges: [{
 			target: "SETTLE.lessons",
 			owner_kind: "event:phase_advanced"
 		}],
-		prompt_inject: "Compare planned_scope vs actual_scope. Resolve every drift. Snapshot verify_checks_status."
+		prompt_inject: "Historical compatibility state: advance to SETTLE.lessons; no reconcile writer or gate exists."
 	},
 	"SETTLE.lessons": {
-		entry: "reconcile valid (deep only after rev 5.x; quick/light/standard skip SETTLE)",
+		entry: "verify-accept passed and deep settle entered directly, or historical SETTLE.reconcile compatibility edge",
 		exit: "lessons.md appended (deep: lessons_required=must)",
 		write_paths: [".loaf/<feature>/lessons.md"],
 		edges: [
@@ -4565,7 +4569,7 @@ function transitionOwnerFor(input) {
 		if (ceremony.settle_phase) return {
 			command: "loaf settle",
 			owner_verb: "settle",
-			target: "SETTLE.reconcile",
+			target: "SETTLE.lessons",
 			blocking: false,
 			reason: "VERIFY_ACCEPTED_NEEDS_SETTLE"
 		};
@@ -5310,6 +5314,21 @@ function apply(prev, entry) {
 		detail: pre.detail ?? {}
 	};
 	return applyValidated(prev, entry);
+}
+/**
+* Replay admission preserves journal shapes that were legal when written.
+*
+* New mutation paths go through `apply()` and cannot enter the retired
+* reconcile cursor. Historical journals may contain the former
+* VERIFY.accept → SETTLE.reconcile edge, so replay admits that one exact
+* transition after envelope validation and otherwise keeps current preflight.
+*
+* @internal Journal replay only.
+*/
+function applyReplayed(prev, entry) {
+	const payload = entry.payload;
+	if (prev.state?.sub_state === "VERIFY.accept" && entry.kind === "event:phase_advanced" && payload.from === "VERIFY.accept" && payload.to === "SETTLE.reconcile") return applyValidated(prev, entry);
+	return apply(prev, entry);
 }
 /**
 * Applies an entry whose external validation has already succeeded.
@@ -6885,7 +6904,7 @@ async function replayJournal(filePath, opts = {}) {
 				};
 			}
 		} else {
-			const result = apply(snapshot, entry);
+			const result = applyReplayed(snapshot, entry);
 			if (!result.ok) return {
 				ok: false,
 				code: "REDUCER_REJECTED",
@@ -7220,7 +7239,7 @@ var en_default = {
 		"DELIVER_VERIFY_MIN_UNAVAILABLE": "verify-min was unavailable in this build (ceremony_label={ceremony_label}) — superseded at v0.1.1 by DELIVER_VERIFY_MIN_INCOMPLETE; no longer emitted",
 		"DELIVER_VERIFY_MIN_INCOMPLETE": "verify-min: {count} done task(s) lack required evidence to deliver (ceremony_label={ceremony_label}); add evidence or waive, then re-deliver",
 		"DELIVER_SPIKE_TASKS": "cannot deliver: task {task_id} is kind=spike (status={status}); spike tasks block delivery for the entire session",
-		"SETTLE_NOT_ACCEPTED": "VERIFY.accept → SETTLE.reconcile requires verify_accepted=true; run `loaf gate decide verify-accept --approve` before `loaf settle`",
+		"SETTLE_NOT_ACCEPTED": "VERIFY.accept → SETTLE.lessons requires verify_accepted=true; run `loaf gate decide verify-accept --approve` before `loaf settle`",
 		"SPEC_LOCK_NOT_SATISFIED": "SPEC.design → EXECUTE.plan requires spec_locked=true; run `loaf gate decide spec-lock --approve` before `loaf advance EXECUTE.plan`",
 		"TASK_NOT_CLAIMABLE": "task {task_id} cannot be claimed (status={status} — terminal state)",
 		"TASK_ALREADY_CLAIMED": "task {task_id} is already claimed (status=in_progress)",
@@ -7331,7 +7350,7 @@ var en_default = {
 			"full_command_pointer": "run `{command}` for the full command",
 			"deliver": "loaf deliver",
 			"settle": "loaf settle",
-			"settle_lessons": "loaf advance SETTLE.lessons"
+			"settle_lessons": "loaf lessons add --text \"<lesson>\" --reason \"<why it matters>\""
 		},
 		"start": { "state_change": "start: '{feature}' created → TRIAGE.score" },
 		"advance": { "state_change": "advance: {from} → {to}" },
@@ -7382,7 +7401,7 @@ var en_default = {
 		},
 		"settle": {
 			"text": "",
-			"state_change": "settle: {from} → SETTLE.reconcile"
+			"state_change": "settle: {from} → SETTLE.lessons"
 		},
 		"resume": { "state_change": "resume: session {session_id} (sub_state={sub_state} unchanged)" },
 		"handoff": { "state_change": "handoff: resume-pack.json written by {actor}" },
@@ -7833,7 +7852,7 @@ var zh_default = {
 		"DELIVER_VERIFY_MIN_UNAVAILABLE": "verify-min 在此 build 不可用(ceremony_label={ceremony_label})—— v0.1.1 起由 DELIVER_VERIFY_MIN_INCOMPLETE 取代,已不再触发",
 		"DELIVER_VERIFY_MIN_INCOMPLETE": "verify-min:{count} 个 done task 缺少 deliver 所需 evidence(ceremony_label={ceremony_label});补 evidence 或 waive 后重试 deliver",
 		"DELIVER_SPIKE_TASKS": "无法 deliver:task {task_id} 是 kind=spike(status={status});spike 任务阻塞整 session 的交付",
-		"SETTLE_NOT_ACCEPTED": "VERIFY.accept → SETTLE.reconcile 要求 verify_accepted=true;先运行 `loaf gate decide verify-accept --approve` 再 `loaf settle`",
+		"SETTLE_NOT_ACCEPTED": "VERIFY.accept → SETTLE.lessons 要求 verify_accepted=true;先运行 `loaf gate decide verify-accept --approve` 再 `loaf settle`",
 		"SPEC_LOCK_NOT_SATISFIED": "SPEC.design → EXECUTE.plan 要求 spec_locked=true;先运行 `loaf gate decide spec-lock --approve` 再 `loaf advance EXECUTE.plan`",
 		"TASK_NOT_CLAIMABLE": "task {task_id} 无法 claim(status={status} — 终态)",
 		"TASK_ALREADY_CLAIMED": "task {task_id} 已被 claim(status=in_progress)",
@@ -7944,7 +7963,7 @@ var zh_default = {
 			"full_command_pointer": "运行 `{command}` 获取完整命令",
 			"deliver": "loaf deliver",
 			"settle": "loaf settle",
-			"settle_lessons": "loaf advance SETTLE.lessons"
+			"settle_lessons": "loaf lessons add --text \"<lesson>\" --reason \"<why it matters>\""
 		},
 		"start": { "state_change": "start: '{feature}' 已创建 → TRIAGE.score" },
 		"advance": { "state_change": "advance: {from} → {to}" },
@@ -7995,7 +8014,7 @@ var zh_default = {
 		},
 		"settle": {
 			"text": "",
-			"state_change": "settle: {from} → SETTLE.reconcile"
+			"state_change": "settle: {from} → SETTLE.lessons"
 		},
 		"resume": { "state_change": "resume: session {session_id}(sub_state={sub_state} unchanged)" },
 		"handoff": { "state_change": "handoff: resume-pack.json written by {actor}" },
@@ -14653,7 +14672,7 @@ function buildResumePack(args) {
 //#endregion
 //#region src/cli/commands/terminal-settle.tsx
 function registerTerminalSettle(program, ctx, mutator, actor) {
-	program.command("settle").description("Advance VERIFY.accept → SETTLE.reconcile (deep ceremony only)").option("--feature <name>", "Feature whose session to settle").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+	program.command("settle").description("Advance VERIFY.accept → SETTLE.lessons (deep ceremony only)").option("--feature <name>", "Feature whose session to settle").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
@@ -14666,7 +14685,7 @@ function registerTerminalSettle(program, ctx, mutator, actor) {
 			kind: "event:phase_advanced",
 			payload: {
 				from,
-				to: "SETTLE.reconcile"
+				to: "SETTLE.lessons"
 			},
 			actor
 		});
@@ -14675,9 +14694,9 @@ function registerTerminalSettle(program, ctx, mutator, actor) {
 			ok: true,
 			feature: opts.feature,
 			from,
-			to: "SETTLE.reconcile",
+			to: "SETTLE.lessons",
 			sub_state: result.snapshot.state?.sub_state,
-			advisory: ["complete SETTLE.* phase (loaf advance SETTLE.lessons) then `loaf deliver`"]
+			advisory: ["record lessons with `loaf lessons add`, then run `loaf deliver`"]
 		};
 		ctx.success(out, (i18n) => i18n.t(SUCCESS_KEYS.settleText), (i18n) => ({
 			stateChange: i18n.t(SUCCESS_KEYS.settleStateChange, { from }),

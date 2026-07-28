@@ -199,7 +199,7 @@ export type SubState = z.infer<typeof SubState>;
 
 // Ceremony — six-flag schema from protocol.md §3 (rev 5.x PRESETS quick /
 // light / standard / deep). Drives phase activation + strict-mode gates +
-// VERIFY.accept fork (settle_phase decides SETTLE.reconcile vs DONE.delivered).
+// VERIFY.accept fork (settle_phase decides SETTLE.lessons vs DONE.delivered).
 export const Ceremony = z
   .object({
     spec_phase: z.boolean(),

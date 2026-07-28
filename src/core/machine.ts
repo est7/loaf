@@ -274,12 +274,12 @@ export const MACHINE = defineMachine({
       "all applicable checks passed/waived + no actionable open findings (`defer` / `backlog` are non-blocking dispositions)",
     exit:
       "verify-accept gate approved." +
-      " settle_phase=true (deep) → SETTLE.reconcile via `loaf settle`;" +
+      " settle_phase=true (deep) → SETTLE.lessons via `loaf settle`;" +
       " settle_phase=false (standard) → DONE.delivered via `loaf deliver`",
     write_paths: [".loaf/<feature>/evidence.jsonl"],
     edges: [
       {
-        target: "SETTLE.reconcile",
+        target: "SETTLE.lessons",
         owner_kind: "event:phase_advanced",
         guards: ["settle_phase_required", "verify_accepted_required"],
       },
@@ -287,21 +287,22 @@ export const MACHINE = defineMachine({
     ],
     prompt_inject:
       "Verify-accept gate. Review check status + open findings. Approve or reject." +
-      " On approve: settle_phase=true → `loaf settle` enters SETTLE.reconcile;" +
+      " On approve: settle_phase=true → `loaf settle` enters SETTLE.lessons;" +
       " settle_phase=false → `loaf deliver` enters DONE.delivered.",
     gate: "verify-accept",
   },
   "SETTLE.reconcile": {
     entry:
-      "verify-accept passed && ceremony.settle_phase=true (deep only after rev 5.x; quick/light/standard skip SETTLE)",
-    exit: "reconcile.json valid",
-    write_paths: [".loaf/<feature>/reconcile.json"],
+      "compatibility-only historical cursor; new flows never enter this state",
+    exit: "advance to SETTLE.lessons through the compatibility edge",
+    write_paths: [],
     edges: [{ target: "SETTLE.lessons", owner_kind: "event:phase_advanced" }],
     prompt_inject:
-      "Compare planned_scope vs actual_scope. Resolve every drift. Snapshot verify_checks_status.",
+      "Historical compatibility state: advance to SETTLE.lessons; no reconcile writer or gate exists.",
   },
   "SETTLE.lessons": {
-    entry: "reconcile valid (deep only after rev 5.x; quick/light/standard skip SETTLE)",
+    entry:
+      "verify-accept passed and deep settle entered directly, or historical SETTLE.reconcile compatibility edge",
     exit: "lessons.md appended (deep: lessons_required=must)",
     write_paths: [".loaf/<feature>/lessons.md"],
     edges: [

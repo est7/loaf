@@ -226,7 +226,7 @@ describe("Phase 16 SC-3 — CommandContext: construction + output mode", () => {
       ok: true,
       feature: "auth-refresh",
       from: "VERIFY.accept",
-      to: "SETTLE.reconcile",
+      to: "SETTLE.lessons",
     };
     const en = makeCtx(["loaf", "settle", "--format", "json"], {
       i18n: createI18n("en", BUILTIN_BUNDLES),

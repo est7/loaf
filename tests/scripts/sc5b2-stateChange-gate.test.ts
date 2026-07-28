@@ -129,7 +129,7 @@ const STATE_CHANGE_FIXTURES: ReadonlyArray<{
     ],
   },
   // settle — narrow
-  { commandKey: "loaf settle", mustContain: ["settle:", "SETTLE.reconcile", "loaf deliver"] },
+  { commandKey: "loaf settle", mustContain: ["settle:", "SETTLE.lessons", "loaf deliver"] },
   // deliver — align
   { commandKey: "loaf deliver", mustContain: ["deliver:", "DONE.delivered"] },
   // archive / abandon — align
