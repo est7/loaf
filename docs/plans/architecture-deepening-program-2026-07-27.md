@@ -4,7 +4,8 @@
 **Approved:** 2026-07-27
 **Owner:** loaf-cli maintainers
 **Execution rule:** one completed optimization or refactor per local commit
-**Publication boundary:** local commits only; no push, tag, release, or version bump
+**Publication boundary:** local commits only; no push, tag, or release. A24
+authorizes a local package-identity bump required by the breaking-contract gate.
 
 ## Purpose
 
@@ -83,7 +84,7 @@ replace `Pending` evidence with the commands and results that actually ran.
 | A21 | Correct | Executable skill-to-CLI journey | A14, A20 | [x] Complete |
 | A22 | Correct | Truthful feature-lease contract and diagnostics | A04, A17 | [x] Complete |
 | A23 | Correct | Audit evidence and supersession trail | A12, A16, A19 | [x] Complete |
-| A24 | Implement | Breaking-contract release identity gate | A08, A10, A12, A23 | [ ] Pending |
+| A24 | Implement | Breaking-contract release identity gate | A08, A10, A12, A23 | [x] Complete |
 
 The serial order is deliberate. Attachment confinement precedes refactoring;
 the feature lease precedes result and CLI mutation ownership; task intake lands
@@ -1395,7 +1396,7 @@ documentation and protocol contract tests passed.
 
 ## A24 — Breaking-contract release identity gate
 
-**Status:** [ ] Pending
+**Status:** [x] Complete
 **Commit subject:** `chore(release): gate breaking contract identity`
 
 ### Destination
@@ -1406,17 +1407,19 @@ no-tag boundary.
 
 ### Acceptance criteria
 
-- [ ] The repository has a deterministic gate that detects a release carrying
+- [x] The repository has a deterministic gate that detects a release carrying
   public breaking changes without an updated package identity.
-- [ ] The gate fails against the current `v0.6.0` baseline before remediation.
-- [ ] The selected local package identity and compatibility note make the
+- [x] The gate fails against the current `v0.6.0` baseline before remediation.
+- [x] The selected local package identity and compatibility note make the
   breaking boundary observable to git consumers.
-- [ ] Package smoke and distribution/source parity pass with the new identity.
-- [ ] No push, tag, or release is performed.
+- [x] Package smoke and distribution/source parity pass with the new identity.
+- [x] No push, tag, or release is performed.
 
 ### Validation
 
 `bun run check`
+`bun run verify:release-identity`
+`bunx vitest run tests/scripts/public-contract-version-check.test.ts`
 `bun run ga:pack-smoke`
 `bun run ga:consistency`
 
@@ -1424,3 +1427,16 @@ no-tag boundary.
 
 Local release preparation only. Publication remains a separate explicitly
 authorized action.
+
+### Evidence
+
+`docs/release-identity.json` binds the `v0.6.0` baseline, the local `0.7.0`
+target, and the A08/A10/A12 breaking contracts. The new release-identity gate
+reads the tagged baseline package, refuses an unchanged identity, and enforces
+a 0.x minor successor for declared breaking changes. Its negative controls
+reject both unchanged `0.6.0` and patch-only `0.6.1`; `0.7.0` passes. The
+package and changelog now expose `0.7.0`, and the tracked distribution was
+rebuilt so `loaf --version` and new-session `loaf_version_required` agree.
+Focused tests, release-identity verification, full check, package smoke, and
+distribution/source parity passed. GA consistency remains expected to stop at
+the unpublished-worktree/origin boundary; no push, tag, or release occurred.

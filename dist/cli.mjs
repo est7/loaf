@@ -18,7 +18,7 @@ import { jsx, jsxs } from "react/jsx-runtime";
 import process$1 from "node:process";
 import { createServer } from "node:http";
 //#region package.json
-var version = "0.6.0";
+var version = "0.7.0";
 //#endregion
 //#region src/core/crash-log.ts
 /** Sentinel code stamped into the JSON envelope and (when

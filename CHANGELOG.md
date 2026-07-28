@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-07-28
+
+### Changed
+
+- `tasks submit` now accepts only strict CLI-owned id-less task input; task
+  identity, lifecycle status, and execution state are allocated internally.
+- Live mutation no longer accepts the retired
+  `VERIFY.accept → SETTLE.reconcile` transition; historical replay retains its
+  compatibility-only reader.
+- The public `artifact:tasks` schema no longer exposes task-step
+  `evidence_refs`; proof authority lives exclusively in the evidence ledger's
+  `covers[]` relation.
+- Feature-lease diagnostics now preserve malformed `LOCK_INVALID` separately
+  from live-owner `LOCK_TIMEOUT`.
+
+### Architecture
+
+- Centralized attachment authority, feature write leases, mutation commit
+  outcomes, CLI input ingestion, scope closure policy, lifecycle advice, and
+  executable skill supervision contracts.
+- Added adversarially audited architecture acceptance and release-identity
+  gates.
+
 ## [0.6.0] — 2026-07-20
 
 ### Added
@@ -345,6 +368,7 @@ migration.
 - Both fixes RED→GREEN independently reproduced (revert only the predicate with the new tests present → exactly the new negative cases fail; restore → green).
 - `dist/cli.mjs --version` → `0.1.2`.
 
+[0.7.0]: https://github.com/est7/loaf/releases/tag/v0.7.0
 [0.6.0]: https://github.com/est7/loaf/releases/tag/v0.6.0
 [0.5.0]: https://github.com/est7/loaf/releases/tag/v0.5.0
 [0.4.0]: https://github.com/est7/loaf/releases/tag/v0.4.0

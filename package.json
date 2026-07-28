@@ -1,6 +1,6 @@
 {
   "name": "loaf-cli",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Protocol kernel for the loaf feature-lifecycle workflow — single typed journal + in-memory projections.",
   "type": "module",
   "bin": {
@@ -21,6 +21,7 @@
     "gen:i18n": "bun run scripts/gen-i18n-diagnostics.ts",
     "gen:errors": "bun run scripts/gen-error-catalog.ts",
     "verify:codegen": "bun run scripts/gen-fsm-artifacts.ts --check && bun run scripts/gen-i18n-diagnostics.ts --check && bun run scripts/gen-error-catalog.ts --check",
+    "verify:release-identity": "bash scripts/public-contract-version-check.sh",
     "typecheck": "tsc --noEmit",
     "lint": "biome check --formatter-enabled=false --assist-enabled=false src tests tsdown.config.ts package.json tsconfig.json biome.json",
     "format": "biome format --write src tests tsdown.config.ts package.json tsconfig.json biome.json",

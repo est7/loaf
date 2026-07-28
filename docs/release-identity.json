@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "baseline_tag": "v0.6.0",
+  "target_version": "0.7.0",
+  "breaking_changes": [
+    {
+      "task": "A08",
+      "contract": "tasks submit accepts strict CLI-owned id-less task input"
+    },
+    {
+      "task": "A10",
+      "contract": "live apply rejects the retired VERIFY.accept to SETTLE.reconcile edge"
+    },
+    {
+      "task": "A12",
+      "contract": "artifact:tasks no longer exposes task-step evidence_refs"
+    }
+  ]
+}
