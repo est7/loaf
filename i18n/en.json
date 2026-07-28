@@ -628,7 +628,7 @@
     "status":         "Print current state.json + artifact health summary",
     "next":           "Compute the next owner command for the current session",
     "advance":        "Run next transition + diff guard (git status + write_paths AND-merge)",
-    "resume":         "Resume session; --fresh prints minimal context pack for next iteration",
+    "resume":         "Resume session from a handoff pack",
     "handoff":        "Write resume-pack.json for context overflow handoff",
     "spec_submit":    "Validate spec.md against SpecFrontmatter schema and record (strict).",
     "spec_init":      "Scaffold a spec.md template ready for $EDITOR",

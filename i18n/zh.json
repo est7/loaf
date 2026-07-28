@@ -628,7 +628,7 @@
     "status":         "打印当前 state.json + artifact 健康摘要",
     "next":           "计算当前 session 的下一条 owner command",
     "advance":        "执行下一 transition + diff-guard(git status 全口径 ∩ write_paths)",
-    "resume":         "恢复 session;--fresh 输出本轮最小 context pack",
+    "resume":         "从 handoff pack 恢复 session",
     "handoff":        "写 resume-pack.json,context overflow 接力",
     "spec_submit":    "严格按 SpecFrontmatter schema 校验并落 spec.md",
     "spec_init":      "生成 spec.md 模板(适合 $EDITOR 跟进)",

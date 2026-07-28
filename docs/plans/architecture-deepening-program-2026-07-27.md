@@ -72,7 +72,7 @@ replace `Pending` evidence with the commands and results that actually ran.
 | A10 | Retire | Phantom reconcile execution contract | A09 | [x] Complete |
 | A11 | Implement | Canonical lifecycle advice | A06, A10 | [x] Complete |
 | A12 | Retire | Live task-step `evidence_refs` contract | A08 | [x] Complete |
-| A13 | Retire | Dead context-pack contract | A01 | [ ] Pending |
+| A13 | Retire | Dead context-pack contract | A01 | [x] Complete |
 | A14 | Implement | Skill-driven orchestration journey gate | A11, A13 | [ ] Pending |
 | A15 | Implement | Mutation/rebuild replay equivalence | A04 | [ ] Pending |
 | A16 | Implement/close | TUI observability and F-026 disposition | A11 | [ ] Pending |
@@ -794,7 +794,7 @@ projection for new sessions. No journal rewrite.
 
 ## A13 — Dead context-pack contract
 
-**Status:** [ ] Pending
+**Status:** [x] Complete
 **Commit subject:** `docs(core): retire the unused context-pack contract`
 
 ### Destination
@@ -811,13 +811,13 @@ handoff remain the orchestration boundary.
 
 ### Acceptance criteria
 
-- [ ] `src/cli/context-pack-schema.ts` is deleted.
-- [ ] No live machine-contract index points to a dead owner.
-- [ ] Protocol, reference docs, and backlog-facing tracked docs no longer
+- [x] `src/cli/context-pack-schema.ts` is deleted.
+- [x] No live machine-contract index points to a dead owner.
+- [x] Protocol, reference docs, and backlog-facing tracked docs no longer
   promise `loaf context pack` or direct projection reads.
-- [ ] ADR-0004 carries an explicit supersession note rather than rewritten
+- [x] ADR-0004 carries an explicit supersession note rather than rewritten
   history.
-- [ ] Future work requires a fresh consumer-driven spec.
+- [x] Future work requires a fresh consumer-driven spec.
 
 ### Validation
 
@@ -830,7 +830,14 @@ migration.
 
 ### Evidence
 
-Pending.
+- Deleted the unreferenced runtime schema and removed its live
+  machine-contract and dissolution-manifest ownership rows.
+- Protocol and current reference docs now route ephemeral reads through
+  sanctioned CLI queries and persistent transfer through handoff/resume.
+- ADR-0004 keeps the historical A8 decision with an explicit 2026-07-27
+  supersession note and a consumer-driven re-entry condition.
+- The focused docs/protocol/skill suites passed (13 tests), together with
+  typecheck and lint.
 
 ## A14 — Skill-driven orchestration journey gate
 

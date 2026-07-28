@@ -46,7 +46,6 @@ create a second definition.
 | §35 | Presentation flag exclusions | [`src/cli/flag-exclusions.ts`](../src/cli/flag-exclusions.ts) |
 | §36 | Hook events | [`src/core/hook-events.ts`](../src/core/hook-events.ts) |
 | §37 | Finding action risk matrix | [`src/core/finding-schema.ts`](../src/core/finding-schema.ts) |
-| §38 | Context-pack projection and templates | [`src/cli/context-pack-schema.ts`](../src/cli/context-pack-schema.ts) |
 | §39 | Diagnostic codes and error catalog | [`src/core/error-catalog.ts`](../src/core/error-catalog.ts) |
 | §40 | Mutation input schemas and input ingestion | [`src/cli/input-schemas.ts`](../src/cli/input-schemas.ts), [`src/cli/input-ingestion.ts`](../src/cli/input-ingestion.ts) |
 | §41 | Event-name registry | The owning enums and tables above; this index is the navigation surface. |

@@ -32,14 +32,13 @@ These are characterized in `tests/core/schemas-divergence-characterization.test.
 
 The same test file snapshots exact current JSON Schema output for all ten public emit surfaces: five mutator inputs and five artifacts. Those snapshots are an output-compatibility gate, not a claim that the docs copies are runtime-canonical.
 
-## Proposed homes for the five previously unassigned groups
+## Proposed homes for the remaining previously unassigned groups
 
 | Export/group             | Proposed domain home                          | Reason                                                                                                           |
 | ------------------------ | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | `TraceEvent`             | `src/cli/trace-writer.ts (PROPOSED)`          | Trace serialization belongs with the CLI trace writer boundary.                                                  |
 | `CONCURRENCY_INVARIANTS` | `src/core/concurrency-contract.ts (PROPOSED)` | Cross-command concurrency policy needs one core contract owner.                                                  |
 | `FLAG_EXCLUSIONS`        | `src/cli/flag-exclusions.ts (PROPOSED)`       | Flag normalization/exclusion is CLI presentation policy.                                                         |
-| `CONTEXT_PACK_TEMPLATES` | `src/cli/context-pack-schema.ts (PROPOSED)`   | Context-pack projection and templates vary together at the CLI boundary.                                         |
 | `InputSourceResolver`    | `src/cli/input-ingestion.ts`                  | Source selection belongs beside actual stdin/inline/file parsing; the discriminant divergence is explicit below. |
 
 ## Export manifest
@@ -229,9 +228,6 @@ The same test file snapshots exact current JSON Schema output for all ten public
 | `FindingActionRisk`                 | type  | `src/core/finding-schema.ts`                   | `src/core/finding-schema.ts::FindingActionRisk`                             | keep-runtime       | Exact runtime mirror already exists at the target domain boundary.                                                         |
 | `FINDING_ACTION_GRID`               | value | `src/core/finding-schema.ts`                   | `src/core/finding-schema.ts::FINDING_ACTION_GRID`                           | keep-runtime       | Exact runtime mirror already exists at the target domain boundary.                                                         |
 | `FINDING_UNUSUAL_REASON_MIN_LENGTH` | value | `src/core/finding-schema.ts`                   | `src/core/finding-schema.ts::FINDING_UNUSUAL_REASON_MIN_LENGTH`             | keep-runtime       | Exact runtime mirror already exists at the target domain boundary.                                                         |
-| `ContextPackProjection`             | value | `src/cli/context-pack-schema.ts (PROPOSED)`    | `—`                                                                         | n/a                | —                                                                                                                          |
-| `ContextPackProjection`             | type  | `src/cli/context-pack-schema.ts (PROPOSED)`    | `—`                                                                         | n/a                | —                                                                                                                          |
-| `CONTEXT_PACK_TEMPLATES`            | value | `src/cli/context-pack-schema.ts (PROPOSED)`    | `—`                                                                         | n/a                | —                                                                                                                          |
 | `DiagnosticCode`                    | value | `src/core/error-catalog.ts (PROPOSED)`         | `—`                                                                         | n/a                | —                                                                                                                          |
 | `DiagnosticCode`                    | type  | `src/core/error-catalog.ts (PROPOSED)`         | `—`                                                                         | n/a                | —                                                                                                                          |
 | `ErrorEntry`                        | value | `src/core/error-catalog.ts (PROPOSED)`         | `—`                                                                         | n/a                | —                                                                                                                          |
@@ -275,7 +271,6 @@ Counts include value and type exports separately, matching the 209-row closure.
 | `src/core/resume-pack-schema.ts`               |       5 |
 | `src/core/migration.ts`                        |       4 |
 | `src/core/reducer/transition.ts`               |       4 |
-| `src/cli/context-pack-schema.ts (PROPOSED)`    |       3 |
 | `src/core/escalation-schema.ts (PROPOSED)`     |       3 |
 | `src/core/sub-state-contracts.ts`              |       3 |
 | `src/cli/input-ingestion.ts`                   |       2 |

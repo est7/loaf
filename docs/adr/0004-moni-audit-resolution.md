@@ -192,6 +192,13 @@ Incoherent 4 格全部满足「结构性无 target 可 apply」判据:`spec-gap 
 
 ### A8 · `loaf context pack` 替代 `loaf resume --fresh`(Q8)
 
+> **Superseded 2026-07-27:** A8's proposed command and template table were
+> never implemented or consumed. The dead schema has been removed. Persistent
+> cross-session transfer remains `loaf handoff` / `loaf resume`; ephemeral
+> reads use sanctioned CLI queries. Any future context-selection facility
+> requires a fresh, consumer-driven specification and is not implied by this
+> historical decision.
+
 **(a) 决策**:
 - 新增 `loaf context pack [--phase auto|<sub_state>] [--format json|text]`,phase-aware 输出当前 phase 需要的最小上下文
 - `loaf resume --fresh` flag 砍,`loaf resume` 只管 handoff 恢复(读 resume-pack.json)

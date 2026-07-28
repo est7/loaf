@@ -2,12 +2,14 @@
 
 > **Status**: normative reference for the rev 4.3 Tier 1 mutator
 > family (`spec add-req`, `spec add-scenario`, `spec add-visual`,
-> `tasks add`, `evidence add`) plus the supporting Tier 1.5
-> `loaf context pack` command. These principles are frozen with
+> `tasks add`, `evidence add`). The former supporting context-pack proposal is
+> retained as history only; it does not promise a command or wire contract.
+> Persistent transfer uses `loaf handoff`, and a future context selector
+> requires a fresh consumer-driven design. These principles are frozen with
 > `adr/0004-moni-audit-resolution.md` (A1 / A2 / A3 / A5 / A6 /
 > A8 / A10 / A11). This document explains why each principle
 > exists; the wire-level contracts live in `protocol.md` §10 +
-> §4 and the machine bindings in `schemas.ts` §40 + §39 + §38.
+> §4 and their current runtime owners.
 >
 > Companion to `references/loaf-skill-helpers.md` (the three-layer
 > architecture) and `references/finding-matrix-rationale.md` (the
@@ -210,24 +212,22 @@ instruction.
 worked JSON examples at the top (clig.dev §5), so an LLM seeing
 `--help` output gets an immediately usable shape.
 
-## 9. Principle: phase-aware context packing replaces `--fresh`
+## 9. Retired proposal: phase-aware context packing
 
 (ADR-0004 A8.)
 
-`loaf resume --fresh` originally bundled two responsibilities:
-genuine handoff recovery (read `resume-pack.json` and rebuild
-context) and routine phase-switch slicing (give the LLM just
-enough state for the current sub_state). Splitting them surfaces
-their independent semantics:
+`loaf resume --fresh` was proposed to bundle genuine handoff recovery with
+routine phase-switch slicing. Neither the flag nor a generic context selector
+shipped. The current boundary is:
 
 - `loaf resume` — handoff only, rare
-- `loaf context pack [--phase auto|<sub_state>] [--format json|text]`
-  — routine, called after every phase switch
+- sanctioned read-only CLI queries — ephemeral state selection
+- no live command or generic context-pack schema
 
-`CONTEXT_PACK_TEMPLATES` (`schemas.ts` §38) maps each of the 20
-sub_states to an `include` / `exclude` projection. The CLI assembles
-the projection from canonical artifacts; skills can pipe through
-`jq` or `head -N` if they want further trimming.
+The former `CONTEXT_PACK_TEMPLATES` proposal mapped each substate to an
+`include` / `exclude` projection. It had no consumer and is not a live
+contract. A future selector must start from a concrete consumer and its
+observable requirements.
 
 Observed token saving when LLM skills switched from "send whole
 spec + whole tasks.json + whole evidence.jsonl" to phase-targeted
@@ -274,7 +274,7 @@ Fix-templates would be misleading there.
   especially A2 / A3 / A5 / A6 / A8 / A10 / A11)
 - Machine bindings:
   - `schemas.ts` §37 `FINDING_ACTION_GRID`
-  - `schemas.ts` §38 `CONTEXT_PACK_TEMPLATES`
+  - the retired §38 `CONTEXT_PACK_TEMPLATES` proposal
   - `schemas.ts` §39 `ERROR_CATALOG`
   - `schemas.ts` §40 `INPUT_SCHEMAS` + `InputSourceResolver`
 - Protocol surface:

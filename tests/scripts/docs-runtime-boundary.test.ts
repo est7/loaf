@@ -1,4 +1,4 @@
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -30,5 +30,18 @@ describe("docs/runtime boundary", () => {
 
   test("the legacy docs/schemas facade is absent", () => {
     expect(existsSync(path.join(DOCS_ROOT, "schemas.ts"))).toBe(false);
+  });
+
+  test("the retired context-pack contract has no live owner or command promise", () => {
+    expect(existsSync(path.join(REPO_ROOT, "src", "cli", "context-pack-schema.ts"))).toBe(false);
+    const liveDocs = [
+      "docs/machine-contract.md",
+      "docs/protocol.md",
+      "docs/references/incremental-construction.md",
+    ].map((relative) => readFileSync(path.join(REPO_ROOT, relative), "utf8"));
+    for (const doc of liveDocs) {
+      expect(doc).not.toMatch(/`loaf context pack(?:\s|\[)/);
+      expect(doc).not.toContain("src/cli/context-pack-schema.ts");
+    }
   });
 });

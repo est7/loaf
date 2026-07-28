@@ -1015,7 +1015,7 @@ gate / submit / transition / diff-guard 失败时**覆写**到 `.loaf/<feature>/
 
 ### 4.9 resume-pack.json(rev 3.1 新)
 
-> **Authority**: 派生投影(handoff 快照,允许 stale;`loaf handoff` 触发 reducer 重计算;`loaf context pack` 为 F-025 future,未在 v0.1.0 实装)。
+> **Authority**: 派生投影(handoff 快照,允许 stale;`loaf handoff` 触发 reducer 重计算)。未被消费的 context-pack 提案已退役；需要最小上下文选择时必须从具体 consumer 重新立约。
 
 **仅** `loaf handoff` 显式触发(context overflow 检测是 loaf-skill 的事,loaf-cli 只持久化):
 
@@ -1317,11 +1317,7 @@ predicate（含 manual/waiver actor+reason、VIS visual-review attachment）；�
 
 ### 6.5 Fresh context per iteration
 
-```bash
-loaf resume --fresh
-```
-
-输出当前 iteration 的最小 context pack:当前 spec.md + 触发本轮的 finding + open findings + 当前 sub_state 期望产出。**工程建议,非 protocol 强制**。
+输出当前 iteration 的必要上下文时，调用方使用受支持的只读 CLI 查询；跨 session 持久接力使用 `loaf handoff`。协议不定义通用 context-pack wire contract。
 
 ---
 
@@ -1972,7 +1968,6 @@ error: input does not satisfy schema for spec:add-req: /measurable/threshold: ex
 - `loaf gate decide` ✅
 - `loaf config init` ✅(rev 5.0:`--global` 写 user config;noun-first,非 bare `loaf init`,见 ADR-0007 §1)
 - `loaf sessions list` ✅
-- `loaf context pack` ⏳(命名锁定 rev 4.3,但 **inventory:future / F-025 延后,未在 v0.1.0 实装**;见 §10.8)
 
 **Chaos deviation — session lifecycle 命令保留单 verb**(git-style muscle memory):
 - `loaf start` / `loaf status` / `loaf advance` / `loaf resume` / `loaf handoff`
@@ -2134,8 +2129,7 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 | `loaf next [--session <value>] [--feature <value>] [--feature-dir <value>]` | **read-only**:从 cursor + ceremony + pending head + VERIFY applicability 计算确定的下一条 owner command(`advance` / `deliver` / `settle` / `gate decide` / `tasks next` / `pending resolve` / `profile escalate`)。`buildScopedNextOutput` 为 `loaf next` 与 mutation success advisory 共用同一 core routing 结果和 selector renderer；session dispatch 保留 canonical UUID，显式 feature-dir 保留路径，其余保留 feature selector。仅 gate / pending / human-input stop 输出 `blocked=true`;terminal state 省略 `next_action` | 0 / 2 |
 | `loaf advance <to> [--feature <value>] [--feature-dir <value>]` | 跑下一 transition + diff guard | 0 / 1 / 2 |
 | `loaf spec status [--feature <value>] [--feature-dir <value>]` | **ticket #12 observability v1**:read-only spec-lock diagnostic，语义输入完全由 journal replay 后的 `Snapshot` 通过共享纯构造器重建，不读取派生 `spec.md`。既有 gate approval 仍在 `spec-lock-eval.ts` 保留 `spec.md` check-1 IO/error boundary，边界通过后与本查询共用 replay evaluator，保证 checks 2–8 与排序不漂移。JSON envelope exact keys=`{ok,all_pass,failures,suppressed_checks}`；failure row exact keys=`{check,code,message,detail}`(`detail:null` when absent)；suppressed row exact keys=`{check,blocked_by}`。check 3 失败时显式列 `{check:4|6|7,blocked_by:3}`，checks 2/5/8 仍照常运行；完整 pass/NA 对称 taxonomy 延后。text 仅输出 failure/suppressed rows，clean 时输出 localized pass line。exit 0 表示诊断完成，`all_pass` 承载 gate 是否全过；`--dry-run` reject | 0 / 2 |
-| `loaf resume [--feature <value>] [--feature-dir <value>]` | **rev 5.0 / Phase 16 SC-13b**:mutator,从 `<feature-dir>/snapshots/resume-pack.json` 接力恢复 session。读取并 `RuntimeResumePack.safeParse` 校验 pack(失败 → `SCHEMA_VALIDATION_FAILED` + subcode `invalid-json` / `zod`;pack 不存在 → `INPUT_FILE_NOT_FOUND` 引导跑 `loaf handoff`);emit 单条 `session:resumed` journal entry,payload `{resumed_from_pack: {at, reason, session_id}}` 为 typed `SessionResumedPayload`(替换 rev 4 的 loose RecordPayload)。**reducer no-op**:cursor 和所有 projection 保持不变(transparent marker);`session:resumed` 走 `REDUCER_IMPLEMENTED_KINDS`(SC-13b 后所有 EntryKind 都实装,invariant 锁在 `tests/core/reducer.test.ts` 的 "REDUCER_IMPLEMENTED_KINDS covers every EntryKind")。`--dry-run` 走标准 mutate dry-run path(pack 校验通过 + journal 不写)。actor 默认 `cli:loaf@$USER`(PER_KIND_ACTOR 允许 human/skill/ci/cli,不强制 human)。**rev 4.3**(ADR-0004 A8):`--fresh` flag 已砍 — routine phase-switch 上下文切片改走 `loaf context pack`(SC-13 范围外,**延后到 F-025**)| 0 / 2 |
-| `loaf context pack [--phase auto\|<sub_state>] [--format json\|text]` <!-- inventory:future reason="Phase 16 F-025 — SC-13 deferred; CONTEXT_PACK_TEMPLATES wire contract (§38) requires lockstep full-resolver implementation across all 16 sub_states before shipping" --> | **rev 4.3**(ADR-0004 A8):phase-aware context pack(`CONTEXT_PACK_TEMPLATES` 见 `src/cli/context-pack-schema.ts`)— 每 sub_state 输出当前 phase 需要的最小上下文 slice。**Phase 16 SC-13 推迟到 F-025**:该 wire contract 要求 CLI 投影支持每条 template tag,partial resolver + future warning 违反契约。v0.1.0 跨 feature 模式查阅走 `state.json` 直读 | 0 |
+| `loaf resume [--feature <value>] [--feature-dir <value>]` | **rev 5.0 / Phase 16 SC-13b**:mutator,从 `<feature-dir>/snapshots/resume-pack.json` 接力恢复 session。读取并 `RuntimeResumePack.safeParse` 校验 pack(失败 → `SCHEMA_VALIDATION_FAILED` + subcode `invalid-json` / `zod`;pack 不存在 → `INPUT_FILE_NOT_FOUND` 引导跑 `loaf handoff`);emit 单条 `session:resumed` journal entry,payload `{resumed_from_pack: {at, reason, session_id}}` 为 typed `SessionResumedPayload`(替换 rev 4 的 loose RecordPayload)。**reducer no-op**:cursor 和所有 projection 保持不变(transparent marker);`session:resumed` 走 `REDUCER_IMPLEMENTED_KINDS`(SC-13b 后所有 EntryKind 都实装,invariant 锁在 `tests/core/reducer.test.ts` 的 "REDUCER_IMPLEMENTED_KINDS covers every EntryKind")。`--dry-run` 走标准 mutate dry-run path(pack 校验通过 + journal 不写)。actor 默认 `cli:loaf@$USER`(PER_KIND_ACTOR 允许 human/skill/ci/cli,不强制 human)。`--fresh` 与未落地的通用 context-pack contract 均已退役；跨 feature 接力使用 `loaf handoff` / `loaf resume`，临时查询使用受支持的只读命令。| 0 / 2 |
 | `loaf handoff --reason <value> [--notes <value>] [--feature <value>] [--feature-dir <value>]` | **rev 5.0 / Phase 16 SC-13a**:read-side projection writer。`buildResumePack` 从当前 snapshot + journal entries 派生 `ResumePack`,经 `composeStateProjection` 拼出完整 `state_snapshot`,active 任务集 + 当前 running step + 最近 N=`RESUME_PACK_RECENT_CAP=10` 个 evidence/finding ID + FIFO head pending 一并打包。**不** emit 新 journal entry;原子 tmp+rename 写到 `<feature-dir>/snapshots/resume-pack.json`。`--reason` REQUIRED ≥5 字符,`--notes` 可选自由文本。`actor` 必须 `human:*`(决策门,非 pack 内部录入 —— ResumePack 无 actor 字段)。**NEW dry-run 类别 `projection-writer`**:`--dry-run` reject `DRY_RUN_NOT_APPLICABLE` + `detail.command_type="projection-writer"`(read-only / wrapping / projection-writer / mutating 四类,§10.7) | 0 / 2 |
 | `loaf config init [--global]` | **config-init**:scaffold config without journal entry。默认写 cwd-root `.loaf/.config/loaf.config.json`,内容为完整 §21 `LoafConfig` defaults(6 sections,每 key 显式)并带 top-level `_comment` 作为 output-only affordance;`--global` 写 `~/.loaf/config.json`,仅 UserConfig shape `{schema_version, locale.default_lang}`。拒绝覆盖已有文件:`CONFIG_ALREADY_INITIALIZED` + `detail.config_path`;final write 用 exclusive create(`wx`)兜 race。`--dry-run` reject `DRY_RUN_NOT_APPLICABLE` + `detail.command_type="scaffold-writer"`。repoRoot 为 cwd-root,非 git-root discovery | 0 / 2 |
 | `loaf spec submit --input <value> [--feature <value>] [--feature-dir <value>]` | 提交 spec.md,严格 schema 校验。**Slice 1.B sub-cycle 1**:emit atomic batch `[spec_submitted(reset), spec_req_added × N, spec_scenario_added × M, spec_visual_added × K]`(共享 batch_id + spec_version,reducer 在头 entry 重置 projection 三数组并 bump `state.spec_version`,companion entries 同 batch 内重填)。**Phase 16 SC-4a**:`--input <src>` 接统一 modality(`-` stdin / inline JSON / file path,§10.7);whole-replacement,**仅接 single object**(不接 array)。TTY no-hang guard 见 §10.1。 | 0 / 2 |
@@ -2228,7 +2222,7 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 | `loaf profile escalate --confirm --input <ceremony.json>` | atomic 2-entry batch:`event:ceremony_set`(新 ceremony) + `pending:resolved`(answers `profile_escalation` head) — 顺序固定:`event:ceremony_set` 在前,preflight 5c.4 守卫才看得到未 resolved 的 `profile_escalation` head |
 | `loaf lessons add` | `lesson:recorded`(actor `human:*`;payload `LessonRecordedPayload@1`;CLI 分配独立 `LSN-NNN`;`lessons.md` 与 legacy lesson evidence 双读) |
 
-Read-only 命令(`loaf status` / `loaf spec status` / `loaf tasks list` / `loaf tasks next` / `loaf verify status` / `loaf finding list` / `loaf pending list` / `loaf pending status` / `loaf sessions list` / `loaf <artifact> schema` / `loaf check <path>` / `loaf tui` / `loaf handoff` / `loaf hook *` 中的 non-mutating event)**不**写 journal(`tasks check` / `context pack` 为 inventory:future,未在 v0.1.0 实装)。**实现状态(Phase 15 SC3)**:Gate #5 fast-check 是这些命令的**目标契约**,但当前 binary 只把 5 个命令(`loaf status` / `tasks list` / `pending list` / `finding list` / `evidence list`)切到 `projection-loader`(读 `snapshots/*.json` + M0-anchored 双 fast-check,见 §10.15);其它读命令(含 pure-replay `loaf spec status`)仍走 `loadSession` 全 journal replay,后续 slice 逐个迁移。
+Read-only 命令(`loaf status` / `loaf spec status` / `loaf tasks list` / `loaf tasks next` / `loaf verify status` / `loaf finding list` / `loaf pending list` / `loaf pending status` / `loaf sessions list` / `loaf <artifact> schema` / `loaf check <path>` / `loaf tui` / `loaf handoff` / `loaf hook *` 中的 non-mutating event)**不**写 journal(`tasks check` 为 inventory:future,未在 v0.1.0 实装)。**实现状态(Phase 15 SC3)**:Gate #5 fast-check 是这些命令的**目标契约**,但当前 binary 只把 5 个命令(`loaf status` / `tasks list` / `pending list` / `finding list` / `evidence list`)切到 `projection-loader`(读 `snapshots/*.json` + M0-anchored 双 fast-check,见 §10.15);其它读命令(含 pure-replay `loaf spec status`)仍走 `loadSession` 全 journal replay,后续 slice 逐个迁移。
 
 ### 10.9 Exit codes
 
@@ -2309,7 +2303,7 @@ next: <suggested next command>            # 可选,仅在有强自然下一步�
 | `loaf tasks register-red` | `tasks register-red: <task_id>` | — |
 | `loaf doctor --rebuild` | `doctor rebuild: rebuilt N projection file(s) for <feature>` | — |
 
-**read-only 命令**(`loaf status` / `loaf spec status` / `loaf journal list`(`loaf log` alias) / `loaf tasks list` / `loaf tasks complete` / `loaf evidence list` / `loaf finding list` / `loaf verify status` / `loaf sessions list` / `loaf doctor` / `loaf evidence schema` / `loaf <artifact> schema --format=json` / 任何 `--schema --format=json` modifier 调用)**不出 state-change line**(它们就是查询)。`loaf context pack` 同属此类但 **F-025 future,未在 v0.1.0 实装**。
+**read-only 命令**(`loaf status` / `loaf spec status` / `loaf journal list`(`loaf log` alias) / `loaf tasks list` / `loaf tasks complete` / `loaf evidence list` / `loaf finding list` / `loaf verify status` / `loaf sessions list` / `loaf doctor` / `loaf evidence schema` / `loaf <artifact> schema --format=json` / 任何 `--schema --format=json` modifier 调用)**不出 state-change line**(它们就是查询)。
 
 **`--quiet` 行为**:抑制 state-change + next hint 行;主输出(stdout)正常;错误仍出。
 
@@ -2810,7 +2804,7 @@ v1.0 严格 FIFO:resolve 永远 pop `pending[0]`,不接 `--id` flag。理由:5 �
 
 理由(详 ADR-0004):rev 4.3 净加 5 个 Tier 1 mutator + 1 个 context 命令组 + 4 个 const 表 + 9 个 error codes,**对任何 rev 4.2 写法行为不变**(不是 breaking change)。与 schema/phase/hook 这种「读旧文件 / 调旧 hook 会出错」的真 breaking 改动不同,additive surface 是设计期合法演进路径;命名为 rev 4.3 而非 rev 5 也是为了保「4.x 是稳定骨架,小数点是 polish」的语义对外信号。
 
-第 3 条「不允许新增 top-level CLI 子命令」按上文 rewording 解读:GA tag 之后冻结,GA tag 之前 ADR-trail 下允许加(rev 4.3 添加的 `loaf spec add-*` 即此路径下落地;`loaf context pack` 在此路径锁定命名,但实装延后 F-025,未在 v0.1.0)。
+第 3 条「不允许新增 top-level CLI 子命令」按上文 rewording 解读:GA tag 之后冻结,GA tag 之前 ADR-trail 下允许加(rev 4.3 添加的 `loaf spec add-*` 即此路径下落地)。未实现且无 consumer 的命令名不因旧提案获得保留权。
 
 ---
 
