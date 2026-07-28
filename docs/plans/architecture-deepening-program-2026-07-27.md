@@ -60,7 +60,7 @@ replace `Pending` evidence with the commands and results that actually ran.
 | ID | Destination | Task | Depends on | Status |
 | --- | --- | --- | --- | --- |
 | A00 | Persist | Architecture program and acceptance ledger | — | [x] Complete |
-| A01 | Implement | Hermetic verification boundary | A00 | [ ] Pending |
+| A01 | Implement | Hermetic verification boundary | A00 | [x] Complete |
 | A02 | Implement | Public AttachmentRef containment | A01 | [ ] Pending |
 | A03 | Implement | Attachment authority module | A02 | [ ] Pending |
 | A04 | Implement | Feature write lease | A03 | [ ] Pending |
@@ -125,7 +125,7 @@ runtime or persistent data.
 
 ## A01 — Hermetic verification boundary
 
-**Status:** [ ] Pending
+**Status:** [x] Complete
 **Commit subject:** `test: isolate suite discovery and user configuration`
 
 ### Destination
@@ -149,13 +149,13 @@ failures instead of the repository's single test tree.
 
 ### Acceptance criteria
 
-- [ ] Vitest includes only the root `tests/**` tree and explicitly excludes
+- [x] Vitest includes only the root `tests/**` tree and explicitly excludes
   nested `.claude/worktrees/**`.
-- [ ] The global test setup uses an isolated temporary home in addition to the
+- [x] The global test setup uses an isolated temporary home in addition to the
   existing isolated registry.
-- [ ] Focused locale tests still prove explicit `LOAF_LANG`, user-config, and
+- [x] Focused locale tests still prove explicit `LOAF_LANG`, user-config, and
   ambient-locale precedence.
-- [ ] A full test run contains no nested worktree test paths and passes from a
+- [x] A full test run contains no nested worktree test paths and passes from a
   host with a Chinese user preference.
 
 ### Validation
@@ -170,7 +170,16 @@ unchanged.
 
 ### Evidence
 
-Pending.
+- RED baseline: default discovery ran 460 files / 7,347 tests, including two
+  `.claude/worktrees` trees, and failed 75 tests after inheriting the real
+  Chinese user config.
+- `bunx vitest run tests/cli/i18n.test.ts tests/core/user-config.test.ts tests/cli/format-flag.test.ts tests/cli/check-file-end-to-end.test.ts`
+  — 4 files, 60 tests passed.
+- `bunx vitest run tests/scripts/protocol-contract-gates.test.ts tests/core/registry-writer.test.ts`
+  — 2 files, 15 tests passed.
+- `bun run test` — root tree only, 170 files and 2,615 tests passed.
+- `bun run lint` — 320 files checked.
+- `bun run typecheck` — passed.
 
 ## A02 — Public AttachmentRef containment
 

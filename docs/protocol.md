@@ -1705,6 +1705,7 @@ skill / hook 把 loaf 输出 pipe 时依赖这条约定:
 | `LOAF_DOCS_URL` | build-only | tsdown build-time help footer URL stamping | ✅ |
 | `LOAF_ISSUE_URL` | build-only | tsdown build-time crash-report URL stamping | ✅ |
 | `HOME` | test-only | CLI exit-semantics test process-home override；production source 不直接读取 | 通用 |
+| `USERPROFILE` | test-only | Windows test process-home override；production source 不直接读取 | Windows |
 
 **`LOAF_*` 命名**:UPPER_SNAKE,单行。**Secrets 不走 env**(loaf 不处理 secret,future-proof)。
 

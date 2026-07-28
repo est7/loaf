@@ -288,7 +288,7 @@ describe("SC-7 — defaultRegistryDir contract + test isolation (codex r281 P1)"
   });
 
   test("T11-isolation: under test runs, vitest setup makes defaultRegistryDir NOT point at real ~/.loaf/registry", () => {
-    // The vitest setup file (tests/setup-registry-isolation.ts) creates
+    // The vitest setup file (tests/setup-environment-isolation.ts) creates
     // a tmp dir + sets LOAF_REGISTRY_DIR. Any test that doesn't override
     // gets the tmp dir, NOT the real user registry. This is the
     // hermetic-suite guarantee codex r281 P1 required.
