@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  AttachmentRef,
   BatchId,
   Ceremony,
   CeremonyLabel,
@@ -52,6 +53,45 @@ describe("journal-entry machine contracts", () => {
     expect(Phase.safeParse("EXECUTE").success).toBe(true);
     expect(Phase.safeParse("UNKNOWN").success).toBe(false);
     expect(CeremonyLabel.safeParse("").success).toBe(true);
+  });
+
+  test.each([
+    "../outside.txt",
+    "attachments/../outside.txt",
+    "/tmp/outside.txt",
+    "C:\\temp\\outside.txt",
+    "\\\\server\\share\\outside.txt",
+    "attachments\\JE-000001\\summary.txt",
+    "attachments/JE-000001/../summary.txt",
+    "attachments/JE-000001/./summary.txt",
+    "attachments//JE-000001/summary.txt",
+    "attachments/JE-000001/",
+    "attachments/not-an-entry/summary.txt",
+    "other/JE-000001/summary.txt",
+    "attachments/JE-000001/sum\u0000mary.txt",
+  ])("AttachmentRef rejects non-canonical path %j", (refPath) => {
+    expect(
+      AttachmentRef.safeParse({
+        path: refPath,
+        sha256: "a".repeat(64),
+        size: 1,
+      }).success,
+    ).toBe(false);
+  });
+
+  test("AttachmentRef accepts canonical entry-owned and nested migration paths", () => {
+    for (const refPath of [
+      "attachments/JE-000001/summary.txt",
+      "attachments/JE-000000/migration/state.json",
+    ]) {
+      expect(
+        AttachmentRef.safeParse({
+          path: refPath,
+          sha256: "a".repeat(64),
+          size: 1,
+        }).success,
+      ).toBe(true);
+    }
   });
 
   test("LessonRecordedPayload@1 accepts only the strict lesson contract", () => {

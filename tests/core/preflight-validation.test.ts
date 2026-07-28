@@ -196,7 +196,11 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
   });
 
   test("migration:snapshot_imported requires migration: actor", () => {
-    const refStub = { path: "x", sha256: "0".repeat(64), size: 0 };
+    const refStub = {
+      path: "attachments/JE-000001/migration/state.json",
+      sha256: "0".repeat(64),
+      size: 0,
+    };
     const validMigrationPayload = {
       source_schema_version: 1,
       migrated_at: "2026-05-15T10:00:00.000Z",

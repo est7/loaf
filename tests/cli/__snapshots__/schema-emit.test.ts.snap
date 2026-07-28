@@ -89,7 +89,8 @@ exports[`current public schema output baseline > artifact:evidence 1`] = `
                         "properties": {
                           "path": {
                             "type": "string",
-                            "minLength": 3
+                            "minLength": 1,
+                            "pattern": "^attachments\\\\/JE-\\\\d{6,}\\\\/[^/\\\\\\\\\\\\0]+(?:\\\\/[^/\\\\\\\\\\\\0]+)*$"
                           },
                           "sha256": {
                             "type": "string",
@@ -2459,63 +2460,21 @@ exports[`current public schema output baseline > input:evidence:add 1`] = `
               "minLength": 3
             },
             {
-              "oneOf": [
-                {
-                  "type": "object",
-                  "properties": {
-                    "mode": {
-                      "type": "string",
-                      "const": "inline"
-                    },
-                    "text": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "mode",
-                    "text"
-                  ],
-                  "additionalProperties": false
+              "type": "object",
+              "properties": {
+                "mode": {
+                  "type": "string",
+                  "const": "inline"
                 },
-                {
-                  "type": "object",
-                  "properties": {
-                    "mode": {
-                      "type": "string",
-                      "const": "sidecar"
-                    },
-                    "ref": {
-                      "type": "object",
-                      "properties": {
-                        "path": {
-                          "type": "string",
-                          "minLength": 3
-                        },
-                        "sha256": {
-                          "type": "string",
-                          "pattern": "^[a-f0-9]{64}$"
-                        },
-                        "size": {
-                          "type": "integer",
-                          "minimum": 0,
-                          "maximum": 9007199254740991
-                        }
-                      },
-                      "required": [
-                        "path",
-                        "sha256",
-                        "size"
-                      ],
-                      "additionalProperties": false
-                    }
-                  },
-                  "required": [
-                    "mode",
-                    "ref"
-                  ],
-                  "additionalProperties": false
+                "text": {
+                  "type": "string"
                 }
-              ]
+              },
+              "required": [
+                "mode",
+                "text"
+              ],
+              "additionalProperties": false
             }
           ]
         },
@@ -2697,63 +2656,21 @@ exports[`current public schema output baseline > input:evidence:add 1`] = `
                 "minLength": 3
               },
               {
-                "oneOf": [
-                  {
-                    "type": "object",
-                    "properties": {
-                      "mode": {
-                        "type": "string",
-                        "const": "inline"
-                      },
-                      "text": {
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "mode",
-                      "text"
-                    ],
-                    "additionalProperties": false
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "const": "inline"
                   },
-                  {
-                    "type": "object",
-                    "properties": {
-                      "mode": {
-                        "type": "string",
-                        "const": "sidecar"
-                      },
-                      "ref": {
-                        "type": "object",
-                        "properties": {
-                          "path": {
-                            "type": "string",
-                            "minLength": 3
-                          },
-                          "sha256": {
-                            "type": "string",
-                            "pattern": "^[a-f0-9]{64}$"
-                          },
-                          "size": {
-                            "type": "integer",
-                            "minimum": 0,
-                            "maximum": 9007199254740991
-                          }
-                        },
-                        "required": [
-                          "path",
-                          "sha256",
-                          "size"
-                        ],
-                        "additionalProperties": false
-                      }
-                    },
-                    "required": [
-                      "mode",
-                      "ref"
-                    ],
-                    "additionalProperties": false
+                  "text": {
+                    "type": "string"
                   }
-                ]
+                },
+                "required": [
+                  "mode",
+                  "text"
+                ],
+                "additionalProperties": false
               }
             ]
           },

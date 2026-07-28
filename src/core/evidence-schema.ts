@@ -33,6 +33,11 @@ import { z } from "zod";
 
 import { ReqIdPayload, ScenIdPayload, VisIdPayload } from "./spec-schema.js";
 import { TaskIdPayload } from "./task-schema.js";
+import {
+  InlineLongTextField,
+  LongTextField,
+  type LongTextField as LongTextFieldValue,
+} from "./attachment-ref.js";
 
 // ── EvidenceKind / EvidenceResult enums ─────────────────────────────────
 
@@ -91,19 +96,8 @@ export type AttachmentPayload = z.infer<typeof AttachmentPayload>;
 // journal-mutate. Pass 1 (strict schema validate) sees inline form; Pass 3
 // (post-promote dry-run) sees sidecar form — both must pass the union.
 
-const AttachmentRefShape = z
-  .object({
-    path: z.string().min(3),
-    sha256: z.string().regex(/^[a-f0-9]{64}$/),
-    size: z.number().int().nonnegative(),
-  })
-  .strict();
-
-export const LongTextFieldPayload = z.discriminatedUnion("mode", [
-  z.object({ mode: z.literal("inline"), text: z.string() }).strict(),
-  z.object({ mode: z.literal("sidecar"), ref: AttachmentRefShape }).strict(),
-]);
-export type LongTextFieldPayload = z.infer<typeof LongTextFieldPayload>;
+export const LongTextFieldPayload = LongTextField;
+export type LongTextFieldPayload = LongTextFieldValue;
 
 // SummaryField — string for short summaries, LongTextField for long ones
 // that may need sidecar promotion. Plain string is the typical case for
@@ -216,8 +210,13 @@ export type EvidenceFull = z.infer<typeof EvidenceFullPayload>;
 // latter is .refine()'d and Zod can't .omit() a ZodEffects. .strict()
 // rejects caller-supplied `id` / unknown keys at the contract layer.
 // Attachments require full metadata (path/sha256/mime/bytes?) until
-// ADR-0004 A6 auto-hash materialization lands in a future SC.
-export const EvidenceAddInput = EvidenceFullShape.omit({ id: true }).strict();
+// ADR-0004 A6 auto-hash materialization lands in a future SC. Internal
+// LongTextField sidecar refs are persistence state: callers may submit only a
+// string or inline text and let the mutation pipeline materialize any sidecar.
+const EvidenceAuthoringSummary = z.union([z.string().min(3), InlineLongTextField]);
+export const EvidenceAddInput = EvidenceFullShape.extend({ summary: EvidenceAuthoringSummary })
+  .omit({ id: true })
+  .strict();
 export type EvidenceAddInput = z.infer<typeof EvidenceAddInput>;
 
 // Batch wrapper per protocol §10.7 INPUT_SCHEMAS contract (codex r230

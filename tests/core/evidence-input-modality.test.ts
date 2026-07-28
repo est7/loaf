@@ -17,6 +17,7 @@
 //     (not USAGE; codex r230 PATCH D consistency with tasks add strict)
 
 import { describe, expect, test } from "vitest";
+import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -318,6 +319,51 @@ describe("Phase 16 SC-4c — `loaf evidence add` error paths", () => {
     expect(r.stderr).toContain("SCHEMA_VALIDATION_FAILED");
   });
 
+  test("caller-supplied persistence sidecar is rejected before append or projection read", async () => {
+    const { dir, feature } = await seedQuickAtExecuteWork();
+    const outsideDir = await tmpFeatureDir();
+    const sentinelBody = "ATTACHMENT_AUTHORITY_SENTINEL";
+    const sentinelPath = path.join(outsideDir, "sentinel.txt");
+    await fs.writeFile(sentinelPath, sentinelBody);
+    const relativeEscape = path.relative(dir, sentinelPath).split(path.sep).join("/");
+    const beforeJournal = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
+
+    const r = await runCli([
+      "evidence",
+      "add",
+      "--input",
+      JSON.stringify({
+        ...baseInput("manual"),
+        actor: "human:tester@example.invalid",
+        reason: "manual evidence supplied with an internal persistence reference",
+        summary: {
+          mode: "sidecar",
+          ref: {
+            path: relativeEscape,
+            sha256: createHash("sha256").update(sentinelBody).digest("hex"),
+            size: Buffer.byteLength(sentinelBody),
+          },
+        },
+      }),
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
+    ]);
+
+    expect(r.exit).toBe(2);
+    expect(JSON.parse(r.stderr.trim())).toMatchObject({
+      ok: false,
+      code: "SCHEMA_VALIDATION_FAILED",
+    });
+    expect(await fs.readFile(path.join(dir, "journal.jsonl"), "utf8")).toBe(beforeJournal);
+    const lessonsPath = path.join(dir, "lessons.md");
+    const lessons = await fs.readFile(lessonsPath, "utf8").catch(() => "");
+    expect(lessons).not.toContain(sentinelBody);
+  });
+
   test("manual + result=waived → exit 2 INVALID_PAYLOAD (preflight, not input-mirror)", async () => {
     // End-to-end lock for the evidence-schema refine `kind=manual must not
     // carry result=waived` (src/core/evidence-schema.ts). The refine lives on
@@ -413,6 +459,23 @@ describe("Phase 16 SC-4c — machine-schema regression (runtime INPUT_SCHEMAS['e
     const r = schema.safeParse({
       ...baseInput(),
       bogus_field: "should be rejected",
+    });
+    expect(r.success).toBe(false);
+  });
+
+  test("runtime schema REJECTS persistence-only sidecar summary input", async () => {
+    const runtimeSchema = await import("../../src/cli/input-schemas.js");
+    const schema = runtimeSchema.INPUT_SCHEMAS["evidence:add"];
+    const r = schema.safeParse({
+      ...baseInput(),
+      summary: {
+        mode: "sidecar",
+        ref: {
+          path: "attachments/JE-000001/summary.txt",
+          sha256: "a".repeat(64),
+          size: 42,
+        },
+      },
     });
     expect(r.success).toBe(false);
   });

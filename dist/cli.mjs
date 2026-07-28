@@ -538,6 +538,53 @@ function materializeTaskInput(input, id) {
 	};
 }
 //#endregion
+//#region src/core/attachment-ref.ts
+const ATTACHMENT_ENTRY_ID = /^JE-\d{6,}$/;
+const AttachmentPath = z.string().min(1).regex(/^attachments\/JE-\d{6,}\/[^/\\\0]+(?:\/[^/\\\0]+)*$/, { message: "attachment path must use attachments/<entry_id>/<file> POSIX form" }).superRefine((value, ctx) => {
+	if (value.includes("\0")) ctx.addIssue({
+		code: "custom",
+		message: "attachment path must not contain NUL"
+	});
+	if (value.includes("\\")) ctx.addIssue({
+		code: "custom",
+		message: "attachment path must use POSIX separators"
+	});
+	if (path.posix.isAbsolute(value) || path.win32.isAbsolute(value)) ctx.addIssue({
+		code: "custom",
+		message: "attachment path must be feature-relative"
+	});
+	const segments = value.split("/");
+	if (segments.some((segment) => segment === "" || segment === "." || segment === "..")) ctx.addIssue({
+		code: "custom",
+		message: "attachment path must not contain empty, '.' or '..' segments"
+	});
+	if (segments[0] !== "attachments") ctx.addIssue({
+		code: "custom",
+		message: "attachment path must start with attachments/"
+	});
+	if (!ATTACHMENT_ENTRY_ID.test(segments[1] ?? "")) ctx.addIssue({
+		code: "custom",
+		message: "attachment path must use an attachments/<entry_id>/ bucket"
+	});
+	if (segments.length < 3) ctx.addIssue({
+		code: "custom",
+		message: "attachment path must identify a file inside the entry bucket"
+	});
+});
+const AttachmentRef$1 = z.object({
+	path: AttachmentPath,
+	sha256: z.string().regex(/^[a-f0-9]{64}$/),
+	size: z.number().int().nonnegative()
+}).strict();
+const InlineLongTextField = z.object({
+	mode: z.literal("inline"),
+	text: z.string()
+}).strict();
+const LongTextField$1 = z.discriminatedUnion("mode", [InlineLongTextField, z.object({
+	mode: z.literal("sidecar"),
+	ref: AttachmentRef$1
+}).strict()]);
+//#endregion
 //#region src/core/evidence-schema.ts
 const EvidenceKind = z.enum([
 	"task-summary",
@@ -571,18 +618,7 @@ const AttachmentPayload = z.object({
 	mime: z.string().min(3),
 	bytes: z.number().int().positive().optional()
 }).strict();
-const AttachmentRefShape = z.object({
-	path: z.string().min(3),
-	sha256: z.string().regex(/^[a-f0-9]{64}$/),
-	size: z.number().int().nonnegative()
-}).strict();
-const LongTextFieldPayload = z.discriminatedUnion("mode", [z.object({
-	mode: z.literal("inline"),
-	text: z.string()
-}).strict(), z.object({
-	mode: z.literal("sidecar"),
-	ref: AttachmentRefShape
-}).strict()]);
+const LongTextFieldPayload = LongTextField$1;
 const SummaryField = z.union([z.string().min(3), LongTextFieldPayload]);
 const EvidenceIdPayload = z.string().regex(/^EV-\d{6,}$/);
 const CoversRefPayload = z.union([
@@ -627,7 +663,8 @@ const EvidenceFullPayload = EvidenceFullShape.refine((e) => {
 	}
 	return true;
 }, { message: "evidence kind=visual-review requires ≥1 attachment (per §5.4 + §1695-1700)" });
-const EvidenceAddInput = EvidenceFullShape.omit({ id: true }).strict();
+const EvidenceAuthoringSummary = z.union([z.string().min(3), InlineLongTextField]);
+const EvidenceAddInput = EvidenceFullShape.extend({ summary: EvidenceAuthoringSummary }).omit({ id: true }).strict();
 const EvidenceAddInputBatched = z.union([EvidenceAddInput, z.array(EvidenceAddInput).nonempty()]);
 //#endregion
 //#region src/core/finding-schema.ts
@@ -791,18 +828,8 @@ const ENTRY_BYTE_LIMIT = 64e3;
 const EntryId = z.string().regex(/^JE-\d{6,}$/, { message: "entry_id must match /^JE-\\d{6,}$/ (e.g. JE-000123)" });
 const BatchId = z.string().uuid();
 const ActorString = z.string().regex(/^(human|skill|ci|cli|migration):[^\s].*$/, { message: "actor must be of form '<prefix>:<id>' where prefix ∈ {human, skill, ci, cli, migration}" });
-const AttachmentRef = z.object({
-	path: z.string().min(1),
-	sha256: z.string().regex(/^[a-f0-9]{64}$/),
-	size: z.number().int().nonnegative()
-}).strict();
-const LongTextField = z.discriminatedUnion("mode", [z.object({
-	mode: z.literal("inline"),
-	text: z.string()
-}).strict(), z.object({
-	mode: z.literal("sidecar"),
-	ref: AttachmentRef
-}).strict()]);
+const AttachmentRef = AttachmentRef$1;
+const LongTextField = LongTextField$1;
 /** One concrete repo-relative POSIX path recorded for actual-scope audit. */
 const ScopePath = z.string().min(1).superRefine((value, ctx) => {
 	if (value.includes("\0")) ctx.addIssue({
@@ -14260,7 +14287,7 @@ function evidenceAddStateChange(i18n, items) {
 }
 function registerEvidence(program, ctx, mutator, actor, isStdinTty, readStdin) {
 	const evidenceCmd = program.command("evidence").description("Evidence ledger commands (add, list)");
-	evidenceCmd.command("add").description("Append evidence entry/entries from --input <src> JSON (CLI allocates EV-id; single object or non-empty array for batch)").option("--input <src>", "JSON source for EvidenceAddInput (single object OR non-empty array for batch): `-` (stdin), inline JSON, or file path (protocol §10.7)").option("--schema", "Dump the input JSON Schema instead of mutating (Phase 16 SC-10)").option("--feature <name>", "Feature whose ledger to append to").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (rawOpts) => {
+	evidenceCmd.command("add").description("Append evidence entry/entries from --input <src> JSON (CLI allocates EV-id; single object or non-empty array for batch)").option("--input <src>", "JSON authoring source (single object OR non-empty array): `-` (stdin), inline JSON, or file path; internal sidecar refs are rejected").option("--schema", "Dump the input JSON Schema instead of mutating (Phase 16 SC-10)").option("--feature <name>", "Feature whose ledger to append to").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (rawOpts) => {
 		if (rawOpts.schema === true) {
 			if (ctx.rejectIfDryRun("evidence add --schema")) return;
 			mutator.emitSchemaAndExit("evidence:add");

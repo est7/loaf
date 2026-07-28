@@ -61,7 +61,7 @@ replace `Pending` evidence with the commands and results that actually ran.
 | --- | --- | --- | --- | --- |
 | A00 | Persist | Architecture program and acceptance ledger | — | [x] Complete |
 | A01 | Implement | Hermetic verification boundary | A00 | [x] Complete |
-| A02 | Implement | Public AttachmentRef containment | A01 | [ ] Pending |
+| A02 | Implement | Public AttachmentRef containment | A01 | [x] Complete |
 | A03 | Implement | Attachment authority module | A02 | [ ] Pending |
 | A04 | Implement | Feature write lease | A03 | [ ] Pending |
 | A05 | Implement | Explicit mutation commit outcomes | A04 | [ ] Pending |
@@ -183,20 +183,23 @@ unchanged.
 
 ## A02 — Public AttachmentRef containment
 
-**Status:** [ ] Pending
+**Status:** [x] Complete
 **Commit subject:** `fix(core): confine attachment references to entry buckets`
 
 ### Destination
 
-Reject caller-provided sidecar references that do not use the canonical
-`attachments/<entry_id>/...` POSIX-relative layout before any journal append or
-projection read.
+Separate the public authoring contract from the persisted long-text contract.
+Public evidence authoring accepts strings or inline long text only. Persisted
+sidecar references use the canonical `attachments/<entry_id>/...`
+POSIX-relative layout and are validated before any journal append or projection
+read.
 
 ### Intended observable behavior
 
-`loaf evidence add --input` and every typed journal payload reject absolute
-paths, Windows paths, NUL, backslashes, empty/dot/parent segments, non-attachment
-roots, and malformed entry buckets. Valid promoted sidecars remain accepted.
+`loaf evidence add --input` rejects persistence-only sidecar values. Every
+typed persisted journal payload rejects absolute paths, Windows paths, NUL,
+backslashes, empty/dot/parent segments, non-attachment roots, and malformed
+entry buckets. Valid internally promoted sidecars remain accepted.
 
 ### Non-goals
 
@@ -207,12 +210,14 @@ roots, and malformed entry buckets. Valid promoted sidecars remain accepted.
 
 ### Acceptance criteria
 
-- [ ] A public-CLI RED test proves an out-of-bucket sidecar input is rejected
+- [x] A public-CLI RED test proves an out-of-bucket sidecar input is rejected
   and cannot cause external file content to enter a projection.
-- [ ] Journal and evidence input schemas share one strict AttachmentRef path
+- [x] Public `EvidenceAddInput` accepts only string or inline long text;
+  sidecars remain a persistence-only representation.
+- [x] Journal and evidence persistence schemas share one strict AttachmentRef path
   schema.
-- [ ] Valid migration, lesson, evidence-summary, and scope sidecars still parse.
-- [ ] Input rejection occurs before journal append.
+- [x] Valid migration, lesson, evidence-summary, and scope sidecars still parse.
+- [x] Input rejection occurs before journal append.
 
 ### Validation
 
@@ -227,7 +232,17 @@ must be handled explicitly rather than weakening new input.
 
 ### Evidence
 
-Pending.
+- RED: the new containment cases failed in 15 places before implementation.
+  The public CLI returned exit 0, accepted a caller-provided sidecar, read an
+  external sentinel, and allowed it to reach the lessons projection.
+- `bunx vitest run tests/core/evidence-input-modality.test.ts tests/core/journal-entry-schema.test.ts`
+  — 2 files, 37 tests passed.
+- Broader attachment and compatibility suite — 8 files, 146 tests passed.
+- Preflight validation suite — 1 file, 124 tests passed after correcting its
+  migration fixture to use a canonical attachment path.
+- `bun run check` — lint and typecheck passed; 170 test files and 2,631 tests
+  passed; the distribution bundle rebuilt successfully.
+- `bun run verify:codegen` — passed after updating schema snapshots.
 
 ## A03 — Attachment authority module
 

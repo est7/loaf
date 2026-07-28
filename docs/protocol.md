@@ -849,6 +849,14 @@ CLI 分配流程(每次 add-\* / batch invocation):
 
 **Waiver recording**(rev 5.x / Phase 16 SC-11):**两条等价 surface** —— ① 任务步级:`loaf tasks step done --result waived --evidence-kind waiver --evidence-reason '<≥10 chars>'`(原 rev 4 形态,task step lifecycle 内嵌);② 通用顶级 sugar wrapper:`loaf waive <obligation-id> --reason '<≥10 chars>'`(Phase 16 SC-11 实装,emit `evidence:added` payload.kind=`waiver`,obligation id 通过 `CoversRefPayload` 校验,同时进 `covers=[id]` 与 `waiver_obligation_id=id` 双字段)。两条 path 都遵守 `actor` 必须 `human:*` + `reason` ≥10 字符 refine。
 
+**Long-text authoring boundary (rev 5.2 hardening):** public
+`loaf evidence add --input` accepts a summary string or
+`{mode:"inline",text}` only. `{mode:"sidecar",ref}` is internal persistence
+state produced by the mutation pipeline and is rejected at the CLI schema
+before append. Persisted refs use canonical POSIX-relative
+`attachments/<entry_id>/...` paths; ordinary visual evidence
+`attachments[]` is a separate metadata contract.
+
 ### 4.5 findings.jsonl(6 category × 6 action + EV-id refs)
 
 > **Authority**: 派生投影(reducer 从 `finding:raised` / `finding:closed` entries 重建,落 `snapshots/findings.json`)。

@@ -23,6 +23,13 @@ import {
 import { TaskFullPayload, TaskIdPayload } from "./task-schema.js";
 import { EvidenceFullPayload } from "./evidence-schema.js";
 import { FindingAction, FindingCategory, FindingId, FindingTarget } from "./finding-schema.js";
+import {
+  AttachmentRef as AttachmentRefSchema,
+  LongTextField as LongTextFieldSchema,
+  SIDECAR_THRESHOLD_BYTES,
+  type AttachmentRef as AttachmentRefValue,
+  type LongTextField as LongTextFieldValue,
+} from "./attachment-ref.js";
 
 // Hard byte ceiling per serialized JournalEntry. Mirrors §34
 // entry_byte_limit_kb (64KB); enforced by appendEntry at step 5 final
@@ -45,51 +52,43 @@ export const ActorString = z.string().regex(/^(human|skill|ci|cli|migration):[^\
 });
 export type ActorString = z.infer<typeof ActorString>;
 
-// AttachmentRef — per-entry sidecar pointer (ADR-0005 §3.2 / Stage 4).
-// `path` is relative to `.loaf/<feature>/` (e.g. "attachments/JE-000123/summary.txt").
-// The reducer verifies `sha256` matches the on-disk file when applying.
-export const AttachmentRef = z
-  .object({
-    path: z.string().min(1),
-    sha256: z.string().regex(/^[a-f0-9]{64}$/),
-    size: z.number().int().nonnegative(),
-  })
-  .strict();
-export type AttachmentRef = z.infer<typeof AttachmentRef>;
+// Re-export the neutral sidecar vocabulary for compatibility with existing
+// journal-domain imports.
+export const AttachmentRef = AttachmentRefSchema;
+export type AttachmentRef = AttachmentRefValue;
 
 // LongTextField — text fields that may exceed the 8KB sidecar threshold. The
 // inline form survives until step 4 (sidecar finalize). The sidecar form is
 // what lands in journal-appended payloads after promotion.
-export const SIDECAR_THRESHOLD_BYTES = 8 * 1024;
-
-export const LongTextField = z.discriminatedUnion("mode", [
-  z.object({ mode: z.literal("inline"), text: z.string() }).strict(),
-  z.object({ mode: z.literal("sidecar"), ref: AttachmentRef }).strict(),
-]);
-export type LongTextField = z.infer<typeof LongTextField>;
+export { SIDECAR_THRESHOLD_BYTES };
+export const LongTextField = LongTextFieldSchema;
+export type LongTextField = LongTextFieldValue;
 
 /** One concrete repo-relative POSIX path recorded for actual-scope audit. */
-export const ScopePath = z.string().min(1).superRefine((value, ctx) => {
-  if (value.includes("\0")) {
-    ctx.addIssue({ code: "custom", message: "scope path must not contain NUL" });
-  }
-  if (value.includes("\\")) {
-    ctx.addIssue({ code: "custom", message: "scope path must use POSIX separators" });
-  }
-  if (path.posix.isAbsolute(value) || path.win32.isAbsolute(value)) {
-    ctx.addIssue({ code: "custom", message: "scope path must be repo-relative" });
-  }
-  const segments = value.split("/");
-  if (segments.some((segment) => segment === "" || segment === "." || segment === "..")) {
-    ctx.addIssue({
-      code: "custom",
-      message: "scope path must not contain empty, '.' or '..' segments",
-    });
-  }
-  if (segments[0] === ".loaf") {
-    ctx.addIssue({ code: "custom", message: "scope path must not target .loaf" });
-  }
-});
+export const ScopePath = z
+  .string()
+  .min(1)
+  .superRefine((value, ctx) => {
+    if (value.includes("\0")) {
+      ctx.addIssue({ code: "custom", message: "scope path must not contain NUL" });
+    }
+    if (value.includes("\\")) {
+      ctx.addIssue({ code: "custom", message: "scope path must use POSIX separators" });
+    }
+    if (path.posix.isAbsolute(value) || path.win32.isAbsolute(value)) {
+      ctx.addIssue({ code: "custom", message: "scope path must be repo-relative" });
+    }
+    const segments = value.split("/");
+    if (segments.some((segment) => segment === "" || segment === "." || segment === "..")) {
+      ctx.addIssue({
+        code: "custom",
+        message: "scope path must not contain empty, '.' or '..' segments",
+      });
+    }
+    if (segments[0] === ".loaf") {
+      ctx.addIssue({ code: "custom", message: "scope path must not target .loaf" });
+    }
+  });
 export type ScopePath = z.infer<typeof ScopePath>;
 
 /** UTF-8 byte ordering is the canonical cross-runtime scope-path order. */

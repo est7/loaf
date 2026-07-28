@@ -5,11 +5,7 @@ import { CHROME_KEYS, FAILURE_SITE_KEYS, SUCCESS_KEYS } from "../runtime-i18n-ke
 import { loadSession } from "../../core/cli-runtime.js";
 import { allocateNextEvidenceId, allocateNextEvidenceIds } from "../evidence-id-allocator.js";
 import { buildWaiveEvidencePayload } from "../waive.js";
-import {
-  CoversRefPayload,
-  EvidenceAddInput,
-  EvidenceKind,
-} from "../../core/evidence-schema.js";
+import { CoversRefPayload, EvidenceAddInput, EvidenceKind } from "../../core/evidence-schema.js";
 import { TaskIdPayload } from "../../core/task-schema.js";
 import { evidenceCompatibilityMismatch } from "../../core/evidence-compat.js";
 import type { EvidenceState } from "../../core/projection-types.js";
@@ -108,7 +104,7 @@ export function registerEvidence(
     )
     .option(
       "--input <src>",
-      "JSON source for EvidenceAddInput (single object OR non-empty array for batch): `-` (stdin), inline JSON, or file path (protocol §10.7)",
+      "JSON authoring source (single object OR non-empty array): `-` (stdin), inline JSON, or file path; internal sidecar refs are rejected",
     )
     .option("--schema", "Dump the input JSON Schema instead of mutating (Phase 16 SC-10)")
     .option("--feature <name>", "Feature whose ledger to append to")
