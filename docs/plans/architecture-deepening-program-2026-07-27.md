@@ -577,7 +577,7 @@ input-only and must return the allocated `local_key -> task_id` map.
 
 ## A09 — Canonical scope-closure fact policy
 
-**Status:** [ ] Pending
+**Status:** [x] Complete
 **Commit subject:** `refactor(core): centralize scope closure invariants`
 
 ### Destination
@@ -594,16 +594,16 @@ Give one core policy module ownership of the
 
 ### Acceptance criteria
 
-- [ ] The policy validates adjacency, one marker and one closure per batch,
+- [x] The policy validates adjacency, one marker and one closure per batch,
   batch indexes/counts, actor/source state, and marker iteration equal to the
   current/closing iteration.
-- [ ] A wrong-iteration marker cannot poison a future iteration's duplicate
+- [x] A wrong-iteration marker cannot poison a future iteration's duplicate
   guard.
-- [ ] Writer, commit-proof, and projection paths use the same closure-fact
+- [x] Writer, commit-proof, and projection paths use the same closure-fact
   parser instead of separate predicates.
-- [ ] Invalid same-batch/non-adjacent, wrong-index/count, wrong-iteration, and
+- [x] Invalid same-batch/non-adjacent, wrong-index/count, wrong-iteration, and
   duplicate histories have negative tests.
-- [ ] Valid historical closures still derive canonical unioned actual scope;
+- [x] Valid historical closures still derive canonical unioned actual scope;
   missing markers remain observable as `ACTUAL_SCOPE_HISTORY_INCOMPLETE`.
 
 ### Validation
@@ -617,7 +617,12 @@ observably; they are not silently reinterpreted.
 
 ### Evidence
 
-Pending.
+- `src/core/scope-closure-policy.ts` is the shared builder/parser/validator for
+  mutation admission, execute commit proof, and actual-scope projection.
+- Focused scope, reconcile, closure-transaction, and journal-mutation suites:
+  4 files / 79 tests passed.
+- Full repository suite: 174 files / 2663 tests passed.
+- `bun run lint` and `bun run typecheck` passed.
 
 ## A10 — Phantom reconcile execution contract
 

@@ -9,6 +9,7 @@ import {
   compareScopePathBytes,
   type JournalEntry,
 } from "./journal-entry.js";
+import { parseScopeClosureFacts } from "./scope-closure-policy.js";
 
 export class ActualScopeHistoryIncompleteError extends Error {
   readonly code = "ACTUAL_SCOPE_HISTORY_INCOMPLETE" as const;
@@ -21,22 +22,6 @@ export class ActualScopeHistoryIncompleteError extends Error {
     this.name = "ActualScopeHistoryIncompleteError";
     this.detail = { transition_seqs: transitionSeqs };
   }
-}
-
-function isExecuteClosure(entry: JournalEntry): boolean {
-  const payload = entry.payload as { from?: unknown; to?: unknown };
-  return (
-    entry.kind === "event:phase_advanced" &&
-    payload.from === "EXECUTE.work" &&
-    payload.to === "EXECUTE.done"
-  );
-}
-
-function hasSameBatchScopeMarker(closure: JournalEntry, entries: readonly JournalEntry[]): boolean {
-  return (
-    closure.batch_id !== undefined &&
-    entries.some((entry) => entry.kind === "scope:recorded" && entry.batch_id === closure.batch_id)
-  );
 }
 
 function parseCanonicalPathsText(text: string): string[] {
@@ -65,18 +50,17 @@ export async function deriveActualScope(
   entries: readonly JournalEntry[],
   featureDir: string,
 ): Promise<string[]> {
-  const incompleteTransitionSeqs = entries
-    .filter(isExecuteClosure)
-    .filter((closure) => !hasSameBatchScopeMarker(closure, entries))
-    .map((closure) => closure.seq);
+  const closureHistory = parseScopeClosureFacts(entries);
+  const incompleteTransitionSeqs = closureHistory.incompleteTransitionSeqs;
   if (incompleteTransitionSeqs.length > 0) {
     throw new ActualScopeHistoryIncompleteError(incompleteTransitionSeqs);
   }
 
   const union = new Set<string>();
-  for (const entry of entries) {
-    if (entry.kind !== "scope:recorded") continue;
-    for (const scopePath of await resolveScopePaths(entry, featureDir)) union.add(scopePath);
+  for (const fact of closureHistory.facts) {
+    for (const scopePath of await resolveScopePaths(fact.scope, featureDir)) {
+      union.add(scopePath);
+    }
   }
   return [...union].sort(compareScopePathBytes);
 }

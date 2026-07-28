@@ -10,11 +10,12 @@ import {
   type JournalEntry,
   ScopeRecordedPayload,
 } from "../../src/core/journal-entry.js";
-import { checkScopeRecordedBatch, mutateBatch } from "../../src/core/journal-mutate.js";
+import { mutateBatch } from "../../src/core/journal-mutate.js";
 import { KIND_REGISTRY } from "../../src/core/kind-registry.js";
 import { initialSnapshot, applyValidated } from "../../src/core/reducer.js";
 import { preflight } from "../../src/core/reducer/preflight.js";
 import { deriveActualScope } from "../../src/core/scope-projection.js";
+import { validateScopeClosureBatch } from "../../src/core/scope-closure-policy.js";
 import { emptyMeta } from "../../src/core/snapshot.js";
 
 const STANDARD = {
@@ -56,6 +57,9 @@ function scopeEntry(
     entry_schema_version: 1,
     kind: "scope:recorded",
     payload: { iteration, paths },
+    batch_id: `batch-${seq}`,
+    batch_index: 0,
+    batch_count: 2,
   } as JournalEntry;
 }
 
@@ -68,6 +72,9 @@ function executeDoneEntry(seq: number): JournalEntry {
     entry_schema_version: 1,
     kind: "event:phase_advanced",
     payload: { from: "EXECUTE.work", to: "EXECUTE.done" },
+    batch_id: `batch-${seq - 1}`,
+    batch_index: 1,
+    batch_count: 2,
   };
 }
 
@@ -137,7 +144,11 @@ describe("scope:recorded registry and authority", () => {
   });
 
   test("non-cli actor is rejected", () => {
-    const result = preflight(scopeEntry(1, ["src/a.ts"], 2, "skill:worker"), {
+    const entry = scopeEntry(1, ["src/a.ts"], 2, "skill:worker");
+    delete entry.batch_id;
+    delete entry.batch_index;
+    delete entry.batch_count;
+    const result = preflight(entry, {
       snapshot: executeSnapshot(),
       tail_seq: 0,
     });
@@ -148,35 +159,86 @@ describe("scope:recorded registry and authority", () => {
     const snapshot = executeSnapshot();
     snapshot.state!.phase = "TRIAGE";
     snapshot.state!.sub_state = "TRIAGE.score";
-    const result = preflight(scopeEntry(1), { snapshot, tail_seq: 0 });
+    const entry = scopeEntry(1);
+    delete entry.batch_id;
+    delete entry.batch_index;
+    delete entry.batch_count;
+    const result = preflight(entry, { snapshot, tail_seq: 0 });
     expect(result).toMatchObject({ ok: false, code: "SUB_STATE_AUTHORITY_VIOLATION" });
   });
 });
 
 describe("scope:recorded stable-core batch invariant", () => {
   test("standalone scope entry is rejected", () => {
-    expect(checkScopeRecordedBatch([scopeEntry(1)], [])).toMatchObject({
+    expect(validateScopeClosureBatch([scopeEntry(1)], [], 2)).toMatchObject({
       code: "SCOPE_RECORDED_BATCH_INVALID",
     });
   });
 
   test("more than one scope entry is rejected", () => {
     expect(
-      checkScopeRecordedBatch(
+      validateScopeClosureBatch(
         [scopeEntry(1, ["src/a.ts"]), scopeEntry(2, ["src/b.ts"]), executeDoneEntry(3)],
         [],
+        2,
       ),
     ).toMatchObject({ code: "SCOPE_RECORDED_BATCH_INVALID" });
   });
 
   test("duplicate iteration against prior history is rejected", () => {
     expect(
-      checkScopeRecordedBatch([scopeEntry(3), executeDoneEntry(4)], [scopeEntry(1)]),
+      validateScopeClosureBatch(
+        [scopeEntry(3), executeDoneEntry(4)],
+        [scopeEntry(1), executeDoneEntry(2)],
+        2,
+      ),
     ).toMatchObject({ code: "SCOPE_RECORDED_ITERATION_DUPLICATE", detail: { iteration: 2 } });
   });
 
   test("correct adjacent two-entry closure batch is accepted", () => {
-    expect(checkScopeRecordedBatch([scopeEntry(1), executeDoneEntry(2)], [])).toBeNull();
+    expect(
+      validateScopeClosureBatch([scopeEntry(1), executeDoneEntry(2)], [], 2),
+    ).toBeNull();
+  });
+
+  test("wrong iteration is rejected before it can poison duplicate history", () => {
+    expect(
+      validateScopeClosureBatch(
+        [scopeEntry(1, ["src/a.ts"], 1), executeDoneEntry(2)],
+        [],
+        2,
+      ),
+    ).toMatchObject({
+      code: "SCOPE_RECORDED_BATCH_INVALID",
+      detail: { reason: "iteration_mismatch", expected_iteration: 2 },
+    });
+    expect(
+      validateScopeClosureBatch(
+        [scopeEntry(3, ["src/b.ts"], 2), executeDoneEntry(4)],
+        [scopeEntry(1, ["src/a.ts"], 1), executeDoneEntry(2)],
+        2,
+      ),
+    ).toBeNull();
+  });
+
+  test("wrong batch indexes/count and actor mismatch are rejected", () => {
+    const wrongIndex = scopeEntry(1);
+    wrongIndex.batch_index = 1;
+    expect(
+      validateScopeClosureBatch([wrongIndex, executeDoneEntry(2)], [], 2),
+    ).toMatchObject({
+      code: "SCOPE_RECORDED_BATCH_INVALID",
+      detail: { reason: "invalid_batch_envelope_or_actor" },
+    });
+
+    const wrongActor = executeDoneEntry(2);
+    wrongActor.actor = "cli:other";
+    expect(
+      validateScopeClosureBatch([scopeEntry(1), wrongActor], [], 2),
+    ).toMatchObject({
+      code: "SCOPE_RECORDED_BATCH_INVALID",
+      detail: { reason: "invalid_batch_envelope_or_actor" },
+    });
   });
 
   test("mutateBatch accepts the correct closure pair through the wired stable-core check", async () => {
@@ -228,7 +290,9 @@ describe("scope:recorded reducer and entry-stream projection", () => {
     const result = await deriveActualScope(
       [
         scopeEntry(1, ["src/a.ts", "src/shared.ts"], 1),
-        scopeEntry(2, ["docs/readme.md", "src/shared.ts"], 2),
+        executeDoneEntry(2),
+        scopeEntry(3, ["docs/readme.md", "src/shared.ts"], 2),
+        executeDoneEntry(4),
       ],
       "/unused",
     );
@@ -248,9 +312,24 @@ describe("scope:recorded reducer and entry-stream projection", () => {
       size: Buffer.byteLength(text),
     };
 
-    const arrayResult = await deriveActualScope([scopeEntry(1, logical)], dir);
-    const inlineResult = await deriveActualScope([scopeEntry(2, { mode: "inline", text })], dir);
-    const sidecarResult = await deriveActualScope([scopeEntry(3, { mode: "sidecar", ref })], dir);
+    const arrayResult = await deriveActualScope(
+      [scopeEntry(1, logical), executeDoneEntry(2)],
+      dir,
+    );
+    const inlineResult = await deriveActualScope(
+      [
+        scopeEntry(2, { mode: "inline", text }),
+        executeDoneEntry(3),
+      ],
+      dir,
+    );
+    const sidecarResult = await deriveActualScope(
+      [
+        scopeEntry(3, { mode: "sidecar", ref }),
+        executeDoneEntry(4),
+      ],
+      dir,
+    );
     expect(inlineResult).toEqual(arrayResult);
     expect(sidecarResult).toEqual(arrayResult);
   });
@@ -268,6 +347,7 @@ describe("scope:recorded reducer and entry-stream projection", () => {
             mode: "sidecar",
             ref: { path: rel, sha256: "0".repeat(64), size: 1 },
           }),
+          executeDoneEntry(4),
         ],
         dir,
       ),

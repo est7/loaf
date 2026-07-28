@@ -11542,6 +11542,101 @@ async function writeDerivedSpecMd(snapshot, featureDir) {
 	} catch {}
 }
 //#endregion
+//#region src/core/scope-closure-policy.ts
+function isExecuteClosure(entry) {
+	const payload = entry.payload;
+	return entry.kind === "event:phase_advanced" && payload.from === "EXECUTE.work" && payload.to === "EXECUTE.done";
+}
+function parseAdjacentFact(scope, transition) {
+	if (scope.kind !== "scope:recorded" || !isExecuteClosure(transition)) return null;
+	const parsed = ScopeRecordedPayload.safeParse(scope.payload);
+	if (!parsed.success) return null;
+	if (scope.actor !== transition.actor || scope.batch_id === void 0 || scope.batch_id !== transition.batch_id || scope.batch_index !== 0 || transition.batch_index !== 1 || scope.batch_count !== 2 || transition.batch_count !== 2) return null;
+	return {
+		scope,
+		transition,
+		iteration: parsed.data.iteration
+	};
+}
+/**
+* Parse canonical closure facts from journal history. Only the exact
+* two-entry batch emitted by the closure writer is accepted as a fact.
+*/
+function parseScopeClosureFacts(entries) {
+	const facts = [];
+	const consumedTransitions = /* @__PURE__ */ new Set();
+	for (let index = 0; index + 1 < entries.length; index += 1) {
+		const fact = parseAdjacentFact(entries[index], entries[index + 1]);
+		if (fact === null) continue;
+		facts.push(fact);
+		consumedTransitions.add(fact.transition.seq);
+	}
+	return {
+		facts,
+		incompleteTransitionSeqs: entries.filter(isExecuteClosure).filter((entry) => !consumedTransitions.has(entry.seq)).map((entry) => entry.seq)
+	};
+}
+/** Validate the candidate closure fact against current state and history. */
+function validateScopeClosureBatch(candidates, priorEntries, expectedIteration) {
+	const scopeIndexes = candidates.flatMap((entry, index) => entry.kind === "scope:recorded" ? [index] : []);
+	const closureIndexes = candidates.flatMap((entry, index) => isExecuteClosure(entry) ? [index] : []);
+	if (scopeIndexes.length === 0) return null;
+	if (scopeIndexes.length !== 1 || closureIndexes.length !== 1 || scopeIndexes[0] + 1 !== closureIndexes[0]) return {
+		code: "SCOPE_RECORDED_BATCH_INVALID",
+		message: "scope:recorded must sit immediately before exactly one EXECUTE.work → EXECUTE.done transition in the same batch",
+		detail: {
+			reason: "missing_or_non_adjacent_execute_closure",
+			scope_indexes: scopeIndexes,
+			closure_indexes: closureIndexes
+		}
+	};
+	const fact = parseAdjacentFact(candidates[scopeIndexes[0]], candidates[closureIndexes[0]]);
+	if (fact === null) return {
+		code: "SCOPE_RECORDED_BATCH_INVALID",
+		message: "scope:recorded closure must be an actor-matched two-entry batch with indexes 0/1 and count 2",
+		detail: { reason: "invalid_batch_envelope_or_actor" }
+	};
+	if (fact.iteration !== expectedIteration) return {
+		code: "SCOPE_RECORDED_BATCH_INVALID",
+		message: `scope:recorded iteration ${fact.iteration} does not match closing iteration ${expectedIteration}`,
+		detail: {
+			reason: "iteration_mismatch",
+			iteration: fact.iteration,
+			expected_iteration: expectedIteration
+		}
+	};
+	if (parseScopeClosureFacts(priorEntries).facts.some((prior) => prior.iteration === expectedIteration)) return {
+		code: "SCOPE_RECORDED_ITERATION_DUPLICATE",
+		message: `scope:recorded already exists for iteration ${expectedIteration}`,
+		detail: { iteration: expectedIteration }
+	};
+	return null;
+}
+function findScopeClosureFact(entries, iteration) {
+	return parseScopeClosureFacts(entries).facts.find((fact) => fact.iteration === iteration) ?? null;
+}
+function buildScopeClosureEntries(actor, iteration, paths, at) {
+	return [{
+		at,
+		actor,
+		entry_schema_version: 1,
+		kind: "scope:recorded",
+		payload: {
+			iteration,
+			paths: [...paths]
+		}
+	}, {
+		at,
+		actor,
+		entry_schema_version: 1,
+		kind: "event:phase_advanced",
+		payload: {
+			from: "EXECUTE.work",
+			to: "EXECUTE.done"
+		}
+	}];
+}
+//#endregion
 //#region src/core/journal-mutate.ts
 function classifyCommitState(result, dryRun) {
 	if (result.commit_state !== void 0) return result;
@@ -11565,40 +11660,6 @@ function noSessionResult(entry, failedIndex) {
 		failed_index: failedIndex,
 		detail: { code: "NO_SESSION" }
 	};
-}
-/** Stable-core invariant over the complete candidate batch + prior journal. */
-function checkScopeRecordedBatch(candidates, priorEntries) {
-	const scopeIndexes = candidates.flatMap((entry, index) => entry.kind === "scope:recorded" ? [index] : []);
-	if (scopeIndexes.length === 0) return null;
-	if (scopeIndexes.length > 1) return {
-		code: "SCOPE_RECORDED_BATCH_INVALID",
-		message: "batch contains more than one scope:recorded entry",
-		detail: {
-			reason: "multiple_scope_entries",
-			count: scopeIndexes.length
-		}
-	};
-	const scopeIndex = scopeIndexes[0];
-	const closureIndexes = candidates.flatMap((entry, index) => {
-		const payload = entry.payload;
-		return entry.kind === "event:phase_advanced" && payload.from === "EXECUTE.work" && payload.to === "EXECUTE.done" ? [index] : [];
-	});
-	if (closureIndexes.length !== 1 || closureIndexes[0] !== scopeIndex + 1) return {
-		code: "SCOPE_RECORDED_BATCH_INVALID",
-		message: "scope:recorded must sit immediately before exactly one EXECUTE.work → EXECUTE.done transition in the same batch",
-		detail: {
-			reason: "missing_or_non_adjacent_execute_closure",
-			scope_index: scopeIndex,
-			closure_indexes: closureIndexes
-		}
-	};
-	const { iteration } = ScopeRecordedPayload.parse(candidates[scopeIndex].payload);
-	if (priorEntries.some((entry) => entry.kind === "scope:recorded" && ScopeRecordedPayload.parse(entry.payload).iteration === iteration)) return {
-		code: "SCOPE_RECORDED_ITERATION_DUPLICATE",
-		message: `scope:recorded already exists for iteration ${iteration}`,
-		detail: { iteration }
-	};
-	return null;
 }
 async function mutateBatch(partials, ctx) {
 	if (partials.length === 0) return classifyCommitState({
@@ -11731,7 +11792,7 @@ async function mutateBatchUnderLease(partials, ctx) {
 		snapshotAcc = dryRun.snapshot;
 		candidates.push(candidate);
 	}
-	const scopeBatchFailure = checkScopeRecordedBatch(candidates, ctx.entries);
+	const scopeBatchFailure = validateScopeClosureBatch(candidates, ctx.entries, ctx.snapshot.state?.iteration ?? 1);
 	if (scopeBatchFailure) return {
 		ok: false,
 		...scopeBatchFailure
@@ -12256,19 +12317,8 @@ var ExecuteClosureError = class extends Error {
 		if (detail !== void 0) this.detail = detail;
 	}
 };
-function isExecuteClosure(entry) {
-	const payload = entry.payload;
-	return entry.kind === "event:phase_advanced" && payload.from === "EXECUTE.work" && payload.to === "EXECUTE.done";
-}
 function committedScopeEntry(entries, iteration) {
-	for (let index = 0; index + 1 < entries.length; index += 1) {
-		const scope = entries[index];
-		const closure = entries[index + 1];
-		if (scope.kind !== "scope:recorded") continue;
-		if (scope.payload.iteration !== iteration || !isExecuteClosure(closure)) continue;
-		if (scope.batch_id !== void 0 && scope.batch_id === closure.batch_id && scope.batch_index === 0 && closure.batch_index === 1 && scope.batch_count === 2 && closure.batch_count === 2) return scope;
-	}
-	return null;
+	return findScopeClosureFact(entries, iteration)?.scope ?? null;
 }
 async function pendingIsCovered(pending, entries, featureDir) {
 	const scope = committedScopeEntry(entries, pending.iteration);
@@ -12287,25 +12337,7 @@ function baseRuntime(current, identity, debug, heartbeatAt) {
 	};
 }
 function stampedClosureBatch(actor, iteration, paths, at) {
-	return [{
-		at,
-		actor,
-		entry_schema_version: 1,
-		kind: "scope:recorded",
-		payload: {
-			iteration,
-			paths: [...paths]
-		}
-	}, {
-		at,
-		actor,
-		entry_schema_version: 1,
-		kind: "event:phase_advanced",
-		payload: {
-			from: "EXECUTE.work",
-			to: "EXECUTE.done"
-		}
-	}];
+	return buildScopeClosureEntries(actor, iteration, paths, at);
 }
 async function reloadForCommitProof(featureDir, loader = (target) => loadSession(target, { ensureDir: false })) {
 	try {

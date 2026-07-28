@@ -6,6 +6,10 @@ import { mutateBatch } from "./journal-mutate.js";
 import type { SessionRuntimeFile } from "./projection-schema.js";
 import { resolveScopePaths } from "./scope-projection.js";
 import {
+  buildScopeClosureEntries,
+  findScopeClosureFact,
+} from "./scope-closure-policy.js";
+import {
   readSessionRuntimeFile,
   withRuntimeLock,
   type RuntimeIdentity,
@@ -51,37 +55,11 @@ export class ExecuteClosureError extends Error {
   }
 }
 
-function isExecuteClosure(entry: JournalEntry): boolean {
-  const payload = entry.payload as { from?: unknown; to?: unknown };
-  return (
-    entry.kind === "event:phase_advanced" &&
-    payload.from === "EXECUTE.work" &&
-    payload.to === "EXECUTE.done"
-  );
-}
-
 function committedScopeEntry(
   entries: readonly JournalEntry[],
   iteration: number,
 ): JournalEntry | null {
-  for (let index = 0; index + 1 < entries.length; index += 1) {
-    const scope = entries[index]!;
-    const closure = entries[index + 1]!;
-    if (scope.kind !== "scope:recorded") continue;
-    const payload = scope.payload as { iteration?: unknown };
-    if (payload.iteration !== iteration || !isExecuteClosure(closure)) continue;
-    if (
-      scope.batch_id !== undefined &&
-      scope.batch_id === closure.batch_id &&
-      scope.batch_index === 0 &&
-      closure.batch_index === 1 &&
-      scope.batch_count === 2 &&
-      closure.batch_count === 2
-    ) {
-      return scope;
-    }
-  }
-  return null;
+  return findScopeClosureFact(entries, iteration)?.scope ?? null;
 }
 
 async function pendingIsCovered(
@@ -119,22 +97,7 @@ function stampedClosureBatch(
   paths: readonly string[],
   at: string,
 ): Parameters<typeof mutateBatch>[0] {
-  return [
-    {
-      at,
-      actor,
-      entry_schema_version: 1,
-      kind: "scope:recorded",
-      payload: { iteration, paths: [...paths] },
-    },
-    {
-      at,
-      actor,
-      entry_schema_version: 1,
-      kind: "event:phase_advanced",
-      payload: { from: "EXECUTE.work", to: "EXECUTE.done" },
-    },
-  ];
+  return buildScopeClosureEntries(actor, iteration, paths, at);
 }
 
 async function reloadForCommitProof(
