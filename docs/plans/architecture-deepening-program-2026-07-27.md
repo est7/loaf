@@ -74,7 +74,7 @@ replace `Pending` evidence with the commands and results that actually ran.
 | A12 | Retire | Live task-step `evidence_refs` contract | A08 | [x] Complete |
 | A13 | Retire | Dead context-pack contract | A01 | [x] Complete |
 | A14 | Implement | Skill-driven orchestration journey gate | A11, A13 | [x] Complete |
-| A15 | Implement | Mutation/rebuild replay equivalence | A04 | [ ] Pending |
+| A15 | Implement | Mutation/rebuild replay equivalence | A04 | [x] Complete |
 | A16 | Implement/close | TUI observability and F-026 disposition | A11 | [ ] Pending |
 | A17 | Implement | Executable contract-drift guards | A04–A16 | [ ] Pending |
 | A18 | Close | Freshness ledger and abstraction triggers | A17 | [ ] Pending |
@@ -898,7 +898,7 @@ Skills and docs change together. Kernel actor/gate rules remain authoritative.
 
 ## A15 — Mutation/rebuild replay equivalence
 
-**Status:** [ ] Pending
+**Status:** [x] Complete
 **Commit subject:** `test(core): prove projection rebuild equivalence`
 
 ### Destination
@@ -913,13 +913,13 @@ doctor from the same journal are byte-equivalent through the shared serializer.
 
 ### Acceptance criteria
 
-- [ ] A representative lifecycle produces every currently supported snapshot
+- [x] A representative lifecycle produces every currently supported snapshot
   leaf through normal mutation.
-- [ ] The test captures bytes, removes derived leaves, runs doctor rebuild, and
+- [x] The test captures bytes, removes derived leaves, runs doctor rebuild, and
   compares every regenerated leaf.
-- [ ] Any intentionally volatile metadata is independently specified and
+- [x] Any intentionally volatile metadata is independently specified and
   compared by its real contract, not erased wholesale.
-- [ ] A reversible negative control proves the test detects serializer drift.
+- [x] A reversible negative control proves the test detects serializer drift.
 
 ### Validation
 
@@ -932,7 +932,16 @@ task because equivalence is its acceptance criterion.
 
 ### Evidence
 
-Pending.
+- A real `mutateBatch` lifecycle materializes all five JSON projections plus
+  `_meta.json`; the test captures their exact bytes, removes them, and rebuilds
+  through the public doctor command.
+- All data leaves are byte-identical after replay. `_meta.json` is compared by
+  its full stable contract while independently asserting the intentionally
+  volatile `written_at` timestamp advances monotonically.
+- A reversible one-byte state projection mutation is detected by the same
+  comparator before the original bytes are restored.
+- Doctor, replay, and projection-writer suites passed (59 tests), together
+  with typecheck and lint.
 
 ## A16 — TUI/Board status semantics and F-026 disposition
 

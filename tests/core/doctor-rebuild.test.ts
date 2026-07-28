@@ -15,7 +15,7 @@ import { main } from "../../src/cli.js";
 import { mutateBatch } from "../../src/core/journal-mutate.js";
 import { initialSnapshot, type Snapshot } from "../../src/core/reducer.js";
 import type { Ceremony, JournalEntry } from "../../src/core/journal-entry.js";
-import { emptyMeta } from "../../src/core/snapshot.js";
+import { emptyMeta, SnapshotMeta } from "../../src/core/snapshot.js";
 import { migrateV2 } from "../../src/core/migration.js";
 
 const STANDARD: Ceremony = {
@@ -54,6 +54,47 @@ async function runCli(argv: string[]): Promise<{ exit: number; stdout: string; s
 
 async function tmpDir(): Promise<string> {
   return await fs.mkdtemp(path.join(os.tmpdir(), "loaf-doctor-rebuild-"));
+}
+
+const JOURNAL_DERIVED_LEAVES = [
+  "state.json",
+  "tasks.json",
+  "evidence.json",
+  "findings.json",
+  "pending.json",
+  "_meta.json",
+] as const;
+
+async function readProjectionBytes(dir: string): Promise<Map<string, Buffer>> {
+  const snapshots = path.join(dir, "snapshots");
+  return new Map(
+    await Promise.all(
+      JOURNAL_DERIVED_LEAVES.map(async (leaf) => [
+        leaf,
+        await fs.readFile(path.join(snapshots, leaf)),
+      ] as const),
+    ),
+  );
+}
+
+function projectionByteMismatches(
+  expected: ReadonlyMap<string, Buffer>,
+  actual: ReadonlyMap<string, Buffer>,
+): string[] {
+  return JOURNAL_DERIVED_LEAVES.filter(
+    (leaf) => leaf !== "_meta.json",
+  ).filter(
+    (leaf) => !expected.get(leaf)?.equals(actual.get(leaf) ?? Buffer.alloc(0)),
+  );
+}
+
+function parseMeta(bytes: Buffer): SnapshotMeta {
+  return SnapshotMeta.parse(JSON.parse(bytes.toString("utf8")));
+}
+
+function stableMeta(meta: SnapshotMeta): Omit<SnapshotMeta, "written_at"> {
+  const { written_at: _writtenAt, ...stable } = meta;
+  return stable;
 }
 
 /** A minimal valid behavioral task body for an event:tasks_planned payload. */
@@ -272,6 +313,49 @@ describe("loaf doctor --rebuild — Phase 14 SC2", () => {
       const out = JSON.parse(r.stdout);
       expect(out.rebuilt).toContain("tasks.json");
       expect((await fs.stat(path.join(dir, "snapshots", "tasks.json"))).isFile()).toBe(true);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("normal mutation and doctor replay produce byte-identical projections", async () => {
+    const dir = await tmpDir();
+    try {
+      await seedJournal(dir, { withPlan: true });
+      const mutationBytes = await readProjectionBytes(dir);
+
+      // Negative control: one meaningful byte change must be detected by the
+      // same comparator used for the rebuilt result.
+      const statePath = path.join(dir, "snapshots", "state.json");
+      const originalState = mutationBytes.get("state.json")!;
+      await fs.writeFile(statePath, Buffer.concat([originalState, Buffer.from(" ")]));
+      expect(
+        projectionByteMismatches(mutationBytes, await readProjectionBytes(dir)),
+      ).toEqual(["state.json"]);
+      await fs.writeFile(statePath, originalState);
+
+      for (const leaf of JOURNAL_DERIVED_LEAVES) {
+        await fs.rm(path.join(dir, "snapshots", leaf));
+      }
+      const rebuilt = await runCli([
+        "doctor",
+        "--rebuild",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        dir,
+        "--format",
+        "json",
+      ]);
+      expect(rebuilt.exit).toBe(0);
+      const rebuiltBytes = await readProjectionBytes(dir);
+      expect(projectionByteMismatches(mutationBytes, rebuiltBytes)).toEqual([]);
+      const mutationMeta = parseMeta(mutationBytes.get("_meta.json")!);
+      const rebuiltMeta = parseMeta(rebuiltBytes.get("_meta.json")!);
+      expect(stableMeta(rebuiltMeta)).toEqual(stableMeta(mutationMeta));
+      expect(Date.parse(rebuiltMeta.written_at)).toBeGreaterThanOrEqual(
+        Date.parse(mutationMeta.written_at),
+      );
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
     }
