@@ -25,8 +25,8 @@ not-yet-built slice.
 
 ## Field legend
 
-- **Tier** — `§15-close` (the 4 scenarios that close `task_plan.md` §15
-  done-when 1+2) · `inventory` (workflow scenario worth an E2E test) ·
+- **Tier** — `§15-close` (the historical four-scenario protocol-freeze cohort)
+  · `inventory` (workflow scenario worth an E2E test) ·
   `optional` (nice-to-have) · `future` (needs an unimplemented command or
   back-edge; `test.todo` until that slice) · `not-e2e` (recorded for
   completeness; tested at unit/integration layer).
@@ -494,7 +494,8 @@ elsewhere. Recorded so the boundary is explicit, not forgotten.
 ## Implementation order
 
 1. **§15 close set** — SCEN-E2E-001 (green) + 002 / 003 / 004 → green.
-   Closes `task_plan.md` §15 done-when 1+2.
+   Retains the protocol-freeze cohort label; current completion evidence lives
+   in the executable E2E suite, not an ignored root plan.
 2. **`inventory` tier** — 005-009, 014, 015, 019, 024-026, 031 (and the
    `fold` scenarios 010/011/017/018/029 absorbed into 002/003). One
    sub-cycle per scenario or per coherent cluster.

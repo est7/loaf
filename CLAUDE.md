@@ -101,12 +101,14 @@ Keep input schemas strict. Do not accept caller-owned IDs or journal envelope fi
 
 ## Planning workflow (session-spanning)
 
-The retired planning trio (`task_plan.md` / `progress.md` / `findings.md`) was
-consolidated into **`backlog.md`** (gitignored, repo root) at v0.1.1 — read it
-before any non-trivial work. It tracks only what is **not yet implemented**;
-per-cycle history now lives in the thick commit bodies.
+Gitignored root planning and audit files are operator-owned scratch, not
+repository truth and not a required preflight. Use tracked plans, current
+protocol/reference docs, executable tests, and git history. The current
+disposition of older debt claims and abstraction triggers lives in
+`docs/references/architecture-freshness-ledger.md`.
 
-Commit message bodies are **thick** — each sub-cycle commit carries: design decisions / codex review trace / RED tests / Deferred / Residual risk. `git show <hash>` is the per-cycle ground truth.
+Commit history remains evidence for landed sub-cycles; pair it with current
+source and tests rather than treating an old plan checkbox as live state.
 
 ## Workflow conventions
 

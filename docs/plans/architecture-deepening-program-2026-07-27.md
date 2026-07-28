@@ -75,9 +75,9 @@ replace `Pending` evidence with the commands and results that actually ran.
 | A13 | Retire | Dead context-pack contract | A01 | [x] Complete |
 | A14 | Implement | Skill-driven orchestration journey gate | A11, A13 | [x] Complete |
 | A15 | Implement | Mutation/rebuild replay equivalence | A04 | [x] Complete |
-| A16 | Implement/close | TUI observability and F-026 disposition | A11 | [ ] Pending |
-| A17 | Implement | Executable contract-drift guards | A04–A16 | [ ] Pending |
-| A18 | Close | Freshness ledger and abstraction triggers | A17 | [ ] Pending |
+| A16 | Implement/close | TUI observability and F-026 disposition | A11 | [x] Complete |
+| A17 | Implement | Executable contract-drift guards | A04–A16 | [x] Complete |
+| A18 | Close | Freshness ledger and abstraction triggers | A17 | [x] Complete |
 | A19 | Verify | Final distribution and history audit | A02–A18 | [ ] Pending |
 
 The serial order is deliberate. Attachment confinement precedes refactoring;
@@ -1058,7 +1058,7 @@ tests; codegen verification; Biome lint; production bundle build.
 
 ## A18 — Freshness ledger and abstraction triggers
 
-**Status:** [ ] Pending
+**Status:** [x] Complete
 **Commit subject:** `docs(architecture): close stale debt claims`
 
 ### Destination
@@ -1086,11 +1086,11 @@ ledgers.
 
 ### Acceptance criteria
 
-- [ ] A tracked architecture note or existing current docs contain all required
+- [x] A tracked architecture note or existing current docs contain all required
   decisions and trigger conditions.
-- [ ] Tracked documentation does not cite ignored local files as authoritative.
-- [ ] `git ls-files` confirms retired root planning/audit files are not tracked.
-- [ ] No unsupported “implemented” claim remains in current docs.
+- [x] Tracked documentation does not cite ignored local files as authoritative.
+- [x] `git ls-files` confirms retired root planning/audit files are not tracked.
+- [x] No unsupported “implemented” claim remains in current docs.
 
 ### Validation
 
@@ -1103,7 +1103,14 @@ Documentation only. Local ignored files remain untouched.
 
 ### Evidence
 
-Pending.
+`docs/references/architecture-freshness-ledger.md` records the landed CLI split
+versus distinct W9 preflight concern, replay/spec-lock evidence, retired local
+ledger authority, context-pack and F-026 dispositions, and the two-consumer
+trigger for any broader TUI/Board model. Current CLAUDE and E2E guidance no
+longer requires ignored root plans; dated tech-debt and W8 documents are marked
+historical or implemented with live owners. `git ls-files` returned no retired
+root planning/audit path. Documentation boundary tests passed, and the
+pre-existing untracked/ignored files remained untouched and unstaged.
 
 ## A19 — Final distribution and history audit
 

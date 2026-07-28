@@ -1,8 +1,10 @@
 # W8 (option B) — fold main()'s helper cluster into CommandContext, then split commands into family files
 
-**Status:** APPROVED (codex plan-audit: GO-WITH-CHANGES, thread enforce-integrity-audit
-2026-06-09). The three required plan edits are folded in below (CommandMutator split /
-mutate locus / keyed-failure injection / mandatory goldens / corrected Hyrum numbers).
+**Status:** IMPLEMENTED. Current registration composition lives in
+`src/cli.tsx` and `src/cli/commands/`; tasks have narrower authoring, execution,
+query, presentation, and type modules. The measurements below are retained as
+historical design input. This is W8 command-surface work, not the distinct W9
+preflight-policy concern.
 **Supersedes:** the `quality-closure-refactors.md` §W8 sketch (which was option A — move
 command registrations into family files that each receive a ~15-field `RegisterDeps`
 bundle). A-as-specced is a mechanical relocation: it moves the command closures behind a

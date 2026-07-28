@@ -3,7 +3,12 @@
 Generated: 2026-06-03 · Scope: full repo (`src/` 23.8k LOC, 67 files, 190 commits)
 Method: churn analysis (`git log` 6mo), `bun audit`, type/catch/TODO/env grep, dep + `loaf doctor` implementation cross-check.
 
-> **Status update (2026-06-04):** the 9-locus deepening programme completed + codex-signed-off. **T2/T3/A3/A4/A5 fully closed** (✅ in the table below); **A1/A2 partial** — the cli.tsx / preflight god files shrank but did not vanish (remainder tracked in `backlog.md` A1 / via L2 caveat); **T4 doc-drift fixed** (CLAUDE.md updated). Still open: **T1** (the High concurrency one), O1, O2. This stays a dated baseline — rows are marked, not deleted.
+> **Freshness note (2026-07-27):** this is a dated baseline, not a current
+> backlog. Later command-family, feature-lease, mutation-boundary, and
+> architecture-deepening work superseded several open/partial rows. Use
+> `docs/references/architecture-freshness-ledger.md`, current source/tests, and
+> git history for present-tense status; the table below remains historical
+> evidence only.
 
 ## Executive summary
 
