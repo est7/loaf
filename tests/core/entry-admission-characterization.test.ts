@@ -4,6 +4,7 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { initialSnapshot, type Snapshot } from "../../src/core/reducer.js";
+import { replayJournal } from "../../src/core/journal-bootstrap.js";
 import { mutateBatch, type MutateContext } from "../../src/core/journal-mutate.js";
 import { preflight } from "../../src/core/reducer/preflight.js";
 import * as sidecar from "../../src/core/sidecar.js";
@@ -203,6 +204,29 @@ describe("entry admission characterization — real callers", () => {
         expect(result.ok, JSON.stringify(result)).toBe(true);
         if (result.ok) expect(result.snapshot.state?.feature).toBe("admission");
       } else expect(result).toMatchObject({ ok: false, code: row.replay });
+    });
+    test(`replayJournal: ${label}`, async () => {
+      // Real replay caller: a started row is a journal whose seq 0 is a valid
+      // session:started; the row's entry follows at the next seq.
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "loaf-admission-replay-"));
+      dirs.push(dir);
+      const seq = row.started ? 1 : 0;
+      const e = { ...entry(row.bootstrap, row.passes), seq, entry_id: `JE-00000${seq + 1}` };
+      const lines = row.started ? [entry(true, true), e] : [e];
+      const file = path.join(dir, "journal.jsonl");
+      await fs.writeFile(file, lines.map((l) => `${JSON.stringify(l)}\n`).join(""));
+      const result = await replayJournal(file);
+      if (row.replay === "OK") {
+        expect(result.ok, JSON.stringify(result)).toBe(true);
+        if (result.ok) expect(result.snapshot.state?.feature).toBe("admission");
+      } else {
+        expect(result).toMatchObject({
+          ok: false,
+          code: "REDUCER_REJECTED",
+          at_seq: seq,
+          detail: { inner_code: row.replay },
+        });
+      }
     });
   }
 });
