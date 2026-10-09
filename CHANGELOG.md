@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-10-09
+
+### Changed
+
+- Journal entry admission now applies one canonical order on every path: a
+  non-bootstrap entry without a started session fails `NO_SESSION` before any
+  preflight policy check. Mutation previously reported the policy failure
+  (for example `ACTOR_AUTHORITY_VIOLATION`) first; the promoted-entry final
+  dry-run now also preflights bootstrap entries.
+
+### Architecture
+
+- Mutation Pass 1, the promoted-entry final dry-run, and journal replay admit
+  entries through one `entry-admission` module; the shallow `apply()` and
+  `applyReplayed()` entry points are removed.
+- Reducer checks duplicated by preflight or payload schemas are removed;
+  reducer-only applicability rules and historical-replay guards remain.
+
 ## [0.7.0] — 2026-07-28
 
 ### Changed
@@ -373,6 +391,7 @@ migration.
 - Both fixes RED→GREEN independently reproduced (revert only the predicate with the new tests present → exactly the new negative cases fail; restore → green).
 - `dist/cli.mjs --version` → `0.1.2`.
 
+[0.8.0]: https://github.com/est7/loaf/releases/tag/v0.8.0
 [0.7.0]: https://github.com/est7/loaf/releases/tag/v0.7.0
 [0.6.0]: https://github.com/est7/loaf/releases/tag/v0.6.0
 [0.5.0]: https://github.com/est7/loaf/releases/tag/v0.5.0

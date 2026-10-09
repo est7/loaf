@@ -1,19 +1,11 @@
 {
   "schema": 1,
-  "baseline_tag": "v0.6.0",
-  "target_version": "0.7.0",
+  "baseline_tag": "v0.7.0",
+  "target_version": "0.8.0",
   "breaking_changes": [
     {
-      "task": "A08",
-      "contract": "tasks submit accepts strict CLI-owned id-less task input"
-    },
-    {
-      "task": "A10",
-      "contract": "live apply rejects the retired VERIFY.accept to SETTLE.reconcile edge"
-    },
-    {
-      "task": "A12",
-      "contract": "artifact:tasks no longer exposes task-step evidence_refs"
+      "task": "entry-admission D1",
+      "contract": "mutation reports NO_SESSION before preflight policy when no session exists"
     }
   ]
 }
