@@ -1,6 +1,6 @@
 # Entry admission as one deep module
 
-**Status:** PROPOSED — not started
+**Status:** IN PROGRESS — step 1 landed; step 2 pending
 **Origin:** architecture review 2026-10-09, candidate #1 ("Deepen entry admission
 into one module"); design decisions settled with the maintainer in the same
 session (see §3).
@@ -150,12 +150,23 @@ classified during step 2; the table above is located evidence, not exhaustive.
 
 Acceptance:
 
-- [ ] Characterization table passes with only the D1 rows changed, each change
-  named in the commit body.
-- [ ] `rg "applyValidated\(" src` matches only the admission module.
-- [ ] `rg "export function (apply|applyReplayed)\b" src` matches nothing.
-- [ ] Mutation/rebuild equivalence tests (A15/A20) pass unchanged.
-- [ ] `bun run check` passes; `dist/cli.mjs` rebuilt.
+- [x] Characterization table passes with only the D1 rows changed, each change
+  named in the commit body. Evidence: baseline 24/24 green; the four D1
+  changes are recorded in `entry-admission-characterization.test.ts` and the
+  step-1 commit body. Auditor fault probe: disabling NO_SESSION-first in
+  `admitEntry` fails 6/24 rows; restoring returns 24/24.
+- [x] `rg "applyValidated\(" src` matches only the admission module. Evidence:
+  its only **call** is in `entry-admission.ts`; the unchanged exported reducer
+  declaration also matches this literal search. The AST ownership guard passes
+  and a temporary second importer makes it fail (1 failed / 1 skipped), then
+  removal restores 2/2 green.
+- [x] `rg "export function (apply|applyReplayed)\b" src` matches nothing.
+- [x] Mutation/rebuild equivalence tests (A15/A20) pass unchanged. Evidence:
+  assertions preserved; test setup imports/calls migrated to admission. All
+  15 targeted files pass (345/345), including journal-mutate and doctor-rebuild.
+- [x] `bun run check` passes; `dist/cli.mjs` rebuilt. Evidence: lint, typecheck,
+  release identity, 179 Vitest files / 2753 tests, and tsdown all pass;
+  `node dist/cli.mjs --version` prints `0.7.0`.
 
 Commit: `refactor(core): admit journal entries through one module`
 

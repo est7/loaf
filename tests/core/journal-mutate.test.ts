@@ -17,7 +17,8 @@ import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 
 import { mutate, mutateBatch } from "../../src/core/journal-mutate.js";
-import { initialSnapshot, apply } from "../../src/core/reducer.js";
+import { admitEntry } from "../../src/core/entry-admission.js";
+import { initialSnapshot } from "../../src/core/reducer.js";
 import type { Snapshot } from "../../src/core/reducer.js";
 import { replayJournal } from "../../src/core/journal-bootstrap.js";
 import { appendEntry } from "../../src/core/journal-append.js";
@@ -335,7 +336,7 @@ describe("mutate — transactional journal write (audit r1 Blocker #3)", () => {
         payload: { gate_kind: "spec-lock", decision: "approved", reason: "seed" },
       };
       meta = await appendEntry(path.join(dir, "journal.jsonl"), gateEntry, meta, { fsync: false });
-      const applyResult = apply(snapshot, gateEntry);
+      const applyResult = admitEntry(snapshot, gateEntry, { kind: "replay" });
       expect(applyResult.ok).toBe(true);
       if (!applyResult.ok) return;
       snapshot = applyResult.snapshot;
@@ -796,7 +797,7 @@ describe("mutateBatch — Slice 1.0 Cycle 3 (multi-entry transactional)", () => 
         payload: { gate_kind: "spec-lock", decision: "approved", reason: "seed" },
       };
       meta = await appendEntry(path.join(dir, "journal.jsonl"), gateEntry, meta, { fsync: false });
-      const applyResult = apply(snapshot, gateEntry);
+      const applyResult = admitEntry(snapshot, gateEntry, { kind: "replay" });
       expect(applyResult.ok).toBe(true);
       if (!applyResult.ok) return;
       snapshot = applyResult.snapshot;
@@ -1056,7 +1057,7 @@ describe("mutateBatch — Slice 1.0 Cycle 3 (multi-entry transactional)", () => 
         payload: { gate_kind: "spec-lock", decision: "approved", reason: "seed" },
       };
       meta = await appendEntry(path.join(dir, "journal.jsonl"), gateEntry, meta, { fsync: false });
-      const applyResult = apply(snapshot, gateEntry);
+      const applyResult = admitEntry(snapshot, gateEntry, { kind: "replay" });
       expect(applyResult.ok).toBe(true);
       if (!applyResult.ok) return;
       snapshot = applyResult.snapshot;
@@ -1854,7 +1855,7 @@ describe("mutate evidence:added — strict refines (Slice 1.C sub-cycle 1)", () 
         payload: { gate_kind: "spec-lock", decision: "approved", reason: "seed" },
       };
       meta = await appendEntry(path.join(dir, "journal.jsonl"), gateEntry, meta, { fsync: false });
-      const applyResult = apply(snapshot, gateEntry);
+      const applyResult = admitEntry(snapshot, gateEntry, { kind: "replay" });
       if (!applyResult.ok) throw new Error(`gate apply failed: ${applyResult.code}`);
       snapshot = applyResult.snapshot;
       tailSeq = gateSeq;
@@ -2096,7 +2097,7 @@ scenarios: []
         payload: { gate_kind: "spec-lock", decision: "approved", reason: "seed" },
       };
       meta = await appendEntry(path.join(dir, "journal.jsonl"), gateEntry, meta, { fsync: false });
-      const applyResult = apply(snapshot, gateEntry);
+      const applyResult = admitEntry(snapshot, gateEntry, { kind: "replay" });
       if (!applyResult.ok) throw new Error(`gate apply failed: ${applyResult.code}`);
       snapshot = applyResult.snapshot;
       tailSeq = gateSeq;

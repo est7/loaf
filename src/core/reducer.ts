@@ -1,6 +1,6 @@
 // Reducer apply path — minimum viable Stage 2.
 //
-// preflight() (§11.2 step 3) validates authority + transition; apply() (step 7)
+// Entry admission validates authority + transition; applyValidated (step 7)
 // narrows on kind and consumes prev while mutating the projection. Returns
 // Result so callers can branch on typed error codes without try/catch.
 //
@@ -11,7 +11,6 @@
 
 import type { Ceremony, EntryKind, JournalEntry, SubState } from "./journal-entry.js";
 import { diagnostic } from "./error-catalog.js";
-import { preflight } from "./reducer/preflight.js";
 import type { PreflightFailureCode } from "./reducer/preflight.js";
 import {
   checkSpecVersion as specVersionRule,
@@ -113,63 +112,12 @@ const MIGRATION_BOOTSTRAP_CEREMONY: Ceremony = {
 };
 
 /**
- * Applies one journal entry with the public validation order preserved:
- * bootstrap bypass, NO_SESSION, preflight, then projection mutation.
- */
-export function apply(prev: Snapshot, entry: JournalEntry): ApplyResult {
-  if (
-    entry.kind === "migration:snapshot_imported" ||
-    entry.kind === "session:started"
-  ) {
-    return applyValidated(prev, entry);
-  }
-
-  if (prev.state === null) {
-    return {
-      ok: false,
-      code: "NO_SESSION",
-      message: `kind=${entry.kind} requires a started session`,
-    };
-  }
-
-  const pre = preflight(entry, { snapshot: prev });
-  if (!pre.ok) {
-    return { ok: false, code: pre.code, message: pre.message, detail: pre.detail ?? {} };
-  }
-
-  return applyValidated(prev, entry);
-}
-
-/**
- * Replay admission preserves journal shapes that were legal when written.
- *
- * New mutation paths go through `apply()` and cannot enter the retired
- * reconcile cursor. Historical journals may contain the former
- * VERIFY.accept → SETTLE.reconcile edge, so replay admits that one exact
- * transition after envelope validation and otherwise keeps current preflight.
- *
- * @internal Journal replay only.
- */
-export function applyReplayed(prev: Snapshot, entry: JournalEntry): ApplyResult {
-  const payload = entry.payload as { from?: unknown; to?: unknown };
-  if (
-    prev.state?.sub_state === "VERIFY.accept" &&
-    entry.kind === "event:phase_advanced" &&
-    payload.from === "VERIFY.accept" &&
-    payload.to === "SETTLE.reconcile"
-  ) {
-    return applyValidated(prev, entry);
-  }
-  return apply(prev, entry);
-}
-
-/**
  * Applies an entry whose external validation has already succeeded.
  *
  * `prev` is consumed. Some cases mutate projection arrays in place and may
  * return the same snapshot object or array references.
  *
- * @internal Only validation-owning core paths may call this directly.
+ * @internal Only entry-admission.ts may call this directly.
  */
 export function applyValidated(prev: Snapshot, entry: JournalEntry): ApplyResult {
   // migration:snapshot_imported is also a bootstrap kind — it initializes
@@ -586,7 +534,7 @@ export function applyValidated(prev: Snapshot, entry: JournalEntry): ApplyResult
       // projection arrays so companions repopulate from scratch within
       // the batch.
       //
-      // apply() runs preflight() before this switch (~L287-295) for
+      // Entry admission runs preflight() before this switch for
       // non-bootstrap kinds, and preflight parses PER_KIND_PAYLOAD —
       // SpecSubmittedPayload is .strict and requires feature{id,name} /
       // intent / adr_refs / needs_clarification. We rely on that: no

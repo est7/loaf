@@ -18,7 +18,8 @@
 
 import { describe, expect, test } from "vitest";
 
-import { apply, initialSnapshot } from "../../src/core/reducer.js";
+import { admitEntry } from "../../src/core/entry-admission.js";
+import { initialSnapshot } from "../../src/core/reducer.js";
 import type { Ceremony, JournalEntry } from "../../src/core/journal-entry.js";
 import type { Snapshot } from "../../src/core/reducer.js";
 
@@ -183,31 +184,34 @@ function fullVisualPayload(spec_version: number, id: string): unknown {
 function seedAtSpecProposal(): Snapshot {
   let snap = initialSnapshot();
   snap = mustOk(
-    apply(
+    admitEntry(
       snap,
       entry(0, "session:started", {
         session_id: "550e8400-e29b-41d4-a716-446655440000",
         feature: "auth-refresh",
         ceremony: STANDARD_CEREMONY,
       }),
+      { kind: "replay" },
     ),
   );
   snap = mustOk(
-    apply(
+    admitEntry(
       snap,
       entry(1, "event:phase_advanced", {
         from: "TRIAGE.score",
         to: "TRIAGE.confirm",
       }),
+      { kind: "replay" },
     ),
   );
   snap = mustOk(
-    apply(
+    admitEntry(
       snap,
       entry(2, "event:phase_advanced", {
         from: "TRIAGE.confirm",
         to: "SPEC.proposal",
       }),
+      { kind: "replay" },
     ),
   );
   return snap;
@@ -222,7 +226,7 @@ function seedAtSpecProposal(): Snapshot {
 function seedAtSpecProposalPostSubmit(): Snapshot {
   let snap = seedAtSpecProposal();
   snap = mustOk(
-    apply(
+    admitEntry(
       snap,
       entry(3, "event:spec_submitted", {
         spec_version: 1,
@@ -231,6 +235,7 @@ function seedAtSpecProposalPostSubmit(): Snapshot {
         adr_refs: [],
         needs_clarification: [],
       }),
+      { kind: "replay" },
     ),
   );
   return snap;
@@ -248,7 +253,11 @@ describe("reducer SPEC content handlers — Slice 1.B sub-cycle 1", () => {
     const snap = seedAtSpecProposal();
     expect(snap.state!.spec_version).toBe(0);
 
-    const next = mustOk(apply(snap, entry(3, "event:spec_submitted", fullSubmittedPayload(1))));
+    const next = mustOk(
+      admitEntry(snap, entry(3, "event:spec_submitted", fullSubmittedPayload(1)), {
+        kind: "replay",
+      }),
+    );
 
     expect(next.state!.spec_version).toBe(1);
     expect(next.requirements).toEqual([]);
@@ -259,28 +268,34 @@ describe("reducer SPEC content handlers — Slice 1.B sub-cycle 1", () => {
   test("event:spec_submitted resets non-empty projection arrays on re-submit", () => {
     let snap = seedAtSpecProposal();
     snap = mustOk(
-      apply(
+      admitEntry(
         snap,
         entry(3, "event:spec_submitted", fullSubmittedPayload(1), {
           id: "11111111-2222-4333-8444-555555555555",
           index: 0,
           count: 2,
         }),
+        { kind: "replay" },
       ),
     );
     snap = mustOk(
-      apply(
+      admitEntry(
         snap,
         entry(4, "event:spec_req_added", fullUbiquitousReqPayload(1, "REQ-A-001"), {
           id: "11111111-2222-4333-8444-555555555555",
           index: 1,
           count: 2,
         }),
+        { kind: "replay" },
       ),
     );
     expect(snap.requirements).toHaveLength(1);
 
-    snap = mustOk(apply(snap, entry(5, "event:spec_submitted", fullSubmittedPayload(2))));
+    snap = mustOk(
+      admitEntry(snap, entry(5, "event:spec_submitted", fullSubmittedPayload(2)), {
+        kind: "replay",
+      }),
+    );
     expect(snap.state!.spec_version).toBe(2);
     expect(snap.requirements).toEqual([]);
     expect(snap.scenarios).toEqual([]);
@@ -290,23 +305,25 @@ describe("reducer SPEC content handlers — Slice 1.B sub-cycle 1", () => {
   test("event:spec_submitted + companion event:spec_req_added (batch) populates projection", () => {
     let snap = seedAtSpecProposal();
     snap = mustOk(
-      apply(
+      admitEntry(
         snap,
         entry(3, "event:spec_submitted", fullSubmittedPayload(1), {
           id: "11111111-2222-4333-8444-555555555555",
           index: 0,
           count: 2,
         }),
+        { kind: "replay" },
       ),
     );
     snap = mustOk(
-      apply(
+      admitEntry(
         snap,
         entry(4, "event:spec_req_added", fullEventDrivenReqPayload(1, "REQ-AUTH-001"), {
           id: "11111111-2222-4333-8444-555555555555",
           index: 1,
           count: 2,
         }),
+        { kind: "replay" },
       ),
     );
 
@@ -322,7 +339,11 @@ describe("reducer SPEC content handlers — Slice 1.B sub-cycle 1", () => {
     // the now-blocked 0 → 1 pre-submit path.
     const snap = seedAtSpecProposalPostSubmit();
     const next = mustOk(
-      apply(snap, entry(4, "event:spec_req_added", fullUbiquitousReqPayload(2, "REQ-AUTH-001"))),
+      admitEntry(
+        snap,
+        entry(4, "event:spec_req_added", fullUbiquitousReqPayload(2, "REQ-AUTH-001")),
+        { kind: "replay" },
+      ),
     );
     expect(next.state!.spec_version).toBe(2);
     expect(next.requirements).toHaveLength(1);
@@ -348,7 +369,9 @@ describe("reducer SPEC content handlers — Slice 1.B sub-cycle 1", () => {
       };
     };
 
-    const next = mustOk(apply(snap, entry(4, "event:spec_req_added", fullPayload)));
+    const next = mustOk(
+      admitEntry(snap, entry(4, "event:spec_req_added", fullPayload), { kind: "replay" }),
+    );
 
     const stored = next.requirements[0]! as unknown as Record<string, unknown>;
     expect(stored["id"]).toBe("REQ-AUTH-001");
@@ -361,13 +384,18 @@ describe("reducer SPEC content handlers — Slice 1.B sub-cycle 1", () => {
   test("event:spec_req_added stale standalone version is rejected (post-submit)", () => {
     let snap = seedAtSpecProposalPostSubmit();
     snap = mustOk(
-      apply(snap, entry(4, "event:spec_req_added", fullUbiquitousReqPayload(2, "REQ-AUTH-001"))),
+      admitEntry(
+        snap,
+        entry(4, "event:spec_req_added", fullUbiquitousReqPayload(2, "REQ-AUTH-001")),
+        { kind: "replay" },
+      ),
     );
     expect(snap.state!.spec_version).toBe(2);
 
-    const result = apply(
+    const result = admitEntry(
       snap,
       entry(5, "event:spec_req_added", fullUbiquitousReqPayload(2, "REQ-AUTH-002")),
+      { kind: "replay" },
     );
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -382,23 +410,25 @@ describe("reducer SPEC content handlers — Slice 1.B sub-cycle 1", () => {
   test("event:spec_req_added batch-continuation with wrong spec_version is rejected", () => {
     let snap = seedAtSpecProposal();
     snap = mustOk(
-      apply(
+      admitEntry(
         snap,
         entry(3, "event:spec_submitted", fullSubmittedPayload(1), {
           id: "11111111-2222-4333-8444-555555555555",
           index: 0,
           count: 2,
         }),
+        { kind: "replay" },
       ),
     );
 
-    const result = apply(
+    const result = admitEntry(
       snap,
       entry(4, "event:spec_req_added", fullUbiquitousReqPayload(2, "REQ-AUTH-001"), {
         id: "11111111-2222-4333-8444-555555555555",
         index: 1,
         count: 2,
       }),
+      { kind: "replay" },
     );
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -411,12 +441,17 @@ describe("reducer SPEC content handlers — Slice 1.B sub-cycle 1", () => {
   test("event:spec_req_added with duplicate id is rejected", () => {
     let snap = seedAtSpecProposalPostSubmit();
     snap = mustOk(
-      apply(snap, entry(4, "event:spec_req_added", fullUbiquitousReqPayload(2, "REQ-AUTH-001"))),
+      admitEntry(
+        snap,
+        entry(4, "event:spec_req_added", fullUbiquitousReqPayload(2, "REQ-AUTH-001")),
+        { kind: "replay" },
+      ),
     );
 
-    const result = apply(
+    const result = admitEntry(
       snap,
       entry(5, "event:spec_req_added", fullUbiquitousReqPayload(3, "REQ-AUTH-001")),
+      { kind: "replay" },
     );
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -430,18 +465,20 @@ describe("reducer SPEC content handlers — Slice 1.B sub-cycle 1", () => {
   test("event:spec_scenario_added standalone happy + duplicate rejected", () => {
     let snap = seedAtSpecProposalPostSubmit();
     snap = mustOk(
-      apply(
+      admitEntry(
         snap,
         entry(4, "event:spec_scenario_added", fullScenarioPayload(2, "SCEN-AUTH-E2E-001")),
+        { kind: "replay" },
       ),
     );
     expect(snap.state!.spec_version).toBe(2);
     expect(snap.scenarios).toHaveLength(1);
     expect(snap.scenarios[0]!.id).toBe("SCEN-AUTH-E2E-001");
 
-    const dup = apply(
+    const dup = admitEntry(
       snap,
       entry(5, "event:spec_scenario_added", fullScenarioPayload(2, "SCEN-AUTH-E2E-001")),
+      { kind: "replay" },
     );
     expect(dup.ok).toBe(false);
     if (!dup.ok) {
@@ -453,15 +490,18 @@ describe("reducer SPEC content handlers — Slice 1.B sub-cycle 1", () => {
   test("event:spec_visual_added standalone happy + duplicate rejected", () => {
     let snap = seedAtSpecProposalPostSubmit();
     snap = mustOk(
-      apply(snap, entry(4, "event:spec_visual_added", fullVisualPayload(2, "VIS-AUTH-001"))),
+      admitEntry(snap, entry(4, "event:spec_visual_added", fullVisualPayload(2, "VIS-AUTH-001")), {
+        kind: "replay",
+      }),
     );
     expect(snap.state!.spec_version).toBe(2);
     expect(snap.visual_contracts).toHaveLength(1);
     expect(snap.visual_contracts[0]!.id).toBe("VIS-AUTH-001");
 
-    const dup = apply(
+    const dup = admitEntry(
       snap,
       entry(5, "event:spec_visual_added", fullVisualPayload(2, "VIS-AUTH-001")),
+      { kind: "replay" },
     );
     expect(dup.ok).toBe(false);
     if (!dup.ok) {
@@ -472,9 +512,15 @@ describe("reducer SPEC content handlers — Slice 1.B sub-cycle 1", () => {
 
   test("event:spec_submitted with non-monotonic version is rejected", () => {
     let snap = seedAtSpecProposal();
-    snap = mustOk(apply(snap, entry(3, "event:spec_submitted", fullSubmittedPayload(1))));
+    snap = mustOk(
+      admitEntry(snap, entry(3, "event:spec_submitted", fullSubmittedPayload(1)), {
+        kind: "replay",
+      }),
+    );
 
-    const result = apply(snap, entry(4, "event:spec_submitted", fullSubmittedPayload(1)));
+    const result = admitEntry(snap, entry(4, "event:spec_submitted", fullSubmittedPayload(1)), {
+      kind: "replay",
+    });
     expect(result.ok).toBe(false);
     if (!result.ok) {
       // Slice E promotion: SPEC_VERSION_NOT_MONOTONIC from preflight
@@ -488,16 +534,17 @@ describe("reducer SPEC content handlers — Slice 1.B sub-cycle 1", () => {
 describe("SPEC payload schemas — canonical truth required for replay", () => {
   test("spec_req_added accepts event-driven REQ with full body", () => {
     const snap = seedAtSpecProposalPostSubmit();
-    const result = apply(
+    const result = admitEntry(
       snap,
       entry(4, "event:spec_req_added", fullEventDrivenReqPayload(2, "REQ-AUTH-001")),
+      { kind: "replay" },
     );
     expect(result.ok).toBe(true);
   });
 
   test("spec_req_added rejects event-driven REQ missing trigger (preflight schema gate)", () => {
     const snap = seedAtSpecProposalPostSubmit();
-    const result = apply(
+    const result = admitEntry(
       snap,
       entry(4, "event:spec_req_added", {
         spec_version: 2,
@@ -509,6 +556,7 @@ describe("SPEC payload schemas — canonical truth required for replay", () => {
           verified_by_scenarios: ["SCEN-AUTH-E2E-001"],
         },
       }),
+      { kind: "replay" },
     );
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -518,7 +566,7 @@ describe("SPEC payload schemas — canonical truth required for replay", () => {
 
   test("spec_req_added rejects REQ missing all three verifiability options", () => {
     const snap = seedAtSpecProposal();
-    const result = apply(
+    const result = admitEntry(
       snap,
       entry(3, "event:spec_req_added", {
         spec_version: 1,
@@ -529,6 +577,7 @@ describe("SPEC payload schemas — canonical truth required for replay", () => {
           // no measurable, no verified_by_scenarios, no acceptance_na — must reject
         },
       }),
+      { kind: "replay" },
     );
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -540,7 +589,7 @@ describe("SPEC payload schemas — canonical truth required for replay", () => {
 
   test("spec_submitted rejects payload missing adr_refs", () => {
     const snap = seedAtSpecProposal();
-    const result = apply(
+    const result = admitEntry(
       snap,
       entry(3, "event:spec_submitted", {
         spec_version: 1,
@@ -549,6 +598,7 @@ describe("SPEC payload schemas — canonical truth required for replay", () => {
         // adr_refs missing — must reject (codex r17 ripple: explicit not defaulted)
         needs_clarification: [],
       }),
+      { kind: "replay" },
     );
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -578,7 +628,11 @@ describe("reducer SPEC content full projection — Slice A SC1", () => {
 
   test("event:spec_submitted populates spec_header with full header fields", () => {
     const snap = seedAtSpecProposal();
-    const next = mustOk(apply(snap, entry(3, "event:spec_submitted", fullSubmittedPayload(1))));
+    const next = mustOk(
+      admitEntry(snap, entry(3, "event:spec_submitted", fullSubmittedPayload(1)), {
+        kind: "replay",
+      }),
+    );
 
     expect(next.spec_header).not.toBeNull();
     expect(next.spec_header!.feature).toEqual({ id: "F-001", name: "OAuth access token refresh" });
@@ -600,7 +654,9 @@ describe("reducer SPEC content full projection — Slice A SC1", () => {
         { id: "NC-001", question: "should refresh be skipped on idempotent GETs?" },
       ],
     };
-    const next = mustOk(apply(snap, entry(3, "event:spec_submitted", payload)));
+    const next = mustOk(
+      admitEntry(snap, entry(3, "event:spec_submitted", payload), { kind: "replay" }),
+    );
 
     expect(next.spec_header!.feature.id).toBe("F-007");
     expect(next.spec_header!.adr_refs).toEqual(["ADR-0042", "ADR-0099"]);
@@ -610,11 +666,15 @@ describe("reducer SPEC content full projection — Slice A SC1", () => {
 
   test("event:spec_submitted re-submit rebuilds spec_header (whole-replacement semantics)", () => {
     let snap = seedAtSpecProposal();
-    snap = mustOk(apply(snap, entry(3, "event:spec_submitted", fullSubmittedPayload(1))));
+    snap = mustOk(
+      admitEntry(snap, entry(3, "event:spec_submitted", fullSubmittedPayload(1)), {
+        kind: "replay",
+      }),
+    );
     expect(snap.spec_header!.feature.id).toBe("F-001");
 
     snap = mustOk(
-      apply(
+      admitEntry(
         snap,
         entry(4, "event:spec_submitted", {
           spec_version: 2,
@@ -623,6 +683,7 @@ describe("reducer SPEC content full projection — Slice A SC1", () => {
           adr_refs: ["ADR-0007"],
           needs_clarification: [],
         }),
+        { kind: "replay" },
       ),
     );
 
@@ -685,7 +746,11 @@ describe("reducer SPEC content full projection — Slice A SC1", () => {
     bodyMatcher,
   }) => {
     const snap = seedAtSpecProposalPostSubmit();
-    const next = mustOk(apply(snap, entry(4, "event:spec_req_added", payloadFn(2, "REQ-VAR-001"))));
+    const next = mustOk(
+      admitEntry(snap, entry(4, "event:spec_req_added", payloadFn(2, "REQ-VAR-001")), {
+        kind: "replay",
+      }),
+    );
 
     const stored = next.requirements[0]! as unknown as Record<string, unknown>;
     expect(stored["id"]).toBe("REQ-VAR-001");
@@ -695,9 +760,10 @@ describe("reducer SPEC content full projection — Slice A SC1", () => {
   test("event:spec_scenario_added preserves full SCEN body (name/given/when/then) in Snapshot.scenarios[]", () => {
     const snap = seedAtSpecProposalPostSubmit();
     const next = mustOk(
-      apply(
+      admitEntry(
         snap,
         entry(4, "event:spec_scenario_added", fullScenarioPayload(2, "SCEN-AUTH-E2E-001")),
+        { kind: "replay" },
       ),
     );
 
@@ -716,7 +782,9 @@ describe("reducer SPEC content full projection — Slice A SC1", () => {
   test("event:spec_visual_added preserves full VIS body (target/checks) in Snapshot.visual_contracts[]", () => {
     const snap = seedAtSpecProposalPostSubmit();
     const next = mustOk(
-      apply(snap, entry(4, "event:spec_visual_added", fullVisualPayload(2, "VIS-AUTH-001"))),
+      admitEntry(snap, entry(4, "event:spec_visual_added", fullVisualPayload(2, "VIS-AUTH-001")), {
+        kind: "replay",
+      }),
     );
 
     const stored = next.visual_contracts[0]! as unknown as Record<string, unknown>;

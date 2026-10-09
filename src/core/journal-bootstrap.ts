@@ -25,13 +25,8 @@ import {
   JournalEntry,
   type JournalEntry as JE,
 } from "./journal-entry.js";
-import {
-  applyReplayed,
-  initialSnapshot,
-  type ApplyFailureCode,
-  type ApplyResult,
-  type Snapshot,
-} from "./reducer.js";
+import { initialSnapshot, type ApplyFailureCode, type Snapshot } from "./reducer.js";
+import { admitEntry } from "./entry-admission.js";
 import { ENTRY_SCHEMA_VERSIONS, rehydrateMigration } from "./migration.js";
 import {
   computeLineHash,
@@ -151,8 +146,8 @@ export async function replayJournal(
 
     // W2 — seq monotonicity. appendMany enforces `seq === tail + 1` on the
     // write path; replay owns the corresponding read-path continuity check.
-    // apply() deliberately omits tail_seq because independent callers do not
-    // own journal continuity. Assert strict contiguity here, BEFORE apply, so
+    // Replay admission omits tail_seq because independent callers do not
+    // own journal continuity. Assert strict contiguity here, BEFORE admission, so
     // even a reducer-legal entry at the wrong seq is rejected.
     const expectedSeq = lastSeq + 1;
     if (entry.seq !== expectedSeq) {
@@ -165,11 +160,11 @@ export async function replayJournal(
       };
     }
 
-    // Migration entries bypass apply()'s default bootstrap and rehydrate
+    // Migration entries bypass admission's default bootstrap and rehydrate
     // the full projection from sidecar artifacts (audit r1 Blocker #6).
     // Audit r2 Medium fix: replayJournal MUST fail-fast if a migration
     // entry is present but feature_dir was not supplied — silent downgrade
-    // to apply()'s bootstrap loses the entire legacy projection.
+    // to admission's bootstrap loses the entire legacy projection.
     if (entry.kind === "migration:snapshot_imported") {
       if (!opts.feature_dir) {
         return {
@@ -191,7 +186,7 @@ export async function replayJournal(
         };
       }
     } else {
-      const result: ApplyResult = applyReplayed(snapshot, entry);
+      const result = admitEntry(snapshot, entry, { kind: "replay" });
       if (!result.ok) {
         return {
           ok: false,

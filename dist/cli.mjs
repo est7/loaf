@@ -2953,6 +2953,724 @@ function diagnostic$2(code, detail) {
 const DIAGNOSTIC_CODE_VALUES = Object.keys(ERROR_CATALOG);
 z.enum(DIAGNOSTIC_CODE_VALUES);
 //#endregion
+//#region src/core/reducer/invariants.ts
+function resolveSpecVersionMode(batchIndex) {
+	return batchIndex === void 0 || batchIndex === 0 ? "head" : "continuation";
+}
+/**
+* spec_version monotonicity, parametrised by batch position.
+*
+* - "head": the first entry of a batch must bump to `currentVersion + 1`.
+* - "continuation": a non-head entry must repeat `currentVersion` (the head
+*   already bumped state).
+*
+* On success returns the accepted `nextVersion` so the reducer can set
+* `state.spec_version` without recomputing the rule; on failure returns the
+* `expected` version so each layer formats its own message/detail.
+*
+* NOTE: the structural guard for `spec_submitted` at batch_index > 0 is NOT this
+* predicate's concern (it has no kind/batch_index) and must be checked by the
+* caller before delegating here.
+*/
+function checkSpecVersion$2(payloadVersion, currentVersion, mode) {
+	const expected = mode === "head" ? currentVersion + 1 : currentVersion;
+	return payloadVersion === expected ? {
+		ok: true,
+		nextVersion: expected
+	} : {
+		ok: false,
+		expected
+	};
+}
+/**
+* Self-scan: the first id that appears more than once within `ids`, else null.
+* For `tasks_planned`, where the duplicate question is internal to the incoming
+* task list. Returns the first id encountered a second time (scan order) so the
+* offender is deterministic.
+*/
+function findDuplicateId(ids) {
+	const seen = /* @__PURE__ */ new Set();
+	for (const id of ids) {
+		if (seen.has(id)) return { id };
+		seen.add(id);
+	}
+	return null;
+}
+/**
+* Membership: does `incomingId` already exist among `existing`, else null. For
+* REQ/SCEN/VIS add-one, where the question is collision against the projection
+* — NOT whether the projection is internally corrupt. A pre-existing duplicate
+* in `existing` unrelated to `incomingId` must not change the answer.
+*
+* Takes the source items + an id selector and short-circuits on the first match,
+* so callers pass the projection array directly — no throwaway `.map(...)` id
+* array per check on the per-mutation path.
+*/
+function findCollision(incomingId, existing, selectId) {
+	for (const item of existing) if (selectId(item) === incomingId) return { id: incomingId };
+	return null;
+}
+//#endregion
+//#region src/core/reducer.ts
+function initialSnapshot() {
+	return {
+		state: null,
+		tasks: [],
+		evidence: [],
+		findings: [],
+		pending: [],
+		spec_header: null,
+		requirements: [],
+		scenarios: [],
+		visual_contracts: [],
+		tasks_based_on: null
+	};
+}
+function extractPhase(sub) {
+	const idx = sub.indexOf(".");
+	return sub.slice(0, idx);
+}
+const MIGRATION_BOOTSTRAP_CEREMONY = {
+	spec_phase: true,
+	verify_phase: true,
+	settle_phase: false,
+	strict_spec_review: false,
+	lessons_required: "skip",
+	strict_drift_check: false
+};
+/**
+* Applies an entry whose external validation has already succeeded.
+*
+* `prev` is consumed. Some cases mutate projection arrays in place and may
+* return the same snapshot object or array references.
+*
+* @internal Only entry-admission.ts may call this directly.
+*/
+function applyValidated(prev, entry) {
+	if (entry.kind === "migration:snapshot_imported") {
+		if (prev.state !== null) return {
+			ok: false,
+			...diagnostic$2("ALREADY_STARTED", { kind: entry.kind }),
+			message: "migration:snapshot_imported after state already initialized"
+		};
+		return {
+			ok: true,
+			snapshot: {
+				...prev,
+				state: {
+					session_id: "00000000-0000-0000-0000-000000000000",
+					feature: "migrated",
+					phase: "TRIAGE",
+					sub_state: "TRIAGE.score",
+					iteration: 1,
+					spec_locked: false,
+					verify_accepted: false,
+					spec_version: 0,
+					ceremony: MIGRATION_BOOTSTRAP_CEREMONY
+				}
+			}
+		};
+	}
+	if (entry.kind === "session:started") {
+		if (prev.state !== null) return {
+			ok: false,
+			...diagnostic$2("ALREADY_STARTED", { kind: entry.kind }),
+			message: "session:started after state already initialized"
+		};
+		const payload = entry.payload;
+		if (!payload.session_id || !payload.feature || !payload.ceremony) return {
+			ok: false,
+			code: "INVALID_PAYLOAD",
+			message: "session:started payload requires session_id, feature, ceremony"
+		};
+		return {
+			ok: true,
+			snapshot: {
+				...prev,
+				state: {
+					session_id: payload.session_id,
+					feature: payload.feature,
+					phase: "TRIAGE",
+					sub_state: "TRIAGE.score",
+					iteration: 1,
+					spec_locked: false,
+					verify_accepted: false,
+					spec_version: 0,
+					ceremony: payload.ceremony
+				}
+			}
+		};
+	}
+	const state = prev.state;
+	switch (entry.kind) {
+		case "event:phase_advanced": {
+			const payload = entry.payload;
+			const next = {
+				...state,
+				sub_state: payload.to,
+				phase: extractPhase(payload.to),
+				spec_locked: payload.to === "SPEC.spec" ? false : state.spec_locked,
+				iteration: payload.back_edge !== void 0 ? state.iteration + 1 : state.iteration
+			};
+			return {
+				ok: true,
+				snapshot: {
+					...prev,
+					state: next
+				}
+			};
+		}
+		case "event:ceremony_set": {
+			const payload = entry.payload;
+			return {
+				ok: true,
+				snapshot: {
+					...prev,
+					state: {
+						...state,
+						ceremony: payload
+					}
+				}
+			};
+		}
+		case "gate:decided": {
+			const payload = entry.payload;
+			if (payload.gate_kind === "spec-lock") {
+				if (payload.decision === "approved") return {
+					ok: true,
+					snapshot: {
+						...prev,
+						state: {
+							...state,
+							spec_locked: true
+						}
+					}
+				};
+				return {
+					ok: true,
+					snapshot: prev
+				};
+			}
+			if (payload.gate_kind === "verify-accept") {
+				if (payload.decision === "approved") return {
+					ok: true,
+					snapshot: {
+						...prev,
+						state: {
+							...state,
+							verify_accepted: true
+						}
+					}
+				};
+				return {
+					ok: true,
+					snapshot: prev
+				};
+			}
+			return {
+				ok: false,
+				code: "INVALID_PAYLOAD",
+				message: `gate:decided has unknown gate_kind: ${String(payload.gate_kind)}`
+			};
+		}
+		case "event:tasks_planned": {
+			const payload = entry.payload;
+			if (typeof payload.based_on?.spec !== "number") return invalidPayload(entry.kind, "missing based_on.spec");
+			const incoming = payload.tasks ?? [];
+			const dup = findDuplicateId(incoming.map((t) => t.id));
+			if (dup) return invalidPayload(entry.kind, `DUPLICATE_TASK_ID: ${dup.id} appears more than once in tasks_planned payload`);
+			const taskList = incoming.map(extractTaskSlim);
+			return {
+				ok: true,
+				snapshot: {
+					...prev,
+					tasks: taskList,
+					tasks_based_on: { spec: payload.based_on.spec }
+				}
+			};
+		}
+		case "event:tasks_amended": {
+			const payload = entry.payload;
+			if (!payload.task) return invalidPayload(entry.kind, "missing task");
+			const mode = payload.mode ?? "replace";
+			const idx = prev.tasks.findIndex((t) => t.id === payload.task.id);
+			if (mode === "add") {
+				if (idx !== -1) return {
+					ok: false,
+					code: "DUPLICATE_TASK_ID",
+					message: `tasks_amended add: task ${payload.task.id} is already in the projection`,
+					detail: { task_id: payload.task.id }
+				};
+				const slim = extractTaskSlim(payload.task);
+				return {
+					ok: true,
+					snapshot: {
+						...prev,
+						tasks: [...prev.tasks, slim]
+					}
+				};
+			}
+			if (idx === -1) return {
+				ok: false,
+				code: "TASK_NOT_FOUND",
+				message: `tasks_amended: task ${payload.task.id} not in projection`,
+				detail: { task_id: payload.task.id }
+			};
+			const slim = extractTaskSlim(payload.task);
+			const tasks = prev.tasks.map((t, i) => i === idx ? slim : t);
+			return {
+				ok: true,
+				snapshot: {
+					...prev,
+					tasks
+				}
+			};
+		}
+		case "event:task_claimed": {
+			const payload = entry.payload;
+			if (!payload.task_id) return invalidPayload(entry.kind, "missing task_id");
+			if (!prev.tasks.find((t) => t.id === payload.task_id)) return {
+				ok: false,
+				code: "TASK_NOT_FOUND",
+				message: `task_claimed: task ${payload.task_id} not in projection`,
+				detail: { task_id: payload.task_id }
+			};
+			const tasks = prev.tasks.map((t) => t.id === payload.task_id ? {
+				...t,
+				status: "in_progress"
+			} : t);
+			return {
+				ok: true,
+				snapshot: {
+					...prev,
+					tasks
+				}
+			};
+		}
+		case "event:task_step_started": {
+			const payload = entry.payload;
+			if (!payload.task_id || !payload.step) return invalidPayload(entry.kind, "missing task_id/step");
+			const task = prev.tasks.find((t) => t.id === payload.task_id);
+			if (!task) return {
+				ok: false,
+				code: "TASK_NOT_FOUND",
+				message: `task_step_started: task ${payload.task_id} not in projection`,
+				detail: { task_id: payload.task_id }
+			};
+			const seeded = task.steps[payload.step];
+			if (!seeded) return {
+				ok: false,
+				code: "TASK_STEP_NOT_FOUND",
+				message: `task_step_started: step ${payload.step} not seeded on task ${payload.task_id}`,
+				detail: {
+					task_id: payload.task_id,
+					step: payload.step
+				}
+			};
+			const tasks = prev.tasks.map((t) => t.id === payload.task_id ? {
+				...t,
+				steps: {
+					...t.steps,
+					[payload.step]: {
+						applicability: seeded.applicability,
+						status: "running"
+					}
+				}
+			} : t);
+			return {
+				ok: true,
+				snapshot: {
+					...prev,
+					tasks
+				}
+			};
+		}
+		case "event:task_step_done": {
+			const payload = entry.payload;
+			if (!payload.task_id || !payload.step) return invalidPayload(entry.kind, "missing task_id/step");
+			const task = prev.tasks.find((t) => t.id === payload.task_id);
+			if (!task) return {
+				ok: false,
+				code: "TASK_NOT_FOUND",
+				message: `task_step_done: task ${payload.task_id} not in projection`,
+				detail: { task_id: payload.task_id }
+			};
+			const seeded = task.steps[payload.step];
+			if (!seeded) return {
+				ok: false,
+				code: "TASK_STEP_NOT_FOUND",
+				message: `task_step_done: step ${payload.step} not seeded on task ${payload.task_id}`,
+				detail: {
+					task_id: payload.task_id,
+					step: payload.step
+				}
+			};
+			const newStatus = payload.result ?? "passed";
+			const updatedSteps = {
+				...task.steps,
+				[payload.step]: {
+					applicability: seeded.applicability,
+					status: newStatus
+				}
+			};
+			const nextStatus = task.status === "done" ? "done" : shouldPromoteToDone(updatedSteps) ? "done" : task.status;
+			const tasks = prev.tasks.map((t) => t.id === payload.task_id ? {
+				...t,
+				steps: updatedSteps,
+				status: nextStatus,
+				...payload.red_test_registered === true ? { red_test_registered: true } : {}
+			} : t);
+			return {
+				ok: true,
+				snapshot: {
+					...prev,
+					tasks
+				}
+			};
+		}
+		case "event:task_step_reset": {
+			const payload = entry.payload;
+			if (!payload.task_id || !payload.step) return invalidPayload(entry.kind, "missing task_id/step");
+			const task = prev.tasks.find((t) => t.id === payload.task_id);
+			if (!task) return {
+				ok: false,
+				code: "TASK_NOT_FOUND",
+				message: `task_step_reset: task ${payload.task_id} not in projection`,
+				detail: { task_id: payload.task_id }
+			};
+			const seeded = task.steps[payload.step];
+			if (!seeded) return {
+				ok: false,
+				code: "TASK_STEP_NOT_FOUND",
+				message: `task_step_reset: step ${payload.step} not seeded on task ${payload.task_id}`,
+				detail: {
+					task_id: payload.task_id,
+					step: payload.step
+				}
+			};
+			const tasks = prev.tasks.map((t) => t.id === payload.task_id ? {
+				...t,
+				status: "in_progress",
+				steps: {
+					...t.steps,
+					[payload.step]: {
+						applicability: seeded.applicability,
+						status: "pending"
+					}
+				}
+			} : t);
+			return {
+				ok: true,
+				snapshot: {
+					...prev,
+					tasks
+				}
+			};
+		}
+		case "event:task_abandoned": {
+			const payload = entry.payload;
+			if (!payload.task_id) return invalidPayload(entry.kind, "missing task_id");
+			const tasks = prev.tasks.map((t) => t.id === payload.task_id ? {
+				...t,
+				status: "abandoned"
+			} : t);
+			return {
+				ok: true,
+				snapshot: {
+					...prev,
+					tasks
+				}
+			};
+		}
+		case "event:spec_submitted": {
+			const payload = entry.payload;
+			if (typeof payload.spec_version !== "number") return invalidPayload(entry.kind, "missing spec_version");
+			const versionCheck = checkSpecVersionHead(entry, payload.spec_version, state.spec_version);
+			if (!versionCheck.ok) return invalidPayload(entry.kind, versionCheck.message);
+			const specHeader = structuredClone({
+				feature: {
+					id: payload.feature.id,
+					name: payload.feature.name
+				},
+				intent: payload.intent,
+				adr_refs: payload.adr_refs,
+				needs_clarification: payload.needs_clarification
+			});
+			return {
+				ok: true,
+				snapshot: {
+					...prev,
+					state: {
+						...state,
+						spec_version: versionCheck.nextVersion
+					},
+					spec_header: specHeader,
+					requirements: [],
+					scenarios: [],
+					visual_contracts: []
+				}
+			};
+		}
+		case "event:spec_req_added": {
+			const payload = entry.payload;
+			if (typeof payload.spec_version !== "number" || !payload.req) return invalidPayload(entry.kind, "missing spec_version or req");
+			const versionCheck = checkSpecVersion$1(entry, payload.spec_version, state.spec_version);
+			if (!versionCheck.ok) return invalidPayload(entry.kind, versionCheck.message);
+			if (findCollision(payload.req.id, prev.requirements, (r) => r.id)) return invalidPayload(entry.kind, `DUPLICATE_REQ_ID: ${payload.req.id} already in projection`);
+			prev.requirements.push(structuredClone(payload.req));
+			return {
+				ok: true,
+				snapshot: versionCheck.nextVersion === state.spec_version ? prev : {
+					...prev,
+					state: {
+						...state,
+						spec_version: versionCheck.nextVersion
+					}
+				}
+			};
+		}
+		case "event:spec_scenario_added": {
+			const payload = entry.payload;
+			if (typeof payload.spec_version !== "number" || !payload.scenario) return invalidPayload(entry.kind, "missing spec_version or scenario");
+			const versionCheck = checkSpecVersion$1(entry, payload.spec_version, state.spec_version);
+			if (!versionCheck.ok) return invalidPayload(entry.kind, versionCheck.message);
+			if (findCollision(payload.scenario.id, prev.scenarios, (s) => s.id)) return invalidPayload(entry.kind, `DUPLICATE_SCEN_ID: ${payload.scenario.id} already in projection`);
+			prev.scenarios.push(structuredClone(payload.scenario));
+			return {
+				ok: true,
+				snapshot: versionCheck.nextVersion === state.spec_version ? prev : {
+					...prev,
+					state: {
+						...state,
+						spec_version: versionCheck.nextVersion
+					}
+				}
+			};
+		}
+		case "event:spec_visual_added": {
+			const payload = entry.payload;
+			if (typeof payload.spec_version !== "number" || !payload.visual) return invalidPayload(entry.kind, "missing spec_version or visual");
+			const versionCheck = checkSpecVersion$1(entry, payload.spec_version, state.spec_version);
+			if (!versionCheck.ok) return invalidPayload(entry.kind, versionCheck.message);
+			if (findCollision(payload.visual.id, prev.visual_contracts, (v) => v.id)) return invalidPayload(entry.kind, `DUPLICATE_VIS_ID: ${payload.visual.id} already in projection`);
+			prev.visual_contracts.push(structuredClone(payload.visual));
+			return {
+				ok: true,
+				snapshot: versionCheck.nextVersion === state.spec_version ? prev : {
+					...prev,
+					state: {
+						...state,
+						spec_version: versionCheck.nextVersion
+					}
+				}
+			};
+		}
+		case "evidence:added": {
+			const payload = entry.payload;
+			if (!payload.id || !payload.kind) return invalidPayload(entry.kind, "missing id/kind");
+			const ev = {
+				id: payload.id,
+				kind: payload.kind,
+				covers: payload.covers ?? [],
+				actor: payload.actor ?? entry.actor
+			};
+			if (payload.result !== void 0) ev.result = payload.result;
+			if (payload.check !== void 0) ev.check = payload.check;
+			if (payload.reason !== void 0) ev.reason = payload.reason;
+			if (payload.attachments !== void 0) ev.attachments = payload.attachments;
+			prev.evidence.push(ev);
+			return {
+				ok: true,
+				snapshot: prev
+			};
+		}
+		case "lesson:recorded": return {
+			ok: true,
+			snapshot: prev
+		};
+		case "scope:recorded": return {
+			ok: true,
+			snapshot: prev
+		};
+		case "finding:raised": {
+			const payload = entry.payload;
+			if (!payload.id || !payload.category || !payload.action) return invalidPayload(entry.kind, "missing id/category/action");
+			const f = {
+				id: payload.id,
+				category: payload.category,
+				action: payload.action,
+				status: "open"
+			};
+			if (payload.summary !== void 0) f.summary = payload.summary;
+			if (payload.reason !== void 0) f.reason = payload.reason;
+			if (payload.target !== void 0) f.target = payload.target;
+			prev.findings.push(f);
+			return {
+				ok: true,
+				snapshot: prev
+			};
+		}
+		case "finding:closed": {
+			const payload = entry.payload;
+			if (!payload.id) return invalidPayload(entry.kind, "missing id");
+			const idx = prev.findings.findIndex((f) => f.id === payload.id);
+			if (idx === -1) return {
+				ok: false,
+				code: "FINDING_NOT_FOUND",
+				message: `finding:closed references unknown finding id=${payload.id}`,
+				detail: {
+					id: payload.id,
+					reason: "unknown"
+				}
+			};
+			if (prev.findings[idx].status === "closed") return {
+				ok: false,
+				code: "FINDING_NOT_FOUND",
+				message: `finding:closed references finding id=${payload.id} that is already closed`,
+				detail: {
+					id: payload.id,
+					reason: "already_closed"
+				}
+			};
+			const findings = prev.findings.map((f, i) => i === idx ? {
+				...f,
+				status: "closed"
+			} : f);
+			return {
+				ok: true,
+				snapshot: {
+					...prev,
+					findings
+				}
+			};
+		}
+		case "pending:added": {
+			const payload = entry.payload;
+			if (!payload.id || !payload.kind) return invalidPayload(entry.kind, "missing id/kind");
+			const p = {
+				id: payload.id,
+				kind: payload.kind,
+				resolved: false
+			};
+			prev.pending.push(p);
+			return {
+				ok: true,
+				snapshot: prev
+			};
+		}
+		case "pending:resolved": {
+			const payload = entry.payload;
+			if (!payload.id) return invalidPayload(entry.kind, "missing id");
+			const headIdx = prev.pending.findIndex((p) => !p.resolved);
+			if (headIdx === -1) return {
+				ok: false,
+				...diagnostic$2("PENDING_NOT_FOUND", { reason: "no pending head" }),
+				message: `pending:resolved with no pending head`
+			};
+			const head = prev.pending[headIdx];
+			if (head.id !== payload.id) return {
+				ok: false,
+				...diagnostic$2("PENDING_NOT_FOUND", { reason: `id=${payload.id} does not match head id=${head.id} (FIFO violation)` }),
+				message: `pending:resolved id=${payload.id} does not match head id=${head.id} (FIFO violation)`
+			};
+			const pending = prev.pending.map((p, i) => i === headIdx ? {
+				...p,
+				resolved: true
+			} : p);
+			return {
+				ok: true,
+				snapshot: {
+					...prev,
+					pending
+				}
+			};
+		}
+		case "session:delivered": return {
+			ok: true,
+			snapshot: {
+				...prev,
+				state: {
+					...state,
+					sub_state: "DONE.delivered",
+					phase: "DONE"
+				}
+			}
+		};
+		case "session:archived": return {
+			ok: true,
+			snapshot: {
+				...prev,
+				state: {
+					...state,
+					sub_state: "DONE.archived",
+					phase: "DONE"
+				}
+			}
+		};
+		case "session:abandoned": return {
+			ok: true,
+			snapshot: {
+				...prev,
+				state: {
+					...state,
+					sub_state: "DONE.abandoned",
+					phase: "DONE"
+				}
+			}
+		};
+		case "session:resumed": return {
+			ok: true,
+			snapshot: prev
+		};
+		case "spike:converted": return {
+			ok: true,
+			snapshot: prev
+		};
+		default: {
+			const _exhaustive = entry.kind;
+			return {
+				ok: false,
+				code: "REDUCER_NOT_IMPLEMENTED",
+				message: `reducer.apply has no handler for kind=${_exhaustive}`,
+				detail: { kind: _exhaustive }
+			};
+		}
+	}
+}
+function invalidPayload(kind, reason) {
+	return {
+		ok: false,
+		code: "INVALID_PAYLOAD",
+		message: `${kind}: ${reason}`
+	};
+}
+function checkSpecVersionHead(entry, payloadVersion, currentVersion) {
+	if (entry.batch_index !== void 0 && entry.batch_index !== 0) return {
+		ok: false,
+		message: `SPEC_VERSION_BATCH_MISMATCH: spec_submitted must appear at batch_index=0, got ${entry.batch_index}`
+	};
+	const r = checkSpecVersion$2(payloadVersion, currentVersion, "head");
+	return r.ok ? {
+		ok: true,
+		nextVersion: r.nextVersion
+	} : {
+		ok: false,
+		message: `SPEC_VERSION_NOT_MONOTONIC: spec_version must be ${r.expected} (current+1), got ${payloadVersion}`
+	};
+}
+function checkSpecVersion$1(entry, payloadVersion, currentVersion) {
+	const mode = resolveSpecVersionMode(entry.batch_index);
+	const r = checkSpecVersion$2(payloadVersion, currentVersion, mode);
+	if (r.ok) return {
+		ok: true,
+		nextVersion: r.nextVersion
+	};
+	return {
+		ok: false,
+		message: mode === "head" ? `SPEC_VERSION_NOT_MONOTONIC: spec_version must be ${r.expected} (current+1) at batch head, got ${payloadVersion}` : `SPEC_VERSION_BATCH_MISMATCH: spec_version must be ${r.expected} at batch_index=${entry.batch_index}, got ${payloadVersion}`
+	};
+}
+//#endregion
 //#region src/core/kind-guards.ts
 const ANY_SUB_STATE = Symbol("any-sub-state");
 const ANY_NON_DONE = Symbol("any-non-done");
@@ -3285,64 +4003,6 @@ function checkPerKindPayload(c) {
 	return null;
 }
 //#endregion
-//#region src/core/reducer/invariants.ts
-function resolveSpecVersionMode(batchIndex) {
-	return batchIndex === void 0 || batchIndex === 0 ? "head" : "continuation";
-}
-/**
-* spec_version monotonicity, parametrised by batch position.
-*
-* - "head": the first entry of a batch must bump to `currentVersion + 1`.
-* - "continuation": a non-head entry must repeat `currentVersion` (the head
-*   already bumped state).
-*
-* On success returns the accepted `nextVersion` so the reducer can set
-* `state.spec_version` without recomputing the rule; on failure returns the
-* `expected` version so each layer formats its own message/detail.
-*
-* NOTE: the structural guard for `spec_submitted` at batch_index > 0 is NOT this
-* predicate's concern (it has no kind/batch_index) and must be checked by the
-* caller before delegating here.
-*/
-function checkSpecVersion$2(payloadVersion, currentVersion, mode) {
-	const expected = mode === "head" ? currentVersion + 1 : currentVersion;
-	return payloadVersion === expected ? {
-		ok: true,
-		nextVersion: expected
-	} : {
-		ok: false,
-		expected
-	};
-}
-/**
-* Self-scan: the first id that appears more than once within `ids`, else null.
-* For `tasks_planned`, where the duplicate question is internal to the incoming
-* task list. Returns the first id encountered a second time (scan order) so the
-* offender is deterministic.
-*/
-function findDuplicateId(ids) {
-	const seen = /* @__PURE__ */ new Set();
-	for (const id of ids) {
-		if (seen.has(id)) return { id };
-		seen.add(id);
-	}
-	return null;
-}
-/**
-* Membership: does `incomingId` already exist among `existing`, else null. For
-* REQ/SCEN/VIS add-one, where the question is collision against the projection
-* — NOT whether the projection is internally corrupt. A pre-existing duplicate
-* in `existing` unrelated to `incomingId` must not change the answer.
-*
-* Takes the source items + an id selector and short-circuits on the first match,
-* so callers pass the projection array directly — no throwaway `.map(...)` id
-* array per check on the per-mutation path.
-*/
-function findCollision(incomingId, existing, selectId) {
-	for (const item of existing) if (selectId(item) === incomingId) return { id: incomingId };
-	return null;
-}
-//#endregion
 //#region src/core/reducer/preflight/checks-spec.ts
 const SPEC_CONTENT_KINDS = new Set([
 	"event:spec_submitted",
@@ -3411,7 +4071,7 @@ function checkSpecDuplicateIds(c) {
 	}
 	return null;
 }
-function checkSpecVersion$1(c) {
+function checkSpecVersion(c) {
 	const { entry, payloadData, ctx } = c;
 	if (SPEC_VERSION_KINDS.has(entry.kind)) {
 		const payloadVersion = payloadData.spec_version;
@@ -5252,703 +5912,47 @@ const ORDERED_CHECKS = [
 	checkFindingRaised,
 	checkSpecContentPhase,
 	checkSpecDuplicateIds,
-	checkSpecVersion$1,
+	checkSpecVersion,
 	checkTransitionEdge
 ];
 //#endregion
-//#region src/core/reducer.ts
-function initialSnapshot() {
-	return {
-		state: null,
-		tasks: [],
-		evidence: [],
-		findings: [],
-		pending: [],
-		spec_header: null,
-		requirements: [],
-		scenarios: [],
-		visual_contracts: [],
-		tasks_based_on: null
-	};
-}
-function extractPhase(sub) {
-	const idx = sub.indexOf(".");
-	return sub.slice(0, idx);
-}
-const MIGRATION_BOOTSTRAP_CEREMONY = {
-	spec_phase: true,
-	verify_phase: true,
-	settle_phase: false,
-	strict_spec_review: false,
-	lessons_required: "skip",
-	strict_drift_check: false
-};
+//#region src/core/entry-admission.ts
 /**
-* Applies one journal entry with the public validation order preserved:
-* bootstrap bypass, NO_SESSION, preflight, then projection mutation.
+* Admits one entry and consumes `prev`; projection application can mutate its
+* arrays in place. Clone first when the caller needs the prior snapshot.
+* Mutation validates every kind against the journal tail. Replay preserves
+* historical bootstrap tolerance and the retired reconcile transition;
+* envelope validation and sequence continuity remain owned by replayJournal.
 */
-function apply(prev, entry) {
-	if (entry.kind === "migration:snapshot_imported" || entry.kind === "session:started") return applyValidated(prev, entry);
-	if (prev.state === null) return {
+function admitEntry(prev, entry, mode) {
+	const bootstrap = entry.kind === "session:started" || entry.kind === "migration:snapshot_imported";
+	if (!bootstrap && prev.state === null) return {
 		ok: false,
+		stage: "admission",
 		code: "NO_SESSION",
-		message: `kind=${entry.kind} requires a started session`
+		message: `kind=${entry.kind} requires a started session`,
+		detail: {}
 	};
-	const pre = preflight(entry, { snapshot: prev });
-	if (!pre.ok) return {
-		ok: false,
-		code: pre.code,
-		message: pre.message,
-		detail: pre.detail ?? {}
-	};
-	return applyValidated(prev, entry);
-}
-/**
-* Replay admission preserves journal shapes that were legal when written.
-*
-* New mutation paths go through `apply()` and cannot enter the retired
-* reconcile cursor. Historical journals may contain the former
-* VERIFY.accept → SETTLE.reconcile edge, so replay admits that one exact
-* transition after envelope validation and otherwise keeps current preflight.
-*
-* @internal Journal replay only.
-*/
-function applyReplayed(prev, entry) {
 	const payload = entry.payload;
-	if (prev.state?.sub_state === "VERIFY.accept" && entry.kind === "event:phase_advanced" && payload.from === "VERIFY.accept" && payload.to === "SETTLE.reconcile") return applyValidated(prev, entry);
-	return apply(prev, entry);
-}
-/**
-* Applies an entry whose external validation has already succeeded.
-*
-* `prev` is consumed. Some cases mutate projection arrays in place and may
-* return the same snapshot object or array references.
-*
-* @internal Only validation-owning core paths may call this directly.
-*/
-function applyValidated(prev, entry) {
-	if (entry.kind === "migration:snapshot_imported") {
-		if (prev.state !== null) return {
-			ok: false,
-			...diagnostic$2("ALREADY_STARTED", { kind: entry.kind }),
-			message: "migration:snapshot_imported after state already initialized"
-		};
-		return {
-			ok: true,
-			snapshot: {
-				...prev,
-				state: {
-					session_id: "00000000-0000-0000-0000-000000000000",
-					feature: "migrated",
-					phase: "TRIAGE",
-					sub_state: "TRIAGE.score",
-					iteration: 1,
-					spec_locked: false,
-					verify_accepted: false,
-					spec_version: 0,
-					ceremony: MIGRATION_BOOTSTRAP_CEREMONY
-				}
-			}
+	const legacyReconcile = mode.kind === "replay" && prev.state?.sub_state === "VERIFY.accept" && entry.kind === "event:phase_advanced" && payload.from === "VERIFY.accept" && payload.to === "SETTLE.reconcile";
+	if (mode.kind === "mutation" || !bootstrap && !legacyReconcile) {
+		const result = preflight(entry, {
+			snapshot: prev,
+			...mode.kind === "mutation" ? { tail_seq: mode.tail_seq } : {}
+		});
+		if (!result.ok) return {
+			...result,
+			stage: "admission",
+			detail: result.detail ?? {}
 		};
 	}
-	if (entry.kind === "session:started") {
-		if (prev.state !== null) return {
-			ok: false,
-			...diagnostic$2("ALREADY_STARTED", { kind: entry.kind }),
-			message: "session:started after state already initialized"
-		};
-		const payload = entry.payload;
-		if (!payload.session_id || !payload.feature || !payload.ceremony) return {
-			ok: false,
-			code: "INVALID_PAYLOAD",
-			message: "session:started payload requires session_id, feature, ceremony"
-		};
-		return {
-			ok: true,
-			snapshot: {
-				...prev,
-				state: {
-					session_id: payload.session_id,
-					feature: payload.feature,
-					phase: "TRIAGE",
-					sub_state: "TRIAGE.score",
-					iteration: 1,
-					spec_locked: false,
-					verify_accepted: false,
-					spec_version: 0,
-					ceremony: payload.ceremony
-				}
-			}
-		};
-	}
-	const state = prev.state;
-	switch (entry.kind) {
-		case "event:phase_advanced": {
-			const payload = entry.payload;
-			const next = {
-				...state,
-				sub_state: payload.to,
-				phase: extractPhase(payload.to),
-				spec_locked: payload.to === "SPEC.spec" ? false : state.spec_locked,
-				iteration: payload.back_edge !== void 0 ? state.iteration + 1 : state.iteration
-			};
-			return {
-				ok: true,
-				snapshot: {
-					...prev,
-					state: next
-				}
-			};
-		}
-		case "event:ceremony_set": {
-			const payload = entry.payload;
-			return {
-				ok: true,
-				snapshot: {
-					...prev,
-					state: {
-						...state,
-						ceremony: payload
-					}
-				}
-			};
-		}
-		case "gate:decided": {
-			const payload = entry.payload;
-			if (payload.gate_kind === "spec-lock") {
-				if (payload.decision === "approved") return {
-					ok: true,
-					snapshot: {
-						...prev,
-						state: {
-							...state,
-							spec_locked: true
-						}
-					}
-				};
-				return {
-					ok: true,
-					snapshot: prev
-				};
-			}
-			if (payload.gate_kind === "verify-accept") {
-				if (payload.decision === "approved") return {
-					ok: true,
-					snapshot: {
-						...prev,
-						state: {
-							...state,
-							verify_accepted: true
-						}
-					}
-				};
-				return {
-					ok: true,
-					snapshot: prev
-				};
-			}
-			return {
-				ok: false,
-				code: "INVALID_PAYLOAD",
-				message: `gate:decided has unknown gate_kind: ${String(payload.gate_kind)}`
-			};
-		}
-		case "event:tasks_planned": {
-			const payload = entry.payload;
-			if (typeof payload.based_on?.spec !== "number") return invalidPayload(entry.kind, "missing based_on.spec");
-			const incoming = payload.tasks ?? [];
-			const dup = findDuplicateId(incoming.map((t) => t.id));
-			if (dup) return invalidPayload(entry.kind, `DUPLICATE_TASK_ID: ${dup.id} appears more than once in tasks_planned payload`);
-			const taskList = incoming.map(extractTaskSlim);
-			return {
-				ok: true,
-				snapshot: {
-					...prev,
-					tasks: taskList,
-					tasks_based_on: { spec: payload.based_on.spec }
-				}
-			};
-		}
-		case "event:tasks_amended": {
-			const payload = entry.payload;
-			if (!payload.task) return invalidPayload(entry.kind, "missing task");
-			const mode = payload.mode ?? "replace";
-			const idx = prev.tasks.findIndex((t) => t.id === payload.task.id);
-			if (mode === "add") {
-				if (idx !== -1) return {
-					ok: false,
-					code: "DUPLICATE_TASK_ID",
-					message: `tasks_amended add: task ${payload.task.id} is already in the projection`,
-					detail: { task_id: payload.task.id }
-				};
-				const slim = extractTaskSlim(payload.task);
-				return {
-					ok: true,
-					snapshot: {
-						...prev,
-						tasks: [...prev.tasks, slim]
-					}
-				};
-			}
-			if (idx === -1) return {
-				ok: false,
-				code: "TASK_NOT_FOUND",
-				message: `tasks_amended: task ${payload.task.id} not in projection`,
-				detail: { task_id: payload.task.id }
-			};
-			const slim = extractTaskSlim(payload.task);
-			const tasks = prev.tasks.map((t, i) => i === idx ? slim : t);
-			return {
-				ok: true,
-				snapshot: {
-					...prev,
-					tasks
-				}
-			};
-		}
-		case "event:task_claimed": {
-			const payload = entry.payload;
-			if (!payload.task_id) return invalidPayload(entry.kind, "missing task_id");
-			if (!prev.tasks.find((t) => t.id === payload.task_id)) return {
-				ok: false,
-				code: "TASK_NOT_FOUND",
-				message: `task_claimed: task ${payload.task_id} not in projection`,
-				detail: { task_id: payload.task_id }
-			};
-			const tasks = prev.tasks.map((t) => t.id === payload.task_id ? {
-				...t,
-				status: "in_progress"
-			} : t);
-			return {
-				ok: true,
-				snapshot: {
-					...prev,
-					tasks
-				}
-			};
-		}
-		case "event:task_step_started": {
-			const payload = entry.payload;
-			if (!payload.task_id || !payload.step) return invalidPayload(entry.kind, "missing task_id/step");
-			const task = prev.tasks.find((t) => t.id === payload.task_id);
-			if (!task) return {
-				ok: false,
-				code: "TASK_NOT_FOUND",
-				message: `task_step_started: task ${payload.task_id} not in projection`,
-				detail: { task_id: payload.task_id }
-			};
-			const seeded = task.steps[payload.step];
-			if (!seeded) return {
-				ok: false,
-				code: "TASK_STEP_NOT_FOUND",
-				message: `task_step_started: step ${payload.step} not seeded on task ${payload.task_id}`,
-				detail: {
-					task_id: payload.task_id,
-					step: payload.step
-				}
-			};
-			const tasks = prev.tasks.map((t) => t.id === payload.task_id ? {
-				...t,
-				steps: {
-					...t.steps,
-					[payload.step]: {
-						applicability: seeded.applicability,
-						status: "running"
-					}
-				}
-			} : t);
-			return {
-				ok: true,
-				snapshot: {
-					...prev,
-					tasks
-				}
-			};
-		}
-		case "event:task_step_done": {
-			const payload = entry.payload;
-			if (!payload.task_id || !payload.step) return invalidPayload(entry.kind, "missing task_id/step");
-			const task = prev.tasks.find((t) => t.id === payload.task_id);
-			if (!task) return {
-				ok: false,
-				code: "TASK_NOT_FOUND",
-				message: `task_step_done: task ${payload.task_id} not in projection`,
-				detail: { task_id: payload.task_id }
-			};
-			const seeded = task.steps[payload.step];
-			if (!seeded) return {
-				ok: false,
-				code: "TASK_STEP_NOT_FOUND",
-				message: `task_step_done: step ${payload.step} not seeded on task ${payload.task_id}`,
-				detail: {
-					task_id: payload.task_id,
-					step: payload.step
-				}
-			};
-			const newStatus = payload.result ?? "passed";
-			const updatedSteps = {
-				...task.steps,
-				[payload.step]: {
-					applicability: seeded.applicability,
-					status: newStatus
-				}
-			};
-			const nextStatus = task.status === "done" ? "done" : shouldPromoteToDone(updatedSteps) ? "done" : task.status;
-			const tasks = prev.tasks.map((t) => t.id === payload.task_id ? {
-				...t,
-				steps: updatedSteps,
-				status: nextStatus,
-				...payload.red_test_registered === true ? { red_test_registered: true } : {}
-			} : t);
-			return {
-				ok: true,
-				snapshot: {
-					...prev,
-					tasks
-				}
-			};
-		}
-		case "event:task_step_reset": {
-			const payload = entry.payload;
-			if (!payload.task_id || !payload.step) return invalidPayload(entry.kind, "missing task_id/step");
-			const task = prev.tasks.find((t) => t.id === payload.task_id);
-			if (!task) return {
-				ok: false,
-				code: "TASK_NOT_FOUND",
-				message: `task_step_reset: task ${payload.task_id} not in projection`,
-				detail: { task_id: payload.task_id }
-			};
-			const seeded = task.steps[payload.step];
-			if (!seeded) return {
-				ok: false,
-				code: "TASK_STEP_NOT_FOUND",
-				message: `task_step_reset: step ${payload.step} not seeded on task ${payload.task_id}`,
-				detail: {
-					task_id: payload.task_id,
-					step: payload.step
-				}
-			};
-			const tasks = prev.tasks.map((t) => t.id === payload.task_id ? {
-				...t,
-				status: "in_progress",
-				steps: {
-					...t.steps,
-					[payload.step]: {
-						applicability: seeded.applicability,
-						status: "pending"
-					}
-				}
-			} : t);
-			return {
-				ok: true,
-				snapshot: {
-					...prev,
-					tasks
-				}
-			};
-		}
-		case "event:task_abandoned": {
-			const payload = entry.payload;
-			if (!payload.task_id) return invalidPayload(entry.kind, "missing task_id");
-			const tasks = prev.tasks.map((t) => t.id === payload.task_id ? {
-				...t,
-				status: "abandoned"
-			} : t);
-			return {
-				ok: true,
-				snapshot: {
-					...prev,
-					tasks
-				}
-			};
-		}
-		case "event:spec_submitted": {
-			const payload = entry.payload;
-			if (typeof payload.spec_version !== "number") return invalidPayload(entry.kind, "missing spec_version");
-			const versionCheck = checkSpecVersionHead(entry, payload.spec_version, state.spec_version);
-			if (!versionCheck.ok) return invalidPayload(entry.kind, versionCheck.message);
-			const specHeader = structuredClone({
-				feature: {
-					id: payload.feature.id,
-					name: payload.feature.name
-				},
-				intent: payload.intent,
-				adr_refs: payload.adr_refs,
-				needs_clarification: payload.needs_clarification
-			});
-			return {
-				ok: true,
-				snapshot: {
-					...prev,
-					state: {
-						...state,
-						spec_version: versionCheck.nextVersion
-					},
-					spec_header: specHeader,
-					requirements: [],
-					scenarios: [],
-					visual_contracts: []
-				}
-			};
-		}
-		case "event:spec_req_added": {
-			const payload = entry.payload;
-			if (typeof payload.spec_version !== "number" || !payload.req) return invalidPayload(entry.kind, "missing spec_version or req");
-			const versionCheck = checkSpecVersion(entry, payload.spec_version, state.spec_version);
-			if (!versionCheck.ok) return invalidPayload(entry.kind, versionCheck.message);
-			if (findCollision(payload.req.id, prev.requirements, (r) => r.id)) return invalidPayload(entry.kind, `DUPLICATE_REQ_ID: ${payload.req.id} already in projection`);
-			prev.requirements.push(structuredClone(payload.req));
-			return {
-				ok: true,
-				snapshot: versionCheck.nextVersion === state.spec_version ? prev : {
-					...prev,
-					state: {
-						...state,
-						spec_version: versionCheck.nextVersion
-					}
-				}
-			};
-		}
-		case "event:spec_scenario_added": {
-			const payload = entry.payload;
-			if (typeof payload.spec_version !== "number" || !payload.scenario) return invalidPayload(entry.kind, "missing spec_version or scenario");
-			const versionCheck = checkSpecVersion(entry, payload.spec_version, state.spec_version);
-			if (!versionCheck.ok) return invalidPayload(entry.kind, versionCheck.message);
-			if (findCollision(payload.scenario.id, prev.scenarios, (s) => s.id)) return invalidPayload(entry.kind, `DUPLICATE_SCEN_ID: ${payload.scenario.id} already in projection`);
-			prev.scenarios.push(structuredClone(payload.scenario));
-			return {
-				ok: true,
-				snapshot: versionCheck.nextVersion === state.spec_version ? prev : {
-					...prev,
-					state: {
-						...state,
-						spec_version: versionCheck.nextVersion
-					}
-				}
-			};
-		}
-		case "event:spec_visual_added": {
-			const payload = entry.payload;
-			if (typeof payload.spec_version !== "number" || !payload.visual) return invalidPayload(entry.kind, "missing spec_version or visual");
-			const versionCheck = checkSpecVersion(entry, payload.spec_version, state.spec_version);
-			if (!versionCheck.ok) return invalidPayload(entry.kind, versionCheck.message);
-			if (findCollision(payload.visual.id, prev.visual_contracts, (v) => v.id)) return invalidPayload(entry.kind, `DUPLICATE_VIS_ID: ${payload.visual.id} already in projection`);
-			prev.visual_contracts.push(structuredClone(payload.visual));
-			return {
-				ok: true,
-				snapshot: versionCheck.nextVersion === state.spec_version ? prev : {
-					...prev,
-					state: {
-						...state,
-						spec_version: versionCheck.nextVersion
-					}
-				}
-			};
-		}
-		case "evidence:added": {
-			const payload = entry.payload;
-			if (!payload.id || !payload.kind) return invalidPayload(entry.kind, "missing id/kind");
-			const ev = {
-				id: payload.id,
-				kind: payload.kind,
-				covers: payload.covers ?? [],
-				actor: payload.actor ?? entry.actor
-			};
-			if (payload.result !== void 0) ev.result = payload.result;
-			if (payload.check !== void 0) ev.check = payload.check;
-			if (payload.reason !== void 0) ev.reason = payload.reason;
-			if (payload.attachments !== void 0) ev.attachments = payload.attachments;
-			prev.evidence.push(ev);
-			return {
-				ok: true,
-				snapshot: prev
-			};
-		}
-		case "lesson:recorded": return {
-			ok: true,
-			snapshot: prev
-		};
-		case "scope:recorded": return {
-			ok: true,
-			snapshot: prev
-		};
-		case "finding:raised": {
-			const payload = entry.payload;
-			if (!payload.id || !payload.category || !payload.action) return invalidPayload(entry.kind, "missing id/category/action");
-			const f = {
-				id: payload.id,
-				category: payload.category,
-				action: payload.action,
-				status: "open"
-			};
-			if (payload.summary !== void 0) f.summary = payload.summary;
-			if (payload.reason !== void 0) f.reason = payload.reason;
-			if (payload.target !== void 0) f.target = payload.target;
-			prev.findings.push(f);
-			return {
-				ok: true,
-				snapshot: prev
-			};
-		}
-		case "finding:closed": {
-			const payload = entry.payload;
-			if (!payload.id) return invalidPayload(entry.kind, "missing id");
-			const idx = prev.findings.findIndex((f) => f.id === payload.id);
-			if (idx === -1) return {
-				ok: false,
-				code: "FINDING_NOT_FOUND",
-				message: `finding:closed references unknown finding id=${payload.id}`,
-				detail: {
-					id: payload.id,
-					reason: "unknown"
-				}
-			};
-			if (prev.findings[idx].status === "closed") return {
-				ok: false,
-				code: "FINDING_NOT_FOUND",
-				message: `finding:closed references finding id=${payload.id} that is already closed`,
-				detail: {
-					id: payload.id,
-					reason: "already_closed"
-				}
-			};
-			const findings = prev.findings.map((f, i) => i === idx ? {
-				...f,
-				status: "closed"
-			} : f);
-			return {
-				ok: true,
-				snapshot: {
-					...prev,
-					findings
-				}
-			};
-		}
-		case "pending:added": {
-			const payload = entry.payload;
-			if (!payload.id || !payload.kind) return invalidPayload(entry.kind, "missing id/kind");
-			const p = {
-				id: payload.id,
-				kind: payload.kind,
-				resolved: false
-			};
-			prev.pending.push(p);
-			return {
-				ok: true,
-				snapshot: prev
-			};
-		}
-		case "pending:resolved": {
-			const payload = entry.payload;
-			if (!payload.id) return invalidPayload(entry.kind, "missing id");
-			const headIdx = prev.pending.findIndex((p) => !p.resolved);
-			if (headIdx === -1) return {
-				ok: false,
-				...diagnostic$2("PENDING_NOT_FOUND", { reason: "no pending head" }),
-				message: `pending:resolved with no pending head`
-			};
-			const head = prev.pending[headIdx];
-			if (head.id !== payload.id) return {
-				ok: false,
-				...diagnostic$2("PENDING_NOT_FOUND", { reason: `id=${payload.id} does not match head id=${head.id} (FIFO violation)` }),
-				message: `pending:resolved id=${payload.id} does not match head id=${head.id} (FIFO violation)`
-			};
-			const pending = prev.pending.map((p, i) => i === headIdx ? {
-				...p,
-				resolved: true
-			} : p);
-			return {
-				ok: true,
-				snapshot: {
-					...prev,
-					pending
-				}
-			};
-		}
-		case "session:delivered": return {
-			ok: true,
-			snapshot: {
-				...prev,
-				state: {
-					...state,
-					sub_state: "DONE.delivered",
-					phase: "DONE"
-				}
-			}
-		};
-		case "session:archived": return {
-			ok: true,
-			snapshot: {
-				...prev,
-				state: {
-					...state,
-					sub_state: "DONE.archived",
-					phase: "DONE"
-				}
-			}
-		};
-		case "session:abandoned": return {
-			ok: true,
-			snapshot: {
-				...prev,
-				state: {
-					...state,
-					sub_state: "DONE.abandoned",
-					phase: "DONE"
-				}
-			}
-		};
-		case "session:resumed": return {
-			ok: true,
-			snapshot: prev
-		};
-		case "spike:converted": return {
-			ok: true,
-			snapshot: prev
-		};
-		default: {
-			const _exhaustive = entry.kind;
-			return {
-				ok: false,
-				code: "REDUCER_NOT_IMPLEMENTED",
-				message: `reducer.apply has no handler for kind=${_exhaustive}`,
-				detail: { kind: _exhaustive }
-			};
-		}
-	}
-}
-function invalidPayload(kind, reason) {
-	return {
-		ok: false,
-		code: "INVALID_PAYLOAD",
-		message: `${kind}: ${reason}`
+	const result = applyValidated(prev, entry);
+	if (!result.ok) return {
+		...result,
+		stage: "reducer",
+		detail: result.detail ?? {}
 	};
-}
-function checkSpecVersionHead(entry, payloadVersion, currentVersion) {
-	if (entry.batch_index !== void 0 && entry.batch_index !== 0) return {
-		ok: false,
-		message: `SPEC_VERSION_BATCH_MISMATCH: spec_submitted must appear at batch_index=0, got ${entry.batch_index}`
-	};
-	const r = checkSpecVersion$2(payloadVersion, currentVersion, "head");
-	return r.ok ? {
-		ok: true,
-		nextVersion: r.nextVersion
-	} : {
-		ok: false,
-		message: `SPEC_VERSION_NOT_MONOTONIC: spec_version must be ${r.expected} (current+1), got ${payloadVersion}`
-	};
-}
-function checkSpecVersion(entry, payloadVersion, currentVersion) {
-	const mode = resolveSpecVersionMode(entry.batch_index);
-	const r = checkSpecVersion$2(payloadVersion, currentVersion, mode);
-	if (r.ok) return {
-		ok: true,
-		nextVersion: r.nextVersion
-	};
-	return {
-		ok: false,
-		message: mode === "head" ? `SPEC_VERSION_NOT_MONOTONIC: spec_version must be ${r.expected} (current+1) at batch head, got ${payloadVersion}` : `SPEC_VERSION_BATCH_MISMATCH: spec_version must be ${r.expected} at batch_index=${entry.batch_index}, got ${payloadVersion}`
-	};
+	return result;
 }
 //#endregion
 //#region src/core/attachment-authority.ts
@@ -6891,7 +6895,7 @@ async function replayJournal(filePath, opts = {}) {
 				};
 			}
 		} else {
-			const result = applyReplayed(snapshot, entry);
+			const result = admitEntry(snapshot, entry, { kind: "replay" });
 			if (!result.ok) return {
 				ok: false,
 				code: "REDUCER_REJECTED",
@@ -11659,18 +11663,6 @@ function classifyCommitState(result, dryRun) {
 		commit_state: "not-committed"
 	};
 }
-function isBootstrapEntry(entry) {
-	return entry.kind === "session:started" || entry.kind === "migration:snapshot_imported";
-}
-function noSessionResult(entry, failedIndex) {
-	return {
-		ok: false,
-		code: "REDUCER_ERROR",
-		message: `kind=${entry.kind} requires a started session`,
-		failed_index: failedIndex,
-		detail: { code: "NO_SESSION" }
-	};
-}
 async function mutateBatch(partials, ctx) {
 	if (partials.length === 0) return classifyCommitState({
 		ok: false,
@@ -11769,16 +11761,16 @@ async function mutateBatchUnderLease(partials, ctx) {
 			seq,
 			entry_id
 		};
-		const pre = preflight(candidate, {
-			snapshot: snapshotAcc,
+		const dryRun = admitEntry(snapshotAcc, candidate, {
+			kind: "mutation",
 			tail_seq: ctx.tail_seq + i
 		});
-		if (!pre.ok) return {
+		if (!dryRun.ok && dryRun.stage === "admission") return {
 			ok: false,
-			code: pre.code,
-			message: pre.message,
+			code: dryRun.code === "NO_SESSION" ? "REDUCER_ERROR" : dryRun.code,
+			message: dryRun.message,
 			failed_index: i,
-			detail: pre.detail ?? {}
+			detail: dryRun.code === "NO_SESSION" ? { code: dryRun.code } : dryRun.detail
 		};
 		if (!REDUCER_IMPLEMENTED_KINDS.has(candidate.kind)) return {
 			ok: false,
@@ -11787,8 +11779,6 @@ async function mutateBatchUnderLease(partials, ctx) {
 			failed_index: i,
 			detail: { kind: candidate.kind }
 		};
-		if (!isBootstrapEntry(candidate) && snapshotAcc.state === null) return noSessionResult(candidate, i);
-		const dryRun = applyValidated(snapshotAcc, candidate);
 		if (!dryRun.ok) return {
 			ok: false,
 			code: "REDUCER_ERROR",
@@ -11903,25 +11893,17 @@ async function mutateBatchUnderLease(partials, ctx) {
 	let finalSnapshot = structuredClone(ctx.snapshot);
 	for (let i = 0; i < promoted.length; i++) {
 		const entry = promoted[i];
-		if (!isBootstrapEntry(entry)) {
-			const pre = preflight(entry, {
-				snapshot: finalSnapshot,
-				tail_seq: ctx.tail_seq + i
-			});
-			if (!pre.ok) return {
-				ok: false,
-				code: "REDUCER_ERROR",
-				message: `final dry-run on promoted entries failed at index ${i}: ${pre.message}`,
-				failed_index: i,
-				detail: {
-					code: pre.code,
-					phase: "post-sidecar",
-					...pre.detail ?? {}
-				}
-			};
-			if (finalSnapshot.state === null) return noSessionResult(entry, i);
-		}
-		const dryRun = applyValidated(finalSnapshot, entry);
+		const dryRun = admitEntry(finalSnapshot, entry, {
+			kind: "mutation",
+			tail_seq: ctx.tail_seq + i
+		});
+		if (!dryRun.ok && dryRun.code === "NO_SESSION") return {
+			ok: false,
+			code: "REDUCER_ERROR",
+			message: dryRun.message,
+			failed_index: i,
+			detail: { code: dryRun.code }
+		};
 		if (!dryRun.ok) return {
 			ok: false,
 			code: "REDUCER_ERROR",

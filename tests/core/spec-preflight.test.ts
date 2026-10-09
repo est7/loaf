@@ -28,7 +28,8 @@ import os from "node:os";
 
 import { main } from "../../src/cli.js";
 import { mutate } from "../../src/core/journal-mutate.js";
-import { apply, initialSnapshot, type Snapshot } from "../../src/core/reducer.js";
+import { admitEntry } from "../../src/core/entry-admission.js";
+import { initialSnapshot, type Snapshot } from "../../src/core/reducer.js";
 import type { SubState } from "../../src/core/journal-entry.js";
 
 async function tmpFeatureDir(): Promise<string> {
@@ -278,13 +279,17 @@ describe("SPEC_LOCKED_NO_DIRECT_EDIT — state.spec_locked === true blocks SPEC 
   // tests/core/preflight-validation.test.ts pattern.
 
   function mustApply(prev: Snapshot, seq: number, entry: any): Snapshot {
-    const r = apply(prev, {
-      seq,
-      entry_id: `JE-${String(seq + 1).padStart(6, "0")}`,
-      at: "2026-05-15T10:00:00.000Z",
-      entry_schema_version: 1,
-      ...entry,
-    });
+    const r = admitEntry(
+      prev,
+      {
+        seq,
+        entry_id: `JE-${String(seq + 1).padStart(6, "0")}`,
+        at: "2026-05-15T10:00:00.000Z",
+        entry_schema_version: 1,
+        ...entry,
+      },
+      { kind: "replay" },
+    );
     if (!r.ok) throw new Error(`mustApply: ${r.code} ${r.message}`);
     return r.snapshot;
   }
@@ -331,24 +336,28 @@ describe("SPEC_LOCKED_NO_DIRECT_EDIT — state.spec_locked === true blocks SPEC 
     const snap = constructLockedAtSpecSpec();
     // Use apply() direct — it calls preflight internally. Preflight sees
     // ctx.snapshot.state.spec_locked === true and rejects the kind.
-    const r = apply(snap, {
-      seq: 100,
-      entry_id: "JE-000100",
-      at: "2026-05-15T10:00:00.000Z",
-      actor: "cli:loaf",
-      entry_schema_version: 1,
-      kind: "event:spec_req_added",
-      payload: {
-        spec_version: 1,
-        req: {
-          id: "REQ-AUTH-001",
-          type: "ubiquitous",
-          response: "the system shall authenticate users",
-          acceptance_na: true,
-          acceptance_na_reason: "subjective UX validated via manual testing scope",
+    const r = admitEntry(
+      snap,
+      {
+        seq: 100,
+        entry_id: "JE-000100",
+        at: "2026-05-15T10:00:00.000Z",
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "event:spec_req_added",
+        payload: {
+          spec_version: 1,
+          req: {
+            id: "REQ-AUTH-001",
+            type: "ubiquitous",
+            response: "the system shall authenticate users",
+            acceptance_na: true,
+            acceptance_na_reason: "subjective UX validated via manual testing scope",
+          },
         },
       },
-    });
+      { kind: "replay" },
+    );
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.code).toBe("SPEC_LOCKED_NO_DIRECT_EDIT");
@@ -358,21 +367,25 @@ describe("SPEC_LOCKED_NO_DIRECT_EDIT — state.spec_locked === true blocks SPEC 
 
   test("spec_submitted with spec_locked=true → SPEC_LOCKED_NO_DIRECT_EDIT", () => {
     const snap = constructLockedAtSpecSpec();
-    const r = apply(snap, {
-      seq: 100,
-      entry_id: "JE-000100",
-      at: "2026-05-15T10:00:00.000Z",
-      actor: "human:test@invalid",
-      entry_schema_version: 1,
-      kind: "event:spec_submitted",
-      payload: {
-        spec_version: 2,
-        feature: { id: "F-001", name: "Locked re-submit attempt" },
-        intent: "this should be rejected because spec_locked=true blocks direct edits",
-        adr_refs: [],
-        needs_clarification: [],
+    const r = admitEntry(
+      snap,
+      {
+        seq: 100,
+        entry_id: "JE-000100",
+        at: "2026-05-15T10:00:00.000Z",
+        actor: "human:test@invalid",
+        entry_schema_version: 1,
+        kind: "event:spec_submitted",
+        payload: {
+          spec_version: 2,
+          feature: { id: "F-001", name: "Locked re-submit attempt" },
+          intent: "this should be rejected because spec_locked=true blocks direct edits",
+          adr_refs: [],
+          needs_clarification: [],
+        },
       },
-    });
+      { kind: "replay" },
+    );
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.code).toBe("SPEC_LOCKED_NO_DIRECT_EDIT");

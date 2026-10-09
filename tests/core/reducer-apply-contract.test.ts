@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
-import { apply, initialSnapshot, type Snapshot } from "../../src/core/reducer.js";
+import { admitEntry } from "../../src/core/entry-admission.js";
+import { initialSnapshot, type Snapshot } from "../../src/core/reducer.js";
 import type { Ceremony, JournalEntry } from "../../src/core/journal-entry.js";
 
 const STANDARD_CEREMONY: Ceremony = {
@@ -63,7 +64,9 @@ function sessionStartedEntry(actor = "cli:loaf"): JournalEntry {
 
 describe("reducer.apply — consumed snapshot contract", () => {
   test("session:started bypasses preflight actor authority", () => {
-    const result = apply(initialSnapshot(), sessionStartedEntry("migration:test"));
+    const result = admitEntry(initialSnapshot(), sessionStartedEntry("migration:test"), {
+      kind: "replay",
+    });
 
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.snapshot.state?.feature).toBe("auth-refresh");
@@ -76,7 +79,7 @@ describe("reducer.apply — consumed snapshot contract", () => {
       actor: "migration:test",
     } as JournalEntry;
 
-    const result = apply(initialSnapshot(), entry);
+    const result = admitEntry(initialSnapshot(), entry, { kind: "replay" });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -89,7 +92,7 @@ describe("reducer.apply — consumed snapshot contract", () => {
     const before = startedSnapshot();
     const working = structuredClone(before);
 
-    const result = apply(working, pendingAddedEntry());
+    const result = admitEntry(working, pendingAddedEntry(), { kind: "replay" });
 
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error(`${result.code}: ${result.message}`);

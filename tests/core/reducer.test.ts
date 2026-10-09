@@ -9,12 +9,8 @@
 
 import { describe, expect, test } from "vitest";
 
-import {
-  apply,
-  applyReplayed,
-  applyValidated,
-  initialSnapshot,
-} from "../../src/core/reducer.js";
+import { admitEntry } from "../../src/core/entry-admission.js";
+import { initialSnapshot } from "../../src/core/reducer.js";
 import type { Ceremony } from "../../src/core/journal-entry.js";
 
 const STANDARD_CEREMONY: Ceremony = {
@@ -48,47 +44,74 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
       },
     };
 
-    const replayed = applyReplayed(historical, {
-      seq: 42,
-      entry_id: "JE-000043",
-      at: "2026-05-15T10:00:00.000Z",
-      actor: "cli:loaf",
-      entry_schema_version: 1,
-      kind: "event:phase_advanced",
-      payload: { from: "VERIFY.accept", to: "SETTLE.reconcile" },
-    });
+    const rejected = admitEntry(
+      structuredClone(historical),
+      {
+        seq: 42,
+        entry_id: "JE-000043",
+        at: "2026-05-15T10:00:00.000Z",
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "event:phase_advanced",
+        payload: { from: "VERIFY.accept", to: "SETTLE.reconcile" },
+      },
+      { kind: "mutation", tail_seq: 41 },
+    );
+    expect(rejected).toMatchObject({ ok: false, stage: "admission", code: "TRANSITION_ILLEGAL" });
+
+    const replayed = admitEntry(
+      historical,
+      {
+        seq: 42,
+        entry_id: "JE-000043",
+        at: "2026-05-15T10:00:00.000Z",
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "event:phase_advanced",
+        payload: { from: "VERIFY.accept", to: "SETTLE.reconcile" },
+      },
+      { kind: "replay" },
+    );
     expect(replayed.ok).toBe(true);
     if (!replayed.ok) return;
     expect(replayed.snapshot.state?.sub_state).toBe("SETTLE.reconcile");
 
-    const advanced = apply(replayed.snapshot, {
-      seq: 43,
-      entry_id: "JE-000044",
-      at: "2026-05-15T10:00:01.000Z",
-      actor: "cli:loaf",
-      entry_schema_version: 1,
-      kind: "event:phase_advanced",
-      payload: { from: "SETTLE.reconcile", to: "SETTLE.lessons" },
-    });
+    const advanced = admitEntry(
+      replayed.snapshot,
+      {
+        seq: 43,
+        entry_id: "JE-000044",
+        at: "2026-05-15T10:00:01.000Z",
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "event:phase_advanced",
+        payload: { from: "SETTLE.reconcile", to: "SETTLE.lessons" },
+      },
+      { kind: "replay" },
+    );
     expect(advanced.ok).toBe(true);
     if (advanced.ok) expect(advanced.snapshot.state?.sub_state).toBe("SETTLE.lessons");
   });
 
   test("session:started initializes the snapshot cursor at TRIAGE.score", () => {
     const before = initialSnapshot();
-    const result = apply(before, {
-      seq: 0,
-      entry_id: "JE-000001",
-      at: "2026-05-15T10:00:00.000Z",
-      actor: "cli:loaf",
-      entry_schema_version: 1,
-      kind: "session:started",
-      payload: {
-        session_id: "550e8400-e29b-41d4-a716-446655440000",
-        feature: "auth-refresh",
-        ceremony: STANDARD_CEREMONY,
+    const result = admitEntry(
+      before,
+      {
+        seq: 0,
+        entry_id: "JE-000001",
+        at: "2026-05-15T10:00:00.000Z",
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "session:started",
+        payload: {
+          session_id: "550e8400-e29b-41d4-a716-446655440000",
+          feature: "auth-refresh",
+          ceremony: STANDARD_CEREMONY,
+        },
       },
-    });
+      { kind: "replay" },
+    );
 
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -105,31 +128,39 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
     let snapshot = initialSnapshot();
 
     snapshot = mustOk(
-      apply(snapshot, {
-        seq: 0,
-        entry_id: "JE-000001",
-        at: "2026-05-15T10:00:00.000Z",
-        actor: "cli:loaf",
-        entry_schema_version: 1,
-        kind: "session:started",
-        payload: {
-          session_id: "550e8400-e29b-41d4-a716-446655440000",
-          feature: "auth-refresh",
-          ceremony: STANDARD_CEREMONY,
+      admitEntry(
+        snapshot,
+        {
+          seq: 0,
+          entry_id: "JE-000001",
+          at: "2026-05-15T10:00:00.000Z",
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "session:started",
+          payload: {
+            session_id: "550e8400-e29b-41d4-a716-446655440000",
+            feature: "auth-refresh",
+            ceremony: STANDARD_CEREMONY,
+          },
         },
-      }),
+        { kind: "replay" },
+      ),
     );
 
     snapshot = mustOk(
-      apply(snapshot, {
-        seq: 1,
-        entry_id: "JE-000002",
-        at: "2026-05-15T10:00:01.000Z",
-        actor: "cli:loaf",
-        entry_schema_version: 1,
-        kind: "event:phase_advanced",
-        payload: { from: "TRIAGE.score", to: "TRIAGE.confirm" },
-      }),
+      admitEntry(
+        snapshot,
+        {
+          seq: 1,
+          entry_id: "JE-000002",
+          at: "2026-05-15T10:00:01.000Z",
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "event:phase_advanced",
+          payload: { from: "TRIAGE.score", to: "TRIAGE.confirm" },
+        },
+        { kind: "replay" },
+      ),
     );
 
     expect(snapshot.state!.sub_state).toBe("TRIAGE.confirm");
@@ -138,30 +169,38 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
   test("event:phase_advanced on illegal edge returns Result<TRANSITION_ILLEGAL>", () => {
     const after = initialSnapshot();
     let snap = mustOk(
-      apply(after, {
-        seq: 0,
-        entry_id: "JE-000001",
-        at: "2026-05-15T10:00:00.000Z",
-        actor: "cli:loaf",
-        entry_schema_version: 1,
-        kind: "session:started",
-        payload: {
-          session_id: "550e8400-e29b-41d4-a716-446655440000",
-          feature: "auth-refresh",
-          ceremony: STANDARD_CEREMONY,
+      admitEntry(
+        after,
+        {
+          seq: 0,
+          entry_id: "JE-000001",
+          at: "2026-05-15T10:00:00.000Z",
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "session:started",
+          payload: {
+            session_id: "550e8400-e29b-41d4-a716-446655440000",
+            feature: "auth-refresh",
+            ceremony: STANDARD_CEREMONY,
+          },
         },
-      }),
+        { kind: "replay" },
+      ),
     );
 
-    const bad = apply(snap, {
-      seq: 1,
-      entry_id: "JE-000002",
-      at: "2026-05-15T10:00:01.000Z",
-      actor: "cli:loaf",
-      entry_schema_version: 1,
-      kind: "event:phase_advanced",
-      payload: { from: "TRIAGE.score", to: "DONE.delivered" },
-    });
+    const bad = admitEntry(
+      snap,
+      {
+        seq: 1,
+        entry_id: "JE-000002",
+        at: "2026-05-15T10:00:01.000Z",
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "event:phase_advanced",
+        payload: { from: "TRIAGE.score", to: "DONE.delivered" },
+      },
+      { kind: "replay" },
+    );
 
     expect(bad.ok).toBe(false);
     if (!bad.ok) expect(bad.code).toBe("TRANSITION_ILLEGAL");
@@ -170,19 +209,23 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
   test("gate:decided (spec-lock approved) flips spec_locked=true but does NOT move cursor (Slice 1.A normalization)", () => {
     let snap = initialSnapshot();
     snap = mustOk(
-      apply(snap, {
-        seq: 0,
-        entry_id: "JE-000001",
-        at: "2026-05-15T10:00:00.000Z",
-        actor: "cli:loaf",
-        entry_schema_version: 1,
-        kind: "session:started",
-        payload: {
-          session_id: "550e8400-e29b-41d4-a716-446655440000",
-          feature: "auth-refresh",
-          ceremony: STANDARD_CEREMONY,
+      admitEntry(
+        snap,
+        {
+          seq: 0,
+          entry_id: "JE-000001",
+          at: "2026-05-15T10:00:00.000Z",
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "session:started",
+          payload: {
+            session_id: "550e8400-e29b-41d4-a716-446655440000",
+            feature: "auth-refresh",
+            ceremony: STANDARD_CEREMONY,
+          },
         },
-      }),
+        { kind: "replay" },
+      ),
     );
 
     // Advance: TRIAGE.score → TRIAGE.confirm → SPEC.proposal → SPEC.spec → SPEC.plan → SPEC.design
@@ -196,30 +239,38 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
     let seq = 1;
     for (const [from, to] of path) {
       snap = mustOk(
-        apply(snap, {
-          seq,
-          entry_id: `JE-${String(seq + 1).padStart(6, "0")}`,
-          at: new Date(2026, 4, 15, 10, 0, seq).toISOString(),
-          actor: "cli:loaf",
-          entry_schema_version: 1,
-          kind: "event:phase_advanced",
-          payload: { from, to },
-        }),
+        admitEntry(
+          snap,
+          {
+            seq,
+            entry_id: `JE-${String(seq + 1).padStart(6, "0")}`,
+            at: new Date(2026, 4, 15, 10, 0, seq).toISOString(),
+            actor: "cli:loaf",
+            entry_schema_version: 1,
+            kind: "event:phase_advanced",
+            payload: { from, to },
+          },
+          { kind: "replay" },
+        ),
       );
       seq++;
     }
     expect(snap.state!.sub_state).toBe("SPEC.design");
 
     snap = mustOk(
-      apply(snap, {
-        seq,
-        entry_id: `JE-${String(seq + 1).padStart(6, "0")}`,
-        at: "2026-05-15T11:00:00.000Z",
-        actor: "human:est9",
-        entry_schema_version: 1,
-        kind: "gate:decided",
-        payload: { gate_kind: "spec-lock", decision: "approved", reason: "looks good" },
-      }),
+      admitEntry(
+        snap,
+        {
+          seq,
+          entry_id: `JE-${String(seq + 1).padStart(6, "0")}`,
+          at: "2026-05-15T11:00:00.000Z",
+          actor: "human:est9",
+          entry_schema_version: 1,
+          kind: "gate:decided",
+          payload: { gate_kind: "spec-lock", decision: "approved", reason: "looks good" },
+        },
+        { kind: "replay" },
+      ),
     );
 
     // Slice 1.A: gate records approval flag, cursor stays where it was.
@@ -231,15 +282,19 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
     // batch peer would have run in mutateBatch; here we apply it directly
     // for the unit test).
     snap = mustOk(
-      apply(snap, {
-        seq: seq + 1,
-        entry_id: `JE-${String(seq + 2).padStart(6, "0")}`,
-        at: "2026-05-15T11:00:01.000Z",
-        actor: "cli:loaf",
-        entry_schema_version: 1,
-        kind: "event:phase_advanced",
-        payload: { from: "SPEC.design", to: "EXECUTE.plan" },
-      }),
+      admitEntry(
+        snap,
+        {
+          seq: seq + 1,
+          entry_id: `JE-${String(seq + 2).padStart(6, "0")}`,
+          at: "2026-05-15T11:00:01.000Z",
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "event:phase_advanced",
+          payload: { from: "SPEC.design", to: "EXECUTE.plan" },
+        },
+        { kind: "replay" },
+      ),
     );
     expect(snap.state!.sub_state).toBe("EXECUTE.plan");
     expect(snap.state!.spec_locked).toBe(true);
@@ -248,19 +303,23 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
   test("gate:decided (spec-lock rejected) does NOT flip spec_locked", () => {
     let snap = initialSnapshot();
     snap = mustOk(
-      apply(snap, {
-        seq: 0,
-        entry_id: "JE-000001",
-        at: "2026-05-15T10:00:00.000Z",
-        actor: "cli:loaf",
-        entry_schema_version: 1,
-        kind: "session:started",
-        payload: {
-          session_id: "550e8400-e29b-41d4-a716-446655440000",
-          feature: "auth-refresh",
-          ceremony: STANDARD_CEREMONY,
+      admitEntry(
+        snap,
+        {
+          seq: 0,
+          entry_id: "JE-000001",
+          at: "2026-05-15T10:00:00.000Z",
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "session:started",
+          payload: {
+            session_id: "550e8400-e29b-41d4-a716-446655440000",
+            feature: "auth-refresh",
+            ceremony: STANDARD_CEREMONY,
+          },
         },
-      }),
+        { kind: "replay" },
+      ),
     );
     // Walk to SPEC.design where spec-lock is sub_state-legal.
     let seq = 1;
@@ -272,28 +331,36 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
       ["SPEC.plan", "SPEC.design"],
     ] as const) {
       snap = mustOk(
-        apply(snap, {
-          seq,
-          entry_id: `JE-${String(seq + 1).padStart(6, "0")}`,
-          at: new Date(2026, 4, 15, 10, 0, seq).toISOString(),
-          actor: "cli:loaf",
-          entry_schema_version: 1,
-          kind: "event:phase_advanced",
-          payload: { from, to },
-        }),
+        admitEntry(
+          snap,
+          {
+            seq,
+            entry_id: `JE-${String(seq + 1).padStart(6, "0")}`,
+            at: new Date(2026, 4, 15, 10, 0, seq).toISOString(),
+            actor: "cli:loaf",
+            entry_schema_version: 1,
+            kind: "event:phase_advanced",
+            payload: { from, to },
+          },
+          { kind: "replay" },
+        ),
       );
       seq++;
     }
     snap = mustOk(
-      apply(snap, {
-        seq,
-        entry_id: `JE-${String(seq + 1).padStart(6, "0")}`,
-        at: "2026-05-15T11:00:00.000Z",
-        actor: "human:est9",
-        entry_schema_version: 1,
-        kind: "gate:decided",
-        payload: { gate_kind: "spec-lock", decision: "rejected", reason: "needs more detail" },
-      }),
+      admitEntry(
+        snap,
+        {
+          seq,
+          entry_id: `JE-${String(seq + 1).padStart(6, "0")}`,
+          at: "2026-05-15T11:00:00.000Z",
+          actor: "human:est9",
+          entry_schema_version: 1,
+          kind: "gate:decided",
+          payload: { gate_kind: "spec-lock", decision: "rejected", reason: "needs more detail" },
+        },
+        { kind: "replay" },
+      ),
     );
     expect(snap.state!.sub_state).toBe("SPEC.design");
     expect(snap.state!.spec_locked).toBe(false);
@@ -302,19 +369,23 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
   test("gate:decided (verify-accept approved) flips verify_accepted=true, no cursor move", () => {
     let snap = initialSnapshot();
     snap = mustOk(
-      apply(snap, {
-        seq: 0,
-        entry_id: "JE-000001",
-        at: "2026-05-15T10:00:00.000Z",
-        actor: "cli:loaf",
-        entry_schema_version: 1,
-        kind: "session:started",
-        payload: {
-          session_id: "550e8400-e29b-41d4-a716-446655440000",
-          feature: "auth-refresh",
-          ceremony: STANDARD_CEREMONY,
+      admitEntry(
+        snap,
+        {
+          seq: 0,
+          entry_id: "JE-000001",
+          at: "2026-05-15T10:00:00.000Z",
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "session:started",
+          payload: {
+            session_id: "550e8400-e29b-41d4-a716-446655440000",
+            feature: "auth-refresh",
+            ceremony: STANDARD_CEREMONY,
+          },
         },
-      }),
+        { kind: "replay" },
+      ),
     );
     // Verify the new verify_accepted flag exists and starts false.
     expect(snap.state!.verify_accepted).toBe(false);
@@ -340,41 +411,53 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
       // SPEC.design — human actor, does NOT move the cursor per Slice 1.A).
       if (from === "SPEC.design" && to === "EXECUTE.plan") {
         snap = mustOk(
-          apply(snap, {
-            seq,
-            entry_id: `JE-${String(seq + 1).padStart(6, "0")}`,
-            at: new Date(2026, 4, 15, 10, 0, seq).toISOString(),
-            actor: "human:est9",
-            entry_schema_version: 1,
-            kind: "gate:decided",
-            payload: { gate_kind: "spec-lock", decision: "approved", reason: "seed" },
-          }),
+          admitEntry(
+            snap,
+            {
+              seq,
+              entry_id: `JE-${String(seq + 1).padStart(6, "0")}`,
+              at: new Date(2026, 4, 15, 10, 0, seq).toISOString(),
+              actor: "human:est9",
+              entry_schema_version: 1,
+              kind: "gate:decided",
+              payload: { gate_kind: "spec-lock", decision: "approved", reason: "seed" },
+            },
+            { kind: "replay" },
+          ),
         );
         seq++;
       }
       snap = mustOk(
-        apply(snap, {
-          seq,
-          entry_id: `JE-${String(seq + 1).padStart(6, "0")}`,
-          at: new Date(2026, 4, 15, 10, 0, seq).toISOString(),
-          actor: "cli:loaf",
-          entry_schema_version: 1,
-          kind: "event:phase_advanced",
-          payload: { from, to },
-        }),
+        admitEntry(
+          snap,
+          {
+            seq,
+            entry_id: `JE-${String(seq + 1).padStart(6, "0")}`,
+            at: new Date(2026, 4, 15, 10, 0, seq).toISOString(),
+            actor: "cli:loaf",
+            entry_schema_version: 1,
+            kind: "event:phase_advanced",
+            payload: { from, to },
+          },
+          { kind: "replay" },
+        ),
       );
       seq++;
     }
     snap = mustOk(
-      apply(snap, {
-        seq,
-        entry_id: `JE-${String(seq + 1).padStart(6, "0")}`,
-        at: "2026-05-15T12:00:00.000Z",
-        actor: "human:est9",
-        entry_schema_version: 1,
-        kind: "gate:decided",
-        payload: { gate_kind: "verify-accept", decision: "approved", reason: "ship it" },
-      }),
+      admitEntry(
+        snap,
+        {
+          seq,
+          entry_id: `JE-${String(seq + 1).padStart(6, "0")}`,
+          at: "2026-05-15T12:00:00.000Z",
+          actor: "human:est9",
+          entry_schema_version: 1,
+          kind: "gate:decided",
+          payload: { gate_kind: "verify-accept", decision: "approved", reason: "ship it" },
+        },
+        { kind: "replay" },
+      ),
     );
     expect(snap.state!.sub_state).toBe("VERIFY.accept");
     expect(snap.state!.verify_accepted).toBe(true);
@@ -386,37 +469,45 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
   test("session:resumed reducer no-op: snapshot unchanged after apply", () => {
     let snap = initialSnapshot();
     snap = mustOk(
-      apply(snap, {
-        seq: 0,
-        entry_id: "JE-000001",
-        at: "2026-05-15T10:00:00.000Z",
-        actor: "cli:loaf",
-        entry_schema_version: 1,
-        kind: "session:started",
-        payload: {
-          session_id: "550e8400-e29b-41d4-a716-446655440000",
-          feature: "auth-refresh",
-          ceremony: STANDARD_CEREMONY,
+      admitEntry(
+        snap,
+        {
+          seq: 0,
+          entry_id: "JE-000001",
+          at: "2026-05-15T10:00:00.000Z",
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "session:started",
+          payload: {
+            session_id: "550e8400-e29b-41d4-a716-446655440000",
+            feature: "auth-refresh",
+            ceremony: STANDARD_CEREMONY,
+          },
         },
-      }),
+        { kind: "replay" },
+      ),
     );
 
     const before = JSON.stringify(snap);
-    const result = apply(snap, {
-      seq: 1,
-      entry_id: "JE-000002",
-      at: "2026-05-15T10:00:10.000Z",
-      actor: "cli:loaf",
-      entry_schema_version: 1,
-      kind: "session:resumed",
-      payload: {
-        resumed_from_pack: {
-          at: "2026-05-15T09:00:00.000Z",
-          reason: "context overflow approaching at SPEC.spec",
-          session_id: "550e8400-e29b-41d4-a716-446655440000",
+    const result = admitEntry(
+      snap,
+      {
+        seq: 1,
+        entry_id: "JE-000002",
+        at: "2026-05-15T10:00:10.000Z",
+        actor: "cli:loaf",
+        entry_schema_version: 1,
+        kind: "session:resumed",
+        payload: {
+          resumed_from_pack: {
+            at: "2026-05-15T09:00:00.000Z",
+            reason: "context overflow approaching at SPEC.spec",
+            session_id: "550e8400-e29b-41d4-a716-446655440000",
+          },
         },
       },
-    });
+      { kind: "replay" },
+    );
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error("unreachable");
     expect(JSON.stringify(result.snapshot)).toBe(before);
@@ -558,15 +649,19 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
     };
 
     for (const kind of REDUCER_IMPLEMENTED_KINDS) {
-      const result = apply(initialSnapshot(), {
-        seq: 0,
-        entry_id: "JE-000001",
-        at: "2026-05-15T10:00:00.000Z",
-        actor: kind === "migration:snapshot_imported" ? "migration:test" : "cli:loaf",
-        entry_schema_version: 1,
-        kind,
-        payload: payloadFor[kind] ?? { stub: true },
-      });
+      const result = admitEntry(
+        initialSnapshot(),
+        {
+          seq: 0,
+          entry_id: "JE-000001",
+          at: "2026-05-15T10:00:00.000Z",
+          actor: kind === "migration:snapshot_imported" ? "migration:test" : "cli:loaf",
+          entry_schema_version: 1,
+          kind,
+          payload: payloadFor[kind] ?? { stub: true },
+        },
+        { kind: "replay" },
+      );
       // The kind may legitimately fail for other reasons (NO_SESSION when
       // state is null, sub_state authority, etc.), but it MUST NOT come
       // back as REDUCER_NOT_IMPLEMENTED — that would mean
@@ -583,45 +678,57 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
   test("pending FIFO: pending:added then pending:resolved mutates projection", () => {
     let snap = initialSnapshot();
     snap = mustOk(
-      apply(snap, {
-        seq: 0,
-        entry_id: "JE-000001",
-        at: "2026-05-15T10:00:00.000Z",
-        actor: "cli:loaf",
-        entry_schema_version: 1,
-        kind: "session:started",
-        payload: {
-          session_id: "550e8400-e29b-41d4-a716-446655440000",
-          feature: "auth-refresh",
-          ceremony: STANDARD_CEREMONY,
+      admitEntry(
+        snap,
+        {
+          seq: 0,
+          entry_id: "JE-000001",
+          at: "2026-05-15T10:00:00.000Z",
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "session:started",
+          payload: {
+            session_id: "550e8400-e29b-41d4-a716-446655440000",
+            feature: "auth-refresh",
+            ceremony: STANDARD_CEREMONY,
+          },
         },
-      }),
+        { kind: "replay" },
+      ),
     );
 
     snap = mustOk(
-      apply(snap, {
-        seq: 1,
-        entry_id: "JE-000002",
-        at: "2026-05-15T10:00:01.000Z",
-        actor: "cli:loaf",
-        entry_schema_version: 1,
-        kind: "pending:added",
-        payload: { id: "PEND-0001", kind: "ask_user_question", question: "stub" },
-      }),
+      admitEntry(
+        snap,
+        {
+          seq: 1,
+          entry_id: "JE-000002",
+          at: "2026-05-15T10:00:01.000Z",
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "pending:added",
+          payload: { id: "PEND-0001", kind: "ask_user_question", question: "stub" },
+        },
+        { kind: "replay" },
+      ),
     );
     expect(snap.pending).toHaveLength(1);
     expect(snap.pending[0]!.resolved).toBe(false);
 
     snap = mustOk(
-      apply(snap, {
-        seq: 2,
-        entry_id: "JE-000003",
-        at: "2026-05-15T10:00:02.000Z",
-        actor: "cli:loaf",
-        entry_schema_version: 1,
-        kind: "pending:resolved",
-        payload: { id: "PEND-0001" },
-      }),
+      admitEntry(
+        snap,
+        {
+          seq: 2,
+          entry_id: "JE-000003",
+          at: "2026-05-15T10:00:02.000Z",
+          actor: "cli:loaf",
+          entry_schema_version: 1,
+          kind: "pending:resolved",
+          payload: { id: "PEND-0001" },
+        },
+        { kind: "replay" },
+      ),
     );
     expect(snap.pending[0]!.resolved).toBe(true);
   });
@@ -640,24 +747,28 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
         ceremony: STANDARD_CEREMONY,
       },
     };
-    const started = apply(initialSnapshot(), startedEntry);
+    const started = admitEntry(initialSnapshot(), startedEntry, { kind: "replay" });
     expect(started.ok).toBe(true);
     if (!started.ok) return;
 
-    const duplicate = applyValidated(started.snapshot, startedEntry);
+    const duplicate = admitEntry(started.snapshot, startedEntry, { kind: "replay" });
     expect(duplicate).toMatchObject({
       ok: false,
       code: "ALREADY_STARTED",
       detail: { kind: "session:started" },
     });
 
-    const missing = applyValidated(started.snapshot, {
-      ...startedEntry,
-      seq: 1,
-      entry_id: "JE-000002",
-      kind: "pending:resolved",
-      payload: { id: "PEND-404" },
-    });
+    const missing = admitEntry(
+      started.snapshot,
+      {
+        ...startedEntry,
+        seq: 1,
+        entry_id: "JE-000002",
+        kind: "pending:resolved",
+        payload: { id: "PEND-0404" },
+      },
+      { kind: "replay" },
+    );
     expect(missing).toMatchObject({
       ok: false,
       code: "PENDING_NOT_FOUND",

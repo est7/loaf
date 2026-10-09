@@ -17,7 +17,7 @@
 //   step 5 (final validate)   — promoted-form preflight + reducer equivalence;
 //                               appendMany repeats envelope/payload/byte caps
 //   step 6 (journal append)   — appendMany single fsync'd write for whole batch
-//   step 7 (post-apply)       — reducer.applyValidated already produced the
+//   step 7 (post-apply)       — entry admission already produced the
 //                               committed in-memory snapshot before append
 //   step 8 (snapshot rebuild) — IMPLEMENTED (Phase 15 SC2): after the append,
 //                               re-serialize all five snapshots/*.json
@@ -74,8 +74,9 @@ import { evaluateVerifyAccept } from "./gates/verify-accept-eval.js";
 import type { JournalEntry } from "./journal-entry.js";
 import { REDUCER_IMPLEMENTED_KINDS, SPEC_EMITTING_KINDS } from "./kind-registry.js";
 import { writeProjections } from "./projection-writer.js";
-import { applyValidated, type Snapshot } from "./reducer.js";
-import { preflight, type PreflightFailureCode } from "./reducer/preflight.js";
+import type { Snapshot } from "./reducer.js";
+import { admitEntry } from "./entry-admission.js";
+import type { PreflightFailureCode } from "./reducer/preflight.js";
 import { promoteSidecars } from "./sidecar.js";
 import { isEmptyMeta, type SnapshotMeta } from "./snapshot.js";
 import { buildRegistryFile, writeRegistryFile } from "./registry-writer.js";
@@ -245,20 +246,6 @@ export type MutationPlanner = (
   snapshot: Readonly<Snapshot>,
 ) => MutationPlan | Promise<MutationPlan>;
 
-function isBootstrapEntry(entry: JournalEntry): boolean {
-  return entry.kind === "session:started" || entry.kind === "migration:snapshot_imported";
-}
-
-function noSessionResult(entry: JournalEntry, failedIndex: number): InternalMutateBatchResult {
-  return {
-    ok: false,
-    code: "REDUCER_ERROR",
-    message: `kind=${entry.kind} requires a started session`,
-    failed_index: failedIndex,
-    detail: { code: "NO_SESSION" },
-  };
-}
-
 // Slice 1.D: DEFAULT_BOOTSTRAP_CEREMONY moved into preflight() — single-source
 // derivation now lives alongside its consumer instead of being injected by
 // every caller. The snapshot accumulator carries state.ceremony directly when
@@ -420,20 +407,17 @@ async function mutateBatchUnderLease(
         } as JournalEntry)
       : ({ ...partial, seq, entry_id } as JournalEntry);
 
-    // Slice 1.D — PreflightContext refactor: single-source snapshot accumulator.
-    // sub_state / ceremony / verify_accepted / tasks all derive inside preflight()
-    // from snapshotAcc.state with TRIAGE.score / standard ceremony defaults.
-    const pre = preflight(candidate, {
-      snapshot: snapshotAcc,
+    const dryRun = admitEntry(snapshotAcc, candidate, {
+      kind: "mutation",
       tail_seq: ctx.tail_seq + i,
     });
-    if (!pre.ok) {
+    if (!dryRun.ok && dryRun.stage === "admission") {
       return {
         ok: false,
-        code: pre.code,
-        message: pre.message,
+        code: dryRun.code === "NO_SESSION" ? "REDUCER_ERROR" : dryRun.code,
+        message: dryRun.message,
         failed_index: i,
-        detail: pre.detail ?? {},
+        detail: dryRun.code === "NO_SESSION" ? { code: dryRun.code } : dryRun.detail,
       };
     }
 
@@ -447,11 +431,6 @@ async function mutateBatchUnderLease(
       };
     }
 
-    if (!isBootstrapEntry(candidate) && snapshotAcc.state === null) {
-      return noSessionResult(candidate, i);
-    }
-
-    const dryRun = applyValidated(snapshotAcc, candidate);
     if (!dryRun.ok) {
       return {
         ok: false,
@@ -671,30 +650,19 @@ async function mutateBatchUnderLease(
   let finalSnapshot: Snapshot = structuredClone(ctx.snapshot);
   for (let i = 0; i < promoted.length; i++) {
     const entry = promoted[i]!;
-    const isBootstrap = isBootstrapEntry(entry);
-    if (!isBootstrap) {
-      const pre = preflight(entry, {
-        snapshot: finalSnapshot,
-        tail_seq: ctx.tail_seq + i,
-      });
-      if (!pre.ok) {
-        return {
-          ok: false,
-          code: "REDUCER_ERROR",
-          message: `final dry-run on promoted entries failed at index ${i}: ${pre.message}`,
-          failed_index: i,
-          detail: {
-            code: pre.code,
-            phase: "post-sidecar",
-            ...(pre.detail ?? {}),
-          },
-        };
-      }
-      if (finalSnapshot.state === null) {
-        return noSessionResult(entry, i);
-      }
+    const dryRun = admitEntry(finalSnapshot, entry, {
+      kind: "mutation",
+      tail_seq: ctx.tail_seq + i,
+    });
+    if (!dryRun.ok && dryRun.code === "NO_SESSION") {
+      return {
+        ok: false,
+        code: "REDUCER_ERROR",
+        message: dryRun.message,
+        failed_index: i,
+        detail: { code: dryRun.code },
+      };
     }
-    const dryRun = applyValidated(finalSnapshot, entry);
     if (!dryRun.ok) {
       return {
         ok: false,

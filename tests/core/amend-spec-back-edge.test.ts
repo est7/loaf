@@ -19,7 +19,8 @@ import os from "node:os";
 import { mutateBatch } from "../../src/core/journal-mutate.js";
 import { appendEntry } from "../../src/core/journal-append.js";
 import { emptyMeta, type SnapshotMeta } from "../../src/core/snapshot.js";
-import { apply, initialSnapshot, type Snapshot } from "../../src/core/reducer.js";
+import { admitEntry } from "../../src/core/entry-admission.js";
+import { initialSnapshot, type Snapshot } from "../../src/core/reducer.js";
 import { replayJournal } from "../../src/core/journal-bootstrap.js";
 import { validateTransition } from "../../src/core/reducer/transition.js";
 import type { Ceremony, JournalEntry, SubState } from "../../src/core/journal-entry.js";
@@ -185,13 +186,14 @@ describe("reducer.apply phase_advanced — Slice B spec_locked reset", () => {
     const snap = snapshotPostLock("EXECUTE.work", {
       findings: [{ id: "FND-001", action: "amend-spec", status: "open" }],
     });
-    const next = apply(
+    const next = admitEntry(
       snap,
       makeEntry(99, "event:phase_advanced", {
         from: "EXECUTE.work",
         to: "SPEC.spec",
         back_edge: { action: "amend-spec", finding_id: "FND-001" },
       }),
+      { kind: "replay" },
     );
     expect(next.ok).toBe(true);
     if (next.ok) {
@@ -202,9 +204,10 @@ describe("reducer.apply phase_advanced — Slice B spec_locked reset", () => {
 
   test("spec_locked=false → phase_advanced SPEC.spec apply leaves alone (no-op for forward edge)", () => {
     const snap = snapshotPostLock("SPEC.proposal", { spec_locked: false });
-    const next = apply(
+    const next = admitEntry(
       snap,
       makeEntry(99, "event:phase_advanced", { from: "SPEC.proposal", to: "SPEC.spec" }),
+      { kind: "replay" },
     );
     expect(next.ok).toBe(true);
     if (next.ok) {
@@ -214,9 +217,10 @@ describe("reducer.apply phase_advanced — Slice B spec_locked reset", () => {
 
   test("phase_advanced to non-SPEC.spec target leaves spec_locked=true alone", () => {
     const snap = snapshotPostLock("EXECUTE.plan");
-    const next = apply(
+    const next = admitEntry(
       snap,
       makeEntry(99, "event:phase_advanced", { from: "EXECUTE.plan", to: "EXECUTE.work" }),
+      { kind: "replay" },
     );
     expect(next.ok).toBe(true);
     if (next.ok) {
@@ -238,13 +242,14 @@ describe("reducer.apply phase_advanced — Item 3 SC0 iteration bump", () => {
       findings: [{ id: "FND-001", action: "amend-spec", status: "open" }],
     });
     expect(snap.state!.iteration).toBe(0); // snapshotPostLock baseline
-    const next = apply(
+    const next = admitEntry(
       snap,
       makeEntry(99, "event:phase_advanced", {
         from: "EXECUTE.work",
         to: "SPEC.spec",
         back_edge: { action: "amend-spec", finding_id: "FND-001" },
       }),
+      { kind: "replay" },
     );
     expect(next.ok).toBe(true);
     if (next.ok) {
@@ -258,9 +263,10 @@ describe("reducer.apply phase_advanced — Item 3 SC0 iteration bump", () => {
   test("plain forward phase_advanced (no back_edge) leaves iteration unchanged", () => {
     const snap = snapshotPostLock("EXECUTE.plan");
     expect(snap.state!.iteration).toBe(0);
-    const next = apply(
+    const next = admitEntry(
       snap,
       makeEntry(99, "event:phase_advanced", { from: "EXECUTE.plan", to: "EXECUTE.work" }),
+      { kind: "replay" },
     );
     expect(next.ok).toBe(true);
     if (next.ok) {
@@ -271,9 +277,10 @@ describe("reducer.apply phase_advanced — Item 3 SC0 iteration bump", () => {
   test("forward SPEC.proposal → SPEC.spec (no back_edge) leaves iteration unchanged", () => {
     const snap = snapshotPostLock("SPEC.proposal", { spec_locked: false });
     expect(snap.state!.iteration).toBe(0);
-    const next = apply(
+    const next = admitEntry(
       snap,
       makeEntry(99, "event:phase_advanced", { from: "SPEC.proposal", to: "SPEC.spec" }),
+      { kind: "replay" },
     );
     expect(next.ok).toBe(true);
     if (next.ok) {

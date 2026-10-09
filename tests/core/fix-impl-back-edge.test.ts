@@ -29,7 +29,8 @@ import { appendEntry } from "../../src/core/journal-append.js";
 import { replayJournal } from "../../src/core/journal-bootstrap.js";
 import { emptyMeta, type SnapshotMeta } from "../../src/core/snapshot.js";
 import type { JournalEntry } from "../../src/core/journal-entry.js";
-import { apply } from "../../src/core/reducer.js";
+
+import { admitEntry } from "../../src/core/entry-admission.js";
 import {
   initialSnapshot,
   type FindingState,
@@ -261,7 +262,7 @@ describe("reducer apply — event:task_step_reset", () => {
       tasks: [mkTask()],
       findings: [fixImplFinding()],
     });
-    const r = apply(snap, resetEntry());
+    const r = admitEntry(snap, resetEntry(), { kind: "replay" });
     expect(r.ok).toBe(true);
     if (r.ok) {
       const t = r.snapshot.tasks[0]!;
@@ -287,7 +288,7 @@ describe("reducer apply — event:task_step_reset", () => {
       tasks: [doneTask],
       findings: [fixImplFinding()],
     });
-    const r = apply(snap, resetEntry());
+    const r = admitEntry(snap, resetEntry(), { kind: "replay" });
     expect(r.ok).toBe(true);
     if (r.ok) {
       const t = r.snapshot.tasks[0]!;

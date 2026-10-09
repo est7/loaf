@@ -34,7 +34,8 @@ import {
   composeTasksJson,
   writeProjections,
 } from "../../src/core/projection-writer.js";
-import { initialSnapshot, apply, type Snapshot } from "../../src/core/reducer.js";
+import { admitEntry } from "../../src/core/entry-admission.js";
+import { initialSnapshot, type Snapshot } from "../../src/core/reducer.js";
 import type { Ceremony, JournalEntry } from "../../src/core/journal-entry.js";
 import { mutateBatch } from "../../src/core/journal-mutate.js";
 import { appendEntry } from "../../src/core/journal-append.js";
@@ -510,7 +511,7 @@ async function buildFullFeatureJournal(opts: { withPlan: boolean }): Promise<str
       payload: { gate_kind: "spec-lock", decision: "approved", reason: "seed" },
     };
     meta = await appendEntry(journalPath, gateEntry, meta, { fsync: false });
-    const applyResult = apply(snapshot, gateEntry);
+    const applyResult = admitEntry(snapshot, gateEntry, { kind: "replay" });
     if (!applyResult.ok) throw new Error(`gate apply failed: ${applyResult.code}`);
     snapshot = applyResult.snapshot;
     tail = gateSeq;

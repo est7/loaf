@@ -12,7 +12,8 @@ import {
 } from "../../src/core/journal-entry.js";
 import { mutateBatch } from "../../src/core/journal-mutate.js";
 import { KIND_REGISTRY } from "../../src/core/kind-registry.js";
-import { initialSnapshot, applyValidated } from "../../src/core/reducer.js";
+import { admitEntry } from "../../src/core/entry-admission.js";
+import { initialSnapshot } from "../../src/core/reducer.js";
 import { preflight } from "../../src/core/reducer/preflight.js";
 import { deriveActualScope } from "../../src/core/scope-projection.js";
 import { validateScopeClosureBatch } from "../../src/core/scope-closure-policy.js";
@@ -196,18 +197,12 @@ describe("scope:recorded stable-core batch invariant", () => {
   });
 
   test("correct adjacent two-entry closure batch is accepted", () => {
-    expect(
-      validateScopeClosureBatch([scopeEntry(1), executeDoneEntry(2)], [], 2),
-    ).toBeNull();
+    expect(validateScopeClosureBatch([scopeEntry(1), executeDoneEntry(2)], [], 2)).toBeNull();
   });
 
   test("wrong iteration is rejected before it can poison duplicate history", () => {
     expect(
-      validateScopeClosureBatch(
-        [scopeEntry(1, ["src/a.ts"], 1), executeDoneEntry(2)],
-        [],
-        2,
-      ),
+      validateScopeClosureBatch([scopeEntry(1, ["src/a.ts"], 1), executeDoneEntry(2)], [], 2),
     ).toMatchObject({
       code: "SCOPE_RECORDED_BATCH_INVALID",
       detail: { reason: "iteration_mismatch", expected_iteration: 2 },
@@ -224,18 +219,14 @@ describe("scope:recorded stable-core batch invariant", () => {
   test("wrong batch indexes/count and actor mismatch are rejected", () => {
     const wrongIndex = scopeEntry(1);
     wrongIndex.batch_index = 1;
-    expect(
-      validateScopeClosureBatch([wrongIndex, executeDoneEntry(2)], [], 2),
-    ).toMatchObject({
+    expect(validateScopeClosureBatch([wrongIndex, executeDoneEntry(2)], [], 2)).toMatchObject({
       code: "SCOPE_RECORDED_BATCH_INVALID",
       detail: { reason: "invalid_batch_envelope_or_actor" },
     });
 
     const wrongActor = executeDoneEntry(2);
     wrongActor.actor = "cli:other";
-    expect(
-      validateScopeClosureBatch([scopeEntry(1), wrongActor], [], 2),
-    ).toMatchObject({
+    expect(validateScopeClosureBatch([scopeEntry(1), wrongActor], [], 2)).toMatchObject({
       code: "SCOPE_RECORDED_BATCH_INVALID",
       detail: { reason: "invalid_batch_envelope_or_actor" },
     });
@@ -280,7 +271,11 @@ describe("scope:recorded reducer and entry-stream projection", () => {
   test("reducer is byte-equal no-op", () => {
     const before = executeSnapshot();
     const bytes = JSON.stringify(before);
-    const result = applyValidated(before, scopeEntry(1));
+    const result = admitEntry(
+      before,
+      { ...scopeEntry(1), batch_id: "550e8400-e29b-41d4-a716-446655440000" },
+      { kind: "replay" },
+    );
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error("expected reducer success");
     expect(JSON.stringify(result.snapshot)).toBe(bytes);
@@ -312,22 +307,13 @@ describe("scope:recorded reducer and entry-stream projection", () => {
       size: Buffer.byteLength(text),
     };
 
-    const arrayResult = await deriveActualScope(
-      [scopeEntry(1, logical), executeDoneEntry(2)],
-      dir,
-    );
+    const arrayResult = await deriveActualScope([scopeEntry(1, logical), executeDoneEntry(2)], dir);
     const inlineResult = await deriveActualScope(
-      [
-        scopeEntry(2, { mode: "inline", text }),
-        executeDoneEntry(3),
-      ],
+      [scopeEntry(2, { mode: "inline", text }), executeDoneEntry(3)],
       dir,
     );
     const sidecarResult = await deriveActualScope(
-      [
-        scopeEntry(3, { mode: "sidecar", ref }),
-        executeDoneEntry(4),
-      ],
+      [scopeEntry(3, { mode: "sidecar", ref }), executeDoneEntry(4)],
       dir,
     );
     expect(inlineResult).toEqual(arrayResult);

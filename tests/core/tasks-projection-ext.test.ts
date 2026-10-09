@@ -17,7 +17,8 @@
 
 import { describe, expect, test } from "vitest";
 
-import { apply, initialSnapshot } from "../../src/core/reducer.js";
+import { admitEntry } from "../../src/core/entry-admission.js";
+import { initialSnapshot } from "../../src/core/reducer.js";
 import type { Ceremony, JournalEntry } from "../../src/core/journal-entry.js";
 import type { Snapshot } from "../../src/core/reducer.js";
 
@@ -115,13 +116,14 @@ function entry(
 function seedAtExecutePlan(): Snapshot {
   let snap = initialSnapshot();
   snap = mustOk(
-    apply(
+    admitEntry(
       snap,
       entry(0, "session:started", {
         session_id: "550e8400-e29b-41d4-a716-446655440000",
         feature: "auth-refresh",
         ceremony: STANDARD_CEREMONY,
       }),
+      { kind: "replay" },
     ),
   );
   // Walk to SPEC.design, lock the spec (gate:decided spec-lock approved at
@@ -137,11 +139,13 @@ function seedAtExecutePlan(): Snapshot {
   ];
   let seq = 1;
   for (const [from, to] of toDesign) {
-    snap = mustOk(apply(snap, entry(seq, "event:phase_advanced", { from, to })));
+    snap = mustOk(
+      admitEntry(snap, entry(seq, "event:phase_advanced", { from, to }), { kind: "replay" }),
+    );
     seq++;
   }
   snap = mustOk(
-    apply(
+    admitEntry(
       snap,
       entry(
         seq++,
@@ -149,10 +153,15 @@ function seedAtExecutePlan(): Snapshot {
         { gate_kind: "spec-lock", decision: "approved", reason: "seed bootstrap" },
         "human:engineer@test.local",
       ),
+      { kind: "replay" },
     ),
   );
   snap = mustOk(
-    apply(snap, entry(seq++, "event:phase_advanced", { from: "SPEC.design", to: "EXECUTE.plan" })),
+    admitEntry(
+      snap,
+      entry(seq++, "event:phase_advanced", { from: "SPEC.design", to: "EXECUTE.plan" }),
+      { kind: "replay" },
+    ),
   );
   return snap;
 }
@@ -162,9 +171,15 @@ function seedAtExecuteWork(
   opts: { claim?: string[] } = {},
 ): Snapshot {
   let snap = seedAtExecutePlan();
-  snap = mustOk(apply(snap, entry(7, "event:tasks_planned", tasksPayload)));
   snap = mustOk(
-    apply(snap, entry(8, "event:phase_advanced", { from: "EXECUTE.plan", to: "EXECUTE.work" })),
+    admitEntry(snap, entry(7, "event:tasks_planned", tasksPayload), { kind: "replay" }),
+  );
+  snap = mustOk(
+    admitEntry(
+      snap,
+      entry(8, "event:phase_advanced", { from: "EXECUTE.plan", to: "EXECUTE.work" }),
+      { kind: "replay" },
+    ),
   );
   // Slice 2 SC1: preflight step 5e requires task.status=in_progress before
   // step_started / step_done. Claim the specified tasks (default: all planned
@@ -173,7 +188,9 @@ function seedAtExecuteWork(
   const claimIds = opts.claim ?? planned.map((t) => t.id);
   let seq = 9;
   for (const taskId of claimIds) {
-    snap = mustOk(apply(snap, entry(seq, "event:task_claimed", { task_id: taskId })));
+    snap = mustOk(
+      admitEntry(snap, entry(seq, "event:task_claimed", { task_id: taskId }), { kind: "replay" }),
+    );
     seq++;
   }
   return snap;
@@ -185,7 +202,7 @@ describe("event:tasks_planned — Slice 1.B sub-cycle 3a", () => {
     expect(snap.tasks_based_on).toBeNull();
 
     snap = mustOk(
-      apply(
+      admitEntry(
         snap,
         entry(7, "event:tasks_planned", {
           based_on: { spec: 2 },
@@ -201,6 +218,7 @@ describe("event:tasks_planned — Slice 1.B sub-cycle 3a", () => {
             visualUiTask({ id: "T-200" }),
           ],
         }),
+        { kind: "replay" },
       ),
     );
 
@@ -234,12 +252,13 @@ describe("event:tasks_planned — Slice 1.B sub-cycle 3a", () => {
     const snap = seedAtExecutePlan();
     const malformed = visualUiTask();
     delete (malformed as Record<string, unknown>).visual_contract_refs;
-    const result = apply(
+    const result = admitEntry(
       snap,
       entry(7, "event:tasks_planned", {
         based_on: { spec: 1 },
         tasks: [malformed],
       }),
+      { kind: "replay" },
     );
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -253,12 +272,13 @@ describe("event:tasks_planned — Slice 1.B sub-cycle 3a", () => {
     // still fires for raw paths that bypass preflight, but apply() routes
     // through preflight first → top-level DUPLICATE_TASK_ID wins.
     const snap = seedAtExecutePlan();
-    const result = apply(
+    const result = admitEntry(
       snap,
       entry(7, "event:tasks_planned", {
         based_on: { spec: 1 },
         tasks: [behavioralTask({ id: "T-001" }), behavioralTask({ id: "T-001" })],
       }),
+      { kind: "replay" },
     );
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -269,19 +289,24 @@ describe("event:tasks_planned — Slice 1.B sub-cycle 3a", () => {
 
   test("rejects payload missing based_on.spec", () => {
     const snap = seedAtExecutePlan();
-    const result = apply(snap, entry(7, "event:tasks_planned", { tasks: [behavioralTask()] }));
+    const result = admitEntry(
+      snap,
+      entry(7, "event:tasks_planned", { tasks: [behavioralTask()] }),
+      { kind: "replay" },
+    );
     expect(result.ok).toBe(false);
   });
 
   test("behavioral task with requires_visual=true survives projection (codex r24 BLOCK fix)", () => {
     let snap = seedAtExecutePlan();
     snap = mustOk(
-      apply(
+      admitEntry(
         snap,
         entry(7, "event:tasks_planned", {
           based_on: { spec: 1 },
           tasks: [behavioralTask({ id: "T-001", requires_visual: true })],
         }),
+        { kind: "replay" },
       ),
     );
     const task = snap.tasks.find((t) => t.id === "T-001")!;
@@ -296,17 +321,18 @@ describe("event:tasks_amended — Slice 1.B sub-cycle 3a (F-010)", () => {
     // else. Earlier this test changed `drives`, now a §8.6 violation.
     let snap = seedAtExecutePlan();
     snap = mustOk(
-      apply(
+      admitEntry(
         snap,
         entry(7, "event:tasks_planned", {
           based_on: { spec: 1 },
           tasks: [behavioralTask({ id: "T-001" })],
         }),
+        { kind: "replay" },
       ),
     );
 
     snap = mustOk(
-      apply(
+      admitEntry(
         snap,
         entry(8, "event:tasks_amended", {
           task: behavioralTask({
@@ -320,6 +346,7 @@ describe("event:tasks_amended — Slice 1.B sub-cycle 3a (F-010)", () => {
           }),
           reason: "refactor step ruled not applicable for this task",
         }),
+        { kind: "replay" },
       ),
     );
 
@@ -331,18 +358,20 @@ describe("event:tasks_amended — Slice 1.B sub-cycle 3a (F-010)", () => {
   test("rejects amend on unknown task id with TASK_NOT_FOUND", () => {
     let snap = seedAtExecutePlan();
     snap = mustOk(
-      apply(
+      admitEntry(
         snap,
         entry(7, "event:tasks_planned", {
           based_on: { spec: 1 },
           tasks: [behavioralTask({ id: "T-001" })],
         }),
+        { kind: "replay" },
       ),
     );
 
-    const result = apply(
+    const result = admitEntry(
       snap,
       entry(8, "event:tasks_amended", { task: behavioralTask({ id: "T-999" }) }),
+      { kind: "replay" },
     );
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -353,16 +382,17 @@ describe("event:tasks_amended — Slice 1.B sub-cycle 3a (F-010)", () => {
   test("rejects payload missing task body", () => {
     let snap = seedAtExecutePlan();
     snap = mustOk(
-      apply(
+      admitEntry(
         snap,
         entry(7, "event:tasks_planned", {
           based_on: { spec: 1 },
           tasks: [behavioralTask({ id: "T-001" })],
         }),
+        { kind: "replay" },
       ),
     );
 
-    const result = apply(snap, entry(8, "event:tasks_amended", {}));
+    const result = admitEntry(snap, entry(8, "event:tasks_amended", {}), { kind: "replay" });
     expect(result.ok).toBe(false);
   });
 });
@@ -378,12 +408,13 @@ describe("event:tasks_amended mode discriminator — Slice C SC-C2b", () => {
   function seedWithT001(): Snapshot {
     let snap = seedAtExecutePlan();
     snap = mustOk(
-      apply(
+      admitEntry(
         snap,
         entry(7, "event:tasks_planned", {
           based_on: { spec: 1 },
           tasks: [behavioralTask({ id: "T-001" })],
         }),
+        { kind: "replay" },
       ),
     );
     return snap;
@@ -391,7 +422,7 @@ describe("event:tasks_amended mode discriminator — Slice C SC-C2b", () => {
 
   test("mode='replace' (explicit) applies a §8.6-permitted change", () => {
     const snap = seedWithT001();
-    const result = apply(
+    const result = admitEntry(
       snap,
       entry(8, "event:tasks_amended", {
         mode: "replace",
@@ -400,6 +431,7 @@ describe("event:tasks_amended mode discriminator — Slice C SC-C2b", () => {
           execution: { red: step("must"), implement: step("must"), refactor: step("na") },
         }),
       }),
+      { kind: "replay" },
     );
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -411,12 +443,13 @@ describe("event:tasks_amended mode discriminator — Slice C SC-C2b", () => {
 
   test("mode='replace' on an unknown id → TASK_NOT_FOUND", () => {
     const snap = seedWithT001();
-    const result = apply(
+    const result = admitEntry(
       snap,
       entry(8, "event:tasks_amended", {
         mode: "replace",
         task: behavioralTask({ id: "T-404" }),
       }),
+      { kind: "replay" },
     );
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.code).toBe("TASK_NOT_FOUND");
@@ -426,14 +459,16 @@ describe("event:tasks_amended mode discriminator — Slice C SC-C2b", () => {
     const snap = seedWithT001();
     // No `mode` key — the historical shape; reducer + preflight must treat
     // it as replace. A no-field-change replace is §8.6-clean.
-    const replace = apply(
+    const replace = admitEntry(
       snap,
       entry(8, "event:tasks_amended", { task: behavioralTask({ id: "T-001" }) }),
+      { kind: "replay" },
     );
     expect(replace.ok).toBe(true);
-    const missing = apply(
+    const missing = admitEntry(
       snap,
       entry(8, "event:tasks_amended", { task: behavioralTask({ id: "T-777" }) }),
+      { kind: "replay" },
     );
     expect(missing.ok).toBe(false);
     if (!missing.ok) expect(missing.code).toBe("TASK_NOT_FOUND");
@@ -450,9 +485,10 @@ describe("event:task_step_started / _done — Slice 1.B sub-cycle 3a", () => {
 
   test("task_step_started fails on missing task (codex r24 #3)", () => {
     const snap = seedAtWork();
-    const result = apply(
+    const result = admitEntry(
       snap,
       entry(9, "event:task_step_started", { task_id: "T-999", step: "implement" }),
+      { kind: "replay" },
     );
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.code).toBe("TASK_NOT_FOUND");
@@ -460,9 +496,10 @@ describe("event:task_step_started / _done — Slice 1.B sub-cycle 3a", () => {
 
   test("task_step_started fails on unseeded step (no silent step creation)", () => {
     const snap = seedAtWork();
-    const result = apply(
+    const result = admitEntry(
       snap,
       entry(9, "event:task_step_started", { task_id: "T-001", step: "phantom-step" }),
+      { kind: "replay" },
     );
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.code).toBe("TASK_STEP_NOT_FOUND");
@@ -471,9 +508,10 @@ describe("event:task_step_started / _done — Slice 1.B sub-cycle 3a", () => {
   test("task_step_done preserves applicability on update", () => {
     let snap = seedAtWork();
     snap = mustOk(
-      apply(
+      admitEntry(
         snap,
         entry(9, "event:task_step_done", { task_id: "T-001", step: "implement", result: "passed" }),
+        { kind: "replay" },
       ),
     );
     const task = snap.tasks.find((t) => t.id === "T-001")!;
@@ -493,19 +531,21 @@ describe("event:task_step_done auto-promote — Slice 1.B sub-cycle 3a (F-010 #3
   test("all must passed + optional pending → promotes to done (codex r24 #4)", () => {
     let snap = seedAtWork();
     snap = mustOk(
-      apply(
+      admitEntry(
         snap,
         entry(9, "event:task_step_done", { task_id: "T-001", step: "red", result: "passed" }),
+        { kind: "replay" },
       ),
     );
     snap = mustOk(
-      apply(
+      admitEntry(
         snap,
         entry(10, "event:task_step_done", {
           task_id: "T-001",
           step: "implement",
           result: "passed",
         }),
+        { kind: "replay" },
       ),
     );
     const task = snap.tasks.find((t) => t.id === "T-001")!;
@@ -516,9 +556,10 @@ describe("event:task_step_done auto-promote — Slice 1.B sub-cycle 3a (F-010 #3
   test("one must pending → no promote (codex r24 #4)", () => {
     let snap = seedAtWork();
     snap = mustOk(
-      apply(
+      admitEntry(
         snap,
         entry(9, "event:task_step_done", { task_id: "T-001", step: "implement", result: "passed" }),
+        { kind: "replay" },
       ),
     );
     const task = snap.tasks.find((t) => t.id === "T-001")!;
@@ -531,19 +572,21 @@ describe("event:task_step_done auto-promote — Slice 1.B sub-cycle 3a (F-010 #3
   test("must failed → no promote (failed must blocks done)", () => {
     let snap = seedAtWork();
     snap = mustOk(
-      apply(
+      admitEntry(
         snap,
         entry(9, "event:task_step_done", { task_id: "T-001", step: "red", result: "passed" }),
+        { kind: "replay" },
       ),
     );
     snap = mustOk(
-      apply(
+      admitEntry(
         snap,
         entry(10, "event:task_step_done", {
           task_id: "T-001",
           step: "implement",
           result: "failed",
         }),
+        { kind: "replay" },
       ),
     );
     const task = snap.tasks.find((t) => t.id === "T-001")!;
@@ -554,19 +597,21 @@ describe("event:task_step_done auto-promote — Slice 1.B sub-cycle 3a (F-010 #3
   test("waived must counts as terminal-positive → promote", () => {
     let snap = seedAtWork();
     snap = mustOk(
-      apply(
+      admitEntry(
         snap,
         entry(9, "event:task_step_done", { task_id: "T-001", step: "red", result: "waived" }),
+        { kind: "replay" },
       ),
     );
     snap = mustOk(
-      apply(
+      admitEntry(
         snap,
         entry(10, "event:task_step_done", {
           task_id: "T-001",
           step: "implement",
           result: "passed",
         }),
+        { kind: "replay" },
       ),
     );
     const task = snap.tasks.find((t) => t.id === "T-001")!;
@@ -576,9 +621,10 @@ describe("event:task_step_done auto-promote — Slice 1.B sub-cycle 3a (F-010 #3
   test("seeded must step untouched by events does not falsely promote (codex r23 BLOCK 2 witness)", () => {
     let snap = seedAtWork();
     snap = mustOk(
-      apply(
+      admitEntry(
         snap,
         entry(9, "event:task_step_done", { task_id: "T-001", step: "implement", result: "passed" }),
+        { kind: "replay" },
       ),
     );
     const task = snap.tasks.find((t) => t.id === "T-001")!;
@@ -593,12 +639,13 @@ describe("bug-task RED registration — Slice C SC-C4 (R2)", () => {
   test("a behavioral task labelled bug is submittable WITHOUT red_test_registered", () => {
     // R2 deletes the creation-time refine — bug tasks are born unregistered.
     let snap = seedAtExecutePlan();
-    const result = apply(
+    const result = admitEntry(
       snap,
       entry(7, "event:tasks_planned", {
         based_on: { spec: 1 },
         tasks: [behavioralTask({ id: "T-001", labels: ["bug"] })],
       }),
+      { kind: "replay" },
     );
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -614,7 +661,7 @@ describe("bug-task RED registration — Slice C SC-C4 (R2)", () => {
       tasks: [behavioralTask({ id: "T-001", labels: ["bug"] })],
     });
     snap = mustOk(
-      apply(
+      admitEntry(
         snap,
         entry(10, "event:task_step_done", {
           task_id: "T-001",
@@ -622,6 +669,7 @@ describe("bug-task RED registration — Slice C SC-C4 (R2)", () => {
           result: "passed",
           red_test_registered: true,
         }),
+        { kind: "replay" },
       ),
     );
     expect(snap.tasks.find((t) => t.id === "T-001")!.red_test_registered).toBe(true);

@@ -14,7 +14,8 @@ import os from "node:os";
 import { main } from "../../src/cli.js";
 import { appendEntry } from "../../src/core/journal-append.js";
 import { mutateBatch } from "../../src/core/journal-mutate.js";
-import { apply, initialSnapshot, type Snapshot } from "../../src/core/reducer.js";
+import { admitEntry } from "../../src/core/entry-admission.js";
+import { initialSnapshot, type Snapshot } from "../../src/core/reducer.js";
 import type { Ceremony, JournalEntry } from "../../src/core/journal-entry.js";
 import { emptyMeta, SnapshotMeta } from "../../src/core/snapshot.js";
 import { migrateV2 } from "../../src/core/migration.js";
@@ -70,10 +71,10 @@ const JOURNAL_DERIVED_PROJECTIONS = [
 async function readProjectionBytes(dir: string): Promise<Map<string, Buffer>> {
   return new Map(
     await Promise.all(
-      JOURNAL_DERIVED_PROJECTIONS.map(async (projection) => [
-        projection.name,
-        await fs.readFile(path.join(dir, ...projection.path)),
-      ] as const),
+      JOURNAL_DERIVED_PROJECTIONS.map(
+        async (projection) =>
+          [projection.name, await fs.readFile(path.join(dir, ...projection.path))] as const,
+      ),
     ),
   );
 }
@@ -82,13 +83,9 @@ function projectionByteMismatches(
   expected: ReadonlyMap<string, Buffer>,
   actual: ReadonlyMap<string, Buffer>,
 ): string[] {
-  return JOURNAL_DERIVED_PROJECTIONS.map(
-    (projection) => projection.name,
-  ).filter(
-    (name) => name !== "_meta.json",
-  ).filter(
-    (name) => !expected.get(name)?.equals(actual.get(name) ?? Buffer.alloc(0)),
-  );
+  return JOURNAL_DERIVED_PROJECTIONS.map((projection) => projection.name)
+    .filter((name) => name !== "_meta.json")
+    .filter((name) => !expected.get(name)?.equals(actual.get(name) ?? Buffer.alloc(0)));
 }
 
 function parseMeta(bytes: Buffer): SnapshotMeta {
@@ -227,7 +224,7 @@ async function seedJournal(dir: string, opts: { withPlan: boolean }): Promise<vo
       },
     };
     meta = await appendEntry(journalPath, gateEntry, meta, { fsync: false });
-    const gateApplied = apply(snapshot, gateEntry);
+    const gateApplied = admitEntry(snapshot, gateEntry, { kind: "replay" });
     if (!gateApplied.ok) throw new Error(`gate apply failed: ${gateApplied.code}`);
     snapshot = gateApplied.snapshot;
     tail = gateSeq;
@@ -429,9 +426,9 @@ describe("loaf doctor --rebuild — Phase 14 SC2", () => {
       expect(
         JSON.parse(mutationBytes.get("findings.json")!.toString("utf8")).findings,
       ).toHaveLength(1);
-      expect(
-        JSON.parse(mutationBytes.get("pending.json")!.toString("utf8")).pending,
-      ).toHaveLength(1);
+      expect(JSON.parse(mutationBytes.get("pending.json")!.toString("utf8")).pending).toHaveLength(
+        1,
+      );
       expect(mutationBytes.get("lessons.md")!.toString("utf8")).toContain(
         "the replay path must preserve user-facing lesson projections",
       );
@@ -444,11 +441,7 @@ describe("loaf doctor --rebuild — Phase 14 SC2", () => {
         | { mode: "sidecar"; ref: { path: string } }
         | undefined;
       expect(summary?.mode).toBe("sidecar");
-      expect(
-        (
-          await fs.stat(path.join(dir, summary!.ref.path))
-        ).isFile(),
-      ).toBe(true);
+      expect((await fs.stat(path.join(dir, summary!.ref.path))).isFile()).toBe(true);
 
       // Negative control: alter a journal fact, rebuild through the real doctor
       // publication path, and prove the comparator detects the resulting
@@ -477,9 +470,9 @@ describe("loaf doctor --rebuild — Phase 14 SC2", () => {
         "json",
       ]);
       expect(drifted.exit).toBe(0);
-      expect(
-        projectionByteMismatches(mutationBytes, await readProjectionBytes(dir)),
-      ).toEqual(["findings.json"]);
+      expect(projectionByteMismatches(mutationBytes, await readProjectionBytes(dir))).toEqual([
+        "findings.json",
+      ]);
       await fs.writeFile(journalPath, originalJournal);
 
       for (const projection of JOURNAL_DERIVED_PROJECTIONS) {

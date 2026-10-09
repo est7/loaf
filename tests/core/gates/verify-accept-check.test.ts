@@ -21,7 +21,8 @@
 import { describe, expect, test } from "vitest";
 
 import { verifyAcceptCheck } from "../../../src/core/gates/verify-accept-check.js";
-import { apply, initialSnapshot } from "../../../src/core/reducer.js";
+import { admitEntry } from "../../../src/core/entry-admission.js";
+import { initialSnapshot } from "../../../src/core/reducer.js";
 import type { JournalEntry } from "../../../src/core/journal-entry.js";
 import type {
   Snapshot,
@@ -447,20 +448,24 @@ describe("verifyAcceptCheck — check 3 coverage (canSatisfy)", () => {
     const fm = makeFrontmatter();
     const snap = happySnapshot(fm);
     snap.evidence = snap.evidence.filter((e) => !e.covers.includes("REQ-AUTH-001"));
-    const applied = apply(snap, {
-      seq: 1,
-      entry_id: "JE-000001",
-      at: "2026-07-16T12:00:00.000Z",
-      actor: "human:tester",
-      entry_schema_version: 1,
-      kind: "lesson:recorded",
-      payload: {
-        id: "LSN-001",
-        iteration: 1,
-        reason: "captured during coverage testing",
-        summary: "a lesson is not verification evidence",
-      },
-    } as JournalEntry);
+    const applied = admitEntry(
+      snap,
+      {
+        seq: 1,
+        entry_id: "JE-000001",
+        at: "2026-07-16T12:00:00.000Z",
+        actor: "human:tester",
+        entry_schema_version: 1,
+        kind: "lesson:recorded",
+        payload: {
+          id: "LSN-001",
+          iteration: 1,
+          reason: "captured during coverage testing",
+          summary: "a lesson is not verification evidence",
+        },
+      } as JournalEntry,
+      { kind: "replay" },
+    );
     expect(applied.ok).toBe(true);
     if (!applied.ok) throw new Error("unreachable");
 

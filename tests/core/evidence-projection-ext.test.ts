@@ -24,7 +24,8 @@ import {
   AttachmentPayload,
 } from "../../src/core/evidence-schema.js";
 import { EvidenceEntry } from "../../src/core/projection-schema.js";
-import { apply, initialSnapshot } from "../../src/core/reducer.js";
+import { admitEntry } from "../../src/core/entry-admission.js";
+import { initialSnapshot } from "../../src/core/reducer.js";
 import type { EvidenceState, Snapshot } from "../../src/core/reducer.js";
 import type { JournalEntry } from "../../src/core/journal-entry.js";
 
@@ -409,7 +410,7 @@ describe("EvidenceFullPayload — strict refines reject invalid bodies", () => {
 describe("reducer evidence:added — projection extracts new fields", () => {
   test("minimal full payload yields slim projection (no check/reason/attachments)", () => {
     const snap = execSnapshot();
-    const result = apply(snap, ev(fullPayload({ id: "EV-000020" })));
+    const result = admitEntry(snap, ev(fullPayload({ id: "EV-000020" })), { kind: "replay" });
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error("unreachable");
     expect(result.snapshot.evidence).toHaveLength(1);
@@ -425,7 +426,7 @@ describe("reducer evidence:added — projection extracts new fields", () => {
 
   test("check field extracted into projection", () => {
     const snap = execSnapshot();
-    const result = apply(
+    const result = admitEntry(
       snap,
       ev(
         fullPayload({
@@ -435,6 +436,7 @@ describe("reducer evidence:added — projection extracts new fields", () => {
           result: "approved",
         }),
       ),
+      { kind: "replay" },
     );
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error("unreachable");
@@ -444,7 +446,7 @@ describe("reducer evidence:added — projection extracts new fields", () => {
 
   test("reason field extracted (for manual/waiver evidence)", () => {
     const snap = execSnapshot();
-    const result = apply(
+    const result = admitEntry(
       snap,
       ev(
         fullPayload({
@@ -456,6 +458,7 @@ describe("reducer evidence:added — projection extracts new fields", () => {
         }),
         { actor: "human:tester@example.com" },
       ),
+      { kind: "replay" },
     );
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error("unreachable");
@@ -466,7 +469,7 @@ describe("reducer evidence:added — projection extracts new fields", () => {
   test("attachments field extracted (for visual-review)", () => {
     const snap = execSnapshot();
     const attachments = [{ path: "shot.png", sha256: SHA, mime: "image/png", bytes: 2048 }];
-    const result = apply(
+    const result = admitEntry(
       snap,
       ev(
         fullPayload({
@@ -480,6 +483,7 @@ describe("reducer evidence:added — projection extracts new fields", () => {
         }),
         { actor: "human:reviewer@example.com" },
       ),
+      { kind: "replay" },
     );
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error("unreachable");
@@ -488,7 +492,7 @@ describe("reducer evidence:added — projection extracts new fields", () => {
 
   test("multiple evidence entries accumulate independently", () => {
     let snap = execSnapshot();
-    const r1 = apply(
+    const r1 = admitEntry(
       snap,
       ev(
         fullPayload({
@@ -498,11 +502,12 @@ describe("reducer evidence:added — projection extracts new fields", () => {
           result: "passed",
         }),
       ),
+      { kind: "replay" },
     );
     expect(r1.ok).toBe(true);
     if (!r1.ok) throw new Error("unreachable");
     snap = r1.snapshot;
-    const r2 = apply(
+    const r2 = admitEntry(
       { ...snap, evidence: [...snap.evidence] },
       ev(
         fullPayload({
@@ -512,6 +517,7 @@ describe("reducer evidence:added — projection extracts new fields", () => {
         }),
         { seq: 1, entry_id: "JE-000002" },
       ),
+      { kind: "replay" },
     );
     expect(r2.ok).toBe(true);
     if (!r2.ok) throw new Error("unreachable");
@@ -526,7 +532,7 @@ describe("reducer evidence:added — projection extracts new fields", () => {
     const snap = execSnapshot();
     const payload = fullPayload({});
     delete payload.id;
-    const result = apply(snap, ev(payload));
+    const result = admitEntry(snap, ev(payload), { kind: "replay" });
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("unreachable");
     expect(result.code).toBe("INVALID_PAYLOAD");
