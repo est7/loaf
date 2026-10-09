@@ -9,15 +9,9 @@
 // Remaining kinds — task lifecycle, evidence, findings, pending, settle, etc.
 // — land incrementally in Stages 2-4 alongside their projections.
 
-import type { Ceremony, EntryKind, JournalEntry, SubState } from "./journal-entry.js";
+import type { Ceremony, EntryKind, GateName, JournalEntry, SubState } from "./journal-entry.js";
 import { diagnostic } from "./error-catalog.js";
 import type { PreflightFailureCode } from "./reducer/preflight.js";
-import {
-  checkSpecVersion as specVersionRule,
-  findCollision,
-  findDuplicateId,
-  resolveSpecVersionMode,
-} from "./reducer/invariants.js";
 import { extractTaskSlim, shouldPromoteToDone } from "./task-schema.js";
 import type { TaskFullProjection } from "./task-schema.js";
 import type {
@@ -239,32 +233,21 @@ export function applyValidated(prev: Snapshot, entry: JournalEntry): ApplyResult
       // (caller can read the journal for audit; future iteration may add a
       // rejected counter).
       const payload = entry.payload as {
-        gate_kind: "spec-lock" | "verify-accept";
+        gate_kind: GateName;
         decision: "approved" | "rejected";
       };
-      if (payload.gate_kind === "spec-lock") {
-        if (payload.decision === "approved") {
-          return {
-            ok: true,
-            snapshot: { ...prev, state: { ...state, spec_locked: true } },
-          };
+      if (payload.decision !== "approved") return { ok: true, snapshot: prev };
+      switch (payload.gate_kind) {
+        case "spec-lock":
+          return { ok: true, snapshot: { ...prev, state: { ...state, spec_locked: true } } };
+        case "verify-accept":
+          return { ok: true, snapshot: { ...prev, state: { ...state, verify_accepted: true } } };
+        default: {
+          // A new GateName must choose its projection flag here.
+          const unhandled: never = payload.gate_kind;
+          return unhandled;
         }
-        return { ok: true, snapshot: prev };
       }
-      if (payload.gate_kind === "verify-accept") {
-        if (payload.decision === "approved") {
-          return {
-            ok: true,
-            snapshot: { ...prev, state: { ...state, verify_accepted: true } },
-          };
-        }
-        return { ok: true, snapshot: prev };
-      }
-      return {
-        ok: false,
-        code: "INVALID_PAYLOAD",
-        message: `gate:decided has unknown gate_kind: ${String(payload.gate_kind)}`,
-      };
     }
 
     case "event:tasks_planned": {
@@ -273,24 +256,13 @@ export function applyValidated(prev: Snapshot, entry: JournalEntry): ApplyResult
       // submit is whole-replacement) and freezes the spec version this
       // task graph derives from. PER_KIND_PAYLOAD strict-validates the
       // payload shape before this handler runs (preflight gate), so
-      // duplicate-id refines + kind-specific required fields are already
-      // enforced; reducer adds a defense-in-depth duplicate-id sweep per
-      // codex r24 note #5.
+      // required fields are validated by the schema and checkTasksPlanned
+      // rejects duplicate ids before this projection application.
       const payload = entry.payload as {
-        based_on?: { spec?: number };
-        tasks?: ReadonlyArray<TaskFullProjection>;
+        based_on: { spec: number };
+        tasks: ReadonlyArray<TaskFullProjection>;
       };
-      if (typeof payload.based_on?.spec !== "number") {
-        return invalidPayload(entry.kind, "missing based_on.spec");
-      }
-      const incoming = payload.tasks ?? [];
-      const dup = findDuplicateId(incoming.map((t) => t.id));
-      if (dup) {
-        return invalidPayload(
-          entry.kind,
-          `DUPLICATE_TASK_ID: ${dup.id} appears more than once in tasks_planned payload`,
-        );
-      }
+      const incoming = payload.tasks;
       const taskList: TaskState[] = incoming.map(extractTaskSlim);
       return {
         ok: true,
@@ -309,15 +281,15 @@ export function applyValidated(prev: Snapshot, entry: JournalEntry): ApplyResult
       //   replace: overwrite an existing task by id; missing → TASK_NOT_FOUND.
       //   add:     append a task; id already present → DUPLICATE_TASK_ID.
       // §8.6 mutation-rights + add-authority gating live in preflight; this
-      // handler keeps the existence checks as defense-in-depth for raw apply.
+      // handler retains the add collision rule; replace existence is owned
+      // by checkTasksAmended in preflight.
       const payload = entry.payload as {
         mode?: "add" | "replace";
-        task?: TaskFullProjection;
+        task: TaskFullProjection;
         reason?: string;
       };
-      if (!payload.task) return invalidPayload(entry.kind, "missing task");
       const mode = payload.mode ?? "replace";
-      const idx = prev.tasks.findIndex((t) => t.id === payload.task!.id);
+      const idx = prev.tasks.findIndex((t) => t.id === payload.task.id);
       if (mode === "add") {
         if (idx !== -1) {
           return {
@@ -330,37 +302,15 @@ export function applyValidated(prev: Snapshot, entry: JournalEntry): ApplyResult
         const slim = extractTaskSlim(payload.task);
         return { ok: true, snapshot: { ...prev, tasks: [...prev.tasks, slim] } };
       }
-      if (idx === -1) {
-        return {
-          ok: false,
-          code: "TASK_NOT_FOUND",
-          message: `tasks_amended: task ${payload.task.id} not in projection`,
-          detail: { task_id: payload.task.id },
-        };
-      }
       const slim = extractTaskSlim(payload.task);
       const tasks = prev.tasks.map((t, i) => (i === idx ? slim : t));
       return { ok: true, snapshot: { ...prev, tasks } };
     }
 
     case "event:task_claimed": {
-      // Slice 2 SC1 (codex r56 BLOCK 3a): defense-in-depth TASK_NOT_FOUND.
-      // Preflight step 5e is authoritative — task existence + claimability +
-      // deps_on satisfied are all gated there before reducer dry-run. This
-      // fall-through fail-fast prevents the historical silent-no-op (where
-      // an unknown task_id would skip the .map predicate without touching
-      // the projection, returning ok=true).
-      const payload = entry.payload as { task_id?: string };
-      if (!payload.task_id) return invalidPayload(entry.kind, "missing task_id");
-      const task = prev.tasks.find((t) => t.id === payload.task_id);
-      if (!task) {
-        return {
-          ok: false,
-          code: "TASK_NOT_FOUND",
-          message: `task_claimed: task ${payload.task_id} not in projection`,
-          detail: { task_id: payload.task_id },
-        };
-      }
+      // checkTaskLifecycle owns task existence, claimability and dependency
+      // validation; admission is the only production caller of this reducer.
+      const payload = entry.payload as { task_id: string };
       const tasks = prev.tasks.map((t) =>
         t.id === payload.task_id ? { ...t, status: "in_progress" as const } : t,
       );
@@ -369,20 +319,10 @@ export function applyValidated(prev: Snapshot, entry: JournalEntry): ApplyResult
 
     case "event:task_step_started": {
       // Slice 1.B sub-cycle 3a (codex r24 note #3): fail fast on missing
-      // task or unseeded step so we don't silently add a step without
+      // unseeded step so we don't silently add a step without
       // applicability metadata (which would later subvert auto-promote).
-      const payload = entry.payload as { task_id?: string; step?: string };
-      if (!payload.task_id || !payload.step)
-        return invalidPayload(entry.kind, "missing task_id/step");
-      const task = prev.tasks.find((t) => t.id === payload.task_id);
-      if (!task) {
-        return {
-          ok: false,
-          code: "TASK_NOT_FOUND",
-          message: `task_step_started: task ${payload.task_id} not in projection`,
-          detail: { task_id: payload.task_id },
-        };
-      }
+      const payload = entry.payload as { task_id: string; step: string };
+      const task = prev.tasks.find((t) => t.id === payload.task_id)!;
       const seeded = task.steps[payload.step];
       if (!seeded) {
         return {
@@ -411,27 +351,17 @@ export function applyValidated(prev: Snapshot, entry: JournalEntry): ApplyResult
 
     case "event:task_step_done": {
       // Slice 1.B sub-cycle 3a (F-010 #3 + codex r24 note #3):
-      //   - fail fast on missing task / unseeded step
+      //   - task existence is preflight-owned; reject an unseeded step
       //   - auto-promote task.status="done" when every must-applicable
       //     step is terminal-positive (passed|waived|na). optional steps
       //     never block; failed/running/pending must blocks promotion
       const payload = entry.payload as {
-        task_id?: string;
-        step?: string;
+        task_id: string;
+        step: string;
         result?: "passed" | "failed" | "waived" | "na";
         red_test_registered?: boolean;
       };
-      if (!payload.task_id || !payload.step)
-        return invalidPayload(entry.kind, "missing task_id/step");
-      const task = prev.tasks.find((t) => t.id === payload.task_id);
-      if (!task) {
-        return {
-          ok: false,
-          code: "TASK_NOT_FOUND",
-          message: `task_step_done: task ${payload.task_id} not in projection`,
-          detail: { task_id: payload.task_id },
-        };
-      }
+      const task = prev.tasks.find((t) => t.id === payload.task_id)!;
       const seeded = task.steps[payload.step];
       if (!seeded) {
         return {
@@ -475,30 +405,10 @@ export function applyValidated(prev: Snapshot, entry: JournalEntry): ApplyResult
       // preserved, and the body-only fields started_at /
       // reason are NOT erased (SC1b Q4 history-preservation rule — the slim
       // projection does not carry them anyway). Preflight is authoritative
-      // for the sponsorship + target-authority refines; the fail-fast
-      // checks here are defense-in-depth against a raw apply path.
-      const payload = entry.payload as { task_id?: string; step?: string };
-      if (!payload.task_id || !payload.step) {
-        return invalidPayload(entry.kind, "missing task_id/step");
-      }
-      const task = prev.tasks.find((t) => t.id === payload.task_id);
-      if (!task) {
-        return {
-          ok: false,
-          code: "TASK_NOT_FOUND",
-          message: `task_step_reset: task ${payload.task_id} not in projection`,
-          detail: { task_id: payload.task_id },
-        };
-      }
-      const seeded = task.steps[payload.step];
-      if (!seeded) {
-        return {
-          ok: false,
-          code: "TASK_STEP_NOT_FOUND",
-          message: `task_step_reset: step ${payload.step} not seeded on task ${payload.task_id}`,
-          detail: { task_id: payload.task_id, step: payload.step },
-        };
-      }
+      // for sponsorship, task/step presence, and target-authority refines.
+      const payload = entry.payload as { task_id: string; step: string };
+      const task = prev.tasks.find((t) => t.id === payload.task_id)!;
+      const seeded = task.steps[payload.step]!;
       const tasks = prev.tasks.map((t) =>
         t.id === payload.task_id
           ? {
@@ -518,8 +428,7 @@ export function applyValidated(prev: Snapshot, entry: JournalEntry): ApplyResult
     }
 
     case "event:task_abandoned": {
-      const payload = entry.payload as { task_id?: string };
-      if (!payload.task_id) return invalidPayload(entry.kind, "missing task_id");
+      const payload = entry.payload as { task_id: string };
       const tasks = prev.tasks.map((t) =>
         t.id === payload.task_id ? { ...t, status: "abandoned" as const } : t,
       );
@@ -539,8 +448,8 @@ export function applyValidated(prev: Snapshot, entry: JournalEntry): ApplyResult
       // SpecSubmittedPayload is .strict and requires feature{id,name} /
       // intent / adr_refs / needs_clarification. We rely on that: no
       // defensive `?? "" / []` fallbacks (codex r88 — those would be
-      // dead silent fallbacks masking a misuse). The `typeof spec_version
-      // !== "number"` guard stays for consistency with sibling cases.
+      // dead silent fallbacks masking a misuse). checkSpecVersion in
+      // preflight owns batch position and version monotonicity.
       const payload = entry.payload as {
         spec_version: number;
         feature: { id: string; name: string };
@@ -548,17 +457,6 @@ export function applyValidated(prev: Snapshot, entry: JournalEntry): ApplyResult
         adr_refs: string[];
         needs_clarification: NeedsClarification[];
       };
-      if (typeof payload.spec_version !== "number") {
-        return invalidPayload(entry.kind, "missing spec_version");
-      }
-      const versionCheck = checkSpecVersionHead(
-        entry,
-        payload.spec_version,
-        state.spec_version,
-      );
-      if (!versionCheck.ok) {
-        return invalidPayload(entry.kind, versionCheck.message);
-      }
       // structuredClone to isolate the snapshot's spec_header from
       // entry.payload aliasing (codex r88 — projection that SC-A2 will
       // re-serialize must not share pointers with caller-owned objects).
@@ -572,7 +470,7 @@ export function applyValidated(prev: Snapshot, entry: JournalEntry): ApplyResult
         ok: true,
         snapshot: {
           ...prev,
-          state: { ...state, spec_version: versionCheck.nextVersion },
+          state: { ...state, spec_version: payload.spec_version },
           spec_header: specHeader,
           requirements: [],
           scenarios: [],
@@ -582,20 +480,7 @@ export function applyValidated(prev: Snapshot, entry: JournalEntry): ApplyResult
     }
 
     case "event:spec_req_added": {
-      const payload = entry.payload as { spec_version?: number; req?: RequirementState };
-      if (typeof payload.spec_version !== "number" || !payload.req) {
-        return invalidPayload(entry.kind, "missing spec_version or req");
-      }
-      const versionCheck = checkSpecVersion(entry, payload.spec_version, state.spec_version);
-      if (!versionCheck.ok) {
-        return invalidPayload(entry.kind, versionCheck.message);
-      }
-      if (findCollision(payload.req.id, prev.requirements, (r) => r.id)) {
-        return invalidPayload(
-          entry.kind,
-          `DUPLICATE_REQ_ID: ${payload.req.id} already in projection`,
-        );
-      }
+      const payload = entry.payload as { spec_version: number; req: RequirementState };
       // Slice A SC1 widen: push full payload.req (was extractRequirementSlim).
       // structuredClone isolates projection from caller-owned object
       // (codex r88 — mirrors extractTaskSlim's fresh-object discipline).
@@ -603,59 +488,33 @@ export function applyValidated(prev: Snapshot, entry: JournalEntry): ApplyResult
       return {
         ok: true,
         snapshot:
-          versionCheck.nextVersion === state.spec_version
+          payload.spec_version === state.spec_version
             ? prev
-            : { ...prev, state: { ...state, spec_version: versionCheck.nextVersion } },
+            : { ...prev, state: { ...state, spec_version: payload.spec_version } },
       };
     }
 
     case "event:spec_scenario_added": {
-      const payload = entry.payload as { spec_version?: number; scenario?: ScenarioState };
-      if (typeof payload.spec_version !== "number" || !payload.scenario) {
-        return invalidPayload(entry.kind, "missing spec_version or scenario");
-      }
-      const versionCheck = checkSpecVersion(entry, payload.spec_version, state.spec_version);
-      if (!versionCheck.ok) {
-        return invalidPayload(entry.kind, versionCheck.message);
-      }
-      if (findCollision(payload.scenario.id, prev.scenarios, (s) => s.id)) {
-        return invalidPayload(
-          entry.kind,
-          `DUPLICATE_SCEN_ID: ${payload.scenario.id} already in projection`,
-        );
-      }
+      const payload = entry.payload as { spec_version: number; scenario: ScenarioState };
       prev.scenarios.push(structuredClone(payload.scenario));
       return {
         ok: true,
         snapshot:
-          versionCheck.nextVersion === state.spec_version
+          payload.spec_version === state.spec_version
             ? prev
-            : { ...prev, state: { ...state, spec_version: versionCheck.nextVersion } },
+            : { ...prev, state: { ...state, spec_version: payload.spec_version } },
       };
     }
 
     case "event:spec_visual_added": {
-      const payload = entry.payload as { spec_version?: number; visual?: VisualContractState };
-      if (typeof payload.spec_version !== "number" || !payload.visual) {
-        return invalidPayload(entry.kind, "missing spec_version or visual");
-      }
-      const versionCheck = checkSpecVersion(entry, payload.spec_version, state.spec_version);
-      if (!versionCheck.ok) {
-        return invalidPayload(entry.kind, versionCheck.message);
-      }
-      if (findCollision(payload.visual.id, prev.visual_contracts, (v) => v.id)) {
-        return invalidPayload(
-          entry.kind,
-          `DUPLICATE_VIS_ID: ${payload.visual.id} already in projection`,
-        );
-      }
+      const payload = entry.payload as { spec_version: number; visual: VisualContractState };
       prev.visual_contracts.push(structuredClone(payload.visual));
       return {
         ok: true,
         snapshot:
-          versionCheck.nextVersion === state.spec_version
+          payload.spec_version === state.spec_version
             ? prev
-            : { ...prev, state: { ...state, spec_version: versionCheck.nextVersion } },
+            : { ...prev, state: { ...state, spec_version: payload.spec_version } },
       };
     }
 
@@ -667,11 +526,10 @@ export function applyValidated(prev: Snapshot, entry: JournalEntry): ApplyResult
       // slim projection subset narrowed to EvidenceState fields; the full
       // payload (iteration/summary/cmd/exit/wall_ms/task_id/gate/decided_by/
       // based_on/waiver_obligation_id/external_ref) round-trips via the
-      // journal itself, not projection. Defense-in-depth: id/kind presence
-      // still checked here in case a future code path skips the schema gate.
+      // journal itself, not projection. Admission enforces the payload schema.
       const payload = entry.payload as {
-        id?: string;
-        kind?: EvidenceKind;
+        id: string;
+        kind: EvidenceKind;
         result?: EvidenceResult;
         covers?: string[];
         actor?: string;
@@ -679,7 +537,6 @@ export function applyValidated(prev: Snapshot, entry: JournalEntry): ApplyResult
         reason?: string;
         attachments?: AttachmentPayload[];
       };
-      if (!payload.id || !payload.kind) return invalidPayload(entry.kind, "missing id/kind");
       const ev: EvidenceState = {
         id: payload.id,
         kind: payload.kind,
@@ -710,19 +567,15 @@ export function applyValidated(prev: Snapshot, entry: JournalEntry): ApplyResult
 
     case "finding:raised": {
       // Payload schema strict-validated at preflight (PER_KIND_PAYLOAD →
-      // FindingRaisedPayload). Defense-in-depth id/category/action check
-      // retained for raw mutate paths that bypass preflight.
+      // FindingRaisedPayload); admission guarantees its required fields.
       const payload = entry.payload as {
-        id?: string;
-        category?: string;
-        action?: string;
+        id: string;
+        category: string;
+        action: string;
         summary?: string;
         reason?: string;
         target?: { task_id: string; step: string };
       };
-      if (!payload.id || !payload.category || !payload.action) {
-        return invalidPayload(entry.kind, "missing id/category/action");
-      }
       const f: FindingState = {
         id: payload.id,
         category: payload.category,
@@ -742,8 +595,7 @@ export function applyValidated(prev: Snapshot, entry: JournalEntry): ApplyResult
       // finding returns FINDING_NOT_FOUND with detail.reason=already_closed
       // so the projection stays a single-source contract (one close per
       // finding, no silent retry that would re-emit an audit-trail entry).
-      const payload = entry.payload as { id?: string };
-      if (!payload.id) return invalidPayload(entry.kind, "missing id");
+      const payload = entry.payload as { id: string };
       const idx = prev.findings.findIndex((f) => f.id === payload.id);
       if (idx === -1) {
         return {
@@ -769,8 +621,7 @@ export function applyValidated(prev: Snapshot, entry: JournalEntry): ApplyResult
     }
 
     case "pending:added": {
-      const payload = entry.payload as { id?: string; kind?: string };
-      if (!payload.id || !payload.kind) return invalidPayload(entry.kind, "missing id/kind");
+      const payload = entry.payload as { id: string; kind: string };
       const p: PendingState = { id: payload.id, kind: payload.kind, resolved: false };
       // Mutating push (apply is the SSoT for snapshot evolution; callers
       // treat the prev reference as consumed). Avoids O(N²) replay cost
@@ -781,8 +632,7 @@ export function applyValidated(prev: Snapshot, entry: JournalEntry): ApplyResult
 
     case "pending:resolved": {
       // FIFO: only the head (first unresolved) may be marked resolved per §10.7.
-      const payload = entry.payload as { id?: string };
-      if (!payload.id) return invalidPayload(entry.kind, "missing id");
+      const payload = entry.payload as { id: string };
       const headIdx = prev.pending.findIndex((p) => !p.resolved);
       if (headIdx === -1) {
         return {
@@ -867,70 +717,6 @@ export function applyValidated(prev: Snapshot, entry: JournalEntry): ApplyResult
       };
     }
   }
-}
-
-function invalidPayload(kind: string, reason: string): ApplyResult {
-  return {
-    ok: false,
-    code: "INVALID_PAYLOAD",
-    message: `${kind}: ${reason}`,
-  };
-}
-
-// ── SPEC content reducer helpers (Slice 1.B sub-cycle 1) ─────────────────
-// spec_version monotonic invariant + slim projection extraction.
-//
-// `loaf spec submit` is a batch: spec_submitted at batch_index=0 followed
-// by companion add-* entries at index>=1, all sharing batch_id and
-// spec_version. Standalone `loaf spec add-req|add-scenario|add-visual` is
-// also a batch (single entry or N entries) sharing one spec_version.
-//
-// Reducer disambiguates new-invocation head vs continuation via
-// entry.batch_index:
-//   - undefined | 0 → must bump (payload.spec_version === current + 1)
-//   - >0            → must equal current (already bumped by batch head)
-
-type SpecVersionCheck = { ok: true; nextVersion: number } | { ok: false; message: string };
-
-function checkSpecVersionHead(
-  entry: JournalEntry,
-  payloadVersion: number,
-  currentVersion: number,
-): SpecVersionCheck {
-  // spec_submitted is always batch head — either standalone (no envelope)
-  // or batch_index=0. batch_index>0 is illegal for spec_submitted.
-  if (entry.batch_index !== undefined && entry.batch_index !== 0) {
-    return {
-      ok: false,
-      message: `SPEC_VERSION_BATCH_MISMATCH: spec_submitted must appear at batch_index=0, got ${entry.batch_index}`,
-    };
-  }
-  // Structural guard above stays OUTSIDE the shared predicate (it has no
-  // kind/batch_index); only the monotonic compare delegates (L3).
-  const r = specVersionRule(payloadVersion, currentVersion, "head");
-  return r.ok
-    ? { ok: true, nextVersion: r.nextVersion }
-    : {
-        ok: false,
-        message: `SPEC_VERSION_NOT_MONOTONIC: spec_version must be ${r.expected} (current+1), got ${payloadVersion}`,
-      };
-}
-
-function checkSpecVersion(
-  entry: JournalEntry,
-  payloadVersion: number,
-  currentVersion: number,
-): SpecVersionCheck {
-  const mode = resolveSpecVersionMode(entry.batch_index);
-  const r = specVersionRule(payloadVersion, currentVersion, mode);
-  if (r.ok) return { ok: true, nextVersion: r.nextVersion };
-  return {
-    ok: false,
-    message:
-      mode === "head"
-        ? `SPEC_VERSION_NOT_MONOTONIC: spec_version must be ${r.expected} (current+1) at batch head, got ${payloadVersion}`
-        : `SPEC_VERSION_BATCH_MISMATCH: spec_version must be ${r.expected} at batch_index=${entry.batch_index}, got ${payloadVersion}`,
-  };
 }
 
 // Slice A SC1: slim extractors removed. RequirementState / ScenarioState /
