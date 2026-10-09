@@ -255,12 +255,21 @@ export type TaskFullProjection = {
 };
 
 /**
+ * Raw, schema-valid task input for projection. Admission validates journal
+ * payloads without replacing them with Zod output, so defaulted arrays may
+ * still be absent. Keep execution as a record to preserve historical extra
+ * steps rather than stripping them through a schema-output substitution.
+ */
+export type TaskProjectionInput = Omit<TaskFullProjection, "depends_on" | "labels"> &
+  Pick<z.input<typeof TaskFullPayload>, "depends_on" | "labels">;
+
+/**
  * Extract a slim TaskState projection from a TaskFull payload. Body fields
  * (tests / test_layer / execution.reason / started_at) stay in the journal
  * payload as canonical truth — only cross-cutting fields needed by spec-lock
  * checks + auto-promote land in the projection.
  */
-export function extractTaskSlim(t: TaskFullProjection): {
+export function extractTaskSlim(t: TaskProjectionInput): {
   id: string;
   kind: TaskFullProjection["kind"];
   status: TaskFullProjection["status"];
@@ -280,8 +289,8 @@ export function extractTaskSlim(t: TaskFullProjection): {
     status: t.status,
     steps: extractTaskSteps(t.execution),
     drives: t.drives ?? [],
-    depends_on: t.depends_on,
-    labels: t.labels,
+    depends_on: t.depends_on ?? [],
+    labels: t.labels ?? [],
   };
   if (t.red_test_registered !== undefined) out.red_test_registered = t.red_test_registered;
   if (t.no_test_rationale !== undefined) out.no_test_rationale = t.no_test_rationale;

@@ -433,8 +433,8 @@ function extractTaskSlim(t) {
 		status: t.status,
 		steps: extractTaskSteps(t.execution),
 		drives: t.drives ?? [],
-		depends_on: t.depends_on,
-		labels: t.labels
+		depends_on: t.depends_on ?? [],
+		labels: t.labels ?? []
 	};
 	if (t.red_test_registered !== void 0) out.red_test_registered = t.red_test_registered;
 	if (t.no_test_rationale !== void 0) out.no_test_rationale = t.no_test_rationale;

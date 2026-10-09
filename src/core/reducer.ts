@@ -13,7 +13,7 @@ import type { Ceremony, EntryKind, GateName, JournalEntry, SubState } from "./jo
 import { diagnostic } from "./error-catalog.js";
 import type { PreflightFailureCode } from "./reducer/preflight.js";
 import { extractTaskSlim, shouldPromoteToDone } from "./task-schema.js";
-import type { TaskFullProjection } from "./task-schema.js";
+import type { TaskProjectionInput } from "./task-schema.js";
 import type {
   AttachmentPayload,
   EvidenceKind,
@@ -260,7 +260,7 @@ export function applyValidated(prev: Snapshot, entry: JournalEntry): ApplyResult
       // rejects duplicate ids before this projection application.
       const payload = entry.payload as {
         based_on: { spec: number };
-        tasks: ReadonlyArray<TaskFullProjection>;
+        tasks: ReadonlyArray<TaskProjectionInput>;
       };
       const incoming = payload.tasks;
       const taskList: TaskState[] = incoming.map(extractTaskSlim);
@@ -285,7 +285,7 @@ export function applyValidated(prev: Snapshot, entry: JournalEntry): ApplyResult
       // by checkTasksAmended in preflight.
       const payload = entry.payload as {
         mode?: "add" | "replace";
-        task: TaskFullProjection;
+        task: TaskProjectionInput;
         reason?: string;
       };
       const mode = payload.mode ?? "replace";

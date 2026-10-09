@@ -344,7 +344,7 @@ describe("reducer duplicate guards — authoritative preflight", () => {
   }
 });
 
-test("reducer preserves raw defaults and extra execution keys byte-for-byte", () => {
+test("reducer normalizes default arrays while preserving extra execution keys byte-for-byte", () => {
   const { depends_on: _deps, labels: _labels, ...rawTask } = task;
   const prev = snapshot("EXECUTE.plan");
   const result = admitEntry(
@@ -365,6 +365,8 @@ test("reducer preserves raw defaults and extra execution keys byte-for-byte", ()
         status: "pending",
         steps: { implement: step, refactor: step, legacy_extra: step },
         drives: ["REQ-AUTH-001"],
+        depends_on: [],
+        labels: [],
         no_test_rationale: task.no_test_rationale,
       },
     ]),

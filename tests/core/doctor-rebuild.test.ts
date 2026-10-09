@@ -13,6 +13,9 @@ import os from "node:os";
 
 import { main } from "../../src/cli.js";
 import { appendEntry } from "../../src/core/journal-append.js";
+import { replayJournal } from "../../src/core/journal-bootstrap.js";
+import { extractTaskSlim, type TaskProjectionInput } from "../../src/core/task-schema.js";
+import { TasksJson } from "../../src/core/projection-schema.js";
 import { mutateBatch } from "../../src/core/journal-mutate.js";
 import { admitEntry } from "../../src/core/entry-admission.js";
 import { initialSnapshot, type Snapshot } from "../../src/core/reducer.js";
@@ -124,7 +127,10 @@ function behavioralTask(): Record<string, unknown> {
  * non-empty evidence/finding/pending ledgers, a sidecar-backed evidence
  * summary, and the top-level lessons.md projection.
  */
-async function seedJournal(dir: string, opts: { withPlan: boolean }): Promise<void> {
+async function seedJournal(
+  dir: string,
+  opts: { withPlan: boolean; omitArrays?: boolean; stopAtPlan?: boolean },
+) {
   let snapshot: Snapshot = initialSnapshot();
   let tail = -1;
   let entries: JournalEntry[] = [];
@@ -143,6 +149,12 @@ async function seedJournal(dir: string, opts: { withPlan: boolean }): Promise<vo
     tail += partials.length;
     entries = entries.concat(r.entries);
     meta = r.meta;
+  }
+
+  const plannedTask = behavioralTask();
+  if (opts.omitArrays) {
+    delete plannedTask.depends_on;
+    delete plannedTask.labels;
   }
 
   await step([
@@ -201,7 +213,7 @@ async function seedJournal(dir: string, opts: { withPlan: boolean }): Promise<vo
         actor: "cli:loaf",
         entry_schema_version: 1,
         kind: "event:tasks_planned",
-        payload: { based_on: { spec: 1 }, tasks: [behavioralTask()] },
+        payload: { based_on: { spec: 1 }, tasks: [plannedTask] },
       },
     ]);
 
@@ -234,6 +246,9 @@ async function seedJournal(dir: string, opts: { withPlan: boolean }): Promise<vo
       ["SPEC.design", "EXECUTE.plan"],
       ["EXECUTE.plan", "EXECUTE.work"],
     ] as Array<[string, string]>) {
+      if (from === "EXECUTE.plan" && opts.stopAtPlan) {
+        return { snapshot, entries, meta, tail_seq: tail };
+      }
       await step([
         {
           at: "2026-05-21T10:00:04.000Z",
@@ -298,6 +313,7 @@ async function seedJournal(dir: string, opts: { withPlan: boolean }): Promise<vo
       },
     ]);
   }
+  return { snapshot, entries, meta, tail_seq: tail };
 }
 
 /** A minimal v0.0.x feature dir — input for `migrateV2` (mirrors
@@ -705,5 +721,203 @@ describe("loaf doctor --rebuild — Phase 14 SC2", () => {
     expect(r.exit).toBe(2);
     expect(r.stderr).toContain("LOCK_INVALID");
     await expect(fs.readFile(path.join(dir, ".lock"), "utf8")).resolves.toBe("{malformed");
+  });
+});
+
+describe("task projection array defaults", () => {
+  function assertArrays(tasks: Array<{ depends_on?: unknown; labels?: unknown }>): void {
+    expect(tasks.length).toBeGreaterThan(0);
+    for (const task of tasks) {
+      expect(task).toHaveProperty("depends_on", []);
+      expect(task).toHaveProperty("labels", []);
+    }
+  }
+
+  test.each([
+    "planned",
+    "replace",
+    "add",
+  ] as const)("%s raw tasks retain arrays through mutation, replay, rebuild and query", async (mode) => {
+    const dir = await tmpDir();
+    try {
+      let ctx = await seedJournal(dir, { withPlan: true, omitArrays: true, stopAtPlan: true });
+      if (mode !== "planned") {
+        const task = behavioralTask();
+        delete task.depends_on;
+        delete task.labels;
+        const partials: Parameters<typeof mutateBatch>[0] = [];
+        if (mode === "add") {
+          task.id = "T-002";
+          partials.push(
+            {
+              kind: "event:phase_advanced",
+              payload: { from: "EXECUTE.plan", to: "EXECUTE.work" },
+              actor: "cli:loaf",
+              at: "2026-05-21T10:01:00.000Z",
+              entry_schema_version: 1,
+            },
+            {
+              kind: "finding:raised",
+              payload: {
+                id: "FND-002",
+                category: "spec-gap",
+                action: "amend-tasks",
+                summary: "Add the missing task",
+                reason: "The spec gap requires a new implementation task",
+              },
+              actor: "cli:loaf",
+              at: "2026-05-21T10:01:01.000Z",
+              entry_schema_version: 1,
+            },
+          );
+        }
+        partials.push({
+          kind: "event:tasks_amended",
+          payload: {
+            mode,
+            task,
+            ...(mode === "add" ? { sponsored_by_finding_id: "FND-002" } : {}),
+          },
+          actor: "cli:loaf",
+          at: "2026-05-21T10:01:02.000Z",
+          entry_schema_version: 1,
+        });
+        const result = await mutateBatch(partials, { ...ctx, feature_dir: dir, fsync: false });
+        expect(result.ok, JSON.stringify(result)).toBe(true);
+        if (!result.ok) return;
+        ctx = {
+          snapshot: result.snapshot,
+          entries: ctx.entries.concat(result.entries),
+          meta: result.meta,
+          tail_seq: ctx.tail_seq + partials.length,
+        };
+      }
+      assertArrays(ctx.snapshot.tasks);
+      const journalPath = path.join(dir, "journal.jsonl");
+      const replay = await replayJournal(journalPath, { collect_entries: true });
+      expect(replay.ok).toBe(true);
+      if (!replay.ok) return;
+      assertArrays(replay.snapshot.tasks);
+      expect(replay.snapshot).toEqual(ctx.snapshot);
+      const taskPath = path.join(dir, "snapshots", "tasks.json");
+      const mutationBytes = await fs.readFile(taskPath);
+      const artifact = JSON.parse(mutationBytes.toString("utf8"));
+      assertArrays(artifact.tasks);
+      assertArrays(TasksJson.parse(artifact).tasks);
+      for (const rebuilding of [false, true]) {
+        if (rebuilding) {
+          await fs.rm(taskPath);
+          const rebuilt = await runCli([
+            "doctor",
+            "--rebuild",
+            "--feature",
+            "auth-refresh",
+            "--feature-dir",
+            dir,
+            "--format",
+            "json",
+          ]);
+          expect(rebuilt.exit, rebuilt.stderr).toBe(0);
+          expect(await fs.readFile(taskPath)).toEqual(mutationBytes);
+          assertArrays(JSON.parse(await fs.readFile(taskPath, "utf8")).tasks);
+        }
+        const query = await runCli([
+          "tasks",
+          "list",
+          "--feature",
+          "auth-refresh",
+          "--feature-dir",
+          dir,
+          "--format",
+          "json",
+        ]);
+        expect(query.exit, query.stderr).toBe(0);
+        assertArrays(JSON.parse(query.stdout).tasks);
+        const next = await runCli([
+          "tasks",
+          "next",
+          "--feature",
+          "auth-refresh",
+          "--feature-dir",
+          dir,
+          "--format",
+          "json",
+        ]);
+        expect(next.exit, next.stderr).toBe(0);
+        expect(JSON.parse(next.stdout).task_id).toBe("T-001");
+      }
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test.each([
+    true,
+    false,
+  ])("unsponsored replace accepts mixed array presence (plan omitted=%s)", async (omitted) => {
+    const dir = await tmpDir();
+    try {
+      const ctx = await seedJournal(dir, { withPlan: true, stopAtPlan: true });
+      const planned = behavioralTask();
+      if (omitted) {
+        delete planned.depends_on;
+        delete planned.labels;
+      }
+      ctx.snapshot.tasks = [extractTaskSlim(planned as TaskProjectionInput)];
+      const task = behavioralTask();
+      if (!omitted) {
+        delete task.depends_on;
+        delete task.labels;
+      }
+      const result = admitEntry(
+        ctx.snapshot,
+        {
+          seq: ctx.tail_seq + 1,
+          entry_id: "JE-000099",
+          kind: "event:tasks_amended",
+          payload: { mode: "replace", task },
+          actor: "cli:loaf",
+          at: "2026-05-21T10:01:00.000Z",
+          entry_schema_version: 1,
+        },
+        { kind: "replay" },
+      );
+      expect(result.ok, JSON.stringify(result)).toBe(true);
+      if (result.ok) assertArrays(result.snapshot.tasks);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test.each([
+    "depends_on",
+    "labels",
+  ] as const)("unsponsored replace still rejects a real %s change", async (field) => {
+    const dir = await tmpDir();
+    try {
+      const ctx = await seedJournal(dir, { withPlan: true, stopAtPlan: true });
+      const task = behavioralTask();
+      task[field] = field === "depends_on" ? ["T-002"] : ["changed"];
+      const result = admitEntry(
+        ctx.snapshot,
+        {
+          seq: ctx.tail_seq + 1,
+          entry_id: "JE-000099",
+          kind: "event:tasks_amended",
+          payload: { mode: "replace", task },
+          actor: "cli:loaf",
+          at: "2026-05-21T10:01:00.000Z",
+          entry_schema_version: 1,
+        },
+        { kind: "replay" },
+      );
+      expect(result).toMatchObject({
+        ok: false,
+        code: "MUTATION_OUT_OF_RIGHTS",
+        detail: { field },
+      });
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
   });
 });
