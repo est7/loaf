@@ -7,14 +7,14 @@ import { diagnostic } from "../../core/error-catalog.js";
 // can't be bypassed. Preview by default (no side effects); --yes executes.
 //
 // 6b modes/subcommands: `prune --history` (read the audit log), `prune --trash
-// --older-than <N>d` (trash retention sweep, preview/--yes), and the `prune
+// --older-than <days>` (trash retention sweep, preview/--yes), and the `prune
 // restore <id>` subcommand (surfaces the 4 PRUNE_RESTORE_* / PRUNE_PATH_OCCUPIED
 // codes via ctx.failure).
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
-import type { Command } from "commander";
+import { InvalidArgumentError, type Command } from "commander";
 import { tryRealpath } from "../../core/registry-read.js";
 import type { CommandContext } from "../command-context.js";
 import { appendPruneLog, readPruneLog } from "../prune/audit.js";
@@ -63,11 +63,13 @@ async function resolveSessionPrefix(
   return { kind: "found", id: matches[0]! };
 }
 
-/** Commander coercion for `--older-than <days>`: positive integer or throws. */
+/** Commander coercion for `--older-than <days>`: non-negative integer or usage error. */
 function parseDaysOption(value: string): number {
   const n = Number(value);
   if (!Number.isInteger(n) || n < 0) {
-    throw new Error(`--older-than must be a non-negative integer number of days (got ${value})`);
+    throw new InvalidArgumentError(
+      `--older-than must be a non-negative integer number of days (got ${value})`,
+    );
   }
   return n;
 }

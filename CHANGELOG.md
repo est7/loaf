@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Invalid `prune --older-than` values now return `USAGE` with exit 2 and the
+  offending value instead of `UNEXPECTED_ERROR` or a crash report. Existing
+  non-negative integer coercion and valid retention behavior are unchanged.
+
 - Trash restore now compensates a restored feature when the registry move
   fails, preserving a retryable bucket after successful rollback. Failed
   compensation preserves copies and reports both causes and transfer paths;

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { Command, CommanderError } from "commander";
+import { Command, CommanderError, InvalidArgumentError } from "commander";
 import { z } from "zod";
 import * as path$1 from "node:path";
 import path from "node:path";
@@ -19362,10 +19362,10 @@ async function resolveSessionPrefix(registryDir, prefix) {
 		id: matches[0]
 	};
 }
-/** Commander coercion for `--older-than <days>`: positive integer or throws. */
+/** Commander coercion for `--older-than <days>`: non-negative integer or usage error. */
 function parseDaysOption(value) {
 	const n = Number(value);
-	if (!Number.isInteger(n) || n < 0) throw new Error(`--older-than must be a non-negative integer number of days (got ${value})`);
+	if (!Number.isInteger(n) || n < 0) throw new InvalidArgumentError(`--older-than must be a non-negative integer number of days (got ${value})`);
 	return n;
 }
 function describeScope(scope) {
