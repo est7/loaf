@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `loaf spec init --dry-run` (and `-n`) now rejects with
+  `DRY_RUN_NOT_APPLICABLE` as a scaffold writer before feature dispatch or scaffold I/O.
+  It cannot create spec.md or modify feature, registry, runtime or trace files;
+  ordinary scaffold initialization remains unchanged.
+
 - Next-action commands and advisory pointers now carry both the feature name
   and explicit feature directory, so copying a returned command works without
   LOAF_FEATURE. Session selectors and shell quoting remain intact.
@@ -34,7 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Registered command policy now owns action-entry dry-run rejection, Board
   selector rejection and schema-output short circuits. Commander syntax
   validation and existing diagnostic priority still run in the same order;
-  dynamic editor/rebuild modes and legacy spec-init behavior are preserved.
+  dynamic editor/rebuild modes are preserved.
 
 - Command registrations now declare selector, dry-run and schema policy on
   their actual Commander objects. Command-specific pre-parse checks consume

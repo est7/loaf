@@ -17455,7 +17455,7 @@ function registerSpec(program, ctx, mutator, actor, isStdinTty, isStdoutTty, inp
 	});
 	declareCommandPolicy(specCmd.command("init").description("Write a parser-valid minimal spec.md scaffold (no journal entry)").option("--feature <name>", "Feature whose spec.md to scaffold").option("--feature-dir <path>", "Override default .loaf/<feature> directory").option("--feature-id <id>", "Override feature.id in scaffold (default: F-XXX placeholder)").option("--feature-name <text>", "Override feature.name in scaffold (default: --feature value)").option("--intent <text>", "Override intent line in scaffold (default: TODO placeholder ≥20 chars)"), {
 		selectors: "selected",
-		dryRun: "legacy-scaffold"
+		dryRun: "scaffold-writer"
 	}).action(async (opts) => {
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;

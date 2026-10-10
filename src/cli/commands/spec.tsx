@@ -326,7 +326,7 @@ export function registerSpec(
         "--intent <text>",
         "Override intent line in scaffold (default: TODO placeholder ≥20 chars)",
       ),
-    { selectors: "selected", dryRun: "legacy-scaffold" },
+    { selectors: "selected", dryRun: "scaffold-writer" },
   ).action(
     async (opts: {
       feature: string;

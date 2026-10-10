@@ -23,8 +23,7 @@ export type CommandPolicy = {
     | "scaffold-writer"
     | "spec-edit"
     | "hook"
-    | "prune"
-    | "legacy-scaffold";
+    | "prune";
   selectorStage?: "action";
   selectorFailure?:
     | "failure.sessions_list.selector_conflict"
