@@ -7,7 +7,7 @@
 // METADATA ONLY (ADR-0005 split, see reducer/per-kind.ts history): the registry
 // holds static facts. Stateful per-kind refines (reducer apply, preflight step
 // 5a/5c, transition validation, snapshot-dependent checks) stay where they are.
-// `Record<EntryKind, KindMeta>` makes the table total at compile time.
+// `satisfies Record<EntryKind, KindMeta>` checks totality without erasing schemas.
 //
 // Layering (no cycle): imports schema consts from journal-entry.ts (base) and
 // guard vocabulary from kind-guards.ts. journal-entry.ts must NOT import back.
@@ -71,7 +71,7 @@ export type KindMeta = {
   readonly emitsSpec: boolean;
 };
 
-export const KIND_REGISTRY: Record<EntryKind, KindMeta> = {
+export const KIND_REGISTRY = {
   // ── State machine transitions ──────────────────────────────────────────────
   "event:phase_advanced": {
     payload: PhaseAdvancedPayload,
@@ -273,7 +273,7 @@ export const KIND_REGISTRY: Record<EntryKind, KindMeta> = {
     actors: HUMAN_ONLY,
     emitsSpec: false,
   },
-};
+} satisfies Record<EntryKind, KindMeta>;
 
 const ALL_KINDS = Object.keys(KIND_REGISTRY) as EntryKind[];
 
@@ -283,9 +283,13 @@ export const ENTRY_SCHEMA_VERSIONS: Record<EntryKind, number> = Object.fromEntri
   ALL_KINDS.map((kind) => [kind, KIND_REGISTRY[kind].entrySchemaVersion]),
 ) as Record<EntryKind, number>;
 
-export const PER_KIND_PAYLOAD: Record<EntryKind, z.ZodTypeAny> = Object.fromEntries(
+export type PayloadSchemas = {
+  [K in EntryKind]: (typeof KIND_REGISTRY)[K]["payload"];
+};
+
+export const PER_KIND_PAYLOAD = Object.fromEntries(
   ALL_KINDS.map((k) => [k, KIND_REGISTRY[k].payload]),
-) as Record<EntryKind, z.ZodTypeAny>;
+) as PayloadSchemas;
 
 export const PER_KIND_SUB_STATE: Record<EntryKind, SubStateGuard> = Object.fromEntries(
   ALL_KINDS.map((k) => [k, KIND_REGISTRY[k].subStates]),
@@ -311,5 +315,6 @@ export function isSubStateAllowed(kind: EntryKind, subState: SubState): boolean 
 export function isActorAllowed(kind: EntryKind, actor: string): boolean {
   const prefix = actorPrefix(actor);
   if (prefix === null) return false;
-  return KIND_REGISTRY[kind].actors.includes(prefix);
+  const meta: KindMeta = KIND_REGISTRY[kind];
+  return meta.actors.includes(prefix);
 }

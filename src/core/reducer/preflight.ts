@@ -33,6 +33,7 @@
 // session entries). `tasks` flows for the spike-block check at step 5c.
 
 import { JournalEntry } from "../journal-entry.js";
+import type { AdmittedEntry } from "../admitted-entry.js";
 import { PER_KIND_PAYLOAD } from "../kind-registry.js";
 import type { Ceremony, EntryKind, SubState } from "../journal-entry.js";
 import type { Snapshot } from "../projection-types.js";
@@ -268,7 +269,7 @@ export type PreflightFailureCode =
   | "ESCALATION_NOT_PENDING";
 
 export type PreflightResult =
-  | { ok: true }
+  | { ok: true; entry: AdmittedEntry }
   | {
       ok: false;
       code: PreflightFailureCode;
@@ -291,16 +292,21 @@ export type ParsedEntry = Extract<
 
 export type PayloadParse = ReturnType<(typeof PER_KIND_PAYLOAD)[EntryKind]["safeParse"]>;
 
-export interface PreflightCheckCtx {
-  rawEntry: unknown;
+export interface EnvelopeCheckCtx {
   entry: ParsedEntry;
   payloadParsed: PayloadParse;
-  payloadData: unknown;
   ctx: PreflightContext;
   sub_state: SubState;
   ceremony: Ceremony;
   verify_accepted: boolean;
   spec_locked: boolean;
+}
+
+export interface PreflightCheckCtx extends Omit<EnvelopeCheckCtx, "entry" | "payloadParsed"> {
+  entry: AdmittedEntry;
+  // Transitional aliases: Slice 2 removes raw semantic reads and payload casts.
+  rawEntry: unknown;
+  payloadData: unknown;
 }
 
 export type PreflightCheck = (ctx: PreflightCheckCtx) => PreflightFailure | null;
@@ -328,23 +334,12 @@ export function preflight(rawEntry: unknown, ctx: PreflightContext): PreflightRe
   }
   const entry = parsed.data;
 
-  // (4b) Per-kind payload schema (audit r1 fix #4 — Gate #2 / Gate #3 wiring).
-  // PER_KIND_PAYLOAD lookup is total — every EntryKind has at least
-  // RecordPayload (object-shape) as fallback. A literal string / array /
-  // scalar fails here, preventing malformed payload fields and
-  // similar bypasses of the envelope. Parsed up-front so downstream checks can
-  // read the validated `payloadData`, but the FAILURE is reported at its
-  // precedence slot inside ORDERED_CHECKS (checkPerKindPayload, after seq /
-  // sub_state / actor authority) — NOT here — so a malformed-payload entry that
-  // also violates seq still reports SEQ_NOT_MONOTONIC first.
+  // Parse exactly once. Report a payload failure only after envelope authority
+  // checks so malformed data cannot change the existing diagnostic precedence.
   const payloadParsed = PER_KIND_PAYLOAD[entry.kind].safeParse(entry.payload);
-  const payloadData: unknown = payloadParsed.success ? payloadParsed.data : undefined;
-
-  const checkCtx: PreflightCheckCtx = {
-    rawEntry,
+  const envelopeCtx: EnvelopeCheckCtx = {
     entry,
     payloadParsed,
-    payloadData,
     ctx,
     sub_state,
     ceremony,
@@ -352,25 +347,37 @@ export function preflight(rawEntry: unknown, ctx: PreflightContext): PreflightRe
     spec_locked,
   };
 
-  // The ORDERED pipeline IS the error-precedence contract. First failure wins;
-  // reordering ORDERED_CHECKS changes which diagnostic a caller sees and is
-  // caught by tests/core/preflight-precedence.test.ts.
-  for (const check of ORDERED_CHECKS) {
+  for (const check of AUTHORITY_CHECKS) {
+    const failure = check(envelopeCtx);
+    if (failure) return failure;
+  }
+  const admitted = checkPerKindPayload(envelopeCtx);
+  if (!admitted.ok) return admitted;
+
+  const checkCtx: PreflightCheckCtx = {
+    ...envelopeCtx,
+    entry: admitted.entry,
+    rawEntry,
+    payloadData: admitted.entry.payload,
+  };
+  for (const check of SEMANTIC_CHECKS) {
     const failure = check(checkCtx);
     if (failure) return failure;
   }
-  return { ok: true };
+  return admitted;
 }
 
 // The ORDERED error-precedence contract. Exported so the precedence test can
 // pin the sequence (a reorder fails loudly). First failure wins. The envelope
 // parse (1) and per-kind payload parse (producing `payloadData`) run inline in
 // preflight() before this pipeline because they build the check context.
-export const ORDERED_CHECKS: ReadonlyArray<(c: PreflightCheckCtx) => PreflightFailure | null> = [
+const AUTHORITY_CHECKS = [
   checkSeqMonotonic, // (2)
   checkSubStateAuthority, // (3)
   checkActorAuthority, // (4)
-  checkPerKindPayload, // (4b)
+];
+
+const SEMANTIC_CHECKS: readonly PreflightCheck[] = [
   checkGateDecided, // (5a)
   checkPhaseAdvanced, // (5b)
   checkSessionDelivered, // (5c)
@@ -388,3 +395,9 @@ export const ORDERED_CHECKS: ReadonlyArray<(c: PreflightCheckCtx) => PreflightFa
   checkSpecVersion, // (5j)
   checkTransitionEdge, // (5f)
 ];
+
+export const ORDERED_CHECKS = [
+  ...AUTHORITY_CHECKS,
+  checkPerKindPayload,
+  ...SEMANTIC_CHECKS,
+] as const;

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Admission now passes schema output to projection application: omitted
+  requirement `measurable.direction` becomes `lte`, undeclared requirement and
+  scenario keys are stripped, and copied object keys follow schema declaration
+  order in snapshots and spec frontmatter. Passthrough schemas still preserve
+  unknown keys. Journal persistence retains the original candidate payload.
+
 ## [0.9.0] — 2026-10-10
 
 ### Changed

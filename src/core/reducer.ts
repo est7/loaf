@@ -12,10 +12,10 @@
 import type {
   Ceremony,
   GateName,
-  JournalEntry,
   SessionStartedPayload,
   SubState,
 } from "./journal-entry.js";
+import type { AdmittedEntry } from "./admitted-entry.js";
 import { diagnostic } from "./error-catalog.js";
 import type { PreflightFailureCode } from "./reducer/preflight.js";
 import { extractTaskSlim, shouldPromoteToDone } from "./task-schema.js";
@@ -108,7 +108,7 @@ function extractPhase(sub: SubState): SessionState["phase"] {
  *
  * @internal Only entry-admission.ts may call this directly.
  */
-export function applyValidated(prev: Snapshot, entry: JournalEntry): ApplyResult {
+export function applyValidated(prev: Snapshot, entry: AdmittedEntry): ApplyResult {
   // session:started is the bootstrap kind: it initializes state from null.
   if (entry.kind === "session:started") {
     if (prev.state !== null) {
@@ -144,7 +144,8 @@ export function applyValidated(prev: Snapshot, entry: JournalEntry): ApplyResult
   const state = prev.state!;
 
   // Apply per-kind state mutations.
-  switch (entry.kind) {
+  const { kind } = entry;
+  switch (kind) {
     case "event:phase_advanced": {
       const payload = entry.payload as { to: SubState; back_edge?: { action: string } };
       const next: SessionState = {
@@ -657,7 +658,7 @@ export function applyValidated(prev: Snapshot, entry: JournalEntry): ApplyResult
     default: {
       // Every EntryKind must have a case; missing cases fail typecheck.
       // Keep the runtime failure for callers bypassing the typed boundary.
-      const _exhaustive: never = entry.kind;
+      const _exhaustive: never = kind;
       return {
         ok: false,
         code: "REDUCER_NOT_IMPLEMENTED",

@@ -41,7 +41,7 @@ export function admitEntry(
     return { ...checked, stage: "admission", detail: checked.detail ?? {} };
   }
 
-  const result = applyValidated(prev, entry);
+  const result = applyValidated(prev, checked.entry);
   if (!result.ok) {
     return { ...result, stage: "reducer", detail: result.detail ?? {} };
   }

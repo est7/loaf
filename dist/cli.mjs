@@ -2851,7 +2851,8 @@ function applyValidated(prev, entry) {
 		};
 	}
 	const state = prev.state;
-	switch (entry.kind) {
+	const { kind } = entry;
+	switch (kind) {
 		case "event:phase_advanced": {
 			const payload = entry.payload;
 			const next = {
@@ -3295,7 +3296,7 @@ function applyValidated(prev, entry) {
 			snapshot: prev
 		};
 		default: {
-			const _exhaustive = entry.kind;
+			const _exhaustive = kind;
 			return {
 				ok: false,
 				code: "REDUCER_NOT_IMPLEMENTED",
@@ -4232,7 +4233,13 @@ function checkPerKindPayload(c) {
 			issues: payloadParsed.error.issues
 		}
 	};
-	return null;
+	return {
+		ok: true,
+		entry: {
+			...entry,
+			payload: payloadParsed.data
+		}
+	};
 }
 //#endregion
 //#region src/core/reducer/invariants.ts
@@ -5486,29 +5493,39 @@ function preflight(rawEntry, ctx) {
 		detail: { issues: parsed.error.issues }
 	};
 	const entry = parsed.data;
-	const payloadParsed = PER_KIND_PAYLOAD[entry.kind].safeParse(entry.payload);
-	const checkCtx = {
-		rawEntry,
+	const envelopeCtx = {
 		entry,
-		payloadParsed,
-		payloadData: payloadParsed.success ? payloadParsed.data : void 0,
+		payloadParsed: PER_KIND_PAYLOAD[entry.kind].safeParse(entry.payload),
 		ctx,
 		sub_state,
 		ceremony,
 		verify_accepted,
 		spec_locked
 	};
-	for (const check of ORDERED_CHECKS) {
+	for (const check of AUTHORITY_CHECKS) {
+		const failure = check(envelopeCtx);
+		if (failure) return failure;
+	}
+	const admitted = checkPerKindPayload(envelopeCtx);
+	if (!admitted.ok) return admitted;
+	const checkCtx = {
+		...envelopeCtx,
+		entry: admitted.entry,
+		rawEntry,
+		payloadData: admitted.entry.payload
+	};
+	for (const check of SEMANTIC_CHECKS) {
 		const failure = check(checkCtx);
 		if (failure) return failure;
 	}
-	return { ok: true };
+	return admitted;
 }
-const ORDERED_CHECKS = [
+const AUTHORITY_CHECKS = [
 	checkSeqMonotonic,
 	checkSubStateAuthority,
-	checkActorAuthority,
-	checkPerKindPayload,
+	checkActorAuthority
+];
+const SEMANTIC_CHECKS = [
 	checkGateDecided,
 	checkPhaseAdvanced,
 	checkSessionDelivered,
@@ -5526,6 +5543,7 @@ const ORDERED_CHECKS = [
 	checkSpecVersion,
 	checkTransitionEdge
 ];
+[...AUTHORITY_CHECKS, ...SEMANTIC_CHECKS];
 //#endregion
 //#region src/core/entry-admission.ts
 /**
@@ -5552,7 +5570,7 @@ function admitEntry(prev, entry, options = {}) {
 		stage: "admission",
 		detail: checked.detail ?? {}
 	};
-	const result = applyValidated(prev, entry);
+	const result = applyValidated(prev, checked.entry);
 	if (!result.ok) return {
 		...result,
 		stage: "reducer",
