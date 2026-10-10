@@ -227,67 +227,44 @@ type BackEdgeRule = {
   allowed_from_label: string;
 };
 
+// Back-edge source policy follows the declared state order, not forward-edge
+// reachability. Targets and diagnostic labels remain action-specific.
+const EXECUTE_OR_VERIFY_FROM = SubState.options.filter(
+  (source) => source.startsWith("EXECUTE.") || source.startsWith("VERIFY."),
+);
+const POST_PLAN_EXECUTE_OR_VERIFY_FROM = EXECUTE_OR_VERIFY_FROM.filter(
+  (source) => source !== "EXECUTE.plan",
+);
+
 // Ordered sets are observable in TRANSITION_ILLEGAL detail.allowed_from.
 // Keep each action's source order and diagnostic label stable.
 const BACK_EDGE_FROM = {
   "amend-spec": {
     expected_target: "SPEC.spec",
-    allowed_from: new Set<SubState>([
-      "EXECUTE.plan",
-      "EXECUTE.work",
-      "EXECUTE.done",
-      "VERIFY.plan",
-      "VERIFY.run",
-      "VERIFY.review",
-      "VERIFY.acceptance",
-      "VERIFY.visual",
-      "VERIFY.accept",
-    ]),
+    allowed_from: new Set<SubState>(EXECUTE_OR_VERIFY_FROM),
     allowed_from_label: "EXECUTE.* + VERIFY.*",
   },
   "amend-tasks": {
     expected_target: "EXECUTE.work",
-    allowed_from: new Set<SubState>([
-      "EXECUTE.work",
-      "EXECUTE.done",
-      "VERIFY.plan",
-      "VERIFY.run",
-      "VERIFY.review",
-      "VERIFY.acceptance",
-      "VERIFY.visual",
-      "VERIFY.accept",
-    ]),
+    allowed_from: new Set<SubState>(POST_PLAN_EXECUTE_OR_VERIFY_FROM),
     allowed_from_label: "EXECUTE.work / EXECUTE.done + VERIFY.*",
   },
   "fix-impl": {
     expected_target: "EXECUTE.work",
-    allowed_from: new Set<SubState>([
-      "EXECUTE.work",
-      "EXECUTE.done",
-      "VERIFY.plan",
-      "VERIFY.run",
-      "VERIFY.review",
-      "VERIFY.acceptance",
-      "VERIFY.visual",
-      "VERIFY.accept",
-    ]),
+    allowed_from: new Set<SubState>(POST_PLAN_EXECUTE_OR_VERIFY_FROM),
     allowed_from_label: "EXECUTE.work / EXECUTE.done + VERIFY.*",
   },
   "fix-test": {
     expected_target: "EXECUTE.work",
-    allowed_from: new Set<SubState>([
-      "EXECUTE.work",
-      "EXECUTE.done",
-      "VERIFY.plan",
-      "VERIFY.run",
-      "VERIFY.review",
-      "VERIFY.acceptance",
-      "VERIFY.visual",
-      "VERIFY.accept",
-    ]),
+    allowed_from: new Set<SubState>(POST_PLAN_EXECUTE_OR_VERIFY_FROM),
     allowed_from_label: "EXECUTE.work / EXECUTE.done + VERIFY.*",
   },
 } satisfies Record<BackEdgeAction, BackEdgeRule>;
+
+/** Ordered source states; the returned copy cannot change transition policy. */
+export function backEdgeSourceStates(action: BackEdgeAction): readonly SubState[] {
+  return [...BACK_EDGE_FROM[action].allowed_from];
+}
 
 export interface TransitionContext {
   ceremony: Ceremony;

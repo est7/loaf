@@ -10,6 +10,7 @@ import { describe, expect, test } from "vitest";
 
 import {
   EntryKind,
+  SubState,
   CeremonyPayload,
   EvidenceAddedPayload,
   FindingClosedPayload,
@@ -38,6 +39,7 @@ import {
 } from "../../src/core/journal-entry.js";
 import {
   KIND_REGISTRY,
+  isSubStateAllowed,
   PER_KIND_ACTOR,
   PER_KIND_PAYLOAD,
   PER_KIND_SUB_STATE,
@@ -193,5 +195,54 @@ describe("preservation — PER_KIND_SUB_STATE (sentinels + sorted members)", () 
       "VERIFY.run",
       "VERIFY.visual",
     ]);
+  });
+});
+
+// Literal policy oracles: shared derivation must not hide cross-owner drift.
+const AMEND_SPEC_SOURCES: readonly SubState[] = [
+  "EXECUTE.plan",
+  "EXECUTE.work",
+  "EXECUTE.done",
+  "VERIFY.plan",
+  "VERIFY.run",
+  "VERIFY.review",
+  "VERIFY.acceptance",
+  "VERIFY.visual",
+  "VERIFY.accept",
+];
+const FIX_SOURCES: readonly SubState[] = [
+  "EXECUTE.work",
+  "EXECUTE.done",
+  "VERIFY.plan",
+  "VERIFY.run",
+  "VERIFY.review",
+  "VERIFY.acceptance",
+  "VERIFY.visual",
+  "VERIFY.accept",
+];
+
+describe("back-edge source authority preservation", () => {
+  test.each([
+    "event:tasks_amended",
+    "finding:raised",
+    "finding:closed",
+    "evidence:added",
+  ] as const)("%s preserves the literal amend-spec band and its order", (kind) => {
+    expect([...(PER_KIND_SUB_STATE[kind] as ReadonlySet<SubState>)]).toEqual(AMEND_SPEC_SOURCES);
+    for (const source of SubState.options) {
+      expect(isSubStateAllowed(kind, source), `${kind} from ${source}`).toBe(
+        AMEND_SPEC_SOURCES.includes(source),
+      );
+    }
+  });
+  test("task_step_reset preserves the literal fix-impl/fix-test band and its order", () => {
+    expect([...(PER_KIND_SUB_STATE["event:task_step_reset"] as ReadonlySet<SubState>)]).toEqual(
+      FIX_SOURCES,
+    );
+    for (const source of SubState.options) {
+      expect(isSubStateAllowed("event:task_step_reset", source), source).toBe(
+        FIX_SOURCES.includes(source),
+      );
+    }
   });
 });

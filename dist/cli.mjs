@@ -3499,20 +3499,644 @@ function applyValidated(prev, entry) {
 	}
 }
 //#endregion
+//#region src/core/machine.ts
+/** Preserve literal inference while rejecting missing and extra state keys. */
+function defineMachine(machine) {
+	return machine;
+}
+/** Canonical state-axis definition. Keep declaration order aligned with SubState. */
+const MACHINE = defineMachine({
+	"TRIAGE.score": {
+		entry: "loaf start <desc> invoked",
+		exit: "complexity_score computed (0-100)",
+		write_paths: [".loaf/<feature>/state.json"],
+		edges: [{
+			target: "TRIAGE.confirm",
+			owner_kind: "event:phase_advanced"
+		}],
+		prompt_inject: "Score 0-100 across files/api/schema/concurrency/security. Suggest profile."
+	},
+	"TRIAGE.confirm": {
+		entry: "score computed",
+		exit: "user accepts or overrides profile",
+		write_paths: [".loaf/<feature>/state.json"],
+		edges: [{
+			target: "SPEC.proposal",
+			owner_kind: "event:phase_advanced",
+			guards: ["spec_phase_required"]
+		}, {
+			target: "EXECUTE.plan",
+			owner_kind: "event:phase_advanced",
+			guards: ["spec_phase_forbidden"]
+		}],
+		prompt_inject: "Confirm proposed profile (quick/light/standard/deep — see skill PRESETS) or override."
+	},
+	"SPEC.proposal": {
+		entry: "ceremony.spec_phase=true && TRIAGE.confirm done; OR Q9 escalation backfill (ceremony.spec_phase 由 false 改 true)",
+		exit: "spec.md body has Proposal section",
+		write_paths: [".loaf/<feature>/spec.md", ".loaf/<feature>/spec-draft-context.md"],
+		edges: [{
+			target: "SPEC.spec",
+			owner_kind: "event:phase_advanced"
+		}],
+		prompt_inject: "Write Proposal: why / scope / anti-scope. If backfill, read spec-draft-context.md."
+	},
+	"SPEC.spec": {
+		entry: "proposal section exists OR amend-spec back-edge",
+		exit: "frontmatter has requirements (each with three-way verifiability) + scenarios (+visual_contracts if UI); needs_clarification empty",
+		write_paths: [".loaf/<feature>/spec.md"],
+		edges: [{
+			target: "SPEC.plan",
+			owner_kind: "event:phase_advanced"
+		}],
+		prompt_inject: "Author EARS REQ-* with measurable / verified_by_scenarios / acceptance_na+reason. Add Gherkin SCEN-* and VIS-* as needed."
+	},
+	"SPEC.plan": {
+		entry: "spec section complete && needs_clarification empty",
+		exit: "spec.md body has Plan section",
+		write_paths: [".loaf/<feature>/spec.md"],
+		mutation_rights: {
+			writable_fields: ["spec.md:body.plan"],
+			forbidden_fields: [
+				"spec.md:frontmatter.requirements",
+				"spec.md:frontmatter.scenarios",
+				"spec.md:frontmatter.visual_contracts",
+				"tasks.json:*"
+			]
+		},
+		edges: [{
+			target: "SPEC.design",
+			owner_kind: "event:phase_advanced"
+		}],
+		prompt_inject: "Plan: risks / dependencies / milestones."
+	},
+	"SPEC.design": {
+		entry: "plan section complete",
+		exit: "design section + tasks.json generated; every REQ/SCEN/VIS bound to ≥1 task",
+		write_paths: [".loaf/<feature>/spec.md", ".loaf/<feature>/tasks.json"],
+		mutation_rights: {
+			writable_fields: ["spec.md:body.design", "tasks.json:*"],
+			forbidden_fields: [
+				"spec.md:frontmatter.requirements",
+				"spec.md:frontmatter.scenarios",
+				"spec.md:frontmatter.visual_contracts"
+			]
+		},
+		edges: [{
+			target: "EXECUTE.plan",
+			owner_kind: "event:phase_advanced",
+			guards: ["spec_locked_required"]
+		}],
+		prompt_inject: "Design + decompose into tasks bound to REQ/SCEN/VIS via task.drives[]. Use labels[] for bug/security/etc.",
+		gate: "spec-lock"
+	},
+	"EXECUTE.plan": {
+		entry: "spec-lock passed (or quick: TRIAGE.confirm done)",
+		exit: "every task has execution policy populated per its kind",
+		write_paths: [".loaf/<feature>/tasks.json"],
+		mutation_rights: {
+			writable_fields: ["tasks.json:tasks[].execution[].applicability", "tasks.json:tasks[].status"],
+			forbidden_fields: [
+				"tasks.json:tasks[].id",
+				"tasks.json:tasks[].kind",
+				"tasks.json:tasks[].drives",
+				"tasks.json:tasks[].depends_on",
+				"tasks.json:tasks[].labels",
+				"spec.md:*"
+			]
+		},
+		edges: [{
+			target: "EXECUTE.work",
+			owner_kind: "event:phase_advanced"
+		}],
+		prompt_inject: "Derive execution policy for each task from kind × profile. Set step.applicability accordingly."
+	},
+	"EXECUTE.work": {
+		entry: "EXECUTE.plan done OR fix-impl/fix-test/amend-tasks back-edge",
+		exit: "every task.status = done OR abandoned, with all required steps passed/waived/na",
+		write_paths: [
+			".loaf/<feature>/tasks.json",
+			".loaf/<feature>/evidence.jsonl",
+			".loaf/<feature>/findings.jsonl"
+		],
+		mutation_rights: {
+			writable_fields: [
+				"tasks.json:tasks[].execution[].status",
+				"tasks.json:tasks[].status",
+				"evidence.jsonl:*",
+				"findings.jsonl:*"
+			],
+			forbidden_fields: [
+				"tasks.json:tasks[].id",
+				"tasks.json:tasks[].kind",
+				"tasks.json:tasks[].drives",
+				"tasks.json:tasks[].depends_on",
+				"tasks.json:tasks[].labels",
+				"spec.md:*"
+			]
+		},
+		edges: [{
+			target: "EXECUTE.work",
+			owner_kind: "contract:next"
+		}, {
+			target: "EXECUTE.done",
+			owner_kind: "event:phase_advanced"
+		}],
+		prompt_inject: "Execute each in-progress task at its currently-running step. Append evidence with covers[]."
+	},
+	"EXECUTE.done": {
+		entry: "all tasks status ∈ {done, abandoned}",
+		exit: "advance to VERIFY.plan (verify_phase=true); OR DONE.delivered (verify_phase=false: quick / light non-spike via `loaf deliver`: verify-min runs at this boundary, on pass transition direct to DONE.delivered, on fail exit 2 — see protocol.md §3.2 + §10.14)",
+		write_paths: [],
+		edges: [{
+			target: "VERIFY.plan",
+			owner_kind: "event:phase_advanced",
+			guards: ["verify_phase_required"]
+		}, {
+			target: "DONE.delivered",
+			owner_kind: "session:delivered"
+		}],
+		prompt_inject: "All tasks complete. verify_phase=true → advance to VERIFY.plan. verify_phase=false non-spike → run `loaf deliver` (verify-min then DONE.delivered). spike (any profile) → deliver blocked; pick archive / spike convert / abandon per §8.3."
+	},
+	"VERIFY.plan": {
+		entry: "EXECUTE.done && ceremony.verify_phase=true",
+		exit: "applicability computed for each VerifyCheckKind (must/optional/na with reasons)",
+		write_paths: [".loaf/<feature>/state.json"],
+		edges: [
+			{
+				target: "VERIFY.run",
+				owner_kind: "event:phase_advanced"
+			},
+			{
+				target: "VERIFY.review",
+				owner_kind: "contract:next"
+			},
+			{
+				target: "VERIFY.acceptance",
+				owner_kind: "contract:next"
+			},
+			{
+				target: "VERIFY.visual",
+				owner_kind: "contract:next"
+			},
+			{
+				target: "VERIFY.accept",
+				owner_kind: "contract:next"
+			}
+		],
+		prompt_inject: "Compute which verify checks apply: run/review/acceptance/visual. Output reasoning + N/A justifications."
+	},
+	"VERIFY.run": {
+		entry: "VERIFY.plan done with run applicability ∈ {must, optional-elected}; OR amend back-edge",
+		exit: "run check passed or explicitly waived",
+		write_paths: [".loaf/<feature>/evidence.jsonl", ".loaf/<feature>/findings.jsonl"],
+		edges: [
+			{
+				target: "VERIFY.review",
+				owner_kind: "event:phase_advanced"
+			},
+			{
+				target: "VERIFY.acceptance",
+				owner_kind: "event:phase_advanced"
+			},
+			{
+				target: "VERIFY.visual",
+				owner_kind: "event:phase_advanced"
+			},
+			{
+				target: "VERIFY.accept",
+				owner_kind: "event:phase_advanced"
+			}
+		],
+		prompt_inject: "Run the `run` check (test + lint + typecheck). Append evidence with kind=local-check or task-summary. Raise findings as needed."
+	},
+	"VERIFY.review": {
+		entry: "VERIFY.plan or prior check done with review applicability ∈ {must, optional-elected}",
+		exit: "review check passed or explicitly waived",
+		write_paths: [".loaf/<feature>/evidence.jsonl", ".loaf/<feature>/findings.jsonl"],
+		edges: [
+			{
+				target: "VERIFY.run",
+				owner_kind: "contract:next"
+			},
+			{
+				target: "VERIFY.acceptance",
+				owner_kind: "event:phase_advanced"
+			},
+			{
+				target: "VERIFY.visual",
+				owner_kind: "event:phase_advanced"
+			},
+			{
+				target: "VERIFY.accept",
+				owner_kind: "event:phase_advanced"
+			}
+		],
+		prompt_inject: "Run quality review (spec_fit + quality_fit). Append evidence with kind=verify-review. Raise findings as needed."
+	},
+	"VERIFY.acceptance": {
+		entry: "VERIFY.plan or prior check done with acceptance applicability ∈ {must, optional-elected}",
+		exit: "acceptance check passed or explicitly waived",
+		write_paths: [".loaf/<feature>/evidence.jsonl", ".loaf/<feature>/findings.jsonl"],
+		edges: [
+			{
+				target: "VERIFY.run",
+				owner_kind: "contract:next"
+			},
+			{
+				target: "VERIFY.review",
+				owner_kind: "contract:next"
+			},
+			{
+				target: "VERIFY.visual",
+				owner_kind: "event:phase_advanced"
+			},
+			{
+				target: "VERIFY.accept",
+				owner_kind: "event:phase_advanced"
+			}
+		],
+		prompt_inject: "Run selected Gherkin acceptance scenarios. Append evidence with kind=acceptance. Raise findings as needed."
+	},
+	"VERIFY.visual": {
+		entry: "VERIFY.plan or prior check done with visual applicability ∈ {must, optional-elected}",
+		exit: "visual check passed or explicitly waived",
+		write_paths: [".loaf/<feature>/evidence.jsonl", ".loaf/<feature>/findings.jsonl"],
+		edges: [
+			{
+				target: "VERIFY.run",
+				owner_kind: "contract:next"
+			},
+			{
+				target: "VERIFY.review",
+				owner_kind: "contract:next"
+			},
+			{
+				target: "VERIFY.acceptance",
+				owner_kind: "contract:next"
+			},
+			{
+				target: "VERIFY.accept",
+				owner_kind: "event:phase_advanced"
+			}
+		],
+		prompt_inject: "Run visual contract verification. Append evidence with kind=visual-review (attachments required). Raise findings as needed."
+	},
+	"VERIFY.accept": {
+		entry: "all applicable checks passed/waived + no actionable open findings (`defer` / `backlog` are non-blocking dispositions)",
+		exit: "verify-accept gate approved. settle_phase=true (deep) → SETTLE.lessons via `loaf settle`; settle_phase=false (standard) → DONE.delivered via `loaf deliver`",
+		write_paths: [".loaf/<feature>/evidence.jsonl"],
+		edges: [{
+			target: "SETTLE.lessons",
+			owner_kind: "event:phase_advanced",
+			guards: ["settle_phase_required", "verify_accepted_required"]
+		}, {
+			target: "DONE.delivered",
+			owner_kind: "session:delivered"
+		}],
+		prompt_inject: "Verify-accept gate. Review check status + open findings. Approve or reject. On approve: settle_phase=true → `loaf settle` enters SETTLE.lessons; settle_phase=false → `loaf deliver` enters DONE.delivered.",
+		gate: "verify-accept"
+	},
+	"SETTLE.reconcile": {
+		entry: "compatibility-only historical cursor; new flows never enter this state",
+		exit: "advance to SETTLE.lessons through the compatibility edge",
+		write_paths: [],
+		edges: [{
+			target: "SETTLE.lessons",
+			owner_kind: "event:phase_advanced"
+		}],
+		prompt_inject: "Historical compatibility state: advance to SETTLE.lessons; no reconcile writer or gate exists."
+	},
+	"SETTLE.lessons": {
+		entry: "verify-accept passed and deep settle entered directly, or historical SETTLE.reconcile compatibility edge",
+		exit: "lessons.md appended (deep: lessons_required=must)",
+		write_paths: [".loaf/<feature>/lessons.md"],
+		edges: [
+			{
+				target: "DONE.delivered",
+				owner_kind: "session:delivered"
+			},
+			{
+				target: "DONE.archived",
+				owner_kind: "session:archived"
+			},
+			{
+				target: "DONE.abandoned",
+				owner_kind: "session:abandoned"
+			}
+		],
+		prompt_inject: "Append lessons (deep: MUST). User then runs `loaf deliver` / `loaf archive` / `loaf abandon`."
+	},
+	"DONE.delivered": {
+		entry: "loaf deliver succeeded (Q4: advisory only — no git/gh side effects)",
+		exit: "terminal",
+		write_paths: [],
+		edges: [],
+		prompt_inject: ""
+	},
+	"DONE.archived": {
+		entry: "loaf archive --reason '...'",
+		exit: "terminal",
+		write_paths: [],
+		edges: [],
+		prompt_inject: ""
+	},
+	"DONE.abandoned": {
+		entry: "loaf abandon --reason '...' (reason required)",
+		exit: "terminal",
+		write_paths: [],
+		edges: [],
+		prompt_inject: ""
+	}
+});
+/** Compatibility projection consumed by the runtime contract shim. */
+const SUB_STATE_CONTRACTS$1 = Object.entries(MACHINE).map(([subState, node]) => ({
+	sub_state: subState,
+	entry: node.entry,
+	exit: node.exit,
+	write_paths: [...node.write_paths],
+	..."mutation_rights" in node ? { mutation_rights: {
+		writable_fields: [...node.mutation_rights.writable_fields],
+		forbidden_fields: [...node.mutation_rights.forbidden_fields]
+	} } : {},
+	next: node.edges.map((edge) => edge.target),
+	prompt_inject: node.prompt_inject
+}));
+/** Cursor-owned human gate, if the current node declares one. */
+function gateNameForCursor(subState) {
+	return MACHINE[subState].gate ?? null;
+}
+//#endregion
+//#region src/core/reducer/transition.ts
+function deriveLegalTransitions() {
+	const transitions = {};
+	for (const subState of Object.keys(MACHINE)) transitions[subState] = MACHINE[subState].edges.filter((edge) => edge.owner_kind === "event:phase_advanced").map((edge) => edge.target);
+	return transitions;
+}
+const LEGAL_TRANSITIONS = deriveLegalTransitions();
+const NextOwnerVerb = z.enum([
+	"advance",
+	"deliver",
+	"settle",
+	"gate decide",
+	"profile escalate",
+	"pending resolve",
+	"tasks next"
+]);
+const NextAction = z.object({
+	command: z.string().min(1),
+	owner_verb: NextOwnerVerb,
+	target: z.union([
+		SubState,
+		GateName,
+		PendingPromptKind,
+		z.literal("task-level")
+	]).optional(),
+	blocking: z.boolean(),
+	reason: z.string().min(1)
+}).strict();
+function buildGateDecideAction(gate) {
+	return {
+		command: `loaf gate decide ${gate} --approve|--reject --reason "<reason>"`,
+		owner_verb: "gate decide",
+		target: gate,
+		blocking: true,
+		reason: gate === "spec-lock" ? "SPEC_LOCK_GATE_DECISION_REQUIRED" : "VERIFY_ACCEPT_GATE_DECISION_REQUIRED"
+	};
+}
+function nextLegalTargets(prev, ceremony, verifyAccepted = false) {
+	return (LEGAL_TRANSITIONS[prev] ?? []).filter((target) => validateTransition(prev, target, {
+		ceremony,
+		actor: "cli:loaf",
+		verify_accepted: verifyAccepted
+	}).ok);
+}
+function transitionOwnerFor(input) {
+	const { sub_state, ceremony, spec_locked, verify_accepted, verify_next_target } = input;
+	const gate = gateNameForCursor(sub_state);
+	if (gate === "spec-lock" && !spec_locked) return buildGateDecideAction(gate);
+	if (sub_state === "VERIFY.accept") {
+		if (gate !== null && !verify_accepted) return buildGateDecideAction(gate);
+		if (ceremony.settle_phase) return {
+			command: "loaf settle",
+			owner_verb: "settle",
+			target: "SETTLE.lessons",
+			blocking: false,
+			reason: "VERIFY_ACCEPTED_NEEDS_SETTLE"
+		};
+		return {
+			command: "loaf deliver",
+			owner_verb: "deliver",
+			target: "DONE.delivered",
+			blocking: false,
+			reason: "VERIFY_ACCEPTED_READY_TO_DELIVER"
+		};
+	}
+	if (sub_state === "EXECUTE.work") return {
+		command: "loaf tasks next",
+		owner_verb: "tasks next",
+		target: "task-level",
+		blocking: false,
+		reason: "EXECUTE_WORK_TASK_ROUTING"
+	};
+	if (sub_state === "EXECUTE.done" && !ceremony.verify_phase) return {
+		command: "loaf deliver",
+		owner_verb: "deliver",
+		target: "DONE.delivered",
+		blocking: false,
+		reason: "VERIFY_PHASE_DISABLED_READY_TO_DELIVER"
+	};
+	if (sub_state === "SETTLE.lessons") return {
+		command: "loaf deliver",
+		owner_verb: "deliver",
+		target: "DONE.delivered",
+		blocking: false,
+		reason: "SETTLE_COMPLETE_READY_TO_DELIVER"
+	};
+	if (sub_state.startsWith("DONE.")) return null;
+	const targets = nextLegalTargets(sub_state, ceremony, verify_accepted);
+	const target = verify_next_target !== void 0 && targets.includes(verify_next_target) ? verify_next_target : targets[0];
+	if (target === void 0) throw new Error(`No legal next action for non-terminal sub_state=${sub_state}`);
+	return {
+		command: `loaf advance ${target}`,
+		owner_verb: "advance",
+		target,
+		blocking: false,
+		reason: "ADVANCE_TO_NEXT_SUB_STATE"
+	};
+}
+const EXECUTE_OR_VERIFY_FROM = SubState.options.filter((source) => source.startsWith("EXECUTE.") || source.startsWith("VERIFY."));
+const POST_PLAN_EXECUTE_OR_VERIFY_FROM = EXECUTE_OR_VERIFY_FROM.filter((source) => source !== "EXECUTE.plan");
+const BACK_EDGE_FROM = {
+	"amend-spec": {
+		expected_target: "SPEC.spec",
+		allowed_from: new Set(EXECUTE_OR_VERIFY_FROM),
+		allowed_from_label: "EXECUTE.* + VERIFY.*"
+	},
+	"amend-tasks": {
+		expected_target: "EXECUTE.work",
+		allowed_from: new Set(POST_PLAN_EXECUTE_OR_VERIFY_FROM),
+		allowed_from_label: "EXECUTE.work / EXECUTE.done + VERIFY.*"
+	},
+	"fix-impl": {
+		expected_target: "EXECUTE.work",
+		allowed_from: new Set(POST_PLAN_EXECUTE_OR_VERIFY_FROM),
+		allowed_from_label: "EXECUTE.work / EXECUTE.done + VERIFY.*"
+	},
+	"fix-test": {
+		expected_target: "EXECUTE.work",
+		allowed_from: new Set(POST_PLAN_EXECUTE_OR_VERIFY_FROM),
+		allowed_from_label: "EXECUTE.work / EXECUTE.done + VERIFY.*"
+	}
+};
+/** Ordered source states; the returned copy cannot change transition policy. */
+function backEdgeSourceStates(action) {
+	return [...BACK_EDGE_FROM[action].allowed_from];
+}
+const TRANSITION_GUARDS = {
+	spec_phase_required: {
+		passes: (ctx) => ctx.ceremony.spec_phase,
+		failure: (prev, target, ctx) => ({
+			ok: false,
+			code: "SPEC_PHASE_FORK_VIOLATION",
+			message: `${prev} → ${target} requires ceremony.spec_phase=true`,
+			detail: {
+				from: prev,
+				to: target,
+				spec_phase: ctx.ceremony.spec_phase
+			}
+		})
+	},
+	spec_phase_forbidden: {
+		passes: (ctx) => !ctx.ceremony.spec_phase,
+		failure: (prev, target, ctx) => ({
+			ok: false,
+			code: "SPEC_PHASE_FORK_VIOLATION",
+			message: `${prev} → ${target} requires ceremony.spec_phase=false (quick); profiles with spec_phase=true must traverse SPEC.*`,
+			detail: {
+				from: prev,
+				to: target,
+				spec_phase: ctx.ceremony.spec_phase
+			}
+		})
+	},
+	verify_phase_required: {
+		passes: (ctx) => ctx.ceremony.verify_phase,
+		failure: (prev, target, ctx) => ({
+			ok: false,
+			code: "VERIFY_PHASE_FORK_VIOLATION",
+			message: `${prev} → ${target} requires ceremony.verify_phase=true (standard / deep)`,
+			detail: {
+				from: prev,
+				to: target,
+				verify_phase: ctx.ceremony.verify_phase
+			}
+		})
+	},
+	spec_locked_required: {
+		passes: (ctx) => !!ctx.spec_locked,
+		failure: (prev, target, ctx) => ({
+			ok: false,
+			code: "SPEC_LOCK_NOT_SATISFIED",
+			message: `${prev} → ${target} requires spec_locked=true (run \`loaf gate decide spec-lock --approve\` first)`,
+			detail: {
+				from: prev,
+				to: target,
+				spec_locked: !!ctx.spec_locked
+			}
+		})
+	},
+	settle_phase_required: {
+		passes: (ctx) => ctx.ceremony.settle_phase,
+		failure: (prev, target, ctx) => ({
+			ok: false,
+			code: "SETTLE_PHASE_DISABLED",
+			message: `${prev} → ${target} requires ceremony.settle_phase=true (deep only)`,
+			detail: {
+				from: prev,
+				to: target,
+				settle_phase: ctx.ceremony.settle_phase
+			}
+		})
+	},
+	verify_accepted_required: {
+		passes: (ctx) => !!ctx.verify_accepted,
+		failure: (prev, target, ctx) => ({
+			ok: false,
+			code: "SETTLE_NOT_ACCEPTED",
+			message: `${prev} → ${target} requires verify_accepted=true (run \`loaf gate decide verify-accept --approve\` first)`,
+			detail: {
+				from: prev,
+				to: target,
+				verify_accepted: !!ctx.verify_accepted
+			}
+		})
+	}
+};
+function validateBackEdge(prev, target, backEdge) {
+	const action = backEdge.action;
+	const rule = Object.hasOwn(BACK_EDGE_FROM, action) ? BACK_EDGE_FROM[action] : void 0;
+	if (rule === void 0) return {
+		ok: false,
+		code: "TRANSITION_ILLEGAL",
+		message: `unknown back_edge.action ${action}`,
+		detail: {
+			back_edge: backEdge,
+			reason: "back_edge_action_unknown"
+		}
+	};
+	if (target !== rule.expected_target) return {
+		ok: false,
+		code: "TRANSITION_ILLEGAL",
+		message: `back_edge action=${action} requires target=${rule.expected_target}, got ${target}`,
+		detail: {
+			from: prev,
+			to: target,
+			back_edge_action: action,
+			expected_target: rule.expected_target,
+			reason: "back_edge_target_mismatch"
+		}
+	};
+	if (!rule.allowed_from.has(prev)) return {
+		ok: false,
+		code: "TRANSITION_ILLEGAL",
+		message: `back_edge action=${action} is not legal from ${prev}; allowed from ${rule.allowed_from_label}`,
+		detail: {
+			from: prev,
+			to: target,
+			back_edge_action: action,
+			allowed_from: [...rule.allowed_from],
+			reason: "back_edge_from_not_allowed"
+		}
+	};
+	return { ok: true };
+}
+function validateTransition(prev, target, ctx) {
+	if (ctx.back_edge !== void 0) return validateBackEdge(prev, target, ctx.back_edge);
+	const allowed = LEGAL_TRANSITIONS[prev] ?? [];
+	if (!allowed.includes(target)) return {
+		ok: false,
+		code: "TRANSITION_ILLEGAL",
+		message: `cannot transition ${prev} → ${target}`,
+		detail: {
+			from: prev,
+			to: target,
+			allowed_forward: [...allowed]
+		}
+	};
+	const edge = MACHINE[prev].edges.find((candidate) => candidate.owner_kind === "event:phase_advanced" && candidate.target === target);
+	if (edge === void 0) throw new Error(`MACHINE forward edge missing after LEGAL_TRANSITIONS accepted ${prev} → ${target}`);
+	for (const guardName of edge.guards ?? []) {
+		const guard = TRANSITION_GUARDS[guardName];
+		if (!guard.passes(ctx)) return guard.failure(prev, target, ctx);
+	}
+	return { ok: true };
+}
+//#endregion
 //#region src/core/kind-guards.ts
 const ANY_SUB_STATE = Symbol("any-sub-state");
 const ANY_NON_DONE = Symbol("any-non-done");
-const VERIFY_OR_POST_LOCK_EXECUTE = [
-	"EXECUTE.plan",
-	"EXECUTE.work",
-	"EXECUTE.done",
-	"VERIFY.plan",
-	"VERIFY.run",
-	"VERIFY.review",
-	"VERIFY.acceptance",
-	"VERIFY.visual",
-	"VERIFY.accept"
-];
+const VERIFY_OR_POST_LOCK_EXECUTE = backEdgeSourceStates("amend-spec");
 const ALL_SPEC = [
 	"SPEC.proposal",
 	"SPEC.spec",
@@ -3524,16 +4148,7 @@ const ALL_EXECUTE = [
 	"EXECUTE.work",
 	"EXECUTE.done"
 ];
-const FIX_BACK_EDGE_FROM = [
-	"EXECUTE.work",
-	"EXECUTE.done",
-	"VERIFY.plan",
-	"VERIFY.run",
-	"VERIFY.review",
-	"VERIFY.acceptance",
-	"VERIFY.visual",
-	"VERIFY.accept"
-];
+const FIX_BACK_EDGE_FROM = backEdgeSourceStates("fix-impl");
 const ALL_NON_MIGRATION = [
 	"human",
 	"skill",
@@ -4638,671 +5253,6 @@ const VERIFY_MIN_REQUIRED_KINDS = {
 	]
 };
 const verifyMinPolicy = { acceptedKinds: (task) => VERIFY_MIN_REQUIRED_KINDS[task.kind] ?? [] };
-//#endregion
-//#region src/core/machine.ts
-/** Preserve literal inference while rejecting missing and extra state keys. */
-function defineMachine(machine) {
-	return machine;
-}
-/** Canonical state-axis definition. Keep declaration order aligned with SubState. */
-const MACHINE = defineMachine({
-	"TRIAGE.score": {
-		entry: "loaf start <desc> invoked",
-		exit: "complexity_score computed (0-100)",
-		write_paths: [".loaf/<feature>/state.json"],
-		edges: [{
-			target: "TRIAGE.confirm",
-			owner_kind: "event:phase_advanced"
-		}],
-		prompt_inject: "Score 0-100 across files/api/schema/concurrency/security. Suggest profile."
-	},
-	"TRIAGE.confirm": {
-		entry: "score computed",
-		exit: "user accepts or overrides profile",
-		write_paths: [".loaf/<feature>/state.json"],
-		edges: [{
-			target: "SPEC.proposal",
-			owner_kind: "event:phase_advanced",
-			guards: ["spec_phase_required"]
-		}, {
-			target: "EXECUTE.plan",
-			owner_kind: "event:phase_advanced",
-			guards: ["spec_phase_forbidden"]
-		}],
-		prompt_inject: "Confirm proposed profile (quick/light/standard/deep — see skill PRESETS) or override."
-	},
-	"SPEC.proposal": {
-		entry: "ceremony.spec_phase=true && TRIAGE.confirm done; OR Q9 escalation backfill (ceremony.spec_phase 由 false 改 true)",
-		exit: "spec.md body has Proposal section",
-		write_paths: [".loaf/<feature>/spec.md", ".loaf/<feature>/spec-draft-context.md"],
-		edges: [{
-			target: "SPEC.spec",
-			owner_kind: "event:phase_advanced"
-		}],
-		prompt_inject: "Write Proposal: why / scope / anti-scope. If backfill, read spec-draft-context.md."
-	},
-	"SPEC.spec": {
-		entry: "proposal section exists OR amend-spec back-edge",
-		exit: "frontmatter has requirements (each with three-way verifiability) + scenarios (+visual_contracts if UI); needs_clarification empty",
-		write_paths: [".loaf/<feature>/spec.md"],
-		edges: [{
-			target: "SPEC.plan",
-			owner_kind: "event:phase_advanced"
-		}],
-		prompt_inject: "Author EARS REQ-* with measurable / verified_by_scenarios / acceptance_na+reason. Add Gherkin SCEN-* and VIS-* as needed."
-	},
-	"SPEC.plan": {
-		entry: "spec section complete && needs_clarification empty",
-		exit: "spec.md body has Plan section",
-		write_paths: [".loaf/<feature>/spec.md"],
-		mutation_rights: {
-			writable_fields: ["spec.md:body.plan"],
-			forbidden_fields: [
-				"spec.md:frontmatter.requirements",
-				"spec.md:frontmatter.scenarios",
-				"spec.md:frontmatter.visual_contracts",
-				"tasks.json:*"
-			]
-		},
-		edges: [{
-			target: "SPEC.design",
-			owner_kind: "event:phase_advanced"
-		}],
-		prompt_inject: "Plan: risks / dependencies / milestones."
-	},
-	"SPEC.design": {
-		entry: "plan section complete",
-		exit: "design section + tasks.json generated; every REQ/SCEN/VIS bound to ≥1 task",
-		write_paths: [".loaf/<feature>/spec.md", ".loaf/<feature>/tasks.json"],
-		mutation_rights: {
-			writable_fields: ["spec.md:body.design", "tasks.json:*"],
-			forbidden_fields: [
-				"spec.md:frontmatter.requirements",
-				"spec.md:frontmatter.scenarios",
-				"spec.md:frontmatter.visual_contracts"
-			]
-		},
-		edges: [{
-			target: "EXECUTE.plan",
-			owner_kind: "event:phase_advanced",
-			guards: ["spec_locked_required"]
-		}],
-		prompt_inject: "Design + decompose into tasks bound to REQ/SCEN/VIS via task.drives[]. Use labels[] for bug/security/etc.",
-		gate: "spec-lock"
-	},
-	"EXECUTE.plan": {
-		entry: "spec-lock passed (or quick: TRIAGE.confirm done)",
-		exit: "every task has execution policy populated per its kind",
-		write_paths: [".loaf/<feature>/tasks.json"],
-		mutation_rights: {
-			writable_fields: ["tasks.json:tasks[].execution[].applicability", "tasks.json:tasks[].status"],
-			forbidden_fields: [
-				"tasks.json:tasks[].id",
-				"tasks.json:tasks[].kind",
-				"tasks.json:tasks[].drives",
-				"tasks.json:tasks[].depends_on",
-				"tasks.json:tasks[].labels",
-				"spec.md:*"
-			]
-		},
-		edges: [{
-			target: "EXECUTE.work",
-			owner_kind: "event:phase_advanced"
-		}],
-		prompt_inject: "Derive execution policy for each task from kind × profile. Set step.applicability accordingly."
-	},
-	"EXECUTE.work": {
-		entry: "EXECUTE.plan done OR fix-impl/fix-test/amend-tasks back-edge",
-		exit: "every task.status = done OR abandoned, with all required steps passed/waived/na",
-		write_paths: [
-			".loaf/<feature>/tasks.json",
-			".loaf/<feature>/evidence.jsonl",
-			".loaf/<feature>/findings.jsonl"
-		],
-		mutation_rights: {
-			writable_fields: [
-				"tasks.json:tasks[].execution[].status",
-				"tasks.json:tasks[].status",
-				"evidence.jsonl:*",
-				"findings.jsonl:*"
-			],
-			forbidden_fields: [
-				"tasks.json:tasks[].id",
-				"tasks.json:tasks[].kind",
-				"tasks.json:tasks[].drives",
-				"tasks.json:tasks[].depends_on",
-				"tasks.json:tasks[].labels",
-				"spec.md:*"
-			]
-		},
-		edges: [{
-			target: "EXECUTE.work",
-			owner_kind: "contract:next"
-		}, {
-			target: "EXECUTE.done",
-			owner_kind: "event:phase_advanced"
-		}],
-		prompt_inject: "Execute each in-progress task at its currently-running step. Append evidence with covers[]."
-	},
-	"EXECUTE.done": {
-		entry: "all tasks status ∈ {done, abandoned}",
-		exit: "advance to VERIFY.plan (verify_phase=true); OR DONE.delivered (verify_phase=false: quick / light non-spike via `loaf deliver`: verify-min runs at this boundary, on pass transition direct to DONE.delivered, on fail exit 2 — see protocol.md §3.2 + §10.14)",
-		write_paths: [],
-		edges: [{
-			target: "VERIFY.plan",
-			owner_kind: "event:phase_advanced",
-			guards: ["verify_phase_required"]
-		}, {
-			target: "DONE.delivered",
-			owner_kind: "session:delivered"
-		}],
-		prompt_inject: "All tasks complete. verify_phase=true → advance to VERIFY.plan. verify_phase=false non-spike → run `loaf deliver` (verify-min then DONE.delivered). spike (any profile) → deliver blocked; pick archive / spike convert / abandon per §8.3."
-	},
-	"VERIFY.plan": {
-		entry: "EXECUTE.done && ceremony.verify_phase=true",
-		exit: "applicability computed for each VerifyCheckKind (must/optional/na with reasons)",
-		write_paths: [".loaf/<feature>/state.json"],
-		edges: [
-			{
-				target: "VERIFY.run",
-				owner_kind: "event:phase_advanced"
-			},
-			{
-				target: "VERIFY.review",
-				owner_kind: "contract:next"
-			},
-			{
-				target: "VERIFY.acceptance",
-				owner_kind: "contract:next"
-			},
-			{
-				target: "VERIFY.visual",
-				owner_kind: "contract:next"
-			},
-			{
-				target: "VERIFY.accept",
-				owner_kind: "contract:next"
-			}
-		],
-		prompt_inject: "Compute which verify checks apply: run/review/acceptance/visual. Output reasoning + N/A justifications."
-	},
-	"VERIFY.run": {
-		entry: "VERIFY.plan done with run applicability ∈ {must, optional-elected}; OR amend back-edge",
-		exit: "run check passed or explicitly waived",
-		write_paths: [".loaf/<feature>/evidence.jsonl", ".loaf/<feature>/findings.jsonl"],
-		edges: [
-			{
-				target: "VERIFY.review",
-				owner_kind: "event:phase_advanced"
-			},
-			{
-				target: "VERIFY.acceptance",
-				owner_kind: "event:phase_advanced"
-			},
-			{
-				target: "VERIFY.visual",
-				owner_kind: "event:phase_advanced"
-			},
-			{
-				target: "VERIFY.accept",
-				owner_kind: "event:phase_advanced"
-			}
-		],
-		prompt_inject: "Run the `run` check (test + lint + typecheck). Append evidence with kind=local-check or task-summary. Raise findings as needed."
-	},
-	"VERIFY.review": {
-		entry: "VERIFY.plan or prior check done with review applicability ∈ {must, optional-elected}",
-		exit: "review check passed or explicitly waived",
-		write_paths: [".loaf/<feature>/evidence.jsonl", ".loaf/<feature>/findings.jsonl"],
-		edges: [
-			{
-				target: "VERIFY.run",
-				owner_kind: "contract:next"
-			},
-			{
-				target: "VERIFY.acceptance",
-				owner_kind: "event:phase_advanced"
-			},
-			{
-				target: "VERIFY.visual",
-				owner_kind: "event:phase_advanced"
-			},
-			{
-				target: "VERIFY.accept",
-				owner_kind: "event:phase_advanced"
-			}
-		],
-		prompt_inject: "Run quality review (spec_fit + quality_fit). Append evidence with kind=verify-review. Raise findings as needed."
-	},
-	"VERIFY.acceptance": {
-		entry: "VERIFY.plan or prior check done with acceptance applicability ∈ {must, optional-elected}",
-		exit: "acceptance check passed or explicitly waived",
-		write_paths: [".loaf/<feature>/evidence.jsonl", ".loaf/<feature>/findings.jsonl"],
-		edges: [
-			{
-				target: "VERIFY.run",
-				owner_kind: "contract:next"
-			},
-			{
-				target: "VERIFY.review",
-				owner_kind: "contract:next"
-			},
-			{
-				target: "VERIFY.visual",
-				owner_kind: "event:phase_advanced"
-			},
-			{
-				target: "VERIFY.accept",
-				owner_kind: "event:phase_advanced"
-			}
-		],
-		prompt_inject: "Run selected Gherkin acceptance scenarios. Append evidence with kind=acceptance. Raise findings as needed."
-	},
-	"VERIFY.visual": {
-		entry: "VERIFY.plan or prior check done with visual applicability ∈ {must, optional-elected}",
-		exit: "visual check passed or explicitly waived",
-		write_paths: [".loaf/<feature>/evidence.jsonl", ".loaf/<feature>/findings.jsonl"],
-		edges: [
-			{
-				target: "VERIFY.run",
-				owner_kind: "contract:next"
-			},
-			{
-				target: "VERIFY.review",
-				owner_kind: "contract:next"
-			},
-			{
-				target: "VERIFY.acceptance",
-				owner_kind: "contract:next"
-			},
-			{
-				target: "VERIFY.accept",
-				owner_kind: "event:phase_advanced"
-			}
-		],
-		prompt_inject: "Run visual contract verification. Append evidence with kind=visual-review (attachments required). Raise findings as needed."
-	},
-	"VERIFY.accept": {
-		entry: "all applicable checks passed/waived + no actionable open findings (`defer` / `backlog` are non-blocking dispositions)",
-		exit: "verify-accept gate approved. settle_phase=true (deep) → SETTLE.lessons via `loaf settle`; settle_phase=false (standard) → DONE.delivered via `loaf deliver`",
-		write_paths: [".loaf/<feature>/evidence.jsonl"],
-		edges: [{
-			target: "SETTLE.lessons",
-			owner_kind: "event:phase_advanced",
-			guards: ["settle_phase_required", "verify_accepted_required"]
-		}, {
-			target: "DONE.delivered",
-			owner_kind: "session:delivered"
-		}],
-		prompt_inject: "Verify-accept gate. Review check status + open findings. Approve or reject. On approve: settle_phase=true → `loaf settle` enters SETTLE.lessons; settle_phase=false → `loaf deliver` enters DONE.delivered.",
-		gate: "verify-accept"
-	},
-	"SETTLE.reconcile": {
-		entry: "compatibility-only historical cursor; new flows never enter this state",
-		exit: "advance to SETTLE.lessons through the compatibility edge",
-		write_paths: [],
-		edges: [{
-			target: "SETTLE.lessons",
-			owner_kind: "event:phase_advanced"
-		}],
-		prompt_inject: "Historical compatibility state: advance to SETTLE.lessons; no reconcile writer or gate exists."
-	},
-	"SETTLE.lessons": {
-		entry: "verify-accept passed and deep settle entered directly, or historical SETTLE.reconcile compatibility edge",
-		exit: "lessons.md appended (deep: lessons_required=must)",
-		write_paths: [".loaf/<feature>/lessons.md"],
-		edges: [
-			{
-				target: "DONE.delivered",
-				owner_kind: "session:delivered"
-			},
-			{
-				target: "DONE.archived",
-				owner_kind: "session:archived"
-			},
-			{
-				target: "DONE.abandoned",
-				owner_kind: "session:abandoned"
-			}
-		],
-		prompt_inject: "Append lessons (deep: MUST). User then runs `loaf deliver` / `loaf archive` / `loaf abandon`."
-	},
-	"DONE.delivered": {
-		entry: "loaf deliver succeeded (Q4: advisory only — no git/gh side effects)",
-		exit: "terminal",
-		write_paths: [],
-		edges: [],
-		prompt_inject: ""
-	},
-	"DONE.archived": {
-		entry: "loaf archive --reason '...'",
-		exit: "terminal",
-		write_paths: [],
-		edges: [],
-		prompt_inject: ""
-	},
-	"DONE.abandoned": {
-		entry: "loaf abandon --reason '...' (reason required)",
-		exit: "terminal",
-		write_paths: [],
-		edges: [],
-		prompt_inject: ""
-	}
-});
-/** Compatibility projection consumed by the runtime contract shim. */
-const SUB_STATE_CONTRACTS$1 = Object.entries(MACHINE).map(([subState, node]) => ({
-	sub_state: subState,
-	entry: node.entry,
-	exit: node.exit,
-	write_paths: [...node.write_paths],
-	..."mutation_rights" in node ? { mutation_rights: {
-		writable_fields: [...node.mutation_rights.writable_fields],
-		forbidden_fields: [...node.mutation_rights.forbidden_fields]
-	} } : {},
-	next: node.edges.map((edge) => edge.target),
-	prompt_inject: node.prompt_inject
-}));
-/** Cursor-owned human gate, if the current node declares one. */
-function gateNameForCursor(subState) {
-	return MACHINE[subState].gate ?? null;
-}
-//#endregion
-//#region src/core/reducer/transition.ts
-function deriveLegalTransitions() {
-	const transitions = {};
-	for (const subState of Object.keys(MACHINE)) transitions[subState] = MACHINE[subState].edges.filter((edge) => edge.owner_kind === "event:phase_advanced").map((edge) => edge.target);
-	return transitions;
-}
-const LEGAL_TRANSITIONS = deriveLegalTransitions();
-const NextOwnerVerb = z.enum([
-	"advance",
-	"deliver",
-	"settle",
-	"gate decide",
-	"profile escalate",
-	"pending resolve",
-	"tasks next"
-]);
-const NextAction = z.object({
-	command: z.string().min(1),
-	owner_verb: NextOwnerVerb,
-	target: z.union([
-		SubState,
-		GateName,
-		PendingPromptKind,
-		z.literal("task-level")
-	]).optional(),
-	blocking: z.boolean(),
-	reason: z.string().min(1)
-}).strict();
-function buildGateDecideAction(gate) {
-	return {
-		command: `loaf gate decide ${gate} --approve|--reject --reason "<reason>"`,
-		owner_verb: "gate decide",
-		target: gate,
-		blocking: true,
-		reason: gate === "spec-lock" ? "SPEC_LOCK_GATE_DECISION_REQUIRED" : "VERIFY_ACCEPT_GATE_DECISION_REQUIRED"
-	};
-}
-function nextLegalTargets(prev, ceremony, verifyAccepted = false) {
-	return (LEGAL_TRANSITIONS[prev] ?? []).filter((target) => validateTransition(prev, target, {
-		ceremony,
-		actor: "cli:loaf",
-		verify_accepted: verifyAccepted
-	}).ok);
-}
-function transitionOwnerFor(input) {
-	const { sub_state, ceremony, spec_locked, verify_accepted, verify_next_target } = input;
-	const gate = gateNameForCursor(sub_state);
-	if (gate === "spec-lock" && !spec_locked) return buildGateDecideAction(gate);
-	if (sub_state === "VERIFY.accept") {
-		if (gate !== null && !verify_accepted) return buildGateDecideAction(gate);
-		if (ceremony.settle_phase) return {
-			command: "loaf settle",
-			owner_verb: "settle",
-			target: "SETTLE.lessons",
-			blocking: false,
-			reason: "VERIFY_ACCEPTED_NEEDS_SETTLE"
-		};
-		return {
-			command: "loaf deliver",
-			owner_verb: "deliver",
-			target: "DONE.delivered",
-			blocking: false,
-			reason: "VERIFY_ACCEPTED_READY_TO_DELIVER"
-		};
-	}
-	if (sub_state === "EXECUTE.work") return {
-		command: "loaf tasks next",
-		owner_verb: "tasks next",
-		target: "task-level",
-		blocking: false,
-		reason: "EXECUTE_WORK_TASK_ROUTING"
-	};
-	if (sub_state === "EXECUTE.done" && !ceremony.verify_phase) return {
-		command: "loaf deliver",
-		owner_verb: "deliver",
-		target: "DONE.delivered",
-		blocking: false,
-		reason: "VERIFY_PHASE_DISABLED_READY_TO_DELIVER"
-	};
-	if (sub_state === "SETTLE.lessons") return {
-		command: "loaf deliver",
-		owner_verb: "deliver",
-		target: "DONE.delivered",
-		blocking: false,
-		reason: "SETTLE_COMPLETE_READY_TO_DELIVER"
-	};
-	if (sub_state.startsWith("DONE.")) return null;
-	const targets = nextLegalTargets(sub_state, ceremony, verify_accepted);
-	const target = verify_next_target !== void 0 && targets.includes(verify_next_target) ? verify_next_target : targets[0];
-	if (target === void 0) throw new Error(`No legal next action for non-terminal sub_state=${sub_state}`);
-	return {
-		command: `loaf advance ${target}`,
-		owner_verb: "advance",
-		target,
-		blocking: false,
-		reason: "ADVANCE_TO_NEXT_SUB_STATE"
-	};
-}
-const BACK_EDGE_FROM = {
-	"amend-spec": {
-		expected_target: "SPEC.spec",
-		allowed_from: new Set([
-			"EXECUTE.plan",
-			"EXECUTE.work",
-			"EXECUTE.done",
-			"VERIFY.plan",
-			"VERIFY.run",
-			"VERIFY.review",
-			"VERIFY.acceptance",
-			"VERIFY.visual",
-			"VERIFY.accept"
-		]),
-		allowed_from_label: "EXECUTE.* + VERIFY.*"
-	},
-	"amend-tasks": {
-		expected_target: "EXECUTE.work",
-		allowed_from: new Set([
-			"EXECUTE.work",
-			"EXECUTE.done",
-			"VERIFY.plan",
-			"VERIFY.run",
-			"VERIFY.review",
-			"VERIFY.acceptance",
-			"VERIFY.visual",
-			"VERIFY.accept"
-		]),
-		allowed_from_label: "EXECUTE.work / EXECUTE.done + VERIFY.*"
-	},
-	"fix-impl": {
-		expected_target: "EXECUTE.work",
-		allowed_from: new Set([
-			"EXECUTE.work",
-			"EXECUTE.done",
-			"VERIFY.plan",
-			"VERIFY.run",
-			"VERIFY.review",
-			"VERIFY.acceptance",
-			"VERIFY.visual",
-			"VERIFY.accept"
-		]),
-		allowed_from_label: "EXECUTE.work / EXECUTE.done + VERIFY.*"
-	},
-	"fix-test": {
-		expected_target: "EXECUTE.work",
-		allowed_from: new Set([
-			"EXECUTE.work",
-			"EXECUTE.done",
-			"VERIFY.plan",
-			"VERIFY.run",
-			"VERIFY.review",
-			"VERIFY.acceptance",
-			"VERIFY.visual",
-			"VERIFY.accept"
-		]),
-		allowed_from_label: "EXECUTE.work / EXECUTE.done + VERIFY.*"
-	}
-};
-const TRANSITION_GUARDS = {
-	spec_phase_required: {
-		passes: (ctx) => ctx.ceremony.spec_phase,
-		failure: (prev, target, ctx) => ({
-			ok: false,
-			code: "SPEC_PHASE_FORK_VIOLATION",
-			message: `${prev} → ${target} requires ceremony.spec_phase=true`,
-			detail: {
-				from: prev,
-				to: target,
-				spec_phase: ctx.ceremony.spec_phase
-			}
-		})
-	},
-	spec_phase_forbidden: {
-		passes: (ctx) => !ctx.ceremony.spec_phase,
-		failure: (prev, target, ctx) => ({
-			ok: false,
-			code: "SPEC_PHASE_FORK_VIOLATION",
-			message: `${prev} → ${target} requires ceremony.spec_phase=false (quick); profiles with spec_phase=true must traverse SPEC.*`,
-			detail: {
-				from: prev,
-				to: target,
-				spec_phase: ctx.ceremony.spec_phase
-			}
-		})
-	},
-	verify_phase_required: {
-		passes: (ctx) => ctx.ceremony.verify_phase,
-		failure: (prev, target, ctx) => ({
-			ok: false,
-			code: "VERIFY_PHASE_FORK_VIOLATION",
-			message: `${prev} → ${target} requires ceremony.verify_phase=true (standard / deep)`,
-			detail: {
-				from: prev,
-				to: target,
-				verify_phase: ctx.ceremony.verify_phase
-			}
-		})
-	},
-	spec_locked_required: {
-		passes: (ctx) => !!ctx.spec_locked,
-		failure: (prev, target, ctx) => ({
-			ok: false,
-			code: "SPEC_LOCK_NOT_SATISFIED",
-			message: `${prev} → ${target} requires spec_locked=true (run \`loaf gate decide spec-lock --approve\` first)`,
-			detail: {
-				from: prev,
-				to: target,
-				spec_locked: !!ctx.spec_locked
-			}
-		})
-	},
-	settle_phase_required: {
-		passes: (ctx) => ctx.ceremony.settle_phase,
-		failure: (prev, target, ctx) => ({
-			ok: false,
-			code: "SETTLE_PHASE_DISABLED",
-			message: `${prev} → ${target} requires ceremony.settle_phase=true (deep only)`,
-			detail: {
-				from: prev,
-				to: target,
-				settle_phase: ctx.ceremony.settle_phase
-			}
-		})
-	},
-	verify_accepted_required: {
-		passes: (ctx) => !!ctx.verify_accepted,
-		failure: (prev, target, ctx) => ({
-			ok: false,
-			code: "SETTLE_NOT_ACCEPTED",
-			message: `${prev} → ${target} requires verify_accepted=true (run \`loaf gate decide verify-accept --approve\` first)`,
-			detail: {
-				from: prev,
-				to: target,
-				verify_accepted: !!ctx.verify_accepted
-			}
-		})
-	}
-};
-function validateBackEdge(prev, target, backEdge) {
-	const action = backEdge.action;
-	const rule = Object.hasOwn(BACK_EDGE_FROM, action) ? BACK_EDGE_FROM[action] : void 0;
-	if (rule === void 0) return {
-		ok: false,
-		code: "TRANSITION_ILLEGAL",
-		message: `unknown back_edge.action ${action}`,
-		detail: {
-			back_edge: backEdge,
-			reason: "back_edge_action_unknown"
-		}
-	};
-	if (target !== rule.expected_target) return {
-		ok: false,
-		code: "TRANSITION_ILLEGAL",
-		message: `back_edge action=${action} requires target=${rule.expected_target}, got ${target}`,
-		detail: {
-			from: prev,
-			to: target,
-			back_edge_action: action,
-			expected_target: rule.expected_target,
-			reason: "back_edge_target_mismatch"
-		}
-	};
-	if (!rule.allowed_from.has(prev)) return {
-		ok: false,
-		code: "TRANSITION_ILLEGAL",
-		message: `back_edge action=${action} is not legal from ${prev}; allowed from ${rule.allowed_from_label}`,
-		detail: {
-			from: prev,
-			to: target,
-			back_edge_action: action,
-			allowed_from: [...rule.allowed_from],
-			reason: "back_edge_from_not_allowed"
-		}
-	};
-	return { ok: true };
-}
-function validateTransition(prev, target, ctx) {
-	if (ctx.back_edge !== void 0) return validateBackEdge(prev, target, ctx.back_edge);
-	const allowed = LEGAL_TRANSITIONS[prev] ?? [];
-	if (!allowed.includes(target)) return {
-		ok: false,
-		code: "TRANSITION_ILLEGAL",
-		message: `cannot transition ${prev} → ${target}`,
-		detail: {
-			from: prev,
-			to: target,
-			allowed_forward: [...allowed]
-		}
-	};
-	const edge = MACHINE[prev].edges.find((candidate) => candidate.owner_kind === "event:phase_advanced" && candidate.target === target);
-	if (edge === void 0) throw new Error(`MACHINE forward edge missing after LEGAL_TRANSITIONS accepted ${prev} → ${target}`);
-	for (const guardName of edge.guards ?? []) {
-		const guard = TRANSITION_GUARDS[guardName];
-		if (!guard.passes(ctx)) return guard.failure(prev, target, ctx);
-	}
-	return { ok: true };
-}
 //#endregion
 //#region src/core/reducer/preflight/checks-workflow.ts
 function checkGateDecided(c) {

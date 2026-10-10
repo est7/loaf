@@ -1,7 +1,8 @@
 import { describe, expect, test } from "vitest";
 
-import type { Ceremony, SubState } from "../../src/core/journal-entry.js";
+import { SubState, type Ceremony } from "../../src/core/journal-entry.js";
 import {
+  backEdgeSourceStates,
   nextLegalTargets,
   type TransitionContext,
   type TransitionResult,
@@ -110,6 +111,27 @@ const BACK_EDGE_CASES = [
 ] as const;
 
 describe("validateTransition characterization — back-edge error surface", () => {
+  test.each(BACK_EDGE_CASES)("$action accepts exactly its literal source set", (row) => {
+    expect(backEdgeSourceStates(row.action)).toEqual(row.allowedFrom);
+    for (const source of SubState.options) {
+      const result = validateTransition(source, row.expectedTarget, {
+        ceremony: STANDARD,
+        actor: ACTOR,
+        back_edge: { action: row.action, finding_id: "FND-001" },
+      });
+      const expected = (row.allowedFrom as readonly SubState[]).includes(source);
+      if (expected) {
+        expect(result, `${row.action} from ${source}`).toEqual({ ok: true });
+      } else {
+        expect(result, `${row.action} from ${source}`).toMatchObject({
+          ok: false,
+          code: "TRANSITION_ILLEGAL",
+          detail: { reason: "back_edge_from_not_allowed", allowed_from: [...row.allowedFrom] },
+        });
+      }
+    }
+  });
+
   test.each(BACK_EDGE_CASES)("$action target mismatch is byte-stable", (row) => {
     const result = validateTransition("VERIFY.run", row.mismatchTarget, {
       ceremony: STANDARD,
@@ -158,6 +180,12 @@ describe("validateTransition characterization — back-edge error surface", () =
       },
       ["from", "to", "back_edge_action", "allowed_from", "reason"],
     );
+  });
+
+  test("back-edge source accessor returns an isolated copy", () => {
+    const sources = backEdgeSourceStates("fix-test");
+    (sources as SubState[]).reverse();
+    expect(backEdgeSourceStates("fix-test")).toEqual(EXECUTE_AND_VERIFY_FROM);
   });
 
   test("unknown action fallback is byte-stable", () => {
@@ -255,12 +283,14 @@ describe("validateTransition characterization — forward and guard error surfac
     );
   });
 
-  test.each([QUICK, LIGHT, STANDARD, DEEP])(
-    "nextLegalTargets exposes only EXECUTE.done from EXECUTE.work",
-    (ceremony) => {
-      expect(nextLegalTargets("EXECUTE.work", ceremony)).toEqual(["EXECUTE.done"]);
-    },
-  );
+  test.each([
+    QUICK,
+    LIGHT,
+    STANDARD,
+    DEEP,
+  ])("nextLegalTargets exposes only EXECUTE.done from EXECUTE.work", (ceremony) => {
+    expect(nextLegalTargets("EXECUTE.work", ceremony)).toEqual(["EXECUTE.done"]);
+  });
 
   test("spec-phase-required error is byte-stable", () => {
     const result = validateTransition("TRIAGE.confirm", "SPEC.proposal", {
@@ -348,8 +378,7 @@ describe("validateTransition characterization — forward and guard error surfac
       {
         ok: false,
         code: "SETTLE_PHASE_DISABLED",
-        message:
-          "VERIFY.accept → SETTLE.lessons requires ceremony.settle_phase=true (deep only)",
+        message: "VERIFY.accept → SETTLE.lessons requires ceremony.settle_phase=true (deep only)",
         detail: { from: "VERIFY.accept", to: "SETTLE.lessons", settle_phase: false },
       },
       ["from", "to", "settle_phase"],
@@ -376,10 +405,12 @@ describe("validateTransition characterization — forward and guard error surfac
     );
   });
 
-  test.each([QUICK, LIGHT, STANDARD, DEEP])(
-    "nextLegalTargets keeps SPEC.design blocked without spec_locked",
-    (ceremony) => {
-      expect(nextLegalTargets("SPEC.design", ceremony)).toEqual([]);
-    },
-  );
+  test.each([
+    QUICK,
+    LIGHT,
+    STANDARD,
+    DEEP,
+  ])("nextLegalTargets keeps SPEC.design blocked without spec_locked", (ceremony) => {
+    expect(nextLegalTargets("SPEC.design", ceremony)).toEqual([]);
+  });
 });
