@@ -1,11 +1,11 @@
 // `lessons.md` is the user-facing markdown projection of independent
-// `lesson:recorded` entries plus legacy lesson-shaped `evidence:added`
-// entries (top-level `.loaf/<feature>/lessons.md`, like `spec.md` — NOT a
-// `snapshots/*.json` machine leaf). Advisory tier (§4.7): free-form, not
+// `lesson:recorded` entries (top-level `.loaf/<feature>/lessons.md`, like
+// `spec.md` — NOT a `snapshots/*.json` machine leaf). Advisory tier (§4.7):
+// free-form, not
 // strictly validated.
 //
 // Layering mirrors projection-writer.ts / spec-projection.ts:
-//   - pure: `isLesson` predicate + `composeLessonsProjection` markdown render
+//   - pure: `selectLessonEntries` + `composeLessonsProjection` markdown render
 //     + `deriveLessonsHeader` (no IO)
 //   - IO:   `resolveLessonBodies` reads + verifies `summary` sidecars
 // The IO resolver is kept OUT of the pure composer (codex F-024 r2): sidecar
@@ -13,67 +13,31 @@
 // the writeProjections boundary, mirroring the spec.md / snapshots pattern.
 
 import { readAttachment } from "./attachment-authority.js";
-import { EvidenceFullPayload } from "./evidence-schema.js";
 import { LessonRecordedPayload, type JournalEntry } from "./journal-entry.js";
 import type { Snapshot } from "./reducer.js";
 
-/**
- * Legacy lesson selector (codex F-024 r2): NOT every kind=manual evidence is a
- * lesson — `loaf evidence add --kind manual` is a legitimate verification
- * path that covers REQ/SCEN/VIS/T. A legacy lesson is shaped EXACTLY as: kind=manual,
- * result=passed, empty covers, no task_id / check / gate linkage, human
- * actor. New emitters use the independent `lesson:recorded` kind; this
- * heuristic remains permanently for backward-compatible reads only.
- */
-export function isLesson(payload: ReturnType<typeof EvidenceFullPayload.parse>): boolean {
-  return (
-    payload.kind === "manual" &&
-    payload.result === "passed" &&
-    (payload.covers?.length ?? 0) === 0 &&
-    payload.task_id === undefined &&
-    payload.check === undefined &&
-    payload.gate === undefined &&
-    payload.actor.startsWith("human:")
-  );
-}
-
 export interface LessonEntry {
   entry_id: string;
-  kind?: "lesson:recorded" | "evidence:added";
   at: string;
   /** Lesson summary — `string` (short) or a LongTextField. */
-  summary: ReturnType<typeof EvidenceFullPayload.parse>["summary"];
+  summary: LessonRecordedPayload["summary"];
 }
 
 /**
  * Select lesson entries from the journal stream (journal order = seq order).
- * This is the sole compatibility bridge: new kind + legacy heuristic.
+ * Only the dedicated lesson kind owns lesson content.
  * Operates on FULL journal payloads, not the slim `Snapshot.evidence`.
  */
 export function selectLessonEntries(entries: readonly JournalEntry[]): LessonEntry[] {
   const lessons: LessonEntry[] = [];
   for (const e of entries) {
-    if (e.kind === "lesson:recorded") {
-      const payload = LessonRecordedPayload.parse(e.payload);
-      lessons.push({
-        entry_id: e.entry_id,
-        kind: "lesson:recorded",
-        at: e.at,
-        summary: payload.summary,
-      });
-      continue;
-    }
-    if (e.kind === "evidence:added") {
-      const payload = EvidenceFullPayload.parse(e.payload);
-      if (isLesson(payload)) {
-        lessons.push({
-          entry_id: e.entry_id,
-          kind: "evidence:added",
-          at: e.at,
-          summary: payload.summary,
-        });
-      }
-    }
+    if (e.kind !== "lesson:recorded") continue;
+    const payload = LessonRecordedPayload.parse(e.payload);
+    lessons.push({
+      entry_id: e.entry_id,
+      at: e.at,
+      summary: payload.summary,
+    });
   }
   return lessons;
 }
@@ -105,7 +69,7 @@ export async function resolveLessonBodies(
     } else {
       const buf = await readAttachment(
         featureDir,
-        { entry_id: lesson.entry_id, kind: lesson.kind ?? "lesson:recorded" },
+        { entry_id: lesson.entry_id, kind: "lesson:recorded" },
         "summary",
         summary.ref,
       );

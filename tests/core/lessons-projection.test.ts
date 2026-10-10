@@ -1,6 +1,5 @@
-// lessons.md projection unit tests. The load-bearing compatibility case is
-// mixed `lesson:recorded` + legacy manual evidence; ordinary verification
-// evidence (covers / task_id / check / gate) must be excluded.
+// lessons.md projects dedicated lesson:recorded entries in journal order.
+// Manual and verification evidence remain evidence, never lesson content.
 
 import { describe, expect, test } from "vitest";
 import { promises as fsp } from "node:fs";
@@ -9,7 +8,6 @@ import os from "node:os";
 import { createHash } from "node:crypto";
 
 import {
-  isLesson,
   selectLessonEntries,
   resolveLessonBodies,
   composeLessonsProjection,
@@ -19,9 +17,7 @@ import {
 import type { JournalEntry } from "../../src/core/journal-entry.js";
 import type { Snapshot } from "../../src/core/reducer.js";
 
-type Payload = Parameters<typeof isLesson>[0];
-
-function payload(overrides: Partial<Record<string, unknown>>): Payload {
+function payload(overrides: Record<string, unknown>): Record<string, unknown> {
   return {
     id: "EV-000001",
     kind: "manual",
@@ -32,33 +28,8 @@ function payload(overrides: Partial<Record<string, unknown>>): Payload {
     reason: "captured during execution",
     covers: [],
     ...overrides,
-  } as unknown as Payload;
+  };
 }
-
-// ── isLesson selector ────────────────────────────────────────────────────
-describe("isLesson — lesson vs manual-verification selector", () => {
-  test("lessons-add shape → true", () => {
-    expect(isLesson(payload({}))).toBe(true);
-  });
-  test("manual + covers REQ → false (verification, not a lesson)", () => {
-    expect(isLesson(payload({ covers: ["REQ-AUTH-001"] }))).toBe(false);
-  });
-  test("manual + task_id → false", () => {
-    expect(isLesson(payload({ task_id: "T-001" }))).toBe(false);
-  });
-  test("manual + check → false", () => {
-    expect(isLesson(payload({ check: "run" }))).toBe(false);
-  });
-  test("manual + gate → false", () => {
-    expect(isLesson(payload({ gate: "spec-lock" }))).toBe(false);
-  });
-  test("non-human actor → false", () => {
-    expect(isLesson(payload({ actor: "cli:loaf" }))).toBe(false);
-  });
-  test("non-manual kind → false", () => {
-    expect(isLesson(payload({ kind: "local-check" }))).toBe(false);
-  });
-});
 
 // ── selectLessonEntries over journal stream ───────────────────────────────
 describe("selectLessonEntries", () => {
@@ -67,12 +38,11 @@ describe("selectLessonEntries", () => {
       seq: 0,
       entry_id: id,
       actor: "human:dev@test.invalid",
-      iso_ts: "2026-05-15T10:00:00.000Z",
       at: "2026-05-15T10:00:00.000Z",
-      schema_version: 2,
+      entry_schema_version: 1,
       kind: "evidence:added",
-      payload: payload(payloadOverrides) as unknown as Record<string, unknown>,
-    } as unknown as JournalEntry;
+      payload: payload(payloadOverrides),
+    };
   }
 
   function lessonEntry(id: string, lessonId: string, summary: string): JournalEntry {
@@ -89,31 +59,25 @@ describe("selectLessonEntries", () => {
         reason: "captured during projection testing",
         summary,
       },
-    } as JournalEntry;
+    };
   }
 
-  test("keeps lessons in journal order, drops verification evidence", () => {
-    const entries = [
-      evEntry("JE-000001", { id: "EV-000001", summary: "lesson one" }),
-      evEntry("JE-000002", { id: "EV-000002", summary: "verify", covers: ["REQ-X-001"] }),
-      evEntry("JE-000003", { id: "EV-000003", summary: "lesson two" }),
-    ];
-    const lessons = selectLessonEntries(entries);
-    expect(lessons.map((l) => l.summary)).toEqual(["lesson one", "lesson two"]);
+  test("human manual evidence without linkage is not a lesson", () => {
+    expect(
+      selectLessonEntries([evEntry("JE-000001", { summary: "ordinary manual evidence" })]),
+    ).toEqual([]);
   });
 
-  test("dual-reads legacy evidence lessons and lesson:recorded in journal order", () => {
+  test("keeps only lesson:recorded entries in journal order", () => {
     const entries = [
-      evEntry("JE-000001", { id: "EV-000001", summary: "legacy lesson" }),
-      lessonEntry("JE-000002", "LSN-001", "new lesson"),
+      evEntry("JE-000001", { id: "EV-000001", summary: "manual evidence" }),
+      lessonEntry("JE-000002", "LSN-001", "lesson one"),
       evEntry("JE-000003", { id: "EV-000002", summary: "verification", task_id: "T-001" }),
-      lessonEntry("JE-000004", "LSN-002", "new lesson two"),
+      lessonEntry("JE-000004", "LSN-002", "lesson two"),
     ];
-
     expect(selectLessonEntries(entries).map((lesson) => lesson.summary)).toEqual([
-      "legacy lesson",
-      "new lesson",
-      "new lesson two",
+      "lesson one",
+      "lesson two",
     ]);
   });
 });
@@ -126,7 +90,7 @@ describe("resolveLessonBodies", () => {
       {
         entry_id: "JE-2",
         at: "2026-05-15T10:00:00.000Z",
-        summary: { mode: "inline", text: "inline lesson" } as never,
+        summary: { mode: "inline", text: "inline lesson" },
       },
     ];
     const resolved = await resolveLessonBodies("/unused", lessons);
@@ -146,7 +110,7 @@ describe("resolveLessonBodies", () => {
       {
         entry_id: "JE-000009",
         at: "2026-05-15T10:00:00.000Z",
-        summary: { mode: "sidecar", ref: { path: rel, sha256, size } } as never,
+        summary: { mode: "sidecar", ref: { path: rel, sha256, size } },
       },
     ];
     expect((await resolveLessonBodies(dir, good))[0]!.body).toBe(body);
@@ -155,7 +119,7 @@ describe("resolveLessonBodies", () => {
       {
         entry_id: "JE-000009",
         at: "2026-05-15T10:00:00.000Z",
-        summary: { mode: "sidecar", ref: { path: rel, sha256: "0".repeat(64), size } } as never,
+        summary: { mode: "sidecar", ref: { path: rel, sha256: "0".repeat(64), size } },
       },
     ];
     await expect(resolveLessonBodies(dir, bad)).rejects.toThrow(/integrity mismatch/);

@@ -12,8 +12,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Task projections always include `depends_on` and `labels` arrays (previously
   omitted for tasks written without them).
 
+### Removed
+
+- Legacy evidence-shaped lessons; `lessons.md` now projects only
+  `lesson:recorded` entries.
+
 ### Fixed
 
+- Manual evidence without coverage or task/check/gate linkage is no longer
+  misread as a lesson.
 - Unsponsored task amendments no longer falsely reject unchanged graph fields
   when an omitted `depends_on` or `labels` array is compared with explicit `[]`.
 - Mutating a feature whose task was planned without `depends_on` no longer

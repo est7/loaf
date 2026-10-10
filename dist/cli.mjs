@@ -8262,43 +8262,20 @@ function carryForwardStepProgress(replacement, canonical) {
 //#endregion
 //#region src/core/lessons-projection.ts
 /**
-* Legacy lesson selector (codex F-024 r2): NOT every kind=manual evidence is a
-* lesson — `loaf evidence add --kind manual` is a legitimate verification
-* path that covers REQ/SCEN/VIS/T. A legacy lesson is shaped EXACTLY as: kind=manual,
-* result=passed, empty covers, no task_id / check / gate linkage, human
-* actor. New emitters use the independent `lesson:recorded` kind; this
-* heuristic remains permanently for backward-compatible reads only.
-*/
-function isLesson(payload) {
-	return payload.kind === "manual" && payload.result === "passed" && (payload.covers?.length ?? 0) === 0 && payload.task_id === void 0 && payload.check === void 0 && payload.gate === void 0 && payload.actor.startsWith("human:");
-}
-/**
 * Select lesson entries from the journal stream (journal order = seq order).
-* This is the sole compatibility bridge: new kind + legacy heuristic.
+* Only the dedicated lesson kind owns lesson content.
 * Operates on FULL journal payloads, not the slim `Snapshot.evidence`.
 */
 function selectLessonEntries(entries) {
 	const lessons = [];
 	for (const e of entries) {
-		if (e.kind === "lesson:recorded") {
-			const payload = LessonRecordedPayload.parse(e.payload);
-			lessons.push({
-				entry_id: e.entry_id,
-				kind: "lesson:recorded",
-				at: e.at,
-				summary: payload.summary
-			});
-			continue;
-		}
-		if (e.kind === "evidence:added") {
-			const payload = EvidenceFullPayload.parse(e.payload);
-			if (isLesson(payload)) lessons.push({
-				entry_id: e.entry_id,
-				kind: "evidence:added",
-				at: e.at,
-				summary: payload.summary
-			});
-		}
+		if (e.kind !== "lesson:recorded") continue;
+		const payload = LessonRecordedPayload.parse(e.payload);
+		lessons.push({
+			entry_id: e.entry_id,
+			at: e.at,
+			summary: payload.summary
+		});
 	}
 	return lessons;
 }
@@ -8318,7 +8295,7 @@ async function resolveLessonBodies(featureDir, lessons) {
 		else if (summary.mode === "inline") body = summary.text;
 		else body = (await readAttachment(featureDir, {
 			entry_id: lesson.entry_id,
-			kind: lesson.kind ?? "lesson:recorded"
+			kind: "lesson:recorded"
 		}, "summary", summary.ref)).toString("utf8");
 		resolved.push({
 			body,

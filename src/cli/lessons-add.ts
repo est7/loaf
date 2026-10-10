@@ -8,8 +8,7 @@
 //     fires when body bytes > SIDECAR_THRESHOLD_BYTES (Pass 2 sidecar
 //     promote in journal-mutate.ts; threshold imported from core for
 //     single-source consistency per codex r325 P2)
-// The lessons.md projection rebuilds from both this kind and legacy lesson-
-// shaped evidence entries.
+// The lessons.md projection rebuilds only from this dedicated journal kind.
 //
 // PURE payload builder (codex r325 P1 Option A): returns payload object;
 // caller wraps in journal envelope before mutate().

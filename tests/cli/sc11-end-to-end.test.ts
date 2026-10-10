@@ -511,9 +511,9 @@ describe("SC-11 — loaf lessons add (happy)", () => {
     expect(md).toContain("SENTINEL_BODY"); // sidecar body resolved + inlined
   });
 
-  test("doctor --rebuild preserves mixed legacy and lesson:recorded history", async () => {
+  test("manual evidence stays out of lessons during mutation and doctor rebuild", async () => {
     const { featureDir } = await seedAtExecuteWork();
-    const legacy = await runCli(
+    const manual = await runCli(
       [
         "evidence",
         "add",
@@ -521,10 +521,10 @@ describe("SC-11 — loaf lessons add (happy)", () => {
         JSON.stringify({
           kind: "manual",
           iteration: 1,
-          actor: "human:legacy@example.invalid",
+          actor: "human:tester@example.invalid",
           result: "passed",
-          reason: "captured before lesson recorded kind",
-          summary: "legacy lesson body",
+          reason: "manually verified during execution",
+          summary: "manual evidence body",
           covers: [],
         }),
         "--feature",
@@ -536,7 +536,10 @@ describe("SC-11 — loaf lessons add (happy)", () => {
       ],
       { env: SEED_ENV },
     );
-    expect(legacy.exit).toBe(0);
+    expect(manual.exit, manual.stderr).toBe(0);
+    await expect(fs.access(path.join(featureDir, "lessons.md"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
 
     const current = await runCli(
       [
@@ -557,6 +560,17 @@ describe("SC-11 — loaf lessons add (happy)", () => {
     );
     expect(current.exit).toBe(0);
 
+    const before = await fs.readFile(path.join(featureDir, "lessons.md"), "utf8");
+    expect(before).toContain("new lesson body");
+    expect(before).not.toContain("manual evidence body");
+    const evidence = JSON.parse(
+      await fs.readFile(path.join(featureDir, "snapshots", "evidence.json"), "utf8"),
+    );
+    expect(
+      evidence.evidence.find(
+        (entry: { summary: unknown }) => entry.summary === "manual evidence body",
+      ),
+    ).toMatchObject({ kind: "manual", result: "passed", covers: [] });
     await fs.rm(path.join(featureDir, "lessons.md"));
     const rebuild = await runCli(
       [
@@ -573,7 +587,8 @@ describe("SC-11 — loaf lessons add (happy)", () => {
     );
     expect(rebuild.exit).toBe(0);
     const md = await fs.readFile(path.join(featureDir, "lessons.md"), "utf8");
-    expect(md.indexOf("legacy lesson body")).toBeLessThan(md.indexOf("new lesson body"));
+    expect(md).toBe(before);
+    expect(md).not.toContain("manual evidence body");
   });
 
   test("F-024: no lesson entries → lessons.md is absent (not written empty)", async () => {
