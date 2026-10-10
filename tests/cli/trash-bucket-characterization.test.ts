@@ -6,8 +6,8 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { executePrune } from "../../src/cli/prune/execute.js";
-import { restorePrune } from "../../src/cli/prune/restore.js";
-import { toTrashTs, fromTrashTs } from "../../src/cli/prune/trash-ts.js";
+import { restoreTrashBucket } from "../../src/core/trash-bucket.js";
+import { toTrashTs, fromTrashTs } from "../../src/core/trash-bucket.js";
 
 const id = "00000001-0000-4000-8000-000000000001";
 const timestamp = "2026-10-10T00-00-00.123Z";
@@ -55,7 +55,7 @@ afterEach(async () => {
   await fs.rm(root, { recursive: true, force: true });
 });
 
-const restore = () => restorePrune({ registryDir, trashDir, sessionId: id });
+const restore = () => restoreTrashBucket({ registryDir, trashDir, sessionId: id });
 async function absent(file: string) {
   await expect(fs.stat(file)).rejects.toMatchObject({ code: "ENOENT" });
 }
@@ -131,8 +131,8 @@ test("legacy restore failure leaves split locations and a non-retryable bucket",
   });
 });
 
-// Current owner: src/cli/prune/restore.ts. Slice 1 permits characterization
-// only; the approved production compensation change belongs to Slice 3.
+// Current owner: src/core/trash-bucket.ts. Slice 2 preserves legacy
+// behavior; the approved production compensation change belongs to Slice 3.
 // Remove test.fails when that change lands. Until then the split/non-retryable
 // failure remains unfixed; the companion legacy witness verifies its cause.
 test.fails("KNOWN GAP: failed registry restore must roll feature back to a retryable bucket", async () => {

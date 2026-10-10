@@ -1,4 +1,4 @@
-// prune slice 3 — `restorePrune` (RED-first).
+// prune slice 3 — `restoreTrashBucket` (RED-first).
 //
 // Inverse of execute's trash: read a bucket manifest, move the feature dir +
 // registry entry back to their original locations. Safety:
@@ -12,7 +12,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
-import { restorePrune } from "../../src/cli/prune/restore.js";
+import { restoreTrashBucket } from "../../src/core/trash-bucket.js";
 
 const U = (n: number): string => `0000000${n}-0000-4000-8000-00000000000${n}`.slice(-36);
 
@@ -76,12 +76,19 @@ const exists = async (p: string): Promise<boolean> => {
   }
 };
 
-describe("restorePrune", () => {
+describe("restoreTrashBucket", () => {
   test("round-trip: registry entry + feature dir return, content preserved", async () => {
     const cwd = path.join(projects, "p1");
-    await seedBucket({ ts: "T1", id: U(1), feature: "feat-a", cwd, orphan: false, content: "HELLO" });
+    await seedBucket({
+      ts: "T1",
+      id: U(1),
+      feature: "feat-a",
+      cwd,
+      orphan: false,
+      content: "HELLO",
+    });
 
-    const r = await restorePrune({ registryDir, trashDir, sessionId: U(1) });
+    const r = await restoreTrashBucket({ registryDir, trashDir, sessionId: U(1) });
     expect(r.ok).toBe(true);
     expect(await exists(path.join(registryDir, `${U(1)}.json`))).toBe(true);
     expect(await fs.readFile(path.join(cwd, ".loaf", "feat-a", "journal.jsonl"), "utf8")).toBe(
@@ -95,7 +102,7 @@ describe("restorePrune", () => {
     const cwd = path.join(projects, "p1");
     await seedBucket({ ts: "T1", id: U(2), feature: "gone", cwd, orphan: true });
 
-    const r = await restorePrune({ registryDir, trashDir, sessionId: U(2) });
+    const r = await restoreTrashBucket({ registryDir, trashDir, sessionId: U(2) });
     expect(r.ok).toBe(true);
     expect(await exists(path.join(registryDir, `${U(2)}.json`))).toBe(true);
     expect(await exists(path.join(cwd, ".loaf", "gone"))).toBe(false);
@@ -103,9 +110,16 @@ describe("restorePrune", () => {
 
   test("dryRun validates but moves nothing (preview)", async () => {
     const cwd = path.join(projects, "p1");
-    const bucket = await seedBucket({ ts: "T1", id: U(1), feature: "feat-a", cwd, orphan: false, content: "X" });
+    const bucket = await seedBucket({
+      ts: "T1",
+      id: U(1),
+      feature: "feat-a",
+      cwd,
+      orphan: false,
+      content: "X",
+    });
 
-    const r = await restorePrune({ registryDir, trashDir, sessionId: U(1), dryRun: true });
+    const r = await restoreTrashBucket({ registryDir, trashDir, sessionId: U(1), dryRun: true });
     expect(r.ok).toBe(true);
     // nothing moved: registry not recreated, feature not restored, bucket intact
     expect(await exists(path.join(registryDir, `${U(1)}.json`))).toBe(false);
@@ -115,12 +129,12 @@ describe("restorePrune", () => {
   });
 
   test("dryRun still surfaces validation failures (e.g. not-found)", async () => {
-    const r = await restorePrune({ registryDir, trashDir, sessionId: U(9), dryRun: true });
+    const r = await restoreTrashBucket({ registryDir, trashDir, sessionId: U(9), dryRun: true });
     expect(r).toMatchObject({ ok: false, code: "PRUNE_RESTORE_NOT_FOUND" });
   });
 
   test("unknown session → PRUNE_RESTORE_NOT_FOUND", async () => {
-    const r = await restorePrune({ registryDir, trashDir, sessionId: U(9) });
+    const r = await restoreTrashBucket({ registryDir, trashDir, sessionId: U(9) });
     expect(r).toMatchObject({ ok: false, code: "PRUNE_RESTORE_NOT_FOUND" });
   });
 
@@ -129,7 +143,7 @@ describe("restorePrune", () => {
     await seedBucket({ ts: "T1", id: U(1), feature: "feat-a", cwd, orphan: false });
     await seedBucket({ ts: "T2", id: U(1), feature: "feat-a", cwd, orphan: false });
 
-    const r = await restorePrune({ registryDir, trashDir, sessionId: U(1) });
+    const r = await restoreTrashBucket({ registryDir, trashDir, sessionId: U(1) });
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.code).toBe("PRUNE_RESTORE_AMBIGUOUS");
@@ -143,9 +157,11 @@ describe("restorePrune", () => {
     await seedBucket({ ts: "T1", id: U(1), feature: "feat-a", cwd, orphan: false, content: "ONE" });
     await seedBucket({ ts: "T2", id: U(1), feature: "feat-a", cwd, orphan: false, content: "TWO" });
 
-    const r = await restorePrune({ registryDir, trashDir, sessionId: U(1), at: "T2" });
+    const r = await restoreTrashBucket({ registryDir, trashDir, sessionId: U(1), at: "T2" });
     expect(r.ok).toBe(true);
-    expect(await fs.readFile(path.join(cwd, ".loaf", "feat-a", "journal.jsonl"), "utf8")).toBe("TWO");
+    expect(await fs.readFile(path.join(cwd, ".loaf", "feat-a", "journal.jsonl"), "utf8")).toBe(
+      "TWO",
+    );
     expect(await exists(path.join(trashDir, "T2", U(1)))).toBe(false); // consumed
     expect(await exists(path.join(trashDir, "T1", U(1)))).toBe(true); // other left
   });
@@ -170,7 +186,7 @@ describe("restorePrune", () => {
       }),
     ); // ...but no feature/ in the bucket
 
-    const r = await restorePrune({ registryDir, trashDir, sessionId: U(1) });
+    const r = await restoreTrashBucket({ registryDir, trashDir, sessionId: U(1) });
     expect(r).toMatchObject({ ok: false, code: "PRUNE_RESTORE_INCOMPLETE" });
     expect(await exists(path.join(registryDir, `${U(1)}.json`))).toBe(false); // registry NOT created
     expect(await exists(bucket)).toBe(true); // bucket intact
@@ -194,7 +210,7 @@ describe("restorePrune", () => {
       }),
     ); // no registry.json
 
-    const r = await restorePrune({ registryDir, trashDir, sessionId: U(1) });
+    const r = await restoreTrashBucket({ registryDir, trashDir, sessionId: U(1) });
     expect(r).toMatchObject({ ok: false, code: "PRUNE_RESTORE_INCOMPLETE" });
     expect(await exists(path.join(cwd, ".loaf", "feat-a"))).toBe(false); // feature NOT moved back
     expect(await exists(path.join(bucket, "feature"))).toBe(true); // bucket intact
@@ -206,7 +222,7 @@ describe("restorePrune", () => {
     // pre-occupy the registry slot
     await fs.writeFile(path.join(registryDir, `${U(1)}.json`), "PRE-EXISTING");
 
-    const r = await restorePrune({ registryDir, trashDir, sessionId: U(1) });
+    const r = await restoreTrashBucket({ registryDir, trashDir, sessionId: U(1) });
     expect(r).toMatchObject({ ok: false, code: "PRUNE_PATH_OCCUPIED" });
     expect(await fs.readFile(path.join(registryDir, `${U(1)}.json`), "utf8")).toBe("PRE-EXISTING");
     expect(await exists(path.join(trashDir, "T1", U(1)))).toBe(true); // bucket intact

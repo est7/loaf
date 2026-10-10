@@ -20,9 +20,8 @@ import type { CommandContext } from "../command-context.js";
 import { appendPruneLog, readPruneLog } from "../prune/audit.js";
 import { executePrune } from "../prune/execute.js";
 import { resolvePruneTargets, type PruneScope } from "../prune/resolve.js";
-import { restorePrune } from "../prune/restore.js";
+import { restoreTrashBucket, trashDirectory, toTrashTs } from "../../core/trash-bucket.js";
 import { gcTrash } from "../prune/trash-gc.js";
-import { toTrashTs } from "../prune/trash-ts.js";
 
 export interface PruneDeps {
   /** Resolved registry dir (deps.registryDir ?? defaultRegistryDir()). */
@@ -143,7 +142,7 @@ export function registerPrune(program: Command, ctx: CommandContext, deps: Prune
       }
       const previewTrash = opts.yes !== true || opts.dryRun === true;
       const r = await gcTrash({
-        trashDir: path.join(base, "trash"),
+        trashDir: trashDirectory(deps.registryDir),
         olderThanDays: opts.olderThan,
         now: deps.now(),
         dryRun: previewTrash,
@@ -238,7 +237,7 @@ export function registerPrune(program: Command, ctx: CommandContext, deps: Prune
       return;
     }
 
-    const trashDir = path.join(base, "trash");
+    const trashDir = trashDirectory(deps.registryDir);
     const logPath = path.join(base, "prune-log.jsonl");
     const timestamp = toTrashTs(deps.now());
 
@@ -303,8 +302,8 @@ export function registerPrune(program: Command, ctx: CommandContext, deps: Prune
     // must honor dry-run: validate + preview, never move — codex 6b BLOCK).
     const opts = command.optsWithGlobals() as { at?: string; dryRun?: boolean };
     const dryRun = opts.dryRun === true;
-    const trashDir = path.join(path.dirname(deps.registryDir), "trash");
-    const result = await restorePrune({
+    const trashDir = trashDirectory(deps.registryDir);
+    const result = await restoreTrashBucket({
       registryDir: deps.registryDir,
       trashDir,
       sessionId,

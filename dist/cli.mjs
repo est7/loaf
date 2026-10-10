@@ -18873,7 +18873,156 @@ async function readPruneLog(logPath) {
 	return out;
 }
 //#endregion
-//#region src/cli/prune/fs-move.ts
+//#region src/core/trash-bucket.ts
+function trashDirectory(registryDir) {
+	return path.join(path.dirname(registryDir), "trash");
+}
+function trashTimestampPath(trashDir, timestamp) {
+	return path.join(trashDir, timestamp);
+}
+function trashBucketPath(trashDir, timestamp, sessionId) {
+	return path.join(trashTimestampPath(trashDir, timestamp), sessionId);
+}
+/** Trash one selected session; manifest first, feature before registry. */
+async function trashSession(opts) {
+	const { registryDir, trashDir, timestamp, session: t } = opts;
+	const registryEntryPath = path.join(registryDir, `${t.session_id}.json`);
+	const bucket = trashBucketPath(trashDir, timestamp, t.session_id);
+	await promises.mkdir(bucket, { recursive: true });
+	const manifestPath = path.join(bucket, "manifest.json");
+	const writeManifest = (featureTrashed) => promises.writeFile(manifestPath, `${JSON.stringify({
+		session_id: t.session_id,
+		feature: t.feature,
+		cwd: t.cwd,
+		feature_dir: t.feature_dir,
+		orphan: t.orphan,
+		feature_trashed: featureTrashed,
+		at: timestamp
+	}, null, 2)}\n`);
+	await writeManifest(!t.orphan);
+	let featureMoved = false;
+	if (!t.orphan) {
+		featureMoved = await moveDir(t.feature_dir, path.join(bucket, "feature"));
+		if (!featureMoved) await writeManifest(false);
+	}
+	try {
+		await moveFile(registryEntryPath, path.join(bucket, "registry.json"));
+	} catch (regErr) {
+		if (featureMoved) try {
+			await moveDir(path.join(bucket, "feature"), t.feature_dir);
+		} catch (rollbackErr) {
+			throw new Error(`registry deregister failed (${regErr.message}); feature rollback also failed (${rollbackErr.message}); feature data retained in ${bucket} (registry entry still at origin) — recover manually: move ${path.join(bucket, "feature")} back to ${t.feature_dir}`);
+		}
+		await promises.rm(bucket, {
+			recursive: true,
+			force: true
+		}).catch(() => void 0);
+		throw regErr;
+	}
+	return bucket;
+}
+async function readBucketManifest(bucket) {
+	return JSON.parse(await promises.readFile(path.join(bucket, "manifest.json"), "utf8"));
+}
+async function pathExists(p) {
+	try {
+		await promises.stat(p);
+		return true;
+	} catch {
+		return false;
+	}
+}
+/** Timestamps whose bucket holds a manifest for this session. */
+async function bucketsFor(trashDir, sessionId) {
+	let tsDirs;
+	try {
+		tsDirs = await promises.readdir(trashDir);
+	} catch {
+		return [];
+	}
+	const found = [];
+	for (const ts of tsDirs) if (await pathExists(path.join(trashBucketPath(trashDir, ts, sessionId), "manifest.json"))) found.push(ts);
+	return found;
+}
+async function restoreTrashBucket(opts) {
+	const { registryDir, trashDir, sessionId, at } = opts;
+	const timestamps = await bucketsFor(trashDir, sessionId);
+	if (timestamps.length === 0) return {
+		ok: false,
+		code: "PRUNE_RESTORE_NOT_FOUND",
+		detail: { session_id: sessionId }
+	};
+	let chosen;
+	if (at !== void 0) {
+		if (!timestamps.includes(at)) return {
+			ok: false,
+			code: "PRUNE_RESTORE_NOT_FOUND",
+			detail: {
+				session_id: sessionId,
+				at,
+				timestamps
+			}
+		};
+		chosen = at;
+	} else if (timestamps.length > 1) return {
+		ok: false,
+		code: "PRUNE_RESTORE_AMBIGUOUS",
+		detail: {
+			session_id: sessionId,
+			timestamps
+		}
+	};
+	else chosen = timestamps[0];
+	const bucket = trashBucketPath(trashDir, chosen, sessionId);
+	const manifest = await readBucketManifest(bucket);
+	const registryDest = path.join(registryDir, `${sessionId}.json`);
+	const registrySrc = path.join(bucket, "registry.json");
+	const featureSrc = path.join(bucket, "feature");
+	if (!await pathExists(registrySrc)) return {
+		ok: false,
+		code: "PRUNE_RESTORE_INCOMPLETE",
+		detail: {
+			bucket,
+			missing: "registry.json"
+		}
+	};
+	if (manifest.feature_trashed && !await pathExists(featureSrc)) return {
+		ok: false,
+		code: "PRUNE_RESTORE_INCOMPLETE",
+		detail: {
+			bucket,
+			missing: "feature/"
+		}
+	};
+	if (await pathExists(registryDest)) return {
+		ok: false,
+		code: "PRUNE_PATH_OCCUPIED",
+		detail: { path: registryDest }
+	};
+	if (manifest.feature_trashed && await pathExists(manifest.feature_dir)) return {
+		ok: false,
+		code: "PRUNE_PATH_OCCUPIED",
+		detail: { path: manifest.feature_dir }
+	};
+	if (!opts.dryRun) {
+		if (manifest.feature_trashed) {
+			await promises.mkdir(path.dirname(manifest.feature_dir), { recursive: true });
+			await moveDir(featureSrc, manifest.feature_dir);
+		}
+		await moveFile(registrySrc, registryDest);
+		await promises.rm(bucket, {
+			recursive: true,
+			force: true
+		});
+	}
+	return {
+		ok: true,
+		session_id: sessionId,
+		feature: manifest.feature,
+		cwd: manifest.cwd,
+		restored_from: bucket
+	};
+}
 /**
 * Rename a directory; copy+rm across devices. Returns false (not an error) when
 * the source is already gone (ENOENT) so callers can degrade gracefully.
@@ -18907,6 +19056,24 @@ async function moveFile(src, dest) {
 		} else throw err;
 	}
 }
+/** ISO 8601 with `:` → `-` (e.g. 2026-06-09T12-34-56.789Z). Path-segment safe. */
+function toTrashTs(d) {
+	return d.toISOString().replace(/:/g, "-");
+}
+/**
+* Reverse `toTrashTs`. Only the HH-MM-SS dashes in the time part are turned back
+* into colons (the date part keeps its dashes; the `.sssZ` millis has no dash).
+* Returns null for anything that does not parse — callers must not GC a bucket
+* they cannot date.
+*/
+function fromTrashTs(name) {
+	const tIdx = name.indexOf("T");
+	if (tIdx < 0) return null;
+	const datePart = name.slice(0, tIdx);
+	const timePart = name.slice(tIdx + 1).replace(/-/g, ":");
+	const ms = Date.parse(`${datePart}T${timePart}`);
+	return Number.isNaN(ms) ? null : new Date(ms);
+}
 //#endregion
 //#region src/cli/prune/execute.ts
 async function executePrune(opts) {
@@ -18917,42 +19084,12 @@ async function executePrune(opts) {
 		const registryEntryPath = path.join(registryDir, `${t.session_id}.json`);
 		try {
 			if (mode === "trash") {
-				const bucket = path.join(trashDir, timestamp, t.session_id);
-				await promises.mkdir(bucket, { recursive: true });
-				const manifestPath = path.join(bucket, "manifest.json");
-				const writeManifest = (featureTrashed) => promises.writeFile(manifestPath, `${JSON.stringify({
-					session_id: t.session_id,
-					feature: t.feature,
-					cwd: t.cwd,
-					feature_dir: t.feature_dir,
-					orphan: t.orphan,
-					feature_trashed: featureTrashed,
-					at: timestamp
-				}, null, 2)}\n`);
-				await writeManifest(!t.orphan);
-				let featureMoved = false;
-				if (!t.orphan) {
-					featureMoved = await moveDir(t.feature_dir, path.join(bucket, "feature"));
-					if (!featureMoved) await writeManifest(false);
-				}
-				try {
-					await moveFile(registryEntryPath, path.join(bucket, "registry.json"));
-				} catch (regErr) {
-					if (featureMoved) try {
-						await moveDir(path.join(bucket, "feature"), t.feature_dir);
-					} catch (rollbackErr) {
-						failed.push({
-							session_id: t.session_id,
-							error: `registry deregister failed (${regErr.message}); feature rollback also failed (${rollbackErr.message}); feature data retained in ${bucket} (registry entry still at origin) — recover manually: move ${path.join(bucket, "feature")} back to ${t.feature_dir}`
-						});
-						continue;
-					}
-					await promises.rm(bucket, {
-						recursive: true,
-						force: true
-					}).catch(() => void 0);
-					throw regErr;
-				}
+				const bucket = await trashSession({
+					registryDir,
+					trashDir,
+					timestamp,
+					session: t
+				});
 				done.push({
 					session_id: t.session_id,
 					feature: t.feature,
@@ -19087,127 +19224,6 @@ async function resolvePruneTargets(opts) {
 	};
 }
 //#endregion
-//#region src/cli/prune/restore.ts
-async function pathExists(p) {
-	try {
-		await promises.stat(p);
-		return true;
-	} catch {
-		return false;
-	}
-}
-/** Timestamps whose bucket holds a manifest for this session. */
-async function bucketsFor(trashDir, sessionId) {
-	let tsDirs;
-	try {
-		tsDirs = await promises.readdir(trashDir);
-	} catch {
-		return [];
-	}
-	const found = [];
-	for (const ts of tsDirs) if (await pathExists(path.join(trashDir, ts, sessionId, "manifest.json"))) found.push(ts);
-	return found;
-}
-async function restorePrune(opts) {
-	const { registryDir, trashDir, sessionId, at } = opts;
-	const timestamps = await bucketsFor(trashDir, sessionId);
-	if (timestamps.length === 0) return {
-		ok: false,
-		code: "PRUNE_RESTORE_NOT_FOUND",
-		detail: { session_id: sessionId }
-	};
-	let chosen;
-	if (at !== void 0) {
-		if (!timestamps.includes(at)) return {
-			ok: false,
-			code: "PRUNE_RESTORE_NOT_FOUND",
-			detail: {
-				session_id: sessionId,
-				at,
-				timestamps
-			}
-		};
-		chosen = at;
-	} else if (timestamps.length > 1) return {
-		ok: false,
-		code: "PRUNE_RESTORE_AMBIGUOUS",
-		detail: {
-			session_id: sessionId,
-			timestamps
-		}
-	};
-	else chosen = timestamps[0];
-	const bucket = path.join(trashDir, chosen, sessionId);
-	const manifest = JSON.parse(await promises.readFile(path.join(bucket, "manifest.json"), "utf8"));
-	const registryDest = path.join(registryDir, `${sessionId}.json`);
-	const registrySrc = path.join(bucket, "registry.json");
-	const featureSrc = path.join(bucket, "feature");
-	if (!await pathExists(registrySrc)) return {
-		ok: false,
-		code: "PRUNE_RESTORE_INCOMPLETE",
-		detail: {
-			bucket,
-			missing: "registry.json"
-		}
-	};
-	if (manifest.feature_trashed && !await pathExists(featureSrc)) return {
-		ok: false,
-		code: "PRUNE_RESTORE_INCOMPLETE",
-		detail: {
-			bucket,
-			missing: "feature/"
-		}
-	};
-	if (await pathExists(registryDest)) return {
-		ok: false,
-		code: "PRUNE_PATH_OCCUPIED",
-		detail: { path: registryDest }
-	};
-	if (manifest.feature_trashed && await pathExists(manifest.feature_dir)) return {
-		ok: false,
-		code: "PRUNE_PATH_OCCUPIED",
-		detail: { path: manifest.feature_dir }
-	};
-	if (!opts.dryRun) {
-		if (manifest.feature_trashed) {
-			await promises.mkdir(path.dirname(manifest.feature_dir), { recursive: true });
-			await moveDir(featureSrc, manifest.feature_dir);
-		}
-		await moveFile(registrySrc, registryDest);
-		await promises.rm(bucket, {
-			recursive: true,
-			force: true
-		});
-	}
-	return {
-		ok: true,
-		session_id: sessionId,
-		feature: manifest.feature,
-		cwd: manifest.cwd,
-		restored_from: bucket
-	};
-}
-//#endregion
-//#region src/cli/prune/trash-ts.ts
-/** ISO 8601 with `:` → `-` (e.g. 2026-06-09T12-34-56.789Z). Path-segment safe. */
-function toTrashTs(d) {
-	return d.toISOString().replace(/:/g, "-");
-}
-/**
-* Reverse `toTrashTs`. Only the HH-MM-SS dashes in the time part are turned back
-* into colons (the date part keeps its dashes; the `.sssZ` millis has no dash).
-* Returns null for anything that does not parse — callers must not GC a bucket
-* they cannot date.
-*/
-function fromTrashTs(name) {
-	const tIdx = name.indexOf("T");
-	if (tIdx < 0) return null;
-	const datePart = name.slice(0, tIdx);
-	const timePart = name.slice(tIdx + 1).replace(/-/g, ":");
-	const ms = Date.parse(`${datePart}T${timePart}`);
-	return Number.isNaN(ms) ? null : new Date(ms);
-}
-//#endregion
 //#region src/cli/prune/trash-gc.ts
 const DAY_MS = 864e5;
 async function gcTrash(opts) {
@@ -19231,7 +19247,7 @@ async function gcTrash(opts) {
 			continue;
 		}
 		if (when.getTime() < cutoff) {
-			const p = path.join(trashDir, ts);
+			const p = trashTimestampPath(trashDir, ts);
 			if (!dryRun) await promises.rm(p, {
 				recursive: true,
 				force: true
@@ -19308,7 +19324,7 @@ function registerPrune(program, ctx, deps) {
 			}
 			const previewTrash = opts.yes !== true || opts.dryRun === true;
 			const r = await gcTrash({
-				trashDir: path.join(base, "trash"),
+				trashDir: trashDirectory(deps.registryDir),
 				olderThanDays: opts.olderThan,
 				now: deps.now(),
 				dryRun: previewTrash
@@ -19377,7 +19393,7 @@ function registerPrune(program, ctx, deps) {
 			}, () => `would ${mode} ${targets.length} session(s)` + (skipped.length > 0 ? `, skip ${skipped.length}` : "") + ` — re-run with --yes to execute\n`);
 			return;
 		}
-		const trashDir = path.join(base, "trash");
+		const trashDir = trashDirectory(deps.registryDir);
 		const logPath = path.join(base, "prune-log.jsonl");
 		const timestamp = toTrashTs(deps.now());
 		const result = await executePrune({
@@ -19424,8 +19440,8 @@ function registerPrune(program, ctx, deps) {
 	}).action(async (sessionId, _localOpts, command) => {
 		const opts = command.optsWithGlobals();
 		const dryRun = opts.dryRun === true;
-		const trashDir = path.join(path.dirname(deps.registryDir), "trash");
-		const result = await restorePrune({
+		const trashDir = trashDirectory(deps.registryDir);
+		const result = await restoreTrashBucket({
 			registryDir: deps.registryDir,
 			trashDir,
 			sessionId,

@@ -36,6 +36,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Trash-bucket layout, manifest representation, timestamps and trash/restore
+  transfers now share a neutral core owner. Prune retains target selection,
+  purge, batch reporting, audit and retention policy. Existing persisted bytes,
+  output shapes and failure behavior are unchanged in this extraction.
+
 - Command-policy ownership checks now cover the registered command tree and
   every declared action mode, replacing the hand-maintained dry-run command
   table. AST checks reject retired local policy helpers and duplicate owners;

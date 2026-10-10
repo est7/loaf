@@ -6,9 +6,8 @@
 // here). Unparseable bucket names are KEPT — never GC something we can't date.
 
 import { promises as fs } from "node:fs";
-import path from "node:path";
 
-import { fromTrashTs } from "./trash-ts.js";
+import { fromTrashTs, trashTimestampPath } from "../../core/trash-bucket.js";
 
 const DAY_MS = 86_400_000;
 
@@ -46,7 +45,7 @@ export async function gcTrash(opts: TrashGcOptions): Promise<TrashGcResult> {
       continue;
     }
     if (when.getTime() < cutoff) {
-      const p = path.join(trashDir, ts);
+      const p = trashTimestampPath(trashDir, ts);
       if (!dryRun) await fs.rm(p, { recursive: true, force: true });
       removed.push({ ts, path: p });
     } else {

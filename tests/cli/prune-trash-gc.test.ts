@@ -11,7 +11,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 import { gcTrash } from "../../src/cli/prune/trash-gc.js";
-import { fromTrashTs, toTrashTs } from "../../src/cli/prune/trash-ts.js";
+import { fromTrashTs, toTrashTs } from "../../src/core/trash-bucket.js";
 
 let root: string;
 let trashDir: string;
