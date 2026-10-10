@@ -4,22 +4,16 @@ import {
   FINDING_UNUSUAL_REASON_MIN_LENGTH,
   FIX_ACTION_STEP,
   cellRisk,
-  type FindingAction,
-  type FindingCategory,
 } from "../../finding-schema.js";
 import { evaluateTaskProof, verifyMinPolicy } from "../../gates/task-proof.js";
-import type { Ceremony, EntryKind, SubState } from "../../journal-entry.js";
+import type { Ceremony } from "../../journal-entry.js";
 import type { PreflightCheckCtx, PreflightFailure } from "../preflight.js";
-import {
-  validateTransition,
-  type TransitionContext,
-  type TransitionResult,
-} from "../transition.js";
+import { validateTransition } from "../transition.js";
 
 export function checkGateDecided(c: PreflightCheckCtx): PreflightFailure | null {
-  const { entry, payloadData, sub_state, ctx } = c;
+  const { entry, sub_state, ctx } = c;
   if (entry.kind === "gate:decided") {
-    const gateKind = (payloadData as { gate_kind?: string }).gate_kind;
+    const gateKind = entry.payload.gate_kind;
     if (gateKind === "spec-lock" && sub_state !== "SPEC.design") {
       return {
         ok: false,
@@ -44,7 +38,7 @@ export function checkGateDecided(c: PreflightCheckCtx): PreflightFailure | null 
     // in the same batch); absent head also passes (no co-emission).
     // Rejected decisions bypass this guard — rejecting a gate is itself
     // an answer that does not require resolving a parallel pending.
-    const decision = (payloadData as { decision?: string }).decision;
+    const decision = entry.payload.decision;
     if (decision === "approved") {
       const pendingHead = ctx.snapshot.pending.find((p) => !p.resolved);
       if (pendingHead && pendingHead.kind !== "gate_decision") {
@@ -71,11 +65,11 @@ export function checkGateDecided(c: PreflightCheckCtx): PreflightFailure | null 
 // valid LEGAL_TRANSITIONS edge (e.g. EXECUTE.work → EXECUTE.done) even
 // though the cursor sits at TRIAGE, and preflight returns ok.
 export function checkPhaseAdvanced(c: PreflightCheckCtx): PreflightFailure | null {
-  const { entry, rawEntry, sub_state, ctx } = c;
+  const { entry, sub_state, ctx } = c;
   if (entry.kind === "event:phase_advanced") {
-    const payload = (rawEntry as { payload?: Record<string, unknown> }).payload ?? {};
-    const from = payload["from"] as SubState | undefined;
-    if (from !== undefined && from !== sub_state) {
+    const payload = entry.payload;
+    const from = payload.from;
+    if (from !== sub_state) {
       return {
         ok: false,
         code: "FROM_CURSOR_MISMATCH",
@@ -103,15 +97,11 @@ export function checkPhaseAdvanced(c: PreflightCheckCtx): PreflightFailure | nul
     // Slice B — back_edge sponsorship verifies against snapshot.findings
     // (codex r96 §3: open-only requirement, closed → FINDING_NOT_FOUND
     // with detail.reason="already_closed" mirroring finding:closed).
-    // Runs before checkTransition because validateTransition's contract
+    // Runs before checkTransitionEdge because validateTransition's contract
     // is target+from legality; the finding-existence lookup needs the
     // snapshot which transition doesn't carry.
-    const rawPayload = ((rawEntry as { payload?: Record<string, unknown> }).payload ??
-      {}) as Record<string, unknown>;
-    const backEdge = rawPayload["back_edge"] as
-      | { action?: string; finding_id?: string }
-      | undefined;
-    if (backEdge !== undefined && typeof backEdge.finding_id === "string") {
+    const backEdge = payload.back_edge;
+    if (backEdge !== undefined) {
       const findingId = backEdge.finding_id;
       const finding = ctx.snapshot.findings.find((f) => f.id === findingId);
       if (!finding) {
@@ -153,7 +143,7 @@ export function checkPhaseAdvanced(c: PreflightCheckCtx): PreflightFailure | nul
     // forward edge only: a back_edge entry keeps its own sponsorship /
     // transition diagnostics (codex r123 constraint #1) — back_edge
     // targets SPEC.spec, never EXECUTE.done, but the gate is explicit.
-    const phaseTo = payload["to"] as SubState | undefined;
+    const phaseTo = payload.to;
     if (backEdge === undefined && sub_state === "EXECUTE.work" && phaseTo === "EXECUTE.done") {
       const nonFinal = ctx.snapshot.tasks
         .filter((t) => t.status !== "done" && t.status !== "abandoned")
@@ -382,10 +372,10 @@ export function checkCeremonySet(c: PreflightCheckCtx): PreflightFailure | null 
 // whitespace-trimming — that would be stricter than the repo's
 // `z.string().min(1)` convention).
 export function checkSessionTerminalReason(c: PreflightCheckCtx): PreflightFailure | null {
-  const { entry, rawEntry } = c;
+  const { entry } = c;
   if (entry.kind === "session:archived" || entry.kind === "session:abandoned") {
-    const payload = (rawEntry as { payload?: Record<string, unknown> }).payload ?? {};
-    if (payload["reason"] === undefined) {
+    const payload = entry.payload;
+    if (payload.reason === undefined) {
       return {
         ok: false,
         code: "SESSION_REASON_REQUIRED",
@@ -405,14 +395,9 @@ export function checkSessionTerminalReason(c: PreflightCheckCtx): PreflightFailu
 // mutate paths that bypass preflight.
 
 export function checkFindingRaised(c: PreflightCheckCtx): PreflightFailure | null {
-  const { entry, payloadData, sub_state, ctx } = c;
+  const { entry, sub_state, ctx } = c;
   if (entry.kind === "finding:raised") {
-    const payload = payloadData as {
-      category: FindingCategory;
-      action: FindingAction;
-      reason?: string;
-      target?: { task_id: string; step: string };
-    };
+    const payload = entry.payload;
     const risk = cellRisk(payload.category, payload.action);
     if (risk === "incoherent") {
       return {
@@ -563,15 +548,17 @@ export function checkFindingRaised(c: PreflightCheckCtx): PreflightFailure | nul
 //     SPEC.proposal before running spec submit" mistake.
 
 export function checkTransitionEdge(c: PreflightCheckCtx): PreflightFailure | null {
-  const { entry, rawEntry, sub_state, ceremony, verify_accepted, spec_locked } = c;
-  const transitionResult = checkTransition(entry.kind, rawEntry as Record<string, unknown>, {
-    sub_state,
+  const { entry, ceremony, verify_accepted, spec_locked } = c;
+  if (entry.kind !== "event:phase_advanced") return null;
+  const { from, to, back_edge } = entry.payload;
+  const transitionResult = validateTransition(from, to, {
     ceremony,
     verify_accepted,
     spec_locked,
     actor: entry.actor,
+    ...(back_edge !== undefined ? { back_edge } : {}),
   });
-  if (transitionResult && !transitionResult.ok) {
+  if (!transitionResult.ok) {
     return {
       ok: false,
       code: transitionResult.code,
@@ -591,56 +578,4 @@ function deriveCeremonyLabel(c: Ceremony): string {
   if (c.spec_phase && c.verify_phase && !c.settle_phase) return "standard";
   if (c.spec_phase && c.verify_phase && c.settle_phase) return "deep";
   return "custom";
-}
-
-/** Derived scalars passed into the transition probe — not a public type. */
-interface TransitionProbeContext {
-  sub_state: SubState;
-  ceremony: Ceremony;
-  verify_accepted: boolean;
-  spec_locked: boolean;
-  actor: string;
-}
-
-/**
- * For state-machine-edge kinds, extract (from, to) from payload and run
- * validateTransition. Returns null for kinds that don't carry an edge.
- */
-function checkTransition(
-  kind: EntryKind,
-  raw: Record<string, unknown>,
-  ctx: TransitionProbeContext,
-): TransitionResult | null {
-  const payload = (raw["payload"] as Record<string, unknown> | undefined) ?? {};
-
-  if (kind === "event:phase_advanced") {
-    // payload: { from: SubState, to: SubState, back_edge?: BackEdge }
-    const from = payload["from"] as SubState | undefined;
-    const to = payload["to"] as SubState | undefined;
-    if (from === undefined || to === undefined) return null; // schema already rejected upstream
-    // Slice B / Phase 11 Item 3 SC1-SC3: extract back_edge sponsorship from
-    // payload so validateTransition can enforce action→target/from contract.
-    // The finding_id existence check happens at the outer preflight path
-    // (needs snapshot.findings, not visible here). The cast is the full
-    // 4-arm BackEdge union (amend-spec | amend-tasks | fix-impl | fix-test) —
-    // SC1 added the amend-tasks arm, SC2 the fix-impl arm, SC3 the fix-test
-    // arm; the runtime object already passes through to validateTransition's
-    // union, this only realigns the annotation.
-    const backEdge = payload["back_edge"] as TransitionContext["back_edge"];
-    return validateTransition(from, to, {
-      ceremony: ctx.ceremony,
-      actor: ctx.actor,
-      verify_accepted: ctx.verify_accepted,
-      spec_locked: ctx.spec_locked,
-      ...(backEdge !== undefined ? { back_edge: backEdge } : {}),
-    });
-  }
-
-  // Slice 1.A normalization: gate:decided no longer drives transitions —
-  // its gate_kind ↔ source sub_state pairing is enforced at step 5a in the
-  // main preflight() before transition check, not here. This branch stays
-  // as a null return so `checkTransition` short-circuits cleanly.
-  if (kind === "gate:decided") return null;
-
-  return null;
 }

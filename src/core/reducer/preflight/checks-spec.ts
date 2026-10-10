@@ -13,13 +13,6 @@ const SPEC_CONTENT_KINDS = new Set<EntryKind>([
   "event:spec_visual_added",
 ]);
 
-const SPEC_VERSION_KINDS = new Set<EntryKind>([
-  "event:spec_submitted",
-  "event:spec_req_added",
-  "event:spec_scenario_added",
-  "event:spec_visual_added",
-]);
-
 export function checkSpecContentPhase(c: PreflightCheckCtx): PreflightFailure | null {
   const { entry, ctx } = c;
   if (SPEC_CONTENT_KINDS.has(entry.kind)) {
@@ -59,9 +52,9 @@ export function checkSpecContentPhase(c: PreflightCheckCtx): PreflightFailure | 
 // batch head (spec_submitted, batch_index=0) does not carry req/scen/vis
 // payload, so this check only fires on the three add-* kinds.
 export function checkSpecDuplicateIds(c: PreflightCheckCtx): PreflightFailure | null {
-  const { entry, payloadData, ctx } = c;
+  const { entry, ctx } = c;
   if (entry.kind === "event:spec_req_added") {
-    const payload = payloadData as { req: { id: string } };
+    const payload = entry.payload;
     if (findCollision(payload.req.id, ctx.snapshot.requirements, (r) => r.id)) {
       return {
         ok: false,
@@ -72,7 +65,7 @@ export function checkSpecDuplicateIds(c: PreflightCheckCtx): PreflightFailure | 
     }
   }
   if (entry.kind === "event:spec_scenario_added") {
-    const payload = payloadData as { scenario: { id: string } };
+    const payload = entry.payload;
     if (findCollision(payload.scenario.id, ctx.snapshot.scenarios, (s) => s.id)) {
       return {
         ok: false,
@@ -83,7 +76,7 @@ export function checkSpecDuplicateIds(c: PreflightCheckCtx): PreflightFailure | 
     }
   }
   if (entry.kind === "event:spec_visual_added") {
-    const payload = payloadData as { visual: { id: string } };
+    const payload = entry.payload;
     if (findCollision(payload.visual.id, ctx.snapshot.visual_contracts, (v) => v.id)) {
       return {
         ok: false,
@@ -107,9 +100,14 @@ export function checkSpecDuplicateIds(c: PreflightCheckCtx): PreflightFailure | 
 // runs BEFORE the version check so a misplaced spec_submitted in the
 // middle of a batch returns the structurally meaningful code.
 export function checkSpecVersion(c: PreflightCheckCtx): PreflightFailure | null {
-  const { entry, payloadData, ctx } = c;
-  if (SPEC_VERSION_KINDS.has(entry.kind)) {
-    const payload = payloadData as { spec_version: number };
+  const { entry, ctx } = c;
+  if (
+    entry.kind === "event:spec_submitted" ||
+    entry.kind === "event:spec_req_added" ||
+    entry.kind === "event:spec_scenario_added" ||
+    entry.kind === "event:spec_visual_added"
+  ) {
+    const payload = entry.payload;
     const payloadVersion = payload.spec_version;
     const currentVersion = ctx.snapshot.state?.spec_version ?? 0;
 

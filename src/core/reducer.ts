@@ -9,36 +9,20 @@
 // Remaining kinds — task lifecycle, evidence, findings, pending, settle, etc.
 // — land incrementally in Stages 2-4 alongside their projections.
 
-import type {
-  Ceremony,
-  GateName,
-  SessionStartedPayload,
-  SubState,
-} from "./journal-entry.js";
+import type { SubState } from "./journal-entry.js";
 import type { AdmittedEntry } from "./admitted-entry.js";
 import { diagnostic } from "./error-catalog.js";
 import type { PreflightFailureCode } from "./reducer/preflight.js";
 import { extractTaskSlim, shouldPromoteToDone } from "./task-schema.js";
-import type { TaskProjectionInput } from "./task-schema.js";
-import type {
-  AttachmentPayload,
-  EvidenceKind,
-  EvidenceResult,
-  VerifyCheckKind,
-} from "./evidence-schema.js";
-import type { NeedsClarification } from "./spec-schema.js";
 import type {
   EvidenceState,
   FindingState,
   PendingState,
-  RequirementState,
-  ScenarioState,
   SessionState,
   Snapshot,
   SpecHeader,
   TaskState,
   TaskStepStatus,
-  VisualContractState,
 } from "./projection-types.js";
 
 // Compat re-export: the dozens of existing consumers continue importing the
@@ -118,7 +102,7 @@ export function applyValidated(prev: Snapshot, entry: AdmittedEntry): ApplyResul
         message: "session:started after state already initialized",
       };
     }
-    const payload = entry.payload as SessionStartedPayload;
+    const payload = entry.payload;
     return {
       ok: true,
       snapshot: {
@@ -147,7 +131,7 @@ export function applyValidated(prev: Snapshot, entry: AdmittedEntry): ApplyResul
   const { kind } = entry;
   switch (kind) {
     case "event:phase_advanced": {
-      const payload = entry.payload as { to: SubState; back_edge?: { action: string } };
+      const payload = entry.payload;
       const next: SessionState = {
         ...state,
         sub_state: payload.to,
@@ -170,7 +154,7 @@ export function applyValidated(prev: Snapshot, entry: AdmittedEntry): ApplyResul
     }
 
     case "event:ceremony_set": {
-      const payload = entry.payload as Ceremony;
+      const payload = entry.payload;
       return {
         ok: true,
         snapshot: { ...prev, state: { ...state, ceremony: payload } },
@@ -185,10 +169,7 @@ export function applyValidated(prev: Snapshot, entry: AdmittedEntry): ApplyResul
       // recorded in the journal but produce no projection flag change
       // (caller can read the journal for audit; future iteration may add a
       // rejected counter).
-      const payload = entry.payload as {
-        gate_kind: GateName;
-        decision: "approved" | "rejected";
-      };
+      const payload = entry.payload;
       if (payload.decision !== "approved") return { ok: true, snapshot: prev };
       switch (payload.gate_kind) {
         case "spec-lock":
@@ -211,10 +192,7 @@ export function applyValidated(prev: Snapshot, entry: AdmittedEntry): ApplyResul
       // payload shape before this handler runs (preflight gate), so
       // required fields are validated by the schema and checkTasksPlanned
       // rejects duplicate ids before this projection application.
-      const payload = entry.payload as {
-        based_on: { spec: number };
-        tasks: ReadonlyArray<TaskProjectionInput>;
-      };
+      const payload = entry.payload;
       const incoming = payload.tasks;
       const taskList: TaskState[] = incoming.map(extractTaskSlim);
       return {
@@ -235,11 +213,7 @@ export function applyValidated(prev: Snapshot, entry: AdmittedEntry): ApplyResul
       // §8.6 mutation-rights + add-authority gating live in preflight; this
       // handler retains the add collision rule; replace existence is owned
       // by checkTasksAmended in preflight.
-      const payload = entry.payload as {
-        mode: "add" | "replace";
-        task: TaskProjectionInput;
-        reason?: string;
-      };
+      const payload = entry.payload;
       const mode = payload.mode;
       const idx = prev.tasks.findIndex((t) => t.id === payload.task.id);
       if (mode === "add") {
@@ -262,7 +236,7 @@ export function applyValidated(prev: Snapshot, entry: AdmittedEntry): ApplyResul
     case "event:task_claimed": {
       // checkTaskLifecycle owns task existence, claimability and dependency
       // validation; admission is the only production caller of this reducer.
-      const payload = entry.payload as { task_id: string };
+      const payload = entry.payload;
       const tasks = prev.tasks.map((t) =>
         t.id === payload.task_id ? { ...t, status: "in_progress" as const } : t,
       );
@@ -273,7 +247,7 @@ export function applyValidated(prev: Snapshot, entry: AdmittedEntry): ApplyResul
       // Slice 1.B sub-cycle 3a (codex r24 note #3): fail fast on missing
       // unseeded step so we don't silently add a step without
       // applicability metadata (which would later subvert auto-promote).
-      const payload = entry.payload as { task_id: string; step: string };
+      const payload = entry.payload;
       const task = prev.tasks.find((t) => t.id === payload.task_id)!;
       const seeded = task.steps[payload.step];
       if (!seeded) {
@@ -307,12 +281,7 @@ export function applyValidated(prev: Snapshot, entry: AdmittedEntry): ApplyResul
       //   - auto-promote task.status="done" when every must-applicable
       //     step is terminal-positive (passed|waived|na). optional steps
       //     never block; failed/running/pending must blocks promotion
-      const payload = entry.payload as {
-        task_id: string;
-        step: string;
-        result?: "passed" | "failed" | "waived" | "na";
-        red_test_registered?: boolean;
-      };
+      const payload = entry.payload;
       const task = prev.tasks.find((t) => t.id === payload.task_id)!;
       const seeded = task.steps[payload.step];
       if (!seeded) {
@@ -358,7 +327,7 @@ export function applyValidated(prev: Snapshot, entry: AdmittedEntry): ApplyResul
       // reason are NOT erased (SC1b Q4 history-preservation rule — the slim
       // projection does not carry them anyway). Preflight is authoritative
       // for sponsorship, task/step presence, and target-authority refines.
-      const payload = entry.payload as { task_id: string; step: string };
+      const payload = entry.payload;
       const task = prev.tasks.find((t) => t.id === payload.task_id)!;
       const seeded = task.steps[payload.step]!;
       const tasks = prev.tasks.map((t) =>
@@ -380,7 +349,7 @@ export function applyValidated(prev: Snapshot, entry: AdmittedEntry): ApplyResul
     }
 
     case "event:task_abandoned": {
-      const payload = entry.payload as { task_id: string };
+      const payload = entry.payload;
       const tasks = prev.tasks.map((t) =>
         t.id === payload.task_id ? { ...t, status: "abandoned" as const } : t,
       );
@@ -402,13 +371,7 @@ export function applyValidated(prev: Snapshot, entry: AdmittedEntry): ApplyResul
       // defensive `?? "" / []` fallbacks (codex r88 — those would be
       // dead silent fallbacks masking a misuse). checkSpecVersion in
       // preflight owns batch position and version monotonicity.
-      const payload = entry.payload as {
-        spec_version: number;
-        feature: { id: string; name: string };
-        intent: string;
-        adr_refs: string[];
-        needs_clarification: NeedsClarification[];
-      };
+      const payload = entry.payload;
       // structuredClone to isolate the snapshot's spec_header from
       // entry.payload aliasing (codex r88 — projection that SC-A2 will
       // re-serialize must not share pointers with caller-owned objects).
@@ -432,7 +395,7 @@ export function applyValidated(prev: Snapshot, entry: AdmittedEntry): ApplyResul
     }
 
     case "event:spec_req_added": {
-      const payload = entry.payload as { spec_version: number; req: RequirementState };
+      const payload = entry.payload;
       // Slice A SC1 widen: push full payload.req (was extractRequirementSlim).
       // structuredClone isolates projection from caller-owned object
       // (codex r88 — mirrors extractTaskSlim's fresh-object discipline).
@@ -447,7 +410,7 @@ export function applyValidated(prev: Snapshot, entry: AdmittedEntry): ApplyResul
     }
 
     case "event:spec_scenario_added": {
-      const payload = entry.payload as { spec_version: number; scenario: ScenarioState };
+      const payload = entry.payload;
       prev.scenarios.push(structuredClone(payload.scenario));
       return {
         ok: true,
@@ -459,7 +422,7 @@ export function applyValidated(prev: Snapshot, entry: AdmittedEntry): ApplyResul
     }
 
     case "event:spec_visual_added": {
-      const payload = entry.payload as { spec_version: number; visual: VisualContractState };
+      const payload = entry.payload;
       prev.visual_contracts.push(structuredClone(payload.visual));
       return {
         ok: true,
@@ -479,21 +442,12 @@ export function applyValidated(prev: Snapshot, entry: AdmittedEntry): ApplyResul
       // payload (iteration/summary/cmd/exit/wall_ms/task_id/gate/decided_by/
       // based_on/waiver_obligation_id/external_ref) round-trips via the
       // journal itself, not projection. Admission enforces the payload schema.
-      const payload = entry.payload as {
-        id: string;
-        kind: EvidenceKind;
-        result?: EvidenceResult;
-        covers?: string[];
-        actor?: string;
-        check?: VerifyCheckKind;
-        reason?: string;
-        attachments?: AttachmentPayload[];
-      };
+      const payload = entry.payload;
       const ev: EvidenceState = {
         id: payload.id,
         kind: payload.kind,
-        covers: payload.covers ?? [],
-        actor: payload.actor ?? entry.actor,
+        covers: payload.covers,
+        actor: payload.actor,
       };
       if (payload.result !== undefined) ev.result = payload.result;
       if (payload.check !== undefined) ev.check = payload.check;
@@ -520,14 +474,7 @@ export function applyValidated(prev: Snapshot, entry: AdmittedEntry): ApplyResul
     case "finding:raised": {
       // Payload schema strict-validated at preflight (PER_KIND_PAYLOAD →
       // FindingRaisedPayload); admission guarantees its required fields.
-      const payload = entry.payload as {
-        id: string;
-        category: string;
-        action: string;
-        summary?: string;
-        reason?: string;
-        target?: { task_id: string; step: string };
-      };
+      const payload = entry.payload;
       const f: FindingState = {
         id: payload.id,
         category: payload.category,
@@ -547,7 +494,7 @@ export function applyValidated(prev: Snapshot, entry: AdmittedEntry): ApplyResul
       // finding returns FINDING_NOT_FOUND with detail.reason=already_closed
       // so the projection stays a single-source contract (one close per
       // finding, no silent retry that would re-emit an audit-trail entry).
-      const payload = entry.payload as { id: string };
+      const payload = entry.payload;
       const idx = prev.findings.findIndex((f) => f.id === payload.id);
       if (idx === -1) {
         return {
@@ -573,7 +520,7 @@ export function applyValidated(prev: Snapshot, entry: AdmittedEntry): ApplyResul
     }
 
     case "pending:added": {
-      const payload = entry.payload as { id: string; kind: string };
+      const payload = entry.payload;
       const p: PendingState = { id: payload.id, kind: payload.kind, resolved: false };
       // Mutating push (apply is the SSoT for snapshot evolution; callers
       // treat the prev reference as consumed). Avoids O(N²) replay cost
@@ -584,7 +531,7 @@ export function applyValidated(prev: Snapshot, entry: AdmittedEntry): ApplyResul
 
     case "pending:resolved": {
       // FIFO: only the head (first unresolved) may be marked resolved per §10.7.
-      const payload = entry.payload as { id: string };
+      const payload = entry.payload;
       const headIdx = prev.pending.findIndex((p) => !p.resolved);
       if (headIdx === -1) {
         return {

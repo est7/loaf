@@ -304,9 +304,8 @@ export interface EnvelopeCheckCtx {
 
 export interface PreflightCheckCtx extends Omit<EnvelopeCheckCtx, "entry" | "payloadParsed"> {
   entry: AdmittedEntry;
-  // Transitional aliases: Slice 2 removes raw semantic reads and payload casts.
-  rawEntry: unknown;
-  payloadData: unknown;
+  /** Boundary-only input for rejecting a known forbidden task RED key. */
+  inputPayload: unknown;
 }
 
 export type PreflightCheck = (ctx: PreflightCheckCtx) => PreflightFailure | null;
@@ -355,10 +354,13 @@ export function preflight(rawEntry: unknown, ctx: PreflightContext): PreflightRe
   if (!admitted.ok) return admitted;
 
   const checkCtx: PreflightCheckCtx = {
-    ...envelopeCtx,
     entry: admitted.entry,
-    rawEntry,
-    payloadData: admitted.entry.payload,
+    inputPayload: entry.payload,
+    ctx,
+    sub_state,
+    ceremony,
+    verify_accepted,
+    spec_locked,
   };
   for (const check of SEMANTIC_CHECKS) {
     const failure = check(checkCtx);
@@ -369,7 +371,7 @@ export function preflight(rawEntry: unknown, ctx: PreflightContext): PreflightRe
 
 // The ORDERED error-precedence contract. Exported so the precedence test can
 // pin the sequence (a reorder fails loudly). First failure wins. The envelope
-// parse (1) and per-kind payload parse (producing `payloadData`) run inline in
+// parse (1) and per-kind payload parse run inline in
 // preflight() before this pipeline because they build the check context.
 const AUTHORITY_CHECKS = [
   checkSeqMonotonic, // (2)

@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scenario keys are stripped, and copied object keys follow schema declaration
   order in snapshots and spec frontmatter. Passthrough schemas still preserve
   unknown keys. Journal persistence retains the original candidate payload.
+- Task amendments now reject non-behavioral tasks carrying
+  `red_test_registered: true` with `BUG_TASK_FLAG_MISUSE`, matching the existing
+  planned-task input boundary. This deliberately tightens amended input;
+  false or absent flags retain their prior behavior.
 
 ## [0.9.0] — 2026-10-10
 

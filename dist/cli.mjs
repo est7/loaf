@@ -3144,8 +3144,8 @@ function applyValidated(prev, entry) {
 			const ev = {
 				id: payload.id,
 				kind: payload.kind,
-				covers: payload.covers ?? [],
-				actor: payload.actor ?? entry.actor
+				covers: payload.covers,
+				actor: payload.actor
 			};
 			if (payload.result !== void 0) ev.result = payload.result;
 			if (payload.check !== void 0) ev.check = payload.check;
@@ -4293,12 +4293,6 @@ const SPEC_CONTENT_KINDS = new Set([
 	"event:spec_scenario_added",
 	"event:spec_visual_added"
 ]);
-const SPEC_VERSION_KINDS = new Set([
-	"event:spec_submitted",
-	"event:spec_req_added",
-	"event:spec_scenario_added",
-	"event:spec_visual_added"
-]);
 function checkSpecContentPhase(c) {
 	const { entry, ctx } = c;
 	if (SPEC_CONTENT_KINDS.has(entry.kind)) {
@@ -4324,9 +4318,9 @@ function checkSpecContentPhase(c) {
 	return null;
 }
 function checkSpecDuplicateIds(c) {
-	const { entry, payloadData, ctx } = c;
+	const { entry, ctx } = c;
 	if (entry.kind === "event:spec_req_added") {
-		const payload = payloadData;
+		const payload = entry.payload;
 		if (findCollision(payload.req.id, ctx.snapshot.requirements, (r) => r.id)) return {
 			ok: false,
 			code: "DUPLICATE_REQ_ID",
@@ -4335,7 +4329,7 @@ function checkSpecDuplicateIds(c) {
 		};
 	}
 	if (entry.kind === "event:spec_scenario_added") {
-		const payload = payloadData;
+		const payload = entry.payload;
 		if (findCollision(payload.scenario.id, ctx.snapshot.scenarios, (s) => s.id)) return {
 			ok: false,
 			code: "DUPLICATE_SCEN_ID",
@@ -4344,7 +4338,7 @@ function checkSpecDuplicateIds(c) {
 		};
 	}
 	if (entry.kind === "event:spec_visual_added") {
-		const payload = payloadData;
+		const payload = entry.payload;
 		if (findCollision(payload.visual.id, ctx.snapshot.visual_contracts, (v) => v.id)) return {
 			ok: false,
 			code: "DUPLICATE_VIS_ID",
@@ -4355,9 +4349,9 @@ function checkSpecDuplicateIds(c) {
 	return null;
 }
 function checkSpecVersion(c) {
-	const { entry, payloadData, ctx } = c;
-	if (SPEC_VERSION_KINDS.has(entry.kind)) {
-		const payloadVersion = payloadData.spec_version;
+	const { entry, ctx } = c;
+	if (entry.kind === "event:spec_submitted" || entry.kind === "event:spec_req_added" || entry.kind === "event:spec_scenario_added" || entry.kind === "event:spec_visual_added") {
+		const payloadVersion = entry.payload.spec_version;
 		const currentVersion = ctx.snapshot.state?.spec_version ?? 0;
 		if (entry.kind === "event:spec_submitted") {
 			if (entry.batch_index !== void 0 && entry.batch_index !== 0) return {
@@ -4626,43 +4620,55 @@ function checkTaskGraph(tasks) {
 }
 //#endregion
 //#region src/core/reducer/preflight/checks-task.ts
+function hasForbiddenTaskRedInput(inputPayload, taskIndex) {
+	if (typeof inputPayload !== "object" || inputPayload === null) return false;
+	let task;
+	if (taskIndex === void 0) {
+		if ("task" in inputPayload) task = inputPayload.task;
+	} else if ("tasks" in inputPayload && Array.isArray(inputPayload.tasks)) task = inputPayload.tasks[taskIndex];
+	return typeof task === "object" && task !== null && "red_test_registered" in task && task.red_test_registered === true;
+}
 function checkTasksPlanned(c) {
-	const { entry, rawEntry } = c;
+	const { entry, inputPayload } = c;
 	if (entry.kind === "event:tasks_planned") {
-		const incoming = (rawEntry.payload ?? {})["tasks"];
-		if (Array.isArray(incoming)) {
-			const seenIds = /* @__PURE__ */ new Set();
-			for (const t of incoming) {
-				if (typeof t?.id === "string") {
-					if (seenIds.has(t.id)) return {
-						ok: false,
-						code: "DUPLICATE_TASK_ID",
-						message: `tasks_planned: task id ${t.id} appears more than once in payload`,
-						detail: { task_id: t.id }
-					};
-					seenIds.add(t.id);
+		const seenIds = /* @__PURE__ */ new Set();
+		for (const [index, task] of entry.payload.tasks.entries()) {
+			if (seenIds.has(task.id)) return {
+				ok: false,
+				code: "DUPLICATE_TASK_ID",
+				message: `tasks_planned: task id ${task.id} appears more than once in payload`,
+				detail: { task_id: task.id }
+			};
+			seenIds.add(task.id);
+			if (task.kind === "behavioral" ? task.red_test_registered === true : hasForbiddenTaskRedInput(inputPayload, index)) return {
+				ok: false,
+				code: "BUG_TASK_FLAG_MISUSE",
+				message: `tasks_planned: task ${task.id} carries red_test_registered=true — a planned task is born unregistered; use \`loaf tasks register-red\` after creation`,
+				detail: {
+					task_id: task.id,
+					kind: "event:tasks_planned"
 				}
-				if (t?.red_test_registered === true) return {
-					ok: false,
-					code: "BUG_TASK_FLAG_MISUSE",
-					message: `tasks_planned: task ${t.id ?? "?"} carries red_test_registered=true — a planned task is born unregistered; use \`loaf tasks register-red\` after creation`,
-					detail: {
-						task_id: t.id,
-						kind: "event:tasks_planned"
-					}
-				};
-			}
+			};
 		}
 	}
 	return null;
 }
 function checkTasksAmended(c) {
-	const { entry, payloadData, sub_state, ctx } = c;
+	const { entry, inputPayload, sub_state, ctx } = c;
 	if (entry.kind === "event:tasks_amended") {
-		const amended = payloadData;
+		const amended = entry.payload;
 		const mode = amended.mode;
 		const taskId = amended.task.id;
 		const sponsorId = amended.sponsored_by_finding_id;
+		if (amended.task.kind !== "behavioral" && hasForbiddenTaskRedInput(inputPayload)) return {
+			ok: false,
+			code: "BUG_TASK_FLAG_MISUSE",
+			message: `tasks_amended: non-behavioral task ${taskId} must not carry red_test_registered=true`,
+			detail: {
+				task_id: taskId,
+				kind: entry.kind
+			}
+		};
 		if (sponsorId !== void 0) {
 			const finding = ctx.snapshot.findings.find((f) => f.id === sponsorId);
 			if (!finding) return {
@@ -4792,16 +4798,9 @@ function checkTasksAmended(c) {
 	return null;
 }
 function checkTaskLifecycle(c) {
-	const { entry, rawEntry, ctx } = c;
+	const { entry, ctx } = c;
 	if (entry.kind === "event:task_claimed" || entry.kind === "event:task_step_started" || entry.kind === "event:task_step_done") {
-		const payload = rawEntry.payload ?? {};
-		const task_id = payload["task_id"];
-		if (!task_id) return {
-			ok: false,
-			code: "INVALID_PAYLOAD",
-			message: `${entry.kind}: missing task_id`,
-			detail: { kind: entry.kind }
-		};
+		const task_id = entry.payload.task_id;
 		const task = ctx.snapshot.tasks.find((t) => t.id === task_id);
 		if (!task) return {
 			ok: false,
@@ -4848,11 +4847,11 @@ function checkTaskLifecycle(c) {
 				};
 			}
 		} else {
-			const step = payload["step"];
+			const step = entry.payload.step;
 			if (task.status !== "in_progress") return {
 				ok: false,
 				code: "TASK_NOT_CLAIMED",
-				message: `task ${task_id} step ${step ?? "?"} mutation requires task.status=in_progress (got status=${task.status}); claim the task first`,
+				message: `task ${task_id} step ${step} mutation requires task.status=in_progress (got status=${task.status}); claim the task first`,
 				detail: {
 					task_id,
 					step,
@@ -4870,13 +4869,13 @@ function checkTaskLifecycle(c) {
 					kind: entry.kind
 				}
 			};
-			if (entry.kind === "event:task_step_done" && payload["red_test_registered"] === true) {
-				const result = payload["result"];
+			if (entry.kind === "event:task_step_done" && entry.payload.red_test_registered === true) {
+				const result = entry.payload.result;
 				const okResult = result === void 0 || result === "passed" || result === "waived";
 				if (!(step === "red" && task.kind === "behavioral" && task.labels.includes("bug") && okResult)) return {
 					ok: false,
 					code: "BUG_TASK_FLAG_MISUSE",
-					message: `red_test_registered=true is valid only on a red-step task_step_done for a behavioral bug task with a passed/waived result (task ${task_id}, step=${step ?? "?"}, result=${result ?? "passed"}, kind=${task.kind})`,
+					message: `red_test_registered=true is valid only on a red-step task_step_done for a behavioral bug task with a passed/waived result (task ${task_id}, step=${step}, result=${result ?? "passed"}, kind=${task.kind})`,
 					detail: {
 						task_id,
 						step,
@@ -4891,15 +4890,9 @@ function checkTaskLifecycle(c) {
 	return null;
 }
 function checkTaskAbandoned(c) {
-	const { entry, rawEntry, ctx } = c;
+	const { entry, ctx } = c;
 	if (entry.kind === "event:task_abandoned") {
-		const task_id = (rawEntry.payload ?? {})["task_id"];
-		if (!task_id) return {
-			ok: false,
-			code: "INVALID_PAYLOAD",
-			message: `${entry.kind}: missing task_id`,
-			detail: { kind: entry.kind }
-		};
+		const task_id = entry.payload.task_id;
 		const task = ctx.snapshot.tasks.find((t) => t.id === task_id);
 		if (!task) return {
 			ok: false,
@@ -4933,9 +4926,9 @@ function checkTaskAbandoned(c) {
 	return null;
 }
 function checkTaskStepReset(c) {
-	const { entry, payloadData, ctx } = c;
+	const { entry, ctx } = c;
 	if (entry.kind === "event:task_step_reset") {
-		const payload = payloadData;
+		const payload = entry.payload;
 		const finding = ctx.snapshot.findings.find((f) => f.id === payload.finding_id);
 		if (!finding) return {
 			ok: false,
@@ -5081,9 +5074,9 @@ const verifyMinPolicy = { acceptedKinds: (task) => VERIFY_MIN_REQUIRED_KINDS[tas
 //#endregion
 //#region src/core/reducer/preflight/checks-workflow.ts
 function checkGateDecided(c) {
-	const { entry, payloadData, sub_state, ctx } = c;
+	const { entry, sub_state, ctx } = c;
 	if (entry.kind === "gate:decided") {
-		const gateKind = payloadData.gate_kind;
+		const gateKind = entry.payload.gate_kind;
 		if (gateKind === "spec-lock" && sub_state !== "SPEC.design") return {
 			ok: false,
 			code: "SUB_STATE_AUTHORITY_VIOLATION",
@@ -5104,7 +5097,7 @@ function checkGateDecided(c) {
 				expected: "VERIFY.accept"
 			}
 		};
-		if (payloadData.decision === "approved") {
+		if (entry.payload.decision === "approved") {
 			const pendingHead = ctx.snapshot.pending.find((p) => !p.resolved);
 			if (pendingHead && pendingHead.kind !== "gate_decision") return {
 				ok: false,
@@ -5120,11 +5113,11 @@ function checkGateDecided(c) {
 	return null;
 }
 function checkPhaseAdvanced(c) {
-	const { entry, rawEntry, sub_state, ctx } = c;
+	const { entry, sub_state, ctx } = c;
 	if (entry.kind === "event:phase_advanced") {
-		const payload = rawEntry.payload ?? {};
-		const from = payload["from"];
-		if (from !== void 0 && from !== sub_state) return {
+		const payload = entry.payload;
+		const from = payload.from;
+		if (from !== sub_state) return {
 			ok: false,
 			code: "FROM_CURSOR_MISMATCH",
 			message: `event:phase_advanced payload.from=${from} but current sub_state=${sub_state}`,
@@ -5143,8 +5136,8 @@ function checkPhaseAdvanced(c) {
 				kind: head.kind
 			}
 		};
-		const backEdge = (rawEntry.payload ?? {})["back_edge"];
-		if (backEdge !== void 0 && typeof backEdge.finding_id === "string") {
+		const backEdge = payload.back_edge;
+		if (backEdge !== void 0) {
 			const findingId = backEdge.finding_id;
 			const finding = ctx.snapshot.findings.find((f) => f.id === findingId);
 			if (!finding) return {
@@ -5177,7 +5170,7 @@ function checkPhaseAdvanced(c) {
 				}
 			};
 		}
-		const phaseTo = payload["to"];
+		const phaseTo = payload.to;
 		if (backEdge === void 0 && sub_state === "EXECUTE.work" && phaseTo === "EXECUTE.done") {
 			const nonFinal = ctx.snapshot.tasks.filter((t) => t.status !== "done" && t.status !== "abandoned").map((t) => ({
 				task_id: t.id,
@@ -5309,9 +5302,9 @@ function checkCeremonySet(c) {
 	return null;
 }
 function checkSessionTerminalReason(c) {
-	const { entry, rawEntry } = c;
+	const { entry } = c;
 	if (entry.kind === "session:archived" || entry.kind === "session:abandoned") {
-		if ((rawEntry.payload ?? {})["reason"] === void 0) return {
+		if (entry.payload.reason === void 0) return {
 			ok: false,
 			code: "SESSION_REASON_REQUIRED",
 			message: `${entry.kind}: --reason is required (the session-terminal entry must record why)`,
@@ -5321,9 +5314,9 @@ function checkSessionTerminalReason(c) {
 	return null;
 }
 function checkFindingRaised(c) {
-	const { entry, payloadData, sub_state, ctx } = c;
+	const { entry, sub_state, ctx } = c;
 	if (entry.kind === "finding:raised") {
-		const payload = payloadData;
+		const payload = entry.payload;
 		const risk = cellRisk(payload.category, payload.action);
 		if (risk === "incoherent") return {
 			ok: false,
@@ -5424,15 +5417,17 @@ function checkFindingRaised(c) {
 	return null;
 }
 function checkTransitionEdge(c) {
-	const { entry, rawEntry, sub_state, ceremony, verify_accepted, spec_locked } = c;
-	const transitionResult = checkTransition(entry.kind, rawEntry, {
-		sub_state,
+	const { entry, ceremony, verify_accepted, spec_locked } = c;
+	if (entry.kind !== "event:phase_advanced") return null;
+	const { from, to, back_edge } = entry.payload;
+	const transitionResult = validateTransition(from, to, {
 		ceremony,
 		verify_accepted,
 		spec_locked,
-		actor: entry.actor
+		actor: entry.actor,
+		...back_edge !== void 0 ? { back_edge } : {}
 	});
-	if (transitionResult && !transitionResult.ok) return {
+	if (!transitionResult.ok) return {
 		ok: false,
 		code: transitionResult.code,
 		message: transitionResult.message,
@@ -5446,28 +5441,6 @@ function deriveCeremonyLabel(c) {
 	if (c.spec_phase && c.verify_phase && !c.settle_phase) return "standard";
 	if (c.spec_phase && c.verify_phase && c.settle_phase) return "deep";
 	return "custom";
-}
-/**
-* For state-machine-edge kinds, extract (from, to) from payload and run
-* validateTransition. Returns null for kinds that don't carry an edge.
-*/
-function checkTransition(kind, raw, ctx) {
-	const payload = raw["payload"] ?? {};
-	if (kind === "event:phase_advanced") {
-		const from = payload["from"];
-		const to = payload["to"];
-		if (from === void 0 || to === void 0) return null;
-		const backEdge = payload["back_edge"];
-		return validateTransition(from, to, {
-			ceremony: ctx.ceremony,
-			actor: ctx.actor,
-			verify_accepted: ctx.verify_accepted,
-			spec_locked: ctx.spec_locked,
-			...backEdge !== void 0 ? { back_edge: backEdge } : {}
-		});
-	}
-	if (kind === "gate:decided") return null;
-	return null;
 }
 //#endregion
 //#region src/core/reducer/preflight.ts
@@ -5509,10 +5482,13 @@ function preflight(rawEntry, ctx) {
 	const admitted = checkPerKindPayload(envelopeCtx);
 	if (!admitted.ok) return admitted;
 	const checkCtx = {
-		...envelopeCtx,
 		entry: admitted.entry,
-		rawEntry,
-		payloadData: admitted.entry.payload
+		inputPayload: entry.payload,
+		ctx,
+		sub_state,
+		ceremony,
+		verify_accepted,
+		spec_locked
 	};
 	for (const check of SEMANTIC_CHECKS) {
 		const failure = check(checkCtx);

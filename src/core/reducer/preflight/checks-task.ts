@@ -5,43 +5,51 @@ import {
   firstSponsoredFrozenViolation,
 } from "../../task-amend-policy.js";
 import { areTaskDependenciesSatisfied } from "../../task-graph.js";
-import { extractTaskSlim, type TaskFullProjection } from "../../task-schema.js";
+import { extractTaskSlim } from "../../task-schema.js";
 import type { PreflightCheckCtx, PreflightFailure } from "../preflight.js";
 
+// The only raw-payload exception: reject a known forbidden input key that
+// non-behavioral task schemas strip. Keep the original === true predicate;
+// false/undefined remain accepted. All domain fields come from the typed entry.
+function hasForbiddenTaskRedInput(inputPayload: unknown, taskIndex?: number): boolean {
+  if (typeof inputPayload !== "object" || inputPayload === null) return false;
+  let task: unknown;
+  if (taskIndex === undefined) {
+    if ("task" in inputPayload) task = inputPayload.task;
+  } else if ("tasks" in inputPayload && Array.isArray(inputPayload.tasks)) {
+    task = inputPayload.tasks[taskIndex];
+  }
+  return (
+    typeof task === "object" && task !== null &&
+    "red_test_registered" in task && task.red_test_registered === true
+  );
+}
+
 export function checkTasksPlanned(c: PreflightCheckCtx): PreflightFailure | null {
-  const { entry, rawEntry } = c;
+  const { entry, inputPayload } = c;
   if (entry.kind === "event:tasks_planned") {
-    const tasksPayload = (rawEntry as { payload?: Record<string, unknown> }).payload ?? {};
-    const incoming = tasksPayload["tasks"] as
-      | Array<{ id?: string; red_test_registered?: unknown }>
-      | undefined;
-    if (Array.isArray(incoming)) {
-      const seenIds = new Set<string>();
-      for (const t of incoming) {
-        if (typeof t?.id === "string") {
-          if (seenIds.has(t.id)) {
-            return {
-              ok: false,
-              code: "DUPLICATE_TASK_ID",
-              message: `tasks_planned: task id ${t.id} appears more than once in payload`,
-              detail: { task_id: t.id },
-            };
-          }
-          seenIds.add(t.id);
-        }
-        // Slice C SC-C4 (R2) — creation-time red-flag rejection. A planned
-        // task must be born unregistered; red_test_registered is set only
-        // by `loaf tasks register-red` after the task exists, so the
-        // journal records RED registration strictly after task creation.
-        // (Preflight only — replay of pre-guard journals stays apply-only.)
-        if (t?.red_test_registered === true) {
-          return {
-            ok: false,
-            code: "BUG_TASK_FLAG_MISUSE",
-            message: `tasks_planned: task ${t.id ?? "?"} carries red_test_registered=true — a planned task is born unregistered; use \`loaf tasks register-red\` after creation`,
-            detail: { task_id: t.id, kind: "event:tasks_planned" },
-          };
-        }
+    const seenIds = new Set<string>();
+    for (const [index, task] of entry.payload.tasks.entries()) {
+      if (seenIds.has(task.id)) {
+        return {
+          ok: false,
+          code: "DUPLICATE_TASK_ID",
+          message: `tasks_planned: task id ${task.id} appears more than once in payload`,
+          detail: { task_id: task.id },
+        };
+      }
+      seenIds.add(task.id);
+      if (
+        task.kind === "behavioral"
+          ? task.red_test_registered === true
+          : hasForbiddenTaskRedInput(inputPayload, index)
+      ) {
+        return {
+          ok: false,
+          code: "BUG_TASK_FLAG_MISUSE",
+          message: `tasks_planned: task ${task.id} carries red_test_registered=true — a planned task is born unregistered; use \`loaf tasks register-red\` after creation`,
+          detail: { task_id: task.id, kind: "event:tasks_planned" },
+        };
       }
     }
   }
@@ -77,16 +85,20 @@ export function checkTasksPlanned(c: PreflightCheckCtx): PreflightFailure | null
 // body-only-field guard. This is a deliberate locus split, not a preflight
 // capability gap.
 export function checkTasksAmended(c: PreflightCheckCtx): PreflightFailure | null {
-  const { entry, payloadData, sub_state, ctx } = c;
+  const { entry, inputPayload, sub_state, ctx } = c;
   if (entry.kind === "event:tasks_amended") {
-    const amended = payloadData as {
-      mode: "add" | "replace";
-      task: TaskFullProjection;
-      sponsored_by_finding_id?: string;
-    };
+    const amended = entry.payload;
     const mode = amended.mode;
     const taskId = amended.task.id;
     const sponsorId = amended.sponsored_by_finding_id;
+    if (amended.task.kind !== "behavioral" && hasForbiddenTaskRedInput(inputPayload)) {
+      return {
+        ok: false,
+        code: "BUG_TASK_FLAG_MISUSE",
+        message: `tasks_amended: non-behavioral task ${taskId} must not carry red_test_registered=true`,
+        detail: { task_id: taskId, kind: entry.kind },
+      };
+    }
 
     if (sponsorId !== undefined) {
       // (a) Verify the sponsorship marker against snapshot.findings — mirror
@@ -276,23 +288,14 @@ export function checkTasksAmended(c: PreflightCheckCtx): PreflightFailure | null
 // defense-in-depth (preflight is authoritative, reducer must not silently
 // no-op).
 export function checkTaskLifecycle(c: PreflightCheckCtx): PreflightFailure | null {
-  const { entry, rawEntry, ctx } = c;
+  const { entry, ctx } = c;
   if (
     entry.kind === "event:task_claimed" ||
     entry.kind === "event:task_step_started" ||
     entry.kind === "event:task_step_done"
   ) {
-    const payload = (rawEntry as { payload?: Record<string, unknown> }).payload ?? {};
-    const task_id = payload["task_id"] as string | undefined;
-    if (!task_id) {
-      // Schema validation should have caught this; defensive.
-      return {
-        ok: false,
-        code: "INVALID_PAYLOAD",
-        message: `${entry.kind}: missing task_id`,
-        detail: { kind: entry.kind },
-      };
-    }
+    const payload = entry.payload;
+    const task_id = payload.task_id;
     const task = ctx.snapshot.tasks.find((t) => t.id === task_id);
     if (!task) {
       return {
@@ -343,12 +346,12 @@ export function checkTaskLifecycle(c: PreflightCheckCtx): PreflightFailure | nul
       }
     } else {
       // task_step_started or task_step_done
-      const step = payload["step"] as string | undefined;
+      const step = entry.payload.step;
       if (task.status !== "in_progress") {
         return {
           ok: false,
           code: "TASK_NOT_CLAIMED",
-          message: `task ${task_id} step ${step ?? "?"} mutation requires task.status=in_progress (got status=${task.status}); claim the task first`,
+          message: `task ${task_id} step ${step} mutation requires task.status=in_progress (got status=${task.status}); claim the task first`,
           detail: { task_id, step, status: task.status, kind: entry.kind },
         };
       }
@@ -374,8 +377,8 @@ export function checkTaskLifecycle(c: PreflightCheckCtx): PreflightFailure | nul
       // red_test_registered flag may ride a task_step_done only when it is
       // a red-step registration on a behavioral bug task with a
       // passed/waived result (undefined result reduces to "passed").
-      if (entry.kind === "event:task_step_done" && payload["red_test_registered"] === true) {
-        const result = payload["result"] as string | undefined;
+      if (entry.kind === "event:task_step_done" && entry.payload.red_test_registered === true) {
+        const result = entry.payload.result;
         const okResult = result === undefined || result === "passed" || result === "waived";
         const okShape =
           step === "red" && task.kind === "behavioral" && task.labels.includes("bug") && okResult;
@@ -383,7 +386,7 @@ export function checkTaskLifecycle(c: PreflightCheckCtx): PreflightFailure | nul
           return {
             ok: false,
             code: "BUG_TASK_FLAG_MISUSE",
-            message: `red_test_registered=true is valid only on a red-step task_step_done for a behavioral bug task with a passed/waived result (task ${task_id}, step=${step ?? "?"}, result=${result ?? "passed"}, kind=${task.kind})`,
+            message: `red_test_registered=true is valid only on a red-step task_step_done for a behavioral bug task with a passed/waived result (task ${task_id}, step=${step}, result=${result ?? "passed"}, kind=${task.kind})`,
             detail: {
               task_id,
               step,
@@ -414,19 +417,10 @@ export function checkTaskLifecycle(c: PreflightCheckCtx): PreflightFailure | nul
 // INVALID_PAYLOAD for missing / empty reason rides the PER_KIND_PAYLOAD
 // parse above (TaskAbandonedPayload requires reason: z.string().min(1)).
 export function checkTaskAbandoned(c: PreflightCheckCtx): PreflightFailure | null {
-  const { entry, rawEntry, ctx } = c;
+  const { entry, ctx } = c;
   if (entry.kind === "event:task_abandoned") {
-    const payload = (rawEntry as { payload?: Record<string, unknown> }).payload ?? {};
-    const task_id = payload["task_id"] as string | undefined;
-    if (!task_id) {
-      // Schema validation should have caught this; defensive.
-      return {
-        ok: false,
-        code: "INVALID_PAYLOAD",
-        message: `${entry.kind}: missing task_id`,
-        detail: { kind: entry.kind },
-      };
-    }
+    const payload = entry.payload;
+    const task_id = payload.task_id;
     const task = ctx.snapshot.tasks.find((t) => t.id === task_id);
     if (!task) {
       return {
@@ -487,13 +481,9 @@ export function checkTaskAbandoned(c: PreflightCheckCtx): PreflightFailure | nul
 // No new DiagnosticCode — FINDING_NOT_FOUND + MUTATION_OUT_OF_RIGHTS
 // are reused (codex r139 Q3).
 export function checkTaskStepReset(c: PreflightCheckCtx): PreflightFailure | null {
-  const { entry, payloadData, ctx } = c;
+  const { entry, ctx } = c;
   if (entry.kind === "event:task_step_reset") {
-    const payload = payloadData as {
-      task_id: string;
-      step: string;
-      finding_id: string;
-    };
+    const payload = entry.payload;
     const finding = ctx.snapshot.findings.find((f) => f.id === payload.finding_id);
     if (!finding) {
       return {
@@ -607,7 +597,7 @@ export function checkTaskStepReset(c: PreflightCheckCtx): PreflightFailure | nul
 }
 
 // (5g) Slice 3 SC3 — finding:raised refines (FINDING_ACTION_GRID +
-// target_payload). Runs after PER_KIND_PAYLOAD parse so `payloadData`
+// target_payload). Runs after PER_KIND_PAYLOAD parse so the admitted payload
 // is the typed FindingRaisedPayload. Order:
 //   1. INCOHERENT grid cells block first (no transition target).
 //   2. UNUSUAL cells require --reason ≥20 chars.
