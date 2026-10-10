@@ -37,7 +37,6 @@ const ALL_SUB_STATES: SubState[] = [
   "VERIFY.acceptance",
   "VERIFY.visual",
   "VERIFY.accept",
-  "SETTLE.reconcile",
   "SETTLE.lessons",
   "DONE.delivered",
   "DONE.archived",

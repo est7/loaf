@@ -52,7 +52,6 @@
       "accept":     "Verify / accept gate"
     },
     "SETTLE": {
-      "reconcile": "Settle / reconcile",
       "lessons":   "Settle / lessons"
     },
     "DONE": {
@@ -188,7 +187,7 @@
       "SPEC":    { "description": "Proposal, spec, plan, design" },
       "EXECUTE": { "description": "Task work and fan-out" },
       "VERIFY":  { "description": "Run, review, acceptance, visual" },
-      "SETTLE":  { "description": "Reconcile and lessons" },
+      "SETTLE":  { "description": "Lessons" },
       "DONE":    { "description": "Delivered or terminal sessions" }
     },
     "status": {
@@ -643,9 +642,9 @@
     "evidence_schema": "Dump EvidenceEntry JSON Schema",
     "waive":          "Record a waiver evidence; actor must start with human: and reason must be >=10 chars",
     "finding_raise":  "Raise a finding (VERIFY.* always, EXECUTE.* only post-spec-lock)",
-    "verify_status":  "Compute current verify check applicability + status (real-time, never reads reconcile.json)",
+    "verify_status":  "Compute current verify check applicability + status (real-time)",
     "gate_decide":    "Record human gate decision; writes evidence kind=gate-decision",
-    "settle":         "Generate reconcile.json (standard+ profile)",
+    "settle":         "Advance VERIFY.accept → SETTLE.lessons (deep ceremony only)",
     "amend":          "Edit spec or tasks pre-lock (rejected post-lock; use findings instead)",
     "profile_escalate": "Confirm pending profile escalation",
     "deliver":        "Close session as DONE.delivered (advisory only; no git/gh side effects)",

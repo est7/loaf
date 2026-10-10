@@ -20,9 +20,10 @@
 
 > **2026-07-27 supersession note:** A10 retires reconcile as an executable
 > lifecycle stage. New deep flows route `VERIFY.accept → SETTLE.lessons`;
-> `SETTLE.reconcile` and `ReconcileJson` remain compatibility-only for
-> historical journal replay and legacy leaf validation. No reconcile writer
-> or gate authority is introduced. Historical reasoning below is preserved.
+> Packet F2+F5 removes `SETTLE.reconcile`, `ReconcileJson`, and the legacy
+> projection reader under the approved no-historical-data decision. Replay
+> rejects the retired target during preflight. Historical reasoning below
+> is preserved; it does not define a current reader or writer contract.
 
 ### Audit history
 

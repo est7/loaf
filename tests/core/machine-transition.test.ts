@@ -20,7 +20,6 @@ const EXPECTED_FORWARD_GRAPH: Record<SubState, readonly SubState[]> = {
   "VERIFY.acceptance": ["VERIFY.visual", "VERIFY.accept"],
   "VERIFY.visual": ["VERIFY.accept"],
   "VERIFY.accept": ["SETTLE.lessons"],
-  "SETTLE.reconcile": ["SETTLE.lessons"],
   "SETTLE.lessons": [],
   "DONE.delivered": [],
   "DONE.archived": [],

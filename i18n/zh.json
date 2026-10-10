@@ -52,7 +52,6 @@
       "accept":     "验证 / 接收 gate"
     },
     "SETTLE": {
-      "reconcile": "结算 / 对账",
       "lessons":   "结算 / 经验沉淀"
     },
     "DONE": {
@@ -188,7 +187,7 @@
       "SPEC":    { "description": "提案、规格、计划、设计" },
       "EXECUTE": { "description": "任务执行与并行展开" },
       "VERIFY":  { "description": "运行、评审、验收、视觉" },
-      "SETTLE":  { "description": "对账与经验沉淀" },
+      "SETTLE":  { "description": "经验沉淀" },
       "DONE":    { "description": "已交付或终态会话" }
     },
     "status": {
@@ -643,9 +642,9 @@
     "evidence_schema": "dump EvidenceEntry JSON Schema",
     "waive":          "记录一条 waiver 证据;actor 必须 human:* 起始,reason ≥10 字符",
     "finding_raise":  "raise 一条 finding(VERIFY.* 始终允许,EXECUTE.* 仅 post-spec-lock 允许)",
-    "verify_status":  "实时计算各 verify check 的 applicability + status(永不读 reconcile.json)",
+    "verify_status":  "实时计算各 verify check 的 applicability + status",
     "gate_decide":    "记录人工 gate 决策;写 evidence kind=gate-decision",
-    "settle":         "生成 reconcile.json(standard+ profile)",
+    "settle":         "推进 VERIFY.accept → SETTLE.lessons(仅 deep ceremony)",
     "amend":          "spec-lock 前编辑 spec / tasks(post-lock 拒绝,改走 finding)",
     "profile_escalate": "确认 pending profile 升级",
     "deliver":        "标记 session 为 DONE.delivered(advisory only,不碰 git/gh)",

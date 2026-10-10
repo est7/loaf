@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Legacy evidence-shaped lessons; `lessons.md` now projects only
   `lesson:recorded` entries.
+- The retired `SETTLE.reconcile` sub_state, its `ReconcileJson` projection
+  schema, and the legacy reconcile projection reader. Replay now rejects the
+  former `VERIFY.accept → SETTLE.reconcile` edge.
 
 ### Fixed
 

@@ -489,7 +489,6 @@ function isLegalSubState(value: string): value is SubState {
     "VERIFY.acceptance",
     "VERIFY.visual",
     "VERIFY.accept",
-    "SETTLE.reconcile",
     "SETTLE.lessons",
     "DONE.delivered",
     "DONE.archived",

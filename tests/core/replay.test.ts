@@ -353,3 +353,65 @@ describe("replayJournal — Stage 3 §3.6", () => {
     }
   });
 });
+
+test("replay rejects the removed SETTLE.reconcile edge without producing a snapshot", async () => {
+  const filePath = await tmpJournal();
+  const started = startEntry();
+  started.payload = {
+    session_id: "550e8400-e29b-41d4-a716-446655440000",
+    feature: "auth-refresh",
+    ceremony: { ...STANDARD, settle_phase: true, lessons_required: "must" },
+  };
+  const entries: JournalEntry[] = [started];
+  for (const [from, to] of [
+    ["TRIAGE.score", "TRIAGE.confirm"],
+    ["TRIAGE.confirm", "SPEC.proposal"],
+    ["SPEC.proposal", "SPEC.spec"],
+    ["SPEC.spec", "SPEC.plan"],
+    ["SPEC.plan", "SPEC.design"],
+    ["SPEC.design", "EXECUTE.plan"],
+    ["EXECUTE.plan", "EXECUTE.work"],
+    ["EXECUTE.work", "EXECUTE.done"],
+    ["EXECUTE.done", "VERIFY.plan"],
+    ["VERIFY.plan", "VERIFY.run"],
+    ["VERIFY.run", "VERIFY.accept"],
+  ]) {
+    if (from === "SPEC.design") {
+      const seq = entries.length;
+      entries.push({
+        seq,
+        entry_id: `JE-${String(seq + 1).padStart(6, "0")}`,
+        at: "2026-05-15T10:00:00.000Z",
+        actor: "human:tester",
+        entry_schema_version: 1,
+        kind: "gate:decided",
+        payload: { gate_kind: "spec-lock", decision: "approved", reason: "approved fixture" },
+      });
+    }
+    entries.push(phaseAdvancedEntry(entries.length, from!, to!));
+  }
+  try {
+    await fs.writeFile(filePath, entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n");
+    const accepted = await replayJournal(filePath);
+    expect(accepted.ok).toBe(true);
+    if (accepted.ok) expect(accepted.snapshot.state?.sub_state).toBe("VERIFY.accept");
+    const retired = phaseAdvancedEntry(entries.length, "VERIFY.accept", "SETTLE.reconcile");
+    const original =
+      entries
+        .concat(retired)
+        .map((entry) => JSON.stringify(entry))
+        .join("\n") + "\n";
+    await fs.writeFile(filePath, original);
+    const rejected = await replayJournal(filePath);
+    expect(rejected).toMatchObject({
+      ok: false,
+      code: "REDUCER_REJECTED",
+      at_seq: retired.seq,
+      detail: { inner_code: "INVALID_PAYLOAD" },
+    });
+    expect(rejected).not.toHaveProperty("snapshot");
+    expect(await fs.readFile(filePath, "utf8")).toBe(original);
+  } finally {
+    await fs.rm(path.dirname(filePath), { recursive: true, force: true });
+  }
+});

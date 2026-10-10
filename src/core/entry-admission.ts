@@ -19,7 +19,7 @@ export type AdmissionResult =
  * Admits one entry and consumes `prev`; projection application can mutate its
  * arrays in place. Clone first when the caller needs the prior snapshot.
  * Mutation validates every kind against the journal tail. Replay preserves
- * historical bootstrap tolerance and the retired reconcile transition;
+ * historical bootstrap tolerance;
  * envelope validation and sequence continuity remain owned by replayJournal.
  */
 export function admitEntry(
@@ -39,14 +39,7 @@ export function admitEntry(
     };
   }
 
-  const payload = entry.payload as { from?: unknown; to?: unknown };
-  const legacyReconcile =
-    mode.kind === "replay" &&
-    prev.state?.sub_state === "VERIFY.accept" &&
-    entry.kind === "event:phase_advanced" &&
-    payload.from === "VERIFY.accept" &&
-    payload.to === "SETTLE.reconcile";
-  if (mode.kind === "mutation" || (!bootstrap && !legacyReconcile)) {
+  if (mode.kind === "mutation" || !bootstrap) {
     const result = preflight(entry, {
       snapshot: prev,
       ...(mode.kind === "mutation" ? { tail_seq: mode.tail_seq } : {}),

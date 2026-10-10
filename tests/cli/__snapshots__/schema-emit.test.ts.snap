@@ -1074,7 +1074,6 @@ exports[`current public schema output baseline > artifact:state 1`] = `
         "VERIFY.acceptance",
         "VERIFY.visual",
         "VERIFY.accept",
-        "SETTLE.reconcile",
         "SETTLE.lessons",
         "DONE.delivered",
         "DONE.archived",

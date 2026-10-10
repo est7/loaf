@@ -38,7 +38,6 @@ const BOARD_SUB_STATES = [
   "VERIFY.acceptance",
   "VERIFY.visual",
   "VERIFY.accept",
-  "SETTLE.reconcile",
   "SETTLE.lessons",
   "DONE.delivered",
   "DONE.archived",

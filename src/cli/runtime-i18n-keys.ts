@@ -147,7 +147,6 @@ const SUB_STATE_KEYS = {
   "VERIFY.acceptance": "sub_state.VERIFY.acceptance",
   "VERIFY.visual": "sub_state.VERIFY.visual",
   "VERIFY.accept": "sub_state.VERIFY.accept",
-  "SETTLE.reconcile": "sub_state.SETTLE.reconcile",
   "SETTLE.lessons": "sub_state.SETTLE.lessons",
   "DONE.delivered": "sub_state.DONE.delivered",
   "DONE.archived": "sub_state.DONE.archived",

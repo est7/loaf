@@ -170,7 +170,7 @@ export type MigrationSnapshotImportedPayload = z.infer<typeof MigrationSnapshotI
 export const Phase = z.enum(["TRIAGE", "SPEC", "EXECUTE", "VERIFY", "SETTLE", "DONE"]);
 export type Phase = z.infer<typeof Phase>;
 
-// SubState — closed set per protocol.md §2.1 (20 sub-states across 6 phases).
+// SubState — closed set per protocol.md §2.1 (19 sub-states across 6 phases).
 // State machine cursor; reducer projects this from `event:phase_advanced` /
 // `gate:decided` entries via the shared validateTransition helper (Gate #1).
 export const SubState = z.enum([
@@ -189,7 +189,6 @@ export const SubState = z.enum([
   "VERIFY.acceptance",
   "VERIFY.visual",
   "VERIFY.accept",
-  "SETTLE.reconcile",
   "SETTLE.lessons",
   "DONE.delivered",
   "DONE.archived",

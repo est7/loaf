@@ -9,7 +9,7 @@
 import { describe, expect, test } from "vitest";
 
 import { validateTransition } from "../../src/core/reducer/transition.js";
-import type { Ceremony } from "../../src/core/journal-entry.js";
+import { SubState, type Ceremony } from "../../src/core/journal-entry.js";
 
 const QUICK_CEREMONY: Ceremony = {
   spec_phase: false,
@@ -118,14 +118,8 @@ describe("validateTransition — Gate #1", () => {
     if (!result.ok) expect(result.code).toBe("TRANSITION_ILLEGAL");
   });
 
-  test("2A.3. new writes cannot enter the historical SETTLE.reconcile cursor", () => {
-    const result = validateTransition("VERIFY.accept", "SETTLE.reconcile", {
-      ceremony: DEEP_CEREMONY,
-      actor: ACTOR,
-      verify_accepted: true,
-    });
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.code).toBe("TRANSITION_ILLEGAL");
+  test("2A.3. SETTLE.reconcile is not a current wire sub_state", () => {
+    expect(SubState.safeParse("SETTLE.reconcile").success).toBe(false);
   });
 
   test("2A.3. VERIFY.accept → SETTLE.lessons rejected when settle_phase=false (standard)", () => {

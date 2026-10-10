@@ -26,7 +26,7 @@ create a second definition.
 | §14 | Task schemas and task inputs | [`src/core/task-schema.ts`](../src/core/task-schema.ts) |
 | §15–§16 | Evidence entries, inputs, and compatibility | [`src/core/evidence-schema.ts`](../src/core/evidence-schema.ts), [`src/core/evidence-compat.ts`](../src/core/evidence-compat.ts), [`src/core/projection-schema.ts`](../src/core/projection-schema.ts) |
 | §17 | Finding events and projections | [`src/core/finding-schema.ts`](../src/core/finding-schema.ts), [`src/core/projection-schema.ts`](../src/core/projection-schema.ts) |
-| §18 | Reconciliation projection and actual-scope derivation | [`src/core/reconcile-schema.ts`](../src/core/reconcile-schema.ts), [`src/core/scope-projection.ts`](../src/core/scope-projection.ts) |
+| §18 | Actual-scope derivation | [`src/core/scope-projection.ts`](../src/core/scope-projection.ts) |
 | §18b | `loaf next` action, scoped rendering, and success advisories | [`src/core/reducer/transition.ts`](../src/core/reducer/transition.ts), [`src/core/next-action.ts`](../src/core/next-action.ts), [`src/cli/next-advisory.ts`](../src/cli/next-advisory.ts) |
 | §19 | Gate diagnostics | [`src/core/gates/gate-diagnostic.ts`](../src/core/gates/gate-diagnostic.ts) |
 | §20 | Resume packs | [`src/core/resume-pack-schema.ts`](../src/core/resume-pack-schema.ts) |
@@ -50,7 +50,6 @@ create a second definition.
 | §40 | Mutation input schemas and input ingestion | [`src/cli/input-schemas.ts`](../src/cli/input-schemas.ts), [`src/cli/input-ingestion.ts`](../src/cli/input-ingestion.ts) |
 | §41 | Event-name registry | The owning enums and tables above; this index is the navigation surface. |
 
-`ReconcileJson.actual_scope` is a canonical concrete-path array; `planned_scope` remains a glob
-array and `based_on` remains `{spec,tasks}`. This schema and its dedicated legacy reader exist only
-to validate historical reconcile leaves. New lifecycle flows do not enter `SETTLE.reconcile`,
-`writeProjections` has no reconcile branch, and gates must not consume reconcile projections.
+`deriveActualScope` derives canonical concrete paths from journal closure markers.
+Missing same-batch scope markers fail with `ACTUAL_SCOPE_HISTORY_INCOMPLETE`;
+planned scope is not inferred from these audit records.

@@ -42,9 +42,7 @@ export function registerTerminalSettle(
   // Output (text mode):
   //   `settled <feature> — VERIFY.accept → SETTLE.lessons`
   //   `next: loaf deliver --feature <feature>`
-  // JSON includes `advisory: string[]` for scripted chaining. The output
-  // intentionally does not claim a reconcile snapshot was rebuilt:
-  // ReconcileJson is a historical compatibility reader, not a live stage.
+  // JSON includes `advisory: string[]` for scripted chaining.
   program
     .command("settle")
     .description("Advance VERIFY.accept → SETTLE.lessons (deep ceremony only)")

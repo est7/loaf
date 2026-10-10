@@ -290,18 +290,8 @@ export const MACHINE = defineMachine({
       " settle_phase=false → `loaf deliver` enters DONE.delivered.",
     gate: "verify-accept",
   },
-  "SETTLE.reconcile": {
-    entry:
-      "compatibility-only historical cursor; new flows never enter this state",
-    exit: "advance to SETTLE.lessons through the compatibility edge",
-    write_paths: [],
-    edges: [{ target: "SETTLE.lessons", owner_kind: "event:phase_advanced" }],
-    prompt_inject:
-      "Historical compatibility state: advance to SETTLE.lessons; no reconcile writer or gate exists.",
-  },
   "SETTLE.lessons": {
-    entry:
-      "verify-accept passed and deep settle entered directly, or historical SETTLE.reconcile compatibility edge",
+    entry: "verify-accept passed and deep settle entered directly",
     exit: "lessons.md appended (deep: lessons_required=must)",
     write_paths: [".loaf/<feature>/lessons.md"],
     edges: [

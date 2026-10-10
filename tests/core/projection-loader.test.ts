@@ -14,7 +14,7 @@
 // NO_SESSION is a separate code, not a stale reason — fires when isEmptyMeta + journal
 // also empty/missing (loader gate runs BEFORE leaf reads).
 
-import { describe, expect, test } from "vitest";
+import { describe, expect, expectTypeOf, test } from "vitest";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -30,6 +30,7 @@ import {
   loadProjections,
   loadProjection,
   type SnapshotStaleError,
+  type ProjectionKind,
 } from "../../src/core/projection-loader.js";
 
 // SC4 test-only seam — not exposed to CLI / docs. Used to deterministically
@@ -454,4 +455,10 @@ describe("loadProjections — TOCTOU M0-anchored linearization guard (SC4)", () 
     });
     expect(hookCalls).toBe(1);
   });
+});
+
+test("projection kinds contain only current writer-owned leaves", () => {
+  expectTypeOf<ProjectionKind>().toEqualTypeOf<
+    "state" | "tasks" | "evidence" | "findings" | "pending"
+  >();
 });

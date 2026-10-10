@@ -21,8 +21,6 @@ commands (ADR-0005 single writer). Pass `--feature <F>` on every command.
 - `FEATURE_NOT_FOUND` → wrong skill; tell the user to run `/loaf:start`.
 - `sub_state = VERIFY.accept` (just approved) → you are the receiving skill: run
   `loaf next` and the `loaf settle` it returns to enter `SETTLE.lessons`.
-- `sub_state = SETTLE.reconcile` → historical compatibility cursor; run
-  `loaf advance SETTLE.lessons`, then continue.
 - `sub_state = SETTLE.lessons` → resume at lessons.
 - `sub_state` is `DONE.*` → already delivered; report and stop.
 
@@ -37,8 +35,7 @@ Build the audit view through CLI readers:
 - `loaf journal list --feature <F> --kind scope:recorded --format json`
 
 The last command confirms closure markers but intentionally does not expose
-payload paths. `ReconcileJson` is a historical compatibility reader, not a
-live writer or gate source. Do not invent planned scope or read/write a
+payload paths. Do not invent planned scope or read/write a
 reconcile snapshot as truth. Resolve actionable drift through findings while
 remaining in `SETTLE.lessons`.
 

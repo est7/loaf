@@ -21,7 +21,7 @@ export const CONCURRENCY_INVARIANTS = {
   //                          loaf.config.json (project-level config;
   //                          non-journal but same single-writer rule)
   //      Derived projection  snapshots/*.json (state / tasks / evidence /
-  //                          findings / pending / reconcile /
+  //                          findings / pending /
   //                          gate-diagnostic / resume-pack / _meta) +
   //                          spec.md (post-submit) + lessons.md +
   //                          ~/.loaf/registry/<id>.json + spec-draft-context.md

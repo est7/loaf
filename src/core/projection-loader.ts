@@ -45,19 +45,10 @@ import {
   StateProjection,
   TasksJson,
 } from "./projection-schema.js";
-import { ReconcileJson } from "./reconcile-schema.js";
 import { checkSnapshotFresh } from "./snapshot-reader.js";
 import { SnapshotMeta, isEmptyMeta, type SnapshotMeta as SnapshotMetaType } from "./snapshot.js";
 
-export type ProjectionKind =
-  | "state"
-  | "tasks"
-  | "evidence"
-  | "findings"
-  | "pending"
-  | "reconcile";
-
-export type LiveProjectionKind = Exclude<ProjectionKind, "reconcile">;
+export type ProjectionKind = "state" | "tasks" | "evidence" | "findings" | "pending";
 
 export interface ProjectionFile {
   state: StateProjection;
@@ -65,7 +56,6 @@ export interface ProjectionFile {
   evidence: EvidenceJson;
   findings: FindingsJson;
   pending: PendingJson;
-  reconcile: ReconcileJson;
 }
 
 // `tasks` is the only kind whose file is legitimately absent (writer skip
@@ -108,21 +98,12 @@ export class NoSessionError extends Error {
   }
 }
 
-const LIVE_LEAF_SCHEMA: { [K in LiveProjectionKind]: z.ZodTypeAny } = {
+const LEAF_SCHEMA: { [K in ProjectionKind]: z.ZodTypeAny } = {
   state: StateProjection,
   tasks: TasksJson,
   evidence: EvidenceJson,
   findings: FindingsJson,
   pending: PendingJson,
-};
-
-const COMPATIBILITY_LEAF_SCHEMA = {
-  reconcile: ReconcileJson,
-} satisfies Record<Exclude<ProjectionKind, LiveProjectionKind>, z.ZodTypeAny>;
-
-const LEAF_SCHEMA: { [K in ProjectionKind]: z.ZodTypeAny } = {
-  ...LIVE_LEAF_SCHEMA,
-  ...COMPATIBILITY_LEAF_SCHEMA,
 };
 
 function fixForFeatureDir(featureDir: string): string {
@@ -298,7 +279,7 @@ export interface LoadProjectionsHooks {
  * Public canonical loader — no hooks, used by production callers.
  * See `loadProjectionsWithHooks` for the test-only seam.
  */
-export async function loadProjections<K extends LiveProjectionKind>(input: {
+export async function loadProjections<K extends ProjectionKind>(input: {
   feature_dir: string;
   kinds: readonly K[];
 }): Promise<LoadResult<K>> {
@@ -313,7 +294,7 @@ export async function loadProjections<K extends LiveProjectionKind>(input: {
  *
  * @internal Test-only.
  */
-export async function loadProjectionsWithHooks<K extends LiveProjectionKind>(
+export async function loadProjectionsWithHooks<K extends ProjectionKind>(
   input: { feature_dir: string; kinds: readonly K[] },
   hooks: LoadProjectionsHooks,
 ): Promise<LoadResult<K>> {
@@ -435,26 +416,10 @@ async function _loadProjectionsImpl<K extends ProjectionKind>(
 /**
  * Singular convenience wrapper — delegates to `loadProjections`.
  */
-export async function loadProjection<K extends LiveProjectionKind>(
+export async function loadProjection<K extends ProjectionKind>(
   featureDir: string,
   kind: K,
 ): Promise<Loaded<K>> {
   const result = await loadProjections({ feature_dir: featureDir, kinds: [kind] });
   return result[kind] as unknown as Loaded<K>;
-}
-
-/**
- * Compatibility reader for pre-A10 reconcile snapshot leaves.
- *
- * Reconcile is deliberately excluded from `loadProjection(s)` so no new
- * runtime or gate caller can accidentally treat it as live lifecycle state.
- */
-export async function loadLegacyReconcileProjection(
-  featureDir: string,
-): Promise<ReconcileJson> {
-  const result = await _loadProjectionsImpl({
-    feature_dir: featureDir,
-    kinds: ["reconcile"] as const,
-  });
-  return result.reconcile;
 }

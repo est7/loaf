@@ -1033,7 +1033,6 @@ const SubState = z.enum([
 	"VERIFY.acceptance",
 	"VERIFY.visual",
 	"VERIFY.accept",
-	"SETTLE.reconcile",
 	"SETTLE.lessons",
 	"DONE.delivered",
 	"DONE.archived",
@@ -1386,57 +1385,6 @@ const RegistryFile = z.object({
 	ceremony_label: z.string().default("")
 }).strict();
 //#endregion
-//#region src/core/reconcile-schema.ts
-const SchemaVersion = z.literal(2);
-const VerifyCheckSnapshot = z.object({
-	applicability: ApplicabilityPayload,
-	status: StepStatusPayload,
-	reason: z.string().optional(),
-	evidence_refs: z.array(z.string().regex(/^EV-\d{6,}$/)).default([])
-});
-const IterationStats = z.object({
-	total: z.number().int().positive(),
-	findings_total: z.number().int().nonnegative(),
-	findings_by_action: z.record(FindingAction, z.number().int().nonnegative()),
-	findings_by_category: z.record(FindingCategory, z.number().int().nonnegative())
-});
-const Drift = z.object({
-	path: z.string(),
-	category: z.enum(["out_of_planned", "planned_not_touched"]),
-	reason: z.string().min(5),
-	resolution: z.enum([
-		"spec_amended",
-		"carried_forward",
-		"abandoned",
-		"deferred"
-	]),
-	finding_id: z.string().regex(/^FND-\d{3,}$/).optional()
-});
-const AcCoverage = z.object({
-	ac_id: z.string().regex(/^(REQ|SCEN|VIS)-[A-Z][A-Z0-9-]*-\d{3,}$/),
-	evidence_refs: z.array(z.string().regex(/^EV-\d{6,}$/)),
-	status: z.enum([
-		"passed",
-		"failed",
-		"waived",
-		"na"
-	])
-});
-const ReconcileJson = z.object({
-	schema_version: SchemaVersion,
-	based_on: z.object({
-		spec: z.number().int().positive(),
-		tasks: z.number().int().positive()
-	}),
-	planned_scope: z.array(z.string()),
-	actual_scope: CanonicalScopePaths,
-	drift: z.array(Drift),
-	ac_coverage: z.array(AcCoverage),
-	verify_checks_status: z.record(VerifyCheckKind, VerifyCheckSnapshot),
-	iteration_stats: IterationStats,
-	unusual_findings_count: z.number().int().nonnegative().default(0)
-});
-//#endregion
 //#region src/core/snapshot.ts
 const HEX64 = /^[a-f0-9]{64}$/;
 const ZERO_HASH = "0".repeat(64);
@@ -1603,17 +1551,12 @@ var NoSessionError = class extends Error {
 		this.detail = detail;
 	}
 };
-const LIVE_LEAF_SCHEMA = {
+const LEAF_SCHEMA = {
 	state: StateProjection,
 	tasks: TasksJson,
 	evidence: EvidenceJson,
 	findings: FindingsJson,
 	pending: PendingJson
-};
-const COMPATIBILITY_LEAF_SCHEMA = { reconcile: ReconcileJson };
-const LEAF_SCHEMA = {
-	...LIVE_LEAF_SCHEMA,
-	...COMPATIBILITY_LEAF_SCHEMA
 };
 function fixForFeatureDir(featureDir) {
 	return `run \`loaf doctor --rebuild --feature ${path.basename(featureDir)}\``;
@@ -3797,18 +3740,8 @@ const MACHINE = defineMachine({
 		prompt_inject: "Verify-accept gate. Review check status + open findings. Approve or reject. On approve: settle_phase=true → `loaf settle` enters SETTLE.lessons; settle_phase=false → `loaf deliver` enters DONE.delivered.",
 		gate: "verify-accept"
 	},
-	"SETTLE.reconcile": {
-		entry: "compatibility-only historical cursor; new flows never enter this state",
-		exit: "advance to SETTLE.lessons through the compatibility edge",
-		write_paths: [],
-		edges: [{
-			target: "SETTLE.lessons",
-			owner_kind: "event:phase_advanced"
-		}],
-		prompt_inject: "Historical compatibility state: advance to SETTLE.lessons; no reconcile writer or gate exists."
-	},
 	"SETTLE.lessons": {
-		entry: "verify-accept passed and deep settle entered directly, or historical SETTLE.reconcile compatibility edge",
+		entry: "verify-accept passed and deep settle entered directly",
 		exit: "lessons.md appended (deep: lessons_required=must)",
 		write_paths: [".loaf/<feature>/lessons.md"],
 		edges: [
@@ -5743,7 +5676,7 @@ const ORDERED_CHECKS = [
 * Admits one entry and consumes `prev`; projection application can mutate its
 * arrays in place. Clone first when the caller needs the prior snapshot.
 * Mutation validates every kind against the journal tail. Replay preserves
-* historical bootstrap tolerance and the retired reconcile transition;
+* historical bootstrap tolerance;
 * envelope validation and sequence continuity remain owned by replayJournal.
 */
 function admitEntry(prev, entry, mode) {
@@ -5755,9 +5688,7 @@ function admitEntry(prev, entry, mode) {
 		message: `kind=${entry.kind} requires a started session`,
 		detail: {}
 	};
-	const payload = entry.payload;
-	const legacyReconcile = mode.kind === "replay" && prev.state?.sub_state === "VERIFY.accept" && entry.kind === "event:phase_advanced" && payload.from === "VERIFY.accept" && payload.to === "SETTLE.reconcile";
-	if (mode.kind === "mutation" || !bootstrap && !legacyReconcile) {
+	if (mode.kind === "mutation" || !bootstrap) {
 		const result = preflight(entry, {
 			snapshot: prev,
 			...mode.kind === "mutation" ? { tail_seq: mode.tail_seq } : {}
@@ -6398,7 +6329,6 @@ function isLegalSubState(value) {
 		"VERIFY.acceptance",
 		"VERIFY.visual",
 		"VERIFY.accept",
-		"SETTLE.reconcile",
 		"SETTLE.lessons",
 		"DONE.delivered",
 		"DONE.archived",
@@ -6875,10 +6805,7 @@ var en_default = {
 			"visual": "Verify / visual",
 			"accept": "Verify / accept gate"
 		},
-		"SETTLE": {
-			"reconcile": "Settle / reconcile",
-			"lessons": "Settle / lessons"
-		},
+		"SETTLE": { "lessons": "Settle / lessons" },
 		"DONE": {
 			"delivered": "Done · delivered",
 			"archived": "Done · archived",
@@ -6999,7 +6926,7 @@ var en_default = {
 			"SPEC": { "description": "Proposal, spec, plan, design" },
 			"EXECUTE": { "description": "Task work and fan-out" },
 			"VERIFY": { "description": "Run, review, acceptance, visual" },
-			"SETTLE": { "description": "Reconcile and lessons" },
+			"SETTLE": { "description": "Lessons" },
 			"DONE": { "description": "Delivered or terminal sessions" }
 		},
 		"status": {
@@ -7415,9 +7342,9 @@ var en_default = {
 		"evidence_schema": "Dump EvidenceEntry JSON Schema",
 		"waive": "Record a waiver evidence; actor must start with human: and reason must be >=10 chars",
 		"finding_raise": "Raise a finding (VERIFY.* always, EXECUTE.* only post-spec-lock)",
-		"verify_status": "Compute current verify check applicability + status (real-time, never reads reconcile.json)",
+		"verify_status": "Compute current verify check applicability + status (real-time)",
 		"gate_decide": "Record human gate decision; writes evidence kind=gate-decision",
-		"settle": "Generate reconcile.json (standard+ profile)",
+		"settle": "Advance VERIFY.accept → SETTLE.lessons (deep ceremony only)",
 		"amend": "Edit spec or tasks pre-lock (rejected post-lock; use findings instead)",
 		"profile_escalate": "Confirm pending profile escalation",
 		"deliver": "Close session as DONE.delivered (advisory only; no git/gh side effects)",
@@ -7492,10 +7419,7 @@ var zh_default = {
 			"visual": "验证 / 视觉",
 			"accept": "验证 / 接收 gate"
 		},
-		"SETTLE": {
-			"reconcile": "结算 / 对账",
-			"lessons": "结算 / 经验沉淀"
-		},
+		"SETTLE": { "lessons": "结算 / 经验沉淀" },
 		"DONE": {
 			"delivered": "完成 · 已交付",
 			"archived": "完成 · 已归档",
@@ -7616,7 +7540,7 @@ var zh_default = {
 			"SPEC": { "description": "提案、规格、计划、设计" },
 			"EXECUTE": { "description": "任务执行与并行展开" },
 			"VERIFY": { "description": "运行、评审、验收、视觉" },
-			"SETTLE": { "description": "对账与经验沉淀" },
+			"SETTLE": { "description": "经验沉淀" },
 			"DONE": { "description": "已交付或终态会话" }
 		},
 		"status": {
@@ -8032,9 +7956,9 @@ var zh_default = {
 		"evidence_schema": "dump EvidenceEntry JSON Schema",
 		"waive": "记录一条 waiver 证据;actor 必须 human:* 起始,reason ≥10 字符",
 		"finding_raise": "raise 一条 finding(VERIFY.* 始终允许,EXECUTE.* 仅 post-spec-lock 允许)",
-		"verify_status": "实时计算各 verify check 的 applicability + status(永不读 reconcile.json)",
+		"verify_status": "实时计算各 verify check 的 applicability + status",
 		"gate_decide": "记录人工 gate 决策;写 evidence kind=gate-decision",
-		"settle": "生成 reconcile.json(standard+ profile)",
+		"settle": "推进 VERIFY.accept → SETTLE.lessons(仅 deep ceremony)",
 		"amend": "spec-lock 前编辑 spec / tasks(post-lock 拒绝,改走 finding)",
 		"profile_escalate": "确认 pending profile 升级",
 		"deliver": "标记 session 为 DONE.delivered(advisory only,不碰 git/gh)",
@@ -9240,7 +9164,6 @@ const SUB_STATE_KEYS = {
 	"VERIFY.acceptance": "sub_state.VERIFY.acceptance",
 	"VERIFY.visual": "sub_state.VERIFY.visual",
 	"VERIFY.accept": "sub_state.VERIFY.accept",
-	"SETTLE.reconcile": "sub_state.SETTLE.reconcile",
 	"SETTLE.lessons": "sub_state.SETTLE.lessons",
 	"DONE.delivered": "sub_state.DONE.delivered",
 	"DONE.archived": "sub_state.DONE.archived",
@@ -17733,7 +17656,6 @@ const BOARD_SUB_STATES = [
 	"VERIFY.acceptance",
 	"VERIFY.visual",
 	"VERIFY.accept",
-	"SETTLE.reconcile",
 	"SETTLE.lessons",
 	"DONE.delivered",
 	"DONE.archived",
