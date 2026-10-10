@@ -46,6 +46,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Trash-bucket ownership gates now reject duplicate layout, manifest and
+  transfer owners and reverse CLI dependencies. CLI regressions cover typed
+  manifest rejection, preview byte preservation and successful retry after
+  a compensated registry-move failure.
+
 - Trash-bucket layout, manifest representation, timestamps and trash/restore
   transfers now share a neutral core owner. Prune retains target selection,
   purge, batch reporting, audit and retention policy. Existing persisted bytes,
