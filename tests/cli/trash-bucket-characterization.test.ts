@@ -1,6 +1,4 @@
-// #8 Slice 1: persistent bucket contracts and the known restore rollback gap.
-// Slice 3 must remove the expected-failure marker and replace legacy error
-// classification assertions when the approved fail-closed policy lands.
+// Trash bucket representation contracts and approved compensation/error semantics.
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -115,27 +113,7 @@ test("timestamp layout and round-trip preserve exact registry/feature bytes", as
   await absent(bucket);
 });
 
-test("legacy restore failure leaves split locations and a non-retryable bucket", async () => {
-  const fault = registryMoveFailure();
-  await expect(restore()).rejects.toBe(fault.cause);
-  expect(fault.count()).toBe(1);
-  fault.spy.mockRestore();
-  expect(await fs.readFile(path.join(featureDir, "journal.jsonl"), "utf8")).toBe(featureBytes);
-  await absent(path.join(bucket, "feature"));
-  expect(await fs.readFile(path.join(bucket, "registry.json"), "utf8")).toBe(registryBytes);
-  await absent(path.join(registryDir, `${id}.json`));
-  expect(await restore()).toMatchObject({
-    ok: false,
-    code: "PRUNE_RESTORE_INCOMPLETE",
-    detail: { bucket, missing: "feature/" },
-  });
-});
-
-// Current owner: src/core/trash-bucket.ts. Slice 2 preserves legacy
-// behavior; the approved production compensation change belongs to Slice 3.
-// Remove test.fails when that change lands. Until then the split/non-retryable
-// failure remains unfixed; the companion legacy witness verifies its cause.
-test.fails("KNOWN GAP: failed registry restore must roll feature back to a retryable bucket", async () => {
+test("failed registry restore rolls feature back to a retryable bucket", async () => {
   const fault = registryMoveFailure();
   await expect(restore()).rejects.toBe(fault.cause);
   expect(fault.count()).toBe(1);
@@ -147,18 +125,29 @@ test.fails("KNOWN GAP: failed registry restore must roll feature back to a retry
   expect(await restore()).toMatchObject({ ok: true, session_id: id });
 });
 
-test("legacy malformed JSON propagates SyntaxError before either artifact moves", async () => {
+test("malformed JSON returns manifest-invalid diagnostic before either artifact moves", async () => {
   await fs.writeFile(path.join(bucket, "manifest.json"), "{ invalid JSON");
-  await expect(restore()).rejects.toBeInstanceOf(SyntaxError);
+  expect(await restore()).toMatchObject({
+    ok: false,
+    code: "PRUNE_RESTORE_INCOMPLETE",
+    detail: { path: path.join(bucket, "manifest.json"), cause: expect.any(String) },
+  });
   await intactBucket();
 });
 
-test("legacy missing feature_dir rejects before either artifact moves", async () => {
+test("missing feature_dir returns manifest-invalid diagnostic before either artifact moves", async () => {
   await fs.writeFile(
     path.join(bucket, "manifest.json"),
     JSON.stringify({ feature: "probe", cwd, feature_trashed: true }),
   );
-  await expect(restore()).rejects.toBeInstanceOf(TypeError);
+  expect(await restore()).toMatchObject({
+    ok: false,
+    code: "PRUNE_RESTORE_INCOMPLETE",
+    detail: {
+      path: path.join(bucket, "manifest.json"),
+      cause: expect.stringContaining("feature_dir"),
+    },
+  });
   await intactBucket();
 });
 
@@ -191,14 +180,14 @@ test.each([
   await intactBucket();
 });
 
-test("legacy discovery EACCES is collapsed to NOT_FOUND (approved change in Slice 3)", async () => {
+test("discovery EACCES propagates its cause before moves", async () => {
   const cause = Object.assign(new Error("trash directory unreadable"), { code: "EACCES" });
   const read = fs.readdir.bind(fs);
   vi.spyOn(fs, "readdir").mockImplementation(((file: unknown, ...args: unknown[]) => {
     if (String(file) === trashDir) return Promise.reject(cause);
     return Reflect.apply(read, fs, [file, ...args]);
   }) as typeof fs.readdir);
-  expect(await restore()).toMatchObject({ ok: false, code: "PRUNE_RESTORE_NOT_FOUND" });
+  await expect(restore()).rejects.toBe(cause);
   await intactBucket();
 });
 
@@ -209,9 +198,243 @@ test("cleanup failure after both moves propagates and retains restored bytes wit
     if (String(file) === bucket) throw cause;
     return rm(file, options);
   });
-  await expect(restore()).rejects.toBe(cause);
+  await expect(restore()).rejects.toMatchObject({
+    cause,
+    message: expect.stringContaining(bucket),
+  });
   spy.mockRestore();
   expect(await fs.readFile(path.join(featureDir, "journal.jsonl"), "utf8")).toBe(featureBytes);
   expect(await fs.readFile(path.join(registryDir, `${id}.json`), "utf8")).toBe(registryBytes);
   expect(await fs.readdir(bucket)).toEqual(["manifest.json"]);
+});
+
+test.each([
+  null,
+  [],
+  {},
+  { feature: "probe", cwd: "project", feature_dir: "path" },
+  { feature: "probe", cwd: "project", feature_dir: "path", feature_trashed: "false" },
+  { feature: "", cwd: "project", feature_dir: "path", feature_trashed: false },
+  { feature: "probe", cwd: 5, feature_dir: "path", feature_trashed: false },
+])("invalid manifest %j is fail-closed even in preview", async (value) => {
+  await fs.writeFile(path.join(bucket, "manifest.json"), JSON.stringify(value));
+  const rename = vi.spyOn(fs, "rename");
+  for (const dryRun of [false, true]) {
+    expect(
+      await restoreTrashBucket({ registryDir, trashDir, sessionId: id, dryRun }),
+    ).toMatchObject({
+      ok: false,
+      code: "PRUNE_RESTORE_INCOMPLETE",
+      detail: { path: path.join(bucket, "manifest.json"), cause: expect.any(String) },
+    });
+  }
+  expect(rename).not.toHaveBeenCalled();
+  await intactBucket();
+});
+
+test("restore double fault retains both causes, all data copies and manifest", async () => {
+  const registryError = Object.assign(new Error("registry blocked"), { code: "EACCES" });
+  const rollbackError = Object.assign(new Error("rollback blocked"), { code: "EIO" });
+  const rename = fs.rename.bind(fs);
+  vi.spyOn(fs, "rename").mockImplementation(async (source, destination) => {
+    if (String(source) === path.join(bucket, "registry.json")) throw registryError;
+    if (String(source) === featureDir && String(destination) === path.join(bucket, "feature"))
+      throw rollbackError;
+    return rename(source, destination);
+  });
+  let failure: unknown;
+  try {
+    await restore();
+  } catch (error) {
+    failure = error;
+  }
+  expect(failure).toBeInstanceOf(AggregateError);
+  expect((failure as AggregateError).errors).toEqual([registryError, rollbackError]);
+  expect((failure as Error).cause).toBe(registryError);
+  expect((failure as Error).message).toContain(featureDir);
+  expect((failure as Error).message).toContain(bucket);
+  expect(await fs.readFile(path.join(featureDir, "journal.jsonl"), "utf8")).toBe(featureBytes);
+  expect(await fs.readFile(path.join(bucket, "registry.json"), "utf8")).toBe(registryBytes);
+  expect(await fs.stat(path.join(bucket, "manifest.json"))).toBeDefined();
+  await absent(path.join(registryDir, `${id}.json`));
+});
+
+test("ENOENT caused by missing destination cannot silently consume feature data", async () => {
+  const cause = Object.assign(new Error("destination parent vanished"), { code: "ENOENT" });
+  const rename = fs.rename.bind(fs);
+  vi.spyOn(fs, "rename").mockImplementation(async (source, destination) => {
+    if (String(source) === path.join(bucket, "feature")) throw cause;
+    return rename(source, destination);
+  });
+  await expect(restore()).rejects.toBe(cause);
+  await intactBucket();
+});
+
+test("source disappearing after preflight returns INCOMPLETE without moving registry", async () => {
+  const rename = fs.rename.bind(fs);
+  vi.spyOn(fs, "rename").mockImplementation(async (source, destination) => {
+    if (String(source) === path.join(bucket, "feature"))
+      await fs.rm(source, { recursive: true, force: true });
+    return rename(source, destination);
+  });
+  expect(await restore()).toMatchObject({
+    ok: false,
+    code: "PRUNE_RESTORE_INCOMPLETE",
+    detail: { missing: "feature/" },
+  });
+  expect(await fs.readFile(path.join(bucket, "registry.json"), "utf8")).toBe(registryBytes);
+  expect(await fs.stat(path.join(bucket, "manifest.json"))).toBeDefined();
+  await absent(path.join(registryDir, `${id}.json`));
+});
+
+test("rollback source disappearing is a double fault, never reported as successful compensation", async () => {
+  const primary = registryMoveFailure();
+  const rename = fs.rename.bind(fs);
+  primary.spy.mockRestore();
+  vi.spyOn(fs, "rename").mockImplementation(async (source, destination) => {
+    if (String(source) === path.join(bucket, "registry.json")) throw primary.cause;
+    if (String(source) === featureDir) await fs.rm(source, { recursive: true, force: true });
+    return rename(source, destination);
+  });
+  await expect(restore()).rejects.toMatchObject({
+    cause: primary.cause,
+    message: expect.stringContaining("feature rollback also failed"),
+  });
+  expect(await fs.readFile(path.join(bucket, "registry.json"), "utf8")).toBe(registryBytes);
+  expect(await fs.stat(path.join(bucket, "manifest.json"))).toBeDefined();
+});
+
+test.each([
+  "copy",
+  "remove",
+])("EXDEV registry %s failure preserves source/destination copies and compensates feature", async (stage) => {
+  const cause = Object.assign(new Error(`${stage} failed`), { code: "EIO" });
+  const src = path.join(bucket, "registry.json");
+  const dest = path.join(registryDir, `${id}.json`);
+  const rename = fs.rename.bind(fs);
+  vi.spyOn(fs, "rename").mockImplementation(async (source, destination) => {
+    if (String(source) === src) throw Object.assign(new Error("cross-device"), { code: "EXDEV" });
+    return rename(source, destination);
+  });
+  if (stage === "copy") {
+    vi.spyOn(fs, "copyFile").mockImplementation(async (source, destination) => {
+      expect(String(source)).toBe(src);
+      await fs.writeFile(destination, "PARTIAL");
+      throw cause;
+    });
+  } else {
+    const rm = fs.rm.bind(fs);
+    vi.spyOn(fs, "rm").mockImplementation(async (file, options) => {
+      if (String(file) === src) throw cause;
+      return rm(file, options);
+    });
+  }
+  await expect(restore()).rejects.toMatchObject({ cause, message: expect.stringContaining(dest) });
+  expect(await fs.readFile(src, "utf8")).toBe(registryBytes);
+  expect(await fs.readFile(dest, "utf8")).toBe(stage === "copy" ? "PARTIAL" : registryBytes);
+  expect(await fs.readFile(path.join(bucket, "feature", "journal.jsonl"), "utf8")).toBe(
+    featureBytes,
+  );
+  await absent(featureDir);
+});
+
+test("EXDEV feature copy and registry copy success preserve exact bytes", async () => {
+  vi.spyOn(fs, "rename").mockRejectedValue(
+    Object.assign(new Error("cross-device"), { code: "EXDEV" }),
+  );
+  expect(await restore()).toMatchObject({ ok: true });
+  expect(await fs.readFile(path.join(featureDir, "journal.jsonl"), "utf8")).toBe(featureBytes);
+  expect(await fs.readFile(path.join(registryDir, `${id}.json`), "utf8")).toBe(registryBytes);
+  await absent(bucket);
+});
+
+test("non-ENOENT destination stat error propagates and never authorizes an overwrite", async () => {
+  const cause = Object.assign(new Error("destination cannot be inspected"), { code: "EACCES" });
+  const stat = fs.stat.bind(fs);
+  const spy = vi.spyOn(fs, "stat").mockImplementation(((file: unknown, ...args: unknown[]) => {
+    if (String(file) === featureDir) return Promise.reject(cause);
+    return Reflect.apply(stat, fs, [file, ...args]);
+  }) as typeof fs.stat);
+  const rename = vi.spyOn(fs, "rename");
+  await expect(restore()).rejects.toBe(cause);
+  expect(rename).not.toHaveBeenCalled();
+  spy.mockRestore();
+  await intactBucket();
+});
+
+test.each([
+  "copy",
+  "remove",
+])("EXDEV feature %s failure keeps all surviving copies and registry in bucket", async (stage) => {
+  const cause = Object.assign(new Error(`feature ${stage} failed`), { code: "EIO" });
+  const src = path.join(bucket, "feature");
+  const rename = fs.rename.bind(fs);
+  vi.spyOn(fs, "rename").mockImplementation(async (source, destination) => {
+    if (String(source) === src) throw Object.assign(new Error("cross-device"), { code: "EXDEV" });
+    return rename(source, destination);
+  });
+  if (stage === "copy")
+    vi.spyOn(fs, "cp").mockImplementation(async (_source, destination) => {
+      await fs.mkdir(destination, { recursive: true });
+      await fs.writeFile(path.join(String(destination), "journal.jsonl"), "PARTIAL");
+      throw cause;
+    });
+  else {
+    const rm = fs.rm.bind(fs);
+    vi.spyOn(fs, "rm").mockImplementation(async (file, options) => {
+      if (String(file) === src) throw cause;
+      return rm(file, options);
+    });
+  }
+  await expect(restore()).rejects.toMatchObject({
+    cause,
+    message: expect.stringContaining(featureDir),
+  });
+  expect(await fs.readFile(path.join(src, "journal.jsonl"), "utf8")).toBe(featureBytes);
+  expect(await fs.readFile(path.join(featureDir, "journal.jsonl"), "utf8")).toBe(
+    stage === "copy" ? "PARTIAL" : featureBytes,
+  );
+  expect(await fs.readFile(path.join(bucket, "registry.json"), "utf8")).toBe(registryBytes);
+  await absent(path.join(registryDir, `${id}.json`));
+});
+
+test("trash EXDEV registry removal failure retains the copied registry and compensates feature", async () => {
+  expect(await restore()).toMatchObject({ ok: true });
+  const src = path.join(registryDir, `${id}.json`);
+  const cause = Object.assign(new Error("registry source remove failed"), { code: "EACCES" });
+  const rename = fs.rename.bind(fs);
+  vi.spyOn(fs, "rename").mockImplementation(async (source, destination) => {
+    if (String(source) === src) throw Object.assign(new Error("cross-device"), { code: "EXDEV" });
+    return rename(source, destination);
+  });
+  const rm = fs.rm.bind(fs);
+  vi.spyOn(fs, "rm").mockImplementation(async (file, options) => {
+    if (String(file) === src) throw cause;
+    return rm(file, options);
+  });
+  const result = await executePrune({
+    registryDir,
+    trashDir,
+    mode: "trash",
+    timestamp,
+    targets: [
+      {
+        session_id: id,
+        feature: "probe",
+        cwd,
+        feature_dir: featureDir,
+        orphan: false,
+        sub_state: "DONE.delivered",
+      },
+    ],
+  });
+  expect(result.done).toEqual([]);
+  expect(result.failed).toHaveLength(1);
+  expect(result.failed[0]!.error).toContain(String(cause.message));
+  expect(result.failed[0]!.error).toContain(src);
+  expect(result.failed[0]!.error).toContain(path.join(bucket, "registry.json"));
+  expect(await fs.readFile(src, "utf8")).toBe(registryBytes);
+  expect(await fs.readFile(path.join(bucket, "registry.json"), "utf8")).toBe(registryBytes);
+  expect(await fs.readFile(path.join(featureDir, "journal.jsonl"), "utf8")).toBe(featureBytes);
+  expect(await fs.stat(path.join(bucket, "manifest.json"))).toBeDefined();
 });

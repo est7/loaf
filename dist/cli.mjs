@@ -18909,11 +18909,11 @@ async function trashSession(opts) {
 		await moveFile(registryEntryPath, path.join(bucket, "registry.json"));
 	} catch (regErr) {
 		if (featureMoved) try {
-			await moveDir(path.join(bucket, "feature"), t.feature_dir);
+			if (!await moveDir(path.join(bucket, "feature"), t.feature_dir)) throw missingMoveSource(path.join(bucket, "feature"));
 		} catch (rollbackErr) {
-			throw new Error(`registry deregister failed (${regErr.message}); feature rollback also failed (${rollbackErr.message}); feature data retained in ${bucket} (registry entry still at origin) — recover manually: move ${path.join(bucket, "feature")} back to ${t.feature_dir}`);
+			throw new AggregateError([regErr, rollbackErr], `registry deregister failed (${regErr.message}); feature rollback also failed (${rollbackErr.message}); feature data retained in ${bucket} (registry entry still at origin) — recover manually: move ${path.join(bucket, "feature")} back to ${t.feature_dir}; registry locations: ${registryEntryPath}, ${path.join(bucket, "registry.json")}`, { cause: regErr });
 		}
-		await promises.rm(bucket, {
+		if (!(regErr instanceof CopyMoveError)) await promises.rm(bucket, {
 			recursive: true,
 			force: true
 		}).catch(() => void 0);
@@ -18921,15 +18921,46 @@ async function trashSession(opts) {
 	}
 	return bucket;
 }
+const BucketManifestSchema = z.looseObject({
+	feature: z.string().min(1),
+	cwd: z.string().min(1),
+	feature_dir: z.string().min(1),
+	feature_trashed: z.boolean()
+});
 async function readBucketManifest(bucket) {
-	return JSON.parse(await promises.readFile(path.join(bucket, "manifest.json"), "utf8"));
+	const manifestPath = path.join(bucket, "manifest.json");
+	const raw = await promises.readFile(manifestPath, "utf8");
+	const invalid = (cause) => ({
+		ok: false,
+		code: "PRUNE_RESTORE_INCOMPLETE",
+		detail: {
+			bucket,
+			missing: "manifest.json",
+			path: manifestPath,
+			cause
+		}
+	});
+	let value;
+	try {
+		value = JSON.parse(raw);
+	} catch (error) {
+		if (error instanceof SyntaxError) return invalid(error.message);
+		throw error;
+	}
+	const parsed = BucketManifestSchema.safeParse(value);
+	if (!parsed.success) return invalid(parsed.error.message);
+	return {
+		ok: true,
+		manifest: parsed.data
+	};
 }
 async function pathExists(p) {
 	try {
 		await promises.stat(p);
 		return true;
-	} catch {
-		return false;
+	} catch (error) {
+		if (error.code === "ENOENT") return false;
+		throw error;
 	}
 }
 /** Timestamps whose bucket holds a manifest for this session. */
@@ -18937,8 +18968,9 @@ async function bucketsFor(trashDir, sessionId) {
 	let tsDirs;
 	try {
 		tsDirs = await promises.readdir(trashDir);
-	} catch {
-		return [];
+	} catch (error) {
+		if (error.code === "ENOENT") return [];
+		throw error;
 	}
 	const found = [];
 	for (const ts of tsDirs) if (await pathExists(path.join(trashBucketPath(trashDir, ts, sessionId), "manifest.json"))) found.push(ts);
@@ -18974,7 +19006,9 @@ async function restoreTrashBucket(opts) {
 	};
 	else chosen = timestamps[0];
 	const bucket = trashBucketPath(trashDir, chosen, sessionId);
-	const manifest = await readBucketManifest(bucket);
+	const read = await readBucketManifest(bucket);
+	if (!read.ok) return read;
+	const manifest = read.manifest;
 	const registryDest = path.join(registryDir, `${sessionId}.json`);
 	const registrySrc = path.join(bucket, "registry.json");
 	const featureSrc = path.join(bucket, "feature");
@@ -19005,15 +19039,37 @@ async function restoreTrashBucket(opts) {
 		detail: { path: manifest.feature_dir }
 	};
 	if (!opts.dryRun) {
+		let featureMoved = false;
 		if (manifest.feature_trashed) {
 			await promises.mkdir(path.dirname(manifest.feature_dir), { recursive: true });
-			await moveDir(featureSrc, manifest.feature_dir);
+			featureMoved = await moveDir(featureSrc, manifest.feature_dir);
+			if (!featureMoved) return {
+				ok: false,
+				code: "PRUNE_RESTORE_INCOMPLETE",
+				detail: {
+					bucket,
+					missing: "feature/"
+				}
+			};
 		}
-		await moveFile(registrySrc, registryDest);
-		await promises.rm(bucket, {
-			recursive: true,
-			force: true
-		});
+		try {
+			await moveFile(registrySrc, registryDest);
+		} catch (registryError) {
+			if (featureMoved) try {
+				if (!await moveDir(manifest.feature_dir, featureSrc)) throw missingMoveSource(manifest.feature_dir);
+			} catch (rollbackError) {
+				throw new AggregateError([registryError, rollbackError], `registry restore failed (${errorMessage(registryError)}); feature rollback also failed (${errorMessage(rollbackError)}); feature locations: ${manifest.feature_dir}, ${featureSrc}; registry locations: ${registrySrc}, ${registryDest}; manifest retained at ${path.join(bucket, "manifest.json")}`, { cause: registryError });
+			}
+			throw registryError;
+		}
+		try {
+			await promises.rm(bucket, {
+				recursive: true,
+				force: true
+			});
+		} catch (error) {
+			throw new Error(`bucket cleanup failed (${errorMessage(error)}); artifacts restored; remaining bucket: ${bucket}`, { cause: error });
+		}
 	}
 	return {
 		ok: true,
@@ -19022,6 +19078,18 @@ async function restoreTrashBucket(opts) {
 		cwd: manifest.cwd,
 		restored_from: bucket
 	};
+}
+var CopyMoveError = class extends Error {
+	constructor(kind, source, destination, cause) {
+		super(`${kind} transfer failed (${errorMessage(cause)}); inspect retained copies at ${source} and ${destination}`, { cause });
+		this.name = "CopyMoveError";
+	}
+};
+function errorMessage(error) {
+	return error instanceof Error ? error.message : String(error);
+}
+function missingMoveSource(source) {
+	return Object.assign(/* @__PURE__ */ new Error(`transfer source disappeared: ${source}`), { code: "ENOENT" });
 }
 /**
 * Rename a directory; copy+rm across devices. Returns false (not an error) when
@@ -19033,13 +19101,20 @@ async function moveDir(src, dest) {
 		return true;
 	} catch (err) {
 		const code = err.code;
-		if (code === "ENOENT") return false;
+		if (code === "ENOENT") {
+			if (await pathExists(src)) throw err;
+			return false;
+		}
 		if (code === "EXDEV") {
-			await promises.cp(src, dest, { recursive: true });
-			await promises.rm(src, {
-				recursive: true,
-				force: true
-			});
+			try {
+				await promises.cp(src, dest, { recursive: true });
+				await promises.rm(src, {
+					recursive: true,
+					force: true
+				});
+			} catch (error) {
+				throw new CopyMoveError("directory", src, dest, error);
+			}
 			return true;
 		}
 		throw err;
@@ -19050,10 +19125,13 @@ async function moveFile(src, dest) {
 	try {
 		await promises.rename(src, dest);
 	} catch (err) {
-		if (err.code === "EXDEV") {
+		if (err.code === "EXDEV") try {
 			await promises.copyFile(src, dest);
 			await promises.rm(src, { force: true });
-		} else throw err;
+		} catch (error) {
+			throw new CopyMoveError("registry", src, dest, error);
+		}
+		else throw err;
 	}
 }
 /** ISO 8601 with `:` → `-` (e.g. 2026-06-09T12-34-56.789Z). Path-segment safe. */

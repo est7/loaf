@@ -1,8 +1,9 @@
 // Trash bucket owner: persistent layout, manifest representation and transfers.
 // The caller owns target selection, purge, batch outcomes, audit and retention.
-// Slice 2 preserves legacy failure semantics; Slice 3 adds approved fixes.
+// Manifest validation precedes effects; failed paired transfers compensate.
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { z } from "zod";
 import type { Diagnostic } from "./error-catalog.js";
 
 export interface TrashSession {
@@ -73,27 +74,32 @@ export async function trashSession(opts: {
     // Deregister failed AFTER the feature moved → ROLL THE FEATURE BACK so
     // the session stays whole; never strand feature data in a bucket the
     // registry entry no longer points into (codex prune-core BLOCK 3). The
-    // registry entry was never moved, so rolling the feature back restores
-    // the pre-prune state.
+    // A cross-device registry failure may leave two copies; retain both.
+    // Otherwise successful compensation restores pre-prune artifact placement.
     if (featureMoved) {
       try {
-        await moveDir(path.join(bucket, "feature"), t.feature_dir);
+        if (!(await moveDir(path.join(bucket, "feature"), t.feature_dir)))
+          throw missingMoveSource(path.join(bucket, "feature"));
       } catch (rollbackErr) {
         // DOUBLE FAULT (codex prune-core BLOCK 4): the rollback ALSO failed,
-        // so `bucket/feature` is now the ONLY copy of the feature data.
+        // so the remaining feature copies must stay available for recovery.
         // PRESERVE the bucket (never rm it here) and surface both errors +
         // the retained path. Invariant: either the feature is back at
         // origin, OR the trash bucket remains recoverable — never neither.
-        throw new Error(
+        throw new AggregateError(
+          [regErr, rollbackErr],
           `registry deregister failed (${(regErr as Error).message}); ` +
             `feature rollback also failed (${(rollbackErr as Error).message}); ` +
             `feature data retained in ${bucket} (registry entry still at origin) — ` +
-            `recover manually: move ${path.join(bucket, "feature")} back to ${t.feature_dir}`,
+            `recover manually: move ${path.join(bucket, "feature")} back to ${t.feature_dir}; ` +
+            `registry locations: ${registryEntryPath}, ${path.join(bucket, "registry.json")}`,
+          { cause: regErr },
         );
       }
     }
-    // Rollback succeeded (or nothing was moved) → the bucket is now empty.
-    await fs.rm(bucket, { recursive: true, force: true }).catch(() => undefined);
+    // A copied/partially copied registry is recovery data; never remove it.
+    if (!(regErr instanceof CopyMoveError))
+      await fs.rm(bucket, { recursive: true, force: true }).catch(() => undefined);
     throw regErr; // → outer catch → `failed`, session intact
   }
   return bucket;
@@ -121,25 +127,44 @@ export type RestoreTrashResult =
       | "PRUNE_PATH_OCCUPIED"
     >);
 
-interface BucketManifest {
-  feature: string;
-  cwd: string;
-  feature_dir: string;
-  feature_trashed: boolean;
-}
+const BucketManifestSchema = z.looseObject({
+  feature: z.string().min(1),
+  cwd: z.string().min(1),
+  feature_dir: z.string().min(1),
+  feature_trashed: z.boolean(),
+});
+type BucketManifest = z.infer<typeof BucketManifestSchema>;
+type RestoreFailure = Extract<RestoreTrashResult, { ok: false }>;
 
-async function readBucketManifest(bucket: string): Promise<BucketManifest> {
-  return JSON.parse(
-    await fs.readFile(path.join(bucket, "manifest.json"), "utf8"),
-  ) as BucketManifest;
+async function readBucketManifest(
+  bucket: string,
+): Promise<{ ok: true; manifest: BucketManifest } | RestoreFailure> {
+  const manifestPath = path.join(bucket, "manifest.json");
+  const raw = await fs.readFile(manifestPath, "utf8"); // IO causes propagate unchanged.
+  const invalid = (cause: string): RestoreFailure => ({
+    ok: false,
+    code: "PRUNE_RESTORE_INCOMPLETE",
+    detail: { bucket, missing: "manifest.json", path: manifestPath, cause },
+  });
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch (error) {
+    if (error instanceof SyntaxError) return invalid(error.message);
+    throw error;
+  }
+  const parsed = BucketManifestSchema.safeParse(value);
+  if (!parsed.success) return invalid(parsed.error.message);
+  return { ok: true, manifest: parsed.data };
 }
 
 async function pathExists(p: string): Promise<boolean> {
   try {
     await fs.stat(p);
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
   }
 }
 
@@ -148,8 +173,9 @@ async function bucketsFor(trashDir: string, sessionId: string): Promise<string[]
   let tsDirs: string[];
   try {
     tsDirs = await fs.readdir(trashDir);
-  } catch {
-    return [];
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
   }
   const found: string[] = [];
   for (const ts of tsDirs) {
@@ -195,7 +221,9 @@ export async function restoreTrashBucket(opts: RestoreTrashOptions): Promise<Res
   }
 
   const bucket = trashBucketPath(trashDir, chosen, sessionId);
-  const manifest = await readBucketManifest(bucket);
+  const read = await readBucketManifest(bucket);
+  if (!read.ok) return read;
+  const manifest = read.manifest;
 
   const registryDest = path.join(registryDir, `${sessionId}.json`);
   const registrySrc = path.join(bucket, "registry.json");
@@ -244,15 +272,47 @@ export async function restoreTrashBucket(opts: RestoreTrashOptions): Promise<Res
   // restored WITHOUT moving anything (codex 6b BLOCK — restore is stateful, so
   // dry-run must not persist state).
   if (!opts.dryRun) {
-    // Legacy transfer path: compensation for later I/O failure is deferred to Slice 3.
-    // Restore feature dir first (if any), then the registry entry.
+    let featureMoved = false;
     if (manifest.feature_trashed) {
       await fs.mkdir(path.dirname(manifest.feature_dir), { recursive: true });
-      await moveDir(featureSrc, manifest.feature_dir);
+      featureMoved = await moveDir(featureSrc, manifest.feature_dir);
+      if (!featureMoved)
+        return {
+          ok: false,
+          code: "PRUNE_RESTORE_INCOMPLETE",
+          detail: { bucket, missing: "feature/" },
+        };
     }
-    await moveFile(registrySrc, registryDest);
-    // Consume the bucket (manifest + now-empty dir).
-    await fs.rm(bucket, { recursive: true, force: true });
+    try {
+      await moveFile(registrySrc, registryDest);
+    } catch (registryError) {
+      if (featureMoved) {
+        try {
+          if (!(await moveDir(manifest.feature_dir, featureSrc)))
+            throw missingMoveSource(manifest.feature_dir);
+        } catch (rollbackError) {
+          throw new AggregateError(
+            [registryError, rollbackError],
+            `registry restore failed (${errorMessage(registryError)}); ` +
+              `feature rollback also failed (${errorMessage(rollbackError)}); ` +
+              `feature locations: ${manifest.feature_dir}, ${featureSrc}; ` +
+              `registry locations: ${registrySrc}, ${registryDest}; ` +
+              `manifest retained at ${path.join(bucket, "manifest.json")}`,
+            { cause: registryError },
+          );
+        }
+      }
+      throw registryError;
+    }
+    // The pair is restored. Cleanup failure cannot safely undo partial deletion.
+    try {
+      await fs.rm(bucket, { recursive: true, force: true });
+    } catch (error) {
+      throw new Error(
+        `bucket cleanup failed (${errorMessage(error)}); artifacts restored; remaining bucket: ${bucket}`,
+        { cause: error },
+      );
+    }
   }
 
   return {
@@ -262,6 +322,24 @@ export async function restoreTrashBucket(opts: RestoreTrashOptions): Promise<Res
     cwd: manifest.cwd,
     restored_from: bucket,
   };
+}
+
+class CopyMoveError extends Error {
+  constructor(kind: string, source: string, destination: string, cause: unknown) {
+    super(
+      `${kind} transfer failed (${errorMessage(cause)}); inspect retained copies at ${source} and ${destination}`,
+      { cause },
+    );
+    this.name = "CopyMoveError";
+  }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function missingMoveSource(source: string): Error {
+  return Object.assign(new Error(`transfer source disappeared: ${source}`), { code: "ENOENT" });
 }
 
 /**
@@ -274,10 +352,17 @@ async function moveDir(src: string, dest: string): Promise<boolean> {
     return true;
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
-    if (code === "ENOENT") return false;
+    if (code === "ENOENT") {
+      if (await pathExists(src)) throw err; // Missing destination is not a missing source.
+      return false;
+    }
     if (code === "EXDEV") {
-      await fs.cp(src, dest, { recursive: true });
-      await fs.rm(src, { recursive: true, force: true });
+      try {
+        await fs.cp(src, dest, { recursive: true });
+        await fs.rm(src, { recursive: true, force: true });
+      } catch (error) {
+        throw new CopyMoveError("directory", src, dest, error);
+      }
       return true;
     }
     throw err;
@@ -290,8 +375,12 @@ async function moveFile(src: string, dest: string): Promise<void> {
     await fs.rename(src, dest);
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "EXDEV") {
-      await fs.copyFile(src, dest);
-      await fs.rm(src, { force: true });
+      try {
+        await fs.copyFile(src, dest);
+        await fs.rm(src, { force: true });
+      } catch (error) {
+        throw new CopyMoveError("registry", src, dest, error);
+      }
     } else {
       throw err;
     }

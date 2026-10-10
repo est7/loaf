@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Trash restore now compensates a restored feature when the registry move
+  fails, preserving a retryable bucket after successful rollback. Failed
+  compensation preserves copies and reports both causes and transfer paths;
+  cross-device copy/remove failures also retain their recovery copies.
+- Malformed trash manifests and missing required restore fields now fail
+  closed with `PRUNE_RESTORE_INCOMPLETE`, manifest path and cause before any
+  move. Non-ENOENT I/O failures propagate instead of being treated as absence.
+  Cleanup failures after both transfers still report restored artifacts and
+  the remaining bucket path without attempting rollback.
+
 - CLI bootstrap, presentation and selector views now treat tokens after `--`
   as positional data. Post-boundary help/version, format, selector, schema
   and hook-list flags cannot bypass or change pre-boundary policy checks;
