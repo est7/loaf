@@ -12797,12 +12797,14 @@ function shellQuote(value) {
 	return `'${value.replaceAll("'", `'\"'\"'`)}'`;
 }
 function appendSelector(command, selector) {
-	return `${command} --${selector.kind} ${shellQuote(selector.value)}`;
+	const scoped = `${command} --${selector.kind} ${shellQuote(selector.value)}`;
+	return selector.kind === "feature-dir" ? `${command} --feature ${shellQuote(selector.feature)} --feature-dir ${shellQuote(selector.value)}` : scoped;
 }
 function selectorForFeature(feature, featureDir, explicitFeatureDir) {
 	return explicitFeatureDir ? {
 		kind: "feature-dir",
-		value: featureDir
+		value: featureDir,
+		feature
 	} : {
 		kind: "feature",
 		value: feature

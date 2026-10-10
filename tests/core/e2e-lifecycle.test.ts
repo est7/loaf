@@ -480,7 +480,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     const expectNext = async (label: string, command: string, blocked?: boolean): Promise<any> => {
       const out = await step(`next @ ${label}`, [...routeArgs, "--feature", F]);
       expect(out.next_action?.command, `next @ ${label}`).toBe(
-        `${command} --feature-dir ${dir}`,
+        `${command} --feature ${F} --feature-dir ${dir}`,
       );
       if (blocked !== undefined) expect(out.blocked).toBe(blocked);
       const classification = classifySkillAdvice(supervision, out.next_action);
@@ -1286,7 +1286,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     // DELIVER_SETTLE_PHASE_BYPASS rejection above. Closes the /loaf:settle
     // skill routing gap.
     const settleAdvice = await step("next @ VERIFY.accept", ["next", "--feature", F]);
-    expect(settleAdvice.next_action?.command).toBe(`loaf settle --feature-dir ${dir}`);
+    expect(settleAdvice.next_action?.command).toBe(`loaf settle --feature ${F} --feature-dir ${dir}`);
     expect(settleAdvice.blocked).toBe(false);
     expect(classifySkillAdvice(supervision, settleAdvice.next_action)).toEqual({
       kind: "automatic",
@@ -1298,7 +1298,7 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     ]);
     {
       const n = await step("next @ SETTLE.lessons", ["next", "--feature", F]);
-      expect(n.next_action?.command).toBe(`loaf deliver --feature-dir ${dir}`);
+      expect(n.next_action?.command).toBe(`loaf deliver --feature ${F} --feature-dir ${dir}`);
       expect(classifySkillAdvice(supervision, n.next_action)).toEqual({
         kind: "human-stop",
         id: "deliver",

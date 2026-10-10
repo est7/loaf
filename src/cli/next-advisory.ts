@@ -10,10 +10,9 @@ import type { Snapshot } from "../core/reducer.js";
 import type { DispatchOk } from "../core/session-dispatch.js";
 import type { CommandContext } from "./command-context.js";
 
-export type NextAdvisorySelector = {
-  kind: "session" | "feature" | "feature-dir";
-  value: string;
-};
+export type NextAdvisorySelector =
+  | { kind: "session" | "feature"; value: string }
+  | { kind: "feature-dir"; value: string; feature: string };
 
 export function pendingKindsForNext(
   pending: readonly { kind: string }[],
@@ -27,7 +26,10 @@ function shellQuote(value: string): string {
 }
 
 export function appendSelector(command: string, selector: NextAdvisorySelector): string {
-  return `${command} --${selector.kind} ${shellQuote(selector.value)}`;
+  const scoped = `${command} --${selector.kind} ${shellQuote(selector.value)}`;
+  return selector.kind === "feature-dir"
+    ? `${command} --feature ${shellQuote(selector.feature)} --feature-dir ${shellQuote(selector.value)}`
+    : scoped;
 }
 
 export function selectorForFeature(
@@ -36,7 +38,7 @@ export function selectorForFeature(
   explicitFeatureDir: boolean,
 ): NextAdvisorySelector {
   return explicitFeatureDir
-    ? { kind: "feature-dir", value: featureDir }
+    ? { kind: "feature-dir", value: featureDir, feature }
     : { kind: "feature", value: feature };
 }
 

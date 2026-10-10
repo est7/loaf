@@ -37,8 +37,9 @@ describe("buildNextAdvisory", () => {
       buildNextAdvisory(createI18n("en", BUILTIN_BUNDLES), input(), {
         kind: "feature-dir",
         value: "/tmp/feature dir",
+        feature: "auth-refresh",
       }),
-    ).toBe("loaf advance TRIAGE.confirm --feature-dir '/tmp/feature dir'");
+    ).toBe("loaf advance TRIAGE.confirm --feature auth-refresh --feature-dir '/tmp/feature dir'");
   });
 
   test("blocking human action becomes a localized, runnable loaf-next pointer", () => {
@@ -84,16 +85,20 @@ describe("buildNextAdvisory", () => {
       selectorForDispatch({ ...base, source: "session-flag" }, ["loaf", "--session", "550e8400"]),
     ).toEqual({ kind: "session", value: base.sessionId });
     expect(
-      selectorForDispatch(
-        { ...base, source: "feature-flag" },
-        ["loaf", "next", "--feature", "auth-refresh"],
-      ),
+      selectorForDispatch({ ...base, source: "feature-flag" }, [
+        "loaf",
+        "next",
+        "--feature",
+        "auth-refresh",
+      ]),
     ).toEqual({ kind: "feature", value: "auth-refresh" });
     expect(
-      selectorForDispatch(
-        { ...base, source: "feature-flag" },
-        ["loaf", "next", "--feature=auth-refresh", "--feature-dir=/tmp/custom dir"],
-      ),
-    ).toEqual({ kind: "feature-dir", value: "/repo/.loaf/auth-refresh" });
+      selectorForDispatch({ ...base, source: "feature-flag" }, [
+        "loaf",
+        "next",
+        "--feature=auth-refresh",
+        "--feature-dir=/tmp/custom dir",
+      ]),
+    ).toEqual({ kind: "feature-dir", value: "/repo/.loaf/auth-refresh", feature: "auth-refresh" });
   });
 });

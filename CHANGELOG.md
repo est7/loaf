@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Next-action commands and advisory pointers now carry both the feature name
+  and explicit feature directory, so copying a returned command works without
+  LOAF_FEATURE. Session selectors and shell quoting remain intact.
+
 - `loaf next` now recommends advancing to EXECUTE.plan for an admitted
   SPEC.design journal with an approved spec-lock and no pending prompt.
   Next-target guard evaluation uses the actual spec_locked flag instead of

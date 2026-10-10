@@ -554,7 +554,7 @@ describe("loaf gate decide spec-lock — Slice 1.B sub-cycle 4 (MVP)", () => {
     expect(result.stderr).toContain("gate decide: spec-lock approved by");
     // Canonical advisory is computed from the post-batch EXECUTE.plan
     // snapshot through the same routing adapter as `loaf next`.
-    expect(result.stderr).toContain(`next: loaf advance EXECUTE.work --feature-dir ${dir}`);
+    expect(result.stderr).toContain(`next: loaf advance EXECUTE.work --feature auth-refresh --feature-dir ${dir}`);
     const out = JSON.parse(result.stdout);
     expect(out.ok).toBe(true);
     expect(out.gate).toBe("spec-lock");
@@ -2154,7 +2154,7 @@ describe("loaf settle", () => {
     // SC-5b2: state-change + next now route to stderr; stdout empty.
     expect(result.stdout).toBe("");
     expect(result.stderr).toMatch(/settle: VERIFY\.accept → SETTLE\.lessons/);
-    expect(result.stderr).toContain(`next: loaf deliver --feature-dir ${dir}`);
+    expect(result.stderr).toContain(`next: loaf deliver --feature auth-refresh --feature-dir ${dir}`);
     expect(result.stderr).not.toContain("loaf advance SETTLE.lessons");
     // Compatibility projection must not be presented as current output.
     expect(result.stdout).not.toMatch(/reconcile\.json/);
@@ -2709,7 +2709,7 @@ needs_clarification: []
     expect(result.exit).toBe(0);
     expect(result.stderr).toContain("tasks submit: 1 tasks");
     expect(result.stderr).toContain(
-      `next: run \`loaf next --feature-dir ${dir} --format json\` for the full command`,
+      `next: run \`loaf next --feature auth-refresh --feature-dir ${dir} --format json\` for the full command`,
     );
     const out = JSON.parse(result.stdout);
     expect(out.ok).toBe(true);
@@ -4783,7 +4783,7 @@ function expectOnlyAction(out: NextOutput): NextActionOut {
 }
 
 function scopedNextCommand(command: string, dir: string): string {
-  return `${command} --feature-dir ${dir}`;
+  return `${command} --feature auth-refresh --feature-dir ${dir}`;
 }
 
 async function raisePending(
@@ -5311,7 +5311,7 @@ describe("loaf next — phase-routing read-side dual", () => {
     expect(out.feature_dir).toBe(dir);
     expect(out.next_action).toBeDefined();
     expect(out.next_action?.command).toBe(
-      `loaf gate decide spec-lock --approve|--reject --reason "<reason>" --feature-dir ${dir}`,
+      `loaf gate decide spec-lock --approve|--reject --reason "<reason>" --feature auth-refresh --feature-dir ${dir}`,
     );
 
     await expect(fsP.readFile(journalPath, "utf8")).resolves.toBe(journalBefore);
