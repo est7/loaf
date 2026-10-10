@@ -10,6 +10,7 @@ import type { JournalEntry } from "../../src/core/journal-entry.js";
 import { deriveActualScope } from "../../src/core/scope-projection.js";
 import { readSessionRuntimeFile, writeSessionRuntimeFile, sessionRuntimeFilePath } from "../../src/core/session-runtime.js";
 import * as runtimeStore from "../../src/core/session-runtime.js";
+import * as scopePaths from "../../src/core/scope-track.js";
 
 type Seed = {
   workspace: string;
@@ -106,6 +107,44 @@ async function journal(seed: Seed): Promise<JournalEntry[]> {
 }
 
 describe("EXECUTE closure transaction", () => {
+  test.each(["missing", "malformed", "mismatched"])("rollover hook maps %s canonical history failure through the runtime outlet without changing pending bytes", async (fault) => {
+    const seed = await seedQuickAtExecuteWork();
+    try {
+      expect((await runCli(seed, ["advance", "EXECUTE.done"])).exit).toBe(0);
+      expect((await runCli(seed, ["finding", "raise", "--category", "impl-defect", "--action", "amend-tasks", "--summary", "begin another iteration for rollover"])).exit).toBe(0);
+      await writePending(seed, ["src/late.ts"]);
+      const file = sessionRuntimeFilePath(seed.sessionId, { runtimeDir: seed.runtimeDir, now: () => new Date() });
+      const before = await fs.readFile(file, "utf8");
+      const realNormalize = scopePaths.normalizeScopePath;
+      // Change history after the trusted dispatch/state read, at the real
+      // normalization boundary. The runtime-lock history read must fail closed.
+      const normalize = vi.spyOn(scopePaths, "normalizeScopePath").mockImplementationOnce(async (...args) => {
+        const result = await realNormalize(...args);
+        const journalFile = path.join(seed.featureDir, "journal.jsonl");
+        if (fault === "missing") await fs.unlink(journalFile);
+        else if (fault === "malformed") await fs.writeFile(journalFile, "{broken\n");
+        else {
+          const entries = await journal(seed);
+          entries[0]!.payload = { ...(entries[0]!.payload as Record<string, unknown>), session_id: "another-session" };
+          await fs.writeFile(journalFile, entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n");
+        }
+        return result;
+      });
+      try {
+        const result = await runCli(seed, ["hook", "scope-track", "--path", path.join(seed.workspace, "src", "new.ts")]);
+        expect(result).toMatchObject({ exit: 2, stdout: "" });
+        expect(JSON.parse(result.stderr)).toMatchObject({ code: "SCHEMA_VALIDATION_FAILED", detail: {
+          source: "session-runtime", reason: fault === "malformed" ? expect.stringContaining("failed to load session") : "scope-track history does not match the selected session identity",
+        } });
+      } finally {
+        normalize.mockRestore();
+      }
+      expect(await fs.readFile(file, "utf8")).toBe(before);
+    } finally {
+      await fs.rm(seed.workspace, { recursive: true, force: true });
+    }
+  });
+
   test("successful closure publishes the complete initialized runtime bytes", async () => {
     const seed = await seedQuickAtExecuteWork();
     try {
@@ -443,7 +482,7 @@ describe("EXECUTE closure transaction", () => {
     ]);
   });
 
-  test("a scope-track invocation waiting on closure carries its late path into the next iteration", async () => {
+  test("a waiting scope-track late path survives a new-iteration hook before the next closure", async () => {
     const seed = await seedQuickAtExecuteWork();
     await writePending(seed, ["src/early.ts"]);
     let scopeTrack: Promise<number> | undefined;
@@ -496,6 +535,9 @@ describe("EXECUTE closure transaction", () => {
       "carry a late scope path into the next implementation iteration",
     ]);
     expect(backEdge.exit).toBe(0);
+    expect((await runCli(seed, ["hook", "scope-track", "--path", path.join(seed.workspace, "src", "new-iteration.ts")])).exit).toBe(0);
+    expect((await runCli(seed, ["hook", "scope-track", "--path", path.join(seed.workspace, "src", "new-iteration.ts")])).exit).toBe(0);
+    expect((await readSessionRuntimeFile({ session_id: seed.sessionId, cwd: seed.workspace }, { runtimeDir: seed.runtimeDir, now: () => new Date() }))?.pending_scope).toEqual({ iteration: 2, paths: ["src/late.ts", "src/new-iteration.ts"] });
     const secondClosure = await runCli(seed, ["advance", "EXECUTE.done"]);
     expect(secondClosure.exit).toBe(0);
 
@@ -506,9 +548,15 @@ describe("EXECUTE closure transaction", () => {
         (entry.payload as { iteration?: number }).iteration === 2,
     );
     expect(secondScope).toHaveLength(1);
-    expect(secondScope[0]!.payload).toEqual({ iteration: 2, paths: ["src/late.ts"] });
+    expect(secondScope[0]!.payload).toEqual({ iteration: 2, paths: ["src/late.ts", "src/new-iteration.ts"] });
     const actualScope = await deriveActualScope(afterSecondClosure, seed.featureDir);
-    expect(actualScope).toEqual(["src/early.ts", "src/late.ts"]);
+    expect(actualScope).toEqual(["src/early.ts", "src/late.ts", "src/new-iteration.ts"]);
     expect(actualScope.filter((scopePath) => scopePath === "src/late.ts")).toHaveLength(1);
+    const journalBeforeRebuild = await fs.readFile(path.join(seed.featureDir, "journal.jsonl"), "utf8");
+    expect((await runCli(seed, ["doctor", "--rebuild"])).exit).toBe(0);
+    expect(await fs.readFile(path.join(seed.featureDir, "journal.jsonl"), "utf8")).toBe(journalBeforeRebuild);
+    const replayed = await loadSession(seed.featureDir, { ensureDir: false });
+    expect(await deriveActualScope(replayed.entries, seed.featureDir)).toEqual(actualScope);
+    expect((await readSessionRuntimeFile({ session_id: seed.sessionId, cwd: seed.workspace }, { runtimeDir: seed.runtimeDir, now: () => new Date() }))?.pending_scope).toBeNull();
   });
 });

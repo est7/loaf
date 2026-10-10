@@ -211,6 +211,7 @@ export function registerIntegrations(
           try {
             normalized = await trackPendingScope({
               targetPath: target,
+              featureDir: dispatch.featureDir,
               identity: { session_id: sessionId, cwd: repoRoot },
               debug: ctx.debug,
               cursor: { sub_state: state.sub_state, iteration: state.iteration },

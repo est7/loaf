@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Scope tracking in a new EXECUTE iteration now retains uncovered paths from
+  the previous iteration alongside newly tracked paths, so a late hook cannot
+  lose its path before the next scope closure. Already recorded paths are
+  excluded; unreadable or mismatched canonical history leaves pending scope
+  unchanged and reports the runtime-update failure.
+
 ## [0.10.0] — 2026-10-10
 
 ### Changed

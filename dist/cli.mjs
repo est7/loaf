@@ -11559,13 +11559,24 @@ async function trackPendingScope(options) {
 		};
 	}
 	const heartbeatAt = options.runtime.now().toISOString();
-	await withRuntimeLock(options.identity, "scope-track", (current) => {
+	await withRuntimeLock(options.identity, "scope-track", async (current) => {
 		const base = runtimeOrInitial(current, options.identity, options.debug, heartbeatAt);
 		if (!normalized.ok || normalized.kind === "internal" || options.cursor.sub_state !== "EXECUTE.work") return {
 			...base,
 			heartbeat_at: heartbeatAt
 		};
-		const paths = new Set(base.pending_scope?.iteration === options.cursor.iteration ? base.pending_scope.paths : []);
+		const pending = base.pending_scope;
+		let carriedPaths = [];
+		if (pending !== null && pending.iteration === options.cursor.iteration) carriedPaths = pending.paths;
+		else if (pending !== null && pending.iteration < options.cursor.iteration) {
+			const history = await loadSession(options.featureDir, { ensureDir: false });
+			if (history.snapshot.state?.session_id !== options.identity.session_id) throw new Error("scope-track history does not match the selected session identity");
+			carriedPaths = await uncoveredPendingPaths(pending, {
+				entries: history.entries,
+				featureDir: options.featureDir
+			});
+		}
+		const paths = new Set(carriedPaths);
 		paths.add(normalized.path);
 		return {
 			...base,
@@ -16148,6 +16159,7 @@ function registerIntegrations(program, ctx, _mutator, _actor, i18n, isStdinTty, 
 			try {
 				normalized = await trackPendingScope({
 					targetPath: target,
+					featureDir: dispatch.featureDir,
 					identity: {
 						session_id: sessionId,
 						cwd: repoRoot

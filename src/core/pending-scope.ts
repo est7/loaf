@@ -1,6 +1,7 @@
 // Machine-local pending-scope lifecycle policy. session-runtime owns storage
 // validation, identity fencing, atomic publication and the runtime lock.
 import type { SessionRuntimeFile, StateProjection } from "./projection-schema.js";
+import { loadSession } from "./cli-runtime.js";
 import { compareScopePathBytes, type JournalEntry } from "./journal-entry.js";
 import { findScopeClosureFact } from "./scope-closure-policy.js";
 import { resolveScopePaths } from "./scope-projection.js";
@@ -31,6 +32,7 @@ function runtimeOrInitial(
 
 export interface TrackPendingScopeOptions {
   targetPath: string;
+  featureDir: string;
   identity: RuntimeIdentity;
   debug: boolean;
   /** Cursor captured by the trusted session read before waiting on the lock. */
@@ -54,7 +56,7 @@ export async function trackPendingScope(
   await withRuntimeLock(
     options.identity,
     "scope-track",
-    (current) => {
+    async (current) => {
       const base = runtimeOrInitial(current, options.identity, options.debug, heartbeatAt);
       if (
         !normalized.ok ||
@@ -63,9 +65,24 @@ export async function trackPendingScope(
       ) {
         return { ...base, heartbeat_at: heartbeatAt };
       }
-      const paths = new Set(
-        base.pending_scope?.iteration === options.cursor.iteration ? base.pending_scope.paths : [],
-      );
+      const pending = base.pending_scope;
+      let carriedPaths: string[] = [];
+      if (pending !== null && pending.iteration === options.cursor.iteration) {
+        carriedPaths = pending.paths;
+      } else if (pending !== null && pending.iteration < options.cursor.iteration) {
+        // Read canonical history under the runtime lock. The captured cursor
+        // remains authoritative for this hook, including hooks waiting on a
+        // closure; replay is read-only and never acquires a feature lock.
+        const history = await loadSession(options.featureDir, { ensureDir: false });
+        if (history.snapshot.state?.session_id !== options.identity.session_id) {
+          throw new Error("scope-track history does not match the selected session identity");
+        }
+        carriedPaths = await uncoveredPendingPaths(pending, {
+          entries: history.entries,
+          featureDir: options.featureDir,
+        });
+      }
+      const paths = new Set(carriedPaths);
       paths.add(normalized.path);
       return {
         ...base,
@@ -107,7 +124,7 @@ export type PendingScopeSettlementPhase = "committed" | "recovered" | "committed
 
 async function uncoveredPendingPaths(
   pending: NonNullable<SessionRuntimeFile["pending_scope"]>,
-  context: PendingScopeClosureContext,
+  context: Pick<PendingScopeClosureContext, "entries" | "featureDir">,
 ): Promise<string[]> {
   const scope = findScopeClosureFact(context.entries, pending.iteration)?.scope;
   if (scope === undefined) return [...pending.paths];
