@@ -669,7 +669,9 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
       "Resolve session by UUID or ≥8-char prefix (registry lookup; see §10.3)",
     )
     .addHelpText("after", helpFooter())
-    .showHelpAfterError()
+    // Commander errors/help-on-error are translated once by the catalog boundary.
+    // Explicit --help/help and --version still use Commander stdout.
+    .configureOutput({ writeErr: () => {} })
     .exitOverride();
 
   // SC-5a: actor init now lives BELOW the pre-parse guard (r243 P2) —
@@ -827,8 +829,8 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
           resolvedExit = 0;
           return 0;
         }
-        process.stderr.write(`error: ${err.code ?? "USAGE"} — ${err.message}\n`);
-        resolvedExit = err.exitCode === 1 ? 2 : err.exitCode;
+        ctx.failure(diagnostic("USAGE", { parser_code: err.code, reason: err.message }));
+        resolvedExit = ctx.exitCode;
         return resolvedExit;
       }
       // Phase 16 SC-2/SC-3 — unhandled error boundary (protocol §10.5 / §10.9).

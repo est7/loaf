@@ -305,7 +305,7 @@ export function registerProfileConfig(
   //   2 = every catalogued failure (unreplayable journal, serialization/write
   //       failure, missing --feature,
   //       bare `doctor` without an implemented mode). All routed through
-  //       emitFailure to keep ERROR_CATALOG ⇔ runtime exit_code in agreement
+  //       ctx.failure to keep ERROR_CATALOG ⇔ runtime exit_code in agreement
   //       (src/core/error-catalog.ts lists DOCTOR_REBUILD_FAILED with exit_code: 2).
   //   Exit 1 is reserved for unhandled throws caught by the top-level
   //   boundary at the end of main(), which also writes ~/.loaf/crashes/.

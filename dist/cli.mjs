@@ -3323,6 +3323,7 @@ function presentedDetail(detail, i18n) {
 }
 function diagnosticContextRows(detail) {
 	const lines = [];
+	if (typeof detail["parser_code"] === "string" && typeof detail["reason"] === "string") lines.push(`  [${detail["parser_code"]}] ${detail["reason"]}\n`);
 	const checks = detail["checks"];
 	if (Array.isArray(checks)) for (const c of checks) lines.push(`  [check ${c.check ?? "?"}] ${c.code ?? "UNKNOWN"}: ${c.message ?? ""}\n`);
 	const errors = detail["errors"];
@@ -3355,8 +3356,7 @@ function renderDiagnostic(diagnostic, i18n) {
 		message: i18n.t(key, vars)
 	};
 }
-/** Recoverable exit-2 outlet. Existing command callers migrate in later
-* slices; this renderer has no CLI/context dependency or error fallback. */
+/** Sole recoverable exit-2 outlet; no CLI/context dependency or error fallback. */
 function writeDiagnosticFailure(diagnostic, presentation) {
 	const i18n = presentation.format === "json" ? DEFAULT_I18N : presentation.i18n;
 	const { parent, context, template, vars, message } = renderDiagnostic(diagnostic, i18n);
@@ -19853,7 +19853,7 @@ async function main(argv = process.argv, deps = {}) {
 		process.stdout.write(s);
 	};
 	const program = new Command();
-	program.name("loaf").description("Spec-driven development protocol CLI").version(version).option("--format <fmt>", `Output format: ${FORMAT_MODES_HUMAN} (default: text)`).option("--plain", "Alias for --format text (clig.dev convention)").option("--no-color", "Disable color (NO_COLOR/LOAF_NO_COLOR/TERM=dumb equivalents)").option("-q, --quiet", "Suppress advisory stderr (state-change + next hint; errors still emit)").option("-v, --verbose", "Increase advisory detail; counter — repeat for more (-v, -vv)", (_v, prior) => (prior ?? 0) + 1, 0).option("--no-input", "Non-interactive mode: refuse git-config actor fallback; forward-compat with future prompts (skill / hook / CI)").option("--debug", "Write per-invocation trace.jsonl (LOAF_DEBUG=1 / DEBUG=1 equivalents)").option("-n, --dry-run", "Validate without writing (mutating commands only); read-only commands exit 2").option("--session <uuid-or-prefix>", "Resolve session by UUID or ≥8-char prefix (registry lookup; see §10.3)").addHelpText("after", helpFooter()).showHelpAfterError().exitOverride();
+	program.name("loaf").description("Spec-driven development protocol CLI").version(version).option("--format <fmt>", `Output format: ${FORMAT_MODES_HUMAN} (default: text)`).option("--plain", "Alias for --format text (clig.dev convention)").option("--no-color", "Disable color (NO_COLOR/LOAF_NO_COLOR/TERM=dumb equivalents)").option("-q, --quiet", "Suppress advisory stderr (state-change + next hint; errors still emit)").option("-v, --verbose", "Increase advisory detail; counter — repeat for more (-v, -vv)", (_v, prior) => (prior ?? 0) + 1, 0).option("--no-input", "Non-interactive mode: refuse git-config actor fallback; forward-compat with future prompts (skill / hook / CI)").option("--debug", "Write per-invocation trace.jsonl (LOAF_DEBUG=1 / DEBUG=1 equivalents)").option("-n, --dry-run", "Validate without writing (mutating commands only); read-only commands exit 2").option("--session <uuid-or-prefix>", "Resolve session by UUID or ≥8-char prefix (registry lookup; see §10.3)").addHelpText("after", helpFooter()).configureOutput({ writeErr: () => {} }).exitOverride();
 	const actor = `cli:loaf@${process.env["USER"] ?? "unknown"}`;
 	const ctx = createCommandContext(argv, {
 		writeStdout: writeStdoutCaptured,
@@ -19914,8 +19914,11 @@ async function main(argv = process.argv, deps = {}) {
 					resolvedExit = 0;
 					return 0;
 				}
-				process.stderr.write(`error: ${err.code ?? "USAGE"} — ${err.message}\n`);
-				resolvedExit = err.exitCode === 1 ? 2 : err.exitCode;
+				ctx.failure(diagnostic$2("USAGE", {
+					parser_code: err.code,
+					reason: err.message
+				}));
+				resolvedExit = ctx.exitCode;
 				return resolvedExit;
 			}
 			const error = err instanceof Error ? err : new Error(String(err));

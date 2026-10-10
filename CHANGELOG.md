@@ -22,12 +22,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and existing failure-site variants retain their shipped translations with
   English fallback. Ambiguous variants support an additive `detail.context`
   using the existing site identifier while preserving `detail.subcode`.
-  Command callers still use their existing output paths in this slice.
+  Expected failures now reach one CLI outlet through structured diagnostics.
 
 - Core admission, reducer, transition, and task-graph failures now carry
   code/detail without producer-owned messages. Their mutation callers render
-  catalog messages/fix guidance and preserve detail through every intermediate
-  route; rejection ordering and task dependency field shapes are unchanged.
+  catalog messages/fix guidance and preserve detail through the mutation
+  boundary; rejection ordering and task dependency field shapes are unchanged.
   Replay retains REDUCER_REJECTED and its inner diagnostic as structured data.
   Missing-target findings render action/reason without invented task/step values;
   NO_SESSION uses a directory-independent minimum for core admission.
@@ -51,6 +51,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   minimum; rejected values and invalid-config path/reason remain in detail.
   Doctor replay failures use DOCTOR_REBUILD_FAILED and preserve the original
   replay status, sequence, detail, and technical cause as structured context.
+
+- **Breaking CLI failure contract:** recoverable JSON is exactly one stderr
+  line `{ok:false,code,message,detail}` with canonical English catalog messages
+  regardless of locale and always-present, unstripped detail. Text renders
+  localized catalog messages, structured check/error rows, and fix/see guidance.
+  Commander parser failures now use `USAGE` with `detail.parser_code` and the
+  original `detail.reason`, without automatic error/help duplication. Explicit
+  help/version remain exit 0; unexpected crashes remain exit 1 and SIGINT 130.
+  Consumers must branch on code and structured detail, rather than old message
+  prose or Commander stderr text; accept additive context and nested rendered
+  check messages. Persisted/journal schemas, rejection policy, task dependency
+  shapes, and commit-state proof are unchanged. Publication requires the
+  driver's breaking-minor release identity update; this work keeps 0.10.0.
 
 ## [0.10.0] — 2026-10-10
 

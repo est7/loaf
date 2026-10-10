@@ -21,12 +21,10 @@ function alternateOutlets(file: string, source: string): string[] {
         target === "deps.writeStderr" ||
         target === "console.error";
       if (direct && /error:|JSON\.stringify/.test(argument)) {
-        // Slice 5 owns Commander's existing catch. Unexpected/crash remains exit 1.
+        // Unexpected/crash remains the separate exit-1 failure domain.
         const permittedMain =
           file === "src/cli.tsx" &&
-          (argument.includes('err.code ?? "USAGE"') ||
-            argument.includes("UNEXPECTED_ERROR") ||
-            argument === 'JSON.stringify(payload) + "\\n"');
+          (argument.includes("UNEXPECTED_ERROR") || argument === 'JSON.stringify(payload) + "\\n"');
         if (!permittedMain && file !== "src/cli/diagnostic-failure.ts")
           violations.push(`${target}(${argument})`);
       }

@@ -44,6 +44,9 @@ function presentedDetail(detail: Record<string, unknown>, i18n: I18n): Record<st
 
 function diagnosticContextRows(detail: Record<string, unknown>): string {
   const lines: string[] = [];
+  if (typeof detail["parser_code"] === "string" && typeof detail["reason"] === "string") {
+    lines.push(`  [${detail["parser_code"]}] ${detail["reason"]}\n`);
+  }
   const checks = detail["checks"];
   if (Array.isArray(checks)) {
     for (const c of checks as Array<{ check?: number; code?: string; message?: string }>) {
@@ -88,8 +91,7 @@ function renderDiagnostic(diagnostic: CatalogDiagnostic, i18n: I18n) {
   return { parent, context, template, vars, message };
 }
 
-/** Recoverable exit-2 outlet. Existing command callers migrate in later
- * slices; this renderer has no CLI/context dependency or error fallback. */
+/** Sole recoverable exit-2 outlet; no CLI/context dependency or error fallback. */
 export function writeDiagnosticFailure(
   diagnostic: CatalogDiagnostic,
   presentation: DiagnosticPresentation,

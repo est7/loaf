@@ -4,7 +4,7 @@ import { diagnostic } from "../../core/error-catalog.js";
 // W8 family file. Read-only: walks the session registry and serves / snapshots
 // a board view; it does NOT mutate the journal, so it takes no CommandMutator.
 // Ported from the original inline registration onto the post-W8 seam — the
-// presentation helpers it used (rejectIfDryRun / emitFailure) are now ctx
+// presentation helpers it used (rejectIfDryRun / failure) are now ctx
 // methods; argv comes from ctx.argv; now / i18n / registry / browser seams are
 // injected via BoardDeps.
 

@@ -1519,10 +1519,7 @@ export const ERROR_CATALOG = {
   // throws. Journal append already succeeded — retrying the same
   // command would hit DUPLICATE_*_ID against the appended event.
   // The fix path is the doctor rebuild (Slice 5 D), NOT a retry.
-  // NOTE: this entry exists for protocol/catalog consistency.
-  // Today's CLI `emitFailure` (src/cli.tsx:103-123) prints the
-  // mutateBatch `message` directly and does not render ERROR_CATALOG;
-  // wiring catalog rendering is out of SC-A2 scope (codex r90).
+  // The CLI renders this catalog entry from the post-append diagnostic detail.
   PROJECTION_WRITE_FAILED: {
     exit_code: 2,
     message_template:
@@ -1536,9 +1533,8 @@ export const ERROR_CATALOG = {
     detail_keys: ["error", "last_seq", "projection", "spec_version"],
   },
   // Slice B SC-B1: paired with FINDING_NOT_FOUND when back_edge
-  // references a stale / nonexistent finding. cli emitFailure prints
-  // mutateBatch.message directly today; catalog rendering wiring is
-  // out of slice scope per Slice A SC-A2 r92 NOTE.
+  // references a stale / nonexistent finding. Mutation failures retain
+  // current_sub_state for catalog rendering at the CLI boundary.
   FINDING_AMEND_SPEC_NOT_LOCKED: {
     exit_code: 2,
     message_template:
@@ -1677,12 +1673,8 @@ export const ERROR_CATALOG = {
     doc_anchor: "protocol.md#§10.15",
   },
   // ── Phase 16 SC-1 — CLI catalog hygiene (codex r187 BLOCKER 4 closure) ──
-  // Generic, placeholder-free wording per codex r193 PATCH 3: src/cli.tsx
-  // emits these via fail() / failRebuild() / emitFailure() with literal
-  // message strings — ERROR_CATALOG is not the runtime renderer for these
-  // paths yet, so introducing placeholders ({mode}, {feature}, {detail})
-  // would create undefined-substitution drift. Structured detail rendering
-  // is SC-2 work; keep these templates generic now and tighten later.
+  // Generic base wording is shared by multiple contexts. Required detail
+  // and catalog-owned variants below distinguish the actual failure sites.
   INVALID_PRESET: {
     exit_code: 2,
     message_template: "invalid ceremony preset",

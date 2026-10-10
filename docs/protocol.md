@@ -1739,7 +1739,7 @@ bridge 路径 `~/.loaf/claude-bridge/` 是 **client 协议约定**,不是 loaf-c
 
 | 错误类型 | 行为 |
 |---|---|
-| **Expected**(schema fail / illegal transition / 缺必要 flag) | stderr 一行 human readable + 指向 `.loaf/<feature>/snapshots/gate-diagnostic.json`(rev 5.0;若适用;读者先走 §10.15 Gate #5 fast check) / `loaf doctor` 给修复建议;exit 2 |
+| **Expected**(schema fail / illegal transition / 缺必要 flag) | exit 2；JSON stderr 单行 `{ok:false,code,message,detail}`，message 为 canonical English，detail 必有；text 使用 catalog message、结构化 context 行及 fix/see 指引。失败出口不写 stdout；已有 advisory 独立于失败出口。 |
 | **Unexpected**(panic / unknown 异常) | stderr 三行(text 模式):`error: UNEXPECTED_ERROR — <msg>` + `  crash log: ~/.loaf/crashes/<ts>.json` + `  report at $LOAF_ISSUE_URL?<prefilled-query>`。JSON 模式(`--format json`)stderr 单行 sentinel `{ok:false, code:"UNEXPECTED_ERROR", message, crash_log, report_url}`,stdout 留空;exit 1。Crash log envelope:`CrashLogEnvelope` Zod schema in `src/core/crash-log.ts`(`{iso, version, argv, cwd, feature, phase, sub_state, exitCode:1, error:{name,message,stack}}`,文件扩展 `.json`,目录 mode 0700,文件 mode 0600;Phase 16 SC-2 立 framework,SC-3 扩 phase/sub_state)。`$LOAF_ISSUE_URL` 由 build 时注入(见 §10.11),query string 预填(Phase 16 SC-3,`src/cli/url-prefill.ts`):`loaf_version` / `schema_version` / `phase` / `sub_state` / `last_command`(sanitized — 命令 + 子命令 + flag 名 + 公共枚举值如 `--ceremony/--format/--feature`;默认 redact 所有 option 值,**强制 redact**:`--input/--reason/--answer/--summary/--label` + inline JSON + path-like 值)/ `crash_log_path`。Crash log 内的 envelope.argv 保留完整原始 argv;只有 URL query 的 last_command 走 sanitize。 |
 | **Diff guard violation**(`loaf advance`) | exit 2 + stderr 列出违反 path + 引用 `STEP_WRITE_PATHS_BY_KIND` rule 来源 |
 | **Session dispatch**(rev 4.1 + Phase 16 SC-8)| **5 个** diagnostic code:`FEATURE_NOT_FOUND`(cwd 0 个 feature OR `--feature <name>` 指定的 feature 无 state projection)/ `FEATURE_AMBIGUOUS`(cwd 2+ active feature 且无 dispatch 上下文)/ `SESSION_CWD_MISMATCH`(`--session <UUID>` 指定的 UUID 注册 cwd ≠ 当前 cwd)/ `SESSION_SHORT_AMBIGUOUS`(短 UUID prefix 在 registry 多匹配)/ `SESSION_NOT_FOUND`(**Phase 16 SC-8 new**:UUID/prefix 在 registry 找不到任何匹配)。全部 exit 2,stderr 列候选 + did-you-mean。详见 §10.3 dispatch precedence 段 |
@@ -1748,18 +1748,24 @@ bridge 路径 `~/.loaf/claude-bridge/` 是 **client 协议约定**,不是 loaf-c
 
 **信号到噪音**:类似错误**合并展示**(N 个 REQ 缺 measurable → 一条总结 + 详情写文件,不是 N 行 stderr)。最重要的信息**放在 stderr 末尾**(用户视线落点)。
 
-**四段输出规约**(rev 4.3,ADR-0004 A9):所有 exit 2 user-recoverable 错误统一四行格式,重要信息按 clig.dev §5 排在尾部:
+**四段输出规约**(rev 4.3,ADR-0004 A9):所有 exit 2 user-recoverable 错误在 text 模式统一四段格式(context 可多行),重要信息按 clig.dev §5 排在尾部:
 
 ```
-error: <one-line human description>
-       <optional context: state we're in / what we saw>
-       fix: <concrete command(s) the user should run>
-       see: <doc anchor or local file path>
+error: <CODE> — <localized catalog message>
+  <optional structured check/error/parser context rows>
+  fix: <catalog recovery guidance>
+  see: <catalog doc anchor>
 ```
 
 `fix:` 行可缺(罕见;无可执行修复时省略);`see:` 行可缺(无对应 doc anchor 时省略)。exit 1(unexpected panic)**不**走这套格式,只给 crash log + report URL(见上表第 2 行)。
 
-`ERROR_CATALOG`(`src/core/error-catalog.ts`)是单一真理源:每个 `DiagnosticCode` 对应一条 `ErrorEntry { exit_code, message_template, fix_template?, doc_anchor? }`,模板渲染时按 vars 填占位符。i18n 走 `LOAF_LANG` bundle 按 code 查表(§18),CATALOG 内是英文 canonical 源。
+`ERROR_CATALOG`(`src/core/error-catalog.ts`)拥有 code、最小必需 detail、message/fix 模板和 doc anchor。domain producer 只返回 code + 结构化 detail；`CommandContext.failure(diagnostic)` 和早期 guard 统一调用 `writeDiagnosticFailure`。已有 41 个 site identifier 的模板由 catalog variant 管理，歧义时以附加 `detail.context` 选择，已有 `detail.subcode` 不改名。
+
+**JSON 契约**：`--format=json` 的 recoverable failure 为一条 newline-terminated stderr envelope `{ok:false,code,message,detail}`。message 和嵌套 `detail.checks[].message` 恒为 canonical English，LOAF_LANG/config/ambient locale 不影响；不增加 JSON fix/see 字段。detail 保留 producer 字段，nested check 的 message 只在 presentation 层派生，不写回 domain record。text 根据 locale 渲染 message/checks，缺中文 message/fix 时 fallback English；`errors[]` 保留 schema library 原始 issue 文本和 path/code，truncated/error_count 维持既有契约。
+
+**Commander 边界**：unknown option/command、缺 argument/option value 和缺 subcommand 都映射 `USAGE`，detail 保留原始 `parser_code` 和 `reason`。关闭自动 stderr error/help 输出，仅经 catalog 出口输出一次；text 额外显示 parser context。显式 `--help` / `help <command>` / `--version` 仍输出 stdout、exit 0。只有 CommanderError 被翻译；未知异常仍走 crash exit 1，SIGINT 仍为 130。早期 format/mutex/selector/locale guard 顺序不变，INVALID_FORMAT 保持 text-only。
+
+**消费者迁移 / Hyrum 边界**：message prose、原始 Commander stderr 与新增 text fix/see 是有意 public delta；脚本应以 code/detail 判定，不解析旧 prose，兼容附加 context 和嵌套 check message。TASK_DEP detail 数组/值、既有 schema variant 的 issues/path/subcode 字段、commit_state/failed_index 与已提交 append proof 保留。journal/runtime/persisted schema 与 snapshot bytes 不变；不更改 rejection policy。外部消费者无法仅凭 checkout 证明不存在；发布前由 driver 执行 breaking-minor version checkpoint，当前实现不自行 bump 0.10.0。
 
 <!-- generated:error-catalog BEGIN -->
 | Code | Exit | English message template | Fix template | Doc anchor |
@@ -1895,12 +1901,13 @@ error: <one-line human description>
 | <code>PROTECTED_FILE_WRITE</code> | 2 | <code>write blocked: `&#123;normalized_path&#125;` matches protected_files entry `&#123;matched_deny&#125;` — protected files are never writable</code> | <code>remove the entry from protected_files in .loaf/.config/loaf.config.json if the protection is wrong, otherwise write a different file</code> | <code>protocol.md#§11.1</code> |
 <!-- generated:error-catalog END -->
 
-完整出错示例(`SCHEMA_VALIDATION_FAILED`):
+完整出错示例(`USAGE`，text/en):
 
 ```
-error: input does not satisfy schema for spec:add-req: /measurable/threshold: expected number, got string
-       fix: run `loaf spec add-req --schema --format=json` to dump the JSON Schema, fix the offending field, and retry
-       see: protocol.md#§10.5
+error: USAGE — invalid CLI usage
+  [commander.unknownOption] error: unknown option '--unknown-flag'
+  fix: Run the command with --help and retry with the required flags/arguments.
+  see: protocol.md#§10.5
 ```
 
 ### 10.6 Subcommand naming convention
@@ -2878,7 +2885,7 @@ JSON 输出(payload + failure `message`)**永不本地化**(机器契约)。
 
 ### 18.5 与 ERROR_CATALOG 的关系(rev 4.3,ADR-0004 A9)
 
-§10.5 的四段错误输出(`error / context / fix / see`)走 `src/core/error-catalog.ts::ERROR_CATALOG`:每个 `DiagnosticCode` 对应一条 `ErrorEntry`,英文 `message_template` / `fix_template` / `doc_anchor` 是 canonical 源,bundle `<lang>.json` 的 `diagnostic.<code>` 与 `diagnostic.<code>.fix` / `diagnostic.<code>.see` 三 key 翻译。CLI 在 emit error 时按 `LOAF_LANG`(§10.3)查 bundle → 找不到 key 时 fallback 到 CATALOG 内英文模板 → 用 vars 填占位符。所有 exit 2 user-recoverable 错误统一走这条路径,散在各 throw 处的硬编码字符串归一(rev 4.2 仍有少量散字符串,work item 2 protocol.md §10.5 重写已起序;v1.0 GA 前完成全部迁移)。
+§10.5 的 text 四段输出由 `ERROR_CATALOG` 与 `writeDiagnosticFailure` 统一渲染：bundle 使用 `diagnostic.<CODE>` / `diagnostic_fix.<CODE>`，site variant 使用 `diagnostic_variant.<context>` / `diagnostic_variant_fix.<context>`。detail 数据经 catalog-owned adapter 填充占位符，缺中文翻译 fallback English；doc anchor 直接来自 catalog。JSON 始终使用 English message/checks，与 locale 无关。producer 不提供 template vars、i18n key 或旧 message fallback。
 
 ---
 
