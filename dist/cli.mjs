@@ -7,10 +7,10 @@ import path from "node:path";
 import { z } from "zod";
 import { createHash, randomBytes } from "node:crypto";
 import { execFileSync, spawn } from "node:child_process";
-import { O_APPEND, O_CREAT, O_WRONLY } from "node:constants";
 import * as fsp from "node:fs/promises";
 import picomatch from "picomatch";
 import { isDeepStrictEqual } from "node:util";
+import { O_APPEND, O_CREAT, O_WRONLY } from "node:constants";
 import { parse, stringify } from "yaml";
 import { createElement, useCallback, useEffect, useMemo, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
@@ -672,7 +672,7 @@ const AttachmentPath = z.string().min(1).regex(/^attachments\/JE-\d{6,}\/[^/\\\0
 		message: "attachment path must identify a file inside the entry bucket"
 	});
 });
-const AttachmentRef$1 = z.object({
+const AttachmentRef = z.object({
 	path: AttachmentPath,
 	sha256: z.string().regex(/^[a-f0-9]{64}$/),
 	size: z.number().int().nonnegative()
@@ -683,7 +683,7 @@ const InlineLongTextField = z.object({
 }).strict();
 const LongTextField$1 = z.discriminatedUnion("mode", [InlineLongTextField, z.object({
 	mode: z.literal("sidecar"),
-	ref: AttachmentRef$1
+	ref: AttachmentRef
 }).strict()]);
 //#endregion
 //#region src/core/evidence-schema.ts
@@ -929,7 +929,6 @@ const ENTRY_BYTE_LIMIT = 64e3;
 const EntryId = z.string().regex(/^JE-\d{6,}$/, { message: "entry_id must match /^JE-\\d{6,}$/ (e.g. JE-000123)" });
 const BatchId = z.string().uuid();
 const ActorString = z.string().regex(/^(human|skill|ci|cli|migration):[^\s].*$/, { message: "actor must be of form '<prefix>:<id>' where prefix ∈ {human, skill, ci, cli, migration}" });
-const AttachmentRef = AttachmentRef$1;
 const LongTextField = LongTextField$1;
 /** One concrete repo-relative POSIX path recorded for actual-scope audit. */
 const ScopePath = z.string().min(1).superRefine((value, ctx) => {
@@ -996,18 +995,6 @@ z.object({
 	key_id: z.string().min(1),
 	sig: z.string().min(1),
 	signed_at: z.string().datetime()
-}).strict();
-const MigrationSnapshotImportedPayload = z.object({
-	source_schema_version: z.number().int().positive(),
-	migrated_at: z.string().datetime(),
-	artifacts: z.object({
-		state: AttachmentRef,
-		tasks: AttachmentRef,
-		spec_md: AttachmentRef,
-		evidence: AttachmentRef,
-		findings: AttachmentRef,
-		pending: AttachmentRef
-	}).strict()
 }).strict();
 const Phase = z.enum([
 	"TRIAGE",
@@ -1079,8 +1066,7 @@ const EntryKind = z.enum([
 	"session:delivered",
 	"session:archived",
 	"session:abandoned",
-	"spike:converted",
-	"migration:snapshot_imported"
+	"spike:converted"
 ]);
 const JournalEntry = z.object({
 	seq: z.number().int().nonnegative(),
@@ -2189,7 +2175,7 @@ const ERROR_CATALOG = {
 	ALREADY_STARTED: {
 		exit_code: 2,
 		message_template: "session bootstrap kind {kind} cannot run after state already exists",
-		fix_template: "resume the existing session or create a new feature directory instead of starting/migrating over initialized state",
+		fix_template: "resume the existing session or create a new feature directory instead of starting over initialized state",
 		template_keys: ["kind"],
 		detail_keys: ["kind"],
 		doc_anchor: "protocol.md#§11.2"
@@ -2205,7 +2191,7 @@ const ERROR_CATALOG = {
 		exit_code: 2,
 		message_template: "no session at {feature_dir} — run `loaf start <feature>` first",
 		zh_message_template: "{feature_dir} 下没有 session — 先跑 `loaf start <feature>`",
-		fix_template: "run `loaf start` or `loaf doctor --migrate-v2` before emitting non-bootstrap journal entries",
+		fix_template: "run `loaf start` before emitting non-bootstrap journal entries",
 		template_keys: ["feature_dir"],
 		doc_anchor: "protocol.md#§10.8"
 	},
@@ -2243,34 +2229,6 @@ const ERROR_CATALOG = {
 		message_template: "journal tail is corrupt: {reason}",
 		fix_template: "run `loaf doctor --check-tail`; do not append until the tail has been repaired or quarantined",
 		template_keys: ["reason"],
-		doc_anchor: "protocol.md#§10.15"
-	},
-	MIGRATION_BACKUP_MISSING: {
-		exit_code: 2,
-		message_template: "migration backup target is unavailable: {backup_dir}",
-		fix_template: "move or remove the existing backup target, then rerun `loaf doctor --migrate-v2`",
-		template_keys: ["backup_dir"],
-		doc_anchor: "protocol.md#§10.15"
-	},
-	MIGRATION_INCOMPLETE: {
-		exit_code: 2,
-		message_template: "migration cannot complete: {reason}",
-		fix_template: "fix the legacy v0.0.x artifact or restore from backup; rerun migration only after validation passes",
-		template_keys: ["reason"],
-		doc_anchor: "protocol.md#§10.15"
-	},
-	MIGRATION_REPLAY_ATTEMPT: {
-		exit_code: 2,
-		message_template: "journal.jsonl already has entries; migration must run on a fresh journal",
-		fix_template: "do not rerun migration over an initialized journal; inspect the existing journal or start from the original v0.0.x backup",
-		template_keys: [],
-		doc_anchor: "protocol.md#§10.15"
-	},
-	MIGRATION_SIDECAR_MISSING: {
-		exit_code: 2,
-		message_template: "migration sidecar is missing: {artifact}",
-		fix_template: "restore the missing legacy artifact or sidecar, then rerun migration/doctor verification",
-		template_keys: ["artifact"],
 		doc_anchor: "protocol.md#§10.15"
 	},
 	INVALID_ACTOR_FORMAT: {
@@ -2382,7 +2340,7 @@ const ERROR_CATALOG = {
 	TASK_KIND_SCHEMA_VIOLATION: {
 		exit_code: 2,
 		message_template: "spec-lock check 8: task {task_id} (kind={kind}) violates projected kind-specific obligations: {reasons}",
-		fix_template: "amend the task to satisfy its kind contract: structural/docs/spike/chore require no_test_rationale (string ≥10 chars); visual-ui requires visual_contract_refs[] with ≥1 entry. Most commonly surfaces after migration:snapshot_imported when legacy v0.0.x projections lack the required fields. Slice C R2: bug-task RED is execution discipline, not a spec-lock obligation — a behavioral task with labels=['bug'] is born unregistered, and RED registration is enforced at runtime by BUG_TASK_REQUIRES_RED (preflight, implement step) and BUG_TASK_RED_NOT_REGISTERED (verify-accept), never by this check",
+		fix_template: "amend the task to satisfy its kind contract: structural/docs/spike/chore require no_test_rationale (string ≥10 chars); visual-ui requires visual_contract_refs[] with ≥1 entry. Slice C R2: bug-task RED is execution discipline, not a spec-lock obligation — a behavioral task with labels=['bug'] is born unregistered, and RED registration is enforced at runtime by BUG_TASK_REQUIRES_RED (preflight, implement step) and BUG_TASK_RED_NOT_REGISTERED (verify-accept), never by this check",
 		template_keys: [
 			"kind",
 			"reasons",
@@ -2695,9 +2653,9 @@ const ERROR_CATALOG = {
 	},
 	CANONICAL_TASK_BODY_UNAVAILABLE: {
 		exit_code: 2,
-		message_template: "task {task_id} is in the projection but has no canonical body in the journal (migration-imported); a whole-task amend cannot be reconstructed",
-		zh_message_template: "task {task_id} 在投影中存在,但 journal 里没有 canonical body(migration 导入);无法重建整 task 的 amend",
-		fix_template: "the task was rehydrated from a v0.0.x migration snapshot, so its full body never landed as a journal tasks_planned/tasks_amended entry. Re-plan the task graph via `loaf tasks submit`, or wait for the history-aware doctor path that will reconstruct migrated task bodies.",
+		message_template: "task {task_id} is in the projection but has no canonical body in the journal; a whole-task amend cannot be reconstructed",
+		zh_message_template: "task {task_id} 在投影中存在,但 journal 里没有 canonical body;无法重建整 task 的 amend",
+		fix_template: "the projection lacks a corresponding journal tasks_planned/tasks_amended body. Rebuild the snapshots via `loaf doctor --rebuild`; if the journal itself is incomplete, restore it from a valid backup.",
 		template_keys: ["task_id"],
 		doc_anchor: "protocol.md#§10.8"
 	},
@@ -2721,7 +2679,7 @@ const ERROR_CATALOG = {
 		exit_code: 2,
 		message_template: "behavioral bug task {task_id} is done but never registered its RED test (red_test_registered≠true)",
 		zh_message_template: "behavioral bug task {task_id} 已 done 但从未注册 RED 测试(red_test_registered≠true)",
-		fix_template: "a done behavioral bug task must have registered its RED test via `loaf tasks register-red`; this is a verify-accept defense-in-depth check for migration / raw-API journals — rebuild the journal or register RED retroactively before re-running the gate.",
+		fix_template: "a done behavioral bug task must have registered its RED test via `loaf tasks register-red`; this is a verify-accept defense-in-depth check for raw-API journals — rebuild the journal or register RED retroactively before re-running the gate.",
 		template_keys: ["task_id"],
 		doc_anchor: "protocol.md#§9.3"
 	},
@@ -2798,14 +2756,6 @@ const ERROR_CATALOG = {
 		message_template: "doctor --rebuild failed",
 		zh_message_template: "doctor --rebuild 失败",
 		fix_template: "Inspect the emitted error message; fix the journal/projection issue, then rerun doctor --rebuild.",
-		template_keys: [],
-		doc_anchor: "protocol.md#§10.15"
-	},
-	DOCTOR_REBUILD_MIGRATED_UNSUPPORTED: {
-		exit_code: 2,
-		message_template: "doctor --rebuild does not support v0.0.x-migrated journals in this release",
-		zh_message_template: "当前发布版本的 doctor --rebuild 不支持 v0.0.x-migrated journal",
-		fix_template: "Use the existing migrated snapshots, or wait for migrate-v2/rebuild support.",
 		template_keys: [],
 		doc_anchor: "protocol.md#§10.15"
 	},
@@ -2915,14 +2865,6 @@ function extractPhase(sub) {
 	const idx = sub.indexOf(".");
 	return sub.slice(0, idx);
 }
-const MIGRATION_BOOTSTRAP_CEREMONY = {
-	spec_phase: true,
-	verify_phase: true,
-	settle_phase: false,
-	strict_spec_review: false,
-	lessons_required: "skip",
-	strict_drift_check: false
-};
 /**
 * Applies an entry whose external validation has already succeeded.
 *
@@ -2932,30 +2874,6 @@ const MIGRATION_BOOTSTRAP_CEREMONY = {
 * @internal Only entry-admission.ts may call this directly.
 */
 function applyValidated(prev, entry) {
-	if (entry.kind === "migration:snapshot_imported") {
-		if (prev.state !== null) return {
-			ok: false,
-			...diagnostic$2("ALREADY_STARTED", { kind: entry.kind }),
-			message: "migration:snapshot_imported after state already initialized"
-		};
-		return {
-			ok: true,
-			snapshot: {
-				...prev,
-				state: {
-					session_id: "00000000-0000-0000-0000-000000000000",
-					feature: "migrated",
-					phase: "TRIAGE",
-					sub_state: "TRIAGE.score",
-					iteration: 1,
-					spec_locked: false,
-					verify_accepted: false,
-					spec_version: 0,
-					ceremony: MIGRATION_BOOTSTRAP_CEREMONY
-				}
-			}
-		};
-	}
 	if (entry.kind === "session:started") {
 		if (prev.state !== null) return {
 			ok: false,
@@ -4090,7 +4008,6 @@ const ALL_NON_MIGRATION = [
 ];
 const HUMAN_ONLY = ["human"];
 const CLI_ONLY = ["cli"];
-const MIGRATION_ONLY = ["migration"];
 function actorPrefix(actor) {
 	const m = /^(human|skill|ci|cli|migration):/.exec(actor);
 	return m ? m[1] : null;
@@ -4294,13 +4211,6 @@ const KIND_REGISTRY = {
 		entrySchemaVersion: 1,
 		subStates: ANY_NON_DONE,
 		actors: HUMAN_ONLY,
-		emitsSpec: false
-	},
-	"migration:snapshot_imported": {
-		payload: MigrationSnapshotImportedPayload,
-		entrySchemaVersion: 1,
-		subStates: ANY_SUB_STATE,
-		actors: MIGRATION_ONLY,
 		emitsSpec: false
 	}
 };
@@ -5680,7 +5590,7 @@ const ORDERED_CHECKS = [
 * envelope validation and sequence continuity remain owned by replayJournal.
 */
 function admitEntry(prev, entry, mode) {
-	const bootstrap = entry.kind === "session:started" || entry.kind === "migration:snapshot_imported";
+	const bootstrap = entry.kind === "session:started";
 	if (!bootstrap && prev.state === null) return {
 		ok: false,
 		stage: "admission",
@@ -5706,850 +5616,6 @@ function admitEntry(prev, entry, mode) {
 		detail: result.detail ?? {}
 	};
 	return result;
-}
-//#endregion
-//#region src/core/attachment-authority.ts
-const LONG_TEXT_SLOTS = {
-	"evidence:added": { summary: "summary.txt" },
-	"lesson:recorded": { summary: "summary.txt" },
-	"scope:recorded": { paths: "paths.txt" },
-	"migration:snapshot_imported": {
-		state: "migration/state.json",
-		tasks: "migration/tasks.json",
-		spec_md: "migration/spec.md",
-		evidence: "migration/evidence.jsonl",
-		findings: "migration/findings.jsonl",
-		pending: "migration/pending.json"
-	}
-};
-var AttachmentAuthorityError = class extends Error {
-	code;
-	detail;
-	constructor(code, message, detail = {}) {
-		super(message);
-		this.code = code;
-		this.detail = detail;
-		this.name = "AttachmentAuthorityError";
-	}
-};
-function attachmentFieldsFor(kind) {
-	return Object.keys(LONG_TEXT_SLOTS[kind] ?? {});
-}
-function expectedRelativePath(owner, field) {
-	const suffix = LONG_TEXT_SLOTS[owner.kind]?.[field];
-	if (!suffix) throw new AttachmentAuthorityError("ATTACHMENT_UNAUTHORIZED", `attachment slot ${owner.kind}.${field} is not registered`, {
-		entry_id: owner.entry_id,
-		kind: owner.kind,
-		field
-	});
-	return `attachments/${owner.entry_id}/${suffix}`;
-}
-function assertAuthorizedRef(owner, field, ref) {
-	const expected = expectedRelativePath(owner, field);
-	if (ref.path !== expected) throw new AttachmentAuthorityError("ATTACHMENT_UNAUTHORIZED", `attachment ref ${ref.path} does not own slot ${owner.entry_id}:${owner.kind}.${field}`, {
-		expected,
-		actual: ref.path,
-		entry_id: owner.entry_id,
-		kind: owner.kind,
-		field
-	});
-	return expected;
-}
-function assertAttachmentOwnership(owner, field, ref) {
-	assertAuthorizedRef(owner, field, ref);
-}
-function isInside(root, candidate) {
-	const relative = path.relative(root, candidate);
-	return relative === "" || !relative.startsWith(`..${path.sep}`) && relative !== "..";
-}
-async function realFeatureRoot(featureDir) {
-	const root = await promises.realpath(featureDir);
-	if (!(await promises.lstat(root)).isDirectory()) throw new AttachmentAuthorityError("ATTACHMENT_UNSAFE_PATH", `feature attachment root is not a directory: ${featureDir}`);
-	return root;
-}
-async function prepareParent(root, relativeFile, create) {
-	const parentSegments = path.posix.dirname(relativeFile).split("/");
-	let current = root;
-	for (const segment of parentSegments) {
-		current = path.join(current, segment);
-		if (create) await promises.mkdir(current).catch((error) => {
-			if (error.code !== "EEXIST") throw error;
-		});
-		let stat;
-		try {
-			stat = await promises.lstat(current);
-		} catch (error) {
-			if (error.code === "ENOENT") throw new AttachmentAuthorityError("ATTACHMENT_MISSING", `attachment directory is missing: ${current}`, { path: current });
-			throw error;
-		}
-		if (stat.isSymbolicLink()) throw new AttachmentAuthorityError("ATTACHMENT_UNSAFE_PATH", `attachment directory must not be a symlink: ${current}`, { path: current });
-		if (!stat.isDirectory()) throw new AttachmentAuthorityError("ATTACHMENT_UNSAFE_PATH", `attachment path component is not a directory: ${current}`, { path: current });
-		const real = await promises.realpath(current);
-		if (!isInside(root, real)) throw new AttachmentAuthorityError("ATTACHMENT_UNSAFE_PATH", `attachment directory escapes the feature root: ${current}`, {
-			path: current,
-			resolved: real
-		});
-	}
-	return current;
-}
-async function inspectFinalPath(finalPath) {
-	try {
-		const stat = await promises.lstat(finalPath);
-		if (stat.isSymbolicLink()) throw new AttachmentAuthorityError("ATTACHMENT_UNSAFE_PATH", `attachment file must not be a symlink: ${finalPath}`, { path: finalPath });
-		if (!stat.isFile()) throw new AttachmentAuthorityError("ATTACHMENT_NOT_FILE", `attachment target is not a regular file: ${finalPath}`, { path: finalPath });
-		return "file";
-	} catch (error) {
-		if (error.code === "ENOENT") return "missing";
-		throw error;
-	}
-}
-async function readAttachment(featureDir, owner, field, ref) {
-	const relative = assertAuthorizedRef(owner, field, ref);
-	const root = await realFeatureRoot(featureDir);
-	await prepareParent(root, relative, false);
-	const finalPath = path.join(root, ...relative.split("/"));
-	if (await inspectFinalPath(finalPath) === "missing") throw new AttachmentAuthorityError("ATTACHMENT_MISSING", `attachment file is missing: ${ref.path}`, { path: ref.path });
-	let handle;
-	try {
-		handle = await promises.open(finalPath, constants.O_RDONLY | constants.O_NOFOLLOW);
-	} catch (error) {
-		const code = error.code;
-		if (code === "ENOENT") throw new AttachmentAuthorityError("ATTACHMENT_MISSING", `attachment file is missing: ${ref.path}`, { path: ref.path });
-		if (code === "ELOOP") throw new AttachmentAuthorityError("ATTACHMENT_UNSAFE_PATH", `attachment file became a symlink: ${ref.path}`, { path: ref.path });
-		throw error;
-	}
-	try {
-		const stat = await handle.stat();
-		if (!stat.isFile()) throw new AttachmentAuthorityError("ATTACHMENT_NOT_FILE", `attachment target is not a regular file: ${ref.path}`, { path: ref.path });
-		const body = await handle.readFile();
-		const actualSha256 = createHash("sha256").update(body).digest("hex");
-		if (stat.size !== body.byteLength || body.byteLength !== ref.size || actualSha256 !== ref.sha256) throw new AttachmentAuthorityError("ATTACHMENT_INTEGRITY", `attachment ${ref.path} integrity mismatch`, {
-			expected_size: ref.size,
-			actual_size: body.byteLength,
-			expected_sha256: ref.sha256,
-			actual_sha256: actualSha256
-		});
-		return body;
-	} finally {
-		await handle.close();
-	}
-}
-async function writeAttachment(featureDir, owner, field, content, opts = {}) {
-	const relative = expectedRelativePath(owner, field);
-	const root = await realFeatureRoot(featureDir);
-	const parent = await prepareParent(root, relative, true);
-	const finalPath = path.join(root, ...relative.split("/"));
-	await inspectFinalPath(finalPath);
-	const body = Buffer.isBuffer(content) ? content : Buffer.from(content, "utf8");
-	const tmpPath = path.join(parent, `.${path.basename(finalPath)}.tmp-${randomBytes(6).toString("hex")}`);
-	let handle;
-	try {
-		handle = await promises.open(tmpPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 420);
-		await handle.writeFile(body);
-		if (opts.fsync ?? true) await handle.sync();
-		await handle.close();
-		handle = void 0;
-		await inspectFinalPath(finalPath);
-		await promises.rename(tmpPath, finalPath);
-		if (opts.fsync ?? true) {
-			const directory = await promises.open(parent, constants.O_RDONLY);
-			try {
-				await directory.sync();
-			} finally {
-				await directory.close();
-			}
-		}
-	} finally {
-		if (handle) await handle.close().catch(() => {});
-		await promises.unlink(tmpPath).catch(() => {});
-	}
-	return {
-		path: relative,
-		sha256: createHash("sha256").update(body).digest("hex"),
-		size: body.byteLength
-	};
-}
-//#endregion
-//#region src/core/feature-write-lease.ts
-const FeatureLeaseFile = z.object({
-	pid: z.number().int().positive(),
-	acquired_at: z.string().datetime(),
-	operation: z.string().min(1).max(200),
-	owner: z.string().regex(/^[0-9a-f]{32}$/)
-}).strict();
-var FeatureWriteLeaseError = class extends Error {
-	code;
-	lockPath;
-	holder;
-	constructor(code, message, lockPath, holder) {
-		super(message);
-		this.code = code;
-		this.lockPath = lockPath;
-		this.holder = holder;
-		this.name = "FeatureWriteLeaseError";
-	}
-};
-const DEFAULT_RETRY_DELAY_MS$1 = 20;
-const DEFAULT_LEGACY_STALE_MS = 3e4;
-const activeOwners = /* @__PURE__ */ new Map();
-function defaultIsPidAlive(pid) {
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch (error) {
-		const code = error.code;
-		if (code === "ESRCH") return false;
-		if (code === "EPERM") return true;
-		throw error;
-	}
-}
-async function observe(lockPath) {
-	let before;
-	let raw;
-	let after;
-	try {
-		before = await promises.stat(lockPath);
-		raw = await promises.readFile(lockPath, "utf8");
-		after = await promises.stat(lockPath);
-	} catch (error) {
-		if (error.code === "ENOENT") return { kind: "missing" };
-		throw error;
-	}
-	if (before.dev !== after.dev || before.ino !== after.ino || before.mtimeMs !== after.mtimeMs || before.size !== after.size) return await observe(lockPath);
-	const identity = {
-		dev: after.dev,
-		ino: after.ino,
-		mtimeMs: after.mtimeMs,
-		size: after.size
-	};
-	if (raw.length === 0) return {
-		kind: "legacy-empty",
-		raw,
-		identity
-	};
-	try {
-		const parsed = FeatureLeaseFile.safeParse(JSON.parse(raw));
-		return parsed.success ? {
-			kind: "valid",
-			raw,
-			metadata: parsed.data,
-			identity
-		} : {
-			kind: "invalid",
-			raw,
-			identity
-		};
-	} catch {
-		return {
-			kind: "invalid",
-			raw,
-			identity
-		};
-	}
-}
-async function createLease(lockPath, metadata, fsync) {
-	let handle;
-	let created = false;
-	try {
-		handle = await promises.open(lockPath, "wx", 384);
-		created = true;
-		await handle.writeFile(JSON.stringify(metadata));
-		if (fsync) await handle.sync();
-		await handle.close();
-		handle = void 0;
-		await promises.chmod(lockPath, 384);
-	} catch (error) {
-		if (handle) await handle.close().catch(() => {});
-		if (created) await promises.unlink(lockPath).catch(() => {});
-		throw error;
-	}
-}
-async function unlinkIfUnchanged(lockPath, observed) {
-	const current = await observe(lockPath);
-	if ((current.kind === "valid" || current.kind === "legacy-empty" || current.kind === "invalid") && current.raw === observed.raw && current.identity.dev === observed.identity.dev && current.identity.ino === observed.identity.ino && current.identity.mtimeMs === observed.identity.mtimeMs && current.identity.size === observed.identity.size) {
-		await promises.unlink(lockPath).catch((error) => {
-			if (error.code !== "ENOENT") throw error;
-		});
-		return true;
-	}
-	return false;
-}
-async function acquireFeatureWriteLease(featureDir, operation, options = {}) {
-	const lockPath = path.join(featureDir, ".lock");
-	const now = options.now ?? (() => /* @__PURE__ */ new Date());
-	const pid = options.pid ?? process.pid;
-	const isPidAlive = options.isPidAlive ?? defaultIsPidAlive;
-	const sleep = options.sleep ?? ((delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs)));
-	const retryDelayMs = Math.max(1, options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS$1);
-	const timeoutMs = Math.max(0, options.timeoutMs ?? 3e4);
-	const legacyLockStaleMs = Math.max(0, options.legacyLockStaleMs ?? DEFAULT_LEGACY_STALE_MS);
-	const maxAttempts = Math.max(1, Math.ceil(timeoutMs / retryDelayMs) + 1);
-	const metadata = FeatureLeaseFile.parse({
-		pid,
-		acquired_at: now().toISOString(),
-		operation,
-		owner: randomBytes(16).toString("hex")
-	});
-	let attempts = 0;
-	let lastHolder;
-	while (attempts < maxAttempts) {
-		try {
-			await createLease(lockPath, metadata, options.fsync ?? true);
-			const confirmed = await observe(lockPath);
-			if (confirmed.kind === "valid" && confirmed.metadata.owner === metadata.owner) {
-				activeOwners.set(lockPath, metadata.owner);
-				let released = false;
-				return {
-					path: lockPath,
-					owner: metadata.owner,
-					metadata,
-					release: async () => {
-						if (released) return;
-						released = true;
-						activeOwners.delete(lockPath);
-						const current = await observe(lockPath);
-						if (current.kind !== "valid" || current.metadata.owner !== metadata.owner) return;
-						await unlinkIfUnchanged(lockPath, current);
-					}
-				};
-			}
-		} catch (error) {
-			if (error.code !== "EEXIST") throw error;
-		}
-		const observed = await observe(lockPath);
-		attempts += 1;
-		if (observed.kind === "invalid") throw new FeatureWriteLeaseError("LOCK_INVALID", `feature write lease ${lockPath} is malformed or incomplete; refusing recovery`, lockPath);
-		if (observed.kind === "valid") {
-			lastHolder = observed.metadata;
-			if (!isPidAlive(observed.metadata.pid)) {
-				const current = await observe(lockPath);
-				if (current.kind === "valid" && current.raw === observed.raw && !isPidAlive(current.metadata.pid)) {
-					await unlinkIfUnchanged(lockPath, observed);
-					continue;
-				}
-			}
-		} else if (observed.kind === "legacy-empty" && now().getTime() - observed.identity.mtimeMs >= legacyLockStaleMs) {
-			await unlinkIfUnchanged(lockPath, observed);
-			continue;
-		}
-		if (attempts < maxAttempts) await sleep(retryDelayMs);
-	}
-	throw new FeatureWriteLeaseError("LOCK_TIMEOUT", lastHolder ? `feature write lease held by live PID ${lastHolder.pid} during ${lastHolder.operation}` : `could not acquire feature write lease ${lockPath} within ${timeoutMs}ms`, lockPath, lastHolder);
-}
-/**
-* The CLI's first SIGINT exits synchronously, so async `finally` blocks cannot
-* run. This hook performs a best-effort owner-token check before unlinking
-* leases held by this process. Foreign successor generations are preserved.
-*/
-function releaseFeatureWriteLeasesForSignalSync() {
-	for (const [lockPath, owner] of activeOwners) try {
-		const parsed = FeatureLeaseFile.safeParse(JSON.parse(readFileSync(lockPath, "utf8")));
-		if (parsed.success && parsed.data.owner === owner) unlinkSync(lockPath);
-	} catch {} finally {
-		activeOwners.delete(lockPath);
-	}
-}
-//#endregion
-//#region src/core/journal-append.ts
-async function readJournalTail(filePath) {
-	let text;
-	try {
-		text = await promises.readFile(filePath, "utf8");
-	} catch (err) {
-		if (err.code === "ENOENT") return {
-			tailSeq: -1,
-			fileSize: 0,
-			tailLine: null
-		};
-		throw err;
-	}
-	const fileSize = Buffer.byteLength(text, "utf8");
-	const trimmed = text.trimEnd();
-	if (trimmed.length === 0) return {
-		tailSeq: -1,
-		fileSize,
-		tailLine: null
-	};
-	const lastNl = trimmed.lastIndexOf("\n");
-	const lastLine = lastNl === -1 ? trimmed : trimmed.slice(lastNl + 1);
-	const parsed = JSON.parse(lastLine);
-	if (typeof parsed.seq !== "number" || !Number.isInteger(parsed.seq)) throw new AppendError("TAIL_CORRUPTION", "journal tail line has non-integer seq; rebuild required", { tail: lastLine.slice(0, 200) });
-	return {
-		tailSeq: parsed.seq,
-		fileSize,
-		tailLine: lastLine
-	};
-}
-async function assertJournalTailMatchesMeta(filePath, priorMeta) {
-	const tail = await readJournalTail(filePath);
-	const { tailSeq, fileSize, tailLine } = tail;
-	if (tailSeq === -1) {
-		if (!isEmptyMeta(priorMeta)) throw new AppendError("PRIOR_META_STALE", "journal tail is empty (seq -1) but priorMeta is not the empty sentinel; a non-empty prior meta would corrupt the post-append rolling checksum", {
-			meta_seq: priorMeta.last_applied_seq,
-			tail_seq: tailSeq
-		});
-		return tail;
-	}
-	if (priorMeta.last_applied_seq !== tailSeq) throw new AppendError("PRIOR_META_STALE", `priorMeta.last_applied_seq=${priorMeta.last_applied_seq} but journal tail seq=${tailSeq}; the prior meta does not describe the current journal tail`, {
-		meta_seq: priorMeta.last_applied_seq,
-		tail_seq: tailSeq
-	});
-	if (tailLine === null) throw new AppendError("TAIL_CORRUPTION", `journal tail seq=${tailSeq} but no readable tail line; rebuild required`, { tail_seq: tailSeq });
-	if (computeLineHash(tailLine) !== priorMeta.last_entry_line_hash) throw new AppendError("PRIOR_META_STALE", "priorMeta.last_entry_line_hash does not match the journal tail line; the prior meta does not describe the current journal tail", {
-		meta_seq: priorMeta.last_applied_seq,
-		tail_seq: tailSeq
-	});
-	const expectedTailOffset = fileSize - Buffer.byteLength(tailLine + "\n", "utf8");
-	if (priorMeta.last_entry_offset !== expectedTailOffset) throw new AppendError("PRIOR_META_STALE", `priorMeta.last_entry_offset=${priorMeta.last_entry_offset} but the journal tail line starts at byte ${expectedTailOffset}; the prior meta does not describe the current journal tail`, {
-		meta_offset: priorMeta.last_entry_offset,
-		expected_offset: expectedTailOffset,
-		tail_seq: tailSeq
-	});
-	return tail;
-}
-var AppendError = class extends Error {
-	code;
-	detail;
-	constructor(code, message, detail) {
-		super(`[${code}] ${message}`);
-		this.code = code;
-		this.detail = detail;
-		this.name = "AppendError";
-	}
-};
-/**
-* **Internal primitive — do not call from CLI or skill code.**
-*
-* `appendMany` is §11.2 step 5+6 for batches: pre-validate every entry, then
-* one newline-joined `write()`. It does NOT run preflight, NOT promote
-* sidecars, NOT call reducer.apply. Use `mutate()` or `mutateBatch()` from
-* `src/core/journal-mutate.ts` for the sanctioned mutation path —
-* `mutateBatch` wraps this primitive after preflight + sidecar promotion +
-* Pass-3 final dry-run on promoted entries.
-*
-* `priorMeta` is the `SnapshotMeta` as of the current journal tail (the
-* caller's replay-accumulated meta / `_meta.json`). `appendMany` validates
-* it against the actual journal tail BEFORE writing — a `last_applied_seq`
-* or `last_entry_line_hash` mismatch is a hard PRIOR_META_STALE failure with
-* the journal left untouched. On success the returned `SnapshotMeta` is the
-* post-append meta: its `last_applied_seq` / `last_entry_offset` /
-* `last_entry_line_hash` / `rolling_checksum` are byte-identical to what
-* `replayJournal` would compute for the same final journal (`written_at`
-* differs — a fresh timestamp).
-*
-* Atomicity boundary:
-*   - Failures DURING prevalidation (PRIOR_META_STALE / INVALID_ENVELOPE /
-*     INVALID_PAYLOAD / SEQ_NOT_MONOTONIC / ENTRY_OVERSIZE) leave the journal
-*     file untouched and return NO meta (they throw).
-*   - Failures DURING the write or fsync (SHORT_WRITE with `phase` detail)
-*     leave the journal in a potentially-corrupt state and return NO meta.
-*     The caller MUST treat this as non-recoverable in-process; `loaf doctor
-*     --check-tail` handles repair.
-*/
-async function appendMany(filePath, entries, priorMeta, opts = {}) {
-	if (entries.length === 0) throw new AppendError("INVALID_ENVELOPE", "appendMany called with empty entries array; pass at least one entry", { entries_length: 0 });
-	const fsyncEnabled = opts.fsync ?? true;
-	const { tailSeq, fileSize } = await assertJournalTailMatchesMeta(filePath, priorMeta);
-	let nextExpected = tailSeq + 1;
-	const lineBuffers = [];
-	const lineStrings = [];
-	for (const entry of entries) {
-		const parsed = JournalEntry.safeParse(entry);
-		if (!parsed.success) throw new AppendError("INVALID_ENVELOPE", "JournalEntry failed envelope schema validation", { issues: parsed.error.issues });
-		const payloadParsed = PER_KIND_PAYLOAD[parsed.data.kind].safeParse(parsed.data.payload);
-		if (!payloadParsed.success) throw new AppendError("INVALID_PAYLOAD", `payload schema validation failed for kind=${parsed.data.kind}`, {
-			kind: parsed.data.kind,
-			issues: payloadParsed.error.issues
-		});
-		if (parsed.data.seq !== nextExpected) throw new AppendError("SEQ_NOT_MONOTONIC", `entry.seq=${parsed.data.seq} but expected ${nextExpected} (tail seq=${tailSeq})`, {
-			got: parsed.data.seq,
-			expected: nextExpected,
-			tail_seq: tailSeq
-		});
-		const lineString = JSON.stringify(parsed.data);
-		const lineBuf = Buffer.from(lineString + "\n", "utf8");
-		if (lineBuf.length > 64e3) throw new AppendError("ENTRY_OVERSIZE", `entry serialized to ${lineBuf.length} bytes; limit ${ENTRY_BYTE_LIMIT}`, {
-			kind: parsed.data.kind,
-			bytes: lineBuf.length,
-			limit: ENTRY_BYTE_LIMIT
-		});
-		lineBuffers.push(lineBuf);
-		lineStrings.push(lineString);
-		nextExpected += 1;
-	}
-	const buf = Buffer.concat(lineBuffers);
-	if (buf.length > 64e3) throw new AppendError("ENTRY_OVERSIZE", `batch serialized to ${buf.length} bytes; per-write limit ${ENTRY_BYTE_LIMIT}`, {
-		scope: "batch",
-		bytes: buf.length,
-		limit: ENTRY_BYTE_LIMIT,
-		entries: entries.length
-	});
-	const fh = await promises.open(filePath, O_APPEND | O_WRONLY | O_CREAT, 420);
-	try {
-		const result = await fh.write(buf, 0, buf.length);
-		if (result.bytesWritten !== buf.length) throw new AppendError("SHORT_WRITE", `wrote ${result.bytesWritten} of ${buf.length} bytes — append integrity broken; journal may be corrupt, run \`loaf doctor --check-tail\``, {
-			phase: "write",
-			wrote: result.bytesWritten,
-			want: buf.length
-		});
-		if (fsyncEnabled) try {
-			await fh.sync();
-		} catch (err) {
-			throw new AppendError("SHORT_WRITE", `fsync failed after write — journal may be corrupt, run \`loaf doctor --check-tail\``, {
-				phase: "fsync",
-				err: String(err)
-			});
-		}
-	} finally {
-		await fh.close();
-	}
-	let lastEntryOffset = fileSize;
-	for (let i = 0; i < lineBuffers.length - 1; i++) lastEntryOffset += lineBuffers[i].length;
-	let rolling = priorMeta.rolling_checksum;
-	for (const lineString of lineStrings) rolling = extendRollingChecksum(rolling, lineString);
-	return {
-		last_applied_seq: entries[entries.length - 1].seq,
-		last_entry_offset: lastEntryOffset,
-		last_entry_line_hash: computeLineHash(lineStrings[lineStrings.length - 1]),
-		rolling_checksum: rolling,
-		feature_schema_version: 2,
-		written_at: (/* @__PURE__ */ new Date()).toISOString()
-	};
-}
-//#endregion
-//#region src/core/migration.ts
-const LegacyCeremonySchema = z.object({
-	spec_phase: z.boolean(),
-	verify_phase: z.boolean(),
-	settle_phase: z.boolean(),
-	strict_spec_review: z.boolean(),
-	lessons_required: z.enum([
-		"must",
-		"may",
-		"skip"
-	]),
-	strict_drift_check: z.boolean()
-}).strict();
-const LegacyTaskSchema = z.object({
-	id: z.string().min(1),
-	kind: z.string().min(1).optional(),
-	status: z.enum([
-		"pending",
-		"in_progress",
-		"done",
-		"abandoned"
-	]).optional(),
-	steps: z.record(z.string(), z.object({ status: z.enum([
-		"pending",
-		"running",
-		"passed",
-		"failed",
-		"waived",
-		"na"
-	]).optional() }).passthrough()).optional()
-}).passthrough();
-const LegacyStateSchema = z.object({
-	phase: z.string().optional(),
-	sub_state: z.string(),
-	iteration: z.number().int().positive().optional(),
-	spec_locked: z.boolean().optional(),
-	profile: z.string().optional(),
-	ceremony: LegacyCeremonySchema.optional(),
-	session_id: z.string().optional(),
-	feature: z.string().optional()
-}).passthrough();
-const LegacyTasksSchema = z.object({ tasks: z.array(LegacyTaskSchema).optional() }).passthrough();
-const LegacyPendingItemSchema = z.object({
-	id: z.string().min(1),
-	kind: z.string().min(1),
-	resolved: z.boolean().optional()
-}).passthrough();
-const LegacyPendingSchema = z.object({ pending: z.array(LegacyPendingItemSchema).optional() }).passthrough();
-const LegacyEvidenceSchema = z.object({
-	id: z.string().min(1),
-	kind: z.string().min(1),
-	result: EvidenceResult.optional(),
-	covers: z.array(z.string()).optional(),
-	actor: z.string().optional()
-}).passthrough();
-const LEGACY_EVIDENCE_KIND_MAP = {
-	test: "local-check",
-	review: "verify-review",
-	visual: "visual-review",
-	manual: "manual",
-	waiver: "waiver",
-	"gate-decision": "gate-decision"
-};
-const LegacyFindingSchema = z.object({
-	id: z.string().min(1),
-	category: z.string().min(1),
-	action: z.string().min(1),
-	status: z.enum(["open", "closed"]).optional()
-}).passthrough();
-const ARTIFACT_FILES = [
-	["state", "state.json"],
-	["tasks", "tasks.json"],
-	["spec_md", "spec.md"],
-	["evidence", "evidence.jsonl"],
-	["findings", "findings.jsonl"],
-	["pending", "pending.json"]
-];
-var MigrationError = class extends Error {
-	code;
-	detail;
-	constructor(code, message, detail) {
-		super(`[${code}] ${message}`);
-		this.code = code;
-		this.detail = detail;
-		this.name = "MigrationError";
-	}
-};
-const DEFAULT_REHYDRATED_CEREMONY = {
-	spec_phase: true,
-	verify_phase: true,
-	settle_phase: false,
-	strict_spec_review: false,
-	lessons_required: "skip",
-	strict_drift_check: false
-};
-function isLegalSubState(value) {
-	return [
-		"TRIAGE.score",
-		"TRIAGE.confirm",
-		"SPEC.proposal",
-		"SPEC.spec",
-		"SPEC.plan",
-		"SPEC.design",
-		"EXECUTE.plan",
-		"EXECUTE.work",
-		"EXECUTE.done",
-		"VERIFY.plan",
-		"VERIFY.run",
-		"VERIFY.review",
-		"VERIFY.acceptance",
-		"VERIFY.visual",
-		"VERIFY.accept",
-		"SETTLE.lessons",
-		"DONE.delivered",
-		"DONE.archived",
-		"DONE.abandoned"
-	].includes(value);
-}
-function isLegalPhase(value) {
-	return [
-		"TRIAGE",
-		"SPEC",
-		"EXECUTE",
-		"VERIFY",
-		"SETTLE",
-		"DONE"
-	].includes(value);
-}
-async function rehydrateMigration(featureDir, entry) {
-	if (entry.kind !== "migration:snapshot_imported") throw new MigrationError("MIGRATION_INCOMPLETE", "rehydrateMigration called with non-migration entry", { kind: entry.kind });
-	const payload = entry.payload;
-	const bodies = await readMigrationSidecars(featureDir, entry, payload.artifacts);
-	const stateBody = bodies.state.toString("utf8");
-	const tasksBody = bodies.tasks.toString("utf8");
-	const evidenceBody = bodies.evidence.toString("utf8");
-	const findingsBody = bodies.findings.toString("utf8");
-	const pendingBody = bodies.pending.toString("utf8");
-	let legacyStateRaw;
-	try {
-		legacyStateRaw = JSON.parse(stateBody);
-	} catch (err) {
-		throw new MigrationError("MIGRATION_INCOMPLETE", `legacy state.json failed JSON parse: ${String(err)}`, {
-			sidecar: "state.json",
-			err: String(err)
-		});
-	}
-	const stateParse = LegacyStateSchema.safeParse(legacyStateRaw);
-	if (!stateParse.success) throw new MigrationError("MIGRATION_INCOMPLETE", `legacy state.json failed Zod validation: ${stateParse.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`, {
-		sidecar: "state.json",
-		issues: stateParse.error.issues
-	});
-	const legacyState = stateParse.data;
-	if (!legacyState.sub_state || !isLegalSubState(legacyState.sub_state)) throw new MigrationError("MIGRATION_INCOMPLETE", `legacy state.json sub_state is missing or not a legal SubState: ${String(legacyState.sub_state)}`, {
-		sidecar: "state.json",
-		got: legacyState.sub_state
-	});
-	const subState = legacyState.sub_state;
-	const phase = legacyState.phase && isLegalPhase(legacyState.phase) ? legacyState.phase : subState.split(".")[0];
-	if (legacyState.phase && legacyState.phase !== subState.split(".")[0]) throw new MigrationError("MIGRATION_INCOMPLETE", `legacy state.json phase=${legacyState.phase} inconsistent with sub_state=${subState}`, {
-		sidecar: "state.json",
-		phase: legacyState.phase,
-		sub_state: subState
-	});
-	const ceremony = legacyState.ceremony ?? DEFAULT_REHYDRATED_CEREMONY;
-	const state = {
-		session_id: legacyState.session_id ?? "00000000-0000-0000-0000-000000000000",
-		feature: legacyState.feature ?? "migrated",
-		phase,
-		sub_state: subState,
-		iteration: legacyState.iteration ?? 1,
-		spec_locked: legacyState.spec_locked ?? false,
-		verify_accepted: false,
-		spec_version: 0,
-		ceremony
-	};
-	let legacyTasksRaw;
-	try {
-		legacyTasksRaw = JSON.parse(tasksBody);
-	} catch (err) {
-		throw new MigrationError("MIGRATION_INCOMPLETE", `legacy tasks.json failed JSON parse: ${String(err)}`, {
-			sidecar: "tasks.json",
-			err: String(err)
-		});
-	}
-	const tasksParse = LegacyTasksSchema.safeParse(legacyTasksRaw);
-	if (!tasksParse.success) throw new MigrationError("MIGRATION_INCOMPLETE", `legacy tasks.json failed Zod validation: ${tasksParse.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`, {
-		sidecar: "tasks.json",
-		issues: tasksParse.error.issues
-	});
-	const tasks = (tasksParse.data.tasks ?? []).map((t, idx) => {
-		if (!t.id) throw new MigrationError("MIGRATION_INCOMPLETE", `legacy tasks.json[${idx}] missing required id`, {
-			sidecar: "tasks.json",
-			index: idx
-		});
-		const base = {
-			id: t.id,
-			kind: t.kind ?? "behavioral",
-			status: t.status ?? "pending",
-			steps: {},
-			drives: [],
-			depends_on: [],
-			labels: []
-		};
-		if (t.steps) for (const [k, v] of Object.entries(t.steps)) {
-			const stepStatus = v?.status ?? "pending";
-			base.steps[k] = {
-				status: stepStatus,
-				applicability: "must"
-			};
-		}
-		return base;
-	});
-	const evidence = [];
-	for (const [idx, line] of evidenceBody.split("\n").entries()) {
-		if (!line.trim()) continue;
-		let raw;
-		try {
-			raw = JSON.parse(line);
-		} catch (err) {
-			throw new MigrationError("MIGRATION_INCOMPLETE", `legacy evidence.jsonl line ${idx + 1} failed JSON parse: ${String(err)}`, {
-				sidecar: "evidence.jsonl",
-				line: idx + 1
-			});
-		}
-		const parsed = LegacyEvidenceSchema.safeParse(raw);
-		if (!parsed.success) throw new MigrationError("MIGRATION_INCOMPLETE", `legacy evidence.jsonl line ${idx + 1} failed Zod validation: ${parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`, {
-			sidecar: "evidence.jsonl",
-			line: idx + 1,
-			issues: parsed.error.issues
-		});
-		const e = parsed.data;
-		const normalizedKind = LEGACY_EVIDENCE_KIND_MAP[e.kind];
-		if (normalizedKind === void 0) throw new MigrationError("MIGRATION_INCOMPLETE", `legacy evidence.jsonl line ${idx + 1} has unknown kind=${JSON.stringify(e.kind)}; expected one of ${Object.keys(LEGACY_EVIDENCE_KIND_MAP).join("/")} (ADR-0005:716-720)`, {
-			sidecar: "evidence.jsonl",
-			line: idx + 1,
-			legacy_kind: e.kind
-		});
-		const ev = {
-			id: e.id,
-			kind: normalizedKind,
-			covers: e.covers ?? [],
-			actor: e.actor ?? "migration:v0.0.x→v2"
-		};
-		if (e.result !== void 0) ev.result = e.result;
-		evidence.push(ev);
-	}
-	const findings = [];
-	for (const [idx, line] of findingsBody.split("\n").entries()) {
-		if (!line.trim()) continue;
-		let raw;
-		try {
-			raw = JSON.parse(line);
-		} catch (err) {
-			throw new MigrationError("MIGRATION_INCOMPLETE", `legacy findings.jsonl line ${idx + 1} failed JSON parse: ${String(err)}`, {
-				sidecar: "findings.jsonl",
-				line: idx + 1
-			});
-		}
-		const parsed = LegacyFindingSchema.safeParse(raw);
-		if (!parsed.success) throw new MigrationError("MIGRATION_INCOMPLETE", `legacy findings.jsonl line ${idx + 1} failed Zod validation: ${parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`, {
-			sidecar: "findings.jsonl",
-			line: idx + 1,
-			issues: parsed.error.issues
-		});
-		const f = parsed.data;
-		findings.push({
-			id: f.id,
-			category: f.category,
-			action: f.action,
-			status: f.status ?? "open"
-		});
-	}
-	let legacyPendingRaw;
-	try {
-		legacyPendingRaw = JSON.parse(pendingBody);
-	} catch (err) {
-		throw new MigrationError("MIGRATION_INCOMPLETE", `legacy pending.json failed JSON parse: ${String(err)}`, {
-			sidecar: "pending.json",
-			err: String(err)
-		});
-	}
-	const pendingParse = LegacyPendingSchema.safeParse(legacyPendingRaw);
-	if (!pendingParse.success) throw new MigrationError("MIGRATION_INCOMPLETE", `legacy pending.json failed Zod validation: ${pendingParse.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`, {
-		sidecar: "pending.json",
-		issues: pendingParse.error.issues
-	});
-	return {
-		state,
-		tasks,
-		evidence,
-		findings,
-		pending: (pendingParse.data.pending ?? []).map((p, idx) => {
-			if (!p.id || !p.kind) throw new MigrationError("MIGRATION_INCOMPLETE", `legacy pending.json[${idx}] missing required id or kind`, {
-				sidecar: "pending.json",
-				index: idx,
-				got: p
-			});
-			return {
-				id: p.id,
-				kind: p.kind,
-				resolved: p.resolved ?? false
-			};
-		}),
-		spec_header: null,
-		requirements: [],
-		scenarios: [],
-		visual_contracts: [],
-		tasks_based_on: null
-	};
-}
-async function readMigrationSidecars(featureDir, entry, artifacts) {
-	const pairs = await Promise.all(ARTIFACT_FILES.map(async ([key]) => {
-		const ref = artifacts[key];
-		if (!ref) throw new MigrationError("MIGRATION_INCOMPLETE", `migration payload missing artifact ref: ${key}`, { key });
-		try {
-			return [key, await readAttachment(featureDir, entry, key, ref)];
-		} catch (error) {
-			if (error instanceof AttachmentAuthorityError) {
-				if (error.code === "ATTACHMENT_MISSING") throw new MigrationError("MIGRATION_SIDECAR_MISSING", `migration sidecar absent: ${key}`, {
-					key,
-					path: ref.path
-				});
-				throw new MigrationError("MIGRATION_INCOMPLETE", `migration sidecar rejected for ${key}: ${error.message}`, {
-					key,
-					path: ref.path,
-					attachment_code: error.code,
-					...error.detail
-				});
-			}
-			throw error;
-		}
-	}));
-	return Object.fromEntries(pairs);
 }
 //#endregion
 //#region src/core/journal-bootstrap.ts
@@ -6629,37 +5695,18 @@ async function replayJournal(filePath, opts = {}) {
 				prior_seq: lastSeq
 			}
 		};
-		if (entry.kind === "migration:snapshot_imported") {
-			if (!opts.feature_dir) return {
-				ok: false,
-				code: "REDUCER_REJECTED",
-				message: "migration:snapshot_imported requires opts.feature_dir for sidecar rehydration; refusing to silently bootstrap default state",
-				at_seq: entry.seq
-			};
-			try {
-				snapshot = await rehydrateMigration(opts.feature_dir, entry);
-			} catch (err) {
-				return {
-					ok: false,
-					code: "REDUCER_REJECTED",
-					message: `migration rehydration failed: ${String(err)}`,
-					at_seq: entry.seq
-				};
+		const result = admitEntry(snapshot, entry, { kind: "replay" });
+		if (!result.ok) return {
+			ok: false,
+			code: "REDUCER_REJECTED",
+			message: result.message,
+			at_seq: entry.seq,
+			detail: {
+				...result.detail ?? {},
+				inner_code: result.code
 			}
-		} else {
-			const result = admitEntry(snapshot, entry, { kind: "replay" });
-			if (!result.ok) return {
-				ok: false,
-				code: "REDUCER_REJECTED",
-				message: result.message,
-				at_seq: entry.seq,
-				detail: {
-					...result.detail ?? {},
-					inner_code: result.code
-				}
-			};
-			snapshot = result.snapshot;
-		}
+		};
+		snapshot = result.snapshot;
 		lastSeq = entry.seq;
 		lastEntryOffset = offset;
 		lastLineHash = computeLineHash(line);
@@ -6711,10 +5758,7 @@ function helpFooter() {
 }
 async function loadSession(featureDir, opts = {}) {
 	if (opts.ensureDir ?? true) await promises.mkdir(featureDir, { recursive: true });
-	const replay = await replayJournal(path.join(featureDir, "journal.jsonl"), {
-		feature_dir: featureDir,
-		collect_entries: true
-	});
+	const replay = await replayJournal(path.join(featureDir, "journal.jsonl"), { collect_entries: true });
 	if (!replay.ok) throw new Error(`failed to load session at ${featureDir}: ${replay.code} — ${replay.message}`);
 	if (replay.entries === void 0) throw new Error("internal invariant: replayJournal returned ok with collect_entries=true but no entries");
 	return {
@@ -7002,7 +6046,7 @@ var en_default = {
 		"SPEC_VERSION_NOT_MONOTONIC": "{kind}: spec_version must be {expected_spec_version} (current+1), got {payload_spec_version}",
 		"SPEC_VERSION_BATCH_MISMATCH": "{kind}: spec_version must be {current_spec_version} at batch_index={batch_index}, got {payload_spec_version}",
 		"TASK_COMPLETE_PRECONDITION_VIOLATED": "task {task_id} is not complete (status={status}); must-applicable steps not terminal-positive: {blocking_steps}",
-		"CANONICAL_TASK_BODY_UNAVAILABLE": "task {task_id} is in the projection but has no canonical body in the journal (migration-imported); a whole-task amend cannot be reconstructed",
+		"CANONICAL_TASK_BODY_UNAVAILABLE": "task {task_id} is in the projection but has no canonical body in the journal; a whole-task amend cannot be reconstructed",
 		"BUG_TASK_REQUIRES_RED": "behavioral bug task {task_id} cannot start or complete its implement step before its RED test is registered",
 		"BUG_TASK_FLAG_MISUSE": "task {task_id}: red_test_registered=true is valid only on a red-step task_step_done for a behavioral bug task (passed/waived result) — not on this entry",
 		"BUG_TASK_RED_NOT_REGISTERED": "behavioral bug task {task_id} is done but never registered its RED test (red_test_registered≠true)",
@@ -7014,7 +6058,6 @@ var en_default = {
 		"DOCTOR_MODE_NOT_IMPLEMENTED": "requested loaf doctor mode is not implemented in this release",
 		"DOCTOR_FEATURE_REQUIRED": "loaf doctor --rebuild requires --feature <name>",
 		"DOCTOR_REBUILD_FAILED": "doctor --rebuild failed",
-		"DOCTOR_REBUILD_MIGRATED_UNSUPPORTED": "doctor --rebuild does not support v0.0.x-migrated journals in this release",
 		"REDUCER_ERROR": "internal reducer invariant failed",
 		"SCOPE_RECORDED_BATCH_INVALID": "scope:recorded batch is invalid: {reason}",
 		"SCOPE_RECORDED_ITERATION_DUPLICATE": "scope:recorded already exists for iteration {iteration}",
@@ -7616,7 +6659,7 @@ var zh_default = {
 		"SPEC_VERSION_NOT_MONOTONIC": "{kind}: spec_version 必须等于 {expected_spec_version}(current+1),实际为 {payload_spec_version}",
 		"SPEC_VERSION_BATCH_MISMATCH": "{kind}: batch_index={batch_index} 处 spec_version 必须等于 {current_spec_version},实际为 {payload_spec_version}",
 		"TASK_COMPLETE_PRECONDITION_VIOLATED": "task {task_id} 尚未完成(status={status});以下 must 级 step 未达 terminal-positive:{blocking_steps}",
-		"CANONICAL_TASK_BODY_UNAVAILABLE": "task {task_id} 在投影中存在,但 journal 里没有 canonical body(migration 导入);无法重建整 task 的 amend",
+		"CANONICAL_TASK_BODY_UNAVAILABLE": "task {task_id} 在投影中存在,但 journal 里没有 canonical body;无法重建整 task 的 amend",
 		"BUG_TASK_REQUIRES_RED": "behavioral bug task {task_id} 在注册 RED 测试前不能开始或完成 implement step",
 		"BUG_TASK_FLAG_MISUSE": "task {task_id}:red_test_registered=true 只在 behavioral bug task 的 red-step task_step_done(passed/waived)上有效 —— 不能用在本 entry",
 		"BUG_TASK_RED_NOT_REGISTERED": "behavioral bug task {task_id} 已 done 但从未注册 RED 测试(red_test_registered≠true)",
@@ -7628,7 +6671,6 @@ var zh_default = {
 		"DOCTOR_MODE_NOT_IMPLEMENTED": "当前发布版本未实现该 loaf doctor 模式",
 		"DOCTOR_FEATURE_REQUIRED": "loaf doctor --rebuild 必须带 --feature <name>",
 		"DOCTOR_REBUILD_FAILED": "doctor --rebuild 失败",
-		"DOCTOR_REBUILD_MIGRATED_UNSUPPORTED": "当前发布版本的 doctor --rebuild 不支持 v0.0.x-migrated journal",
 		"REDUCER_ERROR": "reducer 内部不变量失败",
 		"SCOPE_RECORDED_BATCH_INVALID": "scope:recorded 批次无效:{reason}",
 		"SCOPE_RECORDED_ITERATION_DUPLICATE": "iteration {iteration} 已存在 scope:recorded",
@@ -8182,6 +7224,160 @@ function carryForwardStepProgress(replacement, canonical) {
 		if (prior.reason !== void 0) step.reason = prior.reason;
 	}
 	return out;
+}
+//#endregion
+//#region src/core/attachment-authority.ts
+const LONG_TEXT_SLOTS = {
+	"evidence:added": { summary: "summary.txt" },
+	"lesson:recorded": { summary: "summary.txt" },
+	"scope:recorded": { paths: "paths.txt" }
+};
+var AttachmentAuthorityError = class extends Error {
+	code;
+	detail;
+	constructor(code, message, detail = {}) {
+		super(message);
+		this.code = code;
+		this.detail = detail;
+		this.name = "AttachmentAuthorityError";
+	}
+};
+function attachmentFieldsFor(kind) {
+	return Object.keys(LONG_TEXT_SLOTS[kind] ?? {});
+}
+function expectedRelativePath(owner, field) {
+	const suffix = LONG_TEXT_SLOTS[owner.kind]?.[field];
+	if (!suffix) throw new AttachmentAuthorityError("ATTACHMENT_UNAUTHORIZED", `attachment slot ${owner.kind}.${field} is not registered`, {
+		entry_id: owner.entry_id,
+		kind: owner.kind,
+		field
+	});
+	return `attachments/${owner.entry_id}/${suffix}`;
+}
+function assertAuthorizedRef(owner, field, ref) {
+	const expected = expectedRelativePath(owner, field);
+	if (ref.path !== expected) throw new AttachmentAuthorityError("ATTACHMENT_UNAUTHORIZED", `attachment ref ${ref.path} does not own slot ${owner.entry_id}:${owner.kind}.${field}`, {
+		expected,
+		actual: ref.path,
+		entry_id: owner.entry_id,
+		kind: owner.kind,
+		field
+	});
+	return expected;
+}
+function assertAttachmentOwnership(owner, field, ref) {
+	assertAuthorizedRef(owner, field, ref);
+}
+function isInside(root, candidate) {
+	const relative = path.relative(root, candidate);
+	return relative === "" || !relative.startsWith(`..${path.sep}`) && relative !== "..";
+}
+async function realFeatureRoot(featureDir) {
+	const root = await promises.realpath(featureDir);
+	if (!(await promises.lstat(root)).isDirectory()) throw new AttachmentAuthorityError("ATTACHMENT_UNSAFE_PATH", `feature attachment root is not a directory: ${featureDir}`);
+	return root;
+}
+async function prepareParent(root, relativeFile, create) {
+	const parentSegments = path.posix.dirname(relativeFile).split("/");
+	let current = root;
+	for (const segment of parentSegments) {
+		current = path.join(current, segment);
+		if (create) await promises.mkdir(current).catch((error) => {
+			if (error.code !== "EEXIST") throw error;
+		});
+		let stat;
+		try {
+			stat = await promises.lstat(current);
+		} catch (error) {
+			if (error.code === "ENOENT") throw new AttachmentAuthorityError("ATTACHMENT_MISSING", `attachment directory is missing: ${current}`, { path: current });
+			throw error;
+		}
+		if (stat.isSymbolicLink()) throw new AttachmentAuthorityError("ATTACHMENT_UNSAFE_PATH", `attachment directory must not be a symlink: ${current}`, { path: current });
+		if (!stat.isDirectory()) throw new AttachmentAuthorityError("ATTACHMENT_UNSAFE_PATH", `attachment path component is not a directory: ${current}`, { path: current });
+		const real = await promises.realpath(current);
+		if (!isInside(root, real)) throw new AttachmentAuthorityError("ATTACHMENT_UNSAFE_PATH", `attachment directory escapes the feature root: ${current}`, {
+			path: current,
+			resolved: real
+		});
+	}
+	return current;
+}
+async function inspectFinalPath(finalPath) {
+	try {
+		const stat = await promises.lstat(finalPath);
+		if (stat.isSymbolicLink()) throw new AttachmentAuthorityError("ATTACHMENT_UNSAFE_PATH", `attachment file must not be a symlink: ${finalPath}`, { path: finalPath });
+		if (!stat.isFile()) throw new AttachmentAuthorityError("ATTACHMENT_NOT_FILE", `attachment target is not a regular file: ${finalPath}`, { path: finalPath });
+		return "file";
+	} catch (error) {
+		if (error.code === "ENOENT") return "missing";
+		throw error;
+	}
+}
+async function readAttachment(featureDir, owner, field, ref) {
+	const relative = assertAuthorizedRef(owner, field, ref);
+	const root = await realFeatureRoot(featureDir);
+	await prepareParent(root, relative, false);
+	const finalPath = path.join(root, ...relative.split("/"));
+	if (await inspectFinalPath(finalPath) === "missing") throw new AttachmentAuthorityError("ATTACHMENT_MISSING", `attachment file is missing: ${ref.path}`, { path: ref.path });
+	let handle;
+	try {
+		handle = await promises.open(finalPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+	} catch (error) {
+		const code = error.code;
+		if (code === "ENOENT") throw new AttachmentAuthorityError("ATTACHMENT_MISSING", `attachment file is missing: ${ref.path}`, { path: ref.path });
+		if (code === "ELOOP") throw new AttachmentAuthorityError("ATTACHMENT_UNSAFE_PATH", `attachment file became a symlink: ${ref.path}`, { path: ref.path });
+		throw error;
+	}
+	try {
+		const stat = await handle.stat();
+		if (!stat.isFile()) throw new AttachmentAuthorityError("ATTACHMENT_NOT_FILE", `attachment target is not a regular file: ${ref.path}`, { path: ref.path });
+		const body = await handle.readFile();
+		const actualSha256 = createHash("sha256").update(body).digest("hex");
+		if (stat.size !== body.byteLength || body.byteLength !== ref.size || actualSha256 !== ref.sha256) throw new AttachmentAuthorityError("ATTACHMENT_INTEGRITY", `attachment ${ref.path} integrity mismatch`, {
+			expected_size: ref.size,
+			actual_size: body.byteLength,
+			expected_sha256: ref.sha256,
+			actual_sha256: actualSha256
+		});
+		return body;
+	} finally {
+		await handle.close();
+	}
+}
+async function writeAttachment(featureDir, owner, field, content, opts = {}) {
+	const relative = expectedRelativePath(owner, field);
+	const root = await realFeatureRoot(featureDir);
+	const parent = await prepareParent(root, relative, true);
+	const finalPath = path.join(root, ...relative.split("/"));
+	await inspectFinalPath(finalPath);
+	const body = Buffer.isBuffer(content) ? content : Buffer.from(content, "utf8");
+	const tmpPath = path.join(parent, `.${path.basename(finalPath)}.tmp-${randomBytes(6).toString("hex")}`);
+	let handle;
+	try {
+		handle = await promises.open(tmpPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 420);
+		await handle.writeFile(body);
+		if (opts.fsync ?? true) await handle.sync();
+		await handle.close();
+		handle = void 0;
+		await inspectFinalPath(finalPath);
+		await promises.rename(tmpPath, finalPath);
+		if (opts.fsync ?? true) {
+			const directory = await promises.open(parent, constants.O_RDONLY);
+			try {
+				await directory.sync();
+			} finally {
+				await directory.close();
+			}
+		}
+	} finally {
+		if (handle) await handle.close().catch(() => {});
+		await promises.unlink(tmpPath).catch(() => {});
+	}
+	return {
+		path: relative,
+		sha256: createHash("sha256").update(body).digest("hex"),
+		size: body.byteLength
+	};
 }
 //#endregion
 //#region src/core/lessons-projection.ts
@@ -10428,6 +9624,353 @@ function createJsonInputIngestor(deps) {
 			}
 		}
 	};
+}
+//#endregion
+//#region src/core/journal-append.ts
+async function readJournalTail(filePath) {
+	let text;
+	try {
+		text = await promises.readFile(filePath, "utf8");
+	} catch (err) {
+		if (err.code === "ENOENT") return {
+			tailSeq: -1,
+			fileSize: 0,
+			tailLine: null
+		};
+		throw err;
+	}
+	const fileSize = Buffer.byteLength(text, "utf8");
+	const trimmed = text.trimEnd();
+	if (trimmed.length === 0) return {
+		tailSeq: -1,
+		fileSize,
+		tailLine: null
+	};
+	const lastNl = trimmed.lastIndexOf("\n");
+	const lastLine = lastNl === -1 ? trimmed : trimmed.slice(lastNl + 1);
+	const parsed = JSON.parse(lastLine);
+	if (typeof parsed.seq !== "number" || !Number.isInteger(parsed.seq)) throw new AppendError("TAIL_CORRUPTION", "journal tail line has non-integer seq; rebuild required", { tail: lastLine.slice(0, 200) });
+	return {
+		tailSeq: parsed.seq,
+		fileSize,
+		tailLine: lastLine
+	};
+}
+async function assertJournalTailMatchesMeta(filePath, priorMeta) {
+	const tail = await readJournalTail(filePath);
+	const { tailSeq, fileSize, tailLine } = tail;
+	if (tailSeq === -1) {
+		if (!isEmptyMeta(priorMeta)) throw new AppendError("PRIOR_META_STALE", "journal tail is empty (seq -1) but priorMeta is not the empty sentinel; a non-empty prior meta would corrupt the post-append rolling checksum", {
+			meta_seq: priorMeta.last_applied_seq,
+			tail_seq: tailSeq
+		});
+		return tail;
+	}
+	if (priorMeta.last_applied_seq !== tailSeq) throw new AppendError("PRIOR_META_STALE", `priorMeta.last_applied_seq=${priorMeta.last_applied_seq} but journal tail seq=${tailSeq}; the prior meta does not describe the current journal tail`, {
+		meta_seq: priorMeta.last_applied_seq,
+		tail_seq: tailSeq
+	});
+	if (tailLine === null) throw new AppendError("TAIL_CORRUPTION", `journal tail seq=${tailSeq} but no readable tail line; rebuild required`, { tail_seq: tailSeq });
+	if (computeLineHash(tailLine) !== priorMeta.last_entry_line_hash) throw new AppendError("PRIOR_META_STALE", "priorMeta.last_entry_line_hash does not match the journal tail line; the prior meta does not describe the current journal tail", {
+		meta_seq: priorMeta.last_applied_seq,
+		tail_seq: tailSeq
+	});
+	const expectedTailOffset = fileSize - Buffer.byteLength(tailLine + "\n", "utf8");
+	if (priorMeta.last_entry_offset !== expectedTailOffset) throw new AppendError("PRIOR_META_STALE", `priorMeta.last_entry_offset=${priorMeta.last_entry_offset} but the journal tail line starts at byte ${expectedTailOffset}; the prior meta does not describe the current journal tail`, {
+		meta_offset: priorMeta.last_entry_offset,
+		expected_offset: expectedTailOffset,
+		tail_seq: tailSeq
+	});
+	return tail;
+}
+var AppendError = class extends Error {
+	code;
+	detail;
+	constructor(code, message, detail) {
+		super(`[${code}] ${message}`);
+		this.code = code;
+		this.detail = detail;
+		this.name = "AppendError";
+	}
+};
+/**
+* **Internal primitive — do not call from CLI or skill code.**
+*
+* `appendMany` is §11.2 step 5+6 for batches: pre-validate every entry, then
+* one newline-joined `write()`. It does NOT run preflight, NOT promote
+* sidecars, NOT call reducer.apply. Use `mutate()` or `mutateBatch()` from
+* `src/core/journal-mutate.ts` for the sanctioned mutation path —
+* `mutateBatch` wraps this primitive after preflight + sidecar promotion +
+* Pass-3 final dry-run on promoted entries.
+*
+* `priorMeta` is the `SnapshotMeta` as of the current journal tail (the
+* caller's replay-accumulated meta / `_meta.json`). `appendMany` validates
+* it against the actual journal tail BEFORE writing — a `last_applied_seq`
+* or `last_entry_line_hash` mismatch is a hard PRIOR_META_STALE failure with
+* the journal left untouched. On success the returned `SnapshotMeta` is the
+* post-append meta: its `last_applied_seq` / `last_entry_offset` /
+* `last_entry_line_hash` / `rolling_checksum` are byte-identical to what
+* `replayJournal` would compute for the same final journal (`written_at`
+* differs — a fresh timestamp).
+*
+* Atomicity boundary:
+*   - Failures DURING prevalidation (PRIOR_META_STALE / INVALID_ENVELOPE /
+*     INVALID_PAYLOAD / SEQ_NOT_MONOTONIC / ENTRY_OVERSIZE) leave the journal
+*     file untouched and return NO meta (they throw).
+*   - Failures DURING the write or fsync (SHORT_WRITE with `phase` detail)
+*     leave the journal in a potentially-corrupt state and return NO meta.
+*     The caller MUST treat this as non-recoverable in-process; `loaf doctor
+*     --check-tail` handles repair.
+*/
+async function appendMany(filePath, entries, priorMeta, opts = {}) {
+	if (entries.length === 0) throw new AppendError("INVALID_ENVELOPE", "appendMany called with empty entries array; pass at least one entry", { entries_length: 0 });
+	const fsyncEnabled = opts.fsync ?? true;
+	const { tailSeq, fileSize } = await assertJournalTailMatchesMeta(filePath, priorMeta);
+	let nextExpected = tailSeq + 1;
+	const lineBuffers = [];
+	const lineStrings = [];
+	for (const entry of entries) {
+		const parsed = JournalEntry.safeParse(entry);
+		if (!parsed.success) throw new AppendError("INVALID_ENVELOPE", "JournalEntry failed envelope schema validation", { issues: parsed.error.issues });
+		const payloadParsed = PER_KIND_PAYLOAD[parsed.data.kind].safeParse(parsed.data.payload);
+		if (!payloadParsed.success) throw new AppendError("INVALID_PAYLOAD", `payload schema validation failed for kind=${parsed.data.kind}`, {
+			kind: parsed.data.kind,
+			issues: payloadParsed.error.issues
+		});
+		if (parsed.data.seq !== nextExpected) throw new AppendError("SEQ_NOT_MONOTONIC", `entry.seq=${parsed.data.seq} but expected ${nextExpected} (tail seq=${tailSeq})`, {
+			got: parsed.data.seq,
+			expected: nextExpected,
+			tail_seq: tailSeq
+		});
+		const lineString = JSON.stringify(parsed.data);
+		const lineBuf = Buffer.from(lineString + "\n", "utf8");
+		if (lineBuf.length > 64e3) throw new AppendError("ENTRY_OVERSIZE", `entry serialized to ${lineBuf.length} bytes; limit ${ENTRY_BYTE_LIMIT}`, {
+			kind: parsed.data.kind,
+			bytes: lineBuf.length,
+			limit: ENTRY_BYTE_LIMIT
+		});
+		lineBuffers.push(lineBuf);
+		lineStrings.push(lineString);
+		nextExpected += 1;
+	}
+	const buf = Buffer.concat(lineBuffers);
+	if (buf.length > 64e3) throw new AppendError("ENTRY_OVERSIZE", `batch serialized to ${buf.length} bytes; per-write limit ${ENTRY_BYTE_LIMIT}`, {
+		scope: "batch",
+		bytes: buf.length,
+		limit: ENTRY_BYTE_LIMIT,
+		entries: entries.length
+	});
+	const fh = await promises.open(filePath, O_APPEND | O_WRONLY | O_CREAT, 420);
+	try {
+		const result = await fh.write(buf, 0, buf.length);
+		if (result.bytesWritten !== buf.length) throw new AppendError("SHORT_WRITE", `wrote ${result.bytesWritten} of ${buf.length} bytes — append integrity broken; journal may be corrupt, run \`loaf doctor --check-tail\``, {
+			phase: "write",
+			wrote: result.bytesWritten,
+			want: buf.length
+		});
+		if (fsyncEnabled) try {
+			await fh.sync();
+		} catch (err) {
+			throw new AppendError("SHORT_WRITE", `fsync failed after write — journal may be corrupt, run \`loaf doctor --check-tail\``, {
+				phase: "fsync",
+				err: String(err)
+			});
+		}
+	} finally {
+		await fh.close();
+	}
+	let lastEntryOffset = fileSize;
+	for (let i = 0; i < lineBuffers.length - 1; i++) lastEntryOffset += lineBuffers[i].length;
+	let rolling = priorMeta.rolling_checksum;
+	for (const lineString of lineStrings) rolling = extendRollingChecksum(rolling, lineString);
+	return {
+		last_applied_seq: entries[entries.length - 1].seq,
+		last_entry_offset: lastEntryOffset,
+		last_entry_line_hash: computeLineHash(lineStrings[lineStrings.length - 1]),
+		rolling_checksum: rolling,
+		feature_schema_version: 2,
+		written_at: (/* @__PURE__ */ new Date()).toISOString()
+	};
+}
+//#endregion
+//#region src/core/feature-write-lease.ts
+const FeatureLeaseFile = z.object({
+	pid: z.number().int().positive(),
+	acquired_at: z.string().datetime(),
+	operation: z.string().min(1).max(200),
+	owner: z.string().regex(/^[0-9a-f]{32}$/)
+}).strict();
+var FeatureWriteLeaseError = class extends Error {
+	code;
+	lockPath;
+	holder;
+	constructor(code, message, lockPath, holder) {
+		super(message);
+		this.code = code;
+		this.lockPath = lockPath;
+		this.holder = holder;
+		this.name = "FeatureWriteLeaseError";
+	}
+};
+const DEFAULT_RETRY_DELAY_MS$1 = 20;
+const DEFAULT_LEGACY_STALE_MS = 3e4;
+const activeOwners = /* @__PURE__ */ new Map();
+function defaultIsPidAlive(pid) {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (error) {
+		const code = error.code;
+		if (code === "ESRCH") return false;
+		if (code === "EPERM") return true;
+		throw error;
+	}
+}
+async function observe(lockPath) {
+	let before;
+	let raw;
+	let after;
+	try {
+		before = await promises.stat(lockPath);
+		raw = await promises.readFile(lockPath, "utf8");
+		after = await promises.stat(lockPath);
+	} catch (error) {
+		if (error.code === "ENOENT") return { kind: "missing" };
+		throw error;
+	}
+	if (before.dev !== after.dev || before.ino !== after.ino || before.mtimeMs !== after.mtimeMs || before.size !== after.size) return await observe(lockPath);
+	const identity = {
+		dev: after.dev,
+		ino: after.ino,
+		mtimeMs: after.mtimeMs,
+		size: after.size
+	};
+	if (raw.length === 0) return {
+		kind: "legacy-empty",
+		raw,
+		identity
+	};
+	try {
+		const parsed = FeatureLeaseFile.safeParse(JSON.parse(raw));
+		return parsed.success ? {
+			kind: "valid",
+			raw,
+			metadata: parsed.data,
+			identity
+		} : {
+			kind: "invalid",
+			raw,
+			identity
+		};
+	} catch {
+		return {
+			kind: "invalid",
+			raw,
+			identity
+		};
+	}
+}
+async function createLease(lockPath, metadata, fsync) {
+	let handle;
+	let created = false;
+	try {
+		handle = await promises.open(lockPath, "wx", 384);
+		created = true;
+		await handle.writeFile(JSON.stringify(metadata));
+		if (fsync) await handle.sync();
+		await handle.close();
+		handle = void 0;
+		await promises.chmod(lockPath, 384);
+	} catch (error) {
+		if (handle) await handle.close().catch(() => {});
+		if (created) await promises.unlink(lockPath).catch(() => {});
+		throw error;
+	}
+}
+async function unlinkIfUnchanged(lockPath, observed) {
+	const current = await observe(lockPath);
+	if ((current.kind === "valid" || current.kind === "legacy-empty" || current.kind === "invalid") && current.raw === observed.raw && current.identity.dev === observed.identity.dev && current.identity.ino === observed.identity.ino && current.identity.mtimeMs === observed.identity.mtimeMs && current.identity.size === observed.identity.size) {
+		await promises.unlink(lockPath).catch((error) => {
+			if (error.code !== "ENOENT") throw error;
+		});
+		return true;
+	}
+	return false;
+}
+async function acquireFeatureWriteLease(featureDir, operation, options = {}) {
+	const lockPath = path.join(featureDir, ".lock");
+	const now = options.now ?? (() => /* @__PURE__ */ new Date());
+	const pid = options.pid ?? process.pid;
+	const isPidAlive = options.isPidAlive ?? defaultIsPidAlive;
+	const sleep = options.sleep ?? ((delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs)));
+	const retryDelayMs = Math.max(1, options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS$1);
+	const timeoutMs = Math.max(0, options.timeoutMs ?? 3e4);
+	const legacyLockStaleMs = Math.max(0, options.legacyLockStaleMs ?? DEFAULT_LEGACY_STALE_MS);
+	const maxAttempts = Math.max(1, Math.ceil(timeoutMs / retryDelayMs) + 1);
+	const metadata = FeatureLeaseFile.parse({
+		pid,
+		acquired_at: now().toISOString(),
+		operation,
+		owner: randomBytes(16).toString("hex")
+	});
+	let attempts = 0;
+	let lastHolder;
+	while (attempts < maxAttempts) {
+		try {
+			await createLease(lockPath, metadata, options.fsync ?? true);
+			const confirmed = await observe(lockPath);
+			if (confirmed.kind === "valid" && confirmed.metadata.owner === metadata.owner) {
+				activeOwners.set(lockPath, metadata.owner);
+				let released = false;
+				return {
+					path: lockPath,
+					owner: metadata.owner,
+					metadata,
+					release: async () => {
+						if (released) return;
+						released = true;
+						activeOwners.delete(lockPath);
+						const current = await observe(lockPath);
+						if (current.kind !== "valid" || current.metadata.owner !== metadata.owner) return;
+						await unlinkIfUnchanged(lockPath, current);
+					}
+				};
+			}
+		} catch (error) {
+			if (error.code !== "EEXIST") throw error;
+		}
+		const observed = await observe(lockPath);
+		attempts += 1;
+		if (observed.kind === "invalid") throw new FeatureWriteLeaseError("LOCK_INVALID", `feature write lease ${lockPath} is malformed or incomplete; refusing recovery`, lockPath);
+		if (observed.kind === "valid") {
+			lastHolder = observed.metadata;
+			if (!isPidAlive(observed.metadata.pid)) {
+				const current = await observe(lockPath);
+				if (current.kind === "valid" && current.raw === observed.raw && !isPidAlive(current.metadata.pid)) {
+					await unlinkIfUnchanged(lockPath, observed);
+					continue;
+				}
+			}
+		} else if (observed.kind === "legacy-empty" && now().getTime() - observed.identity.mtimeMs >= legacyLockStaleMs) {
+			await unlinkIfUnchanged(lockPath, observed);
+			continue;
+		}
+		if (attempts < maxAttempts) await sleep(retryDelayMs);
+	}
+	throw new FeatureWriteLeaseError("LOCK_TIMEOUT", lastHolder ? `feature write lease held by live PID ${lastHolder.pid} during ${lastHolder.operation}` : `could not acquire feature write lease ${lockPath} within ${timeoutMs}ms`, lockPath, lastHolder);
+}
+/**
+* The CLI's first SIGINT exits synchronously, so async `finally` blocks cannot
+* run. This hook performs a best-effort owner-token check before unlinking
+* leases held by this process. Foreign successor generations are preserved.
+*/
+function releaseFeatureWriteLeasesForSignalSync() {
+	for (const [lockPath, owner] of activeOwners) try {
+		const parsed = FeatureLeaseFile.safeParse(JSON.parse(readFileSync(lockPath, "utf8")));
+		if (parsed.success && parsed.data.owner === owner) unlinkSync(lockPath);
+	} catch {} finally {
+		activeOwners.delete(lockPath);
+	}
 }
 //#endregion
 //#region src/core/spec-frontmatter.ts
@@ -13388,10 +12931,7 @@ function registerProfileConfig(program, ctx, mutator, actor, userConfigHomeDir) 
 		}
 		try {
 			const journalPath = path.join(featureDir, "journal.jsonl");
-			const replay = await replayJournal(journalPath, {
-				collect_entries: true,
-				feature_dir: featureDir
-			});
+			const replay = await replayJournal(journalPath, { collect_entries: true });
 			if (!replay.ok) {
 				ctx.emitFailure(replay.code, `journal at ${journalPath} cannot be replayed — ${replay.message}`);
 				return;
@@ -13399,10 +12939,6 @@ function registerProfileConfig(program, ctx, mutator, actor, userConfigHomeDir) 
 			const entries = replay.entries;
 			if (entries === void 0) {
 				ctx.emitFailure("DOCTOR_REBUILD_FAILED", "internal invariant: replay returned ok without collected entries");
-				return;
-			}
-			if (entries.some((e) => e.kind === "migration:snapshot_imported")) {
-				ctx.emitFailure("DOCTOR_REBUILD_MIGRATED_UNSUPPORTED", "doctor --rebuild does not yet support v0.0.x-migrated journals (intersects doctor --migrate-v2)");
 				return;
 			}
 			let rebuilt;
@@ -13719,9 +13255,9 @@ function registerTaskAdd(tasksCmd, deps) {
 		for (const t of session.snapshot.tasks) {
 			const base = latestCanonicalTaskBody(session.entries, t.id);
 			if (!base) {
-				ctx.failure("CANONICAL_TASK_BODY_UNAVAILABLE", `task ${t.id} is in the projection but has no canonical body in the journal (migration-imported); cannot rebuild the graph to append`, {
+				ctx.failure("CANONICAL_TASK_BODY_UNAVAILABLE", `task ${t.id} is in the projection but has no canonical body in the journal; cannot rebuild the graph to append`, {
 					task_id: t.id,
-					source: "migration"
+					source: "journal"
 				});
 				return;
 			}
@@ -13807,9 +13343,9 @@ function registerTaskAmend(tasksCmd, deps) {
 			}
 			const sCanonical = latestCanonicalTaskBody(sSession.entries, taskId);
 			if (!sCanonical) {
-				ctx.emitFailure("CANONICAL_TASK_BODY_UNAVAILABLE", `task ${taskId} is in the projection but has no canonical body in the journal (migration-imported); cannot amend in place`, {
+				ctx.emitFailure("CANONICAL_TASK_BODY_UNAVAILABLE", `task ${taskId} is in the projection but has no canonical body in the journal; cannot amend in place`, {
 					task_id: taskId,
-					source: "migration"
+					source: "journal"
 				});
 				return;
 			}
@@ -13889,9 +13425,9 @@ function registerTaskAmend(tasksCmd, deps) {
 		}
 		const base = latestCanonicalTaskBody(session.entries, taskId);
 		if (!base) {
-			ctx.emitFailure("CANONICAL_TASK_BODY_UNAVAILABLE", `task ${taskId} is in the projection but has no canonical body in the journal (migration-imported); cannot amend in place`, {
+			ctx.emitFailure("CANONICAL_TASK_BODY_UNAVAILABLE", `task ${taskId} is in the projection but has no canonical body in the journal; cannot amend in place`, {
 				task_id: taskId,
-				source: "migration"
+				source: "journal"
 			});
 			return;
 		}

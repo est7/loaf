@@ -111,7 +111,7 @@ export type EvidenceJson = z.infer<typeof EvidenceJson>;
 // enums — the disk projection mirrors the public §5 contract, not the
 // reducer's loose `string` field typing. `finding:raised` already
 // validates the enums at append, so tightening here catches corrupt
-// replay / migration output early (codex r158 F1).
+// replay output early (codex r158 F1).
 const FindingStateShape = z
   .object({
     id: z.string().regex(/^FND-\d{3,}$/),

@@ -144,42 +144,6 @@ describe("appendEntry — Stage 1", () => {
     });
   });
 
-  // Audit r1 Blocker #4: Gate #3 — append must reject migration:snapshot_imported
-  // with inline artifact content at step 5 final validate (the prior path had
-  // payload: z.unknown() and would accept any shape; only the standalone
-  // MigrationSnapshotImportedPayload.safeParse rejected it).
-  test("Gate #3: migration:snapshot_imported with inline artifact body → INVALID_PAYLOAD", async () => {
-    const filePath = await tmpJournal();
-    const malformedMigration: JournalEntry = {
-      seq: 0,
-      entry_id: "JE-000001",
-      at: "2026-05-15T10:00:00.000Z",
-      actor: "migration:v0.0.x→v2",
-      entry_schema_version: 1,
-      kind: "migration:snapshot_imported",
-      payload: {
-        source_schema_version: 1,
-        migrated_at: "2026-05-15T10:00:00.000Z",
-        artifacts: {
-          // Inline string — not an AttachmentRef. Gate #3 must reject at append.
-          state: "literal-inline-content-not-a-ref",
-          tasks: { path: "x", sha256: "0".repeat(64), size: 0 },
-          spec_md: { path: "x", sha256: "0".repeat(64), size: 0 },
-          evidence: { path: "x", sha256: "0".repeat(64), size: 0 },
-          findings: { path: "x", sha256: "0".repeat(64), size: 0 },
-          pending: { path: "x", sha256: "0".repeat(64), size: 0 },
-        },
-      },
-    };
-    await expect(
-      appendEntry(filePath, malformedMigration, emptyMeta(), { fsync: false }),
-    ).rejects.toMatchObject({
-      code: "INVALID_PAYLOAD",
-    });
-    // No journal file is created.
-    await expect(fs.readFile(filePath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
-  });
-
   // ── F: 64KB hard byte limit (rev 5.0, protocol.md §11.2 step 5b) ────────
   test("F. entry serialized > 64KB → ENTRY_OVERSIZE, file untouched", async () => {
     const filePath = await tmpJournal();

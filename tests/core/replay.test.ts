@@ -13,7 +13,7 @@ import os from "node:os";
 import { appendEntry } from "../../src/core/journal-append.js";
 import { replayJournal } from "../../src/core/journal-bootstrap.js";
 import { emptyMeta } from "../../src/core/snapshot.js";
-import type { Ceremony, JournalEntry } from "../../src/core/journal-entry.js";
+import { EntryKind, type Ceremony, type JournalEntry } from "../../src/core/journal-entry.js";
 
 const STANDARD: Ceremony = {
   spec_phase: true,
@@ -414,4 +414,30 @@ test("replay rejects the removed SETTLE.reconcile edge without producing a snaps
   } finally {
     await fs.rm(path.dirname(filePath), { recursive: true, force: true });
   }
+});
+
+describe("retired snapshot import boundary", () => {
+  test("migration:snapshot_imported is not a current wire kind", () => {
+    expect(EntryKind.safeParse("migration:snapshot_imported").success).toBe(false);
+  });
+
+  test("replay rejects migration:snapshot_imported as INVALID_ENTRY without sidecar IO", async () => {
+    const filePath = await tmpJournal();
+    const original =
+      JSON.stringify({
+        ...startEntry(),
+        kind: "migration:snapshot_imported",
+        actor: "migration:retired",
+        payload: {},
+      }) + "\n";
+    try {
+      await fs.writeFile(filePath, original);
+      const result = await replayJournal(filePath);
+      expect(result).toMatchObject({ ok: false, code: "INVALID_ENTRY", at_seq: 0 });
+      expect(result).not.toHaveProperty("snapshot");
+      expect(await fs.readFile(filePath, "utf8")).toBe(original);
+    } finally {
+      await fs.rm(path.dirname(filePath), { recursive: true, force: true });
+    }
+  });
 });

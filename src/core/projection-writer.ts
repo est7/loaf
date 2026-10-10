@@ -87,9 +87,8 @@ export function composeStateProjection(
 
   const startEntry = entries.find((e) => e.kind === "session:started");
   if (startEntry === undefined) {
-    // `snapshot.state` is non-null only via `session:started` or a
-    // `migration:snapshot_imported` bootstrap; `doctor --rebuild` rejects
-    // migrated journals upstream, so a missing start entry here is
+    // `snapshot.state` is non-null only via `session:started`;
+    // a missing start entry here is
     // projection corruption — throw rather than invent identity.
     throw new Error(
       "composeStateProjection: snapshot carries session state but the journal has no session:started entry — projection corruption",

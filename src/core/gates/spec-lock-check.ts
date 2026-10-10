@@ -26,7 +26,7 @@
 // stale task graph), checks 4/6/7 are SUPPRESSED to avoid false-positive
 // coverage noise against an absent/stale graph. Checks 2/5 still run
 // (frontmatter-only) and check 8 still runs when tasks exist (orthogonal
-// projection invariant + migration hygiene).
+// projection invariant).
 //
 // Pure, zero-IO. Tests inject parsed SpecFrontmatter + Snapshot fixtures.
 
@@ -181,11 +181,10 @@ export function specLockCheck(snapshot: Snapshot, frontmatter: SpecFrontmatter):
 
   // ── check 8: projected kind-specific obligations (defense-in-depth)
   // Runs whenever tasks exist regardless of check 3 status; catches
-  // migration:snapshot_imported corruption (no zod refine at import time)
-  // and any other projection drift from journal append invariants.
+  // projection drift from journal append invariants.
   // This is a PROJECTION-LEVEL kind obligation check, not a literal full
   // TaskFull schema validation (codex r26 phrasing) — full schema runs
-  // at journal append for non-migrated entries.
+  // at journal append.
   if (snapshot.tasks.length > 0) {
     for (const task of snapshot.tasks) {
       const reasons: string[] = [];

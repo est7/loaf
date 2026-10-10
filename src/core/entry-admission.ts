@@ -27,8 +27,7 @@ export function admitEntry(
   entry: JournalEntry,
   mode: AdmissionMode,
 ): AdmissionResult {
-  const bootstrap =
-    entry.kind === "session:started" || entry.kind === "migration:snapshot_imported";
+  const bootstrap = entry.kind === "session:started";
   if (!bootstrap && prev.state === null) {
     return {
       ok: false,

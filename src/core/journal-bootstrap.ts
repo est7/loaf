@@ -27,7 +27,6 @@ import {
 } from "./journal-entry.js";
 import { initialSnapshot, type ApplyFailureCode, type Snapshot } from "./reducer.js";
 import { admitEntry } from "./entry-admission.js";
-import { rehydrateMigration } from "./migration.js";
 import { ENTRY_SCHEMA_VERSIONS } from "./kind-registry.js";
 import {
   computeLineHash,
@@ -59,11 +58,6 @@ export interface ReplayError {
 }
 
 export interface ReplayOptions {
-  /** Feature directory; required for migration:snapshot_imported rehydration
-   *  (reading sidecar artifacts from attachments/JE-000000/migration/).
-   *  If omitted, migration entries fall through to reducer.apply's default
-   *  bootstrap (cursor at TRIAGE.score, no projection rehydrated). */
-  feature_dir?: string;
   /** Opt-in: accumulate the parsed entries of the successful replay prefix
    *  into `ReplayResult.entries`. Off by default so generic replay keeps its
    *  streaming memory profile (Slice C SC-C2a). */
@@ -161,44 +155,17 @@ export async function replayJournal(
       };
     }
 
-    // Migration entries bypass admission's default bootstrap and rehydrate
-    // the full projection from sidecar artifacts (audit r1 Blocker #6).
-    // Audit r2 Medium fix: replayJournal MUST fail-fast if a migration
-    // entry is present but feature_dir was not supplied — silent downgrade
-    // to admission's bootstrap loses the entire legacy projection.
-    if (entry.kind === "migration:snapshot_imported") {
-      if (!opts.feature_dir) {
-        return {
-          ok: false,
-          code: "REDUCER_REJECTED",
-          message:
-            "migration:snapshot_imported requires opts.feature_dir for sidecar rehydration; refusing to silently bootstrap default state",
-          at_seq: entry.seq,
-        };
-      }
-      try {
-        snapshot = await rehydrateMigration(opts.feature_dir, entry);
-      } catch (err) {
-        return {
-          ok: false,
-          code: "REDUCER_REJECTED",
-          message: `migration rehydration failed: ${String(err)}`,
-          at_seq: entry.seq,
-        };
-      }
-    } else {
-      const result = admitEntry(snapshot, entry, { kind: "replay" });
-      if (!result.ok) {
-        return {
-          ok: false,
-          code: "REDUCER_REJECTED",
-          message: result.message,
-          at_seq: entry.seq,
-          detail: { ...(result.detail ?? {}), inner_code: result.code },
-        };
-      }
-      snapshot = result.snapshot;
+    const result = admitEntry(snapshot, entry, { kind: "replay" });
+    if (!result.ok) {
+      return {
+        ok: false,
+        code: "REDUCER_REJECTED",
+        message: result.message,
+        at_seq: entry.seq,
+        detail: { ...(result.detail ?? {}), inner_code: result.code },
+      };
     }
+    snapshot = result.snapshot;
     lastSeq = entry.seq;
     lastEntryOffset = offset;
     lastLineHash = computeLineHash(line);

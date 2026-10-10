@@ -741,7 +741,7 @@ export const ERROR_CATALOG = {
     exit_code: 2,
     message_template: "session bootstrap kind {kind} cannot run after state already exists",
     fix_template:
-      "resume the existing session or create a new feature directory instead of starting/migrating over initialized state",
+      "resume the existing session or create a new feature directory instead of starting over initialized state",
     template_keys: ["kind"],
     detail_keys: ["kind"],
     doc_anchor: "protocol.md#§11.2",
@@ -759,7 +759,7 @@ export const ERROR_CATALOG = {
     message_template: "no session at {feature_dir} — run `loaf start <feature>` first",
     zh_message_template: "{feature_dir} 下没有 session — 先跑 `loaf start <feature>`",
     fix_template:
-      "run `loaf start` or `loaf doctor --migrate-v2` before emitting non-bootstrap journal entries",
+      "run `loaf start` before emitting non-bootstrap journal entries",
     template_keys: ["feature_dir"],
     doc_anchor: "protocol.md#§10.8",
   },
@@ -804,38 +804,7 @@ export const ERROR_CATALOG = {
     template_keys: ["reason"],
     doc_anchor: "protocol.md#§10.15",
   },
-  MIGRATION_BACKUP_MISSING: {
-    exit_code: 2,
-    message_template: "migration backup target is unavailable: {backup_dir}",
-    fix_template:
-      "move or remove the existing backup target, then rerun `loaf doctor --migrate-v2`",
-    template_keys: ["backup_dir"],
-    doc_anchor: "protocol.md#§10.15",
-  },
-  MIGRATION_INCOMPLETE: {
-    exit_code: 2,
-    message_template: "migration cannot complete: {reason}",
-    fix_template:
-      "fix the legacy v0.0.x artifact or restore from backup; rerun migration only after validation passes",
-    template_keys: ["reason"],
-    doc_anchor: "protocol.md#§10.15",
-  },
-  MIGRATION_REPLAY_ATTEMPT: {
-    exit_code: 2,
-    message_template: "journal.jsonl already has entries; migration must run on a fresh journal",
-    fix_template:
-      "do not rerun migration over an initialized journal; inspect the existing journal or start from the original v0.0.x backup",
-    template_keys: [],
-    doc_anchor: "protocol.md#§10.15",
-  },
-  MIGRATION_SIDECAR_MISSING: {
-    exit_code: 2,
-    message_template: "migration sidecar is missing: {artifact}",
-    fix_template:
-      "restore the missing legacy artifact or sidecar, then rerun migration/doctor verification",
-    template_keys: ["artifact"],
-    doc_anchor: "protocol.md#§10.15",
-  },
+
   INVALID_ACTOR_FORMAT: {
     exit_code: 2,
     message_template: "human actor value is invalid: {reason}",
@@ -986,7 +955,7 @@ export const ERROR_CATALOG = {
     message_template:
       "spec-lock check 8: task {task_id} (kind={kind}) violates projected kind-specific obligations: {reasons}",
     fix_template:
-      "amend the task to satisfy its kind contract: structural/docs/spike/chore require no_test_rationale (string ≥10 chars); visual-ui requires visual_contract_refs[] with ≥1 entry. Most commonly surfaces after migration:snapshot_imported when legacy v0.0.x projections lack the required fields. Slice C R2: bug-task RED is execution discipline, not a spec-lock obligation — a behavioral task with labels=['bug'] is born unregistered, and RED registration is enforced at runtime by BUG_TASK_REQUIRES_RED (preflight, implement step) and BUG_TASK_RED_NOT_REGISTERED (verify-accept), never by this check",
+      "amend the task to satisfy its kind contract: structural/docs/spike/chore require no_test_rationale (string ≥10 chars); visual-ui requires visual_contract_refs[] with ≥1 entry. Slice C R2: bug-task RED is execution discipline, not a spec-lock obligation — a behavioral task with labels=['bug'] is born unregistered, and RED registration is enforced at runtime by BUG_TASK_REQUIRES_RED (preflight, implement step) and BUG_TASK_RED_NOT_REGISTERED (verify-accept), never by this check",
     template_keys: ["kind", "reasons", "task_id"],
     doc_anchor: "protocol.md#§5.1",
   },
@@ -1385,11 +1354,11 @@ export const ERROR_CATALOG = {
   CANONICAL_TASK_BODY_UNAVAILABLE: {
     exit_code: 2,
     message_template:
-      "task {task_id} is in the projection but has no canonical body in the journal (migration-imported); a whole-task amend cannot be reconstructed",
+      "task {task_id} is in the projection but has no canonical body in the journal; a whole-task amend cannot be reconstructed",
     zh_message_template:
-      "task {task_id} 在投影中存在,但 journal 里没有 canonical body(migration 导入);无法重建整 task 的 amend",
+      "task {task_id} 在投影中存在,但 journal 里没有 canonical body;无法重建整 task 的 amend",
     fix_template:
-      "the task was rehydrated from a v0.0.x migration snapshot, so its full body never landed as a journal tasks_planned/tasks_amended entry. Re-plan the task graph via `loaf tasks submit`, or wait for the history-aware doctor path that will reconstruct migrated task bodies.",
+      "the projection lacks a corresponding journal tasks_planned/tasks_amended body. Rebuild the snapshots via `loaf doctor --rebuild`; if the journal itself is incomplete, restore it from a valid backup.",
     template_keys: ["task_id"],
     doc_anchor: "protocol.md#§10.8",
   },
@@ -1423,7 +1392,7 @@ export const ERROR_CATALOG = {
     zh_message_template:
       "behavioral bug task {task_id} 已 done 但从未注册 RED 测试(red_test_registered≠true)",
     fix_template:
-      "a done behavioral bug task must have registered its RED test via `loaf tasks register-red`; this is a verify-accept defense-in-depth check for migration / raw-API journals — rebuild the journal or register RED retroactively before re-running the gate.",
+      "a done behavioral bug task must have registered its RED test via `loaf tasks register-red`; this is a verify-accept defense-in-depth check for raw-API journals — rebuild the journal or register RED retroactively before re-running the gate.",
     template_keys: ["task_id"],
     doc_anchor: "protocol.md#§9.3",
   },
@@ -1521,14 +1490,7 @@ export const ERROR_CATALOG = {
     template_keys: [],
     doc_anchor: "protocol.md#§10.15",
   },
-  DOCTOR_REBUILD_MIGRATED_UNSUPPORTED: {
-    exit_code: 2,
-    message_template: "doctor --rebuild does not support v0.0.x-migrated journals in this release",
-    zh_message_template: "当前发布版本的 doctor --rebuild 不支持 v0.0.x-migrated journal",
-    fix_template: "Use the existing migrated snapshots, or wait for migrate-v2/rebuild support.",
-    template_keys: [],
-    doc_anchor: "protocol.md#§10.15",
-  },
+
   REDUCER_ERROR: {
     exit_code: 2,
     message_template: "internal reducer invariant failed",

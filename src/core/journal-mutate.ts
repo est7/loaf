@@ -49,7 +49,6 @@
 //                                       journal untouched if any step fails)
 //   - r3 reducer dry-run before append (each entry's apply runs on the
 //                                        clone; failure aborts before write)
-//   - r4 migration preflight-validate before append (in PER_KIND_PAYLOAD)
 //   - r5 wider rollback envelope (sidecar orphans handled by doctor)
 //
 // Direct `appendEntry` / `appendMany` calls are still possible primitives

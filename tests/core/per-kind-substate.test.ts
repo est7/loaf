@@ -77,7 +77,6 @@ function payloadFor(kind: string): Record<string, unknown> {
   // Schema-valid payloads per PER_KIND_PAYLOAD (audit r1/r2 strict schemas).
   // Each implemented kind's payload must satisfy the per-kind narrowed schema
   // so preflight reaches the sub_state / actor authority gates.
-  const refStub = { path: "x", sha256: "0".repeat(64), size: 0 };
   switch (kind) {
     case "session:started":
       return {
@@ -178,19 +177,6 @@ function payloadFor(kind: string): Record<string, unknown> {
           target: "stub UI element target description",
           checks: ["stub check description here"],
           requires_visual: true,
-        },
-      };
-    case "migration:snapshot_imported":
-      return {
-        source_schema_version: 1,
-        migrated_at: "2026-05-15T10:00:00.000Z",
-        artifacts: {
-          state: refStub,
-          tasks: refStub,
-          spec_md: refStub,
-          evidence: refStub,
-          findings: refStub,
-          pending: refStub,
         },
       };
     default:

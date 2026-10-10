@@ -303,12 +303,11 @@ export function registerProfileConfig(
   //
   // Exit codes (Phase 16 SC-2 normalization, was codex r160 pre-normalization):
   //   0 = rebuilt OK
-  //   2 = every catalogued failure (unreplayable journal, unsupported
-  //       migrated journal, serialization/write failure, missing --feature,
+  //   2 = every catalogued failure (unreplayable journal, serialization/write
+  //       failure, missing --feature,
   //       bare `doctor` without an implemented mode). All routed through
   //       emitFailure to keep ERROR_CATALOG ⇔ runtime exit_code in agreement
-  //       (src/core/error-catalog.ts lists DOCTOR_REBUILD_FAILED /
-  //       DOCTOR_REBUILD_MIGRATED_UNSUPPORTED with exit_code: 2).
+  //       (src/core/error-catalog.ts lists DOCTOR_REBUILD_FAILED with exit_code: 2).
   //   Exit 1 is reserved for unhandled throws caught by the top-level
   //   boundary at the end of main(), which also writes ~/.loaf/crashes/.
   // The replay and all projection writes run under the feature write lease,
@@ -365,7 +364,6 @@ export function registerProfileConfig(
         const journalPath = path.join(featureDir, "journal.jsonl");
         const replay = await replayJournal(journalPath, {
           collect_entries: true,
-          feature_dir: featureDir,
         });
         if (!replay.ok) {
           ctx.emitFailure(
@@ -379,19 +377,6 @@ export function registerProfileConfig(
           ctx.emitFailure(
             "DOCTOR_REBUILD_FAILED",
             "internal invariant: replay returned ok without collected entries",
-          );
-          return;
-        }
-
-        // A v0.0.x-migrated journal carries its projection state through
-        // `migration:snapshot_imported` sidecar rehydration, not the event
-        // payloads the SC1 serializer folds — rebuilding one is a follow-up
-        // intersecting `doctor --migrate-v2` (F-018). Fail cleanly before
-        // writeProjections rather than let composeTasksJson throw.
-        if (entries.some((e) => e.kind === "migration:snapshot_imported")) {
-          ctx.emitFailure(
-            "DOCTOR_REBUILD_MIGRATED_UNSUPPORTED",
-            "doctor --rebuild does not yet support v0.0.x-migrated journals (intersects doctor --migrate-v2)",
           );
           return;
         }

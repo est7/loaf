@@ -20,14 +20,6 @@ const LONG_TEXT_SLOTS = {
   "evidence:added": { summary: "summary.txt" },
   "lesson:recorded": { summary: "summary.txt" },
   "scope:recorded": { paths: "paths.txt" },
-  "migration:snapshot_imported": {
-    state: "migration/state.json",
-    tasks: "migration/tasks.json",
-    spec_md: "migration/spec.md",
-    evidence: "migration/evidence.jsonl",
-    findings: "migration/findings.jsonl",
-    pending: "migration/pending.json",
-  },
 } as const satisfies Partial<Record<JournalEntry["kind"], Readonly<Record<string, string>>>>;
 
 export type AttachmentAuthorityCode =

@@ -75,7 +75,7 @@ export const CONCURRENCY_INVARIANTS = {
     "1. acquire .lock (blocking, ≤30s; on timeout exit 2 LOCK_TIMEOUT)",
     "2. read journal.jsonl tail + snapshots/_meta.json; verify _meta fast-check (last_applied_seq + last_entry_offset + last_entry_line_hash); on mismatch release lock + exit 2 SNAPSHOT_STALE_REBUILD_REQUIRED",
     "3. preflight validate (candidate entries WITHOUT final sidecar refs): CLI inject actor; Zod parse; cross-kind / sub_state / mutation_rights / actor refine; dry-run reducer apply on in-memory state copy; assign batch_id + batch_index / batch_count if batch; abort with exit 2 + error code on any candidate failure (no step 4+ I/O)",
-    "4. prepare sidecar files (if LongTextField > sidecar_threshold_kb, or migration:* manifest refs): write attachments/<entry_id>/<field>.<ext>.tmp-<random>; fsync file + parent dir; atomic rename → final path; compute sha256; write entry payload AttachmentRef.{path,sha256,size}",
+    "4. prepare sidecar files (if LongTextField > sidecar_threshold_kb): write attachments/<entry_id>/<field>.<ext>.tmp-<random>; fsync file + parent dir; atomic rename → final path; compute sha256; write entry payload AttachmentRef.{path,sha256,size}",
     "5. final validate (Gate #2; append guard): re-Zod-parse entries with embedded final AttachmentRef; byte-size check (each entry ≤ entry_byte_limit_kb; batch total ≤ entry_byte_limit_kb); final dry-run reducer apply; compare reducer-visible state transition result + emitted projections vs step 3d outcome (NOT byte-for-byte payload); diff → abort + log SIDECAR_VALIDATION_DRIFT + clean sidecar tmp; batch failure aborts whole batch with zero journal change",
     "6. append journal entry/batch (Gate #2 invariant: ONLY the step-5 validated final-form entry may be appended; no re-serialization, no recompute of AttachmentRef, no edit to validated fields): single write() with all entries newline-separated, total size ≤ entry_byte_limit_kb; fsync journal.jsonl",
     "7. post-apply assert (corruption check, NOT a rollback point): reducer apply final entries to in-memory state; on apply throw → log + flag corruption in `loaf doctor` (sidecar-validation-drift); journal is the fact, no rollback",
@@ -240,13 +240,6 @@ export const CONCURRENCY_INVARIANTS = {
       ],
       why: "ADR-0004 A6 + ADR-0005 §3.5 step 4-5: attachment sidecar finalize + final validate ensure no entry references an attachment that did not land on disk (no orphan attachments)",
     },
-    {
-      cmd: "loaf doctor --migrate-v2",
-      emits: [
-        "migration:snapshot_imported (single entry at seq=0; payload is .strict() manifest with AttachmentRef ONLY — Gate #3)",
-      ],
-      why: "ADR-0005 §5.2 + Gate #3: legacy v0.0.x N-file artifacts are externalized as sidecars under attachments/JE-000000/migration/; the journal entry payload itself rejects inline artifact content via .strict() Zod refine",
-    },
   ],
 
   // 7a. Entry byte limit
@@ -327,14 +320,6 @@ export const CONCURRENCY_INVARIANTS = {
   //     intelligence lives in steps 3-5.
   final_entry_only_append: "step 6 must write the step-5-validated entry object verbatim",
 
-  // 7i. Migration sidecar manifest-only (Gate #3, ADR-0005 §10)
-  //     The `migration:snapshot_imported` payload Zod schema MUST be
-  //     `.strict()` and accept ONLY AttachmentRef manifest fields. Any
-  //     inline artifact content (e.g. inline state.json body) is rejected
-  //     at schema layer, not at reducer.
-  migration_sidecar_only:
-    "migration:snapshot_imported payload is .strict() Zod with AttachmentRef-only fields; inline artifact content rejected at Zod parse",
-
   // 7j. Snapshot read fail-fast (Gate #5, ADR-0005 §3.6)
   //     CLI read commands that consume snapshots/*.json MUST verify
   //     snapshots/_meta.json fast-check before parsing the snapshot.
@@ -362,19 +347,18 @@ export const CONCURRENCY_INVARIANTS = {
     "event:phase_advanced and gate:decided share src/core/reducer/transition.ts; no per-kind transition fork",
 
   // 7l. Doctor sub-flags (rev 5.0, ADR-0005 §5.4 / protocol.md §10.15)
-  //     The 5 surface flags that gate the rev 5.0 recovery operations.
+  //     The 4 surface flags that gate the rev 5.0 recovery operations.
   //     CLI parser MUST accept these on `loaf doctor` only; combining
   //     with --fix is allowed where applicable.
   //     Implementation status (Phase 14 / 1d6e1d1): the shipped CLI
   //     accepts only `--rebuild` (+ `--feature` / `--feature-dir`);
-  //     `--check-tail` / `--migrate-v2` / `--scope cwd` /
+  //     `--check-tail` / `--scope cwd` /
   //     `--verify-checksum` are deferred. The map below stays the design
   //     target.
   doctor_sub_flags: {
     "--rebuild": "full replay from seq=0; rewrites snapshots/* and snapshots/_meta.json",
     "--check-tail":
       "run batch-aware tail recovery only; no snapshot rebuild unless tail truncated past last_applied_seq",
-    "--migrate-v2": "v0.0.x N-file → v0.1.0 sidecar import per MIGRATION_V1_TO_V2_BOUNDARY (§0c)",
     "--scope cwd":
       "iterate all .loaf/<feature>/ under cwd; enforces mixed-version-cwd refusal (refuse if any feature is at schema_version != current)",
     "--verify-checksum":

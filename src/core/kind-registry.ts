@@ -23,7 +23,6 @@ import {
   FindingRaisedPayload,
   GateDecidedPayload,
   LessonRecordedPayload,
-  MigrationSnapshotImportedPayload,
   PendingAddedPayload,
   PendingResolvedPayload,
   PhaseAdvancedPayload,
@@ -53,7 +52,6 @@ import {
   CLI_ONLY,
   FIX_BACK_EDGE_FROM,
   HUMAN_ONLY,
-  MIGRATION_ONLY,
   VERIFY_OR_POST_LOCK_EXECUTE,
   actorPrefix,
   type ActorPrefix,
@@ -273,15 +271,6 @@ export const KIND_REGISTRY: Record<EntryKind, KindMeta> = {
     entrySchemaVersion: 1,
     subStates: ANY_NON_DONE,
     actors: HUMAN_ONLY,
-    emitsSpec: false,
-  },
-
-  // ── Migration ──────────────────────────────────────────────────────────────
-  "migration:snapshot_imported": {
-    payload: MigrationSnapshotImportedPayload,
-    entrySchemaVersion: 1,
-    subStates: ANY_SUB_STATE,
-    actors: MIGRATION_ONLY,
     emitsSpec: false,
   },
 };

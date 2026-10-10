@@ -21,7 +21,6 @@ import { admitEntry } from "../../src/core/entry-admission.js";
 import { initialSnapshot, type Snapshot } from "../../src/core/reducer.js";
 import type { Ceremony, JournalEntry } from "../../src/core/journal-entry.js";
 import { emptyMeta, SnapshotMeta } from "../../src/core/snapshot.js";
-import { migrateV2 } from "../../src/core/migration.js";
 
 const STANDARD: Ceremony = {
   spec_phase: true,
@@ -316,35 +315,39 @@ async function seedJournal(
   return { snapshot, entries, meta, tail_seq: tail };
 }
 
-/** A minimal v0.0.x feature dir — input for `migrateV2` (mirrors
- *  v0.0.x-migration.test.ts buildFixture). */
-async function buildV0Fixture(): Promise<string> {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "loaf-doctor-v0-"));
-  const featureDir = path.join(root, "auth-refresh");
-  await fs.mkdir(featureDir, { recursive: true });
-  const files: Record<string, string> = {
-    "state.json": JSON.stringify({
-      phase: "EXECUTE",
-      sub_state: "EXECUTE.work",
-      iteration: 1,
-      profile: "standard",
-    }),
-    "tasks.json": JSON.stringify({
-      tasks: [{ id: "T-001", kind: "behavioral", status: "in_progress" }],
-    }),
-    "spec.md": "## REQ-AUTH-001\nWHEN user logs in, system shall issue a session token.\n",
-    "evidence.jsonl": JSON.stringify({ id: "EV-000001", kind: "test", result: "passed" }) + "\n",
-    "findings.jsonl":
-      JSON.stringify({ id: "FND-001", category: "spec-gap", action: "amend-spec" }) + "\n",
-    "pending.json": JSON.stringify({ pending: [] }),
-  };
-  for (const [name, body] of Object.entries(files)) {
-    await fs.writeFile(path.join(featureDir, name), body);
-  }
-  return featureDir;
-}
-
 describe("loaf doctor --rebuild — Phase 14 SC2", () => {
+  test("retired snapshot import fails as INVALID_ENTRY before publishing snapshots", async () => {
+    const dir = await tmpDir();
+    const journalPath = path.join(dir, "journal.jsonl");
+    const original =
+      JSON.stringify({
+        seq: 0,
+        entry_id: "JE-000001",
+        at: "2026-05-15T10:00:00.000Z",
+        actor: "migration:retired",
+        entry_schema_version: 1,
+        kind: "migration:snapshot_imported",
+        payload: {},
+      }) + "\n";
+    try {
+      await fs.writeFile(journalPath, original);
+      const result = await runCli([
+        "doctor",
+        "--rebuild",
+        "--feature",
+        "auth-refresh",
+        "--feature-dir",
+        dir,
+      ]);
+      expect(result.exit).toBe(2);
+      expect(result.stderr).toContain("INVALID_ENTRY");
+      await expect(fs.stat(path.join(dir, "snapshots"))).rejects.toMatchObject({ code: "ENOENT" });
+      expect(await fs.readFile(journalPath, "utf8")).toBe(original);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("rebuilds the journal-derived projections + _meta.json (exit 0)", async () => {
     const dir = await tmpDir();
     try {
@@ -643,40 +646,7 @@ describe("loaf doctor --rebuild — Phase 14 SC2", () => {
     expect(r.stdout).toBe("");
   });
 
-  test("a v0.0.x-migrated journal is rejected cleanly — exit 2, no fresh _meta.json", async () => {
-    // Phase 16 SC-2 PATCH A: DOCTOR_REBUILD_MIGRATED_UNSUPPORTED is a SC-1
-    // catalogued code with exit_code: 2 (src/core/error-catalog.ts). The
-    // pre-SC-2 failRebuild() path emitted exit 1 here, which contradicted
-    // the catalog and the protocol §10.9 contract (exit 1 reserved for
-    // unexpected internal errors + crash log). SC-2 normalizes the helper
-    // through emitFailure() so catalog ⇔ runtime exit_code agree.
-    const featureDir = await buildV0Fixture();
-    try {
-      await migrateV2(featureDir, {
-        migrated_at: "2026-05-15T12:00:00.000Z",
-        fsync: false,
-      });
-      const r = await runCli([
-        "doctor",
-        "--rebuild",
-        "--feature",
-        "auth-refresh",
-        "--feature-dir",
-        featureDir,
-      ]);
-      expect(r.exit).toBe(2);
-      expect(r.stderr).toContain("DOCTOR_REBUILD_MIGRATED_UNSUPPORTED");
-      // The guard fires before writeProjections — nothing materialized.
-      await expect(fs.stat(path.join(featureDir, "snapshots", "_meta.json"))).rejects.toMatchObject(
-        { code: "ENOENT" },
-      );
-    } finally {
-      await fs.rm(path.dirname(featureDir), { recursive: true, force: true });
-    }
-  });
-
   test("an unreplayable journal fails cleanly — exit 2, no fresh _meta.json", async () => {
-    // Phase 16 SC-2 PATCH A: same normalization as DOCTOR_REBUILD_MIGRATED_UNSUPPORTED.
     // replayJournal's failure surface (INVALID_ENVELOPE etc.) is catalogued
     // at exit 2; failRebuild() previously masked it as exit 1.
     const dir = await tmpDir();

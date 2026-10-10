@@ -25,6 +25,14 @@
 > rejects the retired target during preflight. Historical reasoning below
 > is preserved; it does not define a current reader or writer contract.
 
+> **Packet F3 supersession:** The approved no-historical-data decision removes
+> the v0.0.x snapshot import module, `migration:snapshot_imported` and its
+> payload schema, replay rehydration, migration sidecar slots, and five
+> migration-only diagnostics. `doctor --migrate-v2` is withdrawn; it was never
+> a registered CLI option. Current journals replay through entry admission;
+> old import entries fail envelope validation with `INVALID_ENTRY`.
+> Migration reasoning and tables below are historical, not active promises.
+
 ### Audit history
 
 - **rev 1**（2026-05-14 first draft）：三方 audit 12 条盲点收口 + N10 元决策落地

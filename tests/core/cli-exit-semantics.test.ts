@@ -9,7 +9,7 @@
 //   - Catalogued user/state errors stay at exit 2 (regression)
 //   - Commander parse errors stay at exit 2 (regression)
 //   - failRebuild() exit-1 paths normalize to exit 2 (SC-1 catalog drift
-//     closure — DOCTOR_REBUILD_FAILED / DOCTOR_REBUILD_MIGRATED_UNSUPPORTED
+//     closure — DOCTOR_REBUILD_FAILED
 //     are catalogued exit_code: 2; codex r196 PATCH A)
 //   - SIGINT handler is exit 130, installed idempotently, written
 //     without timing-based test (codex r196 PATCH C — use DI)

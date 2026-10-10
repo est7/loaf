@@ -6,7 +6,7 @@
 import type { SubState } from "./journal-entry.js";
 import { backEdgeSourceStates } from "./reducer/transition.js";
 
-// Wildcards used by the sub_state table — saves enumerating 20 sub_states where
+// Wildcards used by the sub_state table — saves enumerating 19 sub_states where
 // a kind is broadly legal.
 export const ANY_SUB_STATE = Symbol("any-sub-state");
 export const ANY_NON_DONE = Symbol("any-non-done");
@@ -30,7 +30,6 @@ export type ActorPrefix = "human" | "skill" | "ci" | "cli" | "migration";
 export const ALL_NON_MIGRATION: readonly ActorPrefix[] = ["human", "skill", "ci", "cli"];
 export const HUMAN_ONLY: readonly ActorPrefix[] = ["human"];
 export const CLI_ONLY: readonly ActorPrefix[] = ["cli"];
-export const MIGRATION_ONLY: readonly ActorPrefix[] = ["migration"];
 
 export function actorPrefix(actor: string): ActorPrefix | null {
   const m = /^(human|skill|ci|cli|migration):/.exec(actor);

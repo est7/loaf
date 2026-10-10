@@ -195,47 +195,6 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
     expect(result.ok).toBe(true);
   });
 
-  test("migration:snapshot_imported requires migration: actor", () => {
-    const refStub = {
-      path: "attachments/JE-000001/migration/state.json",
-      sha256: "0".repeat(64),
-      size: 0,
-    };
-    const validMigrationPayload = {
-      source_schema_version: 1,
-      migrated_at: "2026-05-15T10:00:00.000Z",
-      artifacts: {
-        state: refStub,
-        tasks: refStub,
-        spec_md: refStub,
-        evidence: refStub,
-        findings: refStub,
-        pending: refStub,
-      },
-    };
-
-    const human = preflight(
-      baseEntry({
-        kind: "migration:snapshot_imported",
-        actor: "human:est9",
-        payload: validMigrationPayload,
-      }),
-      { snapshot: mkSnapshot("TRIAGE.score", STANDARD_CEREMONY), tail_seq: -1 },
-    );
-    expect(human.ok).toBe(false);
-    if (!human.ok) expect(human.code).toBe("ACTOR_AUTHORITY_VIOLATION");
-
-    const migration = preflight(
-      baseEntry({
-        kind: "migration:snapshot_imported",
-        actor: "migration:v0.0.x→v2",
-        payload: validMigrationPayload,
-      }),
-      { snapshot: mkSnapshot("TRIAGE.score", STANDARD_CEREMONY), tail_seq: -1 },
-    );
-    expect(migration.ok).toBe(true);
-  });
-
   // ── 5. Transition shared helper (Gate #1) ────────────────────────────
   test("event:phase_advanced uses validateTransition (illegal edge)", () => {
     const result = preflight(

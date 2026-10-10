@@ -17,7 +17,6 @@ import {
   FindingRaisedPayload,
   GateDecidedPayload,
   LessonRecordedPayload,
-  MigrationSnapshotImportedPayload,
   PendingAddedPayload,
   PendingResolvedPayload,
   PhaseAdvancedPayload,
@@ -51,9 +50,9 @@ import { ANY_NON_DONE, ANY_SUB_STATE } from "../../src/core/kind-guards.js";
 const sorted = (s: Iterable<string>): string[] => [...s].sort();
 
 describe("kind-registry — totality + invariants", () => {
-  test("registry keys == the EntryKind enum (28 kinds)", () => {
+  test("registry keys == the EntryKind enum (27 kinds)", () => {
     expect(sorted(Object.keys(KIND_REGISTRY))).toEqual(sorted(EntryKind.options));
-    expect(Object.keys(KIND_REGISTRY)).toHaveLength(28);
+    expect(Object.keys(KIND_REGISTRY)).toHaveLength(27);
   });
   test("current versions are total, registry-owned, and @1 for every current kind", () => {
     expect(ENTRY_SCHEMA_VERSIONS).toEqual(
@@ -106,7 +105,6 @@ describe("preservation — PER_KIND_PAYLOAD reference identity (all 27)", () => 
     "session:archived": SessionReasonPayload,
     "session:abandoned": SessionReasonPayload,
     "spike:converted": SpikeConvertedPayload,
-    "migration:snapshot_imported": MigrationSnapshotImportedPayload,
   };
   test.each(Object.keys(EXPECTED))("%s → same schema const", (kind) => {
     expect(PER_KIND_PAYLOAD[kind as EntryKind]).toBe(EXPECTED[kind]);
@@ -142,7 +140,6 @@ describe("preservation — PER_KIND_ACTOR (exact arrays, all 27)", () => {
     "session:archived": ["human"],
     "session:abandoned": ["human"],
     "spike:converted": ["human"],
-    "migration:snapshot_imported": ["migration"],
   };
   test.each(Object.keys(EXPECTED))("%s actor whitelist", (kind) => {
     expect(PER_KIND_ACTOR[kind as EntryKind]).toEqual(EXPECTED[kind]);
@@ -157,7 +154,6 @@ describe("preservation — PER_KIND_SUB_STATE (sentinels + sorted members)", () 
       "pending:resolved",
       "session:started",
       "session:resumed",
-      "migration:snapshot_imported",
     ] as const) {
       expect(PER_KIND_SUB_STATE[k], k).toBe(ANY_SUB_STATE);
     }

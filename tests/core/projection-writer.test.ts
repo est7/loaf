@@ -758,7 +758,6 @@ describe("writeProjections — Phase 14 SC1 end-to-end", () => {
     try {
       const replay = await replayJournal(path.join(dir, "journal.jsonl"), {
         collect_entries: true,
-        feature_dir: dir,
       });
       if (!replay.ok) throw new Error(`replay failed: ${replay.code}`);
 
@@ -809,7 +808,6 @@ describe("writeProjections — Phase 14 SC1 end-to-end", () => {
     try {
       const replay = await replayJournal(path.join(dir, "journal.jsonl"), {
         collect_entries: true,
-        feature_dir: dir,
       });
       if (!replay.ok) throw new Error(`replay failed: ${replay.code}`);
 
@@ -845,7 +843,6 @@ describe("writeProjections — Phase 14 SC1 end-to-end", () => {
 
       const replay = await replayJournal(path.join(dir, "journal.jsonl"), {
         collect_entries: true,
-        feature_dir: dir,
       });
       if (!replay.ok) throw new Error(`replay failed: ${replay.code}`);
 
@@ -870,7 +867,6 @@ describe("writeProjections — Phase 14 SC1 end-to-end", () => {
     try {
       const replay = await replayJournal(path.join(dir, "journal.jsonl"), {
         collect_entries: true,
-        feature_dir: dir,
       });
       if (!replay.ok) throw new Error(`replay failed: ${replay.code}`);
 
@@ -906,7 +902,6 @@ describe("writeProjections — Phase 14 SC1 end-to-end", () => {
     try {
       const replay = await replayJournal(path.join(dir, "journal.jsonl"), {
         collect_entries: true,
-        feature_dir: dir,
       });
       if (!replay.ok) throw new Error(`replay failed: ${replay.code}`);
 

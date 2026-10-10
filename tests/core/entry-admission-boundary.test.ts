@@ -2,9 +2,6 @@ import { describe, expect, test } from "vitest";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import ts from "typescript";
-import { admitEntry } from "../../src/core/entry-admission.js";
-import { initialSnapshot } from "../../src/core/reducer.js";
-import type { JournalEntry } from "../../src/core/journal-entry.js";
 
 async function sourceFiles(dir: string): Promise<string[]> {
   const entries = await fs.readdir(dir, { withFileTypes: true });
@@ -48,26 +45,5 @@ describe("entry admission ownership", () => {
       visit(source);
     }
     expect(consumers).toEqual(["core/entry-admission.ts"]);
-  });
-
-  test("migration bootstrap preflights in mutation but remains tolerant in replay", () => {
-    const entry: JournalEntry = {
-      seq: 0,
-      entry_id: "JE-000001",
-      at: "2026-05-15T10:00:00.000Z",
-      actor: "cli:loaf",
-      entry_schema_version: 1,
-      kind: "migration:snapshot_imported",
-      payload: {},
-    };
-    expect(admitEntry(initialSnapshot(), entry, { kind: "mutation", tail_seq: -1 })).toMatchObject({
-      ok: false,
-      stage: "admission",
-      code: "ACTOR_AUTHORITY_VIOLATION",
-    });
-    expect(admitEntry(initialSnapshot(), entry, { kind: "replay" })).toMatchObject({
-      ok: true,
-      snapshot: { state: { feature: "migrated" } },
-    });
   });
 });

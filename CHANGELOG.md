@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- Historical v0.0.x snapshot import: `migration:snapshot_imported`, its payload
+  schema and sidecar slots, the migration module, replay rehydration, and five
+  migration-only diagnostics. Old import entries now fail envelope validation;
+  `doctor --rebuild` supports current journals only.
 - Legacy evidence-shaped lessons; `lessons.md` now projects only
   `lesson:recorded` entries.
 - The retired `SETTLE.reconcile` sub_state, its `ReconcileJson` projection

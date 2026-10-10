@@ -83,7 +83,7 @@ export interface PreflightContext {
    * Snapshot at the point this entry is being validated — for batches this
    * is the accumulator after preceding entries have applied (single source
    * per codex r50 non-blocking #1 + r51). state may be null for bootstrap
-   * kinds (`session:started`, `migration:snapshot_imported`); in that case
+   * kind (`session:started`); in that case
    * sub_state defaults to TRIAGE.score and ceremony to the standard preset.
    */
   snapshot: Snapshot;
@@ -307,7 +307,7 @@ export type PreflightCheck = (ctx: PreflightCheckCtx) => PreflightFailure | null
 
 export function preflight(rawEntry: unknown, ctx: PreflightContext): PreflightResult {
   // Derive validation scalars from the snapshot single-source (codex r51).
-  // Bootstrap kinds (session:started / migration:snapshot_imported) arrive
+  // The bootstrap kind (session:started) arrives
   // before state has been initialized; defaults preserve historical behavior.
   const sub_state: SubState = ctx.snapshot.state?.sub_state ?? DEFAULT_SUB_STATE;
   const ceremony: Ceremony = ctx.snapshot.state?.ceremony ?? DEFAULT_CEREMONY;
@@ -331,7 +331,7 @@ export function preflight(rawEntry: unknown, ctx: PreflightContext): PreflightRe
   // (4b) Per-kind payload schema (audit r1 fix #4 — Gate #2 / Gate #3 wiring).
   // PER_KIND_PAYLOAD lookup is total — every EntryKind has at least
   // RecordPayload (object-shape) as fallback. A literal string / array /
-  // scalar fails here, preventing 'inline artifact body in migration' and
+  // scalar fails here, preventing malformed payload fields and
   // similar bypasses of the envelope. Parsed up-front so downstream checks can
   // read the validated `payloadData`, but the FAILURE is reported at its
   // precedence slot inside ORDERED_CHECKS (checkPerKindPayload, after seq /

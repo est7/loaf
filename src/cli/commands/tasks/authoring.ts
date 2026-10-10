@@ -359,8 +359,8 @@ export function registerTaskAdd(tasksCmd: Command, deps: TasksRegistrationDeps):
           if (!base) {
             ctx.failure(
               "CANONICAL_TASK_BODY_UNAVAILABLE",
-              `task ${t.id} is in the projection but has no canonical body in the journal (migration-imported); cannot rebuild the graph to append`,
-              { task_id: t.id, source: "migration" },
+              `task ${t.id} is in the projection but has no canonical body in the journal; cannot rebuild the graph to append`,
+              { task_id: t.id, source: "journal" },
             );
             return;
           }
@@ -527,8 +527,8 @@ export function registerTaskAmend(tasksCmd: Command, deps: TasksRegistrationDeps
           if (!sCanonical) {
             ctx.emitFailure(
               "CANONICAL_TASK_BODY_UNAVAILABLE",
-              `task ${taskId} is in the projection but has no canonical body in the journal (migration-imported); cannot amend in place`,
-              { task_id: taskId, source: "migration" },
+              `task ${taskId} is in the projection but has no canonical body in the journal; cannot amend in place`,
+              { task_id: taskId, source: "journal" },
             );
             return;
           }
@@ -669,8 +669,8 @@ export function registerTaskAmend(tasksCmd: Command, deps: TasksRegistrationDeps
         if (!base) {
           ctx.emitFailure(
             "CANONICAL_TASK_BODY_UNAVAILABLE",
-            `task ${taskId} is in the projection but has no canonical body in the journal (migration-imported); cannot amend in place`,
-            { task_id: taskId, source: "migration" },
+            `task ${taskId} is in the projection but has no canonical body in the journal; cannot amend in place`,
+            { task_id: taskId, source: "journal" },
           );
           return;
         }

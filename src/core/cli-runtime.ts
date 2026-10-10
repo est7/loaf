@@ -7,8 +7,7 @@
 // unstamped builds.
 //
 // `loadSession(featureDir)` provides the read-side bootstrap used by every
-// mutator command — replays the journal (with sidecar-aware migration
-// rehydration when applicable), surfaces typed errors, and returns the
+// mutator command — replays the journal, surfaces typed errors, and returns the
 // in-memory snapshot + tail seq so commands can call `mutate()`.
 
 import { execFileSync } from "node:child_process";
@@ -68,7 +67,6 @@ export async function loadSession(
   }
   const journalPath = path.join(featureDir, "journal.jsonl");
   const replay = await replayJournal(journalPath, {
-    feature_dir: featureDir,
     collect_entries: true,
   });
   if (!replay.ok) {

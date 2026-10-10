@@ -145,28 +145,6 @@ export const SignatureEnvelope = z
   .strict();
 export type SignatureEnvelope = z.infer<typeof SignatureEnvelope>;
 
-// migration:snapshot_imported payload (Stage 5, ADR-0005 §5.2).
-// Gate #3 — schema is .strict() with ONLY AttachmentRef manifest fields.
-// Inline artifact bodies are rejected at Zod parse, preventing a v0.0.x
-// migration entry from ballooning past 64KB.
-export const MigrationSnapshotImportedPayload = z
-  .object({
-    source_schema_version: z.number().int().positive(),
-    migrated_at: z.string().datetime(),
-    artifacts: z
-      .object({
-        state: AttachmentRef,
-        tasks: AttachmentRef,
-        spec_md: AttachmentRef,
-        evidence: AttachmentRef,
-        findings: AttachmentRef,
-        pending: AttachmentRef,
-      })
-      .strict(),
-  })
-  .strict();
-export type MigrationSnapshotImportedPayload = z.infer<typeof MigrationSnapshotImportedPayload>;
-
 export const Phase = z.enum(["TRIAGE", "SPEC", "EXECUTE", "VERIFY", "SETTLE", "DONE"]);
 export type Phase = z.infer<typeof Phase>;
 
@@ -264,7 +242,6 @@ export const EntryKind = z.enum([
   // ── Spike branch closure ──
   "spike:converted",
   // ── Migration ──
-  "migration:snapshot_imported",
 ]);
 export type EntryKind = z.infer<typeof EntryKind>;
 

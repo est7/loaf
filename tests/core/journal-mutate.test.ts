@@ -224,22 +224,10 @@ describe("mutate — transactional journal write (audit r1 Blocker #3)", () => {
     const bad = await mutate(
       {
         at: "2026-05-15T10:00:00.000Z",
-        actor: "migration:v0.0.x→v2",
+        actor: "cli:loaf",
         entry_schema_version: 1,
-        kind: "migration:snapshot_imported",
-        payload: {
-          source_schema_version: 1,
-          migrated_at: "2026-05-15T10:00:00.000Z",
-          artifacts: {
-            // Gate #3: literal inline content must be rejected.
-            state: "inline-not-a-ref",
-            tasks: { path: "x", sha256: "0".repeat(64), size: 0 },
-            spec_md: { path: "x", sha256: "0".repeat(64), size: 0 },
-            evidence: { path: "x", sha256: "0".repeat(64), size: 0 },
-            findings: { path: "x", sha256: "0".repeat(64), size: 0 },
-            pending: { path: "x", sha256: "0".repeat(64), size: 0 },
-          },
-        },
+        kind: "session:started",
+        payload: { feature: "missing-session-fields" },
       },
       {
         feature_dir: dir,

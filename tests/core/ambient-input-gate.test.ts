@@ -41,14 +41,7 @@ const ALLOWANCES: Allowance[] = [
     file: "crash-log.ts",
     lines: [/now:\s*\(\)\s*=>\s*new Date\(\)/, /homeDir:\s*\(\)\s*=>\s*os\.homedir\(\)/],
   },
-  {
-    tier: "already-di-seamed",
-    file: "migration.ts",
-    lines: [
-      /at:\s*opts\.migrated_at\s*\?\?\s*new Date\(\)\.toISOString\(\)/,
-      /migrated_at:\s*opts\.migrated_at\s*\?\?\s*new Date\(\)\.toISOString\(\)/,
-    ],
-  },
+
   {
     tier: "already-di-seamed",
     file: "journal-mutate.ts",
@@ -141,7 +134,7 @@ describe("core ambient-input gate", () => {
         })),
     );
 
-    expect(ALLOWANCES).toHaveLength(10);
+    expect(ALLOWANCES).toHaveLength(9);
     expect(unexpected).toEqual([]);
     expect(staleAllowances).toEqual([]);
   });
