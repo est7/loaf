@@ -1,3 +1,4 @@
+import { diagnostic } from "../../core/error-catalog.js";
 // `loaf prune` — session GC CLI surface.
 //
 // Main path (6a): resolve → (preview | execute) → audit. Targets ALWAYS come
@@ -134,7 +135,7 @@ export function registerPrune(program: Command, ctx: CommandContext, deps: Prune
       // ── mode: --trash --older-than <N> (retention sweep) ───────────
       if (opts.trash === true) {
         if (opts.olderThan === undefined) {
-          ctx.emitFailure("USAGE", "loaf prune --trash requires --older-than <days>", {});
+          ctx.failure(diagnostic("USAGE", { reason: "trash_age_required" }));
           return;
         }
         const previewTrash = opts.yes !== true || opts.dryRun === true;
@@ -162,11 +163,7 @@ export function registerPrune(program: Command, ctx: CommandContext, deps: Prune
         (opts.all ? 1 : 0) +
         (opts.orphans ? 1 : 0);
       if (scopeCount !== 1) {
-        ctx.emitFailure(
-          "USAGE",
-          "loaf prune requires exactly one scope: --session <id> | --in-cwd | --project <path> | --all | --orphans",
-          { scope_count: scopeCount },
-        );
+        ctx.failure(diagnostic("USAGE", { scope_count: scopeCount }));
         return;
       }
 
@@ -174,20 +171,20 @@ export function registerPrune(program: Command, ctx: CommandContext, deps: Prune
       if (opts.session !== undefined) {
         const resolved = await resolveSessionPrefix(deps.registryDir, opts.session);
         if (resolved.kind === "not-found") {
-          ctx.emitFailure("SESSION_NOT_FOUND", `no session matches '${opts.session}'`, {
-            uuid_or_prefix: opts.session,
-          });
+          ctx.failure(
+            diagnostic("SESSION_NOT_FOUND", {
+              uuid_or_prefix: opts.session,
+            }),
+          );
           return;
         }
         if (resolved.kind === "ambiguous") {
-          ctx.emitFailure(
-            "SESSION_SHORT_AMBIGUOUS",
-            `prefix '${opts.session}' matches ${resolved.matches.length} sessions; use a longer prefix`,
-            {
+          ctx.failure(
+            diagnostic("SESSION_SHORT_AMBIGUOUS", {
               prefix: opts.session,
               match_count: resolved.matches.length,
               candidate_list: resolved.matches,
-            },
+            }),
           );
           return;
         }
@@ -274,11 +271,7 @@ export function registerPrune(program: Command, ctx: CommandContext, deps: Prune
       // scripts don't proceed as if prune fully succeeded (codex 6a BLOCK). The
       // structured body still carries pruned/skipped/failed for inspection.
       if (result.failed.length > 0) {
-        ctx.emitFailure(
-          "PRUNE_PARTIAL_FAILURE",
-          `prune partially failed: ${result.failed.length} of ${result.done.length + result.failed.length} session(s) could not be removed`,
-          body,
-        );
+        ctx.failure(diagnostic("PRUNE_PARTIAL_FAILURE", body));
         return;
       }
 
@@ -314,7 +307,7 @@ export function registerPrune(program: Command, ctx: CommandContext, deps: Prune
         ...(opts.at !== undefined && { at: opts.at }),
       });
       if (!result.ok) {
-        ctx.emitFailure(result.code, result.message, result.detail ?? {});
+        ctx.failure(result);
         return;
       }
       ctx.success(
@@ -325,8 +318,7 @@ export function registerPrune(program: Command, ctx: CommandContext, deps: Prune
           feature: result.feature,
           cwd: result.cwd,
         },
-        () =>
-          `${dryRun ? "would restore" : "restored"} ${result.session_id} (${result.feature})\n`,
+        () => `${dryRun ? "would restore" : "restored"} ${result.session_id} (${result.feature})\n`,
       );
     });
 }

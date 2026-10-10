@@ -1,3 +1,4 @@
+import ts from "typescript";
 import { readFile } from "node:fs/promises";
 
 import { describe, expect, test } from "vitest";
@@ -12,10 +13,23 @@ const DRIFT_MESSAGE =
   "i18n diagnostic drift detected. Run `bun run gen:i18n` and commit i18n/en.json + i18n/zh.json.";
 
 function outsideDiagnostic(source: string): string {
-  const start = source.indexOf('\n  "diagnostic": {');
-  const end = source.indexOf('\n  "failure": {', start);
-  if (start === -1 || end === -1) throw new Error("unexpected i18n bundle layout");
-  return `${source.slice(0, start)}\n  "diagnostic": <generated>${source.slice(end)}`;
+  const tree = ts.createSourceFile("bundle.json", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JSON);
+  const roots = new Set(["diagnostic", "diagnostic_fix", "diagnostic_variant", "diagnostic_variant_fix"]);
+  const ranges: Array<{ start: number; end: number; root: string }> = [];
+  function visit(node: ts.Node) {
+    if (ts.isPropertyAssignment(node) && ts.isStringLiteral(node.name) && roots.has(node.name.text)
+      && ts.isObjectLiteralExpression(node.parent) && !ts.isPropertyAssignment(node.parent.parent)) {
+      ranges.push({ start: node.getStart(tree), end: node.end, root: node.name.text });
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(tree);
+  if (ranges.length !== roots.size) throw new Error("unexpected i18n bundle layout");
+  let output = source;
+  for (const range of ranges.sort((a, b) => b.start - a.start)) {
+    output = `${output.slice(0, range.start)}${range.root}: <generated>${output.slice(range.end)}`;
+  }
+  return output;
 }
 
 async function readBundle(locale: GeneratedDiagnosticLocale): Promise<string> {

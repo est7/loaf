@@ -1,3 +1,4 @@
+import { diagnostic, diagnosticVariant } from "../../../core/error-catalog.js";
 import type { Command } from "commander";
 
 import { loadSession } from "../../../core/cli-runtime.js";
@@ -16,7 +17,7 @@ import {
 } from "../../../core/task-schema.js";
 import { allocateTaskAuthoringInputs, collectOccupiedTaskIds } from "../../task-authoring.js";
 import { jsonInputHelp, type JsonInputDeclaration } from "../../input-ingestion.js";
-import { FAILURE_SITE_KEYS, SUCCESS_KEYS } from "../../runtime-i18n-keys.js";
+import { SUCCESS_KEYS } from "../../runtime-i18n-keys.js";
 import { buildNextAdvisoryFromSnapshot, selectorForCommandContext } from "../../next-advisory.js";
 import type { TasksRegistrationDeps } from "./types.js";
 
@@ -71,12 +72,11 @@ export function registerTaskSubmit(tasksCmd: Command, deps: TasksRegistrationDep
         const parsed = TasksSubmitInput.safeParse(read.value);
         if (!parsed.success) {
           ctx.failure(
-            "SCHEMA_VALIDATION_FAILED",
-            "tasks submit input must be a strict semantic graph with id-less tasks and unique local_key values",
-            {
+            diagnostic("SCHEMA_VALIDATION_FAILED", {
+              reason: parsed.error.issues.map((issue) => issue.message).join("; "),
               issues: parsed.error.issues,
               migration: "legacy-full-input-rejected",
-            },
+            }),
           );
           return;
         }
@@ -85,7 +85,9 @@ export function registerTaskSubmit(tasksCmd: Command, deps: TasksRegistrationDep
         if (featureDir === null) return;
         const session = await ctx.resolveSession(featureDir);
         if (!session.snapshot.state) {
-          ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
+          ctx.failure(
+            diagnosticVariant("failure.no_session.tasks", { ...{}, feature: opts.feature }),
+          );
           return;
         }
 
@@ -101,8 +103,7 @@ export function registerTaskSubmit(tasksCmd: Command, deps: TasksRegistrationDep
               return {
                 ok: false,
                 code: "REDUCER_ERROR",
-                message: "internal: session state missing while planning task graph",
-                detail: {},
+                detail: { reason: "session_state_missing" },
               };
             }
             return {
@@ -124,10 +125,7 @@ export function registerTaskSubmit(tasksCmd: Command, deps: TasksRegistrationDep
         if (!result) return;
         const state = result.snapshot.state;
         if (state === null) {
-          ctx.emitFailure(
-            "REDUCER_ERROR",
-            "internal: state missing from snapshot after successful event:tasks_planned apply",
-          );
+          ctx.failure(diagnostic("REDUCER_ERROR", {}));
           return;
         }
 
@@ -217,21 +215,15 @@ export function registerTaskAdd(tasksCmd: Command, deps: TasksRegistrationDeps):
         const inputParse = TaskAuthoringInputBatched.safeParse(parsed);
         if (!inputParse.success) {
           if (Array.isArray(parsed) && parsed.length === 0) {
-            ctx.failureKeyed(
-              "SCHEMA_VALIDATION_FAILED",
-              FAILURE_SITE_KEYS.tasksAddEmptyArray,
-              {},
-              {},
-            );
+            ctx.failure(diagnosticVariant("failure.tasks_add.empty_array", { ...{}, ...{} }));
             return;
           }
           ctx.failure(
-            "SCHEMA_VALIDATION_FAILED",
-            "tasks add input must contain strict id-less tasks with local_key and explicit dependency refs",
-            {
+            diagnostic("SCHEMA_VALIDATION_FAILED", {
+              reason: inputParse.error.issues.map((issue) => issue.message).join("; "),
               issues: inputParse.error.issues,
               migration: "legacy-task-input-rejected",
-            },
+            }),
           );
           return;
         }
@@ -244,7 +236,9 @@ export function registerTaskAdd(tasksCmd: Command, deps: TasksRegistrationDeps):
         if (featureDir === null) return;
         const session = await ctx.resolveSession(featureDir);
         if (!session.snapshot.state) {
-          ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
+          ctx.failure(
+            diagnosticVariant("failure.no_session.tasks", { ...{}, feature: opts.feature }),
+          );
           return;
         }
         const subState = session.snapshot.state.sub_state;
@@ -253,17 +247,15 @@ export function registerTaskAdd(tasksCmd: Command, deps: TasksRegistrationDeps):
         // unsponsored whole-graph path. Reject the cross-product explicitly
         // rather than silently ignoring the flag (codex r136 Q6).
         if (sponsored && subState === "SPEC.design") {
-          ctx.failure(
-            "USAGE",
-            "--finding is for the sponsored EXECUTE.work add; at SPEC.design `tasks add` is the unsponsored whole-graph path — drop --finding",
-          );
+          ctx.failure(diagnostic("USAGE", { reason: "sponsorship_not_allowed_at_spec_design" }));
           return;
         }
         if (!sponsored && subState !== "SPEC.design") {
           ctx.failure(
-            "SUB_STATE_AUTHORITY_VIOLATION",
-            `loaf tasks add without --finding is only valid at SPEC.design (current sub_state=${subState}); post-lock task additions go through \`loaf finding raise --action amend-tasks\` then \`tasks add --finding\``,
-            { sub_state: subState },
+            diagnostic("SUB_STATE_AUTHORITY_VIOLATION", {
+              kind: "event:tasks_amended",
+              sub_state: subState,
+            }),
           );
           return;
         }
@@ -455,24 +447,15 @@ export function registerTaskAmend(tasksCmd: Command, deps: TasksRegistrationDeps
         const hasInput = opts.input !== undefined;
         const hasFinding = opts.finding !== undefined;
         if (hasPolicy && hasInput) {
-          ctx.emitFailure(
-            "USAGE",
-            "--policy and --input are mutually exclusive: --policy narrows applicability at EXECUTE.plan, --input replaces the task graph (sponsored) at EXECUTE.work",
-          );
+          ctx.failure(diagnostic("USAGE", { reason: "policy_and_input_mutually_exclusive" }));
           return;
         }
         if (hasInput !== hasFinding) {
-          ctx.emitFailure(
-            "USAGE",
-            "--input and --finding must be specified together — a sponsored graph replacement needs the sponsoring amend-tasks finding",
-          );
+          ctx.failure(diagnostic("USAGE", { reason: "sponsored_input_finding_pair_required" }));
           return;
         }
         if (!hasPolicy && !hasInput) {
-          ctx.emitFailure(
-            "USAGE",
-            "tasks amend needs either --policy <step>=<applicability> or --input <src> --finding <FND-N>",
-          );
+          ctx.failure(diagnostic("USAGE", { reason: "amend_input_required" }));
           return;
         }
 
@@ -486,9 +469,10 @@ export function registerTaskAmend(tasksCmd: Command, deps: TasksRegistrationDeps
           const inTask = TaskInput.safeParse(inParsed);
           if (!inTask.success) {
             ctx.failure(
-              "SCHEMA_VALIDATION_FAILED",
-              `tasks amend --input is not a valid id-less task (omit id / status / execution): ${inTask.error.issues.map((i) => i.message).join("; ")}`,
-              { issues: inTask.error.issues },
+              diagnostic("SCHEMA_VALIDATION_FAILED", {
+                reason: inTask.error.issues.map((issue) => issue.message).join("; "),
+                issues: inTask.error.issues,
+              }),
             );
             return;
           }
@@ -496,14 +480,18 @@ export function registerTaskAmend(tasksCmd: Command, deps: TasksRegistrationDeps
           const sFeatureDir = earlyFeatureDir;
           const sSession = await ctx.resolveSession(sFeatureDir);
           if (!sSession.snapshot.state) {
-            ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
+            ctx.failure(
+              diagnosticVariant("failure.no_session.tasks", { ...{}, feature: opts.feature }),
+            );
             return;
           }
           const sCurrent = sSession.snapshot.tasks.find((t) => t.id === taskId);
           if (!sCurrent) {
-            ctx.failure("TASK_NOT_FOUND", `task ${taskId} is not in the current tasks projection`, {
-              task_id: taskId,
-            });
+            ctx.failure(
+              diagnostic("TASK_NOT_FOUND", {
+                task_id: taskId,
+              }),
+            );
             return;
           }
           // (b4) Recover the current canonical body from the journal.
@@ -532,14 +520,12 @@ export function registerTaskAmend(tasksCmd: Command, deps: TasksRegistrationDeps
               prior.reason !== undefined
             ) {
               ctx.failure(
-                "MUTATION_OUT_OF_RIGHTS",
-                `sponsored tasks amend on ${taskId} drops step '${stepName}', which carries ` +
-                  `execution progress — a graph amend may not erase execution history (codex r136 Q4)`,
-                {
+                diagnostic("MUTATION_OUT_OF_RIGHTS", {
                   task_id: taskId,
                   step: stepName,
                   reason: "sponsored_amend_drops_progress_step",
-                },
+                  sub_state: sSession.snapshot.state!.sub_state,
+                }),
               );
               return;
             }
@@ -587,25 +573,30 @@ export function registerTaskAmend(tasksCmd: Command, deps: TasksRegistrationDeps
         for (const p of policies) {
           const eq = p.indexOf("=");
           if (eq <= 0 || eq === p.length - 1) {
-            ctx.emitFailure(
-              "SCHEMA_VALIDATION_FAILED",
-              `malformed --policy '${p}' — expected <step>=<applicability>`,
+            ctx.failure(
+              diagnostic("SCHEMA_VALIDATION_FAILED", {
+                reason: "policy_requires_step_assignment",
+                value: p,
+              }),
             );
             return;
           }
           const step = p.slice(0, eq);
           const applicability = p.slice(eq + 1);
           if (!APPLICABILITY.includes(applicability)) {
-            ctx.emitFailure(
-              "SCHEMA_VALIDATION_FAILED",
-              `--policy '${p}': applicability must be one of must | optional | na`,
+            ctx.failure(
+              diagnostic("SCHEMA_VALIDATION_FAILED", {
+                reason: "invalid_policy_applicability",
+                step,
+                value: applicability,
+                allowed: APPLICABILITY,
+              }),
             );
             return;
           }
           if (policyMap.has(step)) {
-            ctx.emitFailure(
-              "SCHEMA_VALIDATION_FAILED",
-              `--policy step '${step}' specified more than once`,
+            ctx.failure(
+              diagnostic("SCHEMA_VALIDATION_FAILED", { reason: "duplicate_policy_step", step }),
             );
             return;
           }
@@ -619,19 +610,19 @@ export function registerTaskAmend(tasksCmd: Command, deps: TasksRegistrationDeps
           ensureDir: !ctx.dryRun,
         });
         if (!session.snapshot.state) {
-          ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
+          ctx.failure(
+            diagnosticVariant("failure.no_session.tasks", { ...{}, feature: opts.feature }),
+          );
           return;
         }
 
         // (3) Current task must be in the projection.
         const current = session.snapshot.tasks.find((t) => t.id === taskId);
         if (!current) {
-          ctx.emitFailure(
-            "TASK_NOT_FOUND",
-            `task ${taskId} is not in the current tasks projection`,
-            {
+          ctx.failure(
+            diagnostic("TASK_NOT_FOUND", {
               task_id: taskId,
-            },
+            }),
           );
           return;
         }
@@ -647,11 +638,7 @@ export function registerTaskAmend(tasksCmd: Command, deps: TasksRegistrationDeps
         for (const [step, applicability] of policyMap) {
           const seeded = execution[step];
           if (!seeded) {
-            ctx.emitFailure(
-              "TASK_STEP_NOT_FOUND",
-              `step '${step}' is not in task ${taskId}'s execution set`,
-              { task_id: taskId, step },
-            );
+            ctx.failure(diagnostic("TASK_STEP_NOT_FOUND", { task_id: taskId, step }));
             return;
           }
           seeded.applicability = applicability;

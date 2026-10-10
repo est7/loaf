@@ -71,7 +71,7 @@ export function createJsonInputIngestor(deps: JsonInputIngestorDeps): JsonInputI
     declaration: JsonInputDeclaration,
   ): arg is string => {
     if (arg !== undefined) return true;
-    ctx.diagnosticFailure({ code: "MISSING_INPUT", detail: { command: declaration.command } });
+    ctx.failure({ code: "MISSING_INPUT", detail: { command: declaration.command } });
     return false;
   };
 
@@ -82,7 +82,7 @@ export function createJsonInputIngestor(deps: JsonInputIngestorDeps): JsonInputI
 
       const source = parseInputSource(arg);
       if (source.kind === "stdin" && deps.isStdinTty()) {
-        ctx.diagnosticFailure({
+        ctx.failure({
           code: "USAGE",
           detail: { command: declaration.command, source: "stdin", reason: "stdin_is_tty" },
         });
@@ -97,7 +97,7 @@ export function createJsonInputIngestor(deps: JsonInputIngestorDeps): JsonInputI
           raw = await deps.readStdin();
         } catch (error) {
           const message = (error as Error).message;
-          ctx.diagnosticFailure({
+          ctx.failure({
             code: "MISSING_INPUT",
             detail: { command: declaration.command, source: "stdin", cause: message },
           });
@@ -108,7 +108,7 @@ export function createJsonInputIngestor(deps: JsonInputIngestorDeps): JsonInputI
           raw = await readFile(source.path);
         } catch (error) {
           const cause = error as NodeJS.ErrnoException;
-          ctx.diagnosticFailure({
+          ctx.failure({
             code: "INPUT_FILE_NOT_FOUND",
             detail: {
               path: source.path,
@@ -123,7 +123,7 @@ export function createJsonInputIngestor(deps: JsonInputIngestorDeps): JsonInputI
         return { ok: true, value: JSON.parse(raw) };
       } catch (error) {
         const cause = (error as Error).message;
-        ctx.diagnosticFailure({
+        ctx.failure({
           code: "SCHEMA_VALIDATION_FAILED",
           detail: { reason: cause, command: declaration.command, cause },
         });

@@ -38,7 +38,7 @@ type Failure = CatalogDiagnostic;
 
 function recordingContext(failures: Failure[]): CommandContext {
   return {
-    diagnosticFailure(failure: CatalogDiagnostic) {
+    failure(failure: CatalogDiagnostic) {
       failures.push(failure);
     },
   } as unknown as CommandContext;

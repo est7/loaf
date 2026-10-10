@@ -11,11 +11,8 @@ import {
   pendingKindKey,
   phaseKey,
   RUNTIME_I18N_KEYS,
-  diagnosticKey,
   CHROME_KEYS,
   findingStatusKey,
-  FAILURE_SITE_KEYS,
-  FAILURE_SITE_TEMPLATES,
   SUCCESS_KEYS,
   statusIndicatorKey,
   subStateKey,
@@ -25,10 +22,13 @@ import {
   TASK_KIND_VALUES,
   TASK_STATUS_VALUES,
   FINDING_STATUS_VALUES,
-  MIGRATED_DIAGNOSTIC_CODES,
 } from "../../src/cli/runtime-i18n-keys.js";
 import { EvidenceKind, VerifyCheckKind } from "../../src/core/evidence-schema.js";
-import { ERROR_CATALOG, DiagnosticCode } from "../../src/core/error-catalog.js";
+import {
+  ERROR_CATALOG,
+  DIAGNOSTIC_VARIANTS,
+  DiagnosticCode,
+} from "../../src/core/error-catalog.js";
 import { FindingAction, FindingCategory } from "../../src/core/finding-schema.js";
 import { PendingPromptKind, SubState } from "../../src/core/journal-entry.js";
 
@@ -57,7 +57,9 @@ describe("runtime i18n key gate", () => {
     expect(new Set(RUNTIME_I18N_KEYS).size).toBe(RUNTIME_I18N_KEYS.length);
     for (const locale of LOCALES) {
       const missing = RUNTIME_I18N_KEYS.filter(
-        (key) => lookup(BUILTIN_BUNDLES[locale], key) === undefined,
+        (key) =>
+          lookup(BUILTIN_BUNDLES[locale], key) === undefined &&
+          lookup(BUILTIN_BUNDLES.en, key) === undefined,
       );
       expect(missing, `${locale} missing runtime i18n keys`).toEqual([]);
     }
@@ -77,8 +79,14 @@ describe("runtime i18n key gate", () => {
       ...PendingPromptKind.options.map(pendingKindKey),
       ...PHASE_VALUES.map(phaseKey),
       ...SubState.options.map(subStateKey),
-      ...MIGRATED_DIAGNOSTIC_CODES.map(diagnosticKey),
-      ...Object.values(FAILURE_SITE_KEYS),
+      ...Object.keys(ERROR_CATALOG).flatMap((code) => [
+        `diagnostic.${code}`,
+        `diagnostic_fix.${code}`,
+      ]),
+      ...Object.keys(DIAGNOSTIC_VARIANTS).flatMap((context) => [
+        `diagnostic_variant.${context}`,
+        `diagnostic_variant_fix.${context}`,
+      ]),
       ...Object.values(SUCCESS_KEYS),
       ...Object.values(CHROME_KEYS),
     ];
@@ -86,17 +94,13 @@ describe("runtime i18n key gate", () => {
     expect(new Set(RUNTIME_I18N_KEYS)).toEqual(new Set(helperKeys));
   });
 
-  test("migrated diagnostic placeholders match en, zh, and ERROR_CATALOG", () => {
-    for (const code of MIGRATED_DIAGNOSTIC_CODES) {
-      const key = diagnosticKey(code);
+  test("all catalog diagnostic placeholders match generated messages and available translations", () => {
+    for (const [code, entry] of Object.entries(ERROR_CATALOG)) {
+      const key = `diagnostic.${code}`;
       const en = lookup(BUILTIN_BUNDLES.en, key);
       const zh = lookup(BUILTIN_BUNDLES.zh, key);
-      expect(en, `${key} en`).toBeTypeOf("string");
-      expect(zh, `${key} zh`).toBeTypeOf("string");
-      expect(placeholders(String(en)), `${key} zh placeholders`).toEqual(placeholders(String(zh)));
-      expect(placeholders(String(en)), `${key} ERROR_CATALOG placeholders`).toEqual(
-        placeholders(ERROR_CATALOG[code].message_template),
-      );
+      expect(en).toBe(entry.message_template);
+      if (zh !== undefined) expect(placeholders(String(zh))).toEqual(placeholders(String(en)));
     }
   });
 
@@ -132,26 +136,18 @@ describe("runtime i18n key gate", () => {
     expect(orphans).toEqual([]);
   });
 
-  test("failure site keys are explicit, localized, placeholder-symmetric, and map to catalog codes", () => {
-    const templateByKey = new Map(
-      Object.values(FAILURE_SITE_TEMPLATES).map((entry) => [entry.key, entry]),
-    );
-    expect(templateByKey.size).toBe(Object.keys(FAILURE_SITE_TEMPLATES).length);
-
-    for (const key of Object.values(FAILURE_SITE_KEYS)) {
-      const entry = templateByKey.get(key);
-      expect(entry, `${key} registry entry`).toBeDefined();
-      expect(ERROR_CATALOG[entry!.code], `${key} known DiagnosticCode`).toBeDefined();
-
-      const en = lookup(BUILTIN_BUNDLES.en, key);
-      const zh = lookup(BUILTIN_BUNDLES.zh, key);
-      expect(en, `${key} en`).toBeTypeOf("string");
-      expect(zh, `${key} zh`).toBeTypeOf("string");
-      expect(placeholders(String(en)), `${key} zh placeholders`).toEqual(placeholders(String(zh)));
-      expect(placeholders(String(en)), `${key} registry placeholders`).toEqual(
-        placeholders(entry!.template),
+  test("variants derive from catalog and unused legacy failure roots are absent", () => {
+    for (const [context, variant] of Object.entries(DIAGNOSTIC_VARIANTS)) {
+      expect(lookup(BUILTIN_BUNDLES.en, `diagnostic_variant.${context}`)).toBe(
+        variant.template.message_template,
       );
+      expect(ERROR_CATALOG[variant.code]).toBeDefined();
+      const zh = lookup(BUILTIN_BUNDLES.zh, `diagnostic_variant.${context}`);
+      if (zh !== undefined)
+        expect(placeholders(String(zh))).toEqual(placeholders(variant.template.message_template));
     }
+    for (const locale of LOCALES)
+      expect(lookup(BUILTIN_BUNDLES[locale], "failure")).toBeUndefined();
   });
 
   test("success keys are explicit, localized, and placeholder-symmetric", () => {

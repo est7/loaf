@@ -16,14 +16,12 @@
 //   - D: lazy + cache by (featureDir, method) — sessions and projections
 //     have different failure modes (loadSession throws on bad journal;
 //     loadProjections has typed NoSession / SnapshotStale)
-//   - G/I: ctx.failure code is `string` (not typed DiagnosticCode); the
-//     SC-1 catalog gate is enforced via tests/scripts/cli-inventory.test.ts
-//     which (SC-3 extension per r206 PATCH G/I) now scans src/cli/**/*.ts
-//     for ctx.failure(...) emit sites
+//   - Recoverable failures are typed catalog code/detail records. One outlet
+//     renders canonical English JSON or localized text with recovery guidance.
 //
 // Test surface: tests/cli/command-context.test.ts.
 
-import type { CatalogDiagnostic } from "../core/error-catalog.js";
+import { diagnostic, diagnosticVariant, type DiagnosticContext, type CatalogDiagnostic } from "../core/error-catalog.js";
 import { writeDiagnosticFailure } from "./diagnostic-failure.js";
 import type { ProjectionKind, LoadResult } from "../core/projection-loader.js";
 import { SnapshotStaleError, NoSessionError } from "../core/projection-loader.js";
@@ -36,13 +34,6 @@ import {
 } from "../core/session-dispatch.js";
 import { resolveHumanActor } from "../core/actor-resolver.js";
 import { parseHookStdinPath } from "../core/write-guard.js";
-import {
-  diagnosticKey,
-  FAILURE_SITE_KEYS,
-  type MigratedDiagnosticCode,
-  type FailureSiteKey,
-} from "./runtime-i18n-keys.js";
-import { diagnosticVarsFor } from "./diagnostic-failure.js";
 import {
   FORMAT_MODES as ARGV_FORMAT_MODES,
   FORMAT_MODES_HUMAN as ARGV_FORMAT_MODES_HUMAN,
@@ -268,28 +259,8 @@ export type CommandContext = {
     textRenderer?: (i18n: I18n) => string,
     advisories?: LazySuccessAdvisories,
   ) => void;
-  failure: (code: string, message: string, detail?: Record<string, unknown>) => void;
-  failureKeyed: (
-    code: string,
-    keyPath: string,
-    vars: I18nVars,
-    detail?: Record<string, unknown>,
-  ) => void;
+  failure: (diagnostic: CatalogDiagnostic) => void;
   snapshotCrashContext: () => CrashContext;
-  /** Phase W8 0a — try keyed-failure first, fall back to plain failure.
-   *  Returns the resolved actor string on success; null on failure (already
-   *  emitted). */
-  fail: (code: string, message: string) => void;
-  /** Phase W8 0a — try keyed-failure first, fall back to plain failure.
-   *  Mirrors the old bare `emitFailure` closure in main(). */
-  diagnosticFailure: (diagnostic: CatalogDiagnostic) => void;
-  emitFailure: (code: string, message: string, detail?: Record<string, unknown>) => void;
-  /** Phase W8 0a — emit a NO_SESSION failure keyed to a site-specific key. */
-  emitNoSessionFailure: (
-    keyPath: FailureSiteKey,
-    feature: string,
-    detail?: Record<string, unknown>,
-  ) => void;
   /** Phase W8 0a — resolve the human actor or emit failure + return null. */
   resolveHumanActorOrFail: () => string | null;
   /** Phase W8 0a — resolve dispatch or emit failure + return null. */
@@ -318,7 +289,7 @@ export type CommandContext = {
     featureDir: string,
     kinds: readonly K[],
     feature: string,
-    noSessionKey: FailureSiteKey,
+    noSessionKey: Extract<DiagnosticContext, `failure.no_session.${string}`>,
   ) => Promise<LoadResult<K> | null>;
 };
 
@@ -486,15 +457,6 @@ export function createCommandContext(
       }
     },
 
-    failure(code, message, detail) {
-      writeFailure(code, message, detail);
-    },
-
-    failureKeyed(code, keyPath, vars, detail) {
-      const message = output === "json" ? DEFAULT_I18N.t(keyPath, vars) : i18n.t(keyPath, vars);
-      writeFailure(code, message, detail);
-    },
-
     snapshotCrashContext(): CrashContext {
       return {
         phase: phaseOf(lastResolvedSubState),
@@ -521,31 +483,12 @@ export function createCommandContext(
       deps.writeStderr(`loaf: ${line}\n`);
     },
 
-    fail(code: string, message: string): void {
-      if (!emitKeyedFailure(code, undefined)) {
-        writeFailure(code, message);
-      }
-    },
-
-    diagnosticFailure(diagnostic: CatalogDiagnostic): void {
+    failure(diagnostic: CatalogDiagnostic): void {
       exitCode = writeDiagnosticFailure(diagnostic, {
         format: output,
         i18n,
         writeStderr: deps.writeStderr,
       });
-    },
-    emitFailure(code: string, message: string, detail?: Record<string, unknown>): void {
-      if (!emitKeyedFailure(code, detail)) {
-        writeFailure(code, message, detail);
-      }
-    },
-
-    emitNoSessionFailure(
-      keyPath: FailureSiteKey,
-      feature: string,
-      detail?: Record<string, unknown>,
-    ): void {
-      ctx.failureKeyed("NO_SESSION", keyPath, { feature }, detail);
     },
 
     resolveHumanActorOrFail(): string | null {
@@ -558,7 +501,7 @@ export function createCommandContext(
         isInteractiveHuman: isInteractive,
       });
       if (!r.ok) {
-        ctx.diagnosticFailure(r);
+        ctx.failure(r);
         return null;
       }
       return r.actor;
@@ -567,7 +510,7 @@ export function createCommandContext(
     async dispatchOrFail(opts: { feature?: string; featureDir?: string }): Promise<string | null> {
       const dispatch = await ctx.resolveDispatch();
       if (!dispatch.ok) {
-        ctx.diagnosticFailure(dispatch);
+        ctx.failure(dispatch);
         return null;
       }
       if (dispatch.autoPickAdvisory) ctx.advisory(dispatch.autoPickAdvisory);
@@ -612,17 +555,17 @@ export function createCommandContext(
         const raw = await readStdin();
         const parsed = parseHookStdinPath(raw);
         if (!parsed.ok) {
-          ctx.failureKeyed(
-            "SCHEMA_VALIDATION_FAILED",
-            FAILURE_SITE_KEYS.hookStdinParseFailed,
-            { reason: parsed.reason },
-            { source: "hook-stdin" },
+          ctx.failure(
+            diagnosticVariant("failure.hook.stdin_parse_failed", {
+              reason: parsed.reason,
+              source: "hook-stdin",
+            }),
           );
           return null;
         }
         return parsed.path;
       }
-      ctx.failureKeyed("USAGE", FAILURE_SITE_KEYS.hookWritePathMissing, {}, {});
+      ctx.failure(diagnosticVariant("failure.hook.write_path_missing", {}));
       return null;
     },
 
@@ -657,11 +600,7 @@ export function createCommandContext(
       commandType: "read-only" | "wrapping" | "projection-writer" | "scaffold-writer" = "read-only",
     ): boolean {
       if (dryRun) {
-        ctx.emitFailure(
-          "DRY_RUN_NOT_APPLICABLE",
-          `--dry-run not applicable to ${commandType} command \`${command}\``,
-          { command, command_type: commandType },
-        );
+        ctx.failure(diagnostic("DRY_RUN_NOT_APPLICABLE", { command, command_type: commandType }));
         return true;
       }
       return false;
@@ -671,7 +610,7 @@ export function createCommandContext(
       featureDir: string,
       kinds: readonly K[],
       feature: string,
-      noSessionKey: FailureSiteKey,
+      noSessionKey: Extract<DiagnosticContext, `failure.no_session.${string}`>,
     ): Promise<LoadResult<K> | null> {
       const loader = deps.loadProjectionsDirect ?? deps.loadProjections;
       if (!loader) {
@@ -683,70 +622,17 @@ export function createCommandContext(
         return await loader({ feature_dir: featureDir, kinds });
       } catch (err) {
         if (err instanceof NoSessionError) {
-          ctx.emitNoSessionFailure(noSessionKey, feature, err.detail);
+          ctx.failure(diagnosticVariant(noSessionKey, { ...err.detail, feature }));
           return null;
         }
         if (err instanceof SnapshotStaleError) {
-          ctx.diagnosticFailure(err);
+          ctx.failure(err);
           return null;
         }
         throw err;
       }
     },
   };
-
-  // Private helper: attempt keyed failure (try to map code → i18n vars).
-  // Returns true if keyed failure was emitted, false if caller must fall back.
-  function emitKeyedFailure(code: string, detail: Record<string, unknown> | undefined): boolean {
-    const vars = diagnosticVarsFor(code, detail);
-    if (vars === null) return false;
-    ctx.failureKeyed(code, diagnosticKey(code as MigratedDiagnosticCode), vars, detail);
-    return true;
-  }
-
-  function writeFailure(code: string, message: string, detail?: Record<string, unknown>): void {
-    if (output === "json") {
-      const out: Record<string, unknown> = { ok: false, code, message };
-      if (detail !== undefined) out["detail"] = detail;
-      deps.writeStderr(JSON.stringify(out) + "\n");
-    } else {
-      deps.writeStderr(`error: ${code} — ${message}\n`);
-      // Inherit the SC-2 emitFailure check-detail rendering for parity.
-      const checks = detail?.["checks"];
-      if (Array.isArray(checks)) {
-        for (const c of checks as Array<{
-          check?: number;
-          code?: string;
-          message?: string;
-        }>) {
-          deps.writeStderr(
-            `  [check ${c.check ?? "?"}] ${c.code ?? "UNKNOWN"}: ${c.message ?? ""}\n`,
-          );
-        }
-      }
-      // Phase 16 SC-9c — schema validation issue list (codex r309 B1).
-      // Renderer is generic but narrow to `{path?, code?, message?}` elements
-      // emitted by `mapZodIssues` (src/cli/check-file.ts). JSON mode is
-      // untouched — payload still rides one shared envelope line.
-      const errors = detail?.["errors"];
-      if (Array.isArray(errors)) {
-        for (const e of errors as Array<{
-          path?: string;
-          code?: string;
-          message?: string;
-        }>) {
-          deps.writeStderr(`  [${e.path ?? "?"}] ${e.code ?? "UNKNOWN"}: ${e.message ?? ""}\n`);
-        }
-        if (detail?.["truncated"] === true) {
-          const total = detail?.["error_count"];
-          deps.writeStderr(
-            `  ... (${typeof total === "number" ? total : "?"} errors total; first ${errors.length} shown)\n`,
-          );
-        }
-      }
-    }
-    exitCode = 2;
-  }
 
   return ctx;
 }

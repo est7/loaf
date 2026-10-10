@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { diagnostic, diagnosticVariant, type DiagnosticContext } from "./core/error-catalog.js";
+import { writeDiagnosticFailure } from "./cli/diagnostic-failure.js";
 
 // loaf CLI — audit r1 Blocker #7 (MVP).
 //
@@ -31,13 +33,6 @@ import { defaultRenderTui, type RenderTui } from "./cli/tui/render.js";
 import { HOOK_EVENTS, HOOK_EVENT_TO_CLAUDE_CODE } from "./core/hook-events.js";
 import { readUserConfig } from "./core/user-config.js";
 import { BUILTIN_BUNDLES, createI18n, resolveLocale } from "./cli/i18n.js";
-import {
-  diagnosticKey,
-  FAILURE_SITE_KEYS,
-  type FailureSiteDiagnosticCode,
-  type FailureSiteKey,
-  type MigratedDiagnosticCode,
-} from "./cli/runtime-i18n-keys.js";
 import { runEditor as defaultRunEditor, type RunEditor } from "./cli/run-editor.js";
 import { buildReportUrl } from "./cli/url-prefill.js";
 import { defaultReadStdin, defaultIsStdinTty } from "./cli/stdin.js";
@@ -178,52 +173,6 @@ function preparseI18nFromEnv(
   return createI18n("en", BUILTIN_BUNDLES);
 }
 
-function writePreContextKeyedFailure(input: {
-  code: MigratedDiagnosticCode;
-  vars: I18nVars;
-  detail?: Record<string, unknown>;
-  renderAsJson: boolean;
-}): void {
-  const keyPath = diagnosticKey(input.code);
-  const message = input.renderAsJson
-    ? createI18n("en", BUILTIN_BUNDLES).t(keyPath, input.vars)
-    : preparseI18nFromEnv(process.env).t(keyPath, input.vars);
-  if (input.renderAsJson) {
-    const out: Record<string, unknown> = {
-      ok: false,
-      code: input.code,
-      message,
-    };
-    if (input.detail !== undefined) out["detail"] = input.detail;
-    process.stderr.write(JSON.stringify(out) + "\n");
-  } else {
-    process.stderr.write(`error: ${input.code} — ${message}\n`);
-  }
-}
-
-function writePreContextSiteFailure(input: {
-  code: FailureSiteDiagnosticCode;
-  keyPath: FailureSiteKey;
-  vars: I18nVars;
-  detail?: Record<string, unknown>;
-  renderAsJson: boolean;
-}): void {
-  const message = input.renderAsJson
-    ? createI18n("en", BUILTIN_BUNDLES).t(input.keyPath, input.vars)
-    : preparseI18nFromEnv(process.env).t(input.keyPath, input.vars);
-  if (input.renderAsJson) {
-    const out: Record<string, unknown> = {
-      ok: false,
-      code: input.code,
-      message,
-    };
-    if (input.detail !== undefined) out["detail"] = input.detail;
-    process.stderr.write(JSON.stringify(out) + "\n");
-  } else {
-    process.stderr.write(`error: ${input.code} — ${message}\n`);
-  }
-}
-
 function detectRenderAsJson(argv: string[]): boolean {
   // Preserve the pre-existing argv.indexOf(a) first-match behavior; changing duplicate --format handling is behavioral.
   return argv.some(
@@ -259,27 +208,25 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
     if (!presentation.ok) {
       if (presentation.kind === "INVALID_FORMAT") {
         // Text-mode emit only: no output mode established yet.
-        writePreContextKeyedFailure({
-          code: "INVALID_FORMAT",
-          vars: {
-            value: presentation.rawValue,
-            allowed_values_human: FORMAT_MODES_HUMAN,
-          },
-          detail: {
+        writeDiagnosticFailure(
+          diagnostic("INVALID_FORMAT", {
             value: presentation.rawValue,
             allowed_values: FORMAT_MODES,
+          }),
+          {
+            format: false ? "json" : "text",
+            i18n: preparseI18nFromEnv(process.env),
+            writeStderr: (line) => process.stderr.write(line),
           },
-          renderAsJson: false,
-        });
+        );
       } else {
         // MUTUALLY_EXCLUSIVE_FLAGS. renderAsJson honors protocol §10.7
         // scripting promise: any --format=json present → JSON body.
         const { conflicting, renderAsJson } = presentation;
-        writePreContextKeyedFailure({
-          code: "MUTUALLY_EXCLUSIVE_FLAGS",
-          vars: { flags: conflicting.join(", ") },
-          detail: { conflicting },
-          renderAsJson,
+        writeDiagnosticFailure(diagnostic("MUTUALLY_EXCLUSIVE_FLAGS", { conflicting }), {
+          format: renderAsJson ? "json" : "text",
+          i18n: preparseI18nFromEnv(process.env),
+          writeStderr: (line) => process.stderr.write(line),
         });
       }
       return 2;
@@ -330,13 +277,17 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
       const presentSelectors = collectPresentSelectors(argv, process.env);
       if (presentSelectors.length > 0) {
         const renderAsJson = detectRenderAsJson(argv);
-        writePreContextSiteFailure({
-          code: "USAGE",
-          keyPath: FAILURE_SITE_KEYS.sessionsListSelectorConflict,
-          vars: { conflicting: presentSelectors.join(" / ") },
-          detail: { conflicting: presentSelectors },
-          renderAsJson,
-        });
+        writeDiagnosticFailure(
+          diagnosticVariant("failure.sessions_list.selector_conflict", {
+            ...{ conflicting: presentSelectors.join(" / ") },
+            ...{ conflicting: presentSelectors },
+          }),
+          {
+            format: renderAsJson ? "json" : "text",
+            i18n: preparseI18nFromEnv(process.env),
+            writeStderr: (line) => process.stderr.write(line),
+          },
+        );
         return 2;
       }
     }
@@ -353,23 +304,31 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
       const hasFormat = argv.some((a) => a === "--format" || a.startsWith("--format="));
       const renderAsJson = detectRenderAsJson(argv);
       if (presentSelectors.length > 0) {
-        writePreContextSiteFailure({
-          code: "USAGE",
-          keyPath: FAILURE_SITE_KEYS.tuiSelectorConflict,
-          vars: { conflicting: presentSelectors.join(" / ") },
-          detail: { conflicting: presentSelectors },
-          renderAsJson,
-        });
+        writeDiagnosticFailure(
+          diagnosticVariant("failure.tui.selector_conflict", {
+            ...{ conflicting: presentSelectors.join(" / ") },
+            ...{ conflicting: presentSelectors },
+          }),
+          {
+            format: renderAsJson ? "json" : "text",
+            i18n: preparseI18nFromEnv(process.env),
+            writeStderr: (line) => process.stderr.write(line),
+          },
+        );
         return 2;
       }
       if (hasFormat) {
-        writePreContextSiteFailure({
-          code: "USAGE",
-          keyPath: FAILURE_SITE_KEYS.tuiInteractiveOnly,
-          vars: {},
-          detail: { reason: "tui-interactive-only" },
-          renderAsJson,
-        });
+        writeDiagnosticFailure(
+          diagnosticVariant("failure.tui.interactive_only", {
+            ...{},
+            ...{ reason: "tui-interactive-only" },
+          }),
+          {
+            format: renderAsJson ? "json" : "text",
+            i18n: preparseI18nFromEnv(process.env),
+            writeStderr: (line) => process.stderr.write(line),
+          },
+        );
         return 2;
       }
     }
@@ -405,26 +364,34 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
       }
       // (2) Bare `loaf hook` → USAGE listing enum
       if (cmdTokens[1] === undefined) {
-        writePreContextSiteFailure({
-          code: "USAGE",
-          keyPath: FAILURE_SITE_KEYS.hookMissingEvent,
-          vars: { events: HOOK_EVENTS.join(", ") },
-          detail: { events: HOOK_EVENTS },
-          renderAsJson,
-        });
+        writeDiagnosticFailure(
+          diagnosticVariant("failure.hook.missing_event", {
+            ...{ events: HOOK_EVENTS.join(", ") },
+            ...{ events: HOOK_EVENTS },
+          }),
+          {
+            format: renderAsJson ? "json" : "text",
+            i18n: preparseI18nFromEnv(process.env),
+            writeStderr: (line) => process.stderr.write(line),
+          },
+        );
         return 2;
       }
       // (3) Unknown event → USAGE + did-you-mean
       if (!(HOOK_EVENTS as readonly string[]).includes(cmdTokens[1]!)) {
         const got = cmdTokens[1]!;
         const suggestion = HOOK_EVENTS.find((e) => e.startsWith(got.slice(0, 4))) ?? HOOK_EVENTS[0];
-        writePreContextSiteFailure({
-          code: "USAGE",
-          keyPath: FAILURE_SITE_KEYS.hookUnknownEvent,
-          vars: { event: got, allowed: HOOK_EVENTS.join(", "), suggestion },
-          detail: { event: got, allowed: HOOK_EVENTS, suggestion },
-          renderAsJson,
-        });
+        writeDiagnosticFailure(
+          diagnosticVariant("failure.hook.unknown_event", {
+            ...{ event: got, allowed: HOOK_EVENTS.join(", "), suggestion },
+            ...{ event: got, allowed: HOOK_EVENTS, suggestion },
+          }),
+          {
+            format: renderAsJson ? "json" : "text",
+            i18n: preparseI18nFromEnv(process.env),
+            writeStderr: (line) => process.stderr.write(line),
+          },
+        );
         return 2;
       }
     }
@@ -440,13 +407,17 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
       const presentSelectors = collectPresentSelectors(argv, process.env);
       if (presentSelectors.length > 0) {
         const renderAsJson = detectRenderAsJson(argv);
-        writePreContextSiteFailure({
-          code: "USAGE",
-          keyPath: FAILURE_SITE_KEYS.checkSelectorConflict,
-          vars: { conflicting: presentSelectors.join(" / ") },
-          detail: { conflicting: presentSelectors },
-          renderAsJson,
-        });
+        writeDiagnosticFailure(
+          diagnosticVariant("failure.check.selector_conflict", {
+            ...{ conflicting: presentSelectors.join(" / ") },
+            ...{ conflicting: presentSelectors },
+          }),
+          {
+            format: renderAsJson ? "json" : "text",
+            i18n: preparseI18nFromEnv(process.env),
+            writeStderr: (line) => process.stderr.write(line),
+          },
+        );
         return 2;
       }
     }
@@ -481,13 +452,17 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
       if (presentSelectors.length > 0) {
         const subj = mutatorSchemaLabel ?? `${cmdTokens[0]} schema`;
         const renderAsJson = detectRenderAsJson(argv);
-        writePreContextSiteFailure({
-          code: "USAGE",
-          keyPath: FAILURE_SITE_KEYS.schemaSelectorConflict,
-          vars: { subject: subj, conflicting: presentSelectors.join(" / ") },
-          detail: { conflicting: presentSelectors },
-          renderAsJson,
-        });
+        writeDiagnosticFailure(
+          diagnosticVariant("failure.schema.selector_conflict", {
+            ...{ subject: subj, conflicting: presentSelectors.join(" / ") },
+            ...{ conflicting: presentSelectors },
+          }),
+          {
+            format: renderAsJson ? "json" : "text",
+            i18n: preparseI18nFromEnv(process.env),
+            writeStderr: (line) => process.stderr.write(line),
+          },
+        );
         return 2;
       }
     }
@@ -558,15 +533,15 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
       if (hasLoafSession) sessionConflict.push("$LOAF_SESSION");
 
       let conflictingList: readonly string[] = [];
-      let usageKey: FailureSiteKey | null = null;
+      let usageKey: Extract<DiagnosticContext, `failure.dispatch.${string}`> | null = null;
       let usageVars: I18nVars = {};
 
       if (sessionConflict.length > 0) {
-        usageKey = FAILURE_SITE_KEYS.dispatchSessionFeatureDirConflict;
+        usageKey = "failure.dispatch.session_feature_dir_conflict";
         usageVars = { conflicting: sessionConflict.join(" + ") };
         conflictingList = [...sessionConflict, "--feature-dir"];
       } else if (!hasFeature && !hasLoafFeature) {
-        usageKey = FAILURE_SITE_KEYS.dispatchFeatureDirRequiresFeature;
+        usageKey = "failure.dispatch.feature_dir_requires_feature";
         usageVars = {};
         conflictingList = ["--feature-dir"];
       }
@@ -577,13 +552,14 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
         // resolved the output mode (safe because the presentation
         // guard above bailed for INVALID_FORMAT etc.).
         const renderAsJson = detectRenderAsJson(argv);
-        writePreContextSiteFailure({
-          code: "USAGE",
-          keyPath: usageKey,
-          vars: usageVars,
-          detail: { conflicting: conflictingList },
-          renderAsJson,
-        });
+        writeDiagnosticFailure(
+          diagnosticVariant(usageKey, { ...usageVars, ...{ conflicting: conflictingList } }),
+          {
+            format: renderAsJson ? "json" : "text",
+            i18n: preparseI18nFromEnv(process.env),
+            writeStderr: (line) => process.stderr.write(line),
+          },
+        );
         return 2;
       }
     }
@@ -608,18 +584,11 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
   if (!localeResolution.ok) {
     const presentation = parsePresentation(argv);
     const renderAsJson = presentation.ok && presentation.format === "json";
-    if (renderAsJson) {
-      process.stderr.write(
-        JSON.stringify({
-          ok: false,
-          code: localeResolution.code,
-          message: localeResolution.message,
-          detail: localeResolution.detail,
-        }) + "\n",
-      );
-    } else {
-      process.stderr.write(`error: ${localeResolution.code} — ${localeResolution.message}\n`);
-    }
+    writeDiagnosticFailure(localeResolution, {
+      format: renderAsJson ? "json" : "text",
+      i18n: preparseI18nFromEnv(process.env),
+      writeStderr: (line) => process.stderr.write(line),
+    });
     return 2;
   }
   const i18n = createI18n(localeResolution.locale, BUILTIN_BUNDLES);
@@ -710,7 +679,8 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
   // Phase 16 SC-3 — CommandContext is the presentation-layer plumbing
   // that owns output channel + lazy session/projection cache + failure
   // routing + crash-log context snapshot. Phase W8 0a folds the former
-  // main() helper cluster (fail / emitFailure / emitNoSessionFailure /
+  // CommandContext owns the single catalog failure API and success presentation.
+  // Former main() helper cluster (
   // resolveHumanActorOrFail / dispatchOrFail / dispatchForHookOptional /
   // resolveHookPath / resolveDispatchForWriteGuard / rejectIfDryRun /
   // loadProjectionsOrFail) into ctx methods.

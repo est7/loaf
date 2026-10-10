@@ -198,9 +198,9 @@ describe("Phase 16 SC-2 — failRebuild normalization (SC-1 catalog drift closur
     const dir = await tmpDir();
     try {
       await fs.writeFile(path.join(dir, "journal.jsonl"), '{"not":"a journal entry"}\n', "utf8");
-      const r = await runCli(["doctor", "--rebuild", "--feature", "X", "--feature-dir", dir]);
+      const r = await runCli(["doctor", "--rebuild", "--feature", "X", "--feature-dir", dir, "--format=json"]);
       expect(r.exit).toBe(2);
-      expect(r.stderr).toContain("cannot be replayed");
+      expect(JSON.parse(r.stderr)).toMatchObject({ code: "DOCTOR_REBUILD_FAILED", detail: { replay_code: "INVALID_ENTRY", at_seq: 0 } });
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
     }

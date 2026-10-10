@@ -309,7 +309,7 @@ describe("ADR-0006 P0 — INVALID_LOCALE CLI guard", () => {
     expect(parsed).toEqual({
       ok: false,
       code: "INVALID_LOCALE",
-      message: "invalid locale from LOAF_LANG: fr (expected en or zh)",
+      message: "invalid locale from LOAF_LANG (expected en, zh)",
       detail: { source: "LOAF_LANG", value: "fr", accepted: ["en", "zh"] },
     });
   });
@@ -335,9 +335,10 @@ describe("ADR-0006 P0 — INVALID_LOCALE CLI guard", () => {
     expect(result.stdout).toBe("");
     const parsed = JSON.parse(result.stderr);
     expect(parsed.code).toBe("INVALID_LOCALE");
-    expect(parsed.message).toContain(configPath);
+    expect(parsed.message).toBe("invalid locale from user-config (expected en, zh)");
     expect(parsed.detail).toEqual({
       source: "user-config",
+      accepted: ["en", "zh"],
       path: configPath,
       reason: `schema validation failed for ${configPath}`,
     });

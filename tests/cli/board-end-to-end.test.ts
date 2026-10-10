@@ -104,13 +104,13 @@ describe("loaf board CLI", () => {
   });
 
   test("board rejects invalid port as USAGE, not unexpected error", async () => {
-    const result = await runCli(["board", "--port", "abc"], {
+    const result = await runCli(["board", "--port", "abc", "--format=json"], {
       deps: { registryDir: await tmpRegDir() },
     });
 
     expect(result.exit).toBe(2);
     expect(result.stderr).toContain("USAGE");
-    expect(result.stderr).toContain("invalid board port: abc");
+    expect(JSON.parse(result.stderr)).toMatchObject({ code: "USAGE", message: "invalid CLI usage", detail: { port: "abc", reason: "invalid board port: abc" } });
   });
 
   test("board rejects --dry-run as read-only", async () => {
@@ -123,12 +123,12 @@ describe("loaf board CLI", () => {
   });
 
   test("board rejects session selector instead of ignoring it", async () => {
-    const result = await runCli(["board", "--session", "550e8400"], {
+    const result = await runCli(["board", "--session", "550e8400", "--format=json"], {
       deps: { registryDir: await tmpRegDir() },
     });
 
     expect(result.exit).toBe(2);
     expect(result.stderr).toContain("USAGE");
-    expect(result.stderr).toContain("board does not accept --session");
+    expect(JSON.parse(result.stderr)).toMatchObject({ code: "USAGE", message: "invalid CLI usage", detail: { reason: "board_selector_not_supported", conflicting: ["--session"] } });
   });
 });

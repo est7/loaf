@@ -1,7 +1,8 @@
+import { diagnosticVariant } from "../../core/error-catalog.js";
 import type { Command } from "commander";
 import type { CommandContext } from "../command-context.js";
 import type { CommandMutator } from "../command-mutator.js";
-import { FAILURE_SITE_KEYS, SUCCESS_KEYS } from "../runtime-i18n-keys.js";
+import { SUCCESS_KEYS } from "../runtime-i18n-keys.js";
 import { loadSession } from "../../core/cli-runtime.js";
 
 export function registerTerminalExecute(
@@ -53,7 +54,9 @@ export function registerTerminalExecute(
       const session = await ctx.resolveSession(featureDir);
       const from = session.snapshot.state?.sub_state;
       if (!from) {
-        ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+        ctx.failure(
+          diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
+        );
         return;
       }
 
@@ -127,7 +130,9 @@ export function registerTerminalExecute(
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       const from = session.snapshot.state?.sub_state;
       if (!from) {
-        ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+        ctx.failure(
+          diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
+        );
         return;
       }
 
@@ -179,7 +184,9 @@ export function registerTerminalExecute(
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       const from = session.snapshot.state?.sub_state;
       if (!from) {
-        ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+        ctx.failure(
+          diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
+        );
         return;
       }
 

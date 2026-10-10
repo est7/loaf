@@ -1,8 +1,9 @@
+import { diagnosticVariant } from "../../core/error-catalog.js";
 import type { Command } from "commander";
 
 import type { CommandContext } from "../command-context.js";
 import type { I18n } from "../i18n.js";
-import { CHROME_KEYS, FAILURE_SITE_KEYS } from "../runtime-i18n-keys.js";
+import { CHROME_KEYS } from "../runtime-i18n-keys.js";
 import { loadSession } from "../../core/cli-runtime.js";
 import type { JournalEntry } from "../../core/journal-entry.js";
 import { KIND_REGISTRY } from "../../core/kind-registry.js";
@@ -47,16 +48,16 @@ export function registerJournal(program: Command, ctx: CommandContext): void {
       const limit = parseIntegerFilter(ctx, "--limit", opts.limit, 1);
       if (limit === null) return;
       if (opts.kind !== undefined && !Object.hasOwn(KIND_REGISTRY, opts.kind)) {
-        ctx.failureKeyed(
-          "USAGE",
-          FAILURE_SITE_KEYS.journalKindInvalid,
-          { value: opts.kind },
-          { value: opts.kind, allowed: JOURNAL_KINDS },
+        ctx.failure(
+          diagnosticVariant("failure.journal.kind_invalid", {
+            ...{ value: opts.kind },
+            ...{ value: opts.kind, allowed: JOURNAL_KINDS },
+          }),
         );
         return;
       }
       if (opts.actor !== undefined && opts.actor.length === 0) {
-        ctx.failureKeyed("USAGE", FAILURE_SITE_KEYS.journalActorInvalid, {});
+        ctx.failure(diagnosticVariant("failure.journal.actor_invalid", { ...{}, ...{} }));
         return;
       }
 
@@ -64,7 +65,9 @@ export function registerJournal(program: Command, ctx: CommandContext): void {
       if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: false });
       if (session.snapshot.state === null) {
-        ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+        ctx.failure(
+          diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
+        );
         return;
       }
 
@@ -97,21 +100,21 @@ function parseIntegerFilter(
 ): number | undefined | null {
   if (value === undefined) return undefined;
   if (!/^\d+$/.test(value)) {
-    ctx.failureKeyed(
-      "USAGE",
-      FAILURE_SITE_KEYS.journalIntegerInvalid,
-      { flag, value, minimum },
-      { flag, value, minimum },
+    ctx.failure(
+      diagnosticVariant("failure.journal.integer_invalid", {
+        ...{ flag, value, minimum },
+        ...{ flag, value, minimum },
+      }),
     );
     return null;
   }
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed < minimum) {
-    ctx.failureKeyed(
-      "USAGE",
-      FAILURE_SITE_KEYS.journalIntegerInvalid,
-      { flag, value, minimum },
-      { flag, value, minimum },
+    ctx.failure(
+      diagnosticVariant("failure.journal.integer_invalid", {
+        ...{ flag, value, minimum },
+        ...{ flag, value, minimum },
+      }),
     );
     return null;
   }
@@ -144,9 +147,7 @@ function renderJournalRows(i18n: I18n, rows: readonly JournalListRow[]): string 
     .map(
       (row) =>
         i18n.t(
-          row.batch_id === undefined
-            ? CHROME_KEYS.journalListRow
-            : CHROME_KEYS.journalListRowBatch,
+          row.batch_id === undefined ? CHROME_KEYS.journalListRow : CHROME_KEYS.journalListRowBatch,
           {
             seq: row.seq,
             entry_id: row.entry_id,

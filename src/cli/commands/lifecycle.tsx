@@ -1,8 +1,9 @@
+import { diagnostic, diagnosticVariant } from "../../core/error-catalog.js";
 import { runtimeStoreDiagnostic } from "../runtime-store-diagnostic.js";
 import type { Command } from "commander";
 import type { CommandContext } from "../command-context.js";
 import type { CommandMutator } from "../command-mutator.js";
-import { FAILURE_SITE_KEYS, SUCCESS_KEYS, subStateKey, CHROME_KEYS } from "../runtime-i18n-keys.js";
+import { SUCCESS_KEYS, subStateKey, CHROME_KEYS } from "../runtime-i18n-keys.js";
 import { defaultFeatureDir, loadSession } from "../../core/cli-runtime.js";
 import packageJson from "../../../package.json" with { type: "json" };
 import { deriveVerifyApplicability } from "../../core/gates/verify-accept-check.js";
@@ -78,26 +79,23 @@ export function registerLifecycle(
       ) => {
         const ceremony = PRESETS[opts.ceremony];
         if (!ceremony) {
-          ctx.fail(
-            "INVALID_PRESET",
-            `unknown ceremony preset "${opts.ceremony}" — known: ${Object.keys(PRESETS).join(", ")}`,
-          );
+          ctx.failure(diagnostic("INVALID_PRESET", {}));
           return;
         }
         // Phase 15 SC1 (F-019): --label is optional, but when given it must
         // satisfy the session:started payload contract (≥3 chars). Reject
         // client-side with a usage error rather than a deep INVALID_PAYLOAD.
         if (opts.label !== undefined && opts.label.length < 3) {
-          ctx.failureKeyed(
-            "USAGE",
-            FAILURE_SITE_KEYS.startLabelTooShort,
-            { min_length: 3 },
-            { min_length: 3, actual_length: opts.label.length },
+          ctx.failure(
+            diagnosticVariant("failure.start.label_too_short", {
+              ...{ min_length: 3 },
+              ...{ min_length: 3, actual_length: opts.label.length },
+            }),
           );
           return;
         }
         if (opts.workspace.length < 1) {
-          ctx.failureKeyed("USAGE", FAILURE_SITE_KEYS.startWorkspaceEmpty, {}, {});
+          ctx.failure(diagnosticVariant("failure.start.workspace_empty", { ...{}, ...{} }));
           return;
         }
         const featureDir = opts.featureDir ?? defaultFeatureDir(feature);
@@ -122,10 +120,7 @@ export function registerLifecycle(
         if (!result) return;
         const state = result.snapshot.state;
         if (state === null) {
-          ctx.emitFailure(
-            "REDUCER_ERROR",
-            "internal: state missing from snapshot after successful session:started apply",
-          );
+          ctx.failure(diagnostic("REDUCER_ERROR", {}));
           return;
         }
         const out = {
@@ -174,7 +169,9 @@ export function registerLifecycle(
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       const from = session.snapshot.state?.sub_state;
       if (!from) {
-        ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionAdvance, opts.feature);
+        ctx.failure(
+          diagnosticVariant("failure.no_session.advance", { ...{}, feature: opts.feature }),
+        );
         return;
       }
       if (to === "EXECUTE.done" && (from === "EXECUTE.work" || from === "EXECUTE.done")) {
@@ -221,7 +218,7 @@ export function registerLifecycle(
             error instanceof RuntimeStoreError && error.code.startsWith("RUNTIME_LOCK_");
           if (!isRuntimeLockFailure && !(error instanceof ExecuteClosureError)) throw error;
           if (error instanceof ExecuteClosureError) {
-            ctx.diagnosticFailure({
+            ctx.failure({
               code: "SCHEMA_VALIDATION_FAILED",
               detail: {
                 source: "execute-closure",
@@ -231,7 +228,7 @@ export function registerLifecycle(
               },
             });
           } else {
-            ctx.diagnosticFailure(runtimeStoreDiagnostic(error, "execute-closure"));
+            ctx.failure(runtimeStoreDiagnostic(error, "execute-closure"));
           }
           return;
         }
@@ -274,7 +271,7 @@ export function registerLifecycle(
         featureDir,
         ["state", "tasks", "evidence", "findings", "pending"] as const,
         opts.feature,
-        FAILURE_SITE_KEYS.noSessionStatus,
+        "failure.no_session.status",
       );
       if (loaded === null) return;
       const { state, tasks, evidence, findings, pending, meta } = loaded;
@@ -346,7 +343,7 @@ export function registerLifecycle(
         featureDir,
         ["state", "tasks", "pending"] as const,
         opts.feature!,
-        FAILURE_SITE_KEYS.noSessionStatus,
+        "failure.no_session.status",
       );
       if (loaded === null) return;
 
@@ -354,7 +351,7 @@ export function registerLifecycle(
       if (loaded.state.sub_state.startsWith("VERIFY.")) {
         const read = await readSpecFrontmatter(featureDir);
         if (!read.ok) {
-          ctx.diagnosticFailure({
+          ctx.failure({
             code: "SPEC_FRONTMATTER_INVALID",
             detail: { subcode: read.code, ...read.detail },
           });

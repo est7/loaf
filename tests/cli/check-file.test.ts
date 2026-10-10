@@ -259,8 +259,8 @@ describe("checkFile — did-you-mean for `loaf check tasks`", () => {
     expect(result.code).toBe("USAGE");
     // SC-17: suggestion points at the v0.1.0-real path-based check, not the
     // inventory:future noun-first `loaf tasks check`.
-    expect(result.message).toContain("--kind tasks");
-    expect(result.message).not.toContain("did you mean 'loaf tasks check'?");
+    expect(result.detail).toMatchObject({ kind: "tasks", suggestion: "loaf check <path>/tasks.json --kind tasks" });
+    expect(result).not.toHaveProperty("message");
     expect(result.detail["suggestion"]).toBe("loaf check <path>/tasks.json --kind tasks");
   });
 
@@ -273,7 +273,7 @@ describe("checkFile — did-you-mean for `loaf check tasks`", () => {
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("unreachable");
     expect(result.code).toBe("INPUT_FILE_NOT_FOUND");
-    expect(result.message).not.toContain("'loaf tasks check'");
+    expect(result).not.toHaveProperty("message");
   });
 
   test("real file named `tasks` exists → USAGE specify --kind (no suggestion)", async () => {
@@ -286,8 +286,8 @@ describe("checkFile — did-you-mean for `loaf check tasks`", () => {
     // r311: file-exists → USAGE specify --kind (NOT did-you-mean, NOT
     // INPUT_FILE_NOT_FOUND).
     expect(result.code).toBe("USAGE");
-    expect(result.message).toContain("specify --kind");
-    expect(result.message).not.toContain("'loaf tasks check'");
+    expect(result.detail).toMatchObject({ reason: "artifact_kind_unknown", hint: "specify --kind" });
+    expect(result).not.toHaveProperty("message");
   });
 });
 

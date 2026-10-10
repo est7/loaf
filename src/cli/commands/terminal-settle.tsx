@@ -1,7 +1,8 @@
+import { diagnostic, diagnosticVariant } from "../../core/error-catalog.js";
 import type { Command } from "commander";
 import type { CommandContext } from "../command-context.js";
 import type { CommandMutator } from "../command-mutator.js";
-import { FAILURE_SITE_KEYS, SUCCESS_KEYS } from "../runtime-i18n-keys.js";
+import { SUCCESS_KEYS } from "../runtime-i18n-keys.js";
 import { loadSession } from "../../core/cli-runtime.js";
 import { buildResumePack } from "../build-resume-pack.js";
 import { ResumePack as RuntimeResumePack } from "../../core/resume-pack-schema.js";
@@ -54,7 +55,9 @@ export function registerTerminalSettle(
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       const from = session.snapshot.state?.sub_state;
       if (!from) {
-        ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+        ctx.failure(
+          diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
+        );
         return;
       }
 
@@ -83,12 +86,7 @@ export function registerTerminalSettle(
         out,
         (i18n) => i18n.t(SUCCESS_KEYS.settleText),
         (i18n) => {
-          const next = buildNextAdvisoryFromSnapshot(
-            i18n,
-            result.snapshot,
-            featureDir,
-            selector,
-          );
+          const next = buildNextAdvisoryFromSnapshot(i18n, result.snapshot, featureDir, selector);
           return {
             stateChange: i18n.t(SUCCESS_KEYS.settleStateChange, { from }),
             ...(next === undefined ? {} : { next }),
@@ -116,7 +114,9 @@ export function registerTerminalSettle(
       if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: false });
       if (!session.snapshot.state) {
-        ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+        ctx.failure(
+          diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
+        );
         return;
       }
       const packPath = path.join(featureDir, "snapshots", "resume-pack.json");
@@ -125,11 +125,7 @@ export function registerTerminalSettle(
         raw = await fsP.readFile(packPath, "utf8");
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-          ctx.emitFailure(
-            "INPUT_FILE_NOT_FOUND",
-            `resume pack not found at ${packPath}; run \`loaf handoff --reason "..."\` first to create one`,
-            { path: packPath },
-          );
+          ctx.failure(diagnostic("INPUT_FILE_NOT_FOUND", { path: packPath }));
           return;
         }
         throw err;
@@ -138,19 +134,25 @@ export function registerTerminalSettle(
       try {
         parsedPack = JSON.parse(raw);
       } catch (err) {
-        ctx.emitFailure(
-          "SCHEMA_VALIDATION_FAILED",
-          `resume pack at ${packPath} is not valid JSON: ${(err as Error).message}`,
-          { subcode: "invalid-json", path: packPath },
+        ctx.failure(
+          diagnostic("SCHEMA_VALIDATION_FAILED", {
+            reason: "invalid-json",
+            cause: (err as Error).message,
+            subcode: "invalid-json",
+            path: packPath,
+          }),
         );
         return;
       }
       const packParse = RuntimeResumePack.safeParse(parsedPack);
       if (!packParse.success) {
-        ctx.emitFailure(
-          "SCHEMA_VALIDATION_FAILED",
-          `resume pack at ${packPath} failed ResumePack schema validation`,
-          { subcode: "zod", path: packPath, issues: packParse.error.issues },
+        ctx.failure(
+          diagnostic("SCHEMA_VALIDATION_FAILED", {
+            reason: packParse.error.issues.map((issue) => issue.message).join("; "),
+            subcode: "zod",
+            path: packPath,
+            issues: packParse.error.issues,
+          }),
         );
         return;
       }
@@ -209,11 +211,11 @@ export function registerTerminalSettle(
       async (opts: { reason: string; notes?: string; feature: string; featureDir?: string }) => {
         if (ctx.rejectIfDryRun("handoff", "projection-writer")) return;
         if (opts.reason.length < 5) {
-          ctx.failureKeyed(
-            "USAGE",
-            FAILURE_SITE_KEYS.handoffReasonTooShort,
-            { min_length: 5, reason_length: opts.reason.length },
-            { min_length: 5, reason_length: opts.reason.length },
+          ctx.failure(
+            diagnosticVariant("failure.handoff.reason_too_short", {
+              ...{ min_length: 5, reason_length: opts.reason.length },
+              ...{ min_length: 5, reason_length: opts.reason.length },
+            }),
           );
           return;
         }
@@ -229,7 +231,7 @@ export function registerTerminalSettle(
           lease = await acquireFeatureWriteLease(featureDir, "handoff");
         } catch (error) {
           if (error instanceof FeatureWriteLeaseError) {
-            ctx.emitFailure(error.code, error.message);
+            ctx.failure(error.diagnostic);
             return;
           }
           throw error;
@@ -237,7 +239,9 @@ export function registerTerminalSettle(
         try {
           const session = await loadSession(featureDir, { ensureDir: false });
           if (!session.snapshot.state) {
-            ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+            ctx.failure(
+              diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
+            );
             return;
           }
           const pack = buildResumePack({
@@ -250,11 +254,11 @@ export function registerTerminalSettle(
           // Defense-in-depth: validate against runtime schema before write.
           const parse = RuntimeResumePack.safeParse(pack);
           if (!parse.success) {
-            ctx.failureKeyed(
-              "SCHEMA_VALIDATION_FAILED",
-              FAILURE_SITE_KEYS.handoffPackValidationFailed,
-              {},
-              { subcode: "zod", issues: parse.error.issues },
+            ctx.failure(
+              diagnosticVariant("failure.handoff.pack_validation_failed", {
+                ...{},
+                ...{ subcode: "zod", issues: parse.error.issues },
+              }),
             );
             return;
           }

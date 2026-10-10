@@ -1,10 +1,11 @@
+import { diagnostic, diagnosticVariant } from "../../../core/error-catalog.js";
 import type { Command } from "commander";
 
 import { loadSession } from "../../../core/cli-runtime.js";
 import type { MutateOkBatch, MutateOkSingle } from "../../command-mutator.js";
 import { allocateNextEvidenceId } from "../../evidence-id-allocator.js";
 import type { MutatorEntry } from "../../mutator-entry.js";
-import { CHROME_KEYS, FAILURE_SITE_KEYS, SUCCESS_KEYS } from "../../runtime-i18n-keys.js";
+import { CHROME_KEYS, SUCCESS_KEYS } from "../../runtime-i18n-keys.js";
 import { formatTaskStatus } from "./presentation.js";
 import type { TasksRegistrationDeps } from "./types.js";
 
@@ -20,7 +21,9 @@ export function registerTaskClaim(tasksCmd: Command, deps: TasksRegistrationDeps
       if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       if (!session.snapshot.state) {
-        ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
+        ctx.failure(
+          diagnosticVariant("failure.no_session.tasks", { ...{}, feature: opts.feature }),
+        );
         return;
       }
       const result = await mutator.run(featureDir, session, {
@@ -37,10 +40,7 @@ export function registerTaskClaim(tasksCmd: Command, deps: TasksRegistrationDeps
       // falling back to a hardcoded status.
       const claimed = result.snapshot.tasks.find((t) => t.id === taskId);
       if (!claimed) {
-        ctx.emitFailure(
-          "REDUCER_ERROR",
-          `internal: task ${taskId} missing from snapshot after successful task_claimed apply`,
-        );
+        ctx.failure(diagnostic("REDUCER_ERROR", {}));
         return;
       }
       const status = claimed.status;
@@ -78,7 +78,9 @@ export function registerTaskAbandon(tasksCmd: Command, deps: TasksRegistrationDe
         if (featureDir === null) return;
         const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
         if (!session.snapshot.state) {
-          ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
+          ctx.failure(
+            diagnosticVariant("failure.no_session.tasks", { ...{}, feature: opts.feature }),
+          );
           return;
         }
         const result = await mutator.run(featureDir, session, {
@@ -92,10 +94,7 @@ export function registerTaskAbandon(tasksCmd: Command, deps: TasksRegistrationDe
         // guarantee the task exists on success — same pattern as claim).
         const abandoned = result.snapshot.tasks.find((t) => t.id === taskId);
         if (!abandoned) {
-          ctx.emitFailure(
-            "REDUCER_ERROR",
-            `internal: task ${taskId} missing from snapshot after successful task_abandoned apply`,
-          );
+          ctx.failure(diagnostic("REDUCER_ERROR", {}));
           return;
         }
         const status = abandoned.status;
@@ -133,14 +132,18 @@ export function registerTaskComplete(tasksCmd: Command, deps: TasksRegistrationD
       if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       if (!session.snapshot.state) {
-        ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
+        ctx.failure(
+          diagnosticVariant("failure.no_session.tasks", { ...{}, feature: opts.feature }),
+        );
         return;
       }
       const task = session.snapshot.tasks.find((t) => t.id === taskId);
       if (!task) {
-        ctx.emitFailure("TASK_NOT_FOUND", `task ${taskId} is not in the current tasks projection`, {
-          task_id: taskId,
-        });
+        ctx.failure(
+          diagnostic("TASK_NOT_FOUND", {
+            task_id: taskId,
+          }),
+        );
         return;
       }
       if (task.status !== "done") {
@@ -150,10 +153,12 @@ export function registerTaskComplete(tasksCmd: Command, deps: TasksRegistrationD
         const blockingSteps = Object.entries(task.steps)
           .filter(([, s]) => s.applicability === "must" && !TERMINAL_POSITIVE.includes(s.status))
           .map(([name]) => name);
-        ctx.emitFailure(
-          "TASK_COMPLETE_PRECONDITION_VIOLATED",
-          `task ${taskId} is not complete (status=${task.status}); must-applicable steps not terminal-positive: ${blockingSteps.join(", ") || "(none — task has no must steps to auto-promote)"}`,
-          { task_id: taskId, status: task.status, blocking_steps: blockingSteps },
+        ctx.failure(
+          diagnostic("TASK_COMPLETE_PRECONDITION_VIOLATED", {
+            task_id: taskId,
+            status: task.status,
+            blocking_steps: blockingSteps,
+          }),
         );
         return;
       }
@@ -188,7 +193,9 @@ export function registerTaskRegisterRed(tasksCmd: Command, deps: TasksRegistrati
       if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       if (!session.snapshot.state) {
-        ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
+        ctx.failure(
+          diagnosticVariant("failure.no_session.tasks", { ...{}, feature: opts.feature }),
+        );
         return;
       }
       const result = await mutator.run(featureDir, session, {
@@ -231,7 +238,9 @@ export function registerTaskStep(tasksCmd: Command, deps: TasksRegistrationDeps)
       if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       if (!session.snapshot.state) {
-        ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
+        ctx.failure(
+          diagnosticVariant("failure.no_session.tasks", { ...{}, feature: opts.feature }),
+        );
         return;
       }
       const result = await mutator.run(featureDir, session, {
@@ -245,18 +254,12 @@ export function registerTaskStep(tasksCmd: Command, deps: TasksRegistrationDeps)
       // output schema never silently drops `step_status` to undefined.
       const updated = result.snapshot.tasks.find((t) => t.id === opts.task);
       if (!updated) {
-        ctx.emitFailure(
-          "REDUCER_ERROR",
-          `internal: task ${opts.task} missing from snapshot after successful step_started apply`,
-        );
+        ctx.failure(diagnostic("REDUCER_ERROR", {}));
         return;
       }
       const stepInfo = updated.steps[opts.step];
       if (!stepInfo) {
-        ctx.emitFailure(
-          "REDUCER_ERROR",
-          `internal: step ${opts.step} missing from task ${opts.task} after successful step_started apply`,
-        );
+        ctx.failure(diagnostic("REDUCER_ERROR", {}));
         return;
       }
       const out = {
@@ -327,9 +330,12 @@ export function registerTaskStep(tasksCmd: Command, deps: TasksRegistrationDeps)
         // Validate --result client-side (payload schema also enforces).
         const validResults = ["passed", "failed", "waived", "na"] as const;
         if (!(validResults as readonly string[]).includes(opts.result)) {
-          ctx.emitFailure(
-            "USAGE",
-            `--result must be one of: passed | failed | waived | na (got ${opts.result})`,
+          ctx.failure(
+            diagnostic("USAGE", {
+              reason: "invalid_evidence_result",
+              value: opts.result,
+              allowed: ["passed", "failed", "waived", "na"],
+            }),
           );
           return;
         }
@@ -345,10 +351,7 @@ export function registerTaskStep(tasksCmd: Command, deps: TasksRegistrationDeps)
           opts.evidenceActor !== undefined;
         if (evidenceFlagSet) {
           if (opts.evidenceKind === undefined || opts.evidenceSummary === undefined) {
-            ctx.emitFailure(
-              "USAGE",
-              "--evidence-kind and --evidence-summary must be specified together when any --evidence-* flag is present",
-            );
+            ctx.failure(diagnostic("USAGE", { reason: "evidence_kind_summary_pair_required" }));
             return;
           }
         }
@@ -356,7 +359,9 @@ export function registerTaskStep(tasksCmd: Command, deps: TasksRegistrationDeps)
         if (featureDir === null) return;
         const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
         if (!session.snapshot.state) {
-          ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
+          ctx.failure(
+            diagnosticVariant("failure.no_session.tasks", { ...{}, feature: opts.feature }),
+          );
           return;
         }
         // Build the step_done entry. SC4 batch path adds evidence:added
@@ -410,18 +415,12 @@ export function registerTaskStep(tasksCmd: Command, deps: TasksRegistrationDeps)
         // as step start — concrete step_status / task_status in output.
         const updated = result.snapshot.tasks.find((t) => t.id === opts.task);
         if (!updated) {
-          ctx.emitFailure(
-            "REDUCER_ERROR",
-            `internal: task ${opts.task} missing from snapshot after successful step_done apply`,
-          );
+          ctx.failure(diagnostic("REDUCER_ERROR", {}));
           return;
         }
         const stepInfo = updated.steps[opts.step];
         if (!stepInfo) {
-          ctx.emitFailure(
-            "REDUCER_ERROR",
-            `internal: step ${opts.step} missing from task ${opts.task} after successful step_done apply`,
-          );
+          ctx.failure(diagnostic("REDUCER_ERROR", {}));
           return;
         }
         const out: Record<string, unknown> = {

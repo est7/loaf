@@ -1,13 +1,11 @@
+import { diagnostic, diagnosticVariant } from "../../core/error-catalog.js";
 import type { Command } from "commander";
 import type { CommandContext } from "../command-context.js";
 import type { CommandMutator } from "../command-mutator.js";
-import { FAILURE_SITE_KEYS, SUCCESS_KEYS } from "../runtime-i18n-keys.js";
+import { SUCCESS_KEYS } from "../runtime-i18n-keys.js";
 import { loadSession } from "../../core/cli-runtime.js";
 import { buildGateApprovalBatch } from "../batch-builders.js";
-import {
-  buildNextAdvisoryFromSnapshot,
-  selectorForCommandContext,
-} from "../next-advisory.js";
+import { buildNextAdvisoryFromSnapshot, selectorForCommandContext } from "../next-advisory.js";
 
 export function registerGate(
   program: Command,
@@ -59,16 +57,12 @@ export function registerGate(
         const approve = opts.approve === true;
         const reject = opts.reject === true;
         if (approve === reject) {
-          ctx.emitFailure("USAGE", "exactly one of --approve | --reject is required");
+          ctx.failure(diagnostic("USAGE", { reason: "approval_decision_required" }));
           return;
         }
         // (2) gate name validation — must be in GateName enum
         if (gateName !== "spec-lock" && gateName !== "verify-accept") {
-          ctx.emitFailure(
-            "GATE_NOT_IMPLEMENTED",
-            `gate=${gateName} is not recognized; protocol GateName enum is closed at {spec-lock, verify-accept}`,
-            { gate: gateName },
-          );
+          ctx.failure(diagnostic("GATE_NOT_IMPLEMENTED", { gate: gateName }));
           return;
         }
         // (3) resolve human actor (gate is human-only per per-kind actor policy)
@@ -80,7 +74,9 @@ export function registerGate(
         const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
         const from = session.snapshot.state?.sub_state;
         if (!from) {
-          ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+          ctx.failure(
+            diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
+          );
           return;
         }
         // (5) build entries + execute per-gate

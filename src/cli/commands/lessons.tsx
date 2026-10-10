@@ -1,15 +1,13 @@
+import { diagnosticVariant } from "../../core/error-catalog.js";
 import type { Command } from "commander";
 import type { CommandContext } from "../command-context.js";
 import type { CommandMutator } from "../command-mutator.js";
-import { FAILURE_SITE_KEYS, SUCCESS_KEYS } from "../runtime-i18n-keys.js";
+import { SUCCESS_KEYS } from "../runtime-i18n-keys.js";
 import { loadSession } from "../../core/cli-runtime.js";
 import { allocateNextLessonId } from "../lesson-id-allocator.js";
 import { buildLessonRecordedPayload } from "../lessons-add.js";
 import { promises as fsPromises } from "node:fs";
-import {
-  buildNextAdvisoryFromSnapshot,
-  selectorForCommandContext,
-} from "../next-advisory.js";
+import { buildNextAdvisoryFromSnapshot, selectorForCommandContext } from "../next-advisory.js";
 
 export function registerLessons(
   program: Command,
@@ -25,9 +23,7 @@ export function registerLessons(
   // LongTextField sidecar promotion fires when lesson body bytes >
   // SIDECAR_THRESHOLD_BYTES (Pass 2 sidecar promote); the lessons.md
   // writer resolves those sidecars back inline.
-  const lessonsCmd = program
-    .command("lessons")
-    .description("Lessons-learned journal commands");
+  const lessonsCmd = program.command("lessons").description("Lessons-learned journal commands");
 
   lessonsCmd
     .command("add")
@@ -52,11 +48,11 @@ export function registerLessons(
         const hasText = opts.text !== undefined;
         const hasFile = opts.file !== undefined;
         if (hasText === hasFile) {
-          ctx.failureKeyed(
-            "USAGE",
-            FAILURE_SITE_KEYS.lessonsTextFileMutex,
-            { provided_state: hasText ? "both provided" : "neither provided" },
-            { text_provided: hasText, file_provided: hasFile },
+          ctx.failure(
+            diagnosticVariant("failure.lessons.text_file_mutex", {
+              ...{ provided_state: hasText ? "both provided" : "neither provided" },
+              ...{ text_provided: hasText, file_provided: hasFile },
+            }),
           );
           return;
         }
@@ -68,11 +64,11 @@ export function registerLessons(
             lessonText = await fsPromises.readFile(opts.file!, "utf8");
           } catch (err) {
             if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-              ctx.failureKeyed(
-                "INPUT_FILE_NOT_FOUND",
-                FAILURE_SITE_KEYS.lessonsFileMissing,
-                { path: opts.file! },
-                { path: opts.file! },
+              ctx.failure(
+                diagnosticVariant("failure.lessons.file_missing", {
+                  ...{ path: opts.file! },
+                  ...{ path: opts.file! },
+                }),
               );
               return;
             }
@@ -80,20 +76,20 @@ export function registerLessons(
           }
         }
         if (lessonText.length < 3) {
-          ctx.failureKeyed(
-            "USAGE",
-            FAILURE_SITE_KEYS.lessonsTextTooShort,
-            { min_length: 3, lesson_text_length: lessonText.length },
-            { min_length: 3, lesson_text_length: lessonText.length },
+          ctx.failure(
+            diagnosticVariant("failure.lessons.text_too_short", {
+              ...{ min_length: 3, lesson_text_length: lessonText.length },
+              ...{ min_length: 3, lesson_text_length: lessonText.length },
+            }),
           );
           return;
         }
         if (opts.reason.length < 10) {
-          ctx.failureKeyed(
-            "USAGE",
-            FAILURE_SITE_KEYS.lessonsReasonTooShort,
-            { min_length: 10, reason_length: opts.reason.length },
-            { min_length: 10, reason_length: opts.reason.length },
+          ctx.failure(
+            diagnosticVariant("failure.lessons.reason_too_short", {
+              ...{ min_length: 10, reason_length: opts.reason.length },
+              ...{ min_length: 10, reason_length: opts.reason.length },
+            }),
           );
           return;
         }
@@ -104,7 +100,9 @@ export function registerLessons(
         if (featureDir === null) return;
         const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
         if (!session.snapshot.state) {
-          ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+          ctx.failure(
+            diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
+          );
           return;
         }
         // (5) allocate LSN-id from canonical entries + build payload
@@ -135,12 +133,7 @@ export function registerLessons(
           },
           () => `${lessonId}\n`,
           (i18n) => {
-            const next = buildNextAdvisoryFromSnapshot(
-              i18n,
-              result.snapshot,
-              featureDir,
-              selector,
-            );
+            const next = buildNextAdvisoryFromSnapshot(i18n, result.snapshot, featureDir, selector);
             return {
               stateChange: i18n.t(SUCCESS_KEYS.lessonsAddStateChange, { lesson_id: lessonId }),
               ...(next === undefined ? {} : { next }),

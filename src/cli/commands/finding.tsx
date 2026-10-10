@@ -1,8 +1,8 @@
+import { diagnostic, diagnosticVariant } from "../../core/error-catalog.js";
 import type { Command } from "commander";
 import type { CommandContext } from "../command-context.js";
 import type { CommandMutator } from "../command-mutator.js";
 import {
-  FAILURE_SITE_KEYS,
   SUCCESS_KEYS,
   CHROME_KEYS,
   findingActionKey,
@@ -98,17 +98,16 @@ export function registerFinding(
         const hasTask = opts.targetTask !== undefined;
         const hasStep = opts.targetStep !== undefined;
         if (hasTask !== hasStep) {
-          ctx.emitFailure(
-            "USAGE",
-            "--target-task and --target-step must be specified together (or both omitted)",
-          );
+          ctx.failure(diagnostic("USAGE", { reason: "target_task_step_pair_required" }));
           return;
         }
         const featureDir = await ctx.dispatchOrFail(opts);
         if (featureDir === null) return;
         const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
         if (!session.snapshot.state) {
-          ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionFinding, opts.feature);
+          ctx.failure(
+            diagnosticVariant("failure.no_session.finding", { ...{}, feature: opts.feature }),
+          );
           return;
         }
         // FND-NNN allocator: scan numeric FND ids in projection, max+1,
@@ -207,11 +206,11 @@ export function registerFinding(
     .action(async (opts: { feature: string; status?: string; featureDir?: string }) => {
       if (ctx.rejectIfDryRun("finding list")) return;
       if (opts.status !== undefined && opts.status !== "open" && opts.status !== "closed") {
-        ctx.failureKeyed(
-          "USAGE",
-          FAILURE_SITE_KEYS.findingStatusInvalid,
-          { allowed_statuses_human: "open | closed", value: opts.status },
-          { allowed: ["open", "closed"], value: opts.status },
+        ctx.failure(
+          diagnosticVariant("failure.finding.status_invalid", {
+            ...{ allowed_statuses_human: "open | closed", value: opts.status },
+            ...{ allowed: ["open", "closed"], value: opts.status },
+          }),
         );
         return;
       }
@@ -225,7 +224,7 @@ export function registerFinding(
         featureDir,
         ["findings"] as const,
         opts.feature,
-        FAILURE_SITE_KEYS.noSessionFinding,
+        "failure.no_session.finding",
       );
       if (loaded === null) return;
       const all = loaded.findings.findings;
@@ -264,10 +263,13 @@ export function registerFinding(
       // contract at the journal boundary.
       const idParse = FindingId.safeParse(fndId);
       if (!idParse.success) {
-        ctx.emitFailure(
-          "INVALID_PAYLOAD",
-          `finding close id must match FindingId regex /^FND-\\d{3,}$/ (got ${fndId})`,
-          { id: fndId, issues: idParse.error.issues },
+        ctx.failure(
+          diagnostic("INVALID_PAYLOAD", {
+            kind: "finding:closed",
+            reason: idParse.error.issues.map((issue) => issue.message).join("; "),
+            id: fndId,
+            issues: idParse.error.issues,
+          }),
         );
         return;
       }
@@ -275,7 +277,9 @@ export function registerFinding(
       if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       if (!session.snapshot.state) {
-        ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionFinding, opts.feature);
+        ctx.failure(
+          diagnosticVariant("failure.no_session.finding", { ...{}, feature: opts.feature }),
+        );
         return;
       }
       // CLI-side pre-check surfaces FINDING_NOT_FOUND directly (instead of
@@ -285,18 +289,16 @@ export function registerFinding(
       // that want to react programmatically (codex r68 #4).
       const existing = session.snapshot.findings.find((f) => f.id === fndId);
       if (!existing) {
-        ctx.emitFailure("FINDING_NOT_FOUND", `finding:closed references unknown finding id=${fndId}`, {
-          id: fndId,
-          reason: "unknown",
-        });
+        ctx.failure(
+          diagnostic("FINDING_NOT_FOUND", {
+            id: fndId,
+            reason: "unknown",
+          }),
+        );
         return;
       }
       if (existing.status === "closed") {
-        ctx.emitFailure(
-          "FINDING_NOT_FOUND",
-          `finding:closed references finding id=${fndId} that is already closed`,
-          { id: fndId, reason: "already_closed" },
-        );
+        ctx.failure(diagnostic("FINDING_NOT_FOUND", { id: fndId, reason: "already_closed" }));
         return;
       }
       const result = await mutator.run(featureDir, session, {

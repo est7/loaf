@@ -106,7 +106,7 @@ export function createCommandMutator(
     result: Ok | MutateFailure,
   ): Ok | null {
     if (!result.ok) {
-      ctx.diagnosticFailure(result);
+      ctx.failure(result);
       return null;
     }
     if (result.commit_state === "not-committed") {

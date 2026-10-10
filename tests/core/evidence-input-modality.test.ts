@@ -291,7 +291,7 @@ describe("Phase 16 SC-4c — `loaf evidence add` error paths", () => {
     ]);
     expect(r.exit).toBe(2);
     expect(r.stderr).toContain("SCHEMA_VALIDATION_FAILED");
-    expect(r.stderr).toMatch(/empty array|non-empty/i);
+    expect(r.stderr).toContain("validation failed: evidence_batch_empty");
   });
 
   test("attachment-shape regression: {path}-only attachment → SCHEMA_VALIDATION_FAILED (full metadata required)", async () => {

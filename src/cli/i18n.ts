@@ -1,3 +1,4 @@
+import type { Diagnostic } from "../core/error-catalog.js";
 // ADR-0006 P0 — CLI presentation i18n helpers.
 //
 // Locale resolution and bundle lookup belong to the CLI presentation layer.
@@ -42,12 +43,7 @@ export type LocaleResolution =
       locale: Locale;
       source: "argv" | "env" | "user-config" | "project-config" | "ambient" | "default";
     }
-  | {
-      ok: false;
-      code: "INVALID_LOCALE";
-      message: string;
-      detail: Record<string, unknown>;
-    };
+  | ({ ok: false } & Diagnostic<"INVALID_LOCALE">);
 
 export type LocaleConfigInput =
   | { status: "ok"; locale: unknown }
@@ -80,7 +76,6 @@ function invalidLocale(source: string, value: unknown): LocaleResolution {
   return {
     ok: false,
     code: "INVALID_LOCALE",
-    message: `invalid locale from ${source}: ${String(value)} (expected en or zh)`,
     detail: { source, value, accepted: [...LOCALES] },
   };
 }
@@ -120,9 +115,9 @@ export function resolveLocale(input: ResolveLocaleInput): LocaleResolution {
     return {
       ok: false,
       code: "INVALID_LOCALE",
-      message: `invalid locale config at ${input.userConfig.path}: ${input.userConfig.reason}`,
       detail: {
         source: "user-config",
+        accepted: [...LOCALES],
         path: input.userConfig.path,
         reason: input.userConfig.reason,
       },

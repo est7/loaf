@@ -1,8 +1,8 @@
-import { diagnosticMessage } from "../diagnostic-failure.js";
+import { diagnostic, diagnosticVariant } from "../../core/error-catalog.js";
 import type { Command } from "commander";
 import type { CommandContext } from "../command-context.js";
 import type { CommandMutator } from "../command-mutator.js";
-import { FAILURE_SITE_KEYS, SUCCESS_KEYS } from "../runtime-i18n-keys.js";
+import { SUCCESS_KEYS } from "../runtime-i18n-keys.js";
 import { defaultFeatureDir, loadSession } from "../../core/cli-runtime.js";
 import {
   defaultLoafConfig,
@@ -68,7 +68,9 @@ export function registerProfileConfig(
         const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
         const from = session.snapshot.state?.sub_state;
         if (!from) {
-          ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+          ctx.failure(
+            diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
+          );
           return;
         }
 
@@ -156,18 +158,18 @@ export function registerProfileConfig(
           content = await fsP.readFile(opts.input, "utf8");
         } catch (err) {
           if ((err as { code?: string }).code === "ENOENT") {
-            ctx.failureKeyed(
-              "INPUT_FILE_NOT_FOUND",
-              FAILURE_SITE_KEYS.profileInputFileMissing,
-              { path: opts.input },
-              { path: opts.input },
+            ctx.failure(
+              diagnosticVariant("failure.profile.input_file_missing", {
+                ...{ path: opts.input },
+                ...{ path: opts.input },
+              }),
             );
           } else {
-            ctx.failureKeyed(
-              "INPUT_FILE_NOT_FOUND",
-              FAILURE_SITE_KEYS.profileInputFileUnreadable,
-              { path: opts.input, error: String(err) },
-              { path: opts.input },
+            ctx.failure(
+              diagnosticVariant("failure.profile.input_file_unreadable", {
+                ...{ path: opts.input, error: String(err) },
+                ...{ path: opts.input },
+              }),
             );
           }
           return;
@@ -176,9 +178,11 @@ export function registerProfileConfig(
         try {
           ceremony = JSON.parse(content);
         } catch (err) {
-          ctx.emitFailure(
-            "SCHEMA_VALIDATION_FAILED",
-            `input is not valid JSON: ${(err as Error).message}`,
+          ctx.failure(
+            diagnostic("SCHEMA_VALIDATION_FAILED", {
+              reason: (err as Error).message,
+              path: opts.input,
+            }),
           );
           return;
         }
@@ -189,7 +193,9 @@ export function registerProfileConfig(
         const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
         const from = session.snapshot.state?.sub_state;
         if (!from) {
-          ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+          ctx.failure(
+            diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
+          );
           return;
         }
 
@@ -199,11 +205,7 @@ export function registerProfileConfig(
         //     no PEND-id exists to build the pending:resolved entry.
         const head = session.snapshot.pending.find((p) => !p.resolved);
         if (!head) {
-          ctx.emitFailure(
-            "ESCALATION_NOT_PENDING",
-            "`loaf profile escalate --confirm --input <ceremony.json>` requires pending head kind=profile_escalation; current head: (none)",
-            { actual_head: "(none)" },
-          );
+          ctx.failure(diagnostic("ESCALATION_NOT_PENDING", { actual_head: "(none)" }));
           return;
         }
 
@@ -243,11 +245,7 @@ export function registerProfileConfig(
 
   // ── loaf config init — scaffold project/user config (no journal entry) ──
   const refuseConfigExists = (configPath: string): void =>
-    ctx.emitFailure(
-      "CONFIG_ALREADY_INITIALIZED",
-      `loaf config already exists at ${configPath}; refusing to overwrite`,
-      { config_path: configPath },
-    );
+    ctx.failure(diagnostic("CONFIG_ALREADY_INITIALIZED", { config_path: configPath }));
 
   // Pre-check before any scaffold I/O (mkdir / compose). The exclusive `wx`
   // write in writeConfigExclusive still backstops the check→write race.
@@ -326,10 +324,7 @@ export function registerProfileConfig(
       if (ctx.rejectIfDryRun(opts.rebuild ? "doctor --rebuild" : "doctor")) return;
 
       if (!opts.rebuild) {
-        ctx.emitFailure(
-          "DOCTOR_MODE_NOT_IMPLEMENTED",
-          "only --rebuild is implemented for loaf doctor in this release",
-        );
+        ctx.failure(diagnostic("DOCTOR_MODE_NOT_IMPLEMENTED", {}));
         return;
       }
 
@@ -338,7 +333,7 @@ export function registerProfileConfig(
       // missing-feature error — `--feature` is a Commander `.option`, not
       // `.requiredOption`, precisely so mode is checked first (codex r161).
       if (!opts.feature) {
-        ctx.emitFailure("DOCTOR_FEATURE_REQUIRED", "doctor --rebuild requires --feature <name>");
+        ctx.failure(diagnostic("DOCTOR_FEATURE_REQUIRED", {}));
         return;
       }
 
@@ -356,7 +351,7 @@ export function registerProfileConfig(
         lease = await acquireFeatureWriteLease(featureDir, "doctor:rebuild");
       } catch (error) {
         if (error instanceof FeatureWriteLeaseError) {
-          ctx.diagnosticFailure(error.diagnostic);
+          ctx.failure(error.diagnostic);
           return;
         }
         throw error;
@@ -367,23 +362,22 @@ export function registerProfileConfig(
           collect_entries: true,
         });
         if (!replay.ok) {
-          const reason =
-            replay.code === "REDUCER_REJECTED"
-              ? diagnosticMessage(replay.diagnostic)
-              : replay.message;
-          ctx.emitFailure(
-            replay.code,
-            `journal at ${journalPath} cannot be replayed — ${reason}`,
-            replay.detail,
+          ctx.failure(
+            diagnostic("DOCTOR_REBUILD_FAILED", {
+              journal_path: journalPath,
+              replay_code: replay.code,
+              at_seq: replay.at_seq,
+              ...replay.detail,
+              ...(replay.code === "REDUCER_REJECTED"
+                ? { diagnostic: replay.diagnostic }
+                : { cause: replay.message }),
+            }),
           );
           return;
         }
         const entries = replay.entries;
         if (entries === undefined) {
-          ctx.emitFailure(
-            "DOCTOR_REBUILD_FAILED",
-            "internal invariant: replay returned ok without collected entries",
-          );
+          ctx.failure(diagnostic("DOCTOR_REBUILD_FAILED", {}));
           return;
         }
 
@@ -395,9 +389,12 @@ export function registerProfileConfig(
             meta: replay.meta,
           });
         } catch (err) {
-          ctx.emitFailure(
-            "DOCTOR_REBUILD_FAILED",
-            `snapshot rebuild failed — ${(err as Error).message}`,
+          ctx.failure(
+            diagnostic("DOCTOR_REBUILD_FAILED", {
+              reason: "projection_write_failed",
+              cause: (err as Error).message,
+              feature_dir: featureDir,
+            }),
           );
           return;
         }

@@ -89,9 +89,9 @@ export function generateI18nDiagnostics(source: string, locale: GeneratedDiagnos
       const section = findDiagnosticSection(output, root);
       output = `${output.slice(0, section.start)}${rendered}${output.slice(section.end)}`;
     } else {
-      const before = output.indexOf('\n  "failure": {');
-      if (before === -1) throw new Error("i18n bundle is missing the failure insertion anchor");
-      output = `${output.slice(0, before)}\n${rendered},\n${output.slice(before)}`;
+      const before = output.lastIndexOf("\n}");
+      if (before === -1) throw new Error("i18n bundle is missing its root closing brace");
+      output = `${output.slice(0, before)},\n${rendered}${output.slice(before)}`;
     }
   }
   return output;

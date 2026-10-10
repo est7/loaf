@@ -1,5 +1,10 @@
 import type { EvidenceKind, VerifyCheckKind } from "../core/evidence-schema.js";
-import type { DiagnosticCode } from "../core/error-catalog.js";
+import {
+  ERROR_CATALOG,
+  DIAGNOSTIC_VARIANTS,
+  type DiagnosticCode,
+  type DiagnosticContext,
+} from "../core/error-catalog.js";
 import type { FindingAction, FindingCategory } from "../core/finding-schema.js";
 import type { SubState } from "../core/journal-entry.js";
 import type { TaskFullProjection } from "../core/task-schema.js";
@@ -16,11 +21,6 @@ export type PendingKind =
   | "spec_clarification"
   | "finding_decision"
   | "profile_escalation";
-export type FailureSiteDiagnosticCode =
-  | "USAGE"
-  | "SCHEMA_VALIDATION_FAILED"
-  | "NO_SESSION"
-  | "INPUT_FILE_NOT_FOUND";
 
 export const TASK_KIND_VALUES = [
   "behavioral",
@@ -155,298 +155,20 @@ const SUB_STATE_KEYS = {
 
 // Sole adapter/identity subset registry. Its member type and diagnostic key
 // map derive below; diagnostic-failure.ts exhaustively covers this same set.
-export const MIGRATED_DIAGNOSTIC_CODES = [
-  "INVALID_FORMAT",
-  "MUTUALLY_EXCLUSIVE_FLAGS",
-  "DRY_RUN_NOT_APPLICABLE",
-  "SPEC_EDIT_INPUT_REQUIRED",
-  "CONFIG_ALREADY_INITIALIZED",
-  "FEATURE_NOT_FOUND",
-  "FEATURE_AMBIGUOUS",
-  "SESSION_CWD_MISMATCH",
-  "SESSION_SHORT_AMBIGUOUS",
-  "SESSION_NOT_FOUND",
-] as const satisfies readonly DiagnosticCode[];
-
-export type MigratedDiagnosticCode = (typeof MIGRATED_DIAGNOSTIC_CODES)[number];
-export type DiagnosticI18nKey = `diagnostic.${MigratedDiagnosticCode}`;
-type DiagnosticKeyMap = {
-  readonly [Code in MigratedDiagnosticCode]: `diagnostic.${Code}`;
-};
-
-const DIAGNOSTIC_KEYS = Object.fromEntries(
-  MIGRATED_DIAGNOSTIC_CODES.map((code) => [code, `diagnostic.${code}`]),
-) as DiagnosticKeyMap;
-
-export const FAILURE_SITE_KEYS = {
-  sessionsListSelectorConflict: "failure.sessions_list.selector_conflict",
-  tuiSelectorConflict: "failure.tui.selector_conflict",
-  tuiInteractiveOnly: "failure.tui.interactive_only",
-  hookMissingEvent: "failure.hook.missing_event",
-  hookUnknownEvent: "failure.hook.unknown_event",
-  hookStdinParseFailed: "failure.hook.stdin_parse_failed",
-  hookWritePathMissing: "failure.hook.write_path_missing",
-  checkSelectorConflict: "failure.check.selector_conflict",
-  checkKindRequired: "failure.check.kind_required",
-  checkPathMissing: "failure.check.path_missing",
-  checkKindInvalid: "failure.check.kind_invalid",
-  schemaSelectorConflict: "failure.schema.selector_conflict",
-  schemaValidation: "failure.schema.validation",
-  dispatchSessionFeatureDirConflict: "failure.dispatch.session_feature_dir_conflict",
-  dispatchFeatureDirRequiresFeature: "failure.dispatch.feature_dir_requires_feature",
-  startLabelTooShort: "failure.start.label_too_short",
-  startWorkspaceEmpty: "failure.start.workspace_empty",
-  handoffReasonTooShort: "failure.handoff.reason_too_short",
-  handoffPackValidationFailed: "failure.handoff.pack_validation_failed",
-  profileInputFileMissing: "failure.profile.input_file_missing",
-  profileInputFileUnreadable: "failure.profile.input_file_unreadable",
-  tasksAddEmptyArray: "failure.tasks_add.empty_array",
-  lessonsTextTooShort: "failure.lessons.text_too_short",
-  lessonsReasonTooShort: "failure.lessons.reason_too_short",
-  lessonsTextFileMutex: "failure.lessons.text_file_mutex",
-  lessonsFileMissing: "failure.lessons.file_missing",
-  findingStatusInvalid: "failure.finding.status_invalid",
-  journalIntegerInvalid: "failure.journal.integer_invalid",
-  journalKindInvalid: "failure.journal.kind_invalid",
-  journalActorInvalid: "failure.journal.actor_invalid",
-  evidenceCoversInvalid: "failure.evidence.covers_invalid",
-  evidenceTaskInvalid: "failure.evidence.task_invalid",
-  evidenceKindInvalid: "failure.evidence.kind_invalid",
-  writeGuardConfigInvalid: "failure.write_guard.config_invalid",
-  noSessionStatus: "failure.no_session.status",
-  noSessionAdvance: "failure.no_session.advance",
-  noSessionTasks: "failure.no_session.tasks",
-  noSessionPending: "failure.no_session.pending",
-  noSessionFinding: "failure.no_session.finding",
-  noSessionVerify: "failure.no_session.verify",
-  noSessionGeneric: "failure.no_session.generic",
-} as const;
-
-export type FailureSiteKey = (typeof FAILURE_SITE_KEYS)[keyof typeof FAILURE_SITE_KEYS];
-
-export const FAILURE_SITE_TEMPLATES = {
-  sessionsListSelectorConflict: {
-    key: FAILURE_SITE_KEYS.sessionsListSelectorConflict,
-    code: "USAGE",
-    template:
-      "sessions list does not accept {conflicting} — it lists across all sessions; use --in-cwd to filter",
-  },
-  tuiSelectorConflict: {
-    key: FAILURE_SITE_KEYS.tuiSelectorConflict,
-    code: "USAGE",
-    template:
-      "tui does not accept {conflicting} — it lists across all sessions; selectors are nonsensical for an interactive UI",
-  },
-  tuiInteractiveOnly: {
-    key: FAILURE_SITE_KEYS.tuiInteractiveOnly,
-    code: "USAGE",
-    template:
-      "tui is interactive-only; use `loaf sessions list --format json` for scriptable session output",
-  },
-  hookMissingEvent: {
-    key: FAILURE_SITE_KEYS.hookMissingEvent,
-    code: "USAGE",
-    template:
-      "loaf hook requires an event token; one of: {events}. Run `loaf hook --list-events` for the full enum",
-  },
-  hookUnknownEvent: {
-    key: FAILURE_SITE_KEYS.hookUnknownEvent,
-    code: "USAGE",
-    template:
-      "unknown hook event '{event}'; expected one of: {allowed}. Did you mean '{suggestion}'?",
-  },
-  hookStdinParseFailed: {
-    key: FAILURE_SITE_KEYS.hookStdinParseFailed,
-    code: "SCHEMA_VALIDATION_FAILED",
-    template: "{reason}",
-  },
-  hookWritePathMissing: {
-    key: FAILURE_SITE_KEYS.hookWritePathMissing,
-    code: "USAGE",
-    template:
-      "write-side hook requires --path <P> or a non-TTY stdin hook payload (tool_input.file_path)",
-  },
-  checkSelectorConflict: {
-    key: FAILURE_SITE_KEYS.checkSelectorConflict,
-    code: "USAGE",
-    template:
-      "check does not accept {conflicting} — it validates a file by path, independent of any feature session",
-  },
-  checkKindRequired: {
-    key: FAILURE_SITE_KEYS.checkKindRequired,
-    code: "USAGE",
-    template:
-      "`{subject}` is not a file path. To validate a {kind} artifact, pass its path: `{suggestion}` (noun-first `loaf {kind} check` is reserved for a future release)",
-  },
-  checkPathMissing: {
-    key: FAILURE_SITE_KEYS.checkPathMissing,
-    code: "INPUT_FILE_NOT_FOUND",
-    template: "file not found: {path}",
-  },
-  checkKindInvalid: {
-    key: FAILURE_SITE_KEYS.checkKindInvalid,
-    code: "USAGE",
-    template: "--kind '{value}' is not recognized; expected one of {allowed_kinds_human}",
-  },
-  schemaSelectorConflict: {
-    key: FAILURE_SITE_KEYS.schemaSelectorConflict,
-    code: "USAGE",
-    template: "{subject} does not accept {conflicting} — schema dumps are feature-agnostic",
-  },
-  schemaValidation: {
-    key: FAILURE_SITE_KEYS.schemaValidation,
-    code: "SCHEMA_VALIDATION_FAILED",
-    template: "{kind} at {path} failed schema validation ({error_count} {error_word})",
-  },
-  dispatchSessionFeatureDirConflict: {
-    key: FAILURE_SITE_KEYS.dispatchSessionFeatureDirConflict,
-    code: "USAGE",
-    template:
-      "{conflicting} cannot be combined with --feature-dir (session identity comes from registry; manual featureDir is contradictory)",
-  },
-  dispatchFeatureDirRequiresFeature: {
-    key: FAILURE_SITE_KEYS.dispatchFeatureDirRequiresFeature,
-    code: "USAGE",
-    template: "--feature-dir requires --feature <name> or $LOAF_FEATURE to name the feature",
-  },
-  startLabelTooShort: {
-    key: FAILURE_SITE_KEYS.startLabelTooShort,
-    code: "USAGE",
-    template: "--label must be at least {min_length} characters",
-  },
-  startWorkspaceEmpty: {
-    key: FAILURE_SITE_KEYS.startWorkspaceEmpty,
-    code: "USAGE",
-    template: "--workspace must not be empty",
-  },
-  handoffReasonTooShort: {
-    key: FAILURE_SITE_KEYS.handoffReasonTooShort,
-    code: "USAGE",
-    template: "--reason must be ≥{min_length} chars (got {reason_length})",
-  },
-  handoffPackValidationFailed: {
-    key: FAILURE_SITE_KEYS.handoffPackValidationFailed,
-    code: "SCHEMA_VALIDATION_FAILED",
-    template: "ResumePack failed runtime validation (builder bug or schema drift)",
-  },
-  profileInputFileMissing: {
-    key: FAILURE_SITE_KEYS.profileInputFileMissing,
-    code: "INPUT_FILE_NOT_FOUND",
-    template: "input file does not exist: {path}",
-  },
-  profileInputFileUnreadable: {
-    key: FAILURE_SITE_KEYS.profileInputFileUnreadable,
-    code: "INPUT_FILE_NOT_FOUND",
-    template: "cannot read input file {path}: {error}",
-  },
-  tasksAddEmptyArray: {
-    key: FAILURE_SITE_KEYS.tasksAddEmptyArray,
-    code: "SCHEMA_VALIDATION_FAILED",
-    template: "tasks add input is an empty array",
-  },
-  lessonsTextTooShort: {
-    key: FAILURE_SITE_KEYS.lessonsTextTooShort,
-    code: "USAGE",
-    template: "lesson text must be ≥{min_length} chars (got {lesson_text_length})",
-  },
-  lessonsReasonTooShort: {
-    key: FAILURE_SITE_KEYS.lessonsReasonTooShort,
-    code: "USAGE",
-    template: "--reason must be ≥{min_length} chars (got {reason_length})",
-  },
-  lessonsTextFileMutex: {
-    key: FAILURE_SITE_KEYS.lessonsTextFileMutex,
-    code: "USAGE",
-    template: "exactly one of --text or --file required ({provided_state})",
-  },
-  lessonsFileMissing: {
-    key: FAILURE_SITE_KEYS.lessonsFileMissing,
-    code: "INPUT_FILE_NOT_FOUND",
-    template: "lesson file not found: {path}",
-  },
-  findingStatusInvalid: {
-    key: FAILURE_SITE_KEYS.findingStatusInvalid,
-    code: "USAGE",
-    template: "--status must be one of: {allowed_statuses_human} (got {value})",
-  },
-  journalIntegerInvalid: {
-    key: FAILURE_SITE_KEYS.journalIntegerInvalid,
-    code: "USAGE",
-    template: "{flag} must be an integer >= {minimum} (got {value})",
-  },
-  journalKindInvalid: {
-    key: FAILURE_SITE_KEYS.journalKindInvalid,
-    code: "USAGE",
-    template: "--kind must be a registered journal kind (got {value})",
-  },
-  journalActorInvalid: {
-    key: FAILURE_SITE_KEYS.journalActorInvalid,
-    code: "USAGE",
-    template: "--actor must be a non-empty actor prefix or full actor string",
-  },
-  evidenceCoversInvalid: {
-    key: FAILURE_SITE_KEYS.evidenceCoversInvalid,
-    code: "USAGE",
-    template: "--covers must be a valid coverage id (got {value})",
-  },
-  evidenceTaskInvalid: {
-    key: FAILURE_SITE_KEYS.evidenceTaskInvalid,
-    code: "USAGE",
-    template: "--task must be a valid task id (got {value})",
-  },
-  evidenceKindInvalid: {
-    key: FAILURE_SITE_KEYS.evidenceKindInvalid,
-    code: "USAGE",
-    template: "--kind must be one of: {allowed_kinds_human}",
-  },
-  writeGuardConfigInvalid: {
-    key: FAILURE_SITE_KEYS.writeGuardConfigInvalid,
-    code: "SCHEMA_VALIDATION_FAILED",
-    template: "write-guard blocked: {reason}",
-  },
-  noSessionStatus: {
-    key: FAILURE_SITE_KEYS.noSessionStatus,
-    code: "NO_SESSION",
-    template: "run `loaf start {feature}` first",
-  },
-  noSessionAdvance: {
-    key: FAILURE_SITE_KEYS.noSessionAdvance,
-    code: "NO_SESSION",
-    template: "run `loaf start {feature}` first",
-  },
-  noSessionTasks: {
-    key: FAILURE_SITE_KEYS.noSessionTasks,
-    code: "NO_SESSION",
-    template: "run `loaf start {feature}` first",
-  },
-  noSessionPending: {
-    key: FAILURE_SITE_KEYS.noSessionPending,
-    code: "NO_SESSION",
-    template: "run `loaf start {feature}` first",
-  },
-  noSessionFinding: {
-    key: FAILURE_SITE_KEYS.noSessionFinding,
-    code: "NO_SESSION",
-    template: "run `loaf start {feature}` first",
-  },
-  noSessionVerify: {
-    key: FAILURE_SITE_KEYS.noSessionVerify,
-    code: "NO_SESSION",
-    template: "run `loaf start {feature}` first",
-  },
-  noSessionGeneric: {
-    key: FAILURE_SITE_KEYS.noSessionGeneric,
-    code: "NO_SESSION",
-    template: "run `loaf start {feature}` first",
-  },
-} as const satisfies Record<
-  string,
-  {
-    key: FailureSiteKey;
-    code: FailureSiteDiagnosticCode;
-    template: string;
-  }
->;
+export type DiagnosticI18nKey =
+  | `diagnostic.${DiagnosticCode}`
+  | `diagnostic_fix.${DiagnosticCode}`
+  | `diagnostic_variant.${DiagnosticContext}`
+  | `diagnostic_variant_fix.${DiagnosticContext}`;
+const DIAGNOSTIC_KEYS: DiagnosticI18nKey[] = [
+  ...Object.keys(ERROR_CATALOG).flatMap(
+    (code) => [`diagnostic.${code}`, `diagnostic_fix.${code}`] as DiagnosticI18nKey[],
+  ),
+  ...Object.keys(DIAGNOSTIC_VARIANTS).flatMap(
+    (context) =>
+      [`diagnostic_variant.${context}`, `diagnostic_variant_fix.${context}`] as DiagnosticI18nKey[],
+  ),
+];
 
 export const SUCCESS_KEYS = {
   nextFullCommandPointer: "success.next.full_command_pointer",
@@ -588,10 +310,8 @@ export const CHROME_KEYS = {
   verifyStatusLaneReasonNoDoneTasks: "chrome.verify_status.lane_reason_no_done_tasks",
   verifyStatusLaneReasonNoReviewObligations:
     "chrome.verify_status.lane_reason_no_review_obligations",
-  verifyStatusLaneReasonNoE2eScenarios:
-    "chrome.verify_status.lane_reason_no_e2e_scenarios",
-  verifyStatusLaneReasonNoVisualContracts:
-    "chrome.verify_status.lane_reason_no_visual_contracts",
+  verifyStatusLaneReasonNoE2eScenarios: "chrome.verify_status.lane_reason_no_e2e_scenarios",
+  verifyStatusLaneReasonNoVisualContracts: "chrome.verify_status.lane_reason_no_visual_contracts",
   tuiListTitle: "chrome.tui.list.title",
   tuiListSort: "chrome.tui.list.sort",
   tuiListSortTime: "chrome.tui.list.sort_time",
@@ -659,8 +379,7 @@ export type RuntimeI18nKey =
   | (typeof PENDING_KIND_KEYS)[keyof typeof PENDING_KIND_KEYS]
   | (typeof PHASE_KEYS)[keyof typeof PHASE_KEYS]
   | (typeof SUB_STATE_KEYS)[keyof typeof SUB_STATE_KEYS]
-  | (typeof DIAGNOSTIC_KEYS)[keyof typeof DIAGNOSTIC_KEYS]
-  | FailureSiteKey
+  | DiagnosticI18nKey
   | SuccessKey
   | ChromeKey;
 
@@ -678,7 +397,6 @@ export const RUNTIME_I18N_KEYS: readonly RuntimeI18nKey[] = [
   ...Object.values(PHASE_KEYS),
   ...Object.values(SUB_STATE_KEYS),
   ...Object.values(DIAGNOSTIC_KEYS),
-  ...Object.values(FAILURE_SITE_KEYS),
   ...Object.values(SUCCESS_KEYS),
   ...Object.values(CHROME_KEYS),
 ];
@@ -729,8 +447,4 @@ export function phaseKey(phase: Phase): RuntimeI18nKey {
 
 export function subStateKey(subState: SubState): RuntimeI18nKey {
   return SUB_STATE_KEYS[subState];
-}
-
-export function diagnosticKey(code: MigratedDiagnosticCode): DiagnosticI18nKey {
-  return DIAGNOSTIC_KEYS[code];
 }

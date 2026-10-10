@@ -1,3 +1,8 @@
+import {
+  diagnosticVariant,
+  type Diagnostic,
+  type CatalogDiagnostic,
+} from "../core/error-catalog.js";
 // Phase 16 SC-9c — `loaf check <path>` read-side surface.
 //
 // Pure file/schema validation for v0.1.0 artifact kinds. CI-facing — no
@@ -104,12 +109,10 @@ export type CheckResult =
       kind: CheckKind;
       path: string;
     }
-  | {
-      ok: false;
-      code: "USAGE" | "INPUT_FILE_NOT_FOUND" | "SCHEMA_VALIDATION_FAILED";
-      message: string;
-      detail: Record<string, unknown>;
-    };
+  | ({ ok: false } & (
+      | Diagnostic<"USAGE" | "INPUT_FILE_NOT_FOUND" | "SCHEMA_VALIDATION_FAILED">
+      | Extract<CatalogDiagnostic, { code: "USAGE" | "SCHEMA_VALIDATION_FAILED" }>
+    ));
 
 export interface CheckFileOptions {
   path: string;
@@ -153,11 +156,13 @@ export async function checkFile(opts: CheckFileOptions): Promise<CheckResult> {
     return {
       ok: false,
       code: "USAGE",
-      message:
-        "`tasks` is not a file path. To validate a tasks artifact, pass its " +
-        "path: `loaf check <path>/tasks.json --kind tasks` (noun-first " +
-        "`loaf tasks check` is reserved for a future release)",
-      detail: { suggestion: "loaf check <path>/tasks.json --kind tasks", argument: opts.path },
+
+      detail: {
+        subject: opts.path,
+        kind: "tasks",
+        suggestion: "loaf check <path>/tasks.json --kind tasks",
+        argument: opts.path,
+      },
     };
   }
 
@@ -173,7 +178,7 @@ export async function checkFile(opts: CheckFileOptions): Promise<CheckResult> {
       return {
         ok: false,
         code: "INPUT_FILE_NOT_FOUND",
-        message: `file not found: ${absPath}`,
+
         detail: { path: absPath },
       };
     }
@@ -186,8 +191,14 @@ export async function checkFile(opts: CheckFileOptions): Promise<CheckResult> {
     return {
       ok: false,
       code: "USAGE",
-      message: `cannot infer artifact kind from basename '${path.basename(opts.path)}' — specify --kind ${CHECK_KINDS.join("|")}`,
-      detail: { hint: "specify --kind", path: absPath, basename: path.basename(opts.path) },
+
+      detail: {
+        reason: "artifact_kind_unknown",
+        allowed_kinds: CHECK_KINDS,
+        hint: "specify --kind",
+        path: absPath,
+        basename: path.basename(opts.path),
+      },
     };
   }
 
@@ -201,8 +212,13 @@ export async function checkFile(opts: CheckFileOptions): Promise<CheckResult> {
       return {
         ok: false,
         code: "SCHEMA_VALIDATION_FAILED",
-        message: `${kind} at ${absPath} is missing a YAML frontmatter block fenced by \`---\` on the first line`,
-        detail: { kind, path: absPath, subcode: "missing-frontmatter" },
+
+        detail: {
+          kind,
+          path: absPath,
+          reason: "missing-frontmatter",
+          subcode: "missing-frontmatter",
+        },
       };
     }
     try {
@@ -211,8 +227,8 @@ export async function checkFile(opts: CheckFileOptions): Promise<CheckResult> {
       return {
         ok: false,
         code: "SCHEMA_VALIDATION_FAILED",
-        message: `${kind} at ${absPath} frontmatter YAML failed to parse: ${(err as Error).message}`,
-        detail: { kind, path: absPath, subcode: "invalid-yaml" },
+
+        detail: { kind, path: absPath, reason: (err as Error).message, subcode: "invalid-yaml" },
       };
     }
   } else {
@@ -222,8 +238,8 @@ export async function checkFile(opts: CheckFileOptions): Promise<CheckResult> {
       return {
         ok: false,
         code: "SCHEMA_VALIDATION_FAILED",
-        message: `${kind} at ${absPath} JSON failed to parse: ${(err as Error).message}`,
-        detail: { kind, path: absPath, subcode: "invalid-json" },
+
+        detail: { kind, path: absPath, reason: (err as Error).message, subcode: "invalid-json" },
       };
     }
   }
@@ -234,16 +250,13 @@ export async function checkFile(opts: CheckFileOptions): Promise<CheckResult> {
     const issues = mapZodIssues(result.error);
     return {
       ok: false,
-      code: "SCHEMA_VALIDATION_FAILED",
-      message: `${kind} at ${absPath} failed schema validation (${issues.error_count} ${issues.error_count === 1 ? "error" : "errors"})`,
-      detail: {
+      ...diagnosticVariant("failure.schema.validation", {
         kind,
         path: absPath,
         subcode: "zod",
-        errors: issues.errors,
-        truncated: issues.truncated,
-        error_count: issues.error_count,
-      },
+        error_word: issues.error_count === 1 ? "error" : "errors",
+        ...issues,
+      }),
     };
   }
 

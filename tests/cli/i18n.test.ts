@@ -111,7 +111,6 @@ describe("ADR-0006 P0 — resolveLocale", () => {
     ).toEqual({
       ok: false,
       code: "INVALID_LOCALE",
-      message: "invalid locale from LOAF_LANG: fr (expected en or zh)",
       detail: { source: "LOAF_LANG", value: "fr", accepted: ["en", "zh"] },
     });
   });
@@ -130,10 +129,9 @@ describe("ADR-0006 P0 — resolveLocale", () => {
     ).toEqual({
       ok: false,
       code: "INVALID_LOCALE",
-      message:
-        "invalid locale config at /tmp/home/.loaf/config.json: schema validation failed for /tmp/home/.loaf/config.json",
       detail: {
         source: "user-config",
+        accepted: ["en", "zh"],
         path: "/tmp/home/.loaf/config.json",
         reason: "schema validation failed for /tmp/home/.loaf/config.json",
       },

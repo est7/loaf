@@ -1,9 +1,10 @@
+import { diagnostic, diagnosticVariant } from "../../core/error-catalog.js";
 import { runtimeStoreDiagnostic } from "../runtime-store-diagnostic.js";
 import { diagnosticMessage } from "../diagnostic-failure.js";
 import type { Command } from "commander";
 import type { CommandContext } from "../command-context.js";
 import type { CommandMutator } from "../command-mutator.js";
-import { FAILURE_SITE_KEYS, CHROME_KEYS } from "../runtime-i18n-keys.js";
+import { CHROME_KEYS } from "../runtime-i18n-keys.js";
 import { listSessions, formatAtRelative, type SessionRow } from "../sessions-list.js";
 import {
   CHECK_KINDS,
@@ -160,7 +161,7 @@ export function registerIntegrations(
           try {
             dispatch = await ctx.resolveDispatch();
           } catch (error) {
-            ctx.diagnosticFailure({
+            ctx.failure({
               code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
               detail: { reason: (error as Error).message },
             });
@@ -168,7 +169,7 @@ export function registerIntegrations(
           }
           if (!dispatch.ok) {
             if (dispatch.code === "FEATURE_NOT_FOUND") return; // non-loaf project → silent
-            ctx.diagnosticFailure(dispatch);
+            ctx.failure(dispatch);
             return;
           }
           opts.feature = dispatch.feature;
@@ -176,7 +177,7 @@ export function registerIntegrations(
           ctx.recordTraceTarget(dispatch.feature, dispatch.featureDir);
           const sessionId = dispatch.sessionId;
           if (sessionId === null) {
-            ctx.diagnosticFailure({
+            ctx.failure({
               code: "SCHEMA_VALIDATION_FAILED",
               detail: { source: "scope-track", reason: "selected_session_id_missing" },
             });
@@ -193,7 +194,7 @@ export function registerIntegrations(
               })
             ).state;
           } catch (error) {
-            ctx.diagnosticFailure({
+            ctx.failure({
               code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
               detail:
                 error instanceof SnapshotStaleError
@@ -214,7 +215,7 @@ export function registerIntegrations(
               runtime: { runtimeDir, now: runtimeNow },
             });
           } catch (error) {
-            ctx.diagnosticFailure(
+            ctx.failure(
               error instanceof RuntimeStoreError
                 ? runtimeStoreDiagnostic(error, "session-runtime")
                 : {
@@ -226,7 +227,7 @@ export function registerIntegrations(
           }
 
           if (!normalized.ok) {
-            ctx.diagnosticFailure({
+            ctx.failure({
               code: "SCHEMA_VALIDATION_FAILED",
               detail: { source: "scope-track", path: target, reason: normalized.reason },
             });
@@ -241,7 +242,7 @@ export function registerIntegrations(
         const wd = await ctx.resolveDispatchForWriteGuard(opts);
         if ("allow" in wd) return; // no loaf session here → allow, exit 0
         if ("failClosed" in wd) {
-          ctx.diagnosticFailure(wd);
+          ctx.failure(wd);
           return;
         }
 
@@ -251,14 +252,14 @@ export function registerIntegrations(
         // Config overlay — fail closed on an invalid (untrusted) config.
         const cfg = await readLoafConfig(repoRoot);
         if (cfg.status === "invalid") {
-          ctx.failureKeyed(
-            "SCHEMA_VALIDATION_FAILED",
-            FAILURE_SITE_KEYS.writeGuardConfigInvalid,
-            { reason: cfg.reason },
-            {
-              source: "loaf.config.json",
-              reason: cfg.reason,
-            },
+          ctx.failure(
+            diagnosticVariant("failure.write_guard.config_invalid", {
+              ...{ reason: cfg.reason },
+              ...{
+                source: "loaf.config.json",
+                reason: cfg.reason,
+              },
+            }),
           );
           return;
         }
@@ -273,7 +274,7 @@ export function registerIntegrations(
             kinds: ["state", "tasks"] as const,
           });
         } catch (err) {
-          ctx.diagnosticFailure({
+          ctx.failure({
             code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
             detail:
               err instanceof SnapshotStaleError ? err.detail : { reason: (err as Error).message },
@@ -319,28 +320,24 @@ export function registerIntegrations(
 
         if (decision.allowed) return; // exit 0 — write permitted
         if (decision.code === "PROTECTED_FILE_WRITE") {
-          ctx.emitFailure(
-            "PROTECTED_FILE_WRITE",
-            `write blocked: \`${decision.normalizedPath}\` matches protected_files entry \`${decision.matchedDeny}\` — protected files are never writable`,
-            {
+          ctx.failure(
+            diagnostic("PROTECTED_FILE_WRITE", {
               path: target,
               normalized_path: decision.normalizedPath,
               matched_deny: decision.matchedDeny,
-            },
+            }),
           );
           return;
         }
         // WRITE_PATH_VIOLATION — bound the allow_set for the detail envelope.
-        ctx.emitFailure(
-          "WRITE_PATH_VIOLATION",
-          `write blocked: \`${decision.normalizedPath}\` is outside the allowed write paths for sub_state \`${state.sub_state}\``,
-          {
+        ctx.failure(
+          diagnostic("WRITE_PATH_VIOLATION", {
             path: target,
             normalized_path: decision.normalizedPath,
             sub_state: state.sub_state,
             allow_set: decision.allowSet.slice(0, 30),
             ...(decision.reason ? { reason: decision.reason } : {}),
-          },
+          }),
         );
       },
     );
@@ -357,10 +354,12 @@ export function registerIntegrations(
       const stdinTty = isStdinTty();
       const stdoutTty = isStdoutTtyForTui();
       if (!stdinTty || !stdoutTty) {
-        ctx.emitFailure("USAGE", "TUI requires an interactive terminal (stdin/stdout TTY)", {
-          stdin_tty: stdinTty,
-          stdout_tty: stdoutTty,
-        });
+        ctx.failure(
+          diagnosticVariant("failure.tui.interactive_only", {
+            stdin_tty: stdinTty,
+            stdout_tty: stdoutTty,
+          }),
+        );
         return;
       }
       // loadRows closure: preserves deps.registryDir / LOAF_REGISTRY_DIR
@@ -471,11 +470,11 @@ export function registerIntegrations(
       let kind: CheckKind | undefined;
       if (opts.kind !== undefined) {
         if (!(CHECK_KINDS as readonly string[]).includes(opts.kind)) {
-          ctx.failureKeyed(
-            "USAGE",
-            FAILURE_SITE_KEYS.checkKindInvalid,
-            { value: opts.kind, allowed_kinds_human: CHECK_KINDS.join("|") },
-            { provided: opts.kind, value: opts.kind, allowed: CHECK_KINDS },
+          ctx.failure(
+            diagnosticVariant("failure.check.kind_invalid", {
+              ...{ value: opts.kind, allowed_kinds_human: CHECK_KINDS.join("|") },
+              ...{ provided: opts.kind, value: opts.kind, allowed: CHECK_KINDS },
+            }),
           );
           return;
         }
@@ -490,24 +489,24 @@ export function registerIntegrations(
         return;
       }
       if (result.code === "USAGE" && result.detail["suggestion"] !== undefined) {
-        ctx.failureKeyed(
-          "USAGE",
-          FAILURE_SITE_KEYS.checkKindRequired,
-          {
-            subject: String(result.detail["argument"] ?? filePath),
-            kind: "tasks",
-            suggestion: String(result.detail["suggestion"]),
-          },
-          result.detail,
+        ctx.failure(
+          diagnosticVariant("failure.check.kind_required", {
+            ...{
+              subject: String(result.detail["argument"] ?? filePath),
+              kind: "tasks",
+              suggestion: String(result.detail["suggestion"]),
+            },
+            ...result.detail,
+          }),
         );
         return;
       }
       if (result.code === "INPUT_FILE_NOT_FOUND") {
-        ctx.failureKeyed(
-          "INPUT_FILE_NOT_FOUND",
-          FAILURE_SITE_KEYS.checkPathMissing,
-          { path: String(result.detail["path"] ?? filePath) },
-          result.detail,
+        ctx.failure(
+          diagnosticVariant("failure.check.path_missing", {
+            ...{ path: String(result.detail["path"] ?? filePath) },
+            ...result.detail,
+          }),
         );
         return;
       }
@@ -517,20 +516,20 @@ export function registerIntegrations(
         result.detail["path"] !== undefined &&
         result.detail["error_count"] !== undefined
       ) {
-        ctx.failureKeyed(
-          "SCHEMA_VALIDATION_FAILED",
-          FAILURE_SITE_KEYS.schemaValidation,
-          {
-            kind: String(result.detail["kind"]),
-            path: String(result.detail["path"]),
-            error_count: String(result.detail["error_count"]),
-            error_word: Number(result.detail["error_count"]) === 1 ? "error" : "errors",
-          },
-          result.detail,
+        ctx.failure(
+          diagnosticVariant("failure.schema.validation", {
+            ...{
+              kind: String(result.detail["kind"]),
+              path: String(result.detail["path"]),
+              error_count: String(result.detail["error_count"]),
+              error_word: Number(result.detail["error_count"]) === 1 ? "error" : "errors",
+            },
+            ...result.detail,
+          }),
         );
         return;
       }
-      ctx.emitFailure(result.code, result.message, result.detail);
+      ctx.failure(result);
     });
 
   // ── loaf verify status ───────────────────────────────────────────────
@@ -553,7 +552,7 @@ export function registerIntegrations(
         // IO-boundary divergence: frontmatter unreadable → exit 2,
         // structured envelope on stderr. Does NOT synthesize a check-1
         // row (codex r302 lock).
-        ctx.diagnosticFailure(diag);
+        ctx.failure(diag);
         return;
       }
       const env = buildVerifyStatusEnvelope(diag.checks, session.snapshot.findings, diag.lanes);

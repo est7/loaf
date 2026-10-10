@@ -1,7 +1,8 @@
+import { diagnostic, diagnosticVariant } from "../../core/error-catalog.js";
 import type { Command } from "commander";
 import type { CommandContext } from "../command-context.js";
 import type { CommandMutator } from "../command-mutator.js";
-import { FAILURE_SITE_KEYS, SUCCESS_KEYS, CHROME_KEYS, pendingKindKey } from "../runtime-i18n-keys.js";
+import { SUCCESS_KEYS, CHROME_KEYS, pendingKindKey } from "../runtime-i18n-keys.js";
 import { loadSession } from "../../core/cli-runtime.js";
 import { PendingPromptKind } from "../../core/journal-entry.js";
 import type { I18n } from "../i18n.js";
@@ -72,7 +73,9 @@ export function registerPending(
         if (featureDir === null) return;
         const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
         if (!session.snapshot.state) {
-          ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionPending, opts.feature);
+          ctx.failure(
+            diagnosticVariant("failure.no_session.pending", { ...{}, feature: opts.feature }),
+          );
           return;
         }
         // Single-writer PEND-id allocator: max-serial+1, zero-padded to ≥4
@@ -132,7 +135,7 @@ export function registerPending(
         featureDir,
         ["pending"] as const,
         opts.feature,
-        FAILURE_SITE_KEYS.noSessionPending,
+        "failure.no_session.pending",
       );
       if (loaded === null) return;
       const entries = loaded.pending.pending;
@@ -179,7 +182,9 @@ export function registerPending(
       if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       if (!session.snapshot.state) {
-        ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionPending, opts.feature);
+        ctx.failure(
+          diagnosticVariant("failure.no_session.pending", { ...{}, feature: opts.feature }),
+        );
         return;
       }
       const headIdx = session.snapshot.pending.findIndex((p) => !p.resolved);
@@ -187,9 +192,12 @@ export function registerPending(
       if (opts.id !== undefined) {
         const idx = session.snapshot.pending.findIndex((p) => p.id === opts.id);
         if (idx === -1) {
-          ctx.emitFailure("PENDING_NOT_FOUND", `pending id=${opts.id} not found in queue`, {
-            pending_id: opts.id,
-          });
+          ctx.failure(
+            diagnostic("PENDING_NOT_FOUND", {
+              reason: "pending_id_not_found",
+              pending_id: opts.id,
+            }),
+          );
           return;
         }
         target = { ...session.snapshot.pending[idx]!, head: idx === headIdx };
@@ -234,15 +242,14 @@ export function registerPending(
       if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       if (!session.snapshot.state) {
-        ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionPending, opts.feature);
+        ctx.failure(
+          diagnosticVariant("failure.no_session.pending", { ...{}, feature: opts.feature }),
+        );
         return;
       }
       const head = session.snapshot.pending.find((p) => !p.resolved);
       if (!head) {
-        ctx.emitFailure(
-          "PENDING_NOT_FOUND",
-          "pending:resolved called but the queue has no unresolved head",
-        );
+        ctx.failure(diagnostic("PENDING_NOT_FOUND", { reason: "no pending head" }));
         return;
       }
       const result = await mutator.run(featureDir, session, {

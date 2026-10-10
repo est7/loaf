@@ -16,7 +16,7 @@ describe("diagnostic producer audit", () => {
     const outlets = records.filter((row) => row.boundary === "outlet");
     expect(
       outlets.some(
-        (row) => row.code === "SCHEMA_VALIDATION_FAILED" && row.file.includes("integrations"),
+        (row) => row.code === "SCHEMA_VALIDATION_FAILED" && row.file.includes("input-ingestion"),
       ),
     ).toBe(true);
     expect(outlets.some((row) => row.code === null)).toBe(true);
@@ -102,7 +102,7 @@ describe("diagnostic producer audit", () => {
       "utf8",
     );
     expect(
-      /\bFailureRoute\b|routeMutateFailure|ctx\.(?:fail|failure|emitFailure)\(/.test(source),
+      /\bFailureRoute\b|routeMutateFailure|ctx\.(?:fail|emitFailure)\(/.test(source),
     ).toBe(false);
   });
 
@@ -110,8 +110,8 @@ describe("diagnostic producer audit", () => {
     const rows = auditDiagnosticSource(
       "probe.ts",
       `
-      ctx.diagnosticFailure({code: "TASK_DEP_SELF", detail: {task_id: "T-001"}});
-      ctx.diagnosticFailure(result);
+      ctx.failure({code: "TASK_DEP_SELF", detail: {task_id: "T-001"}});
+      ctx.failure(result);
     `,
     );
     expect(

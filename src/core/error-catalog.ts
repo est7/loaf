@@ -521,13 +521,13 @@ export const ERROR_CATALOG = {
     // this diagnostic is only for explicit LOAF_LANG / user config /
     // future --lang inputs.
     exit_code: 2,
-    message_template: "invalid locale from {source}: {value} (expected {accepted})",
-    zh_message_template: "locale 来源 {source} 的值无效:{value}(期望:{accepted})",
+    message_template: "invalid locale from {source} (expected {accepted})",
+    zh_message_template: "locale 来源 {source} 的值无效(期望:{accepted})",
     fix_template:
       "unset the locale override or set it to one of: {accepted}; user preferences live in ~/.loaf/config.json locale.default_lang",
-    template_keys: ["accepted", "source", "value"],
+    template_keys: ["accepted", "source"],
     doc_anchor: "docs/adr/0006-runtime-i18n-and-user-config.md",
-    detail_keys: ["accepted", "source", "value"],
+    detail_keys: ["accepted", "source"],
   },
   DRY_RUN_NOT_APPLICABLE: {
     // Phase 16 SC-6c — `--dry-run` only applies to mutating commands.

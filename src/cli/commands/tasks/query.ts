@@ -1,9 +1,10 @@
+import { diagnostic, diagnosticVariant } from "../../../core/error-catalog.js";
 import type { Command } from "commander";
 
 import { loadSession } from "../../../core/cli-runtime.js";
 import { areTaskDependenciesSatisfied } from "../../../core/task-graph.js";
 import { extractTaskSlim } from "../../../core/task-schema.js";
-import { CHROME_KEYS, FAILURE_SITE_KEYS } from "../../runtime-i18n-keys.js";
+import { CHROME_KEYS } from "../../runtime-i18n-keys.js";
 import { formatTaskListKind, formatTaskStatus } from "./presentation.js";
 import type { TasksRegistrationDeps } from "./types.js";
 
@@ -28,7 +29,7 @@ export function registerTaskQueries(tasksCmd: Command, deps: TasksRegistrationDe
         featureDir,
         ["state", "tasks"] as const,
         opts.feature,
-        FAILURE_SITE_KEYS.noSessionTasks,
+        "failure.no_session.tasks",
       );
       if (loaded === null) return;
       const slimTasks = loaded.tasks ? loaded.tasks.tasks.map((t) => extractTaskSlim(t)) : [];
@@ -49,9 +50,12 @@ export function registerTaskQueries(tasksCmd: Command, deps: TasksRegistrationDe
         opts.status !== undefined &&
         !(validStatuses as readonly string[]).includes(opts.status)
       ) {
-        ctx.emitFailure(
-          "USAGE",
-          `--status must be one of: ${validStatuses.join(" | ")} (got ${opts.status})`,
+        ctx.failure(
+          diagnostic("USAGE", {
+            reason: "invalid_task_status",
+            value: opts.status,
+            allowed: validStatuses,
+          }),
         );
         return;
       }
@@ -105,7 +109,9 @@ export function registerTaskQueries(tasksCmd: Command, deps: TasksRegistrationDe
       if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
       if (!session.snapshot.state) {
-        ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
+        ctx.failure(
+          diagnosticVariant("failure.no_session.tasks", { ...{}, feature: opts.feature }),
+        );
         return;
       }
       const tasks = session.snapshot.tasks;

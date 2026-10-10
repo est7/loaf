@@ -1,7 +1,8 @@
+import { diagnostic, diagnosticVariant } from "../../core/error-catalog.js";
 import type { Command } from "commander";
 import type { CommandContext } from "../command-context.js";
 import type { CommandMutator } from "../command-mutator.js";
-import { CHROME_KEYS, FAILURE_SITE_KEYS, SUCCESS_KEYS } from "../runtime-i18n-keys.js";
+import { CHROME_KEYS, SUCCESS_KEYS } from "../runtime-i18n-keys.js";
 import { loadSession } from "../../core/cli-runtime.js";
 import { allocateNextEvidenceId, allocateNextEvidenceIds } from "../evidence-id-allocator.js";
 import { buildWaiveEvidencePayload } from "../waive.js";
@@ -142,8 +143,10 @@ export function registerEvidence(
         const rawItems: unknown[] = Array.isArray(parsed) ? parsed : [parsed];
         if (rawItems.length === 0) {
           ctx.failure(
-            "SCHEMA_VALIDATION_FAILED",
-            "evidence add input is an empty array (non-empty array required)",
+            diagnostic("SCHEMA_VALIDATION_FAILED", {
+              reason: "evidence_batch_empty",
+              command: "evidence add",
+            }),
           );
           return;
         }
@@ -159,9 +162,11 @@ export function registerEvidence(
           const p = EvidenceAddInput.safeParse(raw);
           if (!p.success) {
             ctx.failure(
-              "SCHEMA_VALIDATION_FAILED",
-              `evidence add input[${i}] failed schema validation: ${p.error.issues.map((iss: { message: string }) => iss.message).join("; ")}`,
-              { index: i, issues: p.error.issues },
+              diagnostic("SCHEMA_VALIDATION_FAILED", {
+                reason: p.error.issues.map((issue) => issue.message).join("; "),
+                index: i,
+                issues: p.error.issues,
+              }),
             );
             return;
           }
@@ -173,7 +178,9 @@ export function registerEvidence(
         if (featureDir === null) return;
         const session = await ctx.resolveSession(featureDir);
         if (!session.snapshot.state) {
-          ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+          ctx.failure(
+            diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
+          );
           return;
         }
 
@@ -294,29 +301,29 @@ export function registerEvidence(
         if (ctx.rejectIfDryRun("evidence list")) return;
 
         if (opts.covers !== undefined && !CoversRefPayload.safeParse(opts.covers).success) {
-          ctx.failureKeyed(
-            "USAGE",
-            FAILURE_SITE_KEYS.evidenceCoversInvalid,
-            { value: opts.covers },
-            { value: opts.covers },
+          ctx.failure(
+            diagnosticVariant("failure.evidence.covers_invalid", {
+              ...{ value: opts.covers },
+              ...{ value: opts.covers },
+            }),
           );
           return;
         }
         if (opts.task !== undefined && !TaskIdPayload.safeParse(opts.task).success) {
-          ctx.failureKeyed(
-            "USAGE",
-            FAILURE_SITE_KEYS.evidenceTaskInvalid,
-            { value: opts.task },
-            { value: opts.task },
+          ctx.failure(
+            diagnosticVariant("failure.evidence.task_invalid", {
+              ...{ value: opts.task },
+              ...{ value: opts.task },
+            }),
           );
           return;
         }
         if (opts.kind !== undefined && !EvidenceKind.safeParse(opts.kind).success) {
-          ctx.failureKeyed(
-            "USAGE",
-            FAILURE_SITE_KEYS.evidenceKindInvalid,
-            { value: opts.kind, allowed_kinds_human: EvidenceKind.options.join(" | ") },
-            { value: opts.kind, allowed: EvidenceKind.options },
+          ctx.failure(
+            diagnosticVariant("failure.evidence.kind_invalid", {
+              ...{ value: opts.kind, allowed_kinds_human: EvidenceKind.options.join(" | ") },
+              ...{ value: opts.kind, allowed: EvidenceKind.options },
+            }),
           );
           return;
         }
@@ -327,7 +334,7 @@ export function registerEvidence(
           featureDir,
           ["evidence"] as const,
           opts.feature,
-          FAILURE_SITE_KEYS.noSessionGeneric,
+          "failure.no_session.generic",
         );
         if (loaded === null) return;
 
@@ -401,21 +408,19 @@ export function registerEvidence(
         //     (no parallel local regex; codex r322 P5 lock)
         const idCheck = CoversRefPayload.safeParse(obligationId);
         if (!idCheck.success) {
-          ctx.emitFailure(
-            "USAGE",
-            `invalid obligation id '${obligationId}' — expected REQ-NS-NNN / SCEN-NS-NNN / VIS-NS-NNN / T-NNN form`,
-            { argument: obligationId },
+          ctx.failure(
+            diagnostic("USAGE", { reason: "invalid_obligation_id", argument: obligationId }),
           );
           return;
         }
         // (2) reason length is enforced by EvidenceFullPayload refine
         //     downstream; surface the friendlier USAGE here too
         if (opts.reason.length < 10) {
-          ctx.failureKeyed(
-            "USAGE",
-            FAILURE_SITE_KEYS.lessonsReasonTooShort,
-            { min_length: 10, reason_length: opts.reason.length },
-            { min_length: 10, reason_length: opts.reason.length },
+          ctx.failure(
+            diagnosticVariant("failure.lessons.reason_too_short", {
+              ...{ min_length: 10, reason_length: opts.reason.length },
+              ...{ min_length: 10, reason_length: opts.reason.length },
+            }),
           );
           return;
         }
@@ -426,7 +431,9 @@ export function registerEvidence(
         if (featureDir === null) return;
         const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
         if (!session.snapshot.state) {
-          ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+          ctx.failure(
+            diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
+          );
           return;
         }
         // (4) allocate EV-id + build payload (pure builder, payload only)

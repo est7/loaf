@@ -51,7 +51,7 @@ export function auditDiagnosticSource(fileName: string, text: string): Diagnosti
       if (
         ts.isPropertyAccessExpression(node.expression) &&
         node.expression.expression.getText(source) === "ctx" &&
-        node.expression.name.text === "diagnosticFailure"
+        node.expression.name.text === "failure"
       ) {
         const record = node.arguments[0];
         if (record !== undefined) {

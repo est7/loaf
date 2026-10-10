@@ -361,7 +361,7 @@ describe("SC-11 — loaf waive", () => {
     expect(result.exit).toBe(2);
     const err = JSON.parse(result.stderr);
     expect(err.code).toBe("USAGE");
-    expect(err.message).toContain("invalid obligation id");
+    expect(err.detail).toMatchObject({ reason: "invalid_obligation_id" });
   });
 
   test("--reason <10 chars → USAGE", async () => {

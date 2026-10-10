@@ -1,10 +1,10 @@
 #!/usr/bin/env node
+import { z } from "zod";
 import { Command, CommanderError } from "commander";
 import os from "node:os";
 import { constants, promises, readFileSync, unlinkSync } from "node:fs";
 import * as path$1 from "node:path";
 import path from "node:path";
-import { z } from "zod";
 import { createHash, randomBytes } from "node:crypto";
 import { execFileSync, spawn } from "node:child_process";
 import * as fsp from "node:fs/promises";
@@ -17,500 +17,6 @@ import { Box, Text, useApp, useInput } from "ink";
 import { jsx, jsxs } from "react/jsx-runtime";
 import process$1 from "node:process";
 import { createServer } from "node:http";
-//#region package.json
-var version = "0.10.0";
-//#endregion
-//#region src/core/crash-log.ts
-/** Sentinel code stamped into the JSON envelope and (when
-*  `--format json` is set) onto the boundary stderr payload. Lives
-*  here, not in src/cli.tsx, so the SC-0 inventory regex
-*  (`code: "CODE"` scan over cli.tsx) does NOT pick it up as an
-*  uncataloged DiagnosticCode emit. */
-const UNEXPECTED_ERROR = "UNEXPECTED_ERROR";
-z.object({
-	iso: z.string(),
-	version: z.string(),
-	argv: z.array(z.string()),
-	cwd: z.string(),
-	feature: z.string().nullable(),
-	phase: z.string().nullable(),
-	sub_state: z.string().nullable(),
-	exitCode: z.literal(1),
-	error: z.object({
-		name: z.string(),
-		message: z.string(),
-		stack: z.string().nullable()
-	})
-});
-const DEFAULT_DEPS = {
-	now: () => /* @__PURE__ */ new Date(),
-	homeDir: () => os.homedir(),
-	writeStderr: (s) => process.stderr.write(s)
-};
-/** Best-effort `--feature <NAME>` extractor. Stays in this module so the
-*  boundary doesn't have to know argv shape; null on miss. */
-function extractFeature$1(argv) {
-	const i = argv.indexOf("--feature");
-	if (i < 0 || i + 1 >= argv.length) return null;
-	const v = argv[i + 1];
-	return v && !v.startsWith("--") ? v : null;
-}
-/** ISO 8601 with `:` replaced so the filename is portable across
-*  Windows/macOS/Linux without escaping. */
-function safeIso(d) {
-	return d.toISOString().replace(/:/g, "-");
-}
-/** Write a crash log envelope and return its absolute path. On any IO
-*  failure (EACCES, ENOSPC, unwritable parent), emit a one-line stderr
-*  diagnostic via `deps.writeStderr` and return null. Never throws —
-*  the caller is already in an error boundary and a second fault would
-*  obscure the original cause. */
-async function writeCrashLog(input, depsPartial) {
-	const deps = {
-		...DEFAULT_DEPS,
-		...depsPartial
-	};
-	const now = deps.now();
-	const envelope = {
-		iso: now.toISOString(),
-		version: input.version,
-		argv: [...input.argv],
-		cwd: input.cwd,
-		feature: extractFeature$1(input.argv),
-		phase: input.context?.phase ?? null,
-		sub_state: input.context?.sub_state ?? null,
-		exitCode: 1,
-		error: {
-			name: input.error.name,
-			message: input.error.message,
-			stack: input.error.stack ?? null
-		}
-	};
-	const dir = path.join(deps.homeDir(), ".loaf", "crashes");
-	const file = path.join(dir, `${safeIso(now)}.json`);
-	try {
-		await promises.mkdir(dir, {
-			recursive: true,
-			mode: 448
-		});
-		await promises.chmod(dir, 448);
-		await promises.writeFile(file, JSON.stringify(envelope, null, 2) + "\n", {
-			encoding: "utf8",
-			mode: 384
-		});
-		await promises.chmod(file, 384);
-		return file;
-	} catch (err) {
-		deps.writeStderr(`loaf: crash log unwritable at ${file} — ${err.message}\n`);
-		return null;
-	}
-}
-//#endregion
-//#region src/cli/runtime-i18n-keys.ts
-const STATUS_INDICATOR_KEYS = {
-	done: "status_indicator.done",
-	blocked: "status_indicator.ask",
-	running: "status_indicator.run",
-	idle: "status_indicator.idle"
-};
-const TASK_KIND_KEYS = {
-	behavioral: "task_kind.behavioral",
-	structural: "task_kind.structural",
-	"visual-ui": "task_kind.visual-ui",
-	docs: "task_kind.docs",
-	spike: "task_kind.spike",
-	chore: "task_kind.chore"
-};
-const TASK_STATUS_KEYS = {
-	pending: "task_status.pending",
-	ready: "task_status.ready",
-	in_progress: "task_status.in_progress",
-	done: "task_status.done",
-	abandoned: "task_status.abandoned"
-};
-const EVIDENCE_KIND_KEYS = {
-	"task-summary": "evidence_kind.task-summary",
-	"verify-review": "evidence_kind.verify-review",
-	"spec-review": "evidence_kind.spec-review",
-	acceptance: "evidence_kind.acceptance",
-	"visual-review": "evidence_kind.visual-review",
-	"gate-decision": "evidence_kind.gate-decision",
-	"local-check": "evidence_kind.local-check",
-	manual: "evidence_kind.manual",
-	waiver: "evidence_kind.waiver",
-	"spike-finding": "evidence_kind.spike-finding"
-};
-const VERIFY_CHECK_KIND_KEYS = {
-	run: "verify_check_kind.run",
-	review: "verify_check_kind.review",
-	acceptance: "verify_check_kind.acceptance",
-	visual: "verify_check_kind.visual"
-};
-const APPLICABILITY_KEYS = {
-	must: "applicability.must",
-	optional: "applicability.optional",
-	na: "applicability.na"
-};
-const FINDING_CATEGORY_KEYS = {
-	"spec-gap": "finding_category.spec-gap",
-	"spec-defect": "finding_category.spec-defect",
-	"impl-defect": "finding_category.impl-defect",
-	"test-defect": "finding_category.test-defect",
-	"new-scope": "finding_category.new-scope",
-	"risk-escalation": "finding_category.risk-escalation"
-};
-const FINDING_ACTION_KEYS = {
-	"amend-spec": "finding_action.amend-spec",
-	"amend-tasks": "finding_action.amend-tasks",
-	"fix-impl": "finding_action.fix-impl",
-	"fix-test": "finding_action.fix-test",
-	defer: "finding_action.defer",
-	backlog: "finding_action.backlog"
-};
-const FINDING_STATUS_KEYS = {
-	open: "finding_status.open",
-	closed: "finding_status.closed"
-};
-const PENDING_KIND_KEYS = {
-	ask_user_question: "pending_kind.ask_user_question",
-	gate_decision: "pending_kind.gate_decision",
-	spec_clarification: "pending_kind.spec_clarification",
-	finding_decision: "pending_kind.finding_decision",
-	profile_escalation: "pending_kind.profile_escalation"
-};
-const PHASE_KEYS = {
-	TRIAGE: "phase.TRIAGE",
-	SPEC: "phase.SPEC",
-	EXECUTE: "phase.EXECUTE",
-	VERIFY: "phase.VERIFY",
-	SETTLE: "phase.SETTLE",
-	DONE: "phase.DONE"
-};
-const SUB_STATE_KEYS = {
-	"TRIAGE.score": "sub_state.TRIAGE.score",
-	"TRIAGE.confirm": "sub_state.TRIAGE.confirm",
-	"SPEC.proposal": "sub_state.SPEC.proposal",
-	"SPEC.spec": "sub_state.SPEC.spec",
-	"SPEC.plan": "sub_state.SPEC.plan",
-	"SPEC.design": "sub_state.SPEC.design",
-	"EXECUTE.plan": "sub_state.EXECUTE.plan",
-	"EXECUTE.work": "sub_state.EXECUTE.work",
-	"EXECUTE.done": "sub_state.EXECUTE.done",
-	"VERIFY.plan": "sub_state.VERIFY.plan",
-	"VERIFY.run": "sub_state.VERIFY.run",
-	"VERIFY.review": "sub_state.VERIFY.review",
-	"VERIFY.acceptance": "sub_state.VERIFY.acceptance",
-	"VERIFY.visual": "sub_state.VERIFY.visual",
-	"VERIFY.accept": "sub_state.VERIFY.accept",
-	"SETTLE.lessons": "sub_state.SETTLE.lessons",
-	"DONE.delivered": "sub_state.DONE.delivered",
-	"DONE.archived": "sub_state.DONE.archived",
-	"DONE.abandoned": "sub_state.DONE.abandoned"
-};
-const MIGRATED_DIAGNOSTIC_CODES = [
-	"INVALID_FORMAT",
-	"MUTUALLY_EXCLUSIVE_FLAGS",
-	"DRY_RUN_NOT_APPLICABLE",
-	"SPEC_EDIT_INPUT_REQUIRED",
-	"CONFIG_ALREADY_INITIALIZED",
-	"FEATURE_NOT_FOUND",
-	"FEATURE_AMBIGUOUS",
-	"SESSION_CWD_MISMATCH",
-	"SESSION_SHORT_AMBIGUOUS",
-	"SESSION_NOT_FOUND"
-];
-const DIAGNOSTIC_KEYS = Object.fromEntries(MIGRATED_DIAGNOSTIC_CODES.map((code) => [code, `diagnostic.${code}`]));
-const FAILURE_SITE_KEYS = {
-	sessionsListSelectorConflict: "failure.sessions_list.selector_conflict",
-	tuiSelectorConflict: "failure.tui.selector_conflict",
-	tuiInteractiveOnly: "failure.tui.interactive_only",
-	hookMissingEvent: "failure.hook.missing_event",
-	hookUnknownEvent: "failure.hook.unknown_event",
-	hookStdinParseFailed: "failure.hook.stdin_parse_failed",
-	hookWritePathMissing: "failure.hook.write_path_missing",
-	checkSelectorConflict: "failure.check.selector_conflict",
-	checkKindRequired: "failure.check.kind_required",
-	checkPathMissing: "failure.check.path_missing",
-	checkKindInvalid: "failure.check.kind_invalid",
-	schemaSelectorConflict: "failure.schema.selector_conflict",
-	schemaValidation: "failure.schema.validation",
-	dispatchSessionFeatureDirConflict: "failure.dispatch.session_feature_dir_conflict",
-	dispatchFeatureDirRequiresFeature: "failure.dispatch.feature_dir_requires_feature",
-	startLabelTooShort: "failure.start.label_too_short",
-	startWorkspaceEmpty: "failure.start.workspace_empty",
-	handoffReasonTooShort: "failure.handoff.reason_too_short",
-	handoffPackValidationFailed: "failure.handoff.pack_validation_failed",
-	profileInputFileMissing: "failure.profile.input_file_missing",
-	profileInputFileUnreadable: "failure.profile.input_file_unreadable",
-	tasksAddEmptyArray: "failure.tasks_add.empty_array",
-	lessonsTextTooShort: "failure.lessons.text_too_short",
-	lessonsReasonTooShort: "failure.lessons.reason_too_short",
-	lessonsTextFileMutex: "failure.lessons.text_file_mutex",
-	lessonsFileMissing: "failure.lessons.file_missing",
-	findingStatusInvalid: "failure.finding.status_invalid",
-	journalIntegerInvalid: "failure.journal.integer_invalid",
-	journalKindInvalid: "failure.journal.kind_invalid",
-	journalActorInvalid: "failure.journal.actor_invalid",
-	evidenceCoversInvalid: "failure.evidence.covers_invalid",
-	evidenceTaskInvalid: "failure.evidence.task_invalid",
-	evidenceKindInvalid: "failure.evidence.kind_invalid",
-	writeGuardConfigInvalid: "failure.write_guard.config_invalid",
-	noSessionStatus: "failure.no_session.status",
-	noSessionAdvance: "failure.no_session.advance",
-	noSessionTasks: "failure.no_session.tasks",
-	noSessionPending: "failure.no_session.pending",
-	noSessionFinding: "failure.no_session.finding",
-	noSessionVerify: "failure.no_session.verify",
-	noSessionGeneric: "failure.no_session.generic"
-};
-FAILURE_SITE_KEYS.sessionsListSelectorConflict, FAILURE_SITE_KEYS.tuiSelectorConflict, FAILURE_SITE_KEYS.tuiInteractiveOnly, FAILURE_SITE_KEYS.hookMissingEvent, FAILURE_SITE_KEYS.hookUnknownEvent, FAILURE_SITE_KEYS.hookStdinParseFailed, FAILURE_SITE_KEYS.hookWritePathMissing, FAILURE_SITE_KEYS.checkSelectorConflict, FAILURE_SITE_KEYS.checkKindRequired, FAILURE_SITE_KEYS.checkPathMissing, FAILURE_SITE_KEYS.checkKindInvalid, FAILURE_SITE_KEYS.schemaSelectorConflict, FAILURE_SITE_KEYS.schemaValidation, FAILURE_SITE_KEYS.dispatchSessionFeatureDirConflict, FAILURE_SITE_KEYS.dispatchFeatureDirRequiresFeature, FAILURE_SITE_KEYS.startLabelTooShort, FAILURE_SITE_KEYS.startWorkspaceEmpty, FAILURE_SITE_KEYS.handoffReasonTooShort, FAILURE_SITE_KEYS.handoffPackValidationFailed, FAILURE_SITE_KEYS.profileInputFileMissing, FAILURE_SITE_KEYS.profileInputFileUnreadable, FAILURE_SITE_KEYS.tasksAddEmptyArray, FAILURE_SITE_KEYS.lessonsTextTooShort, FAILURE_SITE_KEYS.lessonsReasonTooShort, FAILURE_SITE_KEYS.lessonsTextFileMutex, FAILURE_SITE_KEYS.lessonsFileMissing, FAILURE_SITE_KEYS.findingStatusInvalid, FAILURE_SITE_KEYS.journalIntegerInvalid, FAILURE_SITE_KEYS.journalKindInvalid, FAILURE_SITE_KEYS.journalActorInvalid, FAILURE_SITE_KEYS.evidenceCoversInvalid, FAILURE_SITE_KEYS.evidenceTaskInvalid, FAILURE_SITE_KEYS.evidenceKindInvalid, FAILURE_SITE_KEYS.writeGuardConfigInvalid, FAILURE_SITE_KEYS.noSessionStatus, FAILURE_SITE_KEYS.noSessionAdvance, FAILURE_SITE_KEYS.noSessionTasks, FAILURE_SITE_KEYS.noSessionPending, FAILURE_SITE_KEYS.noSessionFinding, FAILURE_SITE_KEYS.noSessionVerify, FAILURE_SITE_KEYS.noSessionGeneric;
-const SUCCESS_KEYS = {
-	nextFullCommandPointer: "success.next.full_command_pointer",
-	nextDeliver: "success.next.deliver",
-	nextSettle: "success.next.settle",
-	nextSettleLessons: "success.next.settle_lessons",
-	startStateChange: "success.start.state_change",
-	advanceStateChange: "success.advance.state_change",
-	gateSpecLockApprovedStateChange: "success.gate.spec_lock_approved_state_change",
-	gateVerifyAcceptApprovedStateChange: "success.gate.verify_accept_approved_state_change",
-	gateRejectedStateChange: "success.gate.rejected_state_change",
-	deliverStateChange: "success.deliver.state_change",
-	deliverNext: "success.deliver.next",
-	archiveStateChange: "success.archive.state_change",
-	abandonStateChange: "success.abandon.state_change",
-	spikeConvertStateChange: "success.spike.convert_state_change",
-	profileEscalateStateChange: "success.profile.escalate_state_change",
-	tasksSubmitTextOne: "success.tasks.submit_text_one",
-	tasksSubmitTextMany: "success.tasks.submit_text_many",
-	tasksSubmitStateChange: "success.tasks.submit_state_change",
-	tasksAddTextOne: "success.tasks.add_text_one",
-	tasksAddTextMany: "success.tasks.add_text_many",
-	tasksAddSponsoredTextOne: "success.tasks.add_sponsored_text_one",
-	tasksAddSponsoredTextMany: "success.tasks.add_sponsored_text_many",
-	tasksAddStateChange: "success.tasks.add_state_change",
-	tasksClaimStateChange: "success.tasks.claim_state_change",
-	tasksAbandonStateChange: "success.tasks.abandon_state_change",
-	doctorRebuildTextOne: "success.doctor.rebuild_text_one",
-	doctorRebuildTextMany: "success.doctor.rebuild_text_many",
-	doctorRebuildStateChangeOne: "success.doctor.rebuild_state_change_one",
-	doctorRebuildStateChangeMany: "success.doctor.rebuild_state_change_many",
-	snapshotAsOfSeq: "success.snapshot.as_of_seq",
-	amendSponsoredText: "success.amend.sponsored_text",
-	amendPolicyText: "success.amend.policy_text",
-	amendStateChange: "success.amend.state_change",
-	tasksRegisterRedStateChange: "success.tasks.register_red_state_change",
-	stepStartStateChange: "success.step.start_state_change",
-	stepDoneText: "success.step.done_text",
-	stepDoneEvidenceSuffix: "success.step.done_evidence_suffix",
-	stepDonePromoteSuffix: "success.step.done_promote_suffix",
-	stepDoneStateChange: "success.step.done_state_change",
-	settleStateChange: "success.settle.state_change",
-	settleText: "success.settle.text",
-	resumeStateChange: "success.resume.state_change",
-	handoffStateChange: "success.handoff.state_change",
-	pendingRaiseStateChange: "success.pending.raise_state_change",
-	pendingResolveText: "success.pending.resolve_text",
-	pendingResolveStateChange: "success.pending.resolve_state_change",
-	waiveStateChange: "success.waive.state_change",
-	lessonsAddStateChange: "success.lessons.add_state_change",
-	evidenceCoversNone: "success.evidence.covers_none",
-	evidenceAddStateChangeSingle: "success.evidence.add_state_change_single",
-	evidenceAddStateChangeBatchHomogeneous: "success.evidence.add_state_change_batch_homogeneous",
-	evidenceAddStateChangeBatchMixed: "success.evidence.add_state_change_batch_mixed",
-	findingCloseText: "success.finding.close_text",
-	findingCloseStateChange: "success.finding.close_state_change",
-	specSubmitText: "success.spec.submit_text",
-	specSubmitStateChange: "success.spec.submit_state_change",
-	specSubmitNext: "success.spec.submit_next",
-	specInitStateChange: "success.spec.init_state_change",
-	specInitNext: "success.spec.init_next",
-	specEditText: "success.spec.edit_text",
-	specEditStateChange: "success.spec.edit_state_change",
-	specEditInputStateChange: "success.spec.edit_input_state_change",
-	specAddReqTextOne: "success.spec.add_req_text_one",
-	specAddReqTextMany: "success.spec.add_req_text_many",
-	specAddReqStateChangeOne: "success.spec.add_req_state_change_one",
-	specAddReqStateChangeMany: "success.spec.add_req_state_change_many",
-	specAddScenarioTextOne: "success.spec.add_scenario_text_one",
-	specAddScenarioTextMany: "success.spec.add_scenario_text_many",
-	specAddScenarioStateChangeOne: "success.spec.add_scenario_state_change_one",
-	specAddScenarioStateChangeMany: "success.spec.add_scenario_state_change_many",
-	specAddVisualTextOne: "success.spec.add_visual_text_one",
-	specAddVisualTextMany: "success.spec.add_visual_text_many",
-	specAddVisualStateChangeOne: "success.spec.add_visual_state_change_one",
-	specAddVisualStateChangeMany: "success.spec.add_visual_state_change_many"
-};
-const CHROME_KEYS = {
-	statusFeature: "chrome.status.feature",
-	statusPhase: "chrome.status.phase",
-	statusCursor: "chrome.status.cursor",
-	statusTail: "chrome.status.tail",
-	statusCounts: "chrome.status.counts",
-	statusSnapshotAsOfProjectionLoader: "chrome.status.snapshot_as_of_projection_loader",
-	tasksListEmptyFiltered: "chrome.tasks.list_empty_filtered",
-	tasksListEmpty: "chrome.tasks.list_empty",
-	tasksListReadyMarker: "chrome.tasks.ready_marker",
-	tasksListRow: "chrome.tasks.list_row",
-	tasksListRowReady: "chrome.tasks.list_row_ready",
-	tasksCompleteText: "chrome.tasks.complete_text",
-	pendingListRow: "chrome.pending.list_row",
-	pendingStatusNoOpen: "chrome.pending.no_open",
-	pendingOpen: "chrome.pending.open",
-	pendingResolved: "chrome.pending.resolved",
-	pendingHead: "chrome.pending.head",
-	pendingNonHead: "chrome.pending.non_head",
-	findingListRow: "chrome.finding.list_row",
-	journalListRow: "chrome.journal.list_row",
-	journalListRowBatch: "chrome.journal.list_row_batch",
-	journalListEmpty: "chrome.journal.list_empty",
-	evidenceListRow: "chrome.evidence.list_row",
-	evidenceListEmpty: "chrome.evidence.list_empty",
-	evidenceCompatibilityWarning: "chrome.evidence.compatibility_warning",
-	specStatusPass: "chrome.spec_status.pass",
-	specStatusFailureRow: "chrome.spec_status.failure_row",
-	specStatusSuppressedRow: "chrome.spec_status.suppressed_row",
-	sessionsListEmpty: "chrome.sessions.empty",
-	sessionsWarning: "chrome.sessions.warning",
-	sessionsActionSkipped: "chrome.sessions.action_skipped",
-	sessionsActionFilteredOut: "chrome.sessions.action_filtered_out",
-	sessionsActionOrphanCwd: "chrome.sessions.action_orphan_cwd",
-	relativeJustNow: "chrome.relative.just_now",
-	relativeMinuteOne: "chrome.relative.minute_one",
-	relativeMinuteMany: "chrome.relative.minute_many",
-	relativeHourOne: "chrome.relative.hour_one",
-	relativeHourMany: "chrome.relative.hour_many",
-	relativeDayOne: "chrome.relative.day_one",
-	relativeDayMany: "chrome.relative.day_many",
-	checkOk: "chrome.check.ok",
-	verifyStatusPass: "chrome.verify_status.pass",
-	verifyStatusFail: "chrome.verify_status.fail",
-	verifyStatusNa: "chrome.verify_status.na",
-	verifyStatusCheckLaneStatus: "chrome.verify_status.check_lane_status",
-	verifyStatusCheckOpenFindings: "chrome.verify_status.check_open_findings",
-	verifyStatusCheckCoverage: "chrome.verify_status.check_coverage",
-	verifyStatusCheckTaskEvidence: "chrome.verify_status.check_task_evidence",
-	verifyStatusCheckSpecReview: "chrome.verify_status.check_spec_review",
-	verifyStatusCheckDeferredFindings: "chrome.verify_status.check_deferred_findings",
-	verifyStatusInfo: "chrome.verify_status.info",
-	verifyStatusDeferredSummary: "chrome.verify_status.deferred_summary",
-	verifyStatusFailureSummaryOne: "chrome.verify_status.failure_summary_one",
-	verifyStatusFailureSummaryMany: "chrome.verify_status.failure_summary_many",
-	verifyStatusDiagnosticOnly: "chrome.verify_status.diagnostic_only",
-	verifyStatusLaneLabel: "chrome.verify_status.lane_label",
-	verifyStatusLaneReason: "chrome.verify_status.lane_reason",
-	verifyStatusLaneReasonNoDoneTasks: "chrome.verify_status.lane_reason_no_done_tasks",
-	verifyStatusLaneReasonNoReviewObligations: "chrome.verify_status.lane_reason_no_review_obligations",
-	verifyStatusLaneReasonNoE2eScenarios: "chrome.verify_status.lane_reason_no_e2e_scenarios",
-	verifyStatusLaneReasonNoVisualContracts: "chrome.verify_status.lane_reason_no_visual_contracts",
-	tuiListTitle: "chrome.tui.list.title",
-	tuiListSort: "chrome.tui.list.sort",
-	tuiListSortTime: "chrome.tui.list.sort_time",
-	tuiListSortStatus: "chrome.tui.list.sort_status",
-	tuiListReloading: "chrome.tui.list.reloading",
-	tuiListEmpty: "chrome.tui.list.empty",
-	tuiListHelp: "chrome.tui.list.help",
-	tuiListRowIteration: "chrome.tui.list.row_iteration",
-	tuiDetailTitle: "chrome.tui.detail.title",
-	tuiDetailHelp: "chrome.tui.detail.help",
-	tuiDetailNoSelected: "chrome.tui.detail.no_selected",
-	tuiDetailLoading: "chrome.tui.detail.loading",
-	tuiDetailMissingTitle: "chrome.tui.detail.missing_title",
-	tuiDetailMissingMessage: "chrome.tui.detail.missing_message",
-	tuiDetailStaleTitle: "chrome.tui.detail.stale_title",
-	tuiDetailStaleMessage: "chrome.tui.detail.stale_message",
-	tuiDetailErrorTitle: "chrome.tui.detail.error_title",
-	tuiDetailNone: "chrome.tui.detail.none",
-	tuiDetailBooleanTrue: "chrome.tui.detail.boolean_true",
-	tuiDetailBooleanFalse: "chrome.tui.detail.boolean_false",
-	tuiDetailFieldFeature: "chrome.tui.detail.field_feature",
-	tuiDetailFieldSession: "chrome.tui.detail.field_session",
-	tuiDetailFieldLabel: "chrome.tui.detail.field_label",
-	tuiDetailFieldWorkspace: "chrome.tui.detail.field_workspace",
-	tuiDetailFieldCeremony: "chrome.tui.detail.field_ceremony",
-	tuiDetailFieldPhase: "chrome.tui.detail.field_phase",
-	tuiDetailFieldIteration: "chrome.tui.detail.field_iteration",
-	tuiDetailFieldComplexity: "chrome.tui.detail.field_complexity",
-	tuiDetailFieldBasedOn: "chrome.tui.detail.field_based_on",
-	tuiDetailFieldCreated: "chrome.tui.detail.field_created",
-	tuiDetailFieldUpdated: "chrome.tui.detail.field_updated",
-	tuiDetailFieldSpecLocked: "chrome.tui.detail.field_spec_locked",
-	tuiDetailFieldVerifyAccepted: "chrome.tui.detail.field_verify_accepted",
-	tuiDetailFieldSpecVersion: "chrome.tui.detail.field_spec_version",
-	tuiDetailFieldTailSeq: "chrome.tui.detail.field_tail_seq",
-	tuiDetailSectionTasks: "chrome.tui.detail.section_tasks",
-	tuiDetailSectionEvidence: "chrome.tui.detail.section_evidence",
-	tuiDetailSectionOpenFindings: "chrome.tui.detail.section_open_findings",
-	tuiDetailSectionPending: "chrome.tui.detail.section_pending",
-	tuiDetailEvidenceBadgePass: "chrome.tui.detail.evidence_badge_pass",
-	tuiDetailEvidenceBadgeFail: "chrome.tui.detail.evidence_badge_fail",
-	tuiDetailEvidenceBadgeWaived: "chrome.tui.detail.evidence_badge_waived",
-	tuiDetailSidecarSummary: "chrome.tui.detail.sidecar_summary",
-	tuiDetailStepSummary: "chrome.tui.detail.step_summary",
-	tuiDetailRowSteps: "chrome.tui.detail.row_steps",
-	tuiDetailRowIteration: "chrome.tui.detail.row_iteration",
-	tuiDetailRowTask: "chrome.tui.detail.row_task",
-	tuiDetailRowTarget: "chrome.tui.detail.row_target",
-	tuiDetailRowBlocks: "chrome.tui.detail.row_blocks",
-	tuiDetailRowOptions: "chrome.tui.detail.row_options"
-};
-[
-	...Object.values(STATUS_INDICATOR_KEYS),
-	...Object.values(TASK_KIND_KEYS),
-	...Object.values(TASK_STATUS_KEYS),
-	...Object.values(EVIDENCE_KIND_KEYS),
-	...Object.values(VERIFY_CHECK_KIND_KEYS),
-	...Object.values(APPLICABILITY_KEYS),
-	...Object.values(FINDING_CATEGORY_KEYS),
-	...Object.values(FINDING_ACTION_KEYS),
-	...Object.values(FINDING_STATUS_KEYS),
-	...Object.values(PENDING_KIND_KEYS),
-	...Object.values(PHASE_KEYS),
-	...Object.values(SUB_STATE_KEYS),
-	...Object.values(DIAGNOSTIC_KEYS),
-	...Object.values(FAILURE_SITE_KEYS),
-	...Object.values(SUCCESS_KEYS),
-	...Object.values(CHROME_KEYS)
-];
-function statusIndicatorKey(bucket) {
-	return STATUS_INDICATOR_KEYS[bucket];
-}
-function taskKindKey(kind) {
-	return TASK_KIND_KEYS[kind];
-}
-function taskStatusKey(status) {
-	return TASK_STATUS_KEYS[status];
-}
-function evidenceKindKey(kind) {
-	return EVIDENCE_KIND_KEYS[kind];
-}
-function verifyCheckKindKey(kind) {
-	return VERIFY_CHECK_KIND_KEYS[kind];
-}
-function applicabilityKey(applicability) {
-	return APPLICABILITY_KEYS[applicability];
-}
-function findingCategoryKey(category) {
-	return FINDING_CATEGORY_KEYS[category];
-}
-function findingActionKey(action) {
-	return FINDING_ACTION_KEYS[action];
-}
-function findingStatusKey(status) {
-	return FINDING_STATUS_KEYS[status];
-}
-function pendingKindKey(kind) {
-	return PENDING_KIND_KEYS[kind];
-}
-function phaseKey(phase) {
-	return PHASE_KEYS[phase];
-}
-function subStateKey(subState) {
-	return SUB_STATE_KEYS[subState];
-}
-function diagnosticKey(code) {
-	return DIAGNOSTIC_KEYS[code];
-}
-//#endregion
 //#region src/core/error-catalog.ts
 const TemplateKey = z.string().regex(/^[A-Za-z0-9_]+$/);
 const DiagnosticTemplate = z.object({
@@ -818,20 +324,12 @@ const ERROR_CATALOG = {
 	},
 	INVALID_LOCALE: {
 		exit_code: 2,
-		message_template: "invalid locale from {source}: {value} (expected {accepted})",
-		zh_message_template: "locale 来源 {source} 的值无效:{value}(期望:{accepted})",
+		message_template: "invalid locale from {source} (expected {accepted})",
+		zh_message_template: "locale 来源 {source} 的值无效(期望:{accepted})",
 		fix_template: "unset the locale override or set it to one of: {accepted}; user preferences live in ~/.loaf/config.json locale.default_lang",
-		template_keys: [
-			"accepted",
-			"source",
-			"value"
-		],
+		template_keys: ["accepted", "source"],
 		doc_anchor: "docs/adr/0006-runtime-i18n-and-user-config.md",
-		detail_keys: [
-			"accepted",
-			"source",
-			"value"
-		]
+		detail_keys: ["accepted", "source"]
 	},
 	DRY_RUN_NOT_APPLICABLE: {
 		exit_code: 2,
@@ -2416,7 +1914,7 @@ var en_default = {
 		"MUTUALLY_EXCLUSIVE_FLAGS": "mutually exclusive flags in the same invocation: {flags}",
 		"INVALID_ENV_VALUE": "environment variable {env_name}={value} is not in the accepted enum: {accepted}",
 		"INVALID_FORMAT": "invalid --format value '{value}'; allowed: {allowed_values_human}",
-		"INVALID_LOCALE": "invalid locale from {source}: {value} (expected {accepted})",
+		"INVALID_LOCALE": "invalid locale from {source} (expected {accepted})",
 		"DRY_RUN_NOT_APPLICABLE": "--dry-run not applicable to {command_type} command `{command}`",
 		"HOOK_EVENT_NOT_IMPLEMENTED": "hook event `{event}` is not implemented in this loaf version (Phase 16 SC-15{sub_cycle} pending; see protocol §11)",
 		"TASK_STATUS_WITHOUT_PROOF": "task {task_id} status change requires evidence: status={status} has no PASSING covering evidence proof in evidence.jsonl",
@@ -2790,73 +2288,6 @@ var en_default = {
 			"kind_invalid": "Run the command with --help and retry with the required flags/arguments."
 		}
 	} },
-	failure: {
-		"sessions_list": { "selector_conflict": "sessions list does not accept {conflicting} — it lists across all sessions; use --in-cwd to filter" },
-		"tui": {
-			"selector_conflict": "tui does not accept {conflicting} — it lists across all sessions; selectors are nonsensical for an interactive UI",
-			"interactive_only": "tui is interactive-only; use `loaf sessions list --format json` for scriptable session output"
-		},
-		"hook": {
-			"missing_event": "loaf hook requires an event token; one of: {events}. Run `loaf hook --list-events` for the full enum",
-			"unknown_event": "unknown hook event '{event}'; expected one of: {allowed}. Did you mean '{suggestion}'?",
-			"stdin_parse_failed": "{reason}",
-			"write_path_missing": "write-side hook requires --path <P> or a non-TTY stdin hook payload (tool_input.file_path)"
-		},
-		"check": {
-			"selector_conflict": "check does not accept {conflicting} — it validates a file by path, independent of any feature session",
-			"kind_required": "`{subject}` is not a file path. To validate a {kind} artifact, pass its path: `{suggestion}` (noun-first `loaf {kind} check` is reserved for a future release)",
-			"path_missing": "file not found: {path}",
-			"kind_invalid": "--kind '{value}' is not recognized; expected one of {allowed_kinds_human}"
-		},
-		"schema": {
-			"selector_conflict": "{subject} does not accept {conflicting} — schema dumps are feature-agnostic",
-			"validation": "{kind} at {path} failed schema validation ({error_count} {error_word})"
-		},
-		"dispatch": {
-			"session_feature_dir_conflict": "{conflicting} cannot be combined with --feature-dir (session identity comes from registry; manual featureDir is contradictory)",
-			"feature_dir_requires_feature": "--feature-dir requires --feature <name> or $LOAF_FEATURE to name the feature"
-		},
-		"start": {
-			"label_too_short": "--label must be at least {min_length} characters",
-			"workspace_empty": "--workspace must not be empty"
-		},
-		"handoff": {
-			"reason_too_short": "--reason must be ≥{min_length} chars (got {reason_length})",
-			"pack_validation_failed": "ResumePack failed runtime validation (builder bug or schema drift)"
-		},
-		"profile": {
-			"input_file_missing": "input file does not exist: {path}",
-			"input_file_unreadable": "cannot read input file {path}: {error}"
-		},
-		"tasks_add": { "empty_array": "tasks add input is an empty array" },
-		"lessons": {
-			"text_too_short": "lesson text must be ≥{min_length} chars (got {lesson_text_length})",
-			"reason_too_short": "--reason must be ≥{min_length} chars (got {reason_length})",
-			"text_file_mutex": "exactly one of --text or --file required ({provided_state})",
-			"file_missing": "lesson file not found: {path}"
-		},
-		"finding": { "status_invalid": "--status must be one of: {allowed_statuses_human} (got {value})" },
-		"journal": {
-			"integer_invalid": "{flag} must be an integer >= {minimum} (got {value})",
-			"kind_invalid": "--kind must be a registered journal kind (got {value})",
-			"actor_invalid": "--actor must be a non-empty actor prefix or full actor string"
-		},
-		"evidence": {
-			"covers_invalid": "--covers must be a valid coverage id (got {value})",
-			"task_invalid": "--task must be a valid task id (got {value})",
-			"kind_invalid": "--kind must be one of: {allowed_kinds_human}"
-		},
-		"write_guard": { "config_invalid": "write-guard blocked: {reason}" },
-		"no_session": {
-			"status": "run `loaf start {feature}` first",
-			"advance": "run `loaf start {feature}` first",
-			"tasks": "run `loaf start {feature}` first",
-			"pending": "run `loaf start {feature}` first",
-			"finding": "run `loaf start {feature}` first",
-			"verify": "run `loaf start {feature}` first",
-			"generic": "run `loaf start {feature}` first"
-		}
-	},
 	success: {
 		"next": {
 			"full_command_pointer": "run `{command}` for the full command",
@@ -3342,7 +2773,7 @@ var zh_default = {
 		"PRUNE_PARTIAL_FAILURE": "prune 部分失败:有 session 未能删除",
 		"MUTUALLY_EXCLUSIVE_FLAGS": "同一次调用使用了互斥的 flags:{flags}",
 		"INVALID_FORMAT": "无效的 --format 值 '{value}';合法值:{allowed_values_human}",
-		"INVALID_LOCALE": "locale 来源 {source} 的值无效:{value}(期望:{accepted})",
+		"INVALID_LOCALE": "locale 来源 {source} 的值无效(期望:{accepted})",
 		"DRY_RUN_NOT_APPLICABLE": "--dry-run 不适用于{command_type}命令 `{command}`",
 		"HOOK_EVENT_NOT_IMPLEMENTED": "hook event `{event}` 在当前 loaf 版本未实装(Phase 16 SC-15{sub_cycle} 待实现;详 protocol §11)",
 		"MISSING_VERIFIABILITY": "需求 {req_id} 必须声明 measurable、verified_by_scenarios[] 或 acceptance_na+reason 三选一",
@@ -3473,73 +2904,6 @@ var zh_default = {
 		}
 	} },
 	diagnostic_variant_fix: {},
-	failure: {
-		"sessions_list": { "selector_conflict": "sessions list 不接受 {conflicting} —— 它会跨全部 session 列表;如需过滤当前 cwd,使用 --in-cwd" },
-		"tui": {
-			"selector_conflict": "tui 不接受 {conflicting} —— 它会跨全部 session 列表;selector 对交互 UI 没有意义",
-			"interactive_only": "tui 仅支持交互模式;脚本化 session 输出请使用 `loaf sessions list --format json`"
-		},
-		"hook": {
-			"missing_event": "loaf hook 需要 event token;可选值:{events}. 运行 `loaf hook --list-events` 查看完整枚举",
-			"unknown_event": "未知 hook event '{event}';期望值:{allowed}. 你是不是想输入 '{suggestion}'?",
-			"stdin_parse_failed": "hook stdin payload 解析失败:{reason}",
-			"write_path_missing": "write-side hook 需要 --path <P> 或非 TTY stdin hook payload(tool_input.file_path)"
-		},
-		"check": {
-			"selector_conflict": "check 不接受 {conflicting} —— 它按路径校验文件,独立于 feature session",
-			"kind_required": "`{subject}` 不是文件路径. 如需校验 {kind} artifact,需要显式路径: `{suggestion}`(noun-first `loaf {kind} check` 预留给未来版本)",
-			"path_missing": "input file 不存在:{path}",
-			"kind_invalid": "--kind 必须是 {allowed_kinds_human};当前为 '{value}'"
-		},
-		"schema": {
-			"selector_conflict": "{subject} 不接受 {conflicting} —— schema dump 与 feature 无关",
-			"validation": "{kind} at {path} 校验失败({error_count} {error_word})"
-		},
-		"dispatch": {
-			"session_feature_dir_conflict": "{conflicting} 不能与 --feature-dir 一起使用(session identity 来自 registry;手动 featureDir 会矛盾)",
-			"feature_dir_requires_feature": "--feature-dir 需要 --feature <name> 或 $LOAF_FEATURE 来命名 feature"
-		},
-		"start": {
-			"label_too_short": "--label 至少需要 {min_length} 个字符",
-			"workspace_empty": "--workspace 不能为空"
-		},
-		"handoff": {
-			"reason_too_short": "--reason 必须 ≥{min_length} 字符(当前 {reason_length})",
-			"pack_validation_failed": "ResumePack 运行时校验失败(builder bug 或 schema drift)"
-		},
-		"profile": {
-			"input_file_missing": "input file 不存在:{path}",
-			"input_file_unreadable": "无法读取 input file {path}:{error}"
-		},
-		"tasks_add": { "empty_array": "tasks add 输入不能为空数组" },
-		"lessons": {
-			"text_too_short": "lesson text 必须 ≥{min_length} 字符(当前 {lesson_text_length})",
-			"reason_too_short": "--reason 必须 ≥{min_length} 字符(当前 {reason_length})",
-			"text_file_mutex": "--text 和 --file 必须二选一({provided_state})",
-			"file_missing": "lesson file 不存在:{path}"
-		},
-		"finding": { "status_invalid": "--status 必须是:{allowed_statuses_human}(当前 {value})" },
-		"journal": {
-			"integer_invalid": "{flag} 必须是 >= {minimum} 的整数(当前 {value})",
-			"kind_invalid": "--kind 必须是已注册的 journal kind(当前 {value})",
-			"actor_invalid": "--actor 必须是非空 actor 前缀或完整 actor 字符串"
-		},
-		"evidence": {
-			"covers_invalid": "--covers 必须是有效的 coverage id(当前 {value})",
-			"task_invalid": "--task 必须是有效的 task id(当前 {value})",
-			"kind_invalid": "--kind 必须是:{allowed_kinds_human}"
-		},
-		"write_guard": { "config_invalid": "write-guard 被拦截:{reason}" },
-		"no_session": {
-			"status": "先跑 `loaf start {feature}`",
-			"advance": "先跑 `loaf start {feature}`",
-			"tasks": "先跑 `loaf start {feature}`",
-			"pending": "先跑 `loaf start {feature}`",
-			"finding": "先跑 `loaf start {feature}`",
-			"verify": "先跑 `loaf start {feature}`",
-			"generic": "先跑 `loaf start {feature}`"
-		}
-	},
 	success: {
 		"next": {
 			"full_command_pointer": "运行 `{command}` 获取完整命令",
@@ -3833,7 +3197,6 @@ function invalidLocale(source, value) {
 	return {
 		ok: false,
 		code: "INVALID_LOCALE",
-		message: `invalid locale from ${source}: ${String(value)} (expected en or zh)`,
 		detail: {
 			source,
 			value,
@@ -3878,9 +3241,9 @@ function resolveLocale(input) {
 	if (input.userConfig?.status === "invalid") return {
 		ok: false,
 		code: "INVALID_LOCALE",
-		message: `invalid locale config at ${input.userConfig.path}: ${input.userConfig.reason}`,
 		detail: {
 			source: "user-config",
+			accepted: [...LOCALES],
 			path: input.userConfig.path,
 			reason: input.userConfig.reason
 		}
@@ -3936,61 +3299,6 @@ function createI18n(locale, bundles) {
 }
 //#endregion
 //#region src/cli/diagnostic-failure.ts
-/** "text|json" — mirrors FORMAT_MODES_HUMAN in command-context.ts without importing it. */
-const FORMAT_MODES_HUMAN$2 = "text|json";
-function varsIfDefined(vars) {
-	for (const value of Object.values(vars)) if (value === null) return null;
-	return vars;
-}
-function stringVar(value) {
-	if (typeof value === "string") return value;
-	if (typeof value === "number" || typeof value === "boolean") return String(value);
-	return null;
-}
-function numberVar(value) {
-	return typeof value === "number" ? value : null;
-}
-function listVar(value) {
-	if (Array.isArray(value)) return value.map((item) => String(item)).join(", ");
-	return stringVar(value);
-}
-function migratedDiagnosticVarsFor(code, detail) {
-	switch (code) {
-		case "INVALID_FORMAT": return varsIfDefined({
-			value: stringVar(detail?.["value"]),
-			allowed_values_human: stringVar(detail?.["allowed_values_human"]) ?? FORMAT_MODES_HUMAN$2
-		});
-		case "MUTUALLY_EXCLUSIVE_FLAGS": return varsIfDefined({ flags: listVar(detail?.["conflicting"]) });
-		case "DRY_RUN_NOT_APPLICABLE": return varsIfDefined({
-			command_type: stringVar(detail?.["command_type"]),
-			command: stringVar(detail?.["command"])
-		});
-		case "SPEC_EDIT_INPUT_REQUIRED": return {};
-		case "CONFIG_ALREADY_INITIALIZED": return varsIfDefined({ config_path: stringVar(detail?.["config_path"]) });
-		case "FEATURE_NOT_FOUND": return {};
-		case "FEATURE_AMBIGUOUS": return varsIfDefined({
-			count: numberVar(detail?.["count"]),
-			feature_list: listVar(detail?.["feature_list"])
-		});
-		case "SESSION_CWD_MISMATCH": return varsIfDefined({
-			uuid: stringVar(detail?.["uuid"]),
-			registered_cwd: stringVar(detail?.["registered_cwd"]),
-			current_cwd: stringVar(detail?.["current_cwd"])
-		});
-		case "SESSION_SHORT_AMBIGUOUS": return varsIfDefined({
-			prefix: stringVar(detail?.["prefix"]),
-			match_count: numberVar(detail?.["match_count"]),
-			candidate_list: listVar(detail?.["candidate_list"])
-		});
-		case "SESSION_NOT_FOUND": return varsIfDefined({ uuid_or_prefix: stringVar(detail?.["uuid_or_prefix"]) });
-	}
-	return code;
-}
-const MIGRATED_DIAGNOSTIC_CODE_SET = new Set(MIGRATED_DIAGNOSTIC_CODES);
-function diagnosticVarsFor(code, detail) {
-	if (!MIGRATED_DIAGNOSTIC_CODE_SET.has(code)) return null;
-	return migratedDiagnosticVarsFor(code, detail);
-}
 function catalogVars(template, detail) {
 	const vars = {};
 	for (const key of template.template_keys) {
@@ -4069,6 +3377,95 @@ function writeDiagnosticFailure(diagnostic, presentation) {
 		presentation.writeStderr(output);
 	}
 	return parent.exit_code;
+}
+//#endregion
+//#region package.json
+var version = "0.10.0";
+//#endregion
+//#region src/core/crash-log.ts
+/** Sentinel code stamped into the JSON envelope and (when
+*  `--format json` is set) onto the boundary stderr payload. Lives
+*  here, not in src/cli.tsx, so the SC-0 inventory regex
+*  (`code: "CODE"` scan over cli.tsx) does NOT pick it up as an
+*  uncataloged DiagnosticCode emit. */
+const UNEXPECTED_ERROR = "UNEXPECTED_ERROR";
+z.object({
+	iso: z.string(),
+	version: z.string(),
+	argv: z.array(z.string()),
+	cwd: z.string(),
+	feature: z.string().nullable(),
+	phase: z.string().nullable(),
+	sub_state: z.string().nullable(),
+	exitCode: z.literal(1),
+	error: z.object({
+		name: z.string(),
+		message: z.string(),
+		stack: z.string().nullable()
+	})
+});
+const DEFAULT_DEPS = {
+	now: () => /* @__PURE__ */ new Date(),
+	homeDir: () => os.homedir(),
+	writeStderr: (s) => process.stderr.write(s)
+};
+/** Best-effort `--feature <NAME>` extractor. Stays in this module so the
+*  boundary doesn't have to know argv shape; null on miss. */
+function extractFeature$1(argv) {
+	const i = argv.indexOf("--feature");
+	if (i < 0 || i + 1 >= argv.length) return null;
+	const v = argv[i + 1];
+	return v && !v.startsWith("--") ? v : null;
+}
+/** ISO 8601 with `:` replaced so the filename is portable across
+*  Windows/macOS/Linux without escaping. */
+function safeIso(d) {
+	return d.toISOString().replace(/:/g, "-");
+}
+/** Write a crash log envelope and return its absolute path. On any IO
+*  failure (EACCES, ENOSPC, unwritable parent), emit a one-line stderr
+*  diagnostic via `deps.writeStderr` and return null. Never throws —
+*  the caller is already in an error boundary and a second fault would
+*  obscure the original cause. */
+async function writeCrashLog(input, depsPartial) {
+	const deps = {
+		...DEFAULT_DEPS,
+		...depsPartial
+	};
+	const now = deps.now();
+	const envelope = {
+		iso: now.toISOString(),
+		version: input.version,
+		argv: [...input.argv],
+		cwd: input.cwd,
+		feature: extractFeature$1(input.argv),
+		phase: input.context?.phase ?? null,
+		sub_state: input.context?.sub_state ?? null,
+		exitCode: 1,
+		error: {
+			name: input.error.name,
+			message: input.error.message,
+			stack: input.error.stack ?? null
+		}
+	};
+	const dir = path.join(deps.homeDir(), ".loaf", "crashes");
+	const file = path.join(dir, `${safeIso(now)}.json`);
+	try {
+		await promises.mkdir(dir, {
+			recursive: true,
+			mode: 448
+		});
+		await promises.chmod(dir, 448);
+		await promises.writeFile(file, JSON.stringify(envelope, null, 2) + "\n", {
+			encoding: "utf8",
+			mode: 384
+		});
+		await promises.chmod(file, 384);
+		return file;
+	} catch (err) {
+		deps.writeStderr(`loaf: crash log unwritable at ${file} — ${err.message}\n`);
+		return null;
+	}
 }
 const SchemaVersionPayload = z.literal(2);
 const ReqIdPayload = z.string().regex(/^REQ-[A-Z][A-Z0-9]*-\d{3,}$/);
@@ -9847,12 +9244,6 @@ function createCommandContext(argv, deps) {
 				}
 			}
 		},
-		failure(code, message, detail) {
-			writeFailure(code, message, detail);
-		},
-		failureKeyed(code, keyPath, vars, detail) {
-			writeFailure(code, output === "json" ? DEFAULT_I18N.t(keyPath, vars) : i18n.t(keyPath, vars), detail);
-		},
 		snapshotCrashContext() {
 			return {
 				phase: phaseOf(lastResolvedSubState),
@@ -9876,21 +9267,12 @@ function createCommandContext(argv, deps) {
 			if (quiet) return;
 			deps.writeStderr(`loaf: ${line}\n`);
 		},
-		fail(code, message) {
-			if (!emitKeyedFailure(code, void 0)) writeFailure(code, message);
-		},
-		diagnosticFailure(diagnostic) {
+		failure(diagnostic) {
 			exitCode = writeDiagnosticFailure(diagnostic, {
 				format: output,
 				i18n,
 				writeStderr: deps.writeStderr
 			});
-		},
-		emitFailure(code, message, detail) {
-			if (!emitKeyedFailure(code, detail)) writeFailure(code, message, detail);
-		},
-		emitNoSessionFailure(keyPath, feature, detail) {
-			ctx.failureKeyed("NO_SESSION", keyPath, { feature }, detail);
 		},
 		resolveHumanActorOrFail() {
 			const isInteractive = (deps.isInteractiveHuman?.() ?? process.stdin.isTTY === true) && !noInput;
@@ -9901,7 +9283,7 @@ function createCommandContext(argv, deps) {
 				isInteractiveHuman: isInteractive
 			});
 			if (!r.ok) {
-				ctx.diagnosticFailure(r);
+				ctx.failure(r);
 				return null;
 			}
 			return r.actor;
@@ -9909,7 +9291,7 @@ function createCommandContext(argv, deps) {
 		async dispatchOrFail(opts) {
 			const dispatch = await ctx.resolveDispatch();
 			if (!dispatch.ok) {
-				ctx.diagnosticFailure(dispatch);
+				ctx.failure(dispatch);
 				return null;
 			}
 			if (dispatch.autoPickAdvisory) ctx.advisory(dispatch.autoPickAdvisory);
@@ -9944,12 +9326,15 @@ function createCommandContext(argv, deps) {
 				if (!readStdin) throw new Error("CommandContext: readStdin dep not provided; cannot resolveHookPath from stdin");
 				const parsed = parseHookStdinPath(await readStdin());
 				if (!parsed.ok) {
-					ctx.failureKeyed("SCHEMA_VALIDATION_FAILED", FAILURE_SITE_KEYS.hookStdinParseFailed, { reason: parsed.reason }, { source: "hook-stdin" });
+					ctx.failure(diagnosticVariant("failure.hook.stdin_parse_failed", {
+						reason: parsed.reason,
+						source: "hook-stdin"
+					}));
 					return null;
 				}
 				return parsed.path;
 			}
-			ctx.failureKeyed("USAGE", FAILURE_SITE_KEYS.hookWritePathMissing, {}, {});
+			ctx.failure(diagnosticVariant("failure.hook.write_path_missing", {}));
 			return null;
 		},
 		async resolveDispatchForWriteGuard(opts) {
@@ -9977,10 +9362,10 @@ function createCommandContext(argv, deps) {
 		},
 		rejectIfDryRun(command, commandType = "read-only") {
 			if (dryRun) {
-				ctx.emitFailure("DRY_RUN_NOT_APPLICABLE", `--dry-run not applicable to ${commandType} command \`${command}\``, {
+				ctx.failure(diagnostic$2("DRY_RUN_NOT_APPLICABLE", {
 					command,
 					command_type: commandType
-				});
+				}));
 				return true;
 			}
 			return false;
@@ -9995,47 +9380,20 @@ function createCommandContext(argv, deps) {
 				});
 			} catch (err) {
 				if (err instanceof NoSessionError) {
-					ctx.emitNoSessionFailure(noSessionKey, feature, err.detail);
+					ctx.failure(diagnosticVariant(noSessionKey, {
+						...err.detail,
+						feature
+					}));
 					return null;
 				}
 				if (err instanceof SnapshotStaleError) {
-					ctx.diagnosticFailure(err);
+					ctx.failure(err);
 					return null;
 				}
 				throw err;
 			}
 		}
 	};
-	function emitKeyedFailure(code, detail) {
-		const vars = diagnosticVarsFor(code, detail);
-		if (vars === null) return false;
-		ctx.failureKeyed(code, diagnosticKey(code), vars, detail);
-		return true;
-	}
-	function writeFailure(code, message, detail) {
-		if (output === "json") {
-			const out = {
-				ok: false,
-				code,
-				message
-			};
-			if (detail !== void 0) out["detail"] = detail;
-			deps.writeStderr(JSON.stringify(out) + "\n");
-		} else {
-			deps.writeStderr(`error: ${code} — ${message}\n`);
-			const checks = detail?.["checks"];
-			if (Array.isArray(checks)) for (const c of checks) deps.writeStderr(`  [check ${c.check ?? "?"}] ${c.code ?? "UNKNOWN"}: ${c.message ?? ""}\n`);
-			const errors = detail?.["errors"];
-			if (Array.isArray(errors)) {
-				for (const e of errors) deps.writeStderr(`  [${e.path ?? "?"}] ${e.code ?? "UNKNOWN"}: ${e.message ?? ""}\n`);
-				if (detail?.["truncated"] === true) {
-					const total = detail?.["error_count"];
-					deps.writeStderr(`  ... (${typeof total === "number" ? total : "?"} errors total; first ${errors.length} shown)\n`);
-				}
-			}
-		}
-		exitCode = 2;
-	}
 	return ctx;
 }
 z.object({
@@ -10460,7 +9818,7 @@ function createJsonInputIngestor(deps) {
 	const readFile = deps.readFile ?? ((filePath) => promises.readFile(filePath, "utf8"));
 	const requireArg = (ctx, arg, declaration) => {
 		if (arg !== void 0) return true;
-		ctx.diagnosticFailure({
+		ctx.failure({
 			code: "MISSING_INPUT",
 			detail: { command: declaration.command }
 		});
@@ -10472,7 +9830,7 @@ function createJsonInputIngestor(deps) {
 			if (!requireArg(ctx, arg, declaration)) return { ok: false };
 			const source = parseInputSource(arg);
 			if (source.kind === "stdin" && deps.isStdinTty()) {
-				ctx.diagnosticFailure({
+				ctx.failure({
 					code: "USAGE",
 					detail: {
 						command: declaration.command,
@@ -10488,7 +9846,7 @@ function createJsonInputIngestor(deps) {
 				raw = await deps.readStdin();
 			} catch (error) {
 				const message = error.message;
-				ctx.diagnosticFailure({
+				ctx.failure({
 					code: "MISSING_INPUT",
 					detail: {
 						command: declaration.command,
@@ -10502,7 +9860,7 @@ function createJsonInputIngestor(deps) {
 				raw = await readFile(source.path);
 			} catch (error) {
 				const cause = error;
-				ctx.diagnosticFailure({
+				ctx.failure({
 					code: "INPUT_FILE_NOT_FOUND",
 					detail: {
 						path: source.path,
@@ -10518,7 +9876,7 @@ function createJsonInputIngestor(deps) {
 				};
 			} catch (error) {
 				const cause = error.message;
-				ctx.diagnosticFailure({
+				ctx.failure({
 					code: "SCHEMA_VALIDATION_FAILED",
 					detail: {
 						reason: cause,
@@ -12848,7 +12206,7 @@ function createCommandMutator(ctx, deps) {
 	};
 	function acceptResult(result) {
 		if (!result.ok) {
-			ctx.diagnosticFailure(result);
+			ctx.failure(result);
 			return null;
 		}
 		if (result.commit_state === "not-committed") {
@@ -12946,6 +12304,351 @@ function runtimeStoreDiagnostic(error, source) {
 		code: "SCHEMA_VALIDATION_FAILED",
 		detail
 	};
+}
+//#endregion
+//#region src/cli/runtime-i18n-keys.ts
+const STATUS_INDICATOR_KEYS = {
+	done: "status_indicator.done",
+	blocked: "status_indicator.ask",
+	running: "status_indicator.run",
+	idle: "status_indicator.idle"
+};
+const TASK_KIND_KEYS = {
+	behavioral: "task_kind.behavioral",
+	structural: "task_kind.structural",
+	"visual-ui": "task_kind.visual-ui",
+	docs: "task_kind.docs",
+	spike: "task_kind.spike",
+	chore: "task_kind.chore"
+};
+const TASK_STATUS_KEYS = {
+	pending: "task_status.pending",
+	ready: "task_status.ready",
+	in_progress: "task_status.in_progress",
+	done: "task_status.done",
+	abandoned: "task_status.abandoned"
+};
+const EVIDENCE_KIND_KEYS = {
+	"task-summary": "evidence_kind.task-summary",
+	"verify-review": "evidence_kind.verify-review",
+	"spec-review": "evidence_kind.spec-review",
+	acceptance: "evidence_kind.acceptance",
+	"visual-review": "evidence_kind.visual-review",
+	"gate-decision": "evidence_kind.gate-decision",
+	"local-check": "evidence_kind.local-check",
+	manual: "evidence_kind.manual",
+	waiver: "evidence_kind.waiver",
+	"spike-finding": "evidence_kind.spike-finding"
+};
+const VERIFY_CHECK_KIND_KEYS = {
+	run: "verify_check_kind.run",
+	review: "verify_check_kind.review",
+	acceptance: "verify_check_kind.acceptance",
+	visual: "verify_check_kind.visual"
+};
+const APPLICABILITY_KEYS = {
+	must: "applicability.must",
+	optional: "applicability.optional",
+	na: "applicability.na"
+};
+const FINDING_CATEGORY_KEYS = {
+	"spec-gap": "finding_category.spec-gap",
+	"spec-defect": "finding_category.spec-defect",
+	"impl-defect": "finding_category.impl-defect",
+	"test-defect": "finding_category.test-defect",
+	"new-scope": "finding_category.new-scope",
+	"risk-escalation": "finding_category.risk-escalation"
+};
+const FINDING_ACTION_KEYS = {
+	"amend-spec": "finding_action.amend-spec",
+	"amend-tasks": "finding_action.amend-tasks",
+	"fix-impl": "finding_action.fix-impl",
+	"fix-test": "finding_action.fix-test",
+	defer: "finding_action.defer",
+	backlog: "finding_action.backlog"
+};
+const FINDING_STATUS_KEYS = {
+	open: "finding_status.open",
+	closed: "finding_status.closed"
+};
+const PENDING_KIND_KEYS = {
+	ask_user_question: "pending_kind.ask_user_question",
+	gate_decision: "pending_kind.gate_decision",
+	spec_clarification: "pending_kind.spec_clarification",
+	finding_decision: "pending_kind.finding_decision",
+	profile_escalation: "pending_kind.profile_escalation"
+};
+const PHASE_KEYS = {
+	TRIAGE: "phase.TRIAGE",
+	SPEC: "phase.SPEC",
+	EXECUTE: "phase.EXECUTE",
+	VERIFY: "phase.VERIFY",
+	SETTLE: "phase.SETTLE",
+	DONE: "phase.DONE"
+};
+const SUB_STATE_KEYS = {
+	"TRIAGE.score": "sub_state.TRIAGE.score",
+	"TRIAGE.confirm": "sub_state.TRIAGE.confirm",
+	"SPEC.proposal": "sub_state.SPEC.proposal",
+	"SPEC.spec": "sub_state.SPEC.spec",
+	"SPEC.plan": "sub_state.SPEC.plan",
+	"SPEC.design": "sub_state.SPEC.design",
+	"EXECUTE.plan": "sub_state.EXECUTE.plan",
+	"EXECUTE.work": "sub_state.EXECUTE.work",
+	"EXECUTE.done": "sub_state.EXECUTE.done",
+	"VERIFY.plan": "sub_state.VERIFY.plan",
+	"VERIFY.run": "sub_state.VERIFY.run",
+	"VERIFY.review": "sub_state.VERIFY.review",
+	"VERIFY.acceptance": "sub_state.VERIFY.acceptance",
+	"VERIFY.visual": "sub_state.VERIFY.visual",
+	"VERIFY.accept": "sub_state.VERIFY.accept",
+	"SETTLE.lessons": "sub_state.SETTLE.lessons",
+	"DONE.delivered": "sub_state.DONE.delivered",
+	"DONE.archived": "sub_state.DONE.archived",
+	"DONE.abandoned": "sub_state.DONE.abandoned"
+};
+const DIAGNOSTIC_KEYS = [...Object.keys(ERROR_CATALOG).flatMap((code) => [`diagnostic.${code}`, `diagnostic_fix.${code}`]), ...Object.keys(DIAGNOSTIC_VARIANTS).flatMap((context) => [`diagnostic_variant.${context}`, `diagnostic_variant_fix.${context}`])];
+const SUCCESS_KEYS = {
+	nextFullCommandPointer: "success.next.full_command_pointer",
+	nextDeliver: "success.next.deliver",
+	nextSettle: "success.next.settle",
+	nextSettleLessons: "success.next.settle_lessons",
+	startStateChange: "success.start.state_change",
+	advanceStateChange: "success.advance.state_change",
+	gateSpecLockApprovedStateChange: "success.gate.spec_lock_approved_state_change",
+	gateVerifyAcceptApprovedStateChange: "success.gate.verify_accept_approved_state_change",
+	gateRejectedStateChange: "success.gate.rejected_state_change",
+	deliverStateChange: "success.deliver.state_change",
+	deliverNext: "success.deliver.next",
+	archiveStateChange: "success.archive.state_change",
+	abandonStateChange: "success.abandon.state_change",
+	spikeConvertStateChange: "success.spike.convert_state_change",
+	profileEscalateStateChange: "success.profile.escalate_state_change",
+	tasksSubmitTextOne: "success.tasks.submit_text_one",
+	tasksSubmitTextMany: "success.tasks.submit_text_many",
+	tasksSubmitStateChange: "success.tasks.submit_state_change",
+	tasksAddTextOne: "success.tasks.add_text_one",
+	tasksAddTextMany: "success.tasks.add_text_many",
+	tasksAddSponsoredTextOne: "success.tasks.add_sponsored_text_one",
+	tasksAddSponsoredTextMany: "success.tasks.add_sponsored_text_many",
+	tasksAddStateChange: "success.tasks.add_state_change",
+	tasksClaimStateChange: "success.tasks.claim_state_change",
+	tasksAbandonStateChange: "success.tasks.abandon_state_change",
+	doctorRebuildTextOne: "success.doctor.rebuild_text_one",
+	doctorRebuildTextMany: "success.doctor.rebuild_text_many",
+	doctorRebuildStateChangeOne: "success.doctor.rebuild_state_change_one",
+	doctorRebuildStateChangeMany: "success.doctor.rebuild_state_change_many",
+	snapshotAsOfSeq: "success.snapshot.as_of_seq",
+	amendSponsoredText: "success.amend.sponsored_text",
+	amendPolicyText: "success.amend.policy_text",
+	amendStateChange: "success.amend.state_change",
+	tasksRegisterRedStateChange: "success.tasks.register_red_state_change",
+	stepStartStateChange: "success.step.start_state_change",
+	stepDoneText: "success.step.done_text",
+	stepDoneEvidenceSuffix: "success.step.done_evidence_suffix",
+	stepDonePromoteSuffix: "success.step.done_promote_suffix",
+	stepDoneStateChange: "success.step.done_state_change",
+	settleStateChange: "success.settle.state_change",
+	settleText: "success.settle.text",
+	resumeStateChange: "success.resume.state_change",
+	handoffStateChange: "success.handoff.state_change",
+	pendingRaiseStateChange: "success.pending.raise_state_change",
+	pendingResolveText: "success.pending.resolve_text",
+	pendingResolveStateChange: "success.pending.resolve_state_change",
+	waiveStateChange: "success.waive.state_change",
+	lessonsAddStateChange: "success.lessons.add_state_change",
+	evidenceCoversNone: "success.evidence.covers_none",
+	evidenceAddStateChangeSingle: "success.evidence.add_state_change_single",
+	evidenceAddStateChangeBatchHomogeneous: "success.evidence.add_state_change_batch_homogeneous",
+	evidenceAddStateChangeBatchMixed: "success.evidence.add_state_change_batch_mixed",
+	findingCloseText: "success.finding.close_text",
+	findingCloseStateChange: "success.finding.close_state_change",
+	specSubmitText: "success.spec.submit_text",
+	specSubmitStateChange: "success.spec.submit_state_change",
+	specSubmitNext: "success.spec.submit_next",
+	specInitStateChange: "success.spec.init_state_change",
+	specInitNext: "success.spec.init_next",
+	specEditText: "success.spec.edit_text",
+	specEditStateChange: "success.spec.edit_state_change",
+	specEditInputStateChange: "success.spec.edit_input_state_change",
+	specAddReqTextOne: "success.spec.add_req_text_one",
+	specAddReqTextMany: "success.spec.add_req_text_many",
+	specAddReqStateChangeOne: "success.spec.add_req_state_change_one",
+	specAddReqStateChangeMany: "success.spec.add_req_state_change_many",
+	specAddScenarioTextOne: "success.spec.add_scenario_text_one",
+	specAddScenarioTextMany: "success.spec.add_scenario_text_many",
+	specAddScenarioStateChangeOne: "success.spec.add_scenario_state_change_one",
+	specAddScenarioStateChangeMany: "success.spec.add_scenario_state_change_many",
+	specAddVisualTextOne: "success.spec.add_visual_text_one",
+	specAddVisualTextMany: "success.spec.add_visual_text_many",
+	specAddVisualStateChangeOne: "success.spec.add_visual_state_change_one",
+	specAddVisualStateChangeMany: "success.spec.add_visual_state_change_many"
+};
+const CHROME_KEYS = {
+	statusFeature: "chrome.status.feature",
+	statusPhase: "chrome.status.phase",
+	statusCursor: "chrome.status.cursor",
+	statusTail: "chrome.status.tail",
+	statusCounts: "chrome.status.counts",
+	statusSnapshotAsOfProjectionLoader: "chrome.status.snapshot_as_of_projection_loader",
+	tasksListEmptyFiltered: "chrome.tasks.list_empty_filtered",
+	tasksListEmpty: "chrome.tasks.list_empty",
+	tasksListReadyMarker: "chrome.tasks.ready_marker",
+	tasksListRow: "chrome.tasks.list_row",
+	tasksListRowReady: "chrome.tasks.list_row_ready",
+	tasksCompleteText: "chrome.tasks.complete_text",
+	pendingListRow: "chrome.pending.list_row",
+	pendingStatusNoOpen: "chrome.pending.no_open",
+	pendingOpen: "chrome.pending.open",
+	pendingResolved: "chrome.pending.resolved",
+	pendingHead: "chrome.pending.head",
+	pendingNonHead: "chrome.pending.non_head",
+	findingListRow: "chrome.finding.list_row",
+	journalListRow: "chrome.journal.list_row",
+	journalListRowBatch: "chrome.journal.list_row_batch",
+	journalListEmpty: "chrome.journal.list_empty",
+	evidenceListRow: "chrome.evidence.list_row",
+	evidenceListEmpty: "chrome.evidence.list_empty",
+	evidenceCompatibilityWarning: "chrome.evidence.compatibility_warning",
+	specStatusPass: "chrome.spec_status.pass",
+	specStatusFailureRow: "chrome.spec_status.failure_row",
+	specStatusSuppressedRow: "chrome.spec_status.suppressed_row",
+	sessionsListEmpty: "chrome.sessions.empty",
+	sessionsWarning: "chrome.sessions.warning",
+	sessionsActionSkipped: "chrome.sessions.action_skipped",
+	sessionsActionFilteredOut: "chrome.sessions.action_filtered_out",
+	sessionsActionOrphanCwd: "chrome.sessions.action_orphan_cwd",
+	relativeJustNow: "chrome.relative.just_now",
+	relativeMinuteOne: "chrome.relative.minute_one",
+	relativeMinuteMany: "chrome.relative.minute_many",
+	relativeHourOne: "chrome.relative.hour_one",
+	relativeHourMany: "chrome.relative.hour_many",
+	relativeDayOne: "chrome.relative.day_one",
+	relativeDayMany: "chrome.relative.day_many",
+	checkOk: "chrome.check.ok",
+	verifyStatusPass: "chrome.verify_status.pass",
+	verifyStatusFail: "chrome.verify_status.fail",
+	verifyStatusNa: "chrome.verify_status.na",
+	verifyStatusCheckLaneStatus: "chrome.verify_status.check_lane_status",
+	verifyStatusCheckOpenFindings: "chrome.verify_status.check_open_findings",
+	verifyStatusCheckCoverage: "chrome.verify_status.check_coverage",
+	verifyStatusCheckTaskEvidence: "chrome.verify_status.check_task_evidence",
+	verifyStatusCheckSpecReview: "chrome.verify_status.check_spec_review",
+	verifyStatusCheckDeferredFindings: "chrome.verify_status.check_deferred_findings",
+	verifyStatusInfo: "chrome.verify_status.info",
+	verifyStatusDeferredSummary: "chrome.verify_status.deferred_summary",
+	verifyStatusFailureSummaryOne: "chrome.verify_status.failure_summary_one",
+	verifyStatusFailureSummaryMany: "chrome.verify_status.failure_summary_many",
+	verifyStatusDiagnosticOnly: "chrome.verify_status.diagnostic_only",
+	verifyStatusLaneLabel: "chrome.verify_status.lane_label",
+	verifyStatusLaneReason: "chrome.verify_status.lane_reason",
+	verifyStatusLaneReasonNoDoneTasks: "chrome.verify_status.lane_reason_no_done_tasks",
+	verifyStatusLaneReasonNoReviewObligations: "chrome.verify_status.lane_reason_no_review_obligations",
+	verifyStatusLaneReasonNoE2eScenarios: "chrome.verify_status.lane_reason_no_e2e_scenarios",
+	verifyStatusLaneReasonNoVisualContracts: "chrome.verify_status.lane_reason_no_visual_contracts",
+	tuiListTitle: "chrome.tui.list.title",
+	tuiListSort: "chrome.tui.list.sort",
+	tuiListSortTime: "chrome.tui.list.sort_time",
+	tuiListSortStatus: "chrome.tui.list.sort_status",
+	tuiListReloading: "chrome.tui.list.reloading",
+	tuiListEmpty: "chrome.tui.list.empty",
+	tuiListHelp: "chrome.tui.list.help",
+	tuiListRowIteration: "chrome.tui.list.row_iteration",
+	tuiDetailTitle: "chrome.tui.detail.title",
+	tuiDetailHelp: "chrome.tui.detail.help",
+	tuiDetailNoSelected: "chrome.tui.detail.no_selected",
+	tuiDetailLoading: "chrome.tui.detail.loading",
+	tuiDetailMissingTitle: "chrome.tui.detail.missing_title",
+	tuiDetailMissingMessage: "chrome.tui.detail.missing_message",
+	tuiDetailStaleTitle: "chrome.tui.detail.stale_title",
+	tuiDetailStaleMessage: "chrome.tui.detail.stale_message",
+	tuiDetailErrorTitle: "chrome.tui.detail.error_title",
+	tuiDetailNone: "chrome.tui.detail.none",
+	tuiDetailBooleanTrue: "chrome.tui.detail.boolean_true",
+	tuiDetailBooleanFalse: "chrome.tui.detail.boolean_false",
+	tuiDetailFieldFeature: "chrome.tui.detail.field_feature",
+	tuiDetailFieldSession: "chrome.tui.detail.field_session",
+	tuiDetailFieldLabel: "chrome.tui.detail.field_label",
+	tuiDetailFieldWorkspace: "chrome.tui.detail.field_workspace",
+	tuiDetailFieldCeremony: "chrome.tui.detail.field_ceremony",
+	tuiDetailFieldPhase: "chrome.tui.detail.field_phase",
+	tuiDetailFieldIteration: "chrome.tui.detail.field_iteration",
+	tuiDetailFieldComplexity: "chrome.tui.detail.field_complexity",
+	tuiDetailFieldBasedOn: "chrome.tui.detail.field_based_on",
+	tuiDetailFieldCreated: "chrome.tui.detail.field_created",
+	tuiDetailFieldUpdated: "chrome.tui.detail.field_updated",
+	tuiDetailFieldSpecLocked: "chrome.tui.detail.field_spec_locked",
+	tuiDetailFieldVerifyAccepted: "chrome.tui.detail.field_verify_accepted",
+	tuiDetailFieldSpecVersion: "chrome.tui.detail.field_spec_version",
+	tuiDetailFieldTailSeq: "chrome.tui.detail.field_tail_seq",
+	tuiDetailSectionTasks: "chrome.tui.detail.section_tasks",
+	tuiDetailSectionEvidence: "chrome.tui.detail.section_evidence",
+	tuiDetailSectionOpenFindings: "chrome.tui.detail.section_open_findings",
+	tuiDetailSectionPending: "chrome.tui.detail.section_pending",
+	tuiDetailEvidenceBadgePass: "chrome.tui.detail.evidence_badge_pass",
+	tuiDetailEvidenceBadgeFail: "chrome.tui.detail.evidence_badge_fail",
+	tuiDetailEvidenceBadgeWaived: "chrome.tui.detail.evidence_badge_waived",
+	tuiDetailSidecarSummary: "chrome.tui.detail.sidecar_summary",
+	tuiDetailStepSummary: "chrome.tui.detail.step_summary",
+	tuiDetailRowSteps: "chrome.tui.detail.row_steps",
+	tuiDetailRowIteration: "chrome.tui.detail.row_iteration",
+	tuiDetailRowTask: "chrome.tui.detail.row_task",
+	tuiDetailRowTarget: "chrome.tui.detail.row_target",
+	tuiDetailRowBlocks: "chrome.tui.detail.row_blocks",
+	tuiDetailRowOptions: "chrome.tui.detail.row_options"
+};
+[
+	...Object.values(STATUS_INDICATOR_KEYS),
+	...Object.values(TASK_KIND_KEYS),
+	...Object.values(TASK_STATUS_KEYS),
+	...Object.values(EVIDENCE_KIND_KEYS),
+	...Object.values(VERIFY_CHECK_KIND_KEYS),
+	...Object.values(APPLICABILITY_KEYS),
+	...Object.values(FINDING_CATEGORY_KEYS),
+	...Object.values(FINDING_ACTION_KEYS),
+	...Object.values(FINDING_STATUS_KEYS),
+	...Object.values(PENDING_KIND_KEYS),
+	...Object.values(PHASE_KEYS),
+	...Object.values(SUB_STATE_KEYS),
+	...Object.values(DIAGNOSTIC_KEYS),
+	...Object.values(SUCCESS_KEYS),
+	...Object.values(CHROME_KEYS)
+];
+function statusIndicatorKey(bucket) {
+	return STATUS_INDICATOR_KEYS[bucket];
+}
+function taskKindKey(kind) {
+	return TASK_KIND_KEYS[kind];
+}
+function taskStatusKey(status) {
+	return TASK_STATUS_KEYS[status];
+}
+function evidenceKindKey(kind) {
+	return EVIDENCE_KIND_KEYS[kind];
+}
+function verifyCheckKindKey(kind) {
+	return VERIFY_CHECK_KIND_KEYS[kind];
+}
+function applicabilityKey(applicability) {
+	return APPLICABILITY_KEYS[applicability];
+}
+function findingCategoryKey(category) {
+	return FINDING_CATEGORY_KEYS[category];
+}
+function findingActionKey(action) {
+	return FINDING_ACTION_KEYS[action];
+}
+function findingStatusKey(status) {
+	return FINDING_STATUS_KEYS[status];
+}
+function pendingKindKey(kind) {
+	return PENDING_KIND_KEYS[kind];
+}
+function phaseKey(phase) {
+	return PHASE_KEYS[phase];
+}
+function subStateKey(subState) {
+	return SUB_STATE_KEYS[subState];
 }
 //#endregion
 //#region src/core/next-action.ts
@@ -13173,18 +12876,19 @@ function registerLifecycle(program, ctx, mutator, actor, runtimeDir, runtimeNow,
 	program.command("start <feature>").description("Start a new feature session (emits session:started)").option("--ceremony <preset>", "Preset label: quick / light / standard / deep", "standard").option("--label <text>", "Human-readable session label (≥3 chars)").option("--workspace <name>", "Workspace name (multi-worktree display)", "default").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (feature, opts) => {
 		const ceremony = PRESETS[opts.ceremony];
 		if (!ceremony) {
-			ctx.fail("INVALID_PRESET", `unknown ceremony preset "${opts.ceremony}" — known: ${Object.keys(PRESETS).join(", ")}`);
+			ctx.failure(diagnostic$2("INVALID_PRESET", {}));
 			return;
 		}
 		if (opts.label !== void 0 && opts.label.length < 3) {
-			ctx.failureKeyed("USAGE", FAILURE_SITE_KEYS.startLabelTooShort, { min_length: 3 }, {
+			ctx.failure(diagnosticVariant("failure.start.label_too_short", {
+				min_length: 3,
 				min_length: 3,
 				actual_length: opts.label.length
-			});
+			}));
 			return;
 		}
 		if (opts.workspace.length < 1) {
-			ctx.failureKeyed("USAGE", FAILURE_SITE_KEYS.startWorkspaceEmpty, {}, {});
+			ctx.failure(diagnosticVariant("failure.start.workspace_empty", {}));
 			return;
 		}
 		const featureDir = opts.featureDir ?? defaultFeatureDir(feature);
@@ -13207,7 +12911,7 @@ function registerLifecycle(program, ctx, mutator, actor, runtimeDir, runtimeNow,
 		if (!result) return;
 		const state = result.snapshot.state;
 		if (state === null) {
-			ctx.emitFailure("REDUCER_ERROR", "internal: state missing from snapshot after successful session:started apply");
+			ctx.failure(diagnostic$2("REDUCER_ERROR", {}));
 			return;
 		}
 		const out = {
@@ -13234,7 +12938,7 @@ function registerLifecycle(program, ctx, mutator, actor, runtimeDir, runtimeNow,
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		const from = session.snapshot.state?.sub_state;
 		if (!from) {
-			ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionAdvance, opts.feature);
+			ctx.failure(diagnosticVariant("failure.no_session.advance", { feature: opts.feature }));
 			return;
 		}
 		if (to === "EXECUTE.done" && (from === "EXECUTE.work" || from === "EXECUTE.done")) {
@@ -13279,7 +12983,7 @@ function registerLifecycle(program, ctx, mutator, actor, runtimeDir, runtimeNow,
 				}
 			} catch (error) {
 				if (!(error instanceof RuntimeStoreError && error.code.startsWith("RUNTIME_LOCK_")) && !(error instanceof ExecuteClosureError)) throw error;
-				if (error instanceof ExecuteClosureError) ctx.diagnosticFailure({
+				if (error instanceof ExecuteClosureError) ctx.failure({
 					code: "SCHEMA_VALIDATION_FAILED",
 					detail: {
 						source: "execute-closure",
@@ -13288,7 +12992,7 @@ function registerLifecycle(program, ctx, mutator, actor, runtimeDir, runtimeNow,
 						...error.detail
 					}
 				});
-				else ctx.diagnosticFailure(runtimeStoreDiagnostic(error, "execute-closure"));
+				else ctx.failure(runtimeStoreDiagnostic(error, "execute-closure"));
 				return;
 			}
 		}
@@ -13328,7 +13032,7 @@ function registerLifecycle(program, ctx, mutator, actor, runtimeDir, runtimeNow,
 			"evidence",
 			"findings",
 			"pending"
-		], opts.feature, FAILURE_SITE_KEYS.noSessionStatus);
+		], opts.feature, "failure.no_session.status");
 		if (loaded === null) return;
 		const { state, tasks, evidence, findings, pending, meta } = loaded;
 		const slimState = {
@@ -13369,13 +13073,13 @@ function registerLifecycle(program, ctx, mutator, actor, runtimeDir, runtimeNow,
 			"state",
 			"tasks",
 			"pending"
-		], opts.feature, FAILURE_SITE_KEYS.noSessionStatus);
+		], opts.feature, "failure.no_session.status");
 		if (loaded === null) return;
 		let verifyApplicableLanes;
 		if (loaded.state.sub_state.startsWith("VERIFY.")) {
 			const read = await readSpecFrontmatter(featureDir);
 			if (!read.ok) {
-				ctx.diagnosticFailure({
+				ctx.failure({
 					code: "SPEC_FRONTMATTER_INVALID",
 					detail: {
 						subcode: read.code,
@@ -13532,11 +13236,11 @@ function registerGate(program, ctx, mutator, actor) {
 	program.command("gate").description("Gate decision commands (spec-lock + verify-accept)").command("decide <gate-name>").description("Decide a gate (emits gate:decided; spec-lock approve also advances cursor)").option("--approve", "Approve the gate").option("--reject", "Reject the gate").requiredOption("--reason <text>", "Decision rationale (passed through to GateDecidedPayload)").option("--feature <name>", "Feature whose session to gate").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (gateName, opts) => {
 		const approve = opts.approve === true;
 		if (approve === (opts.reject === true)) {
-			ctx.emitFailure("USAGE", "exactly one of --approve | --reject is required");
+			ctx.failure(diagnostic$2("USAGE", { reason: "approval_decision_required" }));
 			return;
 		}
 		if (gateName !== "spec-lock" && gateName !== "verify-accept") {
-			ctx.emitFailure("GATE_NOT_IMPLEMENTED", `gate=${gateName} is not recognized; protocol GateName enum is closed at {spec-lock, verify-accept}`, { gate: gateName });
+			ctx.failure(diagnostic$2("GATE_NOT_IMPLEMENTED", { gate: gateName }));
 			return;
 		}
 		const humanActor = ctx.resolveHumanActorOrFail();
@@ -13546,7 +13250,7 @@ function registerGate(program, ctx, mutator, actor) {
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		const from = session.snapshot.state?.sub_state;
 		if (!from) {
-			ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+			ctx.failure(diagnosticVariant("failure.no_session.generic", { feature: opts.feature }));
 			return;
 		}
 		const pendingHead = session.snapshot.pending.find((p) => !p.resolved);
@@ -13646,7 +13350,7 @@ function registerTerminalExecute(program, ctx, mutator, actor) {
 		const session = await ctx.resolveSession(featureDir);
 		const from = session.snapshot.state?.sub_state;
 		if (!from) {
-			ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+			ctx.failure(diagnosticVariant("failure.no_session.generic", { feature: opts.feature }));
 			return;
 		}
 		const payload = {};
@@ -13683,7 +13387,7 @@ function registerTerminalExecute(program, ctx, mutator, actor) {
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		const from = session.snapshot.state?.sub_state;
 		if (!from) {
-			ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+			ctx.failure(diagnosticVariant("failure.no_session.generic", { feature: opts.feature }));
 			return;
 		}
 		const result = await mutator.run(featureDir, session, {
@@ -13714,7 +13418,7 @@ function registerTerminalExecute(program, ctx, mutator, actor) {
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		const from = session.snapshot.state?.sub_state;
 		if (!from) {
-			ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+			ctx.failure(diagnosticVariant("failure.no_session.generic", { feature: opts.feature }));
 			return;
 		}
 		const result = await mutator.run(featureDir, session, {
@@ -13872,7 +13576,7 @@ function registerProfileConfig(program, ctx, mutator, actor, userConfigHomeDir) 
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		const from = session.snapshot.state?.sub_state;
 		if (!from) {
-			ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+			ctx.failure(diagnosticVariant("failure.no_session.generic", { feature: opts.feature }));
 			return;
 		}
 		const result = await mutator.run(featureDir, session, [{
@@ -13912,30 +13616,37 @@ function registerProfileConfig(program, ctx, mutator, actor, userConfigHomeDir) 
 		try {
 			content = await promises.readFile(opts.input, "utf8");
 		} catch (err) {
-			if (err.code === "ENOENT") ctx.failureKeyed("INPUT_FILE_NOT_FOUND", FAILURE_SITE_KEYS.profileInputFileMissing, { path: opts.input }, { path: opts.input });
-			else ctx.failureKeyed("INPUT_FILE_NOT_FOUND", FAILURE_SITE_KEYS.profileInputFileUnreadable, {
+			if (err.code === "ENOENT") ctx.failure(diagnosticVariant("failure.profile.input_file_missing", {
 				path: opts.input,
-				error: String(err)
-			}, { path: opts.input });
+				path: opts.input
+			}));
+			else ctx.failure(diagnosticVariant("failure.profile.input_file_unreadable", {
+				path: opts.input,
+				error: String(err),
+				path: opts.input
+			}));
 			return;
 		}
 		let ceremony;
 		try {
 			ceremony = JSON.parse(content);
 		} catch (err) {
-			ctx.emitFailure("SCHEMA_VALIDATION_FAILED", `input is not valid JSON: ${err.message}`);
+			ctx.failure(diagnostic$2("SCHEMA_VALIDATION_FAILED", {
+				reason: err.message,
+				path: opts.input
+			}));
 			return;
 		}
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state?.sub_state) {
-			ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+			ctx.failure(diagnosticVariant("failure.no_session.generic", { feature: opts.feature }));
 			return;
 		}
 		const head = session.snapshot.pending.find((p) => !p.resolved);
 		if (!head) {
-			ctx.emitFailure("ESCALATION_NOT_PENDING", "`loaf profile escalate --confirm --input <ceremony.json>` requires pending head kind=profile_escalation; current head: (none)", { actual_head: "(none)" });
+			ctx.failure(diagnostic$2("ESCALATION_NOT_PENDING", { actual_head: "(none)" }));
 			return;
 		}
 		const result = await mutator.run(featureDir, session, [{
@@ -13957,7 +13668,7 @@ function registerProfileConfig(program, ctx, mutator, actor, userConfigHomeDir) 
 		};
 		ctx.success(out, () => "", (i18n) => ({ stateChange: i18n.t(SUCCESS_KEYS.profileEscalateStateChange, { pending_id: head.id }) }));
 	});
-	const refuseConfigExists = (configPath) => ctx.emitFailure("CONFIG_ALREADY_INITIALIZED", `loaf config already exists at ${configPath}; refusing to overwrite`, { config_path: configPath });
+	const refuseConfigExists = (configPath) => ctx.failure(diagnostic$2("CONFIG_ALREADY_INITIALIZED", { config_path: configPath }));
 	async function ensureConfigTargetAbsent(configPath) {
 		try {
 			await promises.access(configPath);
@@ -13990,11 +13701,11 @@ function registerProfileConfig(program, ctx, mutator, actor, userConfigHomeDir) 
 	program.command("doctor").description("Repository self-check. This release implements --rebuild only").option("--rebuild", "Full journal replay → rebuild snapshots/*.json + _meta.json").option("--feature <name>", "Feature whose snapshots to rebuild (required with --rebuild)").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		if (ctx.rejectIfDryRun(opts.rebuild ? "doctor --rebuild" : "doctor")) return;
 		if (!opts.rebuild) {
-			ctx.emitFailure("DOCTOR_MODE_NOT_IMPLEMENTED", "only --rebuild is implemented for loaf doctor in this release");
+			ctx.failure(diagnostic$2("DOCTOR_MODE_NOT_IMPLEMENTED", {}));
 			return;
 		}
 		if (!opts.feature) {
-			ctx.emitFailure("DOCTOR_FEATURE_REQUIRED", "doctor --rebuild requires --feature <name>");
+			ctx.failure(diagnostic$2("DOCTOR_FEATURE_REQUIRED", {}));
 			return;
 		}
 		const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
@@ -14004,7 +13715,7 @@ function registerProfileConfig(program, ctx, mutator, actor, userConfigHomeDir) 
 			lease = await acquireFeatureWriteLease(featureDir, "doctor:rebuild");
 		} catch (error) {
 			if (error instanceof FeatureWriteLeaseError) {
-				ctx.diagnosticFailure(error.diagnostic);
+				ctx.failure(error.diagnostic);
 				return;
 			}
 			throw error;
@@ -14013,13 +13724,18 @@ function registerProfileConfig(program, ctx, mutator, actor, userConfigHomeDir) 
 			const journalPath = path.join(featureDir, "journal.jsonl");
 			const replay = await replayJournal(journalPath, { collect_entries: true });
 			if (!replay.ok) {
-				const reason = replay.code === "REDUCER_REJECTED" ? diagnosticMessage(replay.diagnostic) : replay.message;
-				ctx.emitFailure(replay.code, `journal at ${journalPath} cannot be replayed — ${reason}`, replay.detail);
+				ctx.failure(diagnostic$2("DOCTOR_REBUILD_FAILED", {
+					journal_path: journalPath,
+					replay_code: replay.code,
+					at_seq: replay.at_seq,
+					...replay.detail,
+					...replay.code === "REDUCER_REJECTED" ? { diagnostic: replay.diagnostic } : { cause: replay.message }
+				}));
 				return;
 			}
 			const entries = replay.entries;
 			if (entries === void 0) {
-				ctx.emitFailure("DOCTOR_REBUILD_FAILED", "internal invariant: replay returned ok without collected entries");
+				ctx.failure(diagnostic$2("DOCTOR_REBUILD_FAILED", {}));
 				return;
 			}
 			let rebuilt;
@@ -14030,7 +13746,11 @@ function registerProfileConfig(program, ctx, mutator, actor, userConfigHomeDir) 
 					meta: replay.meta
 				});
 			} catch (err) {
-				ctx.emitFailure("DOCTOR_REBUILD_FAILED", `snapshot rebuild failed — ${err.message}`);
+				ctx.failure(diagnostic$2("DOCTOR_REBUILD_FAILED", {
+					reason: "projection_write_failed",
+					cause: err.message,
+					feature_dir: featureDir
+				}));
 				return;
 			}
 			const out = {
@@ -14163,17 +13883,18 @@ function registerTaskSubmit(tasksCmd, deps) {
 		if (!read.ok) return;
 		const parsed = TasksSubmitInput.safeParse(read.value);
 		if (!parsed.success) {
-			ctx.failure("SCHEMA_VALIDATION_FAILED", "tasks submit input must be a strict semantic graph with id-less tasks and unique local_key values", {
+			ctx.failure(diagnostic$2("SCHEMA_VALIDATION_FAILED", {
+				reason: parsed.error.issues.map((issue) => issue.message).join("; "),
 				issues: parsed.error.issues,
 				migration: "legacy-full-input-rejected"
-			});
+			}));
 			return;
 		}
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
 		const session = await ctx.resolveSession(featureDir);
 		if (!session.snapshot.state) {
-			ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
+			ctx.failure(diagnosticVariant("failure.no_session.tasks", { feature: opts.feature }));
 			return;
 		}
 		const occupiedTaskIds = collectOccupiedTaskIds(session.snapshot, session.entries);
@@ -14184,8 +13905,7 @@ function registerTaskSubmit(tasksCmd, deps) {
 			if (specVersion === void 0) return {
 				ok: false,
 				code: "REDUCER_ERROR",
-				message: "internal: session state missing while planning task graph",
-				detail: {}
+				detail: { reason: "session_state_missing" }
 			};
 			return {
 				ok: true,
@@ -14202,7 +13922,7 @@ function registerTaskSubmit(tasksCmd, deps) {
 		if (!result) return;
 		const state = result.snapshot.state;
 		if (state === null) {
-			ctx.emitFailure("REDUCER_ERROR", "internal: state missing from snapshot after successful event:tasks_planned apply");
+			ctx.failure(diagnostic$2("REDUCER_ERROR", {}));
 			return;
 		}
 		const tasks = result.snapshot.tasks;
@@ -14247,13 +13967,14 @@ function registerTaskAdd(tasksCmd, deps) {
 		const inputParse = TaskAuthoringInputBatched.safeParse(parsed);
 		if (!inputParse.success) {
 			if (Array.isArray(parsed) && parsed.length === 0) {
-				ctx.failureKeyed("SCHEMA_VALIDATION_FAILED", FAILURE_SITE_KEYS.tasksAddEmptyArray, {}, {});
+				ctx.failure(diagnosticVariant("failure.tasks_add.empty_array", {}));
 				return;
 			}
-			ctx.failure("SCHEMA_VALIDATION_FAILED", "tasks add input must contain strict id-less tasks with local_key and explicit dependency refs", {
+			ctx.failure(diagnostic$2("SCHEMA_VALIDATION_FAILED", {
+				reason: inputParse.error.issues.map((issue) => issue.message).join("; "),
 				issues: inputParse.error.issues,
 				migration: "legacy-task-input-rejected"
-			});
+			}));
 			return;
 		}
 		const validatedInputs = Array.isArray(inputParse.data) ? inputParse.data : [inputParse.data];
@@ -14261,17 +13982,20 @@ function registerTaskAdd(tasksCmd, deps) {
 		if (featureDir === null) return;
 		const session = await ctx.resolveSession(featureDir);
 		if (!session.snapshot.state) {
-			ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
+			ctx.failure(diagnosticVariant("failure.no_session.tasks", { feature: opts.feature }));
 			return;
 		}
 		const subState = session.snapshot.state.sub_state;
 		const sponsored = opts.finding !== void 0;
 		if (sponsored && subState === "SPEC.design") {
-			ctx.failure("USAGE", "--finding is for the sponsored EXECUTE.work add; at SPEC.design `tasks add` is the unsponsored whole-graph path — drop --finding");
+			ctx.failure(diagnostic$2("USAGE", { reason: "sponsorship_not_allowed_at_spec_design" }));
 			return;
 		}
 		if (!sponsored && subState !== "SPEC.design") {
-			ctx.failure("SUB_STATE_AUTHORITY_VIOLATION", `loaf tasks add without --finding is only valid at SPEC.design (current sub_state=${subState}); post-lock task additions go through \`loaf finding raise --action amend-tasks\` then \`tasks add --finding\``, { sub_state: subState });
+			ctx.failure(diagnostic$2("SUB_STATE_AUTHORITY_VIOLATION", {
+				kind: "event:tasks_amended",
+				sub_state: subState
+			}));
 			return;
 		}
 		const occupiedTaskIds = collectOccupiedTaskIds(session.snapshot, session.entries);
@@ -14364,15 +14088,15 @@ function registerTaskAmend(tasksCmd, deps) {
 		const hasInput = opts.input !== void 0;
 		const hasFinding = opts.finding !== void 0;
 		if (hasPolicy && hasInput) {
-			ctx.emitFailure("USAGE", "--policy and --input are mutually exclusive: --policy narrows applicability at EXECUTE.plan, --input replaces the task graph (sponsored) at EXECUTE.work");
+			ctx.failure(diagnostic$2("USAGE", { reason: "policy_and_input_mutually_exclusive" }));
 			return;
 		}
 		if (hasInput !== hasFinding) {
-			ctx.emitFailure("USAGE", "--input and --finding must be specified together — a sponsored graph replacement needs the sponsoring amend-tasks finding");
+			ctx.failure(diagnostic$2("USAGE", { reason: "sponsored_input_finding_pair_required" }));
 			return;
 		}
 		if (!hasPolicy && !hasInput) {
-			ctx.emitFailure("USAGE", "tasks amend needs either --policy <step>=<applicability> or --input <src> --finding <FND-N>");
+			ctx.failure(diagnostic$2("USAGE", { reason: "amend_input_required" }));
 			return;
 		}
 		if (hasInput) {
@@ -14383,18 +14107,21 @@ function registerTaskAmend(tasksCmd, deps) {
 			const inParsed = read.value;
 			const inTask = TaskInput.safeParse(inParsed);
 			if (!inTask.success) {
-				ctx.failure("SCHEMA_VALIDATION_FAILED", `tasks amend --input is not a valid id-less task (omit id / status / execution): ${inTask.error.issues.map((i) => i.message).join("; ")}`, { issues: inTask.error.issues });
+				ctx.failure(diagnostic$2("SCHEMA_VALIDATION_FAILED", {
+					reason: inTask.error.issues.map((issue) => issue.message).join("; "),
+					issues: inTask.error.issues
+				}));
 				return;
 			}
 			const sFeatureDir = earlyFeatureDir;
 			const sSession = await ctx.resolveSession(sFeatureDir);
 			if (!sSession.snapshot.state) {
-				ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
+				ctx.failure(diagnosticVariant("failure.no_session.tasks", { feature: opts.feature }));
 				return;
 			}
 			const sCurrent = sSession.snapshot.tasks.find((t) => t.id === taskId);
 			if (!sCurrent) {
-				ctx.failure("TASK_NOT_FOUND", `task ${taskId} is not in the current tasks projection`, { task_id: taskId });
+				ctx.failure(diagnostic$2("TASK_NOT_FOUND", { task_id: taskId }));
 				return;
 			}
 			const sCanonical = latestCanonicalTaskBody(sSession.entries, taskId);
@@ -14404,11 +14131,12 @@ function registerTaskAmend(tasksCmd, deps) {
 			for (const [stepName, prior] of Object.entries(sPriorExec)) {
 				if (sNewSteps.has(stepName)) continue;
 				if (prior.status !== "pending" || prior.started_at !== void 0 || prior.reason !== void 0) {
-					ctx.failure("MUTATION_OUT_OF_RIGHTS", `sponsored tasks amend on ${taskId} drops step '${stepName}', which carries execution progress — a graph amend may not erase execution history (codex r136 Q4)`, {
+					ctx.failure(diagnostic$2("MUTATION_OUT_OF_RIGHTS", {
 						task_id: taskId,
 						step: stepName,
-						reason: "sponsored_amend_drops_progress_step"
-					});
+						reason: "sponsored_amend_drops_progress_step",
+						sub_state: sSession.snapshot.state.sub_state
+					}));
 					return;
 				}
 			}
@@ -14445,17 +14173,28 @@ function registerTaskAmend(tasksCmd, deps) {
 		for (const p of policies) {
 			const eq = p.indexOf("=");
 			if (eq <= 0 || eq === p.length - 1) {
-				ctx.emitFailure("SCHEMA_VALIDATION_FAILED", `malformed --policy '${p}' — expected <step>=<applicability>`);
+				ctx.failure(diagnostic$2("SCHEMA_VALIDATION_FAILED", {
+					reason: "policy_requires_step_assignment",
+					value: p
+				}));
 				return;
 			}
 			const step = p.slice(0, eq);
 			const applicability = p.slice(eq + 1);
 			if (!APPLICABILITY.includes(applicability)) {
-				ctx.emitFailure("SCHEMA_VALIDATION_FAILED", `--policy '${p}': applicability must be one of must | optional | na`);
+				ctx.failure(diagnostic$2("SCHEMA_VALIDATION_FAILED", {
+					reason: "invalid_policy_applicability",
+					step,
+					value: applicability,
+					allowed: APPLICABILITY
+				}));
 				return;
 			}
 			if (policyMap.has(step)) {
-				ctx.emitFailure("SCHEMA_VALIDATION_FAILED", `--policy step '${step}' specified more than once`);
+				ctx.failure(diagnostic$2("SCHEMA_VALIDATION_FAILED", {
+					reason: "duplicate_policy_step",
+					step
+				}));
 				return;
 			}
 			policyMap.set(step, applicability);
@@ -14464,12 +14203,12 @@ function registerTaskAmend(tasksCmd, deps) {
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state) {
-			ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
+			ctx.failure(diagnosticVariant("failure.no_session.tasks", { feature: opts.feature }));
 			return;
 		}
 		const current = session.snapshot.tasks.find((t) => t.id === taskId);
 		if (!current) {
-			ctx.emitFailure("TASK_NOT_FOUND", `task ${taskId} is not in the current tasks projection`, { task_id: taskId });
+			ctx.failure(diagnostic$2("TASK_NOT_FOUND", { task_id: taskId }));
 			return;
 		}
 		const materialized = materializeTaskForAmend(latestCanonicalTaskBody(session.entries, taskId), current);
@@ -14477,10 +14216,10 @@ function registerTaskAmend(tasksCmd, deps) {
 		for (const [step, applicability] of policyMap) {
 			const seeded = execution[step];
 			if (!seeded) {
-				ctx.emitFailure("TASK_STEP_NOT_FOUND", `step '${step}' is not in task ${taskId}'s execution set`, {
+				ctx.failure(diagnostic$2("TASK_STEP_NOT_FOUND", {
 					task_id: taskId,
 					step
-				});
+				}));
 				return;
 			}
 			seeded.applicability = applicability;
@@ -14542,7 +14281,7 @@ function registerTaskClaim(tasksCmd, deps) {
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state) {
-			ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
+			ctx.failure(diagnosticVariant("failure.no_session.tasks", { feature: opts.feature }));
 			return;
 		}
 		const result = await mutator.run(featureDir, session, {
@@ -14553,7 +14292,7 @@ function registerTaskClaim(tasksCmd, deps) {
 		if (!result) return;
 		const claimed = result.snapshot.tasks.find((t) => t.id === taskId);
 		if (!claimed) {
-			ctx.emitFailure("REDUCER_ERROR", `internal: task ${taskId} missing from snapshot after successful task_claimed apply`);
+			ctx.failure(diagnostic$2("REDUCER_ERROR", {}));
 			return;
 		}
 		const status = claimed.status;
@@ -14577,7 +14316,7 @@ function registerTaskAbandon(tasksCmd, deps) {
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state) {
-			ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
+			ctx.failure(diagnosticVariant("failure.no_session.tasks", { feature: opts.feature }));
 			return;
 		}
 		const result = await mutator.run(featureDir, session, {
@@ -14591,7 +14330,7 @@ function registerTaskAbandon(tasksCmd, deps) {
 		if (!result) return;
 		const abandoned = result.snapshot.tasks.find((t) => t.id === taskId);
 		if (!abandoned) {
-			ctx.emitFailure("REDUCER_ERROR", `internal: task ${taskId} missing from snapshot after successful task_abandoned apply`);
+			ctx.failure(diagnostic$2("REDUCER_ERROR", {}));
 			return;
 		}
 		const status = abandoned.status;
@@ -14616,12 +14355,12 @@ function registerTaskComplete(tasksCmd, deps) {
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state) {
-			ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
+			ctx.failure(diagnosticVariant("failure.no_session.tasks", { feature: opts.feature }));
 			return;
 		}
 		const task = session.snapshot.tasks.find((t) => t.id === taskId);
 		if (!task) {
-			ctx.emitFailure("TASK_NOT_FOUND", `task ${taskId} is not in the current tasks projection`, { task_id: taskId });
+			ctx.failure(diagnostic$2("TASK_NOT_FOUND", { task_id: taskId }));
 			return;
 		}
 		if (task.status !== "done") {
@@ -14631,11 +14370,11 @@ function registerTaskComplete(tasksCmd, deps) {
 				"na"
 			];
 			const blockingSteps = Object.entries(task.steps).filter(([, s]) => s.applicability === "must" && !TERMINAL_POSITIVE.includes(s.status)).map(([name]) => name);
-			ctx.emitFailure("TASK_COMPLETE_PRECONDITION_VIOLATED", `task ${taskId} is not complete (status=${task.status}); must-applicable steps not terminal-positive: ${blockingSteps.join(", ") || "(none — task has no must steps to auto-promote)"}`, {
+			ctx.failure(diagnostic$2("TASK_COMPLETE_PRECONDITION_VIOLATED", {
 				task_id: taskId,
 				status: task.status,
 				blocking_steps: blockingSteps
-			});
+			}));
 			return;
 		}
 		const out = {
@@ -14657,7 +14396,7 @@ function registerTaskRegisterRed(tasksCmd, deps) {
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state) {
-			ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
+			ctx.failure(diagnosticVariant("failure.no_session.tasks", { feature: opts.feature }));
 			return;
 		}
 		const result = await mutator.run(featureDir, session, {
@@ -14689,7 +14428,7 @@ function registerTaskStep(tasksCmd, deps) {
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state) {
-			ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
+			ctx.failure(diagnosticVariant("failure.no_session.tasks", { feature: opts.feature }));
 			return;
 		}
 		const result = await mutator.run(featureDir, session, {
@@ -14703,12 +14442,12 @@ function registerTaskStep(tasksCmd, deps) {
 		if (!result) return;
 		const updated = result.snapshot.tasks.find((t) => t.id === opts.task);
 		if (!updated) {
-			ctx.emitFailure("REDUCER_ERROR", `internal: task ${opts.task} missing from snapshot after successful step_started apply`);
+			ctx.failure(diagnostic$2("REDUCER_ERROR", {}));
 			return;
 		}
 		const stepInfo = updated.steps[opts.step];
 		if (!stepInfo) {
-			ctx.emitFailure("REDUCER_ERROR", `internal: step ${opts.step} missing from task ${opts.task} after successful step_started apply`);
+			ctx.failure(diagnostic$2("REDUCER_ERROR", {}));
 			return;
 		}
 		const out = {
@@ -14731,13 +14470,22 @@ function registerTaskStep(tasksCmd, deps) {
 			"waived",
 			"na"
 		].includes(opts.result)) {
-			ctx.emitFailure("USAGE", `--result must be one of: passed | failed | waived | na (got ${opts.result})`);
+			ctx.failure(diagnostic$2("USAGE", {
+				reason: "invalid_evidence_result",
+				value: opts.result,
+				allowed: [
+					"passed",
+					"failed",
+					"waived",
+					"na"
+				]
+			}));
 			return;
 		}
 		const evidenceFlagSet = opts.evidenceKind !== void 0 || opts.evidenceResult !== void 0 || opts.evidenceSummary !== void 0 || opts.evidenceCovers !== void 0 || opts.evidenceCheck !== void 0 || opts.evidenceReason !== void 0 || opts.evidenceActor !== void 0;
 		if (evidenceFlagSet) {
 			if (opts.evidenceKind === void 0 || opts.evidenceSummary === void 0) {
-				ctx.emitFailure("USAGE", "--evidence-kind and --evidence-summary must be specified together when any --evidence-* flag is present");
+				ctx.failure(diagnostic$2("USAGE", { reason: "evidence_kind_summary_pair_required" }));
 				return;
 			}
 		}
@@ -14745,7 +14493,7 @@ function registerTaskStep(tasksCmd, deps) {
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state) {
-			ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
+			ctx.failure(diagnosticVariant("failure.no_session.tasks", { feature: opts.feature }));
 			return;
 		}
 		const stepDoneEntry = {
@@ -14784,12 +14532,12 @@ function registerTaskStep(tasksCmd, deps) {
 		if (!result) return;
 		const updated = result.snapshot.tasks.find((t) => t.id === opts.task);
 		if (!updated) {
-			ctx.emitFailure("REDUCER_ERROR", `internal: task ${opts.task} missing from snapshot after successful step_done apply`);
+			ctx.failure(diagnostic$2("REDUCER_ERROR", {}));
 			return;
 		}
 		const stepInfo = updated.steps[opts.step];
 		if (!stepInfo) {
-			ctx.emitFailure("REDUCER_ERROR", `internal: step ${opts.step} missing from task ${opts.task} after successful step_done apply`);
+			ctx.failure(diagnostic$2("REDUCER_ERROR", {}));
 			return;
 		}
 		const out = {
@@ -14827,7 +14575,7 @@ function registerTaskQueries(tasksCmd, deps) {
 		if (ctx.rejectIfDryRun("tasks list")) return;
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
-		const loaded = await ctx.loadProjectionsOrFail(featureDir, ["state", "tasks"], opts.feature, FAILURE_SITE_KEYS.noSessionTasks);
+		const loaded = await ctx.loadProjectionsOrFail(featureDir, ["state", "tasks"], opts.feature, "failure.no_session.tasks");
 		if (loaded === null) return;
 		const slimTasks = loaded.tasks ? loaded.tasks.tasks.map((t) => extractTaskSlim(t)) : [];
 		const tasksById = new Map(slimTasks.map((t) => [t.id, t]));
@@ -14845,7 +14593,11 @@ function registerTaskQueries(tasksCmd, deps) {
 			"abandoned"
 		];
 		if (opts.status !== void 0 && !validStatuses.includes(opts.status)) {
-			ctx.emitFailure("USAGE", `--status must be one of: ${validStatuses.join(" | ")} (got ${opts.status})`);
+			ctx.failure(diagnostic$2("USAGE", {
+				reason: "invalid_task_status",
+				value: opts.status,
+				allowed: validStatuses
+			}));
 			return;
 		}
 		const filtered = withDerived.filter((t) => {
@@ -14877,7 +14629,7 @@ function registerTaskQueries(tasksCmd, deps) {
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state) {
-			ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
+			ctx.failure(diagnosticVariant("failure.no_session.tasks", { feature: opts.feature }));
 			return;
 		}
 		const tasks = session.snapshot.tasks;
@@ -14986,7 +14738,7 @@ function registerTerminalSettle(program, ctx, mutator, actor) {
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		const from = session.snapshot.state?.sub_state;
 		if (!from) {
-			ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+			ctx.failure(diagnosticVariant("failure.no_session.generic", { feature: opts.feature }));
 			return;
 		}
 		const result = await mutator.run(featureDir, session, {
@@ -15022,7 +14774,7 @@ function registerTerminalSettle(program, ctx, mutator, actor) {
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: false });
 		if (!session.snapshot.state) {
-			ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+			ctx.failure(diagnosticVariant("failure.no_session.generic", { feature: opts.feature }));
 			return;
 		}
 		const packPath = path.join(featureDir, "snapshots", "resume-pack.json");
@@ -15031,7 +14783,7 @@ function registerTerminalSettle(program, ctx, mutator, actor) {
 			raw = await promises.readFile(packPath, "utf8");
 		} catch (err) {
 			if (err.code === "ENOENT") {
-				ctx.emitFailure("INPUT_FILE_NOT_FOUND", `resume pack not found at ${packPath}; run \`loaf handoff --reason "..."\` first to create one`, { path: packPath });
+				ctx.failure(diagnostic$2("INPUT_FILE_NOT_FOUND", { path: packPath }));
 				return;
 			}
 			throw err;
@@ -15040,19 +14792,22 @@ function registerTerminalSettle(program, ctx, mutator, actor) {
 		try {
 			parsedPack = JSON.parse(raw);
 		} catch (err) {
-			ctx.emitFailure("SCHEMA_VALIDATION_FAILED", `resume pack at ${packPath} is not valid JSON: ${err.message}`, {
+			ctx.failure(diagnostic$2("SCHEMA_VALIDATION_FAILED", {
+				reason: "invalid-json",
+				cause: err.message,
 				subcode: "invalid-json",
 				path: packPath
-			});
+			}));
 			return;
 		}
 		const packParse = ResumePack.safeParse(parsedPack);
 		if (!packParse.success) {
-			ctx.emitFailure("SCHEMA_VALIDATION_FAILED", `resume pack at ${packPath} failed ResumePack schema validation`, {
+			ctx.failure(diagnostic$2("SCHEMA_VALIDATION_FAILED", {
+				reason: packParse.error.issues.map((issue) => issue.message).join("; "),
 				subcode: "zod",
 				path: packPath,
 				issues: packParse.error.issues
-			});
+			}));
 			return;
 		}
 		const pack = packParse.data;
@@ -15080,13 +14835,12 @@ function registerTerminalSettle(program, ctx, mutator, actor) {
 	program.command("handoff").description("Compose and persist snapshots/resume-pack.json (read-side projection writer; no journal entry)").requiredOption("--reason <text>", "Why this handoff is being taken (≥5 chars; mandatory per ResumePack.reason)").option("--notes <text>", "Optional free-form notes attached to the pack").option("--feature <name>", "Feature whose handoff to take").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		if (ctx.rejectIfDryRun("handoff", "projection-writer")) return;
 		if (opts.reason.length < 5) {
-			ctx.failureKeyed("USAGE", FAILURE_SITE_KEYS.handoffReasonTooShort, {
+			ctx.failure(diagnosticVariant("failure.handoff.reason_too_short", {
+				min_length: 5,
+				reason_length: opts.reason.length,
 				min_length: 5,
 				reason_length: opts.reason.length
-			}, {
-				min_length: 5,
-				reason_length: opts.reason.length
-			});
+			}));
 			return;
 		}
 		const humanActor = ctx.resolveHumanActorOrFail();
@@ -15098,7 +14852,7 @@ function registerTerminalSettle(program, ctx, mutator, actor) {
 			lease = await acquireFeatureWriteLease(featureDir, "handoff");
 		} catch (error) {
 			if (error instanceof FeatureWriteLeaseError) {
-				ctx.emitFailure(error.code, error.message);
+				ctx.failure(error.diagnostic);
 				return;
 			}
 			throw error;
@@ -15106,7 +14860,7 @@ function registerTerminalSettle(program, ctx, mutator, actor) {
 		try {
 			const session = await loadSession(featureDir, { ensureDir: false });
 			if (!session.snapshot.state) {
-				ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+				ctx.failure(diagnosticVariant("failure.no_session.generic", { feature: opts.feature }));
 				return;
 			}
 			const pack = buildResumePack({
@@ -15118,10 +14872,10 @@ function registerTerminalSettle(program, ctx, mutator, actor) {
 			});
 			const parse = ResumePack.safeParse(pack);
 			if (!parse.success) {
-				ctx.failureKeyed("SCHEMA_VALIDATION_FAILED", FAILURE_SITE_KEYS.handoffPackValidationFailed, {}, {
+				ctx.failure(diagnosticVariant("failure.handoff.pack_validation_failed", {
 					subcode: "zod",
 					issues: parse.error.issues
-				});
+				}));
 				return;
 			}
 			const snapshotsDir = path.join(featureDir, "snapshots");
@@ -15155,7 +14909,7 @@ function registerPending(program, ctx, mutator, actor) {
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state) {
-			ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionPending, opts.feature);
+			ctx.failure(diagnosticVariant("failure.no_session.pending", { feature: opts.feature }));
 			return;
 		}
 		const maxSerial = session.snapshot.pending.reduce((max, p) => {
@@ -15190,7 +14944,7 @@ function registerPending(program, ctx, mutator, actor) {
 		if (ctx.rejectIfDryRun("pending list")) return;
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
-		const loaded = await ctx.loadProjectionsOrFail(featureDir, ["pending"], opts.feature, FAILURE_SITE_KEYS.noSessionPending);
+		const loaded = await ctx.loadProjectionsOrFail(featureDir, ["pending"], opts.feature, "failure.no_session.pending");
 		if (loaded === null) return;
 		const entries = loaded.pending.pending;
 		const headIdx = entries.findIndex((p) => !p.resolved);
@@ -15218,7 +14972,7 @@ function registerPending(program, ctx, mutator, actor) {
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state) {
-			ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionPending, opts.feature);
+			ctx.failure(diagnosticVariant("failure.no_session.pending", { feature: opts.feature }));
 			return;
 		}
 		const headIdx = session.snapshot.pending.findIndex((p) => !p.resolved);
@@ -15226,7 +14980,10 @@ function registerPending(program, ctx, mutator, actor) {
 		if (opts.id !== void 0) {
 			const idx = session.snapshot.pending.findIndex((p) => p.id === opts.id);
 			if (idx === -1) {
-				ctx.emitFailure("PENDING_NOT_FOUND", `pending id=${opts.id} not found in queue`, { pending_id: opts.id });
+				ctx.failure(diagnostic$2("PENDING_NOT_FOUND", {
+					reason: "pending_id_not_found",
+					pending_id: opts.id
+				}));
 				return;
 			}
 			target = {
@@ -15256,12 +15013,12 @@ function registerPending(program, ctx, mutator, actor) {
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state) {
-			ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionPending, opts.feature);
+			ctx.failure(diagnosticVariant("failure.no_session.pending", { feature: opts.feature }));
 			return;
 		}
 		const head = session.snapshot.pending.find((p) => !p.resolved);
 		if (!head) {
-			ctx.emitFailure("PENDING_NOT_FOUND", "pending:resolved called but the queue has no unresolved head");
+			ctx.failure(diagnostic$2("PENDING_NOT_FOUND", { reason: "no pending head" }));
 			return;
 		}
 		if (!await mutator.run(featureDir, session, {
@@ -15357,7 +15114,10 @@ function registerEvidence(program, ctx, mutator, actor, input) {
 		const parsed = read.value;
 		const rawItems = Array.isArray(parsed) ? parsed : [parsed];
 		if (rawItems.length === 0) {
-			ctx.failure("SCHEMA_VALIDATION_FAILED", "evidence add input is an empty array (non-empty array required)");
+			ctx.failure(diagnostic$2("SCHEMA_VALIDATION_FAILED", {
+				reason: "evidence_batch_empty",
+				command: "evidence add"
+			}));
 			return;
 		}
 		const validatedInputs = [];
@@ -15365,10 +15125,11 @@ function registerEvidence(program, ctx, mutator, actor, input) {
 			const raw = rawItems[i];
 			const p = EvidenceAddInput.safeParse(raw);
 			if (!p.success) {
-				ctx.failure("SCHEMA_VALIDATION_FAILED", `evidence add input[${i}] failed schema validation: ${p.error.issues.map((iss) => iss.message).join("; ")}`, {
+				ctx.failure(diagnostic$2("SCHEMA_VALIDATION_FAILED", {
+					reason: p.error.issues.map((issue) => issue.message).join("; "),
 					index: i,
 					issues: p.error.issues
-				});
+				}));
 				return;
 			}
 			validatedInputs.push(p.data);
@@ -15377,7 +15138,7 @@ function registerEvidence(program, ctx, mutator, actor, input) {
 		if (featureDir === null) return;
 		const session = await ctx.resolveSession(featureDir);
 		if (!session.snapshot.state) {
-			ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+			ctx.failure(diagnosticVariant("failure.no_session.generic", { feature: opts.feature }));
 			return;
 		}
 		const evIds = allocateNextEvidenceIds(session.snapshot, validatedInputs.length);
@@ -15444,26 +15205,31 @@ function registerEvidence(program, ctx, mutator, actor, input) {
 	evidenceCmd.command("list").description("List evidence coverage fields from the evidence projection (read-only)").option("--covers <id>", "Filter entries whose covers array contains id").option("--task <T-N>", "Filter entries linked to a task id").option("--kind <kind>", "Filter by the closed EvidenceKind enum").option("--feature <name>", "Feature whose evidence to list").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		if (ctx.rejectIfDryRun("evidence list")) return;
 		if (opts.covers !== void 0 && !CoversRefPayload.safeParse(opts.covers).success) {
-			ctx.failureKeyed("USAGE", FAILURE_SITE_KEYS.evidenceCoversInvalid, { value: opts.covers }, { value: opts.covers });
+			ctx.failure(diagnosticVariant("failure.evidence.covers_invalid", {
+				value: opts.covers,
+				value: opts.covers
+			}));
 			return;
 		}
 		if (opts.task !== void 0 && !TaskIdPayload.safeParse(opts.task).success) {
-			ctx.failureKeyed("USAGE", FAILURE_SITE_KEYS.evidenceTaskInvalid, { value: opts.task }, { value: opts.task });
+			ctx.failure(diagnosticVariant("failure.evidence.task_invalid", {
+				value: opts.task,
+				value: opts.task
+			}));
 			return;
 		}
 		if (opts.kind !== void 0 && !EvidenceKind.safeParse(opts.kind).success) {
-			ctx.failureKeyed("USAGE", FAILURE_SITE_KEYS.evidenceKindInvalid, {
+			ctx.failure(diagnosticVariant("failure.evidence.kind_invalid", {
 				value: opts.kind,
-				allowed_kinds_human: EvidenceKind.options.join(" | ")
-			}, {
+				allowed_kinds_human: EvidenceKind.options.join(" | "),
 				value: opts.kind,
 				allowed: EvidenceKind.options
-			});
+			}));
 			return;
 		}
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
-		const loaded = await ctx.loadProjectionsOrFail(featureDir, ["evidence"], opts.feature, FAILURE_SITE_KEYS.noSessionGeneric);
+		const loaded = await ctx.loadProjectionsOrFail(featureDir, ["evidence"], opts.feature, "failure.no_session.generic");
 		if (loaded === null) return;
 		const rows = loaded.evidence.evidence.filter((entry) => (opts.covers === void 0 || entry.covers.includes(opts.covers)) && (opts.task === void 0 || entry.task_id === opts.task) && (opts.kind === void 0 || entry.kind === opts.kind)).map((entry) => ({
 			id: entry.id,
@@ -15492,17 +15258,19 @@ function registerEvidence(program, ctx, mutator, actor, input) {
 	});
 	program.command("waive <obligation-id>").description("Record a waiver evidence (kind=waiver) against an obligation id (REQ-/SCEN-/VIS-/T-)").requiredOption("--reason <text>", "Waiver rationale (≥10 chars; mandatory per evidence schema refine)").option("--feature <name>", "Feature whose ledger to append to").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (obligationId, opts) => {
 		if (!CoversRefPayload.safeParse(obligationId).success) {
-			ctx.emitFailure("USAGE", `invalid obligation id '${obligationId}' — expected REQ-NS-NNN / SCEN-NS-NNN / VIS-NS-NNN / T-NNN form`, { argument: obligationId });
+			ctx.failure(diagnostic$2("USAGE", {
+				reason: "invalid_obligation_id",
+				argument: obligationId
+			}));
 			return;
 		}
 		if (opts.reason.length < 10) {
-			ctx.failureKeyed("USAGE", FAILURE_SITE_KEYS.lessonsReasonTooShort, {
+			ctx.failure(diagnosticVariant("failure.lessons.reason_too_short", {
+				min_length: 10,
+				reason_length: opts.reason.length,
 				min_length: 10,
 				reason_length: opts.reason.length
-			}, {
-				min_length: 10,
-				reason_length: opts.reason.length
-			});
+			}));
 			return;
 		}
 		const waiveActor = ctx.resolveHumanActorOrFail();
@@ -15511,7 +15279,7 @@ function registerEvidence(program, ctx, mutator, actor, input) {
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state) {
-			ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+			ctx.failure(diagnosticVariant("failure.no_session.generic", { feature: opts.feature }));
 			return;
 		}
 		const evidenceId = allocateNextEvidenceId(session.snapshot);
@@ -15551,21 +15319,22 @@ function registerJournal(program, ctx) {
 		const limit = parseIntegerFilter(ctx, "--limit", opts.limit, 1);
 		if (limit === null) return;
 		if (opts.kind !== void 0 && !Object.hasOwn(KIND_REGISTRY, opts.kind)) {
-			ctx.failureKeyed("USAGE", FAILURE_SITE_KEYS.journalKindInvalid, { value: opts.kind }, {
+			ctx.failure(diagnosticVariant("failure.journal.kind_invalid", {
+				value: opts.kind,
 				value: opts.kind,
 				allowed: JOURNAL_KINDS
-			});
+			}));
 			return;
 		}
 		if (opts.actor !== void 0 && opts.actor.length === 0) {
-			ctx.failureKeyed("USAGE", FAILURE_SITE_KEYS.journalActorInvalid, {});
+			ctx.failure(diagnosticVariant("failure.journal.actor_invalid", {}));
 			return;
 		}
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: false });
 		if (session.snapshot.state === null) {
-			ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+			ctx.failure(diagnosticVariant("failure.no_session.generic", { feature: opts.feature }));
 			return;
 		}
 		let entries = session.entries.filter((entry) => (afterSeq === void 0 || entry.seq > afterSeq) && (opts.kind === void 0 || entry.kind === opts.kind) && (opts.actor === void 0 || entry.actor.startsWith(opts.actor)));
@@ -15582,28 +15351,26 @@ function registerJournal(program, ctx) {
 function parseIntegerFilter(ctx, flag, value, minimum) {
 	if (value === void 0) return void 0;
 	if (!/^\d+$/.test(value)) {
-		ctx.failureKeyed("USAGE", FAILURE_SITE_KEYS.journalIntegerInvalid, {
+		ctx.failure(diagnosticVariant("failure.journal.integer_invalid", {
+			flag,
+			value,
+			minimum,
 			flag,
 			value,
 			minimum
-		}, {
-			flag,
-			value,
-			minimum
-		});
+		}));
 		return null;
 	}
 	const parsed = Number(value);
 	if (!Number.isSafeInteger(parsed) || parsed < minimum) {
-		ctx.failureKeyed("USAGE", FAILURE_SITE_KEYS.journalIntegerInvalid, {
+		ctx.failure(diagnosticVariant("failure.journal.integer_invalid", {
+			flag,
+			value,
+			minimum,
 			flag,
 			value,
 			minimum
-		}, {
-			flag,
-			value,
-			minimum
-		});
+		}));
 		return null;
 	}
 	return parsed;
@@ -15666,10 +15433,11 @@ function registerLessons(program, ctx, mutator, _actor) {
 		const hasText = opts.text !== void 0;
 		const hasFile = opts.file !== void 0;
 		if (hasText === hasFile) {
-			ctx.failureKeyed("USAGE", FAILURE_SITE_KEYS.lessonsTextFileMutex, { provided_state: hasText ? "both provided" : "neither provided" }, {
+			ctx.failure(diagnosticVariant("failure.lessons.text_file_mutex", {
+				provided_state: hasText ? "both provided" : "neither provided",
 				text_provided: hasText,
 				file_provided: hasFile
-			});
+			}));
 			return;
 		}
 		let lessonText;
@@ -15678,29 +15446,30 @@ function registerLessons(program, ctx, mutator, _actor) {
 			lessonText = await promises.readFile(opts.file, "utf8");
 		} catch (err) {
 			if (err.code === "ENOENT") {
-				ctx.failureKeyed("INPUT_FILE_NOT_FOUND", FAILURE_SITE_KEYS.lessonsFileMissing, { path: opts.file }, { path: opts.file });
+				ctx.failure(diagnosticVariant("failure.lessons.file_missing", {
+					path: opts.file,
+					path: opts.file
+				}));
 				return;
 			}
 			throw err;
 		}
 		if (lessonText.length < 3) {
-			ctx.failureKeyed("USAGE", FAILURE_SITE_KEYS.lessonsTextTooShort, {
+			ctx.failure(diagnosticVariant("failure.lessons.text_too_short", {
+				min_length: 3,
+				lesson_text_length: lessonText.length,
 				min_length: 3,
 				lesson_text_length: lessonText.length
-			}, {
-				min_length: 3,
-				lesson_text_length: lessonText.length
-			});
+			}));
 			return;
 		}
 		if (opts.reason.length < 10) {
-			ctx.failureKeyed("USAGE", FAILURE_SITE_KEYS.lessonsReasonTooShort, {
+			ctx.failure(diagnosticVariant("failure.lessons.reason_too_short", {
+				min_length: 10,
+				reason_length: opts.reason.length,
 				min_length: 10,
 				reason_length: opts.reason.length
-			}, {
-				min_length: 10,
-				reason_length: opts.reason.length
-			});
+			}));
 			return;
 		}
 		const actor = ctx.resolveHumanActorOrFail();
@@ -15709,7 +15478,7 @@ function registerLessons(program, ctx, mutator, _actor) {
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state) {
-			ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+			ctx.failure(diagnosticVariant("failure.no_session.generic", { feature: opts.feature }));
 			return;
 		}
 		const lessonId = allocateNextLessonId(session.entries);
@@ -15912,8 +15681,9 @@ async function checkFile(opts) {
 	if (await isDidYouMeanTasks(opts.path, absPath)) return {
 		ok: false,
 		code: "USAGE",
-		message: "`tasks` is not a file path. To validate a tasks artifact, pass its path: `loaf check <path>/tasks.json --kind tasks` (noun-first `loaf tasks check` is reserved for a future release)",
 		detail: {
+			subject: opts.path,
+			kind: "tasks",
 			suggestion: "loaf check <path>/tasks.json --kind tasks",
 			argument: opts.path
 		}
@@ -15925,7 +15695,6 @@ async function checkFile(opts) {
 		if (err.code === "ENOENT") return {
 			ok: false,
 			code: "INPUT_FILE_NOT_FOUND",
-			message: `file not found: ${absPath}`,
 			detail: { path: absPath }
 		};
 		throw err;
@@ -15934,8 +15703,9 @@ async function checkFile(opts) {
 	if (kind === null) return {
 		ok: false,
 		code: "USAGE",
-		message: `cannot infer artifact kind from basename '${path.basename(opts.path)}' — specify --kind ${CHECK_KINDS.join("|")}`,
 		detail: {
+			reason: "artifact_kind_unknown",
+			allowed_kinds: CHECK_KINDS,
 			hint: "specify --kind",
 			path: absPath,
 			basename: path.basename(opts.path)
@@ -15948,10 +15718,10 @@ async function checkFile(opts) {
 		if (frontmatter === null) return {
 			ok: false,
 			code: "SCHEMA_VALIDATION_FAILED",
-			message: `${kind} at ${absPath} is missing a YAML frontmatter block fenced by \`---\` on the first line`,
 			detail: {
 				kind,
 				path: absPath,
+				reason: "missing-frontmatter",
 				subcode: "missing-frontmatter"
 			}
 		};
@@ -15961,10 +15731,10 @@ async function checkFile(opts) {
 			return {
 				ok: false,
 				code: "SCHEMA_VALIDATION_FAILED",
-				message: `${kind} at ${absPath} frontmatter YAML failed to parse: ${err.message}`,
 				detail: {
 					kind,
 					path: absPath,
+					reason: err.message,
 					subcode: "invalid-yaml"
 				}
 			};
@@ -15975,10 +15745,10 @@ async function checkFile(opts) {
 		return {
 			ok: false,
 			code: "SCHEMA_VALIDATION_FAILED",
-			message: `${kind} at ${absPath} JSON failed to parse: ${err.message}`,
 			detail: {
 				kind,
 				path: absPath,
+				reason: err.message,
 				subcode: "invalid-json"
 			}
 		};
@@ -15988,16 +15758,13 @@ async function checkFile(opts) {
 		const issues = mapZodIssues(result.error);
 		return {
 			ok: false,
-			code: "SCHEMA_VALIDATION_FAILED",
-			message: `${kind} at ${absPath} failed schema validation (${issues.error_count} ${issues.error_count === 1 ? "error" : "errors"})`,
-			detail: {
+			...diagnosticVariant("failure.schema.validation", {
 				kind,
 				path: absPath,
 				subcode: "zod",
-				errors: issues.errors,
-				truncated: issues.truncated,
-				error_count: issues.error_count
-			}
+				error_word: issues.error_count === 1 ? "error" : "errors",
+				...issues
+			})
 		};
 	}
 	return {
@@ -17105,7 +16872,7 @@ function registerIntegrations(program, ctx, _mutator, _actor, i18n, isStdinTty, 
 			try {
 				dispatch = await ctx.resolveDispatch();
 			} catch (error) {
-				ctx.diagnosticFailure({
+				ctx.failure({
 					code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
 					detail: { reason: error.message }
 				});
@@ -17113,7 +16880,7 @@ function registerIntegrations(program, ctx, _mutator, _actor, i18n, isStdinTty, 
 			}
 			if (!dispatch.ok) {
 				if (dispatch.code === "FEATURE_NOT_FOUND") return;
-				ctx.diagnosticFailure(dispatch);
+				ctx.failure(dispatch);
 				return;
 			}
 			opts.feature = dispatch.feature;
@@ -17121,7 +16888,7 @@ function registerIntegrations(program, ctx, _mutator, _actor, i18n, isStdinTty, 
 			ctx.recordTraceTarget(dispatch.feature, dispatch.featureDir);
 			const sessionId = dispatch.sessionId;
 			if (sessionId === null) {
-				ctx.diagnosticFailure({
+				ctx.failure({
 					code: "SCHEMA_VALIDATION_FAILED",
 					detail: {
 						source: "scope-track",
@@ -17138,7 +16905,7 @@ function registerIntegrations(program, ctx, _mutator, _actor, i18n, isStdinTty, 
 					kinds: ["state"]
 				})).state;
 			} catch (error) {
-				ctx.diagnosticFailure({
+				ctx.failure({
 					code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
 					detail: error instanceof SnapshotStaleError ? error.detail : { reason: error.message }
 				});
@@ -17164,7 +16931,7 @@ function registerIntegrations(program, ctx, _mutator, _actor, i18n, isStdinTty, 
 					}
 				});
 			} catch (error) {
-				ctx.diagnosticFailure(error instanceof RuntimeStoreError ? runtimeStoreDiagnostic(error, "session-runtime") : {
+				ctx.failure(error instanceof RuntimeStoreError ? runtimeStoreDiagnostic(error, "session-runtime") : {
 					code: "SCHEMA_VALIDATION_FAILED",
 					detail: {
 						source: "session-runtime",
@@ -17173,7 +16940,7 @@ function registerIntegrations(program, ctx, _mutator, _actor, i18n, isStdinTty, 
 				});
 				return;
 			}
-			if (!normalized.ok) ctx.diagnosticFailure({
+			if (!normalized.ok) ctx.failure({
 				code: "SCHEMA_VALIDATION_FAILED",
 				detail: {
 					source: "scope-track",
@@ -17188,17 +16955,18 @@ function registerIntegrations(program, ctx, _mutator, _actor, i18n, isStdinTty, 
 		const wd = await ctx.resolveDispatchForWriteGuard(opts);
 		if ("allow" in wd) return;
 		if ("failClosed" in wd) {
-			ctx.diagnosticFailure(wd);
+			ctx.failure(wd);
 			return;
 		}
 		const repoRoot = path.dirname(path.dirname(wd.featureDir));
 		const feature = opts.feature;
 		const cfg = await readLoafConfig(repoRoot);
 		if (cfg.status === "invalid") {
-			ctx.failureKeyed("SCHEMA_VALIDATION_FAILED", FAILURE_SITE_KEYS.writeGuardConfigInvalid, { reason: cfg.reason }, {
+			ctx.failure(diagnosticVariant("failure.write_guard.config_invalid", {
+				reason: cfg.reason,
 				source: "loaf.config.json",
 				reason: cfg.reason
-			});
+			}));
 			return;
 		}
 		const config = cfg.status === "ok" ? cfg.config : null;
@@ -17209,7 +16977,7 @@ function registerIntegrations(program, ctx, _mutator, _actor, i18n, isStdinTty, 
 				kinds: ["state", "tasks"]
 			});
 		} catch (err) {
-			ctx.diagnosticFailure({
+			ctx.failure({
 				code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
 				detail: err instanceof SnapshotStaleError ? err.detail : { reason: err.message }
 			});
@@ -17248,20 +17016,20 @@ function registerIntegrations(program, ctx, _mutator, _actor, i18n, isStdinTty, 
 		});
 		if (decision.allowed) return;
 		if (decision.code === "PROTECTED_FILE_WRITE") {
-			ctx.emitFailure("PROTECTED_FILE_WRITE", `write blocked: \`${decision.normalizedPath}\` matches protected_files entry \`${decision.matchedDeny}\` — protected files are never writable`, {
+			ctx.failure(diagnostic$2("PROTECTED_FILE_WRITE", {
 				path: target,
 				normalized_path: decision.normalizedPath,
 				matched_deny: decision.matchedDeny
-			});
+			}));
 			return;
 		}
-		ctx.emitFailure("WRITE_PATH_VIOLATION", `write blocked: \`${decision.normalizedPath}\` is outside the allowed write paths for sub_state \`${state.sub_state}\``, {
+		ctx.failure(diagnostic$2("WRITE_PATH_VIOLATION", {
 			path: target,
 			normalized_path: decision.normalizedPath,
 			sub_state: state.sub_state,
 			allow_set: decision.allowSet.slice(0, 30),
 			...decision.reason ? { reason: decision.reason } : {}
-		});
+		}));
 	});
 	const resolvedRenderTui = renderTuiImpl ?? defaultRenderTui;
 	program.command("tui").description("Interactive session manager TUI (Ink; read-only, MVP)").action(async () => {
@@ -17269,10 +17037,10 @@ function registerIntegrations(program, ctx, _mutator, _actor, i18n, isStdinTty, 
 		const stdinTty = isStdinTty();
 		const stdoutTty = isStdoutTtyForTui();
 		if (!stdinTty || !stdoutTty) {
-			ctx.emitFailure("USAGE", "TUI requires an interactive terminal (stdin/stdout TTY)", {
+			ctx.failure(diagnosticVariant("failure.tui.interactive_only", {
 				stdin_tty: stdinTty,
 				stdout_tty: stdoutTty
-			});
+			}));
 			return;
 		}
 		const loadRows = async () => {
@@ -17342,14 +17110,13 @@ function registerIntegrations(program, ctx, _mutator, _actor, i18n, isStdinTty, 
 		let kind;
 		if (opts.kind !== void 0) {
 			if (!CHECK_KINDS.includes(opts.kind)) {
-				ctx.failureKeyed("USAGE", FAILURE_SITE_KEYS.checkKindInvalid, {
+				ctx.failure(diagnosticVariant("failure.check.kind_invalid", {
 					value: opts.kind,
-					allowed_kinds_human: CHECK_KINDS.join("|")
-				}, {
+					allowed_kinds_human: CHECK_KINDS.join("|"),
 					provided: opts.kind,
 					value: opts.kind,
 					allowed: CHECK_KINDS
-				});
+				}));
 				return;
 			}
 			kind = opts.kind;
@@ -17363,27 +17130,32 @@ function registerIntegrations(program, ctx, _mutator, _actor, i18n, isStdinTty, 
 			return;
 		}
 		if (result.code === "USAGE" && result.detail["suggestion"] !== void 0) {
-			ctx.failureKeyed("USAGE", FAILURE_SITE_KEYS.checkKindRequired, {
+			ctx.failure(diagnosticVariant("failure.check.kind_required", {
 				subject: String(result.detail["argument"] ?? filePath),
 				kind: "tasks",
-				suggestion: String(result.detail["suggestion"])
-			}, result.detail);
+				suggestion: String(result.detail["suggestion"]),
+				...result.detail
+			}));
 			return;
 		}
 		if (result.code === "INPUT_FILE_NOT_FOUND") {
-			ctx.failureKeyed("INPUT_FILE_NOT_FOUND", FAILURE_SITE_KEYS.checkPathMissing, { path: String(result.detail["path"] ?? filePath) }, result.detail);
+			ctx.failure(diagnosticVariant("failure.check.path_missing", {
+				path: String(result.detail["path"] ?? filePath),
+				...result.detail
+			}));
 			return;
 		}
 		if (result.code === "SCHEMA_VALIDATION_FAILED" && result.detail["kind"] !== void 0 && result.detail["path"] !== void 0 && result.detail["error_count"] !== void 0) {
-			ctx.failureKeyed("SCHEMA_VALIDATION_FAILED", FAILURE_SITE_KEYS.schemaValidation, {
+			ctx.failure(diagnosticVariant("failure.schema.validation", {
 				kind: String(result.detail["kind"]),
 				path: String(result.detail["path"]),
 				error_count: String(result.detail["error_count"]),
-				error_word: Number(result.detail["error_count"]) === 1 ? "error" : "errors"
-			}, result.detail);
+				error_word: Number(result.detail["error_count"]) === 1 ? "error" : "errors",
+				...result.detail
+			}));
 			return;
 		}
-		ctx.emitFailure(result.code, result.message, result.detail);
+		ctx.failure(result);
 	});
 	program.command("verify").description("Verify-accept gate read commands (status)").command("status").description("Show per-check verify-accept diagnostic (read-only)").option("--feature <name>", "Feature whose verify status to show").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		if (ctx.rejectIfDryRun("verify status")) return;
@@ -17392,7 +17164,7 @@ function registerIntegrations(program, ctx, _mutator, _actor, i18n, isStdinTty, 
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		const diag = await evaluateVerifyAcceptDiagnostic(session.snapshot, featureDir);
 		if (!diag.ok) {
-			ctx.diagnosticFailure(diag);
+			ctx.failure(diag);
 			return;
 		}
 		const env = buildEnvelope(diag.checks, session.snapshot.findings, diag.lanes);
@@ -17420,14 +17192,14 @@ function registerFinding(program, ctx, mutator, actor) {
 		const hasTask = opts.targetTask !== void 0;
 		const hasStep = opts.targetStep !== void 0;
 		if (hasTask !== hasStep) {
-			ctx.emitFailure("USAGE", "--target-task and --target-step must be specified together (or both omitted)");
+			ctx.failure(diagnostic$2("USAGE", { reason: "target_task_step_pair_required" }));
 			return;
 		}
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state) {
-			ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionFinding, opts.feature);
+			ctx.failure(diagnosticVariant("failure.no_session.finding", { feature: opts.feature }));
 			return;
 		}
 		const maxSerial = session.snapshot.findings.reduce((max, f) => {
@@ -17487,18 +17259,17 @@ function registerFinding(program, ctx, mutator, actor) {
 	findingCmd.command("list").description("List findings (read-only; --status filters open|closed)").option("--feature <name>", "Feature whose findings to list").option("--status <s>", "Filter by status (open | closed)").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
 		if (ctx.rejectIfDryRun("finding list")) return;
 		if (opts.status !== void 0 && opts.status !== "open" && opts.status !== "closed") {
-			ctx.failureKeyed("USAGE", FAILURE_SITE_KEYS.findingStatusInvalid, {
+			ctx.failure(diagnosticVariant("failure.finding.status_invalid", {
 				allowed_statuses_human: "open | closed",
-				value: opts.status
-			}, {
+				value: opts.status,
 				allowed: ["open", "closed"],
 				value: opts.status
-			});
+			}));
 			return;
 		}
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
-		const loaded = await ctx.loadProjectionsOrFail(featureDir, ["findings"], opts.feature, FAILURE_SITE_KEYS.noSessionFinding);
+		const loaded = await ctx.loadProjectionsOrFail(featureDir, ["findings"], opts.feature, "failure.no_session.finding");
 		if (loaded === null) return;
 		const all = loaded.findings.findings;
 		const rows = opts.status ? all.filter((f) => f.status === opts.status) : all;
@@ -17517,32 +17288,34 @@ function registerFinding(program, ctx, mutator, actor) {
 	findingCmd.command("close <fnd-id>").description("Close a finding (emits finding:closed)").option("--feature <name>", "Feature whose ledger to close against").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (fndId, opts) => {
 		const idParse = FindingId.safeParse(fndId);
 		if (!idParse.success) {
-			ctx.emitFailure("INVALID_PAYLOAD", `finding close id must match FindingId regex /^FND-\\d{3,}$/ (got ${fndId})`, {
+			ctx.failure(diagnostic$2("INVALID_PAYLOAD", {
+				kind: "finding:closed",
+				reason: idParse.error.issues.map((issue) => issue.message).join("; "),
 				id: fndId,
 				issues: idParse.error.issues
-			});
+			}));
 			return;
 		}
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		if (!session.snapshot.state) {
-			ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionFinding, opts.feature);
+			ctx.failure(diagnosticVariant("failure.no_session.finding", { feature: opts.feature }));
 			return;
 		}
 		const existing = session.snapshot.findings.find((f) => f.id === fndId);
 		if (!existing) {
-			ctx.emitFailure("FINDING_NOT_FOUND", `finding:closed references unknown finding id=${fndId}`, {
+			ctx.failure(diagnostic$2("FINDING_NOT_FOUND", {
 				id: fndId,
 				reason: "unknown"
-			});
+			}));
 			return;
 		}
 		if (existing.status === "closed") {
-			ctx.emitFailure("FINDING_NOT_FOUND", `finding:closed references finding id=${fndId} that is already closed`, {
+			ctx.failure(diagnostic$2("FINDING_NOT_FOUND", {
 				id: fndId,
 				reason: "already_closed"
-			});
+			}));
 			return;
 		}
 		if (!await mutator.run(featureDir, session, {
@@ -17727,7 +17500,7 @@ function registerSpec(program, ctx, mutator, actor, isStdinTty, isStdoutTty, inp
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: false });
 		if (session.snapshot.state === null) {
-			ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+			ctx.failure(diagnosticVariant("failure.no_session.generic", { feature: opts.feature }));
 			return;
 		}
 		const envelope = buildSpecStatusEnvelope(evaluateSpecLockFromSnapshot(session.snapshot));
@@ -17739,12 +17512,15 @@ function registerSpec(program, ctx, mutator, actor, isStdinTty, isStdoutTty, inp
 		if (!read.ok) return;
 		const parsed = read.value;
 		if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-			ctx.failure("USAGE", "spec submit --input expects a JSON object (SpecFrontmatter shape)");
+			ctx.failure(diagnostic$2("USAGE", { reason: "spec_input_object_required" }));
 			return;
 		}
 		const inputParse = SpecSubmitInput.safeParse(parsed);
 		if (!inputParse.success) {
-			ctx.failure("SCHEMA_VALIDATION_FAILED", `spec submit input failed SpecSubmitInput schema validation`, { issues: inputParse.error.issues });
+			ctx.failure(diagnostic$2("SCHEMA_VALIDATION_FAILED", {
+				reason: inputParse.error.issues.map((issue) => issue.message).join("; "),
+				issues: inputParse.error.issues
+			}));
 			return;
 		}
 		const input = inputParse.data;
@@ -17752,7 +17528,7 @@ function registerSpec(program, ctx, mutator, actor, isStdinTty, isStdoutTty, inp
 		if (featureDir === null) return;
 		const session = await ctx.resolveSession(featureDir);
 		if (!session.snapshot.state) {
-			ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+			ctx.failure(diagnosticVariant("failure.no_session.generic", { feature: opts.feature }));
 			return;
 		}
 		const now = (/* @__PURE__ */ new Date()).toISOString();
@@ -17796,7 +17572,7 @@ function registerSpec(program, ctx, mutator, actor, isStdinTty, isStdoutTty, inp
 		const specMdPath = path.join(featureDir, "spec.md");
 		try {
 			await promises.access(specMdPath);
-			ctx.emitFailure("SPEC_ALREADY_INITIALIZED", `spec.md already exists at ${specMdPath}; edit it directly or remove before re-init`, { spec_md_path: specMdPath });
+			ctx.failure(diagnostic$2("SPEC_ALREADY_INITIALIZED", { spec_md_path: specMdPath }));
 			return;
 		} catch {}
 		await promises.mkdir(featureDir, { recursive: true });
@@ -17819,7 +17595,10 @@ function registerSpec(program, ctx, mutator, actor, isStdinTty, isStdoutTty, inp
 		};
 		const scaffoldParse = SpecFrontmatter.safeParse(scaffoldObj);
 		if (!scaffoldParse.success) {
-			ctx.emitFailure("SCHEMA_VALIDATION_FAILED", "spec init scaffold failed SpecFrontmatter validation; check --feature-id (/^F-\\d{3,}$/), --feature-name (≥3 chars), --intent (≥20 chars)", { issues: scaffoldParse.error.issues });
+			ctx.failure(diagnostic$2("SCHEMA_VALIDATION_FAILED", {
+				reason: scaffoldParse.error.issues.map((issue) => issue.message).join("; "),
+				issues: scaffoldParse.error.issues
+			}));
 			return;
 		}
 		const md = `---
@@ -17844,18 +17623,18 @@ feature:
 		if (featureDir === null) return;
 		const explicitEditor = (process.env["EDITOR"] ?? "").trim();
 		if (!hasInput && (!isStdinTty() || !isStdoutTty())) {
-			ctx.emitFailure("SPEC_EDIT_INPUT_REQUIRED", "non-interactive `loaf spec edit` requires --input <src>; the editor lane requires TTY stdin and stdout");
+			ctx.failure(diagnostic$2("SPEC_EDIT_INPUT_REQUIRED", {}));
 			return;
 		}
 		const actor = ctx.resolveHumanActorOrFail();
 		if (actor === null) return;
 		const session = await loadSession(featureDir, { ensureDir: false });
 		if (!session.snapshot.state) {
-			ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+			ctx.failure(diagnosticVariant("failure.no_session.generic", { feature: opts.feature }));
 			return;
 		}
 		if (session.snapshot.state.spec_locked === true) {
-			ctx.emitFailure("SPEC_LOCKED_NO_DIRECT_EDIT", `spec is locked; direct edits via \`loaf spec edit\` are rejected post-lock — use \`loaf finding raise --category spec-gap --action amend-spec --summary "..."\` to roll back to SPEC.spec and amend through the finding flow`, { kind: "event:spec_submitted" });
+			ctx.failure(diagnostic$2("SPEC_LOCKED_NO_DIRECT_EDIT", { kind: "event:spec_submitted" }));
 			return;
 		}
 		const specMdPath = path.join(featureDir, "spec.md");
@@ -17864,10 +17643,11 @@ feature:
 			beforeContent = await promises.readFile(specMdPath, "utf8");
 		} catch (err) {
 			if (err.code === "ENOENT") {
-				ctx.emitFailure("SCHEMA_VALIDATION_FAILED", `spec.md not found at ${specMdPath}; run \`loaf spec init\` to scaffold one first`, {
+				ctx.failure(diagnostic$2("SCHEMA_VALIDATION_FAILED", {
+					reason: "spec-not-found",
 					subcode: "spec-not-found",
 					path: specMdPath
-				});
+				}));
 				return;
 			}
 			throw err;
@@ -17878,15 +17658,19 @@ feature:
 			if (!read.ok) return;
 			const inputParse = SpecEditInput.safeParse(read.value);
 			if (!inputParse.success) {
-				ctx.emitFailure("SCHEMA_VALIDATION_FAILED", "spec edit --input expects a strict JSON object {\"body\":\"<Markdown>\"}", { issues: inputParse.error.issues });
+				ctx.failure(diagnostic$2("SCHEMA_VALIDATION_FAILED", {
+					reason: inputParse.error.issues.map((issue) => issue.message).join("; "),
+					issues: inputParse.error.issues
+				}));
 				return;
 			}
 			const frontmatterMatch = FRONTMATTER_RE.exec(beforeContent);
 			if (frontmatterMatch === null) {
-				ctx.emitFailure("SCHEMA_VALIDATION_FAILED", `spec.md is missing a YAML frontmatter block fenced by \`---\` on the first line; --input replaces only the body and cannot repair frontmatter at ${specMdPath}`, {
+				ctx.failure(diagnostic$2("SCHEMA_VALIDATION_FAILED", {
+					reason: "missing-frontmatter",
 					subcode: "missing-frontmatter",
 					path: specMdPath
-				});
+				}));
 				return;
 			}
 			afterContent = beforeContent.slice(0, frontmatterMatch[0].length) + inputParse.data.body;
@@ -17899,10 +17683,10 @@ feature:
 				env: process.env
 			});
 			if (result.error !== void 0) {
-				ctx.emitFailure("USAGE", `editor '${editor}' could not be launched (${result.error})`, {
+				ctx.failure(diagnostic$2("USAGE", {
 					editor,
 					spawn_error: result.error
-				});
+				}));
 				return;
 			}
 			if (result.signal !== null) {
@@ -17910,20 +17694,21 @@ feature:
 				return;
 			}
 			if (result.code !== 0) {
-				ctx.emitFailure("USAGE", `editor exited with code=${result.code}`, {
+				ctx.failure(diagnostic$2("USAGE", {
 					editor,
 					editor_exit: result.code
-				});
+				}));
 				return;
 			}
 			try {
 				afterContent = await promises.readFile(specMdPath, "utf8");
 			} catch (err) {
 				if (err.code === "ENOENT") {
-					ctx.emitFailure("SCHEMA_VALIDATION_FAILED", `spec.md was deleted during edit at ${specMdPath}`, {
+					ctx.failure(diagnostic$2("SCHEMA_VALIDATION_FAILED", {
+						reason: "spec-not-found",
 						subcode: "spec-not-found",
 						path: specMdPath
-					});
+					}));
 					return;
 				}
 				throw err;
@@ -17940,32 +17725,36 @@ feature:
 		}
 		const { frontmatter } = splitFrontmatter(afterContent);
 		if (frontmatter === null) {
-			ctx.emitFailure("SCHEMA_VALIDATION_FAILED", `spec.md is missing a YAML frontmatter block fenced by \`---\` on the first line; work copy preserved at ${specMdPath} for you to fix and re-run \`loaf spec edit\``, {
+			ctx.failure(diagnostic$2("SCHEMA_VALIDATION_FAILED", {
+				reason: "missing-frontmatter",
 				subcode: "missing-frontmatter",
 				path: specMdPath
-			});
+			}));
 			return;
 		}
 		let parsedYaml;
 		try {
 			parsedYaml = parse(frontmatter);
 		} catch (err) {
-			ctx.emitFailure("SCHEMA_VALIDATION_FAILED", `spec.md frontmatter YAML failed to parse: ${err.message}; work copy preserved at ${specMdPath} for you to fix and re-run \`loaf spec edit\``, {
+			ctx.failure(diagnostic$2("SCHEMA_VALIDATION_FAILED", {
+				reason: "invalid-yaml",
+				cause: err.message,
 				subcode: "invalid-yaml",
 				path: specMdPath
-			});
+			}));
 			return;
 		}
 		const zodResult = SpecFrontmatter.safeParse(parsedYaml);
 		if (!zodResult.success) {
 			const issues = mapZodIssues(zodResult.error);
-			ctx.emitFailure("SCHEMA_VALIDATION_FAILED", `spec.md frontmatter failed schema validation (${issues.error_count} errors); work copy preserved at ${specMdPath} for you to fix and re-run \`loaf spec edit\``, {
+			ctx.failure(diagnostic$2("SCHEMA_VALIDATION_FAILED", {
+				reason: "zod",
 				subcode: "zod",
 				path: specMdPath,
 				errors: issues.errors,
 				truncated: issues.truncated,
 				error_count: issues.error_count
-			});
+			}));
 			return;
 		}
 		const fm = zodResult.data;
@@ -17980,11 +17769,12 @@ feature:
 			needs_clarification: fm.needs_clarification
 		});
 		if (!submitParse.success) {
-			ctx.emitFailure("SCHEMA_VALIDATION_FAILED", `spec.md frontmatter passed SpecFrontmatter but failed SpecSubmitInput shape (unusual cross-schema drift); work copy preserved at ${specMdPath}`, {
+			ctx.failure(diagnostic$2("SCHEMA_VALIDATION_FAILED", {
+				reason: submitParse.error.issues.map((issue) => issue.message).join("; "),
 				subcode: "zod",
 				path: specMdPath,
 				issues: submitParse.error.issues
-			});
+			}));
 			return;
 		}
 		const now = (/* @__PURE__ */ new Date()).toISOString();
@@ -18024,7 +17814,10 @@ feature:
 			const parsed = read.value;
 			const inputParse = cfg.inputSchema.safeParse(parsed);
 			if (!inputParse.success) {
-				ctx.failure("SCHEMA_VALIDATION_FAILED", `spec add-${cfg.name} input failed schema validation`, { issues: inputParse.error.issues });
+				ctx.failure(diagnostic$2("SCHEMA_VALIDATION_FAILED", {
+					reason: inputParse.error.issues.map((issue) => issue.message).join("; "),
+					issues: inputParse.error.issues
+				}));
 				return;
 			}
 			const items = Array.isArray(inputParse.data) ? inputParse.data : [inputParse.data];
@@ -18032,7 +17825,7 @@ feature:
 			if (featureDir === null) return;
 			const session = await ctx.resolveSession(featureDir);
 			if (!session.snapshot.state) {
-				ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+				ctx.failure(diagnosticVariant("failure.no_session.generic", { feature: opts.feature }));
 				return;
 			}
 			const existingIds = session.snapshot[cfg.snapshotKey].map((p) => p.id);
@@ -19109,7 +18902,10 @@ function registerBoard(program, ctx, deps) {
 		if (ctx.rejectIfDryRun("board")) return;
 		const selectors = collectPresentSelectors(ctx.argv, process.env);
 		if (selectors.length > 0) {
-			ctx.emitFailure("USAGE", `board does not accept ${selectors.join(" / ")} — it lists across sessions; use --in-cwd to filter`, { conflicting: selectors });
+			ctx.failure(diagnostic$2("USAGE", {
+				reason: "board_selector_not_supported",
+				conflicting: selectors
+			}));
 			return;
 		}
 		const scope = opts.inCwd ? "cwd" : "all";
@@ -19117,7 +18913,10 @@ function registerBoard(program, ctx, deps) {
 		try {
 			port = opts.port === void 0 ? DEFAULT_BOARD_PORT : parseBoardPort(opts.port);
 		} catch (error) {
-			ctx.emitFailure("USAGE", error instanceof Error ? error.message : String(error), { port: opts.port });
+			ctx.failure(diagnostic$2("USAGE", {
+				reason: error instanceof Error ? error.message : String(error),
+				port: opts.port
+			}));
 			return;
 		}
 		if (opts.once) {
@@ -19156,7 +18955,7 @@ function registerBoard(program, ctx, deps) {
 			}
 		} catch (error) {
 			if (isAddressInUse(error)) {
-				ctx.emitFailure("USAGE", `loaf board port ${port} is already in use; retry with --port 0`, { port });
+				ctx.failure(diagnostic$2("USAGE", { port }));
 				return;
 			}
 			throw error;
@@ -19428,7 +19227,6 @@ async function restorePrune(opts) {
 	if (timestamps.length === 0) return {
 		ok: false,
 		code: "PRUNE_RESTORE_NOT_FOUND",
-		message: `no trashed session ${sessionId} found`,
 		detail: { session_id: sessionId }
 	};
 	let chosen;
@@ -19436,7 +19234,6 @@ async function restorePrune(opts) {
 		if (!timestamps.includes(at)) return {
 			ok: false,
 			code: "PRUNE_RESTORE_NOT_FOUND",
-			message: `no trashed session ${sessionId} at ${at}`,
 			detail: {
 				session_id: sessionId,
 				at,
@@ -19447,7 +19244,6 @@ async function restorePrune(opts) {
 	} else if (timestamps.length > 1) return {
 		ok: false,
 		code: "PRUNE_RESTORE_AMBIGUOUS",
-		message: `session ${sessionId} was trashed ${timestamps.length} times; pass --at <ts>`,
 		detail: {
 			session_id: sessionId,
 			timestamps
@@ -19462,7 +19258,6 @@ async function restorePrune(opts) {
 	if (!await pathExists(registrySrc)) return {
 		ok: false,
 		code: "PRUNE_RESTORE_INCOMPLETE",
-		message: `trash bucket for ${sessionId} is missing registry.json; not restoring`,
 		detail: {
 			bucket,
 			missing: "registry.json"
@@ -19471,7 +19266,6 @@ async function restorePrune(opts) {
 	if (manifest.feature_trashed && !await pathExists(featureSrc)) return {
 		ok: false,
 		code: "PRUNE_RESTORE_INCOMPLETE",
-		message: `trash bucket for ${sessionId} claims a feature dir but feature/ is missing; not restoring`,
 		detail: {
 			bucket,
 			missing: "feature/"
@@ -19480,13 +19274,11 @@ async function restorePrune(opts) {
 	if (await pathExists(registryDest)) return {
 		ok: false,
 		code: "PRUNE_PATH_OCCUPIED",
-		message: `registry entry ${sessionId} already exists; refusing to overwrite`,
 		detail: { path: registryDest }
 	};
 	if (manifest.feature_trashed && await pathExists(manifest.feature_dir)) return {
 		ok: false,
 		code: "PRUNE_PATH_OCCUPIED",
-		message: `feature dir ${manifest.feature_dir} already exists; refusing to overwrite`,
 		detail: { path: manifest.feature_dir }
 	};
 	if (!opts.dryRun) {
@@ -19621,7 +19413,7 @@ function registerPrune(program, ctx, deps) {
 		}
 		if (opts.trash === true) {
 			if (opts.olderThan === void 0) {
-				ctx.emitFailure("USAGE", "loaf prune --trash requires --older-than <days>", {});
+				ctx.failure(diagnostic$2("USAGE", { reason: "trash_age_required" }));
 				return;
 			}
 			const previewTrash = opts.yes !== true || opts.dryRun === true;
@@ -19641,22 +19433,22 @@ function registerPrune(program, ctx, deps) {
 		}
 		const scopeCount = (opts.session !== void 0 ? 1 : 0) + (opts.inCwd ? 1 : 0) + (opts.project !== void 0 ? 1 : 0) + (opts.all ? 1 : 0) + (opts.orphans ? 1 : 0);
 		if (scopeCount !== 1) {
-			ctx.emitFailure("USAGE", "loaf prune requires exactly one scope: --session <id> | --in-cwd | --project <path> | --all | --orphans", { scope_count: scopeCount });
+			ctx.failure(diagnostic$2("USAGE", { scope_count: scopeCount }));
 			return;
 		}
 		let scope;
 		if (opts.session !== void 0) {
 			const resolved = await resolveSessionPrefix(deps.registryDir, opts.session);
 			if (resolved.kind === "not-found") {
-				ctx.emitFailure("SESSION_NOT_FOUND", `no session matches '${opts.session}'`, { uuid_or_prefix: opts.session });
+				ctx.failure(diagnostic$2("SESSION_NOT_FOUND", { uuid_or_prefix: opts.session }));
 				return;
 			}
 			if (resolved.kind === "ambiguous") {
-				ctx.emitFailure("SESSION_SHORT_AMBIGUOUS", `prefix '${opts.session}' matches ${resolved.matches.length} sessions; use a longer prefix`, {
+				ctx.failure(diagnostic$2("SESSION_SHORT_AMBIGUOUS", {
 					prefix: opts.session,
 					match_count: resolved.matches.length,
 					candidate_list: resolved.matches
-				});
+				}));
 				return;
 			}
 			scope = {
@@ -19729,7 +19521,7 @@ function registerPrune(program, ctx, deps) {
 			failed: result.failed
 		};
 		if (result.failed.length > 0) {
-			ctx.emitFailure("PRUNE_PARTIAL_FAILURE", `prune partially failed: ${result.failed.length} of ${result.done.length + result.failed.length} session(s) could not be removed`, body);
+			ctx.failure(diagnostic$2("PRUNE_PARTIAL_FAILURE", body));
 			return;
 		}
 		ctx.success({
@@ -19748,7 +19540,7 @@ function registerPrune(program, ctx, deps) {
 			...opts.at !== void 0 && { at: opts.at }
 		});
 		if (!result.ok) {
-			ctx.emitFailure(result.code, result.message, result.detail ?? {});
+			ctx.failure(result);
 			return;
 		}
 		ctx.success({
@@ -19780,31 +19572,6 @@ function preparseI18nFromEnv(env) {
 	if (((env["LC_ALL"] ?? env["LC_MESSAGES"] ?? env["LANG"])?.toLowerCase())?.startsWith("zh")) return createI18n("zh", BUILTIN_BUNDLES);
 	return createI18n("en", BUILTIN_BUNDLES);
 }
-function writePreContextKeyedFailure(input) {
-	const keyPath = diagnosticKey(input.code);
-	const message = input.renderAsJson ? createI18n("en", BUILTIN_BUNDLES).t(keyPath, input.vars) : preparseI18nFromEnv(process.env).t(keyPath, input.vars);
-	if (input.renderAsJson) {
-		const out = {
-			ok: false,
-			code: input.code,
-			message
-		};
-		if (input.detail !== void 0) out["detail"] = input.detail;
-		process.stderr.write(JSON.stringify(out) + "\n");
-	} else process.stderr.write(`error: ${input.code} — ${message}\n`);
-}
-function writePreContextSiteFailure(input) {
-	const message = input.renderAsJson ? createI18n("en", BUILTIN_BUNDLES).t(input.keyPath, input.vars) : preparseI18nFromEnv(process.env).t(input.keyPath, input.vars);
-	if (input.renderAsJson) {
-		const out = {
-			ok: false,
-			code: input.code,
-			message
-		};
-		if (input.detail !== void 0) out["detail"] = input.detail;
-		process.stderr.write(JSON.stringify(out) + "\n");
-	} else process.stderr.write(`error: ${input.code} — ${message}\n`);
-}
 function detectRenderAsJson(argv) {
 	return argv.some((a) => a === "--format=json" || a === "--format" && argv[argv.indexOf(a) + 1] === "json");
 }
@@ -19813,25 +19580,20 @@ async function main(argv = process.argv, deps = {}) {
 	if (!wantsHelpOrVersion) {
 		const presentation = parsePresentation(argv);
 		if (!presentation.ok) {
-			if (presentation.kind === "INVALID_FORMAT") writePreContextKeyedFailure({
-				code: "INVALID_FORMAT",
-				vars: {
-					value: presentation.rawValue,
-					allowed_values_human: FORMAT_MODES_HUMAN
-				},
-				detail: {
-					value: presentation.rawValue,
-					allowed_values: FORMAT_MODES
-				},
-				renderAsJson: false
+			if (presentation.kind === "INVALID_FORMAT") writeDiagnosticFailure(diagnostic$2("INVALID_FORMAT", {
+				value: presentation.rawValue,
+				allowed_values: FORMAT_MODES
+			}), {
+				format: "text",
+				i18n: preparseI18nFromEnv(process.env),
+				writeStderr: (line) => process.stderr.write(line)
 			});
 			else {
 				const { conflicting, renderAsJson } = presentation;
-				writePreContextKeyedFailure({
-					code: "MUTUALLY_EXCLUSIVE_FLAGS",
-					vars: { flags: conflicting.join(", ") },
-					detail: { conflicting },
-					renderAsJson
+				writeDiagnosticFailure(diagnostic$2("MUTUALLY_EXCLUSIVE_FLAGS", { conflicting }), {
+					format: renderAsJson ? "json" : "text",
+					i18n: preparseI18nFromEnv(process.env),
+					writeStderr: (line) => process.stderr.write(line)
 				});
 			}
 			return 2;
@@ -19867,12 +19629,13 @@ async function main(argv = process.argv, deps = {}) {
 			const presentSelectors = collectPresentSelectors(argv, process.env);
 			if (presentSelectors.length > 0) {
 				const renderAsJson = detectRenderAsJson(argv);
-				writePreContextSiteFailure({
-					code: "USAGE",
-					keyPath: FAILURE_SITE_KEYS.sessionsListSelectorConflict,
-					vars: { conflicting: presentSelectors.join(" / ") },
-					detail: { conflicting: presentSelectors },
-					renderAsJson
+				writeDiagnosticFailure(diagnosticVariant("failure.sessions_list.selector_conflict", {
+					conflicting: presentSelectors.join(" / "),
+					conflicting: presentSelectors
+				}), {
+					format: renderAsJson ? "json" : "text",
+					i18n: preparseI18nFromEnv(process.env),
+					writeStderr: (line) => process.stderr.write(line)
 				});
 				return 2;
 			}
@@ -19882,22 +19645,21 @@ async function main(argv = process.argv, deps = {}) {
 			const hasFormat = argv.some((a) => a === "--format" || a.startsWith("--format="));
 			const renderAsJson = detectRenderAsJson(argv);
 			if (presentSelectors.length > 0) {
-				writePreContextSiteFailure({
-					code: "USAGE",
-					keyPath: FAILURE_SITE_KEYS.tuiSelectorConflict,
-					vars: { conflicting: presentSelectors.join(" / ") },
-					detail: { conflicting: presentSelectors },
-					renderAsJson
+				writeDiagnosticFailure(diagnosticVariant("failure.tui.selector_conflict", {
+					conflicting: presentSelectors.join(" / "),
+					conflicting: presentSelectors
+				}), {
+					format: renderAsJson ? "json" : "text",
+					i18n: preparseI18nFromEnv(process.env),
+					writeStderr: (line) => process.stderr.write(line)
 				});
 				return 2;
 			}
 			if (hasFormat) {
-				writePreContextSiteFailure({
-					code: "USAGE",
-					keyPath: FAILURE_SITE_KEYS.tuiInteractiveOnly,
-					vars: {},
-					detail: { reason: "tui-interactive-only" },
-					renderAsJson
+				writeDiagnosticFailure(diagnosticVariant("failure.tui.interactive_only", { reason: "tui-interactive-only" }), {
+					format: renderAsJson ? "json" : "text",
+					i18n: preparseI18nFromEnv(process.env),
+					writeStderr: (line) => process.stderr.write(line)
 				});
 				return 2;
 			}
@@ -19917,32 +19679,30 @@ async function main(argv = process.argv, deps = {}) {
 				return 0;
 			}
 			if (cmdTokens[1] === void 0) {
-				writePreContextSiteFailure({
-					code: "USAGE",
-					keyPath: FAILURE_SITE_KEYS.hookMissingEvent,
-					vars: { events: HOOK_EVENTS.join(", ") },
-					detail: { events: HOOK_EVENTS },
-					renderAsJson
+				writeDiagnosticFailure(diagnosticVariant("failure.hook.missing_event", {
+					events: HOOK_EVENTS.join(", "),
+					events: HOOK_EVENTS
+				}), {
+					format: renderAsJson ? "json" : "text",
+					i18n: preparseI18nFromEnv(process.env),
+					writeStderr: (line) => process.stderr.write(line)
 				});
 				return 2;
 			}
 			if (!HOOK_EVENTS.includes(cmdTokens[1])) {
 				const got = cmdTokens[1];
 				const suggestion = HOOK_EVENTS.find((e) => e.startsWith(got.slice(0, 4))) ?? HOOK_EVENTS[0];
-				writePreContextSiteFailure({
-					code: "USAGE",
-					keyPath: FAILURE_SITE_KEYS.hookUnknownEvent,
-					vars: {
-						event: got,
-						allowed: HOOK_EVENTS.join(", "),
-						suggestion
-					},
-					detail: {
-						event: got,
-						allowed: HOOK_EVENTS,
-						suggestion
-					},
-					renderAsJson
+				writeDiagnosticFailure(diagnosticVariant("failure.hook.unknown_event", {
+					event: got,
+					allowed: HOOK_EVENTS.join(", "),
+					suggestion,
+					event: got,
+					allowed: HOOK_EVENTS,
+					suggestion
+				}), {
+					format: renderAsJson ? "json" : "text",
+					i18n: preparseI18nFromEnv(process.env),
+					writeStderr: (line) => process.stderr.write(line)
 				});
 				return 2;
 			}
@@ -19951,12 +19711,13 @@ async function main(argv = process.argv, deps = {}) {
 			const presentSelectors = collectPresentSelectors(argv, process.env);
 			if (presentSelectors.length > 0) {
 				const renderAsJson = detectRenderAsJson(argv);
-				writePreContextSiteFailure({
-					code: "USAGE",
-					keyPath: FAILURE_SITE_KEYS.checkSelectorConflict,
-					vars: { conflicting: presentSelectors.join(" / ") },
-					detail: { conflicting: presentSelectors },
-					renderAsJson
+				writeDiagnosticFailure(diagnosticVariant("failure.check.selector_conflict", {
+					conflicting: presentSelectors.join(" / "),
+					conflicting: presentSelectors
+				}), {
+					format: renderAsJson ? "json" : "text",
+					i18n: preparseI18nFromEnv(process.env),
+					writeStderr: (line) => process.stderr.write(line)
 				});
 				return 2;
 			}
@@ -19983,15 +19744,14 @@ async function main(argv = process.argv, deps = {}) {
 			if (presentSelectors.length > 0) {
 				const subj = mutatorSchemaLabel ?? `${cmdTokens[0]} schema`;
 				const renderAsJson = detectRenderAsJson(argv);
-				writePreContextSiteFailure({
-					code: "USAGE",
-					keyPath: FAILURE_SITE_KEYS.schemaSelectorConflict,
-					vars: {
-						subject: subj,
-						conflicting: presentSelectors.join(" / ")
-					},
-					detail: { conflicting: presentSelectors },
-					renderAsJson
+				writeDiagnosticFailure(diagnosticVariant("failure.schema.selector_conflict", {
+					subject: subj,
+					conflicting: presentSelectors.join(" / "),
+					conflicting: presentSelectors
+				}), {
+					format: renderAsJson ? "json" : "text",
+					i18n: preparseI18nFromEnv(process.env),
+					writeStderr: (line) => process.stderr.write(line)
 				});
 				return 2;
 			}
@@ -20032,22 +19792,23 @@ async function main(argv = process.argv, deps = {}) {
 			let usageKey = null;
 			let usageVars = {};
 			if (sessionConflict.length > 0) {
-				usageKey = FAILURE_SITE_KEYS.dispatchSessionFeatureDirConflict;
+				usageKey = "failure.dispatch.session_feature_dir_conflict";
 				usageVars = { conflicting: sessionConflict.join(" + ") };
 				conflictingList = [...sessionConflict, "--feature-dir"];
 			} else if (!hasFeature && !hasLoafFeature) {
-				usageKey = FAILURE_SITE_KEYS.dispatchFeatureDirRequiresFeature;
+				usageKey = "failure.dispatch.feature_dir_requires_feature";
 				usageVars = {};
 				conflictingList = ["--feature-dir"];
 			}
 			if (usageKey !== null) {
 				const renderAsJson = detectRenderAsJson(argv);
-				writePreContextSiteFailure({
-					code: "USAGE",
-					keyPath: usageKey,
-					vars: usageVars,
-					detail: { conflicting: conflictingList },
-					renderAsJson
+				writeDiagnosticFailure(diagnosticVariant(usageKey, {
+					...usageVars,
+					conflicting: conflictingList
+				}), {
+					format: renderAsJson ? "json" : "text",
+					i18n: preparseI18nFromEnv(process.env),
+					writeStderr: (line) => process.stderr.write(line)
 				});
 				return 2;
 			}
@@ -20064,13 +19825,11 @@ async function main(argv = process.argv, deps = {}) {
 	});
 	if (!localeResolution.ok) {
 		const presentation = parsePresentation(argv);
-		if (presentation.ok && presentation.format === "json") process.stderr.write(JSON.stringify({
-			ok: false,
-			code: localeResolution.code,
-			message: localeResolution.message,
-			detail: localeResolution.detail
-		}) + "\n");
-		else process.stderr.write(`error: ${localeResolution.code} — ${localeResolution.message}\n`);
+		writeDiagnosticFailure(localeResolution, {
+			format: presentation.ok && presentation.format === "json" ? "json" : "text",
+			i18n: preparseI18nFromEnv(process.env),
+			writeStderr: (line) => process.stderr.write(line)
+		});
 		return 2;
 	}
 	const i18n = createI18n(localeResolution.locale, BUILTIN_BUNDLES);

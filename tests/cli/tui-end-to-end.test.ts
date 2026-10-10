@@ -131,7 +131,7 @@ describe("SC-14 — loaf tui TTY guard", () => {
     });
     expect(result.exit).toBe(2);
     expect(result.stderr).toContain("USAGE");
-    expect(result.stderr).toContain("TUI requires an interactive terminal");
+    expect(result.stderr).toContain("tui is interactive-only; use `loaf sessions list --format json` for scriptable session output");
   });
 
   test("non-TTY stdout → exit 2 USAGE", async () => {

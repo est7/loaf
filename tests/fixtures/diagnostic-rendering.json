@@ -238,10 +238,10 @@
       "source": "value_source",
       "value": "value_value"
     },
-    "en_message": "invalid locale from value_source: value_value (expected value_accepted)",
-    "zh_message": "locale 来源 value_source 的值无效:value_value(期望:value_accepted)",
-    "en_text": "error: INVALID_LOCALE — invalid locale from value_source: value_value (expected value_accepted)\n  fix: unset the locale override or set it to one of: value_accepted; user preferences live in ~/.loaf/config.json locale.default_lang\n  see: docs/adr/0006-runtime-i18n-and-user-config.md\n",
-    "zh_text": "error: INVALID_LOCALE — locale 来源 value_source 的值无效:value_value(期望:value_accepted)\n  fix: unset the locale override or set it to one of: value_accepted; user preferences live in ~/.loaf/config.json locale.default_lang\n  see: docs/adr/0006-runtime-i18n-and-user-config.md\n"
+    "en_message": "invalid locale from value_source (expected value_accepted)",
+    "zh_message": "locale 来源 value_source 的值无效(期望:value_accepted)",
+    "en_text": "error: INVALID_LOCALE — invalid locale from value_source (expected value_accepted)\n  fix: unset the locale override or set it to one of: value_accepted; user preferences live in ~/.loaf/config.json locale.default_lang\n  see: docs/adr/0006-runtime-i18n-and-user-config.md\n",
+    "zh_text": "error: INVALID_LOCALE — locale 来源 value_source 的值无效(期望:value_accepted)\n  fix: unset the locale override or set it to one of: value_accepted; user preferences live in ~/.loaf/config.json locale.default_lang\n  see: docs/adr/0006-runtime-i18n-and-user-config.md\n"
   },
   {
     "code": "DRY_RUN_NOT_APPLICABLE",

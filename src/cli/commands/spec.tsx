@@ -1,7 +1,8 @@
+import { diagnostic, diagnosticVariant } from "../../core/error-catalog.js";
 import type { Command } from "commander";
 import type { CommandContext } from "../command-context.js";
 import type { CommandMutator } from "../command-mutator.js";
-import { FAILURE_SITE_KEYS, SUCCESS_KEYS } from "../runtime-i18n-keys.js";
+import { SUCCESS_KEYS } from "../runtime-i18n-keys.js";
 import { buildSpecStatusEnvelope, renderSpecStatusText } from "../spec-status.js";
 import { loadSession } from "../../core/cli-runtime.js";
 import { evaluateSpecLockFromSnapshot } from "../../core/gates/spec-lock-eval.js";
@@ -168,7 +169,9 @@ export function registerSpec(
       if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: false });
       if (session.snapshot.state === null) {
-        ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+        ctx.failure(
+          diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
+        );
         return;
       }
       const result = evaluateSpecLockFromSnapshot(session.snapshot);
@@ -192,7 +195,7 @@ export function registerSpec(
       if (!read.ok) return;
       const parsed = read.value;
       if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-        ctx.failure("USAGE", "spec submit --input expects a JSON object (SpecFrontmatter shape)");
+        ctx.failure(diagnostic("USAGE", { reason: "spec_input_object_required" }));
         return;
       }
       // CLI boundary: typed runtime schema enforcement (codex r75 BLOCK
@@ -203,9 +206,10 @@ export function registerSpec(
       const inputParse = SpecSubmitInput.safeParse(parsed);
       if (!inputParse.success) {
         ctx.failure(
-          "SCHEMA_VALIDATION_FAILED",
-          `spec submit input failed SpecSubmitInput schema validation`,
-          { issues: inputParse.error.issues },
+          diagnostic("SCHEMA_VALIDATION_FAILED", {
+            reason: inputParse.error.issues.map((issue) => issue.message).join("; "),
+            issues: inputParse.error.issues,
+          }),
         );
         return;
       }
@@ -215,7 +219,9 @@ export function registerSpec(
       if (featureDir === null) return;
       const session = await ctx.resolveSession(featureDir);
       if (!session.snapshot.state) {
-        ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+        ctx.failure(
+          diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
+        );
         return;
       }
       // (4-6) Build the spec-submit batch via shared SC-12a-1 helper.
@@ -329,11 +335,7 @@ export function registerSpec(
         try {
           await fsP.access(specMdPath);
           // File exists — refuse.
-          ctx.emitFailure(
-            "SPEC_ALREADY_INITIALIZED",
-            `spec.md already exists at ${specMdPath}; edit it directly or remove before re-init`,
-            { spec_md_path: specMdPath },
-          );
+          ctx.failure(diagnostic("SPEC_ALREADY_INITIALIZED", { spec_md_path: specMdPath }));
           return;
         } catch {
           // ENOENT — proceed.
@@ -382,10 +384,11 @@ export function registerSpec(
         };
         const scaffoldParse = SpecFrontmatter.safeParse(scaffoldObj);
         if (!scaffoldParse.success) {
-          ctx.emitFailure(
-            "SCHEMA_VALIDATION_FAILED",
-            "spec init scaffold failed SpecFrontmatter validation; check --feature-id (/^F-\\d{3,}$/), --feature-name (≥3 chars), --intent (≥20 chars)",
-            { issues: scaffoldParse.error.issues },
+          ctx.failure(
+            diagnostic("SCHEMA_VALIDATION_FAILED", {
+              reason: scaffoldParse.error.issues.map((issue) => issue.message).join("; "),
+              issues: scaffoldParse.error.issues,
+            }),
           );
           return;
         }
@@ -455,10 +458,7 @@ export function registerSpec(
       // the presence of $EDITOR. Both streams must be terminals because an
       // editor reads controls from stdin and renders its UI to stdout.
       if (!hasInput && (!isStdinTty() || !isStdoutTty())) {
-        ctx.emitFailure(
-          "SPEC_EDIT_INPUT_REQUIRED",
-          "non-interactive `loaf spec edit` requires --input <src>; the editor lane requires TTY stdin and stdout",
-        );
+        ctx.failure(diagnostic("SPEC_EDIT_INPUT_REQUIRED", {}));
         return;
       }
       // (1) actor — `event:spec_submitted` is human:* per PER_KIND_AUTHORITY
@@ -466,7 +466,9 @@ export function registerSpec(
       if (actor === null) return;
       const session = await loadSession(featureDir, { ensureDir: false });
       if (!session.snapshot.state) {
-        ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+        ctx.failure(
+          diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
+        );
         return;
       }
       // (1.5) pre-editor lock gate (codex r339 P2): post-lock direct
@@ -475,11 +477,7 @@ export function registerSpec(
       // stay coherent. Reject BEFORE spawning $EDITOR so the user is
       // not deceived by an open editor whose contents will be discarded.
       if (session.snapshot.state.spec_locked === true) {
-        ctx.emitFailure(
-          "SPEC_LOCKED_NO_DIRECT_EDIT",
-          `spec is locked; direct edits via \`loaf spec edit\` are rejected post-lock — use \`loaf finding raise --category spec-gap --action amend-spec --summary "..."\` to roll back to SPEC.spec and amend through the finding flow`,
-          { kind: "event:spec_submitted" },
-        );
+        ctx.failure(diagnostic("SPEC_LOCKED_NO_DIRECT_EDIT", { kind: "event:spec_submitted" }));
         return;
       }
       const specMdPath = path.join(featureDir, "spec.md");
@@ -489,10 +487,12 @@ export function registerSpec(
         beforeContent = await fsP.readFile(specMdPath, "utf8");
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-          ctx.emitFailure(
-            "SCHEMA_VALIDATION_FAILED",
-            `spec.md not found at ${specMdPath}; run \`loaf spec init\` to scaffold one first`,
-            { subcode: "spec-not-found", path: specMdPath },
+          ctx.failure(
+            diagnostic("SCHEMA_VALIDATION_FAILED", {
+              reason: "spec-not-found",
+              subcode: "spec-not-found",
+              path: specMdPath,
+            }),
           );
           return;
         }
@@ -504,19 +504,22 @@ export function registerSpec(
         if (!read.ok) return;
         const inputParse = SpecEditInput.safeParse(read.value);
         if (!inputParse.success) {
-          ctx.emitFailure(
-            "SCHEMA_VALIDATION_FAILED",
-            'spec edit --input expects a strict JSON object {"body":"<Markdown>"}',
-            { issues: inputParse.error.issues },
+          ctx.failure(
+            diagnostic("SCHEMA_VALIDATION_FAILED", {
+              reason: inputParse.error.issues.map((issue) => issue.message).join("; "),
+              issues: inputParse.error.issues,
+            }),
           );
           return;
         }
         const frontmatterMatch = FRONTMATTER_RE.exec(beforeContent);
         if (frontmatterMatch === null) {
-          ctx.emitFailure(
-            "SCHEMA_VALIDATION_FAILED",
-            `spec.md is missing a YAML frontmatter block fenced by \`---\` on the first line; --input replaces only the body and cannot repair frontmatter at ${specMdPath}`,
-            { subcode: "missing-frontmatter", path: specMdPath },
+          ctx.failure(
+            diagnostic("SCHEMA_VALIDATION_FAILED", {
+              reason: "missing-frontmatter",
+              subcode: "missing-frontmatter",
+              path: specMdPath,
+            }),
           );
           return;
         }
@@ -535,10 +538,12 @@ export function registerSpec(
         });
         // (4a) spawn error → USAGE (codex r335 P1)
         if (result.error !== undefined) {
-          ctx.emitFailure("USAGE", `editor '${editor}' could not be launched (${result.error})`, {
-            editor,
-            spawn_error: result.error,
-          });
+          ctx.failure(
+            diagnostic("USAGE", {
+              editor,
+              spawn_error: result.error,
+            }),
+          );
           return;
         }
         // (4b) signal abort → exit 130, no journal write (codex r333 P3)
@@ -548,10 +553,12 @@ export function registerSpec(
         }
         // (4c) non-zero exit → USAGE (user aborted via :q! or similar)
         if (result.code !== 0) {
-          ctx.emitFailure("USAGE", `editor exited with code=${result.code}`, {
-            editor,
-            editor_exit: result.code,
-          });
+          ctx.failure(
+            diagnostic("USAGE", {
+              editor,
+              editor_exit: result.code,
+            }),
+          );
           return;
         }
         // (5) re-read post-edit content; no-op skip (codex r332 P6)
@@ -559,10 +566,12 @@ export function registerSpec(
           afterContent = await fsP.readFile(specMdPath, "utf8");
         } catch (err) {
           if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-            ctx.emitFailure(
-              "SCHEMA_VALIDATION_FAILED",
-              `spec.md was deleted during edit at ${specMdPath}`,
-              { subcode: "spec-not-found", path: specMdPath },
+            ctx.failure(
+              diagnostic("SCHEMA_VALIDATION_FAILED", {
+                reason: "spec-not-found",
+                subcode: "spec-not-found",
+                path: specMdPath,
+              }),
             );
             return;
           }
@@ -581,10 +590,12 @@ export function registerSpec(
       //     subcode taxonomy (codex r336 P3)
       const { frontmatter } = splitFrontmatter(afterContent);
       if (frontmatter === null) {
-        ctx.emitFailure(
-          "SCHEMA_VALIDATION_FAILED",
-          `spec.md is missing a YAML frontmatter block fenced by \`---\` on the first line; work copy preserved at ${specMdPath} for you to fix and re-run \`loaf spec edit\``,
-          { subcode: "missing-frontmatter", path: specMdPath },
+        ctx.failure(
+          diagnostic("SCHEMA_VALIDATION_FAILED", {
+            reason: "missing-frontmatter",
+            subcode: "missing-frontmatter",
+            path: specMdPath,
+          }),
         );
         return;
       }
@@ -592,26 +603,28 @@ export function registerSpec(
       try {
         parsedYaml = parseYaml(frontmatter);
       } catch (err) {
-        ctx.emitFailure(
-          "SCHEMA_VALIDATION_FAILED",
-          `spec.md frontmatter YAML failed to parse: ${(err as Error).message}; work copy preserved at ${specMdPath} for you to fix and re-run \`loaf spec edit\``,
-          { subcode: "invalid-yaml", path: specMdPath },
+        ctx.failure(
+          diagnostic("SCHEMA_VALIDATION_FAILED", {
+            reason: "invalid-yaml",
+            cause: (err as Error).message,
+            subcode: "invalid-yaml",
+            path: specMdPath,
+          }),
         );
         return;
       }
       const zodResult = SpecFrontmatter.safeParse(parsedYaml);
       if (!zodResult.success) {
         const issues = mapZodIssues(zodResult.error);
-        ctx.emitFailure(
-          "SCHEMA_VALIDATION_FAILED",
-          `spec.md frontmatter failed schema validation (${issues.error_count} errors); work copy preserved at ${specMdPath} for you to fix and re-run \`loaf spec edit\``,
-          {
+        ctx.failure(
+          diagnostic("SCHEMA_VALIDATION_FAILED", {
+            reason: "zod",
             subcode: "zod",
             path: specMdPath,
             errors: issues.errors,
             truncated: issues.truncated,
             error_count: issues.error_count,
-          },
+          }),
         );
         return;
       }
@@ -629,10 +642,13 @@ export function registerSpec(
         needs_clarification: fm.needs_clarification,
       });
       if (!submitParse.success) {
-        ctx.emitFailure(
-          "SCHEMA_VALIDATION_FAILED",
-          `spec.md frontmatter passed SpecFrontmatter but failed SpecSubmitInput shape (unusual cross-schema drift); work copy preserved at ${specMdPath}`,
-          { subcode: "zod", path: specMdPath, issues: submitParse.error.issues },
+        ctx.failure(
+          diagnostic("SCHEMA_VALIDATION_FAILED", {
+            reason: submitParse.error.issues.map((issue) => issue.message).join("; "),
+            subcode: "zod",
+            path: specMdPath,
+            issues: submitParse.error.issues,
+          }),
         );
         return;
       }
@@ -716,9 +732,10 @@ export function registerSpec(
           const inputParse = cfg.inputSchema.safeParse(parsed);
           if (!inputParse.success) {
             ctx.failure(
-              "SCHEMA_VALIDATION_FAILED",
-              `spec add-${cfg.name} input failed schema validation`,
-              { issues: inputParse.error.issues },
+              diagnostic("SCHEMA_VALIDATION_FAILED", {
+                reason: inputParse.error.issues.map((issue) => issue.message).join("; "),
+                issues: inputParse.error.issues,
+              }),
             );
             return;
           }
@@ -729,7 +746,9 @@ export function registerSpec(
           if (featureDir === null) return;
           const session = await ctx.resolveSession(featureDir);
           if (!session.snapshot.state) {
-            ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionGeneric, opts.feature);
+            ctx.failure(
+              diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
+            );
             return;
           }
           // (4) Per-namespace allocator. Track counter across the batch so

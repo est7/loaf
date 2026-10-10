@@ -1,3 +1,4 @@
+import { diagnostic } from "../../src/core/error-catalog.js";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -144,7 +145,7 @@ describe("failure outlet extraction baseline", () => {
     }
   });
 
-  test("raw text failures currently bypass available zh templates and fix lines", () => {
+  test("text failures use existing zh templates and catalog fix lines", () => {
     const stderr: string[] = [];
     const ctx = createCommandContext(["node", "loaf", "advance"], {
       i18n: createI18n("zh", BUILTIN_BUNDLES),
@@ -153,8 +154,10 @@ describe("failure outlet extraction baseline", () => {
         stderr.push(s);
       },
     });
-    ctx.failure("TASK_DEP_SELF", "task T-A cannot depend on itself", { task_id: "T-A" });
-    expect(stderr).toEqual(["error: TASK_DEP_SELF — task T-A cannot depend on itself\n"]);
+    ctx.failure(diagnostic("TASK_DEP_SELF", { task_id: "T-A" }));
+    expect(stderr).toEqual([
+      "error: TASK_DEP_SELF — task T-A 不能依赖自身\n  fix: remove the self-reference from depends_on, then retry the task graph mutation\n  see: protocol.md#§10.8\n",
+    ]);
     expect(ctx.exitCode).toBe(2);
   });
 });

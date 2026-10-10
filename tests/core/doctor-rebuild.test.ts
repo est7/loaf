@@ -341,9 +341,10 @@ describe("loaf doctor --rebuild — Phase 14 SC2", () => {
         "auth-refresh",
         "--feature-dir",
         dir,
+        "--format=json",
       ]);
       expect(result.exit).toBe(2);
-      expect(result.stderr).toContain("INVALID_ENTRY");
+      expect(JSON.parse(result.stderr)).toMatchObject({ code: "DOCTOR_REBUILD_FAILED", detail: { replay_code: "INVALID_ENTRY", at_seq: 0 } });
       await expect(fs.stat(path.join(dir, "snapshots"))).rejects.toMatchObject({ code: "ENOENT" });
       expect(await fs.readFile(journalPath, "utf8")).toBe(original);
     } finally {
@@ -662,9 +663,10 @@ describe("loaf doctor --rebuild — Phase 14 SC2", () => {
         "auth-refresh",
         "--feature-dir",
         dir,
+        "--format=json",
       ]);
       expect(r.exit).toBe(2);
-      expect(r.stderr).toContain("cannot be replayed");
+      expect(JSON.parse(r.stderr)).toMatchObject({ code: "DOCTOR_REBUILD_FAILED", detail: { replay_code: "INVALID_ENTRY", at_seq: 0 } });
       await expect(fs.stat(path.join(dir, "snapshots", "_meta.json"))).rejects.toMatchObject({
         code: "ENOENT",
       });

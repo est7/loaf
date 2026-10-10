@@ -1,3 +1,4 @@
+import type { Diagnostic } from "../../core/error-catalog.js";
 // prune slice 3 — restore a trashed session (inverse of execute's trash).
 //
 // Read a bucket manifest, move the feature dir + registry entry back. Safety:
@@ -26,16 +27,12 @@ export interface RestoreOptions {
 
 export type RestoreResult =
   | { ok: true; session_id: string; feature: string; cwd: string; restored_from: string }
-  | {
-      ok: false;
-      code:
-        | "PRUNE_RESTORE_NOT_FOUND"
-        | "PRUNE_RESTORE_AMBIGUOUS"
-        | "PRUNE_RESTORE_INCOMPLETE"
-        | "PRUNE_PATH_OCCUPIED";
-      message: string;
-      detail?: Record<string, unknown>;
-    };
+  | ({ ok: false } & Diagnostic<
+      | "PRUNE_RESTORE_NOT_FOUND"
+      | "PRUNE_RESTORE_AMBIGUOUS"
+      | "PRUNE_RESTORE_INCOMPLETE"
+      | "PRUNE_PATH_OCCUPIED"
+    >);
 
 interface BucketManifest {
   feature: string;
@@ -76,7 +73,7 @@ export async function restorePrune(opts: RestoreOptions): Promise<RestoreResult>
     return {
       ok: false,
       code: "PRUNE_RESTORE_NOT_FOUND",
-      message: `no trashed session ${sessionId} found`,
+
       detail: { session_id: sessionId },
     };
   }
@@ -87,7 +84,7 @@ export async function restorePrune(opts: RestoreOptions): Promise<RestoreResult>
       return {
         ok: false,
         code: "PRUNE_RESTORE_NOT_FOUND",
-        message: `no trashed session ${sessionId} at ${at}`,
+
         detail: { session_id: sessionId, at, timestamps },
       };
     }
@@ -96,7 +93,7 @@ export async function restorePrune(opts: RestoreOptions): Promise<RestoreResult>
     return {
       ok: false,
       code: "PRUNE_RESTORE_AMBIGUOUS",
-      message: `session ${sessionId} was trashed ${timestamps.length} times; pass --at <ts>`,
+
       detail: { session_id: sessionId, timestamps },
     };
   } else {
@@ -120,7 +117,7 @@ export async function restorePrune(opts: RestoreOptions): Promise<RestoreResult>
     return {
       ok: false,
       code: "PRUNE_RESTORE_INCOMPLETE",
-      message: `trash bucket for ${sessionId} is missing registry.json; not restoring`,
+
       detail: { bucket, missing: "registry.json" },
     };
   }
@@ -128,7 +125,7 @@ export async function restorePrune(opts: RestoreOptions): Promise<RestoreResult>
     return {
       ok: false,
       code: "PRUNE_RESTORE_INCOMPLETE",
-      message: `trash bucket for ${sessionId} claims a feature dir but feature/ is missing; not restoring`,
+
       detail: { bucket, missing: "feature/" },
     };
   }
@@ -138,7 +135,7 @@ export async function restorePrune(opts: RestoreOptions): Promise<RestoreResult>
     return {
       ok: false,
       code: "PRUNE_PATH_OCCUPIED",
-      message: `registry entry ${sessionId} already exists; refusing to overwrite`,
+
       detail: { path: registryDest },
     };
   }
@@ -146,7 +143,7 @@ export async function restorePrune(opts: RestoreOptions): Promise<RestoreResult>
     return {
       ok: false,
       code: "PRUNE_PATH_OCCUPIED",
-      message: `feature dir ${manifest.feature_dir} already exists; refusing to overwrite`,
+
       detail: { path: manifest.feature_dir },
     };
   }

@@ -41,6 +41,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   diagnostics can represent unresolved selection without an invented directory.
   Lock diagnostics use common write-lock wording and carry actual timeout/path
   metadata. Existing schema/site variants and internal status codes are retained.
+- Direct CLI and early format/selector/locale guards now use the same typed
+  failure outlet, preserving guard precedence and details while adding catalog
+  fix/see guidance. Removed the five legacy context failure APIs, subset/site
+  registries, old variable switch, and unused `failure.*` bundle roots.
+  Catalog-owned existing-site identifiers now appear in `detail.context` for
+  ambiguous failures; codes and existing subcodes are retained.
+- Invalid locale rendering uses source + supported locales as its shared
+  minimum; rejected values and invalid-config path/reason remain in detail.
+  Doctor replay failures use DOCTOR_REBUILD_FAILED and preserve the original
+  replay status, sequence, detail, and technical cause as structured context.
 
 ## [0.10.0] — 2026-10-10
 

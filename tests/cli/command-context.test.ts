@@ -1,3 +1,8 @@
+import {
+  diagnostic,
+  diagnosticVariant,
+  type CatalogDiagnostic,
+} from "../../src/core/error-catalog.js";
 // Phase 16 SC-3 — CommandContext factory + lifecycle tests.
 //
 // CommandContext is the presentation-layer plumbing per r188 + r205/r206:
@@ -18,7 +23,7 @@ import { describe, expect, test } from "vitest";
 
 import { createCommandContext, type CommandContext } from "../../src/cli/command-context.js";
 import { createI18n, BUILTIN_BUNDLES, type I18n } from "../../src/cli/i18n.js";
-import { CHROME_KEYS, FAILURE_SITE_KEYS, SUCCESS_KEYS } from "../../src/cli/runtime-i18n-keys.js";
+import { CHROME_KEYS, SUCCESS_KEYS } from "../../src/cli/runtime-i18n-keys.js";
 
 function makeCtx(
   argv: string[],
@@ -307,15 +312,15 @@ describe("Phase 16 SC-3 — CommandContext: construction + output mode", () => {
 describe("Phase 16 SC-3 — CommandContext: failure routing + exitCode", () => {
   test("failure() sets exitCode := 2 + writes stderr per text mode", () => {
     const { ctx, stderr } = makeCtx(["loaf", "tasks", "claim"]);
-    ctx.failure("USAGE", "missing --task");
+    ctx.failure(diagnostic("USAGE", { reason: "fixture_validation", ...{} }));
     expect(ctx.exitCode).toBe(2);
     expect(stderr.join("")).toContain("USAGE");
-    expect(stderr.join("")).toContain("missing --task");
+    expect(stderr.join("")).toContain("invalid CLI usage");
   });
 
   test("failure() in JSON mode writes single-line JSON to stderr", () => {
     const { ctx, stderr } = makeCtx(["loaf", "tasks", "claim", "--format", "json"]);
-    ctx.failure("USAGE", "missing --task", { foo: "bar" });
+    ctx.failure(diagnostic("USAGE", { reason: "fixture_validation", ...{ foo: "bar" } }));
     const lines = stderr
       .join("")
       .split("\n")
@@ -325,8 +330,8 @@ describe("Phase 16 SC-3 — CommandContext: failure routing + exitCode", () => {
     expect(obj).toEqual({
       ok: false,
       code: "USAGE",
-      message: "missing --task",
-      detail: { foo: "bar" },
+      message: "invalid CLI usage",
+      detail: { reason: "fixture_validation", foo: "bar" },
     });
   });
 
@@ -335,19 +340,26 @@ describe("Phase 16 SC-3 — CommandContext: failure routing + exitCode", () => {
   // pattern but uses `[path] CODE: message` row shape.
   test("failure() text mode renders detail.errors[] as nested rows", () => {
     const { ctx, stderr } = makeCtx(["loaf", "check", "tasks.json"]);
-    ctx.failure("SCHEMA_VALIDATION_FAILED", "tasks failed (2 errors)", {
-      kind: "tasks",
-      path: "/tmp/tasks.json",
-      subcode: "zod",
-      errors: [
-        { path: "version", code: "invalid_type", message: "expected number" },
-        { path: "tasks.0.id", code: "invalid_string", message: "must match /T-/" },
-      ],
-      truncated: false,
-      error_count: 2,
-    });
+    ctx.failure(
+      diagnostic("SCHEMA_VALIDATION_FAILED", {
+        reason: "fixture_validation",
+        ...{
+          kind: "tasks",
+          path: "/tmp/tasks.json",
+          subcode: "zod",
+          errors: [
+            { path: "version", code: "invalid_type", message: "expected number" },
+            { path: "tasks.0.id", code: "invalid_string", message: "must match /T-/" },
+          ],
+          truncated: false,
+          error_count: 2,
+        },
+      }),
+    );
     const out = stderr.join("");
-    expect(out).toContain("error: SCHEMA_VALIDATION_FAILED — tasks failed (2 errors)");
+    expect(out).toContain(
+      "error: SCHEMA_VALIDATION_FAILED — validation failed: fixture_validation",
+    );
     expect(out).toContain("  [version] invalid_type: expected number");
     expect(out).toContain("  [tasks.0.id] invalid_string: must match /T-/");
     // No truncation suffix when truncated=false
@@ -356,11 +368,16 @@ describe("Phase 16 SC-3 — CommandContext: failure routing + exitCode", () => {
 
   test("failure() JSON mode preserves detail.errors[] verbatim", () => {
     const { ctx, stderr } = makeCtx(["loaf", "check", "tasks.json", "--format", "json"]);
-    ctx.failure("SCHEMA_VALIDATION_FAILED", "tasks failed", {
-      errors: [{ path: "version", code: "invalid_type", message: "expected number" }],
-      error_count: 1,
-      truncated: false,
-    });
+    ctx.failure(
+      diagnostic("SCHEMA_VALIDATION_FAILED", {
+        reason: "fixture_validation",
+        ...{
+          errors: [{ path: "version", code: "invalid_type", message: "expected number" }],
+          error_count: 1,
+          truncated: false,
+        },
+      }),
+    );
     const lines = stderr
       .join("")
       .split("\n")
@@ -381,14 +398,19 @@ describe("Phase 16 SC-3 — CommandContext: failure routing + exitCode", () => {
       code: "invalid_string",
       message: "must match REQ regex",
     }));
-    ctx.failure("SCHEMA_VALIDATION_FAILED", "spec failed (50 errors)", {
-      kind: "spec",
-      path: "/tmp/spec.md",
-      subcode: "zod",
-      errors: fakeErrors,
-      truncated: true,
-      error_count: 50,
-    });
+    ctx.failure(
+      diagnostic("SCHEMA_VALIDATION_FAILED", {
+        reason: "fixture_validation",
+        ...{
+          kind: "spec",
+          path: "/tmp/spec.md",
+          subcode: "zod",
+          errors: fakeErrors,
+          truncated: true,
+          error_count: 50,
+        },
+      }),
+    );
     const out = stderr.join("");
     expect(out).toContain("... (50 errors total; first 20 shown)");
   });
@@ -397,11 +419,8 @@ describe("Phase 16 SC-3 — CommandContext: failure routing + exitCode", () => {
     const { ctx, stderr } = makeCtx(["loaf", "status"], {
       i18n: createI18n("zh", BUILTIN_BUNDLES),
     });
-    ctx.failureKeyed(
-      "DRY_RUN_NOT_APPLICABLE",
-      "diagnostic.DRY_RUN_NOT_APPLICABLE",
-      { command_type: "read-only", command: "status" },
-      { command_type: "read-only", command: "status" },
+    ctx.failure(
+      diagnostic("DRY_RUN_NOT_APPLICABLE", { command_type: "read-only", command: "status" }),
     );
 
     expect(ctx.exitCode).toBe(2);
@@ -414,11 +433,8 @@ describe("Phase 16 SC-3 — CommandContext: failure routing + exitCode", () => {
     const { ctx, stderr } = makeCtx(["loaf", "status", "--format", "json"], {
       i18n: createI18n("zh", BUILTIN_BUNDLES),
     });
-    ctx.failureKeyed(
-      "DRY_RUN_NOT_APPLICABLE",
-      "diagnostic.DRY_RUN_NOT_APPLICABLE",
-      { command_type: "read-only", command: "status" },
-      { command_type: "read-only", command: "status" },
+    ctx.failure(
+      diagnostic("DRY_RUN_NOT_APPLICABLE", { command_type: "read-only", command: "status" }),
     );
 
     expect(JSON.parse(stderr.join(""))).toEqual({
@@ -433,11 +449,11 @@ describe("Phase 16 SC-3 — CommandContext: failure routing + exitCode", () => {
     const { ctx, stderr } = makeCtx(["loaf", "status"], {
       i18n: createI18n("zh", BUILTIN_BUNDLES),
     });
-    ctx.failureKeyed(
-      "NO_SESSION",
-      FAILURE_SITE_KEYS.noSessionStatus,
-      { feature: "auth-refresh" },
-      { feature: "auth-refresh", feature_dir: ".loaf/auth-refresh" },
+    ctx.failure(
+      diagnosticVariant("failure.no_session.status", {
+        ...{ feature: "auth-refresh" },
+        ...{ feature: "auth-refresh", feature_dir: ".loaf/auth-refresh" },
+      }),
     );
 
     expect(stderr.join("")).toContain("error: NO_SESSION — 先跑 `loaf start auth-refresh`");
@@ -447,18 +463,22 @@ describe("Phase 16 SC-3 — CommandContext: failure routing + exitCode", () => {
     const { ctx, stderr } = makeCtx(["loaf", "status", "--format", "json"], {
       i18n: createI18n("zh", BUILTIN_BUNDLES),
     });
-    ctx.failureKeyed(
-      "NO_SESSION",
-      FAILURE_SITE_KEYS.noSessionStatus,
-      { feature: "auth-refresh" },
-      { feature: "auth-refresh", feature_dir: ".loaf/auth-refresh" },
+    ctx.failure(
+      diagnosticVariant("failure.no_session.status", {
+        ...{ feature: "auth-refresh" },
+        ...{ feature: "auth-refresh", feature_dir: ".loaf/auth-refresh" },
+      }),
     );
 
     expect(JSON.parse(stderr.join(""))).toEqual({
       ok: false,
       code: "NO_SESSION",
       message: "run `loaf start auth-refresh` first",
-      detail: { feature: "auth-refresh", feature_dir: ".loaf/auth-refresh" },
+      detail: {
+        context: "failure.no_session.status",
+        feature: "auth-refresh",
+        feature_dir: ".loaf/auth-refresh",
+      },
     });
   });
 
@@ -466,43 +486,43 @@ describe("Phase 16 SC-3 — CommandContext: failure routing + exitCode", () => {
     const cases = [
       {
         code: "SCHEMA_VALIDATION_FAILED",
-        key: FAILURE_SITE_KEYS.hookStdinParseFailed,
+        key: "failure.hook.stdin_parse_failed",
         vars: { reason: "hook stdin is not valid JSON" },
         detail: { source: "hook-stdin" },
       },
       {
         code: "INPUT_FILE_NOT_FOUND",
-        key: FAILURE_SITE_KEYS.profileInputFileMissing,
+        key: "failure.profile.input_file_missing",
         vars: { path: "/tmp/missing.json" },
         detail: { path: "/tmp/missing.json" },
       },
       {
         code: "SCHEMA_VALIDATION_FAILED",
-        key: FAILURE_SITE_KEYS.tasksAddEmptyArray,
+        key: "failure.tasks_add.empty_array",
         vars: {},
         detail: {},
       },
       {
         code: "SCHEMA_VALIDATION_FAILED",
-        key: FAILURE_SITE_KEYS.handoffPackValidationFailed,
+        key: "failure.handoff.pack_validation_failed",
         vars: {},
         detail: { subcode: "zod" },
       },
       {
         code: "USAGE",
-        key: FAILURE_SITE_KEYS.lessonsTextFileMutex,
+        key: "failure.lessons.text_file_mutex",
         vars: { provided_state: "both provided" },
         detail: { text_provided: true, file_provided: true },
       },
       {
         code: "INPUT_FILE_NOT_FOUND",
-        key: FAILURE_SITE_KEYS.lessonsFileMissing,
+        key: "failure.lessons.file_missing",
         vars: { path: "/tmp/missing-lesson.md" },
         detail: { path: "/tmp/missing-lesson.md" },
       },
       {
         code: "SCHEMA_VALIDATION_FAILED",
-        key: FAILURE_SITE_KEYS.writeGuardConfigInvalid,
+        key: "failure.write_guard.config_invalid",
         vars: { reason: "invalid json" },
         detail: { source: "loaf.config.json", reason: "invalid json" },
       },
@@ -515,8 +535,14 @@ describe("Phase 16 SC-3 — CommandContext: failure routing + exitCode", () => {
       const zh = makeCtx(["loaf", "status", "--format", "json"], {
         i18n: createI18n("zh", BUILTIN_BUNDLES),
       });
-      en.ctx.failureKeyed(c.code, c.key, c.vars, c.detail);
-      zh.ctx.failureKeyed(c.code, c.key, c.vars, c.detail);
+      en.ctx.failure({
+        code: c.code,
+        detail: { ...c.vars, ...c.detail, context: c.key },
+      } as CatalogDiagnostic);
+      zh.ctx.failure({
+        code: c.code,
+        detail: { ...c.vars, ...c.detail, context: c.key },
+      } as CatalogDiagnostic);
       expect(zh.stderr.join(""), c.key).toBe(en.stderr.join(""));
     }
   });

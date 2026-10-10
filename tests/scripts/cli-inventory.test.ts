@@ -418,6 +418,10 @@ describe("drift gate: DiagnosticCode emit ⊆ catalog ∪ baseline", () => {
     expect(findings).toEqual([]);
   });
 
+  test("catalog constructors remain visible to emitted-code inventory", () => {
+    expect([...extractEmittedCodes('ctx.failure(diagnostic("TASK_NOT_FOUND", {task_id}));')]).toEqual(["TASK_NOT_FOUND"]);
+  });
+
   test("baseline entries are emitted by cli.tsx (no stale baseline)", () => {
     const cliText = readFileSync(CLI_PATH, "utf8");
     for (const entry of baseline.entries) {
@@ -749,7 +753,7 @@ export function extractEmittedCodes(text: string): Set<string> {
   //   emitFailure("CODE", ...) / emit*("CODE", ...)
   //   ctx.failure("CODE", ...) / context.failure("CODE", ...) (SC-3)
   const emitRe =
-    /\b(?:fail(?:[A-Z][A-Za-z0-9]*)?|emit\w*|(?:ctx|context)\.failure)\(\s*["']([A-Z][A-Z0-9_]+)["']/g;
+    /\b(?:diagnostic|fail(?:[A-Z][A-Za-z0-9]*)?|emit\w*|(?:ctx|context)\.failure)\(\s*["']([A-Z][A-Z0-9_]+)["']/g;
   let m: RegExpExecArray | null = emitRe.exec(text);
   while (m !== null) {
     codes.add(m[1] ?? "");
