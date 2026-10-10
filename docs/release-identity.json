@@ -1,11 +1,31 @@
 {
   "schema": 1,
-  "baseline_tag": "v0.7.0",
-  "target_version": "0.8.0",
+  "baseline_tag": "v0.8.0",
+  "target_version": "0.9.0",
   "breaking_changes": [
     {
-      "task": "entry-admission D1",
-      "contract": "mutation reports NO_SESSION before preflight policy when no session exists"
+      "task": "packet F2",
+      "contract": "SETTLE.reconcile sub_state and ReconcileJson projection removed; replay rejects the retired edge"
+    },
+    {
+      "task": "packet F3",
+      "contract": "migration:snapshot_imported kind and five migration-only diagnostics removed"
+    },
+    {
+      "task": "packet F1",
+      "contract": "replay preflights every entry including session:started"
+    },
+    {
+      "task": "packet F8-A",
+      "contract": "session:started requires ceremony_label, workspace, loaf_version_required; registry rows require active_tasks, pending_queue_depth, ceremony_label"
+    },
+    {
+      "task": "packet F8-B",
+      "contract": "tasks_amended requires mode; task execution objects reject undeclared steps and fields"
+    },
+    {
+      "task": "packet F8-C",
+      "contract": "CANONICAL_TASK_BODY_UNAVAILABLE diagnostic and FindingsEvent schema removed"
     }
   ]
 }

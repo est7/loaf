@@ -7,23 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-10-10
+
 ### Changed
 
 - Task amendments require an explicit `add` or `replace` mode. Task execution
   objects and step fields are now strict: undeclared step names, retired
   step `evidence_refs`, and unknown fields are rejected before mutation or replay
   projection application. Default task arrays and current execution progress remain supported.
-
 - Current session starts require `ceremony_label`, `workspace`, and
   `loaf_version_required`; state projections always carry a version requirement.
   Unlabeled starts remain supported. Registry readers now require
   `active_tasks`, `pending_queue_depth`, and `ceremony_label` instead of
   synthesizing defaults for older rows.
-
 - Journal replay preflights every entry, including `session:started`, just as
   mutation does. Invalid bootstrap actors or payloads now fail before reducer
   application; replay retains `REDUCER_REJECTED` with the preflight `inner_code`.
-
 - Task projections always include `depends_on` and `labels` arrays (previously
   omitted for tasks written without them).
 
@@ -36,7 +35,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   grammar still recognizes it to preserve the newer-writer tail guard.
   The permission-list export is now `ALL_ACTOR_PREFIXES`; `ALL_NON_MIGRATION`
   has been removed without an alias.
-
 - Historical v0.0.x snapshot import: `migration:snapshot_imported`, its payload
   schema and sidecar slots, the migration module, replay rehydration, and five
   migration-only diagnostics. Old import entries now fail envelope validation;
@@ -55,6 +53,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   when an omitted `depends_on` or `labels` array is compared with explicit `[]`.
 - Mutating a feature whose task was planned without `depends_on` no longer
   crashes in task-graph admission before the write.
+
+### Architecture
+
+- Reducer exhaustiveness is enforced at compile time; the always-true
+  `REDUCER_IMPLEMENTED_KINDS` gate is removed.
+- Back-edge source sets derive from transition policy, and per-kind entry
+  schema versions are owned by the kind registry.
+- The unused per-entry upcaster registry is retired along with its documented
+  upgrade promise (ADR-0005 §12): loaf-cli does not keep historical journal
+  formats readable.
 
 ## [0.8.0] — 2026-10-09
 
@@ -440,6 +448,7 @@ migration.
 - Both fixes RED→GREEN independently reproduced (revert only the predicate with the new tests present → exactly the new negative cases fail; restore → green).
 - `dist/cli.mjs --version` → `0.1.2`.
 
+[0.9.0]: https://github.com/est7/loaf/releases/tag/v0.9.0
 [0.8.0]: https://github.com/est7/loaf/releases/tag/v0.8.0
 [0.7.0]: https://github.com/est7/loaf/releases/tag/v0.7.0
 [0.6.0]: https://github.com/est7/loaf/releases/tag/v0.6.0
