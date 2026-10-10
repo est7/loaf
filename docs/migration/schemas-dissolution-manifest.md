@@ -18,6 +18,7 @@ Verdicts apply only where `duplicate-of` names an existing runtime semantic owne
 - `keep-docs`: the docs behavior would be promoted into the domain home.
 - `intentional-change`: the copies differ deliberately; migration must preserve the stated runtime boundary rather than silently merging behavior.
 - `n/a`: no runtime duplicate is currently identified; the export moves to its assigned domain home.
+- `retired`: a subsequent approved decision removes the runtime declaration; the row remains as historical inventory.
 
 ## Required divergence pins
 
@@ -65,8 +66,8 @@ The same test file snapshots exact current JSON Schema output for all ten public
 | `SnapshotMeta`                      | value | `src/core/snapshot.ts`                         | `src/core/snapshot.ts::SnapshotMeta`                                        | keep-runtime       | Exact runtime mirror already exists at the target domain boundary.                                                         |
 | `SnapshotMeta`                      | type  | `src/core/snapshot.ts`                         | `src/core/snapshot.ts::SnapshotMeta`                                        | keep-runtime       | Exact runtime mirror already exists at the target domain boundary.                                                         |
 | `ENTRY_SCHEMA_VERSIONS` | value | `src/core/kind-registry.ts` | `src/core/kind-registry.ts::ENTRY_SCHEMA_VERSIONS` | keep-runtime | Derived from KIND_REGISTRY entrySchemaVersion; writers and tail recovery share this owner. |
-| `Upcaster`                          | type  | `src/core/migration.ts`                        | `—`                                                                         | n/a                | —                                                                                                                          |
-| `UPCASTER_REGISTRY`                 | value | `src/core/migration.ts`                        | `—`                                                                         | n/a                | —                                                                                                                          |
+| `Upcaster` | type | `src/core/migration.ts` (retired) | `—` | retired | Removed by the approved per-entry upcast retirement; see ADR-0005 §12. |
+| `UPCASTER_REGISTRY` | value | `src/core/migration.ts` (retired) | `—` | retired | Unused declaration removed; no automatic replay upcast is promised. See ADR-0005 §12. |
 | `MIGRATION_V1_TO_V2_BOUNDARY`       | value | `src/core/migration.ts`                        | `—`                                                                         | n/a                | —                                                                                                                          |
 | `Phase`                             | value | `src/core/journal-entry.ts`                    | `—`                                                                         | n/a                | —                                                                                                                          |
 | `Phase`                             | type  | `src/core/journal-entry.ts`                    | `—`                                                                         | n/a                | —                                                                                                                          |

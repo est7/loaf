@@ -1049,3 +1049,24 @@ Codex 建议的 implementation order：
 - `skills/CONTRACT.md`
 - `src/spike/*.ts` → `src/core/*.ts`
 - `tests/spike/*.test.ts` → `tests/core/*.test.ts`
+
+
+## 12. Supersession — per-entry upcast 承诺撤回（2026-10-10）
+
+用户批准撤回自动 per-entry upcast 承诺，并移除未使用的 `Upcaster` /
+`UPCASTER_REGISTRY` 声明。loaf-cli 尚未用于真实项目，没有需要保留可读性的
+历史 journal、projection 或 lock 格式。前述 §3.2 / §4.17（N16）以及本 ADR
+中关于 `(kind, entry_schema_version)` upcaster registry 和
+`tests/core/per-entry-upcast.test.ts` 的设计、估算与验收引用保留为历史记录，
+不再构成当前 runtime 的能力或升级保证；该 registry 从未接入 replay，命名的
+验收测试也未实现。
+
+`entry_schema_version` 字段保留。每种 kind 的当前版本由
+`src/core/kind-registry.ts` 的 `entrySchemaVersion` 定义，writer 使用派生的
+`ENTRY_SCHEMA_VERSIONS` stamping；tail recovery 用同一表识别 newer writer，
+拒绝截断其数据。当前所有 kind 的版本仍为 `1`。runtime 不自动转换旧 payload，
+本次退休也不增加新的 replay 版本拒绝规则或兼容 fallback。
+
+现有 `migrateV2` / `rehydrateMigration` 的 v0.0.x snapshot import 暂保留，
+后续由独立的历史格式清理包处理。它是整份旧 snapshot 的导入路径，不是
+per-entry replay upcast；本节撤回的承诺不能用于推断该导入路径已被修改。

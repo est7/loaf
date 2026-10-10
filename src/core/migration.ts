@@ -33,7 +33,6 @@ import { acquireFeatureWriteLease, type FeatureWriteLeaseOptions } from "./featu
 import { appendEntry } from "./journal-append.js";
 import { emptyMeta } from "./snapshot.js";
 import { EvidenceKind, EvidenceResult } from "./evidence-schema.js";
-import { EntryKind } from "./journal-entry.js";
 import { ENTRY_SCHEMA_VERSIONS } from "./kind-registry.js";
 import type { AttachmentRef, Ceremony, JournalEntry, SubState } from "./journal-entry.js";
 import type {
@@ -45,10 +44,6 @@ import type {
   TaskState,
   TaskStepStatus,
 } from "./reducer.js";
-
-export type Upcaster = (prevPayload: unknown) => unknown;
-
-export const UPCASTER_REGISTRY: Record<`${z.infer<typeof EntryKind>}@${number}`, Upcaster> = {};
 
 export const MIGRATION_V1_TO_V2_BOUNDARY = {
   source_schema_version: 1,

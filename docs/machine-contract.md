@@ -15,7 +15,7 @@ create a second definition.
 | --- | --- | --- |
 | §0 | Schema version | [`src/core/spec-schema.ts`](../src/core/spec-schema.ts), [`src/core/snapshot.ts`](../src/core/snapshot.ts) |
 | §0a | Journal envelope, entry kinds, attachments, signatures | [`src/core/journal-entry.ts`](../src/core/journal-entry.ts) |
-| §0b–§0c | Current entry versions; upcasters and v1-to-v2 migration boundary | [`src/core/kind-registry.ts`](../src/core/kind-registry.ts) (versions), [`src/core/migration.ts`](../src/core/migration.ts) (migration) |
+| §0b–§0c | Current entry versions; v1-to-v2 snapshot migration boundary | [`src/core/kind-registry.ts`](../src/core/kind-registry.ts) (versions), [`src/core/migration.ts`](../src/core/migration.ts) (migration) |
 | §1 | Phase, sub-state, state-machine graph | [`src/core/journal-entry.ts`](../src/core/journal-entry.ts), [`src/core/machine.ts`](../src/core/machine.ts) |
 | §2–§4 | Ceremony, task kinds and steps, verification axes, gates | [`src/core/journal-entry.ts`](../src/core/journal-entry.ts), [`src/core/task-schema.ts`](../src/core/task-schema.ts), [`src/core/evidence-schema.ts`](../src/core/evidence-schema.ts) |
 | §5 | Finding categories and actions | [`src/core/finding-schema.ts`](../src/core/finding-schema.ts) |
