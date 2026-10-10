@@ -1,3 +1,4 @@
+import { livePending } from "../../core/intervention-policy.js";
 // Slice 3 — pure detail model helpers for `loaf tui`.
 //
 // This module classifies projection-loader results/errors and shapes loaded
@@ -191,15 +192,13 @@ export function shapeDetailViewModel(
         target:
           finding.target === undefined ? null : `${finding.target.task_id}/${finding.target.step}`,
       })),
-    pending: pending.pending
-      .filter((entry) => !entry.resolved)
-      .map((entry) => ({
-        pending_id: entry.pending_id,
-        kind: i18n.t(pendingKindKey(entry.kind)),
-        question: entry.question,
-        blocks: entry.blocks,
-        options: entry.options ?? [],
-      })),
+    pending: livePending(pending.pending).map((entry) => ({
+      pending_id: entry.pending_id,
+      kind: i18n.t(pendingKindKey(entry.kind)),
+      question: entry.question,
+      blocks: entry.blocks,
+      options: entry.options ?? [],
+    })),
   };
 }
 

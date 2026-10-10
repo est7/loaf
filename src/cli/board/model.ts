@@ -1,3 +1,4 @@
+import { livePending } from "../../core/intervention-policy.js";
 import path from "node:path";
 import { promises as fs } from "node:fs";
 
@@ -278,15 +279,13 @@ export function shapeBoardSessionDetail(
       reason: finding.reason ?? "",
       target: finding.target === undefined ? null : `${finding.target.task_id}/${finding.target.step}`,
     }));
-  const pending = loaded.pending.pending
-    .filter((entry) => !entry.resolved)
-    .map((entry) => ({
-      pending_id: entry.pending_id,
-      kind: entry.kind,
-      question: entry.question,
-      blocks: entry.blocks,
-      options: entry.options ?? [],
-    }));
+  const pending = livePending(loaded.pending.pending).map((entry) => ({
+    pending_id: entry.pending_id,
+    kind: entry.kind,
+    question: entry.question,
+    blocks: entry.blocks,
+    options: entry.options ?? [],
+  }));
 
   return {
     state: {

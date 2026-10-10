@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Completed pending/finding intervention ownership: TUI/Board independently
+  consume the core live-queue query, and an AST ownership gate rejects known
+  duplicate policy/query forms and reverse dependencies. Rendering models,
+  schemas, serialized outputs and rejection stages remain unchanged.
+
 - Finding sponsor lookup, raise/refinement and reset authorization now share
   the intervention policy owner. Closure uses the same open-finding lookup
   while retaining its historical missing-id reason and reducer-stage check.

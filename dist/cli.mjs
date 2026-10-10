@@ -16786,7 +16786,7 @@ function shapeDetailViewModel(row, loaded, now, i18n) {
 			reason: truncateHighSignal(finding.reason ?? ""),
 			target: finding.target === void 0 ? null : `${finding.target.task_id}/${finding.target.step}`
 		})),
-		pending: pending.pending.filter((entry) => !entry.resolved).map((entry) => ({
+		pending: livePending(pending.pending).map((entry) => ({
 			pending_id: entry.pending_id,
 			kind: i18n.t(pendingKindKey(entry.kind)),
 			question: entry.question,
@@ -18675,7 +18675,7 @@ function shapeBoardSessionDetail(loaded) {
 		reason: finding.reason ?? "",
 		target: finding.target === void 0 ? null : `${finding.target.task_id}/${finding.target.step}`
 	}));
-	const pending = loaded.pending.pending.filter((entry) => !entry.resolved).map((entry) => ({
+	const pending = livePending(loaded.pending.pending).map((entry) => ({
 		pending_id: entry.pending_id,
 		kind: entry.kind,
 		question: entry.question,
