@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { bootstrapCommandTokens } from "./cli/argv-bootstrap.js";
+import { scanArgv } from "./core/argv-scanner.js";
 import { diagnostic, diagnosticVariant, type DiagnosticContext } from "./core/error-catalog.js";
 import { writeDiagnosticFailure } from "./cli/diagnostic-failure.js";
 
@@ -247,31 +249,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
   // and emit typed USAGE with `detail.conflicting` listing ONLY the
   // actually-present selectors (codex r290 nit).
   if (!wantsHelpOrVersion) {
-    const SUBCOMMAND_VALUE_FLAGS = new Set([
-      "--format",
-      "--session",
-      "--feature",
-      "--feature-dir",
-      "--ceremony",
-      "--label",
-      "--workspace",
-    ]);
-    const collectNonFlagTokens = (startIdx: number, max: number): string[] => {
-      const out: string[] = [];
-      for (let i = startIdx; i < argv.length; i++) {
-        const a = argv[i]!;
-        if (a.startsWith("--")) {
-          const flagName = a.includes("=") ? a.slice(0, a.indexOf("=")) : a;
-          if (SUBCOMMAND_VALUE_FLAGS.has(flagName) && !a.includes("=")) i++;
-          continue;
-        }
-        if (a.startsWith("-") && a.length > 1) continue;
-        out.push(a);
-        if (out.length >= max) break;
-      }
-      return out;
-    };
-    const cmdTokens = collectNonFlagTokens(2, 2);
+    const cmdTokens = bootstrapCommandTokens(argv, 2);
     const isSessionsList = cmdTokens[0] === "sessions" && cmdTokens[1] === "list";
     if (isSessionsList) {
       const presentSelectors = collectPresentSelectors(argv, process.env);
@@ -489,10 +467,10 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
   // any `--format json` / `--format=json` appears, else text-mode
   // `error: USAGE — <message>` (codex r287 P1).
   if (!wantsHelpOrVersion) {
-    const hasSession = argv.includes("--session") || argv.some((a) => a.startsWith("--session="));
-    const hasFeatureDir =
-      argv.includes("--feature-dir") || argv.some((a) => a.startsWith("--feature-dir="));
-    const hasFeature = argv.includes("--feature") || argv.some((a) => a.startsWith("--feature="));
+    const tokens = scanArgv(argv);
+    const hasSession = tokens.some((token) => token.kind === "option" && token.flag === "--session");
+    const hasFeatureDir = tokens.some((token) => token.kind === "option" && token.flag === "--feature-dir");
+    const hasFeature = tokens.some((token) => token.kind === "option" && token.flag === "--feature");
     const hasLoafSession =
       process.env["LOAF_SESSION"] !== undefined && process.env["LOAF_SESSION"].length > 0;
     const hasLoafFeature =
@@ -503,28 +481,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
     // subcommand (`loaf --dry-run start auth-refresh`), so we can't
     // simply use argv[2]. Track flags that take values so we skip
     // their value too.
-    const FLAGS_WITH_VALUES = new Set([
-      "--format",
-      "--session",
-      "--feature",
-      "--feature-dir",
-      "--ceremony",
-      "--label",
-      "--workspace",
-    ]);
-    let subcommand: string | undefined;
-    for (let i = 2; i < argv.length; i++) {
-      const a = argv[i]!;
-      if (a.startsWith("--")) {
-        const flagName = a.includes("=") ? a.slice(0, a.indexOf("=")) : a;
-        // Skip the value of value-taking flags (when not using = form)
-        if (FLAGS_WITH_VALUES.has(flagName) && !a.includes("=")) i++;
-        continue;
-      }
-      if (a.startsWith("-") && a.length > 1) continue; // short flags like -v / -n
-      subcommand = a;
-      break;
-    }
+    const subcommand = bootstrapCommandTokens(argv, 1)[0];
     const isStartCommand = subcommand === "start";
 
     if (hasFeatureDir && !isStartCommand) {
@@ -927,9 +884,9 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
  *  are excluded because the walk stops at the first `--<flag>`. */
 function deriveCmdFromArgv(argv: readonly string[]): string {
   const chain: string[] = [];
-  for (const t of argv.slice(2)) {
-    if (t.startsWith("--")) break;
-    chain.push(t);
+  for (const token of scanArgv(argv).slice(2)) {
+    if (token.raw.startsWith("--")) break;
+    chain.push(token.raw);
     if (chain.length >= 3) break;
   }
   return ["loaf", ...chain].join(" ");

@@ -1,9 +1,13 @@
+import { scanArgv } from "../core/argv-scanner.js";
+
 /** Pure argv/environment presentation parsing.
  *
  * This module is the functional core for CLI presentation decisions. Every
  * environment-dependent parser requires its environment explicitly; process
  * state is owned and injected by command-context.ts.
  */
+
+const FORMAT_VALUE_FLAGS = new Set(["--format"]);
 
 export type OutputMode = "json" | "text";
 
@@ -27,25 +31,16 @@ export type PresentationEnv = {
 /** Parse `--format <v>` or `--format=<v>` from argv. Returns OK 'text'
  * on absent. Bare `--format` intentionally defers to Commander. */
 export function parseFormatFromArgv(argv: readonly string[]): FormatParseResult {
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i]!;
-    if (arg === "--format") {
-      const v = argv[i + 1];
-      if (v === undefined || v.startsWith("--")) {
-        return { ok: true, format: "text" };
-      }
-      if ((FORMAT_MODES as readonly string[]).includes(v)) {
-        return { ok: true, format: v as OutputMode };
-      }
-      return { ok: false, rawValue: v };
-    }
-    if (arg.startsWith("--format=")) {
-      const v = arg.slice("--format=".length);
-      if ((FORMAT_MODES as readonly string[]).includes(v)) {
-        return { ok: true, format: v as OutputMode };
-      }
-      return { ok: false, rawValue: v };
-    }
+  const token = scanArgv(argv, FORMAT_VALUE_FLAGS).find(
+    (token) => token.kind === "option" && token.flag === "--format",
+  );
+  if (token?.kind === "option") {
+    const value = token.value;
+    if (!token.raw.includes("=") && (value === undefined || value.startsWith("--")))
+      return { ok: true, format: "text" };
+    if (value !== undefined && (FORMAT_MODES as readonly string[]).includes(value))
+      return { ok: true, format: value as OutputMode };
+    return { ok: false, rawValue: value! };
   }
   return { ok: true, format: "text" };
 }
@@ -55,53 +50,48 @@ export function parseFormatFromArgv(argv: readonly string[]): FormatParseResult 
  * This exhaustiveness is what gives INVALID_FORMAT its position-independent
  * precedence over the mutex check. */
 export function findFirstInvalidFormat(argv: readonly string[]): { rawValue: string } | null {
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i]!;
-    if (arg === "--format") {
-      const v = argv[i + 1];
-      if (v === undefined || v.startsWith("--")) continue;
-      if (!(FORMAT_MODES as readonly string[]).includes(v)) {
-        return { rawValue: v };
-      }
-      i++;
-      continue;
-    }
-    if (arg.startsWith("--format=")) {
-      const v = arg.slice("--format=".length);
-      if (!(FORMAT_MODES as readonly string[]).includes(v)) {
-        return { rawValue: v };
-      }
-    }
+  for (const token of scanArgv(argv, FORMAT_VALUE_FLAGS)) {
+    if (token.kind !== "option" || token.flag !== "--format") continue;
+    const value = token.value;
+    if (!token.raw.includes("=") && (value === undefined || value.startsWith("--"))) continue;
+    if (value !== undefined && !(FORMAT_MODES as readonly string[]).includes(value))
+      return { rawValue: value };
   }
   return null;
 }
 
 export function parsePlainFromArgv(argv: readonly string[]): boolean {
-  return argv.includes("--plain");
+  return scanArgv(argv).some((token) => token.raw === "--plain");
 }
 
 export function parseQuietFromArgv(argv: readonly string[]): boolean {
-  return argv.includes("--quiet") || argv.includes("-q");
+  return (
+    scanArgv(argv).some((token) => token.raw === "--quiet") ||
+    scanArgv(argv).some((token) => token.raw === "-q")
+  );
 }
 
 export function parseNoInputFromArgv(argv: readonly string[]): boolean {
-  return argv.includes("--no-input");
+  return scanArgv(argv).some((token) => token.raw === "--no-input");
 }
 
 export function parseDebugFromArgv(argv: readonly string[], env: PresentationEnv): boolean {
-  if (argv.includes("--debug")) return true;
+  if (scanArgv(argv).some((token) => token.raw === "--debug")) return true;
   if (env.LOAF_DEBUG && env.LOAF_DEBUG.length > 0) return true;
   if (env.DEBUG && env.DEBUG.length > 0) return true;
   return false;
 }
 
 export function parseDryRunFromArgv(argv: readonly string[]): boolean {
-  return argv.includes("--dry-run") || argv.includes("-n");
+  return (
+    scanArgv(argv).some((token) => token.raw === "--dry-run") ||
+    scanArgv(argv).some((token) => token.raw === "-n")
+  );
 }
 
 export function parseVerboseFromArgv(argv: readonly string[]): number {
   let count = 0;
-  for (const arg of argv) {
+  for (const { raw: arg } of scanArgv(argv)) {
     if (arg === "--verbose") {
       count += 1;
       continue;
@@ -116,7 +106,7 @@ export function parseVerboseFromArgv(argv: readonly string[]): number {
 /** Color suppression per protocol §10.2: `--no-color`, non-empty `NO_COLOR` or
  * `LOAF_NO_COLOR`, or `TERM=dumb`. */
 export function parseNoColorFromArgv(argv: readonly string[], env: PresentationEnv): boolean {
-  if (argv.includes("--no-color")) return true;
+  if (scanArgv(argv).some((token) => token.raw === "--no-color")) return true;
   if (env.NO_COLOR && env.NO_COLOR.length > 0) return true;
   if (env.LOAF_NO_COLOR && env.LOAF_NO_COLOR.length > 0) return true;
   if (env.TERM === "dumb") return true;
@@ -145,24 +135,18 @@ function collectOutputFormatEntries(
   argv: readonly string[],
 ): Array<{ entry: string; canonical: OutputMode }> {
   const out: Array<{ entry: string; canonical: OutputMode }> = [];
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i]!;
-    if (arg === "--plain") {
+  for (const token of scanArgv(argv, FORMAT_VALUE_FLAGS)) {
+    if (token.raw === "--plain") {
       out.push({ entry: "--plain", canonical: "text" });
       continue;
     }
-    if (arg === "--format") {
-      const v = argv[i + 1];
-      if (v && !v.startsWith("--") && (FORMAT_MODES as readonly string[]).includes(v)) {
-        out.push({ entry: `--format ${v}`, canonical: v as OutputMode });
-      }
-      continue;
-    }
-    if (arg.startsWith("--format=")) {
-      const v = arg.slice("--format=".length);
-      if ((FORMAT_MODES as readonly string[]).includes(v)) {
-        out.push({ entry: arg, canonical: v as OutputMode });
-      }
+    if (token.kind !== "option" || token.flag !== "--format") continue;
+    const value = token.value;
+    if (value !== undefined && (FORMAT_MODES as readonly string[]).includes(value)) {
+      out.push({
+        entry: token.raw.includes("=") ? token.raw : `--format ${value}`,
+        canonical: value as OutputMode,
+      });
     }
   }
   return out;

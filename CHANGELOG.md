@@ -26,6 +26,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- CLI bootstrap, selector resolution and presentation parsing now share a
+  pure argv scanner with ordered raw-token provenance and option arity.
+  Existing command recognition, duplicate-flag handling, error ordering and
+  terminator behavior remain unchanged. Editor tokenization and trace
+  redaction retain their separate grammars and policies.
+
 - VERIFY next routing now derives lane applicability from the canonical
   journal snapshot shared with verify status and gate approval. Missing or
   edited derived spec.md cannot change its route. Existing projection

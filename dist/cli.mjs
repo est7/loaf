@@ -17,6 +17,66 @@ import { Box, Text, useApp, useInput } from "ink";
 import { jsx, jsxs } from "react/jsx-runtime";
 import process$1 from "node:process";
 import { createServer } from "node:http";
+//#region src/core/argv-scanner.ts
+/** Keep every raw token, including option-looking values and duplicates.
+* No command recognition, validation, alias expansion or shell parsing occurs.
+*/
+function scanArgv(argv, valueFlags = /* @__PURE__ */ new Set()) {
+	return argv.map((raw, index) => {
+		if (raw === "--") return {
+			kind: "terminator",
+			index,
+			raw
+		};
+		if (!raw.startsWith("-") || raw === "-") return {
+			kind: "positional",
+			index,
+			raw
+		};
+		const equals = raw.startsWith("--") ? raw.indexOf("=") : -1;
+		const flag = equals === -1 ? raw : raw.slice(0, equals);
+		const arity = equals !== -1 || valueFlags.has(flag) ? 1 : 0;
+		return {
+			kind: "option",
+			index,
+			raw,
+			flag,
+			arity,
+			value: equals !== -1 ? raw.slice(equals + 1) : arity === 1 ? argv[index + 1] : void 0,
+			valueIndex: equals !== -1 ? index : arity === 1 && index + 1 < argv.length ? index + 1 : void 0
+		};
+	});
+}
+//#endregion
+//#region src/cli/argv-bootstrap.ts
+const BOOTSTRAP_VALUE_FLAGS = new Set([
+	"--format",
+	"--session",
+	"--feature",
+	"--feature-dir",
+	"--ceremony",
+	"--label",
+	"--workspace"
+]);
+/** Preserve the bootstrap's positional view, including its legacy treatment
+* of `--` and unconditional consumption of a value-taking flag's next token.
+*/
+function bootstrapCommandTokens(argv, max) {
+	const out = [];
+	let consumedThrough = 1;
+	for (const token of scanArgv(argv, BOOTSTRAP_VALUE_FLAGS)) {
+		if (token.index <= consumedThrough) continue;
+		if (token.kind === "option") {
+			if (token.raw.startsWith("--") && token.arity === 1 && !token.raw.includes("=")) consumedThrough = token.index + 1;
+			continue;
+		}
+		if (token.kind === "terminator") continue;
+		out.push(token.raw);
+		if (out.length >= max) break;
+	}
+	return out;
+}
+//#endregion
 //#region src/core/error-catalog.ts
 const TemplateKey = z.string().regex(/^[A-Za-z0-9_]+$/);
 const DiagnosticTemplate = z.object({
@@ -8650,14 +8710,10 @@ const MIN_SHORT_UUID_PREFIX = 8;
 /** Extract flag value (`--flag value` or `--flag=value`). Returns
 *  `undefined` when absent. */
 function pickFlagValue(argv, flag) {
-	for (let i = 0; i < argv.length; i++) {
-		const arg = argv[i];
-		if (arg === flag) {
-			const v = argv[i + 1];
-			if (v !== void 0 && !v.startsWith("--")) return v;
-			return;
-		}
-		if (arg.startsWith(`${flag}=`)) return arg.slice(flag.length + 1);
+	const token = scanArgv(argv, new Set([flag])).find((token) => token.kind === "option" && token.flag === flag);
+	if (token?.kind === "option") {
+		const value = token.value;
+		return token.raw.includes("=") || value !== void 0 && !value.startsWith("--") ? value : void 0;
 	}
 }
 async function resolveDispatch(input) {
@@ -9051,6 +9107,13 @@ function parseHookStdinPath(raw) {
 }
 //#endregion
 //#region src/cli/argv-presentation.ts
+/** Pure argv/environment presentation parsing.
+*
+* This module is the functional core for CLI presentation decisions. Every
+* environment-dependent parser requires its environment explicitly; process
+* state is owned and injected by command-context.ts.
+*/
+const FORMAT_VALUE_FLAGS = new Set(["--format"]);
 /** Closed value set for `--format`. Single source of truth for both the
 * argv parser and the human-readable error template. */
 const FORMAT_MODES$1 = ["text", "json"];
@@ -9061,43 +9124,35 @@ const FORMAT_MODES_HUMAN$1 = FORMAT_MODES$1.join("|");
 * This exhaustiveness is what gives INVALID_FORMAT its position-independent
 * precedence over the mutex check. */
 function findFirstInvalidFormat(argv) {
-	for (let i = 0; i < argv.length; i++) {
-		const arg = argv[i];
-		if (arg === "--format") {
-			const v = argv[i + 1];
-			if (v === void 0 || v.startsWith("--")) continue;
-			if (!FORMAT_MODES$1.includes(v)) return { rawValue: v };
-			i++;
-			continue;
-		}
-		if (arg.startsWith("--format=")) {
-			const v = arg.slice(9);
-			if (!FORMAT_MODES$1.includes(v)) return { rawValue: v };
-		}
+	for (const token of scanArgv(argv, FORMAT_VALUE_FLAGS)) {
+		if (token.kind !== "option" || token.flag !== "--format") continue;
+		const value = token.value;
+		if (!token.raw.includes("=") && (value === void 0 || value.startsWith("--"))) continue;
+		if (value !== void 0 && !FORMAT_MODES$1.includes(value)) return { rawValue: value };
 	}
 	return null;
 }
 function parsePlainFromArgv(argv) {
-	return argv.includes("--plain");
+	return scanArgv(argv).some((token) => token.raw === "--plain");
 }
 function parseQuietFromArgv(argv) {
-	return argv.includes("--quiet") || argv.includes("-q");
+	return scanArgv(argv).some((token) => token.raw === "--quiet") || scanArgv(argv).some((token) => token.raw === "-q");
 }
 function parseNoInputFromArgv(argv) {
-	return argv.includes("--no-input");
+	return scanArgv(argv).some((token) => token.raw === "--no-input");
 }
 function parseDebugFromArgv(argv, env) {
-	if (argv.includes("--debug")) return true;
+	if (scanArgv(argv).some((token) => token.raw === "--debug")) return true;
 	if (env.LOAF_DEBUG && env.LOAF_DEBUG.length > 0) return true;
 	if (env.DEBUG && env.DEBUG.length > 0) return true;
 	return false;
 }
 function parseDryRunFromArgv(argv) {
-	return argv.includes("--dry-run") || argv.includes("-n");
+	return scanArgv(argv).some((token) => token.raw === "--dry-run") || scanArgv(argv).some((token) => token.raw === "-n");
 }
 function parseVerboseFromArgv(argv) {
 	let count = 0;
-	for (const arg of argv) {
+	for (const { raw: arg } of scanArgv(argv)) {
 		if (arg === "--verbose") {
 			count += 1;
 			continue;
@@ -9109,7 +9164,7 @@ function parseVerboseFromArgv(argv) {
 /** Color suppression per protocol §10.2: `--no-color`, non-empty `NO_COLOR` or
 * `LOAF_NO_COLOR`, or `TERM=dumb`. */
 function parseNoColorFromArgv(argv, env) {
-	if (argv.includes("--no-color")) return true;
+	if (scanArgv(argv).some((token) => token.raw === "--no-color")) return true;
 	if (env.NO_COLOR && env.NO_COLOR.length > 0) return true;
 	if (env.LOAF_NO_COLOR && env.LOAF_NO_COLOR.length > 0) return true;
 	if (env.TERM === "dumb") return true;
@@ -9117,30 +9172,20 @@ function parseNoColorFromArgv(argv, env) {
 }
 function collectOutputFormatEntries(argv) {
 	const out = [];
-	for (let i = 0; i < argv.length; i++) {
-		const arg = argv[i];
-		if (arg === "--plain") {
+	for (const token of scanArgv(argv, FORMAT_VALUE_FLAGS)) {
+		if (token.raw === "--plain") {
 			out.push({
 				entry: "--plain",
 				canonical: "text"
 			});
 			continue;
 		}
-		if (arg === "--format") {
-			const v = argv[i + 1];
-			if (v && !v.startsWith("--") && FORMAT_MODES$1.includes(v)) out.push({
-				entry: `--format ${v}`,
-				canonical: v
-			});
-			continue;
-		}
-		if (arg.startsWith("--format=")) {
-			const v = arg.slice(9);
-			if (FORMAT_MODES$1.includes(v)) out.push({
-				entry: arg,
-				canonical: v
-			});
-		}
+		if (token.kind !== "option" || token.flag !== "--format") continue;
+		const value = token.value;
+		if (value !== void 0 && FORMAT_MODES$1.includes(value)) out.push({
+			entry: token.raw.includes("=") ? token.raw : `--format ${value}`,
+			canonical: value
+		});
 	}
 	return out;
 }
@@ -12694,7 +12739,7 @@ function selectorForFeature(feature, featureDir, explicitFeatureDir) {
 	};
 }
 function argvHasFlag(argv, flag) {
-	return argv.some((arg) => arg === flag || arg.startsWith(`${flag}=`));
+	return scanArgv(argv).some((token) => token.kind === "option" && token.flag === flag);
 }
 function selectorForDispatch(dispatch, argv) {
 	if (dispatch.source === "session-flag" || dispatch.source === "session-env") {
@@ -17791,9 +17836,10 @@ function registerState(program, ctx, specCmd, tasksCmd, evidenceCmd, findingCmd)
 //#region src/cli/selectors.ts
 function collectPresentSelectors(argv, env) {
 	const selectors = [];
-	if (argv.includes("--session") || argv.some((a) => a.startsWith("--session="))) selectors.push("--session");
-	if (argv.includes("--feature") || argv.some((a) => a.startsWith("--feature="))) selectors.push("--feature");
-	if (argv.includes("--feature-dir") || argv.some((a) => a.startsWith("--feature-dir="))) selectors.push("--feature-dir");
+	const tokens = scanArgv(argv);
+	if (tokens.some((token) => token.kind === "option" && token.flag === "--session")) selectors.push("--session");
+	if (tokens.some((token) => token.kind === "option" && token.flag === "--feature")) selectors.push("--feature");
+	if (tokens.some((token) => token.kind === "option" && token.flag === "--feature-dir")) selectors.push("--feature-dir");
 	if (env["LOAF_SESSION"] !== void 0 && env["LOAF_SESSION"].length > 0) selectors.push("$LOAF_SESSION");
 	if (env["LOAF_FEATURE"] !== void 0 && env["LOAF_FEATURE"].length > 0) selectors.push("$LOAF_FEATURE");
 	return selectors;
@@ -19487,31 +19533,7 @@ async function main(argv = process.argv, deps = {}) {
 		}
 	}
 	if (!wantsHelpOrVersion) {
-		const SUBCOMMAND_VALUE_FLAGS = new Set([
-			"--format",
-			"--session",
-			"--feature",
-			"--feature-dir",
-			"--ceremony",
-			"--label",
-			"--workspace"
-		]);
-		const collectNonFlagTokens = (startIdx, max) => {
-			const out = [];
-			for (let i = startIdx; i < argv.length; i++) {
-				const a = argv[i];
-				if (a.startsWith("--")) {
-					const flagName = a.includes("=") ? a.slice(0, a.indexOf("=")) : a;
-					if (SUBCOMMAND_VALUE_FLAGS.has(flagName) && !a.includes("=")) i++;
-					continue;
-				}
-				if (a.startsWith("-") && a.length > 1) continue;
-				out.push(a);
-				if (out.length >= max) break;
-			}
-			return out;
-		};
-		const cmdTokens = collectNonFlagTokens(2, 2);
+		const cmdTokens = bootstrapCommandTokens(argv, 2);
 		if (cmdTokens[0] === "sessions" && cmdTokens[1] === "list") {
 			const presentSelectors = collectPresentSelectors(argv, process.env);
 			if (presentSelectors.length > 0) {
@@ -19645,33 +19667,14 @@ async function main(argv = process.argv, deps = {}) {
 		}
 	}
 	if (!wantsHelpOrVersion) {
-		const hasSession = argv.includes("--session") || argv.some((a) => a.startsWith("--session="));
-		const hasFeatureDir = argv.includes("--feature-dir") || argv.some((a) => a.startsWith("--feature-dir="));
-		const hasFeature = argv.includes("--feature") || argv.some((a) => a.startsWith("--feature="));
+		const tokens = scanArgv(argv);
+		const hasSession = tokens.some((token) => token.kind === "option" && token.flag === "--session");
+		const hasFeatureDir = tokens.some((token) => token.kind === "option" && token.flag === "--feature-dir");
+		const hasFeature = tokens.some((token) => token.kind === "option" && token.flag === "--feature");
 		const hasLoafSession = process.env["LOAF_SESSION"] !== void 0 && process.env["LOAF_SESSION"].length > 0;
 		const hasLoafFeature = process.env["LOAF_FEATURE"] !== void 0 && process.env["LOAF_FEATURE"].length > 0;
-		const FLAGS_WITH_VALUES = new Set([
-			"--format",
-			"--session",
-			"--feature",
-			"--feature-dir",
-			"--ceremony",
-			"--label",
-			"--workspace"
-		]);
-		let subcommand;
-		for (let i = 2; i < argv.length; i++) {
-			const a = argv[i];
-			if (a.startsWith("--")) {
-				const flagName = a.includes("=") ? a.slice(0, a.indexOf("=")) : a;
-				if (FLAGS_WITH_VALUES.has(flagName) && !a.includes("=")) i++;
-				continue;
-			}
-			if (a.startsWith("-") && a.length > 1) continue;
-			subcommand = a;
-			break;
-		}
-		if (hasFeatureDir && !(subcommand === "start")) {
+		const isStartCommand = bootstrapCommandTokens(argv, 1)[0] === "start";
+		if (hasFeatureDir && !isStartCommand) {
 			const sessionConflict = [];
 			if (hasSession) sessionConflict.push("--session");
 			if (hasLoafSession) sessionConflict.push("$LOAF_SESSION");
@@ -19874,9 +19877,9 @@ async function main(argv = process.argv, deps = {}) {
 *  are excluded because the walk stops at the first `--<flag>`. */
 function deriveCmdFromArgv(argv) {
 	const chain = [];
-	for (const t of argv.slice(2)) {
-		if (t.startsWith("--")) break;
-		chain.push(t);
+	for (const token of scanArgv(argv).slice(2)) {
+		if (token.raw.startsWith("--")) break;
+		chain.push(token.raw);
 		if (chain.length >= 3) break;
 	}
 	return ["loaf", ...chain].join(" ");
