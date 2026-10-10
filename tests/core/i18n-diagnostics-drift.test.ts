@@ -6,7 +6,7 @@ import {
   type GeneratedDiagnosticLocale,
   generateI18nDiagnostics,
 } from "../../scripts/gen-i18n-diagnostics.js";
-import { ERROR_CATALOG } from "../../src/core/error-catalog.js";
+import { ERROR_CATALOG, DIAGNOSTIC_VARIANTS } from "../../src/core/error-catalog.js";
 
 const DRIFT_MESSAGE =
   "i18n diagnostic drift detected. Run `bun run gen:i18n` and commit i18n/en.json + i18n/zh.json.";
@@ -26,8 +26,8 @@ function expectedDiagnostic(locale: GeneratedDiagnosticLocale): Record<string, s
   const expected: Record<string, string> = {};
   for (const [code, entry] of Object.entries(ERROR_CATALOG)) {
     const zhTemplate = "zh_message_template" in entry ? entry.zh_message_template : undefined;
-    if (typeof zhTemplate !== "string") continue;
-    expected[code] = locale === "en" ? entry.message_template : zhTemplate;
+    if (locale === "zh" && typeof zhTemplate !== "string") continue;
+    expected[code] = locale === "en" ? entry.message_template : zhTemplate!;
   }
   return expected;
 }
@@ -64,5 +64,28 @@ describe("generated i18n diagnostic sections", () => {
     const repaired = generateI18nDiagnostics(drifted, "en");
     expect(repaired).toBe(committed);
     expect(outsideDiagnostic(repaired)).toBe(outsideDiagnostic(drifted));
+  });
+
+  test("fixes and existing-context variants are catalog projections, without invented zh", async () => {
+    const en = JSON.parse(await readBundle("en"));
+    const zh = JSON.parse(await readBundle("zh"));
+    expect(Object.keys(en.diagnostic_fix)).toHaveLength(129);
+    expect(Object.keys(zh.diagnostic_fix)).toHaveLength(2);
+    for (const [code, entry] of Object.entries(ERROR_CATALOG)) {
+      expect(en.diagnostic_fix[code]).toBe(entry.fix_template);
+      expect(zh.diagnostic_fix[code]).toBe(
+        "zh_fix_template" in entry ? entry.zh_fix_template : undefined,
+      );
+    }
+    for (const [context, variant] of Object.entries(DIAGNOSTIC_VARIANTS)) {
+      const read = (root: Record<string, unknown>) =>
+        context
+          .split(".")
+          .reduce<unknown>((value, key) => (value as Record<string, unknown>)?.[key], root);
+      expect(read(en.diagnostic_variant)).toBe(variant.template.message_template);
+      expect(read(en.diagnostic_variant_fix)).toBe(variant.template.fix_template);
+      expect(read(zh.diagnostic_variant)).toBe(variant.template.zh_message_template);
+      expect(read(zh.diagnostic_variant_fix)).toBeUndefined();
+    }
   });
 });

@@ -15,6 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   excluded; unreadable or mismatched canonical history leaves pending scope
   unchanged and reports the runtime-update failure.
 
+### Changed
+
+- Added the catalog diagnostic renderer foundation: every diagnostic declares
+  required detail keys, English message/fix bundles cover the complete catalog,
+  and existing failure-site variants retain their shipped translations with
+  English fallback. Ambiguous variants support an additive `detail.context`
+  using the existing site identifier while preserving `detail.subcode`.
+  Command callers still use their existing output paths in this slice.
+
 ## [0.10.0] — 2026-10-10
 
 ### Changed

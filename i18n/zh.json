@@ -283,6 +283,91 @@
     "PROTECTED_FILE_WRITE": "写入被拦截:`{normalized_path}` 命中 protected_files 条目 `{matched_deny}` —— 受保护文件永不可写"
   },
 
+  "diagnostic_fix": {
+    "JOURNAL_TAIL_REQUIRES_NEWER_LOAF": "保持 journal.jsonl 字节不变，升级到能识别该 entry 的 loaf 版本后再运行 tail recovery",
+    "ACTUAL_SCOPE_HISTORY_INCOMPLETE": "不要伪造空 actual_scope;保留 journal,使用支持 F-027 的 loaf 版本重新执行该 feature 的 EXECUTE work 后再审计 scope。pre-F-027 closure scope 无法从 journal 历史重建。"
+  },
+
+  "diagnostic_variant": {
+    "failure": {
+      "check": {
+        "path_missing": "input file 不存在:{path}",
+        "selector_conflict": "check 不接受 {conflicting} —— 它按路径校验文件,独立于 feature session",
+        "kind_required": "`{subject}` 不是文件路径. 如需校验 {kind} artifact,需要显式路径: `{suggestion}`(noun-first `loaf {kind} check` 预留给未来版本)",
+        "kind_invalid": "--kind 必须是 {allowed_kinds_human};当前为 '{value}'"
+      },
+      "profile": {
+        "input_file_missing": "input file 不存在:{path}",
+        "input_file_unreadable": "无法读取 input file {path}:{error}"
+      },
+      "lessons": {
+        "file_missing": "lesson file 不存在:{path}",
+        "text_too_short": "lesson text 必须 ≥{min_length} 字符(当前 {lesson_text_length})",
+        "reason_too_short": "--reason 必须 ≥{min_length} 字符(当前 {reason_length})",
+        "text_file_mutex": "--text 和 --file 必须二选一({provided_state})"
+      },
+      "hook": {
+        "stdin_parse_failed": "hook stdin payload 解析失败:{reason}",
+        "missing_event": "loaf hook 需要 event token;可选值:{events}. 运行 `loaf hook --list-events` 查看完整枚举",
+        "unknown_event": "未知 hook event '{event}';期望值:{allowed}. 你是不是想输入 '{suggestion}'?",
+        "write_path_missing": "write-side hook 需要 --path <P> 或非 TTY stdin hook payload(tool_input.file_path)"
+      },
+      "schema": {
+        "validation": "{kind} at {path} 校验失败({error_count} {error_word})",
+        "selector_conflict": "{subject} 不接受 {conflicting} —— schema dump 与 feature 无关"
+      },
+      "handoff": {
+        "pack_validation_failed": "ResumePack 运行时校验失败(builder bug 或 schema drift)",
+        "reason_too_short": "--reason 必须 ≥{min_length} 字符(当前 {reason_length})"
+      },
+      "tasks_add": {
+        "empty_array": "tasks add 输入不能为空数组"
+      },
+      "write_guard": {
+        "config_invalid": "write-guard 被拦截:{reason}"
+      },
+      "no_session": {
+        "status": "先跑 `loaf start {feature}`",
+        "advance": "先跑 `loaf start {feature}`",
+        "tasks": "先跑 `loaf start {feature}`",
+        "pending": "先跑 `loaf start {feature}`",
+        "finding": "先跑 `loaf start {feature}`",
+        "verify": "先跑 `loaf start {feature}`",
+        "generic": "先跑 `loaf start {feature}`"
+      },
+      "sessions_list": {
+        "selector_conflict": "sessions list 不接受 {conflicting} —— 它会跨全部 session 列表;如需过滤当前 cwd,使用 --in-cwd"
+      },
+      "tui": {
+        "selector_conflict": "tui 不接受 {conflicting} —— 它会跨全部 session 列表;selector 对交互 UI 没有意义",
+        "interactive_only": "tui 仅支持交互模式;脚本化 session 输出请使用 `loaf sessions list --format json`"
+      },
+      "dispatch": {
+        "session_feature_dir_conflict": "{conflicting} 不能与 --feature-dir 一起使用(session identity 来自 registry;手动 featureDir 会矛盾)",
+        "feature_dir_requires_feature": "--feature-dir 需要 --feature <name> 或 $LOAF_FEATURE 来命名 feature"
+      },
+      "start": {
+        "label_too_short": "--label 至少需要 {min_length} 个字符",
+        "workspace_empty": "--workspace 不能为空"
+      },
+      "finding": {
+        "status_invalid": "--status 必须是:{allowed_statuses_human}(当前 {value})"
+      },
+      "journal": {
+        "integer_invalid": "{flag} 必须是 >= {minimum} 的整数(当前 {value})",
+        "kind_invalid": "--kind 必须是已注册的 journal kind(当前 {value})",
+        "actor_invalid": "--actor 必须是非空 actor 前缀或完整 actor 字符串"
+      },
+      "evidence": {
+        "covers_invalid": "--covers 必须是有效的 coverage id(当前 {value})",
+        "task_invalid": "--task 必须是有效的 task id(当前 {value})",
+        "kind_invalid": "--kind 必须是:{allowed_kinds_human}"
+      }
+    }
+  },
+
+  "diagnostic_variant_fix": {},
+
   "failure": {
     "sessions_list": {
       "selector_conflict": "sessions list 不接受 {conflicting} —— 它会跨全部 session 列表;如需过滤当前 cwd,使用 --in-cwd"

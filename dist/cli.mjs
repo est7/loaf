@@ -1662,8 +1662,7 @@ async function _loadProjectionsImpl(input, hooks) {
 //#endregion
 //#region src/core/error-catalog.ts
 const TemplateKey = z.string().regex(/^[A-Za-z0-9_]+$/);
-z.object({
-	exit_code: z.literal(2),
+const DiagnosticTemplate = z.object({
 	message_template: z.string().min(3),
 	zh_message_template: z.string().min(3).optional(),
 	fix_template: z.string().min(3).optional(),
@@ -1671,7 +1670,12 @@ z.object({
 	template_keys: z.array(TemplateKey).readonly(),
 	detail_keys: z.array(TemplateKey).readonly().optional(),
 	adapter: z.record(TemplateKey, TemplateKey).optional(),
+	list_separator: z.record(TemplateKey, z.string()).optional(),
 	doc_anchor: z.string().min(3).optional()
+});
+DiagnosticTemplate.extend({
+	exit_code: z.literal(2),
+	variants: z.record(z.string(), DiagnosticTemplate).optional()
 });
 const ERROR_CATALOG = {
 	INPUT_FILE_NOT_FOUND: {
@@ -1679,14 +1683,50 @@ const ERROR_CATALOG = {
 		message_template: "input file does not exist: {path}",
 		fix_template: "verify the path, or pass '-' to read from stdin / inline JSON starting with a JSON object or array — see `loaf <cmd> --help` for examples",
 		template_keys: ["path"],
-		doc_anchor: "protocol.md#§10.7"
+		doc_anchor: "protocol.md#§10.7",
+		detail_keys: ["path"],
+		variants: {
+			"failure.check.path_missing": {
+				message_template: "file not found: {path}",
+				zh_message_template: "input file 不存在:{path}",
+				fix_template: "verify the path, or pass '-' to read from stdin / inline JSON starting with a JSON object or array — see `loaf <cmd> --help` for examples",
+				template_keys: ["path"],
+				detail_keys: ["path"],
+				doc_anchor: "protocol.md#§10.7"
+			},
+			"failure.profile.input_file_missing": {
+				message_template: "input file does not exist: {path}",
+				zh_message_template: "input file 不存在:{path}",
+				fix_template: "verify the path, or pass '-' to read from stdin / inline JSON starting with a JSON object or array — see `loaf <cmd> --help` for examples",
+				template_keys: ["path"],
+				detail_keys: ["path"],
+				doc_anchor: "protocol.md#§10.7"
+			},
+			"failure.profile.input_file_unreadable": {
+				message_template: "cannot read input file {path}: {error}",
+				zh_message_template: "无法读取 input file {path}:{error}",
+				fix_template: "verify the path, or pass '-' to read from stdin / inline JSON starting with a JSON object or array — see `loaf <cmd> --help` for examples",
+				template_keys: ["error", "path"],
+				detail_keys: ["error", "path"],
+				doc_anchor: "protocol.md#§10.7"
+			},
+			"failure.lessons.file_missing": {
+				message_template: "lesson file not found: {path}",
+				zh_message_template: "lesson file 不存在:{path}",
+				fix_template: "verify the path, or pass '-' to read from stdin / inline JSON starting with a JSON object or array — see `loaf <cmd> --help` for examples",
+				template_keys: ["path"],
+				detail_keys: ["path"],
+				doc_anchor: "protocol.md#§10.7"
+			}
+		}
 	},
 	MISSING_INPUT: {
 		exit_code: 2,
 		message_template: "required input source missing or unreadable: --input not provided OR stdin could not be read (--input - failed)",
 		fix_template: "pass --input with one of: a JSON file path, '-' for stdin (with valid piped JSON), or inline JSON; for stdin failures, pass valid JSON to `loaf <cmd> --input -` on stdin; for the 6 schema-capable authoring commands (spec add-req / spec add-scenario / spec add-visual / tasks submit / tasks add / evidence add), run `loaf <cmd> --schema --format=json` to view the input schema",
 		template_keys: [],
-		doc_anchor: "protocol.md#§10.7"
+		doc_anchor: "protocol.md#§10.7",
+		detail_keys: []
 	},
 	SPEC_EDIT_INPUT_REQUIRED: {
 		exit_code: 2,
@@ -1706,7 +1746,64 @@ const ERROR_CATALOG = {
 			"zod_message",
 			"zod_path"
 		],
-		doc_anchor: "protocol.md#§10.5"
+		doc_anchor: "protocol.md#§10.5",
+		detail_keys: [
+			"command",
+			"zod_message",
+			"zod_path"
+		],
+		variants: {
+			"failure.hook.stdin_parse_failed": {
+				message_template: "{reason}",
+				zh_message_template: "hook stdin payload 解析失败:{reason}",
+				fix_template: "pass --path <P> or a non-TTY hook payload containing tool_input.file_path, then retry the hook",
+				template_keys: ["reason"],
+				detail_keys: ["reason"],
+				doc_anchor: "protocol.md#§10.5"
+			},
+			"failure.schema.validation": {
+				message_template: "{kind} at {path} failed schema validation ({error_count} {error_word})",
+				zh_message_template: "{kind} at {path} 校验失败({error_count} {error_word})",
+				fix_template: "fix the reported fields in {path}, then rerun `loaf check {path} --kind {kind}`",
+				template_keys: [
+					"error_count",
+					"error_word",
+					"kind",
+					"path"
+				],
+				detail_keys: [
+					"error_count",
+					"error_word",
+					"kind",
+					"path"
+				],
+				doc_anchor: "protocol.md#§10.5"
+			},
+			"failure.handoff.pack_validation_failed": {
+				message_template: "ResumePack failed runtime validation (builder bug or schema drift)",
+				zh_message_template: "ResumePack 运行时校验失败(builder bug 或 schema drift)",
+				fix_template: "preserve the session journal and report the failed ResumePack runtime validation; retry with a corrected loaf version",
+				template_keys: [],
+				detail_keys: [],
+				doc_anchor: "protocol.md#§10.5"
+			},
+			"failure.tasks_add.empty_array": {
+				message_template: "tasks add input is an empty array",
+				zh_message_template: "tasks add 输入不能为空数组",
+				fix_template: "provide at least one task object; run `loaf tasks add --schema --format=json` to inspect the authoring input",
+				template_keys: [],
+				detail_keys: [],
+				doc_anchor: "protocol.md#§10.5"
+			},
+			"failure.write_guard.config_invalid": {
+				message_template: "write-guard blocked: {reason}",
+				zh_message_template: "write-guard 被拦截:{reason}",
+				fix_template: "repair .loaf/.config/loaf.config.json, then retry the write-side hook",
+				template_keys: ["reason"],
+				detail_keys: ["reason"],
+				doc_anchor: "protocol.md#§10.5"
+			}
+		}
 	},
 	SPEC_LOCKED_NO_DIRECT_EDIT: {
 		exit_code: 2,
@@ -1714,7 +1811,8 @@ const ERROR_CATALOG = {
 		zh_message_template: "{kind} 被拒:spec_locked=true;用 `loaf finding raise --category spec-gap --action amend-spec` 走 amend-spec 回退到 SPEC.spec",
 		fix_template: "raise a finding with category=spec-gap (or spec-defect) and action=amend-spec to back-edge into SPEC.spec (the finding's resets_spec_locked effect lifts the gate); then retry the spec add/submit",
 		template_keys: ["kind"],
-		doc_anchor: "protocol.md#§5.3"
+		doc_anchor: "protocol.md#§5.3",
+		detail_keys: ["kind"]
 	},
 	SPEC_NOT_INITIALIZED: {
 		exit_code: 2,
@@ -1722,7 +1820,8 @@ const ERROR_CATALOG = {
 		zh_message_template: "{kind} 被拒:spec_version=0;先跑 `loaf spec submit` 把 spec_version 升到 1",
 		fix_template: "run `loaf spec submit --input <file>` first to bump spec_version to 1, then retry the add-* command (SC4 will add `loaf spec init` as a separate scaffold helper that chains into submit)",
 		template_keys: ["kind"],
-		doc_anchor: "protocol.md#§4.2"
+		doc_anchor: "protocol.md#§4.2",
+		detail_keys: ["kind"]
 	},
 	SPEC_ALREADY_INITIALIZED: {
 		exit_code: 2,
@@ -1730,7 +1829,8 @@ const ERROR_CATALOG = {
 		zh_message_template: "spec.md 已存在于 {spec_md_path};拒绝覆盖",
 		fix_template: "edit the existing spec.md directly, or remove it before re-running `loaf spec init` (no --force flag in Slice 4)",
 		template_keys: ["spec_md_path"],
-		doc_anchor: "protocol.md#§4.2"
+		doc_anchor: "protocol.md#§4.2",
+		detail_keys: ["spec_md_path"]
 	},
 	CONFIG_ALREADY_INITIALIZED: {
 		exit_code: 2,
@@ -1746,14 +1846,16 @@ const ERROR_CATALOG = {
 		message_template: "attachment path does not exist: {path}",
 		fix_template: "verify the path is reachable from the working directory and readable by the current user",
 		template_keys: ["path"],
-		doc_anchor: "protocol.md#§4.4"
+		doc_anchor: "protocol.md#§4.4",
+		detail_keys: ["path"]
 	},
 	ATTACHMENT_NOT_FILE: {
 		exit_code: 2,
 		message_template: "attachment path is not a regular file: {path} ({kind})",
 		fix_template: "attachments must be regular files; directories, symlinks to directories, sockets, and FIFOs are rejected",
 		template_keys: ["kind", "path"],
-		doc_anchor: "protocol.md#§4.4"
+		doc_anchor: "protocol.md#§4.4",
+		detail_keys: ["kind", "path"]
 	},
 	FINDING_ACTION_UNUSUAL_REASON_REQUIRED: {
 		exit_code: 2,
@@ -1777,7 +1879,8 @@ const ERROR_CATALOG = {
 		message_template: "finding category={category} × action={action} is incoherent: no target task exists to apply this transition to",
 		fix_template: "amend the spec first (category=spec-gap / new-scope × action=amend-spec) so a target task can be planned, then raise the fix-impl / fix-test finding against that task",
 		template_keys: ["action", "category"],
-		doc_anchor: "protocol.md#§4.5"
+		doc_anchor: "protocol.md#§4.5",
+		detail_keys: ["action", "category"]
 	},
 	FINDING_TARGET_REQUIRED: {
 		exit_code: 2,
@@ -1790,7 +1893,13 @@ const ERROR_CATALOG = {
 			"step",
 			"task_id"
 		],
-		doc_anchor: "protocol.md#§4.5"
+		doc_anchor: "protocol.md#§4.5",
+		detail_keys: [
+			"action",
+			"reason",
+			"step",
+			"task_id"
+		]
 	},
 	PRUNE_RESTORE_NOT_FOUND: {
 		exit_code: 2,
@@ -1798,7 +1907,8 @@ const ERROR_CATALOG = {
 		zh_message_template: "没有匹配该 id 的已回收 session",
 		fix_template: "run `loaf prune --history` to list trashed sessions (slice 6b)",
 		template_keys: [],
-		doc_anchor: "protocol.md#§10.8"
+		doc_anchor: "protocol.md#§10.8",
+		detail_keys: []
 	},
 	PRUNE_RESTORE_AMBIGUOUS: {
 		exit_code: 2,
@@ -1806,7 +1916,8 @@ const ERROR_CATALOG = {
 		zh_message_template: "该 session id 被回收过多次;用 --at <ts> 指定其一",
 		fix_template: "re-run `loaf prune restore <id> --at <ts>` with one of the listed timestamps",
 		template_keys: [],
-		doc_anchor: "protocol.md#§10.8"
+		doc_anchor: "protocol.md#§10.8",
+		detail_keys: []
 	},
 	PRUNE_RESTORE_INCOMPLETE: {
 		exit_code: 2,
@@ -1814,7 +1925,8 @@ const ERROR_CATALOG = {
 		zh_message_template: "trash 桶不完整(缺必要文件),不予恢复",
 		fix_template: "inspect the trash bucket; a complete bucket has manifest.json + registry.json",
 		template_keys: [],
-		doc_anchor: "protocol.md#§10.8"
+		doc_anchor: "protocol.md#§10.8",
+		detail_keys: []
 	},
 	PRUNE_PATH_OCCUPIED: {
 		exit_code: 2,
@@ -1822,7 +1934,8 @@ const ERROR_CATALOG = {
 		zh_message_template: "恢复目标已存在,拒绝覆盖",
 		fix_template: "move or remove the occupying registry entry / feature dir, then retry restore",
 		template_keys: [],
-		doc_anchor: "protocol.md#§10.8"
+		doc_anchor: "protocol.md#§10.8",
+		detail_keys: []
 	},
 	PRUNE_PARTIAL_FAILURE: {
 		exit_code: 2,
@@ -1830,7 +1943,8 @@ const ERROR_CATALOG = {
 		zh_message_template: "prune 部分失败:有 session 未能删除",
 		fix_template: "inspect detail.failed; rerun prune for the failed sessions after resolving the error",
 		template_keys: [],
-		doc_anchor: "protocol.md#§10.8"
+		doc_anchor: "protocol.md#§10.8",
+		detail_keys: []
 	},
 	MUTUALLY_EXCLUSIVE_FLAGS: {
 		exit_code: 2,
@@ -1851,7 +1965,12 @@ const ERROR_CATALOG = {
 			"env_name",
 			"value"
 		],
-		doc_anchor: "protocol.md#§10.3"
+		doc_anchor: "protocol.md#§10.3",
+		detail_keys: [
+			"accepted",
+			"env_name",
+			"value"
+		]
 	},
 	INVALID_FORMAT: {
 		exit_code: 2,
@@ -1861,7 +1980,8 @@ const ERROR_CATALOG = {
 		template_keys: ["allowed_values_human", "value"],
 		detail_keys: ["allowed_values", "value"],
 		adapter: { allowed_values_human: "allowed_values" },
-		doc_anchor: "protocol.md#§10.7"
+		doc_anchor: "protocol.md#§10.7",
+		list_separator: { allowed_values_human: "|" }
 	},
 	INVALID_LOCALE: {
 		exit_code: 2,
@@ -1873,7 +1993,12 @@ const ERROR_CATALOG = {
 			"source",
 			"value"
 		],
-		doc_anchor: "docs/adr/0006-runtime-i18n-and-user-config.md"
+		doc_anchor: "docs/adr/0006-runtime-i18n-and-user-config.md",
+		detail_keys: [
+			"accepted",
+			"source",
+			"value"
+		]
 	},
 	DRY_RUN_NOT_APPLICABLE: {
 		exit_code: 2,
@@ -1890,14 +2015,16 @@ const ERROR_CATALOG = {
 		zh_message_template: "hook event `{event}` 在当前 loaf 版本未实装(Phase 16 SC-15{sub_cycle} 待实现;详 protocol §11)",
 		fix_template: "upgrade to a loaf release that implements this hook event, OR skip this hook surface for now — `loaf hook --list-events` shows the canonical 4-event enum",
 		template_keys: ["event", "sub_cycle"],
-		doc_anchor: "protocol.md#§11"
+		doc_anchor: "protocol.md#§11",
+		detail_keys: ["event", "sub_cycle"]
 	},
 	TASK_STATUS_WITHOUT_PROOF: {
 		exit_code: 2,
 		message_template: "task {task_id} status change requires evidence: status={status} has no PASSING covering evidence proof in evidence.jsonl",
 		fix_template: "emit `loaf evidence add` covering task_id={task_id} before advancing status (task-evidence is otherwise enforced later at verify-min / verify-accept)",
 		template_keys: ["status", "task_id"],
-		doc_anchor: "protocol.md#§4.4"
+		doc_anchor: "protocol.md#§4.4",
+		detail_keys: ["status", "task_id"]
 	},
 	MISSING_VERIFIABILITY: {
 		exit_code: 2,
@@ -1905,14 +2032,16 @@ const ERROR_CATALOG = {
 		zh_message_template: "需求 {req_id} 必须声明 measurable、verified_by_scenarios[] 或 acceptance_na+reason 三选一",
 		fix_template: "add one of: measurable with metric, threshold, and optional unit/direction; verified_by_scenarios: [SCEN-...]; or acceptance_na: true with acceptance_na_reason of at least 10 characters",
 		template_keys: ["req_id"],
-		doc_anchor: "protocol.md#§4.2"
+		doc_anchor: "protocol.md#§4.2",
+		detail_keys: ["req_id"]
 	},
 	VAGUE_NO_SCENARIO: {
 		exit_code: 2,
 		message_template: "requirement {req_id} reads as vague but is not anchored to a measurable threshold or to a verifying scenario",
 		fix_template: "either add measurable with a numeric threshold and direction, or add the verifying SCEN-id to verified_by_scenarios",
 		template_keys: ["req_id"],
-		doc_anchor: "protocol.md#§4.2"
+		doc_anchor: "protocol.md#§4.2",
+		detail_keys: ["req_id"]
 	},
 	DRIVES_NOT_BOUND: {
 		exit_code: 2,
@@ -1920,7 +2049,8 @@ const ERROR_CATALOG = {
 		zh_message_template: "需求 {req_id} 没有被任何 task.drives[] 引用",
 		fix_template: "add a task whose drives[] contains {req_id} (loaf tasks add --input ...), or remove the REQ if it is intentionally out-of-scope for this feature",
 		template_keys: ["req_id"],
-		doc_anchor: "protocol.md#§4.3"
+		doc_anchor: "protocol.md#§4.3",
+		detail_keys: ["req_id"]
 	},
 	MUTATION_OUT_OF_RIGHTS: {
 		exit_code: 2,
@@ -1928,21 +2058,24 @@ const ERROR_CATALOG = {
 		zh_message_template: "task {task_id} 的 event:tasks_amended 在 sub_state {sub_state} 不被允许 —— §8.6 未授予该改动的 mutation right",
 		fix_template: "the mutation rights matrix (protocol.md §8.6) limits EXECUTE.plan `tasks amend` to execution[].applicability changes plus a status pending→ready advance; graph/kind-flag fields are frozen. To restructure the task graph, raise a `finding raise --action amend-tasks` back-edge, then run the sponsored `tasks add --finding` / `tasks amend --input --finding` at EXECUTE.work — a sponsored amend may change graph/definition fields but never erases execution progress (task/step status is frozen)",
 		template_keys: ["sub_state", "task_id"],
-		doc_anchor: "protocol.md#§8.6"
+		doc_anchor: "protocol.md#§8.6",
+		detail_keys: ["sub_state", "task_id"]
 	},
 	LOCK_TIMEOUT: {
 		exit_code: 2,
 		message_template: "could not acquire .loaf/<feature>/.lock within {timeout_seconds}s",
 		fix_template: "another loaf process is holding the feature lease; wait for it to release. A later writer automatically reclaims a lease only when its PID is verifiably dead and the owner generation is unchanged; malformed leases fail closed and require inspection.",
 		template_keys: ["timeout_seconds"],
-		doc_anchor: "protocol.md#§11.2"
+		doc_anchor: "protocol.md#§11.2",
+		detail_keys: ["timeout_seconds"]
 	},
 	LOCK_INVALID: {
 		exit_code: 2,
 		message_template: "feature write lease at {lock_path} is malformed or incomplete",
 		fix_template: "inspect the lease and active loaf processes; malformed leases fail closed and no loaf command deletes them. Remove or replace the file only after independently proving that no writer owns it.",
 		template_keys: ["lock_path"],
-		doc_anchor: "protocol.md#§11.2"
+		doc_anchor: "protocol.md#§11.2",
+		detail_keys: ["lock_path"]
 	},
 	FEATURE_NOT_FOUND: {
 		exit_code: 2,
@@ -2011,7 +2144,8 @@ const ERROR_CATALOG = {
 		zh_message_template: "pending head {pending_id}(kind={kind})阻塞 `loaf advance`,需先 resolve",
 		fix_template: "resolve the head with the kind-appropriate command: `loaf gate decide <G>` for kind=gate_decision; `loaf profile escalate --confirm --input <ceremony.json>` for kind=profile_escalation; `loaf pending resolve --answer <a>` for the rest",
 		template_keys: ["kind", "pending_id"],
-		doc_anchor: "protocol.md#§10.7"
+		doc_anchor: "protocol.md#§10.7",
+		detail_keys: ["kind", "pending_id"]
 	},
 	GATE_NOT_PENDING: {
 		exit_code: 2,
@@ -2032,35 +2166,40 @@ const ERROR_CATALOG = {
 		zh_message_template: "`loaf profile escalate --confirm --input <ceremony.json>` 要求 pending head kind=profile_escalation;当前 head:{actual_head}",
 		fix_template: "resolve the current head first via the kind-appropriate command, or wait for the profile_escalation pending to appear",
 		template_keys: ["actual_head"],
-		doc_anchor: "protocol.md#§10.7"
+		doc_anchor: "protocol.md#§10.7",
+		detail_keys: ["actual_head"]
 	},
 	ACTOR_AUTHORITY_VIOLATION: {
 		exit_code: 2,
 		message_template: "actor {actor} is not allowed for journal kind {kind}",
 		fix_template: "use the command surface that owns this kind; human-only kinds require an interactive human actor resolved by LOAF_USER or git user.email",
 		template_keys: ["actor", "kind"],
-		doc_anchor: "protocol.md#§10.8"
+		doc_anchor: "protocol.md#§10.8",
+		detail_keys: ["actor", "kind"]
 	},
 	FROM_CURSOR_MISMATCH: {
 		exit_code: 2,
 		message_template: "entry payload.from={payload_from} does not match current sub_state={current_sub_state}",
 		fix_template: "refresh the current session state and emit the transition from the actual cursor; do not replay a stale transition candidate",
 		template_keys: ["current_sub_state", "payload_from"],
-		doc_anchor: "protocol.md#§11.2"
+		doc_anchor: "protocol.md#§11.2",
+		detail_keys: ["current_sub_state", "payload_from"]
 	},
 	INVALID_ENVELOPE: {
 		exit_code: 2,
 		message_template: "journal entry failed envelope validation: {reason}",
 		fix_template: "rebuild the entry through the CLI mutator so seq, entry_id, actor, kind, payload, and batch markers satisfy JournalEntry",
 		template_keys: ["reason"],
-		doc_anchor: "protocol.md#§11.2"
+		doc_anchor: "protocol.md#§11.2",
+		detail_keys: ["reason"]
 	},
 	INVALID_PAYLOAD: {
 		exit_code: 2,
 		message_template: "payload for kind {kind} failed validation: {reason}",
 		fix_template: "fix the payload to match the PER_KIND_PAYLOAD schema for this kind and retry the mutator",
 		template_keys: ["kind", "reason"],
-		doc_anchor: "protocol.md#§11.2"
+		doc_anchor: "protocol.md#§11.2",
+		detail_keys: ["kind", "reason"]
 	},
 	SEQ_NOT_MONOTONIC: {
 		exit_code: 2,
@@ -2071,21 +2210,28 @@ const ERROR_CATALOG = {
 			"got",
 			"tail_seq"
 		],
-		doc_anchor: "protocol.md#§11.2"
+		doc_anchor: "protocol.md#§11.2",
+		detail_keys: [
+			"expected",
+			"got",
+			"tail_seq"
+		]
 	},
 	SETTLE_PHASE_BYPASS: {
 		exit_code: 2,
 		message_template: "VERIFY.accept → DONE.delivered requires ceremony.settle_phase=false (quick / light / standard); deep profile must enter SETTLE.lessons first; current settle_phase={settle_phase}",
 		fix_template: "for deep profile, advance from VERIFY.accept to SETTLE.lessons via `loaf settle`; if SETTLE is not desired, start/continue a standard ceremony flow instead",
 		template_keys: ["settle_phase"],
-		doc_anchor: "protocol.md#§5.2"
+		doc_anchor: "protocol.md#§5.2",
+		detail_keys: ["settle_phase"]
 	},
 	SETTLE_PHASE_DISABLED: {
 		exit_code: 2,
 		message_template: "VERIFY.accept → SETTLE.lessons requires ceremony.settle_phase=true (deep profile only after rev 5.x); current settle_phase={settle_phase}",
 		fix_template: "for non-deep profiles (quick / light / standard), advance from VERIFY.accept to DONE.delivered via `loaf deliver`; to enter SETTLE, escalate ceremony to deep",
 		template_keys: ["settle_phase"],
-		doc_anchor: "protocol.md#§5.2"
+		doc_anchor: "protocol.md#§5.2",
+		detail_keys: ["settle_phase"]
 	},
 	SPEC_PHASE_FORK_VIOLATION: {
 		exit_code: 2,
@@ -2096,21 +2242,28 @@ const ERROR_CATALOG = {
 			"spec_phase",
 			"to"
 		],
-		doc_anchor: "protocol.md#§5.2"
+		doc_anchor: "protocol.md#§5.2",
+		detail_keys: [
+			"from",
+			"spec_phase",
+			"to"
+		]
 	},
 	SUB_STATE_AUTHORITY_VIOLATION: {
 		exit_code: 2,
 		message_template: "kind {kind} is not allowed in sub_state {sub_state}",
 		fix_template: "advance/back-edge to a sub_state that permits this journal kind, or use the command valid for the current state",
 		template_keys: ["kind", "sub_state"],
-		doc_anchor: "protocol.md#§10.8"
+		doc_anchor: "protocol.md#§10.8",
+		detail_keys: ["kind", "sub_state"]
 	},
 	TRANSITION_ILLEGAL: {
 		exit_code: 2,
 		message_template: "cannot transition {from} → {to}",
 		fix_template: "choose one of the allowed forward transitions for the current sub_state, or use an explicit terminal/archive path when supported",
 		template_keys: ["from", "to"],
-		doc_anchor: "protocol.md#§5.2"
+		doc_anchor: "protocol.md#§5.2",
+		detail_keys: ["from", "to"]
 	},
 	VERIFY_PHASE_FORK_VIOLATION: {
 		exit_code: 2,
@@ -2121,7 +2274,12 @@ const ERROR_CATALOG = {
 			"to",
 			"verify_phase"
 		],
-		doc_anchor: "protocol.md#§5.2"
+		doc_anchor: "protocol.md#§5.2",
+		detail_keys: [
+			"from",
+			"to",
+			"verify_phase"
+		]
 	},
 	EXECUTE_DONE_TASKS_NOT_FINAL: {
 		exit_code: 2,
@@ -2129,7 +2287,8 @@ const ERROR_CATALOG = {
 		zh_message_template: "无法从 EXECUTE.work 推进到 EXECUTE.done:{count} 个 task 未处于终态(done 或 abandoned);跑完剩余 step,或用 `loaf tasks abandon <T-N> --reason \"...\"` 放弃超出范围的 task",
 		fix_template: "finish the remaining steps — run each task's steps via `loaf tasks step` until it auto-promotes to status=done — OR abandon out-of-scope tasks with `loaf tasks abandon <T-N> --reason \"...\"`, then retry `loaf advance EXECUTE.done`; see detail.non_final for the tasks still pending or in progress",
 		template_keys: ["count"],
-		doc_anchor: "protocol.md#§10.5"
+		doc_anchor: "protocol.md#§10.5",
+		detail_keys: ["count"]
 	},
 	ALREADY_STARTED: {
 		exit_code: 2,
@@ -2144,7 +2303,8 @@ const ERROR_CATALOG = {
 		message_template: "finding close references unknown finding id {id}",
 		fix_template: "list open findings and close an existing id, or raise the finding before closing it",
 		template_keys: ["id"],
-		doc_anchor: "protocol.md#§10.8"
+		doc_anchor: "protocol.md#§10.8",
+		detail_keys: ["id"]
 	},
 	NO_SESSION: {
 		exit_code: 2,
@@ -2152,7 +2312,66 @@ const ERROR_CATALOG = {
 		zh_message_template: "{feature_dir} 下没有 session — 先跑 `loaf start <feature>`",
 		fix_template: "run `loaf start` before emitting non-bootstrap journal entries",
 		template_keys: ["feature_dir"],
-		doc_anchor: "protocol.md#§10.8"
+		doc_anchor: "protocol.md#§10.8",
+		detail_keys: ["feature_dir"],
+		variants: {
+			"failure.no_session.status": {
+				message_template: "run `loaf start {feature}` first",
+				zh_message_template: "先跑 `loaf start {feature}`",
+				fix_template: "run `loaf start` before emitting non-bootstrap journal entries",
+				template_keys: ["feature"],
+				detail_keys: ["feature"],
+				doc_anchor: "protocol.md#§10.8"
+			},
+			"failure.no_session.advance": {
+				message_template: "run `loaf start {feature}` first",
+				zh_message_template: "先跑 `loaf start {feature}`",
+				fix_template: "run `loaf start` before emitting non-bootstrap journal entries",
+				template_keys: ["feature"],
+				detail_keys: ["feature"],
+				doc_anchor: "protocol.md#§10.8"
+			},
+			"failure.no_session.tasks": {
+				message_template: "run `loaf start {feature}` first",
+				zh_message_template: "先跑 `loaf start {feature}`",
+				fix_template: "run `loaf start` before emitting non-bootstrap journal entries",
+				template_keys: ["feature"],
+				detail_keys: ["feature"],
+				doc_anchor: "protocol.md#§10.8"
+			},
+			"failure.no_session.pending": {
+				message_template: "run `loaf start {feature}` first",
+				zh_message_template: "先跑 `loaf start {feature}`",
+				fix_template: "run `loaf start` before emitting non-bootstrap journal entries",
+				template_keys: ["feature"],
+				detail_keys: ["feature"],
+				doc_anchor: "protocol.md#§10.8"
+			},
+			"failure.no_session.finding": {
+				message_template: "run `loaf start {feature}` first",
+				zh_message_template: "先跑 `loaf start {feature}`",
+				fix_template: "run `loaf start` before emitting non-bootstrap journal entries",
+				template_keys: ["feature"],
+				detail_keys: ["feature"],
+				doc_anchor: "protocol.md#§10.8"
+			},
+			"failure.no_session.verify": {
+				message_template: "run `loaf start {feature}` first",
+				zh_message_template: "先跑 `loaf start {feature}`",
+				fix_template: "run `loaf start` before emitting non-bootstrap journal entries",
+				template_keys: ["feature"],
+				detail_keys: ["feature"],
+				doc_anchor: "protocol.md#§10.8"
+			},
+			"failure.no_session.generic": {
+				message_template: "run `loaf start {feature}` first",
+				zh_message_template: "先跑 `loaf start {feature}`",
+				fix_template: "run `loaf start` before emitting non-bootstrap journal entries",
+				template_keys: ["feature"],
+				detail_keys: ["feature"],
+				doc_anchor: "protocol.md#§10.8"
+			}
+		}
 	},
 	PENDING_NOT_FOUND: {
 		exit_code: 2,
@@ -2167,70 +2386,80 @@ const ERROR_CATALOG = {
 		message_template: "reducer has no handler for journal kind {kind}",
 		fix_template: "implement the journal kind in the exhaustive reducer switch before appending it",
 		template_keys: ["kind"],
-		doc_anchor: "protocol.md#§11.2"
+		doc_anchor: "protocol.md#§11.2",
+		detail_keys: ["kind"]
 	},
 	ENTRY_OVERSIZE: {
 		exit_code: 2,
 		message_template: "journal entry serialized to {bytes} bytes; limit is {limit}",
 		fix_template: "move long text into sidecar form via LongTextField instead of embedding it inline",
 		template_keys: ["bytes", "limit"],
-		doc_anchor: "protocol.md#§11.2"
+		doc_anchor: "protocol.md#§11.2",
+		detail_keys: ["bytes", "limit"]
 	},
 	SHORT_WRITE: {
 		exit_code: 2,
 		message_template: "journal append wrote {wrote} of {want} bytes",
 		fix_template: "stop writing, preserve the journal, and run `loaf doctor --check-tail` before retrying",
 		template_keys: ["want", "wrote"],
-		doc_anchor: "protocol.md#§11.2"
+		doc_anchor: "protocol.md#§11.2",
+		detail_keys: ["want", "wrote"]
 	},
 	TAIL_CORRUPTION: {
 		exit_code: 2,
 		message_template: "journal tail is corrupt: {reason}",
 		fix_template: "run `loaf doctor --check-tail`; do not append until the tail has been repaired or quarantined",
 		template_keys: ["reason"],
-		doc_anchor: "protocol.md#§10.15"
+		doc_anchor: "protocol.md#§10.15",
+		detail_keys: ["reason"]
 	},
 	INVALID_ACTOR_FORMAT: {
 		exit_code: 2,
 		message_template: "human actor value is invalid: {reason}",
 		fix_template: "set LOAF_USER to the raw human identifier without a namespace prefix, or unset it to allow interactive git user.email fallback",
 		template_keys: ["reason"],
-		doc_anchor: "protocol.md#§10.8"
+		doc_anchor: "protocol.md#§10.8",
+		detail_keys: ["reason"]
 	},
 	NO_HUMAN_ACTOR: {
 		exit_code: 2,
 		message_template: "no human actor could be resolved for a human-only command",
 		fix_template: "run interactively with git user.email configured, or set LOAF_USER explicitly",
 		template_keys: [],
-		doc_anchor: "protocol.md#§10.8"
+		doc_anchor: "protocol.md#§10.8",
+		detail_keys: []
 	},
 	DUPLICATE_REQ_ID: {
 		exit_code: 2,
 		message_template: "REQ id {id} is already in the spec projection",
 		fix_template: "allocate a fresh REQ id under the same id_namespace (the CLI scans for max serial + 1 inside the per-session lock) or `loaf finding raise --category spec-gap --action amend-spec` if you need to retire the existing REQ",
 		template_keys: ["id"],
-		doc_anchor: "protocol.md#§4.2"
+		doc_anchor: "protocol.md#§4.2",
+		detail_keys: ["id"]
 	},
 	DUPLICATE_SCEN_ID: {
 		exit_code: 2,
 		message_template: "SCEN id {id} is already in the spec projection",
 		fix_template: "allocate a fresh SCEN id under the same id_namespace, or amend via finding mechanism if retiring an existing scenario",
 		template_keys: ["id"],
-		doc_anchor: "protocol.md#§4.2"
+		doc_anchor: "protocol.md#§4.2",
+		detail_keys: ["id"]
 	},
 	DUPLICATE_VIS_ID: {
 		exit_code: 2,
 		message_template: "VIS id {id} is already in the spec projection",
 		fix_template: "allocate a fresh VIS id under the same id_namespace, or amend via finding mechanism if retiring an existing visual contract",
 		template_keys: ["id"],
-		doc_anchor: "protocol.md#§4.2"
+		doc_anchor: "protocol.md#§4.2",
+		detail_keys: ["id"]
 	},
 	SPEC_FRONTMATTER_INVALID: {
 		exit_code: 2,
 		message_template: "spec.md frontmatter failed gate check 1 (subcode={subcode})",
 		fix_template: "subcode=SPEC_NOT_FOUND: run `loaf spec init` then `loaf spec submit` to seed spec.md; subcode=SPEC_YAML_INVALID: check the `---`-fenced YAML block at the top of spec.md for syntax errors; subcode=SPEC_FRONTMATTER_INVALID: run `loaf spec schema --format=json` to dump the SpecFrontmatter JSON Schema (Phase 16 SC-10) and fix the offending field. Both spec-lock and verify-accept require a valid spec.md at check 1.",
 		template_keys: ["subcode"],
-		doc_anchor: "protocol.md#§5.1"
+		doc_anchor: "protocol.md#§5.1",
+		detail_keys: ["subcode"]
 	},
 	SPEC_HAS_UNCLARIFIED: {
 		exit_code: 2,
@@ -2245,56 +2474,64 @@ const ERROR_CATALOG = {
 		message_template: "task {task_id} is not in the current tasks projection",
 		fix_template: "run `loaf tasks list` to see live ids; if you meant to add a new task, use `loaf tasks add` instead of amend/step; if you expected the id to exist, the projection may be stale — run `loaf doctor --rebuild` to rebuild from journal",
 		template_keys: ["task_id"],
-		doc_anchor: "protocol.md#§10.8"
+		doc_anchor: "protocol.md#§10.8",
+		detail_keys: ["task_id"]
 	},
 	TASK_STEP_NOT_FOUND: {
 		exit_code: 2,
 		message_template: "step {step} is not seeded on task {task_id} — seeded steps are derived from the task's kind execution schema (§14)",
 		fix_template: "use only the per-kind step names — behavioral: red/implement/refactor; structural: implement/refactor; visual-ui: mockup/implement/screenshot-compare; docs: draft/review; spike: explore/prototype/record; chore: execute. Running an unseeded step name was a silent add bug in v0.0.x — sub-cycle 3a fails fast instead",
 		template_keys: ["step", "task_id"],
-		doc_anchor: "protocol.md#§10.8"
+		doc_anchor: "protocol.md#§10.8",
+		detail_keys: ["step", "task_id"]
 	},
 	DUPLICATE_TASK_ID: {
 		exit_code: 2,
 		message_template: "task id {task_id} appears more than once in tasks_planned payload",
 		fix_template: "tasks_planned is whole-replacement — each task id must be unique within the batch. Rename one or merge them in the planning input",
 		template_keys: ["task_id"],
-		doc_anchor: "protocol.md#§10.8"
+		doc_anchor: "protocol.md#§10.8",
+		detail_keys: ["task_id"]
 	},
 	TASKS_NOT_PLANNED: {
 		exit_code: 2,
 		message_template: "gate task-graph check: tasks have not been planned (snapshot.tasks_based_on is null)",
 		fix_template: "run `loaf tasks submit --input <plan-file>` to emit event:tasks_planned and seed the task graph; spec-lock check 3 and verify-accept check 4 both require tasks_based_on.spec to match the current spec.spec_version",
 		template_keys: [],
-		doc_anchor: "protocol.md#§5.1"
+		doc_anchor: "protocol.md#§5.1",
+		detail_keys: []
 	},
 	TASKS_BASED_ON_STALE: {
 		exit_code: 2,
 		message_template: "gate task-graph check: tasks_based_on.spec={tasks_based_on_spec} but current spec.spec_version={current_spec_version} — the task graph was planned against an older spec",
 		fix_template: "either re-plan tasks against the current spec via `loaf tasks submit` (whole-replacement), or amend individual tasks via `loaf tasks add/amend` + raise a `loaf finding raise --category spec-gap --action amend-spec` if a spec roll-back is needed. Surfaces for spec-lock (check 3) and verify-accept (check 4 precondition).",
 		template_keys: ["current_spec_version", "tasks_based_on_spec"],
-		doc_anchor: "protocol.md#§5.1"
+		doc_anchor: "protocol.md#§5.1",
+		detail_keys: ["current_spec_version", "tasks_based_on_spec"]
 	},
 	REQ_NOT_DRIVEN: {
 		exit_code: 2,
 		message_template: "spec-lock check 4: requirement {req_id} is not referenced by any task.drives[]",
 		fix_template: "add a task whose drives[] array includes {req_id}, or remove the requirement from spec.md if it is no longer in scope. Note: this is the REQ-side coverage code (distinct from legacy DRIVES_NOT_BOUND which named the inverse direction)",
 		template_keys: ["req_id"],
-		doc_anchor: "protocol.md#§5.1"
+		doc_anchor: "protocol.md#§5.1",
+		detail_keys: ["req_id"]
 	},
 	E2E_SCENARIO_UNBOUND: {
 		exit_code: 2,
 		message_template: "spec-lock check 6: e2e scenario {scenario_id} has no binding task (requires task with requires_acceptance=true AND drives includes {scenario_id})",
 		fix_template: "either (a) add a task with requires_acceptance=true and drives including {scenario_id}, or (b) mark the scenario with acceptance_na=<reason ≥5 chars> in spec.md if e2e acceptance is intentionally skipped for this iteration",
 		template_keys: ["scenario_id"],
-		doc_anchor: "protocol.md#§5.1"
+		doc_anchor: "protocol.md#§5.1",
+		detail_keys: ["scenario_id"]
 	},
 	VISUAL_CONTRACT_UNBOUND: {
 		exit_code: 2,
 		message_template: "spec-lock check 7: visual_contract {visual_id} has no visual-ui task whose visual_contract_refs includes it",
 		fix_template: "either (a) add a visual-ui task with visual_contract_refs including {visual_id}, or (b) mark the visual_contract with visual_na=<reason ≥5 chars> in spec.md if visual verification is intentionally deferred",
 		template_keys: ["visual_id"],
-		doc_anchor: "protocol.md#§5.1"
+		doc_anchor: "protocol.md#§5.1",
+		detail_keys: ["visual_id"]
 	},
 	TASK_KIND_SCHEMA_VIOLATION: {
 		exit_code: 2,
@@ -2305,35 +2542,44 @@ const ERROR_CATALOG = {
 			"reasons",
 			"task_id"
 		],
-		doc_anchor: "protocol.md#§5.1"
+		doc_anchor: "protocol.md#§5.1",
+		detail_keys: [
+			"kind",
+			"reasons",
+			"task_id"
+		]
 	},
 	GATE_PRECONDITION_VIOLATION: {
 		exit_code: 2,
 		message_template: "gate:decided {gate} approval rejected at the mutate layer: {failure_count} check(s) failed",
 		fix_template: "this is a mutate-layer envelope around the underlying gate checks (see detail.checks for the list). spec-lock failure codes: MISSING_VERIFIABILITY / REQ_NOT_DRIVEN / E2E_SCENARIO_UNBOUND / VISUAL_CONTRACT_UNBOUND / TASKS_NOT_PLANNED / TASKS_BASED_ON_STALE / TASK_KIND_SCHEMA_VIOLATION / SPEC_HAS_UNCLARIFIED. verify-accept failure codes: VERIFY_LANE_NOT_PASSED / OPEN_FINDINGS_PRESENT / COVERAGE_NOT_SATISFIED / TASK_DONE_NO_EVIDENCE / SPEC_REVIEW_MISSING / SPEC_REVIEW_IMPLEMENTER_CONFLICT / SPEC_REVIEW_IMPLEMENTER_UNKNOWN / TASKS_NOT_PLANNED (precondition) / TASKS_BASED_ON_STALE (precondition). Fix each listed check then retry the gate decision. Pass 1.5 runs after preflight + reducer dry-run + before sidecar promotion, so a rejected gate batch leaves no on-disk residue.",
 		template_keys: ["failure_count", "gate"],
-		doc_anchor: "protocol.md#§5.1"
+		doc_anchor: "protocol.md#§5.1",
+		detail_keys: ["failure_count", "gate"]
 	},
 	MULTIPLE_GATE_DECISIONS: {
 		exit_code: 2,
 		message_template: "batch contains {count} approved gate:decided entries (gate_kinds={gate_kinds}); protocol §10.8 requires one gate decision per atomic operation",
 		fix_template: "split the batch — emit each gate decision as its own mutation. A batch carrying ≥2 gate approvals (even with different gate_kinds, e.g. spec-lock + verify-accept) is not a valid atomic operation. Rejected gate decisions are not counted; only approvals trigger this rule",
 		template_keys: ["count", "gate_kinds"],
-		doc_anchor: "protocol.md#§10.8"
+		doc_anchor: "protocol.md#§10.8",
+		detail_keys: ["count", "gate_kinds"]
 	},
 	GATE_NOT_IMPLEMENTED: {
 		exit_code: 2,
 		message_template: "gate={gate} is not recognized; protocol GateName enum is closed at `spec-lock` or `verify-accept` for v0.1.0",
 		fix_template: "use `loaf gate decide spec-lock` or `loaf gate decide verify-accept`. Future gates beyond v0.1.0 would extend the GateName enum in journal-entry.ts + evidence-schema.ts (lockstep) and wire here.",
 		template_keys: ["gate"],
-		doc_anchor: "protocol.md#§10.8"
+		doc_anchor: "protocol.md#§10.8",
+		detail_keys: ["gate"]
 	},
 	VERIFY_LANE_NOT_PASSED: {
 		exit_code: 2,
 		message_template: "verify-accept check 1: applicable VERIFY lane={lane} has no evidence with passing/approved/waived result",
 		fix_template: "add an evidence:added entry with check={lane} (or a matching kind via the narrow fallback map: local-check/task-summary→run, verify-review/spec-review→review, acceptance→acceptance, visual-review→visual) and result one of `passed`, `approved`, or `waived`. Applicable lanes derive from spec: REQ ⇒ REVIEW, SCEN.tag=e2e ⇒ ACCEPTANCE, VIS ⇒ VISUAL, done task ⇒ RUN+REVIEW.",
 		template_keys: ["lane"],
-		doc_anchor: "protocol.md#§5.2"
+		doc_anchor: "protocol.md#§5.2",
+		detail_keys: ["lane"]
 	},
 	OPEN_FINDINGS_PRESENT: {
 		exit_code: 2,
@@ -2341,7 +2587,8 @@ const ERROR_CATALOG = {
 		zh_message_template: "verify-accept 检查 2: 仍有 {count} 个可执行 finding 未关闭(ids={open_ids});请在 verify-accept 前解决或关闭",
 		fix_template: "complete the declared action for each listed finding, then run `loaf finding close <FND-id>`; if the honest disposition is carry-forward, raise it with action=defer or action=backlog instead. verify-accept excludes only open findings whose existing action declares deferral",
 		template_keys: ["count", "open_ids"],
-		doc_anchor: "protocol.md#§5.2"
+		doc_anchor: "protocol.md#§5.2",
+		detail_keys: ["count", "open_ids"]
 	},
 	COVERAGE_NOT_SATISFIED: {
 		exit_code: 2,
@@ -2349,35 +2596,40 @@ const ERROR_CATALOG = {
 		zh_message_template: "{covered_id} 没有任何证据满足覆盖(canSatisfy 对所有候选 evidence 都失败)",
 		fix_template: "add evidence:added covering {covered_id} per protocol §5.4: REQ allows task-summary/verify-review/spec-review/manual+reason/waiver+reason; SCEN.tag=e2e allows acceptance/manual+reason/waiver+reason; VIS allows visual-review+attachment/manual+reason/waiver+reason. Result must be passed/approved/waived per §1035.",
 		template_keys: ["covered_id"],
-		doc_anchor: "protocol.md#§5.2"
+		doc_anchor: "protocol.md#§5.2",
+		detail_keys: ["covered_id"]
 	},
 	TASK_DONE_NO_EVIDENCE: {
 		exit_code: 2,
 		message_template: "verify-accept check 4: task {task_id} is status=done but has no evidence covering it (kind one of `task-summary`, `local-check`, `manual`, or `waiver`)",
 		fix_template: "add evidence:added with covers including {task_id} and kind in the T-allowed set. Most commonly: a task-summary written on closing the task; alternatively local-check (test/lint/typecheck run), manual (human attest), or waiver (human waiver with reason ≥10 chars).",
 		template_keys: ["task_id"],
-		doc_anchor: "protocol.md#§5.2"
+		doc_anchor: "protocol.md#§5.2",
+		detail_keys: ["task_id"]
 	},
 	SPEC_REVIEW_MISSING: {
 		exit_code: 2,
 		message_template: "verify-accept check 5: ceremony.strict_spec_review=true requires ≥1 evidence kind=spec-review with result `passed` or `approved` from an actor ≠ implementer; none found",
 		fix_template: "have an independent reviewer (not the implementer of done tasks; not a cli:* automation actor) run a spec review and add an evidence:added with kind=spec-review and result `passed` or `approved`. Note: result=waived does NOT count for spec-review (kind=spec-review + result=waived bypasses the human+reason refine guarantee that kind=manual or kind=waiver provides).",
 		template_keys: [],
-		doc_anchor: "protocol.md#§5.2"
+		doc_anchor: "protocol.md#§5.2",
+		detail_keys: []
 	},
 	SPEC_REVIEW_IMPLEMENTER_CONFLICT: {
 		exit_code: 2,
 		message_template: "verify-accept check 5: every passing spec-review actor is in the implementer set; no independent reviewer signed off (actors={spec_review_actors}, implementers={implementers})",
 		fix_template: "have a non-implementer (someone other than the actors on done-task task-summary/local-check evidence) submit an additional evidence with kind=spec-review and result `passed` or `approved`. One independent reviewer is sufficient — implementer self-reviews can coexist.",
 		template_keys: ["implementers", "spec_review_actors"],
-		doc_anchor: "protocol.md#§5.2"
+		doc_anchor: "protocol.md#§5.2",
+		detail_keys: ["implementers", "spec_review_actors"]
 	},
 	SPEC_REVIEW_IMPLEMENTER_UNKNOWN: {
 		exit_code: 2,
 		message_template: "verify-accept check 5: cannot establish implementer set (all done-task evidence actors are cli:* automation); strict_spec_review fails closed",
 		fix_template: "ensure at least one done-task evidence (task-summary or local-check) carries a non-cli:* actor (e.g. human:dev@example.com); the strict_spec_review comparison requires a real implementer identity to compare against. Without it, the gate cannot prove the spec reviewer is independent.",
 		template_keys: [],
-		doc_anchor: "protocol.md#§5.2"
+		doc_anchor: "protocol.md#§5.2",
+		detail_keys: []
 	},
 	DELIVER_NOT_ACCEPTED: {
 		exit_code: 2,
@@ -2385,7 +2637,8 @@ const ERROR_CATALOG = {
 		zh_message_template: "deliver 要求 verify_accepted=true(sub_state={sub_state});先运行 `loaf gate decide verify-accept --approve`",
 		fix_template: "run `loaf gate decide verify-accept --approve --reason \"...\"` first; the gate flips snapshot.state.verify_accepted before `loaf deliver` will accept the session:delivered entry",
 		template_keys: ["sub_state"],
-		doc_anchor: "protocol.md#§5.2"
+		doc_anchor: "protocol.md#§5.2",
+		detail_keys: ["sub_state"]
 	},
 	DELIVER_SETTLE_PHASE_BYPASS: {
 		exit_code: 2,
@@ -2393,7 +2646,8 @@ const ERROR_CATALOG = {
 		zh_message_template: "VERIFY.accept 直接 deliver 要求 ceremony.settle_phase=false(standard);deep ceremony 必须先运行 `loaf settle`",
 		fix_template: "for ceremony.settle_phase=true (deep), run `loaf settle` to enter SETTLE.lessons, record lessons, then `loaf deliver`; only standard ceremony delivers directly from VERIFY.accept",
 		template_keys: [],
-		doc_anchor: "protocol.md#§5.2"
+		doc_anchor: "protocol.md#§5.2",
+		detail_keys: []
 	},
 	DELIVER_VERIFY_MIN_UNAVAILABLE: {
 		exit_code: 2,
@@ -2401,7 +2655,8 @@ const ERROR_CATALOG = {
 		zh_message_template: "verify-min 在此 build 不可用(ceremony_label={ceremony_label})—— v0.1.1 起由 DELIVER_VERIFY_MIN_INCOMPLETE 取代,已不再触发",
 		fix_template: "upgrade to v0.1.1+ where quick / light deliver runs the verify-min per-task evidence check; on failure see DELIVER_VERIFY_MIN_INCOMPLETE",
 		template_keys: ["ceremony_label"],
-		doc_anchor: "protocol.md#§3"
+		doc_anchor: "protocol.md#§3",
+		detail_keys: ["ceremony_label"]
 	},
 	DELIVER_VERIFY_MIN_INCOMPLETE: {
 		exit_code: 2,
@@ -2409,7 +2664,8 @@ const ERROR_CATALOG = {
 		zh_message_template: "verify-min:{count} 个 done task 缺少 deliver 所需 evidence(ceremony_label={ceremony_label});补 evidence 或 waive 后重试 deliver",
 		fix_template: "for each listed task add evidence covering it — code tasks need a `local-check` (test/lint/typecheck) run, visual-ui needs visual-review or manual, docs needs task-summary or manual — or `loaf waive` it; then `loaf deliver` again",
 		template_keys: ["ceremony_label", "count"],
-		doc_anchor: "protocol.md#§3"
+		doc_anchor: "protocol.md#§3",
+		detail_keys: ["ceremony_label", "count"]
 	},
 	DELIVER_SPIKE_TASKS: {
 		exit_code: 2,
@@ -2417,7 +2673,8 @@ const ERROR_CATALOG = {
 		zh_message_template: "无法 deliver:task {task_id} 是 kind=spike(status={status});spike 任务阻塞整 session 的交付",
 		fix_template: "abandon the spike task (`loaf tasks abandon {task_id} --reason \"...\"`) or convert it to a feature (`loaf spike convert --to-feature F-N --reason \"...\"`); spike tasks must not remain in non-abandoned status when the session delivers",
 		template_keys: ["status", "task_id"],
-		doc_anchor: "protocol.md#§8.3"
+		doc_anchor: "protocol.md#§8.3",
+		detail_keys: ["status", "task_id"]
 	},
 	SETTLE_NOT_ACCEPTED: {
 		exit_code: 2,
@@ -2425,7 +2682,8 @@ const ERROR_CATALOG = {
 		zh_message_template: "VERIFY.accept → SETTLE.lessons 要求 verify_accepted=true;先运行 `loaf gate decide verify-accept --approve` 再 `loaf settle`",
 		fix_template: "run `loaf gate decide verify-accept --approve --reason \"...\"` before `loaf settle`; the gate flips snapshot.state.verify_accepted before the transition validator will admit the SETTLE entry",
 		template_keys: [],
-		doc_anchor: "protocol.md#§5.2"
+		doc_anchor: "protocol.md#§5.2",
+		detail_keys: []
 	},
 	SPEC_LOCK_NOT_SATISFIED: {
 		exit_code: 2,
@@ -2433,7 +2691,8 @@ const ERROR_CATALOG = {
 		zh_message_template: "SPEC.design → EXECUTE.plan 要求 spec_locked=true;先运行 `loaf gate decide spec-lock --approve` 再 `loaf advance EXECUTE.plan`",
 		fix_template: "run `loaf gate decide spec-lock --approve --reason \"...\"` before `loaf advance EXECUTE.plan`; the gate runs the 8 spec-lock checks and flips snapshot.state.spec_locked before the transition validator will admit the EXECUTE.plan entry",
 		template_keys: [],
-		doc_anchor: "protocol.md#§5.1"
+		doc_anchor: "protocol.md#§5.1",
+		detail_keys: []
 	},
 	TASK_NOT_CLAIMABLE: {
 		exit_code: 2,
@@ -2441,7 +2700,8 @@ const ERROR_CATALOG = {
 		zh_message_template: "task {task_id} 无法 claim(status={status} — 终态)",
 		fix_template: "tasks with status=done are already complete; status=abandoned tasks cannot be reactivated. Run `loaf tasks list` to inspect the task graph, or `loaf tasks next` to pick a different ready task",
 		template_keys: ["status", "task_id"],
-		doc_anchor: "protocol.md#§10.8"
+		doc_anchor: "protocol.md#§10.8",
+		detail_keys: ["status", "task_id"]
 	},
 	TASK_ALREADY_CLAIMED: {
 		exit_code: 2,
@@ -2449,7 +2709,8 @@ const ERROR_CATALOG = {
 		zh_message_template: "task {task_id} 已被 claim(status=in_progress)",
 		fix_template: "another worker may already hold this task; run `loaf tasks list` to inspect active claims. Stale-claim release is handled in a future slice (no CLI surface for abandon in v0.1.0 yet) — raise a finding with action=fix-impl if needed",
 		template_keys: ["task_id"],
-		doc_anchor: "protocol.md#§10.8"
+		doc_anchor: "protocol.md#§10.8",
+		detail_keys: ["task_id"]
 	},
 	TASK_DEP_NOT_FOUND: {
 		exit_code: 2,
@@ -2461,7 +2722,12 @@ const ERROR_CATALOG = {
 			"ref",
 			"task_id"
 		],
-		doc_anchor: "protocol.md#§10.8"
+		doc_anchor: "protocol.md#§10.8",
+		detail_keys: [
+			"field",
+			"ref",
+			"task_id"
+		]
 	},
 	TASK_DEP_SELF: {
 		exit_code: 2,
@@ -2469,7 +2735,8 @@ const ERROR_CATALOG = {
 		zh_message_template: "task {task_id} 不能依赖自身",
 		fix_template: "remove the self-reference from depends_on, then retry the task graph mutation",
 		template_keys: ["task_id"],
-		doc_anchor: "protocol.md#§10.8"
+		doc_anchor: "protocol.md#§10.8",
+		detail_keys: ["task_id"]
 	},
 	TASK_DEP_DUPLICATE: {
 		exit_code: 2,
@@ -2481,7 +2748,12 @@ const ERROR_CATALOG = {
 			"ref",
 			"task_id"
 		],
-		doc_anchor: "protocol.md#§10.8"
+		doc_anchor: "protocol.md#§10.8",
+		detail_keys: [
+			"indexes",
+			"ref",
+			"task_id"
+		]
 	},
 	TASK_DEP_CYCLE: {
 		exit_code: 2,
@@ -2489,7 +2761,9 @@ const ERROR_CATALOG = {
 		zh_message_template: "task 依赖图包含环 {cycle}",
 		fix_template: "remove or redirect one dependency in the reported closed path, then retry",
 		template_keys: ["cycle"],
-		doc_anchor: "protocol.md#§10.8"
+		doc_anchor: "protocol.md#§10.8",
+		detail_keys: ["cycle"],
+		list_separator: { cycle: " -> " }
 	},
 	TASK_DEP_ABANDONED: {
 		exit_code: 2,
@@ -2502,7 +2776,13 @@ const ERROR_CATALOG = {
 			"ref",
 			"task_id"
 		],
-		doc_anchor: "protocol.md#§10.8"
+		doc_anchor: "protocol.md#§10.8",
+		detail_keys: [
+			"field",
+			"hint",
+			"ref",
+			"task_id"
+		]
 	},
 	TASK_DEPS_NOT_SATISFIED: {
 		exit_code: 2,
@@ -2514,7 +2794,12 @@ const ERROR_CATALOG = {
 			"blocking_status",
 			"task_id"
 		],
-		doc_anchor: "protocol.md#§10.8"
+		doc_anchor: "protocol.md#§10.8",
+		detail_keys: [
+			"blocking_dep",
+			"blocking_status",
+			"task_id"
+		]
 	},
 	TASK_NOT_CLAIMED: {
 		exit_code: 2,
@@ -2526,7 +2811,12 @@ const ERROR_CATALOG = {
 			"step",
 			"task_id"
 		],
-		doc_anchor: "protocol.md#§10.8"
+		doc_anchor: "protocol.md#§10.8",
+		detail_keys: [
+			"status",
+			"step",
+			"task_id"
+		]
 	},
 	TASK_NOT_ABANDONABLE: {
 		exit_code: 2,
@@ -2534,7 +2824,8 @@ const ERROR_CATALOG = {
 		zh_message_template: "task {task_id} 无法 abandon(status={status} — 已处于终态)",
 		fix_template: "tasks with status=done are already complete and status=abandoned tasks are already abandoned; run `loaf tasks list` to inspect the task graph and abandon a non-terminal task instead",
 		template_keys: ["status", "task_id"],
-		doc_anchor: "protocol.md#§10.8"
+		doc_anchor: "protocol.md#§10.8",
+		detail_keys: ["status", "task_id"]
 	},
 	TASK_ABANDON_BLOCKED_DEPENDENTS: {
 		exit_code: 2,
@@ -2542,7 +2833,8 @@ const ERROR_CATALOG = {
 		zh_message_template: "task {task_id} 无法 abandon:非终态 task {blocking_dependents} 依赖它;先 abandon 或完成这些依赖方",
 		fix_template: "abandon or complete the dependent tasks first (see detail.blocking_dependents), then retry `loaf tasks abandon {task_id} --reason \"...\"`; abandoning a parent would strand a pending child",
 		template_keys: ["blocking_dependents", "task_id"],
-		doc_anchor: "protocol.md#§10.8"
+		doc_anchor: "protocol.md#§10.8",
+		detail_keys: ["blocking_dependents", "task_id"]
 	},
 	SESSION_REASON_REQUIRED: {
 		exit_code: 2,
@@ -2550,7 +2842,8 @@ const ERROR_CATALOG = {
 		zh_message_template: "{kind}:必须提供 --reason(会话终态 entry 必须记录原因)",
 		fix_template: "re-run with `--reason \"...\"`; `loaf archive` and `loaf abandon` both require a rationale on the journal entry",
 		template_keys: ["kind"],
-		doc_anchor: "protocol.md#§10.8"
+		doc_anchor: "protocol.md#§10.8",
+		detail_keys: ["kind"]
 	},
 	PROJECTION_WRITE_FAILED: {
 		exit_code: 2,
@@ -2563,7 +2856,13 @@ const ERROR_CATALOG = {
 			"projection",
 			"spec_version"
 		],
-		doc_anchor: "protocol.md#§10.15"
+		doc_anchor: "protocol.md#§10.15",
+		detail_keys: [
+			"error",
+			"last_seq",
+			"projection",
+			"spec_version"
+		]
 	},
 	FINDING_AMEND_SPEC_NOT_LOCKED: {
 		exit_code: 2,
@@ -2571,7 +2870,8 @@ const ERROR_CATALOG = {
 		zh_message_template: "finding raise action=amend-spec 要求 state.spec_locked=true;当前 sub_state={current_sub_state} 下 spec 未锁,请直接使用 `loaf spec submit / add-*`",
 		fix_template: "drop --action amend-spec and use `loaf spec submit` / `loaf spec add-req` / etc. directly while spec is unlocked; amend-spec is reserved for post-`gate decide spec-lock --approve` recovery.",
 		template_keys: ["current_sub_state"],
-		doc_anchor: "protocol.md#§6.1"
+		doc_anchor: "protocol.md#§6.1",
+		detail_keys: ["current_sub_state"]
 	},
 	SPEC_VERSION_NOT_MONOTONIC: {
 		exit_code: 2,
@@ -2583,7 +2883,12 @@ const ERROR_CATALOG = {
 			"kind",
 			"payload_spec_version"
 		],
-		doc_anchor: "protocol.md#§4.2"
+		doc_anchor: "protocol.md#§4.2",
+		detail_keys: [
+			"expected_spec_version",
+			"kind",
+			"payload_spec_version"
+		]
 	},
 	SPEC_VERSION_BATCH_MISMATCH: {
 		exit_code: 2,
@@ -2596,7 +2901,13 @@ const ERROR_CATALOG = {
 			"kind",
 			"payload_spec_version"
 		],
-		doc_anchor: "protocol.md#§4.2"
+		doc_anchor: "protocol.md#§4.2",
+		detail_keys: [
+			"batch_index",
+			"current_spec_version",
+			"kind",
+			"payload_spec_version"
+		]
 	},
 	TASK_COMPLETE_PRECONDITION_VIOLATED: {
 		exit_code: 2,
@@ -2608,7 +2919,12 @@ const ERROR_CATALOG = {
 			"status",
 			"task_id"
 		],
-		doc_anchor: "protocol.md#§10.8"
+		doc_anchor: "protocol.md#§10.8",
+		detail_keys: [
+			"blocking_steps",
+			"status",
+			"task_id"
+		]
 	},
 	BUG_TASK_REQUIRES_RED: {
 		exit_code: 2,
@@ -2616,7 +2932,8 @@ const ERROR_CATALOG = {
 		zh_message_template: "behavioral bug task {task_id} 在注册 RED 测试前不能开始或完成 implement step",
 		fix_template: "run `loaf tasks register-red {task_id}` once the failing RED test is in place; protocol §9.3 requires RED registration before the implement step of a behavioral task labelled `bug`.",
 		template_keys: ["task_id"],
-		doc_anchor: "protocol.md#§9.3"
+		doc_anchor: "protocol.md#§9.3",
+		detail_keys: ["task_id"]
 	},
 	BUG_TASK_FLAG_MISUSE: {
 		exit_code: 2,
@@ -2624,7 +2941,8 @@ const ERROR_CATALOG = {
 		zh_message_template: "task {task_id}:red_test_registered=true 只在 behavioral bug task 的 red-step task_step_done(passed/waived)上有效 —— 不能用在本 entry",
 		fix_template: "do not set red_test_registered in a planned task or on a non-red step; the flag is owned by `loaf tasks register-red`, which the reducer promotes to task-level registration.",
 		template_keys: ["task_id"],
-		doc_anchor: "protocol.md#§9.3"
+		doc_anchor: "protocol.md#§9.3",
+		detail_keys: ["task_id"]
 	},
 	BUG_TASK_RED_NOT_REGISTERED: {
 		exit_code: 2,
@@ -2632,7 +2950,8 @@ const ERROR_CATALOG = {
 		zh_message_template: "behavioral bug task {task_id} 已 done 但从未注册 RED 测试(red_test_registered≠true)",
 		fix_template: "a done behavioral bug task must have registered its RED test via `loaf tasks register-red`; this is a verify-accept defense-in-depth check for raw-API journals — rebuild the journal or register RED retroactively before re-running the gate.",
 		template_keys: ["task_id"],
-		doc_anchor: "protocol.md#§9.3"
+		doc_anchor: "protocol.md#§9.3",
+		detail_keys: ["task_id"]
 	},
 	SPIKE_CONVERT_NO_SPIKE_TASK: {
 		exit_code: 2,
@@ -2640,7 +2959,8 @@ const ERROR_CATALOG = {
 		zh_message_template: "无法 convert:session 没有非-abandoned 的 spike task;`loaf spike convert` 是 spike-task 出口(protocol §8.3)",
 		fix_template: "run `loaf spike convert` only from a session that holds a kind=spike task; for a non-spike session close it with `loaf archive --reason \"...\"` or `loaf abandon --reason \"...\"`",
 		template_keys: [],
-		doc_anchor: "protocol.md#§8.3"
+		doc_anchor: "protocol.md#§8.3",
+		detail_keys: []
 	},
 	SNAPSHOT_STALE_REBUILD_REQUIRED: {
 		exit_code: 2,
@@ -2648,7 +2968,8 @@ const ERROR_CATALOG = {
 		zh_message_template: "snapshot 失效(reason={reason}) at {feature_dir};跑 `loaf doctor --rebuild --feature <feature>` 从 journal 重建",
 		fix_template: "snapshot meta/leaves no longer agree with the journal tail; run `loaf doctor --rebuild --feature <feature>` to re-serialize from journal truth, then retry. Inspect detail.reason + reason-specific fields (meta_path / projection_kind / cause) to triage corruption source before rebuilding.",
 		template_keys: ["feature_dir", "reason"],
-		doc_anchor: "protocol.md#§10.15"
+		doc_anchor: "protocol.md#§10.15",
+		detail_keys: ["feature_dir", "reason"]
 	},
 	JOURNAL_TAIL_REQUIRES_NEWER_LOAF: {
 		exit_code: 2,
@@ -2676,7 +2997,8 @@ const ERROR_CATALOG = {
 		zh_message_template: "ceremony preset 不合法",
 		fix_template: "Use one of quick, light, standard, or deep.",
 		template_keys: [],
-		doc_anchor: "protocol.md#§10.5"
+		doc_anchor: "protocol.md#§10.5",
+		detail_keys: []
 	},
 	USAGE: {
 		exit_code: 2,
@@ -2684,7 +3006,234 @@ const ERROR_CATALOG = {
 		zh_message_template: "CLI 用法不合法",
 		fix_template: "Run the command with --help and retry with the required flags/arguments.",
 		template_keys: [],
-		doc_anchor: "protocol.md#§10.5"
+		doc_anchor: "protocol.md#§10.5",
+		detail_keys: [],
+		variants: {
+			"failure.sessions_list.selector_conflict": {
+				message_template: "sessions list does not accept {conflicting} — it lists across all sessions; use --in-cwd to filter",
+				zh_message_template: "sessions list 不接受 {conflicting} —— 它会跨全部 session 列表;如需过滤当前 cwd,使用 --in-cwd",
+				fix_template: "Run the command with --help and retry with the required flags/arguments.",
+				template_keys: ["conflicting"],
+				detail_keys: ["conflicting"],
+				doc_anchor: "protocol.md#§10.5"
+			},
+			"failure.tui.selector_conflict": {
+				message_template: "tui does not accept {conflicting} — it lists across all sessions; selectors are nonsensical for an interactive UI",
+				zh_message_template: "tui 不接受 {conflicting} —— 它会跨全部 session 列表;selector 对交互 UI 没有意义",
+				fix_template: "Run the command with --help and retry with the required flags/arguments.",
+				template_keys: ["conflicting"],
+				detail_keys: ["conflicting"],
+				doc_anchor: "protocol.md#§10.5"
+			},
+			"failure.tui.interactive_only": {
+				message_template: "tui is interactive-only; use `loaf sessions list --format json` for scriptable session output",
+				zh_message_template: "tui 仅支持交互模式;脚本化 session 输出请使用 `loaf sessions list --format json`",
+				fix_template: "Run the command with --help and retry with the required flags/arguments.",
+				template_keys: [],
+				detail_keys: [],
+				doc_anchor: "protocol.md#§10.5"
+			},
+			"failure.hook.missing_event": {
+				message_template: "loaf hook requires an event token; one of: {events}. Run `loaf hook --list-events` for the full enum",
+				zh_message_template: "loaf hook 需要 event token;可选值:{events}. 运行 `loaf hook --list-events` 查看完整枚举",
+				fix_template: "Run the command with --help and retry with the required flags/arguments.",
+				template_keys: ["events"],
+				detail_keys: ["events"],
+				doc_anchor: "protocol.md#§10.5"
+			},
+			"failure.hook.unknown_event": {
+				message_template: "unknown hook event '{event}'; expected one of: {allowed}. Did you mean '{suggestion}'?",
+				zh_message_template: "未知 hook event '{event}';期望值:{allowed}. 你是不是想输入 '{suggestion}'?",
+				fix_template: "Run the command with --help and retry with the required flags/arguments.",
+				template_keys: [
+					"allowed",
+					"event",
+					"suggestion"
+				],
+				detail_keys: [
+					"allowed",
+					"event",
+					"suggestion"
+				],
+				doc_anchor: "protocol.md#§10.5"
+			},
+			"failure.hook.write_path_missing": {
+				message_template: "write-side hook requires --path <P> or a non-TTY stdin hook payload (tool_input.file_path)",
+				zh_message_template: "write-side hook 需要 --path <P> 或非 TTY stdin hook payload(tool_input.file_path)",
+				fix_template: "Run the command with --help and retry with the required flags/arguments.",
+				template_keys: [],
+				detail_keys: [],
+				doc_anchor: "protocol.md#§10.5"
+			},
+			"failure.check.selector_conflict": {
+				message_template: "check does not accept {conflicting} — it validates a file by path, independent of any feature session",
+				zh_message_template: "check 不接受 {conflicting} —— 它按路径校验文件,独立于 feature session",
+				fix_template: "Run the command with --help and retry with the required flags/arguments.",
+				template_keys: ["conflicting"],
+				detail_keys: ["conflicting"],
+				doc_anchor: "protocol.md#§10.5"
+			},
+			"failure.check.kind_required": {
+				message_template: "`{subject}` is not a file path. To validate a {kind} artifact, pass its path: `{suggestion}` (noun-first `loaf {kind} check` is reserved for a future release)",
+				zh_message_template: "`{subject}` 不是文件路径. 如需校验 {kind} artifact,需要显式路径: `{suggestion}`(noun-first `loaf {kind} check` 预留给未来版本)",
+				fix_template: "Run the command with --help and retry with the required flags/arguments.",
+				template_keys: [
+					"kind",
+					"subject",
+					"suggestion"
+				],
+				detail_keys: [
+					"kind",
+					"subject",
+					"suggestion"
+				],
+				doc_anchor: "protocol.md#§10.5"
+			},
+			"failure.check.kind_invalid": {
+				message_template: "--kind '{value}' is not recognized; expected one of {allowed_kinds_human}",
+				zh_message_template: "--kind 必须是 {allowed_kinds_human};当前为 '{value}'",
+				fix_template: "Run the command with --help and retry with the required flags/arguments.",
+				template_keys: ["allowed_kinds_human", "value"],
+				detail_keys: ["allowed_kinds_human", "value"],
+				doc_anchor: "protocol.md#§10.5"
+			},
+			"failure.schema.selector_conflict": {
+				message_template: "{subject} does not accept {conflicting} — schema dumps are feature-agnostic",
+				zh_message_template: "{subject} 不接受 {conflicting} —— schema dump 与 feature 无关",
+				fix_template: "Run the command with --help and retry with the required flags/arguments.",
+				template_keys: ["conflicting", "subject"],
+				detail_keys: ["conflicting", "subject"],
+				doc_anchor: "protocol.md#§10.5"
+			},
+			"failure.dispatch.session_feature_dir_conflict": {
+				message_template: "{conflicting} cannot be combined with --feature-dir (session identity comes from registry; manual featureDir is contradictory)",
+				zh_message_template: "{conflicting} 不能与 --feature-dir 一起使用(session identity 来自 registry;手动 featureDir 会矛盾)",
+				fix_template: "Run the command with --help and retry with the required flags/arguments.",
+				template_keys: ["conflicting"],
+				detail_keys: ["conflicting"],
+				doc_anchor: "protocol.md#§10.5"
+			},
+			"failure.dispatch.feature_dir_requires_feature": {
+				message_template: "--feature-dir requires --feature <name> or $LOAF_FEATURE to name the feature",
+				zh_message_template: "--feature-dir 需要 --feature <name> 或 $LOAF_FEATURE 来命名 feature",
+				fix_template: "Run the command with --help and retry with the required flags/arguments.",
+				template_keys: [],
+				detail_keys: [],
+				doc_anchor: "protocol.md#§10.5"
+			},
+			"failure.start.label_too_short": {
+				message_template: "--label must be at least {min_length} characters",
+				zh_message_template: "--label 至少需要 {min_length} 个字符",
+				fix_template: "Run the command with --help and retry with the required flags/arguments.",
+				template_keys: ["min_length"],
+				detail_keys: ["min_length"],
+				doc_anchor: "protocol.md#§10.5"
+			},
+			"failure.start.workspace_empty": {
+				message_template: "--workspace must not be empty",
+				zh_message_template: "--workspace 不能为空",
+				fix_template: "Run the command with --help and retry with the required flags/arguments.",
+				template_keys: [],
+				detail_keys: [],
+				doc_anchor: "protocol.md#§10.5"
+			},
+			"failure.handoff.reason_too_short": {
+				message_template: "--reason must be ≥{min_length} chars (got {reason_length})",
+				zh_message_template: "--reason 必须 ≥{min_length} 字符(当前 {reason_length})",
+				fix_template: "Run the command with --help and retry with the required flags/arguments.",
+				template_keys: ["min_length", "reason_length"],
+				detail_keys: ["min_length", "reason_length"],
+				doc_anchor: "protocol.md#§10.5"
+			},
+			"failure.lessons.text_too_short": {
+				message_template: "lesson text must be ≥{min_length} chars (got {lesson_text_length})",
+				zh_message_template: "lesson text 必须 ≥{min_length} 字符(当前 {lesson_text_length})",
+				fix_template: "Run the command with --help and retry with the required flags/arguments.",
+				template_keys: ["lesson_text_length", "min_length"],
+				detail_keys: ["lesson_text_length", "min_length"],
+				doc_anchor: "protocol.md#§10.5"
+			},
+			"failure.lessons.reason_too_short": {
+				message_template: "--reason must be ≥{min_length} chars (got {reason_length})",
+				zh_message_template: "--reason 必须 ≥{min_length} 字符(当前 {reason_length})",
+				fix_template: "Run the command with --help and retry with the required flags/arguments.",
+				template_keys: ["min_length", "reason_length"],
+				detail_keys: ["min_length", "reason_length"],
+				doc_anchor: "protocol.md#§10.5"
+			},
+			"failure.lessons.text_file_mutex": {
+				message_template: "exactly one of --text or --file required ({provided_state})",
+				zh_message_template: "--text 和 --file 必须二选一({provided_state})",
+				fix_template: "Run the command with --help and retry with the required flags/arguments.",
+				template_keys: ["provided_state"],
+				detail_keys: ["provided_state"],
+				doc_anchor: "protocol.md#§10.5"
+			},
+			"failure.finding.status_invalid": {
+				message_template: "--status must be one of: {allowed_statuses_human} (got {value})",
+				zh_message_template: "--status 必须是:{allowed_statuses_human}(当前 {value})",
+				fix_template: "Run the command with --help and retry with the required flags/arguments.",
+				template_keys: ["allowed_statuses_human", "value"],
+				detail_keys: ["allowed_statuses_human", "value"],
+				doc_anchor: "protocol.md#§10.5"
+			},
+			"failure.journal.integer_invalid": {
+				message_template: "{flag} must be an integer >= {minimum} (got {value})",
+				zh_message_template: "{flag} 必须是 >= {minimum} 的整数(当前 {value})",
+				fix_template: "Run the command with --help and retry with the required flags/arguments.",
+				template_keys: [
+					"flag",
+					"minimum",
+					"value"
+				],
+				detail_keys: [
+					"flag",
+					"minimum",
+					"value"
+				],
+				doc_anchor: "protocol.md#§10.5"
+			},
+			"failure.journal.kind_invalid": {
+				message_template: "--kind must be a registered journal kind (got {value})",
+				zh_message_template: "--kind 必须是已注册的 journal kind(当前 {value})",
+				fix_template: "Run the command with --help and retry with the required flags/arguments.",
+				template_keys: ["value"],
+				detail_keys: ["value"],
+				doc_anchor: "protocol.md#§10.5"
+			},
+			"failure.journal.actor_invalid": {
+				message_template: "--actor must be a non-empty actor prefix or full actor string",
+				zh_message_template: "--actor 必须是非空 actor 前缀或完整 actor 字符串",
+				fix_template: "Run the command with --help and retry with the required flags/arguments.",
+				template_keys: [],
+				detail_keys: [],
+				doc_anchor: "protocol.md#§10.5"
+			},
+			"failure.evidence.covers_invalid": {
+				message_template: "--covers must be a valid coverage id (got {value})",
+				zh_message_template: "--covers 必须是有效的 coverage id(当前 {value})",
+				fix_template: "Run the command with --help and retry with the required flags/arguments.",
+				template_keys: ["value"],
+				detail_keys: ["value"],
+				doc_anchor: "protocol.md#§10.5"
+			},
+			"failure.evidence.task_invalid": {
+				message_template: "--task must be a valid task id (got {value})",
+				zh_message_template: "--task 必须是有效的 task id(当前 {value})",
+				fix_template: "Run the command with --help and retry with the required flags/arguments.",
+				template_keys: ["value"],
+				detail_keys: ["value"],
+				doc_anchor: "protocol.md#§10.5"
+			},
+			"failure.evidence.kind_invalid": {
+				message_template: "--kind must be one of: {allowed_kinds_human}",
+				zh_message_template: "--kind 必须是:{allowed_kinds_human}",
+				fix_template: "Run the command with --help and retry with the required flags/arguments.",
+				template_keys: ["allowed_kinds_human"],
+				detail_keys: ["allowed_kinds_human"],
+				doc_anchor: "protocol.md#§10.5"
+			}
+		}
 	},
 	DOCTOR_MODE_NOT_IMPLEMENTED: {
 		exit_code: 2,
@@ -2692,7 +3241,8 @@ const ERROR_CATALOG = {
 		zh_message_template: "当前发布版本未实现该 loaf doctor 模式",
 		fix_template: "Use loaf doctor --rebuild --feature <name>; other doctor modes are deferred.",
 		template_keys: [],
-		doc_anchor: "protocol.md#§10.15"
+		doc_anchor: "protocol.md#§10.15",
+		detail_keys: []
 	},
 	DOCTOR_FEATURE_REQUIRED: {
 		exit_code: 2,
@@ -2700,7 +3250,8 @@ const ERROR_CATALOG = {
 		zh_message_template: "loaf doctor --rebuild 必须带 --feature <name>",
 		fix_template: "Pass --feature <name> or --feature-dir <path> for the session to rebuild.",
 		template_keys: [],
-		doc_anchor: "protocol.md#§10.15"
+		doc_anchor: "protocol.md#§10.15",
+		detail_keys: []
 	},
 	DOCTOR_REBUILD_FAILED: {
 		exit_code: 2,
@@ -2708,7 +3259,8 @@ const ERROR_CATALOG = {
 		zh_message_template: "doctor --rebuild 失败",
 		fix_template: "Inspect the emitted error message; fix the journal/projection issue, then rerun doctor --rebuild.",
 		template_keys: [],
-		doc_anchor: "protocol.md#§10.15"
+		doc_anchor: "protocol.md#§10.15",
+		detail_keys: []
 	},
 	REDUCER_ERROR: {
 		exit_code: 2,
@@ -2716,7 +3268,8 @@ const ERROR_CATALOG = {
 		zh_message_template: "reducer 内部不变量失败",
 		fix_template: "Preserve the journal and command stderr; this indicates a loaf-cli bug or inconsistent projection state.",
 		template_keys: [],
-		doc_anchor: "protocol.md#§10.5"
+		doc_anchor: "protocol.md#§10.5",
+		detail_keys: []
 	},
 	APPEND_ERROR: {
 		exit_code: 2,
@@ -2776,7 +3329,8 @@ const ERROR_CATALOG = {
 		zh_message_template: "写入被拦截:`{normalized_path}` 不在 sub_state `{sub_state}` 的允许写入路径内",
 		fix_template: "write within the current step's contract, advance to the right sub_state/step first, or widen the matching `paths.*` category in .loaf/.config/loaf.config.json",
 		template_keys: ["normalized_path", "sub_state"],
-		doc_anchor: "protocol.md#§11.1"
+		doc_anchor: "protocol.md#§11.1",
+		detail_keys: ["normalized_path", "sub_state"]
 	},
 	PROTECTED_FILE_WRITE: {
 		exit_code: 2,
@@ -2784,7 +3338,8 @@ const ERROR_CATALOG = {
 		zh_message_template: "写入被拦截:`{normalized_path}` 命中 protected_files 条目 `{matched_deny}` —— 受保护文件永不可写",
 		fix_template: "remove the entry from protected_files in .loaf/.config/loaf.config.json if the protection is wrong, otherwise write a different file",
 		template_keys: ["matched_deny", "normalized_path"],
-		doc_anchor: "protocol.md#§11.1"
+		doc_anchor: "protocol.md#§11.1",
+		detail_keys: ["matched_deny", "normalized_path"]
 	}
 };
 /** Constructs a catalog diagnostic while checking its required detail keys. */
@@ -2794,6 +3349,10 @@ function diagnostic$2(code, detail) {
 		detail
 	};
 }
+Object.fromEntries(Object.entries(ERROR_CATALOG).flatMap(([code, entry]) => "variants" in entry ? Object.entries(entry.variants).map(([context, template]) => [context, {
+	code,
+	template
+}]) : []));
 const DIAGNOSTIC_CODE_VALUES = Object.keys(ERROR_CATALOG);
 z.enum(DIAGNOSTIC_CODE_VALUES);
 //#endregion
@@ -5928,11 +6487,18 @@ var en_default = {
 		}
 	},
 	diagnostic: {
+		"INPUT_FILE_NOT_FOUND": "input file does not exist: {path}",
+		"MISSING_INPUT": "required input source missing or unreadable: --input not provided OR stdin could not be read (--input - failed)",
 		"SPEC_EDIT_INPUT_REQUIRED": "non-interactive `loaf spec edit` requires --input <src>; the editor lane requires TTY stdin and stdout",
+		"SCHEMA_VALIDATION_FAILED": "input does not satisfy schema for {command}: {zod_path}: {zod_message}",
 		"SPEC_LOCKED_NO_DIRECT_EDIT": "{kind} blocked: spec_locked=true; use `loaf finding raise --category spec-gap --action amend-spec` to back-edge into SPEC.spec",
 		"SPEC_NOT_INITIALIZED": "{kind} blocked: spec_version=0; run `loaf spec submit` first to bump spec_version to 1",
 		"SPEC_ALREADY_INITIALIZED": "spec.md already exists at {spec_md_path}; refusing to overwrite",
 		"CONFIG_ALREADY_INITIALIZED": "loaf config already exists at {config_path}; refusing to overwrite",
+		"ATTACHMENT_NOT_FOUND": "attachment path does not exist: {path}",
+		"ATTACHMENT_NOT_FILE": "attachment path is not a regular file: {path} ({kind})",
+		"FINDING_ACTION_UNUSUAL_REASON_REQUIRED": "finding category={category} × action={action} is 'unusual'; --reason of at least {min_reason_length} characters is required",
+		"FINDING_ACTION_INCOHERENT": "finding category={category} × action={action} is incoherent: no target task exists to apply this transition to",
 		"FINDING_TARGET_REQUIRED": "finding action={action} target validation failed ({reason}): task_id={task_id}, step={step}",
 		"PRUNE_RESTORE_NOT_FOUND": "no trashed session matches the given id",
 		"PRUNE_RESTORE_AMBIGUOUS": "the session id was trashed more than once; pass --at <ts> to pick one",
@@ -5940,13 +6506,18 @@ var en_default = {
 		"PRUNE_PATH_OCCUPIED": "a restore destination already exists; refusing to overwrite",
 		"PRUNE_PARTIAL_FAILURE": "prune partially failed: one or more sessions could not be removed",
 		"MUTUALLY_EXCLUSIVE_FLAGS": "mutually exclusive flags in the same invocation: {flags}",
+		"INVALID_ENV_VALUE": "environment variable {env_name}={value} is not in the accepted enum: {accepted}",
 		"INVALID_FORMAT": "invalid --format value '{value}'; allowed: {allowed_values_human}",
 		"INVALID_LOCALE": "invalid locale from {source}: {value} (expected {accepted})",
 		"DRY_RUN_NOT_APPLICABLE": "--dry-run not applicable to {command_type} command `{command}`",
 		"HOOK_EVENT_NOT_IMPLEMENTED": "hook event `{event}` is not implemented in this loaf version (Phase 16 SC-15{sub_cycle} pending; see protocol §11)",
+		"TASK_STATUS_WITHOUT_PROOF": "task {task_id} status change requires evidence: status={status} has no PASSING covering evidence proof in evidence.jsonl",
 		"MISSING_VERIFIABILITY": "REQ {req_id} must declare measurable, verified_by_scenarios[], or acceptance_na+reason",
+		"VAGUE_NO_SCENARIO": "requirement {req_id} reads as vague but is not anchored to a measurable threshold or to a verifying scenario",
 		"DRIVES_NOT_BOUND": "REQ {req_id} is not referenced by any task.drives[]",
 		"MUTATION_OUT_OF_RIGHTS": "event:tasks_amended on task {task_id} is not permitted at sub_state {sub_state} — §8.6 grants no mutation right for this change",
+		"LOCK_TIMEOUT": "could not acquire .loaf/<feature>/.lock within {timeout_seconds}s",
+		"LOCK_INVALID": "feature write lease at {lock_path} is malformed or incomplete",
 		"FEATURE_NOT_FOUND": "no feature found in cwd (.loaf/ is empty or missing, or no projection has phase != DONE)",
 		"FEATURE_AMBIGUOUS": "current working directory has {count} active features and no dispatch context: {feature_list}",
 		"SESSION_CWD_MISMATCH": "--session {uuid} is registered against cwd={registered_cwd}, but the current cwd is {current_cwd}",
@@ -5955,10 +6526,52 @@ var en_default = {
 		"PENDING_BLOCKS_ADVANCE": "pending head {pending_id} (kind={kind}) blocks `loaf advance` until resolved",
 		"GATE_NOT_PENDING": "`loaf gate decide {gate_kind}` requires pending head kind=gate_decision; current head kind: {head_kind}",
 		"ESCALATION_NOT_PENDING": "`loaf profile escalate --confirm --input <ceremony.json>` requires pending head kind=profile_escalation; current head: {actual_head}",
+		"ACTOR_AUTHORITY_VIOLATION": "actor {actor} is not allowed for journal kind {kind}",
+		"FROM_CURSOR_MISMATCH": "entry payload.from={payload_from} does not match current sub_state={current_sub_state}",
+		"INVALID_ENVELOPE": "journal entry failed envelope validation: {reason}",
+		"INVALID_PAYLOAD": "payload for kind {kind} failed validation: {reason}",
+		"SEQ_NOT_MONOTONIC": "entry seq {got} does not extend journal tail {tail_seq}; expected {expected}",
+		"SETTLE_PHASE_BYPASS": "VERIFY.accept → DONE.delivered requires ceremony.settle_phase=false (quick / light / standard); deep profile must enter SETTLE.lessons first; current settle_phase={settle_phase}",
+		"SETTLE_PHASE_DISABLED": "VERIFY.accept → SETTLE.lessons requires ceremony.settle_phase=true (deep profile only after rev 5.x); current settle_phase={settle_phase}",
+		"SPEC_PHASE_FORK_VIOLATION": "transition {from} → {to} violates ceremony.spec_phase={spec_phase}",
+		"SUB_STATE_AUTHORITY_VIOLATION": "kind {kind} is not allowed in sub_state {sub_state}",
+		"TRANSITION_ILLEGAL": "cannot transition {from} → {to}",
+		"VERIFY_PHASE_FORK_VIOLATION": "transition {from} → {to} violates ceremony.verify_phase={verify_phase}",
 		"EXECUTE_DONE_TASKS_NOT_FINAL": "cannot advance EXECUTE.work → EXECUTE.done: {count} task(s) are not in a final status (done or abandoned); finish their remaining steps or abandon out-of-scope tasks with `loaf tasks abandon <T-N> --reason \"...\"`",
+		"ALREADY_STARTED": "session bootstrap kind {kind} cannot run after state already exists",
+		"FINDING_NOT_FOUND": "finding close references unknown finding id {id}",
 		"NO_SESSION": "no session at {feature_dir} — run `loaf start <feature>` first",
+		"PENDING_NOT_FOUND": "pending resolve failed: {reason}",
+		"REDUCER_NOT_IMPLEMENTED": "reducer has no handler for journal kind {kind}",
+		"ENTRY_OVERSIZE": "journal entry serialized to {bytes} bytes; limit is {limit}",
+		"SHORT_WRITE": "journal append wrote {wrote} of {want} bytes",
+		"TAIL_CORRUPTION": "journal tail is corrupt: {reason}",
+		"INVALID_ACTOR_FORMAT": "human actor value is invalid: {reason}",
+		"NO_HUMAN_ACTOR": "no human actor could be resolved for a human-only command",
+		"DUPLICATE_REQ_ID": "REQ id {id} is already in the spec projection",
+		"DUPLICATE_SCEN_ID": "SCEN id {id} is already in the spec projection",
+		"DUPLICATE_VIS_ID": "VIS id {id} is already in the spec projection",
+		"SPEC_FRONTMATTER_INVALID": "spec.md frontmatter failed gate check 1 (subcode={subcode})",
+		"SPEC_HAS_UNCLARIFIED": "spec has {count} unresolved needs_clarification entries (ids={ids}); resolve or remove them before spec-lock can pass",
+		"TASK_NOT_FOUND": "task {task_id} is not in the current tasks projection",
+		"TASK_STEP_NOT_FOUND": "step {step} is not seeded on task {task_id} — seeded steps are derived from the task's kind execution schema (§14)",
+		"DUPLICATE_TASK_ID": "task id {task_id} appears more than once in tasks_planned payload",
+		"TASKS_NOT_PLANNED": "gate task-graph check: tasks have not been planned (snapshot.tasks_based_on is null)",
+		"TASKS_BASED_ON_STALE": "gate task-graph check: tasks_based_on.spec={tasks_based_on_spec} but current spec.spec_version={current_spec_version} — the task graph was planned against an older spec",
+		"REQ_NOT_DRIVEN": "spec-lock check 4: requirement {req_id} is not referenced by any task.drives[]",
+		"E2E_SCENARIO_UNBOUND": "spec-lock check 6: e2e scenario {scenario_id} has no binding task (requires task with requires_acceptance=true AND drives includes {scenario_id})",
+		"VISUAL_CONTRACT_UNBOUND": "spec-lock check 7: visual_contract {visual_id} has no visual-ui task whose visual_contract_refs includes it",
+		"TASK_KIND_SCHEMA_VIOLATION": "spec-lock check 8: task {task_id} (kind={kind}) violates projected kind-specific obligations: {reasons}",
+		"GATE_PRECONDITION_VIOLATION": "gate:decided {gate} approval rejected at the mutate layer: {failure_count} check(s) failed",
+		"MULTIPLE_GATE_DECISIONS": "batch contains {count} approved gate:decided entries (gate_kinds={gate_kinds}); protocol §10.8 requires one gate decision per atomic operation",
+		"GATE_NOT_IMPLEMENTED": "gate={gate} is not recognized; protocol GateName enum is closed at `spec-lock` or `verify-accept` for v0.1.0",
+		"VERIFY_LANE_NOT_PASSED": "verify-accept check 1: applicable VERIFY lane={lane} has no evidence with passing/approved/waived result",
 		"OPEN_FINDINGS_PRESENT": "verify-accept check 2: {count} actionable finding(s) still open (ids={open_ids}); resolve or close before verify-accept",
 		"COVERAGE_NOT_SATISFIED": "{covered_id} has no evidence that satisfies it (canSatisfy failed for all candidates)",
+		"TASK_DONE_NO_EVIDENCE": "verify-accept check 4: task {task_id} is status=done but has no evidence covering it (kind one of `task-summary`, `local-check`, `manual`, or `waiver`)",
+		"SPEC_REVIEW_MISSING": "verify-accept check 5: ceremony.strict_spec_review=true requires ≥1 evidence kind=spec-review with result `passed` or `approved` from an actor ≠ implementer; none found",
+		"SPEC_REVIEW_IMPLEMENTER_CONFLICT": "verify-accept check 5: every passing spec-review actor is in the implementer set; no independent reviewer signed off (actors={spec_review_actors}, implementers={implementers})",
+		"SPEC_REVIEW_IMPLEMENTER_UNKNOWN": "verify-accept check 5: cannot establish implementer set (all done-task evidence actors are cli:* automation); strict_spec_review fails closed",
 		"DELIVER_NOT_ACCEPTED": "deliver requires verify_accepted=true at sub_state={sub_state}; run `loaf gate decide verify-accept --approve` first",
 		"DELIVER_SETTLE_PHASE_BYPASS": "deliver from VERIFY.accept requires ceremony.settle_phase=false (standard); deep ceremony must run `loaf settle` first",
 		"DELIVER_VERIFY_MIN_UNAVAILABLE": "verify-min was unavailable in this build (ceremony_label={ceremony_label}) — superseded at v0.1.1 by DELIVER_VERIFY_MIN_INCOMPLETE; no longer emitted",
@@ -5995,12 +6608,280 @@ var en_default = {
 		"DOCTOR_FEATURE_REQUIRED": "loaf doctor --rebuild requires --feature <name>",
 		"DOCTOR_REBUILD_FAILED": "doctor --rebuild failed",
 		"REDUCER_ERROR": "internal reducer invariant failed",
+		"APPEND_ERROR": "journal append failed",
+		"SIDECAR_ERROR": "sidecar finalize failed: {err}",
+		"INVALID_BATCH": "mutation batch is invalid",
 		"SCOPE_RECORDED_BATCH_INVALID": "scope:recorded batch is invalid: {reason}",
 		"SCOPE_RECORDED_ITERATION_DUPLICATE": "scope:recorded already exists for iteration {iteration}",
 		"ACTUAL_SCOPE_HISTORY_INCOMPLETE": "actual scope history is incomplete: EXECUTE closure transition(s) at seq {transition_seqs} have no same-batch scope:recorded marker",
 		"WRITE_PATH_VIOLATION": "write blocked: `{normalized_path}` is outside the allowed write paths for sub_state `{sub_state}`",
 		"PROTECTED_FILE_WRITE": "write blocked: `{normalized_path}` matches protected_files entry `{matched_deny}` — protected files are never writable"
 	},
+	diagnostic_fix: {
+		"INPUT_FILE_NOT_FOUND": "verify the path, or pass '-' to read from stdin / inline JSON starting with a JSON object or array — see `loaf <cmd> --help` for examples",
+		"MISSING_INPUT": "pass --input with one of: a JSON file path, '-' for stdin (with valid piped JSON), or inline JSON; for stdin failures, pass valid JSON to `loaf <cmd> --input -` on stdin; for the 6 schema-capable authoring commands (spec add-req / spec add-scenario / spec add-visual / tasks submit / tasks add / evidence add), run `loaf <cmd> --schema --format=json` to view the input schema",
+		"SPEC_EDIT_INPUT_REQUIRED": "pass --input with a JSON object {\"body\":\"<Markdown>\"} via file, stdin '-', or inline JSON; alternatively rerun from a terminal with both stdin and stdout attached to a TTY",
+		"SCHEMA_VALIDATION_FAILED": "for the 6 schema-capable authoring commands (spec add-req / spec add-scenario / spec add-visual / tasks submit / tasks add / evidence add), run `loaf {command} --schema --format=json` to dump the input JSON Schema; for artifact projection files, run `loaf <kind> schema --format=json` (kind ∈ spec / tasks / evidence / finding / state). Fix the offending field and retry",
+		"SPEC_LOCKED_NO_DIRECT_EDIT": "raise a finding with category=spec-gap (or spec-defect) and action=amend-spec to back-edge into SPEC.spec (the finding's resets_spec_locked effect lifts the gate); then retry the spec add/submit",
+		"SPEC_NOT_INITIALIZED": "run `loaf spec submit --input <file>` first to bump spec_version to 1, then retry the add-* command (SC4 will add `loaf spec init` as a separate scaffold helper that chains into submit)",
+		"SPEC_ALREADY_INITIALIZED": "edit the existing spec.md directly, or remove it before re-running `loaf spec init` (no --force flag in Slice 4)",
+		"CONFIG_ALREADY_INITIALIZED": "edit the existing config file directly, or remove it before re-running `loaf config init` (no --force flag)",
+		"ATTACHMENT_NOT_FOUND": "verify the path is reachable from the working directory and readable by the current user",
+		"ATTACHMENT_NOT_FILE": "attachments must be regular files; directories, symlinks to directories, sockets, and FIFOs are rejected",
+		"FINDING_ACTION_UNUSUAL_REASON_REQUIRED": "rerun with --reason explaining why this non-typical combination applies (see references/finding-matrix-rationale.md)",
+		"FINDING_ACTION_INCOHERENT": "amend the spec first (category=spec-gap / new-scope × action=amend-spec) so a target task can be planned, then raise the fix-impl / fix-test finding against that task",
+		"FINDING_TARGET_REQUIRED": "fix-impl/fix-test require --target-task + --target-step matching the action's canonical step (fix-impl=implement, fix-test=red); amend-tasks accepts an optional but valid target; amend-spec / defer / backlog must not carry a target",
+		"PRUNE_RESTORE_NOT_FOUND": "run `loaf prune --history` to list trashed sessions (slice 6b)",
+		"PRUNE_RESTORE_AMBIGUOUS": "re-run `loaf prune restore <id> --at <ts>` with one of the listed timestamps",
+		"PRUNE_RESTORE_INCOMPLETE": "inspect the trash bucket; a complete bucket has manifest.json + registry.json",
+		"PRUNE_PATH_OCCUPIED": "move or remove the occupying registry entry / feature dir, then retry restore",
+		"PRUNE_PARTIAL_FAILURE": "inspect detail.failed; rerun prune for the failed sessions after resolving the error",
+		"MUTUALLY_EXCLUSIVE_FLAGS": "pass at most one of the flags from each exclusion set; see `loaf <cmd> --help` for the canonical flag list",
+		"INVALID_ENV_VALUE": "unset {env_name} or set it to one of: {accepted}",
+		"INVALID_FORMAT": "pass --format text or --format json (the only allowed values for this release); --format=<value> equals form is accepted",
+		"INVALID_LOCALE": "unset the locale override or set it to one of: {accepted}; user preferences live in ~/.loaf/config.json locale.default_lang",
+		"DRY_RUN_NOT_APPLICABLE": "--dry-run only applies to mutating commands; re-run without --dry-run (or -n) to invoke the {command_type} command",
+		"HOOK_EVENT_NOT_IMPLEMENTED": "upgrade to a loaf release that implements this hook event, OR skip this hook surface for now — `loaf hook --list-events` shows the canonical 4-event enum",
+		"TASK_STATUS_WITHOUT_PROOF": "emit `loaf evidence add` covering task_id={task_id} before advancing status (task-evidence is otherwise enforced later at verify-min / verify-accept)",
+		"MISSING_VERIFIABILITY": "add one of: measurable with metric, threshold, and optional unit/direction; verified_by_scenarios: [SCEN-...]; or acceptance_na: true with acceptance_na_reason of at least 10 characters",
+		"VAGUE_NO_SCENARIO": "either add measurable with a numeric threshold and direction, or add the verifying SCEN-id to verified_by_scenarios",
+		"DRIVES_NOT_BOUND": "add a task whose drives[] contains {req_id} (loaf tasks add --input ...), or remove the REQ if it is intentionally out-of-scope for this feature",
+		"MUTATION_OUT_OF_RIGHTS": "the mutation rights matrix (protocol.md §8.6) limits EXECUTE.plan `tasks amend` to execution[].applicability changes plus a status pending→ready advance; graph/kind-flag fields are frozen. To restructure the task graph, raise a `finding raise --action amend-tasks` back-edge, then run the sponsored `tasks add --finding` / `tasks amend --input --finding` at EXECUTE.work — a sponsored amend may change graph/definition fields but never erases execution progress (task/step status is frozen)",
+		"LOCK_TIMEOUT": "another loaf process is holding the feature lease; wait for it to release. A later writer automatically reclaims a lease only when its PID is verifiably dead and the owner generation is unchanged; malformed leases fail closed and require inspection.",
+		"LOCK_INVALID": "inspect the lease and active loaf processes; malformed leases fail closed and no loaf command deletes them. Remove or replace the file only after independently proving that no writer owns it.",
+		"FEATURE_NOT_FOUND": "run `loaf start <description>` to create a new feature, or cd into a directory that already has a .loaf/<feature>/ subtree",
+		"FEATURE_AMBIGUOUS": "disambiguate with --feature <name>, --session <UUID>, or set $LOAF_FEATURE / $LOAF_SESSION in the environment",
+		"SESSION_CWD_MISMATCH": "cd to the registered cwd before issuing the command, or pass a different --session, or drop --session to auto-pick a session in the current cwd",
+		"SESSION_SHORT_AMBIGUOUS": "pass a longer UUID prefix (≥8 chars are required; use more to disambiguate) or pass the full UUID",
+		"SESSION_NOT_FOUND": "run `loaf sessions list --in-cwd` to see registered sessions (future SC-9b), or run `loaf start <name>` to create one",
+		"PENDING_BLOCKS_ADVANCE": "resolve the head with the kind-appropriate command: `loaf gate decide <G>` for kind=gate_decision; `loaf profile escalate --confirm --input <ceremony.json>` for kind=profile_escalation; `loaf pending resolve --answer <a>` for the rest",
+		"GATE_NOT_PENDING": "resolve the current head first via the kind-appropriate command, or wait for the gate_decision pending to appear",
+		"ESCALATION_NOT_PENDING": "resolve the current head first via the kind-appropriate command, or wait for the profile_escalation pending to appear",
+		"ACTOR_AUTHORITY_VIOLATION": "use the command surface that owns this kind; human-only kinds require an interactive human actor resolved by LOAF_USER or git user.email",
+		"FROM_CURSOR_MISMATCH": "refresh the current session state and emit the transition from the actual cursor; do not replay a stale transition candidate",
+		"INVALID_ENVELOPE": "rebuild the entry through the CLI mutator so seq, entry_id, actor, kind, payload, and batch markers satisfy JournalEntry",
+		"INVALID_PAYLOAD": "fix the payload to match the PER_KIND_PAYLOAD schema for this kind and retry the mutator",
+		"SEQ_NOT_MONOTONIC": "refresh tail_seq under the session lock and retry; if the tail is corrupt run `loaf doctor --check-tail`",
+		"SETTLE_PHASE_BYPASS": "for deep profile, advance from VERIFY.accept to SETTLE.lessons via `loaf settle`; if SETTLE is not desired, start/continue a standard ceremony flow instead",
+		"SETTLE_PHASE_DISABLED": "for non-deep profiles (quick / light / standard), advance from VERIFY.accept to DONE.delivered via `loaf deliver`; to enter SETTLE, escalate ceremony to deep",
+		"SPEC_PHASE_FORK_VIOLATION": "follow the ceremony fork: spec_phase=true traverses SPEC.*, spec_phase=false goes directly to EXECUTE.plan",
+		"SUB_STATE_AUTHORITY_VIOLATION": "advance/back-edge to a sub_state that permits this journal kind, or use the command valid for the current state",
+		"TRANSITION_ILLEGAL": "choose one of the allowed forward transitions for the current sub_state, or use an explicit terminal/archive path when supported",
+		"VERIFY_PHASE_FORK_VIOLATION": "follow the ceremony fork: verify_phase=true enters VERIFY.plan, verify_phase=false can deliver after minimal verification",
+		"EXECUTE_DONE_TASKS_NOT_FINAL": "finish the remaining steps — run each task's steps via `loaf tasks step` until it auto-promotes to status=done — OR abandon out-of-scope tasks with `loaf tasks abandon <T-N> --reason \"...\"`, then retry `loaf advance EXECUTE.done`; see detail.non_final for the tasks still pending or in progress",
+		"ALREADY_STARTED": "resume the existing session or create a new feature directory instead of starting over initialized state",
+		"FINDING_NOT_FOUND": "list open findings and close an existing id, or raise the finding before closing it",
+		"NO_SESSION": "run `loaf start` before emitting non-bootstrap journal entries",
+		"PENDING_NOT_FOUND": "resolve the current pending head only; list pending items and retry with the head id",
+		"REDUCER_NOT_IMPLEMENTED": "implement the journal kind in the exhaustive reducer switch before appending it",
+		"ENTRY_OVERSIZE": "move long text into sidecar form via LongTextField instead of embedding it inline",
+		"SHORT_WRITE": "stop writing, preserve the journal, and run `loaf doctor --check-tail` before retrying",
+		"TAIL_CORRUPTION": "run `loaf doctor --check-tail`; do not append until the tail has been repaired or quarantined",
+		"INVALID_ACTOR_FORMAT": "set LOAF_USER to the raw human identifier without a namespace prefix, or unset it to allow interactive git user.email fallback",
+		"NO_HUMAN_ACTOR": "run interactively with git user.email configured, or set LOAF_USER explicitly",
+		"DUPLICATE_REQ_ID": "allocate a fresh REQ id under the same id_namespace (the CLI scans for max serial + 1 inside the per-session lock) or `loaf finding raise --category spec-gap --action amend-spec` if you need to retire the existing REQ",
+		"DUPLICATE_SCEN_ID": "allocate a fresh SCEN id under the same id_namespace, or amend via finding mechanism if retiring an existing scenario",
+		"DUPLICATE_VIS_ID": "allocate a fresh VIS id under the same id_namespace, or amend via finding mechanism if retiring an existing visual contract",
+		"SPEC_FRONTMATTER_INVALID": "subcode=SPEC_NOT_FOUND: run `loaf spec init` then `loaf spec submit` to seed spec.md; subcode=SPEC_YAML_INVALID: check the `---`-fenced YAML block at the top of spec.md for syntax errors; subcode=SPEC_FRONTMATTER_INVALID: run `loaf spec schema --format=json` to dump the SpecFrontmatter JSON Schema (Phase 16 SC-10) and fix the offending field. Both spec-lock and verify-accept require a valid spec.md at check 1.",
+		"SPEC_HAS_UNCLARIFIED": "edit spec.md to remove resolved needs_clarification entries, or run `loaf finding raise --category spec-gap --action clarify` to formalize the resolution flow; spec-lock check 2 requires needs_clarification === []",
+		"TASK_NOT_FOUND": "run `loaf tasks list` to see live ids; if you meant to add a new task, use `loaf tasks add` instead of amend/step; if you expected the id to exist, the projection may be stale — run `loaf doctor --rebuild` to rebuild from journal",
+		"TASK_STEP_NOT_FOUND": "use only the per-kind step names — behavioral: red/implement/refactor; structural: implement/refactor; visual-ui: mockup/implement/screenshot-compare; docs: draft/review; spike: explore/prototype/record; chore: execute. Running an unseeded step name was a silent add bug in v0.0.x — sub-cycle 3a fails fast instead",
+		"DUPLICATE_TASK_ID": "tasks_planned is whole-replacement — each task id must be unique within the batch. Rename one or merge them in the planning input",
+		"TASKS_NOT_PLANNED": "run `loaf tasks submit --input <plan-file>` to emit event:tasks_planned and seed the task graph; spec-lock check 3 and verify-accept check 4 both require tasks_based_on.spec to match the current spec.spec_version",
+		"TASKS_BASED_ON_STALE": "either re-plan tasks against the current spec via `loaf tasks submit` (whole-replacement), or amend individual tasks via `loaf tasks add/amend` + raise a `loaf finding raise --category spec-gap --action amend-spec` if a spec roll-back is needed. Surfaces for spec-lock (check 3) and verify-accept (check 4 precondition).",
+		"REQ_NOT_DRIVEN": "add a task whose drives[] array includes {req_id}, or remove the requirement from spec.md if it is no longer in scope. Note: this is the REQ-side coverage code (distinct from legacy DRIVES_NOT_BOUND which named the inverse direction)",
+		"E2E_SCENARIO_UNBOUND": "either (a) add a task with requires_acceptance=true and drives including {scenario_id}, or (b) mark the scenario with acceptance_na=<reason ≥5 chars> in spec.md if e2e acceptance is intentionally skipped for this iteration",
+		"VISUAL_CONTRACT_UNBOUND": "either (a) add a visual-ui task with visual_contract_refs including {visual_id}, or (b) mark the visual_contract with visual_na=<reason ≥5 chars> in spec.md if visual verification is intentionally deferred",
+		"TASK_KIND_SCHEMA_VIOLATION": "amend the task to satisfy its kind contract: structural/docs/spike/chore require no_test_rationale (string ≥10 chars); visual-ui requires visual_contract_refs[] with ≥1 entry. Slice C R2: bug-task RED is execution discipline, not a spec-lock obligation — a behavioral task with labels=['bug'] is born unregistered, and RED registration is enforced at runtime by BUG_TASK_REQUIRES_RED (preflight, implement step) and BUG_TASK_RED_NOT_REGISTERED (verify-accept), never by this check",
+		"GATE_PRECONDITION_VIOLATION": "this is a mutate-layer envelope around the underlying gate checks (see detail.checks for the list). spec-lock failure codes: MISSING_VERIFIABILITY / REQ_NOT_DRIVEN / E2E_SCENARIO_UNBOUND / VISUAL_CONTRACT_UNBOUND / TASKS_NOT_PLANNED / TASKS_BASED_ON_STALE / TASK_KIND_SCHEMA_VIOLATION / SPEC_HAS_UNCLARIFIED. verify-accept failure codes: VERIFY_LANE_NOT_PASSED / OPEN_FINDINGS_PRESENT / COVERAGE_NOT_SATISFIED / TASK_DONE_NO_EVIDENCE / SPEC_REVIEW_MISSING / SPEC_REVIEW_IMPLEMENTER_CONFLICT / SPEC_REVIEW_IMPLEMENTER_UNKNOWN / TASKS_NOT_PLANNED (precondition) / TASKS_BASED_ON_STALE (precondition). Fix each listed check then retry the gate decision. Pass 1.5 runs after preflight + reducer dry-run + before sidecar promotion, so a rejected gate batch leaves no on-disk residue.",
+		"MULTIPLE_GATE_DECISIONS": "split the batch — emit each gate decision as its own mutation. A batch carrying ≥2 gate approvals (even with different gate_kinds, e.g. spec-lock + verify-accept) is not a valid atomic operation. Rejected gate decisions are not counted; only approvals trigger this rule",
+		"GATE_NOT_IMPLEMENTED": "use `loaf gate decide spec-lock` or `loaf gate decide verify-accept`. Future gates beyond v0.1.0 would extend the GateName enum in journal-entry.ts + evidence-schema.ts (lockstep) and wire here.",
+		"VERIFY_LANE_NOT_PASSED": "add an evidence:added entry with check={lane} (or a matching kind via the narrow fallback map: local-check/task-summary→run, verify-review/spec-review→review, acceptance→acceptance, visual-review→visual) and result one of `passed`, `approved`, or `waived`. Applicable lanes derive from spec: REQ ⇒ REVIEW, SCEN.tag=e2e ⇒ ACCEPTANCE, VIS ⇒ VISUAL, done task ⇒ RUN+REVIEW.",
+		"OPEN_FINDINGS_PRESENT": "complete the declared action for each listed finding, then run `loaf finding close <FND-id>`; if the honest disposition is carry-forward, raise it with action=defer or action=backlog instead. verify-accept excludes only open findings whose existing action declares deferral",
+		"COVERAGE_NOT_SATISFIED": "add evidence:added covering {covered_id} per protocol §5.4: REQ allows task-summary/verify-review/spec-review/manual+reason/waiver+reason; SCEN.tag=e2e allows acceptance/manual+reason/waiver+reason; VIS allows visual-review+attachment/manual+reason/waiver+reason. Result must be passed/approved/waived per §1035.",
+		"TASK_DONE_NO_EVIDENCE": "add evidence:added with covers including {task_id} and kind in the T-allowed set. Most commonly: a task-summary written on closing the task; alternatively local-check (test/lint/typecheck run), manual (human attest), or waiver (human waiver with reason ≥10 chars).",
+		"SPEC_REVIEW_MISSING": "have an independent reviewer (not the implementer of done tasks; not a cli:* automation actor) run a spec review and add an evidence:added with kind=spec-review and result `passed` or `approved`. Note: result=waived does NOT count for spec-review (kind=spec-review + result=waived bypasses the human+reason refine guarantee that kind=manual or kind=waiver provides).",
+		"SPEC_REVIEW_IMPLEMENTER_CONFLICT": "have a non-implementer (someone other than the actors on done-task task-summary/local-check evidence) submit an additional evidence with kind=spec-review and result `passed` or `approved`. One independent reviewer is sufficient — implementer self-reviews can coexist.",
+		"SPEC_REVIEW_IMPLEMENTER_UNKNOWN": "ensure at least one done-task evidence (task-summary or local-check) carries a non-cli:* actor (e.g. human:dev@example.com); the strict_spec_review comparison requires a real implementer identity to compare against. Without it, the gate cannot prove the spec reviewer is independent.",
+		"DELIVER_NOT_ACCEPTED": "run `loaf gate decide verify-accept --approve --reason \"...\"` first; the gate flips snapshot.state.verify_accepted before `loaf deliver` will accept the session:delivered entry",
+		"DELIVER_SETTLE_PHASE_BYPASS": "for ceremony.settle_phase=true (deep), run `loaf settle` to enter SETTLE.lessons, record lessons, then `loaf deliver`; only standard ceremony delivers directly from VERIFY.accept",
+		"DELIVER_VERIFY_MIN_UNAVAILABLE": "upgrade to v0.1.1+ where quick / light deliver runs the verify-min per-task evidence check; on failure see DELIVER_VERIFY_MIN_INCOMPLETE",
+		"DELIVER_VERIFY_MIN_INCOMPLETE": "for each listed task add evidence covering it — code tasks need a `local-check` (test/lint/typecheck) run, visual-ui needs visual-review or manual, docs needs task-summary or manual — or `loaf waive` it; then `loaf deliver` again",
+		"DELIVER_SPIKE_TASKS": "abandon the spike task (`loaf tasks abandon {task_id} --reason \"...\"`) or convert it to a feature (`loaf spike convert --to-feature F-N --reason \"...\"`); spike tasks must not remain in non-abandoned status when the session delivers",
+		"SETTLE_NOT_ACCEPTED": "run `loaf gate decide verify-accept --approve --reason \"...\"` before `loaf settle`; the gate flips snapshot.state.verify_accepted before the transition validator will admit the SETTLE entry",
+		"SPEC_LOCK_NOT_SATISFIED": "run `loaf gate decide spec-lock --approve --reason \"...\"` before `loaf advance EXECUTE.plan`; the gate runs the 8 spec-lock checks and flips snapshot.state.spec_locked before the transition validator will admit the EXECUTE.plan entry",
+		"TASK_NOT_CLAIMABLE": "tasks with status=done are already complete; status=abandoned tasks cannot be reactivated. Run `loaf tasks list` to inspect the task graph, or `loaf tasks next` to pick a different ready task",
+		"TASK_ALREADY_CLAIMED": "another worker may already hold this task; run `loaf tasks list` to inspect active claims. Stale-claim release is handled in a future slice (no CLI surface for abandon in v0.1.0 yet) — raise a finding with action=fix-impl if needed",
+		"TASK_DEP_NOT_FOUND": "add the referenced task in the same atomic batch, or amend the dependency to an existing task, then retry",
+		"TASK_DEP_SELF": "remove the self-reference from depends_on, then retry the task graph mutation",
+		"TASK_DEP_DUPLICATE": "keep each dependency id only once in depends_on, then retry",
+		"TASK_DEP_CYCLE": "remove or redirect one dependency in the reported closed path, then retry",
+		"TASK_DEP_ABANDONED": "use an amend-tasks-sponsored task amendment to replace the abandoned dependency, then retry",
+		"TASK_DEPS_NOT_SATISFIED": "complete deps_on tasks first (run `loaf tasks list --status pending` to see what is blocking), or use `loaf tasks next` to pick a task with all deps satisfied",
+		"TASK_NOT_CLAIMED": "run `loaf tasks claim {task_id}` to move the task from pending/ready to in_progress before emitting task_step_started or task_step_done; once auto-promoted to done, steps cannot be re-mutated",
+		"TASK_NOT_ABANDONABLE": "tasks with status=done are already complete and status=abandoned tasks are already abandoned; run `loaf tasks list` to inspect the task graph and abandon a non-terminal task instead",
+		"TASK_ABANDON_BLOCKED_DEPENDENTS": "abandon or complete the dependent tasks first (see detail.blocking_dependents), then retry `loaf tasks abandon {task_id} --reason \"...\"`; abandoning a parent would strand a pending child",
+		"SESSION_REASON_REQUIRED": "re-run with `--reason \"...\"`; `loaf archive` and `loaf abandon` both require a rationale on the journal entry",
+		"PROJECTION_WRITE_FAILED": "the journal already records the change; do NOT retry the same command. Run `loaf doctor --rebuild` (when available) to resync derived projections from journal truth, or inspect `.loaf/<feature>/journal.jsonl` tail manually.",
+		"FINDING_AMEND_SPEC_NOT_LOCKED": "drop --action amend-spec and use `loaf spec submit` / `loaf spec add-req` / etc. directly while spec is unlocked; amend-spec is reserved for post-`gate decide spec-lock --approve` recovery.",
+		"SPEC_VERSION_NOT_MONOTONIC": "set spec_version to {expected_spec_version} in the input payload (or omit it and let `loaf spec submit` fill the current+1 default).",
+		"SPEC_VERSION_BATCH_MISMATCH": "in a multi-entry spec batch, the head (batch_index=0) bumps spec_version to current+1 and all continuation entries (batch_index≥1) must set spec_version to that same value. Check the head entry's payload.spec_version and align companions.",
+		"TASK_COMPLETE_PRECONDITION_VIOLATED": "finish each blocking step via `loaf tasks step start/done`; a task auto-promotes to status=done once every must-applicable step is passed/waived/na, and `loaf tasks complete` then confirms it. Run `loaf tasks list` to inspect step status.",
+		"BUG_TASK_REQUIRES_RED": "run `loaf tasks register-red {task_id}` once the failing RED test is in place; protocol §9.3 requires RED registration before the implement step of a behavioral task labelled `bug`.",
+		"BUG_TASK_FLAG_MISUSE": "do not set red_test_registered in a planned task or on a non-red step; the flag is owned by `loaf tasks register-red`, which the reducer promotes to task-level registration.",
+		"BUG_TASK_RED_NOT_REGISTERED": "a done behavioral bug task must have registered its RED test via `loaf tasks register-red`; this is a verify-accept defense-in-depth check for raw-API journals — rebuild the journal or register RED retroactively before re-running the gate.",
+		"SPIKE_CONVERT_NO_SPIKE_TASK": "run `loaf spike convert` only from a session that holds a kind=spike task; for a non-spike session close it with `loaf archive --reason \"...\"` or `loaf abandon --reason \"...\"`",
+		"SNAPSHOT_STALE_REBUILD_REQUIRED": "snapshot meta/leaves no longer agree with the journal tail; run `loaf doctor --rebuild --feature <feature>` to re-serialize from journal truth, then retry. Inspect detail.reason + reason-specific fields (meta_path / projection_kind / cause) to triage corruption source before rebuilding.",
+		"JOURNAL_TAIL_REQUIRES_NEWER_LOAF": "preserve journal.jsonl byte-for-byte and upgrade loaf to a version that understands this entry before running tail recovery again",
+		"INVALID_PRESET": "Use one of quick, light, standard, or deep.",
+		"USAGE": "Run the command with --help and retry with the required flags/arguments.",
+		"DOCTOR_MODE_NOT_IMPLEMENTED": "Use loaf doctor --rebuild --feature <name>; other doctor modes are deferred.",
+		"DOCTOR_FEATURE_REQUIRED": "Pass --feature <name> or --feature-dir <path> for the session to rebuild.",
+		"DOCTOR_REBUILD_FAILED": "Inspect the emitted error message; fix the journal/projection issue, then rerun doctor --rebuild.",
+		"REDUCER_ERROR": "Preserve the journal and command stderr; this indicates a loaf-cli bug or inconsistent projection state.",
+		"APPEND_ERROR": "preserve journal.jsonl and the emitted detail, then inspect the append error before retrying; if a write may have started, run `loaf doctor` to verify journal integrity",
+		"SIDECAR_ERROR": "inspect the emitted error and attachment path permissions; validation already passed, so remove any orphan sidecar residue before retrying",
+		"INVALID_BATCH": "rebuild the batch through the CLI mutator without caller-owned envelope fields and with entries + meta matching the current journal tail",
+		"SCOPE_RECORDED_BATCH_INVALID": "emit at most one scope:recorded immediately before exactly one EXECUTE.work to EXECUTE.done transition in the same batch",
+		"SCOPE_RECORDED_ITERATION_DUPLICATE": "reuse the recorded closure result for this iteration or advance through a finding back-edge before recording a new closure",
+		"ACTUAL_SCOPE_HISTORY_INCOMPLETE": "do not fabricate an empty actual_scope; preserve the journal and rerun the feature's EXECUTE work with an F-027-capable loaf version before auditing scope. Pre-F-027 closure scope cannot be reconstructed from journal history.",
+		"WRITE_PATH_VIOLATION": "write within the current step's contract, advance to the right sub_state/step first, or widen the matching `paths.*` category in .loaf/.config/loaf.config.json",
+		"PROTECTED_FILE_WRITE": "remove the entry from protected_files in .loaf/.config/loaf.config.json if the protection is wrong, otherwise write a different file"
+	},
+	diagnostic_variant: { "failure": {
+		"check": {
+			"path_missing": "file not found: {path}",
+			"selector_conflict": "check does not accept {conflicting} — it validates a file by path, independent of any feature session",
+			"kind_required": "`{subject}` is not a file path. To validate a {kind} artifact, pass its path: `{suggestion}` (noun-first `loaf {kind} check` is reserved for a future release)",
+			"kind_invalid": "--kind '{value}' is not recognized; expected one of {allowed_kinds_human}"
+		},
+		"profile": {
+			"input_file_missing": "input file does not exist: {path}",
+			"input_file_unreadable": "cannot read input file {path}: {error}"
+		},
+		"lessons": {
+			"file_missing": "lesson file not found: {path}",
+			"text_too_short": "lesson text must be ≥{min_length} chars (got {lesson_text_length})",
+			"reason_too_short": "--reason must be ≥{min_length} chars (got {reason_length})",
+			"text_file_mutex": "exactly one of --text or --file required ({provided_state})"
+		},
+		"hook": {
+			"stdin_parse_failed": "{reason}",
+			"missing_event": "loaf hook requires an event token; one of: {events}. Run `loaf hook --list-events` for the full enum",
+			"unknown_event": "unknown hook event '{event}'; expected one of: {allowed}. Did you mean '{suggestion}'?",
+			"write_path_missing": "write-side hook requires --path <P> or a non-TTY stdin hook payload (tool_input.file_path)"
+		},
+		"schema": {
+			"validation": "{kind} at {path} failed schema validation ({error_count} {error_word})",
+			"selector_conflict": "{subject} does not accept {conflicting} — schema dumps are feature-agnostic"
+		},
+		"handoff": {
+			"pack_validation_failed": "ResumePack failed runtime validation (builder bug or schema drift)",
+			"reason_too_short": "--reason must be ≥{min_length} chars (got {reason_length})"
+		},
+		"tasks_add": { "empty_array": "tasks add input is an empty array" },
+		"write_guard": { "config_invalid": "write-guard blocked: {reason}" },
+		"no_session": {
+			"status": "run `loaf start {feature}` first",
+			"advance": "run `loaf start {feature}` first",
+			"tasks": "run `loaf start {feature}` first",
+			"pending": "run `loaf start {feature}` first",
+			"finding": "run `loaf start {feature}` first",
+			"verify": "run `loaf start {feature}` first",
+			"generic": "run `loaf start {feature}` first"
+		},
+		"sessions_list": { "selector_conflict": "sessions list does not accept {conflicting} — it lists across all sessions; use --in-cwd to filter" },
+		"tui": {
+			"selector_conflict": "tui does not accept {conflicting} — it lists across all sessions; selectors are nonsensical for an interactive UI",
+			"interactive_only": "tui is interactive-only; use `loaf sessions list --format json` for scriptable session output"
+		},
+		"dispatch": {
+			"session_feature_dir_conflict": "{conflicting} cannot be combined with --feature-dir (session identity comes from registry; manual featureDir is contradictory)",
+			"feature_dir_requires_feature": "--feature-dir requires --feature <name> or $LOAF_FEATURE to name the feature"
+		},
+		"start": {
+			"label_too_short": "--label must be at least {min_length} characters",
+			"workspace_empty": "--workspace must not be empty"
+		},
+		"finding": { "status_invalid": "--status must be one of: {allowed_statuses_human} (got {value})" },
+		"journal": {
+			"integer_invalid": "{flag} must be an integer >= {minimum} (got {value})",
+			"kind_invalid": "--kind must be a registered journal kind (got {value})",
+			"actor_invalid": "--actor must be a non-empty actor prefix or full actor string"
+		},
+		"evidence": {
+			"covers_invalid": "--covers must be a valid coverage id (got {value})",
+			"task_invalid": "--task must be a valid task id (got {value})",
+			"kind_invalid": "--kind must be one of: {allowed_kinds_human}"
+		}
+	} },
+	diagnostic_variant_fix: { "failure": {
+		"check": {
+			"path_missing": "verify the path, or pass '-' to read from stdin / inline JSON starting with a JSON object or array — see `loaf <cmd> --help` for examples",
+			"selector_conflict": "Run the command with --help and retry with the required flags/arguments.",
+			"kind_required": "Run the command with --help and retry with the required flags/arguments.",
+			"kind_invalid": "Run the command with --help and retry with the required flags/arguments."
+		},
+		"profile": {
+			"input_file_missing": "verify the path, or pass '-' to read from stdin / inline JSON starting with a JSON object or array — see `loaf <cmd> --help` for examples",
+			"input_file_unreadable": "verify the path, or pass '-' to read from stdin / inline JSON starting with a JSON object or array — see `loaf <cmd> --help` for examples"
+		},
+		"lessons": {
+			"file_missing": "verify the path, or pass '-' to read from stdin / inline JSON starting with a JSON object or array — see `loaf <cmd> --help` for examples",
+			"text_too_short": "Run the command with --help and retry with the required flags/arguments.",
+			"reason_too_short": "Run the command with --help and retry with the required flags/arguments.",
+			"text_file_mutex": "Run the command with --help and retry with the required flags/arguments."
+		},
+		"hook": {
+			"stdin_parse_failed": "pass --path <P> or a non-TTY hook payload containing tool_input.file_path, then retry the hook",
+			"missing_event": "Run the command with --help and retry with the required flags/arguments.",
+			"unknown_event": "Run the command with --help and retry with the required flags/arguments.",
+			"write_path_missing": "Run the command with --help and retry with the required flags/arguments."
+		},
+		"schema": {
+			"validation": "fix the reported fields in {path}, then rerun `loaf check {path} --kind {kind}`",
+			"selector_conflict": "Run the command with --help and retry with the required flags/arguments."
+		},
+		"handoff": {
+			"pack_validation_failed": "preserve the session journal and report the failed ResumePack runtime validation; retry with a corrected loaf version",
+			"reason_too_short": "Run the command with --help and retry with the required flags/arguments."
+		},
+		"tasks_add": { "empty_array": "provide at least one task object; run `loaf tasks add --schema --format=json` to inspect the authoring input" },
+		"write_guard": { "config_invalid": "repair .loaf/.config/loaf.config.json, then retry the write-side hook" },
+		"no_session": {
+			"status": "run `loaf start` before emitting non-bootstrap journal entries",
+			"advance": "run `loaf start` before emitting non-bootstrap journal entries",
+			"tasks": "run `loaf start` before emitting non-bootstrap journal entries",
+			"pending": "run `loaf start` before emitting non-bootstrap journal entries",
+			"finding": "run `loaf start` before emitting non-bootstrap journal entries",
+			"verify": "run `loaf start` before emitting non-bootstrap journal entries",
+			"generic": "run `loaf start` before emitting non-bootstrap journal entries"
+		},
+		"sessions_list": { "selector_conflict": "Run the command with --help and retry with the required flags/arguments." },
+		"tui": {
+			"selector_conflict": "Run the command with --help and retry with the required flags/arguments.",
+			"interactive_only": "Run the command with --help and retry with the required flags/arguments."
+		},
+		"dispatch": {
+			"session_feature_dir_conflict": "Run the command with --help and retry with the required flags/arguments.",
+			"feature_dir_requires_feature": "Run the command with --help and retry with the required flags/arguments."
+		},
+		"start": {
+			"label_too_short": "Run the command with --help and retry with the required flags/arguments.",
+			"workspace_empty": "Run the command with --help and retry with the required flags/arguments."
+		},
+		"finding": { "status_invalid": "Run the command with --help and retry with the required flags/arguments." },
+		"journal": {
+			"integer_invalid": "Run the command with --help and retry with the required flags/arguments.",
+			"kind_invalid": "Run the command with --help and retry with the required flags/arguments.",
+			"actor_invalid": "Run the command with --help and retry with the required flags/arguments."
+		},
+		"evidence": {
+			"covers_invalid": "Run the command with --help and retry with the required flags/arguments.",
+			"task_invalid": "Run the command with --help and retry with the required flags/arguments.",
+			"kind_invalid": "Run the command with --help and retry with the required flags/arguments."
+		}
+	} },
 	failure: {
 		"sessions_list": { "selector_conflict": "sessions list does not accept {conflicting} — it lists across all sessions; use --in-cwd to filter" },
 		"tui": {
@@ -6613,6 +7494,78 @@ var zh_default = {
 		"WRITE_PATH_VIOLATION": "写入被拦截:`{normalized_path}` 不在 sub_state `{sub_state}` 的允许写入路径内",
 		"PROTECTED_FILE_WRITE": "写入被拦截:`{normalized_path}` 命中 protected_files 条目 `{matched_deny}` —— 受保护文件永不可写"
 	},
+	diagnostic_fix: {
+		"JOURNAL_TAIL_REQUIRES_NEWER_LOAF": "保持 journal.jsonl 字节不变，升级到能识别该 entry 的 loaf 版本后再运行 tail recovery",
+		"ACTUAL_SCOPE_HISTORY_INCOMPLETE": "不要伪造空 actual_scope;保留 journal,使用支持 F-027 的 loaf 版本重新执行该 feature 的 EXECUTE work 后再审计 scope。pre-F-027 closure scope 无法从 journal 历史重建。"
+	},
+	diagnostic_variant: { "failure": {
+		"check": {
+			"path_missing": "input file 不存在:{path}",
+			"selector_conflict": "check 不接受 {conflicting} —— 它按路径校验文件,独立于 feature session",
+			"kind_required": "`{subject}` 不是文件路径. 如需校验 {kind} artifact,需要显式路径: `{suggestion}`(noun-first `loaf {kind} check` 预留给未来版本)",
+			"kind_invalid": "--kind 必须是 {allowed_kinds_human};当前为 '{value}'"
+		},
+		"profile": {
+			"input_file_missing": "input file 不存在:{path}",
+			"input_file_unreadable": "无法读取 input file {path}:{error}"
+		},
+		"lessons": {
+			"file_missing": "lesson file 不存在:{path}",
+			"text_too_short": "lesson text 必须 ≥{min_length} 字符(当前 {lesson_text_length})",
+			"reason_too_short": "--reason 必须 ≥{min_length} 字符(当前 {reason_length})",
+			"text_file_mutex": "--text 和 --file 必须二选一({provided_state})"
+		},
+		"hook": {
+			"stdin_parse_failed": "hook stdin payload 解析失败:{reason}",
+			"missing_event": "loaf hook 需要 event token;可选值:{events}. 运行 `loaf hook --list-events` 查看完整枚举",
+			"unknown_event": "未知 hook event '{event}';期望值:{allowed}. 你是不是想输入 '{suggestion}'?",
+			"write_path_missing": "write-side hook 需要 --path <P> 或非 TTY stdin hook payload(tool_input.file_path)"
+		},
+		"schema": {
+			"validation": "{kind} at {path} 校验失败({error_count} {error_word})",
+			"selector_conflict": "{subject} 不接受 {conflicting} —— schema dump 与 feature 无关"
+		},
+		"handoff": {
+			"pack_validation_failed": "ResumePack 运行时校验失败(builder bug 或 schema drift)",
+			"reason_too_short": "--reason 必须 ≥{min_length} 字符(当前 {reason_length})"
+		},
+		"tasks_add": { "empty_array": "tasks add 输入不能为空数组" },
+		"write_guard": { "config_invalid": "write-guard 被拦截:{reason}" },
+		"no_session": {
+			"status": "先跑 `loaf start {feature}`",
+			"advance": "先跑 `loaf start {feature}`",
+			"tasks": "先跑 `loaf start {feature}`",
+			"pending": "先跑 `loaf start {feature}`",
+			"finding": "先跑 `loaf start {feature}`",
+			"verify": "先跑 `loaf start {feature}`",
+			"generic": "先跑 `loaf start {feature}`"
+		},
+		"sessions_list": { "selector_conflict": "sessions list 不接受 {conflicting} —— 它会跨全部 session 列表;如需过滤当前 cwd,使用 --in-cwd" },
+		"tui": {
+			"selector_conflict": "tui 不接受 {conflicting} —— 它会跨全部 session 列表;selector 对交互 UI 没有意义",
+			"interactive_only": "tui 仅支持交互模式;脚本化 session 输出请使用 `loaf sessions list --format json`"
+		},
+		"dispatch": {
+			"session_feature_dir_conflict": "{conflicting} 不能与 --feature-dir 一起使用(session identity 来自 registry;手动 featureDir 会矛盾)",
+			"feature_dir_requires_feature": "--feature-dir 需要 --feature <name> 或 $LOAF_FEATURE 来命名 feature"
+		},
+		"start": {
+			"label_too_short": "--label 至少需要 {min_length} 个字符",
+			"workspace_empty": "--workspace 不能为空"
+		},
+		"finding": { "status_invalid": "--status 必须是:{allowed_statuses_human}(当前 {value})" },
+		"journal": {
+			"integer_invalid": "{flag} 必须是 >= {minimum} 的整数(当前 {value})",
+			"kind_invalid": "--kind 必须是已注册的 journal kind(当前 {value})",
+			"actor_invalid": "--actor 必须是非空 actor 前缀或完整 actor 字符串"
+		},
+		"evidence": {
+			"covers_invalid": "--covers 必须是有效的 coverage id(当前 {value})",
+			"task_invalid": "--task 必须是有效的 task id(当前 {value})",
+			"kind_invalid": "--kind 必须是:{allowed_kinds_human}"
+		}
+	} },
+	diagnostic_variant_fix: {},
 	failure: {
 		"sessions_list": { "selector_conflict": "sessions list 不接受 {conflicting} —— 它会跨全部 session 列表;如需过滤当前 cwd,使用 --in-cwd" },
 		"tui": {

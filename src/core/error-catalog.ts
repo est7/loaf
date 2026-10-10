@@ -144,8 +144,7 @@ export type UncoveredTemplatePlaceholders<E> = Exclude<
   EntryTemplateKeys<E>
 >;
 
-export const ErrorEntry = z.object({
-  exit_code: z.literal(2),
+export const DiagnosticTemplate = z.object({
   // Rendered into the `error:` line. May contain {placeholder} tokens
   // resolved against caller-provided vars at emit time.
   message_template: z.string().min(3),
@@ -163,8 +162,16 @@ export const ErrorEntry = z.object({
   // context; adapter maps template_key -> detail_key for deliberate renames.
   detail_keys: z.array(TemplateKey).readonly().optional(),
   adapter: z.record(TemplateKey, TemplateKey).optional(),
+  list_separator: z.record(TemplateKey, z.string()).optional(),
   // Rendered into the `see:` line. Anchor into protocol.md or a doc URL.
   doc_anchor: z.string().min(3).optional(),
+});
+export type DiagnosticTemplate = z.infer<typeof DiagnosticTemplate>;
+export const ErrorEntry = DiagnosticTemplate.extend({
+  exit_code: z.literal(2),
+  // Existing failure site identifiers only. A context is required when
+  // code + the existing subcode cannot distinguish these templates.
+  variants: z.record(z.string(), DiagnosticTemplate).optional(),
 });
 export type ErrorEntry = z.infer<typeof ErrorEntry>;
 
@@ -177,6 +184,45 @@ export const ERROR_CATALOG = {
       "verify the path, or pass '-' to read from stdin / inline JSON starting with a JSON object or array — see `loaf <cmd> --help` for examples",
     template_keys: ["path"],
     doc_anchor: "protocol.md#§10.7",
+    detail_keys: ["path"],
+    variants: {
+      "failure.check.path_missing": {
+        message_template: "file not found: {path}",
+        zh_message_template: "input file 不存在:{path}",
+        fix_template:
+          "verify the path, or pass '-' to read from stdin / inline JSON starting with a JSON object or array — see `loaf <cmd> --help` for examples",
+        template_keys: ["path"],
+        detail_keys: ["path"],
+        doc_anchor: "protocol.md#§10.7",
+      },
+      "failure.profile.input_file_missing": {
+        message_template: "input file does not exist: {path}",
+        zh_message_template: "input file 不存在:{path}",
+        fix_template:
+          "verify the path, or pass '-' to read from stdin / inline JSON starting with a JSON object or array — see `loaf <cmd> --help` for examples",
+        template_keys: ["path"],
+        detail_keys: ["path"],
+        doc_anchor: "protocol.md#§10.7",
+      },
+      "failure.profile.input_file_unreadable": {
+        message_template: "cannot read input file {path}: {error}",
+        zh_message_template: "无法读取 input file {path}:{error}",
+        fix_template:
+          "verify the path, or pass '-' to read from stdin / inline JSON starting with a JSON object or array — see `loaf <cmd> --help` for examples",
+        template_keys: ["error", "path"],
+        detail_keys: ["error", "path"],
+        doc_anchor: "protocol.md#§10.7",
+      },
+      "failure.lessons.file_missing": {
+        message_template: "lesson file not found: {path}",
+        zh_message_template: "lesson file 不存在:{path}",
+        fix_template:
+          "verify the path, or pass '-' to read from stdin / inline JSON starting with a JSON object or array — see `loaf <cmd> --help` for examples",
+        template_keys: ["path"],
+        detail_keys: ["path"],
+        doc_anchor: "protocol.md#§10.7",
+      },
+    },
   },
   MISSING_INPUT: {
     exit_code: 2,
@@ -191,6 +237,7 @@ export const ERROR_CATALOG = {
       "pass --input with one of: a JSON file path, '-' for stdin (with valid piped JSON), or inline JSON; for stdin failures, pass valid JSON to `loaf <cmd> --input -` on stdin; for the 6 schema-capable authoring commands (spec add-req / spec add-scenario / spec add-visual / tasks submit / tasks add / evidence add), run `loaf <cmd> --schema --format=json` to view the input schema",
     template_keys: [],
     doc_anchor: "protocol.md#§10.7",
+    detail_keys: [],
   },
   SPEC_EDIT_INPUT_REQUIRED: {
     exit_code: 2,
@@ -211,6 +258,53 @@ export const ERROR_CATALOG = {
       "for the 6 schema-capable authoring commands (spec add-req / spec add-scenario / spec add-visual / tasks submit / tasks add / evidence add), run `loaf {command} --schema --format=json` to dump the input JSON Schema; for artifact projection files, run `loaf <kind> schema --format=json` (kind ∈ spec / tasks / evidence / finding / state). Fix the offending field and retry",
     template_keys: ["command", "zod_message", "zod_path"],
     doc_anchor: "protocol.md#§10.5",
+    detail_keys: ["command", "zod_message", "zod_path"],
+    variants: {
+      "failure.hook.stdin_parse_failed": {
+        message_template: "{reason}",
+        zh_message_template: "hook stdin payload 解析失败:{reason}",
+        fix_template:
+          "pass --path <P> or a non-TTY hook payload containing tool_input.file_path, then retry the hook",
+        template_keys: ["reason"],
+        detail_keys: ["reason"],
+        doc_anchor: "protocol.md#§10.5",
+      },
+      "failure.schema.validation": {
+        message_template: "{kind} at {path} failed schema validation ({error_count} {error_word})",
+        zh_message_template: "{kind} at {path} 校验失败({error_count} {error_word})",
+        fix_template:
+          "fix the reported fields in {path}, then rerun `loaf check {path} --kind {kind}`",
+        template_keys: ["error_count", "error_word", "kind", "path"],
+        detail_keys: ["error_count", "error_word", "kind", "path"],
+        doc_anchor: "protocol.md#§10.5",
+      },
+      "failure.handoff.pack_validation_failed": {
+        message_template: "ResumePack failed runtime validation (builder bug or schema drift)",
+        zh_message_template: "ResumePack 运行时校验失败(builder bug 或 schema drift)",
+        fix_template:
+          "preserve the session journal and report the failed ResumePack runtime validation; retry with a corrected loaf version",
+        template_keys: [],
+        detail_keys: [],
+        doc_anchor: "protocol.md#§10.5",
+      },
+      "failure.tasks_add.empty_array": {
+        message_template: "tasks add input is an empty array",
+        zh_message_template: "tasks add 输入不能为空数组",
+        fix_template:
+          "provide at least one task object; run `loaf tasks add --schema --format=json` to inspect the authoring input",
+        template_keys: [],
+        detail_keys: [],
+        doc_anchor: "protocol.md#§10.5",
+      },
+      "failure.write_guard.config_invalid": {
+        message_template: "write-guard blocked: {reason}",
+        zh_message_template: "write-guard 被拦截:{reason}",
+        fix_template: "repair .loaf/.config/loaf.config.json, then retry the write-side hook",
+        template_keys: ["reason"],
+        detail_keys: ["reason"],
+        doc_anchor: "protocol.md#§10.5",
+      },
+    },
   },
   SPEC_LOCKED_NO_DIRECT_EDIT: {
     // Slice 4 SC3: preflight refine (5i) emits this with
@@ -226,6 +320,7 @@ export const ERROR_CATALOG = {
       "raise a finding with category=spec-gap (or spec-defect) and action=amend-spec to back-edge into SPEC.spec (the finding's resets_spec_locked effect lifts the gate); then retry the spec add/submit",
     template_keys: ["kind"],
     doc_anchor: "protocol.md#§5.3",
+    detail_keys: ["kind"],
   },
   SPEC_NOT_INITIALIZED: {
     // Slice 4 SC3: preflight refine (5i) emits this with detail.kind
@@ -243,6 +338,7 @@ export const ERROR_CATALOG = {
       "run `loaf spec submit --input <file>` first to bump spec_version to 1, then retry the add-* command (SC4 will add `loaf spec init` as a separate scaffold helper that chains into submit)",
     template_keys: ["kind"],
     doc_anchor: "protocol.md#§4.2",
+    detail_keys: ["kind"],
   },
   SPEC_ALREADY_INITIALIZED: {
     // Slice 4 SC4: `loaf spec init` refuses to overwrite an existing
@@ -255,6 +351,7 @@ export const ERROR_CATALOG = {
       "edit the existing spec.md directly, or remove it before re-running `loaf spec init` (no --force flag in Slice 4)",
     template_keys: ["spec_md_path"],
     doc_anchor: "protocol.md#§4.2",
+    detail_keys: ["spec_md_path"],
   },
   CONFIG_ALREADY_INITIALIZED: {
     exit_code: 2,
@@ -273,6 +370,7 @@ export const ERROR_CATALOG = {
       "verify the path is reachable from the working directory and readable by the current user",
     template_keys: ["path"],
     doc_anchor: "protocol.md#§4.4",
+    detail_keys: ["path"],
   },
   ATTACHMENT_NOT_FILE: {
     exit_code: 2,
@@ -281,6 +379,7 @@ export const ERROR_CATALOG = {
       "attachments must be regular files; directories, symlinks to directories, sockets, and FIFOs are rejected",
     template_keys: ["kind", "path"],
     doc_anchor: "protocol.md#§4.4",
+    detail_keys: ["kind", "path"],
   },
   FINDING_ACTION_UNUSUAL_REASON_REQUIRED: {
     exit_code: 2,
@@ -300,6 +399,7 @@ export const ERROR_CATALOG = {
       "amend the spec first (category=spec-gap / new-scope × action=amend-spec) so a target task can be planned, then raise the fix-impl / fix-test finding against that task",
     template_keys: ["action", "category"],
     doc_anchor: "protocol.md#§4.5",
+    detail_keys: ["action", "category"],
   },
   FINDING_TARGET_REQUIRED: {
     // Slice 3 SC3 (rev 4.3 §37 + ADR-0004 A7). The action-effect
@@ -321,6 +421,7 @@ export const ERROR_CATALOG = {
       "fix-impl/fix-test require --target-task + --target-step matching the action's canonical step (fix-impl=implement, fix-test=red); amend-tasks accepts an optional but valid target; amend-spec / defer / backlog must not carry a target",
     template_keys: ["action", "reason", "step", "task_id"],
     doc_anchor: "protocol.md#§4.5",
+    detail_keys: ["action", "reason", "step", "task_id"],
   },
   // ── prune session GC — `loaf prune restore` (core slice 3; surfaced slice 6b).
   // Static messages (no placeholders): the restore CLI surface builds the
@@ -332,6 +433,7 @@ export const ERROR_CATALOG = {
     fix_template: "run `loaf prune --history` to list trashed sessions (slice 6b)",
     template_keys: [],
     doc_anchor: "protocol.md#§10.8",
+    detail_keys: [],
   },
   PRUNE_RESTORE_AMBIGUOUS: {
     exit_code: 2,
@@ -340,6 +442,7 @@ export const ERROR_CATALOG = {
     fix_template: "re-run `loaf prune restore <id> --at <ts>` with one of the listed timestamps",
     template_keys: [],
     doc_anchor: "protocol.md#§10.8",
+    detail_keys: [],
   },
   PRUNE_RESTORE_INCOMPLETE: {
     exit_code: 2,
@@ -348,6 +451,7 @@ export const ERROR_CATALOG = {
     fix_template: "inspect the trash bucket; a complete bucket has manifest.json + registry.json",
     template_keys: [],
     doc_anchor: "protocol.md#§10.8",
+    detail_keys: [],
   },
   PRUNE_PATH_OCCUPIED: {
     exit_code: 2,
@@ -356,6 +460,7 @@ export const ERROR_CATALOG = {
     fix_template: "move or remove the occupying registry entry / feature dir, then retry restore",
     template_keys: [],
     doc_anchor: "protocol.md#§10.8",
+    detail_keys: [],
   },
   PRUNE_PARTIAL_FAILURE: {
     // `loaf prune --yes` where some targets errored mid-execute. NOT a success:
@@ -368,6 +473,7 @@ export const ERROR_CATALOG = {
       "inspect detail.failed; rerun prune for the failed sessions after resolving the error",
     template_keys: [],
     doc_anchor: "protocol.md#§10.8",
+    detail_keys: [],
   },
   MUTUALLY_EXCLUSIVE_FLAGS: {
     exit_code: 2,
@@ -387,6 +493,7 @@ export const ERROR_CATALOG = {
     fix_template: "unset {env_name} or set it to one of: {accepted}",
     template_keys: ["accepted", "env_name", "value"],
     doc_anchor: "protocol.md#§10.3",
+    detail_keys: ["accepted", "env_name", "value"],
   },
   INVALID_FORMAT: {
     // Phase 16 SC-5a — pre-parse guard rejects invalid --format <value>
@@ -408,6 +515,7 @@ export const ERROR_CATALOG = {
     detail_keys: ["allowed_values", "value"],
     adapter: { allowed_values_human: "allowed_values" },
     doc_anchor: "protocol.md#§10.7",
+    list_separator: { allowed_values_human: "|" },
   },
   INVALID_LOCALE: {
     // ADR-0006 P0 — explicit locale declarations are strict. Ambient
@@ -421,6 +529,7 @@ export const ERROR_CATALOG = {
       "unset the locale override or set it to one of: {accepted}; user preferences live in ~/.loaf/config.json locale.default_lang",
     template_keys: ["accepted", "source", "value"],
     doc_anchor: "docs/adr/0006-runtime-i18n-and-user-config.md",
+    detail_keys: ["accepted", "source", "value"],
   },
   DRY_RUN_NOT_APPLICABLE: {
     // Phase 16 SC-6c — `--dry-run` only applies to mutating commands.
@@ -454,6 +563,7 @@ export const ERROR_CATALOG = {
       "upgrade to a loaf release that implements this hook event, OR skip this hook surface for now — `loaf hook --list-events` shows the canonical 4-event enum",
     template_keys: ["event", "sub_cycle"],
     doc_anchor: "protocol.md#§11",
+    detail_keys: ["event", "sub_cycle"],
   },
   TASK_STATUS_WITHOUT_PROOF: {
     exit_code: 2,
@@ -463,6 +573,7 @@ export const ERROR_CATALOG = {
       "emit `loaf evidence add` covering task_id={task_id} before advancing status (task-evidence is otherwise enforced later at verify-min / verify-accept)",
     template_keys: ["status", "task_id"],
     doc_anchor: "protocol.md#§4.4",
+    detail_keys: ["status", "task_id"],
   },
   MISSING_VERIFIABILITY: {
     exit_code: 2,
@@ -474,6 +585,7 @@ export const ERROR_CATALOG = {
       "add one of: measurable with metric, threshold, and optional unit/direction; verified_by_scenarios: [SCEN-...]; or acceptance_na: true with acceptance_na_reason of at least 10 characters",
     template_keys: ["req_id"],
     doc_anchor: "protocol.md#§4.2",
+    detail_keys: ["req_id"],
   },
   VAGUE_NO_SCENARIO: {
     exit_code: 2,
@@ -483,6 +595,7 @@ export const ERROR_CATALOG = {
       "either add measurable with a numeric threshold and direction, or add the verifying SCEN-id to verified_by_scenarios",
     template_keys: ["req_id"],
     doc_anchor: "protocol.md#§4.2",
+    detail_keys: ["req_id"],
   },
   DRIVES_NOT_BOUND: {
     exit_code: 2,
@@ -492,6 +605,7 @@ export const ERROR_CATALOG = {
       "add a task whose drives[] contains {req_id} (loaf tasks add --input ...), or remove the REQ if it is intentionally out-of-scope for this feature",
     template_keys: ["req_id"],
     doc_anchor: "protocol.md#§4.3",
+    detail_keys: ["req_id"],
   },
   // Slice C SC-C2b + Phase 11 Item 3 SC1b — emitted by preflight for
   // event:tasks_amended §8.6 violations. detail carries task_id + mode +
@@ -516,6 +630,7 @@ export const ERROR_CATALOG = {
       "the mutation rights matrix (protocol.md §8.6) limits EXECUTE.plan `tasks amend` to execution[].applicability changes plus a status pending→ready advance; graph/kind-flag fields are frozen. To restructure the task graph, raise a `finding raise --action amend-tasks` back-edge, then run the sponsored `tasks add --finding` / `tasks amend --input --finding` at EXECUTE.work — a sponsored amend may change graph/definition fields but never erases execution progress (task/step status is frozen)",
     template_keys: ["sub_state", "task_id"],
     doc_anchor: "protocol.md#§8.6",
+    detail_keys: ["sub_state", "task_id"],
   },
   LOCK_TIMEOUT: {
     exit_code: 2,
@@ -524,6 +639,7 @@ export const ERROR_CATALOG = {
       "another loaf process is holding the feature lease; wait for it to release. A later writer automatically reclaims a lease only when its PID is verifiably dead and the owner generation is unchanged; malformed leases fail closed and require inspection.",
     template_keys: ["timeout_seconds"],
     doc_anchor: "protocol.md#§11.2",
+    detail_keys: ["timeout_seconds"],
   },
   LOCK_INVALID: {
     exit_code: 2,
@@ -532,6 +648,7 @@ export const ERROR_CATALOG = {
       "inspect the lease and active loaf processes; malformed leases fail closed and no loaf command deletes them. Remove or replace the file only after independently proving that no writer owns it.",
     template_keys: ["lock_path"],
     doc_anchor: "protocol.md#§11.2",
+    detail_keys: ["lock_path"],
   },
   FEATURE_NOT_FOUND: {
     exit_code: 2,
@@ -603,6 +720,7 @@ export const ERROR_CATALOG = {
       "resolve the head with the kind-appropriate command: `loaf gate decide <G>` for kind=gate_decision; `loaf profile escalate --confirm --input <ceremony.json>` for kind=profile_escalation; `loaf pending resolve --answer <a>` for the rest",
     template_keys: ["kind", "pending_id"],
     doc_anchor: "protocol.md#§10.7",
+    detail_keys: ["kind", "pending_id"],
   },
   GATE_NOT_PENDING: {
     exit_code: 2,
@@ -626,6 +744,7 @@ export const ERROR_CATALOG = {
       "resolve the current head first via the kind-appropriate command, or wait for the profile_escalation pending to appear",
     template_keys: ["actual_head"],
     doc_anchor: "protocol.md#§10.7",
+    detail_keys: ["actual_head"],
   },
   // ── audit r1-r5 catch-up entries ──
   ACTOR_AUTHORITY_VIOLATION: {
@@ -635,6 +754,7 @@ export const ERROR_CATALOG = {
       "use the command surface that owns this kind; human-only kinds require an interactive human actor resolved by LOAF_USER or git user.email",
     template_keys: ["actor", "kind"],
     doc_anchor: "protocol.md#§10.8",
+    detail_keys: ["actor", "kind"],
   },
   FROM_CURSOR_MISMATCH: {
     exit_code: 2,
@@ -644,6 +764,7 @@ export const ERROR_CATALOG = {
       "refresh the current session state and emit the transition from the actual cursor; do not replay a stale transition candidate",
     template_keys: ["current_sub_state", "payload_from"],
     doc_anchor: "protocol.md#§11.2",
+    detail_keys: ["current_sub_state", "payload_from"],
   },
   INVALID_ENVELOPE: {
     exit_code: 2,
@@ -652,6 +773,7 @@ export const ERROR_CATALOG = {
       "rebuild the entry through the CLI mutator so seq, entry_id, actor, kind, payload, and batch markers satisfy JournalEntry",
     template_keys: ["reason"],
     doc_anchor: "protocol.md#§11.2",
+    detail_keys: ["reason"],
   },
   INVALID_PAYLOAD: {
     exit_code: 2,
@@ -660,6 +782,7 @@ export const ERROR_CATALOG = {
       "fix the payload to match the PER_KIND_PAYLOAD schema for this kind and retry the mutator",
     template_keys: ["kind", "reason"],
     doc_anchor: "protocol.md#§11.2",
+    detail_keys: ["kind", "reason"],
   },
   SEQ_NOT_MONOTONIC: {
     exit_code: 2,
@@ -669,6 +792,7 @@ export const ERROR_CATALOG = {
       "refresh tail_seq under the session lock and retry; if the tail is corrupt run `loaf doctor --check-tail`",
     template_keys: ["expected", "got", "tail_seq"],
     doc_anchor: "protocol.md#§11.2",
+    detail_keys: ["expected", "got", "tail_seq"],
   },
   SETTLE_PHASE_BYPASS: {
     exit_code: 2,
@@ -678,6 +802,7 @@ export const ERROR_CATALOG = {
       "for deep profile, advance from VERIFY.accept to SETTLE.lessons via `loaf settle`; if SETTLE is not desired, start/continue a standard ceremony flow instead",
     template_keys: ["settle_phase"],
     doc_anchor: "protocol.md#§5.2",
+    detail_keys: ["settle_phase"],
   },
   SETTLE_PHASE_DISABLED: {
     exit_code: 2,
@@ -687,6 +812,7 @@ export const ERROR_CATALOG = {
       "for non-deep profiles (quick / light / standard), advance from VERIFY.accept to DONE.delivered via `loaf deliver`; to enter SETTLE, escalate ceremony to deep",
     template_keys: ["settle_phase"],
     doc_anchor: "protocol.md#§5.2",
+    detail_keys: ["settle_phase"],
   },
   SPEC_PHASE_FORK_VIOLATION: {
     exit_code: 2,
@@ -695,6 +821,7 @@ export const ERROR_CATALOG = {
       "follow the ceremony fork: spec_phase=true traverses SPEC.*, spec_phase=false goes directly to EXECUTE.plan",
     template_keys: ["from", "spec_phase", "to"],
     doc_anchor: "protocol.md#§5.2",
+    detail_keys: ["from", "spec_phase", "to"],
   },
   SUB_STATE_AUTHORITY_VIOLATION: {
     exit_code: 2,
@@ -703,6 +830,7 @@ export const ERROR_CATALOG = {
       "advance/back-edge to a sub_state that permits this journal kind, or use the command valid for the current state",
     template_keys: ["kind", "sub_state"],
     doc_anchor: "protocol.md#§10.8",
+    detail_keys: ["kind", "sub_state"],
   },
   TRANSITION_ILLEGAL: {
     exit_code: 2,
@@ -711,6 +839,7 @@ export const ERROR_CATALOG = {
       "choose one of the allowed forward transitions for the current sub_state, or use an explicit terminal/archive path when supported",
     template_keys: ["from", "to"],
     doc_anchor: "protocol.md#§5.2",
+    detail_keys: ["from", "to"],
   },
   VERIFY_PHASE_FORK_VIOLATION: {
     exit_code: 2,
@@ -719,6 +848,7 @@ export const ERROR_CATALOG = {
       "follow the ceremony fork: verify_phase=true enters VERIFY.plan, verify_phase=false can deliver after minimal verification",
     template_keys: ["from", "to", "verify_phase"],
     doc_anchor: "protocol.md#§5.2",
+    detail_keys: ["from", "to", "verify_phase"],
   },
   EXECUTE_DONE_TASKS_NOT_FINAL: {
     // F-016: preflight refine on event:phase_advanced. The EXECUTE.work →
@@ -736,6 +866,7 @@ export const ERROR_CATALOG = {
       'finish the remaining steps — run each task\'s steps via `loaf tasks step` until it auto-promotes to status=done — OR abandon out-of-scope tasks with `loaf tasks abandon <T-N> --reason "..."`, then retry `loaf advance EXECUTE.done`; see detail.non_final for the tasks still pending or in progress',
     template_keys: ["count"],
     doc_anchor: "protocol.md#§10.5",
+    detail_keys: ["count"],
   },
   ALREADY_STARTED: {
     exit_code: 2,
@@ -753,15 +884,74 @@ export const ERROR_CATALOG = {
       "list open findings and close an existing id, or raise the finding before closing it",
     template_keys: ["id"],
     doc_anchor: "protocol.md#§10.8",
+    detail_keys: ["id"],
   },
   NO_SESSION: {
     exit_code: 2,
     message_template: "no session at {feature_dir} — run `loaf start <feature>` first",
     zh_message_template: "{feature_dir} 下没有 session — 先跑 `loaf start <feature>`",
-    fix_template:
-      "run `loaf start` before emitting non-bootstrap journal entries",
+    fix_template: "run `loaf start` before emitting non-bootstrap journal entries",
     template_keys: ["feature_dir"],
     doc_anchor: "protocol.md#§10.8",
+    detail_keys: ["feature_dir"],
+    variants: {
+      "failure.no_session.status": {
+        message_template: "run `loaf start {feature}` first",
+        zh_message_template: "先跑 `loaf start {feature}`",
+        fix_template: "run `loaf start` before emitting non-bootstrap journal entries",
+        template_keys: ["feature"],
+        detail_keys: ["feature"],
+        doc_anchor: "protocol.md#§10.8",
+      },
+      "failure.no_session.advance": {
+        message_template: "run `loaf start {feature}` first",
+        zh_message_template: "先跑 `loaf start {feature}`",
+        fix_template: "run `loaf start` before emitting non-bootstrap journal entries",
+        template_keys: ["feature"],
+        detail_keys: ["feature"],
+        doc_anchor: "protocol.md#§10.8",
+      },
+      "failure.no_session.tasks": {
+        message_template: "run `loaf start {feature}` first",
+        zh_message_template: "先跑 `loaf start {feature}`",
+        fix_template: "run `loaf start` before emitting non-bootstrap journal entries",
+        template_keys: ["feature"],
+        detail_keys: ["feature"],
+        doc_anchor: "protocol.md#§10.8",
+      },
+      "failure.no_session.pending": {
+        message_template: "run `loaf start {feature}` first",
+        zh_message_template: "先跑 `loaf start {feature}`",
+        fix_template: "run `loaf start` before emitting non-bootstrap journal entries",
+        template_keys: ["feature"],
+        detail_keys: ["feature"],
+        doc_anchor: "protocol.md#§10.8",
+      },
+      "failure.no_session.finding": {
+        message_template: "run `loaf start {feature}` first",
+        zh_message_template: "先跑 `loaf start {feature}`",
+        fix_template: "run `loaf start` before emitting non-bootstrap journal entries",
+        template_keys: ["feature"],
+        detail_keys: ["feature"],
+        doc_anchor: "protocol.md#§10.8",
+      },
+      "failure.no_session.verify": {
+        message_template: "run `loaf start {feature}` first",
+        zh_message_template: "先跑 `loaf start {feature}`",
+        fix_template: "run `loaf start` before emitting non-bootstrap journal entries",
+        template_keys: ["feature"],
+        detail_keys: ["feature"],
+        doc_anchor: "protocol.md#§10.8",
+      },
+      "failure.no_session.generic": {
+        message_template: "run `loaf start {feature}` first",
+        zh_message_template: "先跑 `loaf start {feature}`",
+        fix_template: "run `loaf start` before emitting non-bootstrap journal entries",
+        template_keys: ["feature"],
+        detail_keys: ["feature"],
+        doc_anchor: "protocol.md#§10.8",
+      },
+    },
   },
   PENDING_NOT_FOUND: {
     exit_code: 2,
@@ -775,10 +965,10 @@ export const ERROR_CATALOG = {
   REDUCER_NOT_IMPLEMENTED: {
     exit_code: 2,
     message_template: "reducer has no handler for journal kind {kind}",
-    fix_template:
-      "implement the journal kind in the exhaustive reducer switch before appending it",
+    fix_template: "implement the journal kind in the exhaustive reducer switch before appending it",
     template_keys: ["kind"],
     doc_anchor: "protocol.md#§11.2",
+    detail_keys: ["kind"],
   },
   ENTRY_OVERSIZE: {
     exit_code: 2,
@@ -787,6 +977,7 @@ export const ERROR_CATALOG = {
       "move long text into sidecar form via LongTextField instead of embedding it inline",
     template_keys: ["bytes", "limit"],
     doc_anchor: "protocol.md#§11.2",
+    detail_keys: ["bytes", "limit"],
   },
   SHORT_WRITE: {
     exit_code: 2,
@@ -795,6 +986,7 @@ export const ERROR_CATALOG = {
       "stop writing, preserve the journal, and run `loaf doctor --check-tail` before retrying",
     template_keys: ["want", "wrote"],
     doc_anchor: "protocol.md#§11.2",
+    detail_keys: ["want", "wrote"],
   },
   TAIL_CORRUPTION: {
     exit_code: 2,
@@ -803,6 +995,7 @@ export const ERROR_CATALOG = {
       "run `loaf doctor --check-tail`; do not append until the tail has been repaired or quarantined",
     template_keys: ["reason"],
     doc_anchor: "protocol.md#§10.15",
+    detail_keys: ["reason"],
   },
 
   INVALID_ACTOR_FORMAT: {
@@ -812,6 +1005,7 @@ export const ERROR_CATALOG = {
       "set LOAF_USER to the raw human identifier without a namespace prefix, or unset it to allow interactive git user.email fallback",
     template_keys: ["reason"],
     doc_anchor: "protocol.md#§10.8",
+    detail_keys: ["reason"],
   },
   NO_HUMAN_ACTOR: {
     exit_code: 2,
@@ -819,6 +1013,7 @@ export const ERROR_CATALOG = {
     fix_template: "run interactively with git user.email configured, or set LOAF_USER explicitly",
     template_keys: [],
     doc_anchor: "protocol.md#§10.8",
+    detail_keys: [],
   },
   // SPEC_VERSION_NOT_MONOTONIC + SPEC_VERSION_BATCH_MISMATCH catalog
   // entries originally landed here under Slice 1.B sub-cycle 1 with
@@ -837,6 +1032,7 @@ export const ERROR_CATALOG = {
       "allocate a fresh REQ id under the same id_namespace (the CLI scans for max serial + 1 inside the per-session lock) or `loaf finding raise --category spec-gap --action amend-spec` if you need to retire the existing REQ",
     template_keys: ["id"],
     doc_anchor: "protocol.md#§4.2",
+    detail_keys: ["id"],
   },
   DUPLICATE_SCEN_ID: {
     exit_code: 2,
@@ -845,6 +1041,7 @@ export const ERROR_CATALOG = {
       "allocate a fresh SCEN id under the same id_namespace, or amend via finding mechanism if retiring an existing scenario",
     template_keys: ["id"],
     doc_anchor: "protocol.md#§4.2",
+    detail_keys: ["id"],
   },
   DUPLICATE_VIS_ID: {
     exit_code: 2,
@@ -853,6 +1050,7 @@ export const ERROR_CATALOG = {
       "allocate a fresh VIS id under the same id_namespace, or amend via finding mechanism if retiring an existing visual contract",
     template_keys: ["id"],
     doc_anchor: "protocol.md#§4.2",
+    detail_keys: ["id"],
   },
   SPEC_FRONTMATTER_INVALID: {
     exit_code: 2,
@@ -865,6 +1063,7 @@ export const ERROR_CATALOG = {
       "subcode=SPEC_NOT_FOUND: run `loaf spec init` then `loaf spec submit` to seed spec.md; subcode=SPEC_YAML_INVALID: check the `---`-fenced YAML block at the top of spec.md for syntax errors; subcode=SPEC_FRONTMATTER_INVALID: run `loaf spec schema --format=json` to dump the SpecFrontmatter JSON Schema (Phase 16 SC-10) and fix the offending field. Both spec-lock and verify-accept require a valid spec.md at check 1.",
     template_keys: ["subcode"],
     doc_anchor: "protocol.md#§5.1",
+    detail_keys: ["subcode"],
   },
   SPEC_HAS_UNCLARIFIED: {
     exit_code: 2,
@@ -883,6 +1082,7 @@ export const ERROR_CATALOG = {
       "run `loaf tasks list` to see live ids; if you meant to add a new task, use `loaf tasks add` instead of amend/step; if you expected the id to exist, the projection may be stale — run `loaf doctor --rebuild` to rebuild from journal",
     template_keys: ["task_id"],
     doc_anchor: "protocol.md#§10.8",
+    detail_keys: ["task_id"],
   },
   TASK_STEP_NOT_FOUND: {
     exit_code: 2,
@@ -892,6 +1092,7 @@ export const ERROR_CATALOG = {
       "use only the per-kind step names — behavioral: red/implement/refactor; structural: implement/refactor; visual-ui: mockup/implement/screenshot-compare; docs: draft/review; spike: explore/prototype/record; chore: execute. Running an unseeded step name was a silent add bug in v0.0.x — sub-cycle 3a fails fast instead",
     template_keys: ["step", "task_id"],
     doc_anchor: "protocol.md#§10.8",
+    detail_keys: ["step", "task_id"],
   },
   DUPLICATE_TASK_ID: {
     exit_code: 2,
@@ -900,6 +1101,7 @@ export const ERROR_CATALOG = {
       "tasks_planned is whole-replacement — each task id must be unique within the batch. Rename one or merge them in the planning input",
     template_keys: ["task_id"],
     doc_anchor: "protocol.md#§10.8",
+    detail_keys: ["task_id"],
   },
   TASKS_NOT_PLANNED: {
     exit_code: 2,
@@ -911,6 +1113,7 @@ export const ERROR_CATALOG = {
       "run `loaf tasks submit --input <plan-file>` to emit event:tasks_planned and seed the task graph; spec-lock check 3 and verify-accept check 4 both require tasks_based_on.spec to match the current spec.spec_version",
     template_keys: [],
     doc_anchor: "protocol.md#§5.1",
+    detail_keys: [],
   },
   TASKS_BASED_ON_STALE: {
     exit_code: 2,
@@ -922,6 +1125,7 @@ export const ERROR_CATALOG = {
       "either re-plan tasks against the current spec via `loaf tasks submit` (whole-replacement), or amend individual tasks via `loaf tasks add/amend` + raise a `loaf finding raise --category spec-gap --action amend-spec` if a spec roll-back is needed. Surfaces for spec-lock (check 3) and verify-accept (check 4 precondition).",
     template_keys: ["current_spec_version", "tasks_based_on_spec"],
     doc_anchor: "protocol.md#§5.1",
+    detail_keys: ["current_spec_version", "tasks_based_on_spec"],
   },
   REQ_NOT_DRIVEN: {
     exit_code: 2,
@@ -931,6 +1135,7 @@ export const ERROR_CATALOG = {
       "add a task whose drives[] array includes {req_id}, or remove the requirement from spec.md if it is no longer in scope. Note: this is the REQ-side coverage code (distinct from legacy DRIVES_NOT_BOUND which named the inverse direction)",
     template_keys: ["req_id"],
     doc_anchor: "protocol.md#§5.1",
+    detail_keys: ["req_id"],
   },
   E2E_SCENARIO_UNBOUND: {
     exit_code: 2,
@@ -940,6 +1145,7 @@ export const ERROR_CATALOG = {
       "either (a) add a task with requires_acceptance=true and drives including {scenario_id}, or (b) mark the scenario with acceptance_na=<reason ≥5 chars> in spec.md if e2e acceptance is intentionally skipped for this iteration",
     template_keys: ["scenario_id"],
     doc_anchor: "protocol.md#§5.1",
+    detail_keys: ["scenario_id"],
   },
   VISUAL_CONTRACT_UNBOUND: {
     exit_code: 2,
@@ -949,6 +1155,7 @@ export const ERROR_CATALOG = {
       "either (a) add a visual-ui task with visual_contract_refs including {visual_id}, or (b) mark the visual_contract with visual_na=<reason ≥5 chars> in spec.md if visual verification is intentionally deferred",
     template_keys: ["visual_id"],
     doc_anchor: "protocol.md#§5.1",
+    detail_keys: ["visual_id"],
   },
   TASK_KIND_SCHEMA_VIOLATION: {
     exit_code: 2,
@@ -958,6 +1165,7 @@ export const ERROR_CATALOG = {
       "amend the task to satisfy its kind contract: structural/docs/spike/chore require no_test_rationale (string ≥10 chars); visual-ui requires visual_contract_refs[] with ≥1 entry. Slice C R2: bug-task RED is execution discipline, not a spec-lock obligation — a behavioral task with labels=['bug'] is born unregistered, and RED registration is enforced at runtime by BUG_TASK_REQUIRES_RED (preflight, implement step) and BUG_TASK_RED_NOT_REGISTERED (verify-accept), never by this check",
     template_keys: ["kind", "reasons", "task_id"],
     doc_anchor: "protocol.md#§5.1",
+    detail_keys: ["kind", "reasons", "task_id"],
   },
   GATE_PRECONDITION_VIOLATION: {
     exit_code: 2,
@@ -969,6 +1177,7 @@ export const ERROR_CATALOG = {
       "this is a mutate-layer envelope around the underlying gate checks (see detail.checks for the list). spec-lock failure codes: MISSING_VERIFIABILITY / REQ_NOT_DRIVEN / E2E_SCENARIO_UNBOUND / VISUAL_CONTRACT_UNBOUND / TASKS_NOT_PLANNED / TASKS_BASED_ON_STALE / TASK_KIND_SCHEMA_VIOLATION / SPEC_HAS_UNCLARIFIED. verify-accept failure codes: VERIFY_LANE_NOT_PASSED / OPEN_FINDINGS_PRESENT / COVERAGE_NOT_SATISFIED / TASK_DONE_NO_EVIDENCE / SPEC_REVIEW_MISSING / SPEC_REVIEW_IMPLEMENTER_CONFLICT / SPEC_REVIEW_IMPLEMENTER_UNKNOWN / TASKS_NOT_PLANNED (precondition) / TASKS_BASED_ON_STALE (precondition). Fix each listed check then retry the gate decision. Pass 1.5 runs after preflight + reducer dry-run + before sidecar promotion, so a rejected gate batch leaves no on-disk residue.",
     template_keys: ["failure_count", "gate"],
     doc_anchor: "protocol.md#§5.1",
+    detail_keys: ["failure_count", "gate"],
   },
   MULTIPLE_GATE_DECISIONS: {
     exit_code: 2,
@@ -978,6 +1187,7 @@ export const ERROR_CATALOG = {
       "split the batch — emit each gate decision as its own mutation. A batch carrying ≥2 gate approvals (even with different gate_kinds, e.g. spec-lock + verify-accept) is not a valid atomic operation. Rejected gate decisions are not counted; only approvals trigger this rule",
     template_keys: ["count", "gate_kinds"],
     doc_anchor: "protocol.md#§10.8",
+    detail_keys: ["count", "gate_kinds"],
   },
   GATE_NOT_IMPLEMENTED: {
     exit_code: 2,
@@ -990,6 +1200,7 @@ export const ERROR_CATALOG = {
       "use `loaf gate decide spec-lock` or `loaf gate decide verify-accept`. Future gates beyond v0.1.0 would extend the GateName enum in journal-entry.ts + evidence-schema.ts (lockstep) and wire here.",
     template_keys: ["gate"],
     doc_anchor: "protocol.md#§10.8",
+    detail_keys: ["gate"],
   },
   VERIFY_LANE_NOT_PASSED: {
     exit_code: 2,
@@ -999,6 +1210,7 @@ export const ERROR_CATALOG = {
       "add an evidence:added entry with check={lane} (or a matching kind via the narrow fallback map: local-check/task-summary→run, verify-review/spec-review→review, acceptance→acceptance, visual-review→visual) and result one of `passed`, `approved`, or `waived`. Applicable lanes derive from spec: REQ ⇒ REVIEW, SCEN.tag=e2e ⇒ ACCEPTANCE, VIS ⇒ VISUAL, done task ⇒ RUN+REVIEW.",
     template_keys: ["lane"],
     doc_anchor: "protocol.md#§5.2",
+    detail_keys: ["lane"],
   },
   OPEN_FINDINGS_PRESENT: {
     exit_code: 2,
@@ -1013,6 +1225,7 @@ export const ERROR_CATALOG = {
       "complete the declared action for each listed finding, then run `loaf finding close <FND-id>`; if the honest disposition is carry-forward, raise it with action=defer or action=backlog instead. verify-accept excludes only open findings whose existing action declares deferral",
     template_keys: ["count", "open_ids"],
     doc_anchor: "protocol.md#§5.2",
+    detail_keys: ["count", "open_ids"],
   },
   COVERAGE_NOT_SATISFIED: {
     exit_code: 2,
@@ -1023,6 +1236,7 @@ export const ERROR_CATALOG = {
       "add evidence:added covering {covered_id} per protocol §5.4: REQ allows task-summary/verify-review/spec-review/manual+reason/waiver+reason; SCEN.tag=e2e allows acceptance/manual+reason/waiver+reason; VIS allows visual-review+attachment/manual+reason/waiver+reason. Result must be passed/approved/waived per §1035.",
     template_keys: ["covered_id"],
     doc_anchor: "protocol.md#§5.2",
+    detail_keys: ["covered_id"],
   },
   TASK_DONE_NO_EVIDENCE: {
     exit_code: 2,
@@ -1032,6 +1246,7 @@ export const ERROR_CATALOG = {
       "add evidence:added with covers including {task_id} and kind in the T-allowed set. Most commonly: a task-summary written on closing the task; alternatively local-check (test/lint/typecheck run), manual (human attest), or waiver (human waiver with reason ≥10 chars).",
     template_keys: ["task_id"],
     doc_anchor: "protocol.md#§5.2",
+    detail_keys: ["task_id"],
   },
   SPEC_REVIEW_MISSING: {
     exit_code: 2,
@@ -1041,6 +1256,7 @@ export const ERROR_CATALOG = {
       "have an independent reviewer (not the implementer of done tasks; not a cli:* automation actor) run a spec review and add an evidence:added with kind=spec-review and result `passed` or `approved`. Note: result=waived does NOT count for spec-review (kind=spec-review + result=waived bypasses the human+reason refine guarantee that kind=manual or kind=waiver provides).",
     template_keys: [],
     doc_anchor: "protocol.md#§5.2",
+    detail_keys: [],
   },
   SPEC_REVIEW_IMPLEMENTER_CONFLICT: {
     exit_code: 2,
@@ -1050,6 +1266,7 @@ export const ERROR_CATALOG = {
       "have a non-implementer (someone other than the actors on done-task task-summary/local-check evidence) submit an additional evidence with kind=spec-review and result `passed` or `approved`. One independent reviewer is sufficient — implementer self-reviews can coexist.",
     template_keys: ["implementers", "spec_review_actors"],
     doc_anchor: "protocol.md#§5.2",
+    detail_keys: ["implementers", "spec_review_actors"],
   },
   SPEC_REVIEW_IMPLEMENTER_UNKNOWN: {
     exit_code: 2,
@@ -1059,6 +1276,7 @@ export const ERROR_CATALOG = {
       "ensure at least one done-task evidence (task-summary or local-check) carries a non-cli:* actor (e.g. human:dev@example.com); the strict_spec_review comparison requires a real implementer identity to compare against. Without it, the gate cannot prove the spec reviewer is independent.",
     template_keys: [],
     doc_anchor: "protocol.md#§5.2",
+    detail_keys: [],
   },
   // ── Slice 1.D sub-cycle 1 — `loaf deliver` / `loaf settle` preflight ──
   // Wording polish + cross-reference tightening lands in Slice 1.D sub-cycle 4
@@ -1073,6 +1291,7 @@ export const ERROR_CATALOG = {
       'run `loaf gate decide verify-accept --approve --reason "..."` first; the gate flips snapshot.state.verify_accepted before `loaf deliver` will accept the session:delivered entry',
     template_keys: ["sub_state"],
     doc_anchor: "protocol.md#§5.2",
+    detail_keys: ["sub_state"],
   },
   DELIVER_SETTLE_PHASE_BYPASS: {
     exit_code: 2,
@@ -1084,6 +1303,7 @@ export const ERROR_CATALOG = {
       "for ceremony.settle_phase=true (deep), run `loaf settle` to enter SETTLE.lessons, record lessons, then `loaf deliver`; only standard ceremony delivers directly from VERIFY.accept",
     template_keys: [],
     doc_anchor: "protocol.md#§5.2",
+    detail_keys: [],
   },
   DELIVER_VERIFY_MIN_UNAVAILABLE: {
     // v0.1.0 fail-closed stub — SUPERSEDED at v0.1.1 by
@@ -1098,6 +1318,7 @@ export const ERROR_CATALOG = {
       "upgrade to v0.1.1+ where quick / light deliver runs the verify-min per-task evidence check; on failure see DELIVER_VERIFY_MIN_INCOMPLETE",
     template_keys: ["ceremony_label"],
     doc_anchor: "protocol.md#§3",
+    detail_keys: ["ceremony_label"],
   },
   DELIVER_VERIFY_MIN_INCOMPLETE: {
     // v0.1.1 — verify-min landed. quick/light `loaf deliver` from
@@ -1115,6 +1336,7 @@ export const ERROR_CATALOG = {
       "for each listed task add evidence covering it — code tasks need a `local-check` (test/lint/typecheck) run, visual-ui needs visual-review or manual, docs needs task-summary or manual — or `loaf waive` it; then `loaf deliver` again",
     template_keys: ["ceremony_label", "count"],
     doc_anchor: "protocol.md#§3",
+    detail_keys: ["ceremony_label", "count"],
   },
   DELIVER_SPIKE_TASKS: {
     exit_code: 2,
@@ -1126,6 +1348,7 @@ export const ERROR_CATALOG = {
       'abandon the spike task (`loaf tasks abandon {task_id} --reason "..."`) or convert it to a feature (`loaf spike convert --to-feature F-N --reason "..."`); spike tasks must not remain in non-abandoned status when the session delivers',
     template_keys: ["status", "task_id"],
     doc_anchor: "protocol.md#§8.3",
+    detail_keys: ["status", "task_id"],
   },
   SETTLE_NOT_ACCEPTED: {
     exit_code: 2,
@@ -1137,6 +1360,7 @@ export const ERROR_CATALOG = {
       'run `loaf gate decide verify-accept --approve --reason "..."` before `loaf settle`; the gate flips snapshot.state.verify_accepted before the transition validator will admit the SETTLE entry',
     template_keys: [],
     doc_anchor: "protocol.md#§5.2",
+    detail_keys: [],
   },
   SPEC_LOCK_NOT_SATISFIED: {
     exit_code: 2,
@@ -1148,6 +1372,7 @@ export const ERROR_CATALOG = {
       'run `loaf gate decide spec-lock --approve --reason "..."` before `loaf advance EXECUTE.plan`; the gate runs the 8 spec-lock checks and flips snapshot.state.spec_locked before the transition validator will admit the EXECUTE.plan entry',
     template_keys: [],
     doc_anchor: "protocol.md#§5.1",
+    detail_keys: [],
   },
   // ── Slice 2 SC1 — task lifecycle preflight (codex r56/r57) ──
   TASK_NOT_CLAIMABLE: {
@@ -1158,6 +1383,7 @@ export const ERROR_CATALOG = {
       "tasks with status=done are already complete; status=abandoned tasks cannot be reactivated. Run `loaf tasks list` to inspect the task graph, or `loaf tasks next` to pick a different ready task",
     template_keys: ["status", "task_id"],
     doc_anchor: "protocol.md#§10.8",
+    detail_keys: ["status", "task_id"],
   },
   TASK_ALREADY_CLAIMED: {
     exit_code: 2,
@@ -1167,6 +1393,7 @@ export const ERROR_CATALOG = {
       "another worker may already hold this task; run `loaf tasks list` to inspect active claims. Stale-claim release is handled in a future slice (no CLI surface for abandon in v0.1.0 yet) — raise a finding with action=fix-impl if needed",
     template_keys: ["task_id"],
     doc_anchor: "protocol.md#§10.8",
+    detail_keys: ["task_id"],
   },
   TASK_DEP_NOT_FOUND: {
     exit_code: 2,
@@ -1176,6 +1403,7 @@ export const ERROR_CATALOG = {
       "add the referenced task in the same atomic batch, or amend the dependency to an existing task, then retry",
     template_keys: ["field", "ref", "task_id"],
     doc_anchor: "protocol.md#§10.8",
+    detail_keys: ["field", "ref", "task_id"],
   },
   TASK_DEP_SELF: {
     exit_code: 2,
@@ -1184,6 +1412,7 @@ export const ERROR_CATALOG = {
     fix_template: "remove the self-reference from depends_on, then retry the task graph mutation",
     template_keys: ["task_id"],
     doc_anchor: "protocol.md#§10.8",
+    detail_keys: ["task_id"],
   },
   TASK_DEP_DUPLICATE: {
     exit_code: 2,
@@ -1192,6 +1421,7 @@ export const ERROR_CATALOG = {
     fix_template: "keep each dependency id only once in depends_on, then retry",
     template_keys: ["indexes", "ref", "task_id"],
     doc_anchor: "protocol.md#§10.8",
+    detail_keys: ["indexes", "ref", "task_id"],
   },
   TASK_DEP_CYCLE: {
     exit_code: 2,
@@ -1200,6 +1430,8 @@ export const ERROR_CATALOG = {
     fix_template: "remove or redirect one dependency in the reported closed path, then retry",
     template_keys: ["cycle"],
     doc_anchor: "protocol.md#§10.8",
+    detail_keys: ["cycle"],
+    list_separator: { cycle: " -> " },
   },
   TASK_DEP_ABANDONED: {
     exit_code: 2,
@@ -1209,6 +1441,7 @@ export const ERROR_CATALOG = {
       "use an amend-tasks-sponsored task amendment to replace the abandoned dependency, then retry",
     template_keys: ["field", "hint", "ref", "task_id"],
     doc_anchor: "protocol.md#§10.8",
+    detail_keys: ["field", "hint", "ref", "task_id"],
   },
   TASK_DEPS_NOT_SATISFIED: {
     exit_code: 2,
@@ -1220,6 +1453,7 @@ export const ERROR_CATALOG = {
       "complete deps_on tasks first (run `loaf tasks list --status pending` to see what is blocking), or use `loaf tasks next` to pick a task with all deps satisfied",
     template_keys: ["blocking_dep", "blocking_status", "task_id"],
     doc_anchor: "protocol.md#§10.8",
+    detail_keys: ["blocking_dep", "blocking_status", "task_id"],
   },
   TASK_NOT_CLAIMED: {
     exit_code: 2,
@@ -1231,6 +1465,7 @@ export const ERROR_CATALOG = {
       "run `loaf tasks claim {task_id}` to move the task from pending/ready to in_progress before emitting task_step_started or task_step_done; once auto-promoted to done, steps cannot be re-mutated",
     template_keys: ["status", "step", "task_id"],
     doc_anchor: "protocol.md#§10.8",
+    detail_keys: ["status", "step", "task_id"],
   },
   // ── Item 1 — `loaf tasks abandon` preflight (codex r127) ──
   TASK_NOT_ABANDONABLE: {
@@ -1246,6 +1481,7 @@ export const ERROR_CATALOG = {
       "tasks with status=done are already complete and status=abandoned tasks are already abandoned; run `loaf tasks list` to inspect the task graph and abandon a non-terminal task instead",
     template_keys: ["status", "task_id"],
     doc_anchor: "protocol.md#§10.8",
+    detail_keys: ["status", "task_id"],
   },
   TASK_ABANDON_BLOCKED_DEPENDENTS: {
     // Item 1: preflight step 5e.3 on event:task_abandoned. Abandoning a
@@ -1261,6 +1497,7 @@ export const ERROR_CATALOG = {
       'abandon or complete the dependent tasks first (see detail.blocking_dependents), then retry `loaf tasks abandon {task_id} --reason "..."`; abandoning a parent would strand a pending child',
     template_keys: ["blocking_dependents", "task_id"],
     doc_anchor: "protocol.md#§10.8",
+    detail_keys: ["blocking_dependents", "task_id"],
   },
   // ── Item 2 — `loaf archive` / `loaf abandon` preflight (codex r129) ──
   SESSION_REASON_REQUIRED: {
@@ -1277,6 +1514,7 @@ export const ERROR_CATALOG = {
       're-run with `--reason "..."`; `loaf archive` and `loaf abandon` both require a rationale on the journal entry',
     template_keys: ["kind"],
     doc_anchor: "protocol.md#§10.8",
+    detail_keys: ["kind"],
   },
   // Slice A SC-A2: PROJECTION_WRITE_FAILED is surfaced by
   // mutateBatch Pass 5 (post-appendMany) when writeDerivedSpecMd
@@ -1297,6 +1535,7 @@ export const ERROR_CATALOG = {
       "the journal already records the change; do NOT retry the same command. Run `loaf doctor --rebuild` (when available) to resync derived projections from journal truth, or inspect `.loaf/<feature>/journal.jsonl` tail manually.",
     template_keys: ["error", "last_seq", "projection", "spec_version"],
     doc_anchor: "protocol.md#§10.15",
+    detail_keys: ["error", "last_seq", "projection", "spec_version"],
   },
   // Slice B SC-B1: paired with FINDING_NOT_FOUND when back_edge
   // references a stale / nonexistent finding. cli emitFailure prints
@@ -1312,6 +1551,7 @@ export const ERROR_CATALOG = {
       "drop --action amend-spec and use `loaf spec submit` / `loaf spec add-req` / etc. directly while spec is unlocked; amend-spec is reserved for post-`gate decide spec-lock --approve` recovery.",
     template_keys: ["current_sub_state"],
     doc_anchor: "protocol.md#§6.1",
+    detail_keys: ["current_sub_state"],
   },
   // Slice E: promoted from reducer message strings under INVALID_PAYLOAD.
   // CLI surfaces these directly now; reducer keeps message-string checks
@@ -1326,6 +1566,7 @@ export const ERROR_CATALOG = {
       "set spec_version to {expected_spec_version} in the input payload (or omit it and let `loaf spec submit` fill the current+1 default).",
     template_keys: ["expected_spec_version", "kind", "payload_spec_version"],
     doc_anchor: "protocol.md#§4.2",
+    detail_keys: ["expected_spec_version", "kind", "payload_spec_version"],
   },
   SPEC_VERSION_BATCH_MISMATCH: {
     exit_code: 2,
@@ -1337,6 +1578,7 @@ export const ERROR_CATALOG = {
       "in a multi-entry spec batch, the head (batch_index=0) bumps spec_version to current+1 and all continuation entries (batch_index≥1) must set spec_version to that same value. Check the head entry's payload.spec_version and align companions.",
     template_keys: ["batch_index", "current_spec_version", "kind", "payload_spec_version"],
     doc_anchor: "protocol.md#§4.2",
+    detail_keys: ["batch_index", "current_spec_version", "kind", "payload_spec_version"],
   },
   // ── Slice C SC-C1 — `loaf tasks complete` NO-OP confirmation ──
   TASK_COMPLETE_PRECONDITION_VIOLATED: {
@@ -1349,6 +1591,7 @@ export const ERROR_CATALOG = {
       "finish each blocking step via `loaf tasks step start/done`; a task auto-promotes to status=done once every must-applicable step is passed/waived/na, and `loaf tasks complete` then confirms it. Run `loaf tasks list` to inspect step status.",
     template_keys: ["blocking_steps", "status", "task_id"],
     doc_anchor: "protocol.md#§10.8",
+    detail_keys: ["blocking_steps", "status", "task_id"],
   },
   // ── Slice C SC-C4 — bug-task RED registration (R2 invariant relocation) ──
   BUG_TASK_REQUIRES_RED: {
@@ -1361,6 +1604,7 @@ export const ERROR_CATALOG = {
       "run `loaf tasks register-red {task_id}` once the failing RED test is in place; protocol §9.3 requires RED registration before the implement step of a behavioral task labelled `bug`.",
     template_keys: ["task_id"],
     doc_anchor: "protocol.md#§9.3",
+    detail_keys: ["task_id"],
   },
   BUG_TASK_FLAG_MISUSE: {
     exit_code: 2,
@@ -1372,6 +1616,7 @@ export const ERROR_CATALOG = {
       "do not set red_test_registered in a planned task or on a non-red step; the flag is owned by `loaf tasks register-red`, which the reducer promotes to task-level registration.",
     template_keys: ["task_id"],
     doc_anchor: "protocol.md#§9.3",
+    detail_keys: ["task_id"],
   },
   BUG_TASK_RED_NOT_REGISTERED: {
     exit_code: 2,
@@ -1383,6 +1628,7 @@ export const ERROR_CATALOG = {
       "a done behavioral bug task must have registered its RED test via `loaf tasks register-red`; this is a verify-accept defense-in-depth check for raw-API journals — rebuild the journal or register RED retroactively before re-running the gate.",
     template_keys: ["task_id"],
     doc_anchor: "protocol.md#§9.3",
+    detail_keys: ["task_id"],
   },
   SPIKE_CONVERT_NO_SPIKE_TASK: {
     exit_code: 2,
@@ -1394,6 +1640,7 @@ export const ERROR_CATALOG = {
       'run `loaf spike convert` only from a session that holds a kind=spike task; for a non-spike session close it with `loaf archive --reason "..."` or `loaf abandon --reason "..."`',
     template_keys: [],
     doc_anchor: "protocol.md#§8.3",
+    detail_keys: [],
   },
   // ── Phase 15 SC3 — projection-loader (reader fast-check goes live) ──
   // Single code, 9-reason family (detail.reason discriminates):
@@ -1415,6 +1662,7 @@ export const ERROR_CATALOG = {
       "snapshot meta/leaves no longer agree with the journal tail; run `loaf doctor --rebuild --feature <feature>` to re-serialize from journal truth, then retry. Inspect detail.reason + reason-specific fields (meta_path / projection_kind / cause) to triage corruption source before rebuilding.",
     template_keys: ["feature_dir", "reason"],
     doc_anchor: "protocol.md#§10.15",
+    detail_keys: ["feature_dir", "reason"],
   },
   JOURNAL_TAIL_REQUIRES_NEWER_LOAF: {
     exit_code: 2,
@@ -1444,6 +1692,7 @@ export const ERROR_CATALOG = {
     fix_template: "Use one of quick, light, standard, or deep.",
     template_keys: [],
     doc_anchor: "protocol.md#§10.5",
+    detail_keys: [],
   },
   USAGE: {
     exit_code: 2,
@@ -1452,6 +1701,230 @@ export const ERROR_CATALOG = {
     fix_template: "Run the command with --help and retry with the required flags/arguments.",
     template_keys: [],
     doc_anchor: "protocol.md#§10.5",
+    detail_keys: [],
+    variants: {
+      "failure.sessions_list.selector_conflict": {
+        message_template:
+          "sessions list does not accept {conflicting} — it lists across all sessions; use --in-cwd to filter",
+        zh_message_template:
+          "sessions list 不接受 {conflicting} —— 它会跨全部 session 列表;如需过滤当前 cwd,使用 --in-cwd",
+        fix_template: "Run the command with --help and retry with the required flags/arguments.",
+        template_keys: ["conflicting"],
+        detail_keys: ["conflicting"],
+        doc_anchor: "protocol.md#§10.5",
+      },
+      "failure.tui.selector_conflict": {
+        message_template:
+          "tui does not accept {conflicting} — it lists across all sessions; selectors are nonsensical for an interactive UI",
+        zh_message_template:
+          "tui 不接受 {conflicting} —— 它会跨全部 session 列表;selector 对交互 UI 没有意义",
+        fix_template: "Run the command with --help and retry with the required flags/arguments.",
+        template_keys: ["conflicting"],
+        detail_keys: ["conflicting"],
+        doc_anchor: "protocol.md#§10.5",
+      },
+      "failure.tui.interactive_only": {
+        message_template:
+          "tui is interactive-only; use `loaf sessions list --format json` for scriptable session output",
+        zh_message_template:
+          "tui 仅支持交互模式;脚本化 session 输出请使用 `loaf sessions list --format json`",
+        fix_template: "Run the command with --help and retry with the required flags/arguments.",
+        template_keys: [],
+        detail_keys: [],
+        doc_anchor: "protocol.md#§10.5",
+      },
+      "failure.hook.missing_event": {
+        message_template:
+          "loaf hook requires an event token; one of: {events}. Run `loaf hook --list-events` for the full enum",
+        zh_message_template:
+          "loaf hook 需要 event token;可选值:{events}. 运行 `loaf hook --list-events` 查看完整枚举",
+        fix_template: "Run the command with --help and retry with the required flags/arguments.",
+        template_keys: ["events"],
+        detail_keys: ["events"],
+        doc_anchor: "protocol.md#§10.5",
+      },
+      "failure.hook.unknown_event": {
+        message_template:
+          "unknown hook event '{event}'; expected one of: {allowed}. Did you mean '{suggestion}'?",
+        zh_message_template:
+          "未知 hook event '{event}';期望值:{allowed}. 你是不是想输入 '{suggestion}'?",
+        fix_template: "Run the command with --help and retry with the required flags/arguments.",
+        template_keys: ["allowed", "event", "suggestion"],
+        detail_keys: ["allowed", "event", "suggestion"],
+        doc_anchor: "protocol.md#§10.5",
+      },
+      "failure.hook.write_path_missing": {
+        message_template:
+          "write-side hook requires --path <P> or a non-TTY stdin hook payload (tool_input.file_path)",
+        zh_message_template:
+          "write-side hook 需要 --path <P> 或非 TTY stdin hook payload(tool_input.file_path)",
+        fix_template: "Run the command with --help and retry with the required flags/arguments.",
+        template_keys: [],
+        detail_keys: [],
+        doc_anchor: "protocol.md#§10.5",
+      },
+      "failure.check.selector_conflict": {
+        message_template:
+          "check does not accept {conflicting} — it validates a file by path, independent of any feature session",
+        zh_message_template:
+          "check 不接受 {conflicting} —— 它按路径校验文件,独立于 feature session",
+        fix_template: "Run the command with --help and retry with the required flags/arguments.",
+        template_keys: ["conflicting"],
+        detail_keys: ["conflicting"],
+        doc_anchor: "protocol.md#§10.5",
+      },
+      "failure.check.kind_required": {
+        message_template:
+          "`{subject}` is not a file path. To validate a {kind} artifact, pass its path: `{suggestion}` (noun-first `loaf {kind} check` is reserved for a future release)",
+        zh_message_template:
+          "`{subject}` 不是文件路径. 如需校验 {kind} artifact,需要显式路径: `{suggestion}`(noun-first `loaf {kind} check` 预留给未来版本)",
+        fix_template: "Run the command with --help and retry with the required flags/arguments.",
+        template_keys: ["kind", "subject", "suggestion"],
+        detail_keys: ["kind", "subject", "suggestion"],
+        doc_anchor: "protocol.md#§10.5",
+      },
+      "failure.check.kind_invalid": {
+        message_template:
+          "--kind '{value}' is not recognized; expected one of {allowed_kinds_human}",
+        zh_message_template: "--kind 必须是 {allowed_kinds_human};当前为 '{value}'",
+        fix_template: "Run the command with --help and retry with the required flags/arguments.",
+        template_keys: ["allowed_kinds_human", "value"],
+        detail_keys: ["allowed_kinds_human", "value"],
+        doc_anchor: "protocol.md#§10.5",
+      },
+      "failure.schema.selector_conflict": {
+        message_template:
+          "{subject} does not accept {conflicting} — schema dumps are feature-agnostic",
+        zh_message_template: "{subject} 不接受 {conflicting} —— schema dump 与 feature 无关",
+        fix_template: "Run the command with --help and retry with the required flags/arguments.",
+        template_keys: ["conflicting", "subject"],
+        detail_keys: ["conflicting", "subject"],
+        doc_anchor: "protocol.md#§10.5",
+      },
+      "failure.dispatch.session_feature_dir_conflict": {
+        message_template:
+          "{conflicting} cannot be combined with --feature-dir (session identity comes from registry; manual featureDir is contradictory)",
+        zh_message_template:
+          "{conflicting} 不能与 --feature-dir 一起使用(session identity 来自 registry;手动 featureDir 会矛盾)",
+        fix_template: "Run the command with --help and retry with the required flags/arguments.",
+        template_keys: ["conflicting"],
+        detail_keys: ["conflicting"],
+        doc_anchor: "protocol.md#§10.5",
+      },
+      "failure.dispatch.feature_dir_requires_feature": {
+        message_template:
+          "--feature-dir requires --feature <name> or $LOAF_FEATURE to name the feature",
+        zh_message_template: "--feature-dir 需要 --feature <name> 或 $LOAF_FEATURE 来命名 feature",
+        fix_template: "Run the command with --help and retry with the required flags/arguments.",
+        template_keys: [],
+        detail_keys: [],
+        doc_anchor: "protocol.md#§10.5",
+      },
+      "failure.start.label_too_short": {
+        message_template: "--label must be at least {min_length} characters",
+        zh_message_template: "--label 至少需要 {min_length} 个字符",
+        fix_template: "Run the command with --help and retry with the required flags/arguments.",
+        template_keys: ["min_length"],
+        detail_keys: ["min_length"],
+        doc_anchor: "protocol.md#§10.5",
+      },
+      "failure.start.workspace_empty": {
+        message_template: "--workspace must not be empty",
+        zh_message_template: "--workspace 不能为空",
+        fix_template: "Run the command with --help and retry with the required flags/arguments.",
+        template_keys: [],
+        detail_keys: [],
+        doc_anchor: "protocol.md#§10.5",
+      },
+      "failure.handoff.reason_too_short": {
+        message_template: "--reason must be ≥{min_length} chars (got {reason_length})",
+        zh_message_template: "--reason 必须 ≥{min_length} 字符(当前 {reason_length})",
+        fix_template: "Run the command with --help and retry with the required flags/arguments.",
+        template_keys: ["min_length", "reason_length"],
+        detail_keys: ["min_length", "reason_length"],
+        doc_anchor: "protocol.md#§10.5",
+      },
+      "failure.lessons.text_too_short": {
+        message_template: "lesson text must be ≥{min_length} chars (got {lesson_text_length})",
+        zh_message_template: "lesson text 必须 ≥{min_length} 字符(当前 {lesson_text_length})",
+        fix_template: "Run the command with --help and retry with the required flags/arguments.",
+        template_keys: ["lesson_text_length", "min_length"],
+        detail_keys: ["lesson_text_length", "min_length"],
+        doc_anchor: "protocol.md#§10.5",
+      },
+      "failure.lessons.reason_too_short": {
+        message_template: "--reason must be ≥{min_length} chars (got {reason_length})",
+        zh_message_template: "--reason 必须 ≥{min_length} 字符(当前 {reason_length})",
+        fix_template: "Run the command with --help and retry with the required flags/arguments.",
+        template_keys: ["min_length", "reason_length"],
+        detail_keys: ["min_length", "reason_length"],
+        doc_anchor: "protocol.md#§10.5",
+      },
+      "failure.lessons.text_file_mutex": {
+        message_template: "exactly one of --text or --file required ({provided_state})",
+        zh_message_template: "--text 和 --file 必须二选一({provided_state})",
+        fix_template: "Run the command with --help and retry with the required flags/arguments.",
+        template_keys: ["provided_state"],
+        detail_keys: ["provided_state"],
+        doc_anchor: "protocol.md#§10.5",
+      },
+      "failure.finding.status_invalid": {
+        message_template: "--status must be one of: {allowed_statuses_human} (got {value})",
+        zh_message_template: "--status 必须是:{allowed_statuses_human}(当前 {value})",
+        fix_template: "Run the command with --help and retry with the required flags/arguments.",
+        template_keys: ["allowed_statuses_human", "value"],
+        detail_keys: ["allowed_statuses_human", "value"],
+        doc_anchor: "protocol.md#§10.5",
+      },
+      "failure.journal.integer_invalid": {
+        message_template: "{flag} must be an integer >= {minimum} (got {value})",
+        zh_message_template: "{flag} 必须是 >= {minimum} 的整数(当前 {value})",
+        fix_template: "Run the command with --help and retry with the required flags/arguments.",
+        template_keys: ["flag", "minimum", "value"],
+        detail_keys: ["flag", "minimum", "value"],
+        doc_anchor: "protocol.md#§10.5",
+      },
+      "failure.journal.kind_invalid": {
+        message_template: "--kind must be a registered journal kind (got {value})",
+        zh_message_template: "--kind 必须是已注册的 journal kind(当前 {value})",
+        fix_template: "Run the command with --help and retry with the required flags/arguments.",
+        template_keys: ["value"],
+        detail_keys: ["value"],
+        doc_anchor: "protocol.md#§10.5",
+      },
+      "failure.journal.actor_invalid": {
+        message_template: "--actor must be a non-empty actor prefix or full actor string",
+        zh_message_template: "--actor 必须是非空 actor 前缀或完整 actor 字符串",
+        fix_template: "Run the command with --help and retry with the required flags/arguments.",
+        template_keys: [],
+        detail_keys: [],
+        doc_anchor: "protocol.md#§10.5",
+      },
+      "failure.evidence.covers_invalid": {
+        message_template: "--covers must be a valid coverage id (got {value})",
+        zh_message_template: "--covers 必须是有效的 coverage id(当前 {value})",
+        fix_template: "Run the command with --help and retry with the required flags/arguments.",
+        template_keys: ["value"],
+        detail_keys: ["value"],
+        doc_anchor: "protocol.md#§10.5",
+      },
+      "failure.evidence.task_invalid": {
+        message_template: "--task must be a valid task id (got {value})",
+        zh_message_template: "--task 必须是有效的 task id(当前 {value})",
+        fix_template: "Run the command with --help and retry with the required flags/arguments.",
+        template_keys: ["value"],
+        detail_keys: ["value"],
+        doc_anchor: "protocol.md#§10.5",
+      },
+      "failure.evidence.kind_invalid": {
+        message_template: "--kind must be one of: {allowed_kinds_human}",
+        zh_message_template: "--kind 必须是:{allowed_kinds_human}",
+        fix_template: "Run the command with --help and retry with the required flags/arguments.",
+        template_keys: ["allowed_kinds_human"],
+        detail_keys: ["allowed_kinds_human"],
+        doc_anchor: "protocol.md#§10.5",
+      },
+    },
   },
   DOCTOR_MODE_NOT_IMPLEMENTED: {
     exit_code: 2,
@@ -1460,6 +1933,7 @@ export const ERROR_CATALOG = {
     fix_template: "Use loaf doctor --rebuild --feature <name>; other doctor modes are deferred.",
     template_keys: [],
     doc_anchor: "protocol.md#§10.15",
+    detail_keys: [],
   },
   DOCTOR_FEATURE_REQUIRED: {
     exit_code: 2,
@@ -1468,6 +1942,7 @@ export const ERROR_CATALOG = {
     fix_template: "Pass --feature <name> or --feature-dir <path> for the session to rebuild.",
     template_keys: [],
     doc_anchor: "protocol.md#§10.15",
+    detail_keys: [],
   },
   DOCTOR_REBUILD_FAILED: {
     exit_code: 2,
@@ -1477,6 +1952,7 @@ export const ERROR_CATALOG = {
       "Inspect the emitted error message; fix the journal/projection issue, then rerun doctor --rebuild.",
     template_keys: [],
     doc_anchor: "protocol.md#§10.15",
+    detail_keys: [],
   },
 
   REDUCER_ERROR: {
@@ -1487,6 +1963,7 @@ export const ERROR_CATALOG = {
       "Preserve the journal and command stderr; this indicates a loaf-cli bug or inconsistent projection state.",
     template_keys: [],
     doc_anchor: "protocol.md#§10.5",
+    detail_keys: [],
   },
   APPEND_ERROR: {
     // journal-mutate preserves heterogeneous AppendError detail (code plus
@@ -1571,6 +2048,7 @@ export const ERROR_CATALOG = {
       "write within the current step's contract, advance to the right sub_state/step first, or widen the matching `paths.*` category in .loaf/.config/loaf.config.json",
     template_keys: ["normalized_path", "sub_state"],
     doc_anchor: "protocol.md#§11.1",
+    detail_keys: ["normalized_path", "sub_state"],
   },
   PROTECTED_FILE_WRITE: {
     // Phase 16 SC-15c — `loaf hook write-guard`: the target path matched a
@@ -1585,6 +2063,7 @@ export const ERROR_CATALOG = {
       "remove the entry from protected_files in .loaf/.config/loaf.config.json if the protection is wrong, otherwise write a different file",
     template_keys: ["matched_deny", "normalized_path"],
     doc_anchor: "protocol.md#§11.1",
+    detail_keys: ["matched_deny", "normalized_path"],
   },
 } as const satisfies Record<string, ErrorEntry>;
 
@@ -1602,9 +2081,9 @@ type DetailKeyFor<Code extends DiagnosticCode> = (typeof ERROR_CATALOG)[Code] ex
   ? Key
   : never;
 
-export type DiagnosticDetail<Code extends DiagnosticCode> = [DetailKeyFor<Code>] extends [never]
-  ? Record<string, never>
-  : { [Key in DetailKeyFor<Code>]: unknown };
+export type DiagnosticDetail<Code extends DiagnosticCode> = {
+  [Key in DetailKeyFor<Code>]: unknown;
+} & Record<string, unknown>;
 
 export type Diagnostic<Code extends DiagnosticCode> = {
   code: Code;
@@ -1612,11 +2091,63 @@ export type Diagnostic<Code extends DiagnosticCode> = {
 };
 
 /** Constructs a catalog diagnostic while checking its required detail keys. */
-export function diagnostic<const Code extends DiagnosticCode>(
-  code: Code,
-  detail: DiagnosticDetail<Code>,
-): Diagnostic<Code> {
+export function diagnostic<
+  const Code extends DiagnosticCode,
+  const Detail extends DiagnosticDetail<NoInfer<Code>>,
+>(code: Code, detail: Detail): { code: Code; detail: Detail } {
   return { code, detail };
+}
+
+type VariantFor<Context extends string> = {
+  [Code in DiagnosticCode]: (typeof ERROR_CATALOG)[Code] extends { variants: infer Variants }
+    ? Context extends keyof Variants
+      ? { code: Code; template: Variants[Context] }
+      : never
+    : never;
+}[DiagnosticCode];
+export type DiagnosticContext = {
+  [Code in DiagnosticCode]: (typeof ERROR_CATALOG)[Code] extends { variants: infer Variants }
+    ? keyof Variants
+    : never;
+}[DiagnosticCode];
+type VariantDetail<Context extends DiagnosticContext> = VariantFor<Context>["template"] extends {
+  detail_keys: readonly (infer Key extends string)[];
+}
+  ? { [Field in Key]: unknown } & Record<string, unknown>
+  : never;
+type VariantDiagnostic<Context extends DiagnosticContext> = {
+  code: VariantFor<Context>["code"];
+  detail: VariantDetail<Context> & { context: Context };
+};
+export type CatalogDiagnostic =
+  | {
+      [Code in DiagnosticCode]: Diagnostic<Code>;
+    }[DiagnosticCode]
+  | {
+      [Context in DiagnosticContext]: VariantDiagnostic<Context>;
+    }[DiagnosticContext];
+
+/** Derived index, not a second registry. Variant code membership comes from
+ * its parent catalog entry; context names are the existing failure sites. */
+export const DIAGNOSTIC_VARIANTS = Object.fromEntries(
+  Object.entries(ERROR_CATALOG).flatMap(([code, entry]) =>
+    "variants" in entry
+      ? Object.entries(entry.variants).map(([context, template]) => [context, { code, template }])
+      : [],
+  ),
+) as { [Context in DiagnosticContext]: VariantFor<Context> };
+
+/** Constructs an ambiguous existing site without replacing its subcode.
+ * Context is added only for catalog variants, never ordinary code records. */
+export function diagnosticVariant<
+  const Context extends DiagnosticContext,
+  const Detail extends VariantDetail<NoInfer<Context>>,
+>(
+  context: Context,
+  detail: Detail,
+): { code: VariantFor<Context>["code"]; detail: Detail & { context: Context } } {
+  const code = DIAGNOSTIC_VARIANTS[context].code as VariantFor<Context>["code"];
+  return { code, detail: { ...detail, context } };
 }
 const DIAGNOSTIC_CODE_VALUES = Object.keys(ERROR_CATALOG) as [DiagnosticCode, ...DiagnosticCode[]];
 export const DiagnosticCode = z.enum(DIAGNOSTIC_CODE_VALUES);

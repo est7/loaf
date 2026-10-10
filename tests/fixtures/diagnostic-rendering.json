@@ -1,0 +1,1955 @@
+[
+  {
+    "code": "INPUT_FILE_NOT_FOUND",
+    "context": null,
+    "detail": {
+      "path": "value_path"
+    },
+    "en_message": "input file does not exist: value_path",
+    "zh_message": "input file does not exist: value_path",
+    "en_text": "error: INPUT_FILE_NOT_FOUND — input file does not exist: value_path\n  fix: verify the path, or pass '-' to read from stdin / inline JSON starting with a JSON object or array — see `loaf <cmd> --help` for examples\n  see: protocol.md#§10.7\n",
+    "zh_text": "error: INPUT_FILE_NOT_FOUND — input file does not exist: value_path\n  fix: verify the path, or pass '-' to read from stdin / inline JSON starting with a JSON object or array — see `loaf <cmd> --help` for examples\n  see: protocol.md#§10.7\n"
+  },
+  {
+    "code": "MISSING_INPUT",
+    "context": null,
+    "detail": {},
+    "en_message": "required input source missing or unreadable: --input not provided OR stdin could not be read (--input - failed)",
+    "zh_message": "required input source missing or unreadable: --input not provided OR stdin could not be read (--input - failed)",
+    "en_text": "error: MISSING_INPUT — required input source missing or unreadable: --input not provided OR stdin could not be read (--input - failed)\n  fix: pass --input with one of: a JSON file path, '-' for stdin (with valid piped JSON), or inline JSON; for stdin failures, pass valid JSON to `loaf <cmd> --input -` on stdin; for the 6 schema-capable authoring commands (spec add-req / spec add-scenario / spec add-visual / tasks submit / tasks add / evidence add), run `loaf <cmd> --schema --format=json` to view the input schema\n  see: protocol.md#§10.7\n",
+    "zh_text": "error: MISSING_INPUT — required input source missing or unreadable: --input not provided OR stdin could not be read (--input - failed)\n  fix: pass --input with one of: a JSON file path, '-' for stdin (with valid piped JSON), or inline JSON; for stdin failures, pass valid JSON to `loaf <cmd> --input -` on stdin; for the 6 schema-capable authoring commands (spec add-req / spec add-scenario / spec add-visual / tasks submit / tasks add / evidence add), run `loaf <cmd> --schema --format=json` to view the input schema\n  see: protocol.md#§10.7\n"
+  },
+  {
+    "code": "SPEC_EDIT_INPUT_REQUIRED",
+    "context": null,
+    "detail": {},
+    "en_message": "non-interactive `loaf spec edit` requires --input <src>; the editor lane requires TTY stdin and stdout",
+    "zh_message": "非交互式 `loaf spec edit` 必须传 --input <src>；编辑器通道要求 stdin 和 stdout 均为 TTY",
+    "en_text": "error: SPEC_EDIT_INPUT_REQUIRED — non-interactive `loaf spec edit` requires --input <src>; the editor lane requires TTY stdin and stdout\n  fix: pass --input with a JSON object {\"body\":\"<Markdown>\"} via file, stdin '-', or inline JSON; alternatively rerun from a terminal with both stdin and stdout attached to a TTY\n  see: protocol.md#§10.7\n",
+    "zh_text": "error: SPEC_EDIT_INPUT_REQUIRED — 非交互式 `loaf spec edit` 必须传 --input <src>；编辑器通道要求 stdin 和 stdout 均为 TTY\n  fix: pass --input with a JSON object {\"body\":\"<Markdown>\"} via file, stdin '-', or inline JSON; alternatively rerun from a terminal with both stdin and stdout attached to a TTY\n  see: protocol.md#§10.7\n"
+  },
+  {
+    "code": "SCHEMA_VALIDATION_FAILED",
+    "context": null,
+    "detail": {
+      "command": "value_command",
+      "zod_message": "value_zod_message",
+      "zod_path": "value_zod_path"
+    },
+    "en_message": "input does not satisfy schema for value_command: value_zod_path: value_zod_message",
+    "zh_message": "input does not satisfy schema for value_command: value_zod_path: value_zod_message",
+    "en_text": "error: SCHEMA_VALIDATION_FAILED — input does not satisfy schema for value_command: value_zod_path: value_zod_message\n  fix: for the 6 schema-capable authoring commands (spec add-req / spec add-scenario / spec add-visual / tasks submit / tasks add / evidence add), run `loaf value_command --schema --format=json` to dump the input JSON Schema; for artifact projection files, run `loaf <kind> schema --format=json` (kind ∈ spec / tasks / evidence / finding / state). Fix the offending field and retry\n  see: protocol.md#§10.5\n",
+    "zh_text": "error: SCHEMA_VALIDATION_FAILED — input does not satisfy schema for value_command: value_zod_path: value_zod_message\n  fix: for the 6 schema-capable authoring commands (spec add-req / spec add-scenario / spec add-visual / tasks submit / tasks add / evidence add), run `loaf value_command --schema --format=json` to dump the input JSON Schema; for artifact projection files, run `loaf <kind> schema --format=json` (kind ∈ spec / tasks / evidence / finding / state). Fix the offending field and retry\n  see: protocol.md#§10.5\n"
+  },
+  {
+    "code": "SPEC_LOCKED_NO_DIRECT_EDIT",
+    "context": null,
+    "detail": {
+      "kind": "value_kind"
+    },
+    "en_message": "value_kind blocked: spec_locked=true; use `loaf finding raise --category spec-gap --action amend-spec` to back-edge into SPEC.spec",
+    "zh_message": "value_kind 被拒:spec_locked=true;用 `loaf finding raise --category spec-gap --action amend-spec` 走 amend-spec 回退到 SPEC.spec",
+    "en_text": "error: SPEC_LOCKED_NO_DIRECT_EDIT — value_kind blocked: spec_locked=true; use `loaf finding raise --category spec-gap --action amend-spec` to back-edge into SPEC.spec\n  fix: raise a finding with category=spec-gap (or spec-defect) and action=amend-spec to back-edge into SPEC.spec (the finding's resets_spec_locked effect lifts the gate); then retry the spec add/submit\n  see: protocol.md#§5.3\n",
+    "zh_text": "error: SPEC_LOCKED_NO_DIRECT_EDIT — value_kind 被拒:spec_locked=true;用 `loaf finding raise --category spec-gap --action amend-spec` 走 amend-spec 回退到 SPEC.spec\n  fix: raise a finding with category=spec-gap (or spec-defect) and action=amend-spec to back-edge into SPEC.spec (the finding's resets_spec_locked effect lifts the gate); then retry the spec add/submit\n  see: protocol.md#§5.3\n"
+  },
+  {
+    "code": "SPEC_NOT_INITIALIZED",
+    "context": null,
+    "detail": {
+      "kind": "value_kind"
+    },
+    "en_message": "value_kind blocked: spec_version=0; run `loaf spec submit` first to bump spec_version to 1",
+    "zh_message": "value_kind 被拒:spec_version=0;先跑 `loaf spec submit` 把 spec_version 升到 1",
+    "en_text": "error: SPEC_NOT_INITIALIZED — value_kind blocked: spec_version=0; run `loaf spec submit` first to bump spec_version to 1\n  fix: run `loaf spec submit --input <file>` first to bump spec_version to 1, then retry the add-* command (SC4 will add `loaf spec init` as a separate scaffold helper that chains into submit)\n  see: protocol.md#§4.2\n",
+    "zh_text": "error: SPEC_NOT_INITIALIZED — value_kind 被拒:spec_version=0;先跑 `loaf spec submit` 把 spec_version 升到 1\n  fix: run `loaf spec submit --input <file>` first to bump spec_version to 1, then retry the add-* command (SC4 will add `loaf spec init` as a separate scaffold helper that chains into submit)\n  see: protocol.md#§4.2\n"
+  },
+  {
+    "code": "SPEC_ALREADY_INITIALIZED",
+    "context": null,
+    "detail": {
+      "spec_md_path": "value_spec_md_path"
+    },
+    "en_message": "spec.md already exists at value_spec_md_path; refusing to overwrite",
+    "zh_message": "spec.md 已存在于 value_spec_md_path;拒绝覆盖",
+    "en_text": "error: SPEC_ALREADY_INITIALIZED — spec.md already exists at value_spec_md_path; refusing to overwrite\n  fix: edit the existing spec.md directly, or remove it before re-running `loaf spec init` (no --force flag in Slice 4)\n  see: protocol.md#§4.2\n",
+    "zh_text": "error: SPEC_ALREADY_INITIALIZED — spec.md 已存在于 value_spec_md_path;拒绝覆盖\n  fix: edit the existing spec.md directly, or remove it before re-running `loaf spec init` (no --force flag in Slice 4)\n  see: protocol.md#§4.2\n"
+  },
+  {
+    "code": "CONFIG_ALREADY_INITIALIZED",
+    "context": null,
+    "detail": {
+      "config_path": "value_config_path"
+    },
+    "en_message": "loaf config already exists at value_config_path; refusing to overwrite",
+    "zh_message": "loaf config 已存在于 value_config_path;拒绝覆盖",
+    "en_text": "error: CONFIG_ALREADY_INITIALIZED — loaf config already exists at value_config_path; refusing to overwrite\n  fix: edit the existing config file directly, or remove it before re-running `loaf config init` (no --force flag)\n  see: protocol.md#§10.8\n",
+    "zh_text": "error: CONFIG_ALREADY_INITIALIZED — loaf config 已存在于 value_config_path;拒绝覆盖\n  fix: edit the existing config file directly, or remove it before re-running `loaf config init` (no --force flag)\n  see: protocol.md#§10.8\n"
+  },
+  {
+    "code": "ATTACHMENT_NOT_FOUND",
+    "context": null,
+    "detail": {
+      "path": "value_path"
+    },
+    "en_message": "attachment path does not exist: value_path",
+    "zh_message": "attachment path does not exist: value_path",
+    "en_text": "error: ATTACHMENT_NOT_FOUND — attachment path does not exist: value_path\n  fix: verify the path is reachable from the working directory and readable by the current user\n  see: protocol.md#§4.4\n",
+    "zh_text": "error: ATTACHMENT_NOT_FOUND — attachment path does not exist: value_path\n  fix: verify the path is reachable from the working directory and readable by the current user\n  see: protocol.md#§4.4\n"
+  },
+  {
+    "code": "ATTACHMENT_NOT_FILE",
+    "context": null,
+    "detail": {
+      "kind": "value_kind",
+      "path": "value_path"
+    },
+    "en_message": "attachment path is not a regular file: value_path (value_kind)",
+    "zh_message": "attachment path is not a regular file: value_path (value_kind)",
+    "en_text": "error: ATTACHMENT_NOT_FILE — attachment path is not a regular file: value_path (value_kind)\n  fix: attachments must be regular files; directories, symlinks to directories, sockets, and FIFOs are rejected\n  see: protocol.md#§4.4\n",
+    "zh_text": "error: ATTACHMENT_NOT_FILE — attachment path is not a regular file: value_path (value_kind)\n  fix: attachments must be regular files; directories, symlinks to directories, sockets, and FIFOs are rejected\n  see: protocol.md#§4.4\n"
+  },
+  {
+    "code": "FINDING_ACTION_UNUSUAL_REASON_REQUIRED",
+    "context": null,
+    "detail": {
+      "action": "value_action",
+      "category": "value_category",
+      "current_reason_length": "value_current_reason_length",
+      "min_reason_length": "value_min_reason_length"
+    },
+    "en_message": "finding category=value_category × action=value_action is 'unusual'; --reason of at least value_min_reason_length characters is required",
+    "zh_message": "finding category=value_category × action=value_action is 'unusual'; --reason of at least value_min_reason_length characters is required",
+    "en_text": "error: FINDING_ACTION_UNUSUAL_REASON_REQUIRED — finding category=value_category × action=value_action is 'unusual'; --reason of at least value_min_reason_length characters is required\n  fix: rerun with --reason explaining why this non-typical combination applies (see references/finding-matrix-rationale.md)\n  see: protocol.md#§4.5\n",
+    "zh_text": "error: FINDING_ACTION_UNUSUAL_REASON_REQUIRED — finding category=value_category × action=value_action is 'unusual'; --reason of at least value_min_reason_length characters is required\n  fix: rerun with --reason explaining why this non-typical combination applies (see references/finding-matrix-rationale.md)\n  see: protocol.md#§4.5\n"
+  },
+  {
+    "code": "FINDING_ACTION_INCOHERENT",
+    "context": null,
+    "detail": {
+      "action": "value_action",
+      "category": "value_category"
+    },
+    "en_message": "finding category=value_category × action=value_action is incoherent: no target task exists to apply this transition to",
+    "zh_message": "finding category=value_category × action=value_action is incoherent: no target task exists to apply this transition to",
+    "en_text": "error: FINDING_ACTION_INCOHERENT — finding category=value_category × action=value_action is incoherent: no target task exists to apply this transition to\n  fix: amend the spec first (category=spec-gap / new-scope × action=amend-spec) so a target task can be planned, then raise the fix-impl / fix-test finding against that task\n  see: protocol.md#§4.5\n",
+    "zh_text": "error: FINDING_ACTION_INCOHERENT — finding category=value_category × action=value_action is incoherent: no target task exists to apply this transition to\n  fix: amend the spec first (category=spec-gap / new-scope × action=amend-spec) so a target task can be planned, then raise the fix-impl / fix-test finding against that task\n  see: protocol.md#§4.5\n"
+  },
+  {
+    "code": "FINDING_TARGET_REQUIRED",
+    "context": null,
+    "detail": {
+      "action": "value_action",
+      "reason": "value_reason",
+      "step": "value_step",
+      "task_id": "value_task_id"
+    },
+    "en_message": "finding action=value_action target validation failed (value_reason): task_id=value_task_id, step=value_step",
+    "zh_message": "finding action=value_action target 校验失败(value_reason):task_id=value_task_id, step=value_step",
+    "en_text": "error: FINDING_TARGET_REQUIRED — finding action=value_action target validation failed (value_reason): task_id=value_task_id, step=value_step\n  fix: fix-impl/fix-test require --target-task + --target-step matching the action's canonical step (fix-impl=implement, fix-test=red); amend-tasks accepts an optional but valid target; amend-spec / defer / backlog must not carry a target\n  see: protocol.md#§4.5\n",
+    "zh_text": "error: FINDING_TARGET_REQUIRED — finding action=value_action target 校验失败(value_reason):task_id=value_task_id, step=value_step\n  fix: fix-impl/fix-test require --target-task + --target-step matching the action's canonical step (fix-impl=implement, fix-test=red); amend-tasks accepts an optional but valid target; amend-spec / defer / backlog must not carry a target\n  see: protocol.md#§4.5\n"
+  },
+  {
+    "code": "PRUNE_RESTORE_NOT_FOUND",
+    "context": null,
+    "detail": {},
+    "en_message": "no trashed session matches the given id",
+    "zh_message": "没有匹配该 id 的已回收 session",
+    "en_text": "error: PRUNE_RESTORE_NOT_FOUND — no trashed session matches the given id\n  fix: run `loaf prune --history` to list trashed sessions (slice 6b)\n  see: protocol.md#§10.8\n",
+    "zh_text": "error: PRUNE_RESTORE_NOT_FOUND — 没有匹配该 id 的已回收 session\n  fix: run `loaf prune --history` to list trashed sessions (slice 6b)\n  see: protocol.md#§10.8\n"
+  },
+  {
+    "code": "PRUNE_RESTORE_AMBIGUOUS",
+    "context": null,
+    "detail": {},
+    "en_message": "the session id was trashed more than once; pass --at <ts> to pick one",
+    "zh_message": "该 session id 被回收过多次;用 --at <ts> 指定其一",
+    "en_text": "error: PRUNE_RESTORE_AMBIGUOUS — the session id was trashed more than once; pass --at <ts> to pick one\n  fix: re-run `loaf prune restore <id> --at <ts>` with one of the listed timestamps\n  see: protocol.md#§10.8\n",
+    "zh_text": "error: PRUNE_RESTORE_AMBIGUOUS — 该 session id 被回收过多次;用 --at <ts> 指定其一\n  fix: re-run `loaf prune restore <id> --at <ts>` with one of the listed timestamps\n  see: protocol.md#§10.8\n"
+  },
+  {
+    "code": "PRUNE_RESTORE_INCOMPLETE",
+    "context": null,
+    "detail": {},
+    "en_message": "the trash bucket is incomplete (missing a required artifact); not restoring",
+    "zh_message": "trash 桶不完整(缺必要文件),不予恢复",
+    "en_text": "error: PRUNE_RESTORE_INCOMPLETE — the trash bucket is incomplete (missing a required artifact); not restoring\n  fix: inspect the trash bucket; a complete bucket has manifest.json + registry.json\n  see: protocol.md#§10.8\n",
+    "zh_text": "error: PRUNE_RESTORE_INCOMPLETE — trash 桶不完整(缺必要文件),不予恢复\n  fix: inspect the trash bucket; a complete bucket has manifest.json + registry.json\n  see: protocol.md#§10.8\n"
+  },
+  {
+    "code": "PRUNE_PATH_OCCUPIED",
+    "context": null,
+    "detail": {},
+    "en_message": "a restore destination already exists; refusing to overwrite",
+    "zh_message": "恢复目标已存在,拒绝覆盖",
+    "en_text": "error: PRUNE_PATH_OCCUPIED — a restore destination already exists; refusing to overwrite\n  fix: move or remove the occupying registry entry / feature dir, then retry restore\n  see: protocol.md#§10.8\n",
+    "zh_text": "error: PRUNE_PATH_OCCUPIED — 恢复目标已存在,拒绝覆盖\n  fix: move or remove the occupying registry entry / feature dir, then retry restore\n  see: protocol.md#§10.8\n"
+  },
+  {
+    "code": "PRUNE_PARTIAL_FAILURE",
+    "context": null,
+    "detail": {},
+    "en_message": "prune partially failed: one or more sessions could not be removed",
+    "zh_message": "prune 部分失败:有 session 未能删除",
+    "en_text": "error: PRUNE_PARTIAL_FAILURE — prune partially failed: one or more sessions could not be removed\n  fix: inspect detail.failed; rerun prune for the failed sessions after resolving the error\n  see: protocol.md#§10.8\n",
+    "zh_text": "error: PRUNE_PARTIAL_FAILURE — prune 部分失败:有 session 未能删除\n  fix: inspect detail.failed; rerun prune for the failed sessions after resolving the error\n  see: protocol.md#§10.8\n"
+  },
+  {
+    "code": "MUTUALLY_EXCLUSIVE_FLAGS",
+    "context": null,
+    "detail": {
+      "conflicting": "value_conflicting"
+    },
+    "en_message": "mutually exclusive flags in the same invocation: value_conflicting",
+    "zh_message": "同一次调用使用了互斥的 flags:value_conflicting",
+    "en_text": "error: MUTUALLY_EXCLUSIVE_FLAGS — mutually exclusive flags in the same invocation: value_conflicting\n  fix: pass at most one of the flags from each exclusion set; see `loaf <cmd> --help` for the canonical flag list\n  see: protocol.md#§10.7\n",
+    "zh_text": "error: MUTUALLY_EXCLUSIVE_FLAGS — 同一次调用使用了互斥的 flags:value_conflicting\n  fix: pass at most one of the flags from each exclusion set; see `loaf <cmd> --help` for the canonical flag list\n  see: protocol.md#§10.7\n"
+  },
+  {
+    "code": "INVALID_ENV_VALUE",
+    "context": null,
+    "detail": {
+      "accepted": "value_accepted",
+      "env_name": "value_env_name",
+      "value": "value_value"
+    },
+    "en_message": "environment variable value_env_name=value_value is not in the accepted enum: value_accepted",
+    "zh_message": "environment variable value_env_name=value_value is not in the accepted enum: value_accepted",
+    "en_text": "error: INVALID_ENV_VALUE — environment variable value_env_name=value_value is not in the accepted enum: value_accepted\n  fix: unset value_env_name or set it to one of: value_accepted\n  see: protocol.md#§10.3\n",
+    "zh_text": "error: INVALID_ENV_VALUE — environment variable value_env_name=value_value is not in the accepted enum: value_accepted\n  fix: unset value_env_name or set it to one of: value_accepted\n  see: protocol.md#§10.3\n"
+  },
+  {
+    "code": "INVALID_FORMAT",
+    "context": null,
+    "detail": {
+      "allowed_values": "value_allowed_values",
+      "value": "value_value"
+    },
+    "en_message": "invalid --format value 'value_value'; allowed: value_allowed_values",
+    "zh_message": "无效的 --format 值 'value_value';合法值:value_allowed_values",
+    "en_text": "error: INVALID_FORMAT — invalid --format value 'value_value'; allowed: value_allowed_values\n  fix: pass --format text or --format json (the only allowed values for this release); --format=<value> equals form is accepted\n  see: protocol.md#§10.7\n",
+    "zh_text": "error: INVALID_FORMAT — 无效的 --format 值 'value_value';合法值:value_allowed_values\n  fix: pass --format text or --format json (the only allowed values for this release); --format=<value> equals form is accepted\n  see: protocol.md#§10.7\n"
+  },
+  {
+    "code": "INVALID_LOCALE",
+    "context": null,
+    "detail": {
+      "accepted": "value_accepted",
+      "source": "value_source",
+      "value": "value_value"
+    },
+    "en_message": "invalid locale from value_source: value_value (expected value_accepted)",
+    "zh_message": "locale 来源 value_source 的值无效:value_value(期望:value_accepted)",
+    "en_text": "error: INVALID_LOCALE — invalid locale from value_source: value_value (expected value_accepted)\n  fix: unset the locale override or set it to one of: value_accepted; user preferences live in ~/.loaf/config.json locale.default_lang\n  see: docs/adr/0006-runtime-i18n-and-user-config.md\n",
+    "zh_text": "error: INVALID_LOCALE — locale 来源 value_source 的值无效:value_value(期望:value_accepted)\n  fix: unset the locale override or set it to one of: value_accepted; user preferences live in ~/.loaf/config.json locale.default_lang\n  see: docs/adr/0006-runtime-i18n-and-user-config.md\n"
+  },
+  {
+    "code": "DRY_RUN_NOT_APPLICABLE",
+    "context": null,
+    "detail": {
+      "command": "value_command",
+      "command_type": "value_command_type"
+    },
+    "en_message": "--dry-run not applicable to value_command_type command `value_command`",
+    "zh_message": "--dry-run 不适用于value_command_type命令 `value_command`",
+    "en_text": "error: DRY_RUN_NOT_APPLICABLE — --dry-run not applicable to value_command_type command `value_command`\n  fix: --dry-run only applies to mutating commands; re-run without --dry-run (or -n) to invoke the value_command_type command\n  see: protocol.md#§10.7\n",
+    "zh_text": "error: DRY_RUN_NOT_APPLICABLE — --dry-run 不适用于value_command_type命令 `value_command`\n  fix: --dry-run only applies to mutating commands; re-run without --dry-run (or -n) to invoke the value_command_type command\n  see: protocol.md#§10.7\n"
+  },
+  {
+    "code": "HOOK_EVENT_NOT_IMPLEMENTED",
+    "context": null,
+    "detail": {
+      "event": "value_event",
+      "sub_cycle": "value_sub_cycle"
+    },
+    "en_message": "hook event `value_event` is not implemented in this loaf version (Phase 16 SC-15value_sub_cycle pending; see protocol §11)",
+    "zh_message": "hook event `value_event` 在当前 loaf 版本未实装(Phase 16 SC-15value_sub_cycle 待实现;详 protocol §11)",
+    "en_text": "error: HOOK_EVENT_NOT_IMPLEMENTED — hook event `value_event` is not implemented in this loaf version (Phase 16 SC-15value_sub_cycle pending; see protocol §11)\n  fix: upgrade to a loaf release that implements this hook event, OR skip this hook surface for now — `loaf hook --list-events` shows the canonical 4-event enum\n  see: protocol.md#§11\n",
+    "zh_text": "error: HOOK_EVENT_NOT_IMPLEMENTED — hook event `value_event` 在当前 loaf 版本未实装(Phase 16 SC-15value_sub_cycle 待实现;详 protocol §11)\n  fix: upgrade to a loaf release that implements this hook event, OR skip this hook surface for now — `loaf hook --list-events` shows the canonical 4-event enum\n  see: protocol.md#§11\n"
+  },
+  {
+    "code": "TASK_STATUS_WITHOUT_PROOF",
+    "context": null,
+    "detail": {
+      "status": "value_status",
+      "task_id": "value_task_id"
+    },
+    "en_message": "task value_task_id status change requires evidence: status=value_status has no PASSING covering evidence proof in evidence.jsonl",
+    "zh_message": "task value_task_id status change requires evidence: status=value_status has no PASSING covering evidence proof in evidence.jsonl",
+    "en_text": "error: TASK_STATUS_WITHOUT_PROOF — task value_task_id status change requires evidence: status=value_status has no PASSING covering evidence proof in evidence.jsonl\n  fix: emit `loaf evidence add` covering task_id=value_task_id before advancing status (task-evidence is otherwise enforced later at verify-min / verify-accept)\n  see: protocol.md#§4.4\n",
+    "zh_text": "error: TASK_STATUS_WITHOUT_PROOF — task value_task_id status change requires evidence: status=value_status has no PASSING covering evidence proof in evidence.jsonl\n  fix: emit `loaf evidence add` covering task_id=value_task_id before advancing status (task-evidence is otherwise enforced later at verify-min / verify-accept)\n  see: protocol.md#§4.4\n"
+  },
+  {
+    "code": "MISSING_VERIFIABILITY",
+    "context": null,
+    "detail": {
+      "req_id": "value_req_id"
+    },
+    "en_message": "REQ value_req_id must declare measurable, verified_by_scenarios[], or acceptance_na+reason",
+    "zh_message": "需求 value_req_id 必须声明 measurable、verified_by_scenarios[] 或 acceptance_na+reason 三选一",
+    "en_text": "error: MISSING_VERIFIABILITY — REQ value_req_id must declare measurable, verified_by_scenarios[], or acceptance_na+reason\n  fix: add one of: measurable with metric, threshold, and optional unit/direction; verified_by_scenarios: [SCEN-...]; or acceptance_na: true with acceptance_na_reason of at least 10 characters\n  see: protocol.md#§4.2\n",
+    "zh_text": "error: MISSING_VERIFIABILITY — 需求 value_req_id 必须声明 measurable、verified_by_scenarios[] 或 acceptance_na+reason 三选一\n  fix: add one of: measurable with metric, threshold, and optional unit/direction; verified_by_scenarios: [SCEN-...]; or acceptance_na: true with acceptance_na_reason of at least 10 characters\n  see: protocol.md#§4.2\n"
+  },
+  {
+    "code": "VAGUE_NO_SCENARIO",
+    "context": null,
+    "detail": {
+      "req_id": "value_req_id"
+    },
+    "en_message": "requirement value_req_id reads as vague but is not anchored to a measurable threshold or to a verifying scenario",
+    "zh_message": "requirement value_req_id reads as vague but is not anchored to a measurable threshold or to a verifying scenario",
+    "en_text": "error: VAGUE_NO_SCENARIO — requirement value_req_id reads as vague but is not anchored to a measurable threshold or to a verifying scenario\n  fix: either add measurable with a numeric threshold and direction, or add the verifying SCEN-id to verified_by_scenarios\n  see: protocol.md#§4.2\n",
+    "zh_text": "error: VAGUE_NO_SCENARIO — requirement value_req_id reads as vague but is not anchored to a measurable threshold or to a verifying scenario\n  fix: either add measurable with a numeric threshold and direction, or add the verifying SCEN-id to verified_by_scenarios\n  see: protocol.md#§4.2\n"
+  },
+  {
+    "code": "DRIVES_NOT_BOUND",
+    "context": null,
+    "detail": {
+      "req_id": "value_req_id"
+    },
+    "en_message": "REQ value_req_id is not referenced by any task.drives[]",
+    "zh_message": "需求 value_req_id 没有被任何 task.drives[] 引用",
+    "en_text": "error: DRIVES_NOT_BOUND — REQ value_req_id is not referenced by any task.drives[]\n  fix: add a task whose drives[] contains value_req_id (loaf tasks add --input ...), or remove the REQ if it is intentionally out-of-scope for this feature\n  see: protocol.md#§4.3\n",
+    "zh_text": "error: DRIVES_NOT_BOUND — 需求 value_req_id 没有被任何 task.drives[] 引用\n  fix: add a task whose drives[] contains value_req_id (loaf tasks add --input ...), or remove the REQ if it is intentionally out-of-scope for this feature\n  see: protocol.md#§4.3\n"
+  },
+  {
+    "code": "MUTATION_OUT_OF_RIGHTS",
+    "context": null,
+    "detail": {
+      "sub_state": "value_sub_state",
+      "task_id": "value_task_id"
+    },
+    "en_message": "event:tasks_amended on task value_task_id is not permitted at sub_state value_sub_state — §8.6 grants no mutation right for this change",
+    "zh_message": "task value_task_id 的 event:tasks_amended 在 sub_state value_sub_state 不被允许 —— §8.6 未授予该改动的 mutation right",
+    "en_text": "error: MUTATION_OUT_OF_RIGHTS — event:tasks_amended on task value_task_id is not permitted at sub_state value_sub_state — §8.6 grants no mutation right for this change\n  fix: the mutation rights matrix (protocol.md §8.6) limits EXECUTE.plan `tasks amend` to execution[].applicability changes plus a status pending→ready advance; graph/kind-flag fields are frozen. To restructure the task graph, raise a `finding raise --action amend-tasks` back-edge, then run the sponsored `tasks add --finding` / `tasks amend --input --finding` at EXECUTE.work — a sponsored amend may change graph/definition fields but never erases execution progress (task/step status is frozen)\n  see: protocol.md#§8.6\n",
+    "zh_text": "error: MUTATION_OUT_OF_RIGHTS — task value_task_id 的 event:tasks_amended 在 sub_state value_sub_state 不被允许 —— §8.6 未授予该改动的 mutation right\n  fix: the mutation rights matrix (protocol.md §8.6) limits EXECUTE.plan `tasks amend` to execution[].applicability changes plus a status pending→ready advance; graph/kind-flag fields are frozen. To restructure the task graph, raise a `finding raise --action amend-tasks` back-edge, then run the sponsored `tasks add --finding` / `tasks amend --input --finding` at EXECUTE.work — a sponsored amend may change graph/definition fields but never erases execution progress (task/step status is frozen)\n  see: protocol.md#§8.6\n"
+  },
+  {
+    "code": "LOCK_TIMEOUT",
+    "context": null,
+    "detail": {
+      "timeout_seconds": "value_timeout_seconds"
+    },
+    "en_message": "could not acquire .loaf/<feature>/.lock within value_timeout_secondss",
+    "zh_message": "could not acquire .loaf/<feature>/.lock within value_timeout_secondss",
+    "en_text": "error: LOCK_TIMEOUT — could not acquire .loaf/<feature>/.lock within value_timeout_secondss\n  fix: another loaf process is holding the feature lease; wait for it to release. A later writer automatically reclaims a lease only when its PID is verifiably dead and the owner generation is unchanged; malformed leases fail closed and require inspection.\n  see: protocol.md#§11.2\n",
+    "zh_text": "error: LOCK_TIMEOUT — could not acquire .loaf/<feature>/.lock within value_timeout_secondss\n  fix: another loaf process is holding the feature lease; wait for it to release. A later writer automatically reclaims a lease only when its PID is verifiably dead and the owner generation is unchanged; malformed leases fail closed and require inspection.\n  see: protocol.md#§11.2\n"
+  },
+  {
+    "code": "LOCK_INVALID",
+    "context": null,
+    "detail": {
+      "lock_path": "value_lock_path"
+    },
+    "en_message": "feature write lease at value_lock_path is malformed or incomplete",
+    "zh_message": "feature write lease at value_lock_path is malformed or incomplete",
+    "en_text": "error: LOCK_INVALID — feature write lease at value_lock_path is malformed or incomplete\n  fix: inspect the lease and active loaf processes; malformed leases fail closed and no loaf command deletes them. Remove or replace the file only after independently proving that no writer owns it.\n  see: protocol.md#§11.2\n",
+    "zh_text": "error: LOCK_INVALID — feature write lease at value_lock_path is malformed or incomplete\n  fix: inspect the lease and active loaf processes; malformed leases fail closed and no loaf command deletes them. Remove or replace the file only after independently proving that no writer owns it.\n  see: protocol.md#§11.2\n"
+  },
+  {
+    "code": "FEATURE_NOT_FOUND",
+    "context": null,
+    "detail": {},
+    "en_message": "no feature found in cwd (.loaf/ is empty or missing, or no projection has phase != DONE)",
+    "zh_message": "当前 cwd 找不到 feature(.loaf/ 为空或缺失,或所有 projection 已 DONE)",
+    "en_text": "error: FEATURE_NOT_FOUND — no feature found in cwd (.loaf/ is empty or missing, or no projection has phase != DONE)\n  fix: run `loaf start <description>` to create a new feature, or cd into a directory that already has a .loaf/<feature>/ subtree\n  see: protocol.md#§10.3\n",
+    "zh_text": "error: FEATURE_NOT_FOUND — 当前 cwd 找不到 feature(.loaf/ 为空或缺失,或所有 projection 已 DONE)\n  fix: run `loaf start <description>` to create a new feature, or cd into a directory that already has a .loaf/<feature>/ subtree\n  see: protocol.md#§10.3\n"
+  },
+  {
+    "code": "FEATURE_AMBIGUOUS",
+    "context": null,
+    "detail": {
+      "count": "value_count",
+      "feature_list": "value_feature_list"
+    },
+    "en_message": "current working directory has value_count active features and no dispatch context: value_feature_list",
+    "zh_message": "当前 cwd 有 value_count 个 active feature 但无 dispatch 上下文:value_feature_list",
+    "en_text": "error: FEATURE_AMBIGUOUS — current working directory has value_count active features and no dispatch context: value_feature_list\n  fix: disambiguate with --feature <name>, --session <UUID>, or set $LOAF_FEATURE / $LOAF_SESSION in the environment\n  see: protocol.md#§10.3\n",
+    "zh_text": "error: FEATURE_AMBIGUOUS — 当前 cwd 有 value_count 个 active feature 但无 dispatch 上下文:value_feature_list\n  fix: disambiguate with --feature <name>, --session <UUID>, or set $LOAF_FEATURE / $LOAF_SESSION in the environment\n  see: protocol.md#§10.3\n"
+  },
+  {
+    "code": "SESSION_CWD_MISMATCH",
+    "context": null,
+    "detail": {
+      "current_cwd": "value_current_cwd",
+      "registered_cwd": "value_registered_cwd",
+      "uuid": "value_uuid"
+    },
+    "en_message": "--session value_uuid is registered against cwd=value_registered_cwd, but the current cwd is value_current_cwd",
+    "zh_message": "--session value_uuid 注册的 cwd=value_registered_cwd,当前 cwd 是 value_current_cwd",
+    "en_text": "error: SESSION_CWD_MISMATCH — --session value_uuid is registered against cwd=value_registered_cwd, but the current cwd is value_current_cwd\n  fix: cd to the registered cwd before issuing the command, or pass a different --session, or drop --session to auto-pick a session in the current cwd\n  see: protocol.md#§10.3\n",
+    "zh_text": "error: SESSION_CWD_MISMATCH — --session value_uuid 注册的 cwd=value_registered_cwd,当前 cwd 是 value_current_cwd\n  fix: cd to the registered cwd before issuing the command, or pass a different --session, or drop --session to auto-pick a session in the current cwd\n  see: protocol.md#§10.3\n"
+  },
+  {
+    "code": "SESSION_SHORT_AMBIGUOUS",
+    "context": null,
+    "detail": {
+      "candidate_list": "value_candidate_list",
+      "match_count": "value_match_count",
+      "prefix": "value_prefix"
+    },
+    "en_message": "--session value_prefix matches value_match_count sessions in the registry: value_candidate_list",
+    "zh_message": "--session value_prefix 在 registry 匹配 value_match_count 个 session:value_candidate_list",
+    "en_text": "error: SESSION_SHORT_AMBIGUOUS — --session value_prefix matches value_match_count sessions in the registry: value_candidate_list\n  fix: pass a longer UUID prefix (≥8 chars are required; use more to disambiguate) or pass the full UUID\n  see: protocol.md#§10.3\n",
+    "zh_text": "error: SESSION_SHORT_AMBIGUOUS — --session value_prefix 在 registry 匹配 value_match_count 个 session:value_candidate_list\n  fix: pass a longer UUID prefix (≥8 chars are required; use more to disambiguate) or pass the full UUID\n  see: protocol.md#§10.3\n"
+  },
+  {
+    "code": "SESSION_NOT_FOUND",
+    "context": null,
+    "detail": {
+      "uuid_or_prefix": "value_uuid_or_prefix"
+    },
+    "en_message": "--session value_uuid_or_prefix matches no entry in the registry",
+    "zh_message": "--session value_uuid_or_prefix 在 registry 找不到任何匹配",
+    "en_text": "error: SESSION_NOT_FOUND — --session value_uuid_or_prefix matches no entry in the registry\n  fix: run `loaf sessions list --in-cwd` to see registered sessions (future SC-9b), or run `loaf start <name>` to create one\n  see: protocol.md#§10.3\n",
+    "zh_text": "error: SESSION_NOT_FOUND — --session value_uuid_or_prefix 在 registry 找不到任何匹配\n  fix: run `loaf sessions list --in-cwd` to see registered sessions (future SC-9b), or run `loaf start <name>` to create one\n  see: protocol.md#§10.3\n"
+  },
+  {
+    "code": "PENDING_BLOCKS_ADVANCE",
+    "context": null,
+    "detail": {
+      "kind": "value_kind",
+      "pending_id": "value_pending_id"
+    },
+    "en_message": "pending head value_pending_id (kind=value_kind) blocks `loaf advance` until resolved",
+    "zh_message": "pending head value_pending_id(kind=value_kind)阻塞 `loaf advance`,需先 resolve",
+    "en_text": "error: PENDING_BLOCKS_ADVANCE — pending head value_pending_id (kind=value_kind) blocks `loaf advance` until resolved\n  fix: resolve the head with the kind-appropriate command: `loaf gate decide <G>` for kind=gate_decision; `loaf profile escalate --confirm --input <ceremony.json>` for kind=profile_escalation; `loaf pending resolve --answer <a>` for the rest\n  see: protocol.md#§10.7\n",
+    "zh_text": "error: PENDING_BLOCKS_ADVANCE — pending head value_pending_id(kind=value_kind)阻塞 `loaf advance`,需先 resolve\n  fix: resolve the head with the kind-appropriate command: `loaf gate decide <G>` for kind=gate_decision; `loaf profile escalate --confirm --input <ceremony.json>` for kind=profile_escalation; `loaf pending resolve --answer <a>` for the rest\n  see: protocol.md#§10.7\n"
+  },
+  {
+    "code": "GATE_NOT_PENDING",
+    "context": null,
+    "detail": {
+      "gate_kind": "value_gate_kind",
+      "head_id": "value_head_id",
+      "head_kind": "value_head_kind"
+    },
+    "en_message": "`loaf gate decide value_gate_kind` requires pending head kind=gate_decision; current head kind: value_head_kind",
+    "zh_message": "`loaf gate decide value_gate_kind` 要求 pending head kind=gate_decision;当前 head kind:value_head_kind",
+    "en_text": "error: GATE_NOT_PENDING — `loaf gate decide value_gate_kind` requires pending head kind=gate_decision; current head kind: value_head_kind\n  fix: resolve the current head first via the kind-appropriate command, or wait for the gate_decision pending to appear\n  see: protocol.md#§10.7\n",
+    "zh_text": "error: GATE_NOT_PENDING — `loaf gate decide value_gate_kind` 要求 pending head kind=gate_decision;当前 head kind:value_head_kind\n  fix: resolve the current head first via the kind-appropriate command, or wait for the gate_decision pending to appear\n  see: protocol.md#§10.7\n"
+  },
+  {
+    "code": "ESCALATION_NOT_PENDING",
+    "context": null,
+    "detail": {
+      "actual_head": "value_actual_head"
+    },
+    "en_message": "`loaf profile escalate --confirm --input <ceremony.json>` requires pending head kind=profile_escalation; current head: value_actual_head",
+    "zh_message": "`loaf profile escalate --confirm --input <ceremony.json>` 要求 pending head kind=profile_escalation;当前 head:value_actual_head",
+    "en_text": "error: ESCALATION_NOT_PENDING — `loaf profile escalate --confirm --input <ceremony.json>` requires pending head kind=profile_escalation; current head: value_actual_head\n  fix: resolve the current head first via the kind-appropriate command, or wait for the profile_escalation pending to appear\n  see: protocol.md#§10.7\n",
+    "zh_text": "error: ESCALATION_NOT_PENDING — `loaf profile escalate --confirm --input <ceremony.json>` 要求 pending head kind=profile_escalation;当前 head:value_actual_head\n  fix: resolve the current head first via the kind-appropriate command, or wait for the profile_escalation pending to appear\n  see: protocol.md#§10.7\n"
+  },
+  {
+    "code": "ACTOR_AUTHORITY_VIOLATION",
+    "context": null,
+    "detail": {
+      "actor": "value_actor",
+      "kind": "value_kind"
+    },
+    "en_message": "actor value_actor is not allowed for journal kind value_kind",
+    "zh_message": "actor value_actor is not allowed for journal kind value_kind",
+    "en_text": "error: ACTOR_AUTHORITY_VIOLATION — actor value_actor is not allowed for journal kind value_kind\n  fix: use the command surface that owns this kind; human-only kinds require an interactive human actor resolved by LOAF_USER or git user.email\n  see: protocol.md#§10.8\n",
+    "zh_text": "error: ACTOR_AUTHORITY_VIOLATION — actor value_actor is not allowed for journal kind value_kind\n  fix: use the command surface that owns this kind; human-only kinds require an interactive human actor resolved by LOAF_USER or git user.email\n  see: protocol.md#§10.8\n"
+  },
+  {
+    "code": "FROM_CURSOR_MISMATCH",
+    "context": null,
+    "detail": {
+      "current_sub_state": "value_current_sub_state",
+      "payload_from": "value_payload_from"
+    },
+    "en_message": "entry payload.from=value_payload_from does not match current sub_state=value_current_sub_state",
+    "zh_message": "entry payload.from=value_payload_from does not match current sub_state=value_current_sub_state",
+    "en_text": "error: FROM_CURSOR_MISMATCH — entry payload.from=value_payload_from does not match current sub_state=value_current_sub_state\n  fix: refresh the current session state and emit the transition from the actual cursor; do not replay a stale transition candidate\n  see: protocol.md#§11.2\n",
+    "zh_text": "error: FROM_CURSOR_MISMATCH — entry payload.from=value_payload_from does not match current sub_state=value_current_sub_state\n  fix: refresh the current session state and emit the transition from the actual cursor; do not replay a stale transition candidate\n  see: protocol.md#§11.2\n"
+  },
+  {
+    "code": "INVALID_ENVELOPE",
+    "context": null,
+    "detail": {
+      "reason": "value_reason"
+    },
+    "en_message": "journal entry failed envelope validation: value_reason",
+    "zh_message": "journal entry failed envelope validation: value_reason",
+    "en_text": "error: INVALID_ENVELOPE — journal entry failed envelope validation: value_reason\n  fix: rebuild the entry through the CLI mutator so seq, entry_id, actor, kind, payload, and batch markers satisfy JournalEntry\n  see: protocol.md#§11.2\n",
+    "zh_text": "error: INVALID_ENVELOPE — journal entry failed envelope validation: value_reason\n  fix: rebuild the entry through the CLI mutator so seq, entry_id, actor, kind, payload, and batch markers satisfy JournalEntry\n  see: protocol.md#§11.2\n"
+  },
+  {
+    "code": "INVALID_PAYLOAD",
+    "context": null,
+    "detail": {
+      "kind": "value_kind",
+      "reason": "value_reason"
+    },
+    "en_message": "payload for kind value_kind failed validation: value_reason",
+    "zh_message": "payload for kind value_kind failed validation: value_reason",
+    "en_text": "error: INVALID_PAYLOAD — payload for kind value_kind failed validation: value_reason\n  fix: fix the payload to match the PER_KIND_PAYLOAD schema for this kind and retry the mutator\n  see: protocol.md#§11.2\n",
+    "zh_text": "error: INVALID_PAYLOAD — payload for kind value_kind failed validation: value_reason\n  fix: fix the payload to match the PER_KIND_PAYLOAD schema for this kind and retry the mutator\n  see: protocol.md#§11.2\n"
+  },
+  {
+    "code": "SEQ_NOT_MONOTONIC",
+    "context": null,
+    "detail": {
+      "expected": "value_expected",
+      "got": "value_got",
+      "tail_seq": "value_tail_seq"
+    },
+    "en_message": "entry seq value_got does not extend journal tail value_tail_seq; expected value_expected",
+    "zh_message": "entry seq value_got does not extend journal tail value_tail_seq; expected value_expected",
+    "en_text": "error: SEQ_NOT_MONOTONIC — entry seq value_got does not extend journal tail value_tail_seq; expected value_expected\n  fix: refresh tail_seq under the session lock and retry; if the tail is corrupt run `loaf doctor --check-tail`\n  see: protocol.md#§11.2\n",
+    "zh_text": "error: SEQ_NOT_MONOTONIC — entry seq value_got does not extend journal tail value_tail_seq; expected value_expected\n  fix: refresh tail_seq under the session lock and retry; if the tail is corrupt run `loaf doctor --check-tail`\n  see: protocol.md#§11.2\n"
+  },
+  {
+    "code": "SETTLE_PHASE_BYPASS",
+    "context": null,
+    "detail": {
+      "settle_phase": "value_settle_phase"
+    },
+    "en_message": "VERIFY.accept → DONE.delivered requires ceremony.settle_phase=false (quick / light / standard); deep profile must enter SETTLE.lessons first; current settle_phase=value_settle_phase",
+    "zh_message": "VERIFY.accept → DONE.delivered requires ceremony.settle_phase=false (quick / light / standard); deep profile must enter SETTLE.lessons first; current settle_phase=value_settle_phase",
+    "en_text": "error: SETTLE_PHASE_BYPASS — VERIFY.accept → DONE.delivered requires ceremony.settle_phase=false (quick / light / standard); deep profile must enter SETTLE.lessons first; current settle_phase=value_settle_phase\n  fix: for deep profile, advance from VERIFY.accept to SETTLE.lessons via `loaf settle`; if SETTLE is not desired, start/continue a standard ceremony flow instead\n  see: protocol.md#§5.2\n",
+    "zh_text": "error: SETTLE_PHASE_BYPASS — VERIFY.accept → DONE.delivered requires ceremony.settle_phase=false (quick / light / standard); deep profile must enter SETTLE.lessons first; current settle_phase=value_settle_phase\n  fix: for deep profile, advance from VERIFY.accept to SETTLE.lessons via `loaf settle`; if SETTLE is not desired, start/continue a standard ceremony flow instead\n  see: protocol.md#§5.2\n"
+  },
+  {
+    "code": "SETTLE_PHASE_DISABLED",
+    "context": null,
+    "detail": {
+      "settle_phase": "value_settle_phase"
+    },
+    "en_message": "VERIFY.accept → SETTLE.lessons requires ceremony.settle_phase=true (deep profile only after rev 5.x); current settle_phase=value_settle_phase",
+    "zh_message": "VERIFY.accept → SETTLE.lessons requires ceremony.settle_phase=true (deep profile only after rev 5.x); current settle_phase=value_settle_phase",
+    "en_text": "error: SETTLE_PHASE_DISABLED — VERIFY.accept → SETTLE.lessons requires ceremony.settle_phase=true (deep profile only after rev 5.x); current settle_phase=value_settle_phase\n  fix: for non-deep profiles (quick / light / standard), advance from VERIFY.accept to DONE.delivered via `loaf deliver`; to enter SETTLE, escalate ceremony to deep\n  see: protocol.md#§5.2\n",
+    "zh_text": "error: SETTLE_PHASE_DISABLED — VERIFY.accept → SETTLE.lessons requires ceremony.settle_phase=true (deep profile only after rev 5.x); current settle_phase=value_settle_phase\n  fix: for non-deep profiles (quick / light / standard), advance from VERIFY.accept to DONE.delivered via `loaf deliver`; to enter SETTLE, escalate ceremony to deep\n  see: protocol.md#§5.2\n"
+  },
+  {
+    "code": "SPEC_PHASE_FORK_VIOLATION",
+    "context": null,
+    "detail": {
+      "from": "value_from",
+      "spec_phase": "value_spec_phase",
+      "to": "value_to"
+    },
+    "en_message": "transition value_from → value_to violates ceremony.spec_phase=value_spec_phase",
+    "zh_message": "transition value_from → value_to violates ceremony.spec_phase=value_spec_phase",
+    "en_text": "error: SPEC_PHASE_FORK_VIOLATION — transition value_from → value_to violates ceremony.spec_phase=value_spec_phase\n  fix: follow the ceremony fork: spec_phase=true traverses SPEC.*, spec_phase=false goes directly to EXECUTE.plan\n  see: protocol.md#§5.2\n",
+    "zh_text": "error: SPEC_PHASE_FORK_VIOLATION — transition value_from → value_to violates ceremony.spec_phase=value_spec_phase\n  fix: follow the ceremony fork: spec_phase=true traverses SPEC.*, spec_phase=false goes directly to EXECUTE.plan\n  see: protocol.md#§5.2\n"
+  },
+  {
+    "code": "SUB_STATE_AUTHORITY_VIOLATION",
+    "context": null,
+    "detail": {
+      "kind": "value_kind",
+      "sub_state": "value_sub_state"
+    },
+    "en_message": "kind value_kind is not allowed in sub_state value_sub_state",
+    "zh_message": "kind value_kind is not allowed in sub_state value_sub_state",
+    "en_text": "error: SUB_STATE_AUTHORITY_VIOLATION — kind value_kind is not allowed in sub_state value_sub_state\n  fix: advance/back-edge to a sub_state that permits this journal kind, or use the command valid for the current state\n  see: protocol.md#§10.8\n",
+    "zh_text": "error: SUB_STATE_AUTHORITY_VIOLATION — kind value_kind is not allowed in sub_state value_sub_state\n  fix: advance/back-edge to a sub_state that permits this journal kind, or use the command valid for the current state\n  see: protocol.md#§10.8\n"
+  },
+  {
+    "code": "TRANSITION_ILLEGAL",
+    "context": null,
+    "detail": {
+      "from": "value_from",
+      "to": "value_to"
+    },
+    "en_message": "cannot transition value_from → value_to",
+    "zh_message": "cannot transition value_from → value_to",
+    "en_text": "error: TRANSITION_ILLEGAL — cannot transition value_from → value_to\n  fix: choose one of the allowed forward transitions for the current sub_state, or use an explicit terminal/archive path when supported\n  see: protocol.md#§5.2\n",
+    "zh_text": "error: TRANSITION_ILLEGAL — cannot transition value_from → value_to\n  fix: choose one of the allowed forward transitions for the current sub_state, or use an explicit terminal/archive path when supported\n  see: protocol.md#§5.2\n"
+  },
+  {
+    "code": "VERIFY_PHASE_FORK_VIOLATION",
+    "context": null,
+    "detail": {
+      "from": "value_from",
+      "to": "value_to",
+      "verify_phase": "value_verify_phase"
+    },
+    "en_message": "transition value_from → value_to violates ceremony.verify_phase=value_verify_phase",
+    "zh_message": "transition value_from → value_to violates ceremony.verify_phase=value_verify_phase",
+    "en_text": "error: VERIFY_PHASE_FORK_VIOLATION — transition value_from → value_to violates ceremony.verify_phase=value_verify_phase\n  fix: follow the ceremony fork: verify_phase=true enters VERIFY.plan, verify_phase=false can deliver after minimal verification\n  see: protocol.md#§5.2\n",
+    "zh_text": "error: VERIFY_PHASE_FORK_VIOLATION — transition value_from → value_to violates ceremony.verify_phase=value_verify_phase\n  fix: follow the ceremony fork: verify_phase=true enters VERIFY.plan, verify_phase=false can deliver after minimal verification\n  see: protocol.md#§5.2\n"
+  },
+  {
+    "code": "EXECUTE_DONE_TASKS_NOT_FINAL",
+    "context": null,
+    "detail": {
+      "count": "value_count"
+    },
+    "en_message": "cannot advance EXECUTE.work → EXECUTE.done: value_count task(s) are not in a final status (done or abandoned); finish their remaining steps or abandon out-of-scope tasks with `loaf tasks abandon <T-N> --reason \"...\"`",
+    "zh_message": "无法从 EXECUTE.work 推进到 EXECUTE.done:value_count 个 task 未处于终态(done 或 abandoned);跑完剩余 step,或用 `loaf tasks abandon <T-N> --reason \"...\"` 放弃超出范围的 task",
+    "en_text": "error: EXECUTE_DONE_TASKS_NOT_FINAL — cannot advance EXECUTE.work → EXECUTE.done: value_count task(s) are not in a final status (done or abandoned); finish their remaining steps or abandon out-of-scope tasks with `loaf tasks abandon <T-N> --reason \"...\"`\n  fix: finish the remaining steps — run each task's steps via `loaf tasks step` until it auto-promotes to status=done — OR abandon out-of-scope tasks with `loaf tasks abandon <T-N> --reason \"...\"`, then retry `loaf advance EXECUTE.done`; see detail.non_final for the tasks still pending or in progress\n  see: protocol.md#§10.5\n",
+    "zh_text": "error: EXECUTE_DONE_TASKS_NOT_FINAL — 无法从 EXECUTE.work 推进到 EXECUTE.done:value_count 个 task 未处于终态(done 或 abandoned);跑完剩余 step,或用 `loaf tasks abandon <T-N> --reason \"...\"` 放弃超出范围的 task\n  fix: finish the remaining steps — run each task's steps via `loaf tasks step` until it auto-promotes to status=done — OR abandon out-of-scope tasks with `loaf tasks abandon <T-N> --reason \"...\"`, then retry `loaf advance EXECUTE.done`; see detail.non_final for the tasks still pending or in progress\n  see: protocol.md#§10.5\n"
+  },
+  {
+    "code": "ALREADY_STARTED",
+    "context": null,
+    "detail": {
+      "kind": "value_kind"
+    },
+    "en_message": "session bootstrap kind value_kind cannot run after state already exists",
+    "zh_message": "session bootstrap kind value_kind cannot run after state already exists",
+    "en_text": "error: ALREADY_STARTED — session bootstrap kind value_kind cannot run after state already exists\n  fix: resume the existing session or create a new feature directory instead of starting over initialized state\n  see: protocol.md#§11.2\n",
+    "zh_text": "error: ALREADY_STARTED — session bootstrap kind value_kind cannot run after state already exists\n  fix: resume the existing session or create a new feature directory instead of starting over initialized state\n  see: protocol.md#§11.2\n"
+  },
+  {
+    "code": "FINDING_NOT_FOUND",
+    "context": null,
+    "detail": {
+      "id": "value_id"
+    },
+    "en_message": "finding close references unknown finding id value_id",
+    "zh_message": "finding close references unknown finding id value_id",
+    "en_text": "error: FINDING_NOT_FOUND — finding close references unknown finding id value_id\n  fix: list open findings and close an existing id, or raise the finding before closing it\n  see: protocol.md#§10.8\n",
+    "zh_text": "error: FINDING_NOT_FOUND — finding close references unknown finding id value_id\n  fix: list open findings and close an existing id, or raise the finding before closing it\n  see: protocol.md#§10.8\n"
+  },
+  {
+    "code": "NO_SESSION",
+    "context": null,
+    "detail": {
+      "feature_dir": "value_feature_dir"
+    },
+    "en_message": "no session at value_feature_dir — run `loaf start <feature>` first",
+    "zh_message": "value_feature_dir 下没有 session — 先跑 `loaf start <feature>`",
+    "en_text": "error: NO_SESSION — no session at value_feature_dir — run `loaf start <feature>` first\n  fix: run `loaf start` before emitting non-bootstrap journal entries\n  see: protocol.md#§10.8\n",
+    "zh_text": "error: NO_SESSION — value_feature_dir 下没有 session — 先跑 `loaf start <feature>`\n  fix: run `loaf start` before emitting non-bootstrap journal entries\n  see: protocol.md#§10.8\n"
+  },
+  {
+    "code": "PENDING_NOT_FOUND",
+    "context": null,
+    "detail": {
+      "reason": "value_reason"
+    },
+    "en_message": "pending resolve failed: value_reason",
+    "zh_message": "pending resolve failed: value_reason",
+    "en_text": "error: PENDING_NOT_FOUND — pending resolve failed: value_reason\n  fix: resolve the current pending head only; list pending items and retry with the head id\n  see: protocol.md#§10.7\n",
+    "zh_text": "error: PENDING_NOT_FOUND — pending resolve failed: value_reason\n  fix: resolve the current pending head only; list pending items and retry with the head id\n  see: protocol.md#§10.7\n"
+  },
+  {
+    "code": "REDUCER_NOT_IMPLEMENTED",
+    "context": null,
+    "detail": {
+      "kind": "value_kind"
+    },
+    "en_message": "reducer has no handler for journal kind value_kind",
+    "zh_message": "reducer has no handler for journal kind value_kind",
+    "en_text": "error: REDUCER_NOT_IMPLEMENTED — reducer has no handler for journal kind value_kind\n  fix: implement the journal kind in the exhaustive reducer switch before appending it\n  see: protocol.md#§11.2\n",
+    "zh_text": "error: REDUCER_NOT_IMPLEMENTED — reducer has no handler for journal kind value_kind\n  fix: implement the journal kind in the exhaustive reducer switch before appending it\n  see: protocol.md#§11.2\n"
+  },
+  {
+    "code": "ENTRY_OVERSIZE",
+    "context": null,
+    "detail": {
+      "bytes": "value_bytes",
+      "limit": "value_limit"
+    },
+    "en_message": "journal entry serialized to value_bytes bytes; limit is value_limit",
+    "zh_message": "journal entry serialized to value_bytes bytes; limit is value_limit",
+    "en_text": "error: ENTRY_OVERSIZE — journal entry serialized to value_bytes bytes; limit is value_limit\n  fix: move long text into sidecar form via LongTextField instead of embedding it inline\n  see: protocol.md#§11.2\n",
+    "zh_text": "error: ENTRY_OVERSIZE — journal entry serialized to value_bytes bytes; limit is value_limit\n  fix: move long text into sidecar form via LongTextField instead of embedding it inline\n  see: protocol.md#§11.2\n"
+  },
+  {
+    "code": "SHORT_WRITE",
+    "context": null,
+    "detail": {
+      "want": "value_want",
+      "wrote": "value_wrote"
+    },
+    "en_message": "journal append wrote value_wrote of value_want bytes",
+    "zh_message": "journal append wrote value_wrote of value_want bytes",
+    "en_text": "error: SHORT_WRITE — journal append wrote value_wrote of value_want bytes\n  fix: stop writing, preserve the journal, and run `loaf doctor --check-tail` before retrying\n  see: protocol.md#§11.2\n",
+    "zh_text": "error: SHORT_WRITE — journal append wrote value_wrote of value_want bytes\n  fix: stop writing, preserve the journal, and run `loaf doctor --check-tail` before retrying\n  see: protocol.md#§11.2\n"
+  },
+  {
+    "code": "TAIL_CORRUPTION",
+    "context": null,
+    "detail": {
+      "reason": "value_reason"
+    },
+    "en_message": "journal tail is corrupt: value_reason",
+    "zh_message": "journal tail is corrupt: value_reason",
+    "en_text": "error: TAIL_CORRUPTION — journal tail is corrupt: value_reason\n  fix: run `loaf doctor --check-tail`; do not append until the tail has been repaired or quarantined\n  see: protocol.md#§10.15\n",
+    "zh_text": "error: TAIL_CORRUPTION — journal tail is corrupt: value_reason\n  fix: run `loaf doctor --check-tail`; do not append until the tail has been repaired or quarantined\n  see: protocol.md#§10.15\n"
+  },
+  {
+    "code": "INVALID_ACTOR_FORMAT",
+    "context": null,
+    "detail": {
+      "reason": "value_reason"
+    },
+    "en_message": "human actor value is invalid: value_reason",
+    "zh_message": "human actor value is invalid: value_reason",
+    "en_text": "error: INVALID_ACTOR_FORMAT — human actor value is invalid: value_reason\n  fix: set LOAF_USER to the raw human identifier without a namespace prefix, or unset it to allow interactive git user.email fallback\n  see: protocol.md#§10.8\n",
+    "zh_text": "error: INVALID_ACTOR_FORMAT — human actor value is invalid: value_reason\n  fix: set LOAF_USER to the raw human identifier without a namespace prefix, or unset it to allow interactive git user.email fallback\n  see: protocol.md#§10.8\n"
+  },
+  {
+    "code": "NO_HUMAN_ACTOR",
+    "context": null,
+    "detail": {},
+    "en_message": "no human actor could be resolved for a human-only command",
+    "zh_message": "no human actor could be resolved for a human-only command",
+    "en_text": "error: NO_HUMAN_ACTOR — no human actor could be resolved for a human-only command\n  fix: run interactively with git user.email configured, or set LOAF_USER explicitly\n  see: protocol.md#§10.8\n",
+    "zh_text": "error: NO_HUMAN_ACTOR — no human actor could be resolved for a human-only command\n  fix: run interactively with git user.email configured, or set LOAF_USER explicitly\n  see: protocol.md#§10.8\n"
+  },
+  {
+    "code": "DUPLICATE_REQ_ID",
+    "context": null,
+    "detail": {
+      "id": "value_id"
+    },
+    "en_message": "REQ id value_id is already in the spec projection",
+    "zh_message": "REQ id value_id is already in the spec projection",
+    "en_text": "error: DUPLICATE_REQ_ID — REQ id value_id is already in the spec projection\n  fix: allocate a fresh REQ id under the same id_namespace (the CLI scans for max serial + 1 inside the per-session lock) or `loaf finding raise --category spec-gap --action amend-spec` if you need to retire the existing REQ\n  see: protocol.md#§4.2\n",
+    "zh_text": "error: DUPLICATE_REQ_ID — REQ id value_id is already in the spec projection\n  fix: allocate a fresh REQ id under the same id_namespace (the CLI scans for max serial + 1 inside the per-session lock) or `loaf finding raise --category spec-gap --action amend-spec` if you need to retire the existing REQ\n  see: protocol.md#§4.2\n"
+  },
+  {
+    "code": "DUPLICATE_SCEN_ID",
+    "context": null,
+    "detail": {
+      "id": "value_id"
+    },
+    "en_message": "SCEN id value_id is already in the spec projection",
+    "zh_message": "SCEN id value_id is already in the spec projection",
+    "en_text": "error: DUPLICATE_SCEN_ID — SCEN id value_id is already in the spec projection\n  fix: allocate a fresh SCEN id under the same id_namespace, or amend via finding mechanism if retiring an existing scenario\n  see: protocol.md#§4.2\n",
+    "zh_text": "error: DUPLICATE_SCEN_ID — SCEN id value_id is already in the spec projection\n  fix: allocate a fresh SCEN id under the same id_namespace, or amend via finding mechanism if retiring an existing scenario\n  see: protocol.md#§4.2\n"
+  },
+  {
+    "code": "DUPLICATE_VIS_ID",
+    "context": null,
+    "detail": {
+      "id": "value_id"
+    },
+    "en_message": "VIS id value_id is already in the spec projection",
+    "zh_message": "VIS id value_id is already in the spec projection",
+    "en_text": "error: DUPLICATE_VIS_ID — VIS id value_id is already in the spec projection\n  fix: allocate a fresh VIS id under the same id_namespace, or amend via finding mechanism if retiring an existing visual contract\n  see: protocol.md#§4.2\n",
+    "zh_text": "error: DUPLICATE_VIS_ID — VIS id value_id is already in the spec projection\n  fix: allocate a fresh VIS id under the same id_namespace, or amend via finding mechanism if retiring an existing visual contract\n  see: protocol.md#§4.2\n"
+  },
+  {
+    "code": "SPEC_FRONTMATTER_INVALID",
+    "context": null,
+    "detail": {
+      "subcode": "value_subcode"
+    },
+    "en_message": "spec.md frontmatter failed gate check 1 (subcode=value_subcode)",
+    "zh_message": "spec.md frontmatter failed gate check 1 (subcode=value_subcode)",
+    "en_text": "error: SPEC_FRONTMATTER_INVALID — spec.md frontmatter failed gate check 1 (subcode=value_subcode)\n  fix: subcode=SPEC_NOT_FOUND: run `loaf spec init` then `loaf spec submit` to seed spec.md; subcode=SPEC_YAML_INVALID: check the `---`-fenced YAML block at the top of spec.md for syntax errors; subcode=SPEC_FRONTMATTER_INVALID: run `loaf spec schema --format=json` to dump the SpecFrontmatter JSON Schema (Phase 16 SC-10) and fix the offending field. Both spec-lock and verify-accept require a valid spec.md at check 1.\n  see: protocol.md#§5.1\n",
+    "zh_text": "error: SPEC_FRONTMATTER_INVALID — spec.md frontmatter failed gate check 1 (subcode=value_subcode)\n  fix: subcode=SPEC_NOT_FOUND: run `loaf spec init` then `loaf spec submit` to seed spec.md; subcode=SPEC_YAML_INVALID: check the `---`-fenced YAML block at the top of spec.md for syntax errors; subcode=SPEC_FRONTMATTER_INVALID: run `loaf spec schema --format=json` to dump the SpecFrontmatter JSON Schema (Phase 16 SC-10) and fix the offending field. Both spec-lock and verify-accept require a valid spec.md at check 1.\n  see: protocol.md#§5.1\n"
+  },
+  {
+    "code": "SPEC_HAS_UNCLARIFIED",
+    "context": null,
+    "detail": {
+      "count": "value_count",
+      "ids": "value_ids"
+    },
+    "en_message": "spec has value_count unresolved needs_clarification entries (ids=value_ids); resolve or remove them before spec-lock can pass",
+    "zh_message": "spec has value_count unresolved needs_clarification entries (ids=value_ids); resolve or remove them before spec-lock can pass",
+    "en_text": "error: SPEC_HAS_UNCLARIFIED — spec has value_count unresolved needs_clarification entries (ids=value_ids); resolve or remove them before spec-lock can pass\n  fix: edit spec.md to remove resolved needs_clarification entries, or run `loaf finding raise --category spec-gap --action clarify` to formalize the resolution flow; spec-lock check 2 requires needs_clarification === []\n  see: protocol.md#§5.1\n",
+    "zh_text": "error: SPEC_HAS_UNCLARIFIED — spec has value_count unresolved needs_clarification entries (ids=value_ids); resolve or remove them before spec-lock can pass\n  fix: edit spec.md to remove resolved needs_clarification entries, or run `loaf finding raise --category spec-gap --action clarify` to formalize the resolution flow; spec-lock check 2 requires needs_clarification === []\n  see: protocol.md#§5.1\n"
+  },
+  {
+    "code": "TASK_NOT_FOUND",
+    "context": null,
+    "detail": {
+      "task_id": "value_task_id"
+    },
+    "en_message": "task value_task_id is not in the current tasks projection",
+    "zh_message": "task value_task_id is not in the current tasks projection",
+    "en_text": "error: TASK_NOT_FOUND — task value_task_id is not in the current tasks projection\n  fix: run `loaf tasks list` to see live ids; if you meant to add a new task, use `loaf tasks add` instead of amend/step; if you expected the id to exist, the projection may be stale — run `loaf doctor --rebuild` to rebuild from journal\n  see: protocol.md#§10.8\n",
+    "zh_text": "error: TASK_NOT_FOUND — task value_task_id is not in the current tasks projection\n  fix: run `loaf tasks list` to see live ids; if you meant to add a new task, use `loaf tasks add` instead of amend/step; if you expected the id to exist, the projection may be stale — run `loaf doctor --rebuild` to rebuild from journal\n  see: protocol.md#§10.8\n"
+  },
+  {
+    "code": "TASK_STEP_NOT_FOUND",
+    "context": null,
+    "detail": {
+      "step": "value_step",
+      "task_id": "value_task_id"
+    },
+    "en_message": "step value_step is not seeded on task value_task_id — seeded steps are derived from the task's kind execution schema (§14)",
+    "zh_message": "step value_step is not seeded on task value_task_id — seeded steps are derived from the task's kind execution schema (§14)",
+    "en_text": "error: TASK_STEP_NOT_FOUND — step value_step is not seeded on task value_task_id — seeded steps are derived from the task's kind execution schema (§14)\n  fix: use only the per-kind step names — behavioral: red/implement/refactor; structural: implement/refactor; visual-ui: mockup/implement/screenshot-compare; docs: draft/review; spike: explore/prototype/record; chore: execute. Running an unseeded step name was a silent add bug in v0.0.x — sub-cycle 3a fails fast instead\n  see: protocol.md#§10.8\n",
+    "zh_text": "error: TASK_STEP_NOT_FOUND — step value_step is not seeded on task value_task_id — seeded steps are derived from the task's kind execution schema (§14)\n  fix: use only the per-kind step names — behavioral: red/implement/refactor; structural: implement/refactor; visual-ui: mockup/implement/screenshot-compare; docs: draft/review; spike: explore/prototype/record; chore: execute. Running an unseeded step name was a silent add bug in v0.0.x — sub-cycle 3a fails fast instead\n  see: protocol.md#§10.8\n"
+  },
+  {
+    "code": "DUPLICATE_TASK_ID",
+    "context": null,
+    "detail": {
+      "task_id": "value_task_id"
+    },
+    "en_message": "task id value_task_id appears more than once in tasks_planned payload",
+    "zh_message": "task id value_task_id appears more than once in tasks_planned payload",
+    "en_text": "error: DUPLICATE_TASK_ID — task id value_task_id appears more than once in tasks_planned payload\n  fix: tasks_planned is whole-replacement — each task id must be unique within the batch. Rename one or merge them in the planning input\n  see: protocol.md#§10.8\n",
+    "zh_text": "error: DUPLICATE_TASK_ID — task id value_task_id appears more than once in tasks_planned payload\n  fix: tasks_planned is whole-replacement — each task id must be unique within the batch. Rename one or merge them in the planning input\n  see: protocol.md#§10.8\n"
+  },
+  {
+    "code": "TASKS_NOT_PLANNED",
+    "context": null,
+    "detail": {},
+    "en_message": "gate task-graph check: tasks have not been planned (snapshot.tasks_based_on is null)",
+    "zh_message": "gate task-graph check: tasks have not been planned (snapshot.tasks_based_on is null)",
+    "en_text": "error: TASKS_NOT_PLANNED — gate task-graph check: tasks have not been planned (snapshot.tasks_based_on is null)\n  fix: run `loaf tasks submit --input <plan-file>` to emit event:tasks_planned and seed the task graph; spec-lock check 3 and verify-accept check 4 both require tasks_based_on.spec to match the current spec.spec_version\n  see: protocol.md#§5.1\n",
+    "zh_text": "error: TASKS_NOT_PLANNED — gate task-graph check: tasks have not been planned (snapshot.tasks_based_on is null)\n  fix: run `loaf tasks submit --input <plan-file>` to emit event:tasks_planned and seed the task graph; spec-lock check 3 and verify-accept check 4 both require tasks_based_on.spec to match the current spec.spec_version\n  see: protocol.md#§5.1\n"
+  },
+  {
+    "code": "TASKS_BASED_ON_STALE",
+    "context": null,
+    "detail": {
+      "current_spec_version": "value_current_spec_version",
+      "tasks_based_on_spec": "value_tasks_based_on_spec"
+    },
+    "en_message": "gate task-graph check: tasks_based_on.spec=value_tasks_based_on_spec but current spec.spec_version=value_current_spec_version — the task graph was planned against an older spec",
+    "zh_message": "gate task-graph check: tasks_based_on.spec=value_tasks_based_on_spec but current spec.spec_version=value_current_spec_version — the task graph was planned against an older spec",
+    "en_text": "error: TASKS_BASED_ON_STALE — gate task-graph check: tasks_based_on.spec=value_tasks_based_on_spec but current spec.spec_version=value_current_spec_version — the task graph was planned against an older spec\n  fix: either re-plan tasks against the current spec via `loaf tasks submit` (whole-replacement), or amend individual tasks via `loaf tasks add/amend` + raise a `loaf finding raise --category spec-gap --action amend-spec` if a spec roll-back is needed. Surfaces for spec-lock (check 3) and verify-accept (check 4 precondition).\n  see: protocol.md#§5.1\n",
+    "zh_text": "error: TASKS_BASED_ON_STALE — gate task-graph check: tasks_based_on.spec=value_tasks_based_on_spec but current spec.spec_version=value_current_spec_version — the task graph was planned against an older spec\n  fix: either re-plan tasks against the current spec via `loaf tasks submit` (whole-replacement), or amend individual tasks via `loaf tasks add/amend` + raise a `loaf finding raise --category spec-gap --action amend-spec` if a spec roll-back is needed. Surfaces for spec-lock (check 3) and verify-accept (check 4 precondition).\n  see: protocol.md#§5.1\n"
+  },
+  {
+    "code": "REQ_NOT_DRIVEN",
+    "context": null,
+    "detail": {
+      "req_id": "value_req_id"
+    },
+    "en_message": "spec-lock check 4: requirement value_req_id is not referenced by any task.drives[]",
+    "zh_message": "spec-lock check 4: requirement value_req_id is not referenced by any task.drives[]",
+    "en_text": "error: REQ_NOT_DRIVEN — spec-lock check 4: requirement value_req_id is not referenced by any task.drives[]\n  fix: add a task whose drives[] array includes value_req_id, or remove the requirement from spec.md if it is no longer in scope. Note: this is the REQ-side coverage code (distinct from legacy DRIVES_NOT_BOUND which named the inverse direction)\n  see: protocol.md#§5.1\n",
+    "zh_text": "error: REQ_NOT_DRIVEN — spec-lock check 4: requirement value_req_id is not referenced by any task.drives[]\n  fix: add a task whose drives[] array includes value_req_id, or remove the requirement from spec.md if it is no longer in scope. Note: this is the REQ-side coverage code (distinct from legacy DRIVES_NOT_BOUND which named the inverse direction)\n  see: protocol.md#§5.1\n"
+  },
+  {
+    "code": "E2E_SCENARIO_UNBOUND",
+    "context": null,
+    "detail": {
+      "scenario_id": "value_scenario_id"
+    },
+    "en_message": "spec-lock check 6: e2e scenario value_scenario_id has no binding task (requires task with requires_acceptance=true AND drives includes value_scenario_id)",
+    "zh_message": "spec-lock check 6: e2e scenario value_scenario_id has no binding task (requires task with requires_acceptance=true AND drives includes value_scenario_id)",
+    "en_text": "error: E2E_SCENARIO_UNBOUND — spec-lock check 6: e2e scenario value_scenario_id has no binding task (requires task with requires_acceptance=true AND drives includes value_scenario_id)\n  fix: either (a) add a task with requires_acceptance=true and drives including value_scenario_id, or (b) mark the scenario with acceptance_na=<reason ≥5 chars> in spec.md if e2e acceptance is intentionally skipped for this iteration\n  see: protocol.md#§5.1\n",
+    "zh_text": "error: E2E_SCENARIO_UNBOUND — spec-lock check 6: e2e scenario value_scenario_id has no binding task (requires task with requires_acceptance=true AND drives includes value_scenario_id)\n  fix: either (a) add a task with requires_acceptance=true and drives including value_scenario_id, or (b) mark the scenario with acceptance_na=<reason ≥5 chars> in spec.md if e2e acceptance is intentionally skipped for this iteration\n  see: protocol.md#§5.1\n"
+  },
+  {
+    "code": "VISUAL_CONTRACT_UNBOUND",
+    "context": null,
+    "detail": {
+      "visual_id": "value_visual_id"
+    },
+    "en_message": "spec-lock check 7: visual_contract value_visual_id has no visual-ui task whose visual_contract_refs includes it",
+    "zh_message": "spec-lock check 7: visual_contract value_visual_id has no visual-ui task whose visual_contract_refs includes it",
+    "en_text": "error: VISUAL_CONTRACT_UNBOUND — spec-lock check 7: visual_contract value_visual_id has no visual-ui task whose visual_contract_refs includes it\n  fix: either (a) add a visual-ui task with visual_contract_refs including value_visual_id, or (b) mark the visual_contract with visual_na=<reason ≥5 chars> in spec.md if visual verification is intentionally deferred\n  see: protocol.md#§5.1\n",
+    "zh_text": "error: VISUAL_CONTRACT_UNBOUND — spec-lock check 7: visual_contract value_visual_id has no visual-ui task whose visual_contract_refs includes it\n  fix: either (a) add a visual-ui task with visual_contract_refs including value_visual_id, or (b) mark the visual_contract with visual_na=<reason ≥5 chars> in spec.md if visual verification is intentionally deferred\n  see: protocol.md#§5.1\n"
+  },
+  {
+    "code": "TASK_KIND_SCHEMA_VIOLATION",
+    "context": null,
+    "detail": {
+      "kind": "value_kind",
+      "reasons": "value_reasons",
+      "task_id": "value_task_id"
+    },
+    "en_message": "spec-lock check 8: task value_task_id (kind=value_kind) violates projected kind-specific obligations: value_reasons",
+    "zh_message": "spec-lock check 8: task value_task_id (kind=value_kind) violates projected kind-specific obligations: value_reasons",
+    "en_text": "error: TASK_KIND_SCHEMA_VIOLATION — spec-lock check 8: task value_task_id (kind=value_kind) violates projected kind-specific obligations: value_reasons\n  fix: amend the task to satisfy its kind contract: structural/docs/spike/chore require no_test_rationale (string ≥10 chars); visual-ui requires visual_contract_refs[] with ≥1 entry. Slice C R2: bug-task RED is execution discipline, not a spec-lock obligation — a behavioral task with labels=['bug'] is born unregistered, and RED registration is enforced at runtime by BUG_TASK_REQUIRES_RED (preflight, implement step) and BUG_TASK_RED_NOT_REGISTERED (verify-accept), never by this check\n  see: protocol.md#§5.1\n",
+    "zh_text": "error: TASK_KIND_SCHEMA_VIOLATION — spec-lock check 8: task value_task_id (kind=value_kind) violates projected kind-specific obligations: value_reasons\n  fix: amend the task to satisfy its kind contract: structural/docs/spike/chore require no_test_rationale (string ≥10 chars); visual-ui requires visual_contract_refs[] with ≥1 entry. Slice C R2: bug-task RED is execution discipline, not a spec-lock obligation — a behavioral task with labels=['bug'] is born unregistered, and RED registration is enforced at runtime by BUG_TASK_REQUIRES_RED (preflight, implement step) and BUG_TASK_RED_NOT_REGISTERED (verify-accept), never by this check\n  see: protocol.md#§5.1\n"
+  },
+  {
+    "code": "GATE_PRECONDITION_VIOLATION",
+    "context": null,
+    "detail": {
+      "failure_count": "value_failure_count",
+      "gate": "value_gate"
+    },
+    "en_message": "gate:decided value_gate approval rejected at the mutate layer: value_failure_count check(s) failed",
+    "zh_message": "gate:decided value_gate approval rejected at the mutate layer: value_failure_count check(s) failed",
+    "en_text": "error: GATE_PRECONDITION_VIOLATION — gate:decided value_gate approval rejected at the mutate layer: value_failure_count check(s) failed\n  fix: this is a mutate-layer envelope around the underlying gate checks (see detail.checks for the list). spec-lock failure codes: MISSING_VERIFIABILITY / REQ_NOT_DRIVEN / E2E_SCENARIO_UNBOUND / VISUAL_CONTRACT_UNBOUND / TASKS_NOT_PLANNED / TASKS_BASED_ON_STALE / TASK_KIND_SCHEMA_VIOLATION / SPEC_HAS_UNCLARIFIED. verify-accept failure codes: VERIFY_LANE_NOT_PASSED / OPEN_FINDINGS_PRESENT / COVERAGE_NOT_SATISFIED / TASK_DONE_NO_EVIDENCE / SPEC_REVIEW_MISSING / SPEC_REVIEW_IMPLEMENTER_CONFLICT / SPEC_REVIEW_IMPLEMENTER_UNKNOWN / TASKS_NOT_PLANNED (precondition) / TASKS_BASED_ON_STALE (precondition). Fix each listed check then retry the gate decision. Pass 1.5 runs after preflight + reducer dry-run + before sidecar promotion, so a rejected gate batch leaves no on-disk residue.\n  see: protocol.md#§5.1\n",
+    "zh_text": "error: GATE_PRECONDITION_VIOLATION — gate:decided value_gate approval rejected at the mutate layer: value_failure_count check(s) failed\n  fix: this is a mutate-layer envelope around the underlying gate checks (see detail.checks for the list). spec-lock failure codes: MISSING_VERIFIABILITY / REQ_NOT_DRIVEN / E2E_SCENARIO_UNBOUND / VISUAL_CONTRACT_UNBOUND / TASKS_NOT_PLANNED / TASKS_BASED_ON_STALE / TASK_KIND_SCHEMA_VIOLATION / SPEC_HAS_UNCLARIFIED. verify-accept failure codes: VERIFY_LANE_NOT_PASSED / OPEN_FINDINGS_PRESENT / COVERAGE_NOT_SATISFIED / TASK_DONE_NO_EVIDENCE / SPEC_REVIEW_MISSING / SPEC_REVIEW_IMPLEMENTER_CONFLICT / SPEC_REVIEW_IMPLEMENTER_UNKNOWN / TASKS_NOT_PLANNED (precondition) / TASKS_BASED_ON_STALE (precondition). Fix each listed check then retry the gate decision. Pass 1.5 runs after preflight + reducer dry-run + before sidecar promotion, so a rejected gate batch leaves no on-disk residue.\n  see: protocol.md#§5.1\n"
+  },
+  {
+    "code": "MULTIPLE_GATE_DECISIONS",
+    "context": null,
+    "detail": {
+      "count": "value_count",
+      "gate_kinds": "value_gate_kinds"
+    },
+    "en_message": "batch contains value_count approved gate:decided entries (gate_kinds=value_gate_kinds); protocol §10.8 requires one gate decision per atomic operation",
+    "zh_message": "batch contains value_count approved gate:decided entries (gate_kinds=value_gate_kinds); protocol §10.8 requires one gate decision per atomic operation",
+    "en_text": "error: MULTIPLE_GATE_DECISIONS — batch contains value_count approved gate:decided entries (gate_kinds=value_gate_kinds); protocol §10.8 requires one gate decision per atomic operation\n  fix: split the batch — emit each gate decision as its own mutation. A batch carrying ≥2 gate approvals (even with different gate_kinds, e.g. spec-lock + verify-accept) is not a valid atomic operation. Rejected gate decisions are not counted; only approvals trigger this rule\n  see: protocol.md#§10.8\n",
+    "zh_text": "error: MULTIPLE_GATE_DECISIONS — batch contains value_count approved gate:decided entries (gate_kinds=value_gate_kinds); protocol §10.8 requires one gate decision per atomic operation\n  fix: split the batch — emit each gate decision as its own mutation. A batch carrying ≥2 gate approvals (even with different gate_kinds, e.g. spec-lock + verify-accept) is not a valid atomic operation. Rejected gate decisions are not counted; only approvals trigger this rule\n  see: protocol.md#§10.8\n"
+  },
+  {
+    "code": "GATE_NOT_IMPLEMENTED",
+    "context": null,
+    "detail": {
+      "gate": "value_gate"
+    },
+    "en_message": "gate=value_gate is not recognized; protocol GateName enum is closed at `spec-lock` or `verify-accept` for v0.1.0",
+    "zh_message": "gate=value_gate is not recognized; protocol GateName enum is closed at `spec-lock` or `verify-accept` for v0.1.0",
+    "en_text": "error: GATE_NOT_IMPLEMENTED — gate=value_gate is not recognized; protocol GateName enum is closed at `spec-lock` or `verify-accept` for v0.1.0\n  fix: use `loaf gate decide spec-lock` or `loaf gate decide verify-accept`. Future gates beyond v0.1.0 would extend the GateName enum in journal-entry.ts + evidence-schema.ts (lockstep) and wire here.\n  see: protocol.md#§10.8\n",
+    "zh_text": "error: GATE_NOT_IMPLEMENTED — gate=value_gate is not recognized; protocol GateName enum is closed at `spec-lock` or `verify-accept` for v0.1.0\n  fix: use `loaf gate decide spec-lock` or `loaf gate decide verify-accept`. Future gates beyond v0.1.0 would extend the GateName enum in journal-entry.ts + evidence-schema.ts (lockstep) and wire here.\n  see: protocol.md#§10.8\n"
+  },
+  {
+    "code": "VERIFY_LANE_NOT_PASSED",
+    "context": null,
+    "detail": {
+      "lane": "value_lane"
+    },
+    "en_message": "verify-accept check 1: applicable VERIFY lane=value_lane has no evidence with passing/approved/waived result",
+    "zh_message": "verify-accept check 1: applicable VERIFY lane=value_lane has no evidence with passing/approved/waived result",
+    "en_text": "error: VERIFY_LANE_NOT_PASSED — verify-accept check 1: applicable VERIFY lane=value_lane has no evidence with passing/approved/waived result\n  fix: add an evidence:added entry with check=value_lane (or a matching kind via the narrow fallback map: local-check/task-summary→run, verify-review/spec-review→review, acceptance→acceptance, visual-review→visual) and result one of `passed`, `approved`, or `waived`. Applicable lanes derive from spec: REQ ⇒ REVIEW, SCEN.tag=e2e ⇒ ACCEPTANCE, VIS ⇒ VISUAL, done task ⇒ RUN+REVIEW.\n  see: protocol.md#§5.2\n",
+    "zh_text": "error: VERIFY_LANE_NOT_PASSED — verify-accept check 1: applicable VERIFY lane=value_lane has no evidence with passing/approved/waived result\n  fix: add an evidence:added entry with check=value_lane (or a matching kind via the narrow fallback map: local-check/task-summary→run, verify-review/spec-review→review, acceptance→acceptance, visual-review→visual) and result one of `passed`, `approved`, or `waived`. Applicable lanes derive from spec: REQ ⇒ REVIEW, SCEN.tag=e2e ⇒ ACCEPTANCE, VIS ⇒ VISUAL, done task ⇒ RUN+REVIEW.\n  see: protocol.md#§5.2\n"
+  },
+  {
+    "code": "OPEN_FINDINGS_PRESENT",
+    "context": null,
+    "detail": {
+      "count": "value_count",
+      "open_ids": "value_open_ids"
+    },
+    "en_message": "verify-accept check 2: value_count actionable finding(s) still open (ids=value_open_ids); resolve or close before verify-accept",
+    "zh_message": "verify-accept 检查 2: 仍有 value_count 个可执行 finding 未关闭(ids=value_open_ids);请在 verify-accept 前解决或关闭",
+    "en_text": "error: OPEN_FINDINGS_PRESENT — verify-accept check 2: value_count actionable finding(s) still open (ids=value_open_ids); resolve or close before verify-accept\n  fix: complete the declared action for each listed finding, then run `loaf finding close <FND-id>`; if the honest disposition is carry-forward, raise it with action=defer or action=backlog instead. verify-accept excludes only open findings whose existing action declares deferral\n  see: protocol.md#§5.2\n",
+    "zh_text": "error: OPEN_FINDINGS_PRESENT — verify-accept 检查 2: 仍有 value_count 个可执行 finding 未关闭(ids=value_open_ids);请在 verify-accept 前解决或关闭\n  fix: complete the declared action for each listed finding, then run `loaf finding close <FND-id>`; if the honest disposition is carry-forward, raise it with action=defer or action=backlog instead. verify-accept excludes only open findings whose existing action declares deferral\n  see: protocol.md#§5.2\n"
+  },
+  {
+    "code": "COVERAGE_NOT_SATISFIED",
+    "context": null,
+    "detail": {
+      "covered_id": "value_covered_id"
+    },
+    "en_message": "value_covered_id has no evidence that satisfies it (canSatisfy failed for all candidates)",
+    "zh_message": "value_covered_id 没有任何证据满足覆盖(canSatisfy 对所有候选 evidence 都失败)",
+    "en_text": "error: COVERAGE_NOT_SATISFIED — value_covered_id has no evidence that satisfies it (canSatisfy failed for all candidates)\n  fix: add evidence:added covering value_covered_id per protocol §5.4: REQ allows task-summary/verify-review/spec-review/manual+reason/waiver+reason; SCEN.tag=e2e allows acceptance/manual+reason/waiver+reason; VIS allows visual-review+attachment/manual+reason/waiver+reason. Result must be passed/approved/waived per §1035.\n  see: protocol.md#§5.2\n",
+    "zh_text": "error: COVERAGE_NOT_SATISFIED — value_covered_id 没有任何证据满足覆盖(canSatisfy 对所有候选 evidence 都失败)\n  fix: add evidence:added covering value_covered_id per protocol §5.4: REQ allows task-summary/verify-review/spec-review/manual+reason/waiver+reason; SCEN.tag=e2e allows acceptance/manual+reason/waiver+reason; VIS allows visual-review+attachment/manual+reason/waiver+reason. Result must be passed/approved/waived per §1035.\n  see: protocol.md#§5.2\n"
+  },
+  {
+    "code": "TASK_DONE_NO_EVIDENCE",
+    "context": null,
+    "detail": {
+      "task_id": "value_task_id"
+    },
+    "en_message": "verify-accept check 4: task value_task_id is status=done but has no evidence covering it (kind one of `task-summary`, `local-check`, `manual`, or `waiver`)",
+    "zh_message": "verify-accept check 4: task value_task_id is status=done but has no evidence covering it (kind one of `task-summary`, `local-check`, `manual`, or `waiver`)",
+    "en_text": "error: TASK_DONE_NO_EVIDENCE — verify-accept check 4: task value_task_id is status=done but has no evidence covering it (kind one of `task-summary`, `local-check`, `manual`, or `waiver`)\n  fix: add evidence:added with covers including value_task_id and kind in the T-allowed set. Most commonly: a task-summary written on closing the task; alternatively local-check (test/lint/typecheck run), manual (human attest), or waiver (human waiver with reason ≥10 chars).\n  see: protocol.md#§5.2\n",
+    "zh_text": "error: TASK_DONE_NO_EVIDENCE — verify-accept check 4: task value_task_id is status=done but has no evidence covering it (kind one of `task-summary`, `local-check`, `manual`, or `waiver`)\n  fix: add evidence:added with covers including value_task_id and kind in the T-allowed set. Most commonly: a task-summary written on closing the task; alternatively local-check (test/lint/typecheck run), manual (human attest), or waiver (human waiver with reason ≥10 chars).\n  see: protocol.md#§5.2\n"
+  },
+  {
+    "code": "SPEC_REVIEW_MISSING",
+    "context": null,
+    "detail": {},
+    "en_message": "verify-accept check 5: ceremony.strict_spec_review=true requires ≥1 evidence kind=spec-review with result `passed` or `approved` from an actor ≠ implementer; none found",
+    "zh_message": "verify-accept check 5: ceremony.strict_spec_review=true requires ≥1 evidence kind=spec-review with result `passed` or `approved` from an actor ≠ implementer; none found",
+    "en_text": "error: SPEC_REVIEW_MISSING — verify-accept check 5: ceremony.strict_spec_review=true requires ≥1 evidence kind=spec-review with result `passed` or `approved` from an actor ≠ implementer; none found\n  fix: have an independent reviewer (not the implementer of done tasks; not a cli:* automation actor) run a spec review and add an evidence:added with kind=spec-review and result `passed` or `approved`. Note: result=waived does NOT count for spec-review (kind=spec-review + result=waived bypasses the human+reason refine guarantee that kind=manual or kind=waiver provides).\n  see: protocol.md#§5.2\n",
+    "zh_text": "error: SPEC_REVIEW_MISSING — verify-accept check 5: ceremony.strict_spec_review=true requires ≥1 evidence kind=spec-review with result `passed` or `approved` from an actor ≠ implementer; none found\n  fix: have an independent reviewer (not the implementer of done tasks; not a cli:* automation actor) run a spec review and add an evidence:added with kind=spec-review and result `passed` or `approved`. Note: result=waived does NOT count for spec-review (kind=spec-review + result=waived bypasses the human+reason refine guarantee that kind=manual or kind=waiver provides).\n  see: protocol.md#§5.2\n"
+  },
+  {
+    "code": "SPEC_REVIEW_IMPLEMENTER_CONFLICT",
+    "context": null,
+    "detail": {
+      "implementers": "value_implementers",
+      "spec_review_actors": "value_spec_review_actors"
+    },
+    "en_message": "verify-accept check 5: every passing spec-review actor is in the implementer set; no independent reviewer signed off (actors=value_spec_review_actors, implementers=value_implementers)",
+    "zh_message": "verify-accept check 5: every passing spec-review actor is in the implementer set; no independent reviewer signed off (actors=value_spec_review_actors, implementers=value_implementers)",
+    "en_text": "error: SPEC_REVIEW_IMPLEMENTER_CONFLICT — verify-accept check 5: every passing spec-review actor is in the implementer set; no independent reviewer signed off (actors=value_spec_review_actors, implementers=value_implementers)\n  fix: have a non-implementer (someone other than the actors on done-task task-summary/local-check evidence) submit an additional evidence with kind=spec-review and result `passed` or `approved`. One independent reviewer is sufficient — implementer self-reviews can coexist.\n  see: protocol.md#§5.2\n",
+    "zh_text": "error: SPEC_REVIEW_IMPLEMENTER_CONFLICT — verify-accept check 5: every passing spec-review actor is in the implementer set; no independent reviewer signed off (actors=value_spec_review_actors, implementers=value_implementers)\n  fix: have a non-implementer (someone other than the actors on done-task task-summary/local-check evidence) submit an additional evidence with kind=spec-review and result `passed` or `approved`. One independent reviewer is sufficient — implementer self-reviews can coexist.\n  see: protocol.md#§5.2\n"
+  },
+  {
+    "code": "SPEC_REVIEW_IMPLEMENTER_UNKNOWN",
+    "context": null,
+    "detail": {},
+    "en_message": "verify-accept check 5: cannot establish implementer set (all done-task evidence actors are cli:* automation); strict_spec_review fails closed",
+    "zh_message": "verify-accept check 5: cannot establish implementer set (all done-task evidence actors are cli:* automation); strict_spec_review fails closed",
+    "en_text": "error: SPEC_REVIEW_IMPLEMENTER_UNKNOWN — verify-accept check 5: cannot establish implementer set (all done-task evidence actors are cli:* automation); strict_spec_review fails closed\n  fix: ensure at least one done-task evidence (task-summary or local-check) carries a non-cli:* actor (e.g. human:dev@example.com); the strict_spec_review comparison requires a real implementer identity to compare against. Without it, the gate cannot prove the spec reviewer is independent.\n  see: protocol.md#§5.2\n",
+    "zh_text": "error: SPEC_REVIEW_IMPLEMENTER_UNKNOWN — verify-accept check 5: cannot establish implementer set (all done-task evidence actors are cli:* automation); strict_spec_review fails closed\n  fix: ensure at least one done-task evidence (task-summary or local-check) carries a non-cli:* actor (e.g. human:dev@example.com); the strict_spec_review comparison requires a real implementer identity to compare against. Without it, the gate cannot prove the spec reviewer is independent.\n  see: protocol.md#§5.2\n"
+  },
+  {
+    "code": "DELIVER_NOT_ACCEPTED",
+    "context": null,
+    "detail": {
+      "sub_state": "value_sub_state"
+    },
+    "en_message": "deliver requires verify_accepted=true at sub_state=value_sub_state; run `loaf gate decide verify-accept --approve` first",
+    "zh_message": "deliver 要求 verify_accepted=true(sub_state=value_sub_state);先运行 `loaf gate decide verify-accept --approve`",
+    "en_text": "error: DELIVER_NOT_ACCEPTED — deliver requires verify_accepted=true at sub_state=value_sub_state; run `loaf gate decide verify-accept --approve` first\n  fix: run `loaf gate decide verify-accept --approve --reason \"...\"` first; the gate flips snapshot.state.verify_accepted before `loaf deliver` will accept the session:delivered entry\n  see: protocol.md#§5.2\n",
+    "zh_text": "error: DELIVER_NOT_ACCEPTED — deliver 要求 verify_accepted=true(sub_state=value_sub_state);先运行 `loaf gate decide verify-accept --approve`\n  fix: run `loaf gate decide verify-accept --approve --reason \"...\"` first; the gate flips snapshot.state.verify_accepted before `loaf deliver` will accept the session:delivered entry\n  see: protocol.md#§5.2\n"
+  },
+  {
+    "code": "DELIVER_SETTLE_PHASE_BYPASS",
+    "context": null,
+    "detail": {},
+    "en_message": "deliver from VERIFY.accept requires ceremony.settle_phase=false (standard); deep ceremony must run `loaf settle` first",
+    "zh_message": "VERIFY.accept 直接 deliver 要求 ceremony.settle_phase=false(standard);deep ceremony 必须先运行 `loaf settle`",
+    "en_text": "error: DELIVER_SETTLE_PHASE_BYPASS — deliver from VERIFY.accept requires ceremony.settle_phase=false (standard); deep ceremony must run `loaf settle` first\n  fix: for ceremony.settle_phase=true (deep), run `loaf settle` to enter SETTLE.lessons, record lessons, then `loaf deliver`; only standard ceremony delivers directly from VERIFY.accept\n  see: protocol.md#§5.2\n",
+    "zh_text": "error: DELIVER_SETTLE_PHASE_BYPASS — VERIFY.accept 直接 deliver 要求 ceremony.settle_phase=false(standard);deep ceremony 必须先运行 `loaf settle`\n  fix: for ceremony.settle_phase=true (deep), run `loaf settle` to enter SETTLE.lessons, record lessons, then `loaf deliver`; only standard ceremony delivers directly from VERIFY.accept\n  see: protocol.md#§5.2\n"
+  },
+  {
+    "code": "DELIVER_VERIFY_MIN_UNAVAILABLE",
+    "context": null,
+    "detail": {
+      "ceremony_label": "value_ceremony_label"
+    },
+    "en_message": "verify-min was unavailable in this build (ceremony_label=value_ceremony_label) — superseded at v0.1.1 by DELIVER_VERIFY_MIN_INCOMPLETE; no longer emitted",
+    "zh_message": "verify-min 在此 build 不可用(ceremony_label=value_ceremony_label)—— v0.1.1 起由 DELIVER_VERIFY_MIN_INCOMPLETE 取代,已不再触发",
+    "en_text": "error: DELIVER_VERIFY_MIN_UNAVAILABLE — verify-min was unavailable in this build (ceremony_label=value_ceremony_label) — superseded at v0.1.1 by DELIVER_VERIFY_MIN_INCOMPLETE; no longer emitted\n  fix: upgrade to v0.1.1+ where quick / light deliver runs the verify-min per-task evidence check; on failure see DELIVER_VERIFY_MIN_INCOMPLETE\n  see: protocol.md#§3\n",
+    "zh_text": "error: DELIVER_VERIFY_MIN_UNAVAILABLE — verify-min 在此 build 不可用(ceremony_label=value_ceremony_label)—— v0.1.1 起由 DELIVER_VERIFY_MIN_INCOMPLETE 取代,已不再触发\n  fix: upgrade to v0.1.1+ where quick / light deliver runs the verify-min per-task evidence check; on failure see DELIVER_VERIFY_MIN_INCOMPLETE\n  see: protocol.md#§3\n"
+  },
+  {
+    "code": "DELIVER_VERIFY_MIN_INCOMPLETE",
+    "context": null,
+    "detail": {
+      "ceremony_label": "value_ceremony_label",
+      "count": "value_count"
+    },
+    "en_message": "verify-min: value_count done task(s) lack required evidence to deliver (ceremony_label=value_ceremony_label); add evidence or waive, then re-deliver",
+    "zh_message": "verify-min:value_count 个 done task 缺少 deliver 所需 evidence(ceremony_label=value_ceremony_label);补 evidence 或 waive 后重试 deliver",
+    "en_text": "error: DELIVER_VERIFY_MIN_INCOMPLETE — verify-min: value_count done task(s) lack required evidence to deliver (ceremony_label=value_ceremony_label); add evidence or waive, then re-deliver\n  fix: for each listed task add evidence covering it — code tasks need a `local-check` (test/lint/typecheck) run, visual-ui needs visual-review or manual, docs needs task-summary or manual — or `loaf waive` it; then `loaf deliver` again\n  see: protocol.md#§3\n",
+    "zh_text": "error: DELIVER_VERIFY_MIN_INCOMPLETE — verify-min:value_count 个 done task 缺少 deliver 所需 evidence(ceremony_label=value_ceremony_label);补 evidence 或 waive 后重试 deliver\n  fix: for each listed task add evidence covering it — code tasks need a `local-check` (test/lint/typecheck) run, visual-ui needs visual-review or manual, docs needs task-summary or manual — or `loaf waive` it; then `loaf deliver` again\n  see: protocol.md#§3\n"
+  },
+  {
+    "code": "DELIVER_SPIKE_TASKS",
+    "context": null,
+    "detail": {
+      "status": "value_status",
+      "task_id": "value_task_id"
+    },
+    "en_message": "cannot deliver: task value_task_id is kind=spike (status=value_status); spike tasks block delivery for the entire session",
+    "zh_message": "无法 deliver:task value_task_id 是 kind=spike(status=value_status);spike 任务阻塞整 session 的交付",
+    "en_text": "error: DELIVER_SPIKE_TASKS — cannot deliver: task value_task_id is kind=spike (status=value_status); spike tasks block delivery for the entire session\n  fix: abandon the spike task (`loaf tasks abandon value_task_id --reason \"...\"`) or convert it to a feature (`loaf spike convert --to-feature F-N --reason \"...\"`); spike tasks must not remain in non-abandoned status when the session delivers\n  see: protocol.md#§8.3\n",
+    "zh_text": "error: DELIVER_SPIKE_TASKS — 无法 deliver:task value_task_id 是 kind=spike(status=value_status);spike 任务阻塞整 session 的交付\n  fix: abandon the spike task (`loaf tasks abandon value_task_id --reason \"...\"`) or convert it to a feature (`loaf spike convert --to-feature F-N --reason \"...\"`); spike tasks must not remain in non-abandoned status when the session delivers\n  see: protocol.md#§8.3\n"
+  },
+  {
+    "code": "SETTLE_NOT_ACCEPTED",
+    "context": null,
+    "detail": {},
+    "en_message": "VERIFY.accept → SETTLE.lessons requires verify_accepted=true; run `loaf gate decide verify-accept --approve` before `loaf settle`",
+    "zh_message": "VERIFY.accept → SETTLE.lessons 要求 verify_accepted=true;先运行 `loaf gate decide verify-accept --approve` 再 `loaf settle`",
+    "en_text": "error: SETTLE_NOT_ACCEPTED — VERIFY.accept → SETTLE.lessons requires verify_accepted=true; run `loaf gate decide verify-accept --approve` before `loaf settle`\n  fix: run `loaf gate decide verify-accept --approve --reason \"...\"` before `loaf settle`; the gate flips snapshot.state.verify_accepted before the transition validator will admit the SETTLE entry\n  see: protocol.md#§5.2\n",
+    "zh_text": "error: SETTLE_NOT_ACCEPTED — VERIFY.accept → SETTLE.lessons 要求 verify_accepted=true;先运行 `loaf gate decide verify-accept --approve` 再 `loaf settle`\n  fix: run `loaf gate decide verify-accept --approve --reason \"...\"` before `loaf settle`; the gate flips snapshot.state.verify_accepted before the transition validator will admit the SETTLE entry\n  see: protocol.md#§5.2\n"
+  },
+  {
+    "code": "SPEC_LOCK_NOT_SATISFIED",
+    "context": null,
+    "detail": {},
+    "en_message": "SPEC.design → EXECUTE.plan requires spec_locked=true; run `loaf gate decide spec-lock --approve` before `loaf advance EXECUTE.plan`",
+    "zh_message": "SPEC.design → EXECUTE.plan 要求 spec_locked=true;先运行 `loaf gate decide spec-lock --approve` 再 `loaf advance EXECUTE.plan`",
+    "en_text": "error: SPEC_LOCK_NOT_SATISFIED — SPEC.design → EXECUTE.plan requires spec_locked=true; run `loaf gate decide spec-lock --approve` before `loaf advance EXECUTE.plan`\n  fix: run `loaf gate decide spec-lock --approve --reason \"...\"` before `loaf advance EXECUTE.plan`; the gate runs the 8 spec-lock checks and flips snapshot.state.spec_locked before the transition validator will admit the EXECUTE.plan entry\n  see: protocol.md#§5.1\n",
+    "zh_text": "error: SPEC_LOCK_NOT_SATISFIED — SPEC.design → EXECUTE.plan 要求 spec_locked=true;先运行 `loaf gate decide spec-lock --approve` 再 `loaf advance EXECUTE.plan`\n  fix: run `loaf gate decide spec-lock --approve --reason \"...\"` before `loaf advance EXECUTE.plan`; the gate runs the 8 spec-lock checks and flips snapshot.state.spec_locked before the transition validator will admit the EXECUTE.plan entry\n  see: protocol.md#§5.1\n"
+  },
+  {
+    "code": "TASK_NOT_CLAIMABLE",
+    "context": null,
+    "detail": {
+      "status": "value_status",
+      "task_id": "value_task_id"
+    },
+    "en_message": "task value_task_id cannot be claimed (status=value_status — terminal state)",
+    "zh_message": "task value_task_id 无法 claim(status=value_status — 终态)",
+    "en_text": "error: TASK_NOT_CLAIMABLE — task value_task_id cannot be claimed (status=value_status — terminal state)\n  fix: tasks with status=done are already complete; status=abandoned tasks cannot be reactivated. Run `loaf tasks list` to inspect the task graph, or `loaf tasks next` to pick a different ready task\n  see: protocol.md#§10.8\n",
+    "zh_text": "error: TASK_NOT_CLAIMABLE — task value_task_id 无法 claim(status=value_status — 终态)\n  fix: tasks with status=done are already complete; status=abandoned tasks cannot be reactivated. Run `loaf tasks list` to inspect the task graph, or `loaf tasks next` to pick a different ready task\n  see: protocol.md#§10.8\n"
+  },
+  {
+    "code": "TASK_ALREADY_CLAIMED",
+    "context": null,
+    "detail": {
+      "task_id": "value_task_id"
+    },
+    "en_message": "task value_task_id is already claimed (status=in_progress)",
+    "zh_message": "task value_task_id 已被 claim(status=in_progress)",
+    "en_text": "error: TASK_ALREADY_CLAIMED — task value_task_id is already claimed (status=in_progress)\n  fix: another worker may already hold this task; run `loaf tasks list` to inspect active claims. Stale-claim release is handled in a future slice (no CLI surface for abandon in v0.1.0 yet) — raise a finding with action=fix-impl if needed\n  see: protocol.md#§10.8\n",
+    "zh_text": "error: TASK_ALREADY_CLAIMED — task value_task_id 已被 claim(status=in_progress)\n  fix: another worker may already hold this task; run `loaf tasks list` to inspect active claims. Stale-claim release is handled in a future slice (no CLI surface for abandon in v0.1.0 yet) — raise a finding with action=fix-impl if needed\n  see: protocol.md#§10.8\n"
+  },
+  {
+    "code": "TASK_DEP_NOT_FOUND",
+    "context": null,
+    "detail": {
+      "field": "value_field",
+      "ref": "value_ref",
+      "task_id": "value_task_id"
+    },
+    "en_message": "task value_task_id field value_field references missing task value_ref",
+    "zh_message": "task value_task_id 的 value_field 引用了不存在的 task value_ref",
+    "en_text": "error: TASK_DEP_NOT_FOUND — task value_task_id field value_field references missing task value_ref\n  fix: add the referenced task in the same atomic batch, or amend the dependency to an existing task, then retry\n  see: protocol.md#§10.8\n",
+    "zh_text": "error: TASK_DEP_NOT_FOUND — task value_task_id 的 value_field 引用了不存在的 task value_ref\n  fix: add the referenced task in the same atomic batch, or amend the dependency to an existing task, then retry\n  see: protocol.md#§10.8\n"
+  },
+  {
+    "code": "TASK_DEP_SELF",
+    "context": null,
+    "detail": {
+      "task_id": "value_task_id"
+    },
+    "en_message": "task value_task_id cannot depend on itself",
+    "zh_message": "task value_task_id 不能依赖自身",
+    "en_text": "error: TASK_DEP_SELF — task value_task_id cannot depend on itself\n  fix: remove the self-reference from depends_on, then retry the task graph mutation\n  see: protocol.md#§10.8\n",
+    "zh_text": "error: TASK_DEP_SELF — task value_task_id 不能依赖自身\n  fix: remove the self-reference from depends_on, then retry the task graph mutation\n  see: protocol.md#§10.8\n"
+  },
+  {
+    "code": "TASK_DEP_DUPLICATE",
+    "context": null,
+    "detail": {
+      "indexes": "value_indexes",
+      "ref": "value_ref",
+      "task_id": "value_task_id"
+    },
+    "en_message": "task value_task_id repeats dependency value_ref at indexes value_indexes",
+    "zh_message": "task value_task_id 在下标 value_indexes 重复声明依赖 value_ref",
+    "en_text": "error: TASK_DEP_DUPLICATE — task value_task_id repeats dependency value_ref at indexes value_indexes\n  fix: keep each dependency id only once in depends_on, then retry\n  see: protocol.md#§10.8\n",
+    "zh_text": "error: TASK_DEP_DUPLICATE — task value_task_id 在下标 value_indexes 重复声明依赖 value_ref\n  fix: keep each dependency id only once in depends_on, then retry\n  see: protocol.md#§10.8\n"
+  },
+  {
+    "code": "TASK_DEP_CYCLE",
+    "context": null,
+    "detail": {
+      "cycle": "value_cycle"
+    },
+    "en_message": "task dependency graph contains cycle value_cycle",
+    "zh_message": "task 依赖图包含环 value_cycle",
+    "en_text": "error: TASK_DEP_CYCLE — task dependency graph contains cycle value_cycle\n  fix: remove or redirect one dependency in the reported closed path, then retry\n  see: protocol.md#§10.8\n",
+    "zh_text": "error: TASK_DEP_CYCLE — task 依赖图包含环 value_cycle\n  fix: remove or redirect one dependency in the reported closed path, then retry\n  see: protocol.md#§10.8\n"
+  },
+  {
+    "code": "TASK_DEP_ABANDONED",
+    "context": null,
+    "detail": {
+      "field": "value_field",
+      "hint": "value_hint",
+      "ref": "value_ref",
+      "task_id": "value_task_id"
+    },
+    "en_message": "task value_task_id field value_field references abandoned task value_ref; value_hint",
+    "zh_message": "task value_task_id 的 value_field 引用了已 abandoned 的 task value_ref;value_hint",
+    "en_text": "error: TASK_DEP_ABANDONED — task value_task_id field value_field references abandoned task value_ref; value_hint\n  fix: use an amend-tasks-sponsored task amendment to replace the abandoned dependency, then retry\n  see: protocol.md#§10.8\n",
+    "zh_text": "error: TASK_DEP_ABANDONED — task value_task_id 的 value_field 引用了已 abandoned 的 task value_ref;value_hint\n  fix: use an amend-tasks-sponsored task amendment to replace the abandoned dependency, then retry\n  see: protocol.md#§10.8\n"
+  },
+  {
+    "code": "TASK_DEPS_NOT_SATISFIED",
+    "context": null,
+    "detail": {
+      "blocking_dep": "value_blocking_dep",
+      "blocking_status": "value_blocking_status",
+      "task_id": "value_task_id"
+    },
+    "en_message": "task value_task_id cannot be claimed: dependency value_blocking_dep is not done (status=value_blocking_status)",
+    "zh_message": "task value_task_id 无法 claim:依赖 value_blocking_dep 未 done(status=value_blocking_status)",
+    "en_text": "error: TASK_DEPS_NOT_SATISFIED — task value_task_id cannot be claimed: dependency value_blocking_dep is not done (status=value_blocking_status)\n  fix: complete deps_on tasks first (run `loaf tasks list --status pending` to see what is blocking), or use `loaf tasks next` to pick a task with all deps satisfied\n  see: protocol.md#§10.8\n",
+    "zh_text": "error: TASK_DEPS_NOT_SATISFIED — task value_task_id 无法 claim:依赖 value_blocking_dep 未 done(status=value_blocking_status)\n  fix: complete deps_on tasks first (run `loaf tasks list --status pending` to see what is blocking), or use `loaf tasks next` to pick a task with all deps satisfied\n  see: protocol.md#§10.8\n"
+  },
+  {
+    "code": "TASK_NOT_CLAIMED",
+    "context": null,
+    "detail": {
+      "status": "value_status",
+      "step": "value_step",
+      "task_id": "value_task_id"
+    },
+    "en_message": "task value_task_id step value_step mutation requires task.status=in_progress (got status=value_status); claim the task first",
+    "zh_message": "task value_task_id step value_step 变更要求 task.status=in_progress(实际 status=value_status);先 `loaf tasks claim`",
+    "en_text": "error: TASK_NOT_CLAIMED — task value_task_id step value_step mutation requires task.status=in_progress (got status=value_status); claim the task first\n  fix: run `loaf tasks claim value_task_id` to move the task from pending/ready to in_progress before emitting task_step_started or task_step_done; once auto-promoted to done, steps cannot be re-mutated\n  see: protocol.md#§10.8\n",
+    "zh_text": "error: TASK_NOT_CLAIMED — task value_task_id step value_step 变更要求 task.status=in_progress(实际 status=value_status);先 `loaf tasks claim`\n  fix: run `loaf tasks claim value_task_id` to move the task from pending/ready to in_progress before emitting task_step_started or task_step_done; once auto-promoted to done, steps cannot be re-mutated\n  see: protocol.md#§10.8\n"
+  },
+  {
+    "code": "TASK_NOT_ABANDONABLE",
+    "context": null,
+    "detail": {
+      "status": "value_status",
+      "task_id": "value_task_id"
+    },
+    "en_message": "task value_task_id cannot be abandoned (status=value_status — already in a final status)",
+    "zh_message": "task value_task_id 无法 abandon(status=value_status — 已处于终态)",
+    "en_text": "error: TASK_NOT_ABANDONABLE — task value_task_id cannot be abandoned (status=value_status — already in a final status)\n  fix: tasks with status=done are already complete and status=abandoned tasks are already abandoned; run `loaf tasks list` to inspect the task graph and abandon a non-terminal task instead\n  see: protocol.md#§10.8\n",
+    "zh_text": "error: TASK_NOT_ABANDONABLE — task value_task_id 无法 abandon(status=value_status — 已处于终态)\n  fix: tasks with status=done are already complete and status=abandoned tasks are already abandoned; run `loaf tasks list` to inspect the task graph and abandon a non-terminal task instead\n  see: protocol.md#§10.8\n"
+  },
+  {
+    "code": "TASK_ABANDON_BLOCKED_DEPENDENTS",
+    "context": null,
+    "detail": {
+      "blocking_dependents": "value_blocking_dependents",
+      "task_id": "value_task_id"
+    },
+    "en_message": "task value_task_id cannot be abandoned: non-terminal task(s) value_blocking_dependents depend on it; abandon or complete the dependents first",
+    "zh_message": "task value_task_id 无法 abandon:非终态 task value_blocking_dependents 依赖它;先 abandon 或完成这些依赖方",
+    "en_text": "error: TASK_ABANDON_BLOCKED_DEPENDENTS — task value_task_id cannot be abandoned: non-terminal task(s) value_blocking_dependents depend on it; abandon or complete the dependents first\n  fix: abandon or complete the dependent tasks first (see detail.blocking_dependents), then retry `loaf tasks abandon value_task_id --reason \"...\"`; abandoning a parent would strand a pending child\n  see: protocol.md#§10.8\n",
+    "zh_text": "error: TASK_ABANDON_BLOCKED_DEPENDENTS — task value_task_id 无法 abandon:非终态 task value_blocking_dependents 依赖它;先 abandon 或完成这些依赖方\n  fix: abandon or complete the dependent tasks first (see detail.blocking_dependents), then retry `loaf tasks abandon value_task_id --reason \"...\"`; abandoning a parent would strand a pending child\n  see: protocol.md#§10.8\n"
+  },
+  {
+    "code": "SESSION_REASON_REQUIRED",
+    "context": null,
+    "detail": {
+      "kind": "value_kind"
+    },
+    "en_message": "value_kind: --reason is required (the session-terminal entry must record why)",
+    "zh_message": "value_kind:必须提供 --reason(会话终态 entry 必须记录原因)",
+    "en_text": "error: SESSION_REASON_REQUIRED — value_kind: --reason is required (the session-terminal entry must record why)\n  fix: re-run with `--reason \"...\"`; `loaf archive` and `loaf abandon` both require a rationale on the journal entry\n  see: protocol.md#§10.8\n",
+    "zh_text": "error: SESSION_REASON_REQUIRED — value_kind:必须提供 --reason(会话终态 entry 必须记录原因)\n  fix: re-run with `--reason \"...\"`; `loaf archive` and `loaf abandon` both require a rationale on the journal entry\n  see: protocol.md#§10.8\n"
+  },
+  {
+    "code": "PROJECTION_WRITE_FAILED",
+    "context": null,
+    "detail": {
+      "error": "value_error",
+      "last_seq": "value_last_seq",
+      "projection": "value_projection",
+      "spec_version": "value_spec_version"
+    },
+    "en_message": "value_projection projection write failed after journal append at last_seq=value_last_seq (spec_version=value_spec_version): value_error",
+    "zh_message": "value_projection 派生投影在 journal append (last_seq=value_last_seq, spec_version=value_spec_version) 后写盘失败:value_error",
+    "en_text": "error: PROJECTION_WRITE_FAILED — value_projection projection write failed after journal append at last_seq=value_last_seq (spec_version=value_spec_version): value_error\n  fix: the journal already records the change; do NOT retry the same command. Run `loaf doctor --rebuild` (when available) to resync derived projections from journal truth, or inspect `.loaf/<feature>/journal.jsonl` tail manually.\n  see: protocol.md#§10.15\n",
+    "zh_text": "error: PROJECTION_WRITE_FAILED — value_projection 派生投影在 journal append (last_seq=value_last_seq, spec_version=value_spec_version) 后写盘失败:value_error\n  fix: the journal already records the change; do NOT retry the same command. Run `loaf doctor --rebuild` (when available) to resync derived projections from journal truth, or inspect `.loaf/<feature>/journal.jsonl` tail manually.\n  see: protocol.md#§10.15\n"
+  },
+  {
+    "code": "FINDING_AMEND_SPEC_NOT_LOCKED",
+    "context": null,
+    "detail": {
+      "current_sub_state": "value_current_sub_state"
+    },
+    "en_message": "finding raise action=amend-spec requires state.spec_locked=true; spec is not locked at sub_state=value_current_sub_state, edit directly via `loaf spec submit / add-*`",
+    "zh_message": "finding raise action=amend-spec 要求 state.spec_locked=true;当前 sub_state=value_current_sub_state 下 spec 未锁,请直接使用 `loaf spec submit / add-*`",
+    "en_text": "error: FINDING_AMEND_SPEC_NOT_LOCKED — finding raise action=amend-spec requires state.spec_locked=true; spec is not locked at sub_state=value_current_sub_state, edit directly via `loaf spec submit / add-*`\n  fix: drop --action amend-spec and use `loaf spec submit` / `loaf spec add-req` / etc. directly while spec is unlocked; amend-spec is reserved for post-`gate decide spec-lock --approve` recovery.\n  see: protocol.md#§6.1\n",
+    "zh_text": "error: FINDING_AMEND_SPEC_NOT_LOCKED — finding raise action=amend-spec 要求 state.spec_locked=true;当前 sub_state=value_current_sub_state 下 spec 未锁,请直接使用 `loaf spec submit / add-*`\n  fix: drop --action amend-spec and use `loaf spec submit` / `loaf spec add-req` / etc. directly while spec is unlocked; amend-spec is reserved for post-`gate decide spec-lock --approve` recovery.\n  see: protocol.md#§6.1\n"
+  },
+  {
+    "code": "SPEC_VERSION_NOT_MONOTONIC",
+    "context": null,
+    "detail": {
+      "expected_spec_version": "value_expected_spec_version",
+      "kind": "value_kind",
+      "payload_spec_version": "value_payload_spec_version"
+    },
+    "en_message": "value_kind: spec_version must be value_expected_spec_version (current+1), got value_payload_spec_version",
+    "zh_message": "value_kind: spec_version 必须等于 value_expected_spec_version(current+1),实际为 value_payload_spec_version",
+    "en_text": "error: SPEC_VERSION_NOT_MONOTONIC — value_kind: spec_version must be value_expected_spec_version (current+1), got value_payload_spec_version\n  fix: set spec_version to value_expected_spec_version in the input payload (or omit it and let `loaf spec submit` fill the current+1 default).\n  see: protocol.md#§4.2\n",
+    "zh_text": "error: SPEC_VERSION_NOT_MONOTONIC — value_kind: spec_version 必须等于 value_expected_spec_version(current+1),实际为 value_payload_spec_version\n  fix: set spec_version to value_expected_spec_version in the input payload (or omit it and let `loaf spec submit` fill the current+1 default).\n  see: protocol.md#§4.2\n"
+  },
+  {
+    "code": "SPEC_VERSION_BATCH_MISMATCH",
+    "context": null,
+    "detail": {
+      "batch_index": "value_batch_index",
+      "current_spec_version": "value_current_spec_version",
+      "kind": "value_kind",
+      "payload_spec_version": "value_payload_spec_version"
+    },
+    "en_message": "value_kind: spec_version must be value_current_spec_version at batch_index=value_batch_index, got value_payload_spec_version",
+    "zh_message": "value_kind: batch_index=value_batch_index 处 spec_version 必须等于 value_current_spec_version,实际为 value_payload_spec_version",
+    "en_text": "error: SPEC_VERSION_BATCH_MISMATCH — value_kind: spec_version must be value_current_spec_version at batch_index=value_batch_index, got value_payload_spec_version\n  fix: in a multi-entry spec batch, the head (batch_index=0) bumps spec_version to current+1 and all continuation entries (batch_index≥1) must set spec_version to that same value. Check the head entry's payload.spec_version and align companions.\n  see: protocol.md#§4.2\n",
+    "zh_text": "error: SPEC_VERSION_BATCH_MISMATCH — value_kind: batch_index=value_batch_index 处 spec_version 必须等于 value_current_spec_version,实际为 value_payload_spec_version\n  fix: in a multi-entry spec batch, the head (batch_index=0) bumps spec_version to current+1 and all continuation entries (batch_index≥1) must set spec_version to that same value. Check the head entry's payload.spec_version and align companions.\n  see: protocol.md#§4.2\n"
+  },
+  {
+    "code": "TASK_COMPLETE_PRECONDITION_VIOLATED",
+    "context": null,
+    "detail": {
+      "blocking_steps": "value_blocking_steps",
+      "status": "value_status",
+      "task_id": "value_task_id"
+    },
+    "en_message": "task value_task_id is not complete (status=value_status); must-applicable steps not terminal-positive: value_blocking_steps",
+    "zh_message": "task value_task_id 尚未完成(status=value_status);以下 must 级 step 未达 terminal-positive:value_blocking_steps",
+    "en_text": "error: TASK_COMPLETE_PRECONDITION_VIOLATED — task value_task_id is not complete (status=value_status); must-applicable steps not terminal-positive: value_blocking_steps\n  fix: finish each blocking step via `loaf tasks step start/done`; a task auto-promotes to status=done once every must-applicable step is passed/waived/na, and `loaf tasks complete` then confirms it. Run `loaf tasks list` to inspect step status.\n  see: protocol.md#§10.8\n",
+    "zh_text": "error: TASK_COMPLETE_PRECONDITION_VIOLATED — task value_task_id 尚未完成(status=value_status);以下 must 级 step 未达 terminal-positive:value_blocking_steps\n  fix: finish each blocking step via `loaf tasks step start/done`; a task auto-promotes to status=done once every must-applicable step is passed/waived/na, and `loaf tasks complete` then confirms it. Run `loaf tasks list` to inspect step status.\n  see: protocol.md#§10.8\n"
+  },
+  {
+    "code": "BUG_TASK_REQUIRES_RED",
+    "context": null,
+    "detail": {
+      "task_id": "value_task_id"
+    },
+    "en_message": "behavioral bug task value_task_id cannot start or complete its implement step before its RED test is registered",
+    "zh_message": "behavioral bug task value_task_id 在注册 RED 测试前不能开始或完成 implement step",
+    "en_text": "error: BUG_TASK_REQUIRES_RED — behavioral bug task value_task_id cannot start or complete its implement step before its RED test is registered\n  fix: run `loaf tasks register-red value_task_id` once the failing RED test is in place; protocol §9.3 requires RED registration before the implement step of a behavioral task labelled `bug`.\n  see: protocol.md#§9.3\n",
+    "zh_text": "error: BUG_TASK_REQUIRES_RED — behavioral bug task value_task_id 在注册 RED 测试前不能开始或完成 implement step\n  fix: run `loaf tasks register-red value_task_id` once the failing RED test is in place; protocol §9.3 requires RED registration before the implement step of a behavioral task labelled `bug`.\n  see: protocol.md#§9.3\n"
+  },
+  {
+    "code": "BUG_TASK_FLAG_MISUSE",
+    "context": null,
+    "detail": {
+      "task_id": "value_task_id"
+    },
+    "en_message": "task value_task_id: red_test_registered=true is valid only on a red-step task_step_done for a behavioral bug task (passed/waived result) — not on this entry",
+    "zh_message": "task value_task_id:red_test_registered=true 只在 behavioral bug task 的 red-step task_step_done(passed/waived)上有效 —— 不能用在本 entry",
+    "en_text": "error: BUG_TASK_FLAG_MISUSE — task value_task_id: red_test_registered=true is valid only on a red-step task_step_done for a behavioral bug task (passed/waived result) — not on this entry\n  fix: do not set red_test_registered in a planned task or on a non-red step; the flag is owned by `loaf tasks register-red`, which the reducer promotes to task-level registration.\n  see: protocol.md#§9.3\n",
+    "zh_text": "error: BUG_TASK_FLAG_MISUSE — task value_task_id:red_test_registered=true 只在 behavioral bug task 的 red-step task_step_done(passed/waived)上有效 —— 不能用在本 entry\n  fix: do not set red_test_registered in a planned task or on a non-red step; the flag is owned by `loaf tasks register-red`, which the reducer promotes to task-level registration.\n  see: protocol.md#§9.3\n"
+  },
+  {
+    "code": "BUG_TASK_RED_NOT_REGISTERED",
+    "context": null,
+    "detail": {
+      "task_id": "value_task_id"
+    },
+    "en_message": "behavioral bug task value_task_id is done but never registered its RED test (red_test_registered≠true)",
+    "zh_message": "behavioral bug task value_task_id 已 done 但从未注册 RED 测试(red_test_registered≠true)",
+    "en_text": "error: BUG_TASK_RED_NOT_REGISTERED — behavioral bug task value_task_id is done but never registered its RED test (red_test_registered≠true)\n  fix: a done behavioral bug task must have registered its RED test via `loaf tasks register-red`; this is a verify-accept defense-in-depth check for raw-API journals — rebuild the journal or register RED retroactively before re-running the gate.\n  see: protocol.md#§9.3\n",
+    "zh_text": "error: BUG_TASK_RED_NOT_REGISTERED — behavioral bug task value_task_id 已 done 但从未注册 RED 测试(red_test_registered≠true)\n  fix: a done behavioral bug task must have registered its RED test via `loaf tasks register-red`; this is a verify-accept defense-in-depth check for raw-API journals — rebuild the journal or register RED retroactively before re-running the gate.\n  see: protocol.md#§9.3\n"
+  },
+  {
+    "code": "SPIKE_CONVERT_NO_SPIKE_TASK",
+    "context": null,
+    "detail": {},
+    "en_message": "cannot convert: the session has no non-abandoned spike task; `loaf spike convert` is a spike-task exit (protocol §8.3)",
+    "zh_message": "无法 convert:session 没有非-abandoned 的 spike task;`loaf spike convert` 是 spike-task 出口(protocol §8.3)",
+    "en_text": "error: SPIKE_CONVERT_NO_SPIKE_TASK — cannot convert: the session has no non-abandoned spike task; `loaf spike convert` is a spike-task exit (protocol §8.3)\n  fix: run `loaf spike convert` only from a session that holds a kind=spike task; for a non-spike session close it with `loaf archive --reason \"...\"` or `loaf abandon --reason \"...\"`\n  see: protocol.md#§8.3\n",
+    "zh_text": "error: SPIKE_CONVERT_NO_SPIKE_TASK — 无法 convert:session 没有非-abandoned 的 spike task;`loaf spike convert` 是 spike-task 出口(protocol §8.3)\n  fix: run `loaf spike convert` only from a session that holds a kind=spike task; for a non-spike session close it with `loaf archive --reason \"...\"` or `loaf abandon --reason \"...\"`\n  see: protocol.md#§8.3\n"
+  },
+  {
+    "code": "SNAPSHOT_STALE_REBUILD_REQUIRED",
+    "context": null,
+    "detail": {
+      "feature_dir": "value_feature_dir",
+      "reason": "value_reason"
+    },
+    "en_message": "snapshot stale (reason=value_reason) at value_feature_dir; run `loaf doctor --rebuild --feature <feature>` to re-serialize from journal truth",
+    "zh_message": "snapshot 失效(reason=value_reason) at value_feature_dir;跑 `loaf doctor --rebuild --feature <feature>` 从 journal 重建",
+    "en_text": "error: SNAPSHOT_STALE_REBUILD_REQUIRED — snapshot stale (reason=value_reason) at value_feature_dir; run `loaf doctor --rebuild --feature <feature>` to re-serialize from journal truth\n  fix: snapshot meta/leaves no longer agree with the journal tail; run `loaf doctor --rebuild --feature <feature>` to re-serialize from journal truth, then retry. Inspect detail.reason + reason-specific fields (meta_path / projection_kind / cause) to triage corruption source before rebuilding.\n  see: protocol.md#§10.15\n",
+    "zh_text": "error: SNAPSHOT_STALE_REBUILD_REQUIRED — snapshot 失效(reason=value_reason) at value_feature_dir;跑 `loaf doctor --rebuild --feature <feature>` 从 journal 重建\n  fix: snapshot meta/leaves no longer agree with the journal tail; run `loaf doctor --rebuild --feature <feature>` to re-serialize from journal truth, then retry. Inspect detail.reason + reason-specific fields (meta_path / projection_kind / cause) to triage corruption source before rebuilding.\n  see: protocol.md#§10.15\n"
+  },
+  {
+    "code": "JOURNAL_TAIL_REQUIRES_NEWER_LOAF",
+    "context": null,
+    "detail": {
+      "entry_schema_version": "value_entry_schema_version",
+      "kind": "value_kind",
+      "reason": "value_reason",
+      "seq": "value_seq"
+    },
+    "en_message": "tail recovery refused at seq value_seq: journal kind value_kind uses entry schema value_entry_schema_version (value_reason)",
+    "zh_message": "tail recovery 已拒绝:seq value_seq 的 journal kind value_kind 使用 entry schema value_entry_schema_version (value_reason)",
+    "en_text": "error: JOURNAL_TAIL_REQUIRES_NEWER_LOAF — tail recovery refused at seq value_seq: journal kind value_kind uses entry schema value_entry_schema_version (value_reason)\n  fix: preserve journal.jsonl byte-for-byte and upgrade loaf to a version that understands this entry before running tail recovery again\n  see: protocol.md#§10.15\n",
+    "zh_text": "error: JOURNAL_TAIL_REQUIRES_NEWER_LOAF — tail recovery 已拒绝:seq value_seq 的 journal kind value_kind 使用 entry schema value_entry_schema_version (value_reason)\n  fix: 保持 journal.jsonl 字节不变，升级到能识别该 entry 的 loaf 版本后再运行 tail recovery\n  see: protocol.md#§10.15\n"
+  },
+  {
+    "code": "INVALID_PRESET",
+    "context": null,
+    "detail": {},
+    "en_message": "invalid ceremony preset",
+    "zh_message": "ceremony preset 不合法",
+    "en_text": "error: INVALID_PRESET — invalid ceremony preset\n  fix: Use one of quick, light, standard, or deep.\n  see: protocol.md#§10.5\n",
+    "zh_text": "error: INVALID_PRESET — ceremony preset 不合法\n  fix: Use one of quick, light, standard, or deep.\n  see: protocol.md#§10.5\n"
+  },
+  {
+    "code": "USAGE",
+    "context": null,
+    "detail": {},
+    "en_message": "invalid CLI usage",
+    "zh_message": "CLI 用法不合法",
+    "en_text": "error: USAGE — invalid CLI usage\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n",
+    "zh_text": "error: USAGE — CLI 用法不合法\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n"
+  },
+  {
+    "code": "DOCTOR_MODE_NOT_IMPLEMENTED",
+    "context": null,
+    "detail": {},
+    "en_message": "requested loaf doctor mode is not implemented in this release",
+    "zh_message": "当前发布版本未实现该 loaf doctor 模式",
+    "en_text": "error: DOCTOR_MODE_NOT_IMPLEMENTED — requested loaf doctor mode is not implemented in this release\n  fix: Use loaf doctor --rebuild --feature <name>; other doctor modes are deferred.\n  see: protocol.md#§10.15\n",
+    "zh_text": "error: DOCTOR_MODE_NOT_IMPLEMENTED — 当前发布版本未实现该 loaf doctor 模式\n  fix: Use loaf doctor --rebuild --feature <name>; other doctor modes are deferred.\n  see: protocol.md#§10.15\n"
+  },
+  {
+    "code": "DOCTOR_FEATURE_REQUIRED",
+    "context": null,
+    "detail": {},
+    "en_message": "loaf doctor --rebuild requires --feature <name>",
+    "zh_message": "loaf doctor --rebuild 必须带 --feature <name>",
+    "en_text": "error: DOCTOR_FEATURE_REQUIRED — loaf doctor --rebuild requires --feature <name>\n  fix: Pass --feature <name> or --feature-dir <path> for the session to rebuild.\n  see: protocol.md#§10.15\n",
+    "zh_text": "error: DOCTOR_FEATURE_REQUIRED — loaf doctor --rebuild 必须带 --feature <name>\n  fix: Pass --feature <name> or --feature-dir <path> for the session to rebuild.\n  see: protocol.md#§10.15\n"
+  },
+  {
+    "code": "DOCTOR_REBUILD_FAILED",
+    "context": null,
+    "detail": {},
+    "en_message": "doctor --rebuild failed",
+    "zh_message": "doctor --rebuild 失败",
+    "en_text": "error: DOCTOR_REBUILD_FAILED — doctor --rebuild failed\n  fix: Inspect the emitted error message; fix the journal/projection issue, then rerun doctor --rebuild.\n  see: protocol.md#§10.15\n",
+    "zh_text": "error: DOCTOR_REBUILD_FAILED — doctor --rebuild 失败\n  fix: Inspect the emitted error message; fix the journal/projection issue, then rerun doctor --rebuild.\n  see: protocol.md#§10.15\n"
+  },
+  {
+    "code": "REDUCER_ERROR",
+    "context": null,
+    "detail": {},
+    "en_message": "internal reducer invariant failed",
+    "zh_message": "reducer 内部不变量失败",
+    "en_text": "error: REDUCER_ERROR — internal reducer invariant failed\n  fix: Preserve the journal and command stderr; this indicates a loaf-cli bug or inconsistent projection state.\n  see: protocol.md#§10.5\n",
+    "zh_text": "error: REDUCER_ERROR — reducer 内部不变量失败\n  fix: Preserve the journal and command stderr; this indicates a loaf-cli bug or inconsistent projection state.\n  see: protocol.md#§10.5\n"
+  },
+  {
+    "code": "APPEND_ERROR",
+    "context": null,
+    "detail": {},
+    "en_message": "journal append failed",
+    "zh_message": "journal append failed",
+    "en_text": "error: APPEND_ERROR — journal append failed\n  fix: preserve journal.jsonl and the emitted detail, then inspect the append error before retrying; if a write may have started, run `loaf doctor` to verify journal integrity\n  see: protocol.md#§11.2\n",
+    "zh_text": "error: APPEND_ERROR — journal append failed\n  fix: preserve journal.jsonl and the emitted detail, then inspect the append error before retrying; if a write may have started, run `loaf doctor` to verify journal integrity\n  see: protocol.md#§11.2\n"
+  },
+  {
+    "code": "SIDECAR_ERROR",
+    "context": null,
+    "detail": {
+      "err": "value_err"
+    },
+    "en_message": "sidecar finalize failed: value_err",
+    "zh_message": "sidecar finalize failed: value_err",
+    "en_text": "error: SIDECAR_ERROR — sidecar finalize failed: value_err\n  fix: inspect the emitted error and attachment path permissions; validation already passed, so remove any orphan sidecar residue before retrying\n  see: protocol.md#§11.2\n",
+    "zh_text": "error: SIDECAR_ERROR — sidecar finalize failed: value_err\n  fix: inspect the emitted error and attachment path permissions; validation already passed, so remove any orphan sidecar residue before retrying\n  see: protocol.md#§11.2\n"
+  },
+  {
+    "code": "INVALID_BATCH",
+    "context": null,
+    "detail": {},
+    "en_message": "mutation batch is invalid",
+    "zh_message": "mutation batch is invalid",
+    "en_text": "error: INVALID_BATCH — mutation batch is invalid\n  fix: rebuild the batch through the CLI mutator without caller-owned envelope fields and with entries + meta matching the current journal tail\n  see: protocol.md#§11.2\n",
+    "zh_text": "error: INVALID_BATCH — mutation batch is invalid\n  fix: rebuild the batch through the CLI mutator without caller-owned envelope fields and with entries + meta matching the current journal tail\n  see: protocol.md#§11.2\n"
+  },
+  {
+    "code": "SCOPE_RECORDED_BATCH_INVALID",
+    "context": null,
+    "detail": {
+      "reason": "value_reason"
+    },
+    "en_message": "scope:recorded batch is invalid: value_reason",
+    "zh_message": "scope:recorded 批次无效:value_reason",
+    "en_text": "error: SCOPE_RECORDED_BATCH_INVALID — scope:recorded batch is invalid: value_reason\n  fix: emit at most one scope:recorded immediately before exactly one EXECUTE.work to EXECUTE.done transition in the same batch\n  see: protocol.md#§4.6\n",
+    "zh_text": "error: SCOPE_RECORDED_BATCH_INVALID — scope:recorded 批次无效:value_reason\n  fix: emit at most one scope:recorded immediately before exactly one EXECUTE.work to EXECUTE.done transition in the same batch\n  see: protocol.md#§4.6\n"
+  },
+  {
+    "code": "SCOPE_RECORDED_ITERATION_DUPLICATE",
+    "context": null,
+    "detail": {
+      "iteration": "value_iteration"
+    },
+    "en_message": "scope:recorded already exists for iteration value_iteration",
+    "zh_message": "iteration value_iteration 已存在 scope:recorded",
+    "en_text": "error: SCOPE_RECORDED_ITERATION_DUPLICATE — scope:recorded already exists for iteration value_iteration\n  fix: reuse the recorded closure result for this iteration or advance through a finding back-edge before recording a new closure\n  see: protocol.md#§4.6\n",
+    "zh_text": "error: SCOPE_RECORDED_ITERATION_DUPLICATE — iteration value_iteration 已存在 scope:recorded\n  fix: reuse the recorded closure result for this iteration or advance through a finding back-edge before recording a new closure\n  see: protocol.md#§4.6\n"
+  },
+  {
+    "code": "ACTUAL_SCOPE_HISTORY_INCOMPLETE",
+    "context": null,
+    "detail": {
+      "transition_seqs": "value_transition_seqs"
+    },
+    "en_message": "actual scope history is incomplete: EXECUTE closure transition(s) at seq value_transition_seqs have no same-batch scope:recorded marker",
+    "zh_message": "actual scope 历史不完整:seq value_transition_seqs 的 EXECUTE closure transition 缺少同批 scope:recorded marker",
+    "en_text": "error: ACTUAL_SCOPE_HISTORY_INCOMPLETE — actual scope history is incomplete: EXECUTE closure transition(s) at seq value_transition_seqs have no same-batch scope:recorded marker\n  fix: do not fabricate an empty actual_scope; preserve the journal and rerun the feature's EXECUTE work with an F-027-capable loaf version before auditing scope. Pre-F-027 closure scope cannot be reconstructed from journal history.\n  see: protocol.md#§4.6\n",
+    "zh_text": "error: ACTUAL_SCOPE_HISTORY_INCOMPLETE — actual scope 历史不完整:seq value_transition_seqs 的 EXECUTE closure transition 缺少同批 scope:recorded marker\n  fix: 不要伪造空 actual_scope;保留 journal,使用支持 F-027 的 loaf 版本重新执行该 feature 的 EXECUTE work 后再审计 scope。pre-F-027 closure scope 无法从 journal 历史重建。\n  see: protocol.md#§4.6\n"
+  },
+  {
+    "code": "WRITE_PATH_VIOLATION",
+    "context": null,
+    "detail": {
+      "normalized_path": "value_normalized_path",
+      "sub_state": "value_sub_state"
+    },
+    "en_message": "write blocked: `value_normalized_path` is outside the allowed write paths for sub_state `value_sub_state`",
+    "zh_message": "写入被拦截:`value_normalized_path` 不在 sub_state `value_sub_state` 的允许写入路径内",
+    "en_text": "error: WRITE_PATH_VIOLATION — write blocked: `value_normalized_path` is outside the allowed write paths for sub_state `value_sub_state`\n  fix: write within the current step's contract, advance to the right sub_state/step first, or widen the matching `paths.*` category in .loaf/.config/loaf.config.json\n  see: protocol.md#§11.1\n",
+    "zh_text": "error: WRITE_PATH_VIOLATION — 写入被拦截:`value_normalized_path` 不在 sub_state `value_sub_state` 的允许写入路径内\n  fix: write within the current step's contract, advance to the right sub_state/step first, or widen the matching `paths.*` category in .loaf/.config/loaf.config.json\n  see: protocol.md#§11.1\n"
+  },
+  {
+    "code": "PROTECTED_FILE_WRITE",
+    "context": null,
+    "detail": {
+      "matched_deny": "value_matched_deny",
+      "normalized_path": "value_normalized_path"
+    },
+    "en_message": "write blocked: `value_normalized_path` matches protected_files entry `value_matched_deny` — protected files are never writable",
+    "zh_message": "写入被拦截:`value_normalized_path` 命中 protected_files 条目 `value_matched_deny` —— 受保护文件永不可写",
+    "en_text": "error: PROTECTED_FILE_WRITE — write blocked: `value_normalized_path` matches protected_files entry `value_matched_deny` — protected files are never writable\n  fix: remove the entry from protected_files in .loaf/.config/loaf.config.json if the protection is wrong, otherwise write a different file\n  see: protocol.md#§11.1\n",
+    "zh_text": "error: PROTECTED_FILE_WRITE — 写入被拦截:`value_normalized_path` 命中 protected_files 条目 `value_matched_deny` —— 受保护文件永不可写\n  fix: remove the entry from protected_files in .loaf/.config/loaf.config.json if the protection is wrong, otherwise write a different file\n  see: protocol.md#§11.1\n"
+  },
+  {
+    "code": "USAGE",
+    "context": "failure.sessions_list.selector_conflict",
+    "detail": {
+      "conflicting": "value_conflicting",
+      "context": "failure.sessions_list.selector_conflict"
+    },
+    "en_message": "sessions list does not accept value_conflicting — it lists across all sessions; use --in-cwd to filter",
+    "zh_message": "sessions list 不接受 value_conflicting —— 它会跨全部 session 列表;如需过滤当前 cwd,使用 --in-cwd",
+    "en_text": "error: USAGE — sessions list does not accept value_conflicting — it lists across all sessions; use --in-cwd to filter\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n",
+    "zh_text": "error: USAGE — sessions list 不接受 value_conflicting —— 它会跨全部 session 列表;如需过滤当前 cwd,使用 --in-cwd\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n"
+  },
+  {
+    "code": "USAGE",
+    "context": "failure.tui.selector_conflict",
+    "detail": {
+      "conflicting": "value_conflicting",
+      "context": "failure.tui.selector_conflict"
+    },
+    "en_message": "tui does not accept value_conflicting — it lists across all sessions; selectors are nonsensical for an interactive UI",
+    "zh_message": "tui 不接受 value_conflicting —— 它会跨全部 session 列表;selector 对交互 UI 没有意义",
+    "en_text": "error: USAGE — tui does not accept value_conflicting — it lists across all sessions; selectors are nonsensical for an interactive UI\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n",
+    "zh_text": "error: USAGE — tui 不接受 value_conflicting —— 它会跨全部 session 列表;selector 对交互 UI 没有意义\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n"
+  },
+  {
+    "code": "USAGE",
+    "context": "failure.tui.interactive_only",
+    "detail": {
+      "context": "failure.tui.interactive_only"
+    },
+    "en_message": "tui is interactive-only; use `loaf sessions list --format json` for scriptable session output",
+    "zh_message": "tui 仅支持交互模式;脚本化 session 输出请使用 `loaf sessions list --format json`",
+    "en_text": "error: USAGE — tui is interactive-only; use `loaf sessions list --format json` for scriptable session output\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n",
+    "zh_text": "error: USAGE — tui 仅支持交互模式;脚本化 session 输出请使用 `loaf sessions list --format json`\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n"
+  },
+  {
+    "code": "USAGE",
+    "context": "failure.hook.missing_event",
+    "detail": {
+      "events": "value_events",
+      "context": "failure.hook.missing_event"
+    },
+    "en_message": "loaf hook requires an event token; one of: value_events. Run `loaf hook --list-events` for the full enum",
+    "zh_message": "loaf hook 需要 event token;可选值:value_events. 运行 `loaf hook --list-events` 查看完整枚举",
+    "en_text": "error: USAGE — loaf hook requires an event token; one of: value_events. Run `loaf hook --list-events` for the full enum\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n",
+    "zh_text": "error: USAGE — loaf hook 需要 event token;可选值:value_events. 运行 `loaf hook --list-events` 查看完整枚举\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n"
+  },
+  {
+    "code": "USAGE",
+    "context": "failure.hook.unknown_event",
+    "detail": {
+      "allowed": "value_allowed",
+      "event": "value_event",
+      "suggestion": "value_suggestion",
+      "context": "failure.hook.unknown_event"
+    },
+    "en_message": "unknown hook event 'value_event'; expected one of: value_allowed. Did you mean 'value_suggestion'?",
+    "zh_message": "未知 hook event 'value_event';期望值:value_allowed. 你是不是想输入 'value_suggestion'?",
+    "en_text": "error: USAGE — unknown hook event 'value_event'; expected one of: value_allowed. Did you mean 'value_suggestion'?\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n",
+    "zh_text": "error: USAGE — 未知 hook event 'value_event';期望值:value_allowed. 你是不是想输入 'value_suggestion'?\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n"
+  },
+  {
+    "code": "SCHEMA_VALIDATION_FAILED",
+    "context": "failure.hook.stdin_parse_failed",
+    "detail": {
+      "reason": "value_reason",
+      "context": "failure.hook.stdin_parse_failed"
+    },
+    "en_message": "value_reason",
+    "zh_message": "hook stdin payload 解析失败:value_reason",
+    "en_text": "error: SCHEMA_VALIDATION_FAILED — value_reason\n  fix: pass --path <P> or a non-TTY hook payload containing tool_input.file_path, then retry the hook\n  see: protocol.md#§10.5\n",
+    "zh_text": "error: SCHEMA_VALIDATION_FAILED — hook stdin payload 解析失败:value_reason\n  fix: pass --path <P> or a non-TTY hook payload containing tool_input.file_path, then retry the hook\n  see: protocol.md#§10.5\n"
+  },
+  {
+    "code": "USAGE",
+    "context": "failure.hook.write_path_missing",
+    "detail": {
+      "context": "failure.hook.write_path_missing"
+    },
+    "en_message": "write-side hook requires --path <P> or a non-TTY stdin hook payload (tool_input.file_path)",
+    "zh_message": "write-side hook 需要 --path <P> 或非 TTY stdin hook payload(tool_input.file_path)",
+    "en_text": "error: USAGE — write-side hook requires --path <P> or a non-TTY stdin hook payload (tool_input.file_path)\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n",
+    "zh_text": "error: USAGE — write-side hook 需要 --path <P> 或非 TTY stdin hook payload(tool_input.file_path)\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n"
+  },
+  {
+    "code": "USAGE",
+    "context": "failure.check.selector_conflict",
+    "detail": {
+      "conflicting": "value_conflicting",
+      "context": "failure.check.selector_conflict"
+    },
+    "en_message": "check does not accept value_conflicting — it validates a file by path, independent of any feature session",
+    "zh_message": "check 不接受 value_conflicting —— 它按路径校验文件,独立于 feature session",
+    "en_text": "error: USAGE — check does not accept value_conflicting — it validates a file by path, independent of any feature session\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n",
+    "zh_text": "error: USAGE — check 不接受 value_conflicting —— 它按路径校验文件,独立于 feature session\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n"
+  },
+  {
+    "code": "USAGE",
+    "context": "failure.check.kind_required",
+    "detail": {
+      "kind": "value_kind",
+      "subject": "value_subject",
+      "suggestion": "value_suggestion",
+      "context": "failure.check.kind_required"
+    },
+    "en_message": "`value_subject` is not a file path. To validate a value_kind artifact, pass its path: `value_suggestion` (noun-first `loaf value_kind check` is reserved for a future release)",
+    "zh_message": "`value_subject` 不是文件路径. 如需校验 value_kind artifact,需要显式路径: `value_suggestion`(noun-first `loaf value_kind check` 预留给未来版本)",
+    "en_text": "error: USAGE — `value_subject` is not a file path. To validate a value_kind artifact, pass its path: `value_suggestion` (noun-first `loaf value_kind check` is reserved for a future release)\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n",
+    "zh_text": "error: USAGE — `value_subject` 不是文件路径. 如需校验 value_kind artifact,需要显式路径: `value_suggestion`(noun-first `loaf value_kind check` 预留给未来版本)\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n"
+  },
+  {
+    "code": "INPUT_FILE_NOT_FOUND",
+    "context": "failure.check.path_missing",
+    "detail": {
+      "path": "value_path",
+      "context": "failure.check.path_missing"
+    },
+    "en_message": "file not found: value_path",
+    "zh_message": "input file 不存在:value_path",
+    "en_text": "error: INPUT_FILE_NOT_FOUND — file not found: value_path\n  fix: verify the path, or pass '-' to read from stdin / inline JSON starting with a JSON object or array — see `loaf <cmd> --help` for examples\n  see: protocol.md#§10.7\n",
+    "zh_text": "error: INPUT_FILE_NOT_FOUND — input file 不存在:value_path\n  fix: verify the path, or pass '-' to read from stdin / inline JSON starting with a JSON object or array — see `loaf <cmd> --help` for examples\n  see: protocol.md#§10.7\n"
+  },
+  {
+    "code": "USAGE",
+    "context": "failure.check.kind_invalid",
+    "detail": {
+      "allowed_kinds_human": "value_allowed_kinds_human",
+      "value": "value_value",
+      "context": "failure.check.kind_invalid"
+    },
+    "en_message": "--kind 'value_value' is not recognized; expected one of value_allowed_kinds_human",
+    "zh_message": "--kind 必须是 value_allowed_kinds_human;当前为 'value_value'",
+    "en_text": "error: USAGE — --kind 'value_value' is not recognized; expected one of value_allowed_kinds_human\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n",
+    "zh_text": "error: USAGE — --kind 必须是 value_allowed_kinds_human;当前为 'value_value'\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n"
+  },
+  {
+    "code": "USAGE",
+    "context": "failure.schema.selector_conflict",
+    "detail": {
+      "conflicting": "value_conflicting",
+      "subject": "value_subject",
+      "context": "failure.schema.selector_conflict"
+    },
+    "en_message": "value_subject does not accept value_conflicting — schema dumps are feature-agnostic",
+    "zh_message": "value_subject 不接受 value_conflicting —— schema dump 与 feature 无关",
+    "en_text": "error: USAGE — value_subject does not accept value_conflicting — schema dumps are feature-agnostic\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n",
+    "zh_text": "error: USAGE — value_subject 不接受 value_conflicting —— schema dump 与 feature 无关\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n"
+  },
+  {
+    "code": "SCHEMA_VALIDATION_FAILED",
+    "context": "failure.schema.validation",
+    "detail": {
+      "error_count": "value_error_count",
+      "error_word": "value_error_word",
+      "kind": "value_kind",
+      "path": "value_path",
+      "context": "failure.schema.validation"
+    },
+    "en_message": "value_kind at value_path failed schema validation (value_error_count value_error_word)",
+    "zh_message": "value_kind at value_path 校验失败(value_error_count value_error_word)",
+    "en_text": "error: SCHEMA_VALIDATION_FAILED — value_kind at value_path failed schema validation (value_error_count value_error_word)\n  fix: fix the reported fields in value_path, then rerun `loaf check value_path --kind value_kind`\n  see: protocol.md#§10.5\n",
+    "zh_text": "error: SCHEMA_VALIDATION_FAILED — value_kind at value_path 校验失败(value_error_count value_error_word)\n  fix: fix the reported fields in value_path, then rerun `loaf check value_path --kind value_kind`\n  see: protocol.md#§10.5\n"
+  },
+  {
+    "code": "USAGE",
+    "context": "failure.dispatch.session_feature_dir_conflict",
+    "detail": {
+      "conflicting": "value_conflicting",
+      "context": "failure.dispatch.session_feature_dir_conflict"
+    },
+    "en_message": "value_conflicting cannot be combined with --feature-dir (session identity comes from registry; manual featureDir is contradictory)",
+    "zh_message": "value_conflicting 不能与 --feature-dir 一起使用(session identity 来自 registry;手动 featureDir 会矛盾)",
+    "en_text": "error: USAGE — value_conflicting cannot be combined with --feature-dir (session identity comes from registry; manual featureDir is contradictory)\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n",
+    "zh_text": "error: USAGE — value_conflicting 不能与 --feature-dir 一起使用(session identity 来自 registry;手动 featureDir 会矛盾)\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n"
+  },
+  {
+    "code": "USAGE",
+    "context": "failure.dispatch.feature_dir_requires_feature",
+    "detail": {
+      "context": "failure.dispatch.feature_dir_requires_feature"
+    },
+    "en_message": "--feature-dir requires --feature <name> or $LOAF_FEATURE to name the feature",
+    "zh_message": "--feature-dir 需要 --feature <name> 或 $LOAF_FEATURE 来命名 feature",
+    "en_text": "error: USAGE — --feature-dir requires --feature <name> or $LOAF_FEATURE to name the feature\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n",
+    "zh_text": "error: USAGE — --feature-dir 需要 --feature <name> 或 $LOAF_FEATURE 来命名 feature\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n"
+  },
+  {
+    "code": "USAGE",
+    "context": "failure.start.label_too_short",
+    "detail": {
+      "min_length": "value_min_length",
+      "context": "failure.start.label_too_short"
+    },
+    "en_message": "--label must be at least value_min_length characters",
+    "zh_message": "--label 至少需要 value_min_length 个字符",
+    "en_text": "error: USAGE — --label must be at least value_min_length characters\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n",
+    "zh_text": "error: USAGE — --label 至少需要 value_min_length 个字符\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n"
+  },
+  {
+    "code": "USAGE",
+    "context": "failure.start.workspace_empty",
+    "detail": {
+      "context": "failure.start.workspace_empty"
+    },
+    "en_message": "--workspace must not be empty",
+    "zh_message": "--workspace 不能为空",
+    "en_text": "error: USAGE — --workspace must not be empty\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n",
+    "zh_text": "error: USAGE — --workspace 不能为空\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n"
+  },
+  {
+    "code": "USAGE",
+    "context": "failure.handoff.reason_too_short",
+    "detail": {
+      "min_length": "value_min_length",
+      "reason_length": "value_reason_length",
+      "context": "failure.handoff.reason_too_short"
+    },
+    "en_message": "--reason must be ≥value_min_length chars (got value_reason_length)",
+    "zh_message": "--reason 必须 ≥value_min_length 字符(当前 value_reason_length)",
+    "en_text": "error: USAGE — --reason must be ≥value_min_length chars (got value_reason_length)\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n",
+    "zh_text": "error: USAGE — --reason 必须 ≥value_min_length 字符(当前 value_reason_length)\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n"
+  },
+  {
+    "code": "SCHEMA_VALIDATION_FAILED",
+    "context": "failure.handoff.pack_validation_failed",
+    "detail": {
+      "context": "failure.handoff.pack_validation_failed"
+    },
+    "en_message": "ResumePack failed runtime validation (builder bug or schema drift)",
+    "zh_message": "ResumePack 运行时校验失败(builder bug 或 schema drift)",
+    "en_text": "error: SCHEMA_VALIDATION_FAILED — ResumePack failed runtime validation (builder bug or schema drift)\n  fix: preserve the session journal and report the failed ResumePack runtime validation; retry with a corrected loaf version\n  see: protocol.md#§10.5\n",
+    "zh_text": "error: SCHEMA_VALIDATION_FAILED — ResumePack 运行时校验失败(builder bug 或 schema drift)\n  fix: preserve the session journal and report the failed ResumePack runtime validation; retry with a corrected loaf version\n  see: protocol.md#§10.5\n"
+  },
+  {
+    "code": "INPUT_FILE_NOT_FOUND",
+    "context": "failure.profile.input_file_missing",
+    "detail": {
+      "path": "value_path",
+      "context": "failure.profile.input_file_missing"
+    },
+    "en_message": "input file does not exist: value_path",
+    "zh_message": "input file 不存在:value_path",
+    "en_text": "error: INPUT_FILE_NOT_FOUND — input file does not exist: value_path\n  fix: verify the path, or pass '-' to read from stdin / inline JSON starting with a JSON object or array — see `loaf <cmd> --help` for examples\n  see: protocol.md#§10.7\n",
+    "zh_text": "error: INPUT_FILE_NOT_FOUND — input file 不存在:value_path\n  fix: verify the path, or pass '-' to read from stdin / inline JSON starting with a JSON object or array — see `loaf <cmd> --help` for examples\n  see: protocol.md#§10.7\n"
+  },
+  {
+    "code": "INPUT_FILE_NOT_FOUND",
+    "context": "failure.profile.input_file_unreadable",
+    "detail": {
+      "error": "value_error",
+      "path": "value_path",
+      "context": "failure.profile.input_file_unreadable"
+    },
+    "en_message": "cannot read input file value_path: value_error",
+    "zh_message": "无法读取 input file value_path:value_error",
+    "en_text": "error: INPUT_FILE_NOT_FOUND — cannot read input file value_path: value_error\n  fix: verify the path, or pass '-' to read from stdin / inline JSON starting with a JSON object or array — see `loaf <cmd> --help` for examples\n  see: protocol.md#§10.7\n",
+    "zh_text": "error: INPUT_FILE_NOT_FOUND — 无法读取 input file value_path:value_error\n  fix: verify the path, or pass '-' to read from stdin / inline JSON starting with a JSON object or array — see `loaf <cmd> --help` for examples\n  see: protocol.md#§10.7\n"
+  },
+  {
+    "code": "SCHEMA_VALIDATION_FAILED",
+    "context": "failure.tasks_add.empty_array",
+    "detail": {
+      "context": "failure.tasks_add.empty_array"
+    },
+    "en_message": "tasks add input is an empty array",
+    "zh_message": "tasks add 输入不能为空数组",
+    "en_text": "error: SCHEMA_VALIDATION_FAILED — tasks add input is an empty array\n  fix: provide at least one task object; run `loaf tasks add --schema --format=json` to inspect the authoring input\n  see: protocol.md#§10.5\n",
+    "zh_text": "error: SCHEMA_VALIDATION_FAILED — tasks add 输入不能为空数组\n  fix: provide at least one task object; run `loaf tasks add --schema --format=json` to inspect the authoring input\n  see: protocol.md#§10.5\n"
+  },
+  {
+    "code": "USAGE",
+    "context": "failure.lessons.text_too_short",
+    "detail": {
+      "lesson_text_length": "value_lesson_text_length",
+      "min_length": "value_min_length",
+      "context": "failure.lessons.text_too_short"
+    },
+    "en_message": "lesson text must be ≥value_min_length chars (got value_lesson_text_length)",
+    "zh_message": "lesson text 必须 ≥value_min_length 字符(当前 value_lesson_text_length)",
+    "en_text": "error: USAGE — lesson text must be ≥value_min_length chars (got value_lesson_text_length)\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n",
+    "zh_text": "error: USAGE — lesson text 必须 ≥value_min_length 字符(当前 value_lesson_text_length)\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n"
+  },
+  {
+    "code": "USAGE",
+    "context": "failure.lessons.reason_too_short",
+    "detail": {
+      "min_length": "value_min_length",
+      "reason_length": "value_reason_length",
+      "context": "failure.lessons.reason_too_short"
+    },
+    "en_message": "--reason must be ≥value_min_length chars (got value_reason_length)",
+    "zh_message": "--reason 必须 ≥value_min_length 字符(当前 value_reason_length)",
+    "en_text": "error: USAGE — --reason must be ≥value_min_length chars (got value_reason_length)\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n",
+    "zh_text": "error: USAGE — --reason 必须 ≥value_min_length 字符(当前 value_reason_length)\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n"
+  },
+  {
+    "code": "USAGE",
+    "context": "failure.lessons.text_file_mutex",
+    "detail": {
+      "provided_state": "value_provided_state",
+      "context": "failure.lessons.text_file_mutex"
+    },
+    "en_message": "exactly one of --text or --file required (value_provided_state)",
+    "zh_message": "--text 和 --file 必须二选一(value_provided_state)",
+    "en_text": "error: USAGE — exactly one of --text or --file required (value_provided_state)\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n",
+    "zh_text": "error: USAGE — --text 和 --file 必须二选一(value_provided_state)\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n"
+  },
+  {
+    "code": "INPUT_FILE_NOT_FOUND",
+    "context": "failure.lessons.file_missing",
+    "detail": {
+      "path": "value_path",
+      "context": "failure.lessons.file_missing"
+    },
+    "en_message": "lesson file not found: value_path",
+    "zh_message": "lesson file 不存在:value_path",
+    "en_text": "error: INPUT_FILE_NOT_FOUND — lesson file not found: value_path\n  fix: verify the path, or pass '-' to read from stdin / inline JSON starting with a JSON object or array — see `loaf <cmd> --help` for examples\n  see: protocol.md#§10.7\n",
+    "zh_text": "error: INPUT_FILE_NOT_FOUND — lesson file 不存在:value_path\n  fix: verify the path, or pass '-' to read from stdin / inline JSON starting with a JSON object or array — see `loaf <cmd> --help` for examples\n  see: protocol.md#§10.7\n"
+  },
+  {
+    "code": "USAGE",
+    "context": "failure.finding.status_invalid",
+    "detail": {
+      "allowed_statuses_human": "value_allowed_statuses_human",
+      "value": "value_value",
+      "context": "failure.finding.status_invalid"
+    },
+    "en_message": "--status must be one of: value_allowed_statuses_human (got value_value)",
+    "zh_message": "--status 必须是:value_allowed_statuses_human(当前 value_value)",
+    "en_text": "error: USAGE — --status must be one of: value_allowed_statuses_human (got value_value)\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n",
+    "zh_text": "error: USAGE — --status 必须是:value_allowed_statuses_human(当前 value_value)\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n"
+  },
+  {
+    "code": "USAGE",
+    "context": "failure.journal.integer_invalid",
+    "detail": {
+      "flag": "value_flag",
+      "minimum": "value_minimum",
+      "value": "value_value",
+      "context": "failure.journal.integer_invalid"
+    },
+    "en_message": "value_flag must be an integer >= value_minimum (got value_value)",
+    "zh_message": "value_flag 必须是 >= value_minimum 的整数(当前 value_value)",
+    "en_text": "error: USAGE — value_flag must be an integer >= value_minimum (got value_value)\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n",
+    "zh_text": "error: USAGE — value_flag 必须是 >= value_minimum 的整数(当前 value_value)\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n"
+  },
+  {
+    "code": "USAGE",
+    "context": "failure.journal.kind_invalid",
+    "detail": {
+      "value": "value_value",
+      "context": "failure.journal.kind_invalid"
+    },
+    "en_message": "--kind must be a registered journal kind (got value_value)",
+    "zh_message": "--kind 必须是已注册的 journal kind(当前 value_value)",
+    "en_text": "error: USAGE — --kind must be a registered journal kind (got value_value)\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n",
+    "zh_text": "error: USAGE — --kind 必须是已注册的 journal kind(当前 value_value)\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n"
+  },
+  {
+    "code": "USAGE",
+    "context": "failure.journal.actor_invalid",
+    "detail": {
+      "context": "failure.journal.actor_invalid"
+    },
+    "en_message": "--actor must be a non-empty actor prefix or full actor string",
+    "zh_message": "--actor 必须是非空 actor 前缀或完整 actor 字符串",
+    "en_text": "error: USAGE — --actor must be a non-empty actor prefix or full actor string\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n",
+    "zh_text": "error: USAGE — --actor 必须是非空 actor 前缀或完整 actor 字符串\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n"
+  },
+  {
+    "code": "USAGE",
+    "context": "failure.evidence.covers_invalid",
+    "detail": {
+      "value": "value_value",
+      "context": "failure.evidence.covers_invalid"
+    },
+    "en_message": "--covers must be a valid coverage id (got value_value)",
+    "zh_message": "--covers 必须是有效的 coverage id(当前 value_value)",
+    "en_text": "error: USAGE — --covers must be a valid coverage id (got value_value)\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n",
+    "zh_text": "error: USAGE — --covers 必须是有效的 coverage id(当前 value_value)\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n"
+  },
+  {
+    "code": "USAGE",
+    "context": "failure.evidence.task_invalid",
+    "detail": {
+      "value": "value_value",
+      "context": "failure.evidence.task_invalid"
+    },
+    "en_message": "--task must be a valid task id (got value_value)",
+    "zh_message": "--task 必须是有效的 task id(当前 value_value)",
+    "en_text": "error: USAGE — --task must be a valid task id (got value_value)\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n",
+    "zh_text": "error: USAGE — --task 必须是有效的 task id(当前 value_value)\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n"
+  },
+  {
+    "code": "USAGE",
+    "context": "failure.evidence.kind_invalid",
+    "detail": {
+      "allowed_kinds_human": "value_allowed_kinds_human",
+      "context": "failure.evidence.kind_invalid"
+    },
+    "en_message": "--kind must be one of: value_allowed_kinds_human",
+    "zh_message": "--kind 必须是:value_allowed_kinds_human",
+    "en_text": "error: USAGE — --kind must be one of: value_allowed_kinds_human\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n",
+    "zh_text": "error: USAGE — --kind 必须是:value_allowed_kinds_human\n  fix: Run the command with --help and retry with the required flags/arguments.\n  see: protocol.md#§10.5\n"
+  },
+  {
+    "code": "SCHEMA_VALIDATION_FAILED",
+    "context": "failure.write_guard.config_invalid",
+    "detail": {
+      "reason": "value_reason",
+      "context": "failure.write_guard.config_invalid"
+    },
+    "en_message": "write-guard blocked: value_reason",
+    "zh_message": "write-guard 被拦截:value_reason",
+    "en_text": "error: SCHEMA_VALIDATION_FAILED — write-guard blocked: value_reason\n  fix: repair .loaf/.config/loaf.config.json, then retry the write-side hook\n  see: protocol.md#§10.5\n",
+    "zh_text": "error: SCHEMA_VALIDATION_FAILED — write-guard 被拦截:value_reason\n  fix: repair .loaf/.config/loaf.config.json, then retry the write-side hook\n  see: protocol.md#§10.5\n"
+  },
+  {
+    "code": "NO_SESSION",
+    "context": "failure.no_session.status",
+    "detail": {
+      "feature": "value_feature",
+      "context": "failure.no_session.status"
+    },
+    "en_message": "run `loaf start value_feature` first",
+    "zh_message": "先跑 `loaf start value_feature`",
+    "en_text": "error: NO_SESSION — run `loaf start value_feature` first\n  fix: run `loaf start` before emitting non-bootstrap journal entries\n  see: protocol.md#§10.8\n",
+    "zh_text": "error: NO_SESSION — 先跑 `loaf start value_feature`\n  fix: run `loaf start` before emitting non-bootstrap journal entries\n  see: protocol.md#§10.8\n"
+  },
+  {
+    "code": "NO_SESSION",
+    "context": "failure.no_session.advance",
+    "detail": {
+      "feature": "value_feature",
+      "context": "failure.no_session.advance"
+    },
+    "en_message": "run `loaf start value_feature` first",
+    "zh_message": "先跑 `loaf start value_feature`",
+    "en_text": "error: NO_SESSION — run `loaf start value_feature` first\n  fix: run `loaf start` before emitting non-bootstrap journal entries\n  see: protocol.md#§10.8\n",
+    "zh_text": "error: NO_SESSION — 先跑 `loaf start value_feature`\n  fix: run `loaf start` before emitting non-bootstrap journal entries\n  see: protocol.md#§10.8\n"
+  },
+  {
+    "code": "NO_SESSION",
+    "context": "failure.no_session.tasks",
+    "detail": {
+      "feature": "value_feature",
+      "context": "failure.no_session.tasks"
+    },
+    "en_message": "run `loaf start value_feature` first",
+    "zh_message": "先跑 `loaf start value_feature`",
+    "en_text": "error: NO_SESSION — run `loaf start value_feature` first\n  fix: run `loaf start` before emitting non-bootstrap journal entries\n  see: protocol.md#§10.8\n",
+    "zh_text": "error: NO_SESSION — 先跑 `loaf start value_feature`\n  fix: run `loaf start` before emitting non-bootstrap journal entries\n  see: protocol.md#§10.8\n"
+  },
+  {
+    "code": "NO_SESSION",
+    "context": "failure.no_session.pending",
+    "detail": {
+      "feature": "value_feature",
+      "context": "failure.no_session.pending"
+    },
+    "en_message": "run `loaf start value_feature` first",
+    "zh_message": "先跑 `loaf start value_feature`",
+    "en_text": "error: NO_SESSION — run `loaf start value_feature` first\n  fix: run `loaf start` before emitting non-bootstrap journal entries\n  see: protocol.md#§10.8\n",
+    "zh_text": "error: NO_SESSION — 先跑 `loaf start value_feature`\n  fix: run `loaf start` before emitting non-bootstrap journal entries\n  see: protocol.md#§10.8\n"
+  },
+  {
+    "code": "NO_SESSION",
+    "context": "failure.no_session.finding",
+    "detail": {
+      "feature": "value_feature",
+      "context": "failure.no_session.finding"
+    },
+    "en_message": "run `loaf start value_feature` first",
+    "zh_message": "先跑 `loaf start value_feature`",
+    "en_text": "error: NO_SESSION — run `loaf start value_feature` first\n  fix: run `loaf start` before emitting non-bootstrap journal entries\n  see: protocol.md#§10.8\n",
+    "zh_text": "error: NO_SESSION — 先跑 `loaf start value_feature`\n  fix: run `loaf start` before emitting non-bootstrap journal entries\n  see: protocol.md#§10.8\n"
+  },
+  {
+    "code": "NO_SESSION",
+    "context": "failure.no_session.verify",
+    "detail": {
+      "feature": "value_feature",
+      "context": "failure.no_session.verify"
+    },
+    "en_message": "run `loaf start value_feature` first",
+    "zh_message": "先跑 `loaf start value_feature`",
+    "en_text": "error: NO_SESSION — run `loaf start value_feature` first\n  fix: run `loaf start` before emitting non-bootstrap journal entries\n  see: protocol.md#§10.8\n",
+    "zh_text": "error: NO_SESSION — 先跑 `loaf start value_feature`\n  fix: run `loaf start` before emitting non-bootstrap journal entries\n  see: protocol.md#§10.8\n"
+  },
+  {
+    "code": "NO_SESSION",
+    "context": "failure.no_session.generic",
+    "detail": {
+      "feature": "value_feature",
+      "context": "failure.no_session.generic"
+    },
+    "en_message": "run `loaf start value_feature` first",
+    "zh_message": "先跑 `loaf start value_feature`",
+    "en_text": "error: NO_SESSION — run `loaf start value_feature` first\n  fix: run `loaf start` before emitting non-bootstrap journal entries\n  see: protocol.md#§10.8\n",
+    "zh_text": "error: NO_SESSION — 先跑 `loaf start value_feature`\n  fix: run `loaf start` before emitting non-bootstrap journal entries\n  see: protocol.md#§10.8\n"
+  }
+]

@@ -16,6 +16,8 @@ import { describe, expect, test } from "vitest";
 
 import {
   ERROR_CATALOG,
+  DIAGNOSTIC_VARIANTS,
+  diagnosticVariant,
   type UncoveredTemplatePlaceholders,
   diagnostic,
 } from "../../src/core/error-catalog.js";
@@ -47,10 +49,17 @@ if (false) {
   diagnostic("FEATURE_NOT_FOUND", {});
   // @ts-expect-error ALREADY_STARTED requires detail.kind.
   diagnostic("ALREADY_STARTED", {});
-  // @ts-expect-error literal detail objects cannot invent non-contract keys.
+  // Required keys are a minimum; additional machine context remains intact.
   diagnostic("PENDING_NOT_FOUND", { reason: "missing", id: "PEND-404" });
-  // @ts-expect-error an empty detail contract rejects invented keys too.
   diagnostic("FEATURE_NOT_FOUND", { cwd: "/tmp" });
+  // @ts-expect-error TRANSITION_ILLEGAL requires from and to.
+  diagnostic("TRANSITION_ILLEGAL", { from: "TRIAGE.score" });
+  // @ts-expect-error diagnostic codes are a closed catalog enumeration.
+  diagnostic("UNKNOWN_FUTURE_CODE", {});
+  // @ts-expect-error an existing variant requires its declared path field.
+  diagnosticVariant("failure.profile.input_file_missing", {});
+  // @ts-expect-error variant identifiers cannot create a new taxonomy.
+  diagnosticVariant("failure.future.context", {});
 }
 
 const PLACEHOLDER = /\{([A-Za-z0-9_]+)\}/g;
@@ -163,7 +172,6 @@ describe("ERROR_CATALOG template/detail contracts", () => {
 
   test("every template placeholder is satisfiable by identity or adapter", () => {
     for (const [code, entry] of Object.entries(ERROR_CATALOG)) {
-      if (!("detail_keys" in entry)) continue;
       const detailKeys = new Set<string>(entry.detail_keys);
       const adapter = ("adapter" in entry ? entry.adapter : undefined) as
         | Readonly<Record<string, string>>
@@ -184,6 +192,25 @@ describe("ERROR_CATALOG template/detail contracts", () => {
           detailKeys.has(detailKey),
           `${code}: template key ${templateKey} needs detail key ${detailKey}`,
         ).toBe(true);
+      }
+    }
+  });
+
+  test("all 41 variants belong to the existing site taxonomy and have complete detail contracts", () => {
+    expect(Object.keys(DIAGNOSTIC_VARIANTS)).toHaveLength(41);
+    for (const [context, variant] of Object.entries(DIAGNOSTIC_VARIANTS)) {
+      expect(context).toMatch(/^failure\./);
+      const entry = variant.template;
+      for (const template of [
+        entry.message_template,
+        entry.zh_message_template,
+        entry.fix_template,
+      ]) {
+        if (template === undefined) continue;
+        for (const match of template.matchAll(PLACEHOLDER)) {
+          expect(entry.template_keys, context).toContain(match[1]);
+          expect(entry.detail_keys, context).toContain(match[1]);
+        }
       }
     }
   });
