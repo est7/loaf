@@ -147,7 +147,6 @@ describe("replayJournal — Stage 3 §3.6", () => {
                 execute: {
                   applicability: "must",
                   status: "passed",
-                  evidence_refs: ["EV-000001"],
                 },
               },
             },

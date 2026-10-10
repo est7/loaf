@@ -307,31 +307,31 @@ const TaskExecutionStepPayload = z.object({
 	status: StepStatusPayload,
 	reason: z.string().optional(),
 	started_at: z.string().datetime().optional()
-});
+}).strict();
 const BehavioralExecutionPayload = z.object({
 	red: TaskExecutionStepPayload,
 	implement: TaskExecutionStepPayload,
 	refactor: TaskExecutionStepPayload
-});
+}).strict();
 const StructuralExecutionPayload = z.object({
 	implement: TaskExecutionStepPayload,
 	refactor: TaskExecutionStepPayload
-});
+}).strict();
 const VisualUiExecutionPayload = z.object({
 	mockup: TaskExecutionStepPayload,
 	implement: TaskExecutionStepPayload,
 	"screenshot-compare": TaskExecutionStepPayload
-});
+}).strict();
 const DocsExecutionPayload = z.object({
 	draft: TaskExecutionStepPayload,
 	review: TaskExecutionStepPayload
-});
+}).strict();
 const SpikeExecutionPayload = z.object({
 	explore: TaskExecutionStepPayload,
 	prototype: TaskExecutionStepPayload,
 	record: TaskExecutionStepPayload
-});
-const ChoreExecutionPayload = z.object({ execute: TaskExecutionStepPayload });
+}).strict();
+const ChoreExecutionPayload = z.object({ execute: TaskExecutionStepPayload }).strict();
 const BehavioralStep = BehavioralExecutionPayload.keyof();
 const StructuralStep = StructuralExecutionPayload.keyof();
 const VisualUiStep = VisualUiExecutionPayload.keyof();
@@ -1183,7 +1183,7 @@ const TasksPlannedPayload = z.object({
 	tasks: z.array(TaskFullPayload)
 }).passthrough();
 const TasksAmendedPayload = z.object({
-	mode: z.enum(["add", "replace"]).default("replace"),
+	mode: z.enum(["add", "replace"]),
 	task: TaskFullPayload,
 	reason: z.string().min(10).optional(),
 	sponsored_by_finding_id: FindingId.optional()
@@ -2975,7 +2975,7 @@ function applyValidated(prev, entry) {
 		}
 		case "event:tasks_amended": {
 			const payload = entry.payload;
-			const mode = payload.mode ?? "replace";
+			const mode = payload.mode;
 			const idx = prev.tasks.findIndex((t) => t.id === payload.task.id);
 			if (mode === "add") {
 				if (idx !== -1) return {
@@ -4702,7 +4702,7 @@ function checkTasksAmended(c) {
 	const { entry, payloadData, sub_state, ctx } = c;
 	if (entry.kind === "event:tasks_amended") {
 		const amended = payloadData;
-		const mode = amended.mode ?? "replace";
+		const mode = amended.mode;
 		const taskId = amended.task.id;
 		const sponsorId = amended.sponsored_by_finding_id;
 		if (sponsorId !== void 0) {

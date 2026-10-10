@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Task amendments require an explicit `add` or `replace` mode. Task execution
+  objects and step fields are now strict: undeclared step names, retired
+  step `evidence_refs`, and unknown fields are rejected before mutation or replay
+  projection application. Default task arrays and current execution progress remain supported.
+
 - Current session starts require `ceremony_label`, `workspace`, and
   `loaf_version_required`; state projections always carry a version requirement.
   Unlabeled starts remain supported. Registry readers now require

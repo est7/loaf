@@ -42,7 +42,7 @@ function step(
   applicability: "must" | "optional" | "na",
   status: "pending" | "running" | "passed" | "failed" | "waived" | "na" = "pending",
 ): Record<string, unknown> {
-  return { applicability, status, evidence_refs: [] };
+  return { applicability, status };
 }
 
 function behavioralTask(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -141,9 +141,7 @@ function seedAtExecutePlan(): Snapshot {
   ];
   let seq = 1;
   for (const [from, to] of toDesign) {
-    snap = mustOk(
-      admitEntry(snap, entry(seq, "event:phase_advanced", { from, to })),
-    );
+    snap = mustOk(admitEntry(snap, entry(seq, "event:phase_advanced", { from, to })));
     seq++;
   }
   snap = mustOk(
@@ -171,9 +169,7 @@ function seedAtExecuteWork(
   opts: { claim?: string[] } = {},
 ): Snapshot {
   let snap = seedAtExecutePlan();
-  snap = mustOk(
-    admitEntry(snap, entry(7, "event:tasks_planned", tasksPayload)),
-  );
+  snap = mustOk(admitEntry(snap, entry(7, "event:tasks_planned", tasksPayload)));
   snap = mustOk(
     admitEntry(
       snap,
@@ -187,9 +183,7 @@ function seedAtExecuteWork(
   const claimIds = opts.claim ?? planned.map((t) => t.id);
   let seq = 9;
   for (const taskId of claimIds) {
-    snap = mustOk(
-      admitEntry(snap, entry(seq, "event:task_claimed", { task_id: taskId })),
-    );
+    snap = mustOk(admitEntry(snap, entry(seq, "event:task_claimed", { task_id: taskId })));
     seq++;
   }
   return snap;
@@ -285,10 +279,7 @@ describe("event:tasks_planned — Slice 1.B sub-cycle 3a", () => {
 
   test("rejects payload missing based_on.spec", () => {
     const snap = seedAtExecutePlan();
-    const result = admitEntry(
-      snap,
-      entry(7, "event:tasks_planned", { tasks: [behavioralTask()] }),
-    );
+    const result = admitEntry(snap, entry(7, "event:tasks_planned", { tasks: [behavioralTask()] }));
     expect(result.ok).toBe(false);
   });
 
@@ -328,6 +319,7 @@ describe("event:tasks_amended — Slice 1.B sub-cycle 3a (F-010)", () => {
       admitEntry(
         snap,
         entry(8, "event:tasks_amended", {
+          mode: "replace",
           task: behavioralTask({
             id: "T-001",
             status: "ready",
@@ -361,7 +353,7 @@ describe("event:tasks_amended — Slice 1.B sub-cycle 3a (F-010)", () => {
 
     const result = admitEntry(
       snap,
-      entry(8, "event:tasks_amended", { task: behavioralTask({ id: "T-999" }) }),
+      entry(8, "event:tasks_amended", { mode: "replace", task: behavioralTask({ id: "T-999" }) }),
     );
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -441,21 +433,14 @@ describe("event:tasks_amended mode discriminator — Slice C SC-C2b", () => {
     if (!result.ok) expect(result.code).toBe("TASK_NOT_FOUND");
   });
 
-  test("absent mode defaults to replace (pre-mode entries replay unchanged)", () => {
-    const snap = seedWithT001();
-    // No `mode` key — the historical shape; reducer + preflight must treat
-    // it as replace. A no-field-change replace is §8.6-clean.
-    const replace = admitEntry(
-      snap,
-      entry(8, "event:tasks_amended", { task: behavioralTask({ id: "T-001" }) }),
-    );
-    expect(replace.ok).toBe(true);
-    const missing = admitEntry(
-      snap,
-      entry(8, "event:tasks_amended", { task: behavioralTask({ id: "T-777" }) }),
-    );
-    expect(missing.ok).toBe(false);
-    if (!missing.ok) expect(missing.code).toBe("TASK_NOT_FOUND");
+  test("absent mode is rejected before replacing any task", () => {
+    for (const id of ["T-001", "T-777"]) {
+      const result = admitEntry(
+        seedWithT001(),
+        entry(8, "event:tasks_amended", { task: behavioralTask({ id }) }),
+      );
+      expect(result).toMatchObject({ ok: false, stage: "admission", code: "INVALID_PAYLOAD" });
+    }
   });
 });
 

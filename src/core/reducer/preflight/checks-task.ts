@@ -80,11 +80,11 @@ export function checkTasksAmended(c: PreflightCheckCtx): PreflightFailure | null
   const { entry, payloadData, sub_state, ctx } = c;
   if (entry.kind === "event:tasks_amended") {
     const amended = payloadData as {
-      mode?: "add" | "replace";
+      mode: "add" | "replace";
       task: TaskFullProjection;
       sponsored_by_finding_id?: string;
     };
-    const mode = amended.mode ?? "replace";
+    const mode = amended.mode;
     const taskId = amended.task.id;
     const sponsorId = amended.sponsored_by_finding_id;
 

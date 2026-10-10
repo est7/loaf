@@ -156,6 +156,13 @@ classified during step 2; the table above is located evidence, not exhaustive.
   replay rehydrates from sidecars. Same entry, different snapshot. Revisit only
   when a live migration writer exists.
 
+**Packet F8 B supersession (2026-10-10):** Historical extra execution step
+preservation in the typed-payload probe above is retired. All six execution
+objects and TaskExecutionStepPayload now reject undeclared keys at admission;
+step evidence_refs is rejected rather than stripped. Task defaults and raw
+payload representation remain unchanged, and typed admitted entries stay
+outside this packet. The original probe records the earlier decision.
+
 ## 7. Steps
 
 ### Step 1 — single entry point, unchanged reducer

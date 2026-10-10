@@ -76,9 +76,9 @@ function behavioralTask(overrides: Record<string, unknown> = {}): Record<string,
     depends_on: [],
     labels: [],
     execution: {
-      red: { applicability: "must", status: "pending", evidence_refs: [] },
-      implement: { applicability: "must", status: "pending", evidence_refs: [] },
-      refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+      red: { applicability: "must", status: "pending" },
+      implement: { applicability: "must", status: "pending" },
+      refactor: { applicability: "optional", status: "pending" },
     },
     ...overrides,
   };
@@ -128,7 +128,10 @@ describe("composeTasksJson — Phase 14 SC1", () => {
         based_on: { spec: 1 },
         tasks: [behavioralTask()],
       }),
-      entry(1, "event:tasks_amended", { task: behavioralTask({ tests: ["new.test"] }) }),
+      entry(1, "event:tasks_amended", {
+        mode: "replace",
+        task: behavioralTask({ tests: ["new.test"] }),
+      }),
       entry(2, "event:tasks_planned", {
         based_on: { spec: 2 },
         tasks: [behavioralTask()],
@@ -174,20 +177,20 @@ describe("composeTasksJson — Phase 14 SC1", () => {
     expect((task as { tests: string[] }).tests).toEqual(["TokenCoord.refreshOnce"]);
   });
 
-  test("strips legacy task-step evidence_refs from the live projection", () => {
+  test("rejects retired task-step evidence_refs instead of normalizing the projection", () => {
     const snap = initialSnapshot();
     snap.tasks_based_on = { spec: 1 };
     snap.tasks = [slimTask()];
     const legacyTask = behavioralTask() as Record<string, any>;
     legacyTask.execution.red.evidence_refs = ["EV-000001"];
-    const projected = composeTasksJson(snap, [
-      entry(0, "event:tasks_planned", {
-        based_on: { spec: 1 },
-        tasks: [legacyTask],
-      }),
-    ]);
-    const execution = projected!.tasks[0]!.execution as Record<string, unknown>;
-    expect(execution.red).not.toHaveProperty("evidence_refs");
+    expect(() =>
+      composeTasksJson(snap, [
+        entry(0, "event:tasks_planned", {
+          based_on: { spec: 1 },
+          tasks: [legacyTask],
+        }),
+      ]),
+    ).toThrow();
   });
 });
 
@@ -645,7 +648,9 @@ describe("composeStateProjection — Phase 15 SC1", () => {
   test("current state projection rejects a null version requirement", () => {
     const current = composeStateProjection(stateSnapshot(), [startedWidened()]);
     expect(current).not.toBeNull();
-    expect(StateProjection.safeParse({ ...current, loaf_version_required: null }).success).toBe(false);
+    expect(StateProjection.safeParse({ ...current, loaf_version_required: null }).success).toBe(
+      false,
+    );
   });
 
   test("widened session:started — bucket-C fields project verbatim", () => {
@@ -692,7 +697,10 @@ describe("composeStateProjection — Phase 15 SC1", () => {
     const entries = [
       startedWidened(),
       entry(1, "event:tasks_planned", { based_on: { spec: 2 }, tasks: [behavioralTask()] }),
-      entry(2, "event:tasks_amended", { task: behavioralTask({ tests: ["x.test"] }) }),
+      entry(2, "event:tasks_amended", {
+        mode: "replace",
+        task: behavioralTask({ tests: ["x.test"] }),
+      }),
     ];
     const snap = stateSnapshot({}, { tasks_based_on: { spec: 2 } });
     const state = composeStateProjection(snap, entries);

@@ -53,7 +53,7 @@ function mkSnapshot(sub_state: SubState, ceremony: Ceremony): Snapshot {
 }
 
 function stubExecutionStep(): Record<string, unknown> {
-  return { applicability: "must", status: "pending", evidence_refs: [] };
+  return { applicability: "must", status: "pending", };
 }
 
 function stubBehavioralTask(id: string): Record<string, unknown> {
@@ -97,7 +97,7 @@ function payloadFor(kind: string): Record<string, unknown> {
         tasks: [stubBehavioralTask("T-001")],
       };
     case "event:tasks_amended":
-      return { task: stubBehavioralTask("T-001") };
+      return { mode: "replace", task: stubBehavioralTask("T-001") };
     case "event:task_claimed":
       return { task_id: "T-001" };
     case "event:task_abandoned":

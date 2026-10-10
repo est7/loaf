@@ -852,7 +852,6 @@ function behavioralFull(overrides: Record<string, unknown> = {}): Record<string,
   const execStep = (applicability: string, status = "pending"): Record<string, unknown> => ({
     applicability,
     status,
-    evidence_refs: [],
   });
   return {
     id: "T-001",
@@ -905,10 +904,10 @@ describe("preflight — event:tasks_amended §8.6 mutation rights (Slice C SC-C2
   test("applicability-only change at EXECUTE.plan → OK", () => {
     const incoming = behavioralFull({
       execution: {
-        red: { applicability: "must", status: "pending", evidence_refs: [] },
-        implement: { applicability: "must", status: "pending", evidence_refs: [] },
+        red: { applicability: "must", status: "pending", },
+        implement: { applicability: "must", status: "pending", },
         // refactor optional → na: a legal §8.6 applicability mutation.
-        refactor: { applicability: "na", status: "pending", evidence_refs: [] },
+        refactor: { applicability: "na", status: "pending", },
       },
     });
     const result = preflight(amendEntry({ mode: "replace", task: incoming }), planCtx(slimT001()));
@@ -968,8 +967,8 @@ describe("preflight — event:tasks_amended §8.6 mutation rights (Slice C SC-C2
       depends_on: [],
       labels: [],
       execution: {
-        implement: { applicability: "must", status: "pending", evidence_refs: [] },
-        refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+        implement: { applicability: "must", status: "pending", },
+        refactor: { applicability: "optional", status: "pending", },
       },
     };
     const result = preflight(
@@ -1027,9 +1026,9 @@ describe("preflight — event:tasks_amended §8.6 mutation rights (Slice C SC-C2
   test("step.status change → MUTATION_OUT_OF_RIGHTS", () => {
     const incoming = behavioralFull({
       execution: {
-        red: { applicability: "must", status: "passed", evidence_refs: [] },
-        implement: { applicability: "must", status: "pending", evidence_refs: [] },
-        refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+        red: { applicability: "must", status: "passed", },
+        implement: { applicability: "must", status: "pending", },
+        refactor: { applicability: "optional", status: "pending", },
       },
     });
     const result = preflight(amendEntry({ mode: "replace", task: incoming }), planCtx(slimT001()));
@@ -1255,9 +1254,9 @@ describe("preflight — sponsored event:tasks_amended (Phase 11 Item 3 SC1b)", (
       labels: [],
       visual_contract_refs: ["VIS-UI-001"],
       execution: {
-        mockup: { applicability: "must", status: "pending", evidence_refs: [] },
-        implement: { applicability: "must", status: "pending", evidence_refs: [] },
-        "screenshot-compare": { applicability: "must", status: "pending", evidence_refs: [] },
+        mockup: { applicability: "must", status: "pending", },
+        implement: { applicability: "must", status: "pending", },
+        "screenshot-compare": { applicability: "must", status: "pending", },
       },
     };
     const result = preflight(
@@ -1274,9 +1273,9 @@ describe("preflight — sponsored event:tasks_amended (Phase 11 Item 3 SC1b)", (
   test("sponsored replace, applicability change on a retained step → OK", () => {
     const incoming = behavioralFull({
       execution: {
-        red: { applicability: "must", status: "pending", evidence_refs: [] },
-        implement: { applicability: "must", status: "pending", evidence_refs: [] },
-        refactor: { applicability: "na", status: "pending", evidence_refs: [] },
+        red: { applicability: "must", status: "pending", },
+        implement: { applicability: "must", status: "pending", },
+        refactor: { applicability: "na", status: "pending", },
       },
     });
     const result = preflight(
@@ -1338,9 +1337,9 @@ describe("preflight — sponsored event:tasks_amended (Phase 11 Item 3 SC1b)", (
     });
     const incoming = behavioralFull({
       execution: {
-        red: { applicability: "must", status: "passed", evidence_refs: [] },
-        implement: { applicability: "must", status: "pending", evidence_refs: [] },
-        refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+        red: { applicability: "must", status: "passed", },
+        implement: { applicability: "must", status: "pending", },
+        refactor: { applicability: "optional", status: "pending", },
       },
     });
     const result = preflight(
@@ -1372,9 +1371,9 @@ describe("preflight — sponsored event:tasks_amended (Phase 11 Item 3 SC1b)", (
       labels: [],
       visual_contract_refs: ["VIS-UI-001"],
       execution: {
-        mockup: { applicability: "must", status: "passed", evidence_refs: [] },
-        implement: { applicability: "must", status: "pending", evidence_refs: [] },
-        "screenshot-compare": { applicability: "must", status: "pending", evidence_refs: [] },
+        mockup: { applicability: "must", status: "passed", },
+        implement: { applicability: "must", status: "pending", },
+        "screenshot-compare": { applicability: "must", status: "pending", },
       },
     };
     const result = preflight(
@@ -1413,8 +1412,8 @@ describe("preflight — sponsored event:tasks_amended (Phase 11 Item 3 SC1b)", (
       labels: [],
       execution: {
         // red removed — but it has a non-pending status in current.
-        implement: { applicability: "must", status: "passed", evidence_refs: [] },
-        refactor: { applicability: "optional", status: "passed", evidence_refs: [] },
+        implement: { applicability: "must", status: "passed", },
+        refactor: { applicability: "optional", status: "passed", },
       },
     };
     const result = preflight(
@@ -1444,8 +1443,8 @@ describe("preflight — sponsored event:tasks_amended (Phase 11 Item 3 SC1b)", (
       depends_on: [],
       labels: [],
       execution: {
-        implement: { applicability: "must", status: "pending", evidence_refs: [] },
-        refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+        implement: { applicability: "must", status: "pending", },
+        refactor: { applicability: "optional", status: "pending", },
       },
     };
     const result = preflight(
@@ -1503,9 +1502,9 @@ describe("preflight — sponsored event:tasks_amended (Phase 11 Item 3 SC1b)", (
           id: "T-050",
           status: "done",
           execution: {
-            red: { applicability: "must", status: "passed", evidence_refs: ["EV-000001"] },
-            implement: { applicability: "must", status: "passed", evidence_refs: ["EV-000002"] },
-            refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+            red: { applicability: "must", status: "passed", },
+            implement: { applicability: "must", status: "passed", },
+            refactor: { applicability: "optional", status: "pending", },
           },
         }),
         sponsored_by_finding_id: "FND-001",
@@ -1529,9 +1528,9 @@ describe("preflight — sponsored event:tasks_amended (Phase 11 Item 3 SC1b)", (
         task: behavioralFull({
           id: "T-051",
           execution: {
-            red: { applicability: "must", status: "pending", evidence_refs: ["EV-000009"] },
-            implement: { applicability: "must", status: "pending", evidence_refs: [] },
-            refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+            red: { applicability: "must", status: "pending", },
+            implement: { applicability: "must", status: "pending", },
+            refactor: { applicability: "optional", status: "pending", },
           },
         }),
         sponsored_by_finding_id: "FND-001",
@@ -1721,9 +1720,9 @@ describe("preflight — bug-task RED registration (Slice C SC-C4)", () => {
       labels: ["bug"],
       red_test_registered: true,
       execution: {
-        red: { applicability: "must", status: "pending", evidence_refs: [] },
-        implement: { applicability: "must", status: "pending", evidence_refs: [] },
-        refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+        red: { applicability: "must", status: "pending", },
+        implement: { applicability: "must", status: "pending", },
+        refactor: { applicability: "optional", status: "pending", },
       },
     };
     const result = preflight(

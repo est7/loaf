@@ -11,9 +11,8 @@
 //
 // Canonical truth lives in the journal payload, NOT in the projection —
 // `loaf doctor --rebuild` reconstructs tasks.json from these payloads.
-// Historical task steps may contain `evidence_refs`; the step schema
-// deliberately strips that retired field. Proof ownership belongs to the
-// evidence ledger's `covers[]` relation.
+// Execution objects and step fields are closed contracts. Proof ownership
+// belongs to the evidence ledger's `covers[]` relation.
 
 import { z } from "zod";
 
@@ -55,40 +54,54 @@ export type ApplicabilityPayload = z.infer<typeof ApplicabilityPayload>;
 export const StepStatusPayload = z.enum(["na", "pending", "running", "passed", "failed", "waived"]);
 export type StepStatusPayload = z.infer<typeof StepStatusPayload>;
 
-export const TaskExecutionStepPayload = z.object({
-  applicability: ApplicabilityPayload,
-  status: StepStatusPayload,
-  reason: z.string().optional(),
-  started_at: z.string().datetime().optional(),
-});
+export const TaskExecutionStepPayload = z
+  .object({
+    applicability: ApplicabilityPayload,
+    status: StepStatusPayload,
+    reason: z.string().optional(),
+    started_at: z.string().datetime().optional(),
+  })
+  .strict();
 export type TaskExecutionStepPayload = z.infer<typeof TaskExecutionStepPayload>;
 
-export const BehavioralExecutionPayload = z.object({
-  red: TaskExecutionStepPayload,
-  implement: TaskExecutionStepPayload,
-  refactor: TaskExecutionStepPayload,
-});
-export const StructuralExecutionPayload = z.object({
-  implement: TaskExecutionStepPayload,
-  refactor: TaskExecutionStepPayload,
-});
-export const VisualUiExecutionPayload = z.object({
-  mockup: TaskExecutionStepPayload,
-  implement: TaskExecutionStepPayload,
-  "screenshot-compare": TaskExecutionStepPayload,
-});
-export const DocsExecutionPayload = z.object({
-  draft: TaskExecutionStepPayload,
-  review: TaskExecutionStepPayload,
-});
-export const SpikeExecutionPayload = z.object({
-  explore: TaskExecutionStepPayload,
-  prototype: TaskExecutionStepPayload,
-  record: TaskExecutionStepPayload,
-});
-export const ChoreExecutionPayload = z.object({
-  execute: TaskExecutionStepPayload,
-});
+export const BehavioralExecutionPayload = z
+  .object({
+    red: TaskExecutionStepPayload,
+    implement: TaskExecutionStepPayload,
+    refactor: TaskExecutionStepPayload,
+  })
+  .strict();
+export const StructuralExecutionPayload = z
+  .object({
+    implement: TaskExecutionStepPayload,
+    refactor: TaskExecutionStepPayload,
+  })
+  .strict();
+export const VisualUiExecutionPayload = z
+  .object({
+    mockup: TaskExecutionStepPayload,
+    implement: TaskExecutionStepPayload,
+    "screenshot-compare": TaskExecutionStepPayload,
+  })
+  .strict();
+export const DocsExecutionPayload = z
+  .object({
+    draft: TaskExecutionStepPayload,
+    review: TaskExecutionStepPayload,
+  })
+  .strict();
+export const SpikeExecutionPayload = z
+  .object({
+    explore: TaskExecutionStepPayload,
+    prototype: TaskExecutionStepPayload,
+    record: TaskExecutionStepPayload,
+  })
+  .strict();
+export const ChoreExecutionPayload = z
+  .object({
+    execute: TaskExecutionStepPayload,
+  })
+  .strict();
 
 export const BehavioralStep = BehavioralExecutionPayload.keyof();
 export type BehavioralStep = z.infer<typeof BehavioralStep>;
@@ -257,8 +270,8 @@ export type TaskFullProjection = {
 /**
  * Raw, schema-valid task input for projection. Admission validates journal
  * payloads without replacing them with Zod output, so defaulted arrays may
- * still be absent. Keep execution as a record to preserve historical extra
- * steps rather than stripping them through a schema-output substitution.
+ * still be absent. Admission rejects undeclared execution steps and fields;
+ * this seam does not replace the raw payload with schema output.
  */
 export type TaskProjectionInput = Omit<TaskFullProjection, "depends_on" | "labels"> &
   Pick<z.input<typeof TaskFullPayload>, "depends_on" | "labels">;

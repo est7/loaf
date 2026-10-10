@@ -107,7 +107,6 @@ function behavioralFull(overrides: Record<string, unknown> = {}): Record<string,
   const execStep = (applicability: string, status = "pending"): Record<string, unknown> => ({
     applicability,
     status,
-    evidence_refs: [],
   });
   return {
     id: "T-001",

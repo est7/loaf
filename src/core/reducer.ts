@@ -228,19 +228,18 @@ export function applyValidated(prev: Snapshot, entry: JournalEntry): ApplyResult
 
     case "event:tasks_amended": {
       // Slice 1.B sub-cycle 3a (F-010 #1+#2) + Slice C SC-C2b mode
-      // discriminator. `mode` defaults to "replace" — absent on pre-mode
-      // entries, which replay with the historical replace-only semantics.
+      // discriminator. Admission requires an explicit mode.
       //   replace: overwrite an existing task by id; missing → TASK_NOT_FOUND.
       //   add:     append a task; id already present → DUPLICATE_TASK_ID.
       // §8.6 mutation-rights + add-authority gating live in preflight; this
       // handler retains the add collision rule; replace existence is owned
       // by checkTasksAmended in preflight.
       const payload = entry.payload as {
-        mode?: "add" | "replace";
+        mode: "add" | "replace";
         task: TaskProjectionInput;
         reason?: string;
       };
-      const mode = payload.mode ?? "replace";
+      const mode = payload.mode;
       const idx = prev.tasks.findIndex((t) => t.id === payload.task.id);
       if (mode === "add") {
         if (idx !== -1) {

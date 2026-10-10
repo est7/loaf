@@ -34,7 +34,7 @@ describe("TaskFullProjection read-view contract (L5 / T3)", () => {
   });
 });
 
-test("slim projection preserves explicit arrays, flags and historical extra execution steps", () => {
+test("slim projection preserves explicit arrays and current flags", () => {
   const task: TaskProjectionInput = {
     id: "T-001",
     kind: "chore",
@@ -45,11 +45,7 @@ test("slim projection preserves explicit arrays, flags and historical extra exec
     requires_acceptance: true,
     execution: {
       execute: { applicability: "must", status: "pending" },
-      historical_extra: {
-        applicability: "optional",
-        status: "passed",
-        reason: "Preserved historical step",
-      },
+
     },
   };
   expect(extractTaskSlim(task)).toEqual({
@@ -63,7 +59,6 @@ test("slim projection preserves explicit arrays, flags and historical extra exec
     requires_acceptance: true,
     steps: {
       execute: { applicability: "must", status: "pending" },
-      historical_extra: { applicability: "optional", status: "passed" },
     },
   });
 });

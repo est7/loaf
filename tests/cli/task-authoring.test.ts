@@ -23,7 +23,6 @@ describe("strict task authoring contract", () => {
             execute: {
               applicability: "must",
               status: "pending",
-              evidence_refs: [],
             },
           },
         },

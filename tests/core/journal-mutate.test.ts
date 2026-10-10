@@ -1396,9 +1396,9 @@ prose body here
                 depends_on: [],
                 labels: [],
                 execution: {
-                  red: { applicability: "must", status: "pending", evidence_refs: [] },
-                  implement: { applicability: "must", status: "pending", evidence_refs: [] },
-                  refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+                  red: { applicability: "must", status: "pending", },
+                  implement: { applicability: "must", status: "pending", },
+                  refactor: { applicability: "optional", status: "pending", },
                 },
               },
             ],

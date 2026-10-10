@@ -260,17 +260,14 @@ async function seedLightAtExecuteWorkWithTask(): Promise<{ dir: string; feature:
               red: {
                 applicability: "must",
                 status: "pending",
-                evidence_refs: [],
               },
               implement: {
                 applicability: "must",
                 status: "pending",
-                evidence_refs: [],
               },
               refactor: {
                 applicability: "optional",
                 status: "pending",
-                evidence_refs: [],
               },
             },
           },

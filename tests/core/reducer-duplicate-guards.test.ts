@@ -73,7 +73,7 @@ const schemas: Array<{
     fields: ["based_on", "based_on.spec"],
     rules: [284],
   },
-  { kind: "event:tasks_amended", payload: { task }, fields: ["task"], rules: [318] },
+  { kind: "event:tasks_amended", payload: { mode: "replace", task }, fields: ["task"], rules: [318] },
   { kind: "event:task_claimed", payload: { task_id: "T-001" }, fields: ["task_id"], rules: [354] },
   {
     kind: "event:task_step_started",
@@ -243,7 +243,7 @@ describe("reducer duplicate guards — authoritative preflight", () => {
       const prev = snapshot(sponsored ? "EXECUTE.work" : "EXECUTE.plan");
       prev.findings[0]!.action = "amend-tasks";
       const result = preflight(
-        entry("event:tasks_amended", {
+        entry("event:tasks_amended", { mode: "replace",
           task: { ...task, id: "T-999" },
           ...(sponsored ? { sponsored_by_finding_id: "FND-001" } : {}),
         }),
@@ -344,14 +344,14 @@ describe("reducer duplicate guards — authoritative preflight", () => {
   }
 });
 
-test("reducer normalizes default arrays while preserving extra execution keys byte-for-byte", () => {
+test("reducer normalizes omitted default arrays without changing canonical steps", () => {
   const { depends_on: _deps, labels: _labels, ...rawTask } = task;
   const prev = snapshot("EXECUTE.plan");
   const result = admitEntry(
     prev,
     entry("event:tasks_planned", {
       based_on: { spec: 1 },
-      tasks: [{ ...rawTask, execution: { ...rawTask.execution, legacy_extra: step } }],
+      tasks: [rawTask],
     }),
     { tail_seq: -1 },
   );
@@ -363,7 +363,7 @@ test("reducer normalizes default arrays while preserving extra execution keys by
         id: "T-001",
         kind: "structural",
         status: "pending",
-        steps: { implement: step, refactor: step, legacy_extra: step },
+        steps: { implement: step, refactor: step },
         drives: ["REQ-AUTH-001"],
         depends_on: [],
         labels: [],

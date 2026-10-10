@@ -53,7 +53,7 @@ function choreTask(id: string, dependsOn: string[] = []) {
     labels: [],
     no_test_rationale: "graph admission fixture",
     execution: {
-      execute: { applicability: "must" as const, status: "pending" as const, evidence_refs: [] },
+      execute: { applicability: "must" as const, status: "pending" as const, },
     },
   };
 }

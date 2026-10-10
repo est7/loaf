@@ -496,9 +496,7 @@ export const TasksPlannedPayload = z
 //
 // Slice C SC-C2b: `mode` discriminator (codex r105 Q1=b). `replace`
 // overwrites an existing task by id; `add` appends a task absent from the
-// projection. `.default("replace")` keeps any pre-mode entry (hand-authored
-// / migration / older fixture) replaying as the historical replace-only
-// semantics; the CLI always sets `mode` explicitly.
+// projection. Every current writer sets the required mode explicitly.
 //
 // Phase 11 Item 3 SC1b (codex r136 Q1): `sponsored_by_finding_id` is the
 // journal-derivable sponsorship marker that authorizes a post-back-edge
@@ -510,7 +508,7 @@ export const TasksPlannedPayload = z
 // append time, not be silently dropped and read as unsponsored.
 export const TasksAmendedPayload = z
   .object({
-    mode: z.enum(["add", "replace"]).default("replace"),
+    mode: z.enum(["add", "replace"]),
     task: TaskFullPayload,
     reason: z.string().min(10).optional(),
     sponsored_by_finding_id: FindingId.optional(),

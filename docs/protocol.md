@@ -1505,7 +1505,7 @@ task graph 契约改(加 task / 改 drives / 改 kind / 改 depends_on)只能在
 
 **enforcement locus(SC1b 锁定,延续 SC-C2c 的 option B)**:stable-core preflight 在 slim `Snapshot.tasks` 投影上跑 frozen / allowed split —— 它能看到 `id` / task `status` / graph 字段 / execution step set / 每 step `status`,覆盖 Q4 的 *status*-based 进度红线。body-only 字段(`tests` / `test_layer` / 每 step `started_at` / step `reason`)**不在** slim 投影内,stable-core preflight **不**独立复核它们的保留 —— body-only 字段由 sponsored `tasks amend --input` CLI 路径守卫:`carryForwardStepProgress` 把 retained step 的 body-only 进度从 canonical body 前向携带到新 graph;removed-step body-only 检查拒绝删除任何带 `started_at` / `reason` 的 step;`materializeTaskForAmend` 只负责把 slim runtime status 叠加上去。这是有意的 locus 分工,不是 preflight 能力缺口。残余:绕过 CLI 的 raw journal caller 删除一个 slim-`pending` 但带 body-only 进度的 step,stable-core preflight 看不到 —— 即 option-B 的已知边界。
 
-**Task proof ownership (rev 5.1)**:`tasks[].execution[].evidence_refs` 已退出 live task contract。任务完成证明只来自 evidence ledger entry 的 `covers[]` + `result` + evidence kind；task step 不能声明或伪造证明关系。旧 journal payload 中的 task-step `evidence_refs` 仍可 replay，但 canonical task body adapter 会在读取时丢弃它，CLI 新建的 task event 与 `tasks.json` 投影均不再输出该字段。finding / verification 领域中同名字段不受此兼容边界影响。
+**Task execution and proof ownership (rev 5.1 + F8 B)**:`tasks[].execution[].evidence_refs` 已退出 live task contract。任务完成证明只来自 evidence ledger entry 的 `covers[]` + `result` + evidence kind；task step 不能声明或伪造证明关系。F8 B 将 execution 与 step shape 关闭：未知 step 名、task-step `evidence_refs` 或其他未知字段在 mutation / replay admission 被拒绝，不通过 parse-output normalization 丢弃。当前 `reason` / `started_at` 保留。finding / verification 领域中同名字段不受此兼容边界影响。 `event:tasks_amended.mode` 必须显式为 `add` 或 `replace`，不再缺省为 replace。
 
 ---
 

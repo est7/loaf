@@ -46,7 +46,7 @@ function step(
   status: "pending" | "running" | "passed" | "failed" | "waived" | "na" = "pending",
   extra: Record<string, unknown> = {},
 ): Record<string, unknown> {
-  return { applicability, status, evidence_refs: [], ...extra };
+  return { applicability, status, ...extra };
 }
 
 function behavioralTask(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -143,6 +143,7 @@ describe("latestCanonicalTaskBody — Slice C SC-C2a", () => {
         tasks: [behavioralTask({ id: "T-001", tests: ["planned.test"] })],
       }),
       entry(1, "event:tasks_amended", {
+        mode: "replace",
         task: behavioralTask({ id: "T-001", tests: ["amended.test"] }),
       }),
     ];
@@ -183,6 +184,7 @@ describe("latestCanonicalTaskBody — Slice C SC-C2a", () => {
         tasks: [behavioralTask({ id: "T-001" })],
       }),
       entry(1, "event:tasks_amended", {
+        mode: "replace",
         task: behavioralTask({ id: "T-001", tests: ["amended.test"] }),
       }),
       entry(2, "event:tasks_planned", {
@@ -201,7 +203,7 @@ describe("materializeTaskForAmend — Slice C SC-C2a", () => {
       status: "pending",
       execution: {
         red: step("must", "pending", { started_at: "2026-05-15T11:00:00.000Z" }),
-        implement: step("must", "pending", { evidence_refs: ["EV-000001"] }),
+        implement: step("must", "pending", {}),
         refactor: step("optional", "pending"),
       },
     });
@@ -339,7 +341,6 @@ describe("carryForwardStepProgress — Phase 11 Item 3 SC1b", () => {
       id: "T-001",
       execution: {
         red: step("must", "passed", {
-          evidence_refs: ["EV-000001"],
           started_at: "2026-05-15T11:00:00.000Z",
           reason: "RED registered",
         }),
@@ -363,7 +364,7 @@ describe("carryForwardStepProgress — Phase 11 Item 3 SC1b", () => {
     const canonical = behavioralTask({
       id: "T-001",
       execution: {
-        red: step("must", "passed", { evidence_refs: ["EV-000001"] }),
+        red: step("must", "passed", {}),
         implement: step("na", "na"),
         refactor: step("optional", "pending"),
       },
@@ -386,7 +387,7 @@ describe("carryForwardStepProgress — Phase 11 Item 3 SC1b", () => {
     const canonical = behavioralTask({
       id: "T-001",
       execution: {
-        red: step("must", "passed", { evidence_refs: ["EV-000001"] }),
+        red: step("must", "passed", {}),
         implement: step("must", "running", { started_at: "2026-05-15T12:00:00.000Z" }),
       },
     });
