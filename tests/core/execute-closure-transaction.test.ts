@@ -2,13 +2,14 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import { main, type MainDeps } from "../../src/cli.js";
 import { loadSession } from "../../src/core/cli-runtime.js";
 import type { JournalEntry } from "../../src/core/journal-entry.js";
 import { deriveActualScope } from "../../src/core/scope-projection.js";
-import { readSessionRuntimeFile, writeSessionRuntimeFile } from "../../src/core/session-runtime.js";
+import { readSessionRuntimeFile, writeSessionRuntimeFile, sessionRuntimeFilePath } from "../../src/core/session-runtime.js";
+import * as runtimeStore from "../../src/core/session-runtime.js";
 
 type Seed = {
   workspace: string;
@@ -82,7 +83,7 @@ async function seedQuickAtExecuteWork(): Promise<Seed> {
   return { ...partial, sessionId };
 }
 
-async function writePending(seed: Seed, paths: string[]): Promise<void> {
+async function writePending(seed: Seed, paths: string[], iteration = 1): Promise<void> {
   await writeSessionRuntimeFile(
     { session_id: seed.sessionId, cwd: seed.workspace },
     {
@@ -91,7 +92,7 @@ async function writePending(seed: Seed, paths: string[]): Promise<void> {
       cwd: seed.workspace,
       debug: false,
       heartbeat_at: "2026-07-20T12:00:00.000Z",
-      pending_scope: { iteration: 1, paths },
+      pending_scope: { iteration, paths },
     },
     { runtimeDir: seed.runtimeDir, now: () => new Date("2026-07-20T12:00:00.000Z") },
   );
@@ -105,6 +106,131 @@ async function journal(seed: Seed): Promise<JournalEntry[]> {
 }
 
 describe("EXECUTE closure transaction", () => {
+  test("successful closure publishes the complete initialized runtime bytes", async () => {
+    const seed = await seedQuickAtExecuteWork();
+    try {
+      const at = "2026-07-20T12:02:00.000Z";
+      expect((await runCli(seed, ["advance", "EXECUTE.done"], { now: () => new Date(at) })).exit).toBe(0);
+      expect(await fs.readFile(sessionRuntimeFilePath(seed.sessionId, { runtimeDir: seed.runtimeDir, now: () => new Date(at) }), "utf8")).toBe(JSON.stringify({
+        schema_version: 2, session_id: seed.sessionId, cwd: await fs.realpath(seed.workspace), debug: false,
+        heartbeat_at: at, pending_scope: null,
+      }));
+    } finally {
+      await fs.rm(seed.workspace, { recursive: true, force: true });
+    }
+  });
+
+  test.each(["covered", "uncovered"])("done-cursor recovery %s publishes exact heartbeat/clear bytes without appending", async (kind) => {
+    const seed = await seedQuickAtExecuteWork();
+    try {
+      await writePending(seed, ["src/recorded.ts"]);
+      expect((await runCli(seed, ["advance", "EXECUTE.done"])).exit).toBe(0);
+      const pending = kind === "covered" ? ["src/recorded.ts"] : ["src/late.ts", "src/recorded.ts"];
+      await writePending(seed, pending);
+      const file = sessionRuntimeFilePath(seed.sessionId, { runtimeDir: seed.runtimeDir, now: () => new Date() });
+      const before = JSON.parse(await fs.readFile(file, "utf8"));
+      before.debug = true;
+      await fs.writeFile(file, JSON.stringify(before));
+      const journalBytes = await fs.readFile(path.join(seed.featureDir, "journal.jsonl"), "utf8");
+      const at = "2026-07-20T12:03:00.000Z";
+      expect((await runCli(seed, ["advance", "EXECUTE.done"], { now: () => new Date(at) })).exit).toBe(0);
+      expect(await fs.readFile(file, "utf8")).toBe(JSON.stringify({
+        ...before, heartbeat_at: at, pending_scope: kind === "covered" ? null : before.pending_scope,
+      }));
+      expect(await fs.readFile(path.join(seed.featureDir, "journal.jsonl"), "utf8")).toBe(journalBytes);
+    } finally {
+      await fs.rm(seed.workspace, { recursive: true, force: true });
+    }
+  });
+
+  test.each(["preparing", "recovering"])("future pending scope while %s retains the distinct diagnostic and unchanged bytes", async (phase) => {
+    const seed = await seedQuickAtExecuteWork();
+    try {
+      if (phase === "recovering") expect((await runCli(seed, ["advance", "EXECUTE.done"])).exit).toBe(0);
+      await writePending(seed, ["src/future.ts"], 2);
+      const file = sessionRuntimeFilePath(seed.sessionId, { runtimeDir: seed.runtimeDir, now: () => new Date() });
+      const before = await fs.readFile(file, "utf8");
+      const journalBytes = await fs.readFile(path.join(seed.featureDir, "journal.jsonl"), "utf8");
+      const result = await runCli(seed, ["advance", "EXECUTE.done"]);
+      expect(result).toMatchObject({ exit: 2, stdout: "" });
+      expect(JSON.parse(result.stderr)).toMatchObject({
+        code: "SCHEMA_VALIDATION_FAILED",
+        message: phase === "preparing"
+          ? "EXECUTE closure failed: runtime pending scope is from future iteration 2, ahead of journal iteration 1"
+          : "EXECUTE closure failed: runtime pending scope is ahead of the committed journal iteration; refusing to rewrite causal order",
+        detail: phase === "preparing" ? { pending_iteration: 2, current_iteration: 1 } : { pending_iteration: 2, iteration: 1 },
+      });
+      expect(await fs.readFile(file, "utf8")).toBe(before);
+      expect(await fs.readFile(path.join(seed.featureDir, "journal.jsonl"), "utf8")).toBe(journalBytes);
+    } finally {
+      await fs.rm(seed.workspace, { recursive: true, force: true });
+    }
+  });
+
+  test.each(["absent", "present"])("dry-run with %s runtime takes no runtime lock and changes no canonical bytes", async (kind) => {
+    const seed = await seedQuickAtExecuteWork();
+    try {
+      if (kind === "present") await writePending(seed, ["src/preview.ts"]);
+      const file = sessionRuntimeFilePath(seed.sessionId, { runtimeDir: seed.runtimeDir, now: () => new Date() });
+      const before = kind === "present" ? await fs.readFile(file, "utf8") : null;
+      const journalBytes = await fs.readFile(path.join(seed.featureDir, "journal.jsonl"), "utf8");
+      const lock = vi.spyOn(runtimeStore, "withRuntimeLock");
+      try {
+        const result = await runCli(seed, ["advance", "EXECUTE.done", "--dry-run"]);
+        expect(result.exit).toBe(0);
+        expect(JSON.parse(result.stdout)).toMatchObject({ ok: true, dry_run: true });
+        expect(lock).not.toHaveBeenCalled();
+      } finally {
+        lock.mockRestore();
+      }
+      expect(await fs.readFile(path.join(seed.featureDir, "journal.jsonl"), "utf8")).toBe(journalBytes);
+      if (before !== null) expect(await fs.readFile(file, "utf8")).toBe(before);
+      else await expect(fs.stat(seed.runtimeDir)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await fs.rm(seed.workspace, { recursive: true, force: true });
+    }
+  });
+
+  test("post-append failure refuses to clear prior pending even when the new closure records its carried paths", async () => {
+    const seed = await seedQuickAtExecuteWork();
+    try {
+      await writePending(seed, ["src/first.ts"]);
+      expect((await runCli(seed, ["advance", "EXECUTE.done"])).exit).toBe(0);
+      expect((await runCli(seed, ["finding", "raise", "--category", "impl-defect", "--action", "amend-tasks", "--summary", "carry a late path into the next iteration"])).exit).toBe(0);
+      await writePending(seed, ["src/first.ts", "src/late.ts"]);
+      const file = sessionRuntimeFilePath(seed.sessionId, { runtimeDir: seed.runtimeDir, now: () => new Date() });
+      const before = await fs.readFile(file, "utf8");
+      let reloads = 0;
+      let afterCommitCalls = 0;
+      const failed = await runCli(seed, ["advance", "EXECUTE.done"], {
+        executeClosureHooks: {
+          reloadSession: async (featureDir) => {
+            reloads += 1;
+            return await loadSession(featureDir, { ensureDir: false });
+          },
+          beforeAppend: async () => {
+            const snapshots = path.join(seed.featureDir, "snapshots");
+            await fs.rm(snapshots, { recursive: true, force: true });
+            await fs.writeFile(snapshots, "blocks projection directory");
+          },
+          afterCommitBeforeClear: () => { afterCommitCalls += 1; },
+        },
+      });
+      expect(failed).toMatchObject({ exit: 2, stdout: "" });
+      expect(JSON.parse(failed.stderr)).toMatchObject({
+        code: "SCHEMA_VALIDATION_FAILED",
+        message: "EXECUTE closure failed: post-append journal proof does not cover all pending scope paths; refusing to clear",
+        detail: { iteration: 2 },
+      });
+      expect((await journal(seed)).at(-2)?.payload).toEqual({ iteration: 2, paths: ["src/late.ts"] });
+      expect(await fs.readFile(file, "utf8")).toBe(before);
+      expect(reloads).toBe(1);
+      expect(afterCommitCalls).toBe(0);
+    } finally {
+      await fs.rm(seed.workspace, { recursive: true, force: true });
+    }
+  });
+
   test("emits the empty marker immediately before the transition and retry appends nothing", async () => {
     const seed = await seedQuickAtExecuteWork();
     const closed = await runCli(seed, ["advance", "EXECUTE.done"]);

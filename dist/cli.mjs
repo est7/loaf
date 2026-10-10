@@ -11257,6 +11257,60 @@ async function resolveScopePaths(entry, featureDir) {
 	return parseCanonicalPathsText((await readAttachment(featureDir, entry, "paths", payload.paths.ref)).toString("utf8"));
 }
 //#endregion
+//#region src/core/scope-track.ts
+function isContained(root, target) {
+	const relative = path.relative(root, target);
+	return relative === "" || !relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative);
+}
+async function realpathWithMissingSuffix(absolute) {
+	const suffix = [];
+	let candidate = absolute;
+	while (true) try {
+		const existing = await promises.realpath(candidate);
+		return path.resolve(existing, ...suffix);
+	} catch (error) {
+		if (error.code !== "ENOENT") throw error;
+		const parent = path.dirname(candidate);
+		if (parent === candidate) throw error;
+		suffix.unshift(path.basename(candidate));
+		candidate = parent;
+	}
+}
+/** Resolve a hook path to the canonical repo-relative POSIX audit path. */
+async function normalizeScopePath(targetPath, repoRoot) {
+	const lexicalRoot = path.resolve(repoRoot);
+	const canonicalRoot = await promises.realpath(lexicalRoot);
+	const requested = path.isAbsolute(targetPath) ? path.resolve(targetPath) : path.resolve(lexicalRoot, targetPath);
+	if (!isContained(lexicalRoot, requested) && !isContained(canonicalRoot, requested)) return {
+		ok: false,
+		reason: "outside_repo_root",
+		path: targetPath
+	};
+	const canonicalTarget = await realpathWithMissingSuffix(requested);
+	if (!isContained(canonicalRoot, canonicalTarget)) return {
+		ok: false,
+		reason: "outside_repo_root",
+		path: targetPath
+	};
+	const relative = path.relative(canonicalRoot, canonicalTarget).split(path.sep).join("/");
+	if (relative === ".loaf" || relative.startsWith(".loaf/")) return {
+		ok: true,
+		kind: "internal",
+		path: relative
+	};
+	const parsed = ScopePath.safeParse(relative);
+	if (!parsed.success) return {
+		ok: false,
+		reason: "invalid_scope_path",
+		path: relative
+	};
+	return {
+		ok: true,
+		kind: "scope",
+		path: parsed.data
+	};
+}
+//#endregion
 //#region src/core/session-runtime.ts
 const RuntimeLockFile = z.object({
 	pid: z.number().int().positive(),
@@ -11479,6 +11533,134 @@ async function withRuntimeLock(identityInput, operation, mutate, options) {
 	}
 }
 //#endregion
+//#region src/core/pending-scope.ts
+function runtimeOrInitial(current, identity, debug, heartbeatAt) {
+	return current ?? {
+		schema_version: 2,
+		session_id: identity.session_id,
+		cwd: identity.cwd,
+		debug,
+		heartbeat_at: heartbeatAt,
+		pending_scope: null
+	};
+}
+/** Normalize and accumulate a PostToolUse path, publishing heartbeat even on
+* path rejection. Storage failures propagate before the caller renders that
+* rejection; the lock still owns the complete read-modify-write operation. */
+async function trackPendingScope(options) {
+	let normalized;
+	try {
+		normalized = await normalizeScopePath(options.targetPath, options.identity.cwd);
+	} catch {
+		normalized = {
+			ok: false,
+			reason: "invalid_scope_path",
+			path: options.targetPath
+		};
+	}
+	const heartbeatAt = options.runtime.now().toISOString();
+	await withRuntimeLock(options.identity, "scope-track", (current) => {
+		const base = runtimeOrInitial(current, options.identity, options.debug, heartbeatAt);
+		if (!normalized.ok || normalized.kind === "internal" || options.cursor.sub_state !== "EXECUTE.work") return {
+			...base,
+			heartbeat_at: heartbeatAt
+		};
+		const paths = new Set(base.pending_scope?.iteration === options.cursor.iteration ? base.pending_scope.paths : []);
+		paths.add(normalized.path);
+		return {
+			...base,
+			heartbeat_at: heartbeatAt,
+			pending_scope: {
+				iteration: options.cursor.iteration,
+				paths: [...paths].sort(compareScopePathBytes)
+			}
+		};
+	}, options.runtime);
+	return normalized;
+}
+async function uncoveredPendingPaths(pending, context) {
+	const scope = findScopeClosureFact(context.entries, pending.iteration)?.scope;
+	if (scope === void 0) return [...pending.paths];
+	const recorded = new Set(await resolveScopePaths(scope, context.featureDir));
+	return pending.paths.filter((scopePath) => !recorded.has(scopePath));
+}
+async function pendingIsCovered(pending, context) {
+	const scope = findScopeClosureFact(context.entries, pending.iteration)?.scope;
+	if (scope === void 0) return false;
+	const recorded = new Set(await resolveScopePaths(scope, context.featureDir));
+	return pending.paths.every((scopePath) => recorded.has(scopePath));
+}
+/** Select closure paths without writing runtime or acquiring a lock. Older
+* pending scope carries only paths absent from its own iteration's closure. */
+async function preparePendingScopeClosure(current, context) {
+	const runtime = runtimeOrInitial(current, context.identity, context.debug, context.heartbeatAt);
+	const pending = runtime.pending_scope;
+	if (pending === null) return {
+		ok: true,
+		runtime,
+		paths: []
+	};
+	if (pending.iteration === context.iteration) return {
+		ok: true,
+		runtime,
+		paths: [...pending.paths]
+	};
+	if (pending.iteration > context.iteration) return {
+		ok: false,
+		failure: {
+			code: "EXECUTE_CLOSURE_STATE_CHANGED",
+			message: `runtime pending scope is from future iteration ${pending.iteration}, ahead of journal iteration ${context.iteration}`,
+			detail: {
+				pending_iteration: pending.iteration,
+				current_iteration: context.iteration
+			}
+		}
+	};
+	return {
+		ok: true,
+		runtime,
+		paths: await uncoveredPendingPaths(pending, context)
+	};
+}
+async function settlePendingScope(current, context, phase) {
+	const runtime = runtimeOrInitial(current, context.identity, context.debug, context.heartbeatAt);
+	const pending = runtime.pending_scope;
+	if (phase === "recovered" && pending !== null && pending.iteration > context.iteration) return {
+		ok: false,
+		failure: {
+			code: "EXECUTE_CLOSURE_STATE_CHANGED",
+			message: "runtime pending scope is ahead of the committed journal iteration; refusing to rewrite causal order",
+			detail: {
+				pending_iteration: pending.iteration,
+				iteration: context.iteration
+			}
+		}
+	};
+	if (phase === "committed" || pending === null || await pendingIsCovered(pending, context)) return {
+		ok: true,
+		runtime: {
+			...runtime,
+			heartbeat_at: context.heartbeatAt,
+			pending_scope: null
+		}
+	};
+	if (phase === "committed-failure") return {
+		ok: false,
+		failure: {
+			code: "EXECUTE_CLOSURE_COMMIT_AMBIGUOUS",
+			message: "post-append journal proof does not cover all pending scope paths; refusing to clear",
+			detail: { iteration: context.iteration }
+		}
+	};
+	return {
+		ok: true,
+		runtime: {
+			...runtime,
+			heartbeat_at: context.heartbeatAt
+		}
+	};
+}
+//#endregion
 //#region src/core/execute-closure.ts
 var ClosureNotCommitted = class extends Error {};
 var ExecuteClosureError = class extends Error {
@@ -11491,51 +11673,12 @@ var ExecuteClosureError = class extends Error {
 		if (detail !== void 0) this.detail = detail;
 	}
 };
-function committedScopeEntry(entries, iteration) {
-	return findScopeClosureFact(entries, iteration)?.scope ?? null;
-}
-async function pendingIsCovered(pending, entries, featureDir) {
-	const scope = committedScopeEntry(entries, pending.iteration);
-	if (scope === null) return false;
-	const recorded = new Set(await resolveScopePaths(scope, featureDir));
-	return pending.paths.every((scopePath) => recorded.has(scopePath));
-}
-function baseRuntime(current, identity, debug, heartbeatAt) {
-	return current ?? {
-		schema_version: 2,
-		session_id: identity.session_id,
-		cwd: identity.cwd,
-		debug,
-		heartbeat_at: heartbeatAt,
-		pending_scope: null
-	};
-}
-function stampedClosureBatch(actor, iteration, paths, at) {
-	return buildScopeClosureEntries(actor, iteration, paths, at);
-}
 async function reloadForCommitProof(featureDir, loader = (target) => loadSession(target, { ensureDir: false })) {
 	try {
 		return await loader(featureDir);
 	} catch (error) {
 		throw new ExecuteClosureError("EXECUTE_CLOSURE_RELOAD_FAILED", `cannot reload journal to prove EXECUTE closure commit: ${error.message}`);
 	}
-}
-async function pathsForCurrentIteration(runtime, session, featureDir) {
-	const iteration = session.snapshot.state.iteration;
-	const pending = runtime.pending_scope;
-	if (pending === null) return [];
-	if (pending.iteration === iteration) return [...pending.paths];
-	if (pending.iteration > iteration) throw new ExecuteClosureError("EXECUTE_CLOSURE_STATE_CHANGED", `runtime pending scope is from future iteration ${pending.iteration}, ahead of journal iteration ${iteration}`, {
-		pending_iteration: pending.iteration,
-		current_iteration: iteration
-	});
-	const committed = committedScopeEntry(session.entries, pending.iteration);
-	if (committed === null) return [...pending.paths];
-	const recorded = new Set(await resolveScopePaths(committed, featureDir));
-	return pending.paths.filter((scopePath) => !recorded.has(scopePath));
-}
-async function canClearPending(runtime, entries, featureDir) {
-	return runtime.pending_scope === null || await pendingIsCovered(runtime.pending_scope, entries, featureDir);
 }
 /**
 * Close one EXECUTE iteration while holding runtime state over the journal
@@ -11549,8 +11692,19 @@ async function executeClosureTransaction(options) {
 	if (options.mutateContext(options.session).dryRun) {
 		if (initialState.sub_state !== "EXECUTE.work") return { kind: "not-committed" };
 		const heartbeatAt = options.runtime.now().toISOString();
-		const paths = await pathsForCurrentIteration(baseRuntime(await readSessionRuntimeFile(options.identity, options.runtime), options.identity, options.debug, heartbeatAt), options.session, options.featureDir);
-		const result = await mutateBatch(stampedClosureBatch(options.actor, initialState.iteration, paths, heartbeatAt), options.mutateContext(options.session));
+		const prepared = await preparePendingScopeClosure(await readSessionRuntimeFile(options.identity, options.runtime), {
+			identity: options.identity,
+			debug: options.debug,
+			heartbeatAt,
+			iteration: initialState.iteration,
+			entries: options.session.entries,
+			featureDir: options.featureDir
+		});
+		if (!prepared.ok) {
+			const { code, message, detail } = prepared.failure;
+			throw new ExecuteClosureError(code, message, detail);
+		}
+		const result = await mutateBatch(buildScopeClosureEntries(options.actor, initialState.iteration, prepared.paths, heartbeatAt), options.mutateContext(options.session));
 		return result.ok ? {
 			kind: "committed",
 			result,
@@ -11564,39 +11718,43 @@ async function executeClosureTransaction(options) {
 	const heartbeatAt = options.runtime.now().toISOString();
 	try {
 		await withRuntimeLock(options.identity, "execute-closure", async (current) => {
-			const runtime = baseRuntime(current, options.identity, options.debug, heartbeatAt);
 			const session = await reloadForCommitProof(options.featureDir, options.hooks?.reloadSession);
 			const state = session.snapshot.state;
 			if (state == null) throw new ClosureNotCommitted();
-			const committed = committedScopeEntry(session.entries, state.iteration);
+			const context = {
+				identity: options.identity,
+				debug: options.debug,
+				heartbeatAt,
+				iteration: state.iteration,
+				entries: session.entries,
+				featureDir: options.featureDir
+			};
+			const committed = findScopeClosureFact(session.entries, state.iteration);
 			if (state.sub_state === "EXECUTE.done" && committed !== null) {
-				if (runtime.pending_scope !== null && runtime.pending_scope.iteration > state.iteration) throw new ExecuteClosureError("EXECUTE_CLOSURE_STATE_CHANGED", "runtime pending scope is ahead of the committed journal iteration; refusing to rewrite causal order", {
-					pending_iteration: runtime.pending_scope?.iteration,
-					iteration: state.iteration
-				});
+				const settled = await settlePendingScope(current, context, "recovered");
+				if (!settled.ok) {
+					const { code, message, detail } = settled.failure;
+					throw new ExecuteClosureError(code, message, detail);
+				}
 				outcome = {
 					kind: "recovered",
 					session,
 					from: "EXECUTE.work"
 				};
-				if (await canClearPending(runtime, session.entries, options.featureDir)) return {
-					...runtime,
-					heartbeat_at: heartbeatAt,
-					pending_scope: null
-				};
-				return {
-					...runtime,
-					heartbeat_at: heartbeatAt
-				};
+				return settled.runtime;
 			}
 			if (state.sub_state === "EXECUTE.done") throw new ClosureNotCommitted();
 			if (state.sub_state !== "EXECUTE.work") throw new ExecuteClosureError("EXECUTE_CLOSURE_STATE_CHANGED", `session moved to ${state.sub_state} while preparing EXECUTE closure`, {
 				expected: "EXECUTE.work",
 				actual: state.sub_state
 			});
-			const paths = await pathsForCurrentIteration(runtime, session, options.featureDir);
+			const prepared = await preparePendingScopeClosure(current, context);
+			if (!prepared.ok) {
+				const { code, message, detail } = prepared.failure;
+				throw new ExecuteClosureError(code, message, detail);
+			}
 			await options.hooks?.beforeAppend?.();
-			const result = await mutateBatch(stampedClosureBatch(options.actor, state.iteration, paths, heartbeatAt), options.mutateContext(session));
+			const result = await mutateBatch(buildScopeClosureEntries(options.actor, state.iteration, prepared.paths, heartbeatAt), options.mutateContext(session));
 			if (result.ok) {
 				outcome = {
 					kind: "committed",
@@ -11604,33 +11762,32 @@ async function executeClosureTransaction(options) {
 					from: "EXECUTE.work"
 				};
 				await options.hooks?.afterCommitBeforeClear?.();
-				return {
-					...runtime,
-					heartbeat_at: heartbeatAt,
-					pending_scope: null
-				};
+				return (await settlePendingScope(prepared.runtime, context, "committed")).runtime;
 			}
 			if (result.commit_state === "committed") {
 				const committedEntries = session.entries.concat(result.entries);
-				if (committedScopeEntry(committedEntries, state.iteration) !== null) {
-					if (!await canClearPending(runtime, committedEntries, options.featureDir)) throw new ExecuteClosureError("EXECUTE_CLOSURE_COMMIT_AMBIGUOUS", "post-append journal proof does not cover all pending scope paths; refusing to clear", { iteration: state.iteration });
+				if (findScopeClosureFact(committedEntries, state.iteration) !== null) {
+					const settled = await settlePendingScope(prepared.runtime, {
+						...context,
+						entries: committedEntries
+					}, "committed-failure");
+					if (!settled.ok) {
+						const { code, message, detail } = settled.failure;
+						throw new ExecuteClosureError(code, message, detail);
+					}
 					outcome = {
 						kind: "failure",
 						failure: result
 					};
 					await options.hooks?.afterCommitBeforeClear?.();
-					return {
-						...runtime,
-						heartbeat_at: heartbeatAt,
-						pending_scope: null
-					};
+					return settled.runtime;
 				}
 			}
 			outcome = {
 				kind: "failure",
 				failure: result
 			};
-			return runtime;
+			return prepared.runtime;
 		}, options.runtime);
 	} catch (error) {
 		if (error instanceof ClosureNotCommitted) return { kind: "not-committed" };
@@ -15079,106 +15236,6 @@ const SUB_STATE_CONTRACT_BY_STATE = Object.fromEntries(SUB_STATE_CONTRACTS$1.map
 */
 function promptInjectFor(subState) {
 	return SUB_STATE_CONTRACT_BY_STATE[subState]?.prompt_inject;
-}
-//#endregion
-//#region src/core/scope-track.ts
-function isContained(root, target) {
-	const relative = path.relative(root, target);
-	return relative === "" || !relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative);
-}
-async function realpathWithMissingSuffix(absolute) {
-	const suffix = [];
-	let candidate = absolute;
-	while (true) try {
-		const existing = await promises.realpath(candidate);
-		return path.resolve(existing, ...suffix);
-	} catch (error) {
-		if (error.code !== "ENOENT") throw error;
-		const parent = path.dirname(candidate);
-		if (parent === candidate) throw error;
-		suffix.unshift(path.basename(candidate));
-		candidate = parent;
-	}
-}
-/** Resolve a hook path to the canonical repo-relative POSIX audit path. */
-async function normalizeScopePath(targetPath, repoRoot) {
-	const lexicalRoot = path.resolve(repoRoot);
-	const canonicalRoot = await promises.realpath(lexicalRoot);
-	const requested = path.isAbsolute(targetPath) ? path.resolve(targetPath) : path.resolve(lexicalRoot, targetPath);
-	if (!isContained(lexicalRoot, requested) && !isContained(canonicalRoot, requested)) return {
-		ok: false,
-		reason: "outside_repo_root",
-		path: targetPath
-	};
-	const canonicalTarget = await realpathWithMissingSuffix(requested);
-	if (!isContained(canonicalRoot, canonicalTarget)) return {
-		ok: false,
-		reason: "outside_repo_root",
-		path: targetPath
-	};
-	const relative = path.relative(canonicalRoot, canonicalTarget).split(path.sep).join("/");
-	if (relative === ".loaf" || relative.startsWith(".loaf/")) return {
-		ok: true,
-		kind: "internal",
-		path: relative
-	};
-	const parsed = ScopePath.safeParse(relative);
-	if (!parsed.success) return {
-		ok: false,
-		reason: "invalid_scope_path",
-		path: relative
-	};
-	return {
-		ok: true,
-		kind: "scope",
-		path: parsed.data
-	};
-}
-//#endregion
-//#region src/core/pending-scope.ts
-function runtimeOrInitial(current, identity, debug, heartbeatAt) {
-	return current ?? {
-		schema_version: 2,
-		session_id: identity.session_id,
-		cwd: identity.cwd,
-		debug,
-		heartbeat_at: heartbeatAt,
-		pending_scope: null
-	};
-}
-/** Normalize and accumulate a PostToolUse path, publishing heartbeat even on
-* path rejection. Storage failures propagate before the caller renders that
-* rejection; the lock still owns the complete read-modify-write operation. */
-async function trackPendingScope(options) {
-	let normalized;
-	try {
-		normalized = await normalizeScopePath(options.targetPath, options.identity.cwd);
-	} catch {
-		normalized = {
-			ok: false,
-			reason: "invalid_scope_path",
-			path: options.targetPath
-		};
-	}
-	const heartbeatAt = options.runtime.now().toISOString();
-	await withRuntimeLock(options.identity, "scope-track", (current) => {
-		const base = runtimeOrInitial(current, options.identity, options.debug, heartbeatAt);
-		if (!normalized.ok || normalized.kind === "internal" || options.cursor.sub_state !== "EXECUTE.work") return {
-			...base,
-			heartbeat_at: heartbeatAt
-		};
-		const paths = new Set(base.pending_scope?.iteration === options.cursor.iteration ? base.pending_scope.paths : []);
-		paths.add(normalized.path);
-		return {
-			...base,
-			heartbeat_at: heartbeatAt,
-			pending_scope: {
-				iteration: options.cursor.iteration,
-				paths: [...paths].sort(compareScopePathBytes)
-			}
-		};
-	}, options.runtime);
-	return normalized;
 }
 //#endregion
 //#region src/core/hook-read.ts
