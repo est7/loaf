@@ -49,7 +49,7 @@ Do **NOT** invoke `bun test` — Bun's test runner is not used here; tests rely 
 
 - Use `docs/machine-contract.md` as the wayfinder for schema, FSM, ID, kind-registry, error-catalog, and generated-contract ownership. Read the indexed runtime owner before changing a contract.
 - Route state changes through `src/core/journal-mutate.ts`; direct append APIs are reserved for explicitly owned recovery and migration paths.
-- Register kind-specific behavior through `src/core/kind-registry.ts` instead of maintaining parallel kind tables.
+- Register kind-specific metadata through `src/core/kind-registry.ts` instead of maintaining parallel kind tables. Its `entrySchemaVersion` owns the current version for each kind; writers and tail recovery use the derived `ENTRY_SCHEMA_VERSIONS` table.
 - Keep preflight validation and reducer application aligned. Shared facts belong in stable invariant helpers, while each boundary retains its own typed error surface.
 - The reducer in `src/core/reducer.ts` **mutates in place** — don't hold a pre-mutation snapshot reference; clone it first if you need the prior state.
 

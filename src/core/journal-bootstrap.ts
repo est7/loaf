@@ -27,7 +27,8 @@ import {
 } from "./journal-entry.js";
 import { initialSnapshot, type ApplyFailureCode, type Snapshot } from "./reducer.js";
 import { admitEntry } from "./entry-admission.js";
-import { ENTRY_SCHEMA_VERSIONS, rehydrateMigration } from "./migration.js";
+import { rehydrateMigration } from "./migration.js";
+import { ENTRY_SCHEMA_VERSIONS } from "./kind-registry.js";
 import {
   computeLineHash,
   extendRollingChecksum,

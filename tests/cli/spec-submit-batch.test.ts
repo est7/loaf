@@ -11,6 +11,7 @@
 //   - companion payloads carry spec_version + the unwrapped item
 //   - empty companion arrays → 1-entry batch (head only)
 
+import { ENTRY_SCHEMA_VERSIONS } from "../../src/core/kind-registry.js";
 import { describe, expect, test } from "vitest";
 
 import { buildSpecSubmitBatch } from "../../src/cli/spec-submit-batch.js";
@@ -322,4 +323,35 @@ describe("buildSpecSubmitBatch — byte-equal regression for canonical input", (
       },
     ]);
   });
+});
+
+test("spec companion writers use each kind's version owner", () => {
+  const kinds = [
+    "event:spec_submitted",
+    "event:spec_req_added",
+    "event:spec_scenario_added",
+    "event:spec_visual_added",
+  ] as const;
+  const versions = ENTRY_SCHEMA_VERSIONS;
+  const originals = kinds.map((kind) => versions[kind]);
+  kinds.forEach((kind, index) => {
+    versions[kind] = index + 2;
+  });
+  try {
+    const entries = buildSpecSubmitBatch({
+      input: makeInput({
+        requirements: [REQ_VERIFIABLE],
+        scenarios: [SCEN_E2E],
+        visual_contracts: [VIS_001],
+      }),
+      snapshot: makeSnapshot(0),
+      actor: ACTOR,
+      now: NOW,
+    });
+    expect(entries.map((entry) => entry.entry_schema_version)).toEqual([2, 3, 4, 5]);
+  } finally {
+    kinds.forEach((kind, index) => {
+      versions[kind] = originals[index]!;
+    });
+  }
 });

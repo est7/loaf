@@ -5,6 +5,7 @@
 // coverage is partial: cases that surface as state errors (not mid-write
 // SIGKILL) are exercised; true fault injection remains future work.
 
+import { ENTRY_SCHEMA_VERSIONS } from "../../src/core/kind-registry.js";
 import { describe, expect, test } from "vitest";
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -470,4 +471,21 @@ describe("migrateV2 — Stage 5 §5.2", () => {
       "EXECUTE",
     );
   });
+});
+
+test("migration bootstrap writer uses its kind version owner", async () => {
+  const featureDir = await buildFixture();
+  const versions = ENTRY_SCHEMA_VERSIONS;
+  const original = versions["migration:snapshot_imported"];
+  versions["migration:snapshot_imported"] = 9;
+  try {
+    await migrateV2(featureDir, { migrated_at: "2026-05-15T12:00:00.000Z", fsync: false });
+    const entry = JSON.parse(
+      (await fs.readFile(path.join(featureDir, "journal.jsonl"), "utf8")).trim(),
+    );
+    expect(entry.entry_schema_version).toBe(9);
+  } finally {
+    versions["migration:snapshot_imported"] = original;
+    await fs.rm(path.dirname(featureDir), { recursive: true, force: true });
+  }
 });

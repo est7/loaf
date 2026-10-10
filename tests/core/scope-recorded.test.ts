@@ -11,12 +11,16 @@ import {
   ScopeRecordedPayload,
 } from "../../src/core/journal-entry.js";
 import { mutateBatch } from "../../src/core/journal-mutate.js";
+import { ENTRY_SCHEMA_VERSIONS } from "../../src/core/kind-registry.js";
 import { KIND_REGISTRY } from "../../src/core/kind-registry.js";
 import { admitEntry } from "../../src/core/entry-admission.js";
 import { initialSnapshot } from "../../src/core/reducer.js";
 import { preflight } from "../../src/core/reducer/preflight.js";
 import { deriveActualScope } from "../../src/core/scope-projection.js";
-import { validateScopeClosureBatch } from "../../src/core/scope-closure-policy.js";
+import {
+  buildScopeClosureEntries,
+  validateScopeClosureBatch,
+} from "../../src/core/scope-closure-policy.js";
 import { emptyMeta } from "../../src/core/snapshot.js";
 
 const STANDARD = {
@@ -343,4 +347,21 @@ describe("scope:recorded reducer and entry-stream projection", () => {
     expect(CanonicalScopePaths.safeParse(["z.ts", "é.ts"]).success).toBe(true);
     expect(CanonicalScopePaths.safeParse(["é.ts", "z.ts"]).success).toBe(false);
   });
+});
+
+test("scope closure writers use their distinct kind version owners", () => {
+  const versions = ENTRY_SCHEMA_VERSIONS;
+  const originals = [versions["scope:recorded"], versions["event:phase_advanced"]];
+  versions["scope:recorded"] = 6;
+  versions["event:phase_advanced"] = 7;
+  try {
+    expect(
+      buildScopeClosureEntries("cli:loaf", 1, ["src/a.ts"], "2026-05-15T10:00:00.000Z").map(
+        (entry) => entry.entry_schema_version,
+      ),
+    ).toEqual([6, 7]);
+  } finally {
+    versions["scope:recorded"] = originals[0]!;
+    versions["event:phase_advanced"] = originals[1]!;
+  }
 });

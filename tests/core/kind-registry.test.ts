@@ -38,6 +38,7 @@ import {
   TasksPlannedPayload,
 } from "../../src/core/journal-entry.js";
 import {
+  ENTRY_SCHEMA_VERSIONS,
   KIND_REGISTRY,
   isSubStateAllowed,
   PER_KIND_ACTOR,
@@ -53,6 +54,15 @@ describe("kind-registry — totality + invariants", () => {
   test("registry keys == the EntryKind enum (28 kinds)", () => {
     expect(sorted(Object.keys(KIND_REGISTRY))).toEqual(sorted(EntryKind.options));
     expect(Object.keys(KIND_REGISTRY)).toHaveLength(28);
+  });
+  test("current versions are total, registry-owned, and @1 for every current kind", () => {
+    expect(ENTRY_SCHEMA_VERSIONS).toEqual(
+      Object.fromEntries(EntryKind.options.map((kind) => [kind, 1])),
+    );
+    for (const kind of EntryKind.options) {
+      expect(KIND_REGISTRY[kind].entrySchemaVersion, kind).toBe(1);
+      expect(ENTRY_SCHEMA_VERSIONS[kind], kind).toBe(KIND_REGISTRY[kind].entrySchemaVersion);
+    }
   });
 });
 

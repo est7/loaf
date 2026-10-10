@@ -16,6 +16,7 @@
 // mutate() call. Test surface asserts the partial-entry shape, NOT CLI
 // stdout/stderr — keeps the builder below the presentation layer.
 
+import { ENTRY_SCHEMA_VERSIONS } from "../core/kind-registry.js";
 import type { Snapshot } from "../core/reducer.js";
 import type { SpecSubmitInput } from "../core/spec-schema.js";
 
@@ -36,7 +37,7 @@ export interface BuildSpecSubmitBatchArgs {
 export interface SpecSubmitBatchEntry {
   at: string;
   actor: string;
-  entry_schema_version: 1;
+  entry_schema_version: number;
   kind:
     | "event:spec_submitted"
     | "event:spec_req_added"
@@ -47,8 +48,8 @@ export interface SpecSubmitBatchEntry {
 
 /** Build the canonical spec-submit batch: 1 head `event:spec_submitted`
  *  + N `event:spec_req_added` + M `event:spec_scenario_added` + K
- *  `event:spec_visual_added`. All entries share `at` / `actor` /
- *  `entry_schema_version` / payload's `spec_version`. */
+ *  `event:spec_visual_added`. All entries share `at` / `actor` and the
+ *  payload's `spec_version`; each uses its kind's current entry version. */
 export function buildSpecSubmitBatch(args: BuildSpecSubmitBatchArgs): SpecSubmitBatchEntry[] {
   const { input, snapshot, actor, now } = args;
 
@@ -63,7 +64,7 @@ export function buildSpecSubmitBatch(args: BuildSpecSubmitBatchArgs): SpecSubmit
     {
       at: now,
       actor,
-      entry_schema_version: 1,
+      entry_schema_version: ENTRY_SCHEMA_VERSIONS["event:spec_submitted"],
       kind: "event:spec_submitted",
       payload: {
         spec_version: specVersion,
@@ -79,7 +80,7 @@ export function buildSpecSubmitBatch(args: BuildSpecSubmitBatchArgs): SpecSubmit
     entries.push({
       at: now,
       actor,
-      entry_schema_version: 1,
+      entry_schema_version: ENTRY_SCHEMA_VERSIONS["event:spec_req_added"],
       kind: "event:spec_req_added",
       payload: { spec_version: specVersion, req },
     });
@@ -88,7 +89,7 @@ export function buildSpecSubmitBatch(args: BuildSpecSubmitBatchArgs): SpecSubmit
     entries.push({
       at: now,
       actor,
-      entry_schema_version: 1,
+      entry_schema_version: ENTRY_SCHEMA_VERSIONS["event:spec_scenario_added"],
       kind: "event:spec_scenario_added",
       payload: { spec_version: specVersion, scenario: scen },
     });
@@ -97,7 +98,7 @@ export function buildSpecSubmitBatch(args: BuildSpecSubmitBatchArgs): SpecSubmit
     entries.push({
       at: now,
       actor,
-      entry_schema_version: 1,
+      entry_schema_version: ENTRY_SCHEMA_VERSIONS["event:spec_visual_added"],
       kind: "event:spec_visual_added",
       payload: { spec_version: specVersion, visual: vis },
     });

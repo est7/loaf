@@ -10,6 +10,7 @@
 //   7. Partial batch (batch_count entries declared, fewer written) → drop all
 //      batch entries
 
+import { ENTRY_SCHEMA_VERSIONS } from "../../src/core/kind-registry.js";
 import { describe, expect, test } from "vitest";
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -283,4 +284,32 @@ describe("tailRecovery — Gate #4 (ADR-0005 §4.13)", () => {
     });
     expect(await fs.readFile(fp, "utf8")).toBe(original);
   });
+});
+
+test("tail recovery accepts the owner version and refuses owner+1 without truncation", async () => {
+  const fp = await tmpJournal();
+  const versions = ENTRY_SCHEMA_VERSIONS;
+  const originalVersion = versions["pending:added"];
+  versions["pending:added"] = 3;
+  try {
+    const supported = serialize(singleEntry({ entry_schema_version: 3 }));
+    await writeRaw(fp, supported);
+    expect(await tailRecovery(fp)).toMatchObject({ action: "noop", truncated_bytes: 0 });
+    const original =
+      supported +
+      serialize(singleEntry({ seq: 1, entry_id: "JE-000002", entry_schema_version: 4 }));
+    await writeRaw(fp, original);
+    await expect(tailRecovery(fp)).rejects.toMatchObject({
+      code: "JOURNAL_TAIL_REQUIRES_NEWER_LOAF",
+      detail: {
+        kind: "pending:added",
+        entry_schema_version: 4,
+        reason: "entry_schema_version_too_new",
+      },
+    });
+    expect(await fs.readFile(fp, "utf8")).toBe(original);
+  } finally {
+    versions["pending:added"] = originalVersion;
+    await fs.rm(path.dirname(fp), { recursive: true, force: true });
+  }
 });

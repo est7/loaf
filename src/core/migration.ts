@@ -34,6 +34,7 @@ import { appendEntry } from "./journal-append.js";
 import { emptyMeta } from "./snapshot.js";
 import { EvidenceKind, EvidenceResult } from "./evidence-schema.js";
 import { EntryKind } from "./journal-entry.js";
+import { ENTRY_SCHEMA_VERSIONS } from "./kind-registry.js";
 import type { AttachmentRef, Ceremony, JournalEntry, SubState } from "./journal-entry.js";
 import type {
   EvidenceState,
@@ -44,37 +45,6 @@ import type {
   TaskState,
   TaskStepStatus,
 } from "./reducer.js";
-
-export const ENTRY_SCHEMA_VERSIONS = {
-  "event:phase_advanced": 1,
-  "event:ceremony_set": 1,
-  "event:tasks_planned": 1,
-  "event:tasks_amended": 1,
-  "event:task_claimed": 1,
-  "event:task_step_started": 1,
-  "event:task_step_done": 1,
-  "event:task_step_reset": 1,
-  "event:task_abandoned": 1,
-  "event:spec_req_added": 1,
-  "event:spec_scenario_added": 1,
-  "event:spec_visual_added": 1,
-  "event:spec_submitted": 1,
-  "evidence:added": 1,
-  "lesson:recorded": 1,
-  "scope:recorded": 1,
-  "finding:raised": 1,
-  "finding:closed": 1,
-  "pending:added": 1,
-  "pending:resolved": 1,
-  "gate:decided": 1,
-  "session:started": 1,
-  "session:resumed": 1,
-  "session:delivered": 1,
-  "session:archived": 1,
-  "session:abandoned": 1,
-  "spike:converted": 1,
-  "migration:snapshot_imported": 1,
-} as const satisfies Record<z.infer<typeof EntryKind>, number>;
 
 export type Upcaster = (prevPayload: unknown) => unknown;
 
@@ -409,7 +379,7 @@ async function migrateV2UnderLease(
     entry_id: MIGRATION_ENTRY_ID,
     at: opts.migrated_at ?? new Date().toISOString(),
     actor: "migration:v0.0.x→v2",
-    entry_schema_version: 1,
+    entry_schema_version: ENTRY_SCHEMA_VERSIONS["migration:snapshot_imported"],
     kind: "migration:snapshot_imported",
     payload: {
       source_schema_version: 1,

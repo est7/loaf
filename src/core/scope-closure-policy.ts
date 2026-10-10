@@ -1,3 +1,4 @@
+import { ENTRY_SCHEMA_VERSIONS } from "./kind-registry.js";
 import {
   ScopeRecordedPayload,
   type JournalEntry,
@@ -170,14 +171,14 @@ export function buildScopeClosureEntries(
     {
       at,
       actor,
-      entry_schema_version: 1,
+      entry_schema_version: ENTRY_SCHEMA_VERSIONS["scope:recorded"],
       kind: "scope:recorded",
       payload: { iteration, paths: [...paths] },
     },
     {
       at,
       actor,
-      entry_schema_version: 1,
+      entry_schema_version: ENTRY_SCHEMA_VERSIONS["event:phase_advanced"],
       kind: "event:phase_advanced",
       payload: { from: "EXECUTE.work", to: "EXECUTE.done" },
     },

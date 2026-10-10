@@ -15,6 +15,7 @@ import {
   type ExecuteClosureOptions,
   type ExecuteClosureResult,
 } from "../core/execute-closure.js";
+import { ENTRY_SCHEMA_VERSIONS } from "../core/kind-registry.js";
 import { emitInputSchema, formatSchema } from "./schema-emit.js";
 import type { MutatorCommand } from "./input-schemas.js";
 import type { MutatorEntry } from "./mutator-entry.js";
@@ -144,7 +145,7 @@ export function createCommandMutator(
     const stamp = (e: MutatorEntry): RunPartial => ({
       at: now,
       actor: e.actor,
-      entry_schema_version: 1,
+      entry_schema_version: ENTRY_SCHEMA_VERSIONS[e.kind],
       kind: e.kind,
       payload: e.payload,
     });
@@ -166,7 +167,7 @@ export function createCommandMutator(
       (entry): RunPartial => ({
         at: sharedAt ?? new Date().toISOString(),
         actor: entry.actor,
-        entry_schema_version: 1,
+        entry_schema_version: ENTRY_SCHEMA_VERSIONS[entry.kind],
         kind: entry.kind,
         payload: entry.payload,
       }),
@@ -201,7 +202,7 @@ export function createCommandMutator(
           partials: plan.entries.map((entry) => ({
             at: sharedAt ?? new Date().toISOString(),
             actor: entry.actor,
-            entry_schema_version: 1,
+            entry_schema_version: ENTRY_SCHEMA_VERSIONS[entry.kind],
             kind: entry.kind,
             payload: entry.payload,
           })),

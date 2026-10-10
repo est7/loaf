@@ -4167,12 +4167,14 @@ function actorPrefix(actor) {
 const KIND_REGISTRY = {
 	"event:phase_advanced": {
 		payload: PhaseAdvancedPayload,
+		entrySchemaVersion: 1,
 		subStates: ANY_SUB_STATE,
 		actors: ALL_NON_MIGRATION,
 		emitsSpec: false
 	},
 	"event:ceremony_set": {
 		payload: CeremonyPayload,
+		entrySchemaVersion: 1,
 		subStates: new Set([
 			"TRIAGE.score",
 			"TRIAGE.confirm",
@@ -4184,132 +4186,154 @@ const KIND_REGISTRY = {
 	},
 	"event:tasks_planned": {
 		payload: TasksPlannedPayload,
+		entrySchemaVersion: 1,
 		subStates: new Set(["SPEC.design", "EXECUTE.plan"]),
 		actors: ALL_NON_MIGRATION,
 		emitsSpec: false
 	},
 	"event:tasks_amended": {
 		payload: TasksAmendedPayload,
+		entrySchemaVersion: 1,
 		subStates: new Set(VERIFY_OR_POST_LOCK_EXECUTE),
 		actors: ALL_NON_MIGRATION,
 		emitsSpec: false
 	},
 	"event:task_claimed": {
 		payload: TaskRefPayload,
+		entrySchemaVersion: 1,
 		subStates: new Set(["EXECUTE.work"]),
 		actors: ALL_NON_MIGRATION,
 		emitsSpec: false
 	},
 	"event:task_step_started": {
 		payload: TaskStepRefPayload,
+		entrySchemaVersion: 1,
 		subStates: new Set(["EXECUTE.work"]),
 		actors: ALL_NON_MIGRATION,
 		emitsSpec: false
 	},
 	"event:task_step_done": {
 		payload: TaskStepDonePayload,
+		entrySchemaVersion: 1,
 		subStates: new Set(["EXECUTE.work"]),
 		actors: ALL_NON_MIGRATION,
 		emitsSpec: false
 	},
 	"event:task_step_reset": {
 		payload: TaskStepResetPayload,
+		entrySchemaVersion: 1,
 		subStates: new Set(FIX_BACK_EDGE_FROM),
 		actors: CLI_ONLY,
 		emitsSpec: false
 	},
 	"event:task_abandoned": {
 		payload: TaskAbandonedPayload,
+		entrySchemaVersion: 1,
 		subStates: new Set(["EXECUTE.work"]),
 		actors: ALL_NON_MIGRATION,
 		emitsSpec: false
 	},
 	"event:spec_req_added": {
 		payload: SpecReqAddedPayload,
+		entrySchemaVersion: 1,
 		subStates: new Set(ALL_SPEC),
 		actors: ALL_NON_MIGRATION,
 		emitsSpec: true
 	},
 	"event:spec_scenario_added": {
 		payload: SpecScenarioAddedPayload,
+		entrySchemaVersion: 1,
 		subStates: new Set(ALL_SPEC),
 		actors: ALL_NON_MIGRATION,
 		emitsSpec: true
 	},
 	"event:spec_visual_added": {
 		payload: SpecVisualAddedPayload,
+		entrySchemaVersion: 1,
 		subStates: new Set(ALL_SPEC),
 		actors: ALL_NON_MIGRATION,
 		emitsSpec: true
 	},
 	"event:spec_submitted": {
 		payload: SpecSubmittedPayload,
+		entrySchemaVersion: 1,
 		subStates: new Set(ALL_SPEC),
 		actors: ALL_NON_MIGRATION,
 		emitsSpec: true
 	},
 	"evidence:added": {
 		payload: EvidenceAddedPayload,
+		entrySchemaVersion: 1,
 		subStates: new Set([...ALL_EXECUTE, ...VERIFY_OR_POST_LOCK_EXECUTE.filter((s) => s.startsWith("VERIFY"))]),
 		actors: ALL_NON_MIGRATION,
 		emitsSpec: false
 	},
 	"lesson:recorded": {
 		payload: LessonRecordedPayload,
+		entrySchemaVersion: 1,
 		subStates: ANY_NON_DONE,
 		actors: HUMAN_ONLY,
 		emitsSpec: false
 	},
 	"scope:recorded": {
 		payload: ScopeRecordedPayload,
+		entrySchemaVersion: 1,
 		subStates: new Set(["EXECUTE.work"]),
 		actors: CLI_ONLY,
 		emitsSpec: false
 	},
 	"finding:raised": {
 		payload: FindingRaisedPayload,
+		entrySchemaVersion: 1,
 		subStates: new Set(VERIFY_OR_POST_LOCK_EXECUTE),
 		actors: ALL_NON_MIGRATION,
 		emitsSpec: false
 	},
 	"finding:closed": {
 		payload: FindingClosedPayload,
+		entrySchemaVersion: 1,
 		subStates: new Set(VERIFY_OR_POST_LOCK_EXECUTE),
 		actors: ALL_NON_MIGRATION,
 		emitsSpec: false
 	},
 	"pending:added": {
 		payload: PendingAddedPayload,
+		entrySchemaVersion: 1,
 		subStates: ANY_SUB_STATE,
 		actors: ALL_NON_MIGRATION,
 		emitsSpec: false
 	},
 	"pending:resolved": {
 		payload: PendingResolvedPayload,
+		entrySchemaVersion: 1,
 		subStates: ANY_SUB_STATE,
 		actors: ALL_NON_MIGRATION,
 		emitsSpec: false
 	},
 	"gate:decided": {
 		payload: GateDecidedPayload,
+		entrySchemaVersion: 1,
 		subStates: new Set(["SPEC.design", "VERIFY.accept"]),
 		actors: HUMAN_ONLY,
 		emitsSpec: false
 	},
 	"session:started": {
 		payload: SessionStartedPayload,
+		entrySchemaVersion: 1,
 		subStates: ANY_SUB_STATE,
 		actors: ALL_NON_MIGRATION,
 		emitsSpec: false
 	},
 	"session:resumed": {
 		payload: SessionResumedPayload,
+		entrySchemaVersion: 1,
 		subStates: ANY_SUB_STATE,
 		actors: ALL_NON_MIGRATION,
 		emitsSpec: false
 	},
 	"session:delivered": {
 		payload: SessionReasonPayload,
+		entrySchemaVersion: 1,
 		subStates: new Set([
 			"EXECUTE.done",
 			"VERIFY.accept",
@@ -4320,30 +4344,35 @@ const KIND_REGISTRY = {
 	},
 	"session:archived": {
 		payload: SessionReasonPayload,
+		entrySchemaVersion: 1,
 		subStates: ANY_NON_DONE,
 		actors: HUMAN_ONLY,
 		emitsSpec: false
 	},
 	"session:abandoned": {
 		payload: SessionReasonPayload,
+		entrySchemaVersion: 1,
 		subStates: ANY_NON_DONE,
 		actors: HUMAN_ONLY,
 		emitsSpec: false
 	},
 	"spike:converted": {
 		payload: SpikeConvertedPayload,
+		entrySchemaVersion: 1,
 		subStates: ANY_NON_DONE,
 		actors: HUMAN_ONLY,
 		emitsSpec: false
 	},
 	"migration:snapshot_imported": {
 		payload: MigrationSnapshotImportedPayload,
+		entrySchemaVersion: 1,
 		subStates: ANY_SUB_STATE,
 		actors: MIGRATION_ONLY,
 		emitsSpec: false
 	}
 };
 const ALL_KINDS = Object.keys(KIND_REGISTRY);
+const ENTRY_SCHEMA_VERSIONS = Object.fromEntries(ALL_KINDS.map((kind) => [kind, KIND_REGISTRY[kind].entrySchemaVersion]));
 const PER_KIND_PAYLOAD = Object.fromEntries(ALL_KINDS.map((k) => [k, KIND_REGISTRY[k].payload]));
 Object.fromEntries(ALL_KINDS.map((k) => [k, KIND_REGISTRY[k].subStates]));
 Object.fromEntries(ALL_KINDS.map((k) => [k, KIND_REGISTRY[k].actors]));
@@ -11426,7 +11455,7 @@ function buildScopeClosureEntries(actor, iteration, paths, at) {
 	return [{
 		at,
 		actor,
-		entry_schema_version: 1,
+		entry_schema_version: ENTRY_SCHEMA_VERSIONS["scope:recorded"],
 		kind: "scope:recorded",
 		payload: {
 			iteration,
@@ -11435,7 +11464,7 @@ function buildScopeClosureEntries(actor, iteration, paths, at) {
 	}, {
 		at,
 		actor,
-		entry_schema_version: 1,
+		entry_schema_version: ENTRY_SCHEMA_VERSIONS["event:phase_advanced"],
 		kind: "event:phase_advanced",
 		payload: {
 			from: "EXECUTE.work",
@@ -12340,7 +12369,7 @@ function createCommandMutator(ctx, deps) {
 		const stamp = (e) => ({
 			at: now,
 			actor: e.actor,
-			entry_schema_version: 1,
+			entry_schema_version: ENTRY_SCHEMA_VERSIONS[e.kind],
 			kind: e.kind,
 			payload: e.payload
 		});
@@ -12352,7 +12381,7 @@ function createCommandMutator(ctx, deps) {
 		return runPreparedBatch(featureDir, session, entries.map((entry) => ({
 			at: sharedAt ?? (/* @__PURE__ */ new Date()).toISOString(),
 			actor: entry.actor,
-			entry_schema_version: 1,
+			entry_schema_version: ENTRY_SCHEMA_VERSIONS[entry.kind],
 			kind: entry.kind,
 			payload: entry.payload
 		})), options.route ?? "emit-failure");
@@ -12370,7 +12399,7 @@ function createCommandMutator(ctx, deps) {
 				partials: plan.entries.map((entry) => ({
 					at: sharedAt ?? (/* @__PURE__ */ new Date()).toISOString(),
 					actor: entry.actor,
-					entry_schema_version: 1,
+					entry_schema_version: ENTRY_SCHEMA_VERSIONS[entry.kind],
 					kind: entry.kind,
 					payload: entry.payload
 				}))
@@ -17157,8 +17186,8 @@ function renderSpecStatusText(env, i18n) {
 //#region src/cli/spec-submit-batch.ts
 /** Build the canonical spec-submit batch: 1 head `event:spec_submitted`
 *  + N `event:spec_req_added` + M `event:spec_scenario_added` + K
-*  `event:spec_visual_added`. All entries share `at` / `actor` /
-*  `entry_schema_version` / payload's `spec_version`. */
+*  `event:spec_visual_added`. All entries share `at` / `actor` and the
+*  payload's `spec_version`; each uses its kind's current entry version. */
 function buildSpecSubmitBatch(args) {
 	const { input, snapshot, actor, now } = args;
 	const currentVersion = snapshot.state?.spec_version ?? 0;
@@ -17166,7 +17195,7 @@ function buildSpecSubmitBatch(args) {
 	const entries = [{
 		at: now,
 		actor,
-		entry_schema_version: 1,
+		entry_schema_version: ENTRY_SCHEMA_VERSIONS["event:spec_submitted"],
 		kind: "event:spec_submitted",
 		payload: {
 			spec_version: specVersion,
@@ -17179,7 +17208,7 @@ function buildSpecSubmitBatch(args) {
 	for (const req of input.requirements) entries.push({
 		at: now,
 		actor,
-		entry_schema_version: 1,
+		entry_schema_version: ENTRY_SCHEMA_VERSIONS["event:spec_req_added"],
 		kind: "event:spec_req_added",
 		payload: {
 			spec_version: specVersion,
@@ -17189,7 +17218,7 @@ function buildSpecSubmitBatch(args) {
 	for (const scen of input.scenarios) entries.push({
 		at: now,
 		actor,
-		entry_schema_version: 1,
+		entry_schema_version: ENTRY_SCHEMA_VERSIONS["event:spec_scenario_added"],
 		kind: "event:spec_scenario_added",
 		payload: {
 			spec_version: specVersion,
@@ -17199,7 +17228,7 @@ function buildSpecSubmitBatch(args) {
 	for (const vis of input.visual_contracts) entries.push({
 		at: now,
 		actor,
-		entry_schema_version: 1,
+		entry_schema_version: ENTRY_SCHEMA_VERSIONS["event:spec_visual_added"],
 		kind: "event:spec_visual_added",
 		payload: {
 			spec_version: specVersion,
