@@ -2,7 +2,7 @@
 // facts that were scattered across journal-entry.ts (payload schema),
 // reducer/per-kind.ts (sub_state + actor authority), and journal-mutate.ts
 // (spec-emitting), plus current entry versions previously in migration.ts.
-// Adding a kind is now one registry entry.
+// Static per-kind metadata is defined in one registry entry.
 //
 // METADATA ONLY (ADR-0005 split, see reducer/per-kind.ts history): the registry
 // holds static facts. Stateful per-kind refines (reducer apply, preflight step
