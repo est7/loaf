@@ -9,7 +9,7 @@
 // Remaining kinds — task lifecycle, evidence, findings, pending, settle, etc.
 // — land incrementally in Stages 2-4 alongside their projections.
 
-import type { Ceremony, EntryKind, GateName, JournalEntry, SubState } from "./journal-entry.js";
+import type { Ceremony, GateName, JournalEntry, SubState } from "./journal-entry.js";
 import { diagnostic } from "./error-catalog.js";
 import type { PreflightFailureCode } from "./reducer/preflight.js";
 import { extractTaskSlim, shouldPromoteToDone } from "./task-schema.js";
@@ -689,7 +689,7 @@ export function applyValidated(prev: Snapshot, entry: JournalEntry): ApplyResult
       // (typed payload `resumed_from_pack: {at, reason, session_id}`),
       // but the cursor / projection state stays exactly where it was.
       // Per codex r343 P3, an explicit case keeps the switch honest
-      // with REDUCER_IMPLEMENTED_KINDS.
+      // under the compiler-enforced exhaustive switch.
       return { ok: true, snapshot: prev };
     }
 
@@ -699,16 +699,14 @@ export function applyValidated(prev: Snapshot, entry: JournalEntry): ApplyResult
       // emitted in the same `loaf spike convert` batch — this kind does not
       // move the cursor. An explicit no-op case (rather than falling through
       // to `default` → REDUCER_NOT_IMPLEMENTED) keeps the switch honest with
-      // REDUCER_IMPLEMENTED_KINDS.
+      // the compiler-enforced exhaustive switch.
       return { ok: true, snapshot: prev };
     }
 
     default: {
-      // Audit r1 fix #5 — silent no-op was a "pass-through reducer" bug;
-      // preflight passed but projection was never mutated. Unimplemented
-      // kinds now fail-fast with REDUCER_NOT_IMPLEMENTED so the gap is
-      // visible to CI and to the journal-mutate caller.
-      const _exhaustive: EntryKind = entry.kind;
+      // Every EntryKind must have a case; missing cases fail typecheck.
+      // Keep the runtime failure for callers bypassing the typed boundary.
+      const _exhaustive: never = entry.kind;
       return {
         ok: false,
         code: "REDUCER_NOT_IMPLEMENTED",

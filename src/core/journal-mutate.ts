@@ -47,14 +47,13 @@
 //   - r1 strict per-kind payload (preflight + appendMany final validate)
 //   - r2 atomic on prevalidation fail (structuredClone snapshot accumulator;
 //                                       journal untouched if any step fails)
-//   - r2 REDUCER_IMPLEMENTED_KINDS gate before append
 //   - r3 reducer dry-run before append (each entry's apply runs on the
 //                                        clone; failure aborts before write)
 //   - r4 migration preflight-validate before append (in PER_KIND_PAYLOAD)
 //   - r5 wider rollback envelope (sidecar orphans handled by doctor)
 //
 // Direct `appendEntry` / `appendMany` calls are still possible primitives
-// but skip preflight, payload narrowing, REDUCER_IMPLEMENTED gate, sidecar
+// but skip preflight, payload narrowing, sidecar
 // promotion, and reducer dry-run. Use `mutate()` / `mutateBatch()` for the
 // audit-sanctioned end-to-end path.
 
@@ -72,7 +71,7 @@ import {
 import { evaluateSpecLock } from "./gates/spec-lock-eval.js";
 import { evaluateVerifyAccept } from "./gates/verify-accept-eval.js";
 import type { JournalEntry } from "./journal-entry.js";
-import { REDUCER_IMPLEMENTED_KINDS, SPEC_EMITTING_KINDS } from "./kind-registry.js";
+import { SPEC_EMITTING_KINDS } from "./kind-registry.js";
 import { writeProjections } from "./projection-writer.js";
 import type { Snapshot } from "./reducer.js";
 import { admitEntry } from "./entry-admission.js";
@@ -353,7 +352,7 @@ async function mutateBatchUnderLease(
   // Per protocol §11.2 + codex r12/r13: validate the ENTIRE batch first
   // (no disk I/O), promote sidecars, then re-validate the promoted form
   // before appending. Three passes:
-  //   Pass 1 — preflight + REDUCER_IMPLEMENTED gate + reducer dry-run on
+  //   Pass 1 — preflight + reducer dry-run on
   //            UNPROMOTED candidates (snapshot accumulator threads through
   //            so chained kinds see each other's projection).
   //   Pass 2 — sidecar promotion (only reached if Pass 1 succeeded).
@@ -418,16 +417,6 @@ async function mutateBatchUnderLease(
         message: dryRun.message,
         failed_index: i,
         detail: dryRun.code === "NO_SESSION" ? { code: dryRun.code } : dryRun.detail,
-      };
-    }
-
-    if (!REDUCER_IMPLEMENTED_KINDS.has(candidate.kind)) {
-      return {
-        ok: false,
-        code: "REDUCER_ERROR",
-        message: `reducer has no handler for kind=${candidate.kind}; refusing to append (would orphan a journal entry)`,
-        failed_index: i,
-        detail: { kind: candidate.kind },
       };
     }
 

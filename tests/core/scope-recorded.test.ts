@@ -138,7 +138,6 @@ describe("scope:recorded registry and authority", () => {
   test("registry row is exact", () => {
     const row = KIND_REGISTRY["scope:recorded"];
     expect(row.payload).toBe(ScopeRecordedPayload);
-    expect(row.reducerImplemented).toBe(true);
     expect(row.subStates).toEqual(new Set(["EXECUTE.work"]));
     expect(row.actors).toEqual(["cli"]);
     expect(row.emitsSpec).toBe(false);

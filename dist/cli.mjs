@@ -2277,7 +2277,7 @@ const ERROR_CATALOG = {
 	REDUCER_NOT_IMPLEMENTED: {
 		exit_code: 2,
 		message_template: "reducer has no handler for journal kind {kind}",
-		fix_template: "do not append this kind until REDUCER_IMPLEMENTED_KINDS and reducer.apply both support it",
+		fix_template: "implement the journal kind in the exhaustive reducer switch before appending it",
 		template_keys: ["kind"],
 		doc_anchor: "protocol.md#§11.2"
 	},
@@ -3552,14 +3552,12 @@ function actorPrefix(actor) {
 const KIND_REGISTRY = {
 	"event:phase_advanced": {
 		payload: PhaseAdvancedPayload,
-		reducerImplemented: true,
 		subStates: ANY_SUB_STATE,
 		actors: ALL_NON_MIGRATION,
 		emitsSpec: false
 	},
 	"event:ceremony_set": {
 		payload: CeremonyPayload,
-		reducerImplemented: true,
 		subStates: new Set([
 			"TRIAGE.score",
 			"TRIAGE.confirm",
@@ -3571,154 +3569,132 @@ const KIND_REGISTRY = {
 	},
 	"event:tasks_planned": {
 		payload: TasksPlannedPayload,
-		reducerImplemented: true,
 		subStates: new Set(["SPEC.design", "EXECUTE.plan"]),
 		actors: ALL_NON_MIGRATION,
 		emitsSpec: false
 	},
 	"event:tasks_amended": {
 		payload: TasksAmendedPayload,
-		reducerImplemented: true,
 		subStates: new Set(VERIFY_OR_POST_LOCK_EXECUTE),
 		actors: ALL_NON_MIGRATION,
 		emitsSpec: false
 	},
 	"event:task_claimed": {
 		payload: TaskRefPayload,
-		reducerImplemented: true,
 		subStates: new Set(["EXECUTE.work"]),
 		actors: ALL_NON_MIGRATION,
 		emitsSpec: false
 	},
 	"event:task_step_started": {
 		payload: TaskStepRefPayload,
-		reducerImplemented: true,
 		subStates: new Set(["EXECUTE.work"]),
 		actors: ALL_NON_MIGRATION,
 		emitsSpec: false
 	},
 	"event:task_step_done": {
 		payload: TaskStepDonePayload,
-		reducerImplemented: true,
 		subStates: new Set(["EXECUTE.work"]),
 		actors: ALL_NON_MIGRATION,
 		emitsSpec: false
 	},
 	"event:task_step_reset": {
 		payload: TaskStepResetPayload,
-		reducerImplemented: true,
 		subStates: new Set(FIX_BACK_EDGE_FROM),
 		actors: CLI_ONLY,
 		emitsSpec: false
 	},
 	"event:task_abandoned": {
 		payload: TaskAbandonedPayload,
-		reducerImplemented: true,
 		subStates: new Set(["EXECUTE.work"]),
 		actors: ALL_NON_MIGRATION,
 		emitsSpec: false
 	},
 	"event:spec_req_added": {
 		payload: SpecReqAddedPayload,
-		reducerImplemented: true,
 		subStates: new Set(ALL_SPEC),
 		actors: ALL_NON_MIGRATION,
 		emitsSpec: true
 	},
 	"event:spec_scenario_added": {
 		payload: SpecScenarioAddedPayload,
-		reducerImplemented: true,
 		subStates: new Set(ALL_SPEC),
 		actors: ALL_NON_MIGRATION,
 		emitsSpec: true
 	},
 	"event:spec_visual_added": {
 		payload: SpecVisualAddedPayload,
-		reducerImplemented: true,
 		subStates: new Set(ALL_SPEC),
 		actors: ALL_NON_MIGRATION,
 		emitsSpec: true
 	},
 	"event:spec_submitted": {
 		payload: SpecSubmittedPayload,
-		reducerImplemented: true,
 		subStates: new Set(ALL_SPEC),
 		actors: ALL_NON_MIGRATION,
 		emitsSpec: true
 	},
 	"evidence:added": {
 		payload: EvidenceAddedPayload,
-		reducerImplemented: true,
 		subStates: new Set([...ALL_EXECUTE, ...VERIFY_OR_POST_LOCK_EXECUTE.filter((s) => s.startsWith("VERIFY"))]),
 		actors: ALL_NON_MIGRATION,
 		emitsSpec: false
 	},
 	"lesson:recorded": {
 		payload: LessonRecordedPayload,
-		reducerImplemented: true,
 		subStates: ANY_NON_DONE,
 		actors: HUMAN_ONLY,
 		emitsSpec: false
 	},
 	"scope:recorded": {
 		payload: ScopeRecordedPayload,
-		reducerImplemented: true,
 		subStates: new Set(["EXECUTE.work"]),
 		actors: CLI_ONLY,
 		emitsSpec: false
 	},
 	"finding:raised": {
 		payload: FindingRaisedPayload,
-		reducerImplemented: true,
 		subStates: new Set(VERIFY_OR_POST_LOCK_EXECUTE),
 		actors: ALL_NON_MIGRATION,
 		emitsSpec: false
 	},
 	"finding:closed": {
 		payload: FindingClosedPayload,
-		reducerImplemented: true,
 		subStates: new Set(VERIFY_OR_POST_LOCK_EXECUTE),
 		actors: ALL_NON_MIGRATION,
 		emitsSpec: false
 	},
 	"pending:added": {
 		payload: PendingAddedPayload,
-		reducerImplemented: true,
 		subStates: ANY_SUB_STATE,
 		actors: ALL_NON_MIGRATION,
 		emitsSpec: false
 	},
 	"pending:resolved": {
 		payload: PendingResolvedPayload,
-		reducerImplemented: true,
 		subStates: ANY_SUB_STATE,
 		actors: ALL_NON_MIGRATION,
 		emitsSpec: false
 	},
 	"gate:decided": {
 		payload: GateDecidedPayload,
-		reducerImplemented: true,
 		subStates: new Set(["SPEC.design", "VERIFY.accept"]),
 		actors: HUMAN_ONLY,
 		emitsSpec: false
 	},
 	"session:started": {
 		payload: SessionStartedPayload,
-		reducerImplemented: true,
 		subStates: ANY_SUB_STATE,
 		actors: ALL_NON_MIGRATION,
 		emitsSpec: false
 	},
 	"session:resumed": {
 		payload: SessionResumedPayload,
-		reducerImplemented: true,
 		subStates: ANY_SUB_STATE,
 		actors: ALL_NON_MIGRATION,
 		emitsSpec: false
 	},
 	"session:delivered": {
 		payload: SessionReasonPayload,
-		reducerImplemented: true,
 		subStates: new Set([
 			"EXECUTE.done",
 			"VERIFY.accept",
@@ -3729,28 +3705,24 @@ const KIND_REGISTRY = {
 	},
 	"session:archived": {
 		payload: SessionReasonPayload,
-		reducerImplemented: true,
 		subStates: ANY_NON_DONE,
 		actors: HUMAN_ONLY,
 		emitsSpec: false
 	},
 	"session:abandoned": {
 		payload: SessionReasonPayload,
-		reducerImplemented: true,
 		subStates: ANY_NON_DONE,
 		actors: HUMAN_ONLY,
 		emitsSpec: false
 	},
 	"spike:converted": {
 		payload: SpikeConvertedPayload,
-		reducerImplemented: true,
 		subStates: ANY_NON_DONE,
 		actors: HUMAN_ONLY,
 		emitsSpec: false
 	},
 	"migration:snapshot_imported": {
 		payload: MigrationSnapshotImportedPayload,
-		reducerImplemented: true,
 		subStates: ANY_SUB_STATE,
 		actors: MIGRATION_ONLY,
 		emitsSpec: false
@@ -3758,7 +3730,6 @@ const KIND_REGISTRY = {
 };
 const ALL_KINDS = Object.keys(KIND_REGISTRY);
 const PER_KIND_PAYLOAD = Object.fromEntries(ALL_KINDS.map((k) => [k, KIND_REGISTRY[k].payload]));
-const REDUCER_IMPLEMENTED_KINDS = new Set(ALL_KINDS.filter((k) => KIND_REGISTRY[k].reducerImplemented));
 Object.fromEntries(ALL_KINDS.map((k) => [k, KIND_REGISTRY[k].subStates]));
 Object.fromEntries(ALL_KINDS.map((k) => [k, KIND_REGISTRY[k].actors]));
 const SPEC_EMITTING_KINDS = new Set(ALL_KINDS.filter((k) => KIND_REGISTRY[k].emitsSpec));
@@ -11643,13 +11614,6 @@ async function mutateBatchUnderLease(partials, ctx) {
 			message: dryRun.message,
 			failed_index: i,
 			detail: dryRun.code === "NO_SESSION" ? { code: dryRun.code } : dryRun.detail
-		};
-		if (!REDUCER_IMPLEMENTED_KINDS.has(candidate.kind)) return {
-			ok: false,
-			code: "REDUCER_ERROR",
-			message: `reducer has no handler for kind=${candidate.kind}; refusing to append (would orphan a journal entry)`,
-			failed_index: i,
-			detail: { kind: candidate.kind }
 		};
 		if (!dryRun.ok) return {
 			ok: false,

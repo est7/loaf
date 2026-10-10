@@ -400,7 +400,7 @@ describe("mutate — transactional journal write (audit r1 Blocker #3)", () => {
   // Audit r3 Blocker — mutate must NOT pollute the journal when the reducer
   // hits a STATE invariant (not just unimplemented kind). codex r3 repro:
   // pending:resolved with id not matching FIFO head — preflight ok,
-  // REDUCER_IMPLEMENTED ok, but reducer fails PENDING_NOT_FOUND. Before
+  // Admission passes, but reducer fails PENDING_NOT_FOUND. Before
   // the dry-run-before-append fix, journal grew 1→2.
   test("mutate refuses to append when reducer state invariant fails (pending:resolved with bad id)", async () => {
     const dir = await tmpFeatureDir();
@@ -1457,9 +1457,9 @@ prose body here
   // ── F: session:resumed mutate-batch happy path (Phase 16 SC-13b) ─────────
   // Replaces the previous "unimplemented kind" exercise. After SC-13b,
   // session:resumed is a typed reducer no-op kind; mutate appends one
-  // entry + snapshot stays unchanged. The REDUCER_IMPLEMENTED gate is
-  // still exercised by `tests/core/reducer.test.ts` via the
-  // "REDUCER_IMPLEMENTED_KINDS covers every EntryKind" invariant.
+  // entry + snapshot stays unchanged. The reducer switch is exhaustive at
+  // compile time; reducer.test.ts also exercises record-only cases through
+  // admission with active sessions and valid payloads.
   test("F. session:resumed mid-batch: appends entry + sub_state unchanged", async () => {
     const dir = await tmpFeatureDir();
     const boot = await mutate(

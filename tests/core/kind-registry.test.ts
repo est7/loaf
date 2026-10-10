@@ -1,4 +1,4 @@
-// L2 — kind-registry preservation. Pins the five derived surfaces against
+// L2 — kind-registry preservation. Pins the four derived surfaces against
 // EXPLICIT legacy fixtures transcribed from the pre-L2 source (NOT
 // derived-vs-derived — codex's non-tautological requirement). Payload schemas
 // are compared by reference identity (toBe); sub_state guards by sentinel
@@ -41,7 +41,6 @@ import {
   PER_KIND_ACTOR,
   PER_KIND_PAYLOAD,
   PER_KIND_SUB_STATE,
-  REDUCER_IMPLEMENTED_KINDS,
   SPEC_EMITTING_KINDS,
 } from "../../src/core/kind-registry.js";
 import { ANY_NON_DONE, ANY_SUB_STATE } from "../../src/core/kind-guards.js";
@@ -53,50 +52,9 @@ describe("kind-registry — totality + invariants", () => {
     expect(sorted(Object.keys(KIND_REGISTRY))).toEqual(sorted(EntryKind.options));
     expect(Object.keys(KIND_REGISTRY)).toHaveLength(28);
   });
-
-  test("every emitsSpec kind is reducerImplemented", () => {
-    for (const [kind, meta] of Object.entries(KIND_REGISTRY)) {
-      if (meta.emitsSpec) expect(meta.reducerImplemented, kind).toBe(true);
-    }
-  });
 });
 
 describe("preservation — set surfaces (legacy fixtures)", () => {
-  test("REDUCER_IMPLEMENTED_KINDS == all 28 kinds", () => {
-    expect(sorted(REDUCER_IMPLEMENTED_KINDS)).toEqual(
-      sorted([
-        "event:phase_advanced",
-        "event:ceremony_set",
-        "event:tasks_planned",
-        "event:tasks_amended",
-        "event:task_claimed",
-        "event:task_step_started",
-        "event:task_step_done",
-        "event:task_step_reset",
-        "event:task_abandoned",
-        "event:spec_req_added",
-        "event:spec_scenario_added",
-        "event:spec_visual_added",
-        "event:spec_submitted",
-        "evidence:added",
-        "lesson:recorded",
-        "scope:recorded",
-        "finding:raised",
-        "finding:closed",
-        "pending:added",
-        "pending:resolved",
-        "gate:decided",
-        "session:started",
-        "session:resumed",
-        "session:delivered",
-        "session:archived",
-        "session:abandoned",
-        "spike:converted",
-        "migration:snapshot_imported",
-      ]),
-    );
-  });
-
   test("SPEC_EMITTING_KINDS == the 4 spec_* kinds", () => {
     expect(sorted(SPEC_EMITTING_KINDS)).toEqual([
       "event:spec_req_added",

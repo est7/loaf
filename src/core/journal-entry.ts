@@ -455,8 +455,8 @@ export type GateDecidedPayload = z.infer<typeof GateDecidedPayload>;
 // fields the reducer dereferences. PER_KIND_PAYLOAD is parsed at preflight
 // (§11.2 step 3) AND at append (step 5 final validate), so any payload that
 // would later cause reducer.apply to error is rejected BEFORE journal.append.
-// Kinds that the reducer has not yet implemented fall to RecordPayload + a
-// runtime "reducer-implemented" gate in journal-mutate.ts.
+// The registry is total over EntryKind, and the reducer switch is exhaustive
+// at compile time; no separate runtime implementation inventory is needed.
 
 export const TaskRefPayload = z.object({ task_id: TaskIdPayload }).passthrough();
 
@@ -705,6 +705,5 @@ export const SpecVisualAddedPayload = z
   .passthrough();
 export type SpecVisualAddedPayload = z.infer<typeof SpecVisualAddedPayload>;
 
-// PER_KIND_PAYLOAD + REDUCER_IMPLEMENTED_KINDS moved to kind-registry.ts (L2):
-// they are now derived from the single per-kind metadata registry. The payload
-// schema consts above are exported and imported by name from kind-registry.ts.
+// PER_KIND_PAYLOAD is derived from the metadata registry in kind-registry.ts.
+// The payload schema consts above are exported and imported by name there.

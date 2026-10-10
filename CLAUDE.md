@@ -97,7 +97,7 @@ Keep input schemas strict. Do not accept caller-owned IDs or journal envelope fi
 - **Real-FS integration**: `tests/core/cli.test.ts` uses `runCli([...argv])` (helper at top of file) with `fs.mkdtemp` per case. No mocking. Tests cover the full mutator pipeline + reducer apply.
 - **Stable core unit tests**: live under `tests/core/`; representative files include `tests/core/journal-mutate.test.ts`, `tests/core/reducer.test.ts`, and `tests/core/preflight-validation.test.ts`. Table-driven where shape allows.
 - **Seed helpers**: `seedFeatureAtSpecDesign` / `seedFeatureAtVerifyAccept` / `seedAtSpecProposalPostSubmit` chain `event:phase_advanced` entries to set up sub_state-specific fixtures. Reuse rather than re-roll.
-- **Per-kind payload fixtures**: `tests/core/per-kind-fixture-builder.ts` synthesizes the minimum valid payload for any kind in `REDUCER_IMPLEMENTED_KINDS` — drives `per-kind-substate.test.ts`'s sub_state × kind matrix.
+- **Per-kind payload fixtures**: `tests/core/per-kind-fixture-builder.ts` derives representative authority anchors from the registry; `per-kind-substate.test.ts` supplies schema-valid payloads for those probes. The reducer switch must cover every `EntryKind` at compile time.
 
 ## Planning workflow (session-spanning)
 
@@ -134,7 +134,7 @@ Not published to npm (`npm view loaf-cli` → 404). The CLI is distributed **str
 
 ## Don'ts
 
-- Don't bypass `mutateBatch` — direct `appendEntry` / `appendMany` calls skip preflight + reducer dry-run + sidecar promote + REDUCER_IMPLEMENTED gate. Reserved for migration / doctor only.
+- Don't bypass `mutateBatch` — direct `appendEntry` / `appendMany` calls skip preflight + reducer dry-run + sidecar promote. Reserved for migration / doctor only.
 - Don't introduce side-files for state. Single typed journal — every projection field must be derivable by replay.
 - Don't write spec.md / tasks.json / etc. as truth — they are derived projections.
 - Don't add `.passthrough()` on closed-enum fields — caller typos (e.g. `gate-decision` vs `gate_decision`) silently bypass invariants (Slice 3 SC1 r64 BLOCK).

@@ -156,9 +156,8 @@ Don't trust the CLI to silently coerce.
 ## 8. Use `mutateBatch` (CLI verbs), never `appendEntry` / `appendMany` directly
 
 **Symptom**: a tool that imported `appendEntry` from a deep
-`src/core/` path bypasses preflight, reducer dry-run, sidecar promote,
-and the `REDUCER_IMPLEMENTED_KINDS` gate. Subsequent CLI reads then
-fail with `JOURNAL_CORRUPTION` or `SNAPSHOT_STALE_REBUILD_REQUIRED`.
+`src/core/` path bypasses preflight, reducer dry-run, and sidecar promote.
+Subsequent CLI reads then fail with `JOURNAL_CORRUPTION` or `SNAPSHOT_STALE_REBUILD_REQUIRED`.
 
 **Root cause**: `mutateBatch` is the *only* transactional API.
 `appendEntry` / `appendMany` are private surfaces reserved for

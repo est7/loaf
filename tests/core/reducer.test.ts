@@ -11,7 +11,7 @@ import { describe, expect, test } from "vitest";
 
 import { admitEntry } from "../../src/core/entry-admission.js";
 import { initialSnapshot } from "../../src/core/reducer.js";
-import type { Ceremony } from "../../src/core/journal-entry.js";
+import type { Ceremony, JournalEntry } from "../../src/core/journal-entry.js";
 
 const STANDARD_CEREMONY: Ceremony = {
   spec_phase: true,
@@ -513,167 +513,91 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
     expect(JSON.stringify(result.snapshot)).toBe(before);
   });
 
-  // Phase 16 SC-13b — after `session:resumed` lands, REDUCER_IMPLEMENTED_KINDS
-  // covers every EntryKind. Codex r343 P2: positive invariant replaces
-  // the previous "non-empty unimplemented set" guard. Future EntryKind
-  // additions must implement reducer support to keep this invariant.
-  test("REDUCER_IMPLEMENTED_KINDS covers every EntryKind (Phase 16 SC-13b lock)", async () => {
-    const { REDUCER_IMPLEMENTED_KINDS } = await import("../../src/core/kind-registry.js");
-    const { EntryKind } = await import("../../src/core/journal-entry.js");
-    const allKinds = EntryKind.options as readonly string[];
-    const missing = allKinds.filter((k) => !REDUCER_IMPLEMENTED_KINDS.has(k as never));
-    expect(missing, `unimplemented kinds: ${missing.join(", ")}`).toEqual([]);
-  });
-
-  // Audit r3 Medium — REDUCER_IMPLEMENTED_KINDS in journal-entry.ts is
-  // manually synced with reducer.ts switch cases. Lock the invariant with
-  // a test: every kind in REDUCER_IMPLEMENTED_KINDS must NOT return
-  // REDUCER_NOT_IMPLEMENTED when fed a minimal envelope-valid entry.
-  test("REDUCER_IMPLEMENTED_KINDS is consistent with reducer.ts switch coverage", async () => {
-    const { REDUCER_IMPLEMENTED_KINDS } = await import("../../src/core/kind-registry.js");
-    const refStub = { path: "x", sha256: "0".repeat(64), size: 0 };
-    const payloadFor: Record<string, unknown> = {
-      "session:started": {
-        session_id: "550e8400-e29b-41d4-a716-446655440000",
-        feature: "stub",
-        ceremony: STANDARD_CEREMONY,
-      },
-      "migration:snapshot_imported": {
-        source_schema_version: 1,
-        migrated_at: "2026-05-15T10:00:00.000Z",
-        artifacts: {
-          state: refStub,
-          tasks: refStub,
-          spec_md: refStub,
-          evidence: refStub,
-          findings: refStub,
-          pending: refStub,
+  // These entries record journal facts without changing the slim snapshot.
+  // Use an active session and valid payloads so admission reaches each case.
+  const recordOnlyEntries: Array<Pick<JournalEntry, "kind" | "actor" | "payload">> = [
+    {
+      kind: "session:resumed",
+      actor: "cli:loaf",
+      payload: {
+        resumed_from_pack: {
+          at: "2026-05-15T09:00:00.000Z",
+          reason: "Continuing from a resume pack",
+          session_id: "550e8400-e29b-41d4-a716-446655440000",
         },
       },
-      "event:phase_advanced": { from: "TRIAGE.score", to: "TRIAGE.confirm" },
-      "event:ceremony_set": STANDARD_CEREMONY,
-      "event:tasks_planned": {
-        based_on: { spec: 1 },
-        tasks: [
+    },
+    {
+      kind: "lesson:recorded",
+      actor: "human:est9",
+      payload: {
+        id: "LSN-001",
+        iteration: 1,
+        reason: "Record the verified lesson",
+        summary: "A useful lesson",
+      },
+    },
+    { kind: "scope:recorded", actor: "cli:loaf", payload: { iteration: 1, paths: ["src/a.ts"] } },
+    {
+      kind: "spike:converted",
+      actor: "human:est9",
+      payload: { to_feature: "F-001", reason: "Promote the spike" },
+    },
+  ];
+  for (const mode of ["mutation", "replay"] as const) {
+    test.each(recordOnlyEntries)(`$kind preserves the active snapshot in ${mode}`, (partial) => {
+      const snap = mustOk(
+        admitEntry(
+          initialSnapshot(),
           {
-            id: "T-001",
-            kind: "behavioral",
-            drives: ["REQ-AUTH-001"],
-            tests: ["StubTest.run"],
-            status: "pending",
-            depends_on: [],
-            labels: [],
-            execution: {
-              red: { applicability: "must", status: "pending", evidence_refs: [] },
-              implement: { applicability: "must", status: "pending", evidence_refs: [] },
-              refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+            seq: 0,
+            entry_id: "JE-000001",
+            at: "2026-05-15T10:00:00.000Z",
+            actor: "cli:loaf",
+            entry_schema_version: 1,
+            kind: "session:started",
+            payload: {
+              session_id: "550e8400-e29b-41d4-a716-446655440000",
+              feature: "spike",
+              ceremony: STANDARD_CEREMONY,
             },
           },
-        ],
-      },
-      "event:tasks_amended": {
-        task: {
+          { kind: "mutation", tail_seq: -1 },
+        ),
+      );
+      // Representative authority anchor; task state is a valid unstarted spike.
+      snap.state = { ...snap.state!, phase: "EXECUTE", sub_state: "EXECUTE.work" };
+      snap.tasks = [
+        {
           id: "T-001",
-          kind: "behavioral",
-          drives: ["REQ-AUTH-001"],
-          tests: ["StubTest.run"],
+          kind: "spike",
           status: "pending",
+          drives: [],
           depends_on: [],
           labels: [],
-          execution: {
-            red: { applicability: "must", status: "pending", evidence_refs: [] },
-            implement: { applicability: "must", status: "pending", evidence_refs: [] },
-            refactor: { applicability: "optional", status: "pending", evidence_refs: [] },
+          no_test_rationale: "Exploratory work without a behavior contract",
+          steps: {
+            explore: { applicability: "must", status: "pending" },
+            prototype: { applicability: "optional", status: "pending" },
+            record: { applicability: "must", status: "pending" },
           },
         },
-      },
-      "event:task_claimed": { task_id: "T-001" },
-      "event:task_step_started": { task_id: "T-001", step: "implement" },
-      "event:task_step_done": { task_id: "T-001", step: "implement", result: "passed" },
-      "event:task_step_reset": { task_id: "T-001", step: "implement", finding_id: "FND-001" },
-      "event:task_abandoned": { task_id: "T-001", reason: "round-trip fixture" },
-      "event:spec_submitted": {
-        spec_version: 1,
-        feature: { id: "F-001", name: "stub" },
-        intent: "stub intent payload at least twenty chars long",
-        adr_refs: [],
-        needs_clarification: [],
-      },
-      "event:spec_req_added": {
-        spec_version: 1,
-        req: {
-          id: "REQ-AUTH-001",
-          type: "ubiquitous",
-          response: "the system shall do something measurable here",
-          acceptance_na: true,
-          acceptance_na_reason: "covered by manual UX testing",
-        },
-      },
-      "event:spec_scenario_added": {
-        spec_version: 1,
-        scenario: {
-          id: "SCEN-AUTH-E2E-001",
-          name: "stub scenario",
-          tag: "e2e",
-          requires_acceptance: true,
-          given: ["a given precondition"],
-          when: ["a when action"],
-          then: ["a then assertion"],
-        },
-      },
-      "event:spec_visual_added": {
-        spec_version: 1,
-        visual: {
-          id: "VIS-AUTH-001",
-          target: "stub UI element target description",
-          checks: ["stub check description here"],
-          requires_visual: true,
-        },
-      },
-      "evidence:added": {
-        id: "EV-000001",
-        kind: "local-check",
-        iteration: 1,
-        actor: "cli:loaf",
-        result: "passed",
-        summary: "stub local-check evidence",
-      },
-      "finding:raised": { id: "FND-1", category: "spec-gap", action: "amend-spec" },
-      "finding:closed": { id: "FND-1" },
-      "pending:added": { id: "PEND-0001", kind: "ask_user_question", question: "stub" },
-      "pending:resolved": { id: "PEND-0001" },
-      "gate:decided": { gate_kind: "spec-lock", decision: "approved", reason: "ok" },
-      "session:delivered": { reason: "test" },
-      "session:archived": { reason: "test" },
-      "session:abandoned": { reason: "test" },
-    };
-
-    for (const kind of REDUCER_IMPLEMENTED_KINDS) {
+      ];
+      const before = structuredClone(snap);
       const result = admitEntry(
-        initialSnapshot(),
+        snap,
         {
-          seq: 0,
-          entry_id: "JE-000001",
-          at: "2026-05-15T10:00:00.000Z",
-          actor: kind === "migration:snapshot_imported" ? "migration:test" : "cli:loaf",
+          ...partial,
+          seq: 1,
+          entry_id: "JE-000002",
+          at: "2026-05-15T10:00:10.000Z",
           entry_schema_version: 1,
-          kind,
-          payload: payloadFor[kind] ?? { stub: true },
         },
-        { kind: "replay" },
+        mode === "mutation" ? { kind: mode, tail_seq: 0 } : { kind: mode },
       );
-      // The kind may legitimately fail for other reasons (NO_SESSION when
-      // state is null, sub_state authority, etc.), but it MUST NOT come
-      // back as REDUCER_NOT_IMPLEMENTED — that would mean
-      // REDUCER_IMPLEMENTED_KINDS claims coverage the switch lacks.
-      if (!result.ok) {
-        expect(
-          result.code,
-          `${kind} declared in REDUCER_IMPLEMENTED_KINDS but reducer.ts switch lacks handler`,
-        ).not.toBe("REDUCER_NOT_IMPLEMENTED");
-      }
-    }
-  });
+      expect(result).toEqual({ ok: true, snapshot: before });
+    });
+  }
 
   test("pending FIFO: pending:added then pending:resolved mutates projection", () => {
     let snap = initialSnapshot();

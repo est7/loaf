@@ -776,7 +776,7 @@ export const ERROR_CATALOG = {
     exit_code: 2,
     message_template: "reducer has no handler for journal kind {kind}",
     fix_template:
-      "do not append this kind until REDUCER_IMPLEMENTED_KINDS and reducer.apply both support it",
+      "implement the journal kind in the exhaustive reducer switch before appending it",
     template_keys: ["kind"],
     doc_anchor: "protocol.md#§11.2",
   },
