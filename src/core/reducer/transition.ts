@@ -39,6 +39,7 @@
 //
 // Spec source: protocol.md §2.1 / §5.2, ADR-0005 §10.
 
+import type { Diagnostic } from "../error-catalog.js";
 import { z } from "zod";
 
 import { GateName, PendingPromptKind, SubState, type Ceremony } from "../journal-entry.js";
@@ -304,18 +305,14 @@ export interface TransitionContext {
 
 export type TransitionResult =
   | { ok: true }
-  | {
-      ok: false;
-      code:
-        | "TRANSITION_ILLEGAL"
-        | "SETTLE_PHASE_DISABLED"
-        | "SETTLE_NOT_ACCEPTED"
-        | "SPEC_LOCK_NOT_SATISFIED"
-        | "SPEC_PHASE_FORK_VIOLATION"
-        | "VERIFY_PHASE_FORK_VIOLATION";
-      message: string;
-      detail?: Record<string, unknown>;
-    };
+  | ({ ok: false } & Diagnostic<
+      | "TRANSITION_ILLEGAL"
+      | "SETTLE_PHASE_DISABLED"
+      | "SETTLE_NOT_ACCEPTED"
+      | "SPEC_LOCK_NOT_SATISFIED"
+      | "SPEC_PHASE_FORK_VIOLATION"
+      | "VERIFY_PHASE_FORK_VIOLATION"
+    >);
 
 type TransitionFailure = Extract<TransitionResult, { ok: false }>;
 
@@ -330,7 +327,6 @@ const TRANSITION_GUARDS = {
     failure: (prev, target, ctx) => ({
       ok: false,
       code: "SPEC_PHASE_FORK_VIOLATION",
-      message: `${prev} → ${target} requires ceremony.spec_phase=true`,
       detail: { from: prev, to: target, spec_phase: ctx.ceremony.spec_phase },
     }),
   },
@@ -339,9 +335,6 @@ const TRANSITION_GUARDS = {
     failure: (prev, target, ctx) => ({
       ok: false,
       code: "SPEC_PHASE_FORK_VIOLATION",
-      message:
-        `${prev} → ${target} requires ceremony.spec_phase=false (quick); ` +
-        "profiles with spec_phase=true must traverse SPEC.*",
       detail: { from: prev, to: target, spec_phase: ctx.ceremony.spec_phase },
     }),
   },
@@ -350,7 +343,6 @@ const TRANSITION_GUARDS = {
     failure: (prev, target, ctx) => ({
       ok: false,
       code: "VERIFY_PHASE_FORK_VIOLATION",
-      message: `${prev} → ${target} requires ceremony.verify_phase=true (standard / deep)`,
       detail: { from: prev, to: target, verify_phase: ctx.ceremony.verify_phase },
     }),
   },
@@ -359,7 +351,6 @@ const TRANSITION_GUARDS = {
     failure: (prev, target, ctx) => ({
       ok: false,
       code: "SPEC_LOCK_NOT_SATISFIED",
-      message: `${prev} → ${target} requires spec_locked=true (run \`loaf gate decide spec-lock --approve\` first)`,
       detail: { from: prev, to: target, spec_locked: !!ctx.spec_locked },
     }),
   },
@@ -368,7 +359,6 @@ const TRANSITION_GUARDS = {
     failure: (prev, target, ctx) => ({
       ok: false,
       code: "SETTLE_PHASE_DISABLED",
-      message: `${prev} → ${target} requires ceremony.settle_phase=true (deep only)`,
       detail: { from: prev, to: target, settle_phase: ctx.ceremony.settle_phase },
     }),
   },
@@ -377,7 +367,6 @@ const TRANSITION_GUARDS = {
     failure: (prev, target, ctx) => ({
       ok: false,
       code: "SETTLE_NOT_ACCEPTED",
-      message: `${prev} → ${target} requires verify_accepted=true (run \`loaf gate decide verify-accept --approve\` first)`,
       detail: { from: prev, to: target, verify_accepted: !!ctx.verify_accepted },
     }),
   },
@@ -397,8 +386,7 @@ function validateBackEdge(
     return {
       ok: false,
       code: "TRANSITION_ILLEGAL",
-      message: `unknown back_edge.action ${action}`,
-      detail: { back_edge: backEdge, reason: "back_edge_action_unknown" },
+      detail: { from: prev, to: target, back_edge: backEdge, reason: "back_edge_action_unknown" },
     };
   }
 
@@ -406,7 +394,6 @@ function validateBackEdge(
     return {
       ok: false,
       code: "TRANSITION_ILLEGAL",
-      message: `back_edge action=${action} requires target=${rule.expected_target}, got ${target}`,
       detail: {
         from: prev,
         to: target,
@@ -421,7 +408,6 @@ function validateBackEdge(
     return {
       ok: false,
       code: "TRANSITION_ILLEGAL",
-      message: `back_edge action=${action} is not legal from ${prev}; allowed from ${rule.allowed_from_label}`,
       detail: {
         from: prev,
         to: target,
@@ -447,7 +433,6 @@ export function validateTransition(
     return {
       ok: false,
       code: "TRANSITION_ILLEGAL",
-      message: `cannot transition ${prev} → ${target}`,
       detail: {
         from: prev,
         to: target,

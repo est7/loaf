@@ -413,15 +413,13 @@ export const ERROR_CATALOG = {
     //   target_not_allowed — `none`-mode action raised with a target
     //                        (amend-spec / defer / backlog cannot carry one)
     exit_code: 2,
-    message_template:
-      "finding action={action} target validation failed ({reason}): task_id={task_id}, step={step}",
-    zh_message_template:
-      "finding action={action} target 校验失败({reason}):task_id={task_id}, step={step}",
+    message_template: "finding action={action} target validation failed ({reason})",
+    zh_message_template: "finding action={action} target 校验失败({reason})",
     fix_template:
       "fix-impl/fix-test require --target-task + --target-step matching the action's canonical step (fix-impl=implement, fix-test=red); amend-tasks accepts an optional but valid target; amend-spec / defer / backlog must not carry a target",
-    template_keys: ["action", "reason", "step", "task_id"],
+    template_keys: ["action", "reason"],
     doc_anchor: "protocol.md#§4.5",
-    detail_keys: ["action", "reason", "step", "task_id"],
+    detail_keys: ["action", "reason"],
   },
   // ── prune session GC — `loaf prune restore` (core slice 3; surfaced slice 6b).
   // Static messages (no placeholders): the restore CLI surface builds the
@@ -888,12 +886,11 @@ export const ERROR_CATALOG = {
   },
   NO_SESSION: {
     exit_code: 2,
-    message_template: "no session at {feature_dir} — run `loaf start <feature>` first",
-    zh_message_template: "{feature_dir} 下没有 session — 先跑 `loaf start <feature>`",
+    message_template: "no started session — run `loaf start` first",
     fix_template: "run `loaf start` before emitting non-bootstrap journal entries",
-    template_keys: ["feature_dir"],
+    template_keys: [],
     doc_anchor: "protocol.md#§10.8",
-    detail_keys: ["feature_dir"],
+    detail_keys: [],
     variants: {
       "failure.no_session.status": {
         message_template: "run `loaf start {feature}` first",
@@ -2085,10 +2082,9 @@ export type DiagnosticDetail<Code extends DiagnosticCode> = {
   [Key in DetailKeyFor<Code>]: unknown;
 } & Record<string, unknown>;
 
-export type Diagnostic<Code extends DiagnosticCode> = {
-  code: Code;
-  detail: DiagnosticDetail<Code>;
-};
+export type Diagnostic<Code extends DiagnosticCode> = Code extends DiagnosticCode
+  ? { code: Code; detail: DiagnosticDetail<Code> }
+  : never;
 
 /** Constructs a catalog diagnostic while checking its required detail keys. */
 export function diagnostic<

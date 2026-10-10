@@ -89,7 +89,7 @@ async function seedStarted(dir: string): Promise<{
       fsync: false,
     },
   );
-  if (!r.ok) throw new Error(`seed boot failed: ${r.message}`);
+  if (!r.ok) throw new Error(`seed boot failed: ${JSON.stringify(r)}`);
   return { snapshot: r.snapshot, entries: [r.entry], meta: r.meta };
 }
 

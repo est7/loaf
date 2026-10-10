@@ -70,7 +70,13 @@ export async function loadSession(
     collect_entries: true,
   });
   if (!replay.ok) {
-    throw new Error(`failed to load session at ${featureDir}: ${replay.code} — ${replay.message}`);
+    const reason =
+      replay.code === "REDUCER_REJECTED"
+        ? `entry at seq ${replay.at_seq} rejected by ${replay.diagnostic.code}`
+        : replay.message;
+    throw new Error(`failed to load session at ${featureDir}: ${replay.code} — ${reason}`, {
+      cause: replay,
+    });
   }
   // collect_entries:true above guarantees `entries` is present on a
   // successful replay. Fail fast rather than `?? []` — a silent empty

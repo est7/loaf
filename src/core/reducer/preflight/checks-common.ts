@@ -11,7 +11,6 @@ export function checkSeqMonotonic(c: EnvelopeCheckCtx): PreflightFailure | null 
     return {
       ok: false,
       code: "SEQ_NOT_MONOTONIC",
-      message: `entry.seq=${entry.seq} but expected ${expectedSeq} (tail seq=${ctx.tail_seq})`,
       detail: {
         got: entry.seq,
         expected: expectedSeq,
@@ -29,7 +28,6 @@ export function checkSubStateAuthority(c: EnvelopeCheckCtx): PreflightFailure | 
     return {
       ok: false,
       code: "SUB_STATE_AUTHORITY_VIOLATION",
-      message: `kind=${entry.kind} not allowed in sub_state=${sub_state}`,
       detail: { kind: entry.kind, sub_state },
     };
   }
@@ -43,7 +41,6 @@ export function checkActorAuthority(c: EnvelopeCheckCtx): PreflightFailure | nul
     return {
       ok: false,
       code: "ACTOR_AUTHORITY_VIOLATION",
-      message: `actor=${entry.actor} not allowed for kind=${entry.kind}`,
       detail: { kind: entry.kind, actor: entry.actor },
     };
   }
@@ -58,8 +55,11 @@ export function checkPerKindPayload(c: EnvelopeCheckCtx): PreflightResult {
     return {
       ok: false,
       code: "INVALID_PAYLOAD",
-      message: `payload schema validation failed for kind=${entry.kind}`,
-      detail: { kind: entry.kind, issues: payloadParsed.error.issues },
+      detail: {
+        kind: entry.kind,
+        issues: payloadParsed.error.issues,
+        reason: payloadParsed.error.issues.map((issue) => issue.message).join("; "),
+      },
     };
   }
   // The registry selects the schema by this exact kind. TypeScript loses that

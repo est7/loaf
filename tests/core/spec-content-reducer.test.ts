@@ -286,9 +286,7 @@ describe("reducer SPEC content handlers — Slice 1.B sub-cycle 1", () => {
     );
     expect(snap.requirements).toHaveLength(1);
 
-    snap = mustOk(
-      admitEntry(snap, entry(5, "event:spec_submitted", fullSubmittedPayload(2))),
-    );
+    snap = mustOk(admitEntry(snap, entry(5, "event:spec_submitted", fullSubmittedPayload(2))));
     expect(snap.state!.spec_version).toBe(2);
     expect(snap.requirements).toEqual([]);
     expect(snap.scenarios).toEqual([]);
@@ -359,9 +357,7 @@ describe("reducer SPEC content handlers — Slice 1.B sub-cycle 1", () => {
       };
     };
 
-    const next = mustOk(
-      admitEntry(snap, entry(4, "event:spec_req_added", fullPayload)),
-    );
+    const next = mustOk(admitEntry(snap, entry(4, "event:spec_req_added", fullPayload)));
 
     const stored = next.requirements[0]! as unknown as Record<string, unknown>;
     expect(stored["id"]).toBe("REQ-AUTH-001");
@@ -391,7 +387,11 @@ describe("reducer SPEC content handlers — Slice 1.B sub-cycle 1", () => {
       // preflight directly (was wrapped as INVALID_PAYLOAD by reducer
       // before the promotion).
       expect(result.code).toBe("SPEC_VERSION_NOT_MONOTONIC");
-      expect(result.message).toMatch(/spec_version must be/);
+      expect(result.detail).toMatchObject({
+        current_spec_version: 2,
+        payload_spec_version: 2,
+        expected_spec_version: 3,
+      });
     }
   });
 
@@ -420,7 +420,11 @@ describe("reducer SPEC content handlers — Slice 1.B sub-cycle 1", () => {
     if (!result.ok) {
       // Slice E promotion: SPEC_VERSION_BATCH_MISMATCH from preflight.
       expect(result.code).toBe("SPEC_VERSION_BATCH_MISMATCH");
-      expect(result.message).toMatch(/SPEC_VERSION_BATCH_MISMATCH|batch/i);
+      expect(result.detail).toMatchObject({
+        batch_index: 1,
+        current_spec_version: 1,
+        payload_spec_version: 2,
+      });
     }
   });
 
@@ -442,7 +446,7 @@ describe("reducer SPEC content handlers — Slice 1.B sub-cycle 1", () => {
       // Slice 4 SC1 promotion: DUPLICATE_REQ_ID is now a top-level
       // PreflightFailureCode (mirror Slice 2 SC4 DUPLICATE_TASK_ID).
       expect(result.code).toBe("DUPLICATE_REQ_ID");
-      expect(result.message).toMatch(/REQ-AUTH-001/);
+      expect(result.detail).toEqual({ id: "REQ-AUTH-001" });
     }
   });
 
@@ -465,7 +469,7 @@ describe("reducer SPEC content handlers — Slice 1.B sub-cycle 1", () => {
     expect(dup.ok).toBe(false);
     if (!dup.ok) {
       expect(dup.code).toBe("DUPLICATE_SCEN_ID");
-      expect(dup.message).toMatch(/SCEN-AUTH-E2E-001/);
+      expect(dup.detail).toEqual({ id: "SCEN-AUTH-E2E-001" });
     }
   });
 
@@ -485,15 +489,13 @@ describe("reducer SPEC content handlers — Slice 1.B sub-cycle 1", () => {
     expect(dup.ok).toBe(false);
     if (!dup.ok) {
       expect(dup.code).toBe("DUPLICATE_VIS_ID");
-      expect(dup.message).toMatch(/VIS-AUTH-001/);
+      expect(dup.detail).toEqual({ id: "VIS-AUTH-001" });
     }
   });
 
   test("event:spec_submitted with non-monotonic version is rejected", () => {
     let snap = seedAtSpecProposal();
-    snap = mustOk(
-      admitEntry(snap, entry(3, "event:spec_submitted", fullSubmittedPayload(1))),
-    );
+    snap = mustOk(admitEntry(snap, entry(3, "event:spec_submitted", fullSubmittedPayload(1))));
 
     const result = admitEntry(snap, entry(4, "event:spec_submitted", fullSubmittedPayload(1)));
     expect(result.ok).toBe(false);
@@ -501,7 +503,11 @@ describe("reducer SPEC content handlers — Slice 1.B sub-cycle 1", () => {
       // Slice E promotion: SPEC_VERSION_NOT_MONOTONIC from preflight
       // (was reducer message-string under INVALID_PAYLOAD before).
       expect(result.code).toBe("SPEC_VERSION_NOT_MONOTONIC");
-      expect(result.message).toMatch(/spec_version must be/);
+      expect(result.detail).toMatchObject({
+        current_spec_version: 1,
+        payload_spec_version: 1,
+        expected_spec_version: 2,
+      });
     }
   });
 });
@@ -533,7 +539,19 @@ describe("SPEC payload schemas — canonical truth required for replay", () => {
     );
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.message).toMatch(/payload schema|trigger/i);
+      expect(result.code).toBe("INVALID_PAYLOAD");
+      expect(result.detail.issues).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: ["req"],
+            errors: expect.arrayContaining([
+              expect.arrayContaining([
+                expect.objectContaining({ path: ["trigger"], code: "invalid_type" }),
+              ]),
+            ]),
+          }),
+        ]),
+      );
     }
   });
 
@@ -553,8 +571,9 @@ describe("SPEC payload schemas — canonical truth required for replay", () => {
     );
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.message).toMatch(
-        /payload schema|measurable|verified_by_scenarios|acceptance_na/i,
+      expect(result.code).toBe("INVALID_PAYLOAD");
+      expect(result.detail.issues).toEqual(
+        expect.arrayContaining([expect.objectContaining({ path: ["req"] })]),
       );
     }
   });
@@ -573,7 +592,10 @@ describe("SPEC payload schemas — canonical truth required for replay", () => {
     );
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.message).toMatch(/payload schema|adr_refs/i);
+      expect(result.code).toBe("INVALID_PAYLOAD");
+      expect(result.detail.issues).toEqual(
+        expect.arrayContaining([expect.objectContaining({ path: ["adr_refs"] })]),
+      );
     }
   });
 });
@@ -623,9 +645,7 @@ describe("reducer SPEC content full projection — Slice A SC1", () => {
         { id: "NC-001", question: "should refresh be skipped on idempotent GETs?" },
       ],
     };
-    const next = mustOk(
-      admitEntry(snap, entry(3, "event:spec_submitted", payload)),
-    );
+    const next = mustOk(admitEntry(snap, entry(3, "event:spec_submitted", payload)));
 
     expect(next.spec_header!.feature.id).toBe("F-007");
     expect(next.spec_header!.adr_refs).toEqual(["ADR-0042", "ADR-0099"]);
@@ -635,9 +655,7 @@ describe("reducer SPEC content full projection — Slice A SC1", () => {
 
   test("event:spec_submitted re-submit rebuilds spec_header (whole-replacement semantics)", () => {
     let snap = seedAtSpecProposal();
-    snap = mustOk(
-      admitEntry(snap, entry(3, "event:spec_submitted", fullSubmittedPayload(1))),
-    );
+    snap = mustOk(admitEntry(snap, entry(3, "event:spec_submitted", fullSubmittedPayload(1))));
     expect(snap.spec_header!.feature.id).toBe("F-001");
 
     snap = mustOk(

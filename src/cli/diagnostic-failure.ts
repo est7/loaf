@@ -149,12 +149,15 @@ function diagnosticContextRows(detail: Record<string, unknown>): string {
   return lines.join("");
 }
 
-/** Recoverable exit-2 outlet. Existing command callers migrate in later
- * slices; this renderer has no CLI/context dependency or error fallback. */
-export function writeDiagnosticFailure(
+/** Canonical message for nested replay diagnostics at existing presentation boundaries. */
+export function diagnosticMessage(
   diagnostic: CatalogDiagnostic,
-  presentation: DiagnosticPresentation,
-): 2 {
+  i18n: I18n = DEFAULT_I18N,
+): string {
+  return renderDiagnostic(diagnostic, i18n).message;
+}
+
+function renderDiagnostic(diagnostic: CatalogDiagnostic, i18n: I18n) {
   const parent = ERROR_CATALOG[diagnostic.code];
   const context = diagnostic.detail["context"] as DiagnosticContext | undefined;
   const variant = context === undefined ? undefined : DIAGNOSTIC_VARIANTS[context];
@@ -165,8 +168,18 @@ export function writeDiagnosticFailure(
   const vars = catalogVars(template, diagnostic.detail);
   const key =
     context === undefined ? `diagnostic.${diagnostic.code}` : `diagnostic_variant.${context}`;
-  const i18n = presentation.format === "json" ? DEFAULT_I18N : presentation.i18n;
   const message = i18n.t(key, vars);
+  return { parent, context, template, vars, message };
+}
+
+/** Recoverable exit-2 outlet. Existing command callers migrate in later
+ * slices; this renderer has no CLI/context dependency or error fallback. */
+export function writeDiagnosticFailure(
+  diagnostic: CatalogDiagnostic,
+  presentation: DiagnosticPresentation,
+): 2 {
+  const i18n = presentation.format === "json" ? DEFAULT_I18N : presentation.i18n;
+  const { parent, context, template, vars, message } = renderDiagnostic(diagnostic, i18n);
   if (presentation.format === "json") {
     presentation.writeStderr(
       JSON.stringify({ ok: false, code: diagnostic.code, message, detail: diagnostic.detail }) +

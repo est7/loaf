@@ -391,7 +391,7 @@ prose body here
     },
     { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
   );
-  if (!boot.ok) throw new Error(`seed boot failed: ${boot.message}`);
+  if (!boot.ok) throw new Error(`seed boot failed: ${JSON.stringify(boot)}`);
   snapshot = boot.snapshot;
   entries = entries.concat(boot.entry);
   meta = boot.meta;
@@ -412,7 +412,7 @@ prose body here
       },
       { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
     );
-    if (!r.ok) throw new Error(`seed walk failed: ${r.message}`);
+    if (!r.ok) throw new Error(`seed walk failed: ${JSON.stringify(r)}`);
     snapshot = r.snapshot;
     entries = entries.concat(r.entry);
     meta = r.meta;
@@ -454,7 +454,7 @@ prose body here
     ],
     { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
   );
-  if (!submitBatch.ok) throw new Error(`seed submit failed: ${submitBatch.message}`);
+  if (!submitBatch.ok) throw new Error(`seed submit failed: ${JSON.stringify(submitBatch)}`);
   snapshot = submitBatch.snapshot;
   entries = entries.concat(submitBatch.entries);
   meta = submitBatch.meta;
@@ -476,7 +476,7 @@ prose body here
       },
       { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
     );
-    if (!r.ok) throw new Error(`seed walk2 failed: ${r.message}`);
+    if (!r.ok) throw new Error(`seed walk2 failed: ${JSON.stringify(r)}`);
     snapshot = r.snapshot;
     entries = entries.concat(r.entry);
     meta = r.meta;
@@ -680,7 +680,7 @@ describe("loaf gate decide spec-lock — Slice 1.B sub-cycle 4 (MVP)", () => {
       },
       { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
     );
-    if (!boot.ok) throw new Error(`boot: ${boot.message}`);
+    if (!boot.ok) throw new Error(`boot: ${JSON.stringify(boot)}`);
     snapshot = boot.snapshot;
     entries = entries.concat(boot.entry);
     meta = boot.meta;
@@ -702,7 +702,7 @@ describe("loaf gate decide spec-lock — Slice 1.B sub-cycle 4 (MVP)", () => {
         },
         { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
       );
-      if (!r.ok) throw new Error(`walk: ${r.message}`);
+      if (!r.ok) throw new Error(`walk: ${JSON.stringify(r)}`);
       snapshot = r.snapshot;
       entries = entries.concat(r.entry);
       meta = r.meta;
@@ -827,7 +827,7 @@ describe("loaf gate decide spec-lock — Slice 1.B sub-cycle 4 (MVP)", () => {
       },
       { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
     );
-    if (!boot.ok) throw new Error(`boot: ${boot.message}`);
+    if (!boot.ok) throw new Error(`boot: ${JSON.stringify(boot)}`);
     snapshot = boot.snapshot;
     entries = entries.concat(boot.entry);
     meta = boot.meta;
@@ -849,7 +849,7 @@ describe("loaf gate decide spec-lock — Slice 1.B sub-cycle 4 (MVP)", () => {
         },
         { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
       );
-      if (!r.ok) throw new Error(`walk: ${r.message}`);
+      if (!r.ok) throw new Error(`walk: ${JSON.stringify(r)}`);
       snapshot = r.snapshot;
       entries = entries.concat(r.entry);
       meta = r.meta;
@@ -935,7 +935,7 @@ async function seedAbandonPlantedTasks(
       },
       { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
     );
-    if (!r.ok) throw new Error(`seed task abandon ${task.id} failed: ${r.message}`);
+    if (!r.ok) throw new Error(`seed task abandon ${task.id} failed: ${JSON.stringify(r)}`);
     snapshot = r.snapshot;
     entries = entries.concat(r.entry);
     meta = r.meta;
@@ -969,7 +969,7 @@ async function seedCompleteTask(
     },
     { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
   );
-  if (!claim.ok) throw new Error(`seedCompleteTask claim ${taskId} failed: ${claim.message}`);
+  if (!claim.ok) throw new Error(`seedCompleteTask claim ${taskId} failed: ${JSON.stringify(claim)}`);
   snapshot = claim.snapshot;
   entries = entries.concat(claim.entry);
   meta = claim.meta;
@@ -987,7 +987,7 @@ async function seedCompleteTask(
       { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
     );
     if (!done.ok)
-      throw new Error(`seedCompleteTask step ${taskId}/${stepName} failed: ${done.message}`);
+      throw new Error(`seedCompleteTask step ${taskId}/${stepName} failed: ${JSON.stringify(done)}`);
     snapshot = done.snapshot;
     entries = entries.concat(done.entry);
     meta = done.meta;
@@ -1021,7 +1021,7 @@ async function seedFeatureAtVerifyAccept(
       },
       { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
     );
-    if (!lock.ok) throw new Error(`seed-verify spec-lock failed: ${lock.message}`);
+    if (!lock.ok) throw new Error(`seed-verify spec-lock failed: ${JSON.stringify(lock)}`);
     snapshot = lock.snapshot;
     entries = entries.concat(lock.entry);
     meta = lock.meta;
@@ -1048,7 +1048,7 @@ async function seedFeatureAtVerifyAccept(
       },
       { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
     );
-    if (!r.ok) throw new Error(`seed-verify walk ${from}->${to} failed: ${r.message}`);
+    if (!r.ok) throw new Error(`seed-verify walk ${from}->${to} failed: ${JSON.stringify(r)}`);
     snapshot = r.snapshot;
     entries = entries.concat(r.entry);
     meta = r.meta;
@@ -1095,7 +1095,7 @@ async function seedFeatureAtVerifyRun(
       },
       { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
     );
-    if (!lock.ok) throw new Error(`seed-verify-run spec-lock failed: ${lock.message}`);
+    if (!lock.ok) throw new Error(`seed-verify-run spec-lock failed: ${JSON.stringify(lock)}`);
     snapshot = lock.snapshot;
     entries = entries.concat(lock.entry);
     meta = lock.meta;
@@ -1118,7 +1118,7 @@ async function seedFeatureAtVerifyRun(
       },
       { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
     );
-    if (!r.ok) throw new Error(`seed-verify-run walk ${from}->${to} failed: ${r.message}`);
+    if (!r.ok) throw new Error(`seed-verify-run walk ${from}->${to} failed: ${JSON.stringify(r)}`);
     snapshot = r.snapshot;
     entries = entries.concat(r.entry);
     meta = r.meta;
@@ -1436,7 +1436,7 @@ async function seedFeatureAtVerifyAcceptApproved(dir: string): Promise<void> {
     },
     { feature_dir: dir, snapshot, tail_seq, entries, meta, fsync: false },
   );
-  if (!result.ok) throw new Error(`seed verify-accept approve failed: ${result.message}`);
+  if (!result.ok) throw new Error(`seed verify-accept approve failed: ${JSON.stringify(result)}`);
 }
 
 /**
@@ -1496,7 +1496,7 @@ prose body here
     },
     { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
   );
-  if (!boot.ok) throw new Error(`settle-seed boot failed: ${boot.message}`);
+  if (!boot.ok) throw new Error(`settle-seed boot failed: ${JSON.stringify(boot)}`);
   snapshot = boot.snapshot;
   entries = entries.concat(boot.entry);
   meta = boot.meta;
@@ -1517,7 +1517,7 @@ prose body here
       },
       { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
     );
-    if (!r.ok) throw new Error(`settle-seed walk1 ${from}->${to} failed: ${r.message}`);
+    if (!r.ok) throw new Error(`settle-seed walk1 ${from}->${to} failed: ${JSON.stringify(r)}`);
     snapshot = r.snapshot;
     entries = entries.concat(r.entry);
     meta = r.meta;
@@ -1559,7 +1559,7 @@ prose body here
     ],
     { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
   );
-  if (!submitBatch.ok) throw new Error(`settle-seed submit failed: ${submitBatch.message}`);
+  if (!submitBatch.ok) throw new Error(`settle-seed submit failed: ${JSON.stringify(submitBatch)}`);
   snapshot = submitBatch.snapshot;
   entries = entries.concat(submitBatch.entries);
   meta = submitBatch.meta;
@@ -1581,7 +1581,7 @@ prose body here
       },
       { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
     );
-    if (!r.ok) throw new Error(`settle-seed walk2 ${from}->${to} failed: ${r.message}`);
+    if (!r.ok) throw new Error(`settle-seed walk2 ${from}->${to} failed: ${JSON.stringify(r)}`);
     snapshot = r.snapshot;
     entries = entries.concat(r.entry);
     meta = r.meta;
@@ -1660,7 +1660,7 @@ prose body here
     ],
     { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
   );
-  if (!specLockBatch.ok) throw new Error(`settle-seed spec-lock failed: ${specLockBatch.message}`);
+  if (!specLockBatch.ok) throw new Error(`settle-seed spec-lock failed: ${JSON.stringify(specLockBatch)}`);
   snapshot = specLockBatch.snapshot;
   entries = entries.concat(specLockBatch.entries);
   meta = specLockBatch.meta;
@@ -1687,7 +1687,7 @@ prose body here
       },
       { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
     );
-    if (!r.ok) throw new Error(`settle-seed walk3 ${from}->${to} failed: ${r.message}`);
+    if (!r.ok) throw new Error(`settle-seed walk3 ${from}->${to} failed: ${JSON.stringify(r)}`);
     snapshot = r.snapshot;
     entries = entries.concat(r.entry);
     meta = r.meta;
@@ -1717,7 +1717,7 @@ prose body here
     { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
   );
   if (!verifyApprove.ok)
-    throw new Error(`settle-seed verify-accept failed: ${verifyApprove.message}`);
+    throw new Error(`settle-seed verify-accept failed: ${JSON.stringify(verifyApprove)}`);
 }
 
 /**
@@ -1870,7 +1870,7 @@ describe("loaf deliver — Slice 1.D sub-cycle 2 (MVP)", () => {
       ],
       { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
     );
-    if (!lockBatch.ok) throw new Error(`spec-lock seed failed: ${lockBatch.message}`);
+    if (!lockBatch.ok) throw new Error(`spec-lock seed failed: ${JSON.stringify(lockBatch)}`);
     snapshot = lockBatch.snapshot;
     entries = entries.concat(lockBatch.entries);
     meta = lockBatch.meta;
@@ -1889,7 +1889,7 @@ describe("loaf deliver — Slice 1.D sub-cycle 2 (MVP)", () => {
         },
         { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
       );
-      if (!r.ok) throw new Error(`walk failed: ${r.message}`);
+      if (!r.ok) throw new Error(`walk failed: ${JSON.stringify(r)}`);
       snapshot = r.snapshot;
       entries = entries.concat(r.entry);
       meta = r.meta;
@@ -2006,7 +2006,7 @@ describe("loaf deliver — Slice 1.D sub-cycle 2 (MVP)", () => {
       ],
       { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
     );
-    if (!lockBatch.ok) throw new Error(`spike spec-lock seed failed: ${lockBatch.message}`);
+    if (!lockBatch.ok) throw new Error(`spike spec-lock seed failed: ${JSON.stringify(lockBatch)}`);
     snapshot = lockBatch.snapshot;
     entries = entries.concat(lockBatch.entries);
     meta = lockBatch.meta;
@@ -2028,7 +2028,7 @@ describe("loaf deliver — Slice 1.D sub-cycle 2 (MVP)", () => {
         },
         { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
       );
-      if (!r.ok) throw new Error(`spike walk EXECUTE.work failed: ${r.message}`);
+      if (!r.ok) throw new Error(`spike walk EXECUTE.work failed: ${JSON.stringify(r)}`);
       snapshot = r.snapshot;
       entries = entries.concat(r.entry);
       meta = r.meta;
@@ -2060,7 +2060,7 @@ describe("loaf deliver — Slice 1.D sub-cycle 2 (MVP)", () => {
         },
         { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
       );
-      if (!r.ok) throw new Error(`spike walk EXECUTE.done failed: ${r.message}`);
+      if (!r.ok) throw new Error(`spike walk EXECUTE.done failed: ${JSON.stringify(r)}`);
       snapshot = r.snapshot;
       entries = entries.concat(r.entry);
       meta = r.meta;
@@ -2231,7 +2231,7 @@ needs_clarification: []
       },
       { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
     );
-    if (!boot.ok) throw new Error(`no-approve seed boot failed: ${boot.message}`);
+    if (!boot.ok) throw new Error(`no-approve seed boot failed: ${JSON.stringify(boot)}`);
     snapshot = boot.snapshot;
     entries = entries.concat(boot.entry);
     meta = boot.meta;
@@ -2251,7 +2251,7 @@ needs_clarification: []
         },
         { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
       );
-      if (!r.ok) throw new Error(`walk failed: ${r.message}`);
+      if (!r.ok) throw new Error(`walk failed: ${JSON.stringify(r)}`);
       snapshot = r.snapshot;
       entries = entries.concat(r.entry);
       meta = r.meta;
@@ -2291,7 +2291,7 @@ needs_clarification: []
       ],
       { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
     );
-    if (!submitBatch.ok) throw new Error(`submit failed: ${submitBatch.message}`);
+    if (!submitBatch.ok) throw new Error(`submit failed: ${JSON.stringify(submitBatch)}`);
     snapshot = submitBatch.snapshot;
     entries = entries.concat(submitBatch.entries);
     meta = submitBatch.meta;
@@ -2311,7 +2311,7 @@ needs_clarification: []
         },
         { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
       );
-      if (!r.ok) throw new Error(`walk2 failed: ${r.message}`);
+      if (!r.ok) throw new Error(`walk2 failed: ${JSON.stringify(r)}`);
       snapshot = r.snapshot;
       entries = entries.concat(r.entry);
       meta = r.meta;
@@ -2384,7 +2384,7 @@ needs_clarification: []
       ],
       { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
     );
-    if (!lockBatch.ok) throw new Error(`lock failed: ${lockBatch.message}`);
+    if (!lockBatch.ok) throw new Error(`lock failed: ${JSON.stringify(lockBatch)}`);
     snapshot = lockBatch.snapshot;
     entries = entries.concat(lockBatch.entries);
     meta = lockBatch.meta;
@@ -2409,7 +2409,7 @@ needs_clarification: []
         },
         { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
       );
-      if (!r.ok) throw new Error(`walk3 failed: ${r.message}`);
+      if (!r.ok) throw new Error(`walk3 failed: ${JSON.stringify(r)}`);
       snapshot = r.snapshot;
       entries = entries.concat(r.entry);
       meta = r.meta;
@@ -2580,7 +2580,7 @@ needs_clarification: []
       },
       { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
     );
-    if (!boot.ok) throw new Error(`no-tasks seed boot failed: ${boot.message}`);
+    if (!boot.ok) throw new Error(`no-tasks seed boot failed: ${JSON.stringify(boot)}`);
     snapshot = boot.snapshot;
     entries = entries.concat(boot.entry);
     meta = boot.meta;
@@ -2599,7 +2599,7 @@ needs_clarification: []
         },
         { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
       );
-      if (!r.ok) throw new Error(`walk failed: ${r.message}`);
+      if (!r.ok) throw new Error(`walk failed: ${JSON.stringify(r)}`);
       snapshot = r.snapshot;
       entries = entries.concat(r.entry);
       meta = r.meta;
@@ -2639,7 +2639,7 @@ needs_clarification: []
       ],
       { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
     );
-    if (!submitBatch.ok) throw new Error(`submit failed: ${submitBatch.message}`);
+    if (!submitBatch.ok) throw new Error(`submit failed: ${JSON.stringify(submitBatch)}`);
     snapshot = submitBatch.snapshot;
     entries = entries.concat(submitBatch.entries);
     meta = submitBatch.meta;
@@ -2659,7 +2659,7 @@ needs_clarification: []
         },
         { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
       );
-      if (!r.ok) throw new Error(`walk2 failed: ${r.message}`);
+      if (!r.ok) throw new Error(`walk2 failed: ${JSON.stringify(r)}`);
       snapshot = r.snapshot;
       entries = entries.concat(r.entry);
       meta = r.meta;
@@ -2871,7 +2871,7 @@ needs_clarification: []
         fsync: false,
       },
     );
-    if (!boot.ok) throw new Error(`boot failed: ${boot.message}`);
+    if (!boot.ok) throw new Error(`boot failed: ${JSON.stringify(boot)}`);
     const tasksFile = path.join(dir, ".tasks-triage.json");
     await fsP.writeFile(tasksFile, JSON.stringify(validTasksPayload));
 
@@ -3518,7 +3518,7 @@ describe("loaf tasks list — Slice 2 SC4 (MVP)", () => {
         fsync: false,
       },
     );
-    if (!boot.ok) throw new Error(`boot failed: ${boot.message}`);
+    if (!boot.ok) throw new Error(`boot failed: ${JSON.stringify(boot)}`);
 
     const r = await runCli([
       "tasks",
@@ -3792,7 +3792,7 @@ needs_clarification: []
     },
     { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
   );
-  if (!boot.ok) throw new Error(`SC4 no-tasks seed boot failed: ${boot.message}`);
+  if (!boot.ok) throw new Error(`SC4 no-tasks seed boot failed: ${JSON.stringify(boot)}`);
   snapshot = boot.snapshot;
   entries = entries.concat(boot.entry);
   meta = boot.meta;
@@ -3811,7 +3811,7 @@ needs_clarification: []
       },
       { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
     );
-    if (!r.ok) throw new Error(`SC4 seed walk failed: ${r.message}`);
+    if (!r.ok) throw new Error(`SC4 seed walk failed: ${JSON.stringify(r)}`);
     snapshot = r.snapshot;
     entries = entries.concat(r.entry);
     meta = r.meta;
@@ -3851,7 +3851,7 @@ needs_clarification: []
     ],
     { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
   );
-  if (!submitBatch.ok) throw new Error(`SC4 seed submit failed: ${submitBatch.message}`);
+  if (!submitBatch.ok) throw new Error(`SC4 seed submit failed: ${JSON.stringify(submitBatch)}`);
   snapshot = submitBatch.snapshot;
   entries = entries.concat(submitBatch.entries);
   meta = submitBatch.meta;
@@ -3871,7 +3871,7 @@ needs_clarification: []
       },
       { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
     );
-    if (!r.ok) throw new Error(`SC4 seed walk2 failed: ${r.message}`);
+    if (!r.ok) throw new Error(`SC4 seed walk2 failed: ${JSON.stringify(r)}`);
     snapshot = r.snapshot;
     entries = entries.concat(r.entry);
     meta = r.meta;

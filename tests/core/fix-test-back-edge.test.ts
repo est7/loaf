@@ -420,7 +420,7 @@ async function seedRealJournalAt(
 
   const replay = await replayJournal(journalPath, { collect_entries: true });
   if (!replay.ok)
-    throw new Error(`seedRealJournalAt replay failed: ${replay.code} ${replay.message}`);
+    throw new Error(`seedRealJournalAt replay failed: ${replay.code} ${JSON.stringify(replay)}`);
   return {
     snapshot: replay.snapshot,
     tailSeq: replay.meta.last_applied_seq,

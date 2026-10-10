@@ -19,6 +19,7 @@ import {
   DIAGNOSTIC_VARIANTS,
   diagnosticVariant,
   type UncoveredTemplatePlaceholders,
+  type Diagnostic,
   diagnostic,
 } from "../../src/core/error-catalog.js";
 
@@ -45,6 +46,20 @@ type RejectedFixture = AssertNever<
 type _CompileTimeFixtures = CoveredFixture | RejectedFixture;
 
 if (false) {
+  const requireTransitionDetail = (record: Diagnostic<"TRANSITION_ILLEGAL" | "TASK_DEP_SELF">) => {
+    if (record.code === "TRANSITION_ILLEGAL") {
+      const detail: { from: unknown; to: unknown } = record.detail;
+      return detail;
+    }
+    return record.detail;
+  };
+  requireTransitionDetail({ code: "TRANSITION_ILLEGAL", detail: { from: "TRIAGE.score", to: "EXECUTE.done" } });
+  // @ts-expect-error union diagnostics retain the selected code's required detail fields.
+  const missingTransition: Diagnostic<"TRANSITION_ILLEGAL" | "TASK_DEP_SELF"> = {
+    code: "TRANSITION_ILLEGAL",
+    detail: { task_id: "T-1" },
+  };
+  void missingTransition;
   diagnostic("ALREADY_STARTED", { kind: "session:started" });
   diagnostic("FEATURE_NOT_FOUND", {});
   // @ts-expect-error ALREADY_STARTED requires detail.kind.

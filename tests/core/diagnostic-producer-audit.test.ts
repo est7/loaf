@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import ts from "typescript";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 import { ERROR_CATALOG } from "../../src/core/error-catalog.js";
@@ -32,6 +34,49 @@ describe("diagnostic producer audit", () => {
           `${row.file}:${row.line}`,
         ).toBeDefined();
       }
+    }
+  });
+
+  test("migrated core producers have catalog detail minimums and no prose fields", async () => {
+    const files = [
+      "entry-admission.ts",
+      "reducer.ts",
+      "task-graph.ts",
+      "reducer/preflight.ts",
+      "reducer/transition.ts",
+      ...["common", "spec", "task", "workflow"].map(
+        (name) => `reducer/preflight/checks-${name}.ts`,
+      ),
+    ];
+    for (const file of files) {
+      const source = await readFile(new URL(`../../src/core/${file}`, import.meta.url), "utf8");
+      const tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
+      const prose: string[] = [];
+      function visit(node: ts.Node) {
+        if (ts.isPropertyAssignment(node) && node.name.getText(tree) === "message")
+          prose.push(node.getText(tree));
+        ts.forEachChild(node, visit);
+      }
+      visit(tree);
+      expect(prose, file).toEqual([]);
+      const records = auditDiagnosticSource(file, source);
+      for (const record of records) {
+        if (record.code === null || record.detailKeys === null) continue;
+        const entry = ERROR_CATALOG[record.code as keyof typeof ERROR_CATALOG];
+        expect(entry, `${file}:${record.line}`).toBeDefined();
+        expect(
+          entry.detail_keys.filter((key) => !record.detailKeys!.includes(key)),
+          `${file}:${record.line}`,
+        ).toEqual([]);
+      }
+      if (file === "task-graph.ts")
+        expect(records.map((record) => record.code)).toEqual([
+          "TASK_DEP_NOT_FOUND",
+          "TASK_DEP_SELF",
+          "TASK_DEP_DUPLICATE",
+          "TASK_DEP_CYCLE",
+          "TASK_DEP_ABANDONED",
+        ]);
     }
   });
 

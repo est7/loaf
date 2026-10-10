@@ -93,7 +93,9 @@ export function auditDiagnosticSource(fileName: string, text: string): Diagnosti
       const code = fields.get("code");
       if (
         code !== undefined &&
-        (fields.has("message") || fields.get("ok")?.kind === ts.SyntaxKind.FalseKeyword)
+        (fields.has("detail") ||
+          fields.has("message") ||
+          fields.get("ok")?.kind === ts.SyntaxKind.FalseKeyword)
       ) {
         add(node, "result", code, fields.get("detail"));
       }

@@ -88,7 +88,7 @@ describe("reducer.apply — consumed snapshot contract", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe("NO_SESSION");
-      expect(result.message).toBe("kind=pending:added requires a started session");
+      expect(result.detail).toEqual({ kind: "pending:added" });
     }
   });
 
@@ -99,7 +99,7 @@ describe("reducer.apply — consumed snapshot contract", () => {
     const result = admitEntry(working, pendingAddedEntry());
 
     expect(result.ok).toBe(true);
-    if (!result.ok) throw new Error(`${result.code}: ${result.message}`);
+    if (!result.ok) throw new Error(`${result.code}: ${JSON.stringify(result)}`);
 
     expect(before.pending).toHaveLength(0);
     expect(working.pending).toEqual([

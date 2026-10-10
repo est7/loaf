@@ -18,16 +18,14 @@ export function checkGateDecided(c: PreflightCheckCtx): PreflightFailure | null 
       return {
         ok: false,
         code: "SUB_STATE_AUTHORITY_VIOLATION",
-        message: `gate:decided gate_kind=spec-lock requires sub_state=SPEC.design (got ${sub_state})`,
-        detail: { gate_kind: gateKind, sub_state, expected: "SPEC.design" },
+        detail: { kind: entry.kind, gate_kind: gateKind, sub_state, expected: "SPEC.design" },
       };
     }
     if (gateKind === "verify-accept" && sub_state !== "VERIFY.accept") {
       return {
         ok: false,
         code: "SUB_STATE_AUTHORITY_VIOLATION",
-        message: `gate:decided gate_kind=verify-accept requires sub_state=VERIFY.accept (got ${sub_state})`,
-        detail: { gate_kind: gateKind, sub_state, expected: "VERIFY.accept" },
+        detail: { kind: entry.kind, gate_kind: gateKind, sub_state, expected: "VERIFY.accept" },
       };
     }
     // Slice 3 SC4: GATE_NOT_PENDING guard on approved gate decisions.
@@ -49,9 +47,6 @@ export function checkGateDecided(c: PreflightCheckCtx): PreflightFailure | null 
             head_id: pendingHead.id,
             head_kind: pendingHead.kind,
           }),
-          message:
-            `gate:decided ${gateKind} approve blocked: pending head ${pendingHead.id} ` +
-            `(kind=${pendingHead.kind}) is not a gate_decision prompt; resolve it first`,
         };
       }
     }
@@ -73,7 +68,6 @@ export function checkPhaseAdvanced(c: PreflightCheckCtx): PreflightFailure | nul
       return {
         ok: false,
         code: "FROM_CURSOR_MISMATCH",
-        message: `event:phase_advanced payload.from=${from} but current sub_state=${sub_state}`,
         detail: { payload_from: from, current_sub_state: sub_state },
       };
     }
@@ -89,7 +83,6 @@ export function checkPhaseAdvanced(c: PreflightCheckCtx): PreflightFailure | nul
       return {
         ok: false,
         code: "PENDING_BLOCKS_ADVANCE",
-        message: `pending head ${head.id} (kind=${head.kind}) blocks \`loaf advance\` until resolved`,
         detail: { pending_id: head.id, kind: head.kind },
       };
     }
@@ -108,7 +101,6 @@ export function checkPhaseAdvanced(c: PreflightCheckCtx): PreflightFailure | nul
         return {
           ok: false,
           code: "FINDING_NOT_FOUND",
-          message: `event:phase_advanced.back_edge.finding_id=${findingId} not found in projection`,
           detail: { id: findingId, reason: "not_found" },
         };
       }
@@ -116,7 +108,6 @@ export function checkPhaseAdvanced(c: PreflightCheckCtx): PreflightFailure | nul
         return {
           ok: false,
           code: "FINDING_NOT_FOUND",
-          message: `event:phase_advanced.back_edge.finding_id=${findingId} is already_closed; only open findings can sponsor back-edges`,
           detail: { id: findingId, reason: "already_closed" },
         };
       }
@@ -124,7 +115,6 @@ export function checkPhaseAdvanced(c: PreflightCheckCtx): PreflightFailure | nul
         return {
           ok: false,
           code: "FINDING_NOT_FOUND",
-          message: `event:phase_advanced.back_edge.action=${backEdge.action} but finding ${findingId} has action=${finding.action}`,
           detail: {
             id: findingId,
             reason: "action_mismatch",
@@ -152,11 +142,6 @@ export function checkPhaseAdvanced(c: PreflightCheckCtx): PreflightFailure | nul
         return {
           ok: false,
           code: "EXECUTE_DONE_TASKS_NOT_FINAL",
-          message:
-            `cannot advance EXECUTE.work → EXECUTE.done: ${nonFinal.length} task(s) ` +
-            `are not in a final status (` +
-            nonFinal.map((t) => `${t.task_id}=${t.status}`).join(", ") +
-            `); every task must be done or abandoned`,
           detail: { non_final: nonFinal, count: nonFinal.length },
         };
       }
@@ -188,7 +173,6 @@ export function checkSessionDelivered(c: PreflightCheckCtx): PreflightFailure | 
       return {
         ok: false,
         code: "DELIVER_SPIKE_TASKS",
-        message: `cannot deliver: task ${activeSpike.id} is kind=spike (status=${activeSpike.status}); spike tasks must be abandoned or converted before delivery (protocol §703 / §1298)`,
         detail: { task_id: activeSpike.id, status: activeSpike.status },
       };
     }
@@ -206,8 +190,6 @@ export function checkSessionDelivered(c: PreflightCheckCtx): PreflightFailure | 
         return {
           ok: false,
           code: "DELIVER_NOT_ACCEPTED",
-          message:
-            "cannot deliver from EXECUTE.done: verify_phase=true (standard/deep) must complete VERIFY and deliver from VERIFY.accept; EXECUTE.done deliver is the quick/light verify-min path",
           detail: { sub_state, ceremony_label: deriveCeremonyLabel(ceremony), verify_phase: true },
         };
       }
@@ -234,7 +216,6 @@ export function checkSessionDelivered(c: PreflightCheckCtx): PreflightFailure | 
         return {
           ok: false,
           code: "BUG_TASK_RED_NOT_REGISTERED",
-          message: `behavioral bug task ${redGap.task.id} is status=done but never registered its RED test (red_test_registered≠true); cannot verify-min deliver`,
           detail: { task_id: redGap.task.id },
         };
       }
@@ -249,10 +230,6 @@ export function checkSessionDelivered(c: PreflightCheckCtx): PreflightFailure | 
         return {
           ok: false,
           code: "DELIVER_VERIFY_MIN_INCOMPLETE",
-          message:
-            `verify-min: ${missing.length} done task(s) lack the required evidence to deliver ` +
-            `(${missing.map((m) => `${m.task_id} needs ${m.required_kinds.join("/")}`).join("; ")}). ` +
-            `Add evidence (e.g. \`loaf evidence add\`) or waive, then re-deliver`,
           detail: {
             sub_state,
             ceremony_label: deriveCeremonyLabel(ceremony),
@@ -268,8 +245,6 @@ export function checkSessionDelivered(c: PreflightCheckCtx): PreflightFailure | 
         return {
           ok: false,
           code: "DELIVER_SETTLE_PHASE_BYPASS",
-          message:
-            "deliver from VERIFY.accept requires ceremony.settle_phase=false (standard); deep ceremony must run `loaf settle` first",
           detail: { sub_state, settle_phase: ceremony.settle_phase },
         };
       }
@@ -277,8 +252,6 @@ export function checkSessionDelivered(c: PreflightCheckCtx): PreflightFailure | 
         return {
           ok: false,
           code: "DELIVER_NOT_ACCEPTED",
-          message:
-            "deliver requires verify_accepted=true; run `loaf gate decide verify-accept --approve` first",
           detail: { sub_state, verify_accepted },
         };
       }
@@ -291,8 +264,6 @@ export function checkSessionDelivered(c: PreflightCheckCtx): PreflightFailure | 
         return {
           ok: false,
           code: "DELIVER_NOT_ACCEPTED",
-          message:
-            "deliver from SETTLE.lessons requires verify_accepted=true (gate approval missing — journal may be inconsistent)",
           detail: { sub_state, verify_accepted },
         };
       }
@@ -320,8 +291,7 @@ export function checkSpikeConverted(c: PreflightCheckCtx): PreflightFailure | nu
       return {
         ok: false,
         code: "SPIKE_CONVERT_NO_SPIKE_TASK",
-        message:
-          "cannot convert: the session has no non-abandoned spike task; `loaf spike convert` is a spike-task exit (protocol §8.3)",
+        detail: {},
       };
     }
   }
@@ -348,9 +318,6 @@ export function checkCeremonySet(c: PreflightCheckCtx): PreflightFailure | null 
         return {
           ok: false,
           code: "ESCALATION_NOT_PENDING",
-          message:
-            "`loaf profile escalate --confirm --input <ceremony.json>` requires pending head " +
-            `kind=profile_escalation; current head: ${actualHead}`,
           detail: { actual_head: actualHead },
         };
       }
@@ -379,7 +346,6 @@ export function checkSessionTerminalReason(c: PreflightCheckCtx): PreflightFailu
       return {
         ok: false,
         code: "SESSION_REASON_REQUIRED",
-        message: `${entry.kind}: --reason is required (the session-terminal entry must record why)`,
         detail: { kind: entry.kind },
       };
     }
@@ -403,9 +369,6 @@ export function checkFindingRaised(c: PreflightCheckCtx): PreflightFailure | nul
       return {
         ok: false,
         code: "FINDING_ACTION_INCOHERENT",
-        message:
-          `finding raise category=${payload.category} × action=${payload.action} is structurally incoherent ` +
-          `(no task target a transition can land on); amend-spec first to add target before fix-impl/fix-test`,
         detail: { category: payload.category, action: payload.action },
       };
     }
@@ -420,9 +383,6 @@ export function checkFindingRaised(c: PreflightCheckCtx): PreflightFailure | nul
             current_reason_length: reasonLength,
             min_reason_length: FINDING_UNUSUAL_REASON_MIN_LENGTH,
           }),
-          message:
-            `finding raise category=${payload.category} × action=${payload.action} is an unusual cell; ` +
-            `--reason ≥${FINDING_UNUSUAL_REASON_MIN_LENGTH} chars required (got ${reasonLength})`,
         };
       }
     }
@@ -432,7 +392,6 @@ export function checkFindingRaised(c: PreflightCheckCtx): PreflightFailure | nul
         return {
           ok: false,
           code: "FINDING_TARGET_REQUIRED",
-          message: `finding raise action=${payload.action} requires --target-task + --target-step`,
           detail: { action: payload.action, reason: "missing" },
         };
       }
@@ -441,9 +400,6 @@ export function checkFindingRaised(c: PreflightCheckCtx): PreflightFailure | nul
         return {
           ok: false,
           code: "FINDING_TARGET_REQUIRED",
-          message:
-            `finding raise action=${payload.action} requires step="${expectedStep}" ` +
-            `(got step="${payload.target.step}")`,
           detail: {
             action: payload.action,
             task_id: payload.target.task_id,
@@ -463,9 +419,6 @@ export function checkFindingRaised(c: PreflightCheckCtx): PreflightFailure | nul
       return {
         ok: false,
         code: "FINDING_TARGET_REQUIRED",
-        message:
-          `finding raise action=${payload.action} does not accept a target ` +
-          `(target_payload="none"); drop --target-task / --target-step`,
         detail: {
           action: payload.action,
           task_id: payload.target.task_id,
@@ -481,7 +434,6 @@ export function checkFindingRaised(c: PreflightCheckCtx): PreflightFailure | nul
           return {
             ok: false,
             code: "FINDING_TARGET_REQUIRED",
-            message: `finding raise target.task_id=${payload.target.task_id} not found in projection`,
             detail: {
               action: payload.action,
               task_id: payload.target.task_id,
@@ -493,9 +445,6 @@ export function checkFindingRaised(c: PreflightCheckCtx): PreflightFailure | nul
           return {
             ok: false,
             code: "FINDING_TARGET_REQUIRED",
-            message:
-              `finding raise target.step=${payload.target.step} not in task ${payload.target.task_id} ` +
-              `(kind=${task.kind}) steps`,
             detail: {
               action: payload.action,
               task_id: payload.target.task_id,
@@ -519,7 +468,6 @@ export function checkFindingRaised(c: PreflightCheckCtx): PreflightFailure | nul
       return {
         ok: false,
         code: "FINDING_AMEND_SPEC_NOT_LOCKED",
-        message: `finding raise action=amend-spec requires state.spec_locked=true; spec is not locked at sub_state=${sub_state}, edit directly via 'loaf spec submit / add-*'`,
         detail: {
           current_spec_locked: false,
           current_sub_state: sub_state,
@@ -559,12 +507,7 @@ export function checkTransitionEdge(c: PreflightCheckCtx): PreflightFailure | nu
     ...(back_edge !== undefined ? { back_edge } : {}),
   });
   if (!transitionResult.ok) {
-    return {
-      ok: false,
-      code: transitionResult.code,
-      message: transitionResult.message,
-      detail: transitionResult.detail ?? {},
-    };
+    return transitionResult;
   }
   return null;
 }

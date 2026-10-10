@@ -122,7 +122,7 @@ async function seedQuickAtExecutePlan(): Promise<{ dir: string; feature: string 
         fsync: false,
       },
     );
-    if (!r.ok) throw new Error(`walk ${from}→${to} failed: ${r.code} ${r.message}`);
+    if (!r.ok) throw new Error(`walk ${from}→${to} failed: ${r.code} ${JSON.stringify(r)}`);
   }
   return { dir, feature };
 }
@@ -154,7 +154,7 @@ async function seedQuickAtExecuteWork(): Promise<{ dir: string; feature: string 
       fsync: false,
     },
   );
-  if (!r.ok) throw new Error(`walk EXECUTE.plan→EXECUTE.work failed: ${r.code} ${r.message}`);
+  if (!r.ok) throw new Error(`walk EXECUTE.plan→EXECUTE.work failed: ${r.code} ${JSON.stringify(r)}`);
   return { dir, feature };
 }
 
@@ -208,7 +208,7 @@ async function seedLightAtExecuteWorkWithTask(): Promise<{ dir: string; feature:
         fsync: false,
       },
     );
-    if (!r.ok) throw new Error(`walk ${from}→${to} failed: ${r.code} ${r.message}`);
+    if (!r.ok) throw new Error(`walk ${from}→${to} failed: ${r.code} ${JSON.stringify(r)}`);
   }
   // spec_submitted at SPEC.design (legal — ALL_SPEC sub_state authority).
   const s1 = await loadSnapshot(dir);
@@ -236,7 +236,7 @@ async function seedLightAtExecuteWorkWithTask(): Promise<{ dir: string; feature:
     },
   );
   if (!submitted.ok)
-    throw new Error(`spec_submitted failed: ${submitted.code} ${submitted.message}`);
+    throw new Error(`spec_submitted failed: ${submitted.code} ${JSON.stringify(submitted)}`);
   // tasks_planned with one behavioral task that has implement + red steps.
   const s2 = await loadSnapshot(dir);
   const planned = await mutate(
@@ -283,7 +283,7 @@ async function seedLightAtExecuteWorkWithTask(): Promise<{ dir: string; feature:
       fsync: false,
     },
   );
-  if (!planned.ok) throw new Error(`tasks_planned failed: ${planned.code} ${planned.message}`);
+  if (!planned.ok) throw new Error(`tasks_planned failed: ${planned.code} ${JSON.stringify(planned)}`);
   // Approve spec-lock so SPEC.design → EXECUTE.plan passes the guard.
   // appendEntry bypasses Pass 1.5 (evaluateSpecLock); spec_locked=true on
   // replay is all the guard needs when the advance is later replayed.
@@ -329,7 +329,7 @@ async function seedLightAtExecuteWorkWithTask(): Promise<{ dir: string; feature:
         fsync: false,
       },
     );
-    if (!r.ok) throw new Error(`walk ${from}→${to} failed: ${r.code} ${r.message}`);
+    if (!r.ok) throw new Error(`walk ${from}→${to} failed: ${r.code} ${JSON.stringify(r)}`);
   }
   return { dir, feature };
 }

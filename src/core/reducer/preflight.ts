@@ -1,3 +1,4 @@
+import type { Diagnostic } from "../error-catalog.js";
 // Preflight validation (§11.2 step 3 + ADR-0005 §3.6).
 //
 // Four-stage gate before journal append:
@@ -270,12 +271,7 @@ export type PreflightFailureCode =
 
 export type PreflightResult =
   | { ok: true; entry: AdmittedEntry }
-  | {
-      ok: false;
-      code: PreflightFailureCode;
-      message: string;
-      detail?: Record<string, unknown>;
-    };
+  | ({ ok: false } & Diagnostic<PreflightFailureCode>);
 
 // Slice C SC-C2b — §8.6 frozen-field diff for `tasks amend`. Both inputs
 // are slim TaskState projections (the incoming task is run through
@@ -327,8 +323,10 @@ export function preflight(rawEntry: unknown, ctx: PreflightContext): PreflightRe
     return {
       ok: false,
       code: "INVALID_ENVELOPE",
-      message: "JournalEntry failed envelope schema validation",
-      detail: { issues: parsed.error.issues },
+      detail: {
+        issues: parsed.error.issues,
+        reason: parsed.error.issues.map((issue) => issue.message).join("; "),
+      },
     };
   }
   const entry = parsed.data;

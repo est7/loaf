@@ -89,7 +89,7 @@ describe("typed entry admission", () => {
     const bytes = JSON.stringify(raw);
     const result = preflight(raw, { snapshot: started() });
     expect(result.ok).toBe(true);
-    if (!result.ok) throw new Error(result.message);
+    if (!result.ok) throw new Error(JSON.stringify(result));
     expect(result.entry.kind).toBe("event:spec_req_added");
     if (result.entry.kind !== "event:spec_req_added") throw new Error("expected requirement entry");
     expect(result.entry.payload.req.measurable?.direction).toBe("lte");
@@ -101,7 +101,7 @@ describe("typed entry admission", () => {
   test("reducer consumes parsed defaults, stripping and declaration order", () => {
     const result = admitEntry(started(), entry("event:spec_req_added", { spec_version: 2, req }));
     expect(result.ok).toBe(true);
-    if (!result.ok) throw new Error(result.message);
+    if (!result.ok) throw new Error(JSON.stringify(result));
     expect(result.snapshot.requirements[0]).toEqual({
       id: "REQ-AUTH-001",
       type: "ubiquitous",
@@ -162,7 +162,7 @@ describe("typed entry admission", () => {
         ctx,
       );
       expect(result.ok, JSON.stringify(result)).toBe(true);
-      if (!result.ok) throw new Error(result.message);
+      if (!result.ok) throw new Error(JSON.stringify(result));
       ctx.snapshot = result.snapshot;
       ctx.entries.push(result.entry);
       ctx.tail_seq = result.entry.seq;
@@ -224,7 +224,7 @@ describe("typed entry admission", () => {
       expect(mutationSpec.toString()).toContain("retained visual");
       const replay = await replayJournal(journalPath, { collect_entries: true });
       expect(replay.ok, JSON.stringify(replay)).toBe(true);
-      if (!replay.ok) throw new Error(replay.message);
+      if (!replay.ok) throw new Error(JSON.stringify(replay));
       expect(JSON.stringify(replay.snapshot)).toBe(JSON.stringify(ctx.snapshot));
       expect(composeSpecMdFrontmatter(replay.snapshot)).toBe(mutationSpec.toString());
       const names = await fs.readdir(path.join(dir, "snapshots"));

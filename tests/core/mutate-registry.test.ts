@@ -206,7 +206,7 @@ describe("SC-7 — mutator step 9 registry refresh", () => {
       expect(result.commit_state).toBe("committed");
       expect(result.detail?.projection).toBe("registry");
       expect(result.detail?.phase).toBe("derivation");
-      expect(result.message).toContain("test-induced derivation failure");
+      expect("message" in result && result.message).toContain("test-induced derivation failure");
     }
     // Journal IS written (mutate proper had succeeded; step 9 derivation
     // is post-append per protocol §11.2)

@@ -113,7 +113,7 @@ async function seedAtSpecProposal(): Promise<{ dir: string; feature: string }> {
         fsync: false,
       },
     );
-    if (!r.ok) throw new Error(`walk ${from}→${to} failed: ${r.code} ${r.message}`);
+    if (!r.ok) throw new Error(`walk ${from}→${to} failed: ${r.code} ${JSON.stringify(r)}`);
   }
   return { dir, feature };
 }

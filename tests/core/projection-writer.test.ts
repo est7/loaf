@@ -425,7 +425,7 @@ async function buildFullFeatureJournal(opts: { withPlan: boolean }): Promise<str
       meta,
       fsync: false,
     });
-    if (!r.ok) throw new Error(`journal build step failed: ${r.code} ${r.message}`);
+    if (!r.ok) throw new Error(`journal build step failed: ${r.code} ${JSON.stringify(r)}`);
     snapshot = r.snapshot;
     tail += partials.length;
     entries = entries.concat(r.entries);

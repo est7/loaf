@@ -101,7 +101,7 @@ async function injectPending(
       meta: s.meta,
     },
   );
-  if (!r.ok) throw new Error(`injectPending failed: ${r.code} ${r.message}`);
+  if (!r.ok) throw new Error(`injectPending failed: ${r.code} ${JSON.stringify(r)}`);
 }
 
 describe("loaf pending — SC1 raise/list", () => {

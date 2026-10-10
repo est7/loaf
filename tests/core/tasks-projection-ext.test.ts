@@ -253,7 +253,19 @@ describe("event:tasks_planned — Slice 1.B sub-cycle 3a", () => {
     );
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.message).toMatch(/visual_contract_refs|payload schema/);
+      expect(result.code).toBe("INVALID_PAYLOAD");
+      expect(result.detail.issues).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: ["tasks", 0],
+            errors: expect.arrayContaining([
+              expect.arrayContaining([
+                expect.objectContaining({ path: ["visual_contract_refs"], code: "invalid_type" }),
+              ]),
+            ]),
+          }),
+        ]),
+      );
     }
   });
 

@@ -23,6 +23,8 @@
 //
 // Test surface: tests/cli/command-context.test.ts.
 
+import type { CatalogDiagnostic } from "../core/error-catalog.js";
+import { writeDiagnosticFailure } from "./diagnostic-failure.js";
 import type { ProjectionKind, LoadResult } from "../core/projection-loader.js";
 import { SnapshotStaleError, NoSessionError } from "../core/projection-loader.js";
 import type { SessionLoad } from "../core/cli-runtime.js";
@@ -280,6 +282,7 @@ export type CommandContext = {
   fail: (code: string, message: string) => void;
   /** Phase W8 0a — try keyed-failure first, fall back to plain failure.
    *  Mirrors the old bare `emitFailure` closure in main(). */
+  diagnosticFailure: (diagnostic: CatalogDiagnostic) => void;
   emitFailure: (code: string, message: string, detail?: Record<string, unknown>) => void;
   /** Phase W8 0a — emit a NO_SESSION failure keyed to a site-specific key. */
   emitNoSessionFailure: (
@@ -295,9 +298,7 @@ export type CommandContext = {
   dispatchForHookOptional: (opts: {
     feature?: string;
     featureDir?: string;
-  }) => Promise<
-    { featureDir: string } | { skip: true; stale?: { code: string; message: string } }
-  >;
+  }) => Promise<{ featureDir: string } | { skip: true; stale?: { code: string; message: string } }>;
   /** Phase W8 0a — resolve the path for a write-side hook or return null. */
   resolveHookPath: (opts: { path?: string }) => Promise<string | null>;
   /** Phase W8 0a — fail-closed dispatch for write-guard. */
@@ -305,9 +306,7 @@ export type CommandContext = {
     feature?: string;
     featureDir?: string;
   }) => Promise<
-    | { featureDir: string }
-    | { allow: true }
-    | { failClosed: true; code: string; message: string }
+    { featureDir: string } | { allow: true } | { failClosed: true; code: string; message: string }
   >;
   /** Phase W8 0a — reject if dry-run (read-only / wrapping / etc.). */
   rejectIfDryRun: (
@@ -528,6 +527,13 @@ export function createCommandContext(
       }
     },
 
+    diagnosticFailure(diagnostic: CatalogDiagnostic): void {
+      exitCode = writeDiagnosticFailure(diagnostic, {
+        format: output,
+        i18n,
+        writeStderr: deps.writeStderr,
+      });
+    },
     emitFailure(code: string, message: string, detail?: Record<string, unknown>): void {
       if (!emitKeyedFailure(code, detail)) {
         writeFailure(code, message, detail);
@@ -626,9 +632,7 @@ export function createCommandContext(
       feature?: string;
       featureDir?: string;
     }): Promise<
-      | { featureDir: string }
-      | { allow: true }
-      | { failClosed: true; code: string; message: string }
+      { featureDir: string } | { allow: true } | { failClosed: true; code: string; message: string }
     > {
       let dispatch: Awaited<ReturnType<typeof ctx.resolveDispatch>>;
       try {

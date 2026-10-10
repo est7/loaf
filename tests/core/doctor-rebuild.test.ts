@@ -143,7 +143,7 @@ async function seedJournal(
       meta,
       fsync: false,
     });
-    if (!r.ok) throw new Error(`seed step failed: ${r.code} ${r.message}`);
+    if (!r.ok) throw new Error(`seed step failed: ${r.code} ${JSON.stringify(r)}`);
     snapshot = r.snapshot;
     tail += partials.length;
     entries = entries.concat(r.entries);

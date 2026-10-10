@@ -1,3 +1,4 @@
+import { diagnosticMessage } from "../diagnostic-failure.js";
 import type { Command } from "commander";
 import type { CommandContext } from "../command-context.js";
 import type { CommandMutator } from "../command-mutator.js";
@@ -366,9 +367,14 @@ export function registerProfileConfig(
           collect_entries: true,
         });
         if (!replay.ok) {
+          const reason =
+            replay.code === "REDUCER_REJECTED"
+              ? diagnosticMessage(replay.diagnostic)
+              : replay.message;
           ctx.emitFailure(
             replay.code,
-            `journal at ${journalPath} cannot be replayed — ${replay.message}`,
+            `journal at ${journalPath} cannot be replayed — ${reason}`,
+            replay.detail,
           );
           return;
         }

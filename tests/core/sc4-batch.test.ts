@@ -170,7 +170,7 @@ SC4 fixture body.
         fsync: false,
       },
     );
-    if (!r.ok) throw new Error(`walk ${from}→${to} failed: ${r.code} ${r.message}`);
+    if (!r.ok) throw new Error(`walk ${from}→${to} failed: ${r.code} ${JSON.stringify(r)}`);
   }
   // spec_submitted + REQ-AUTH-001 in one batch (mirrors loaf spec submit
   // semantics: header + companion adds share batch_id + spec_version).
@@ -217,7 +217,7 @@ SC4 fixture body.
       fsync: false,
     },
   );
-  if (!submitted.ok) throw new Error(`spec_submitted batch failed: ${submitted.message}`);
+  if (!submitted.ok) throw new Error(`spec_submitted batch failed: ${JSON.stringify(submitted)}`);
   // tasks_planned with one behavioral task driving REQ-AUTH-001.
   s = await loadSnapshot(dir);
   const planned = await mutate(
@@ -255,7 +255,7 @@ SC4 fixture body.
       fsync: false,
     },
   );
-  if (!planned.ok) throw new Error(`tasks_planned failed: ${planned.message}`);
+  if (!planned.ok) throw new Error(`tasks_planned failed: ${JSON.stringify(planned)}`);
   return { dir, feature };
 }
 
@@ -298,7 +298,7 @@ async function seedAtExecuteWorkRedRunning(): Promise<{ dir: string; feature: st
       fsync: false,
     },
   );
-  if (!lock.ok) throw new Error(`spec-lock failed: ${lock.code} ${lock.message}`);
+  if (!lock.ok) throw new Error(`spec-lock failed: ${lock.code} ${JSON.stringify(lock)}`);
   // advance EXECUTE.plan → EXECUTE.work
   s = await loadSnapshot(dir);
   const adv = await mutate(
@@ -318,7 +318,7 @@ async function seedAtExecuteWorkRedRunning(): Promise<{ dir: string; feature: st
       fsync: false,
     },
   );
-  if (!adv.ok) throw new Error(`advance EXECUTE.work failed: ${adv.message}`);
+  if (!adv.ok) throw new Error(`advance EXECUTE.work failed: ${JSON.stringify(adv)}`);
   // claim T-001
   s = await loadSnapshot(dir);
   const claim = await mutate(
@@ -338,7 +338,7 @@ async function seedAtExecuteWorkRedRunning(): Promise<{ dir: string; feature: st
       fsync: false,
     },
   );
-  if (!claim.ok) throw new Error(`task_claimed failed: ${claim.message}`);
+  if (!claim.ok) throw new Error(`task_claimed failed: ${JSON.stringify(claim)}`);
   // step start red
   s = await loadSnapshot(dir);
   const stepStart = await mutate(
@@ -358,7 +358,7 @@ async function seedAtExecuteWorkRedRunning(): Promise<{ dir: string; feature: st
       fsync: false,
     },
   );
-  if (!stepStart.ok) throw new Error(`step_started failed: ${stepStart.message}`);
+  if (!stepStart.ok) throw new Error(`step_started failed: ${JSON.stringify(stepStart)}`);
   return { dir, feature };
 }
 
@@ -388,7 +388,7 @@ async function rawRaisePending(
       fsync: false,
     },
   );
-  if (!r.ok) throw new Error(`raise pending failed: ${r.code} ${r.message}`);
+  if (!r.ok) throw new Error(`raise pending failed: ${r.code} ${JSON.stringify(r)}`);
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -704,7 +704,7 @@ describe("loaf gate decide — SC4 soft pending:resolved co-emission", () => {
         fsync: false,
       },
     );
-    if (!lock.ok) throw new Error(`seed lock fail: ${lock.message}`);
+    if (!lock.ok) throw new Error(`seed lock fail: ${JSON.stringify(lock)}`);
     const walk: Array<[SubState, SubState]> = [
       ["EXECUTE.plan", "EXECUTE.work"],
       ["EXECUTE.work", "EXECUTE.done"],
@@ -731,7 +731,7 @@ describe("loaf gate decide — SC4 soft pending:resolved co-emission", () => {
           fsync: false,
         },
       );
-      if (!r.ok) throw new Error(`walk ${from}→${to}: ${r.message}`);
+      if (!r.ok) throw new Error(`walk ${from}→${to}: ${JSON.stringify(r)}`);
       if (to === "EXECUTE.work") {
         // F-016: abandon the seed task T-001 before crossing EXECUTE.done
         // (all-tasks-final preflight guard). This fixture exercises the
@@ -758,7 +758,7 @@ describe("loaf gate decide — SC4 soft pending:resolved co-emission", () => {
             fsync: false,
           },
         );
-        if (!ab.ok) throw new Error(`seed task abandon: ${ab.message}`);
+        if (!ab.ok) throw new Error(`seed task abandon: ${JSON.stringify(ab)}`);
       }
     }
     await rawRaisePending(dir, "PEND-0001", "gate_decision", "approve verify-accept?");
@@ -865,7 +865,7 @@ describe("loaf gate decide — SC4 soft pending:resolved co-emission", () => {
         fsync: false,
       },
     );
-    if (!resolved.ok) throw new Error(`seed resolve fail: ${resolved.message}`);
+    if (!resolved.ok) throw new Error(`seed resolve fail: ${JSON.stringify(resolved)}`);
     const before = await readJournalLines(dir);
     const r = await runCli(
       [

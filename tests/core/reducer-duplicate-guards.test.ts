@@ -356,7 +356,7 @@ test("reducer normalizes omitted default arrays without changing canonical steps
     { tail_seq: -1 },
   );
   expect(result.ok).toBe(true);
-  if (!result.ok) throw new Error(result.message);
+  if (!result.ok) throw new Error(JSON.stringify(result));
   expect(JSON.stringify(result.snapshot.tasks)).toBe(
     JSON.stringify([
       {

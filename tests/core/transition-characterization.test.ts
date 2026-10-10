@@ -144,7 +144,6 @@ describe("validateTransition characterization — back-edge error surface", () =
       {
         ok: false,
         code: "TRANSITION_ILLEGAL",
-        message: `back_edge action=${row.action} requires target=${row.expectedTarget}, got ${row.mismatchTarget}`,
         detail: {
           from: "VERIFY.run",
           to: row.mismatchTarget,
@@ -169,7 +168,6 @@ describe("validateTransition characterization — back-edge error surface", () =
       {
         ok: false,
         code: "TRANSITION_ILLEGAL",
-        message: `back_edge action=${row.action} is not legal from ${row.disallowedFrom}; allowed from ${row.allowedFromLabel}`,
         detail: {
           from: row.disallowedFrom,
           to: row.expectedTarget,
@@ -204,13 +202,14 @@ describe("validateTransition characterization — back-edge error surface", () =
       {
         ok: false,
         code: "TRANSITION_ILLEGAL",
-        message: "unknown back_edge.action future-action",
         detail: {
+          from: "VERIFY.run",
+          to: "EXECUTE.work",
           back_edge: backEdge,
           reason: "back_edge_action_unknown",
         },
       },
-      ["back_edge", "reason"],
+      ["from", "to", "back_edge", "reason"],
     );
   });
 });
@@ -227,7 +226,6 @@ describe("validateTransition characterization — forward and guard error surfac
       {
         ok: false,
         code: "TRANSITION_ILLEGAL",
-        message: "cannot transition TRIAGE.score → SPEC.proposal",
         detail: {
           from: "TRIAGE.score",
           to: "SPEC.proposal",
@@ -250,7 +248,6 @@ describe("validateTransition characterization — forward and guard error surfac
       {
         ok: false,
         code: "TRANSITION_ILLEGAL",
-        message: "cannot transition SPEC.design → DONE.delivered",
         detail: {
           from: "SPEC.design",
           to: "DONE.delivered",
@@ -272,7 +269,6 @@ describe("validateTransition characterization — forward and guard error surfac
       {
         ok: false,
         code: "TRANSITION_ILLEGAL",
-        message: "cannot transition EXECUTE.work → EXECUTE.work",
         detail: {
           from: "EXECUTE.work",
           to: "EXECUTE.work",
@@ -303,7 +299,6 @@ describe("validateTransition characterization — forward and guard error surfac
       {
         ok: false,
         code: "SPEC_PHASE_FORK_VIOLATION",
-        message: "TRIAGE.confirm → SPEC.proposal requires ceremony.spec_phase=true",
         detail: { from: "TRIAGE.confirm", to: "SPEC.proposal", spec_phase: false },
       },
       ["from", "to", "spec_phase"],
@@ -321,8 +316,6 @@ describe("validateTransition characterization — forward and guard error surfac
       {
         ok: false,
         code: "SPEC_PHASE_FORK_VIOLATION",
-        message:
-          "TRIAGE.confirm → EXECUTE.plan requires ceremony.spec_phase=false (quick); profiles with spec_phase=true must traverse SPEC.*",
         detail: { from: "TRIAGE.confirm", to: "EXECUTE.plan", spec_phase: true },
       },
       ["from", "to", "spec_phase"],
@@ -340,7 +333,6 @@ describe("validateTransition characterization — forward and guard error surfac
       {
         ok: false,
         code: "VERIFY_PHASE_FORK_VIOLATION",
-        message: "EXECUTE.done → VERIFY.plan requires ceremony.verify_phase=true (standard / deep)",
         detail: { from: "EXECUTE.done", to: "VERIFY.plan", verify_phase: false },
       },
       ["from", "to", "verify_phase"],
@@ -358,8 +350,6 @@ describe("validateTransition characterization — forward and guard error surfac
       {
         ok: false,
         code: "SPEC_LOCK_NOT_SATISFIED",
-        message:
-          "SPEC.design → EXECUTE.plan requires spec_locked=true (run `loaf gate decide spec-lock --approve` first)",
         detail: { from: "SPEC.design", to: "EXECUTE.plan", spec_locked: false },
       },
       ["from", "to", "spec_locked"],
@@ -378,7 +368,6 @@ describe("validateTransition characterization — forward and guard error surfac
       {
         ok: false,
         code: "SETTLE_PHASE_DISABLED",
-        message: "VERIFY.accept → SETTLE.lessons requires ceremony.settle_phase=true (deep only)",
         detail: { from: "VERIFY.accept", to: "SETTLE.lessons", settle_phase: false },
       },
       ["from", "to", "settle_phase"],
@@ -397,8 +386,6 @@ describe("validateTransition characterization — forward and guard error surfac
       {
         ok: false,
         code: "SETTLE_NOT_ACCEPTED",
-        message:
-          "VERIFY.accept → SETTLE.lessons requires verify_accepted=true (run `loaf gate decide verify-accept --approve` first)",
         detail: { from: "VERIFY.accept", to: "SETTLE.lessons", verify_accepted: false },
       },
       ["from", "to", "verify_accepted"],

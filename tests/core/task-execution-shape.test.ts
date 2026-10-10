@@ -141,7 +141,7 @@ for (const [label, kind, payload] of invalidEntries) {
       await fs.writeFile(file, original);
       const prefix = await replayJournal(file);
       expect(prefix.ok).toBe(true);
-      if (!prefix.ok) throw new Error(prefix.message);
+      if (!prefix.ok) throw new Error(JSON.stringify(prefix));
       const result = await mutate(
         {
           kind,

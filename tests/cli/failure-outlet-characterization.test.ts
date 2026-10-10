@@ -13,7 +13,7 @@ describe("failure outlet extraction baseline", () => {
     "emit-failure",
     "legacy-fail",
     "raw-ctx-failure",
-  ] as const)("%s preserves its current illegal-transition envelope until caller migration", async (route: FailureRoute) => {
+  ] as const)("%s preserves the migrated core diagnostic through every intermediate route", async (route: FailureRoute) => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "loaf-c3-route-"));
     try {
       const snapshot = initialSnapshot();
@@ -68,21 +68,15 @@ describe("failure outlet extraction baseline", () => {
         code: "TRANSITION_ILLEGAL",
         message: "cannot transition TRIAGE.score → EXECUTE.done",
       };
-      // Intentional extraction characterization, not the desired final C3
-      // contract: Slice 3 replaces this legacy detail-loss expectation.
       expect(stderr).toEqual([
-        JSON.stringify(
-          route === "legacy-fail"
-            ? envelope
-            : {
-                ...envelope,
-                detail: {
-                  from: "TRIAGE.score",
-                  to: "EXECUTE.done",
-                  allowed_forward: ["TRIAGE.confirm"],
-                },
-              },
-        ) + "\n",
+        JSON.stringify({
+          ...envelope,
+          detail: {
+            from: "TRIAGE.score",
+            to: "EXECUTE.done",
+            allowed_forward: ["TRIAGE.confirm"],
+          },
+        }) + "\n",
       ]);
       await expect(fs.stat(path.join(dir, "journal.jsonl"))).rejects.toMatchObject({
         code: "ENOENT",

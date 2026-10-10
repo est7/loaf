@@ -1,17 +1,12 @@
+import type { Diagnostic } from "./error-catalog.js";
 import type { JournalEntry } from "./journal-entry.js";
 import { applyValidated, type ApplyFailureCode, type Snapshot } from "./reducer.js";
 import { preflight, type PreflightFailureCode } from "./reducer/preflight.js";
 
 export type AdmissionResult =
   | { ok: true; snapshot: Snapshot }
-  | ({
-      ok: false;
-      message: string;
-      detail: Record<string, unknown>;
-    } & (
-      | { stage: "admission"; code: PreflightFailureCode | "NO_SESSION" }
-      | { stage: "reducer"; code: ApplyFailureCode }
-    ));
+  | ({ ok: false; stage: "admission" } & Diagnostic<PreflightFailureCode | "NO_SESSION">)
+  | ({ ok: false; stage: "reducer" } & Diagnostic<ApplyFailureCode>);
 
 /**
  * Admits one entry and consumes `prev`; projection application can mutate its
@@ -31,19 +26,18 @@ export function admitEntry(
       ok: false,
       stage: "admission",
       code: "NO_SESSION",
-      message: `kind=${entry.kind} requires a started session`,
-      detail: {},
+      detail: { kind: entry.kind },
     };
   }
 
   const checked = preflight(entry, { snapshot: prev, ...options });
   if (!checked.ok) {
-    return { ...checked, stage: "admission", detail: checked.detail ?? {} };
+    return { ...checked, stage: "admission" };
   }
 
   const result = applyValidated(prev, checked.entry);
   if (!result.ok) {
-    return { ...result, stage: "reducer", detail: result.detail ?? {} };
+    return { ...result, stage: "reducer" };
   }
   return result;
 }

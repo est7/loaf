@@ -20,8 +20,10 @@ function hasForbiddenTaskRedInput(inputPayload: unknown, taskIndex?: number): bo
     task = inputPayload.tasks[taskIndex];
   }
   return (
-    typeof task === "object" && task !== null &&
-    "red_test_registered" in task && task.red_test_registered === true
+    typeof task === "object" &&
+    task !== null &&
+    "red_test_registered" in task &&
+    task.red_test_registered === true
   );
 }
 
@@ -34,7 +36,6 @@ export function checkTasksPlanned(c: PreflightCheckCtx): PreflightFailure | null
         return {
           ok: false,
           code: "DUPLICATE_TASK_ID",
-          message: `tasks_planned: task id ${task.id} appears more than once in payload`,
           detail: { task_id: task.id },
         };
       }
@@ -47,7 +48,6 @@ export function checkTasksPlanned(c: PreflightCheckCtx): PreflightFailure | null
         return {
           ok: false,
           code: "BUG_TASK_FLAG_MISUSE",
-          message: `tasks_planned: task ${task.id} carries red_test_registered=true — a planned task is born unregistered; use \`loaf tasks register-red\` after creation`,
           detail: { task_id: task.id, kind: "event:tasks_planned" },
         };
       }
@@ -95,7 +95,6 @@ export function checkTasksAmended(c: PreflightCheckCtx): PreflightFailure | null
       return {
         ok: false,
         code: "BUG_TASK_FLAG_MISUSE",
-        message: `tasks_amended: non-behavioral task ${taskId} must not carry red_test_registered=true`,
         detail: { task_id: taskId, kind: entry.kind },
       };
     }
@@ -112,7 +111,6 @@ export function checkTasksAmended(c: PreflightCheckCtx): PreflightFailure | null
         return {
           ok: false,
           code: "FINDING_NOT_FOUND",
-          message: `event:tasks_amended.sponsored_by_finding_id=${sponsorId} not found in projection`,
           detail: { id: sponsorId, reason: "not_found" },
         };
       }
@@ -120,7 +118,6 @@ export function checkTasksAmended(c: PreflightCheckCtx): PreflightFailure | null
         return {
           ok: false,
           code: "FINDING_NOT_FOUND",
-          message: `event:tasks_amended.sponsored_by_finding_id=${sponsorId} is already_closed; only open findings can sponsor a tasks amend`,
           detail: { id: sponsorId, reason: "already_closed" },
         };
       }
@@ -128,7 +125,6 @@ export function checkTasksAmended(c: PreflightCheckCtx): PreflightFailure | null
         return {
           ok: false,
           code: "FINDING_NOT_FOUND",
-          message: `event:tasks_amended.sponsored_by_finding_id=${sponsorId} has action=${finding.action} but only amend-tasks findings can sponsor a tasks amend`,
           detail: {
             id: sponsorId,
             reason: "action_mismatch",
@@ -146,7 +142,6 @@ export function checkTasksAmended(c: PreflightCheckCtx): PreflightFailure | null
         return {
           ok: false,
           code: "MUTATION_OUT_OF_RIGHTS",
-          message: `sponsored event:tasks_amended is permitted only at EXECUTE.work (current sub_state=${sub_state})`,
           detail: {
             task_id: taskId,
             mode,
@@ -167,10 +162,6 @@ export function checkTasksAmended(c: PreflightCheckCtx): PreflightFailure | null
           return {
             ok: false,
             code: "MUTATION_OUT_OF_RIGHTS",
-            message:
-              `sponsored event:tasks_amended mode=add must introduce a fresh task — ` +
-              `'${violation.field}' carries execution progress (§8.6: a sponsored ` +
-              `amend may not fabricate completed work)`,
             detail: {
               task_id: taskId,
               mode,
@@ -187,7 +178,6 @@ export function checkTasksAmended(c: PreflightCheckCtx): PreflightFailure | null
           return {
             ok: false,
             code: "TASK_NOT_FOUND",
-            message: `tasks_amended: task ${taskId} is not in the current tasks projection`,
             detail: { task_id: taskId },
           };
         }
@@ -197,7 +187,6 @@ export function checkTasksAmended(c: PreflightCheckCtx): PreflightFailure | null
           return {
             ok: false,
             code: "MUTATION_OUT_OF_RIGHTS",
-            message: `sponsored event:tasks_amended on task ${taskId} changes frozen field '${violation.field}' — a graph amend may not erase or rewrite execution progress (§8.6)`,
             detail: {
               task_id: taskId,
               mode,
@@ -217,7 +206,6 @@ export function checkTasksAmended(c: PreflightCheckCtx): PreflightFailure | null
       return {
         ok: false,
         code: "MUTATION_OUT_OF_RIGHTS",
-        message: `event:tasks_amended mode=add on task ${taskId} is not authorized — an add must be sponsored by an amend-tasks finding (sponsored_by_finding_id)`,
         detail: { task_id: taskId, mode, sub_state, reason: "unsponsored_add" },
       };
     }
@@ -226,7 +214,6 @@ export function checkTasksAmended(c: PreflightCheckCtx): PreflightFailure | null
       return {
         ok: false,
         code: "MUTATION_OUT_OF_RIGHTS",
-        message: `event:tasks_amended mode=replace is permitted only at EXECUTE.plan (current sub_state=${sub_state})`,
         detail: {
           task_id: taskId,
           mode,
@@ -241,7 +228,6 @@ export function checkTasksAmended(c: PreflightCheckCtx): PreflightFailure | null
       return {
         ok: false,
         code: "TASK_NOT_FOUND",
-        message: `tasks_amended: task ${taskId} is not in the current tasks projection`,
         detail: { task_id: taskId },
       };
     }
@@ -252,7 +238,6 @@ export function checkTasksAmended(c: PreflightCheckCtx): PreflightFailure | null
       return {
         ok: false,
         code: "MUTATION_OUT_OF_RIGHTS",
-        message: `event:tasks_amended on task ${taskId} changes frozen field '${violation.field}' — §8.6 forbids it at EXECUTE.plan`,
         detail: {
           task_id: taskId,
           mode,
@@ -301,7 +286,6 @@ export function checkTaskLifecycle(c: PreflightCheckCtx): PreflightFailure | nul
       return {
         ok: false,
         code: "TASK_NOT_FOUND",
-        message: `${entry.kind}: task ${task_id} is not in the current tasks projection`,
         detail: { task_id, kind: entry.kind },
       };
     }
@@ -310,7 +294,6 @@ export function checkTaskLifecycle(c: PreflightCheckCtx): PreflightFailure | nul
         return {
           ok: false,
           code: "TASK_ALREADY_CLAIMED",
-          message: `task ${task_id} is already claimed (status=in_progress)`,
           detail: { task_id, status: task.status },
         };
       }
@@ -318,7 +301,6 @@ export function checkTaskLifecycle(c: PreflightCheckCtx): PreflightFailure | nul
         return {
           ok: false,
           code: "TASK_NOT_CLAIMABLE",
-          message: `task ${task_id} cannot be claimed (status=${task.status} — terminal state)`,
           detail: { task_id, status: task.status },
         };
       }
@@ -333,10 +315,6 @@ export function checkTaskLifecycle(c: PreflightCheckCtx): PreflightFailure | nul
         return {
           ok: false,
           code: "TASK_DEPS_NOT_SATISFIED",
-          message:
-            blockingDep === undefined
-              ? `task ${task_id} cannot be claimed: dependency ${blockingDepId} is not in the tasks projection`
-              : `task ${task_id} cannot be claimed: dependency ${blockingDepId} is not done (status=${blockingStatus})`,
           detail: {
             task_id,
             blocking_dep: blockingDepId,
@@ -351,7 +329,6 @@ export function checkTaskLifecycle(c: PreflightCheckCtx): PreflightFailure | nul
         return {
           ok: false,
           code: "TASK_NOT_CLAIMED",
-          message: `task ${task_id} step ${step} mutation requires task.status=in_progress (got status=${task.status}); claim the task first`,
           detail: { task_id, step, status: task.status, kind: entry.kind },
         };
       }
@@ -369,7 +346,6 @@ export function checkTaskLifecycle(c: PreflightCheckCtx): PreflightFailure | nul
         return {
           ok: false,
           code: "BUG_TASK_REQUIRES_RED",
-          message: `behavioral bug task ${task_id} must register its RED test before the implement step — run \`loaf tasks register-red ${task_id}\` first`,
           detail: { task_id, step, kind: entry.kind },
         };
       }
@@ -386,7 +362,6 @@ export function checkTaskLifecycle(c: PreflightCheckCtx): PreflightFailure | nul
           return {
             ok: false,
             code: "BUG_TASK_FLAG_MISUSE",
-            message: `red_test_registered=true is valid only on a red-step task_step_done for a behavioral bug task with a passed/waived result (task ${task_id}, step=${step}, result=${result ?? "passed"}, kind=${task.kind})`,
             detail: {
               task_id,
               step,
@@ -426,7 +401,6 @@ export function checkTaskAbandoned(c: PreflightCheckCtx): PreflightFailure | nul
       return {
         ok: false,
         code: "TASK_NOT_FOUND",
-        message: `${entry.kind}: task ${task_id} is not in the current tasks projection`,
         detail: { task_id, kind: entry.kind },
       };
     }
@@ -434,7 +408,6 @@ export function checkTaskAbandoned(c: PreflightCheckCtx): PreflightFailure | nul
       return {
         ok: false,
         code: "TASK_NOT_ABANDONABLE",
-        message: `task ${task_id} cannot be abandoned (status=${task.status} — already in a final status)`,
         detail: { task_id, status: task.status },
       };
     }
@@ -447,10 +420,6 @@ export function checkTaskAbandoned(c: PreflightCheckCtx): PreflightFailure | nul
       return {
         ok: false,
         code: "TASK_ABANDON_BLOCKED_DEPENDENTS",
-        message:
-          `task ${task_id} cannot be abandoned: ${blockingDependents.length} non-terminal ` +
-          `task(s) depend on it (${blockingDependents.join(", ")}); abandon or complete ` +
-          `the dependents first`,
         detail: { task_id, blocking_dependents: blockingDependents },
       };
     }
@@ -481,7 +450,7 @@ export function checkTaskAbandoned(c: PreflightCheckCtx): PreflightFailure | nul
 // No new DiagnosticCode — FINDING_NOT_FOUND + MUTATION_OUT_OF_RIGHTS
 // are reused (codex r139 Q3).
 export function checkTaskStepReset(c: PreflightCheckCtx): PreflightFailure | null {
-  const { entry, ctx } = c;
+  const { entry, ctx, sub_state } = c;
   if (entry.kind === "event:task_step_reset") {
     const payload = entry.payload;
     const finding = ctx.snapshot.findings.find((f) => f.id === payload.finding_id);
@@ -489,7 +458,6 @@ export function checkTaskStepReset(c: PreflightCheckCtx): PreflightFailure | nul
       return {
         ok: false,
         code: "FINDING_NOT_FOUND",
-        message: `event:task_step_reset.finding_id=${payload.finding_id} not found in projection`,
         detail: { id: payload.finding_id, reason: "not_found" },
       };
     }
@@ -497,7 +465,6 @@ export function checkTaskStepReset(c: PreflightCheckCtx): PreflightFailure | nul
       return {
         ok: false,
         code: "FINDING_NOT_FOUND",
-        message: `event:task_step_reset.finding_id=${payload.finding_id} is already_closed; only open findings can sponsor a step reset`,
         detail: { id: payload.finding_id, reason: "already_closed" },
       };
     }
@@ -508,7 +475,6 @@ export function checkTaskStepReset(c: PreflightCheckCtx): PreflightFailure | nul
       return {
         ok: false,
         code: "FINDING_NOT_FOUND",
-        message: `event:task_step_reset.finding_id=${payload.finding_id} has action=${finding.action} but only fix-impl / fix-test findings can sponsor a step reset`,
         detail: {
           id: payload.finding_id,
           reason: "action_mismatch",
@@ -526,9 +492,9 @@ export function checkTaskStepReset(c: PreflightCheckCtx): PreflightFailure | nul
       return {
         ok: false,
         code: "MUTATION_OUT_OF_RIGHTS",
-        message: `event:task_step_reset step="${payload.step}" but ${finding.action} resets step="${expectedStep}"`,
         detail: {
           finding_id: payload.finding_id,
+          sub_state,
           task_id: payload.task_id,
           step: payload.step,
           expected_step: expectedStep,
@@ -545,9 +511,10 @@ export function checkTaskStepReset(c: PreflightCheckCtx): PreflightFailure | nul
       return {
         ok: false,
         code: "MUTATION_OUT_OF_RIGHTS",
-        message: `event:task_step_reset target {task_id=${payload.task_id}, step=${payload.step}} does not match finding ${payload.finding_id}'s target`,
         detail: {
           finding_id: payload.finding_id,
+          sub_state,
+          task_id: payload.task_id,
           expected_target: expectedTarget ?? null,
           actual_target: { task_id: payload.task_id, step: payload.step },
           reason: "task_step_reset_target_mismatch",
@@ -562,9 +529,9 @@ export function checkTaskStepReset(c: PreflightCheckCtx): PreflightFailure | nul
       return {
         ok: false,
         code: "MUTATION_OUT_OF_RIGHTS",
-        message: `event:task_step_reset target {task_id=${payload.task_id}, step=${payload.step}} is not present in the tasks projection`,
         detail: {
           finding_id: payload.finding_id,
+          sub_state,
           task_id: payload.task_id,
           step: payload.step,
           reason: "task_step_reset_target_mismatch",
@@ -583,9 +550,9 @@ export function checkTaskStepReset(c: PreflightCheckCtx): PreflightFailure | nul
       return {
         ok: false,
         code: "MUTATION_OUT_OF_RIGHTS",
-        message: `event:task_step_reset cannot reset task ${payload.task_id}: status=abandoned is terminal and cannot be reactivated (a fix step reset may reopen a done task, never an abandoned one)`,
         detail: {
           finding_id: payload.finding_id,
+          sub_state,
           task_id: payload.task_id,
           status: task.status,
           reason: "task_step_reset_task_abandoned",

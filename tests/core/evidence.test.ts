@@ -118,7 +118,7 @@ async function seedQuickAtExecuteWork(): Promise<{ dir: string; feature: string 
         fsync: false,
       },
     );
-    if (!r.ok) throw new Error(`seed walk ${from}→${to} failed: ${r.code} ${r.message}`);
+    if (!r.ok) throw new Error(`seed walk ${from}→${to} failed: ${r.code} ${JSON.stringify(r)}`);
   }
   return { dir, feature };
 }
@@ -659,7 +659,7 @@ describe("loaf evidence add — SC2 sub_state authority", () => {
           fsync: false,
         },
       );
-      if (!m.ok) throw new Error(`walk failed: ${m.message}`);
+      if (!m.ok) throw new Error(`walk failed: ${JSON.stringify(m)}`);
     }
     const input = await writeInput(dir, baseInput("local-check"));
     const r = await runCli([
@@ -700,7 +700,7 @@ describe("loaf evidence add — SC2 EV-id allocator edge cases", () => {
           fsync: false,
         },
       );
-      if (!r.ok) throw new Error(`seed failed: ${r.code} ${r.message}`);
+      if (!r.ok) throw new Error(`seed failed: ${r.code} ${JSON.stringify(r)}`);
     }
     const input = await writeInput(dir, baseInput("local-check"));
     const r = await runCli([

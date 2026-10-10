@@ -290,7 +290,7 @@ describe("mutateBatch Pass 5 — PROJECTION_WRITE_FAILED surface", () => {
         ],
         { feature_dir: dir, snapshot, tail_seq: -1, entries, meta, fsync: false },
       );
-      if (!boot.ok) throw new Error(`seed boot failed: ${boot.message}`);
+      if (!boot.ok) throw new Error(`seed boot failed: ${JSON.stringify(boot)}`);
       snapshot = boot.snapshot;
       entries = entries.concat(boot.entries);
       meta = boot.meta;
@@ -313,7 +313,7 @@ describe("mutateBatch Pass 5 — PROJECTION_WRITE_FAILED surface", () => {
           ],
           { feature_dir: dir, snapshot, tail_seq: tail, entries, meta, fsync: false },
         );
-        if (!r.ok) throw new Error(`walk failed: ${r.message}`);
+        if (!r.ok) throw new Error(`walk failed: ${JSON.stringify(r)}`);
         snapshot = r.snapshot;
         tail += 1;
         entries = entries.concat(r.entries);
@@ -393,7 +393,7 @@ describe("mutateBatch Pass 5 — PROJECTION_WRITE_FAILED surface", () => {
         ],
         { feature_dir: dir, snapshot, tail_seq: -1, entries: [], meta: emptyMeta(), fsync: false },
       );
-      if (!boot.ok) throw new Error(`boot: ${boot.message}`);
+      if (!boot.ok) throw new Error(`boot: ${JSON.stringify(boot)}`);
 
       const after = await fsP.readFile(path.join(dir, "spec.md"), "utf8");
       expect(after).toBe(before);

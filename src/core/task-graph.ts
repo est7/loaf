@@ -5,27 +5,22 @@ type TaskGraphTask = Pick<TaskState, "id" | "status" | "depends_on">;
 export type TaskGraphFailure =
   | {
       code: "TASK_DEP_NOT_FOUND";
-      message: string;
       detail: { task_id: string; field: string; ref: string };
     }
   | {
       code: "TASK_DEP_SELF";
-      message: string;
       detail: { task_id: string };
     }
   | {
       code: "TASK_DEP_DUPLICATE";
-      message: string;
       detail: { task_id: string; ref: string; indexes: [number, number] };
     }
   | {
       code: "TASK_DEP_CYCLE";
-      message: string;
       detail: { cycle: string[] };
     }
   | {
       code: "TASK_DEP_ABANDONED";
-      message: string;
       detail: { task_id: string; field: string; ref: string; hint: string };
     };
 
@@ -48,7 +43,6 @@ export function checkTaskGraph(tasks: readonly TaskGraphTask[]): TaskGraphFailur
       if (!tasksById.has(dependencyId)) {
         return {
           code: "TASK_DEP_NOT_FOUND",
-          message: `task ${task.id} dependency ${dependencyId} at depends_on[${index}] does not exist in the batch-final task graph`,
           detail: { task_id: task.id, field: `depends_on[${index}]`, ref: dependencyId },
         };
       }
@@ -59,7 +53,6 @@ export function checkTaskGraph(tasks: readonly TaskGraphTask[]): TaskGraphFailur
     if (task.depends_on.includes(task.id)) {
       return {
         code: "TASK_DEP_SELF",
-        message: `task ${task.id} cannot depend on itself`,
         detail: { task_id: task.id },
       };
     }
@@ -73,7 +66,6 @@ export function checkTaskGraph(tasks: readonly TaskGraphTask[]): TaskGraphFailur
       if (firstIndex !== undefined) {
         return {
           code: "TASK_DEP_DUPLICATE",
-          message: `task ${task.id} dependency ${dependencyId} is duplicated at depends_on indexes ${firstIndex} and ${index}`,
           detail: { task_id: task.id, ref: dependencyId, indexes: [firstIndex, index] },
         };
       }
@@ -114,7 +106,6 @@ export function checkTaskGraph(tasks: readonly TaskGraphTask[]): TaskGraphFailur
     if (cycle !== null) {
       return {
         code: "TASK_DEP_CYCLE",
-        message: `task dependency graph contains cycle ${cycle.join(" -> ")}`,
         detail: { cycle },
       };
     }
@@ -127,7 +118,6 @@ export function checkTaskGraph(tasks: readonly TaskGraphTask[]): TaskGraphFailur
       if (tasksById.get(dependencyId)!.status === "abandoned") {
         return {
           code: "TASK_DEP_ABANDONED",
-          message: `non-terminal task ${task.id} dependency ${dependencyId} at depends_on[${index}] is abandoned; replace it via amend-tasks`,
           detail: {
             task_id: task.id,
             field: `depends_on[${index}]`,

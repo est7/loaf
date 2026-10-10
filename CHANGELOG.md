@@ -24,6 +24,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   using the existing site identifier while preserving `detail.subcode`.
   Command callers still use their existing output paths in this slice.
 
+- Core admission, reducer, transition, and task-graph failures now carry
+  code/detail without producer-owned messages. Their mutation callers render
+  catalog messages/fix guidance and preserve detail through every intermediate
+  route; rejection ordering and task dependency field shapes are unchanged.
+  Replay retains REDUCER_REJECTED and its inner diagnostic as structured data.
+  Missing-target findings render action/reason without invented task/step values;
+  NO_SESSION uses a directory-independent minimum for core admission.
+
 ## [0.10.0] — 2026-10-10
 
 ### Changed

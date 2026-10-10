@@ -122,7 +122,7 @@ async function seedAtSpecPostSubmit(): Promise<{ dir: string; feature: string }>
         fsync: false,
       },
     );
-    if (!r.ok) throw new Error(`walk ${from}→${to} failed: ${r.code} ${r.message}`);
+    if (!r.ok) throw new Error(`walk ${from}→${to} failed: ${r.code} ${JSON.stringify(r)}`);
   }
   // Run spec submit (SC1) to land spec_version=1; this also exercises the
   // SC1 path under SC2 tests, catching regression.

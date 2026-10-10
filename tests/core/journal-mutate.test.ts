@@ -162,9 +162,8 @@ describe("mutate — transactional journal write (audit r1 Blocker #3)", () => {
     expect(result).toMatchObject({
       ok: false,
       code: "REDUCER_ERROR",
-      message: "kind=event:phase_advanced requires a started session",
       failed_index: 0,
-      detail: { code: "NO_SESSION" },
+      detail: { code: "NO_SESSION", kind: "event:phase_advanced" },
     });
     await expect(fs.readFile(path.join(dir, "journal.jsonl"), "utf8")).rejects.toMatchObject({
       code: "ENOENT",
@@ -1396,9 +1395,9 @@ prose body here
                 depends_on: [],
                 labels: [],
                 execution: {
-                  red: { applicability: "must", status: "pending", },
-                  implement: { applicability: "must", status: "pending", },
-                  refactor: { applicability: "optional", status: "pending", },
+                  red: { applicability: "must", status: "pending" },
+                  implement: { applicability: "must", status: "pending" },
+                  refactor: { applicability: "optional", status: "pending" },
                 },
               },
             ],
@@ -1554,7 +1553,7 @@ prose body here
     );
 
     expect(batch.ok).toBe(true);
-    if (!batch.ok) throw new Error(`expected ok, got ${batch.code}: ${batch.message}`);
+    if (!batch.ok) throw new Error(`expected ok, got ${batch.code}: ${JSON.stringify(batch)}`);
     expect(batch.snapshot.state!.sub_state).toBe(subStateBefore);
     const journalAfter = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
     expect(journalAfter.length).toBeGreaterThan(journalBefore.length);
@@ -1595,7 +1594,7 @@ describe("mutateBatch Pass 1.5 — spec-lock gate wire (Slice 1.B sub-cycle 3c)"
       },
       { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
     );
-    if (!boot.ok) throw new Error(`boot failed: ${boot.message}`);
+    if (!boot.ok) throw new Error(`boot failed: ${JSON.stringify(boot)}`);
     snapshot = boot.snapshot;
     tailSeq++;
     entries = entries.concat(boot.entry);
@@ -1617,7 +1616,7 @@ describe("mutateBatch Pass 1.5 — spec-lock gate wire (Slice 1.B sub-cycle 3c)"
         },
         { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
       );
-      if (!r.ok) throw new Error(`walk failed: ${r.message}`);
+      if (!r.ok) throw new Error(`walk failed: ${JSON.stringify(r)}`);
       snapshot = r.snapshot;
       tailSeq++;
       entries = entries.concat(r.entry);
@@ -2091,7 +2090,7 @@ scenarios: []
       },
       { feature_dir: dir, snapshot, tail_seq: tailSeq, entries, meta, fsync: false },
     );
-    if (!boot.ok) throw new Error(`boot failed: ${boot.message}`);
+    if (!boot.ok) throw new Error(`boot failed: ${JSON.stringify(boot)}`);
     snapshot = boot.snapshot;
     tailSeq++;
     entries = entries.concat(boot.entry);
@@ -2108,7 +2107,8 @@ scenarios: []
         meta,
         fsync: false,
       });
-      if (!r.ok) throw new Error(`seedAtVerifyAccept emit (${entry.kind}) failed: ${r.message}`);
+      if (!r.ok)
+        throw new Error(`seedAtVerifyAccept emit (${entry.kind}) failed: ${JSON.stringify(r)}`);
       snapshot = r.snapshot;
       tailSeq++;
       entries = entries.concat(r.entry);
@@ -2393,7 +2393,7 @@ scenarios: []
     );
 
     expect(result.ok).toBe(true);
-    if (!result.ok) throw new Error(result.message);
+    if (!result.ok) throw new Error(JSON.stringify(result));
     expect(result.snapshot.state?.verify_accepted).toBe(true);
     expect(result.snapshot.findings).toContainEqual(
       expect.objectContaining({ id: "FND-001", action: "backlog", status: "open" }),

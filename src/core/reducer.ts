@@ -9,6 +9,7 @@
 // Remaining kinds — task lifecycle, evidence, findings, pending, settle, etc.
 // — land incrementally in Stages 2-4 alongside their projections.
 
+import type { Diagnostic } from "./error-catalog.js";
 import type { SubState } from "./journal-entry.js";
 import type { AdmittedEntry } from "./admitted-entry.js";
 import { diagnostic } from "./error-catalog.js";
@@ -59,25 +60,19 @@ export function initialSnapshot(): Snapshot {
   };
 }
 
+export type ApplyFailureCode =
+  | PreflightFailureCode
+  | "NO_SESSION"
+  | "ALREADY_STARTED"
+  | "INVALID_PAYLOAD"
+  | "REDUCER_NOT_IMPLEMENTED"
+  | "PENDING_NOT_FOUND"
+  | "FINDING_NOT_FOUND"
+  | "TASK_NOT_FOUND"
+  | "TASK_STEP_NOT_FOUND";
 export type ApplyResult =
   | { ok: true; snapshot: Snapshot }
-  | {
-      ok: false;
-      code:
-        | PreflightFailureCode
-        | "NO_SESSION"
-        | "ALREADY_STARTED"
-        | "INVALID_PAYLOAD"
-        | "REDUCER_NOT_IMPLEMENTED"
-        | "PENDING_NOT_FOUND"
-        | "FINDING_NOT_FOUND"
-        | "TASK_NOT_FOUND"
-        | "TASK_STEP_NOT_FOUND";
-      message: string;
-      detail?: Record<string, unknown>;
-    };
-
-export type ApplyFailureCode = Extract<ApplyResult, { ok: false }>["code"];
+  | ({ ok: false } & Diagnostic<ApplyFailureCode>);
 
 function extractPhase(sub: SubState): SessionState["phase"] {
   const idx = sub.indexOf(".");
@@ -99,7 +94,6 @@ export function applyValidated(prev: Snapshot, entry: AdmittedEntry): ApplyResul
       return {
         ok: false,
         ...diagnostic("ALREADY_STARTED", { kind: entry.kind }),
-        message: "session:started after state already initialized",
       };
     }
     const payload = entry.payload;
@@ -147,8 +141,7 @@ export function applyValidated(prev: Snapshot, entry: AdmittedEntry): ApplyResul
         // Phase 11 Item 3 SC0: every finding back-edge increments
         // iteration by 1 (protocol.md §1 L210-212). A plain forward
         // `advance` carries no `back_edge` and leaves iteration alone.
-        iteration:
-          payload.back_edge !== undefined ? state.iteration + 1 : state.iteration,
+        iteration: payload.back_edge !== undefined ? state.iteration + 1 : state.iteration,
       };
       return { ok: true, snapshot: { ...prev, state: next } };
     }
@@ -221,7 +214,6 @@ export function applyValidated(prev: Snapshot, entry: AdmittedEntry): ApplyResul
           return {
             ok: false,
             code: "DUPLICATE_TASK_ID",
-            message: `tasks_amended add: task ${payload.task.id} is already in the projection`,
             detail: { task_id: payload.task.id },
           };
         }
@@ -254,7 +246,6 @@ export function applyValidated(prev: Snapshot, entry: AdmittedEntry): ApplyResul
         return {
           ok: false,
           code: "TASK_STEP_NOT_FOUND",
-          message: `task_step_started: step ${payload.step} not seeded on task ${payload.task_id}`,
           detail: { task_id: payload.task_id, step: payload.step },
         };
       }
@@ -288,7 +279,6 @@ export function applyValidated(prev: Snapshot, entry: AdmittedEntry): ApplyResul
         return {
           ok: false,
           code: "TASK_STEP_NOT_FOUND",
-          message: `task_step_done: step ${payload.step} not seeded on task ${payload.task_id}`,
           detail: { task_id: payload.task_id, step: payload.step },
         };
       }
@@ -500,7 +490,6 @@ export function applyValidated(prev: Snapshot, entry: AdmittedEntry): ApplyResul
         return {
           ok: false,
           code: "FINDING_NOT_FOUND",
-          message: `finding:closed references unknown finding id=${payload.id}`,
           detail: { id: payload.id, reason: "unknown" },
         };
       }
@@ -509,7 +498,6 @@ export function applyValidated(prev: Snapshot, entry: AdmittedEntry): ApplyResul
         return {
           ok: false,
           code: "FINDING_NOT_FOUND",
-          message: `finding:closed references finding id=${payload.id} that is already closed`,
           detail: { id: payload.id, reason: "already_closed" },
         };
       }
@@ -537,7 +525,6 @@ export function applyValidated(prev: Snapshot, entry: AdmittedEntry): ApplyResul
         return {
           ok: false,
           ...diagnostic("PENDING_NOT_FOUND", { reason: "no pending head" }),
-          message: `pending:resolved with no pending head`,
         };
       }
       const head = prev.pending[headIdx]!;
@@ -547,7 +534,6 @@ export function applyValidated(prev: Snapshot, entry: AdmittedEntry): ApplyResul
           ...diagnostic("PENDING_NOT_FOUND", {
             reason: `id=${payload.id} does not match head id=${head.id} (FIFO violation)`,
           }),
-          message: `pending:resolved id=${payload.id} does not match head id=${head.id} (FIFO violation)`,
         };
       }
       const pending = prev.pending.map((p, i) => (i === headIdx ? { ...p, resolved: true } : p));
@@ -609,7 +595,6 @@ export function applyValidated(prev: Snapshot, entry: AdmittedEntry): ApplyResul
       return {
         ok: false,
         code: "REDUCER_NOT_IMPLEMENTED",
-        message: `reducer.apply has no handler for kind=${_exhaustive}`,
         detail: { kind: _exhaustive },
       };
     }

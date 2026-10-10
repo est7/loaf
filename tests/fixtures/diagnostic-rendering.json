@@ -143,10 +143,10 @@
       "step": "value_step",
       "task_id": "value_task_id"
     },
-    "en_message": "finding action=value_action target validation failed (value_reason): task_id=value_task_id, step=value_step",
-    "zh_message": "finding action=value_action target 校验失败(value_reason):task_id=value_task_id, step=value_step",
-    "en_text": "error: FINDING_TARGET_REQUIRED — finding action=value_action target validation failed (value_reason): task_id=value_task_id, step=value_step\n  fix: fix-impl/fix-test require --target-task + --target-step matching the action's canonical step (fix-impl=implement, fix-test=red); amend-tasks accepts an optional but valid target; amend-spec / defer / backlog must not carry a target\n  see: protocol.md#§4.5\n",
-    "zh_text": "error: FINDING_TARGET_REQUIRED — finding action=value_action target 校验失败(value_reason):task_id=value_task_id, step=value_step\n  fix: fix-impl/fix-test require --target-task + --target-step matching the action's canonical step (fix-impl=implement, fix-test=red); amend-tasks accepts an optional but valid target; amend-spec / defer / backlog must not carry a target\n  see: protocol.md#§4.5\n"
+    "en_message": "finding action=value_action target validation failed (value_reason)",
+    "zh_message": "finding action=value_action target 校验失败(value_reason)",
+    "en_text": "error: FINDING_TARGET_REQUIRED — finding action=value_action target validation failed (value_reason)\n  fix: fix-impl/fix-test require --target-task + --target-step matching the action's canonical step (fix-impl=implement, fix-test=red); amend-tasks accepts an optional but valid target; amend-spec / defer / backlog must not carry a target\n  see: protocol.md#§4.5\n",
+    "zh_text": "error: FINDING_TARGET_REQUIRED — finding action=value_action target 校验失败(value_reason)\n  fix: fix-impl/fix-test require --target-task + --target-step matching the action's canonical step (fix-impl=implement, fix-test=red); amend-tasks accepts an optional but valid target; amend-spec / defer / backlog must not carry a target\n  see: protocol.md#§4.5\n"
   },
   {
     "code": "PRUNE_RESTORE_NOT_FOUND",
@@ -610,10 +610,10 @@
     "detail": {
       "feature_dir": "value_feature_dir"
     },
-    "en_message": "no session at value_feature_dir — run `loaf start <feature>` first",
-    "zh_message": "value_feature_dir 下没有 session — 先跑 `loaf start <feature>`",
-    "en_text": "error: NO_SESSION — no session at value_feature_dir — run `loaf start <feature>` first\n  fix: run `loaf start` before emitting non-bootstrap journal entries\n  see: protocol.md#§10.8\n",
-    "zh_text": "error: NO_SESSION — value_feature_dir 下没有 session — 先跑 `loaf start <feature>`\n  fix: run `loaf start` before emitting non-bootstrap journal entries\n  see: protocol.md#§10.8\n"
+    "en_message": "no started session — run `loaf start` first",
+    "zh_message": "no started session — run `loaf start` first",
+    "en_text": "error: NO_SESSION — no started session — run `loaf start` first\n  fix: run `loaf start` before emitting non-bootstrap journal entries\n  see: protocol.md#§10.8\n",
+    "zh_text": "error: NO_SESSION — no started session — run `loaf start` first\n  fix: run `loaf start` before emitting non-bootstrap journal entries\n  see: protocol.md#§10.8\n"
   },
   {
     "code": "PENDING_NOT_FOUND",

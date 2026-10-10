@@ -56,6 +56,7 @@
 // promotion, and reducer dry-run. Use `mutate()` / `mutateBatch()` for the
 // audit-sanctioned end-to-end path.
 
+import type { Diagnostic } from "./error-catalog.js";
 import path from "node:path";
 import { promises as fsp } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
@@ -154,13 +155,20 @@ export type MutationCommitState = (typeof MUTATION_COMMIT_STATES)[number];
 export const POST_APPEND_COMMIT_FAILURE_CODES = ["PROJECTION_WRITE_FAILED"] as const;
 export type PostAppendCommitFailureCode = (typeof POST_APPEND_COMMIT_FAILURE_CODES)[number];
 
-interface MutationFailureFields {
+interface LegacyMutationFailureFields {
   code: MutateFailureCode;
   message: string;
   /** 0-based index of the entry that failed, when applicable */
   failed_index?: number;
   detail?: Record<string, unknown>;
 }
+
+// Intermediate family migration: unmigrated IO/gate failures still own prose.
+type MutationFailureFields =
+  | LegacyMutationFailureFields
+  | (Diagnostic<PreflightFailureCode | TaskGraphFailureCode | "REDUCER_ERROR"> & {
+      failed_index?: number;
+    });
 
 interface MutationBatchState {
   snapshot: Snapshot;
@@ -178,7 +186,7 @@ export type MutateBatchResult =
       ok: false;
       commit_state: "committed";
       code: PostAppendCommitFailureCode;
-    } & Omit<MutationFailureFields, "code"> &
+    } & Omit<LegacyMutationFailureFields, "code"> &
       MutationBatchState);
 
 export type MutateResult =
@@ -197,7 +205,7 @@ export type MutateResult =
       snapshot: Snapshot;
       entry: JournalEntry;
       meta: SnapshotMeta;
-    } & Omit<MutationFailureFields, "code">);
+    } & Omit<LegacyMutationFailureFields, "code">);
 
 type InternalMutateBatchResult =
   | ({
@@ -209,7 +217,7 @@ type InternalMutateBatchResult =
       ok: false;
       commit_state: "committed";
       code: PostAppendCommitFailureCode;
-    } & Omit<MutationFailureFields, "code"> &
+    } & Omit<LegacyMutationFailureFields, "code"> &
       MutationBatchState);
 
 function classifyCommitState(
@@ -407,22 +415,23 @@ async function mutateBatchUnderLease(
 
     const dryRun = admitEntry(snapshotAcc, candidate, { tail_seq: ctx.tail_seq + i });
     if (!dryRun.ok && dryRun.stage === "admission") {
-      return {
-        ok: false,
-        code: dryRun.code === "NO_SESSION" ? "REDUCER_ERROR" : dryRun.code,
-        message: dryRun.message,
-        failed_index: i,
-        detail: dryRun.code === "NO_SESSION" ? { code: dryRun.code } : dryRun.detail,
-      };
+      if (dryRun.code === "NO_SESSION") {
+        return {
+          ok: false,
+          code: "REDUCER_ERROR",
+          failed_index: i,
+          detail: { code: dryRun.code, ...dryRun.detail },
+        };
+      }
+      const { stage: _stage, ...failure } = dryRun;
+      return { ...failure, failed_index: i };
     }
-
     if (!dryRun.ok) {
       return {
         ok: false,
         code: "REDUCER_ERROR",
-        message: dryRun.message,
         failed_index: i,
-        detail: { code: dryRun.code, ...(dryRun.detail ?? {}) },
+        detail: { code: dryRun.code, ...dryRun.detail },
       };
     }
     snapshotAcc = dryRun.snapshot;
@@ -463,12 +472,7 @@ async function mutateBatchUnderLease(
   if (taskGraphChanged) {
     const graphFailure = checkTaskGraph(snapshotAcc.tasks);
     if (graphFailure !== null) {
-      return {
-        ok: false,
-        code: graphFailure.code,
-        message: graphFailure.message,
-        detail: graphFailure.detail,
-      };
+      return { ok: false, ...graphFailure };
     }
   }
 
@@ -640,21 +644,19 @@ async function mutateBatchUnderLease(
       return {
         ok: false,
         code: "REDUCER_ERROR",
-        message: dryRun.message,
         failed_index: i,
-        detail: { code: dryRun.code },
+        detail: { code: dryRun.code, ...dryRun.detail },
       };
     }
     if (!dryRun.ok) {
       return {
         ok: false,
         code: "REDUCER_ERROR",
-        message: `final dry-run on promoted entries failed at index ${i}: ${dryRun.message}`,
         failed_index: i,
         detail: {
           code: dryRun.code,
           phase: "post-sidecar",
-          ...(dryRun.detail ?? {}),
+          ...dryRun.detail,
         },
       };
     }
@@ -873,16 +875,7 @@ export async function mutate(
         meta: batch.meta,
       };
     }
-    return {
-      ok: false,
-      commit_state: "not-committed",
-      code: batch.code,
-      message: batch.message,
-      ...(batch.failed_index !== undefined && {
-        failed_index: batch.failed_index,
-      }),
-      ...(batch.detail !== undefined && { detail: batch.detail }),
-    };
+    return batch;
   }
   return {
     ok: true,

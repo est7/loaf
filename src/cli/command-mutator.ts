@@ -3,6 +3,7 @@
 // intent-shaped entries; this module owns mutation context, timestamp policy,
 // commit-aware dry-run presentation, and failure routing.
 
+import type { CatalogDiagnostic } from "../core/error-catalog.js";
 import {
   mutate,
   mutateBatch,
@@ -113,8 +114,12 @@ export function createCommandMutator(
 
   const routeMutateFailure = (
     route: FailureRoute,
-    r: { code: string; message: string; detail?: Record<string, unknown> },
+    r: { code: string; message: string; detail?: Record<string, unknown> } | CatalogDiagnostic,
   ): void => {
+    if (!("message" in r)) {
+      ctx.diagnosticFailure(r);
+      return;
+    }
     if (route === "legacy-fail") ctx.fail(r.code, r.message);
     else if (route === "raw-ctx-failure") ctx.failure(r.code, r.message, r.detail);
     else ctx.emitFailure(r.code, r.message, r.detail);

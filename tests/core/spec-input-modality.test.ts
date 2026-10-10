@@ -114,7 +114,7 @@ async function seedAtSpecPostSubmit(): Promise<{ dir: string; feature: string }>
         fsync: false,
       },
     );
-    if (!r.ok) throw new Error(`walk ${from}→${to} failed: ${r.code} ${r.message}`);
+    if (!r.ok) throw new Error(`walk ${from}→${to} failed: ${r.code} ${JSON.stringify(r)}`);
   }
   // Land spec_version=1 via spec submit (file-lane, pre-migration shape).
   const submitInputPath = path.join(dir, "seed-submit.json");

@@ -356,7 +356,9 @@ async function seedRealJournalAtExecuteWork(dir: string): Promise<{
 
   const replay = await replayJournal(journalPath, { collect_entries: true });
   if (!replay.ok) {
-    throw new Error(`seedRealJournalAtExecuteWork replay failed: ${replay.code} ${replay.message}`);
+    throw new Error(
+      `seedRealJournalAtExecuteWork replay failed: ${replay.code} ${JSON.stringify(replay)}`,
+    );
   }
   return {
     snapshot: replay.snapshot,
@@ -856,7 +858,12 @@ describe("replay anchor — Slice B journal-derivability", () => {
       // (journal-bootstrap.ts:153) — the inner FINDING_NOT_FOUND
       // surfaces through message + detail.reason.
       expect(result.code).toBe("REDUCER_REJECTED");
-      expect(result.message).toMatch(/already_closed/);
+      expect(result).toMatchObject({
+        diagnostic: {
+          code: "FINDING_NOT_FOUND",
+          detail: { id: "FND-001", reason: "already_closed" },
+        },
+      });
       expect(result.detail).toBeDefined();
       expect((result.detail as { reason?: string }).reason).toBe("already_closed");
     }

@@ -14,6 +14,7 @@
 // to run from `loaf doctor --check-tail` startup repair. Callers must hold
 // the per-feature lock.
 
+import type { CatalogDiagnostic } from "./error-catalog.js";
 import { promises as fsp } from "node:fs";
 import { z } from "zod";
 
@@ -49,13 +50,23 @@ export interface ReplayResult {
   entries?: JE[];
 }
 
-export interface ReplayError {
+interface LegacyReplayError {
   ok: false;
-  code: "JOURNAL_READ_FAILED" | "INVALID_ENTRY" | "REDUCER_REJECTED";
+  code: "JOURNAL_READ_FAILED" | "INVALID_ENTRY";
   message: string;
   at_seq?: number;
   detail?: Record<string, unknown> & { inner_code?: ApplyFailureCode };
 }
+
+export type ReplayError =
+  | LegacyReplayError
+  | {
+      ok: false;
+      code: "REDUCER_REJECTED";
+      diagnostic: CatalogDiagnostic;
+      at_seq: number;
+      detail: Record<string, unknown> & { inner_code: ApplyFailureCode };
+    };
 
 export interface ReplayOptions {
   /** Opt-in: accumulate the parsed entries of the successful replay prefix
@@ -157,12 +168,13 @@ export async function replayJournal(
 
     const result = admitEntry(snapshot, entry);
     if (!result.ok) {
+      const { ok: _ok, stage: _stage, ...diagnostic } = result;
       return {
         ok: false,
         code: "REDUCER_REJECTED",
-        message: result.message,
+        diagnostic,
         at_seq: entry.seq,
-        detail: { ...(result.detail ?? {}), inner_code: result.code },
+        detail: { ...result.detail, inner_code: result.code },
       };
     }
     snapshot = result.snapshot;
@@ -204,9 +216,7 @@ export interface TailRecoveryResult {
   action: "noop" | "drop_partial_line" | "drop_partial_batch" | "drop_invalid_tail";
 }
 
-export type TailRecoveryUpgradeReason =
-  | "unknown_kind"
-  | "entry_schema_version_too_new";
+export type TailRecoveryUpgradeReason = "unknown_kind" | "entry_schema_version_too_new";
 
 export interface TailRecoveryUpgradeDetail {
   seq: number;

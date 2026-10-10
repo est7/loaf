@@ -200,7 +200,7 @@ async function seedToAmendTasksAtWork(
       },
     );
     if (!seeded.ok) {
-      throw new Error(`historical task-body seed failed: ${seeded.code} ${seeded.message}`);
+      throw new Error(`historical task-body seed failed: ${seeded.code} ${JSON.stringify(seeded)}`);
     }
   }
   await step("gate spec-lock", [
