@@ -2881,11 +2881,6 @@ function applyValidated(prev, entry) {
 			message: "session:started after state already initialized"
 		};
 		const payload = entry.payload;
-		if (!payload.session_id || !payload.feature || !payload.ceremony) return {
-			ok: false,
-			code: "INVALID_PAYLOAD",
-			message: "session:started payload requires session_id, feature, ceremony"
-		};
 		return {
 			ok: true,
 			snapshot: {
@@ -5585,30 +5580,27 @@ const ORDERED_CHECKS = [
 /**
 * Admits one entry and consumes `prev`; projection application can mutate its
 * arrays in place. Clone first when the caller needs the prior snapshot.
-* Mutation validates every kind against the journal tail. Replay preserves
-* historical bootstrap tolerance;
-* envelope validation and sequence continuity remain owned by replayJournal.
+* Every kind passes preflight before projection application. Supply tail_seq
+* when the caller owns the journal tail; replayJournal checks envelope and
+* sequence continuity independently and omits it.
 */
-function admitEntry(prev, entry, mode) {
-	const bootstrap = entry.kind === "session:started";
-	if (!bootstrap && prev.state === null) return {
+function admitEntry(prev, entry, options = {}) {
+	if (!(entry.kind === "session:started") && prev.state === null) return {
 		ok: false,
 		stage: "admission",
 		code: "NO_SESSION",
 		message: `kind=${entry.kind} requires a started session`,
 		detail: {}
 	};
-	if (mode.kind === "mutation" || !bootstrap) {
-		const result = preflight(entry, {
-			snapshot: prev,
-			...mode.kind === "mutation" ? { tail_seq: mode.tail_seq } : {}
-		});
-		if (!result.ok) return {
-			...result,
-			stage: "admission",
-			detail: result.detail ?? {}
-		};
-	}
+	const checked = preflight(entry, {
+		snapshot: prev,
+		...options
+	});
+	if (!checked.ok) return {
+		...checked,
+		stage: "admission",
+		detail: checked.detail ?? {}
+	};
 	const result = applyValidated(prev, entry);
 	if (!result.ok) return {
 		...result,
@@ -5695,7 +5687,7 @@ async function replayJournal(filePath, opts = {}) {
 				prior_seq: lastSeq
 			}
 		};
-		const result = admitEntry(snapshot, entry, { kind: "replay" });
+		const result = admitEntry(snapshot, entry);
 		if (!result.ok) return {
 			ok: false,
 			code: "REDUCER_REJECTED",
@@ -11026,10 +11018,7 @@ async function mutateBatchUnderLease(partials, ctx) {
 			seq,
 			entry_id
 		};
-		const dryRun = admitEntry(snapshotAcc, candidate, {
-			kind: "mutation",
-			tail_seq: ctx.tail_seq + i
-		});
+		const dryRun = admitEntry(snapshotAcc, candidate, { tail_seq: ctx.tail_seq + i });
 		if (!dryRun.ok && dryRun.stage === "admission") return {
 			ok: false,
 			code: dryRun.code === "NO_SESSION" ? "REDUCER_ERROR" : dryRun.code,
@@ -11151,10 +11140,7 @@ async function mutateBatchUnderLease(partials, ctx) {
 	let finalSnapshot = structuredClone(ctx.snapshot);
 	for (let i = 0; i < promoted.length; i++) {
 		const entry = promoted[i];
-		const dryRun = admitEntry(finalSnapshot, entry, {
-			kind: "mutation",
-			tail_seq: ctx.tail_seq + i
-		});
+		const dryRun = admitEntry(finalSnapshot, entry, { tail_seq: ctx.tail_seq + i });
 		if (!dryRun.ok && dryRun.code === "NO_SESSION") return {
 			ok: false,
 			code: "REDUCER_ERROR",

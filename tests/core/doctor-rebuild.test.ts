@@ -235,7 +235,7 @@ async function seedJournal(
       },
     };
     meta = await appendEntry(journalPath, gateEntry, meta, { fsync: false });
-    const gateApplied = admitEntry(snapshot, gateEntry, { kind: "replay" });
+    const gateApplied = admitEntry(snapshot, gateEntry);
     if (!gateApplied.ok) throw new Error(`gate apply failed: ${gateApplied.code}`);
     snapshot = gateApplied.snapshot;
     tail = gateSeq;
@@ -850,7 +850,6 @@ describe("task projection array defaults", () => {
           at: "2026-05-21T10:01:00.000Z",
           entry_schema_version: 1,
         },
-        { kind: "replay" },
       );
       expect(result.ok, JSON.stringify(result)).toBe(true);
       if (result.ok) assertArrays(result.snapshot.tasks);
@@ -879,7 +878,6 @@ describe("task projection array defaults", () => {
           at: "2026-05-21T10:01:00.000Z",
           entry_schema_version: 1,
         },
-        { kind: "replay" },
       );
       expect(result).toMatchObject({
         ok: false,

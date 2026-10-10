@@ -441,3 +441,30 @@ describe("retired snapshot import boundary", () => {
     }
   });
 });
+
+test("replay preflights a truthy malformed session bootstrap before producing a snapshot", async () => {
+  const filePath = await tmpJournal();
+  const original =
+    JSON.stringify({
+      ...startEntry(),
+      payload: {
+        session_id: 42,
+        feature: "auth-refresh",
+        ceremony: STANDARD,
+      },
+    }) + "\n";
+  try {
+    await fs.writeFile(filePath, original);
+    const result = await replayJournal(filePath);
+    expect(result).toMatchObject({
+      ok: false,
+      code: "REDUCER_REJECTED",
+      at_seq: 0,
+      detail: { inner_code: "INVALID_PAYLOAD" },
+    });
+    expect(result).not.toHaveProperty("snapshot");
+    expect(await fs.readFile(filePath, "utf8")).toBe(original);
+  } finally {
+    await fs.rm(path.dirname(filePath), { recursive: true, force: true });
+  }
+});

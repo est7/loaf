@@ -193,7 +193,6 @@ describe("reducer.apply phase_advanced — Slice B spec_locked reset", () => {
         to: "SPEC.spec",
         back_edge: { action: "amend-spec", finding_id: "FND-001" },
       }),
-      { kind: "replay" },
     );
     expect(next.ok).toBe(true);
     if (next.ok) {
@@ -207,7 +206,6 @@ describe("reducer.apply phase_advanced — Slice B spec_locked reset", () => {
     const next = admitEntry(
       snap,
       makeEntry(99, "event:phase_advanced", { from: "SPEC.proposal", to: "SPEC.spec" }),
-      { kind: "replay" },
     );
     expect(next.ok).toBe(true);
     if (next.ok) {
@@ -220,7 +218,6 @@ describe("reducer.apply phase_advanced — Slice B spec_locked reset", () => {
     const next = admitEntry(
       snap,
       makeEntry(99, "event:phase_advanced", { from: "EXECUTE.plan", to: "EXECUTE.work" }),
-      { kind: "replay" },
     );
     expect(next.ok).toBe(true);
     if (next.ok) {
@@ -249,7 +246,6 @@ describe("reducer.apply phase_advanced — Item 3 SC0 iteration bump", () => {
         to: "SPEC.spec",
         back_edge: { action: "amend-spec", finding_id: "FND-001" },
       }),
-      { kind: "replay" },
     );
     expect(next.ok).toBe(true);
     if (next.ok) {
@@ -266,7 +262,6 @@ describe("reducer.apply phase_advanced — Item 3 SC0 iteration bump", () => {
     const next = admitEntry(
       snap,
       makeEntry(99, "event:phase_advanced", { from: "EXECUTE.plan", to: "EXECUTE.work" }),
-      { kind: "replay" },
     );
     expect(next.ok).toBe(true);
     if (next.ok) {
@@ -280,7 +275,6 @@ describe("reducer.apply phase_advanced — Item 3 SC0 iteration bump", () => {
     const next = admitEntry(
       snap,
       makeEntry(99, "event:phase_advanced", { from: "SPEC.proposal", to: "SPEC.spec" }),
-      { kind: "replay" },
     );
     expect(next.ok).toBe(true);
     if (next.ok) {

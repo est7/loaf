@@ -96,6 +96,18 @@ Not owned by this module (stay where they are):
 | D6 | **Migration rehydration stays in replay.** The module stays pure. The mutation-vs-replay snapshot divergence for `migration:snapshot_imported` is recorded (§6), not fixed. |
 | D7 | **Replace, don't layer.** `apply()` and `applyReplayed()` are deleted; tests move to the admission interface. No compatibility forwarders. `tests/core/preflight-precedence.test.ts` keeps testing `ORDERED_CHECKS` directly (internal precedence contract). |
 
+**Packet F1+F4 supersession (2026-10-10):** D1's historical bootstrap replay
+allowance is removed after F2/F3 retire the reconcile edge and snapshot import.
+The current order for both callers is NO_SESSION-first for non-bootstrap
+entries, then preflight every kind (including `session:started`), then reducer
+application. `AdmissionMode` is removed: `admitEntry` accepts an optional
+`{tail_seq?: number}` (default `{}`); mutation supplies the tail and replay
+omits it because `replayJournal` checks continuity independently. The reducer's
+session payload truthiness check is now unreachable after authoritative schema
+validation and is deleted. D5 caller wrappers remain unchanged. The original
+D1 and mode sketch above record the earlier decision, not the current contract.
+F2/F3 also supersede D6 and the historical migration divergence in §6.
+
 ## 4. Reducer-only rule inventory (input to D3)
 
 Located by grepping reducer failure codes against `reducer/preflight*`:

@@ -40,7 +40,6 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
           ceremony: STANDARD_CEREMONY,
         },
       },
-      { kind: "replay" },
     );
 
     expect(result.ok).toBe(true);
@@ -73,7 +72,6 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
             ceremony: STANDARD_CEREMONY,
           },
         },
-        { kind: "replay" },
       ),
     );
 
@@ -89,7 +87,6 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
           kind: "event:phase_advanced",
           payload: { from: "TRIAGE.score", to: "TRIAGE.confirm" },
         },
-        { kind: "replay" },
       ),
     );
 
@@ -114,7 +111,6 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
             ceremony: STANDARD_CEREMONY,
           },
         },
-        { kind: "replay" },
       ),
     );
 
@@ -129,7 +125,6 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
         kind: "event:phase_advanced",
         payload: { from: "TRIAGE.score", to: "DONE.delivered" },
       },
-      { kind: "replay" },
     );
 
     expect(bad.ok).toBe(false);
@@ -154,7 +149,6 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
             ceremony: STANDARD_CEREMONY,
           },
         },
-        { kind: "replay" },
       ),
     );
 
@@ -180,7 +174,6 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
             kind: "event:phase_advanced",
             payload: { from, to },
           },
-          { kind: "replay" },
         ),
       );
       seq++;
@@ -199,7 +192,6 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
           kind: "gate:decided",
           payload: { gate_kind: "spec-lock", decision: "approved", reason: "looks good" },
         },
-        { kind: "replay" },
       ),
     );
 
@@ -223,7 +215,6 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
           kind: "event:phase_advanced",
           payload: { from: "SPEC.design", to: "EXECUTE.plan" },
         },
-        { kind: "replay" },
       ),
     );
     expect(snap.state!.sub_state).toBe("EXECUTE.plan");
@@ -248,7 +239,6 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
             ceremony: STANDARD_CEREMONY,
           },
         },
-        { kind: "replay" },
       ),
     );
     // Walk to SPEC.design where spec-lock is sub_state-legal.
@@ -272,7 +262,6 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
             kind: "event:phase_advanced",
             payload: { from, to },
           },
-          { kind: "replay" },
         ),
       );
       seq++;
@@ -289,7 +278,6 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
           kind: "gate:decided",
           payload: { gate_kind: "spec-lock", decision: "rejected", reason: "needs more detail" },
         },
-        { kind: "replay" },
       ),
     );
     expect(snap.state!.sub_state).toBe("SPEC.design");
@@ -314,7 +302,6 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
             ceremony: STANDARD_CEREMONY,
           },
         },
-        { kind: "replay" },
       ),
     );
     // Verify the new verify_accepted flag exists and starts false.
@@ -352,7 +339,6 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
               kind: "gate:decided",
               payload: { gate_kind: "spec-lock", decision: "approved", reason: "seed" },
             },
-            { kind: "replay" },
           ),
         );
         seq++;
@@ -369,7 +355,6 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
             kind: "event:phase_advanced",
             payload: { from, to },
           },
-          { kind: "replay" },
         ),
       );
       seq++;
@@ -386,7 +371,6 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
           kind: "gate:decided",
           payload: { gate_kind: "verify-accept", decision: "approved", reason: "ship it" },
         },
-        { kind: "replay" },
       ),
     );
     expect(snap.state!.sub_state).toBe("VERIFY.accept");
@@ -414,7 +398,6 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
             ceremony: STANDARD_CEREMONY,
           },
         },
-        { kind: "replay" },
       ),
     );
 
@@ -436,7 +419,6 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
           },
         },
       },
-      { kind: "replay" },
     );
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error("unreachable");
@@ -492,7 +474,7 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
               ceremony: STANDARD_CEREMONY,
             },
           },
-          { kind: "mutation", tail_seq: -1 },
+          { tail_seq: -1 },
         ),
       );
       // Representative authority anchor; task state is a valid unstarted spike.
@@ -523,7 +505,7 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
           at: "2026-05-15T10:00:10.000Z",
           entry_schema_version: 1,
         },
-        mode === "mutation" ? { kind: mode, tail_seq: 0 } : { kind: mode },
+        mode === "mutation" ? { tail_seq: 0 } : {},
       );
       expect(result).toEqual({ ok: true, snapshot: before });
     });
@@ -547,7 +529,6 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
             ceremony: STANDARD_CEREMONY,
           },
         },
-        { kind: "replay" },
       ),
     );
 
@@ -563,7 +544,6 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
           kind: "pending:added",
           payload: { id: "PEND-0001", kind: "ask_user_question", question: "stub" },
         },
-        { kind: "replay" },
       ),
     );
     expect(snap.pending).toHaveLength(1);
@@ -581,7 +561,6 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
           kind: "pending:resolved",
           payload: { id: "PEND-0001" },
         },
-        { kind: "replay" },
       ),
     );
     expect(snap.pending[0]!.resolved).toBe(true);
@@ -601,11 +580,11 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
         ceremony: STANDARD_CEREMONY,
       },
     };
-    const started = admitEntry(initialSnapshot(), startedEntry, { kind: "replay" });
+    const started = admitEntry(initialSnapshot(), startedEntry);
     expect(started.ok).toBe(true);
     if (!started.ok) return;
 
-    const duplicate = admitEntry(started.snapshot, startedEntry, { kind: "replay" });
+    const duplicate = admitEntry(started.snapshot, startedEntry);
     expect(duplicate).toMatchObject({
       ok: false,
       code: "ALREADY_STARTED",
@@ -621,7 +600,6 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
         kind: "pending:resolved",
         payload: { id: "PEND-0404" },
       },
-      { kind: "replay" },
     );
     expect(missing).toMatchObject({
       ok: false,

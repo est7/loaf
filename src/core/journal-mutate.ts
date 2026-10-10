@@ -405,10 +405,7 @@ async function mutateBatchUnderLease(
         } as JournalEntry)
       : ({ ...partial, seq, entry_id } as JournalEntry);
 
-    const dryRun = admitEntry(snapshotAcc, candidate, {
-      kind: "mutation",
-      tail_seq: ctx.tail_seq + i,
-    });
+    const dryRun = admitEntry(snapshotAcc, candidate, { tail_seq: ctx.tail_seq + i });
     if (!dryRun.ok && dryRun.stage === "admission") {
       return {
         ok: false,
@@ -638,10 +635,7 @@ async function mutateBatchUnderLease(
   let finalSnapshot: Snapshot = structuredClone(ctx.snapshot);
   for (let i = 0; i < promoted.length; i++) {
     const entry = promoted[i]!;
-    const dryRun = admitEntry(finalSnapshot, entry, {
-      kind: "mutation",
-      tail_seq: ctx.tail_seq + i,
-    });
+    const dryRun = admitEntry(finalSnapshot, entry, { tail_seq: ctx.tail_seq + i });
     if (!dryRun.ok && dryRun.code === "NO_SESSION") {
       return {
         ok: false,

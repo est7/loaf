@@ -9,7 +9,13 @@
 // Remaining kinds — task lifecycle, evidence, findings, pending, settle, etc.
 // — land incrementally in Stages 2-4 alongside their projections.
 
-import type { Ceremony, GateName, JournalEntry, SubState } from "./journal-entry.js";
+import type {
+  Ceremony,
+  GateName,
+  JournalEntry,
+  SessionStartedPayload,
+  SubState,
+} from "./journal-entry.js";
 import { diagnostic } from "./error-catalog.js";
 import type { PreflightFailureCode } from "./reducer/preflight.js";
 import { extractTaskSlim, shouldPromoteToDone } from "./task-schema.js";
@@ -112,18 +118,7 @@ export function applyValidated(prev: Snapshot, entry: JournalEntry): ApplyResult
         message: "session:started after state already initialized",
       };
     }
-    const payload = entry.payload as {
-      session_id?: string;
-      feature?: string;
-      ceremony?: Ceremony;
-    };
-    if (!payload.session_id || !payload.feature || !payload.ceremony) {
-      return {
-        ok: false,
-        code: "INVALID_PAYLOAD",
-        message: "session:started payload requires session_id, feature, ceremony",
-      };
-    }
+    const payload = entry.payload as SessionStartedPayload;
     return {
       ok: true,
       snapshot: {
@@ -143,7 +138,7 @@ export function applyValidated(prev: Snapshot, entry: JournalEntry): ApplyResult
     };
   }
 
-  // applyValidated is an internal post-validation seam. Bootstrap kinds
+  // applyValidated is an internal post-validation seam. The bootstrap kind
   // returned above; validation-owning callers guarantee initialized state
   // for every remaining kind.
   const state = prev.state!;

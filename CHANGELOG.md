@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Journal replay preflights every entry, including `session:started`, just as
+  mutation does. Invalid bootstrap actors or payloads now fail before reducer
+  application; replay retains `REDUCER_REJECTED` with the preflight `inner_code`.
+
 - Task projections always include `depends_on` and `labels` arrays (previously
   omitted for tasks written without them).
 

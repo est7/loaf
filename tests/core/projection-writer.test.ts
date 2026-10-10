@@ -511,7 +511,7 @@ async function buildFullFeatureJournal(opts: { withPlan: boolean }): Promise<str
       payload: { gate_kind: "spec-lock", decision: "approved", reason: "seed" },
     };
     meta = await appendEntry(journalPath, gateEntry, meta, { fsync: false });
-    const applyResult = admitEntry(snapshot, gateEntry, { kind: "replay" });
+    const applyResult = admitEntry(snapshot, gateEntry);
     if (!applyResult.ok) throw new Error(`gate apply failed: ${applyResult.code}`);
     snapshot = applyResult.snapshot;
     tail = gateSeq;

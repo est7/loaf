@@ -288,7 +288,6 @@ describe("SPEC_LOCKED_NO_DIRECT_EDIT — state.spec_locked === true blocks SPEC 
         entry_schema_version: 1,
         ...entry,
       },
-      { kind: "replay" },
     );
     if (!r.ok) throw new Error(`mustApply: ${r.code} ${r.message}`);
     return r.snapshot;
@@ -356,7 +355,6 @@ describe("SPEC_LOCKED_NO_DIRECT_EDIT — state.spec_locked === true blocks SPEC 
           },
         },
       },
-      { kind: "replay" },
     );
     expect(r.ok).toBe(false);
     if (!r.ok) {
@@ -384,7 +382,6 @@ describe("SPEC_LOCKED_NO_DIRECT_EDIT — state.spec_locked === true blocks SPEC 
           needs_clarification: [],
         },
       },
-      { kind: "replay" },
     );
     expect(r.ok).toBe(false);
     if (!r.ok) {

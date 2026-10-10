@@ -410,7 +410,7 @@ describe("EvidenceFullPayload — strict refines reject invalid bodies", () => {
 describe("reducer evidence:added — projection extracts new fields", () => {
   test("minimal full payload yields slim projection (no check/reason/attachments)", () => {
     const snap = execSnapshot();
-    const result = admitEntry(snap, ev(fullPayload({ id: "EV-000020" })), { kind: "replay" });
+    const result = admitEntry(snap, ev(fullPayload({ id: "EV-000020" })));
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error("unreachable");
     expect(result.snapshot.evidence).toHaveLength(1);
@@ -436,7 +436,6 @@ describe("reducer evidence:added — projection extracts new fields", () => {
           result: "approved",
         }),
       ),
-      { kind: "replay" },
     );
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error("unreachable");
@@ -458,7 +457,6 @@ describe("reducer evidence:added — projection extracts new fields", () => {
         }),
         { actor: "human:tester@example.com" },
       ),
-      { kind: "replay" },
     );
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error("unreachable");
@@ -483,7 +481,6 @@ describe("reducer evidence:added — projection extracts new fields", () => {
         }),
         { actor: "human:reviewer@example.com" },
       ),
-      { kind: "replay" },
     );
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error("unreachable");
@@ -502,7 +499,6 @@ describe("reducer evidence:added — projection extracts new fields", () => {
           result: "passed",
         }),
       ),
-      { kind: "replay" },
     );
     expect(r1.ok).toBe(true);
     if (!r1.ok) throw new Error("unreachable");
@@ -517,7 +513,6 @@ describe("reducer evidence:added — projection extracts new fields", () => {
         }),
         { seq: 1, entry_id: "JE-000002" },
       ),
-      { kind: "replay" },
     );
     expect(r2.ok).toBe(true);
     if (!r2.ok) throw new Error("unreachable");
@@ -532,7 +527,7 @@ describe("reducer evidence:added — projection extracts new fields", () => {
     const snap = execSnapshot();
     const payload = fullPayload({});
     delete payload.id;
-    const result = admitEntry(snap, ev(payload), { kind: "replay" });
+    const result = admitEntry(snap, ev(payload));
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("unreachable");
     expect(result.code).toBe("INVALID_PAYLOAD");

@@ -59,6 +59,8 @@ function entry(bootstrap: boolean, passes: boolean): JournalEntry {
 // Pass 3 non-bootstrap/null/fail: ACTOR_AUTHORITY_VIOLATION -> NO_SESSION.
 // Pass 3 bootstrap/null/fail: OK -> ACTOR_AUTHORITY_VIOLATION.
 // Pass 3 bootstrap/set/fail: ALREADY_STARTED -> ACTOR_AUTHORITY_VIOLATION.
+// Packet F1 supersedes bootstrap replay tolerance: replay and replayJournal
+// reject both failing bootstrap rows with ACTOR_AUTHORITY_VIOLATION.
 const rows = [
   { bootstrap: true, started: false, passes: true, mutation: "OK", final: "OK", replay: "OK" },
   {
@@ -67,7 +69,7 @@ const rows = [
     passes: false,
     mutation: "ACTOR_AUTHORITY_VIOLATION",
     final: "ACTOR_AUTHORITY_VIOLATION",
-    replay: "OK",
+    replay: "ACTOR_AUTHORITY_VIOLATION",
   },
   {
     bootstrap: true,
@@ -83,7 +85,7 @@ const rows = [
     passes: false,
     mutation: "ACTOR_AUTHORITY_VIOLATION",
     final: "ACTOR_AUTHORITY_VIOLATION",
-    replay: "ALREADY_STARTED",
+    replay: "ACTOR_AUTHORITY_VIOLATION",
   },
   {
     bootstrap: false,
@@ -199,7 +201,7 @@ describe("entry admission characterization — real callers", () => {
       const prev = snapshot(row.started);
       const e = entry(row.bootstrap, row.passes);
       expect(preflight(e, { snapshot: prev }).ok).toBe(row.passes);
-      const result = admitEntry(prev, e, { kind: "replay" });
+      const result = admitEntry(prev, e);
       if (row.replay === "OK") {
         expect(result.ok, JSON.stringify(result)).toBe(true);
         if (result.ok) expect(result.snapshot.state?.feature).toBe("admission");

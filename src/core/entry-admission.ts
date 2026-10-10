@@ -2,8 +2,6 @@ import type { JournalEntry } from "./journal-entry.js";
 import { applyValidated, type ApplyFailureCode, type Snapshot } from "./reducer.js";
 import { preflight, type PreflightFailureCode } from "./reducer/preflight.js";
 
-export type AdmissionMode = { kind: "mutation"; tail_seq: number } | { kind: "replay" };
-
 export type AdmissionResult =
   | { ok: true; snapshot: Snapshot }
   | ({
@@ -18,14 +16,14 @@ export type AdmissionResult =
 /**
  * Admits one entry and consumes `prev`; projection application can mutate its
  * arrays in place. Clone first when the caller needs the prior snapshot.
- * Mutation validates every kind against the journal tail. Replay preserves
- * historical bootstrap tolerance;
- * envelope validation and sequence continuity remain owned by replayJournal.
+ * Every kind passes preflight before projection application. Supply tail_seq
+ * when the caller owns the journal tail; replayJournal checks envelope and
+ * sequence continuity independently and omits it.
  */
 export function admitEntry(
   prev: Snapshot,
   entry: JournalEntry,
-  mode: AdmissionMode,
+  options: { tail_seq?: number } = {},
 ): AdmissionResult {
   const bootstrap = entry.kind === "session:started";
   if (!bootstrap && prev.state === null) {
@@ -38,14 +36,9 @@ export function admitEntry(
     };
   }
 
-  if (mode.kind === "mutation" || !bootstrap) {
-    const result = preflight(entry, {
-      snapshot: prev,
-      ...(mode.kind === "mutation" ? { tail_seq: mode.tail_seq } : {}),
-    });
-    if (!result.ok) {
-      return { ...result, stage: "admission", detail: result.detail ?? {} };
-    }
+  const checked = preflight(entry, { snapshot: prev, ...options });
+  if (!checked.ok) {
+    return { ...checked, stage: "admission", detail: checked.detail ?? {} };
   }
 
   const result = applyValidated(prev, entry);

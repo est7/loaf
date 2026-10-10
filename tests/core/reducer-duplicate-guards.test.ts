@@ -353,7 +353,7 @@ test("reducer normalizes default arrays while preserving extra execution keys by
       based_on: { spec: 1 },
       tasks: [{ ...rawTask, execution: { ...rawTask.execution, legacy_extra: step } }],
     }),
-    { kind: "mutation", tail_seq: -1 },
+    { tail_seq: -1 },
   );
   expect(result.ok).toBe(true);
   if (!result.ok) throw new Error(result.message);

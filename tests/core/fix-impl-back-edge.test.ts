@@ -262,7 +262,7 @@ describe("reducer apply — event:task_step_reset", () => {
       tasks: [mkTask()],
       findings: [fixImplFinding()],
     });
-    const r = admitEntry(snap, resetEntry(), { kind: "replay" });
+    const r = admitEntry(snap, resetEntry());
     expect(r.ok).toBe(true);
     if (r.ok) {
       const t = r.snapshot.tasks[0]!;
@@ -288,7 +288,7 @@ describe("reducer apply — event:task_step_reset", () => {
       tasks: [doneTask],
       findings: [fixImplFinding()],
     });
-    const r = admitEntry(snap, resetEntry(), { kind: "replay" });
+    const r = admitEntry(snap, resetEntry());
     expect(r.ok).toBe(true);
     if (r.ok) {
       const t = r.snapshot.tasks[0]!;

@@ -277,7 +277,6 @@ describe("scope:recorded reducer and entry-stream projection", () => {
     const result = admitEntry(
       before,
       { ...scopeEntry(1), batch_id: "550e8400-e29b-41d4-a716-446655440000" },
-      { kind: "replay" },
     );
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error("expected reducer success");

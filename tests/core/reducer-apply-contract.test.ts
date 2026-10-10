@@ -63,13 +63,14 @@ function sessionStartedEntry(actor = "cli:loaf"): JournalEntry {
 }
 
 describe("reducer.apply — consumed snapshot contract", () => {
-  test("session:started bypasses preflight actor authority", () => {
-    const result = admitEntry(initialSnapshot(), sessionStartedEntry("migration:test"), {
-      kind: "replay",
-    });
+  test("session:started obeys preflight actor authority on replay", () => {
+    const result = admitEntry(initialSnapshot(), sessionStartedEntry("migration:test"));
 
-    expect(result.ok).toBe(true);
-    if (result.ok) expect(result.snapshot.state?.feature).toBe("auth-refresh");
+    expect(result).toMatchObject({
+      ok: false,
+      stage: "admission",
+      code: "ACTOR_AUTHORITY_VIOLATION",
+    });
   });
 
   test("NO_SESSION takes priority over preflight failures", () => {
@@ -79,7 +80,7 @@ describe("reducer.apply — consumed snapshot contract", () => {
       actor: "migration:test",
     } as JournalEntry;
 
-    const result = admitEntry(initialSnapshot(), entry, { kind: "replay" });
+    const result = admitEntry(initialSnapshot(), entry);
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -92,7 +93,7 @@ describe("reducer.apply — consumed snapshot contract", () => {
     const before = startedSnapshot();
     const working = structuredClone(before);
 
-    const result = admitEntry(working, pendingAddedEntry(), { kind: "replay" });
+    const result = admitEntry(working, pendingAddedEntry());
 
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error(`${result.code}: ${result.message}`);

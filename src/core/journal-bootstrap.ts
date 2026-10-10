@@ -155,7 +155,7 @@ export async function replayJournal(
       };
     }
 
-    const result = admitEntry(snapshot, entry, { kind: "replay" });
+    const result = admitEntry(snapshot, entry);
     if (!result.ok) {
       return {
         ok: false,

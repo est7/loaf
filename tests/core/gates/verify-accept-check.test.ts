@@ -464,7 +464,6 @@ describe("verifyAcceptCheck — check 3 coverage (canSatisfy)", () => {
           summary: "a lesson is not verification evidence",
         },
       } as JournalEntry,
-      { kind: "replay" },
     );
     expect(applied.ok).toBe(true);
     if (!applied.ok) throw new Error("unreachable");
